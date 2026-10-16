@@ -8,7 +8,14 @@ const EXTENSIONS: [&str; 3] = ["yaml", "yml", "json"];
 fn candidates(dir: &Path, role: Role) -> Vec<PathBuf> {
     EXTENSIONS
         .iter()
-        .map(|ext| dir.join(format!("{}.{ext}", role.as_str())))
+        .map(|ext| {
+            let name = format!("{}.{ext}", role.as_str());
+            if dir == Path::new(".") {
+                PathBuf::from(name)
+            } else {
+                dir.join(name)
+            }
+        })
         .filter(|p| p.is_file())
         .collect()
 }
@@ -31,11 +38,20 @@ pub fn discover(dir: &Path, role: Option<Role>) -> Result<PathBuf, Failure> {
                 None => "server.yaml or client.yaml".into(),
             };
             let init = role.map_or("server", Role::as_str);
-            Err(
-                Failure::usage(format!("no {wanted} in {}", dir.display())).hint(format!(
-                    "pass -c FILE, or create one with: burrow init {init}"
-                )),
-            )
+            let other = role
+                .map(|r| match r {
+                    Role::Server => Role::Client,
+                    Role::Client => Role::Server,
+                })
+                .and_then(|o| candidates(dir, o).first().map(|p| (o, shown(p))));
+            let hint = match other {
+                Some((o, file)) => format!(
+                    "{file} here is a {o} config, run it with: burrow {o}; otherwise pass -c FILE, or create one with: burrow init {init}",
+                    o = o.as_str()
+                ),
+                None => format!("pass -c FILE, or create one with: burrow init {init}"),
+            };
+            Err(Failure::usage(format!("no {wanted} in {}", dir.display())).hint(hint))
         }
         many => Err(Failure::usage(format!(
             "found {} in {}; not sure which one to use",
@@ -71,7 +87,12 @@ mod tests {
             "{}",
             err.message
         );
-        assert!(err.hint.unwrap().contains("burrow init client"));
+        let hint = err.hint.unwrap();
+        assert!(hint.contains("burrow init client"), "{hint}");
+        assert!(
+            hint.contains("server.yaml here is a server config, run it with: burrow server"),
+            "{hint}"
+        );
     }
 
     #[test]
@@ -97,5 +118,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let err = discover(dir.path(), None).unwrap_err();
         assert!(err.message.contains("server.yaml or client.yaml"));
+        let err = discover(dir.path(), Some(Role::Server)).unwrap_err();
+        assert_eq!(
+            err.hint.unwrap(),
+            "pass -c FILE, or create one with: burrow init server"
+        );
     }
 }
