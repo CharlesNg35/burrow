@@ -14,6 +14,8 @@ visitor ──> server:7840 ══ Noise-encrypted TCP or WebSocket ══ clien
 - Every config error reported at once, with `file:line:column`, a caret and a fix
 - Single static binary, about 3 MB; container image about 6 MB
 
+**Contents:** [Quickstart](#quickstart) · [Configuration](#configuration) ([server](#serveryaml), [client](#clientyaml)) · [HTTP(S)-only servers](#servers-reachable-only-through-https) · [Reconnecting](#reconnecting) · [Security](#security-notes) · [Docker](#docker) · [Benchmarks](#benchmarks) · [Development](#development)
+
 ## Quickstart
 
 On the public server:
