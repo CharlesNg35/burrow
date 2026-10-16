@@ -7,7 +7,8 @@ use tokio::net::UdpSocket;
 use tokio::sync::watch;
 use tracing::{debug, info, warn};
 
-use super::{Shared, TakeError, log_status};
+use super::tcp::log_status;
+use super::{Shared, TakeError};
 use crate::config::model::Protocol;
 use crate::config::settings::Service;
 use crate::protocol::{Connect, Status, decode_datagram, encode_datagram};

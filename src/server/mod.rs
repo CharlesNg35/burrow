@@ -1,4 +1,7 @@
+mod control;
+mod listen;
 mod session;
+mod tcp;
 mod udp;
 
 use std::collections::HashMap;
@@ -7,22 +10,16 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
-use tokio::net::{TcpListener, TcpStream, UdpSocket};
+use tokio::net::{TcpListener, UdpSocket};
 use tokio::sync::{Notify, Semaphore, mpsc, watch};
 use tokio::task::JoinHandle;
-use tracing::{debug, error, info, warn};
+use tracing::{error, info, warn};
 
 use crate::config::model::Protocol;
 use crate::config::settings::{ServerSettings, Service};
 use crate::failure::Failure;
-use crate::forward::{ForwardError, server_tcp};
-use crate::handshake::{AcceptError, Accepted, accept};
-use crate::protocol::{
-    ByeReason, Connect, Hello, ServerMsg, ServiceInfo, Status, TOKEN_LEN, VERSION,
-};
-use crate::secret::Secret;
-use crate::transport::Conn;
-use crate::transport::tcp::tune;
+use crate::protocol::{ByeReason, ServerMsg, ServiceInfo};
+use listen::WsListener;
 pub use session::{ClientSession, PoolConfig, TakeError};
 
 const TAKE_TIMEOUT: Duration = Duration::from_secs(10);
@@ -36,6 +33,7 @@ pub struct Shared {
     udp_peers: AtomicUsize,
     drained: Notify,
     rejected: AtomicUsize,
+    handshakes: Arc<Semaphore>,
     shutdown: watch::Receiver<bool>,
 }
 
@@ -137,9 +135,32 @@ struct ServiceTask {
 
 pub struct Server {
     shared: Arc<Shared>,
-    listener: TcpListener,
+    listener: Option<TcpListener>,
+    websocket: Option<WsTask>,
     services: HashMap<String, ServiceTask>,
     shutdown_tx: watch::Sender<bool>,
+}
+
+struct WsTask {
+    listener: Arc<WsListener>,
+    task: JoinHandle<()>,
+}
+
+impl WsTask {
+    fn start(shared: &Arc<Shared>, listener: WsListener) -> WsTask {
+        let listener = Arc::new(listener);
+        let task = tokio::spawn(listen::ws_accept_loop(shared.clone(), listener.clone()));
+        WsTask { listener, task }
+    }
+}
+
+async fn accept_tcp(
+    listener: &Option<TcpListener>,
+) -> std::io::Result<(tokio::net::TcpStream, SocketAddr)> {
+    match listener {
+        Some(l) => l.accept().await,
+        None => std::future::pending().await,
+    }
 }
 
 pub fn bind_error(what: &str, addr: SocketAddr, e: &std::io::Error) -> Failure {
@@ -181,8 +202,17 @@ async fn bind_service(name: &str, svc: &Service) -> Result<Bound, Failure> {
 
 impl Server {
     pub async fn bind(settings: ServerSettings) -> Result<Server, Failure> {
-        let listener = crate::transport::tcp::bind_tcp(settings.listen)
-            .map_err(|e| bind_error("the control port", settings.listen, &e))?;
+        let listener = match settings.listen {
+            Some(addr) => Some(
+                crate::transport::tcp::bind_tcp(addr)
+                    .map_err(|e| bind_error("the control port", addr, &e))?,
+            ),
+            None => None,
+        };
+        let ws_listener = match &settings.websocket {
+            Some(ws) => Some(WsListener::bind(ws)?),
+            None => None,
+        };
         let (shutdown_tx, shutdown) = watch::channel(false);
         let shared = Arc::new(Shared {
             settings: RwLock::new(Arc::new(settings.clone())),
@@ -191,6 +221,7 @@ impl Server {
             udp_peers: AtomicUsize::new(0),
             drained: Notify::new(),
             rejected: AtomicUsize::new(0),
+            handshakes: Arc::new(Semaphore::new(settings.max_handshakes)),
             shutdown,
         });
         let mut services = HashMap::new();
@@ -198,18 +229,24 @@ impl Server {
             let bound = bind_service(name, svc).await?;
             services.insert(name.clone(), spawn_service(&shared, name, svc, bound));
         }
+        let websocket = ws_listener.map(|l| WsTask::start(&shared, l));
         Ok(Server {
             shared,
             listener,
+            websocket,
             services,
             shutdown_tx,
         })
     }
 
-    pub fn local_addr(&self) -> SocketAddr {
-        self.listener
-            .local_addr()
-            .expect("bound listener has an address")
+    pub fn local_addr(&self) -> Option<SocketAddr> {
+        self.listener.as_ref().and_then(|l| l.local_addr().ok())
+    }
+
+    pub fn websocket_addr(&self) -> Option<SocketAddr> {
+        self.websocket
+            .as_ref()
+            .and_then(|w| w.listener.listener.local_addr().ok())
     }
 
     pub fn service_addr(&self, name: &str) -> Option<SocketAddr> {
@@ -229,25 +266,30 @@ impl Server {
         if s.insecure_plaintext {
             warn!("insecure_plaintext is enabled: forwarded TCP data is NOT encrypted");
         }
-        info!("listening for clients on {}", self.local_addr());
+        if let Some(addr) = self.local_addr() {
+            info!("listening for clients on {addr}");
+        }
+        if let Some(ws) = &self.websocket {
+            info!(
+                "listening for WebSocket clients on {}",
+                ws.listener.url_hint()
+            );
+        }
         for (name, t) in &self.services {
             log_service(name, &t.service, t.addr);
         }
-        let permits = Arc::new(Semaphore::new(s.max_handshakes));
         let mut tick = tokio::time::interval(Duration::from_secs(60));
         tick.tick().await;
         loop {
             tokio::select! {
-                r = self.listener.accept() => match r {
+                r = accept_tcp(&self.listener) => match r {
                     Ok((stream, peer)) => {
-                        let Ok(permit) = permits.clone().try_acquire_owned() else {
-                            self.shared.rejected.fetch_add(1, Ordering::Relaxed);
-                            debug!(%peer, "too many unauthenticated connections, dropping");
+                        let Some(permit) = listen::try_permit(&self.shared, peer) else {
                             continue;
                         };
                         let shared = self.shared.clone();
                         tokio::spawn(async move {
-                            handle_connection(shared, stream, peer, permit).await;
+                            listen::handle_tcp(shared, stream, peer, permit).await;
                         });
                     }
                     Err(e) => {
@@ -271,6 +313,9 @@ impl Server {
     async fn shutdown(mut self) {
         info!("shutting down");
         let _ = self.shutdown_tx.send(true);
+        if let Some(ws) = self.websocket.take() {
+            ws.task.abort();
+        }
         for (_, t) in self.services.drain() {
             t.task.abort();
         }
@@ -311,14 +356,37 @@ impl Server {
     async fn apply(&mut self, next: ServerSettings) {
         let current = self.shared.settings();
         if next.listen != current.listen {
+            let show =
+                |a: Option<SocketAddr>| a.map_or_else(|| "off".to_string(), |a| a.to_string());
             warn!(
                 "changing \"listen\" from {} to {} needs a restart; keeping {}",
-                current.listen, next.listen, current.listen
+                show(current.listen),
+                show(next.listen),
+                show(current.listen)
             );
         }
         let mut next = next;
         next.listen = current.listen;
         *self.shared.settings.write().expect("settings lock") = Arc::new(next.clone());
+
+        if next.websocket != current.websocket {
+            if let Some(old) = self.websocket.take() {
+                old.task.abort();
+                let _ = old.task.await;
+            }
+            if let Some(ws) = &next.websocket {
+                match bind_ws_with_retry(ws).await {
+                    Ok(l) => {
+                        let t = WsTask::start(&self.shared, l);
+                        info!("websocket listener now on {}", t.listener.url_hint());
+                        self.websocket = Some(t);
+                    }
+                    Err(f) => error!("{}", f.message),
+                }
+            } else {
+                info!("websocket listener stopped");
+            }
+        }
 
         let removed: Vec<String> = self
             .services
@@ -400,6 +468,20 @@ impl Server {
     }
 }
 
+async fn bind_ws_with_retry(
+    ws: &crate::config::settings::WebSocketSettings,
+) -> Result<WsListener, Failure> {
+    let mut last = None;
+    for _ in 0..20 {
+        match WsListener::bind(ws) {
+            Ok(l) => return Ok(l),
+            Err(f) => last = Some(f),
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    Err(last.expect("at least one attempt"))
+}
+
 async fn bind_with_retry(name: &str, svc: &Service) -> Result<Bound, Failure> {
     let mut last = None;
     for _ in 0..20 {
@@ -429,7 +511,7 @@ fn spawn_service(shared: &Arc<Shared>, name: &str, svc: &Service, bound: Bound) 
     let (addr, task) = match bound {
         Bound::Tcp(l) => (
             l.local_addr().ok(),
-            tokio::spawn(tcp_service(shared, name_owned, l, rx)),
+            tokio::spawn(tcp::tcp_service(shared, name_owned, l, rx)),
         ),
         Bound::Udp(sock) => (
             sock.local_addr().ok(),
@@ -442,310 +524,4 @@ fn spawn_service(shared: &Arc<Shared>, name: &str, svc: &Service, bound: Bound) 
         task,
         addr,
     }
-}
-
-async fn tcp_service(
-    shared: Arc<Shared>,
-    name: String,
-    listener: TcpListener,
-    config: watch::Receiver<Service>,
-) {
-    let count = Arc::new(AtomicUsize::new(0));
-    loop {
-        let (visitor, peer) = match listener.accept().await {
-            Ok(v) => v,
-            Err(e) => {
-                warn!("service \"{name}\": accept failed: {e}");
-                tokio::time::sleep(Duration::from_millis(100)).await;
-                continue;
-            }
-        };
-        let svc = config.borrow().clone();
-        let shared = shared.clone();
-        let name = name.clone();
-        let count = count.clone();
-        tokio::spawn(async move {
-            visit(shared, name, svc, visitor, peer, count).await;
-        });
-    }
-}
-
-struct CountGuard(Arc<AtomicUsize>);
-
-impl Drop for CountGuard {
-    fn drop(&mut self) {
-        self.0.fetch_sub(1, Ordering::AcqRel);
-    }
-}
-
-async fn visit(
-    shared: Arc<Shared>,
-    name: String,
-    svc: Service,
-    visitor: TcpStream,
-    peer: SocketAddr,
-    count: Arc<AtomicUsize>,
-) {
-    let settings = shared.settings();
-    let n = count.fetch_add(1, Ordering::AcqRel);
-    let _guard = CountGuard(count);
-    if svc.max_connections.is_some_and(|m| n >= m) {
-        shared.rejected.fetch_add(1, Ordering::Relaxed);
-        debug!(%peer, "service \"{name}\" is at its connection limit");
-        return;
-    }
-    let Some(session) = shared.session(&svc.client) else {
-        debug!(%peer, "service \"{name}\": client \"{}\" is not connected, dropping visitor", svc.client);
-        return;
-    };
-    let client_limit = settings
-        .clients
-        .get(&svc.client)
-        .and_then(|c| c.max_connections)
-        .unwrap_or(settings.max_connections_per_client);
-    if session.active.load(Ordering::Relaxed) >= client_limit {
-        shared.rejected.fetch_add(1, Ordering::Relaxed);
-        debug!(%peer, "client \"{}\" is at its connection limit", svc.client);
-        return;
-    }
-    let _active = session.connection_guard();
-    let _tracked = shared.track();
-    tune(&visitor, &settings.tcp);
-    let ch = match tokio::time::timeout(TAKE_TIMEOUT, session.take()).await {
-        Ok(Ok(ch)) => ch,
-        Ok(Err(TakeError::TooManyPending)) => {
-            shared.rejected.fetch_add(1, Ordering::Relaxed);
-            warn!(
-                "service \"{name}\": too many visitors waiting for client \"{}\", dropping one",
-                svc.client
-            );
-            return;
-        }
-        Ok(Err(TakeError::Closed)) => {
-            debug!(%peer, "service \"{name}\": session closed while waiting for a data channel");
-            return;
-        }
-        Err(_) => {
-            warn!(
-                "service \"{name}\": client \"{}\" did not open a data channel within {}s",
-                svc.client,
-                TAKE_TIMEOUT.as_secs()
-            );
-            return;
-        }
-    };
-    let connect = Connect {
-        protocol: Protocol::Tcp,
-        service: name.clone(),
-        target: svc.target.clone(),
-    };
-    match server_tcp(ch, visitor, &connect, settings.insecure_plaintext).await {
-        Ok(()) => debug!(%peer, "service \"{name}\": connection closed"),
-        Err(ForwardError::Status(st)) => log_status(&name, &svc, st),
-        Err(ForwardError::Protocol) => warn!("service \"{name}\": client sent an invalid reply"),
-        Err(ForwardError::Io(e)) => debug!(%peer, "service \"{name}\": connection ended: {e}"),
-    }
-}
-
-pub fn log_status(name: &str, svc: &Service, st: Status) {
-    let client = &svc.client;
-    let target = &svc.target;
-    match st {
-        Status::Denied => warn!(
-            "service \"{name}\": client \"{client}\" refused {target} because it is not in its allow list (add it to \"allow\" in the client config)"
-        ),
-        Status::Unreachable => warn!(
-            "service \"{name}\": client \"{client}\" could not connect to {target} (is it running and reachable from the client?)"
-        ),
-        Status::Unresolved => {
-            warn!("service \"{name}\": client \"{client}\" could not resolve {target}")
-        }
-        Status::Invalid => {
-            warn!("service \"{name}\": client \"{client}\" rejected the target {target} as invalid")
-        }
-        Status::Ok => {}
-    }
-}
-
-fn secrets_for(shared: &Shared, name: &str) -> Vec<Secret> {
-    shared
-        .settings()
-        .clients
-        .get(name)
-        .map(|c| c.secrets.clone())
-        .unwrap_or_default()
-}
-
-async fn handle_connection(
-    shared: Arc<Shared>,
-    stream: TcpStream,
-    peer: SocketAddr,
-    permit: tokio::sync::OwnedSemaphorePermit,
-) {
-    let settings = shared.settings();
-    tune(&stream, &settings.tcp);
-    let result = tokio::time::timeout(
-        settings.handshake_timeout,
-        accept(Conn::from(stream), |n| secrets_for(&shared, n)),
-    )
-    .await;
-    drop(permit);
-    let acc = match result {
-        Ok(Ok(a)) => a,
-        Ok(Err(AcceptError::Rejected)) => {
-            shared.rejected.fetch_add(1, Ordering::Relaxed);
-            debug!(%peer, "handshake rejected (wrong secret or unknown client name)");
-            return;
-        }
-        Ok(Err(e)) => {
-            shared.rejected.fetch_add(1, Ordering::Relaxed);
-            debug!(%peer, "handshake failed: {e:?}");
-            return;
-        }
-        Err(_) => {
-            shared.rejected.fetch_add(1, Ordering::Relaxed);
-            debug!(%peer, "handshake timed out");
-            return;
-        }
-    };
-    match acc.hello {
-        Hello::Control { version } if version == VERSION => {
-            control_session(shared, acc, peer).await
-        }
-        Hello::Data { version, token } if version == VERSION => {
-            if acc.preamble.plaintext != settings.insecure_plaintext {
-                return;
-            }
-            match shared.session(&acc.preamble.name) {
-                Some(s) if s.token == token => s.offer(acc.channel),
-                _ => debug!(%peer, "data channel for an unknown session, closing"),
-            }
-        }
-        _ => debug!(%peer, "unsupported protocol version"),
-    }
-}
-
-async fn control_session(shared: Arc<Shared>, acc: Accepted, peer: SocketAddr) {
-    let Accepted {
-        preamble, channel, ..
-    } = acc;
-    let name = preamble.name.clone();
-    let settings = shared.settings();
-    let (stream, mut writer, mut reader) = (channel.stream, channel.writer, channel.reader);
-    let (mut rd, mut wr) = stream.into_split();
-
-    if preamble.plaintext != settings.insecure_plaintext {
-        warn!(
-            "client \"{name}\" from {peer} has insecure_plaintext {} but the server has it {}; disconnecting",
-            on_off(preamble.plaintext),
-            on_off(settings.insecure_plaintext)
-        );
-        let _ = writer
-            .send(
-                &mut wr,
-                &ServerMsg::Bye {
-                    reason: ByeReason::PlaintextMismatch,
-                }
-                .encode(),
-            )
-            .await;
-        return;
-    }
-
-    let mut token = [0u8; TOKEN_LEN];
-    getrandom::fill(&mut token).expect("operating system random source is available");
-    let (tx, mut rx) = mpsc::channel::<ServerMsg>(256);
-    let session = Arc::new(ClientSession::new(
-        name.clone(),
-        token,
-        tx,
-        &Shared::pool_config(&settings),
-    ));
-    let old = shared
-        .sessions
-        .lock()
-        .expect("sessions lock")
-        .insert(name.clone(), session.clone());
-    if let Some(old) = old {
-        warn!("client \"{name}\" connected again from {peer}; closing its previous connection");
-        let _ = old.control.try_send(ServerMsg::Bye {
-            reason: ByeReason::Replaced,
-        });
-        old.close();
-    }
-    info!("client \"{name}\" connected from {peer}");
-
-    let interval = settings.heartbeat_interval;
-    let welcome = ServerMsg::Welcome {
-        token,
-        heartbeat_secs: interval.as_secs().clamp(1, u16::MAX as u64) as u16,
-    };
-    let services = ServerMsg::Services(Shared::services_for(&settings, &name));
-    let mut stop = shared.shutdown.clone();
-    let writer_session = session.clone();
-    let writer_task = tokio::spawn(async move {
-        if writer.send(&mut wr, &welcome.encode()).await.is_err()
-            || writer.send(&mut wr, &services.encode()).await.is_err()
-        {
-            return;
-        }
-        writer_session.start();
-        let mut ping = tokio::time::interval(interval);
-        let mut tick = tokio::time::interval(TICK);
-        loop {
-            let msg = tokio::select! {
-                m = rx.recv() => match m {
-                    Some(m) => m,
-                    None => return,
-                },
-                _ = ping.tick() => ServerMsg::Ping,
-                _ = tick.tick() => {
-                    writer_session.tick();
-                    continue;
-                }
-            };
-            let bye = matches!(msg, ServerMsg::Bye { .. });
-            if writer.send(&mut wr, &msg.encode()).await.is_err() || bye {
-                return;
-            }
-        }
-    });
-
-    let timeout = interval * 3;
-    let reason = loop {
-        tokio::select! {
-            r = tokio::time::timeout(timeout, reader.recv(&mut rd)) => match r {
-                Ok(Ok(Some(_))) => continue,
-                Ok(Ok(None)) => break "disconnected".to_string(),
-                Ok(Err(e)) => break format!("connection error: {e}"),
-                Err(_) => break format!("no heartbeat for {}s", timeout.as_secs()),
-            },
-            _ = stop.changed() => break "server shutting down".to_string(),
-        }
-    };
-    let current = {
-        let mut sessions = shared.sessions.lock().expect("sessions lock");
-        let current = sessions
-            .get(&name)
-            .is_some_and(|s| Arc::ptr_eq(s, &session));
-        if current {
-            sessions.remove(&name);
-        }
-        current
-    };
-    session.close();
-    if current {
-        info!("client \"{name}\" disconnected ({reason})");
-    }
-    let abort = writer_task.abort_handle();
-    if tokio::time::timeout(Duration::from_secs(1), writer_task)
-        .await
-        .is_err()
-    {
-        abort.abort();
-    }
-}
-
-fn on_off(b: bool) -> &'static str {
-    if b { "on" } else { "off" }
 }

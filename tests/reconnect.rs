@@ -43,6 +43,9 @@ async fn client_follows_the_server_to_a_new_address() {
     });
     let mut c = client_settings(old.addr, secret);
     c.server = "tunnel.example.test:2333".into();
+    c.endpoint = burrow::transport::endpoint::Endpoint::Tcp {
+        host_port: c.server.clone(),
+    };
     let client = Client::new(c).with_resolver(dns.clone());
     let mut cli = start_client_with(client).await;
     wait_state(&mut cli.state, State::Connected).await;
@@ -59,7 +62,7 @@ async fn client_follows_the_server_to_a_new_address() {
     tokio::time::sleep(Duration::from_millis(500)).await;
 
     let mut moved = settings.clone();
-    moved.listen = "127.0.0.2:0".parse().unwrap();
+    moved.listen = Some("127.0.0.2:0".parse().unwrap());
     for svc in moved.services.values_mut() {
         svc.bind = "127.0.0.2:0".parse().unwrap();
     }

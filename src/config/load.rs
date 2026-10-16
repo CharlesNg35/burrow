@@ -92,7 +92,11 @@ pub fn load_file(
 ) -> Result<Outcome, LoadError> {
     let format = Format::from_path(path).ok_or(LoadError::UnknownExtension)?;
     let src = std::fs::read_to_string(path).map_err(LoadError::Read)?;
-    let mut outcome = load_str(&path.display().to_string(), &src, format, role, env);
+    let base = path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    let mut outcome = load_str_in(base, &path.display().to_string(), &src, format, role, env);
     if let Some(w) = permission_warning(path) {
         outcome.report.push(w);
         outcome.report.sort();
@@ -130,7 +134,7 @@ pub fn detect_role(root: &Node) -> Option<Role> {
         .filter(|e| {
             matches!(
                 e.key.as_str(),
-                "listen" | "clients" | "services" | "limits" | "pool" | "heartbeat"
+                "listen" | "websocket" | "clients" | "services" | "limits" | "pool" | "heartbeat"
             )
         })
         .count();
@@ -203,6 +207,17 @@ fn hide_secret_lines(report: &mut Report) {
 }
 
 pub fn load_str(
+    name: &str,
+    src: &str,
+    format: Format,
+    role: Option<Role>,
+    env: &dyn EnvSource,
+) -> Outcome {
+    load_str_in(Path::new("."), name, src, format, role, env)
+}
+
+pub fn load_str_in(
+    base_dir: &Path,
     name: &str,
     src: &str,
     format: Format,
@@ -300,7 +315,7 @@ pub fn load_str(
         match role {
             Role::Server => match serde_json::from_value::<ServerConfig>(json) {
                 Ok(cfg) => {
-                    if let Some(s) = check_server(&cfg, &spans, &mut sem) {
+                    if let Some(s) = check_server(&cfg, &spans, base_dir, &mut sem) {
                         loaded = Some(Loaded::Server(Box::new(s), Box::new(cfg)));
                     }
                 }
@@ -308,7 +323,7 @@ pub fn load_str(
             },
             Role::Client => match serde_json::from_value::<ClientConfig>(json) {
                 Ok(cfg) => {
-                    if let Some(s) = check_client(&cfg, &spans, &mut sem) {
+                    if let Some(s) = check_client(&cfg, &spans, base_dir, &mut sem) {
                         loaded = Some(Loaded::Client(Box::new(s), Box::new(cfg)));
                     }
                 }
@@ -351,7 +366,7 @@ fn fill_root_placeholders(node: &mut Node, role: Role) {
         return;
     };
     let placeholders: Vec<(&str, String)> = match role {
-        Role::Server => vec![("listen", "127.0.0.254:1".into())],
+        Role::Server => vec![],
         Role::Client => vec![
             ("server", "placeholder.invalid:1".into()),
             ("name", "placeholder".into()),

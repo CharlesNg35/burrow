@@ -7,8 +7,14 @@ use serde::{Deserialize, Serialize};
 #[serde(deny_unknown_fields)]
 #[schemars(title = "burrow server config")]
 pub struct ServerConfig {
-    #[schemars(description = "Control address clients connect to, for example 0.0.0.0:2333")]
-    pub listen: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(description = "TCP address clients connect to, for example 0.0.0.0:2333")]
+    pub listen: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        description = "Accept clients over WebSocket, for servers reachable only through HTTP(S)"
+    )]
+    pub websocket: Option<WebSocketConfig>,
     #[serde(default)]
     #[schemars(description = "Clients allowed to connect, keyed by client name")]
     pub clients: BTreeMap<String, ClientEntry>,
@@ -28,6 +34,36 @@ pub struct ServerConfig {
     pub tcp: TcpOptions,
     #[serde(default, skip_serializing_if = "is_default")]
     pub udp: UdpOptions,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct WebSocketConfig {
+    #[schemars(
+        description = "Address to accept WebSocket connections on, for example 127.0.0.1:8080 behind a proxy"
+    )]
+    pub listen: String,
+    #[serde(default = "default_ws_path")]
+    #[schemars(description = "URL path clients connect to")]
+    pub path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        description = "Serve wss:// directly with these PEM files instead of behind a TLS proxy"
+    )]
+    pub tls: Option<TlsFiles>,
+}
+
+pub fn default_ws_path() -> String {
+    "/burrow".into()
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct TlsFiles {
+    #[schemars(description = "Certificate chain PEM file, relative to the config file")]
+    pub cert: String,
+    #[schemars(description = "Private key PEM file, relative to the config file")]
+    pub key: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -189,7 +225,9 @@ impl Default for UdpOptions {
 #[serde(deny_unknown_fields)]
 #[schemars(title = "burrow client config")]
 pub struct ClientConfig {
-    #[schemars(description = "Server control address, host:port")]
+    #[schemars(
+        description = "Server address: host:port for TCP, or ws://host/path or wss://host/path"
+    )]
     pub server: String,
     #[schemars(description = "This client's name, as defined in the server config")]
     pub name: String,
@@ -205,6 +243,16 @@ pub struct ClientConfig {
     pub allow_all: bool,
     #[serde(default, skip_serializing_if = "is_false")]
     pub insecure_plaintext: bool,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    #[schemars(
+        description = "Extra HTTP headers for the WebSocket upgrade, for example an access token for a proxy"
+    )]
+    pub headers: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        description = "Extra CA certificate PEM file to trust for wss://, relative to the config file"
+    )]
+    pub ca: Option<String>,
     #[serde(default, skip_serializing_if = "is_default")]
     pub cipher: Cipher,
     #[serde(default, skip_serializing_if = "Option::is_none")]

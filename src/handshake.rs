@@ -38,6 +38,7 @@ pub async fn initiate(
     let mut first = preamble.encode();
     first.extend_from_slice(&msg1);
     stream.write_all(&first).await?;
+    stream.flush().await?;
     let mut msg2 = [0u8; MSG2_LEN];
     match stream.read_exact(&mut msg2).await {
         Ok(_) => {}
@@ -108,6 +109,7 @@ where
     drop(candidates);
     let (session, msg2) = responder.reply().map_err(|_| AcceptError::Rejected)?;
     stream.write_all(&msg2).await?;
+    stream.flush().await?;
     let (sealer, opener) = session.split();
     let mut reader = RecordReader::new(opener);
     let hello = read_small(&mut stream, &mut reader).await?;

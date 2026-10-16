@@ -1,15 +1,20 @@
 use std::collections::{BTreeMap, HashMap};
 use std::net::{IpAddr, SocketAddr};
+use std::path::Path;
 use std::time::Duration;
 
-use super::model::{Bind, ClientConfig, Protocol, ServerConfig, TcpOptions};
-use super::settings::{ClientAuth, ClientSettings, ServerSettings, Service, SocketTuning};
+use super::model::{Bind, ClientConfig, Protocol, ServerConfig, TcpOptions, WebSocketConfig};
+use super::settings::{
+    ClientAuth, ClientSettings, ServerSettings, Service, SocketTuning, TlsMaterial,
+    WebSocketSettings,
+};
 use super::tree::{Node, Span, Value};
 use crate::allowlist::{AllowList, Rule};
 use crate::diagnostics::Diagnostic;
 use crate::proxy::ProxyConfig;
 use crate::secret::{Secret, SecretError};
 use crate::suggest::{closest, quoted_list};
+use crate::transport::endpoint::Endpoint;
 
 pub const MAX_SECRETS_PER_CLIENT: usize = 4;
 pub const MAX_NAME_LEN: usize = 64;
@@ -213,25 +218,39 @@ fn parse_bind(bind: &Bind) -> Result<SocketAddr, String> {
 pub fn check_server(
     cfg: &ServerConfig,
     spans: &Spans,
+    base_dir: &Path,
     out: &mut Vec<Diagnostic>,
 ) -> Option<ServerSettings> {
     let errors_before = out.iter().filter(|d| d.is_error()).count();
 
-    let listen = match cfg.listen.parse::<SocketAddr>() {
-        Ok(a) if a.port() != 0 => Some(a),
-        _ => {
-            out.push(
-                Diagnostic::error(
-                    "invalid-address",
-                    format!("invalid listen address \"{}\"", cfg.listen),
-                )
-                .at(spans.value(&["listen"]))
-                .label("expected ip:port")
-                .help("use an IP and port, for example 0.0.0.0:2333 or [::]:2333"),
-            );
-            None
-        }
+    let listen = match &cfg.listen {
+        None => None,
+        Some(text) => match text.parse::<SocketAddr>() {
+            Ok(a) if a.port() != 0 => Some(a),
+            _ => {
+                out.push(
+                    Diagnostic::error(
+                        "invalid-address",
+                        format!("invalid listen address \"{text}\""),
+                    )
+                    .at(spans.value(&["listen"]))
+                    .label("expected ip:port")
+                    .help("use an IP and port, for example 0.0.0.0:2333 or [::]:2333"),
+                );
+                None
+            }
+        },
     };
+    if cfg.listen.is_none() && cfg.websocket.is_none() {
+        out.push(
+            Diagnostic::error("no-listener", "the server needs \"listen\" (TCP), \"websocket\", or both")
+                .help("add \"listen: 0.0.0.0:2333\" for TCP clients, or a websocket section for clients behind HTTP-only networks (see README)"),
+        );
+    }
+    let websocket = cfg
+        .websocket
+        .as_ref()
+        .and_then(|ws| check_websocket(ws, listen, spans, base_dir, out));
 
     if cfg.clients.is_empty() {
         out.push(
@@ -369,6 +388,20 @@ pub fn check_server(
                     .help("pick a different port for one of the services"),
                 );
             }
+            if let Some(ws) = &websocket
+                && svc.protocol == Protocol::Tcp
+                && binds_conflict(ws.listen, bind)
+            {
+                out.push(
+                    Diagnostic::error(
+                        "bind-is-control-port",
+                        format!("service \"{name}\" binds {bind}, which is the websocket listener"),
+                    )
+                    .at(spans.value(&path("bind")))
+                    .label("same as \"websocket.listen\"")
+                    .help(format!("pick a port other than {}", ws.listen.port())),
+                );
+            }
             if let Some(listen) = listen
                 && svc.protocol == Protocol::Tcp
                 && binds_conflict(listen, bind)
@@ -439,7 +472,8 @@ pub fn check_server(
         return None;
     }
     Some(ServerSettings {
-        listen: listen?,
+        listen,
+        websocket,
         clients,
         services,
         insecure_plaintext: cfg.insecure_plaintext,
@@ -463,6 +497,143 @@ fn insecure_warning(spans: &Spans) -> Diagnostic {
     .at(spans.value(&["insecure_plaintext"]))
     .label("traffic can be read and modified on the network")
     .help("remove this line unless the network between client and server is trusted")
+}
+
+fn check_websocket(
+    ws: &WebSocketConfig,
+    listen: Option<SocketAddr>,
+    spans: &Spans,
+    base_dir: &Path,
+    out: &mut Vec<Diagnostic>,
+) -> Option<WebSocketSettings> {
+    let errors_before = out.iter().filter(|d| d.is_error()).count();
+    let addr = match ws.listen.parse::<SocketAddr>() {
+        Ok(a) if a.port() != 0 => Some(a),
+        _ => {
+            out.push(
+                Diagnostic::error(
+                    "invalid-address",
+                    format!("invalid websocket listen address \"{}\"", ws.listen),
+                )
+                .at(spans.value(&["websocket", "listen"]))
+                .label("expected ip:port")
+                .help("use an IP and port, for example 127.0.0.1:8080 behind a proxy"),
+            );
+            None
+        }
+    };
+    if let (Some(a), Some(l)) = (addr, listen)
+        && binds_conflict(a, l)
+    {
+        out.push(
+            Diagnostic::error(
+                "duplicate-bind",
+                format!("websocket.listen {a} is the same address as listen"),
+            )
+            .at(spans.value(&["websocket", "listen"]))
+            .label("already used by \"listen\"")
+            .help("use a different port for the websocket listener"),
+        );
+    }
+    if !ws.path.starts_with('/') || ws.path.contains(['?', '#', ' ']) {
+        out.push(
+            Diagnostic::error(
+                "invalid-path",
+                format!("invalid websocket path \"{}\"", ws.path),
+            )
+            .at(spans.value(&["websocket", "path"]))
+            .label("expected a path like /burrow")
+            .help("start the path with \"/\" and leave out spaces, \"?\" and \"#\""),
+        );
+    }
+    let tls = ws.tls.as_ref().and_then(|t| {
+        let read = |file: &str, field: &'static str, out: &mut Vec<Diagnostic>| {
+            let path = base_dir.join(file);
+            match std::fs::read(&path) {
+                Ok(bytes) => Some((path, bytes)),
+                Err(e) => {
+                    out.push(
+                        Diagnostic::error("tls-file", format!("cannot read websocket.tls.{field} \"{}\": {}", path.display(), crate::failure::io_reason(&e)))
+                            .at(spans.value(&["websocket", "tls", field]))
+                            .label("file not readable")
+                            .help("paths are relative to the config file; check the path and its permissions"),
+                    );
+                    None
+                }
+            }
+        };
+        let cert = read(&t.cert, "cert", out);
+        let key = read(&t.key, "key", out);
+        let ((cert_path, cert_pem), (key_path, key_pem)) = (cert?, key?);
+        if let Err(e) = crate::transport::tls::acceptor(&cert_pem, &key_pem) {
+            out.push(
+                Diagnostic::error("tls-file", format!("websocket TLS files are not usable: {e}"))
+                    .at(spans.value(&["websocket", "tls"]))
+                    .without_snippet()
+                    .help("use a PEM certificate chain and its matching PEM private key"),
+            );
+            return None;
+        }
+        Some(TlsMaterial {
+            cert_path,
+            key_path,
+            cert_pem,
+            key_pem: zeroize::Zeroizing::new(key_pem),
+        })
+    });
+    if out.iter().filter(|d| d.is_error()).count() > errors_before {
+        return None;
+    }
+    Some(WebSocketSettings {
+        listen: addr?,
+        path: ws.path.clone(),
+        tls,
+    })
+}
+
+const RESERVED_HEADERS: &[&str] = &[
+    "host",
+    "upgrade",
+    "connection",
+    "content-length",
+    "transfer-encoding",
+];
+
+fn check_headers(
+    cfg: &ClientConfig,
+    spans: &Spans,
+    out: &mut Vec<Diagnostic>,
+) -> Vec<(String, String)> {
+    let mut headers = Vec::new();
+    for (name, value) in &cfg.headers {
+        let lower = name.to_ascii_lowercase();
+        let reserved =
+            RESERVED_HEADERS.contains(&lower.as_str()) || lower.starts_with("sec-websocket-");
+        let valid_name = http::HeaderName::try_from(name.as_str()).is_ok();
+        if reserved || !valid_name {
+            out.push(
+                Diagnostic::error("invalid-header", format!("header \"{name}\" cannot be set"))
+                    .at(spans.key(&["headers", name]))
+                    .label(if reserved { "set by burrow itself" } else { "not a valid header name" })
+                    .help("use custom headers such as an access token, for example CF-Access-Client-Id"),
+            );
+            continue;
+        }
+        if http::HeaderValue::try_from(value.as_str()).is_err() {
+            out.push(
+                Diagnostic::error(
+                    "invalid-header",
+                    format!("header \"{name}\" has an invalid value"),
+                )
+                .at(spans.value(&["headers", name]))
+                .without_snippet()
+                .help("header values cannot contain line breaks or control characters"),
+            );
+            continue;
+        }
+        headers.push((name.clone(), value.clone()));
+    }
+    headers
 }
 
 pub fn check_client_refs(root: &Node, out: &mut Vec<Diagnostic>) {
@@ -510,18 +681,82 @@ pub fn check_client_refs(root: &Node, out: &mut Vec<Diagnostic>) {
 pub fn check_client(
     cfg: &ClientConfig,
     spans: &Spans,
+    base_dir: &Path,
     out: &mut Vec<Diagnostic>,
 ) -> Option<ClientSettings> {
     let errors_before = out.iter().filter(|d| d.is_error()).count();
 
-    if let Err(e) = parse_host_port(&cfg.server) {
+    let endpoint = match Endpoint::parse(&cfg.server) {
+        Ok(e) => Some(e),
+        Err(e) => {
+            out.push(
+                Diagnostic::error("invalid-address", format!("invalid server address: {e}"))
+                    .at(spans.value(&["server"]))
+                    .label("expected host:port or wss://host/path")
+                    .help("use host:port for TCP (myserver.com:2333), or the WebSocket URL (wss://tunnel.example.com/burrow)"),
+            );
+            None
+        }
+    };
+    let websocket = endpoint.as_ref().is_some_and(Endpoint::is_websocket);
+    let headers = check_headers(cfg, spans, out);
+    if !cfg.headers.is_empty() && !websocket && endpoint.is_some() {
         out.push(
-            Diagnostic::error("invalid-address", format!("invalid server address: {e}"))
-                .at(spans.value(&["server"]))
-                .label("expected host:port")
-                .help(
-                    "use the server's public host and control port, for example myserver.com:2333",
-                ),
+            Diagnostic::warning(
+                "unused-option",
+                "\"headers\" are only sent over WebSocket and are ignored for a TCP server address",
+            )
+            .at(spans.key(&["headers"]))
+            .help("remove \"headers\", or use a ws:// or wss:// server address"),
+        );
+    }
+    let tls = matches!(endpoint, Some(Endpoint::WebSocket { tls: true, .. }));
+    let ca_pem = match &cfg.ca {
+        None => None,
+        Some(file) => {
+            let path = base_dir.join(file);
+            match std::fs::read(&path)
+                .map_err(|e| crate::failure::io_reason(&e))
+                .and_then(|pem| crate::transport::tls::parse_certs(&pem).map(|_| pem))
+            {
+                Ok(pem) => {
+                    if !tls && endpoint.is_some() {
+                        out.push(
+                            Diagnostic::warning(
+                                "unused-option",
+                                "\"ca\" is only used for wss:// server addresses",
+                            )
+                            .at(spans.key(&["ca"]))
+                            .help("remove \"ca\", or use a wss:// server address"),
+                        );
+                    }
+                    Some(pem)
+                }
+                Err(e) => {
+                    out.push(
+                        Diagnostic::error(
+                            "tls-file",
+                            format!("cannot use ca file \"{}\": {e}", path.display()),
+                        )
+                        .at(spans.value(&["ca"]))
+                        .label("not a readable PEM certificate")
+                        .help("paths are relative to the config file"),
+                    );
+                    None
+                }
+            }
+        }
+    };
+    if cfg.insecure_plaintext && websocket {
+        out.push(
+            Diagnostic::warning(
+                "unused-option",
+                "insecure_plaintext does not apply over WebSocket: forwarded data stays encrypted",
+            )
+            .at(spans.value(&["insecure_plaintext"]))
+            .help(
+                "it must still match the server setting; remove it on both sides to silence this",
+            ),
         );
     }
     if !valid_name(&cfg.name) {
@@ -637,6 +872,9 @@ pub fn check_client(
     }
     Some(ClientSettings {
         server: cfg.server.clone(),
+        endpoint: endpoint?,
+        headers,
+        ca_pem,
         name: cfg.name.clone(),
         secret: secret?,
         allow: if cfg.allow_all {

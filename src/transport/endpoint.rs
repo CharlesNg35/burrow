@@ -1,0 +1,194 @@
+use std::fmt;
+
+use crate::config::check::parse_host_port;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Endpoint {
+    Tcp {
+        host_port: String,
+    },
+    WebSocket {
+        tls: bool,
+        host: String,
+        port: u16,
+        path: String,
+    },
+}
+
+impl Endpoint {
+    pub fn parse(s: &str) -> Result<Endpoint, String> {
+        let s = s.trim();
+        let Some((scheme, rest)) = s.split_once("://") else {
+            parse_host_port(s)?;
+            return Ok(Endpoint::Tcp {
+                host_port: s.to_string(),
+            });
+        };
+        let tls = match scheme.to_ascii_lowercase().as_str() {
+            "wss" => true,
+            "ws" => false,
+            other => {
+                return Err(format!(
+                    "\"{other}://\" is not supported; use host:port for TCP, or ws:// or wss:// for WebSocket"
+                ));
+            }
+        };
+        let (authority, path) = match rest.find('/') {
+            Some(i) => (&rest[..i], &rest[i..]),
+            None => (rest, "/"),
+        };
+        if authority.contains('@') {
+            return Err("user names and passwords are not allowed in the server URL".into());
+        }
+        if path.contains(['?', '#', ' ']) {
+            return Err(format!(
+                "path \"{path}\" must not contain spaces, \"?\" or \"#\""
+            ));
+        }
+        let default_port = if tls { 443 } else { 80 };
+        let with_port = if has_port(authority) {
+            authority.to_string()
+        } else if authority.contains(':') && !authority.starts_with('[') {
+            return Err(format!(
+                "\"{authority}\" looks like an IPv6 address; write it as [addr]"
+            ));
+        } else {
+            format!("{authority}:{default_port}")
+        };
+        let (host, port) = parse_host_port(&with_port)?;
+        Ok(Endpoint::WebSocket {
+            tls,
+            host,
+            port,
+            path: path.to_string(),
+        })
+    }
+
+    pub fn dial_address(&self) -> String {
+        match self {
+            Endpoint::Tcp { host_port } => host_port.clone(),
+            Endpoint::WebSocket { host, port, .. } => join_host_port(host, *port),
+        }
+    }
+
+    pub fn is_websocket(&self) -> bool {
+        matches!(self, Endpoint::WebSocket { .. })
+    }
+}
+
+fn has_port(authority: &str) -> bool {
+    match authority.rsplit_once(':') {
+        Some((h, p)) => {
+            !p.is_empty()
+                && p.bytes().all(|b| b.is_ascii_digit())
+                && (!h.contains(':') || h.ends_with(']'))
+        }
+        None => false,
+    }
+}
+
+pub fn join_host_port(host: &str, port: u16) -> String {
+    if host.contains(':') {
+        format!("[{host}]:{port}")
+    } else {
+        format!("{host}:{port}")
+    }
+}
+
+impl fmt::Display for Endpoint {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Endpoint::Tcp { host_port } => f.write_str(host_port),
+            Endpoint::WebSocket {
+                tls,
+                host,
+                port,
+                path,
+            } => {
+                let scheme = if *tls { "wss" } else { "ws" };
+                let default = if *tls { 443 } else { 80 };
+                let host = if host.contains(':') {
+                    format!("[{host}]")
+                } else {
+                    host.clone()
+                };
+                if *port == default {
+                    write!(f, "{scheme}://{host}{path}")
+                } else {
+                    write!(f, "{scheme}://{host}:{port}{path}")
+                }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ws(tls: bool, host: &str, port: u16, path: &str) -> Endpoint {
+        Endpoint::WebSocket {
+            tls,
+            host: host.into(),
+            port,
+            path: path.into(),
+        }
+    }
+
+    #[test]
+    fn parses_forms() {
+        assert_eq!(
+            Endpoint::parse("myserver.com:2333").unwrap(),
+            Endpoint::Tcp {
+                host_port: "myserver.com:2333".into()
+            }
+        );
+        assert_eq!(
+            Endpoint::parse("wss://t.example.com/burrow").unwrap(),
+            ws(true, "t.example.com", 443, "/burrow")
+        );
+        assert_eq!(
+            Endpoint::parse("ws://127.0.0.1:8080/x/y").unwrap(),
+            ws(false, "127.0.0.1", 8080, "/x/y")
+        );
+        assert_eq!(Endpoint::parse("WSS://h").unwrap(), ws(true, "h", 443, "/"));
+        assert_eq!(
+            Endpoint::parse("wss://[::1]:9443/b").unwrap(),
+            ws(true, "::1", 9443, "/b")
+        );
+        assert_eq!(
+            Endpoint::parse("wss://[::1]/b").unwrap(),
+            ws(true, "::1", 443, "/b")
+        );
+    }
+
+    #[test]
+    fn rejects_bad() {
+        assert!(Endpoint::parse("https://h/x").is_err());
+        assert!(Endpoint::parse("wss://user:pw@h/x").is_err());
+        assert!(Endpoint::parse("wss://h/x?y=1").is_err());
+        assert!(Endpoint::parse("wss:///x").is_err());
+        assert!(Endpoint::parse("wss://::1/x").is_err());
+        assert!(Endpoint::parse("myserver.com").is_err());
+    }
+
+    #[test]
+    fn display_round_trips() {
+        for s in [
+            "wss://t.example.com/burrow",
+            "ws://127.0.0.1:8080/x",
+            "wss://[::1]:9443/b",
+            "h:1",
+        ] {
+            assert_eq!(Endpoint::parse(s).unwrap().to_string(), s);
+        }
+        assert_eq!(
+            Endpoint::parse("wss://h:443/p").unwrap().to_string(),
+            "wss://h/p"
+        );
+        assert_eq!(
+            Endpoint::parse("wss://[::1]/b").unwrap().dial_address(),
+            "[::1]:443"
+        );
+    }
+}

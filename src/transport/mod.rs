@@ -1,7 +1,3 @@
-pub mod proxy;
-pub mod resolve;
-pub mod tcp;
-
 use std::io;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -9,65 +5,6 @@ use std::task::{Context, Poll};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::net::TcpStream;
 use tokio::net::tcp as tokio_tcp;
-
-pub enum Conn {
-    Tcp(TcpStream),
-}
-
-pub enum ReadHalf<'a> {
-    Tcp(tokio_tcp::ReadHalf<'a>),
-}
-
-pub enum WriteHalf<'a> {
-    Tcp(tokio_tcp::WriteHalf<'a>),
-}
-
-pub enum OwnedReadHalf {
-    Tcp(tokio_tcp::OwnedReadHalf),
-}
-
-pub enum OwnedWriteHalf {
-    Tcp(tokio_tcp::OwnedWriteHalf),
-}
-
-impl Conn {
-    pub fn split(&mut self) -> (ReadHalf<'_>, WriteHalf<'_>) {
-        match self {
-            Conn::Tcp(s) => {
-                let (r, w) = s.split();
-                (ReadHalf::Tcp(r), WriteHalf::Tcp(w))
-            }
-        }
-    }
-
-    pub fn into_split(self) -> (OwnedReadHalf, OwnedWriteHalf) {
-        match self {
-            Conn::Tcp(s) => {
-                let (r, w) = s.into_split();
-                (OwnedReadHalf::Tcp(r), OwnedWriteHalf::Tcp(w))
-            }
-        }
-    }
-
-    pub fn idle_and_open(&self) -> bool {
-        match self {
-            Conn::Tcp(s) => {
-                let mut probe = [0u8; 1];
-                matches!(s.try_read(&mut probe), Err(e) if e.kind() == io::ErrorKind::WouldBlock)
-            }
-        }
-    }
-
-    pub fn supports_half_close(&self) -> bool {
-        matches!(self, Conn::Tcp(_))
-    }
-}
-
-impl From<TcpStream> for Conn {
-    fn from(s: TcpStream) -> Self {
-        Conn::Tcp(s)
-    }
-}
 
 macro_rules! delegate_read {
     ($ty:ty, $($variant:ident),+) => {
@@ -105,9 +42,95 @@ macro_rules! delegate_write {
     };
 }
 
-delegate_read!(Conn, Tcp);
-delegate_write!(Conn, Tcp);
-delegate_read!(ReadHalf<'_>, Tcp);
-delegate_write!(WriteHalf<'_>, Tcp);
-delegate_read!(OwnedReadHalf, Tcp);
-delegate_write!(OwnedWriteHalf, Tcp);
+pub mod endpoint;
+pub mod proxy;
+pub mod resolve;
+pub mod tcp;
+pub mod tls;
+pub mod ws;
+
+pub enum Conn {
+    Tcp(TcpStream),
+    Ws(Box<ws::WsConn>),
+}
+
+pub enum ReadHalf<'a> {
+    Tcp(tokio_tcp::ReadHalf<'a>),
+    Ws(tokio::io::ReadHalf<&'a mut ws::WsConn>),
+}
+
+pub enum WriteHalf<'a> {
+    Tcp(tokio_tcp::WriteHalf<'a>),
+    Ws(tokio::io::WriteHalf<&'a mut ws::WsConn>),
+}
+
+pub enum OwnedReadHalf {
+    Tcp(tokio_tcp::OwnedReadHalf),
+    Ws(tokio::io::ReadHalf<ws::WsConn>),
+}
+
+pub enum OwnedWriteHalf {
+    Tcp(tokio_tcp::OwnedWriteHalf),
+    Ws(tokio::io::WriteHalf<ws::WsConn>),
+}
+
+impl Conn {
+    pub fn split(&mut self) -> (ReadHalf<'_>, WriteHalf<'_>) {
+        match self {
+            Conn::Tcp(s) => {
+                let (r, w) = s.split();
+                (ReadHalf::Tcp(r), WriteHalf::Tcp(w))
+            }
+            Conn::Ws(s) => {
+                let (r, w) = tokio::io::split(&mut **s);
+                (ReadHalf::Ws(r), WriteHalf::Ws(w))
+            }
+        }
+    }
+
+    pub fn into_split(self) -> (OwnedReadHalf, OwnedWriteHalf) {
+        match self {
+            Conn::Tcp(s) => {
+                let (r, w) = s.into_split();
+                (OwnedReadHalf::Tcp(r), OwnedWriteHalf::Tcp(w))
+            }
+            Conn::Ws(s) => {
+                let (r, w) = tokio::io::split(*s);
+                (OwnedReadHalf::Ws(r), OwnedWriteHalf::Ws(w))
+            }
+        }
+    }
+
+    pub fn idle_and_open(&self) -> bool {
+        match self {
+            Conn::Tcp(s) => {
+                let mut probe = [0u8; 1];
+                matches!(s.try_read(&mut probe), Err(e) if e.kind() == io::ErrorKind::WouldBlock)
+            }
+            Conn::Ws(_) => true,
+        }
+    }
+
+    pub fn supports_half_close(&self) -> bool {
+        matches!(self, Conn::Tcp(_))
+    }
+}
+
+impl From<TcpStream> for Conn {
+    fn from(s: TcpStream) -> Self {
+        Conn::Tcp(s)
+    }
+}
+
+delegate_read!(Conn, Tcp, Ws);
+delegate_write!(Conn, Tcp, Ws);
+delegate_read!(ReadHalf<'_>, Tcp, Ws);
+delegate_write!(WriteHalf<'_>, Tcp, Ws);
+delegate_read!(OwnedReadHalf, Tcp, Ws);
+delegate_write!(OwnedWriteHalf, Tcp, Ws);
+
+impl From<ws::WsConn> for Conn {
+    fn from(s: ws::WsConn) -> Self {
+        Conn::Ws(Box::new(s))
+    }
+}

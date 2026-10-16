@@ -256,7 +256,7 @@ async fn chaos_dropped_connections_and_restarts() {
         if last_restart.elapsed() > Duration::from_secs(3) {
             srv.stop.send(true).unwrap();
             srv.task.await.unwrap();
-            settings.listen = listen;
+            settings.listen = Some(listen);
             settings.services.get_mut("web").unwrap().bind = svc_addr;
             srv = start_server(settings.clone()).await;
             restarts += 1;

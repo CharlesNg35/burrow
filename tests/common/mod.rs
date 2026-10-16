@@ -32,7 +32,8 @@ pub fn server_settings(secrets: Vec<Secret>) -> ServerSettings {
         },
     );
     ServerSettings {
-        listen: "127.0.0.1:0".parse().unwrap(),
+        listen: Some("127.0.0.1:0".parse().unwrap()),
+        websocket: None,
         clients,
         services: BTreeMap::new(),
         insecure_plaintext: false,
@@ -61,6 +62,11 @@ pub fn service(target: SocketAddr, protocol: Protocol) -> Service {
 pub fn client_settings(server: SocketAddr, secret: Secret) -> ClientSettings {
     ClientSettings {
         server: server.to_string(),
+        endpoint: burrow::transport::endpoint::Endpoint::Tcp {
+            host_port: server.to_string(),
+        },
+        headers: Vec::new(),
+        ca_pem: None,
         name: "home".into(),
         secret,
         allow: AllowList::Rules(vec!["127.0.0.0/8".parse::<Rule>().unwrap()]),
@@ -79,6 +85,7 @@ pub fn client_settings(server: SocketAddr, secret: Secret) -> ClientSettings {
 
 pub struct RunningServer {
     pub addr: SocketAddr,
+    pub ws_addr: Option<SocketAddr>,
     pub services: BTreeMap<String, SocketAddr>,
     pub reload: mpsc::Sender<ServerSettings>,
     pub stop: watch::Sender<bool>,
@@ -89,7 +96,11 @@ pub struct RunningServer {
 pub async fn start_server(settings: ServerSettings) -> RunningServer {
     let names: Vec<String> = settings.services.keys().cloned().collect();
     let server = Server::bind(settings).await.expect("server binds");
-    let addr = server.local_addr();
+    let ws_addr = server.websocket_addr();
+    let addr = server
+        .local_addr()
+        .or(ws_addr)
+        .expect("server has a listener");
     let services = names
         .iter()
         .map(|n| (n.clone(), server.service_addr(n).unwrap()))
@@ -100,6 +111,7 @@ pub async fn start_server(settings: ServerSettings) -> RunningServer {
     let task = tokio::spawn(server.run(reload_rx, stop_rx));
     RunningServer {
         addr,
+        ws_addr,
         services,
         reload,
         stop,

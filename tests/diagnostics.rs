@@ -116,9 +116,9 @@ fn wrong_types() {
 #[test]
 fn missing_fields() {
     insta::assert_snapshot!(render("server.yaml", "clients:\n  home:\n    secret: x\nservices:\n  web:\n    client: home\n", None), @r#"
-    error: missing field "listen" in server config
-      --> server.yaml:1:1
-       = help: add "listen: ..." (control address clients connect to, for example 0.0.0.0:2333)
+    error: the server needs "listen" (TCP), "websocket", or both
+      --> server.yaml
+       = help: add "listen: 0.0.0.0:2333" for TCP clients, or a websocket section for clients behind HTTP-only networks (see README)
 
     error: secret for client "home" is not valid base64 or hex (1 character)
       --> server.yaml:3:13
@@ -353,8 +353,8 @@ fn client_bad_cidr() {
       --> client.yaml:1:9
        |
      1 | server: myserver.com
-       |         ^^^^^^^^^^^^ expected host:port
-       = help: use the server's public host and control port, for example myserver.com:2333
+       |         ^^^^^^^^^^^^ expected host:port or wss://host/path
+       = help: use host:port for TCP (myserver.com:2333), or the WebSocket URL (wss://tunnel.example.com/burrow)
 
     error: invalid allow entry: "33" is not a valid prefix length
       --> client.yaml:5:5
@@ -507,7 +507,7 @@ fn json_secret_line_hidden() {
        |
      1 | {"server": "a:1", "name": "home", "secret": **********************************************, "alow": []}
        |                                                                                             ^^^^^^ unknown field
-       = help: did you mean "allow"? valid fields: server, name, secret, allow, allow_all, insecure_plaintext, cipher, proxy, reconnect, connect_timeout_secs, tcp, udp
+       = help: did you mean "allow"? valid fields: server, name, secret, allow, allow_all, insecure_plaintext, headers, ca, cipher, proxy, reconnect, connect_timeout_secs, tcp, udp
 
     client.json: 1 error, 1 warning
     "#);
@@ -527,16 +527,16 @@ fn unknown_role() {
 #[test]
 fn role_override_reports_fields_for_that_role() {
     insta::assert_snapshot!(render("server.yaml", "server: a:1\nname: home\n", Some(Role::Server)), @r#"
+    error: the server needs "listen" (TCP), "websocket", or both
+      --> server.yaml
+       = help: add "listen: 0.0.0.0:2333" for TCP clients, or a websocket section for clients behind HTTP-only networks (see README)
+
     error: unknown field "server" in server config
       --> server.yaml:1:1
        |
      1 | server: a:1
        | ^^^^^^ unknown field
-       = help: valid fields: listen, clients, services, insecure_plaintext, heartbeat, limits, pool, tcp, udp
-
-    error: missing field "listen" in server config
-      --> server.yaml:1:1
-       = help: add "listen: ..." (control address clients connect to, for example 0.0.0.0:2333)
+       = help: valid fields: listen, websocket, clients, services, insecure_plaintext, heartbeat, limits, pool, tcp, udp
 
     warning: no clients are defined, so nobody can connect
       --> server.yaml:1:1
@@ -559,7 +559,7 @@ fn role_override_reports_fields_for_that_role() {
        |
      2 | name: home
        | ^^^^ unknown field
-       = help: valid fields: listen, clients, services, insecure_plaintext, heartbeat, limits, pool, tcp, udp
+       = help: valid fields: listen, websocket, clients, services, insecure_plaintext, heartbeat, limits, pool, tcp, udp
 
     server.yaml: 3 errors, 2 warnings
     "#);

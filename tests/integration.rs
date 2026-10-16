@@ -88,7 +88,7 @@ async fn client_reconnects_after_server_restart() {
     srv.task.await.unwrap();
     wait_state(&mut cli.state, State::Connecting).await;
 
-    settings.listen = addr;
+    settings.listen = Some(addr);
     settings.services.get_mut("web").unwrap().bind = svc_addr;
     let srv2 = start_server(settings).await;
     wait_state(&mut cli.state, State::Connected).await;

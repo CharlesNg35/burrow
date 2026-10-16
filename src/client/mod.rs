@@ -13,11 +13,14 @@ use crate::handshake::{Channel, ClientHandshakeError, initiate};
 use crate::protocol::{
     ByeReason, ChannelKind, ClientMsg, Hello, Preamble, ServerMsg, ServiceInfo, TOKEN_LEN, VERSION,
 };
-use crate::transport::Conn;
+use crate::transport::endpoint::Endpoint;
 use crate::transport::proxy::dial_tcp;
 use crate::transport::resolve::{self, Resolver};
 use crate::transport::tcp::tune;
+use crate::transport::ws::{self, Carrier};
+use crate::transport::{Conn, tls};
 use reconnect::{Backoff, Outage, Report, human};
+use tokio_rustls::TlsConnector;
 
 const STABLE_AFTER: Duration = Duration::from_secs(10);
 const MAX_OPENING: usize = 32;
@@ -35,6 +38,7 @@ pub struct Client {
     halt: watch::Sender<bool>,
     resolver: Arc<dyn Resolver>,
     outage: Arc<Mutex<Outage>>,
+    tls: Option<TlsConnector>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -55,9 +59,15 @@ impl Client {
     pub fn new(settings: ClientSettings) -> Self {
         let (state, _) = watch::channel(State::Connecting);
         Client {
-            settings: Arc::new(settings),
             state,
             halt: watch::Sender::new(false),
+            tls: match &settings.endpoint {
+                Endpoint::WebSocket { tls: true, .. } => {
+                    tls::connector(settings.ca_pem.as_deref()).ok()
+                }
+                _ => None,
+            },
+            settings: Arc::new(settings),
             resolver: resolve::system(),
             outage: Arc::new(Mutex::new(Outage::default())),
         }
@@ -164,21 +174,21 @@ impl Client {
         end
     }
 
-    async fn open(&self, kind: ChannelKind, hello: Hello) -> Result<Channel, SessionEnd> {
+    async fn connect(&self) -> Result<Conn, SessionEnd> {
         let s = &self.settings;
+        let via = s
+            .proxy
+            .as_ref()
+            .map(|p| format!(" via proxy {p:?}"))
+            .unwrap_or_default();
         let stream = dial_tcp(
-            &s.server,
+            &s.endpoint.dial_address(),
             s.proxy.as_ref(),
             s.connect_timeout,
             &*self.resolver,
         )
         .await
         .map_err(|e| {
-            let via = s
-                .proxy
-                .as_ref()
-                .map(|p| format!(" via proxy {p:?}"))
-                .unwrap_or_default();
             SessionEnd::Lost(format!(
                 "server unreachable at {}{via} ({})",
                 s.server,
@@ -186,8 +196,63 @@ impl Client {
             ))
         })?;
         tune(&stream, &s.tcp);
+        let Endpoint::WebSocket { tls, host, .. } = &s.endpoint else {
+            return Ok(Conn::from(stream));
+        };
+        let carrier = if *tls {
+            let connector = self
+                .tls
+                .as_ref()
+                .ok_or_else(|| SessionEnd::Lost("TLS is not configured".into()))?;
+            let name = tls::server_name(host).map_err(SessionEnd::Lost)?;
+            let fut = connector.connect(name, stream);
+            match tokio::time::timeout(s.connect_timeout, fut).await {
+                Ok(Ok(t)) => Carrier::ClientTls(Box::new(t)),
+                Ok(Err(e)) => {
+                    return Err(SessionEnd::Lost(format!(
+                        "TLS handshake with {} failed ({})",
+                        s.server,
+                        tls_reason(&e)
+                    )));
+                }
+                Err(_) => {
+                    return Err(SessionEnd::Lost(format!(
+                        "TLS handshake with {} timed out",
+                        s.server
+                    )));
+                }
+            }
+        } else {
+            Carrier::Plain(stream)
+        };
+        match tokio::time::timeout(
+            s.connect_timeout,
+            ws::connect(carrier, &s.endpoint, &s.headers),
+        )
+        .await
+        {
+            Ok(Ok(c)) => Ok(Conn::from(c)),
+            Ok(Err(ws::ConnectError::Status(code))) => Err(SessionEnd::Lost(format!(
+                "{} answered HTTP {code} instead of a WebSocket upgrade (check the URL path, websocket.path in server.yaml, and the proxy forwarding)",
+                s.server
+            ))),
+            Ok(Err(e)) => Err(SessionEnd::Lost(format!(
+                "WebSocket connection to {} failed: {}",
+                s.server,
+                e.describe()
+            ))),
+            Err(_) => Err(SessionEnd::Lost(format!(
+                "WebSocket upgrade with {} timed out",
+                s.server
+            ))),
+        }
+    }
+
+    async fn open(&self, kind: ChannelKind, hello: Hello) -> Result<Channel, SessionEnd> {
+        let s = &self.settings;
+        let conn = self.connect().await?;
         let preamble = self.preamble(kind);
-        let fut = initiate(Conn::from(stream), &preamble, &s.secret, &hello);
+        let fut = initiate(conn, &preamble, &s.secret, &hello);
         match tokio::time::timeout(s.connect_timeout, fut).await {
             Ok(Ok(ch)) => Ok(ch),
             Ok(Err(ClientHandshakeError::Rejected)) => Err(SessionEnd::Rejected),
@@ -328,6 +393,7 @@ impl Client {
             halt: self.halt.clone(),
             resolver: self.resolver.clone(),
             outage: self.outage.clone(),
+            tls: self.tls.clone(),
         };
         let mut halted = self.halt.subscribe();
         tokio::spawn(async move {
@@ -351,6 +417,15 @@ impl Client {
             Err(SessionEnd::Lost(why)) => debug!("data channel: {why}"),
             Err(_) => debug!("data channel rejected"),
         }
+    }
+}
+
+fn tls_reason(e: &std::io::Error) -> String {
+    let text = e.to_string();
+    if text.contains("UnknownIssuer") || text.contains("certificate") {
+        format!("{text}; if the server uses a private CA, set \"ca\" in the client config")
+    } else {
+        text
     }
 }
 
