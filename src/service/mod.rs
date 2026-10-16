@@ -239,44 +239,6 @@ fn check_config(path: &Path) -> Result<Checked, Failure> {
     })
 }
 
-fn client_fields(path: &Path) -> Option<(String, String)> {
-    let root = crate::config::tree::parse(&std::fs::read_to_string(path).ok()?).ok()?;
-    let field = |k: &str| root.get(k).and_then(|n| n.as_str().map(str::to_string));
-    let server = crate::transport::endpoint::Endpoint::parse(&field("server")?).ok()?;
-    Some((server.to_string().to_ascii_lowercase(), field("name")?))
-}
-
-fn same_tunnel(existing: &Manifest, source: &Path, checked: &Checked) -> bool {
-    if existing.role != checked.role.as_str() {
-        return false;
-    }
-    if existing.source_config == source {
-        return true;
-    }
-    checked.role == Role::Client
-        && client_fields(source).is_some_and(|new| client_fields(&existing.config) == Some(new))
-}
-
-fn suggested_name(source: &Path, checked: &Checked) -> String {
-    let base = match (checked.role, client_fields(source)) {
-        (Role::Client, Some((server, name))) => {
-            let host = crate::transport::endpoint::Endpoint::parse(&server)
-                .ok()
-                .map(|e| e.dial_address())
-                .and_then(|a| a.rsplit_once(':').map(|(h, _)| h.to_string()))
-                .unwrap_or_default();
-            format!("{name}-{host}")
-        }
-        _ => source
-            .parent()
-            .and_then(|p| p.file_name())
-            .map(|n| format!("{}-{}", n.to_string_lossy(), checked.role.as_str()))
-            .unwrap_or_else(|| format!("{}-2", checked.role.as_str())),
-    };
-    service_name(Path::new(&format!("{base}.yaml")), None)
-        .unwrap_or_else(|_| format!("burrow-{}-2", checked.role.as_str()))
-}
-
 pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure> {
     let backend = system::backend()?;
     let platform = Platform::current();
@@ -290,16 +252,16 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
     let name = service_name(&source, opts.name.as_deref())?;
     let checked = check_config(&source)?;
     if let Ok(existing) = load_manifest(&name)
-        && !same_tunnel(&existing, &source, &checked)
+        && existing.source_config != source
     {
         return Err(Failure::usage(format!(
-            "{name} is already installed for another {} config ({})",
-            existing.role,
-            existing.source_config.display()
+            "{name} is already installed from {}; its config is {}",
+            existing.source_config.display(),
+            existing.config.display()
         ))
         .hint(format!(
-            "give this one its own name, for example: --name {}",
-            suggested_name(&source, &checked)
+            "to add this config as another service, rename the file or pass --name, for example: --name {name}-2; to change {name} instead, edit {}",
+            existing.config.display()
         )));
     }
     let src_text = std::fs::read_to_string(&source).unwrap_or_default();
@@ -970,38 +932,6 @@ mod tests {
             files: Vec::new(),
             version: "0.1.0".into(),
         }
-    }
-
-    #[test]
-    fn another_tunnel_with_the_same_name_is_not_a_reinstall() {
-        let dir = tempfile::tempdir().unwrap();
-        let secret = crate::secret::Secret::generate().encode();
-        let write = |sub: &str, server: &str, name: &str| {
-            let d = dir.path().join(sub);
-            std::fs::create_dir_all(&d).unwrap();
-            let f = d.join("client.yaml");
-            std::fs::write(
-                &f,
-                format!("server: {server}\nname: {name}\nsecret: {secret}\nallow: [127.0.0.0/8]\n"),
-            )
-            .unwrap();
-            f
-        };
-        let a = write("a", "vm-a.example.com", "home");
-        let moved = write("moved", "VM-A.example.com:7835", "home");
-        let b = write("b", "vm-b.example.com", "home");
-        let mut existing = record(Platform::current());
-        existing.role = "client".into();
-        existing.source_config = a.clone();
-        existing.config = a.clone();
-        let checked = |p: &Path| check_config(p).unwrap();
-        assert!(same_tunnel(&existing, &a, &checked(&a)));
-        assert!(same_tunnel(&existing, &moved, &checked(&moved)));
-        assert!(!same_tunnel(&existing, &b, &checked(&b)));
-        assert_eq!(
-            suggested_name(&b, &checked(&b)),
-            "burrow-home-vm-b-example-com"
-        );
     }
 
     #[test]
