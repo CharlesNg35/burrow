@@ -100,11 +100,11 @@ pub(super) async fn control_session(shared: Arc<Shared>, acc: Accepted, peer: So
         tokio::select! {
             r = tokio::time::timeout(timeout, reader.recv(&mut rd)) => match r {
                 Ok(Ok(Some(_))) => continue,
-                Ok(Ok(None)) => break "disconnected".to_string(),
-                Ok(Err(e)) => break format!("connection error: {e}"),
-                Err(_) => break format!("no heartbeat for {}s", timeout.as_secs()),
+                Ok(Ok(None)) => break None,
+                Ok(Err(e)) => break Some(format!("connection error: {e}")),
+                Err(_) => break Some(format!("no heartbeat for {}s", timeout.as_secs())),
             },
-            _ = stop.changed() => break "server shutting down".to_string(),
+            _ = stop.changed() => break Some("server shutting down".to_string()),
         }
     };
     let current = {
@@ -119,7 +119,10 @@ pub(super) async fn control_session(shared: Arc<Shared>, acc: Accepted, peer: So
     };
     session.close();
     if current {
-        info!("client \"{name}\" disconnected ({reason})");
+        match reason {
+            Some(reason) => info!("client \"{name}\" disconnected ({reason})"),
+            None => info!("client \"{name}\" disconnected"),
+        }
     }
     let abort = writer_task.abort_handle();
     if tokio::time::timeout(Duration::from_secs(1), writer_task)
