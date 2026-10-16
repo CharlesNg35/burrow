@@ -35,6 +35,9 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json", "fm
 webpki-roots = "1.0.9"
 zeroize = { version = "1.9.1", features = ["derive"] }
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2.190"
+
 [target.'cfg(windows)'.dependencies]
 windows-service = "0.8.1"
 

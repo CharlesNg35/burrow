@@ -1,5 +1,5 @@
 use std::fs::{File, OpenOptions, TryLockError};
-use std::io::{Read, Seek, SeekFrom, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use blake2::{Blake2s256, Digest};
@@ -108,30 +108,11 @@ pub fn acquire_in(dir: &Path, identity: &Identity, config: &Path) -> Result<Inst
         .hint("burrow keeps a small lock file there so the same tunnel cannot run twice")
     })?;
     let path = dir.join(format!("{}.lock", identity.key()));
-    let opened = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .open(&path);
-    let (mut file, writable) = match opened {
-        Ok(f) => (f, true),
-        Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => match File::open(&path) {
-            Ok(f) => (f, false),
-            Err(e) => return Err(open_failure(&path, &e)),
-        },
-        Err(e) => return Err(open_failure(&path, &e)),
-    };
-    #[cfg(unix)]
-    if writable {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o666));
-    }
+    let (file, writable) = open_shared(&path).map_err(|e| open_failure(&path, &e))?;
     match file.try_lock() {
         Ok(()) => {}
         Err(TryLockError::WouldBlock) => {
-            let mut holder = String::new();
-            let _ = file.read_to_string(&mut holder);
+            let holder = std::fs::read_to_string(path.with_extension("info")).unwrap_or_default();
             let holder = holder.trim();
             let who = if holder.is_empty() {
                 String::new()
@@ -160,12 +141,66 @@ pub fn acquire_in(dir: &Path, identity: &Identity, config: &Path) -> Result<Inst
             .display()
     );
     if writable {
-        let _ = file.set_len(0);
-        let _ = file.seek(SeekFrom::Start(0));
-        let _ = file.write_all(note.as_bytes());
-        let _ = file.flush();
+        write_note(&path.with_extension("info"), &note);
     }
     Ok(InstanceLock { _file: file, path })
+}
+
+fn no_follow(o: &mut OpenOptions) -> &mut OpenOptions {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        o.custom_flags(libc::O_NOFOLLOW);
+    }
+    o
+}
+
+fn single_file(f: File) -> std::io::Result<File> {
+    let meta = f.metadata()?;
+    #[cfg(unix)]
+    let linked = std::os::unix::fs::MetadataExt::nlink(&meta) > 1;
+    #[cfg(not(unix))]
+    let linked = false;
+    if !meta.is_file() || linked {
+        return Err(std::io::Error::other("not a plain file; remove it"));
+    }
+    Ok(f)
+}
+
+fn open_shared(path: &Path) -> std::io::Result<(File, bool)> {
+    match OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .open(path)
+    {
+        Ok(f) => {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                f.set_permissions(std::fs::Permissions::from_mode(0o666))?;
+            }
+            return Ok((f, true));
+        }
+        Err(e) if e.kind() != std::io::ErrorKind::AlreadyExists => return Err(e),
+        Err(_) => {}
+    }
+    match no_follow(OpenOptions::new().read(true).write(true)).open(path) {
+        Ok(f) => Ok((single_file(f)?, true)),
+        Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => Ok((
+            single_file(no_follow(OpenOptions::new().read(true)).open(path)?)?,
+            false,
+        )),
+        Err(e) => Err(e),
+    }
+}
+
+fn write_note(path: &Path, note: &str) {
+    let Ok((mut f, true)) = open_shared(path) else {
+        return;
+    };
+    let _ = f.set_len(0);
+    let _ = f.write_all(note.as_bytes());
 }
 
 fn open_failure(path: &Path, e: &std::io::Error) -> Failure {
@@ -232,6 +267,37 @@ mod tests {
         );
         assert!(same.is_err(), "host names compare case-insensitively");
         drop((a, b, c));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn planted_links_are_not_followed_or_changed() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = dir.path().join("server.yaml");
+        std::fs::write(&cfg, "x").unwrap();
+        let id = Identity::server(&cfg);
+        let victim = dir.path().join("victim");
+        std::fs::write(&victim, "keep").unwrap();
+        std::fs::set_permissions(&victim, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let lock = dir.path().join(format!("{}.lock", id.key()));
+
+        std::os::unix::fs::symlink(&victim, &lock).unwrap();
+        assert!(acquire_in(dir.path(), &id, &cfg).is_err());
+        std::fs::remove_file(&lock).unwrap();
+
+        std::fs::hard_link(&victim, &lock).unwrap();
+        assert!(acquire_in(dir.path(), &id, &cfg).is_err());
+        std::fs::remove_file(&lock).unwrap();
+
+        std::os::unix::fs::symlink(&victim, lock.with_extension("info")).unwrap();
+        let held = acquire_in(dir.path(), &id, &cfg).unwrap();
+        assert_eq!(std::fs::read_to_string(&victim).unwrap(), "keep");
+        assert_eq!(
+            std::fs::metadata(&victim).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        drop(held);
     }
 
     #[test]

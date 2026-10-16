@@ -206,6 +206,7 @@ dependencies = [
  "http",
  "httparse",
  "insta",
+ "libc",
  "notify",
  "rcgen",
  "saphyr-parser",
