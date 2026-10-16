@@ -211,11 +211,12 @@ impl ClientSession {
         let _ = rx.wait_for(|c| *c).await;
     }
 
-    pub fn connection_guard(self: &Arc<Self>) -> ActiveGuard {
-        self.active.fetch_add(1, Ordering::Relaxed);
-        ActiveGuard {
+    pub fn connection_guard(self: &Arc<Self>) -> (ActiveGuard, usize) {
+        let before = self.active.fetch_add(1, Ordering::AcqRel);
+        let guard = ActiveGuard {
             session: self.clone(),
-        }
+        };
+        (guard, before)
     }
 }
 

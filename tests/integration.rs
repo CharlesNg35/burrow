@@ -690,3 +690,39 @@ async fn reload_onto_the_kept_control_port_is_rejected() {
     tokio::time::sleep(Duration::from_millis(500)).await;
     assert_eq!(roundtrip(old, b"kept").await, b"kept");
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_client_connection_limit_holds_under_a_burst() {
+    let echo = echo_server().await;
+    let secret = Secret::generate();
+    let mut settings = server_settings(vec![secret.clone()]);
+    settings.clients.get_mut("home").unwrap().max_connections = Some(2);
+    let t = tunnel_with(
+        settings,
+        vec![("web", service(echo, Protocol::Tcp))],
+        |c| c,
+        secret,
+    )
+    .await;
+    let addr = t.server.services["web"];
+    let mut tries = tokio::task::JoinSet::new();
+    for _ in 0..10 {
+        tries.spawn(async move {
+            let mut c = TcpStream::connect(addr).await.ok()?;
+            c.write_all(b"x").await.ok()?;
+            let mut b = [0u8; 1];
+            tokio::time::timeout(Duration::from_secs(3), c.read_exact(&mut b))
+                .await
+                .ok()?
+                .ok()?;
+            Some(c)
+        });
+    }
+    let open: Vec<TcpStream> = tries.join_all().await.into_iter().flatten().collect();
+    assert!(
+        open.len() <= 2,
+        "{} connections got through a limit of 2",
+        open.len()
+    );
+    assert!(!open.is_empty());
+}

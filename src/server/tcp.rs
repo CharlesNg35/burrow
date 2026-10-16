@@ -73,12 +73,12 @@ async fn visit(
         .get(&svc.client)
         .and_then(|c| c.max_connections)
         .unwrap_or(settings.max_connections_per_client);
-    if session.active.load(Ordering::Relaxed) >= client_limit {
+    let (_active, before) = session.connection_guard();
+    if before >= client_limit {
         shared.rejected.fetch_add(1, Ordering::Relaxed);
         debug!(%peer, "client \"{}\" is at its connection limit", svc.client);
         return;
     }
-    let _active = session.connection_guard();
     let _tracked = shared.track();
     tune(&visitor, &settings.tcp);
     let ch = match tokio::time::timeout(TAKE_TIMEOUT, session.take()).await {
