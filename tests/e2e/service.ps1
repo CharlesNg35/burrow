@@ -49,7 +49,7 @@ try {
   (Get-Content e2e-server.yaml) -replace '0.0.0.0:7835','127.0.0.1:27935' -replace '0.0.0.0:7840','127.0.0.1:27940' -replace '127.0.0.1:3000','127.0.0.1:19100' | Set-Content e2e-server.yaml
   & $B client-config home -c e2e-server.yaml --server 127.0.0.1:27935 | Set-Content e2e-client.yaml
   $Secret = ((Get-Content e2e-client.yaml | Select-String '^secret:').Line -split '\s+')[1]
-  (Get-Content e2e-client.yaml) -replace '^secret: .*','secret: ${E2E_SECRET}' | Set-Content e2e-client.yaml
+  (Get-Content e2e-client.yaml) -replace '^secret: .*','secret: $${E2E_SECRET}' | Set-Content e2e-client.yaml
 
   Write-Host "== a busy port stops the install before anything changes"
   $busy = [System.Net.Sockets.TcpListener]::new([ipaddress]"127.0.0.1", 27940)
@@ -67,10 +67,14 @@ try {
   Check "env hint shown"
 
   Write-Host "== install server and client"
-  Burrow service install -c e2e-server.yaml | Write-Host
+  $out = Burrow service install -c e2e-server.yaml
+  Write-Host $out
+  if ($out -notmatch "installed Windows service") { Fail "server install: $out" }
   $env:E2E_SECRET = $Secret
-  Burrow service install -c e2e-client.yaml | Write-Host
+  $out = Burrow service install -c e2e-client.yaml
   Remove-Item Env:E2E_SECRET
+  Write-Host $out
+  if ($out -notmatch "installed Windows service") { Fail "client install: $out" }
   if (-not (Traffic 500)) { Fail "no traffic through the installed services" }
   Check "traffic flows through the installed server and client"
   if (-not (Running burrow-e2e-server)) { Fail "server not running" }
