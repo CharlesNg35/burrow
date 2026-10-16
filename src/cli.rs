@@ -12,17 +12,29 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 pub struct Cli {
     #[command(subcommand)]
     pub command: Command,
-    #[arg(long, global = true, value_enum, default_value_t = LogLevel::Info, help = "Log verbosity")]
+    #[arg(long, global = true, value_enum, default_value_t = LogLevel::Info, help = "Log verbosity", help_heading = "Logging")]
     pub log_level: LogLevel,
-    #[arg(long, global = true, help = "Write logs as JSON lines")]
+    #[arg(
+        long,
+        global = true,
+        help = "Write logs as JSON lines",
+        help_heading = "Logging"
+    )]
     pub log_json: bool,
-    #[arg(long, short, global = true, help = "Only log warnings and errors")]
+    #[arg(
+        long,
+        short,
+        global = true,
+        help = "Only log warnings and errors",
+        help_heading = "Logging"
+    )]
     pub quiet: bool,
     #[arg(
         long,
         global = true,
         value_name = "FILE",
-        help = "Write logs to this file (rotated at 10 MB, 5 old files kept)"
+        help = "Write logs to this file (rotated at 10 MB, 5 old files kept)",
+        help_heading = "Logging"
     )]
     pub log_file: Option<PathBuf>,
 }
