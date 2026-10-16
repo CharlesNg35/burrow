@@ -2,14 +2,20 @@
 
 pub mod allowlist;
 pub mod cli;
+pub mod client;
 pub mod config;
 pub mod diagnostics;
 pub mod failure;
+pub mod forward;
+pub mod handshake;
 pub mod init;
+pub mod net;
 pub mod noise;
 pub mod protocol;
 pub mod proxy;
+pub mod run;
 pub mod secret;
+pub mod server;
 pub mod suggest;
 pub mod transport;
 pub mod validate;

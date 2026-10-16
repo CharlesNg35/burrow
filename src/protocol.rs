@@ -5,7 +5,6 @@ pub const MAGIC: [u8; 4] = *b"BRW1";
 pub const VERSION: u8 = 1;
 pub const PREAMBLE_FIXED: usize = 7;
 pub const TOKEN_LEN: usize = 16;
-pub const MAX_TARGET_LEN: usize = 261;
 
 pub const FLAG_AES_GCM: u8 = 0b01;
 pub const FLAG_PLAINTEXT: u8 = 0b10;
@@ -240,6 +239,7 @@ pub enum ByeReason {
     Replaced = 2,
     Removed = 3,
     Timeout = 4,
+    PlaintextMismatch = 5,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -312,6 +312,7 @@ impl ServerMsg {
                     2 => ByeReason::Replaced,
                     3 => ByeReason::Removed,
                     4 => ByeReason::Timeout,
+                    5 => ByeReason::PlaintextMismatch,
                     x => return Err(DecodeError::UnknownType(x)),
                 },
             },

@@ -5,7 +5,7 @@ use std::process::ExitCode;
 
 use clap::{CommandFactory, Parser};
 
-use burrow::cli::{Cli, Command, FileFormat, OutputFormat, RoleArg};
+use burrow::cli::{Cli, Command, FileFormat, LogLevel, OutputFormat, RoleArg};
 use burrow::config::env::ProcessEnv;
 use burrow::config::{Format, Role};
 use burrow::diagnostics::Style;
@@ -50,6 +50,17 @@ fn print(s: &str) -> Result<(), Failure> {
 fn run(cli: Cli) -> Result<u8, Failure> {
     let out_style = Style::detect(std::io::stdout().is_terminal());
     let err_style = Style::detect(std::io::stderr().is_terminal());
+    let level = match (cli.quiet, cli.log_level) {
+        (true, _) | (_, LogLevel::Warn) => tracing::Level::WARN,
+        (_, LogLevel::Error) => tracing::Level::ERROR,
+        (_, LogLevel::Info) => tracing::Level::INFO,
+        (_, LogLevel::Debug) => tracing::Level::DEBUG,
+        (_, LogLevel::Trace) => tracing::Level::TRACE,
+    };
+    let logging = burrow::run::Logging {
+        level,
+        json: cli.log_json,
+    };
     match cli.command {
         Command::Validate(args) => {
             let v = burrow::validate::validate(
@@ -132,6 +143,7 @@ fn run(cli: Cli) -> Result<u8, Failure> {
             }
             Ok(0)
         }
-        Command::Server(_) | Command::Client(_) => Err(Failure::new("not implemented yet")),
+        Command::Server(args) => burrow::run::server(&args.config, logging),
+        Command::Client(args) => burrow::run::client(&args.config, logging),
     }
 }

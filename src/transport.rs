@@ -79,6 +79,10 @@ impl RecordReader {
         }
     }
 
+    pub fn open_record(&mut self, record: &[u8], out: &mut [u8]) -> Option<usize> {
+        self.opener.open(record, out)
+    }
+
     pub fn buffered(&self) -> &[u8] {
         match &self.buf {
             Some(b) => &b[self.start..self.end],
