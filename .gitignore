@@ -5,3 +5,5 @@
 /bench/results/raw
 *.swp
 .env
+/fuzz/corpus
+/fuzz/Cargo.lock

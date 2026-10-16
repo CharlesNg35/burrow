@@ -1,0 +1,36 @@
+[package]
+name = "burrow-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[workspace]
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+burrow = { path = ".." }
+tokio = { version = "1", features = ["rt", "io-util"] }
+
+[[bin]]
+name = "handshake"
+path = "fuzz_targets/handshake.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "frames"
+path = "fuzz_targets/frames.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "config"
+path = "fuzz_targets/config.rs"
+test = false
+doc = false
+bench = false
