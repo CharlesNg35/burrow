@@ -63,7 +63,7 @@ impl Backend for Systemd {
             m.short()
         ));
         if !root {
-            s.push_str(&format!("User={}\nGroup={}\n", m.account, m.account));
+            s.push_str(&format!("User={}\n", m.account));
         }
         s.push_str(&format!(
             "ExecStart={} {} -c {} --log-file {}\n",

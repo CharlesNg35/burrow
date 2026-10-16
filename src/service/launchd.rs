@@ -64,7 +64,7 @@ fn plist(m: &Manifest, env: &BTreeMap<String, String>) -> String {
     s.push_str("  </array>\n");
     if m.account != "root" {
         s.push_str(&format!(
-            "  <key>UserName</key>\n  <string>{0}</string>\n  <key>GroupName</key>\n  <string>{0}</string>\n",
+            "  <key>UserName</key>\n  <string>{0}</string>\n",
             xml(&m.account)
         ));
     }
