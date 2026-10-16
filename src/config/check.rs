@@ -198,10 +198,9 @@ fn tuning(t: &TcpOptions) -> SocketTuning {
 }
 
 fn binds_conflict(a: SocketAddr, b: SocketAddr) -> bool {
-    a.port() == b.port()
-        && (a.ip() == b.ip()
-            || (a.ip().is_unspecified() && a.is_ipv4() == b.is_ipv4())
-            || (b.ip().is_unspecified() && a.is_ipv4() == b.is_ipv4()))
+    let covers =
+        |x: SocketAddr, y: SocketAddr| x.ip().is_unspecified() && (x.is_ipv6() || y.is_ipv4());
+    a.port() == b.port() && (a.ip() == b.ip() || covers(a, b) || covers(b, a))
 }
 
 fn parse_bind(bind: &Bind) -> Result<SocketAddr, String> {
@@ -248,7 +247,11 @@ pub fn check_server(
             }
         },
     };
-    if cfg.listen.is_none() && cfg.websocket.is_none() {
+    if cfg.listen.is_none()
+        && cfg.websocket.is_none()
+        && !spans.has(&["listen"])
+        && !spans.has(&["websocket"])
+    {
         out.push(
             Diagnostic::error("no-listener", "the server needs \"listen\" (TCP), \"websocket\", or both")
                 .help("add \"listen: 0.0.0.0:7835\" for TCP clients, or a websocket section for clients behind HTTP-only networks (see README)"),
@@ -728,6 +731,7 @@ pub fn check_client(
             None
         }
     };
+    let endpoint = endpoint.filter(|_| spans.has(&["server"]));
     let websocket = endpoint.as_ref().is_some_and(Endpoint::is_websocket);
     let headers = check_headers(cfg, spans, out);
     if !cfg.headers.is_empty() && !websocket && endpoint.is_some() {
@@ -950,5 +954,10 @@ mod tests {
         assert!(binds_conflict(a("10.0.0.1:80"), a("10.0.0.1:80")));
         assert!(!binds_conflict(a("10.0.0.1:80"), a("10.0.0.2:80")));
         assert!(!binds_conflict(a("0.0.0.0:80"), a("0.0.0.0:81")));
+        assert!(binds_conflict(a("0.0.0.0:80"), a("[::]:80")));
+        assert!(binds_conflict(a("[::]:80"), a("127.0.0.1:80")));
+        assert!(binds_conflict(a("[::1]:80"), a("[::]:80")));
+        assert!(!binds_conflict(a("0.0.0.0:80"), a("[::1]:80")));
+        assert!(!binds_conflict(a("127.0.0.1:80"), a("[::1]:80")));
     }
 }

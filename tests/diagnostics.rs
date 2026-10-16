@@ -831,10 +831,6 @@ fn client_server_without_port_uses_7835() {
 #[test]
 fn bad_listen_types_are_explained() {
     insta::assert_snapshot!(render("server.yaml", &format!("listen: [1]\nclients:\n  home:\n    secret: {SECRET}\nservices: {{}}\n"), None), @r#"
-    error: the server needs "listen" (TCP), "websocket", or both
-      --> server.yaml
-       = help: add "listen: 0.0.0.0:7835" for TCP clients, or a websocket section for clients behind HTTP-only networks (see README)
-
     error: "listen" in server config must be a whole number or a string, found a list
       --> server.yaml:1:9
        |
@@ -851,7 +847,7 @@ fn bad_listen_types_are_explained() {
              services:
                web: { client: NAME, bind: 0.0.0.0:7840, target: 127.0.0.1:80 }
 
-    server.yaml: 2 errors, 1 warning
+    server.yaml: 1 error, 1 warning
     "#);
 }
 
@@ -931,4 +927,27 @@ fn header_values_and_proxy_passwords_are_hidden() {
     for leak in ["tok-hidden-value", "hunter2"] {
         assert!(!text.contains(leak), "{leak} leaked:\n{text}");
     }
+}
+
+#[test]
+fn a_missing_server_does_not_cause_warnings_about_it() {
+    let text = render(
+        "client.yaml",
+        &format!("name: home\nsecret: {SECRET}\nallow: [127.0.0.0/8]\nheaders: {{X-A: b}}\n"),
+        Some(Role::Client),
+    );
+    assert!(text.contains("missing field \"server\""), "{text}");
+    assert!(!text.contains("ignored for a TCP server address"), "{text}");
+}
+
+#[test]
+fn ipv4_and_ipv6_wildcards_on_one_port_conflict() {
+    let text = render(
+        "server.yaml",
+        &server(
+            "  a: {client: home, bind: \"0.0.0.0:17840\", target: 3000}\n  b: {client: home, bind: \"[::]:17840\", target: 3001}\n",
+        ),
+        None,
+    );
+    assert!(text.contains("error"), "{text}");
 }
