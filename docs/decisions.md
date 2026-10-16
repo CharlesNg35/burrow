@@ -46,3 +46,33 @@ The server sends its heartbeat interval in the welcome message. The client times
 ## D9. Insecure plaintext still authenticates
 
 With `insecure_plaintext: true` on both sides, the Noise handshake still runs (so the secret is never exposed and auth stays strong), but data channels copy raw bytes after the hello. The mode is bound into the prologue, so a mismatch fails the handshake.
+
+## D10. Data plane: data-channel pool, not a multiplexed connection
+
+Evidence from code: frp turns yamux on by default (`tcpMux: true`), and chisel multiplexes SSH channels on one WebSocket. Both put every visitor behind one TCP flow-control window. rathole, like burrow, uses one TCP connection per visitor.
+
+Evidence from measurement (docs/benchmark.md): frp is the cleanest experiment, because multiplexing can be switched off in the same code. Without tcpMux, frp's 4-stream throughput rises from 9.3 to 38.3 Gbit/s and its p99 echo latency under a 2 Gbit/s background load drops from 694 to 425 µs (head-of-line blocking gone), but new connections per second fall from 10.4k to 2.9k, because each visitor waits for a fresh TLS connection. A pre-opened pool keeps the first benefit without the second cost: burrow does 35.1 Gbit/s, a p99 of 498 µs under the same load, and 13.8k connections/s.
+
+## D11. Record size: full 64 KiB Noise records for bulk data
+
+Measured with `bench/run.sh` (burrow only, 2 runs each). Single-stream iperf3 through the tunnel: 8 KiB chunks 7.7 Gbit/s, 16 KiB 10.1, 32 KiB 12.2, 65519 B (largest Noise message) 12.8. With 4 streams: 23.0, 28.5, 32.8, 34.7. Small-message latency was unchanged (p50 61 µs in every case) because short reads are sealed from a 512-byte stack buffer. Big buffers exist only while data is flowing: a pump drops them when the socket has no data ready, so idle connections hold no large buffers.
+
+## D12. Allocator: system malloc, not mimalloc
+
+With mimalloc: throughput unchanged (12.6 vs 12.8 Gbit/s single stream), new connections per second +3% (14.1k vs 13.7k), but RSS with 10k idle connections rose from 167 MB to 273 MB. The cost outweighs the gain, so the dependency was removed.
+
+## D13. insecure_plaintext copy path
+
+`tokio::io::copy` uses an 8 KiB buffer: 14 Gbit/s single stream, behind rathole's plain TCP (16). A 64 KiB buffer reached 33 Gbit/s (69 with 4 streams), but a `BufReader` would hold 64 KiB per direction for the life of the connection (about 2.6 GB at 10k idle connections). The raw pump therefore uses the same lazy scheme as the encrypted path. Same throughput, and 10k idle connections cost 172 MB, the same as encrypted mode. The 128 KiB record-reader buffer is also freed once the plaintext stream takes over.
+
+## D14. Listen backlog 4096
+
+std and mio listen with a backlog of 128. A burst of 300 visitors overflowed it (`TcpExtListenOverflows`, "Possible SYN flooding" in dmesg), and some visitors were reset. All listeners are now created with a backlog of 4096, capped by the kernel's `somaxconn`.
+
+## D15. Deferred: pinned-key NK mode and WebSocket transport
+
+NK with a pinned server key plus an inner token would be a second authentication mode next to NNpsk0, which already authenticates both sides without extra key material. Not worth the extra security surface. A WebSocket-over-TLS transport needs rustls, webpki roots and tungstenite on the client, roughly doubling the dependency tree and the pre-auth parsing surface, for networks that only allow HTTPS. HTTP CONNECT and SOCKS5 proxy support already covers many restricted networks. Both stay out until there is a concrete need. The transport is isolated in `handshake.rs` and `transport.rs`, so either can be added later behind a config option.
+
+## D16. Leak hardening
+
+Long-running behaviour is tested by state, not only by RSS. `tests/heavy.rs` churns TCP connections, UDP peers, client reconnects and reloads, and asserts that sessions, waiting visitors, UDP peers, open file descriptors and live tokio tasks return to their baseline after every round. This found and fixed: control-channel writer tasks that outlived a timed-out session, UDP relay tasks orphaned when their future was cancelled, stale pool waiters, client data channels that survived a client stop, and UDP peers that expired while traffic still flowed in one direction.
