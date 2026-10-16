@@ -14,10 +14,23 @@ pub async fn dial_tcp(
     timeout: Duration,
     resolver: &dyn Resolver,
 ) -> io::Result<TcpStream> {
+    let lookup = |host: &str| {
+        let host = host.to_string();
+        async move {
+            tokio::time::timeout(timeout, resolver.resolve(&host))
+                .await
+                .map_err(|_| {
+                    io::Error::new(
+                        io::ErrorKind::TimedOut,
+                        format!("looking up {host} timed out"),
+                    )
+                })?
+        }
+    };
     match proxy {
-        None => connect_any(&resolver.resolve(target).await?, timeout).await,
+        None => connect_any(&lookup(target).await?, timeout).await,
         Some(p) => {
-            let mut s = connect_any(&resolver.resolve(&p.addr).await?, timeout).await?;
+            let mut s = connect_any(&lookup(&p.addr).await?, timeout).await?;
             tokio::time::timeout(timeout, async {
                 match p.kind {
                     ProxyKind::Http => http_connect(&mut s, target, p).await,
@@ -141,4 +154,37 @@ async fn socks5_connect(s: &mut TcpStream, target: &str, p: &ProxyConfig) -> io:
     let mut rest = vec![0u8; skip];
     s.read_exact(&mut rest).await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod lookup_tests {
+    use super::*;
+    use crate::transport::resolve::Resolved;
+
+    struct Silent;
+
+    impl Resolver for Silent {
+        fn resolve<'a>(&'a self, _: &'a str) -> Resolved<'a> {
+            Box::pin(std::future::pending())
+        }
+    }
+
+    #[tokio::test]
+    async fn a_lookup_that_never_answers_times_out() {
+        let started = std::time::Instant::now();
+        let err = dial_tcp(
+            "myserver.example.com:7835",
+            None,
+            Duration::from_millis(200),
+            &Silent,
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::TimedOut);
+        assert!(
+            err.to_string()
+                .contains("looking up myserver.example.com:7835")
+        );
+        assert!(started.elapsed() < Duration::from_secs(2));
+    }
 }
