@@ -16,6 +16,7 @@ visitor ──> server:7840 ══ Noise-encrypted TCP or WebSocket ══ clien
 
 ## Contents
 
+- [Install](#install)
 - [Quickstart](#quickstart)
 - [Configuration](#configuration)
   - [server.yaml](#serveryaml)
@@ -29,32 +30,36 @@ visitor ──> server:7840 ══ Noise-encrypted TCP or WebSocket ══ clien
 - [Development](#development)
 - [License](#license)
 
+## Install
+
+Download the archive for your system from the [latest release](https://github.com/CharlesNg35/burrow/releases/latest) (checksums in `SHA256SUMS`), unpack it, and run `./burrow` from that folder (`.\burrow.exe` on Windows). Or use the [Docker](#docker) image.
+
 ## Quickstart
 
 On the public server:
 
 ```sh
-burrow init server                                                  # writes server.yaml
-burrow server                                                       # runs it
-burrow client-config --server myserver.example.com -o client.yaml  # the config for your client
+./burrow init server                                                  # writes server.yaml
+./burrow server                                                       # runs it
+./burrow client-config --server myserver.example.com -o client.yaml  # the config for your client
 ```
 
-Copy `client.yaml` to the machine behind NAT, then:
+On the machine behind NAT, [download burrow](#install) the same way, put `client.yaml` next to it, then:
 
 ```sh
-burrow client
+./burrow client
 ```
 
-The generated server listens for clients on TCP `7835` and exposes `0.0.0.0:7840` → the client's `127.0.0.1:3000`. Edit `services` in `server.yaml` and save; the server reloads by itself. To keep either side running across reboots, install it as a service: `sudo burrow service install` (see [Running as a service](#running-as-a-service)).
+The generated server listens for clients on TCP `7835` and exposes `0.0.0.0:7840` → the client's `127.0.0.1:3000`. Edit `services` in `server.yaml` and save; the server reloads by itself. To keep either side running across reboots, install it as a service: `sudo ./burrow service install` (see [Running as a service](#running-as-a-service)).
 
 Other commands:
 
 ```sh
-burrow validate -c server.yaml            # check a config without starting (exit 0 valid, 1 invalid, 2 usage)
-burrow client-config office --server myserver.example.com -o office.yaml   # config for another client
-burrow gensecret                          # new 256-bit secret
-burrow schema server > server.schema.json # JSON Schema for editor completion
-burrow completions bash > /etc/bash_completion.d/burrow
+./burrow validate -c server.yaml            # check a config without starting (exit 0 valid, 1 invalid, 2 usage)
+./burrow client-config office --server myserver.example.com -o office.yaml   # config for another client
+./burrow gensecret                          # new 256-bit secret
+./burrow schema server > server.schema.json # JSON Schema for editor completion
+./burrow completions bash                   # shell completions: bash, zsh, fish, powershell, elvish
 ```
 
 <details>
@@ -66,7 +71,7 @@ burrow completions bash > /etc/bash_completion.d/burrow
 2. `public_address: myserver.example.com` in `server.yaml`, so you type it once for all your clients
 3. neither: `client-config` stops and tells you to set one of them
 
-Give the host alone and the port is taken from `listen`; add `:PORT` only when a router forwards a different one. For a WebSocket-only server, the host alone becomes `wss://HOST/burrow`. `burrow init server --server myserver.example.com` writes `public_address` for you. The client name can be left out when the server defines only one client.
+Give the host alone and the port is taken from `listen`; add `:PORT` only when a router forwards a different one. For a WebSocket-only server, the host alone becomes `wss://HOST/burrow`. `./burrow init server --server myserver.example.com` writes `public_address` for you. The client name can be left out when the server defines only one client.
 
 | `--server` or `public_address` | result                                                          |
 | ------------------------------ | --------------------------------------------------------------- |
@@ -167,7 +172,7 @@ allow:
 If the server sits behind nginx, Caddy, Cloudflare or a Kubernetes ingress and only HTTP(S) is open in the firewall, clients can connect over WebSocket. Nothing about it runs unless you turn it on:
 
 ```sh
-burrow init server --ws --server tunnel.example.com   # no TCP control port; WebSocket on 127.0.0.1:7836/burrow
+./burrow init server --ws --server tunnel.example.com   # no TCP control port; WebSocket on 127.0.0.1:7836/burrow
 ```
 
 ```yaml
@@ -302,7 +307,7 @@ Bind `websocket.listen` to `0.0.0.0:7836` inside the pod so the Service can reac
 Give burrow a certificate and key (for example from Let's Encrypt):
 
 ```sh
-burrow init server \
+./burrow init server \
   --ws-tls-cert /etc/letsencrypt/live/tunnel.example.com/fullchain.pem \
   --ws-tls-key  /etc/letsencrypt/live/tunnel.example.com/privkey.pem \
   --server tunnel.example.com
@@ -337,12 +342,14 @@ A client keeps retrying until it is stopped: exponential backoff with jitter (25
 `burrow service` installs a server or client into the system service manager (systemd on Linux, launchd on macOS, the Service Control Manager on Windows), so it starts at boot and restarts after a failure. It needs administrator rights.
 
 ```sh
-sudo burrow service install -c server.yaml   # or run it in the folder that holds server.yaml
-burrow service status                        # state, version, account, the last log lines
-sudo burrow service logs -f                  # follow the log
-sudo burrow service restart                  # also: start, stop, reload, uninstall [--purge]
+sudo ./burrow service install -c server.yaml   # or run it in the folder that holds server.yaml
+burrow service status                          # state, version, account, the last log lines
+sudo burrow service logs -f                    # follow the log
+sudo burrow service restart                    # also: start, stop, reload, uninstall [--purge]
 burrow service list
 ```
+
+On Linux and macOS, `install` copies the binary to `/usr/local/bin`, so after it `burrow` works from any folder, as in the commands above. On Windows, run them as `.\burrow.exe` from the download folder.
 
 What `install` does:
 
@@ -354,7 +361,7 @@ What `install` does:
 
 The service name comes from the config file name (`server.yaml` → `burrow-server`) or `--name`. You can install several servers and clients side by side. The same tunnel cannot run twice: a second copy of a server config, or a second client with the same name for the same server, is refused while the first one runs, whether it was started as a service or by hand.
 
-Variables used as `${VAR}` in the config are saved for the service at install time, readable by it only. `sudo` drops environment variables, so keep them with `sudo --preserve-env=HOME_SECRET burrow service install`; the install says so if one is missing.
+Variables used as `${VAR}` in the config are saved for the service at install time, readable by it only. `sudo` drops environment variables, so keep them with `sudo --preserve-env=HOME_SECRET ./burrow service install`; the install says so if one is missing.
 
 To update, download the new binary and run `sudo ./burrow service update`. It replaces the installed binary, restarts every service that uses it, and puts the old binary back if a service does not come up again. The same version or an older one is left alone (`--force` to replace it anyway). A binary installed by a package manager is upgraded there instead.
 
