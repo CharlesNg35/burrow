@@ -2,6 +2,13 @@
 name = "burrow"
 version = "0.1.0"
 edition = "2024"
+description = "Fast, secure, lightweight reverse tunnel"
+license = "MIT"
+repository = "https://github.com/charlesng35/burrow"
+readme = "README.md"
+keywords = ["tunnel", "nat", "reverse-proxy", "noise"]
+categories = ["command-line-utilities", "network-programming"]
+publish = false
 
 [dependencies]
 base64 = "0.23.1"
