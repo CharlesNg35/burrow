@@ -103,11 +103,30 @@ pub struct ParseError {
     pub span: Span,
 }
 
-fn pos(m: saphyr_parser::Marker) -> Pos {
-    Pos {
-        offset: m.index(),
-        line: m.line(),
-        col: m.col() + 1,
+struct Lines<'a> {
+    src: &'a str,
+    starts: Vec<usize>,
+}
+
+impl<'a> Lines<'a> {
+    fn new(src: &'a str) -> Self {
+        let mut starts = vec![0];
+        starts.extend(src.match_indices('\n').map(|(i, _)| i + 1));
+        Lines { src, starts }
+    }
+
+    fn pos(&self, m: saphyr_parser::Marker) -> Pos {
+        let line = m.line().max(1);
+        let start = self.starts.get(line - 1).copied().unwrap_or(self.src.len());
+        let offset = self.src[start..]
+            .char_indices()
+            .nth(m.col())
+            .map_or(self.src.len(), |(i, _)| start + i);
+        Pos {
+            offset,
+            line: m.line(),
+            col: m.col() + 1,
+        }
     }
 }
 
@@ -122,11 +141,12 @@ pub fn parse(src: &str) -> Result<Node, Vec<ParseError>> {
     let mut errors = Vec::new();
     let mut documents = 0;
 
+    let lines = Lines::new(src);
     for item in Parser::new_from_str(src) {
         let (event, span) = match item {
             Ok(v) => v,
             Err(e) => {
-                let p = pos(*e.marker());
+                let p = lines.pos(*e.marker());
                 errors.push(ParseError {
                     message: format!("invalid syntax: {}", e.info()),
                     span: Span::point(p),
@@ -135,8 +155,8 @@ pub fn parse(src: &str) -> Result<Node, Vec<ParseError>> {
             }
         };
         let span = Span {
-            start: pos(span.start),
-            end: pos(span.end),
+            start: lines.pos(span.start),
+            end: lines.pos(span.end),
         };
         let node = match event {
             Event::DocumentStart(_) => {
@@ -276,6 +296,18 @@ fn plain(text: &str) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn offsets_are_bytes_with_multibyte_text() {
+        let src = "a: \"ƿƿ\"\nb: é1\n";
+        let n = parse(src).unwrap();
+        let b = n.entry("b").unwrap();
+        assert_eq!(
+            &src[b.value.span.start.offset..b.value.span.end.offset],
+            "é1"
+        );
+        assert_eq!(b.value.span.start.col, 4);
+    }
 
     #[test]
     fn positions_are_one_based() {

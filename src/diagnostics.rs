@@ -216,9 +216,11 @@ impl Report {
         if span.start.line == 0 {
             return None;
         }
-        let start = self.source[..span.start.offset.min(self.source.len())]
-            .rfind('\n')
-            .map_or(0, |i| i + 1);
+        let mut at = span.start.offset.min(self.source.len());
+        while !self.source.is_char_boundary(at) {
+            at -= 1;
+        }
+        let start = self.source[..at].rfind('\n').map_or(0, |i| i + 1);
         let end = self.source[start..]
             .find('\n')
             .map_or(self.source.len(), |i| start + i);
