@@ -9,6 +9,7 @@ $Loadgen = Join-Path $Out "examples/loadgen.exe"
 $Work = Join-Path ([IO.Path]::GetTempPath()) ("burrow-e2e-" + [guid]::NewGuid())
 New-Item -ItemType Directory $Work | Out-Null
 $Echo = $null
+$Passed = $false
 
 function Burrow { $ErrorActionPreference = "Continue"; & $B @args 2>&1 | Out-String }
 function Check($msg) { Write-Host "  ok: $msg" }
@@ -128,6 +129,7 @@ try {
   if ($left) { Fail "still there: $left" }
   Check "nothing left behind"
   Write-Host "service end-to-end checks passed"
+  $Passed = $true
 }
 catch {
   if ($env:GITHUB_ACTIONS) {
@@ -143,3 +145,4 @@ finally {
   Set-Location $Root
   Remove-Item -Recurse -Force $Work -ErrorAction SilentlyContinue
 }
+if ($Passed) { exit 0 } else { exit 1 }
