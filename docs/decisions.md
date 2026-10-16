@@ -76,3 +76,24 @@ NK with a pinned server key plus an inner token would be a second authentication
 ## D16. Leak hardening
 
 Long-running behaviour is tested by state, not only by RSS. `tests/heavy.rs` churns TCP connections, UDP peers, client reconnects and reloads, and asserts that sessions, waiting visitors, UDP peers, open file descriptors and live tokio tasks return to their baseline after every round. This found and fixed: control-channel writer tasks that outlived a timed-out session, UDP relay tasks orphaned when their future was cancelled, stale pool waiters, client data channels that survived a client stop, and UDP peers that expired while traffic still flowed in one direction.
+
+## D17. WebSocket transport, opt-in
+
+Some servers can only be reached through an HTTP(S) reverse proxy or a CDN. For those, clients connect over WebSocket (RFC 6455) instead of raw TCP. The feature is off unless the server config has a `websocket` section, and a server configured for WebSocket only opens no TCP control port.
+
+- **WebSocket over HTTP/1.1, not HTTP/2 streams or gRPC.** It passes through every common proxy and through Cloudflare. HTTP/2 extended CONNECT (RFC 8441) is rarely supported by proxies.
+- **One WebSocket per data channel, taken from the same pool.** This keeps the head-of-line properties of D10. shellcn multiplexes yamux over a single WebSocket; burrow does not.
+- **Noise runs inside the WebSocket.** A TLS-terminating proxy only sees Noise records, and the URL, path and headers grant nothing.
+- **No MASQUE (RFC 9298).** CONNECT-UDP needs an HTTP proxy that relays UDP itself, mostly over HTTP/3. burrow already carries each datagram as its own record inside a data channel, so UDP services work over WebSocket unchanged, with the usual UDP-over-TCP latency on packet loss.
+- **Keepalive.** Proxies close idle WebSockets (nginx after 60 s by default, Cloudflare after 100 s), and some only count data frames. The server therefore sends an encrypted keepalive record on idle pooled channels every 25 s. A test with an idle-killing proxy fails without it.
+- **Crate: tokio-websockets 0.13** (strict RFC compliance, maintained, can use the `ring` backend burrow already ships), plus tokio-rustls, webpki-roots and httparse. The request head is parsed before the upgrade, so wrong paths are refused with 404 and nothing else is exposed.
+- **Optional own TLS** (`websocket.tls.cert`/`key`), for servers without a proxy. Clients trust the public roots plus an optional `ca` file.
+- **Cost, measured** (bench/run.sh, loopback): 91-93% of the TCP throughput (11.9 vs 13.0 Gbit/s single stream), 12.2k vs 13.9k new connections per second, and 2x the idle memory at 10k connections (353 vs 180 MB), from the library's per-connection frame buffers. That is still well below frp (777 MB) and rathole with Noise (2788 MB).
+
+## D18. Reconnect: never give up by default
+
+Clients retry forever with jittered backoff (250 ms up to 30 s, reset after 10 s of stable connection). DNS is re-resolved on every attempt, so moving the server and updating DNS needs no client change. Addresses are dialed with Happy Eyeballs (RFC 8305: interleaved families, the next attempt 250 ms after the previous one, first success wins), so a stale or black-holed address costs 250 ms instead of the whole connect timeout. During an outage the client logs the first failure and then a summary once a minute. `reconnect.give_up_after_secs` and `reconnect.on_rejected: exit` exist for setups where a supervisor should notice; neither is written by `init`. A rejected client keeps retrying by default, so fixing the server config later brings it back without touching the client machine.
+
+## D19. Default ports 7835-7840
+
+2333 is rathole's default, and 8080, 8081 and 8443 are among the most used ports on any host. burrow uses its own block, none of which is in the services database: 7835 for TCP clients, 7836 for WebSocket behind a proxy (bound to 127.0.0.1), 7837 for WebSocket with its own TLS, and 7840 for the example service written by `init`.

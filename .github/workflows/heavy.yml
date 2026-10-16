@@ -12,6 +12,11 @@ on:
       chaos_secs:
         description: Chaos test duration in seconds
         default: "120"
+      transport:
+        description: Carrier between client and server
+        type: choice
+        options: [tcp, ws]
+        default: tcp
 
 permissions:
   contents: read
@@ -28,6 +33,7 @@ jobs:
           BURROW_SOAK_SECS: ${{ inputs.soak_secs }}
           BURROW_HEAVY_CONNS: ${{ inputs.connections }}
           BURROW_CHAOS_SECS: ${{ inputs.chaos_secs }}
+          BURROW_TEST_TRANSPORT: ${{ inputs.transport }}
         run: |
           ulimit -n "$(ulimit -Hn)"
           cargo test --locked --release --test heavy -- --ignored --nocapture --test-threads 1
