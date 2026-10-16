@@ -436,15 +436,20 @@ impl Server {
             .cloned()
             .collect();
         for s in sessions {
-            if !next.clients.contains_key(&s.name) {
+            let why = match next.clients.get(&s.name) {
+                None => Some("removed from the config"),
+                Some(c) if !c.secrets.contains(&s.secret) => Some("its secret was removed"),
+                Some(_) => None,
+            };
+            if let Some(why) = why {
                 info!(
-                    "client \"{}\" removed from the config, disconnecting it",
+                    "client \"{}\" {why}, disconnecting it and its open connections",
                     s.name
                 );
                 let _ = s.control.try_send(ServerMsg::Bye {
                     reason: ByeReason::Removed,
                 });
-                s.close();
+                s.revoke();
                 self.shared
                     .sessions
                     .lock()

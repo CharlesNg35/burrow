@@ -109,7 +109,15 @@ async fn visit(
         service: name.clone(),
         target: svc.target.clone(),
     };
-    match server_tcp(ch, visitor, &connect, settings.insecure_plaintext).await {
+    let forward = server_tcp(ch, visitor, &connect, settings.insecure_plaintext);
+    let result = tokio::select! {
+        r = forward => r,
+        _ = session.revoked() => {
+            debug!(%peer, "service \"{name}\": client \"{}\" was revoked, closing", svc.client);
+            return;
+        }
+    };
+    match result {
         Ok(()) => debug!(%peer, "service \"{name}\": connection closed"),
         Err(ForwardError::Status(st)) => log_status(&name, &svc, st),
         Err(ForwardError::Protocol) => warn!("service \"{name}\": client sent an invalid reply"),

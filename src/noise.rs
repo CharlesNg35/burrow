@@ -65,6 +65,7 @@ impl Initiator {
 
 pub struct Responder {
     state: HandshakeState,
+    secret: usize,
 }
 
 impl Responder {
@@ -86,12 +87,16 @@ impl Responder {
             let mut scratch = [0u8; MSG1_LEN];
             let ok = state.read_message(msg1, &mut scratch).is_ok();
             if ok && accepted.is_none() && i < candidates.len() {
-                accepted = Some(state);
+                accepted = Some((state, i));
             }
         }
         accepted
-            .map(|state| Responder { state })
+            .map(|(state, secret)| Responder { state, secret })
             .ok_or(HandshakeError::Rejected)
+    }
+
+    pub fn secret_index(&self) -> usize {
+        self.secret
     }
 
     pub fn reply(mut self) -> Result<(Session, [u8; MSG2_LEN]), HandshakeError> {

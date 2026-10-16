@@ -11,7 +11,10 @@ use crate::protocol::{ByeReason, ServerMsg, TOKEN_LEN};
 
 pub(super) async fn control_session(shared: Arc<Shared>, acc: Accepted, peer: SocketAddr) {
     let Accepted {
-        preamble, channel, ..
+        preamble,
+        channel,
+        secret,
+        ..
     } = acc;
     let name = preamble.name.clone();
     let settings = shared.settings();
@@ -43,6 +46,7 @@ pub(super) async fn control_session(shared: Arc<Shared>, acc: Accepted, peer: So
         name.clone(),
         token,
         tx,
+        secret,
         &Shared::pool_config(&settings),
     ));
     let old = shared

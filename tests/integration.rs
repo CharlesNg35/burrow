@@ -524,3 +524,88 @@ async fn stopping_the_client_closes_its_data_channels() {
         "a stopped client must not keep relaying"
     );
 }
+
+async fn open_echo(t: &Tunnel) -> TcpStream {
+    let mut conn = TcpStream::connect(t.server.services["web"]).await.unwrap();
+    conn.write_all(b"ping").await.unwrap();
+    let mut buf = [0u8; 4];
+    conn.read_exact(&mut buf).await.unwrap();
+    assert_eq!(&buf, b"ping");
+    conn
+}
+
+async fn assert_cut(mut conn: TcpStream) {
+    let ended = tokio::time::timeout(Duration::from_secs(5), async {
+        let _ = conn.write_all(b"more").await;
+        let mut buf = [0u8; 4];
+        conn.read_exact(&mut buf).await.is_err()
+    })
+    .await;
+    assert_eq!(ended, Ok(true), "the open connection must be closed");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn removing_a_client_closes_its_open_connections() {
+    let echo = echo_server().await;
+    let secret = Secret::generate();
+    let settings = server_settings(vec![secret.clone()]);
+    let mut t = tunnel_with(
+        settings.clone(),
+        vec![("web", service(echo, Protocol::Tcp))],
+        |c| c,
+        secret,
+    )
+    .await;
+    let conn = open_echo(&t).await;
+    let mut next = settings;
+    next.clients.clear();
+    t.server.reload(next).await;
+    wait_state(&mut t.client.state, State::Rejected).await;
+    assert_cut(conn).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn removing_the_secret_in_use_closes_its_open_connections() {
+    let echo = echo_server().await;
+    let secret = Secret::generate();
+    let settings = server_settings(vec![secret.clone()]);
+    let t = tunnel_with(
+        settings.clone(),
+        vec![("web", service(echo, Protocol::Tcp))],
+        |c| c,
+        secret,
+    )
+    .await;
+    let conn = open_echo(&t).await;
+    let mut next = settings;
+    next.services
+        .insert("web".into(), service(echo, Protocol::Tcp));
+    next.clients.get_mut("home").unwrap().secrets = vec![Secret::generate()];
+    t.server.reload(next).await;
+    assert_cut(conn).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn adding_a_secret_keeps_open_connections() {
+    let echo = echo_server().await;
+    let secret = Secret::generate();
+    let settings = server_settings(vec![secret.clone()]);
+    let t = tunnel_with(
+        settings.clone(),
+        vec![("web", service(echo, Protocol::Tcp))],
+        |c| c,
+        secret.clone(),
+    )
+    .await;
+    let mut conn = open_echo(&t).await;
+    let mut next = settings;
+    next.services
+        .insert("web".into(), service(echo, Protocol::Tcp));
+    next.clients.get_mut("home").unwrap().secrets = vec![secret, Secret::generate()];
+    t.server.reload(next).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    conn.write_all(b"pong").await.unwrap();
+    let mut buf = [0u8; 4];
+    conn.read_exact(&mut buf).await.unwrap();
+    assert_eq!(&buf, b"pong");
+}

@@ -88,6 +88,7 @@ pub struct Accepted {
     pub preamble: Preamble,
     pub hello: Hello,
     pub channel: Channel,
+    pub secret: Secret,
 }
 
 pub async fn accept<F>(mut stream: Conn, secrets_for: F) -> Result<Accepted, AcceptError>
@@ -106,6 +107,7 @@ where
     let candidates = secrets_for(&preamble.name);
     let responder = Responder::accept(preamble.cipher, &candidates, &preamble.prologue(), msg1)
         .map_err(|_| AcceptError::Rejected)?;
+    let secret = candidates[responder.secret_index()].clone();
     drop(candidates);
     let (session, msg2) = responder.reply().map_err(|_| AcceptError::Rejected)?;
     stream.write_all(&msg2).await?;
@@ -122,6 +124,7 @@ where
             writer: RecordWriter::new(sealer),
             reader,
         },
+        secret,
     })
 }
 

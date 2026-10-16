@@ -8,6 +8,7 @@ use tokio::sync::{mpsc, oneshot, watch};
 
 use crate::handshake::Channel;
 use crate::protocol::{KEEPALIVE_RECORD, ServerMsg, TOKEN_LEN};
+use crate::secret::Secret;
 use tokio::io::AsyncReadExt;
 
 pub struct PoolConfig {
@@ -35,8 +36,10 @@ pub struct ClientSession {
     pub token: [u8; TOKEN_LEN],
     pub control: mpsc::Sender<ServerMsg>,
     pub active: AtomicUsize,
+    pub secret: Secret,
     pool: Mutex<Pool>,
     closed: watch::Sender<bool>,
+    revoked: watch::Sender<bool>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -53,6 +56,7 @@ impl ClientSession {
         name: String,
         token: [u8; TOKEN_LEN],
         control: mpsc::Sender<ServerMsg>,
+        secret: Secret,
         cfg: &PoolConfig,
     ) -> Self {
         let now = Instant::now();
@@ -61,7 +65,9 @@ impl ClientSession {
             token,
             control,
             active: AtomicUsize::new(0),
+            secret,
             closed: watch::Sender::new(false),
+            revoked: watch::Sender::new(false),
             pool: Mutex::new(Pool {
                 idle: VecDeque::new(),
                 waiters: VecDeque::new(),
@@ -188,6 +194,16 @@ impl ClientSession {
         let mut p = self.pool.lock().expect("pool lock");
         p.idle.clear();
         p.waiters.clear();
+    }
+
+    pub fn revoke(&self) {
+        self.revoked.send_replace(true);
+        self.close();
+    }
+
+    pub async fn revoked(&self) {
+        let mut rx = self.revoked.subscribe();
+        let _ = rx.wait_for(|r| *r).await;
     }
 
     pub async fn closed(&self) {
