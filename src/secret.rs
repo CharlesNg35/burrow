@@ -27,7 +27,14 @@ impl SecretError {
         match self {
             SecretError::Empty => "is empty".into(),
             SecretError::NotDecodable { chars } => {
-                format!("is not valid base64 or hex ({chars} characters)")
+                format!(
+                    "is not valid base64 or hex ({chars} {})",
+                    if *chars == 1 {
+                        "character"
+                    } else {
+                        "characters"
+                    }
+                )
             }
             SecretError::WrongLength { bytes } if *bytes < SECRET_LEN => {
                 format!("is too short ({bytes} bytes, need {SECRET_LEN})")

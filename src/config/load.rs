@@ -271,16 +271,19 @@ pub fn load_str(
     checker.diagnostics.into_iter().for_each(|d| report.push(d));
 
     let mut pruned = root.clone();
-    let mut semantic = true;
+    let mut semantic = matches!(root.value, Value::Map(_));
     if !structural_ok {
         for path in &prune {
             if path.is_empty() {
-                semantic = false;
+                fill_root_placeholders(&mut pruned, role);
             } else {
                 remove_path(&mut pruned, path);
             }
         }
         drop_pruned_items(&mut pruned);
+        if !matches!(pruned.value, Value::Map(_)) {
+            semantic = false;
+        }
     }
 
     if role == Role::Server {
@@ -316,10 +319,16 @@ pub fn load_str(
                 }
             },
         }
+        let raw_len = |key: &str| match root.get(key).map(|n| &n.value) {
+            Some(Value::Map(m)) => m.len(),
+            _ => 0,
+        };
         for d in sem {
             let hidden = d
                 .span
-                .is_some_and(|s| env_spans.iter().any(|e| within(s, *e)));
+                .is_some_and(|s| env_spans.iter().any(|e| within(s, *e)))
+                || (d.code == "no-services" && raw_len("services") > 0)
+                || (d.code == "no-clients" && raw_len("clients") > 0);
             if !hidden {
                 report.push(d);
             }
@@ -334,6 +343,33 @@ pub fn load_str(
         report,
         role: Some(role),
         loaded,
+    }
+}
+
+fn fill_root_placeholders(node: &mut Node, role: Role) {
+    let Value::Map(entries) = &mut node.value else {
+        return;
+    };
+    let placeholders: Vec<(&str, String)> = match role {
+        Role::Server => vec![("listen", "127.0.0.254:1".into())],
+        Role::Client => vec![
+            ("server", "placeholder.invalid:1".into()),
+            ("name", "placeholder".into()),
+            ("secret", crate::secret::Secret::generate().encode()),
+        ],
+    };
+    for (key, value) in placeholders {
+        if !entries.iter().any(|e| e.key == key) {
+            entries.push(tree::Entry {
+                key: key.to_string(),
+                key_span: Span::default(),
+                value: Node {
+                    value: Value::Str(value),
+                    span: Span::default(),
+                    quoted: true,
+                },
+            });
+        }
     }
 }
 

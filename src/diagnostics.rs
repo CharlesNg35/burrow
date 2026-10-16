@@ -167,11 +167,11 @@ impl Report {
             style.paint("1", ":"),
             style.paint("1", &d.message)
         );
-        let line_no = d.span.map(|s| s.start.line).unwrap_or(0);
+        let line_no = d.span.map_or(0, |s| s.start.line);
         let gutter = line_no.to_string().len().max(2);
         let pad = " ".repeat(gutter);
         let bar = style.paint("1;34", "|");
-        match d.span {
+        match d.span.filter(|s| s.start.line > 0) {
             Some(span) => {
                 let _ = writeln!(
                     out,
@@ -280,10 +280,12 @@ impl Report {
 fn caret_width(line: &str, span: Span) -> usize {
     let len = line.chars().count();
     let start = span.start.col.saturating_sub(1);
-    let end = if span.end.line == span.start.line && span.end.col > span.start.col {
+    let end = if span.end.line != span.start.line {
+        len
+    } else if span.end.col > span.start.col {
         span.end.col - 1
     } else {
-        len
+        start + 1
     };
     end.min(len).saturating_sub(start).max(1)
 }

@@ -69,11 +69,13 @@ impl<'a> Checker<'a> {
                     node.kind()
                 ),
             };
-            self.diagnostics.push(
-                Diagnostic::error("not-a-mapping", msg)
-                    .at(node.span)
-                    .help("start with \"listen: 0.0.0.0:2333\" (server) or \"server: host:2333\" (client), or run: burrow init"),
-            );
+            let mut d = Diagnostic::error("not-a-mapping", msg)
+                .help("start with \"listen: 0.0.0.0:2333\" (server) or \"server: host:2333\" (client), or run: burrow init");
+            if node.span.start.line > 0 {
+                d = d.at(node.span);
+            }
+            self.diagnostics.push(d);
+            self.prune.push(Vec::new());
             return;
         }
         self.node(self.root, node, &ctx);
@@ -216,6 +218,7 @@ impl<'a> Checker<'a> {
             .and_then(J::as_object)
             .unwrap_or(&EMPTY);
         let additional = schema.get("additionalProperties");
+        let prune_before = self.prune.len();
         for e in entries {
             let child = ctx.child(&e.key, e.key_span);
             if let Some(p) = props.get(&e.key) {
@@ -227,6 +230,24 @@ impl<'a> Checker<'a> {
                 Some(s @ J::Object(_)) => self.node(s, &e.value, &child),
                 _ => {}
             }
+        }
+        let required_names: Vec<&str> = schema
+            .get("required")
+            .and_then(J::as_array)
+            .map(|r| r.iter().filter_map(J::as_str).collect())
+            .unwrap_or_default();
+        let own = ctx.path();
+        let mut lost_required = false;
+        for p in &mut self.prune[prune_before..] {
+            if p.len() == own.len() + 1
+                && p.starts_with(&own)
+                && required_names.contains(&p[own.len()].as_str())
+            {
+                lost_required = true;
+            }
+        }
+        if lost_required {
+            self.prune.push(own);
         }
         if let Some(required) = schema.get("required").and_then(J::as_array) {
             for name in required.iter().filter_map(J::as_str) {
@@ -286,15 +307,16 @@ impl<'a> Checker<'a> {
             .get("minimum")
             .and_then(J::as_i64)
             .map_or(fmt_min, |m| m.max(fmt_min));
-        let max = schema
-            .get("maximum")
-            .and_then(J::as_i64)
-            .map_or(fmt_max, |m| m.min(fmt_max));
+        let explicit_max = schema.get("maximum").and_then(J::as_i64);
+        let max = explicit_max.map_or(fmt_max, |m| m.min(fmt_max));
         if value < min || value > max {
-            let bounds = if max == i64::MAX {
-                format!("at least {min}")
+            let (bounds, help) = if explicit_max.is_none() && value < min {
+                (format!("at least {min}"), format!("use {min} or more"))
             } else {
-                format!("between {min} and {max}")
+                (
+                    format!("between {min} and {max}"),
+                    format!("use a value between {min} and {max}"),
+                )
             };
             self.diagnostics.push(
                 Diagnostic::error(
@@ -307,7 +329,7 @@ impl<'a> Checker<'a> {
                 )
                 .at(node.span)
                 .label(format!("must be {bounds}"))
-                .help(format!("use a value {bounds}")),
+                .help(help),
             );
             self.prune.push(ctx.path());
         }
@@ -399,6 +421,8 @@ fn type_help(types: &[&str], node: &Node) -> String {
             format!("remove the quotes: {s}")
         }
         (Value::Null, _) => "give it a value, or remove the line".into(),
+        (Value::Seq(_), t) if !t.contains(&"array") => "use a single value, not a list".into(),
+        (Value::Map(_), t) if !t.contains(&"object") => "use a single value, not a mapping".into(),
         (_, t) if t.contains(&"object") => {
             "write it as an indented block of \"key: value\" lines".into()
         }
