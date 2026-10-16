@@ -85,10 +85,13 @@ async fn visit(
         Ok(Ok(ch)) => ch,
         Ok(Err(TakeError::TooManyPending)) => {
             shared.rejected.fetch_add(1, Ordering::Relaxed);
-            warn!(
-                "service \"{name}\": too many visitors waiting for client \"{}\", dropping one",
-                svc.client
-            );
+            static WAITING: super::Throttle = super::Throttle::new();
+            if let Some(more) = WAITING.allow() {
+                warn!(
+                    "service \"{name}\": too many visitors waiting for client \"{}\", dropping one{more}",
+                    svc.client
+                );
+            }
             return;
         }
         Ok(Err(TakeError::Closed)) => {
@@ -96,11 +99,14 @@ async fn visit(
             return;
         }
         Err(_) => {
-            warn!(
-                "service \"{name}\": client \"{}\" did not open a data channel within {}s",
-                svc.client,
-                TAKE_TIMEOUT.as_secs()
-            );
+            static SLOW: super::Throttle = super::Throttle::new();
+            if let Some(more) = SLOW.allow() {
+                warn!(
+                    "service \"{name}\": client \"{}\" did not open a data channel within {}s{more}",
+                    svc.client,
+                    TAKE_TIMEOUT.as_secs()
+                );
+            }
             return;
         }
     };
@@ -126,20 +132,29 @@ async fn visit(
 }
 
 pub(super) fn log_status(name: &str, svc: &Service, st: Status) {
+    static STATUS: super::Throttle = super::Throttle::new();
+    if st == Status::Ok {
+        return;
+    }
+    let Some(more) = STATUS.allow() else {
+        return;
+    };
     let client = &svc.client;
     let target = &svc.target;
     match st {
         Status::Denied => warn!(
-            "service \"{name}\": client \"{client}\" refused {target} because it is not in its allow list (add it to \"allow\" in the client config)"
+            "service \"{name}\": client \"{client}\" refused {target} because it is not in its allow list (add it to \"allow\" in the client config){more}"
         ),
         Status::Unreachable => warn!(
-            "service \"{name}\": client \"{client}\" could not connect to {target} (is it running and reachable from the client?)"
+            "service \"{name}\": client \"{client}\" could not connect to {target} (is it running and reachable from the client?){more}"
         ),
         Status::Unresolved => {
-            warn!("service \"{name}\": client \"{client}\" could not resolve {target}")
+            warn!("service \"{name}\": client \"{client}\" could not resolve {target}{more}")
         }
         Status::Invalid => {
-            warn!("service \"{name}\": client \"{client}\" rejected the target {target} as invalid")
+            warn!(
+                "service \"{name}\": client \"{client}\" rejected the target {target} as invalid{more}"
+            )
         }
         Status::Ok => {}
     }

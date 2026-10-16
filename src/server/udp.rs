@@ -237,7 +237,10 @@ async fn relay(
                 };
                 gauge.set(count);
                 let Some(id) = id else {
-                    warn!("service \"{name}\": too many UDP peers ({MAX_PEERS}), dropping datagram from {from}");
+                    static FULL: super::Throttle = super::Throttle::new();
+                    if let Some(more) = FULL.allow() {
+                        warn!("service \"{name}\": too many UDP peers ({MAX_PEERS}), dropping datagram from {from}{more}");
+                    }
                     continue;
                 };
                 encode_datagram(id, &buf[..n], &mut rec);
