@@ -57,3 +57,30 @@ impl fmt::Display for Failure {
 }
 
 impl std::error::Error for Failure {}
+
+pub fn io_reason(e: &std::io::Error) -> String {
+    use std::io::ErrorKind as K;
+    let s = match e.kind() {
+        K::ConnectionRefused => "connection refused",
+        K::ConnectionReset => "connection reset",
+        K::ConnectionAborted => "connection aborted",
+        K::TimedOut => "timed out",
+        K::NotFound => "host not found",
+        K::AddrInUse => "address already in use",
+        K::AddrNotAvailable => "address not available",
+        K::PermissionDenied => "permission denied",
+        K::UnexpectedEof => "connection closed unexpectedly",
+        K::BrokenPipe => "connection closed",
+        K::HostUnreachable => "host unreachable",
+        K::NetworkUnreachable => "network unreachable",
+        _ => {
+            let text = e.to_string();
+            return text
+                .split(" (os error")
+                .next()
+                .unwrap_or(&text)
+                .to_lowercase();
+        }
+    };
+    s.to_string()
+}

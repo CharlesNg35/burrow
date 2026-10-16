@@ -11,6 +11,7 @@ use crate::allowlist::AllowList;
 use crate::config::check::parse_host_port;
 use crate::config::model::Protocol;
 use crate::config::settings::ClientSettings;
+use crate::failure::io_reason;
 use crate::forward::{client_tcp, refuse};
 use crate::handshake::Channel;
 use crate::net::{connect_any, resolve, tune};
@@ -59,8 +60,10 @@ pub async fn serve(settings: Arc<ClientSettings>, mut ch: Channel) {
                 Ok(t) => t,
                 Err(e) => {
                     warn!(
-                        "service \"{}\": cannot connect to {} ({e}); is it running?",
-                        connect.service, connect.target
+                        "service \"{}\": cannot connect to {} ({}); is it running?",
+                        connect.service,
+                        connect.target,
+                        io_reason(&e)
                     );
                     refuse(ch, Status::Unreachable).await;
                     return;
@@ -86,8 +89,10 @@ async fn permitted(
         Ok(a) => a,
         Err(e) => {
             warn!(
-                "service \"{}\": cannot resolve {} ({e})",
-                connect.service, connect.target
+                "service \"{}\": cannot resolve {} ({})",
+                connect.service,
+                connect.target,
+                io_reason(&e)
             );
             return Err(Status::Unresolved);
         }

@@ -7,6 +7,7 @@ use tokio::sync::{Semaphore, watch};
 use tracing::{debug, error, info, warn};
 
 use crate::config::settings::ClientSettings;
+use crate::failure::io_reason;
 use crate::handshake::{Channel, ClientHandshakeError, initiate};
 use crate::net::{dial, tune};
 use crate::protocol::{
@@ -151,7 +152,11 @@ impl Client {
                     .as_ref()
                     .map(|p| format!(" via proxy {p:?}"))
                     .unwrap_or_default();
-                SessionEnd::Lost(format!("server unreachable at {}{via} ({e})", s.server))
+                SessionEnd::Lost(format!(
+                    "server unreachable at {}{via} ({})",
+                    s.server,
+                    io_reason(&e)
+                ))
             })?;
         tune(&stream, &s.tcp);
         let preamble = self.preamble(kind);
@@ -160,8 +165,9 @@ impl Client {
             Ok(Ok(ch)) => Ok(ch),
             Ok(Err(ClientHandshakeError::Rejected)) => Err(SessionEnd::Rejected),
             Ok(Err(ClientHandshakeError::Io(e))) => Err(SessionEnd::Lost(format!(
-                "handshake with {} failed ({e})",
-                s.server
+                "handshake with {} failed ({})",
+                s.server,
+                io_reason(&e)
             ))),
             Err(_) => Err(SessionEnd::Lost(format!(
                 "handshake with {} timed out",
@@ -198,7 +204,11 @@ impl Client {
                 },
                 Ok(Ok(None)) => return SessionEnd::Rejected,
                 Ok(Err(e)) => {
-                    return SessionEnd::Lost(format!("connection to {} failed ({e})", s.server));
+                    return SessionEnd::Lost(format!(
+                        "connection to {} failed ({})",
+                        s.server,
+                        io_reason(&e)
+                    ));
                 }
                 Err(_) => {
                     return SessionEnd::Lost(format!("server {} did not answer in time", s.server));
@@ -219,7 +229,11 @@ impl Client {
                     return SessionEnd::Lost(format!("server {} closed the connection", s.server));
                 }
                 Ok(Err(e)) => {
-                    return SessionEnd::Lost(format!("connection to {} lost ({e})", s.server));
+                    return SessionEnd::Lost(format!(
+                        "connection to {} lost ({})",
+                        s.server,
+                        io_reason(&e)
+                    ));
                 }
                 Err(_) => {
                     return SessionEnd::Lost(format!(
