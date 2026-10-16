@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use super::system::{make_dir, private_file, run, run_ok, write_private};
 use super::{Backend, Manifest, Platform, Status};
@@ -15,6 +16,10 @@ fn label(m: &Manifest) -> String {
 
 fn target(m: &Manifest) -> String {
     format!("system/{}", label(m))
+}
+
+fn loaded(m: &Manifest) -> bool {
+    run_ok("launchctl", &["print", &target(m)])
 }
 
 fn plist_path(m: &Manifest) -> PathBuf {
@@ -65,7 +70,7 @@ fn plist(m: &Manifest, env: &BTreeMap<String, String>) -> String {
     }
     s.push_str("  <key>RunAtLoad</key>\n  <true/>\n  <key>KeepAlive</key>\n  <dict>\n    <key>SuccessfulExit</key>\n    <false/>\n  </dict>\n");
     s.push_str("  <key>ThrottleInterval</key>\n  <integer>10</integer>\n  <key>Umask</key>\n  <integer>63</integer>\n");
-    s.push_str("  <key>SoftResourceLimits</key>\n  <dict>\n    <key>NumberOfFiles</key>\n    <integer>65536</integer>\n  </dict>\n");
+    s.push_str("  <key>SoftResourceLimits</key>\n  <dict>\n    <key>NumberOfFiles</key>\n    <integer>10240</integer>\n  </dict>\n");
     if !env.is_empty() {
         s.push_str("  <key>EnvironmentVariables</key>\n  <dict>\n");
         for (k, v) in env {
@@ -142,6 +147,7 @@ impl Backend for Launchd {
     fn remove_account(&self, account: &str) -> Result<(), Failure> {
         let user = run("dscl", &[".", "-delete", &format!("/Users/{account}")]);
         let _ = run("dscl", &[".", "-delete", &format!("/Groups/{account}")]);
+        let _ = run("dscacheutil", &["-flushcache"]);
         user.map(drop)
     }
 
@@ -200,26 +206,39 @@ impl Backend for Launchd {
 
     fn start(&self, m: &Manifest) -> Result<(), Failure> {
         let hint = |f: Failure| f.hint(format!("see why with: burrow service logs {}", m.name));
-        if run_ok("launchctl", &["print", &target(m)]) {
-            run("launchctl", &["kickstart", &target(m)])
+        if loaded(m) {
+            return run("launchctl", &["kickstart", &target(m)])
                 .map(drop)
-                .map_err(hint)
-        } else {
-            let path = plist_path(m);
-            run(
-                "launchctl",
-                &["bootstrap", "system", &path.to_string_lossy()],
-            )
-            .map(drop)
-            .map_err(hint)
+                .map_err(hint);
         }
+        let path = plist_path(m).to_string_lossy().into_owned();
+        let mut last = None;
+        for _ in 0..20 {
+            match run("launchctl", &["bootstrap", "system", &path]) {
+                Ok(_) => return Ok(()),
+                Err(_) if loaded(m) => return Ok(()),
+                Err(f) => last = Some(f),
+            }
+            std::thread::sleep(Duration::from_millis(500));
+        }
+        Err(hint(last.expect("at least one attempt")))
     }
 
     fn stop(&self, m: &Manifest) -> Result<(), Failure> {
-        if !run_ok("launchctl", &["print", &target(m)]) {
+        if !loaded(m) {
             return Ok(());
         }
-        run("launchctl", &["bootout", &target(m)]).map(drop)
+        run("launchctl", &["bootout", &target(m)])?;
+        for _ in 0..40 {
+            if !loaded(m) {
+                return Ok(());
+            }
+            std::thread::sleep(Duration::from_millis(250));
+        }
+        Err(Failure::new(format!(
+            "{} did not stop within 10 seconds",
+            m.name
+        )))
     }
 
     fn reload(&self, m: &Manifest) -> Result<(), Failure> {
