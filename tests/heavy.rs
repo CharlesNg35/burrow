@@ -391,7 +391,7 @@ async fn churn_returns_internal_state_to_baseline() {
         next.services.get_mut("web").unwrap().bind = web;
         next.services.get_mut("dns").unwrap().bind = dns;
         next.heartbeat_interval = Duration::from_millis(1000 + (round % 2) * 10);
-        srv.reload.send(next).await.unwrap();
+        srv.reload(next).await;
 
         cli.stop.send(true).unwrap();
         cli.task.await.unwrap();

@@ -1,6 +1,6 @@
 use std::net::SocketAddr;
-use std::sync::Arc;
 use std::sync::atomic::Ordering;
+use std::sync::{Arc, RwLock};
 use std::time::Instant;
 
 use tokio::net::{TcpListener, TcpStream};
@@ -19,14 +19,13 @@ use crate::transport::tcp::{bind_tcp, tune};
 use crate::transport::ws::{self, Carrier};
 use crate::transport::{Conn, tls};
 
-pub struct WsListener {
-    pub listener: TcpListener,
+pub struct WsRoute {
     pub settings: WebSocketSettings,
     tls: Option<TlsAcceptor>,
 }
 
-impl WsListener {
-    pub fn bind(settings: &WebSocketSettings) -> Result<WsListener, Failure> {
+impl WsRoute {
+    pub fn new(settings: &WebSocketSettings) -> Result<WsRoute, Failure> {
         let tls = match &settings.tls {
             Some(m) => Some(tls::acceptor(&m.cert_pem, &m.key_pem).map_err(|e| {
                 Failure::new(format!("websocket TLS files are not usable: {e}"))
@@ -34,22 +33,45 @@ impl WsListener {
             })?),
             None => None,
         };
-        let listener = bind_tcp(settings.listen)
-            .map_err(|e| bind_error("the websocket listener", settings.listen, &e))?;
-        Ok(WsListener {
-            listener,
+        Ok(WsRoute {
             settings: settings.clone(),
             tls,
         })
     }
+}
+
+pub struct WsListener {
+    pub listener: TcpListener,
+    pub route: RwLock<Arc<WsRoute>>,
+}
+
+impl WsListener {
+    pub fn bind(settings: &WebSocketSettings) -> Result<WsListener, Failure> {
+        let route = WsRoute::new(settings)?;
+        let listener = bind_tcp(settings.listen)
+            .map_err(|e| bind_error("the websocket listener", settings.listen, &e))?;
+        Ok(WsListener {
+            listener,
+            route: RwLock::new(Arc::new(route)),
+        })
+    }
+
+    pub fn route(&self) -> Arc<WsRoute> {
+        self.route.read().expect("route lock").clone()
+    }
+
+    pub fn set_route(&self, route: WsRoute) {
+        *self.route.write().expect("route lock") = Arc::new(route);
+    }
 
     pub fn url_hint(&self) -> String {
+        let route = self.route();
         let addr = self
             .listener
             .local_addr()
-            .map_or_else(|_| self.settings.listen.to_string(), |a| a.to_string());
-        let scheme = if self.tls.is_some() { "wss" } else { "ws" };
-        format!("{scheme}://{addr}{}", self.settings.path)
+            .map_or_else(|_| route.settings.listen.to_string(), |a| a.to_string());
+        let scheme = if route.tls.is_some() { "wss" } else { "ws" };
+        format!("{scheme}://{addr}{}", route.settings.path)
     }
 }
 
@@ -78,9 +100,9 @@ pub async fn ws_accept_loop(shared: Arc<Shared>, ws: Arc<WsListener>) {
             continue;
         };
         let shared = shared.clone();
-        let ws = ws.clone();
+        let route = ws.route();
         tokio::spawn(async move {
-            handle_ws(shared, ws, stream, peer, permit).await;
+            handle_ws(shared, route, stream, peer, permit).await;
         });
     }
 }
@@ -105,7 +127,7 @@ pub async fn handle_tcp(
 
 async fn handle_ws(
     shared: Arc<Shared>,
-    ws: Arc<WsListener>,
+    ws: Arc<WsRoute>,
     stream: TcpStream,
     peer: SocketAddr,
     permit: OwnedSemaphorePermit,

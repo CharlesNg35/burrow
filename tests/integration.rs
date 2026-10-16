@@ -133,17 +133,17 @@ async fn hot_reload_add_change_remove_without_dropping() {
     let mut added = service(echo1, Protocol::Tcp);
     added.bind = new_addr;
     next.services.insert("api".into(), added);
-    t.server.reload.send(next.clone()).await.unwrap();
+    t.server.reload(next.clone()).await;
     wait_for(|| std::net::TcpStream::connect(new_addr).is_ok()).await;
     assert_eq!(roundtrip(new_addr, b"api").await, b"api");
 
     next.services.get_mut("web").unwrap().target = echo2.to_string();
-    t.server.reload.send(next.clone()).await.unwrap();
+    t.server.reload(next.clone()).await;
     tokio::time::sleep(Duration::from_millis(200)).await;
     assert_eq!(roundtrip(web, b"x").await, b"two");
 
     next.services.remove("api");
-    t.server.reload.send(next.clone()).await.unwrap();
+    t.server.reload(next.clone()).await;
     wait_for(|| std::net::TcpStream::connect(new_addr).is_err()).await;
 
     long.write_all(b"pong").await.unwrap();
@@ -435,7 +435,7 @@ async fn removed_client_is_disconnected() {
     let mut next = settings;
     next.clients.clear();
     next.services.clear();
-    t.server.reload.send(next).await.unwrap();
+    t.server.reload(next).await;
     wait_state(&mut t.client.state, State::Rejected).await;
 }
 

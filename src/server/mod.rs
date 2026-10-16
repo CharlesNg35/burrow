@@ -374,22 +374,8 @@ impl Server {
         *self.shared.settings.write().expect("settings lock") = Arc::new(next.clone());
 
         if next.websocket != current.websocket {
-            if let Some(old) = self.websocket.take() {
-                old.task.abort();
-                let _ = old.task.await;
-            }
-            if let Some(ws) = &next.websocket {
-                match bind_ws_with_retry(ws).await {
-                    Ok(l) => {
-                        let t = WsTask::start(&self.shared, l);
-                        info!("websocket listener now on {}", t.listener.url_hint());
-                        self.websocket = Some(t);
-                    }
-                    Err(f) => error!("{}", f.message),
-                }
-            } else {
-                info!("websocket listener stopped");
-            }
+            self.apply_websocket(current.websocket.as_ref(), next.websocket.as_ref())
+                .await;
         }
 
         let removed: Vec<String> = self
@@ -469,6 +455,47 @@ impl Server {
             next.clients.len(),
             next.services.len()
         );
+    }
+}
+
+impl Server {
+    async fn apply_websocket(
+        &mut self,
+        current: Option<&crate::config::settings::WebSocketSettings>,
+        next: Option<&crate::config::settings::WebSocketSettings>,
+    ) {
+        let same_socket = self.websocket.is_some()
+            && matches!((current, next), (Some(c), Some(n)) if c.listen == n.listen);
+        match (next, same_socket) {
+            (Some(n), true) => match listen::WsRoute::new(n) {
+                Ok(route) => {
+                    let t = self.websocket.as_ref().expect("checked above");
+                    t.listener.set_route(route);
+                    info!("websocket listener updated: {}", t.listener.url_hint());
+                }
+                Err(f) => error!("{}", f.message),
+            },
+            (Some(n), false) => {
+                if let Some(old) = self.websocket.take() {
+                    old.task.abort();
+                    let _ = old.task.await;
+                }
+                match bind_ws_with_retry(n).await {
+                    Ok(l) => {
+                        let t = WsTask::start(&self.shared, l);
+                        info!("websocket listener now on {}", t.listener.url_hint());
+                        self.websocket = Some(t);
+                    }
+                    Err(f) => error!("{}", f.message),
+                }
+            }
+            (None, _) => {
+                if let Some(old) = self.websocket.take() {
+                    old.task.abort();
+                    info!("websocket listener stopped");
+                }
+            }
+        }
     }
 }
 

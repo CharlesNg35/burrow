@@ -87,16 +87,43 @@ pub struct RunningServer {
     pub addr: SocketAddr,
     pub ws_addr: Option<SocketAddr>,
     pub services: BTreeMap<String, SocketAddr>,
-    pub reload: mpsc::Sender<ServerSettings>,
+    pub reload_tx: mpsc::Sender<ServerSettings>,
+    pub ws_settings: Option<burrow::config::settings::WebSocketSettings>,
     pub stop: watch::Sender<bool>,
     pub task: JoinHandle<()>,
     pub shared: std::sync::Arc<burrow::server::Shared>,
 }
 
+pub fn ws_mode() -> bool {
+    std::env::var("BURROW_TEST_TRANSPORT").is_ok_and(|v| v == "ws")
+}
+
+fn as_websocket(mut settings: ServerSettings) -> ServerSettings {
+    if ws_mode() && settings.websocket.is_none() {
+        let listen = settings
+            .listen
+            .take()
+            .unwrap_or_else(|| "127.0.0.1:0".parse().unwrap());
+        settings.websocket = Some(burrow::config::settings::WebSocketSettings {
+            listen,
+            path: "/burrow".into(),
+            tls: None,
+            keepalive: Duration::from_secs(25),
+        });
+    }
+    settings
+}
+
 pub async fn start_server(settings: ServerSettings) -> RunningServer {
+    let settings = as_websocket(settings);
+    let settings_ws = settings.websocket.clone();
     let names: Vec<String> = settings.services.keys().cloned().collect();
     let server = Server::bind(settings).await.expect("server binds");
     let ws_addr = server.websocket_addr();
+    let ws_settings = settings_ws.map(|mut w| {
+        w.listen = ws_addr.expect("websocket bound");
+        w
+    });
     let addr = server
         .local_addr()
         .or(ws_addr)
@@ -106,17 +133,28 @@ pub async fn start_server(settings: ServerSettings) -> RunningServer {
         .map(|n| (n.clone(), server.service_addr(n).unwrap()))
         .collect();
     let shared = server.shared();
-    let (reload, reload_rx) = mpsc::channel(4);
+    let (reload_tx, reload_rx) = mpsc::channel(4);
     let (stop, stop_rx) = watch::channel(false);
     let task = tokio::spawn(server.run(reload_rx, stop_rx));
     RunningServer {
         addr,
         ws_addr,
+        ws_settings,
         services,
-        reload,
+        reload_tx,
         stop,
         task,
         shared,
+    }
+}
+
+impl RunningServer {
+    pub async fn reload(&self, mut next: ServerSettings) {
+        if ws_mode() && next.websocket.is_none() {
+            next.listen = None;
+            next.websocket = self.ws_settings.clone();
+        }
+        self.reload_tx.send(next).await.unwrap();
     }
 }
 
@@ -126,7 +164,14 @@ pub struct RunningClient {
     pub task: JoinHandle<burrow::client::RunEnd>,
 }
 
-pub async fn start_client(settings: ClientSettings) -> RunningClient {
+pub async fn start_client(mut settings: ClientSettings) -> RunningClient {
+    if ws_mode()
+        && let burrow::transport::endpoint::Endpoint::Tcp { host_port } = &settings.endpoint
+    {
+        let url = format!("ws://{host_port}/burrow");
+        settings.endpoint = burrow::transport::endpoint::Endpoint::parse(&url).unwrap();
+        settings.server = url;
+    }
     start_client_with(Client::new(settings)).await
 }
 

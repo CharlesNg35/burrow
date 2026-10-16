@@ -42,10 +42,12 @@ async fn client_follows_the_server_to_a_new_address() {
         addr: Mutex::new(old.addr),
     });
     let mut c = client_settings(old.addr, secret);
-    c.server = "tunnel.example.test:7835".into();
-    c.endpoint = burrow::transport::endpoint::Endpoint::Tcp {
-        host_port: c.server.clone(),
+    c.server = if ws_mode() {
+        "ws://tunnel.example.test:7835/burrow".into()
+    } else {
+        "tunnel.example.test:7835".into()
     };
+    c.endpoint = burrow::transport::endpoint::Endpoint::parse(&c.server).unwrap();
     let client = Client::new(c).with_resolver(dns.clone());
     let mut cli = start_client_with(client).await;
     wait_state(&mut cli.state, State::Connected).await;

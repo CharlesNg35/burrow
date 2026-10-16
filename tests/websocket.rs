@@ -224,7 +224,7 @@ async fn reload_changes_the_websocket_path() {
     next.websocket.as_mut().unwrap().listen = ws;
     next.websocket.as_mut().unwrap().path = "/two".into();
     next.services.get_mut("web").unwrap().bind = srv.services["web"];
-    srv.reload.send(next).await.unwrap();
+    srv.reload(next).await;
     tokio::time::sleep(Duration::from_millis(500)).await;
     let _cli = connected(&srv, ws_client(&format!("ws://{ws}/two"), secret, None)).await;
     assert_eq!(roundtrip(srv.services["web"], b"moved").await, b"moved");
@@ -355,5 +355,54 @@ async fn keepalive_keeps_pooled_channels_alive_through_an_idle_timeout_proxy() {
     assert_eq!(
         roundtrip(srv.services["web"], b"still warm").await,
         b"still warm"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn path_change_swaps_the_route_without_dropping_clients() {
+    let echo = echo_server().await;
+    let secret = Secret::generate();
+    let free = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port_addr = free.local_addr().unwrap();
+    drop(free);
+    let mut s = ws_server(&secret, "/one", None);
+    s.websocket.as_mut().unwrap().listen = port_addr;
+    s.services
+        .insert("web".into(), service(echo, Protocol::Tcp));
+    let srv = start_server(s.clone()).await;
+    let first = connected(
+        &srv,
+        ws_client(&format!("ws://{port_addr}/one"), secret.clone(), None),
+    )
+    .await;
+
+    let mut next = s.clone();
+    next.websocket.as_mut().unwrap().path = "/two".into();
+    next.services.get_mut("web").unwrap().bind = srv.services["web"];
+    srv.reload(next).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+
+    assert_eq!(
+        *first.state.borrow(),
+        State::Connected,
+        "existing client stays connected"
+    );
+    assert_eq!(
+        roundtrip(srv.services["web"], b"same socket").await,
+        b"same socket"
+    );
+    let mut second = start_client(ws_client(
+        &format!("ws://{port_addr}/two"),
+        secret.clone(),
+        None,
+    ))
+    .await;
+    wait_state(&mut second.state, State::Connected).await;
+    let old_path = start_client(ws_client(&format!("ws://{port_addr}/one"), secret, None)).await;
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    assert_eq!(
+        *old_path.state.borrow(),
+        State::Connecting,
+        "old path is refused after the reload"
     );
 }
