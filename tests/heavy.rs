@@ -319,3 +319,130 @@ async fn reconnect_cycles_do_not_leak() {
         "RSS grew from {rss_warm} KiB to {end} KiB over reconnect cycles"
     );
 }
+
+fn open_fds() -> usize {
+    std::fs::read_dir("/proc/self/fd")
+        .map(|d| d.count())
+        .unwrap_or(0)
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "heavy: run with --ignored"]
+async fn churn_returns_internal_state_to_baseline() {
+    let rounds = env_u64("BURROW_CHURN_ROUNDS", 20);
+    let per_round = env_u64("BURROW_CHURN_CONNS", 2000) as usize;
+    let echo = echo_server().await;
+    let uecho = udp_echo_server().await;
+    let secret = Secret::generate();
+    let mut settings = server_settings(vec![secret.clone()]);
+    settings.max_connections_per_client = 1_000_000;
+    settings.max_pending = 100_000;
+    settings.udp_session_timeout = Duration::from_secs(2);
+    settings
+        .services
+        .insert("web".into(), service(echo, Protocol::Tcp));
+    settings
+        .services
+        .insert("dns".into(), service(uecho, Protocol::Udp));
+    let srv = start_server(settings.clone()).await;
+    let web = srv.services["web"];
+    let dns = srv.services["dns"];
+    let metrics = tokio::runtime::Handle::current().metrics();
+    let mut samples = Vec::new();
+
+    for round in 0..rounds {
+        let mut c = client_settings(srv.addr, secret.clone());
+        c.udp_session_timeout = Duration::from_secs(2);
+        let mut cli = start_client(c).await;
+        wait_state(&mut cli.state, State::Connected).await;
+        let shared = srv.shared.clone();
+        wait_for(|| shared.idle_channels("home") >= 1).await;
+
+        let gate = Arc::new(tokio::sync::Semaphore::new(256));
+        let tasks: Vec<_> = (0..per_round)
+            .map(|i| {
+                let gate = gate.clone();
+                tokio::spawn(async move {
+                    let _p = gate.acquire_owned().await.unwrap();
+                    let data = pattern(100 + (i % 50) * 997, i as u64);
+                    assert_eq!(roundtrip(web, &data).await, data);
+                })
+            })
+            .collect();
+        for t in tasks {
+            t.await.unwrap();
+        }
+        let mut buf = vec![0u8; 2048];
+        for _ in 0..200 {
+            let s = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+            s.connect(dns).await.unwrap();
+            for _ in 0..20 {
+                s.send(b"q").await.unwrap();
+                if tokio::time::timeout(Duration::from_millis(100), s.recv(&mut buf))
+                    .await
+                    .is_ok()
+                {
+                    break;
+                }
+            }
+        }
+
+        let mut next = settings.clone();
+        next.services.get_mut("web").unwrap().bind = web;
+        next.services.get_mut("dns").unwrap().bind = dns;
+        next.heartbeat_interval = Duration::from_millis(1000 + (round % 2) * 10);
+        srv.reload.send(next).await.unwrap();
+
+        cli.stop.send(true).unwrap();
+        cli.task.await.unwrap();
+        let shared = srv.shared.clone();
+        wait_for(|| shared.session_names().is_empty() && shared.active_connections() == 0).await;
+        let shared = srv.shared.clone();
+        tokio::time::timeout(Duration::from_secs(15), async {
+            while shared.udp_peers() != 0 {
+                tokio::time::sleep(Duration::from_millis(200)).await;
+            }
+        })
+        .await
+        .expect("UDP peers expire back to zero");
+        assert_eq!(srv.shared.waiting_visitors(), 0);
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        let sample = (rss_kib(), open_fds(), metrics.num_alive_tasks());
+        eprintln!(
+            "round {round}: RSS {} KiB, open fds {}, alive tasks {}",
+            sample.0, sample.1, sample.2
+        );
+        if std::env::var("BURROW_CHURN_DEBUG").is_ok() {
+            let mut kinds = std::collections::BTreeMap::new();
+            for e in std::fs::read_dir("/proc/self/fd").unwrap().flatten() {
+                let t = std::fs::read_link(e.path())
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_default();
+                let k = t.split(':').next().unwrap_or("").to_string();
+                *kinds.entry(k).or_insert(0) += 1;
+            }
+            eprintln!("  fd kinds {kinds:?}");
+            let net = std::fs::read_to_string("/proc/self/net/udp")
+                .unwrap_or_default()
+                .lines()
+                .count();
+            eprintln!("  udp sockets in netns {net}");
+        }
+        samples.push(sample);
+    }
+    let warm = samples[samples.len() / 4];
+    let last = *samples.last().unwrap();
+    assert!(
+        last.1 <= warm.1 + 4,
+        "file descriptors leak: {} -> {}",
+        warm.1,
+        last.1
+    );
+    assert!(last.2 <= warm.2 + 4, "tasks leak: {} -> {}", warm.2, last.2);
+    assert!(
+        last.0 <= warm.0 + 16 * 1024,
+        "RSS keeps growing: {} KiB -> {} KiB",
+        warm.0,
+        last.0
+    );
+}

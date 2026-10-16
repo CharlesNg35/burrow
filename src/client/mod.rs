@@ -56,6 +56,7 @@ impl Backoff {
 pub struct Client {
     settings: Arc<ClientSettings>,
     state: watch::Sender<State>,
+    halt: watch::Sender<bool>,
 }
 
 pub enum SessionEnd {
@@ -71,6 +72,7 @@ impl Client {
         Client {
             settings: Arc::new(settings),
             state,
+            halt: watch::Sender::new(false),
         }
     }
 
@@ -106,6 +108,7 @@ impl Client {
             match end {
                 SessionEnd::Stop => {
                     info!("client stopped");
+                    self.halt.send_replace(true);
                     return;
                 }
                 SessionEnd::Lost(why) => {
@@ -136,6 +139,7 @@ impl Client {
                 _ = tokio::time::sleep(delay) => {}
                 _ = stop.changed() => {
                     info!("client stopped");
+                    self.halt.send_replace(true);
                     return;
                 }
             }
@@ -285,25 +289,30 @@ impl Client {
         let me = Client {
             settings: self.settings.clone(),
             state: self.state.clone(),
+            halt: self.halt.clone(),
         };
+        let mut halted = self.halt.subscribe();
         tokio::spawn(async move {
-            let permit = opening.acquire_owned().await;
-            let ch = me
-                .open(
-                    ChannelKind::Data,
-                    Hello::Data {
-                        version: VERSION,
-                        token,
-                    },
-                )
-                .await;
-            drop(permit);
-            match ch {
-                Ok(ch) => data::serve(me.settings.clone(), ch).await,
-                Err(SessionEnd::Lost(why)) => debug!("data channel: {why}"),
-                Err(_) => debug!("data channel rejected"),
+            tokio::select! {
+                _ = me.data_channel(token, opening) => {}
+                _ = halted.wait_for(|h| *h) => {}
             }
         });
+    }
+
+    async fn data_channel(&self, token: [u8; TOKEN_LEN], opening: Arc<Semaphore>) {
+        let permit = opening.acquire_owned().await;
+        let hello = Hello::Data {
+            version: VERSION,
+            token,
+        };
+        let ch = self.open(ChannelKind::Data, hello).await;
+        drop(permit);
+        match ch {
+            Ok(ch) => data::serve(self.settings.clone(), ch).await,
+            Err(SessionEnd::Lost(why)) => debug!("data channel: {why}"),
+            Err(_) => debug!("data channel rejected"),
+        }
     }
 }
 

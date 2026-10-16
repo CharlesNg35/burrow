@@ -32,10 +32,25 @@ impl Peers {
             return None;
         }
         self.next = self.next.wrapping_add(1);
+        while self.by_id.contains_key(&self.next) {
+            self.next = self.next.wrapping_add(1);
+        }
         let id = self.next;
         self.by_addr.insert(addr, (id, Instant::now()));
         self.by_id.insert(id, addr);
         Some(id)
+    }
+
+    fn touch(&mut self, id: u32) -> Option<SocketAddr> {
+        let addr = *self.by_id.get(&id)?;
+        if let Some((_, seen)) = self.by_addr.get_mut(&addr) {
+            *seen = Instant::now();
+        }
+        Some(addr)
+    }
+
+    fn len(&self) -> usize {
+        self.by_addr.len()
     }
 
     fn expire(&mut self, timeout: Duration) {
@@ -47,6 +62,40 @@ impl Peers {
             }
             keep
         });
+    }
+}
+
+struct AbortOnDrop(tokio::task::JoinHandle<()>);
+
+impl Drop for AbortOnDrop {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
+struct PeerGauge {
+    shared: Arc<Shared>,
+    counted: usize,
+}
+
+impl PeerGauge {
+    fn set(&mut self, now: usize) {
+        if now > self.counted {
+            self.shared
+                .udp_peers
+                .fetch_add(now - self.counted, std::sync::atomic::Ordering::AcqRel);
+        } else {
+            self.shared
+                .udp_peers
+                .fetch_sub(self.counted - now, std::sync::atomic::Ordering::AcqRel);
+        }
+        self.counted = now;
+    }
+}
+
+impl Drop for PeerGauge {
+    fn drop(&mut self) {
+        self.set(0);
     }
 }
 
@@ -81,7 +130,17 @@ pub async fn udp_service(
             "service \"{name}\": UDP relay attached to client \"{}\"",
             svc.client
         );
-        match relay(&shared, &name, &svc, socket.clone(), ch, config.clone()).await {
+        match relay(
+            &shared,
+            &name,
+            &svc,
+            &session,
+            socket.clone(),
+            ch,
+            config.clone(),
+        )
+        .await
+        {
             Ok(()) => {}
             Err(Some(status)) => {
                 log_status(&name, &svc, status);
@@ -96,6 +155,7 @@ async fn relay(
     shared: &Arc<Shared>,
     name: &str,
     svc: &Service,
+    session: &super::ClientSession,
     socket: Arc<UdpSocket>,
     ch: crate::handshake::Channel,
     mut config: watch::Receiver<Service>,
@@ -130,19 +190,14 @@ async fn relay(
     let peers = Arc::new(Mutex::new(Peers::default()));
     let back_peers = peers.clone();
     let back_socket = socket.clone();
-    let mut back = tokio::spawn(async move {
+    let back = tokio::spawn(async move {
         loop {
             match reader.recv(&mut rd).await {
                 Ok(Some(rec)) => {
                     let Ok((id, payload)) = decode_datagram(rec) else {
                         return;
                     };
-                    let addr = back_peers
-                        .lock()
-                        .expect("peers lock")
-                        .by_id
-                        .get(&id)
-                        .copied();
+                    let addr = back_peers.lock().expect("peers lock").touch(id);
                     if let Some(addr) = addr {
                         let _ = back_socket.send_to(payload, addr).await;
                     }
@@ -152,12 +207,17 @@ async fn relay(
         }
     });
 
+    let mut back = AbortOnDrop(back);
     let timeout = shared.settings().udp_session_timeout;
+    let mut gauge = PeerGauge {
+        shared: shared.clone(),
+        counted: 0,
+    };
     let mut sweep = tokio::time::interval(Duration::from_secs(5));
     let mut buf = vec![0u8; 65536];
     let mut rec = Vec::with_capacity(65536);
     let mut stop = shared.shutdown.clone();
-    let result = loop {
+    loop {
         tokio::select! {
             r = socket.recv_from(&mut buf) => {
                 let (n, from) = match r {
@@ -170,7 +230,12 @@ async fn relay(
                 if n > MAX_DATAGRAM {
                     continue;
                 }
-                let Some(id) = peers.lock().expect("peers lock").id_for(from) else {
+                let (id, count) = {
+                    let mut p = peers.lock().expect("peers lock");
+                    (p.id_for(from), p.len())
+                };
+                gauge.set(count);
+                let Some(id) = id else {
                     warn!("service \"{name}\": too many UDP peers ({MAX_PEERS}), dropping datagram from {from}");
                     continue;
                 };
@@ -179,16 +244,22 @@ async fn relay(
                     break Err(None);
                 }
             }
-            _ = sweep.tick() => peers.lock().expect("peers lock").expire(timeout),
-            _ = &mut back => break Err(None),
+            _ = sweep.tick() => {
+                let count = {
+                    let mut p = peers.lock().expect("peers lock");
+                    p.expire(timeout);
+                    p.len()
+                };
+                gauge.set(count);
+            }
+            _ = &mut back.0 => break Err(None),
             r = config.changed() => {
                 if r.is_err() || config.borrow().target != svc.target || config.borrow().client != svc.client {
                     break Ok(());
                 }
             }
+            _ = session.closed() => break Ok(()),
             _ = stop.changed() => break Ok(()),
         }
-    };
-    back.abort();
-    result
+    }
 }

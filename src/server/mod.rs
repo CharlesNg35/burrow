@@ -32,6 +32,7 @@ pub struct Shared {
     settings: RwLock<Arc<ServerSettings>>,
     sessions: Mutex<HashMap<String, Arc<ClientSession>>>,
     active: AtomicUsize,
+    udp_peers: AtomicUsize,
     drained: Notify,
     rejected: AtomicUsize,
     shutdown: watch::Receiver<bool>,
@@ -53,6 +54,19 @@ impl Shared {
 
     pub fn active_connections(&self) -> usize {
         self.active.load(Ordering::Acquire)
+    }
+
+    pub fn udp_peers(&self) -> usize {
+        self.udp_peers.load(Ordering::Acquire)
+    }
+
+    pub fn waiting_visitors(&self) -> usize {
+        self.sessions
+            .lock()
+            .expect("sessions lock")
+            .values()
+            .map(|s| s.waiter_count())
+            .sum()
     }
 
     fn settings(&self) -> Arc<ServerSettings> {
@@ -173,6 +187,7 @@ impl Server {
             settings: RwLock::new(Arc::new(settings.clone())),
             sessions: Mutex::new(HashMap::new()),
             active: AtomicUsize::new(0),
+            udp_peers: AtomicUsize::new(0),
             drained: Notify::new(),
             rejected: AtomicUsize::new(0),
             shutdown,
@@ -721,7 +736,13 @@ async fn control_session(shared: Arc<Shared>, acc: Accepted, peer: SocketAddr) {
     if current {
         info!("client \"{name}\" disconnected ({reason})");
     }
-    let _ = tokio::time::timeout(Duration::from_secs(1), writer_task).await;
+    let abort = writer_task.abort_handle();
+    if tokio::time::timeout(Duration::from_secs(1), writer_task)
+        .await
+        .is_err()
+    {
+        abort.abort();
+    }
 }
 
 fn on_off(b: bool) -> &'static str {

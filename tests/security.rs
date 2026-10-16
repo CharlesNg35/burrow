@@ -257,3 +257,41 @@ fn secrets_never_appear_in_debug_output() {
     let proxy = burrow::proxy::ProxyConfig::parse("socks5://user:hunter2@p:1080").unwrap();
     assert!(!format!("{proxy:?}").contains("hunter2"));
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn silent_client_is_closed_after_heartbeat_timeout() {
+    let secret = Secret::generate();
+    let srv = start_server(server_settings(vec![secret.clone()])).await;
+    let s = TcpStream::connect(srv.addr).await.unwrap();
+    let p = Preamble {
+        kind: ChannelKind::Control,
+        cipher: Cipher::Chachapoly,
+        plaintext: false,
+        name: "home".into(),
+    };
+    let mut ch = burrow::handshake::initiate(s, &p, &secret, &Hello::Control { version: 1 })
+        .await
+        .expect("handshake");
+    let shared = srv.shared.clone();
+    wait_for(|| shared.session_names().len() == 1).await;
+    let start = Instant::now();
+    let closed = loop {
+        if start.elapsed() > Duration::from_secs(10) {
+            break false;
+        }
+        match tokio::time::timeout(Duration::from_secs(2), ch.reader.recv(&mut ch.stream)).await {
+            Ok(Ok(Some(_))) => continue,
+            Ok(Ok(None)) | Ok(Err(_)) => break true,
+            Err(_) => continue,
+        }
+    };
+    assert!(
+        closed,
+        "server must close the socket of a client that never answers pings"
+    );
+    assert!(
+        start.elapsed() < Duration::from_secs(8),
+        "closed after about 3 heartbeat intervals"
+    );
+    assert!(srv.shared.session_names().is_empty());
+}

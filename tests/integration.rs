@@ -438,3 +438,84 @@ async fn removed_client_is_disconnected() {
     t.server.reload.send(next).await.unwrap();
     wait_state(&mut t.client.state, State::Rejected).await;
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn udp_one_way_traffic_keeps_replies_flowing_past_the_timeout() {
+    let target = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let echo = target.local_addr().unwrap();
+    tokio::spawn(async move {
+        let mut buf = [0u8; 64];
+        let mut n = 0u32;
+        while let Ok((len, from)) = target.recv_from(&mut buf).await {
+            n += 1;
+            if n.is_multiple_of(15) {
+                let _ = target.send_to(&buf[..len], from).await;
+            }
+        }
+    });
+    let secret = Secret::generate();
+    let mut s = server_settings(vec![secret.clone()]);
+    s.udp_session_timeout = Duration::from_secs(1);
+    let t = tunnel_with(
+        s,
+        vec![("dns", service(echo, Protocol::Udp))],
+        |mut c| {
+            c.udp_session_timeout = Duration::from_secs(1);
+            c
+        },
+        secret,
+    )
+    .await;
+    let sock = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    sock.connect(t.server.services["dns"]).await.unwrap();
+    let mut buf = [0u8; 64];
+    let start = std::time::Instant::now();
+    let mut got = 0;
+    while start.elapsed() < Duration::from_secs(6) {
+        sock.send(b"tick").await.unwrap();
+        if let Ok(Ok(_)) =
+            tokio::time::timeout(Duration::from_millis(100), sock.recv(&mut buf)).await
+        {
+            got += 1;
+        }
+    }
+    assert!(
+        got >= 3,
+        "sparse replies must keep arriving while requests flow, got {got}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn stopping_the_client_closes_its_data_channels() {
+    let echo = udp_echo_server().await;
+    let t = tunnel(vec![("dns", service(echo, Protocol::Udp))]).await;
+    let sock = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    sock.connect(t.server.services["dns"]).await.unwrap();
+    let mut buf = [0u8; 64];
+    let mut ok = false;
+    for _ in 0..50 {
+        sock.send(b"x").await.unwrap();
+        if tokio::time::timeout(Duration::from_millis(100), sock.recv(&mut buf))
+            .await
+            .is_ok()
+        {
+            ok = true;
+            break;
+        }
+    }
+    assert!(ok);
+    t.client.stop.send(true).unwrap();
+    t.client.task.await.unwrap();
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    while tokio::time::timeout(Duration::from_millis(50), sock.recv(&mut buf))
+        .await
+        .is_ok()
+    {}
+    sock.send(b"after stop").await.unwrap();
+    assert!(
+        tokio::time::timeout(Duration::from_millis(700), sock.recv(&mut buf))
+            .await
+            .is_err(),
+        "a stopped client must not keep relaying"
+    );
+}

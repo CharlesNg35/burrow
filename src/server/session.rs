@@ -4,7 +4,7 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot, watch};
 
 use crate::handshake::Channel;
 use crate::protocol::{ServerMsg, TOKEN_LEN};
@@ -33,6 +33,7 @@ pub struct ClientSession {
     pub control: mpsc::Sender<ServerMsg>,
     pub active: AtomicUsize,
     pool: Mutex<Pool>,
+    closed: watch::Sender<bool>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -57,6 +58,7 @@ impl ClientSession {
             token,
             control,
             active: AtomicUsize::new(0),
+            closed: watch::Sender::new(false),
             pool: Mutex::new(Pool {
                 idle: VecDeque::new(),
                 waiters: VecDeque::new(),
@@ -82,6 +84,10 @@ impl ClientSession {
 
     pub fn idle_count(&self) -> usize {
         self.pool.lock().expect("pool lock").idle.len()
+    }
+
+    pub fn waiter_count(&self) -> usize {
+        self.pool.lock().expect("pool lock").waiters.len()
     }
 
     pub fn start(&self) {
@@ -132,6 +138,7 @@ impl ClientSession {
     pub fn tick(&self) {
         let mut p = self.pool.lock().expect("pool lock");
         p.idle.retain(alive);
+        p.waiters.retain(|w| !w.is_closed());
         if p.last_starved.elapsed() > DECAY_AFTER && p.target > p.min_idle {
             p.target -= 1;
             p.last_starved = Instant::now();
@@ -146,7 +153,8 @@ impl ClientSession {
     }
 
     fn replenish(&self, p: &mut Pool) {
-        let want = p.target.max(p.min_idle) + p.waiters.len();
+        let waiting = p.waiters.iter().filter(|w| !w.is_closed()).count();
+        let want = p.target.max(p.min_idle) + waiting;
         let have = p.idle.len() + p.requested;
         if want > have {
             let count = (want - have).min(u16::MAX as usize);
@@ -164,9 +172,15 @@ impl ClientSession {
     }
 
     pub fn close(&self) {
+        self.closed.send_replace(true);
         let mut p = self.pool.lock().expect("pool lock");
         p.idle.clear();
         p.waiters.clear();
+    }
+
+    pub async fn closed(&self) {
+        let mut rx = self.closed.subscribe();
+        let _ = rx.wait_for(|c| *c).await;
     }
 
     pub fn connection_guard(self: &Arc<Self>) -> ActiveGuard {
