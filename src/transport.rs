@@ -6,7 +6,8 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use crate::noise::{MAX_PLAINTEXT, MAX_RECORD, Opener, Sealer, TAG_LEN};
 
 pub const SMALL: usize = 512;
-pub const CHUNK: usize = 16 * 1024;
+pub const CHUNK: usize = MAX_PLAINTEXT;
+const RAW_CHUNK: usize = 64 * 1024;
 const HEADER: usize = 2;
 const READ_BUF: usize = 2 * (MAX_RECORD + HEADER);
 
@@ -88,6 +89,12 @@ impl RecordReader {
             Some(b) => &b[self.start..self.end],
             None => &[],
         }
+    }
+
+    pub fn take_buffered(&mut self) -> Vec<u8> {
+        let rest = self.buffered().to_vec();
+        self.release();
+        rest
     }
 
     pub fn holds_buffers(&self) -> bool {
@@ -249,6 +256,45 @@ where
     let m = writer.seal_into(&[], &mut out);
     dst.write_all(&out[..m]).await?;
     dst.flush().await
+}
+
+pub async fn raw_pump<R, W>(src: &mut R, dst: &mut W) -> io::Result<()>
+where
+    R: AsyncRead + Unpin,
+    W: AsyncWrite + Unpin,
+{
+    let mut big: Option<Box<[u8]>> = None;
+    loop {
+        if let Some(buf) = big.as_mut() {
+            match now(src.read(buf)).await {
+                Some(n) => {
+                    let n = n?;
+                    if n == 0 {
+                        break;
+                    }
+                    dst.write_all(&buf[..n]).await?;
+                }
+                None => {
+                    dst.flush().await?;
+                    big = None;
+                }
+            }
+            continue;
+        }
+        let mut small = [0u8; SMALL];
+        let n = src.read(&mut small).await?;
+        if n == 0 {
+            break;
+        }
+        dst.write_all(&small[..n]).await?;
+        if n == SMALL {
+            big = Some(vec![0u8; RAW_CHUNK].into_boxed_slice());
+        } else {
+            dst.flush().await?;
+        }
+    }
+    dst.flush().await?;
+    dst.shutdown().await
 }
 
 pub async fn open_pump<R, W>(src: &mut R, dst: &mut W, reader: &mut RecordReader) -> io::Result<()>

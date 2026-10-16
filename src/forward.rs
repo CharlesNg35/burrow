@@ -1,11 +1,11 @@
 use std::io;
 
-use tokio::io::{AsyncWriteExt, copy};
+use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
 
 use crate::handshake::Channel;
 use crate::protocol::{Connect, Status};
-use crate::transport::{CHUNK, open_pump, seal_pump};
+use crate::transport::{CHUNK, open_pump, raw_pump, seal_pump};
 
 #[derive(Debug)]
 pub enum ForwardError {
@@ -18,14 +18,6 @@ impl From<io::Error> for ForwardError {
     fn from(e: io::Error) -> Self {
         ForwardError::Io(e)
     }
-}
-
-async fn raw_half(
-    src: &mut (impl tokio::io::AsyncRead + Unpin),
-    dst: &mut (impl tokio::io::AsyncWrite + Unpin),
-) -> io::Result<()> {
-    copy(src, dst).await?;
-    dst.shutdown().await
 }
 
 pub async fn server_tcp(
@@ -44,7 +36,7 @@ pub async fn server_tcp(
     let (mut vr, mut vw) = visitor.split();
     let up = async {
         if plaintext {
-            raw_half(&mut vr, &mut cw).await
+            raw_pump(&mut vr, &mut cw).await
         } else {
             seal_pump(&mut vr, &mut cw, &mut writer, CHUNK).await
         }
@@ -58,9 +50,9 @@ pub async fn server_tcp(
             return Err(ForwardError::Status(status));
         }
         if plaintext {
-            let rest = reader.buffered().to_vec();
+            let rest = reader.take_buffered();
             vw.write_all(&rest).await?;
-            raw_half(&mut cr, &mut vw).await?;
+            raw_pump(&mut cr, &mut vw).await?;
         } else {
             open_pump(&mut cr, &mut vw, &mut reader).await?;
         }
@@ -85,16 +77,16 @@ pub async fn client_tcp(
     let (mut tr, mut tw) = target.split();
     let up = async {
         if plaintext {
-            raw_half(&mut tr, &mut cw).await
+            raw_pump(&mut tr, &mut cw).await
         } else {
             seal_pump(&mut tr, &mut cw, &mut writer, CHUNK).await
         }
     };
     let down = async {
         if plaintext {
-            let rest = reader.buffered().to_vec();
+            let rest = reader.take_buffered();
             tw.write_all(&rest).await?;
-            raw_half(&mut cr, &mut tw).await
+            raw_pump(&mut cr, &mut tw).await
         } else {
             open_pump(&mut cr, &mut tw, &mut reader).await
         }
