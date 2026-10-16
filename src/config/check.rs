@@ -264,7 +264,7 @@ pub fn check_server(
         && let Err(e) = crate::config::address::client_address(
             text,
             listen,
-            websocket.as_ref(),
+            websocket.as_ref().map(Into::into),
             &mut Vec::new(),
         )
     {

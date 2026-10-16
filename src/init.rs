@@ -83,10 +83,16 @@ struct WebSocketChoice {
     tls: Option<(String, String)>,
 }
 
+fn absolute(file: &str) -> Result<String, Failure> {
+    std::path::absolute(file)
+        .map(|p| p.to_string_lossy().into_owned())
+        .map_err(|e| Failure::usage(format!("invalid path \"{file}\": {e}")))
+}
+
 impl WebSocketInit {
     fn resolve(&self) -> Result<WebSocketChoice, Failure> {
         let tls = match (&self.tls_cert, &self.tls_key) {
-            (Some(c), Some(k)) => Some((c.clone(), k.clone())),
+            (Some(c), Some(k)) => Some((absolute(c)?, absolute(k)?)),
             (None, None) => None,
             _ => {
                 return Err(Failure::usage("--ws-tls-cert and --ws-tls-key go together")
@@ -118,25 +124,12 @@ impl WebSocketInit {
 }
 
 impl WebSocketChoice {
-    fn client_url(&self, server: &str) -> Result<String, Failure> {
-        if server.contains("://") {
-            let e = Endpoint::parse(server)
-                .map_err(|e| Failure::usage(format!("invalid --server: {e}")))?;
-            if !e.is_websocket() {
-                return Err(Failure::usage(
-                    "--server must be a ws:// or wss:// URL with --ws",
-                ));
-            }
-            return Ok(e.to_string());
+    fn shape(&self) -> crate::config::address::WsShape<'_> {
+        crate::config::address::WsShape {
+            listen: self.listen.parse().expect("checked in resolve"),
+            path: &self.path,
+            tls: self.tls.is_some(),
         }
-        let port = self.listen.rsplit(':').next().unwrap_or("443");
-        let host = match &self.tls {
-            Some(_) if port != "443" && !server.contains(':') => format!("{server}:{port}"),
-            _ => server.to_string(),
-        };
-        let url = format!("wss://{host}{}", self.path);
-        Endpoint::parse(&url).map_err(|e| Failure::usage(format!("invalid --server: {e}")))?;
-        Ok(url)
     }
 }
 
@@ -285,22 +278,27 @@ pub fn init_server(opts: &InitOptions, out: &mut dyn Write) -> Result<PathBuf, F
         .as_ref()
         .map(WebSocketInit::resolve)
         .transpose()?;
-    let client_server = match (&opts.server, &ws) {
-        (Some(s), Some(ws)) => Some(ws.client_url(s)?),
-        (Some(s), None) => {
-            if s.contains("://") {
-                return Err(
-                    Failure::usage("--server is a URL but the server config is TCP")
-                        .hint("add --ws to accept WebSocket clients, or pass the host name alone"),
-                );
-            }
-            let e = Endpoint::parse(s).map_err(|e| {
-                Failure::usage(format!("invalid --server: {e}"))
-                    .hint("use a host name or IP, for example myserver.com (port 7835 is added)")
-            })?;
-            Some(e.to_string())
+    let client_server = match &opts.server {
+        Some(s) if ws.is_none() && s.contains("://") => {
+            return Err(
+                Failure::usage("--server is a URL but the server config is TCP")
+                    .hint("add --ws to accept WebSocket clients, or pass the host name alone"),
+            );
         }
-        (None, _) => None,
+        Some(s) => {
+            let listen = ws
+                .is_none()
+                .then(|| DEFAULT_LISTEN.parse().expect("valid default"));
+            let endpoint = crate::config::address::client_address(
+                s,
+                listen,
+                ws.as_ref().map(WebSocketChoice::shape),
+                &mut Vec::new(),
+            )
+            .map_err(|e| Failure::usage(format!("invalid --server: {}", e.message)).hint(e.hint))?;
+            Some(endpoint.to_string())
+        }
+        None => None,
     };
     let secret = Secret::generate();
     let secret_text = match &opts.env_secret {
@@ -346,6 +344,14 @@ pub fn init_server(opts: &InitOptions, out: &mut dyn Write) -> Result<PathBuf, F
             ),
         };
         w(out, note)?;
+        if let Some((cert, key)) = &ws.tls {
+            for f in [cert, key].into_iter().filter(|f| !Path::new(f).exists()) {
+                w(
+                    out,
+                    format!("note: {f} does not exist yet; create it before starting the server"),
+                )?;
+            }
+        }
     }
     if let Some(var) = &opts.env_secret {
         w(
@@ -555,7 +561,7 @@ pub fn client_config(
     let server = crate::config::address::client_address(
         &given,
         settings.listen,
-        settings.websocket.as_ref(),
+        settings.websocket.as_ref().map(Into::into),
         &mut notes,
     )
     .map_err(|e| Failure::usage(format!("invalid {from}: {}", e.message)).hint(e.hint))?

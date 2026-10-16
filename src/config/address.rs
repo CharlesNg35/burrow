@@ -2,6 +2,23 @@ use std::net::{IpAddr, SocketAddr};
 
 use super::check::parse_host_port;
 use super::settings::WebSocketSettings;
+
+#[derive(Debug, Clone, Copy)]
+pub struct WsShape<'a> {
+    pub listen: SocketAddr,
+    pub path: &'a str,
+    pub tls: bool,
+}
+
+impl<'a> From<&'a WebSocketSettings> for WsShape<'a> {
+    fn from(ws: &'a WebSocketSettings) -> Self {
+        WsShape {
+            listen: ws.listen,
+            path: &ws.path,
+            tls: ws.tls.is_some(),
+        }
+    }
+}
 use crate::transport::endpoint::{Endpoint, with_default_port};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -72,7 +89,7 @@ pub const FORMS: &str = "use a host name or IP, optionally with :PORT, or the We
 pub fn client_address(
     given: &str,
     listen: Option<SocketAddr>,
-    websocket: Option<&WebSocketSettings>,
+    websocket: Option<WsShape<'_>>,
     notes: &mut Vec<String>,
 ) -> Result<Endpoint, AddressError> {
     let given = given.trim();
@@ -104,10 +121,7 @@ pub fn client_address(
                         ),
                     ));
                 }
-                let port = match &ws.tls {
-                    Some(_) => ws.listen.port(),
-                    None => 443,
-                };
+                let port = if ws.tls { ws.listen.port() } else { 443 };
                 let url = Endpoint::WebSocket {
                     tls: true,
                     host: given
@@ -115,7 +129,7 @@ pub fn client_address(
                         .trim_end_matches(']')
                         .to_string(),
                     port,
-                    path: ws.path.clone(),
+                    path: ws.path.to_string(),
                 };
                 parse(&url.to_string())?
             }

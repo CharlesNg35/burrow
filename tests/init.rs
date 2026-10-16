@@ -289,7 +289,11 @@ fn websocket_init_writes_only_what_was_asked() {
     .unwrap();
     let text = std::fs::read_to_string(&tls_path).unwrap();
     assert!(
-        text.contains("listen: 0.0.0.0:7837") && text.contains("cert: cert.pem"),
+        text.contains("listen: 0.0.0.0:7837")
+            && text.contains(&format!(
+                "cert: {}",
+                std::path::absolute("cert.pem").unwrap().display()
+            )),
         "{text}"
     );
     assert!(
@@ -671,4 +675,61 @@ fn output_format_follows_the_extension() {
     );
     assert!(output_format(Some(Format::Yaml), Some(Path::new("c.json"))).is_err());
     assert!(output_format(None, Some(Path::new("client"))).is_err());
+}
+
+#[test]
+fn init_refuses_server_addresses_that_validate_would_reject() {
+    use burrow::init::WebSocketInit;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("s.yaml");
+    let run = |server: &str, websocket: Option<WebSocketInit>| {
+        init_server(
+            &InitOptions {
+                output: Some(path.clone()),
+                force: true,
+                server: Some(server.into()),
+                websocket,
+                ..Default::default()
+            },
+            &mut Vec::new(),
+        )
+    };
+    assert!(run("0.0.0.0", None).is_err());
+    assert!(run("myhost:8443", Some(WebSocketInit::default())).is_err());
+    for (server, ws) in [
+        ("myhost", None),
+        ("myhost:9000", None),
+        ("myhost", Some(WebSocketInit::default())),
+        ("wss://myhost:8443/burrow", Some(WebSocketInit::default())),
+    ] {
+        run(server, ws).unwrap();
+        assert!(matches!(load(&path), Loaded::Server(..)), "{server}");
+    }
+}
+
+#[test]
+fn init_and_client_config_agree_on_the_tls_port_for_ipv6() {
+    use burrow::init::WebSocketInit;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("s.yaml");
+    let mut out = Vec::new();
+    init_server(
+        &InitOptions {
+            output: Some(path.clone()),
+            server: Some("[2001:db8::1]".into()),
+            websocket: Some(WebSocketInit {
+                tls_cert: Some(dir.path().join("c.pem").display().to_string()),
+                tls_key: Some(dir.path().join("k.pem").display().to_string()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
+        &mut out,
+    )
+    .unwrap();
+    let printed = String::from_utf8(out).unwrap();
+    assert!(
+        printed.contains("wss://[2001:db8::1]:7837/burrow"),
+        "{printed}"
+    );
 }
