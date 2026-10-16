@@ -1,6 +1,7 @@
 mod data;
+pub mod reconnect;
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use tokio::sync::{Semaphore, watch};
@@ -14,7 +15,9 @@ use crate::protocol::{
 };
 use crate::transport::Conn;
 use crate::transport::proxy::dial_tcp;
+use crate::transport::resolve::{self, Resolver};
 use crate::transport::tcp::tune;
+use reconnect::{Backoff, Outage, Report, human};
 
 const STABLE_AFTER: Duration = Duration::from_secs(10);
 const MAX_OPENING: usize = 32;
@@ -26,39 +29,19 @@ pub enum State {
     Rejected,
 }
 
-pub struct Backoff {
-    initial: Duration,
-    max: Duration,
-    current: Duration,
-}
-
-impl Backoff {
-    pub fn new(initial: Duration, max: Duration) -> Self {
-        Backoff {
-            initial,
-            max,
-            current: initial,
-        }
-    }
-
-    pub fn reset(&mut self) {
-        self.current = self.initial;
-    }
-
-    pub fn next_delay(&mut self) -> Duration {
-        let base = self.current;
-        self.current = (self.current * 2).min(self.max);
-        let mut b = [0u8; 4];
-        getrandom::fill(&mut b).expect("operating system random source is available");
-        let frac = f64::from(u32::from_le_bytes(b)) / f64::from(u32::MAX);
-        base.mul_f64(0.5 + frac * 0.5)
-    }
-}
-
 pub struct Client {
     settings: Arc<ClientSettings>,
     state: watch::Sender<State>,
     halt: watch::Sender<bool>,
+    resolver: Arc<dyn Resolver>,
+    outage: Arc<Mutex<Outage>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RunEnd {
+    Stopped,
+    GaveUp(Duration),
+    Rejected,
 }
 
 pub enum SessionEnd {
@@ -75,7 +58,14 @@ impl Client {
             settings: Arc::new(settings),
             state,
             halt: watch::Sender::new(false),
+            resolver: resolve::system(),
+            outage: Arc::new(Mutex::new(Outage::default())),
         }
+    }
+
+    pub fn with_resolver(mut self, resolver: Arc<dyn Resolver>) -> Self {
+        self.resolver = resolver;
+        self
     }
 
     pub fn state(&self) -> watch::Receiver<State> {
@@ -91,13 +81,13 @@ impl Client {
         }
     }
 
-    pub async fn run(self, mut stop: watch::Receiver<bool>) {
+    pub async fn run(self, mut stop: watch::Receiver<bool>) -> RunEnd {
         let s = self.settings.clone();
         if s.insecure_plaintext {
             warn!("insecure_plaintext is enabled: forwarded TCP data is NOT encrypted");
         }
         let mut backoff = Backoff::new(s.reconnect_initial, s.reconnect_max);
-        loop {
+        let end = loop {
             let started = Instant::now();
             let end = tokio::select! {
                 e = self.session() => e,
@@ -107,63 +97,94 @@ impl Client {
                 backoff.reset();
             }
             let delay = backoff.next_delay();
-            match end {
-                SessionEnd::Stop => {
-                    info!("client stopped");
-                    self.halt.send_replace(true);
-                    return;
-                }
+            let why = match end {
+                SessionEnd::Stop => break RunEnd::Stopped,
                 SessionEnd::Lost(why) => {
                     let _ = self.state.send(State::Connecting);
-                    warn!("{why}; retrying in {:.1}s", delay.as_secs_f64());
+                    why
                 }
                 SessionEnd::Rejected => {
                     let _ = self.state.send(State::Rejected);
-                    error!(
-                        "handshake rejected by {}: wrong secret or unknown client name \"{}\" (check both against the server config, or regenerate with: burrow client-config {} -c server.yaml --server {}); retrying in {:.1}s",
-                        s.server,
-                        s.name,
-                        s.name,
-                        s.server,
-                        delay.as_secs_f64()
+                    let why = format!(
+                        "handshake rejected by {}: wrong secret or unknown client name \"{}\" (check both against the server config, or regenerate with: burrow client-config {} -c server.yaml --server {})",
+                        s.server, s.name, s.name, s.server
                     );
+                    if s.exit_on_rejected {
+                        error!("{why}; not retrying (reconnect.on_rejected: exit)");
+                        break RunEnd::Rejected;
+                    }
+                    why
                 }
                 SessionEnd::Removed => {
                     let _ = self.state.send(State::Rejected);
+                    let why = format!("the server removed client \"{}\" from its config", s.name);
+                    if s.exit_on_rejected {
+                        error!("{why}; not retrying (reconnect.on_rejected: exit)");
+                        break RunEnd::Rejected;
+                    }
+                    why
+                }
+            };
+            let now = Instant::now();
+            let report = self.outage.lock().expect("outage lock").failed(now);
+            match report {
+                Report::First => warn!(
+                    "{why}; retrying in {:.1}s, and will keep retrying",
+                    delay.as_secs_f64()
+                ),
+                Report::Summary { down_for, attempts } => warn!(
+                    "still cannot reach {} after {} ({attempts} attempts); retrying every {}s at most. last error: {why}",
+                    s.server,
+                    human(down_for),
+                    s.reconnect_max.as_secs()
+                ),
+                Report::Quiet => debug!("{why}; retrying in {:.1}s", delay.as_secs_f64()),
+            }
+            if let Some(limit) = s.give_up_after {
+                let down = self.outage.lock().expect("outage lock").down_for(now);
+                if down >= limit {
                     error!(
-                        "the server removed client \"{}\" from its config; retrying in {:.1}s",
-                        s.name,
-                        delay.as_secs_f64()
+                        "giving up: {} has been unreachable for {} (reconnect.give_up_after_secs: {})",
+                        s.server,
+                        human(down),
+                        limit.as_secs()
                     );
+                    break RunEnd::GaveUp(down);
                 }
             }
             tokio::select! {
                 _ = tokio::time::sleep(delay) => {}
-                _ = stop.changed() => {
-                    info!("client stopped");
-                    self.halt.send_replace(true);
-                    return;
-                }
+                _ = stop.changed() => break RunEnd::Stopped,
             }
+        };
+        if end == RunEnd::Stopped {
+            info!("client stopped");
         }
+        self.halt.send_replace(true);
+        end
     }
 
     async fn open(&self, kind: ChannelKind, hello: Hello) -> Result<Channel, SessionEnd> {
         let s = &self.settings;
-        let stream = dial_tcp(&s.server, s.proxy.as_ref(), s.connect_timeout)
-            .await
-            .map_err(|e| {
-                let via = s
-                    .proxy
-                    .as_ref()
-                    .map(|p| format!(" via proxy {p:?}"))
-                    .unwrap_or_default();
-                SessionEnd::Lost(format!(
-                    "server unreachable at {}{via} ({})",
-                    s.server,
-                    io_reason(&e)
-                ))
-            })?;
+        let stream = dial_tcp(
+            &s.server,
+            s.proxy.as_ref(),
+            s.connect_timeout,
+            &*self.resolver,
+        )
+        .await
+        .map_err(|e| {
+            let via = s
+                .proxy
+                .as_ref()
+                .map(|p| format!(" via proxy {p:?}"))
+                .unwrap_or_default();
+            SessionEnd::Lost(format!(
+                "server unreachable at {}{via} ({})",
+                s.server,
+                io_reason(&e)
+            ))
+        })?;
         tune(&stream, &s.tcp);
         let preamble = self.preamble(kind);
         let fut = initiate(Conn::from(stream), &preamble, &s.secret, &hello);
@@ -221,7 +242,20 @@ impl Client {
                 }
             };
         let _ = self.state.send(State::Connected);
-        info!("connected to {} as \"{}\"", s.server, s.name);
+        match self
+            .outage
+            .lock()
+            .expect("outage lock")
+            .recovered(Instant::now())
+        {
+            Some((down, attempts)) if attempts > 0 => info!(
+                "connected to {} as \"{}\" (back after {}, {attempts} attempts)",
+                s.server,
+                s.name,
+                human(down)
+            ),
+            _ => info!("connected to {} as \"{}\"", s.server, s.name),
+        }
 
         let opening = Arc::new(Semaphore::new(MAX_OPENING));
         let timeout = heartbeat * 3;
@@ -292,6 +326,8 @@ impl Client {
             settings: self.settings.clone(),
             state: self.state.clone(),
             halt: self.halt.clone(),
+            resolver: self.resolver.clone(),
+            outage: self.outage.clone(),
         };
         let mut halted = self.halt.subscribe();
         tokio::spawn(async move {
@@ -311,7 +347,7 @@ impl Client {
         let ch = self.open(ChannelKind::Data, hello).await;
         drop(permit);
         match ch {
-            Ok(ch) => data::serve(self.settings.clone(), ch).await,
+            Ok(ch) => data::serve(self.settings.clone(), self.resolver.clone(), ch).await,
             Err(SessionEnd::Lost(why)) => debug!("data channel: {why}"),
             Err(_) => debug!("data channel rejected"),
         }
@@ -330,21 +366,5 @@ fn bye(reason: ByeReason) -> SessionEnd {
             "server and client disagree on insecure_plaintext (set it the same on both sides)"
                 .into(),
         ),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn backoff_grows_with_jitter_and_caps() {
-        let mut b = Backoff::new(Duration::from_millis(100), Duration::from_secs(1));
-        let d: Vec<Duration> = (0..8).map(|_| b.next_delay()).collect();
-        assert!(d[0] >= Duration::from_millis(50) && d[0] <= Duration::from_millis(100));
-        assert!(d[3] >= Duration::from_millis(400) && d[3] <= Duration::from_millis(800));
-        assert!(d.iter().all(|x| *x <= Duration::from_secs(1)));
-        b.reset();
-        assert!(b.next_delay() <= Duration::from_millis(100));
     }
 }

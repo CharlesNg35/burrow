@@ -241,6 +241,20 @@ pub struct Reconnect {
     pub initial_delay_ms: u32,
     #[schemars(range(min = 1, max = 3600))]
     pub max_delay_secs: u32,
+    #[schemars(
+        description = "Stop retrying after the server has been unreachable this long; 0 retries forever"
+    )]
+    pub give_up_after_secs: u32,
+    #[schemars(description = "What to do when the server rejects the secret or name")]
+    pub on_rejected: OnRejected,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum OnRejected {
+    #[default]
+    Retry,
+    Exit,
 }
 
 impl Default for Reconnect {
@@ -248,6 +262,8 @@ impl Default for Reconnect {
         Reconnect {
             initial_delay_ms: 250,
             max_delay_secs: 30,
+            give_up_after_secs: 0,
+            on_rejected: OnRejected::Retry,
         }
     }
 }

@@ -4,7 +4,7 @@ use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
-use super::resolve::resolve;
+use super::resolve::Resolver;
 use super::tcp::connect_any;
 use crate::proxy::{ProxyConfig, ProxyKind};
 
@@ -12,11 +12,12 @@ pub async fn dial_tcp(
     target: &str,
     proxy: Option<&ProxyConfig>,
     timeout: Duration,
+    resolver: &dyn Resolver,
 ) -> io::Result<TcpStream> {
     match proxy {
-        None => connect_any(&resolve(target).await?, timeout).await,
+        None => connect_any(&resolver.resolve(target).await?, timeout).await,
         Some(p) => {
-            let mut s = connect_any(&resolve(&p.addr).await?, timeout).await?;
+            let mut s = connect_any(&resolver.resolve(&p.addr).await?, timeout).await?;
             tokio::time::timeout(timeout, async {
                 match p.kind {
                     ProxyKind::Http => http_connect(&mut s, target, p).await,

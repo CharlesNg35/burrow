@@ -56,6 +56,8 @@ pub struct ClientSettings {
     pub proxy: Option<ProxyConfig>,
     pub reconnect_initial: Duration,
     pub reconnect_max: Duration,
+    pub give_up_after: Option<Duration>,
+    pub exit_on_rejected: bool,
     pub connect_timeout: Duration,
     pub tcp: SocketTuning,
     pub udp_session_timeout: Duration,

@@ -69,6 +69,8 @@ pub fn client_settings(server: SocketAddr, secret: Secret) -> ClientSettings {
         proxy: None,
         reconnect_initial: Duration::from_millis(50),
         reconnect_max: Duration::from_millis(500),
+        give_up_after: None,
+        exit_on_rejected: false,
         connect_timeout: Duration::from_secs(2),
         tcp: tuning(),
         udp_session_timeout: Duration::from_secs(30),
@@ -109,11 +111,14 @@ pub async fn start_server(settings: ServerSettings) -> RunningServer {
 pub struct RunningClient {
     pub state: watch::Receiver<State>,
     pub stop: watch::Sender<bool>,
-    pub task: JoinHandle<()>,
+    pub task: JoinHandle<burrow::client::RunEnd>,
 }
 
 pub async fn start_client(settings: ClientSettings) -> RunningClient {
-    let client = Client::new(settings);
+    start_client_with(Client::new(settings)).await
+}
+
+pub async fn start_client_with(client: Client) -> RunningClient {
     let state = client.state();
     let (stop, stop_rx) = watch::channel(false);
     let task = tokio::spawn(client.run(stop_rx));

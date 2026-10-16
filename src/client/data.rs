@@ -16,7 +16,7 @@ use crate::failure::io_reason;
 use crate::forward::{client_tcp, refuse};
 use crate::handshake::Channel;
 use crate::protocol::{Connect, ServiceInfo, Status, decode_datagram, encode_datagram};
-use crate::transport::resolve::resolve;
+use crate::transport::resolve::Resolver;
 use crate::transport::tcp::{connect_any, tune};
 
 const MAX_PEERS: usize = 4096;
@@ -106,7 +106,7 @@ pub fn precheck(settings: &ClientSettings, svc: &ServiceInfo) {
     }
 }
 
-pub async fn serve(settings: Arc<ClientSettings>, mut ch: Channel) {
+pub async fn serve(settings: Arc<ClientSettings>, resolver: Arc<dyn Resolver>, mut ch: Channel) {
     let first = match ch.reader.recv(&mut ch.stream).await {
         Ok(Some(b)) => Connect::decode(b),
         _ => return,
@@ -118,7 +118,7 @@ pub async fn serve(settings: Arc<ClientSettings>, mut ch: Channel) {
             return;
         }
     };
-    let addrs = match permitted(&settings, &connect).await {
+    let addrs = match permitted(&settings, &*resolver, &connect).await {
         Ok(a) => a,
         Err(status) => {
             refuse(ch, status).await;
@@ -151,12 +151,13 @@ pub async fn serve(settings: Arc<ClientSettings>, mut ch: Channel) {
 
 async fn permitted(
     settings: &ClientSettings,
+    resolver: &dyn Resolver,
     connect: &Connect,
 ) -> Result<Vec<SocketAddr>, Status> {
     if parse_host_port(&connect.target).is_err() {
         return Err(Status::Invalid);
     }
-    let resolved = match resolve(&connect.target).await {
+    let resolved = match resolver.resolve(&connect.target).await {
         Ok(a) => a,
         Err(e) => {
             warn!(

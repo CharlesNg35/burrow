@@ -5,7 +5,7 @@ use std::time::Duration;
 use tokio::sync::{mpsc, watch};
 use tracing::{debug, error, info, warn};
 
-use crate::client::Client;
+use crate::client::{Client, RunEnd};
 use crate::config::env::ProcessEnv;
 use crate::config::settings::ServerSettings;
 use crate::config::{Loaded, Role, load_file};
@@ -120,8 +120,16 @@ pub fn client(path: &Path, logging: Logging) -> Result<u8, Failure> {
     init_logging(logging);
     runtime()?.block_on(async move {
         let stop = stop_on_signal();
-        Client::new(*settings).run(stop).await;
-        Ok(0)
+        match Client::new(*settings).run(stop).await {
+            RunEnd::Stopped => Ok(0),
+            RunEnd::GaveUp(down) => Err(Failure::new(format!(
+                "gave up after the server was unreachable for {}",
+                crate::client::reconnect::human(down)
+            ))
+            .hint("raise or remove reconnect.give_up_after_secs to keep retrying")),
+            RunEnd::Rejected => Err(Failure::new("the server rejected this client")
+                .hint("check name and secret against the server config, or set reconnect.on_rejected: retry")),
+        }
     })
 }
 
