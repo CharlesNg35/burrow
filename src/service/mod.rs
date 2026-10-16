@@ -446,14 +446,41 @@ pub fn manifest_path(name: &str) -> PathBuf {
     Platform::current().state_dir().join(format!("{name}.json"))
 }
 
+fn trustworthy(m: &Manifest, file: &Path) -> bool {
+    let p = Platform::current();
+    let in_dir = |path: &Path, dir: &Path| path.parent() == Some(dir);
+    file.file_stem().is_some_and(|s| *s == *m.name)
+        && (m.name == "burrow" || m.name.starts_with("burrow-"))
+        && in_dir(&m.config, &p.config_dir())
+        && m.env_file
+            .as_deref()
+            .is_none_or(|e| in_dir(e, &p.config_dir()))
+        && (m.log_file.as_os_str().is_empty() || in_dir(&m.log_file, &p.log_dir()))
+        && (m.binary == p.binary_path() || system::trusted_binary(&m.binary))
+}
+
+fn read_manifest(path: &Path) -> Result<Manifest, String> {
+    let text = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+    let m: Manifest = serde_json::from_str(&text).map_err(|e| format!("damaged: {e}"))?;
+    if trustworthy(&m, path) {
+        Ok(m)
+    } else {
+        Err("it points outside burrow's own folders, so it was not written by burrow".into())
+    }
+}
+
 pub fn load_manifest(name: &str) -> Result<Manifest, Failure> {
     let path = manifest_path(name);
-    let text = std::fs::read_to_string(&path).map_err(|_| {
-        Failure::new(format!("no burrow service named {name}"))
-            .hint("see the installed ones with: burrow service list")
-    })?;
-    serde_json::from_str(&text)
-        .map_err(|e| Failure::new(format!("{} is damaged: {e}", path.display())))
+    if !path.exists() {
+        return Err(Failure::new(format!("no burrow service named {name}"))
+            .hint("see the installed ones with: burrow service list"));
+    }
+    read_manifest(&path).map_err(|why| {
+        Failure::new(format!("ignoring {}: {why}", path.display())).hint(format!(
+            "delete it as an administrator if you did not create it: {}",
+            path.display()
+        ))
+    })
 }
 
 fn save_manifest(m: &Manifest) -> Result<(), Failure> {
@@ -481,8 +508,7 @@ pub fn all_manifests() -> Vec<Manifest> {
     let mut list: Vec<Manifest> = dir
         .flatten()
         .filter(|e| e.path().extension().is_some_and(|x| x == "json"))
-        .filter_map(|e| std::fs::read_to_string(e.path()).ok())
-        .filter_map(|t| serde_json::from_str(&t).ok())
+        .filter_map(|e| read_manifest(&e.path()).ok())
         .collect();
     list.sort_by(|a, b| a.name.cmp(&b.name));
     list
@@ -876,6 +902,45 @@ pub fn run_service(name: &str) -> Result<u8, Failure> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn record(p: Platform) -> Manifest {
+        Manifest {
+            name: "burrow-server".into(),
+            role: "server".into(),
+            config: p.config_dir().join("server.yaml"),
+            source_config: PathBuf::from("server.yaml"),
+            env_file: Some(p.config_dir().join("server.env")),
+            log_file: p.log_dir().join("server.log"),
+            binary: p.binary_path(),
+            copied_binary: true,
+            account: p.default_account("burrow-server"),
+            created_account: true,
+            low_ports: false,
+            files: Vec::new(),
+            version: "0.1.0".into(),
+        }
+    }
+
+    #[test]
+    fn only_records_inside_burrow_folders_are_trusted() {
+        let p = Platform::current();
+        let file = manifest_path("burrow-server");
+        assert!(trustworthy(&record(p), &file));
+        let outside = std::env::temp_dir().join("evil");
+        let planted: [fn(&mut Manifest, &Path); 5] = [
+            |m, o| m.binary = o.to_path_buf(),
+            |m, o| m.config = o.to_path_buf(),
+            |m, o| m.env_file = Some(o.to_path_buf()),
+            |m, o| m.log_file = o.to_path_buf(),
+            |m, _| m.name = "other".into(),
+        ];
+        for change in planted {
+            let mut m = record(p);
+            change(&mut m, &outside);
+            assert!(!trustworthy(&m, &file), "{m:?}");
+        }
+        assert!(!trustworthy(&record(p), &manifest_path("burrow-client")));
+    }
 
     #[test]
     fn names_come_from_the_config_file() {
