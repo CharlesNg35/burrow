@@ -550,7 +550,7 @@ pub fn uninstall(name: Option<&str>, purge: bool, out: &mut dyn Write) -> Result
                 .into_iter()
                 .flatten()
                 .chain(logs.iter())
-                .filter(|f| f.is_file())
+                .filter(|f| std::fs::symlink_metadata(f).is_ok_and(|m| m.file_type().is_file()))
                 .cloned(),
         );
     }
@@ -575,7 +575,7 @@ pub fn uninstall(name: Option<&str>, purge: bool, out: &mut dyn Write) -> Result
                 .parent()
                 .filter(|_| others.is_empty() && !kept.is_empty());
             for f in kept.iter().map(PathBuf::as_path).chain(dir) {
-                let _ = std::os::unix::fs::chown(f, Some(0), Some(0));
+                let _ = std::os::unix::fs::lchown(f, Some(0), Some(0));
             }
         }
         backend.remove_account(&m.account)?;
