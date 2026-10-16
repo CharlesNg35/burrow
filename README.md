@@ -62,27 +62,6 @@ Other commands:
 ./burrow completions bash                   # shell completions: bash, zsh, fish, powershell, elvish
 ```
 
-<details>
-<summary>How <code>client-config</code> picks the server address</summary>
-
-`listen` is where the server waits on its own machine (usually `0.0.0.0`, every interface), not how clients find it, so burrow never guesses the client address from it. The address comes from, in this order:
-
-1. `--server myserver.example.com`
-2. `public_address: myserver.example.com` in `server.yaml`, so you type it once for all your clients
-3. neither: `client-config` stops and tells you to set one of them
-
-Give the host alone and the port is taken from `listen`; add `:PORT` only when a router forwards a different one. For a WebSocket-only server, the host alone becomes `wss://HOST/burrow`. `./burrow init server --server myserver.example.com` writes `public_address` for you. The client name can be left out when the server defines only one client.
-
-| `--server` or `public_address` | result                                                          |
-| ------------------------------ | --------------------------------------------------------------- |
-| `myserver.example.com`         | `server: myserver.example.com:7835`                             |
-| `myserver.example.com:9000`    | used as is, with a note that a router must forward 9000         |
-| `192.168.1.10`, `10.0.0.5`     | used, with a note that only the same network or VPN can connect |
-| `127.0.0.1`, `localhost`       | used, with a note that only this machine can connect            |
-| `0.0.0.0`                      | refused: clients cannot connect to it                           |
-
-</details>
-
 `burrow server` and `burrow client` run the same checks as `validate` before opening any socket, and the server runs them again on every reload.
 
 ```
