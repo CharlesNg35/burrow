@@ -197,7 +197,7 @@ fn tuning(t: &TcpOptions) -> SocketTuning {
     }
 }
 
-fn binds_conflict(a: SocketAddr, b: SocketAddr) -> bool {
+pub(crate) fn binds_conflict(a: SocketAddr, b: SocketAddr) -> bool {
     let covers =
         |x: SocketAddr, y: SocketAddr| x.ip().is_unspecified() && (x.is_ipv6() || y.is_ipv4());
     a.port() == b.port() && (a.ip() == b.ip() || covers(a, b) || covers(b, a))

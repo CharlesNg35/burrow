@@ -611,3 +611,82 @@ async fn adding_a_secret_keeps_open_connections() {
     conn.read_exact(&mut buf).await.unwrap();
     assert_eq!(&buf, b"pong");
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn reload_can_swap_the_ports_of_two_services() {
+    let echo = echo_server().await;
+    let secret = Secret::generate();
+    let settings = server_settings(vec![secret.clone()]);
+    let t = tunnel_with(
+        settings.clone(),
+        vec![
+            ("a", service(echo, Protocol::Tcp)),
+            ("b", service(echo, Protocol::Tcp)),
+        ],
+        |c| c,
+        secret,
+    )
+    .await;
+    let (pa, pb) = (t.server.services["a"], t.server.services["b"]);
+    let mut next = settings;
+    next.listen = Some(t.server.addr);
+    let mut a = service(echo, Protocol::Tcp);
+    a.bind = pb;
+    let mut b = service(echo, Protocol::Tcp);
+    b.bind = pa;
+    next.services.insert("a".into(), a);
+    next.services.insert("b".into(), b);
+    t.server.reload(next).await;
+    for addr in [pa, pb] {
+        let mut ok = false;
+        for _ in 0..50 {
+            let probe = async {
+                let mut c = TcpStream::connect(addr).await.ok()?;
+                c.write_all(b"swap").await.ok()?;
+                let mut buf = [0u8; 4];
+                c.read_exact(&mut buf).await.ok()?;
+                Some(buf)
+            };
+            if tokio::time::timeout(Duration::from_millis(500), probe)
+                .await
+                .ok()
+                .flatten()
+                == Some(*b"swap")
+            {
+                ok = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        assert!(ok, "{addr} serves again after the swap");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn reload_onto_the_kept_control_port_is_rejected() {
+    if ws_mode() {
+        return;
+    }
+    let echo = echo_server().await;
+    let secret = Secret::generate();
+    let mut settings = server_settings(vec![secret.clone()]);
+    let free = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    settings.listen = Some(free.local_addr().unwrap());
+    drop(free);
+    let t = tunnel_with(
+        settings.clone(),
+        vec![("a", service(echo, Protocol::Tcp))],
+        |c| c,
+        secret,
+    )
+    .await;
+    let old = t.server.services["a"];
+    let mut next = settings;
+    next.listen = Some("127.0.0.1:1".parse().unwrap());
+    let mut a = service(echo, Protocol::Tcp);
+    a.bind = t.server.addr;
+    next.services.insert("a".into(), a);
+    t.server.reload(next).await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert_eq!(roundtrip(old, b"kept").await, b"kept");
+}

@@ -280,14 +280,22 @@ pub async fn reloader(
             }
         });
     }
-    while let Some(why) = trig.recv().await {
+    let mut rejected = false;
+    while let Some(first) = trig.recv().await {
         tokio::time::sleep(Duration::from_millis(200)).await;
-        while trig.try_recv().is_ok() {}
+        let mut why = first;
+        while let Ok(more) = trig.try_recv() {
+            if more == "SIGHUP" {
+                why = more;
+            }
+        }
+        let asked = why == "SIGHUP";
         let outcome = match load_file(&path, Some(Role::Server), &env) {
             Ok(o) => o,
             Err(e) => {
                 let (m, h) = e.describe(&path);
                 error!("reload ({why}) rejected: {m} ({h}); keeping the current config");
+                rejected = true;
                 continue;
             }
         };
@@ -300,13 +308,19 @@ pub async fn reloader(
                 outcome.report.error_count(),
                 crate::diagnostics::plural(outcome.report.error_count(), "error")
             );
+            rejected = true;
             continue;
         }
         let Some(Loaded::Server(next, _)) = outcome.loaded else {
             continue;
         };
-        if *next == current {
-            debug!("config file changed but settings are the same");
+        let was_rejected = std::mem::take(&mut rejected);
+        if *next == current && !asked {
+            if was_rejected {
+                info!("config is valid again and matches the running config");
+            } else {
+                debug!("config file changed but settings are the same");
+            }
             continue;
         }
         eprint!("{}", startup_report(&outcome.report, style));

@@ -367,6 +367,26 @@ impl Server {
     async fn apply(&mut self, next: ServerSettings) {
         let current = self.shared.settings();
         if next.listen != current.listen {
+            let clash = current.listen.and_then(|kept| {
+                let conflicts = |a| crate::config::check::binds_conflict(kept, a);
+                next.services
+                    .iter()
+                    .find(|(_, s)| s.protocol == Protocol::Tcp && conflicts(s.bind))
+                    .map(|(n, _)| format!("service \"{n}\""))
+                    .or_else(|| {
+                        next.websocket
+                            .as_ref()
+                            .filter(|w| conflicts(w.listen))
+                            .map(|_| "websocket.listen".to_string())
+                    })
+                    .map(|what| (what, kept))
+            });
+            if let Some((what, kept)) = clash {
+                error!(
+                    "reload rejected: {what} uses {kept}, which this server keeps listening on until it restarts; keeping the current config"
+                );
+                return;
+            }
             let show =
                 |a: Option<SocketAddr>| a.map_or_else(|| "off".to_string(), |a| a.to_string());
             warn!(
@@ -385,16 +405,23 @@ impl Server {
                 .await;
         }
 
-        let removed: Vec<String> = self
+        let moving: Vec<String> = self
             .services
-            .keys()
-            .filter(|k| !next.services.contains_key(*k))
-            .cloned()
+            .iter()
+            .filter(|(k, t)| {
+                next.services
+                    .get(*k)
+                    .is_none_or(|s| s.bind != t.service.bind || s.protocol != t.service.protocol)
+            })
+            .map(|(k, _)| k.clone())
             .collect();
-        for name in removed {
+        for name in moving {
             if let Some(t) = self.services.remove(&name) {
                 t.task.abort();
-                info!("service \"{name}\" removed");
+                let _ = t.task.await;
+                if !next.services.contains_key(&name) {
+                    info!("service \"{name}\" removed");
+                }
             }
         }
         for (name, svc) in &next.services {
@@ -462,10 +489,11 @@ impl Server {
                 .control
                 .try_send(ServerMsg::Services(Shared::services_for(&next, &s.name)));
         }
+        let (c, v) = (next.clients.len(), next.services.len());
         info!(
-            "config reloaded ({} clients, {} services)",
-            next.clients.len(),
-            next.services.len()
+            "config reloaded ({c} {}, {v} {})",
+            crate::diagnostics::plural(c, "client"),
+            crate::diagnostics::plural(v, "service")
         );
     }
 }
