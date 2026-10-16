@@ -49,7 +49,7 @@ fn typo_field() {
        |
      8 |   web:
        |   ^^^ "bind" is required here
-       = help: add "bind: ..."
+       = help: add "bind: ..." (public address on the server: a port, or ip:port)
 
     error: unknown field "bnd" in service "web"
       --> server.yaml:10:5
@@ -129,7 +129,7 @@ fn missing_fields() {
        |
      5 |   web:
        |   ^^^ "bind" is required here
-       = help: add "bind: ..."
+       = help: add "bind: ..." (public address on the server: a port, or ip:port)
 
     error: missing field "target" in service "web"
       --> server.yaml:5:3
@@ -450,7 +450,7 @@ fn json_multiple_errors() {
        |
      5 |     "web": {"client": "hom", "bnd": 4000, "target": "127.0.0.1:3000"},
        |     ^^^^^ "bind" is required here
-       = help: add "bind: ..."
+       = help: add "bind: ..." (public address on the server: a port, or ip:port)
 
     error: unknown client "hom" referenced by service "web"
       --> server.json:5:23

@@ -140,10 +140,26 @@ impl<'a> Checker<'a> {
         }
     }
 
-    fn any_of(&mut self, branches: &'a [J], node: &'a Node, ctx: &Ctx<'a>) {
-        let mut candidates = Vec::new();
+    fn flatten(&self, branches: &'a [J], out: &mut Vec<&'a J>) {
         for b in branches {
             let b = self.resolve(b);
+            match b
+                .get("anyOf")
+                .or_else(|| b.get("oneOf"))
+                .and_then(J::as_array)
+            {
+                Some(inner) => self.flatten(inner, out),
+                None => out.push(b),
+            }
+        }
+    }
+
+    fn any_of(&mut self, branches: &'a [J], node: &'a Node, ctx: &Ctx<'a>) {
+        let mut flat = Vec::new();
+        self.flatten(branches, &mut flat);
+        let branches = flat;
+        let mut candidates = Vec::new();
+        for &b in &branches {
             let types = types_of(b);
             if types.iter().any(|t| type_matches(t, node))
                 || (types.is_empty()
@@ -154,10 +170,7 @@ impl<'a> Checker<'a> {
             }
         }
         if candidates.is_empty() {
-            let mut all: Vec<&str> = branches
-                .iter()
-                .flat_map(|b| types_of(self.resolve(b)))
-                .collect();
+            let mut all: Vec<&str> = branches.iter().flat_map(|b| types_of(b)).collect();
             all.dedup();
             self.type_error(&all, node, ctx);
             return;
@@ -256,8 +269,10 @@ impl<'a> Checker<'a> {
                 }
                 let desc = props
                     .get(name)
-                    .map(|p| self.resolve(p))
-                    .and_then(|p| p.get("description"))
+                    .and_then(|p| {
+                        p.get("description")
+                            .or_else(|| self.resolve(p).get("description"))
+                    })
                     .and_then(J::as_str);
                 let help = match desc {
                     Some(d) => format!("add \"{name}: ...\" ({})", lowercase_first(d)),
