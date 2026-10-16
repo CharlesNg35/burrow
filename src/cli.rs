@@ -217,16 +217,23 @@ pub struct ValidateArgs {
     pub role: Option<RoleArg>,
     #[arg(long, help = "Fail on warnings too")]
     pub strict: bool,
-    #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
+    #[arg(long, value_enum, default_value_t = OutputFormat::Text, help = "Report format")]
     pub format: OutputFormat,
 }
 
 #[derive(Debug, Args)]
 pub struct InitArgs {
-    #[arg(value_enum)]
-    pub role: RoleArg,
-    #[arg(long, value_enum, default_value_t = FileFormat::Yaml)]
-    pub format: FileFormat,
+    #[arg(
+        value_enum,
+        help = "server for the public machine, client for the machine behind NAT; asked when omitted"
+    )]
+    pub role: Option<RoleArg>,
+    #[arg(
+        long,
+        value_enum,
+        help = "Config format [default: yaml, or taken from the -o file extension]"
+    )]
+    pub format: Option<FileFormat>,
     #[arg(
         short,
         long,

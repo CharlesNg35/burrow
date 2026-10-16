@@ -19,6 +19,9 @@ pub const DEFAULT_SERVICE_BIND: &str = "0.0.0.0:7840";
 
 pub trait Prompter {
     fn ask(&mut self, question: &str) -> Option<String>;
+    fn interactive(&self) -> bool {
+        false
+    }
 }
 
 pub struct NoPrompt;
@@ -32,9 +35,13 @@ impl Prompter for NoPrompt {
 pub struct TtyPrompt;
 
 impl Prompter for TtyPrompt {
-    fn ask(&mut self, question: &str) -> Option<String> {
+    fn interactive(&self) -> bool {
         use std::io::IsTerminal;
-        if !std::io::stdin().is_terminal() {
+        std::io::stdin().is_terminal()
+    }
+
+    fn ask(&mut self, question: &str) -> Option<String> {
+        if !self.interactive() {
             return None;
         }
         eprint!("{question}: ");
@@ -134,7 +141,10 @@ impl WebSocketChoice {
 }
 
 fn resolve_output(role: Role, opts: &InitOptions) -> Result<(PathBuf, Format), Failure> {
-    let format = opts.format.unwrap_or(Format::Yaml);
+    let format = opts
+        .format
+        .or_else(|| opts.output.as_deref().and_then(Format::from_path))
+        .unwrap_or(Format::Yaml);
     let ext = match format {
         Format::Yaml => "yaml",
         Format::Json => "json",

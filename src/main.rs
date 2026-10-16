@@ -57,6 +57,25 @@ fn config_path(
     }
 }
 
+fn ask_role() -> Result<RoleArg, Failure> {
+    use burrow::init::Prompter;
+    let mut prompt = TtyPrompt;
+    for _ in 0..3 {
+        if !prompt.interactive() {
+            break;
+        }
+        let answer = prompt
+            .ask("which config? server (the public machine) or client (the machine behind NAT)");
+        match answer.map(|a| a.to_ascii_lowercase()).as_deref() {
+            Some("server" | "s") => return Ok(RoleArg::Server),
+            Some("client" | "c") => return Ok(RoleArg::Client),
+            _ => {}
+        }
+    }
+    Err(Failure::usage("burrow init needs to know which config to write")
+        .hint("run: burrow init server  (on the public machine), or: burrow init client  (behind NAT)"))
+}
+
 fn service(action: ServiceAction, logging: burrow::run::Logging) -> Result<u8, Failure> {
     use burrow::service;
     let mut out = std::io::stdout().lock();
@@ -158,7 +177,7 @@ fn run(cli: Cli) -> Result<u8, Failure> {
         }
         Command::Init(args) => {
             let opts = InitOptions {
-                format: Some(format(args.format)),
+                format: args.format.map(format),
                 output: args.output,
                 force: args.force,
                 server: args.server,
@@ -177,8 +196,12 @@ fn run(cli: Cli) -> Result<u8, Failure> {
                     tls_key: args.ws_tls_key,
                 }),
             };
+            let role = match args.role {
+                Some(r) => r,
+                None => ask_role()?,
+            };
             let mut out = std::io::stdout().lock();
-            match args.role {
+            match role {
                 RoleArg::Server => burrow::init::init_server(&opts, &mut out)?,
                 RoleArg::Client => burrow::init::init_client(&opts, &mut TtyPrompt, &mut out)?,
             };
