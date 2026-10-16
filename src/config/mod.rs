@@ -1,4 +1,5 @@
 pub mod check;
+pub mod discover;
 pub mod emit;
 pub mod env;
 pub mod load;

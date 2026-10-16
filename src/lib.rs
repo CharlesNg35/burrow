@@ -9,6 +9,7 @@ pub mod failure;
 pub mod forward;
 pub mod handshake;
 pub mod init;
+pub mod instance;
 pub mod noise;
 pub mod protocol;
 pub mod proxy;

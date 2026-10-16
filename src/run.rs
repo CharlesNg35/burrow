@@ -11,6 +11,7 @@ use crate::config::settings::ServerSettings;
 use crate::config::{Loaded, Role, load_file};
 use crate::diagnostics::Style;
 use crate::failure::Failure;
+use crate::instance::{self, Identity};
 use crate::server::Server;
 use crate::validate::startup_report;
 
@@ -99,6 +100,7 @@ pub fn server(path: &Path, logging: Logging) -> Result<u8, Failure> {
             path.display()
         )));
     };
+    let _instance = instance::acquire(&Identity::server(path), path)?;
     init_logging(logging);
     runtime()?.block_on(async move {
         let server = Server::bind(*settings.clone()).await?;
@@ -117,6 +119,8 @@ pub fn client(path: &Path, logging: Logging) -> Result<u8, Failure> {
             path.display()
         )));
     };
+    let identity = Identity::client(&settings.endpoint.to_string(), &settings.name);
+    let _instance = instance::acquire(&identity, path)?;
     init_logging(logging);
     runtime()?.block_on(async move {
         let stop = stop_on_signal();

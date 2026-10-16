@@ -47,6 +47,16 @@ fn print(s: &str) -> Result<(), Failure> {
     }
 }
 
+fn config_path(
+    given: Option<std::path::PathBuf>,
+    role: Option<Role>,
+) -> Result<std::path::PathBuf, Failure> {
+    match given {
+        Some(p) => Ok(p),
+        None => burrow::config::discover::discover(std::path::Path::new("."), role),
+    }
+}
+
 fn run(cli: Cli) -> Result<u8, Failure> {
     let out_style = Style::detect(std::io::stdout().is_terminal());
     let err_style = Style::detect(std::io::stderr().is_terminal());
@@ -63,12 +73,9 @@ fn run(cli: Cli) -> Result<u8, Failure> {
     };
     match cli.command {
         Command::Validate(args) => {
-            let v = burrow::validate::validate(
-                &args.config,
-                args.role.map(role),
-                args.strict,
-                &ProcessEnv,
-            )?;
+            let path = config_path(args.config, args.role.map(role))?;
+            let v =
+                burrow::validate::validate(&path, args.role.map(role), args.strict, &ProcessEnv)?;
             let text = match args.format {
                 OutputFormat::Text => {
                     burrow::validate::render_text(&v.outcome, args.strict, out_style)
@@ -133,9 +140,10 @@ fn run(cli: Cli) -> Result<u8, Failure> {
             Ok(0)
         }
         Command::ClientConfig(args) => {
+            let path = config_path(args.config, Some(Role::Server))?;
             let r = burrow::init::client_config(
                 &args.name,
-                &args.config,
+                &path,
                 &args.server,
                 format(args.format),
                 &ProcessEnv,
@@ -153,7 +161,11 @@ fn run(cli: Cli) -> Result<u8, Failure> {
             }
             Ok(0)
         }
-        Command::Server(args) => burrow::run::server(&args.config, logging),
-        Command::Client(args) => burrow::run::client(&args.config, logging),
+        Command::Server(args) => {
+            burrow::run::server(&config_path(args.config, Some(Role::Server))?, logging)
+        }
+        Command::Client(args) => {
+            burrow::run::client(&config_path(args.config, Some(Role::Client))?, logging)
+        }
     }
 }

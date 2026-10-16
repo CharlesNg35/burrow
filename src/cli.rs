@@ -77,14 +77,22 @@ pub enum Command {
 
 #[derive(Debug, Args)]
 pub struct RunArgs {
-    #[arg(short, long, help = "Config file (.yaml, .yml or .json)")]
-    pub config: PathBuf,
+    #[arg(
+        short,
+        long,
+        help = "Config file (.yaml, .yml or .json); found in the current folder when omitted"
+    )]
+    pub config: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]
 pub struct ValidateArgs {
-    #[arg(short, long, help = "Config file (.yaml, .yml or .json)")]
-    pub config: PathBuf,
+    #[arg(
+        short,
+        long,
+        help = "Config file (.yaml, .yml or .json); found in the current folder when omitted"
+    )]
+    pub config: Option<PathBuf>,
     #[arg(
         long,
         value_enum,
@@ -173,8 +181,8 @@ pub struct InitArgs {
 pub struct ClientConfigArgs {
     #[arg(help = "Client name as defined in the server config")]
     pub name: String,
-    #[arg(short, long, help = "Server config file")]
-    pub config: PathBuf,
+    #[arg(short, long, help = "Server config file; ./server.yaml when omitted")]
+    pub config: Option<PathBuf>,
     #[arg(
         long,
         value_name = "HOST:PORT",
