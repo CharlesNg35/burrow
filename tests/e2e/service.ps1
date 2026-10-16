@@ -14,6 +14,12 @@ function Burrow { $ErrorActionPreference = "Continue"; & $B @args 2>&1 | Out-Str
 function Check($msg) { Write-Host "  ok: $msg" }
 function Fail($msg) {
   Write-Host "FAIL: $msg"
+  if ($env:GITHUB_ACTIONS) {
+    Write-Host "::error title=service e2e::$($msg -replace "`r?`n", ' ')"
+    foreach ($n in "burrow-e2e-server", "burrow-e2e-client") {
+      Write-Host "::error title=$n logs::$((Burrow service logs $n -n 15) -replace "`r?`n", '|')"
+    }
+  }
   Burrow service logs burrow-e2e-server -n 30 | Write-Host
   Burrow service logs burrow-e2e-client -n 30 | Write-Host
   throw $msg

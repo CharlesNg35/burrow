@@ -22,8 +22,17 @@ cleanup() {
   rm -rf "$WORK"
 }
 trap cleanup EXIT
+[ -n "${GITHUB_ACTIONS:-}" ] && trap 'echo "::error title=service e2e::line $LINENO failed: $BASH_COMMAND"' ERR
 
-fail() { echo "FAIL: $*" >&2; sudo "$B" service logs burrow-e2e-server -n 30 >&2 || true; sudo "$B" service logs burrow-e2e-client -n 30 >&2 || true; exit 1; }
+fail() {
+  echo "FAIL: $*" >&2
+  if [ -n "${GITHUB_ACTIONS:-}" ]; then
+    echo "::error title=service e2e::$(printf '%s' "$*" | tr '\n' ' ')"
+    for n in burrow-e2e-server burrow-e2e-client; do
+      echo "::error title=$n logs::$(sudo "$B" service logs "$n" -n 15 2>&1 | tr '\n' '|')"
+    done
+  fi
+  sudo "$B" service logs burrow-e2e-server -n 30 >&2 || true; sudo "$B" service logs burrow-e2e-client -n 30 >&2 || true; exit 1; }
 check() { echo "  ok: $*"; }
 running() {
   for _ in $(seq 1 50); do
@@ -58,8 +67,10 @@ echo "$out" | grep -q "preserve-env=E2E_SECRET" || fail "missing sudo hint: $out
 check "env hint shown"
 
 echo "== install server and client"
-sudo "$B" service install -c e2e-server.yaml
-E2E_SECRET="$SECRET" sudo --preserve-env=E2E_SECRET "$B" service install -c e2e-client.yaml
+out="$(sudo "$B" service install -c e2e-server.yaml 2>&1)" || fail "server install: $out"
+echo "$out"
+out="$(E2E_SECRET="$SECRET" sudo --preserve-env=E2E_SECRET "$B" service install -c e2e-client.yaml 2>&1)" || fail "client install: $out"
+echo "$out"
 for _ in $(seq 1 50); do "$LOADGEN" latency --addr 127.0.0.1:27940 --count 10 >/dev/null 2>&1 && break; sleep 0.2; done
 "$LOADGEN" latency --addr 127.0.0.1:27940 --count 500 >/dev/null || fail "no traffic through the installed services"
 check "traffic flows through the installed server and client"
@@ -88,22 +99,22 @@ echo "$out" | grep -q "is already running" || fail "unexpected: $out"
 check "manual duplicate refused: $(echo "$out" | head -1)"
 
 echo "== restart and reload keep it working"
-sudo "$B" service restart burrow-e2e-server >/dev/null
-sudo "$B" service reload burrow-e2e-client >/dev/null
+out="$(sudo "$B" service restart burrow-e2e-server 2>&1)" || fail "restart: $out"
+out="$(sudo "$B" service reload burrow-e2e-client 2>&1)" || fail "reload: $out"
 for _ in $(seq 1 100); do "$LOADGEN" latency --addr 127.0.0.1:27940 --count 10 >/dev/null 2>&1 && break; sleep 0.2; done
 "$LOADGEN" latency --addr 127.0.0.1:27940 --count 200 >/dev/null || fail "no traffic after restart"
 sudo "$B" service logs burrow-e2e-client -n 50 | grep -q "panicked\|exited" && fail "client crashed during reload"
 check "restart and reload"
 
 echo "== reinstall replaces the running service in place"
-sudo "$B" service install -c e2e-server.yaml >/dev/null
+out="$(sudo "$B" service install -c e2e-server.yaml 2>&1)" || fail "reinstall: $out"
 running burrow-e2e-server || fail "not running after reinstall"
 check "reinstall"
 
 echo "== update: same version is left alone, --force replaces and restarts"
-out="$(sudo "$B" service update)"
+out="$(sudo "$B" service update 2>&1)" || fail "update: $out"
 echo "$out" | grep -q "nothing to do" || fail "same-version update did something: $out"
-out="$(sudo "$B" service update --force)"
+out="$(sudo "$B" service update --force 2>&1)" || fail "forced update: $out"
 echo "$out" | grep -q "restarted burrow-e2e-client, burrow-e2e-server" || fail "forced update: $out"
 for _ in $(seq 1 100); do "$LOADGEN" latency --addr 127.0.0.1:27940 --count 10 >/dev/null 2>&1 && break; sleep 0.2; done
 "$LOADGEN" latency --addr 127.0.0.1:27940 --count 200 >/dev/null || fail "no traffic after update"
