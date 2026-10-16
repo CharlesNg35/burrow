@@ -133,7 +133,7 @@ pub fn parse_host_port(s: &str) -> Result<(String, u16), String> {
         match s.rsplit_once(':') {
             Some((h, _)) if h.contains(':') => {
                 return Err(format!(
-                    "\"{s}\" looks like an IPv6 address; write it as [addr]:port"
+                    "\"{s}\" looks like an IPv6 address; write it in brackets, like [::1]:22"
                 ));
             }
             Some((h, p)) => (h, p),
@@ -913,9 +913,10 @@ pub fn check_client(
     if out.iter().filter(|d| d.is_error()).count() > errors_before {
         return None;
     }
+    let endpoint = endpoint?;
     Some(ClientSettings {
-        server: cfg.server.clone(),
-        endpoint: endpoint?,
+        server: endpoint.to_string(),
+        endpoint,
         headers,
         ca_pem,
         name: cfg.name.clone(),

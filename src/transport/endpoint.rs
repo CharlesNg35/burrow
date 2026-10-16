@@ -49,9 +49,11 @@ impl Endpoint {
         let default_port = if tls { 443 } else { 80 };
         let with_port = if has_port(authority) {
             authority.to_string()
+        } else if authority.ends_with(':') {
+            return Err(format!("\"{authority}\" is missing the port after \":\""));
         } else if authority.contains(':') && !authority.starts_with('[') {
             return Err(format!(
-                "\"{authority}\" looks like an IPv6 address; write it as [addr]"
+                "\"{authority}\" looks like an IPv6 address; write it in brackets, like [2001:db8::1]"
             ));
         } else {
             format!("{authority}:{default_port}")
@@ -180,6 +182,11 @@ mod tests {
         assert!(Endpoint::parse("wss:///x").is_err());
         assert!(Endpoint::parse("wss://::1/x").is_err());
         assert!(Endpoint::parse("myserver.com:").is_err());
+        assert!(
+            Endpoint::parse("wss://h:/x")
+                .unwrap_err()
+                .contains("missing the port")
+        );
         assert!(Endpoint::parse("::1").is_err());
         assert!(Endpoint::parse("").is_err());
     }

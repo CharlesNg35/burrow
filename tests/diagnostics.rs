@@ -276,7 +276,7 @@ fn bad_addresses() {
        |           ^^^^^^^^^^ expected a port or ip:port
        = help: use a port like 7840, or ip:port like 127.0.0.1:7840
 
-    error: invalid target for service "b": "::1:22" looks like an IPv6 address; write it as [addr]:port
+    error: invalid target for service "b": "::1:22" looks like an IPv6 address; write it in brackets, like [::1]:22
       --> server.yaml:15:13
        |
     15 |     target: "::1:22"
@@ -826,6 +826,7 @@ fn client_server_without_port_uses_7835() {
         panic!("{}", o.report.render_text(Style { color: false }))
     };
     assert_eq!(c.endpoint.dial_address(), "myserver.com:7835");
+    assert_eq!(c.server, "myserver.com:7835");
 }
 
 #[test]
