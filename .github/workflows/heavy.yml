@@ -1,0 +1,33 @@
+name: heavy
+
+on:
+  workflow_dispatch:
+    inputs:
+      soak_secs:
+        description: Soak duration in seconds
+        default: "1800"
+      connections:
+        description: Concurrent connections for the scale test
+        default: "10000"
+      chaos_secs:
+        description: Chaos test duration in seconds
+        default: "120"
+
+permissions:
+  contents: read
+
+jobs:
+  heavy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - name: Heavy tests
+        env:
+          BURROW_SOAK_SECS: ${{ inputs.soak_secs }}
+          BURROW_HEAVY_CONNS: ${{ inputs.connections }}
+          BURROW_CHAOS_SECS: ${{ inputs.chaos_secs }}
+        run: |
+          ulimit -n "$(ulimit -Hn)"
+          cargo test --locked --release --test heavy -- --ignored --nocapture --test-threads 1
