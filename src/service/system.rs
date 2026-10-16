@@ -178,29 +178,44 @@ pub fn same_content(a: &Path, b: &Path) -> bool {
     len(a).is_some() && len(a) == len(b) && std::fs::read(a).ok() == std::fs::read(b).ok()
 }
 
+fn write_new_copy(from: &Path, tmp: &Path, executable: bool) -> std::io::Result<()> {
+    let mut opts = std::fs::OpenOptions::new();
+    opts.write(true).create_new(true);
+    #[cfg(unix)]
+    let mode = if executable { 0o755 } else { 0o600 };
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.mode(mode);
+    }
+    #[cfg(not(unix))]
+    let _ = executable;
+    let mut out = opts.open(tmp)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        out.set_permissions(std::fs::Permissions::from_mode(mode))?;
+    }
+    std::io::copy(&mut std::fs::File::open(from)?, &mut out)?;
+    out.sync_all()
+}
+
 pub fn copy_file(from: &Path, to: &Path, executable: bool) -> Result<(), Failure> {
     if let Some(dir) = to.parent() {
         std::fs::create_dir_all(dir)
             .map_err(|e| Failure::new(format!("cannot create {}: {e}", dir.display())))?;
     }
     let tmp = to.with_extension("burrow-new");
-    std::fs::copy(from, &tmp).map_err(|e| {
-        Failure::new(format!(
+    let _ = std::fs::remove_file(&tmp);
+    let written = write_new_copy(from, &tmp, executable);
+    if let Err(e) = written {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(Failure::new(format!(
             "cannot copy {} to {}: {e}",
             from.display(),
             to.display()
-        ))
-    })?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mode = if executable { 0o755 } else { 0o600 };
-        std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(mode)).map_err(|e| {
-            Failure::new(format!("cannot set permissions on {}: {e}", tmp.display()))
-        })?;
+        )));
     }
-    #[cfg(not(unix))]
-    let _ = executable;
     let mut tries = 0;
     loop {
         match std::fs::rename(&tmp, to) {
@@ -319,4 +334,36 @@ pub fn make_dir(path: &Path, mode: u32, owner: Option<&str>) -> Result<(), Failu
 #[cfg(target_os = "linux")]
 pub fn all_paths_under(files: &[PathBuf], roots: &[&str]) -> bool {
     files.iter().any(|f| roots.iter().any(|r| f.starts_with(r)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn copies_are_private_and_leave_no_temp_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("src.yaml");
+        std::fs::write(&src, "listen: 7835\n").unwrap();
+        let dst = dir.path().join("etc").join("server.yaml");
+        std::fs::create_dir_all(dst.parent().unwrap()).unwrap();
+        std::fs::write(dst.with_extension("burrow-new"), "stale").unwrap();
+        copy_file(&src, &dst, false).unwrap();
+        assert_eq!(std::fs::read_to_string(&dst).unwrap(), "listen: 7835\n");
+        assert!(!dst.with_extension("burrow-new").exists());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = |p: &Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+            std::fs::set_permissions(&src, std::fs::Permissions::from_mode(0o644)).unwrap();
+            copy_file(&src, &dst, false).unwrap();
+            assert_eq!(mode(&dst), 0o600);
+            let bin = dir.path().join("burrow");
+            copy_file(&src, &bin, true).unwrap();
+            assert_eq!(mode(&bin), 0o755);
+        }
+        assert!(copy_file(&dir.path().join("missing"), &dst, false).is_err());
+        assert!(!dst.with_extension("burrow-new").exists());
+        assert_eq!(std::fs::read_to_string(&dst).unwrap(), "listen: 7835\n");
+    }
 }
