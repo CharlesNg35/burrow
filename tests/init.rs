@@ -288,14 +288,17 @@ fn websocket_init_writes_only_what_was_asked() {
     )
     .unwrap();
     let text = std::fs::read_to_string(&tls_path).unwrap();
-    assert!(
-        text.contains("listen: 0.0.0.0:7837")
-            && text.contains(&format!(
-                "cert: {}",
-                std::path::absolute("cert.pem").unwrap().display()
-            )),
-        "{text}"
-    );
+    let root = burrow::config::tree::parse(&text).unwrap();
+    let cert = root
+        .get("websocket")
+        .and_then(|w| w.get("tls"))
+        .and_then(|t| t.get("cert"))
+        .and_then(|c| c.as_str())
+        .unwrap()
+        .to_string();
+    assert_eq!(Path::new(&cert), std::path::absolute("cert.pem").unwrap());
+
+    assert!(text.contains("listen: 0.0.0.0:7837"), "{text}");
     assert!(
         String::from_utf8(out)
             .unwrap()

@@ -120,7 +120,17 @@ pub async fn start_server(settings: ServerSettings) -> RunningServer {
     let settings = as_websocket(settings);
     let settings_ws = settings.websocket.clone();
     let names: Vec<String> = settings.services.keys().cloned().collect();
-    let server = Server::bind(settings).await.expect("server binds");
+    let mut tries = 0;
+    let server = loop {
+        match Server::bind(settings.clone()).await {
+            Ok(s) => break s,
+            Err(f) if tries < 30 && f.message.contains("already in use") => {
+                tries += 1;
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+            Err(f) => panic!("server binds: {f:?}"),
+        }
+    };
     let ws_addr = server.websocket_addr();
     let ws_settings = settings_ws.map(|mut w| {
         w.listen = ws_addr.expect("websocket bound");

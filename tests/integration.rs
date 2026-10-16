@@ -582,6 +582,8 @@ async fn removing_the_secret_in_use_closes_its_open_connections() {
         .insert("web".into(), service(echo, Protocol::Tcp));
     next.clients.get_mut("home").unwrap().secrets = vec![Secret::generate()];
     t.server.reload(next).await;
+    let shared = t.server.shared.clone();
+    wait_for(|| shared.session_names().is_empty()).await;
     assert_cut(conn).await;
 }
 
