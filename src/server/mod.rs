@@ -587,11 +587,15 @@ mod tests {
             crate::service::any_installed(),
             "{hint}"
         );
-        let udp = bind_error("service \"dns\"", Protocol::Udp, addr, &busy).hint.unwrap();
+        let udp = bind_error("service \"dns\"", Protocol::Udp, addr, &busy)
+            .hint
+            .unwrap();
         assert!(
             udp.ends_with(&crate::service::ports::inspect_hint(Protocol::Udp, 7835)),
             "{udp}"
         );
-        assert_ne!(hint, udp);
+        if !cfg!(windows) {
+            assert_ne!(hint, udp, "ss and lsof take a protocol flag");
+        }
     }
 }
