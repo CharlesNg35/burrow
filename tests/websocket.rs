@@ -406,3 +406,50 @@ async fn path_change_swaps_the_route_without_dropping_clients() {
         "old path is refused after the reload"
     );
 }
+
+fn self_signed_ca_flagged() -> Cert {
+    let key = rcgen::KeyPair::generate().unwrap();
+    let mut params = rcgen::CertificateParams::new(vec!["localhost".to_string()]).unwrap();
+    params.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
+    let cert = params.self_signed(&key).unwrap();
+    Cert {
+        cert_pem: cert.pem(),
+        key_pem: key.serialize_pem(),
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn pinned_self_signed_certificate_marked_as_ca_is_accepted() {
+    let echo = echo_server().await;
+    let cert = self_signed_ca_flagged();
+    let secret = Secret::generate();
+    let mut s = ws_server(&secret, "/t", Some(&cert));
+    s.services
+        .insert("web".into(), service(echo, Protocol::Tcp));
+    let srv = start_server(s).await;
+    let port = srv.ws_addr.unwrap().port();
+    let _cli = connected(
+        &srv,
+        ws_client(&format!("wss://localhost:{port}/t"), secret, Some(&cert)),
+    )
+    .await;
+    assert_eq!(roundtrip(srv.services["web"], b"pinned").await, b"pinned");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn pinning_a_different_certificate_is_refused() {
+    let cert = self_signed_ca_flagged();
+    let other = self_signed_ca_flagged();
+    let secret = Secret::generate();
+    let srv = start_server(ws_server(&secret, "/t", Some(&cert))).await;
+    let port = srv.ws_addr.unwrap().port();
+    let cli = start_client(ws_client(
+        &format!("wss://localhost:{port}/t"),
+        secret,
+        Some(&other),
+    ))
+    .await;
+    tokio::time::sleep(Duration::from_millis(800)).await;
+    assert_eq!(*cli.state.borrow(), State::Connecting);
+    assert!(srv.shared.session_names().is_empty());
+}

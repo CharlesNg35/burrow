@@ -283,7 +283,7 @@ Clients use `wss://tunnel.example.com:7837/burrow`. Relative file paths are reso
 certbot renew --deploy-hook "systemctl reload burrow-server"
 ```
 
-For a self-signed certificate, copy it to the client and trust it there with `ca: server-cert.pem`.
+For a self-signed certificate, copy it to the client and trust it there with `ca: server-cert.pem`. `ca` accepts either a CA that signed the server certificate, or the server certificate itself, which is then pinned: only that exact certificate is accepted.
 
 </details>
 
@@ -316,12 +316,12 @@ One machine (i5-12600K, 10 vCPUs), everything on loopback, from `bench/run.sh`:
 
 |                               | burrow (default)       | rathole 0.5 (noise) | frp 0.71 (default) | chisel 1.12 |
 | ----------------------------- | ---------------------- | ------------------- | ------------------ | ----------- |
-| throughput, 1 / 4 streams     | **12.8 / 35.1 Gbit/s** | 6.0 / 18.4          | 8.7 / 9.3          | 6.1 / 5.5   |
-| new connections/s             | **13.8k**              | 6.3k                | 10.4k              | 11.6k       |
-| p99 latency under load        | **498 µs**             | 660 µs              | 694 µs             | 1241 µs     |
-| RSS with 10k idle connections | **172 MiB**            | 2788 MiB            | 777 MiB            | 701 MiB     |
+| throughput, 1 / 4 streams     | **12.7 / 34.7 Gbit/s** | 6.5 / 18.2          | 8.5 / 9.7          | 6.1 / 5.7   |
+| new connections/s             | **13.8k**              | 6.2k                | 10.1k              | 11.7k       |
+| p99 latency under load        | **527 µs**             | 658 µs              | 638 µs             | 1096 µs     |
+| RSS with 10k idle connections | **176 MiB**            | 2770 MiB            | 784 MiB            | 708 MiB     |
 
-With `cipher: aes-gcm` burrow reaches 22.6 / 52.3 Gbit/s. Unencrypted, burrow moves 2x rathole's plain TCP throughput, but opens 7% fewer connections per second, because it still authenticates every data channel with Noise.
+With `cipher: aes-gcm` burrow reaches 22.6 / 51.5 Gbit/s. Over WebSocket it does 11.9 / 31.3 Gbit/s with 348 MiB for 10k idle connections (chisel, also WebSocket: 6.1 / 5.7 Gbit/s, 708 MiB). Unencrypted, burrow moves 2x rathole's plain TCP throughput, but opens 7% fewer connections per second (14.3k vs 15.4k), because it still authenticates every data channel with Noise.
 
 Full table, machine details and exact commands: [docs/benchmark.md](docs/benchmark.md). Reproduce with `bench/run.sh`.
 
@@ -331,6 +331,8 @@ Full table, machine details and exact commands: [docs/benchmark.md](docs/benchma
 cargo test                                            # unit, integration, security, diagnostics, init
 cargo test --release --test heavy -- --ignored       # 10k connections, soak, chaos, churn and leak checks
 cd fuzz && cargo +nightly fuzz run config            # also: handshake, frames
+tests/e2e/proxies.sh                                  # wss:// through real nginx and Caddy containers (needs docker)
+BURROW_TEST_TRANSPORT=ws cargo test --test integration   # run the integration suite over WebSocket
 ```
 
 Design notes: [docs/research.md](docs/research.md), [docs/decisions.md](docs/decisions.md).

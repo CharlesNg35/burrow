@@ -88,7 +88,7 @@ Some servers can only be reached through an HTTP(S) reverse proxy or a CDN. For 
 - **Keepalive.** Proxies close idle WebSockets (nginx after 60 s by default, Cloudflare after 100 s), and some only count data frames. The server therefore sends an encrypted keepalive record on idle pooled channels every 25 s. A test with an idle-killing proxy fails without it.
 - **Crate: tokio-websockets 0.13** (strict RFC compliance, maintained, can use the `ring` backend burrow already ships), plus tokio-rustls, webpki-roots and httparse. The request head is parsed before the upgrade, so wrong paths are refused with 404 and nothing else is exposed.
 - **Optional own TLS** (`websocket.tls.cert`/`key`), for servers without a proxy. Clients trust the public roots plus an optional `ca` file.
-- **Cost, measured** (bench/run.sh, loopback): 91-93% of the TCP throughput (11.9 vs 13.0 Gbit/s single stream), 12.2k vs 13.9k new connections per second, and 2x the idle memory at 10k connections (353 vs 180 MB), from the library's per-connection frame buffers. That is still well below frp (777 MB) and rathole with Noise (2788 MB).
+- **Cost, measured** (docs/benchmark.md, loopback): about 93% of the TCP throughput (11.9 vs 12.7 Gbit/s single stream), 12.3k vs 13.8k new connections per second, and 2x the idle memory at 10k connections (348 vs 176 MiB), from the library's per-connection frame buffers. That is still well below frp (784 MiB) and chisel (708 MiB), which also uses WebSocket.
 
 ## D18. Reconnect: never give up by default
 

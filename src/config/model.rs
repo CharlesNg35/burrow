@@ -267,7 +267,7 @@ pub struct ClientConfig {
     pub headers: BTreeMap<String, String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
-        description = "Extra CA certificate PEM file to trust for wss://, relative to the config file"
+        description = "CA certificate, or the server certificate itself (pinned), to trust for wss://; relative to the config file"
     )]
     pub ca: Option<String>,
     #[serde(default, skip_serializing_if = "is_default")]
