@@ -359,7 +359,7 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
     }
 
     backend.prepare_dirs(&account).map_err(restore)?;
-    if copy_binary {
+    if copy_binary && !system::same_content(&current, &binary) {
         system::copy_file(&current, &binary, true).map_err(restore)?;
         say(
             out,
@@ -544,6 +544,7 @@ pub fn uninstall(name: Option<&str>, purge: bool, out: &mut dyn Write) -> Result
         && std::fs::remove_file(&m.binary).is_ok()
     {
         let _ = std::fs::remove_file(m.binary.with_extension("previous"));
+        let _ = std::fs::remove_file(m.binary.with_extension("old"));
         if cfg!(windows)
             && let Some(dir) = m.binary.parent()
         {

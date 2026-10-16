@@ -173,6 +173,11 @@ pub fn canonical(p: &Path) -> std::io::Result<PathBuf> {
     Ok(c)
 }
 
+pub fn same_content(a: &Path, b: &Path) -> bool {
+    let len = |p: &Path| std::fs::metadata(p).map(|m| m.len()).ok();
+    len(a).is_some() && len(a) == len(b) && std::fs::read(a).ok() == std::fs::read(b).ok()
+}
+
 pub fn copy_file(from: &Path, to: &Path, executable: bool) -> Result<(), Failure> {
     if let Some(dir) = to.parent() {
         std::fs::create_dir_all(dir)
@@ -202,11 +207,21 @@ pub fn copy_file(from: &Path, to: &Path, executable: bool) -> Result<(), Failure
             Ok(()) => return Ok(()),
             Err(e)
                 if cfg!(windows)
-                    && tries < 20
+                    && tries < 8
                     && e.kind() == std::io::ErrorKind::PermissionDenied =>
             {
                 tries += 1;
                 std::thread::sleep(std::time::Duration::from_millis(250));
+            }
+            Err(e)
+                if cfg!(windows)
+                    && tries == 8
+                    && e.kind() == std::io::ErrorKind::PermissionDenied =>
+            {
+                tries += 1;
+                let aside = to.with_extension("old");
+                let _ = std::fs::remove_file(&aside);
+                let _ = std::fs::rename(to, &aside);
             }
             Err(e) => {
                 let _ = std::fs::remove_file(&tmp);
