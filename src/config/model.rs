@@ -243,7 +243,7 @@ impl Default for UdpOptions {
 #[schemars(title = "burrow client config")]
 pub struct ClientConfig {
     #[schemars(
-        description = "Server address: host:port for TCP, or ws://host/path or wss://host/path"
+        description = "Server address: host or host:port for TCP (port 7835 when omitted), or ws://host/path or wss://host/path"
     )]
     pub server: String,
     #[schemars(description = "This client's name, as defined in the server config")]

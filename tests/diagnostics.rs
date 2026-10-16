@@ -347,14 +347,14 @@ fn client_valid() {
 #[test]
 fn client_bad_cidr() {
     insta::assert_snapshot!(render("client.yaml", &format!(
-        "server: myserver.com\nname: home\nsecret: {SECRET}\nallow:\n  - 10.0.0.0/33\n  - lan.local\n  - 192.168.1.1/24\n  - 10.0.0.0/8:http\n"
+        "server: myserver.com:99999\nname: home\nsecret: {SECRET}\nallow:\n  - 10.0.0.0/33\n  - lan.local\n  - 192.168.1.1/24\n  - 10.0.0.0/8:http\n"
     ), None), @r#"
-    error: invalid server address: "myserver.com" is missing a port
+    error: invalid server address: "99999" is not a valid port (1-65535)
       --> client.yaml:1:9
        |
-     1 | server: myserver.com
-       |         ^^^^^^^^^^^^ expected host:port or wss://host/path
-       = help: use host:port for TCP (myserver.com:7835), or the WebSocket URL (wss://tunnel.example.com/burrow)
+     1 | server: myserver.com:99999
+       |         ^^^^^^^^^^^^^^^^^^ expected a host, host:port or wss://host/path
+       = help: use a host name or IP (port 7835 unless you add :PORT), or the WebSocket URL (wss://tunnel.example.com/burrow)
 
     error: invalid allow entry: "33" is not a valid prefix length
       --> client.yaml:5:5
@@ -733,8 +733,8 @@ fn websocket_client_errors() {
       --> client.yaml:1:9
        |
      1 | server: https://tunnel.example.com/burrow
-       |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected host:port or wss://host/path
-       = help: use host:port for TCP (myserver.com:7835), or the WebSocket URL (wss://tunnel.example.com/burrow)
+       |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected a host, host:port or wss://host/path
+       = help: use a host name or IP (port 7835 unless you add :PORT), or the WebSocket URL (wss://tunnel.example.com/burrow)
 
     error: header "Host" cannot be set
       --> client.yaml:6:3

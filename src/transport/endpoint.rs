@@ -2,6 +2,8 @@ use std::fmt;
 
 use crate::config::check::parse_host_port;
 
+pub const DEFAULT_PORT: u16 = 7835;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Endpoint {
     Tcp {
@@ -19,10 +21,9 @@ impl Endpoint {
     pub fn parse(s: &str) -> Result<Endpoint, String> {
         let s = s.trim();
         let Some((scheme, rest)) = s.split_once("://") else {
-            parse_host_port(s)?;
-            return Ok(Endpoint::Tcp {
-                host_port: s.to_string(),
-            });
+            let host_port = with_default_port(s, DEFAULT_PORT);
+            parse_host_port(&host_port)?;
+            return Ok(Endpoint::Tcp { host_port });
         };
         let tls = match scheme.to_ascii_lowercase().as_str() {
             "wss" => true,
@@ -73,6 +74,15 @@ impl Endpoint {
 
     pub fn is_websocket(&self) -> bool {
         matches!(self, Endpoint::WebSocket { .. })
+    }
+}
+
+pub fn with_default_port(s: &str, port: u16) -> String {
+    let bracketed = s.starts_with('[') && s.ends_with(']');
+    if !s.is_empty() && (bracketed || !s.contains(':')) {
+        format!("{s}:{port}")
+    } else {
+        s.to_string()
     }
 }
 
@@ -169,7 +179,27 @@ mod tests {
         assert!(Endpoint::parse("wss://h/x?y=1").is_err());
         assert!(Endpoint::parse("wss:///x").is_err());
         assert!(Endpoint::parse("wss://::1/x").is_err());
-        assert!(Endpoint::parse("myserver.com").is_err());
+        assert!(Endpoint::parse("myserver.com:").is_err());
+        assert!(Endpoint::parse("::1").is_err());
+        assert!(Endpoint::parse("").is_err());
+    }
+
+    #[test]
+    fn host_alone_uses_the_default_port() {
+        for (given, want) in [
+            ("myserver.com", "myserver.com:7835"),
+            ("203.0.113.5", "203.0.113.5:7835"),
+            ("[2001:db8::1]", "[2001:db8::1]:7835"),
+            (" myserver.com ", "myserver.com:7835"),
+            ("myserver.com:2333", "myserver.com:2333"),
+        ] {
+            assert_eq!(
+                Endpoint::parse(given).unwrap(),
+                Endpoint::Tcp {
+                    host_port: want.into()
+                }
+            );
+        }
     }
 
     #[test]
