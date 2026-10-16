@@ -136,7 +136,7 @@ fn missing_fields() {
        |
      5 |   web:
        |   ^^^ "target" is required here
-       = help: add "target: ..." (host:port as seen from the client)
+       = help: add "target: ..." (host:port as seen from the client, or a port alone for 127.0.0.1 on the client)
 
     server.yaml: 4 errors, 0 warnings
     "#);
@@ -266,8 +266,8 @@ fn bad_addresses() {
       --> server.yaml:11:13
        |
     11 |     target: localhost
-       |             ^^^^^^^^^ expected host:port
-       = help: use host:port as seen from the client, for example 127.0.0.1:3000
+       |             ^^^^^^^^^ expected host:port or a port
+       = help: use host:port as seen from the client, for example 127.0.0.1:3000, or a port alone like 3000
 
     error: invalid bind address for service "b": "nowhere:80" is not a valid bind address
       --> server.yaml:14:11
@@ -280,8 +280,8 @@ fn bad_addresses() {
       --> server.yaml:15:13
        |
     15 |     target: "::1:22"
-       |             ^^^^^^^^ expected host:port
-       = help: use host:port as seen from the client, for example 127.0.0.1:3000
+       |             ^^^^^^^^ expected host:port or a port
+       = help: use host:port as seen from the client, for example 127.0.0.1:3000, or a port alone like 3000
 
     server.yaml: 4 errors, 0 warnings
     "#);
@@ -788,5 +788,69 @@ fn websocket_client_warnings() {
        = help: did you mean "exit"? valid values: retry, exit
 
     client.yaml: 1 error, 1 warning
+    "#);
+}
+
+#[test]
+fn bare_ports_are_accepted() {
+    use burrow::config::Loaded;
+    for (listen, bind, target) in [
+        ("7835", "7840", "3000"),
+        ("\"7835\"", "\"7840\"", "\"3000\""),
+        ("0.0.0.0:7835", "0.0.0.0:7840", "127.0.0.1:3000"),
+    ] {
+        let src = format!(
+            "listen: {listen}\nclients:\n  home:\n    secret: {SECRET}\nservices:\n  web:\n    client: home\n    bind: {bind}\n    target: {target}\n"
+        );
+        let o = load_str("server.yaml", &src, Format::Yaml, None, &env);
+        assert!(
+            !o.report.has_errors(),
+            "{}",
+            o.report.render_text(Style { color: false })
+        );
+        let Some(Loaded::Server(s, _)) = o.loaded else {
+            panic!("not a server")
+        };
+        assert_eq!(s.listen, Some("0.0.0.0:7835".parse().unwrap()));
+        assert_eq!(s.services["web"].bind, "0.0.0.0:7840".parse().unwrap());
+        assert_eq!(s.services["web"].target, "127.0.0.1:3000");
+    }
+}
+
+#[test]
+fn client_server_without_port_uses_7835() {
+    use burrow::config::Loaded;
+    let src = format!("server: myserver.com\nname: home\nsecret: {SECRET}\nallow: [127.0.0.0/8]\n");
+    let o = load_str("client.yaml", &src, Format::Yaml, None, &env);
+    let Some(Loaded::Client(c, _)) = o.loaded else {
+        panic!("{}", o.report.render_text(Style { color: false }))
+    };
+    assert_eq!(c.endpoint.dial_address(), "myserver.com:7835");
+}
+
+#[test]
+fn bad_listen_types_are_explained() {
+    insta::assert_snapshot!(render("server.yaml", &format!("listen: [1]\nclients:\n  home:\n    secret: {SECRET}\nservices: {{}}\n"), None), @r#"
+    error: the server needs "listen" (TCP), "websocket", or both
+      --> server.yaml
+       = help: add "listen: 0.0.0.0:7835" for TCP clients, or a websocket section for clients behind HTTP-only networks (see README)
+
+    error: "listen" in server config must be a whole number or a string, found a list
+      --> server.yaml:1:9
+       |
+     1 | listen: [1]
+       |         ^^^ expected a whole number or a string
+       = help: use a single value, not a list
+
+    warning: no services are defined, so nothing is exposed
+      --> server.yaml:5:1
+       |
+     5 | services: {}
+       | ^^^^^^^^
+       = help: add a service, for example:
+             services:
+               web: { client: NAME, bind: 0.0.0.0:7840, target: 127.0.0.1:80 }
+
+    server.yaml: 2 errors, 1 warning
     "#);
 }

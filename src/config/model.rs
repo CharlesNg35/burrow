@@ -8,8 +8,10 @@ use serde::{Deserialize, Serialize};
 #[schemars(title = "burrow server config")]
 pub struct ServerConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(description = "TCP address clients connect to, for example 0.0.0.0:7835")]
-    pub listen: Option<String>,
+    #[schemars(
+        description = "TCP address clients connect to: ip:port like 0.0.0.0:7835, or a port alone for every interface"
+    )]
+    pub listen: Option<Bind>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
         description = "Accept clients over WebSocket, for servers reachable only through HTTP(S)"
@@ -116,8 +118,10 @@ pub struct ServiceEntry {
     pub client: String,
     #[schemars(description = "Public address on the server: a port, or ip:port")]
     pub bind: Bind,
-    #[schemars(description = "host:port as seen from the client")]
-    pub target: String,
+    #[schemars(
+        description = "host:port as seen from the client, or a port alone for 127.0.0.1 on the client"
+    )]
+    pub target: Target,
     #[serde(default, skip_serializing_if = "is_default")]
     pub protocol: Protocol,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -130,6 +134,34 @@ pub struct ServiceEntry {
 pub enum Bind {
     Port(u16),
     Addr(String),
+}
+
+impl std::fmt::Display for Bind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Bind::Port(p) => write!(f, "{p}"),
+            Bind::Addr(s) => f.write_str(s),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged)]
+pub enum Target {
+    Port(u16),
+    Addr(String),
+}
+
+impl Target {
+    pub fn host_port(&self) -> String {
+        match self {
+            Target::Port(p) => format!("127.0.0.1:{p}"),
+            Target::Addr(s) => match s.trim().parse::<u16>() {
+                Ok(p) => format!("127.0.0.1:{p}"),
+                Err(_) => s.clone(),
+            },
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, JsonSchema)]

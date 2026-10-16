@@ -225,17 +225,17 @@ pub fn check_server(
 
     let listen = match &cfg.listen {
         None => None,
-        Some(text) => match text.parse::<SocketAddr>() {
-            Ok(a) if a.port() != 0 => Some(a),
-            _ => {
+        Some(given) => match parse_bind(given) {
+            Ok(a) => Some(a),
+            Err(_) => {
                 out.push(
                     Diagnostic::error(
                         "invalid-address",
-                        format!("invalid listen address \"{text}\""),
+                        format!("invalid listen address \"{given}\""),
                     )
                     .at(spans.value(&["listen"]))
-                    .label("expected ip:port")
-                    .help("use an IP and port, for example 0.0.0.0:7835 or [::]:7835"),
+                    .label("expected ip:port or a port")
+                    .help("use an IP and port, for example 0.0.0.0:7835 or [::]:7835, or a port alone like 7835"),
                 );
                 None
             }
@@ -362,15 +362,16 @@ pub fn check_server(
                 None
             }
         };
-        if let Err(e) = parse_host_port(&svc.target) {
+        let target = svc.target.host_port();
+        if let Err(e) = parse_host_port(&target) {
             out.push(
                 Diagnostic::error(
                     "invalid-address",
                     format!("invalid target for service \"{name}\": {e}"),
                 )
                 .at(spans.value(&path("target")))
-                .label("expected host:port")
-                .help("use host:port as seen from the client, for example 127.0.0.1:3000"),
+                .label("expected host:port or a port")
+                .help("use host:port as seen from the client, for example 127.0.0.1:3000, or a port alone like 3000"),
             );
         }
         if let Some(bind) = bind {
@@ -441,7 +442,7 @@ pub fn check_server(
                 Service {
                     client: svc.client.clone(),
                     bind,
-                    target: svc.target.clone(),
+                    target,
                     protocol: svc.protocol,
                     max_connections: svc.max_connections.map(|m| m as usize),
                 },
