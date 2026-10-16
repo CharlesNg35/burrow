@@ -395,6 +395,11 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
             manifest.role
         ),
     )?;
+    let arg = if all_manifests().len() <= 1 {
+        String::new()
+    } else {
+        format!(" {name}")
+    };
     if opts.start {
         backend.start(&manifest)?;
         std::thread::sleep(std::time::Duration::from_millis(1500));
@@ -412,13 +417,16 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
                 out,
                 format!("warning: {name} is not running: {}", st.detail),
             )?;
-            say(out, format!("  see why with: burrow service logs {name}"))?;
+            say(
+                out,
+                format!("  see why with: sudo burrow service logs{arg}"),
+            )?;
         }
     }
     let applies = if manifest.role == "server" {
-        "changes reload automatically"
+        "changes reload automatically".to_string()
     } else {
-        "then run: sudo burrow service restart"
+        format!("then run: sudo burrow service restart{arg}")
     };
     say(
         out,
@@ -429,7 +437,7 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
     )?;
     say(
         out,
-        format!("  status: burrow service status {name}    logs: burrow service logs {name} -f"),
+        format!("  status: burrow service status{arg}    logs: sudo burrow service logs{arg} -f"),
     )?;
     Ok(())
 }
@@ -510,17 +518,17 @@ pub fn uninstall(name: Option<&str>, purge: bool, out: &mut dyn Write) -> Result
     let _ = std::fs::remove_file(manifest_path(&m.name));
     say(out, format!("removed service {}", m.name))?;
     let others = all_manifests();
+    let mut logs = vec![m.log_file.clone()];
+    logs.extend(
+        (1..=crate::logfile::KEEP).map(|n| PathBuf::from(format!("{}.{n}", m.log_file.display()))),
+    );
+    let mut kept = Vec::new();
     if purge {
         for f in [Some(&m.config), m.env_file.as_ref()].into_iter().flatten() {
             if std::fs::remove_file(f).is_ok() {
                 say(out, format!("removed {}", f.display()))?;
             }
         }
-        let mut logs = vec![m.log_file.clone()];
-        logs.extend(
-            (1..=crate::logfile::KEEP)
-                .map(|n| PathBuf::from(format!("{}.{n}", m.log_file.display()))),
-        );
         if logs
             .iter()
             .filter(|f| std::fs::remove_file(f).is_ok())
@@ -530,14 +538,14 @@ pub fn uninstall(name: Option<&str>, purge: bool, out: &mut dyn Write) -> Result
             say(out, format!("removed the logs in {}", m.log_file.display()))?;
         }
     } else {
-        say(
-            out,
-            format!(
-                "kept {} (remove it with: burrow service uninstall {} --purge, or delete it yourself)",
-                m.config.display(),
-                m.name
-            ),
-        )?;
+        kept.extend(
+            [Some(&m.config), m.env_file.as_ref()]
+                .into_iter()
+                .flatten()
+                .chain(logs.iter())
+                .filter(|f| f.is_file())
+                .cloned(),
+        );
     }
     if m.copied_binary
         && !others.iter().any(|o| o.binary == m.binary)
@@ -553,8 +561,33 @@ pub fn uninstall(name: Option<&str>, purge: bool, out: &mut dyn Write) -> Result
         say(out, format!("removed {}", m.binary.display()))?;
     }
     if m.created_account && !others.iter().any(|o| o.account == m.account) {
+        #[cfg(unix)]
+        {
+            let dir = m
+                .log_file
+                .parent()
+                .filter(|_| others.is_empty() && !kept.is_empty());
+            for f in kept.iter().map(PathBuf::as_path).chain(dir) {
+                let _ = std::os::unix::fs::chown(f, Some(0), Some(0));
+            }
+        }
         backend.remove_account(&m.account)?;
         say(out, format!("removed service account {}", m.account))?;
+    }
+    if !kept.is_empty() {
+        let list = kept
+            .iter()
+            .map(|f| format!("\"{}\"", f.display()))
+            .collect::<Vec<_>>();
+        let delete = if cfg!(windows) {
+            format!("Remove-Item {}", list.join(", "))
+        } else {
+            format!("sudo rm {}", list.join(" "))
+        };
+        say(
+            out,
+            format!("kept these files for a later reinstall; delete them with:\n  {delete}"),
+        )?;
     }
     if others.is_empty() {
         let p = Platform::current();
