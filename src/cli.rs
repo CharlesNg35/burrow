@@ -136,6 +136,37 @@ pub struct InitArgs {
         help = "Write the secret as ${VAR} instead of a literal"
     )]
     pub env_secret: Option<String>,
+    #[arg(
+        long,
+        help = "Server: accept clients over WebSocket only (no TCP control port)"
+    )]
+    pub ws: bool,
+    #[arg(
+        long,
+        value_name = "IP:PORT",
+        help = "Server: WebSocket listen address (default 127.0.0.1:7836, or 0.0.0.0:7837 with TLS files)"
+    )]
+    pub ws_listen: Option<String>,
+    #[arg(
+        long,
+        value_name = "PATH",
+        help = "Server: WebSocket URL path (default /burrow)"
+    )]
+    pub ws_path: Option<String>,
+    #[arg(
+        long,
+        value_name = "FILE",
+        requires = "ws_tls_key",
+        help = "Server: serve wss:// directly with this certificate chain (PEM)"
+    )]
+    pub ws_tls_cert: Option<String>,
+    #[arg(
+        long,
+        value_name = "FILE",
+        requires = "ws_tls_cert",
+        help = "Server: private key for --ws-tls-cert (PEM)"
+    )]
+    pub ws_tls_key: Option<String>,
 }
 
 #[derive(Debug, Args)]

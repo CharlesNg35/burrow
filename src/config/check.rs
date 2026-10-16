@@ -235,7 +235,7 @@ pub fn check_server(
                     )
                     .at(spans.value(&["listen"]))
                     .label("expected ip:port")
-                    .help("use an IP and port, for example 0.0.0.0:2333 or [::]:2333"),
+                    .help("use an IP and port, for example 0.0.0.0:7835 or [::]:7835"),
                 );
                 None
             }
@@ -244,7 +244,7 @@ pub fn check_server(
     if cfg.listen.is_none() && cfg.websocket.is_none() {
         out.push(
             Diagnostic::error("no-listener", "the server needs \"listen\" (TCP), \"websocket\", or both")
-                .help("add \"listen: 0.0.0.0:2333\" for TCP clients, or a websocket section for clients behind HTTP-only networks (see README)"),
+                .help("add \"listen: 0.0.0.0:7835\" for TCP clients, or a websocket section for clients behind HTTP-only networks (see README)"),
         );
     }
     let websocket = cfg
@@ -336,7 +336,7 @@ pub fn check_server(
         out.push(
             Diagnostic::warning("no-services", "no services are defined, so nothing is exposed")
                 .at(spans.key(&["services"]))
-                .help("add a service, for example:\n         services:\n           web: { client: NAME, bind: 0.0.0.0:8080, target: 127.0.0.1:80 }"),
+                .help("add a service, for example:\n         services:\n           web: { client: NAME, bind: 0.0.0.0:7840, target: 127.0.0.1:80 }"),
         );
     }
 
@@ -357,7 +357,7 @@ pub fn check_server(
                     )
                     .at(spans.value(&path("bind")))
                     .label("expected a port or ip:port")
-                    .help("use a port like 8080, or ip:port like 127.0.0.1:8080"),
+                    .help("use a port like 7840, or ip:port like 127.0.0.1:7840"),
                 );
                 None
             }
@@ -517,7 +517,7 @@ fn check_websocket(
                 )
                 .at(spans.value(&["websocket", "listen"]))
                 .label("expected ip:port")
-                .help("use an IP and port, for example 127.0.0.1:8080 behind a proxy"),
+                .help("use an IP and port, for example 127.0.0.1:7836 behind a proxy"),
             );
             None
         }
@@ -553,7 +553,7 @@ fn check_websocket(
                 Ok(bytes) => Some((path, bytes)),
                 Err(e) => {
                     out.push(
-                        Diagnostic::error("tls-file", format!("cannot read websocket.tls.{field} \"{}\": {}", path.display(), crate::failure::io_reason(&e)))
+                        Diagnostic::error("tls-file", format!("cannot read websocket.tls.{field} \"{}\": {}", path.display(), crate::failure::file_reason(&e)))
                             .at(spans.value(&["websocket", "tls", field]))
                             .label("file not readable")
                             .help("paths are relative to the config file; check the path and its permissions"),
@@ -693,7 +693,7 @@ pub fn check_client(
                 Diagnostic::error("invalid-address", format!("invalid server address: {e}"))
                     .at(spans.value(&["server"]))
                     .label("expected host:port or wss://host/path")
-                    .help("use host:port for TCP (myserver.com:2333), or the WebSocket URL (wss://tunnel.example.com/burrow)"),
+                    .help("use host:port for TCP (myserver.com:7835), or the WebSocket URL (wss://tunnel.example.com/burrow)"),
             );
             None
         }
@@ -716,7 +716,7 @@ pub fn check_client(
         Some(file) => {
             let path = base_dir.join(file);
             match std::fs::read(&path)
-                .map_err(|e| crate::failure::io_reason(&e))
+                .map_err(|e| crate::failure::file_reason(&e))
                 .and_then(|pem| crate::transport::tls::parse_certs(&pem).map(|_| pem))
             {
                 Ok(pem) => {
@@ -850,7 +850,7 @@ pub fn check_client(
         None => None,
     };
 
-    if cfg.insecure_plaintext {
+    if cfg.insecure_plaintext && !websocket {
         out.push(insecure_warning(spans));
     }
 

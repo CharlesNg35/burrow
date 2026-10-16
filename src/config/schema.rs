@@ -70,7 +70,7 @@ impl<'a> Checker<'a> {
                 ),
             };
             let mut d = Diagnostic::error("not-a-mapping", msg)
-                .help("start with \"listen: 0.0.0.0:2333\" (server) or \"server: host:2333\" (client), or run: burrow init");
+                .help("start with \"listen: 0.0.0.0:7835\" (server) or \"server: host:7835\" (client), or run: burrow init");
             if node.span.start.line > 0 {
                 d = d.at(node.span);
             }

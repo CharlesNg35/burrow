@@ -38,11 +38,11 @@ async fn client_follows_the_server_to_a_new_address() {
     let old = start_server(settings.clone()).await;
 
     let dns = Arc::new(MovableDns {
-        name: "tunnel.example.test:2333".into(),
+        name: "tunnel.example.test:7835".into(),
         addr: Mutex::new(old.addr),
     });
     let mut c = client_settings(old.addr, secret);
-    c.server = "tunnel.example.test:2333".into();
+    c.server = "tunnel.example.test:7835".into();
     c.endpoint = burrow::transport::endpoint::Endpoint::Tcp {
         host_port: c.server.clone(),
     };

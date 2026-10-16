@@ -55,7 +55,7 @@ setup() {
       [ "$tool" = burrow-plaintext ] && extra="insecure_plaintext: true" && cextra="insecure_plaintext: true"
       [ "$tool" = burrow-aesgcm ] && cextra="cipher: aes-gcm"
       cat >"$dir/server.yaml" <<YAML
-listen: 127.0.0.1:2333
+listen: 127.0.0.1:7835
 $extra
 limits:
   max_handshakes: 4096
@@ -69,7 +69,7 @@ services:
   iperf: { client: bench, bind: 127.0.0.1:30002, target: 127.0.0.1:$IPERF_PORT }
 YAML
       cat >"$dir/client.yaml" <<YAML
-server: 127.0.0.1:2333
+server: 127.0.0.1:7835
 name: bench
 secret: $secret
 $cextra

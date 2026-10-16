@@ -6,8 +6,8 @@ services:
     volumes:
       - ./server.yaml:/etc/burrow/server.yaml:ro
     ports:
-      - "2333:2333"
-      - "8080:8080"
+      - "7835:7835"
+      - "7840:7840"
     restart: unless-stopped
 
   burrow-client:

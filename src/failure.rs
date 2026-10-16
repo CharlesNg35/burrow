@@ -84,3 +84,13 @@ pub fn io_reason(e: &std::io::Error) -> String {
     };
     s.to_string()
 }
+
+pub fn file_reason(e: &std::io::Error) -> String {
+    use std::io::ErrorKind as K;
+    match e.kind() {
+        K::NotFound => "file not found".into(),
+        K::PermissionDenied => "permission denied".into(),
+        K::IsADirectory => "is a directory, not a file".into(),
+        _ => io_reason(e),
+    }
+}

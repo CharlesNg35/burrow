@@ -246,3 +246,24 @@ async fn plaintext_setting_still_encrypts_over_websocket() {
     assert_eq!(roundtrip(srv.services["web"], &data).await, data);
     let _ = Arc::new(());
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn websocket_listener_only_runs_when_configured() {
+    let secret = Secret::generate();
+    let tcp_only = burrow::server::Server::bind(server_settings(vec![secret.clone()]))
+        .await
+        .unwrap();
+    assert!(
+        tcp_only.websocket_addr().is_none(),
+        "no websocket listener without a websocket section"
+    );
+    assert!(tcp_only.local_addr().is_some());
+    let ws_only = burrow::server::Server::bind(ws_server(&secret, "/burrow", None))
+        .await
+        .unwrap();
+    assert!(
+        ws_only.local_addr().is_none(),
+        "no TCP control port when only websocket is configured"
+    );
+    assert!(ws_only.websocket_addr().is_some());
+}

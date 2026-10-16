@@ -32,7 +32,7 @@ fn render(name: &str, src: &str, role: Option<Role>) -> String {
 
 fn server(extra_service: &str) -> String {
     format!(
-        "listen: 0.0.0.0:2333\nclients:\n  home:\n    secret: {SECRET}\n  office:\n    secret: ${{HOME_SECRET}}\nservices:\n{extra_service}"
+        "listen: 0.0.0.0:7835\nclients:\n  home:\n    secret: {SECRET}\n  office:\n    secret: ${{HOME_SECRET}}\nservices:\n{extra_service}"
     )
 }
 
@@ -118,7 +118,7 @@ fn missing_fields() {
     insta::assert_snapshot!(render("server.yaml", "clients:\n  home:\n    secret: x\nservices:\n  web:\n    client: home\n", None), @r#"
     error: the server needs "listen" (TCP), "websocket", or both
       --> server.yaml
-       = help: add "listen: 0.0.0.0:2333" for TCP clients, or a websocket section for clients behind HTTP-only networks (see README)
+       = help: add "listen: 0.0.0.0:7835" for TCP clients, or a websocket section for clients behind HTTP-only networks (see README)
 
     error: secret for client "home" is not valid base64 or hex (1 character)
       --> server.yaml:3:13
@@ -161,7 +161,7 @@ fn bad_protocol() {
 #[test]
 fn duplicate_binds() {
     insta::assert_snapshot!(render("server.yaml", &server(
-        "  a:\n    client: home\n    bind: 0.0.0.0:4000\n    target: 127.0.0.1:1\n  b:\n    client: office\n    bind: 127.0.0.1:4000\n    target: 127.0.0.1:2\n  c:\n    client: home\n    bind: 2333\n    target: 127.0.0.1:3\n  d:\n    client: home\n    protocol: udp\n    bind: 4000\n    target: 127.0.0.1:4\n"
+        "  a:\n    client: home\n    bind: 0.0.0.0:4000\n    target: 127.0.0.1:1\n  b:\n    client: office\n    bind: 127.0.0.1:4000\n    target: 127.0.0.1:2\n  c:\n    client: home\n    bind: 7835\n    target: 127.0.0.1:3\n  d:\n    client: home\n    protocol: udp\n    bind: 4000\n    target: 127.0.0.1:4\n"
     ), None), @r#"
     error: service "b" binds tcp 127.0.0.1:4000, already used by service "a"
       --> server.yaml:14:11
@@ -170,12 +170,12 @@ fn duplicate_binds() {
        |           ^^^^^^^^^^^^^^ address already used
        = help: pick a different port for one of the services
 
-    error: service "c" binds 0.0.0.0:2333, which is the control port
+    error: service "c" binds 0.0.0.0:7835, which is the control port
       --> server.yaml:18:11
        |
-    18 |     bind: 2333
+    18 |     bind: 7835
        |           ^^^^ same as "listen"
-       = help: pick a port other than 2333
+       = help: pick a port other than 7835
 
     server.yaml: 2 errors, 0 warnings
     "#);
@@ -198,7 +198,7 @@ fn sensitive_port() {
 #[test]
 fn weak_and_duplicate_secrets() {
     insta::assert_snapshot!(render("server.yaml", &format!(
-        "listen: 0.0.0.0:2333\nclients:\n  a:\n    secret: c2hvcnRzZWNyZXQ=\n  b:\n    secret: \"not base64!\"\n  c:\n    secret: {SECRET}\n  d:\n    secret: [{SECRET}]\n  e:\n    secret: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\nservices: {{}}\n"
+        "listen: 0.0.0.0:7835\nclients:\n  a:\n    secret: c2hvcnRzZWNyZXQ=\n  b:\n    secret: \"not base64!\"\n  c:\n    secret: {SECRET}\n  d:\n    secret: [{SECRET}]\n  e:\n    secret: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\nservices: {{}}\n"
     ), None), @r#"
     error: secret for client "a" is too short (11 bytes, need 32)
       --> server.yaml:4:13
@@ -223,7 +223,7 @@ fn weak_and_duplicate_secrets() {
        | ^^^^^^^^
        = help: add a service, for example:
              services:
-               web: { client: NAME, bind: 0.0.0.0:8080, target: 127.0.0.1:80 }
+               web: { client: NAME, bind: 0.0.0.0:7840, target: 127.0.0.1:80 }
 
     server.yaml: 4 errors, 1 warning
     "#);
@@ -231,7 +231,7 @@ fn weak_and_duplicate_secrets() {
 
 #[test]
 fn unset_env() {
-    insta::assert_snapshot!(render("server.yaml", "listen: 0.0.0.0:2333\nclients:\n  home:\n    secret: ${MISSING_SECRET}\nservices:\n  web:\n    client: home\n    bind: 8080\n    target: ${MISSING_TARGET}\n", None), @r#"
+    insta::assert_snapshot!(render("server.yaml", "listen: 0.0.0.0:7835\nclients:\n  home:\n    secret: ${MISSING_SECRET}\nservices:\n  web:\n    client: home\n    bind: 8080\n    target: ${MISSING_TARGET}\n", None), @r#"
     error: environment variable "MISSING_SECRET" is not set
       --> server.yaml:4:13
        |
@@ -260,7 +260,7 @@ fn bad_addresses() {
        |
     10 |     bind: 0.0.0.0:99999
        |           ^^^^^^^^^^^^^ expected a port or ip:port
-       = help: use a port like 8080, or ip:port like 127.0.0.1:8080
+       = help: use a port like 7840, or ip:port like 127.0.0.1:7840
 
     error: invalid target for service "a": "localhost" is missing a port
       --> server.yaml:11:13
@@ -274,7 +274,7 @@ fn bad_addresses() {
        |
     14 |     bind: nowhere:80
        |           ^^^^^^^^^^ expected a port or ip:port
-       = help: use a port like 8080, or ip:port like 127.0.0.1:8080
+       = help: use a port like 7840, or ip:port like 127.0.0.1:7840
 
     error: invalid target for service "b": "::1:22" looks like an IPv6 address; write it as [addr]:port
       --> server.yaml:15:13
@@ -289,7 +289,7 @@ fn bad_addresses() {
 
 #[test]
 fn syntax_error_yaml() {
-    insta::assert_snapshot!(render("server.yaml", "listen: 0.0.0.0:2333\nclients:\n  home:\n   secret: [unclosed\nservices: {}\n", None), @r#"
+    insta::assert_snapshot!(render("server.yaml", "listen: 0.0.0.0:7835\nclients:\n  home:\n   secret: [unclosed\nservices: {}\n", None), @r#"
     error: invalid syntax: illegal placement of ':' indicator
       --> server.yaml:5:9
        |
@@ -306,7 +306,7 @@ fn empty_file() {
     insta::assert_snapshot!(render("server.yaml", "", None), @r#"
     error: the config file is empty
       --> server.yaml
-       = help: start with "listen: 0.0.0.0:2333" (server) or "server: host:2333" (client), or run: burrow init
+       = help: start with "listen: 0.0.0.0:7835" (server) or "server: host:7835" (client), or run: burrow init
 
     server.yaml: 1 error, 0 warnings
     "#);
@@ -315,7 +315,7 @@ fn empty_file() {
 #[test]
 fn insecure_and_empty() {
     insta::assert_snapshot!(render("server.yaml", &format!(
-        "listen: 0.0.0.0:2333\ninsecure_plaintext: true\nclients:\n  home:\n    secret: {SECRET}\nservices: {{}}\n"
+        "listen: 0.0.0.0:7835\ninsecure_plaintext: true\nclients:\n  home:\n    secret: {SECRET}\nservices: {{}}\n"
     ), None), @"
     warning: insecure_plaintext is enabled: forwarded data is not encrypted
       --> server.yaml:2:21
@@ -331,7 +331,7 @@ fn insecure_and_empty() {
        | ^^^^^^^^
        = help: add a service, for example:
              services:
-               web: { client: NAME, bind: 0.0.0.0:8080, target: 127.0.0.1:80 }
+               web: { client: NAME, bind: 0.0.0.0:7840, target: 127.0.0.1:80 }
 
     server.yaml: valid server config (1 client, 0 services), 2 warnings
     ");
@@ -340,7 +340,7 @@ fn insecure_and_empty() {
 #[test]
 fn client_valid() {
     insta::assert_snapshot!(render("client.yaml", &format!(
-        "server: myserver.com:2333\nname: home\nsecret: {SECRET}\nallow:\n  - 127.0.0.0/8\n  - 192.168.1.0/24:22\n"
+        "server: myserver.com:7835\nname: home\nsecret: {SECRET}\nallow:\n  - 127.0.0.0/8\n  - 192.168.1.0/24:22\n"
     ), None), @r#"client.yaml: valid client config for "home""#);
 }
 
@@ -354,7 +354,7 @@ fn client_bad_cidr() {
        |
      1 | server: myserver.com
        |         ^^^^^^^^^^^^ expected host:port or wss://host/path
-       = help: use host:port for TCP (myserver.com:2333), or the WebSocket URL (wss://tunnel.example.com/burrow)
+       = help: use host:port for TCP (myserver.com:7835), or the WebSocket URL (wss://tunnel.example.com/burrow)
 
     error: invalid allow entry: "33" is not a valid prefix length
       --> client.yaml:5:5
@@ -390,7 +390,7 @@ fn client_bad_cidr() {
 
 #[test]
 fn client_no_allow() {
-    insta::assert_snapshot!(render("client.yaml", &format!("server: myserver.com:2333\nname: \"bad name\"\nsecret: {SECRET}\n"), None), @r#"
+    insta::assert_snapshot!(render("client.yaml", &format!("server: myserver.com:7835\nname: \"bad name\"\nsecret: {SECRET}\n"), None), @r#"
     warning: no allow list: this client will refuse every target
       --> client.yaml
        = help: add the networks the server may reach, for example: allow: [127.0.0.0/8]
@@ -409,7 +409,7 @@ fn client_no_allow() {
 #[test]
 fn client_allow_all() {
     insta::assert_snapshot!(render("client.yaml", &format!(
-        "server: myserver.com:2333\nname: home\nsecret: {SECRET}\nallow_all: true\nallow: [127.0.0.0/8]\ncipher: aes\nproxy: ftp://x\n"
+        "server: myserver.com:7835\nname: home\nsecret: {SECRET}\nallow_all: true\nallow: [127.0.0.0/8]\ncipher: aes\nproxy: ftp://x\n"
     ), None), @r#"
     warning: allow_all is enabled: the server can make this client connect anywhere
       --> client.yaml:4:12
@@ -443,7 +443,7 @@ fn client_allow_all() {
 #[test]
 fn json_multiple_errors() {
     insta::assert_snapshot!(render("server.json", &format!(
-        "{{\n  \"listen\": \"0.0.0.0:2333\",\n  \"clients\": {{\"home\": {{\"secret\": \"{SECRET}\"}}}},\n  \"services\": {{\n    \"web\": {{\"client\": \"hom\", \"bnd\": 4000, \"target\": \"127.0.0.1:3000\"}},\n    \"dns\": {{\"client\": \"home\", \"bind\": \"5353\", \"target\": \"1.1.1.1:53\", \"protocol\": \"udpp\"}}\n  }},\n  \"limits\": {{\"max_handshakes\": -1}}\n}}\n"
+        "{{\n  \"listen\": \"0.0.0.0:7835\",\n  \"clients\": {{\"home\": {{\"secret\": \"{SECRET}\"}}}},\n  \"services\": {{\n    \"web\": {{\"client\": \"hom\", \"bnd\": 4000, \"target\": \"127.0.0.1:3000\"}},\n    \"dns\": {{\"client\": \"home\", \"bind\": \"5353\", \"target\": \"1.1.1.1:53\", \"protocol\": \"udpp\"}}\n  }},\n  \"limits\": {{\"max_handshakes\": -1}}\n}}\n"
     ), None), @r#"
     error: missing field "bind" in service "web"
       --> server.json:5:5
@@ -529,7 +529,7 @@ fn role_override_reports_fields_for_that_role() {
     insta::assert_snapshot!(render("server.yaml", "server: a:1\nname: home\n", Some(Role::Server)), @r#"
     error: the server needs "listen" (TCP), "websocket", or both
       --> server.yaml
-       = help: add "listen: 0.0.0.0:2333" for TCP clients, or a websocket section for clients behind HTTP-only networks (see README)
+       = help: add "listen: 0.0.0.0:7835" for TCP clients, or a websocket section for clients behind HTTP-only networks (see README)
 
     error: unknown field "server" in server config
       --> server.yaml:1:1
@@ -552,7 +552,7 @@ fn role_override_reports_fields_for_that_role() {
        | ^
        = help: add a service, for example:
              services:
-               web: { client: NAME, bind: 0.0.0.0:8080, target: 127.0.0.1:80 }
+               web: { client: NAME, bind: 0.0.0.0:7840, target: 127.0.0.1:80 }
 
     error: unknown field "name" in server config
       --> server.yaml:2:1
@@ -589,8 +589,8 @@ fn diagnostics_are_sorted_by_position() {
 
 #[test]
 fn yaml_and_json_report_the_same_problems() {
-    let yaml = "listen: 0.0.0.0:2333\nclients:\n  home:\n    secret: x\nservices:\n  web:\n    client: hom\n    bnd: 1\n    target: a:1\n";
-    let json = r#"{"listen": "0.0.0.0:2333", "clients": {"home": {"secret": "x"}}, "services": {"web": {"client": "hom", "bnd": 1, "target": "a:1"}}}"#;
+    let yaml = "listen: 0.0.0.0:7835\nclients:\n  home:\n    secret: x\nservices:\n  web:\n    client: hom\n    bnd: 1\n    target: a:1\n";
+    let json = r#"{"listen": "0.0.0.0:7835", "clients": {"home": {"secret": "x"}}, "services": {"web": {"client": "hom", "bnd": 1, "target": "a:1"}}}"#;
     let codes = |name: &str, src: &str, f| {
         let mut c: Vec<_> = load_str(name, src, f, None, &env)
             .report
@@ -655,4 +655,138 @@ fn schema_matches_model_fields() {
     assert_eq!(s["additionalProperties"], false);
     let c = burrow::config::load::schema_json(Role::Client);
     assert_eq!(c["additionalProperties"], false);
+}
+
+#[test]
+fn websocket_server_errors() {
+    let src = format!(
+        "websocket:\n  listen: 0.0.0.0:7835\n  path: burrow\n  tls:\n    cert: missing-cert.pem\n    key: missing-key.pem\nlisten: 0.0.0.0:7835\nclients:\n  home:\n    secret: {SECRET}\nservices:\n  web:\n    client: home\n    bind: 7835\n    target: 127.0.0.1:3000\n"
+    );
+    insta::assert_snapshot!(render("server.yaml", &src, None), @r##"
+    error: websocket.listen 0.0.0.0:7835 is the same address as listen
+      --> server.yaml:2:11
+       |
+     2 |   listen: 0.0.0.0:7835
+       |           ^^^^^^^^^^^^ already used by "listen"
+       = help: use a different port for the websocket listener
+
+    error: invalid websocket path "burrow"
+      --> server.yaml:3:9
+       |
+     3 |   path: burrow
+       |         ^^^^^^ expected a path like /burrow
+       = help: start the path with "/" and leave out spaces, "?" and "#"
+
+    error: cannot read websocket.tls.cert "./missing-cert.pem": file not found
+      --> server.yaml:5:11
+       |
+     5 |     cert: missing-cert.pem
+       |           ^^^^^^^^^^^^^^^^ file not readable
+       = help: paths are relative to the config file; check the path and its permissions
+
+    error: cannot read websocket.tls.key "./missing-key.pem": file not found
+      --> server.yaml:6:10
+       |
+     6 |     key: missing-key.pem
+       |          ^^^^^^^^^^^^^^^ file not readable
+       = help: paths are relative to the config file; check the path and its permissions
+
+    error: service "web" binds 0.0.0.0:7835, which is the control port
+      --> server.yaml:14:11
+       |
+    14 |     bind: 7835
+       |           ^^^^ same as "listen"
+       = help: pick a port other than 7835
+
+    server.yaml: 5 errors, 0 warnings
+    "##);
+}
+
+#[test]
+fn server_without_any_listener() {
+    let src = format!("clients:\n  home:\n    secret: {SECRET}\nservices: {{}}\n");
+    insta::assert_snapshot!(render("server.yaml", &src, None), @r#"
+    error: the server needs "listen" (TCP), "websocket", or both
+      --> server.yaml
+       = help: add "listen: 0.0.0.0:7835" for TCP clients, or a websocket section for clients behind HTTP-only networks (see README)
+
+    warning: no services are defined, so nothing is exposed
+      --> server.yaml:4:1
+       |
+     4 | services: {}
+       | ^^^^^^^^
+       = help: add a service, for example:
+             services:
+               web: { client: NAME, bind: 0.0.0.0:7840, target: 127.0.0.1:80 }
+
+    server.yaml: 1 error, 1 warning
+    "#);
+}
+
+#[test]
+fn websocket_client_errors() {
+    let src = format!(
+        "server: https://tunnel.example.com/burrow\nname: home\nsecret: {SECRET}\nallow: [127.0.0.0/8]\nheaders:\n  Host: evil\n  X-Token: ok\nca: missing-ca.pem\n"
+    );
+    insta::assert_snapshot!(render("client.yaml", &src, None), @r#"
+    error: invalid server address: "https://" is not supported; use host:port for TCP, or ws:// or wss:// for WebSocket
+      --> client.yaml:1:9
+       |
+     1 | server: https://tunnel.example.com/burrow
+       |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected host:port or wss://host/path
+       = help: use host:port for TCP (myserver.com:7835), or the WebSocket URL (wss://tunnel.example.com/burrow)
+
+    error: header "Host" cannot be set
+      --> client.yaml:6:3
+       |
+     6 |   Host: evil
+       |   ^^^^ set by burrow itself
+       = help: use custom headers such as an access token, for example CF-Access-Client-Id
+
+    error: cannot use ca file "./missing-ca.pem": file not found
+      --> client.yaml:8:5
+       |
+     8 | ca: missing-ca.pem
+       |     ^^^^^^^^^^^^^^ not a readable PEM certificate
+       = help: paths are relative to the config file
+
+    client.yaml: 3 errors, 0 warnings
+    "#);
+}
+
+#[test]
+fn websocket_client_warnings() {
+    let src = format!(
+        "server: myserver.com:7835\nname: home\nsecret: {SECRET}\nallow: [127.0.0.0/8]\nheaders:\n  X-Token: ok\n"
+    );
+    insta::assert_snapshot!(render("client.yaml", &src, None), @r#"
+    warning: "headers" are only sent over WebSocket and are ignored for a TCP server address
+      --> client.yaml:5:1
+       |
+     5 | headers:
+       | ^^^^^^^
+       = help: remove "headers", or use a ws:// or wss:// server address
+
+    client.yaml: valid client config for "home", 1 warning
+    "#);
+    let ws = format!(
+        "server: wss://tunnel.example.com/burrow\nname: home\nsecret: {SECRET}\nallow: [127.0.0.0/8]\ninsecure_plaintext: true\nreconnect:\n  on_rejected: exitt\n"
+    );
+    insta::assert_snapshot!(render("client.yaml", &ws, None), @r#"
+    warning: insecure_plaintext does not apply over WebSocket: forwarded data stays encrypted
+      --> client.yaml:5:21
+       |
+     5 | insecure_plaintext: true
+       |                     ^^^^
+       = help: it must still match the server setting; remove it on both sides to silence this
+
+    error: unknown on_rejected "exitt" in "reconnect"
+      --> client.yaml:7:16
+       |
+     7 |   on_rejected: exitt
+       |                ^^^^^ not a valid on_rejected
+       = help: did you mean "exit"? valid values: retry, exit
+
+    client.yaml: 1 error, 1 warning
+    "#);
 }

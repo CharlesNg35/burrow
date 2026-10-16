@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 #[schemars(title = "burrow server config")]
 pub struct ServerConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(description = "TCP address clients connect to, for example 0.0.0.0:2333")]
+    #[schemars(description = "TCP address clients connect to, for example 0.0.0.0:7835")]
     pub listen: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
@@ -40,7 +40,7 @@ pub struct ServerConfig {
 #[serde(deny_unknown_fields)]
 pub struct WebSocketConfig {
     #[schemars(
-        description = "Address to accept WebSocket connections on, for example 127.0.0.1:8080 behind a proxy"
+        description = "Address to accept WebSocket connections on, for example 127.0.0.1:7836 behind a proxy"
     )]
     pub listen: String,
     #[serde(default = "default_ws_path")]

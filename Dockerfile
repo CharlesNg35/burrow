@@ -34,6 +34,6 @@ FROM gcr.io/distroless/static-debian13:nonroot@sha256:e2e927ec666bae08560abb3c55
 COPY --from=build /out/burrow /usr/local/bin/burrow
 USER nonroot:nonroot
 WORKDIR /etc/burrow
-EXPOSE 2333
+EXPOSE 7835 7836
 ENTRYPOINT ["/usr/local/bin/burrow"]
 CMD ["server", "-c", "/etc/burrow/server.yaml"]

@@ -87,7 +87,7 @@ fn env_secret_variant() {
     let opts = InitOptions {
         output: Some(path.clone()),
         env_secret: Some("BURROW_TEST_INIT_SECRET".into()),
-        server: Some("example.com:2333".into()),
+        server: Some("example.com:7835".into()),
         ..Default::default()
     };
     let mut out = Vec::new();
@@ -105,7 +105,7 @@ fn client_init_needs_flags_without_tty() {
     let path = dir.path().join("client.yaml");
     let opts = InitOptions {
         output: Some(path.clone()),
-        server: Some("example.com:2333".into()),
+        server: Some("example.com:7835".into()),
         ..Default::default()
     };
     let err = init_client(&opts, &mut NoPrompt, &mut Vec::new()).unwrap_err();
@@ -144,7 +144,7 @@ fn client_init_prompts_only_for_missing() {
     let mut p = Answers(vec!["home", leaked], Vec::new());
     let opts = InitOptions {
         output: Some(path.clone()),
-        server: Some("example.com:2333".into()),
+        server: Some("example.com:7835".into()),
         ..Default::default()
     };
     init_client(&opts, &mut p, &mut Vec::new()).unwrap();
@@ -177,8 +177,8 @@ async fn printed_client_config_connects_to_generated_server() {
     let echo = echo_server().await;
     let text = std::fs::read_to_string(&server_path)
         .unwrap()
-        .replace("0.0.0.0:2333", &format!("127.0.0.1:{port}"))
-        .replace("0.0.0.0:8080", &format!("127.0.0.1:{svc_port}"))
+        .replace("0.0.0.0:7835", &format!("127.0.0.1:{port}"))
+        .replace("0.0.0.0:7840", &format!("127.0.0.1:{svc_port}"))
         .replace("127.0.0.1:3000", &echo.to_string());
     std::fs::write(&server_path, text).unwrap();
     let Loaded::Server(server_settings, _) = load(&server_path) else {
@@ -229,4 +229,155 @@ fn client_config_unknown_name_suggests() {
     };
     assert!(err.message.contains("no client named \"hme\""));
     assert!(err.hint.unwrap().contains("did you mean \"home\""));
+}
+
+#[test]
+fn websocket_init_writes_only_what_was_asked() {
+    use burrow::init::WebSocketInit;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("server.yaml");
+    let mut out = Vec::new();
+    init_server(
+        &InitOptions {
+            output: Some(path.clone()),
+            server: Some("tunnel.example.com".into()),
+            websocket: Some(WebSocketInit::default()),
+            ..Default::default()
+        },
+        &mut out,
+    )
+    .unwrap();
+    let text = std::fs::read_to_string(&path).unwrap();
+    assert!(
+        !text.contains("listen: 0.0.0.0"),
+        "no TCP control port: {text}"
+    );
+    assert!(
+        text.contains("websocket:\n  listen: 127.0.0.1:7836\n  path: /burrow\n"),
+        "{text}"
+    );
+    assert!(!text.contains("tls"), "{text}");
+    let Loaded::Server(settings, _) = load(&path) else {
+        panic!()
+    };
+    assert!(settings.listen.is_none());
+    let printed = String::from_utf8(out).unwrap();
+    assert!(
+        printed.contains("server: wss://tunnel.example.com/burrow"),
+        "{printed}"
+    );
+
+    let tls_path = dir.path().join("tls.yaml");
+    let mut out = Vec::new();
+    init_server(
+        &InitOptions {
+            output: Some(tls_path.clone()),
+            server: Some("tunnel.example.com".into()),
+            websocket: Some(WebSocketInit {
+                tls_cert: Some("cert.pem".into()),
+                tls_key: Some("key.pem".into()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
+        &mut out,
+    )
+    .unwrap();
+    let text = std::fs::read_to_string(&tls_path).unwrap();
+    assert!(
+        text.contains("listen: 0.0.0.0:7837") && text.contains("cert: cert.pem"),
+        "{text}"
+    );
+    assert!(
+        String::from_utf8(out)
+            .unwrap()
+            .contains("server: wss://tunnel.example.com:7837/burrow")
+    );
+
+    let half = init_server(
+        &InitOptions {
+            output: Some(dir.path().join("half.yaml")),
+            websocket: Some(WebSocketInit {
+                tls_cert: Some("cert.pem".into()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
+        &mut Vec::new(),
+    )
+    .unwrap_err();
+    assert_eq!(half.exit, 2);
+    assert!(!dir.path().join("half.yaml").exists());
+}
+
+#[test]
+fn plain_init_has_no_websocket_section() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("server.yaml");
+    init_server(
+        &InitOptions {
+            output: Some(path.clone()),
+            ..Default::default()
+        },
+        &mut Vec::new(),
+    )
+    .unwrap();
+    let text = std::fs::read_to_string(&path).unwrap();
+    assert!(text.starts_with("listen: 0.0.0.0:7835\n"), "{text}");
+    assert!(!text.contains("websocket") && !text.contains("reconnect") && !text.contains("tls"));
+}
+
+#[test]
+fn client_config_matches_the_server_transport() {
+    use burrow::init::WebSocketInit;
+    let dir = tempfile::tempdir().unwrap();
+    let ws = dir.path().join("ws.yaml");
+    init_server(
+        &InitOptions {
+            output: Some(ws.clone()),
+            websocket: Some(WebSocketInit::default()),
+            ..Default::default()
+        },
+        &mut Vec::new(),
+    )
+    .unwrap();
+    let err = client_config(
+        "home",
+        &ws,
+        "tunnel.example.com:7835",
+        Format::Yaml,
+        &ProcessEnv,
+    )
+    .err()
+    .unwrap();
+    assert!(err.message.contains("only accepts WebSocket clients"));
+    let ok = client_config(
+        "home",
+        &ws,
+        "wss://tunnel.example.com/burrow",
+        Format::Yaml,
+        &ProcessEnv,
+    )
+    .unwrap();
+    assert!(ok.text.contains("server: wss://tunnel.example.com/burrow"));
+
+    let tcp = dir.path().join("tcp.yaml");
+    init_server(
+        &InitOptions {
+            output: Some(tcp.clone()),
+            ..Default::default()
+        },
+        &mut Vec::new(),
+    )
+    .unwrap();
+    let err = client_config(
+        "home",
+        &tcp,
+        "wss://tunnel.example.com/burrow",
+        Format::Yaml,
+        &ProcessEnv,
+    )
+    .err()
+    .unwrap();
+    assert!(err.message.contains("has no websocket section"));
 }

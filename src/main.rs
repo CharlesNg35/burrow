@@ -114,6 +114,16 @@ fn run(cli: Cli) -> Result<u8, Failure> {
                 client_name: args.client_name,
                 secret: args.secret,
                 env_secret: args.env_secret,
+                websocket: (args.ws
+                    || args.ws_listen.is_some()
+                    || args.ws_path.is_some()
+                    || args.ws_tls_cert.is_some())
+                .then_some(burrow::init::WebSocketInit {
+                    listen: args.ws_listen,
+                    path: args.ws_path,
+                    tls_cert: args.ws_tls_cert,
+                    tls_key: args.ws_tls_key,
+                }),
             };
             let mut out = std::io::stdout().lock();
             match args.role {
