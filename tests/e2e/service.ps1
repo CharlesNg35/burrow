@@ -129,6 +129,12 @@ try {
   Check "nothing left behind"
   Write-Host "service end-to-end checks passed"
 }
+catch {
+  if ($env:GITHUB_ACTIONS) {
+    Write-Host "::error title=service e2e exception::$(($_ | Out-String) -replace "`r?`n", ' ') at line $($_.InvocationInfo.ScriptLineNumber)"
+  }
+  throw
+}
 finally {
   $ErrorActionPreference = "Continue"
   & $B service uninstall burrow-e2e-client --purge *> $null
