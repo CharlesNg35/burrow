@@ -35,9 +35,21 @@ pub struct Shared {
     rejected: AtomicUsize,
     handshakes: Arc<Semaphore>,
     shutdown: watch::Receiver<bool>,
+    reloaded: watch::Sender<u64>,
 }
 
 impl Shared {
+    pub(crate) fn allows(&self, client: &str, secret: &crate::secret::Secret) -> bool {
+        self.settings()
+            .clients
+            .get(client)
+            .is_some_and(|c| c.secrets.contains(secret))
+    }
+
+    pub(crate) fn reloads(&self) -> watch::Receiver<u64> {
+        self.reloaded.subscribe()
+    }
+
     pub fn idle_channels(&self, client: &str) -> usize {
         self.session(client).map_or(0, |s| s.idle_count())
     }
@@ -267,6 +279,7 @@ impl Server {
             rejected: AtomicUsize::new(0),
             handshakes: Arc::new(Semaphore::new(settings.max_handshakes)),
             shutdown,
+            reloaded: watch::Sender::new(0),
         });
         let mut services = HashMap::new();
         for (name, svc) in &settings.services {
@@ -509,7 +522,7 @@ impl Server {
                 let _ = s.control.try_send(ServerMsg::Bye {
                     reason: ByeReason::Removed,
                 });
-                s.revoke();
+                s.close();
                 self.shared
                     .sessions
                     .lock()
@@ -522,6 +535,7 @@ impl Server {
                 .control
                 .try_send(ServerMsg::Services(Shared::services_for(&next, &s.name)));
         }
+        self.shared.reloaded.send_modify(|n| *n += 1);
         let (c, v) = (next.clients.len(), next.services.len());
         info!(
             "config reloaded ({c} {}, {v} {})",

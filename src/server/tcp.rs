@@ -115,12 +115,21 @@ async fn visit(
         service: name.clone(),
         target: svc.target.clone(),
     };
+    let mut reloads = shared.reloads();
+    if !shared.allows(&svc.client, &session.secret) {
+        return;
+    }
     let forward = server_tcp(ch, visitor, &connect, settings.insecure_plaintext);
-    let result = tokio::select! {
-        r = forward => r,
-        _ = session.revoked() => {
-            debug!(%peer, "service \"{name}\": client \"{}\" was revoked, closing", svc.client);
-            return;
+    tokio::pin!(forward);
+    let result = loop {
+        tokio::select! {
+            r = &mut forward => break r,
+            Ok(()) = reloads.changed() => {
+                if !shared.allows(&svc.client, &session.secret) {
+                    debug!(%peer, "service \"{name}\": client \"{}\" is no longer allowed, closing", svc.client);
+                    return;
+                }
+            }
         }
     };
     match result {
