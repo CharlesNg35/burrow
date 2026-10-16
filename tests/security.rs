@@ -174,7 +174,7 @@ async fn data_channel_with_wrong_token_is_not_pooled() {
         name: "home".into(),
     };
     let ch = burrow::handshake::initiate(
-        s,
+        s.into(),
         &p,
         &secret,
         &Hello::Data {
@@ -269,7 +269,7 @@ async fn silent_client_is_closed_after_heartbeat_timeout() {
         plaintext: false,
         name: "home".into(),
     };
-    let mut ch = burrow::handshake::initiate(s, &p, &secret, &Hello::Control { version: 1 })
+    let mut ch = burrow::handshake::initiate(s.into(), &p, &secret, &Hello::Control { version: 1 })
         .await
         .expect("handshake");
     let shared = srv.shared.clone();

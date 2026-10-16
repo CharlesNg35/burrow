@@ -192,8 +192,7 @@ impl ClientSession {
 }
 
 fn alive(ch: &Channel) -> bool {
-    let mut probe = [0u8; 1];
-    matches!(ch.stream.try_read(&mut probe), Err(e) if e.kind() == std::io::ErrorKind::WouldBlock)
+    ch.stream.idle_and_open()
 }
 
 pub struct ActiveGuard {

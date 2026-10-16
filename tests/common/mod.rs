@@ -138,7 +138,7 @@ pub async fn wait_for<F: FnMut() -> bool>(mut f: F) {
 }
 
 pub async fn echo_server() -> SocketAddr {
-    let l = burrow::net::bind_tcp("127.0.0.1:0".parse().unwrap()).unwrap();
+    let l = burrow::transport::tcp::bind_tcp("127.0.0.1:0".parse().unwrap()).unwrap();
     let addr = l.local_addr().unwrap();
     tokio::spawn(async move {
         loop {

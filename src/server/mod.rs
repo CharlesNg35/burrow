@@ -17,11 +17,12 @@ use crate::config::settings::{ServerSettings, Service};
 use crate::failure::Failure;
 use crate::forward::{ForwardError, server_tcp};
 use crate::handshake::{AcceptError, Accepted, accept};
-use crate::net::tune;
 use crate::protocol::{
     ByeReason, Connect, Hello, ServerMsg, ServiceInfo, Status, TOKEN_LEN, VERSION,
 };
 use crate::secret::Secret;
+use crate::transport::Conn;
+use crate::transport::tcp::tune;
 pub use session::{ClientSession, PoolConfig, TakeError};
 
 const TAKE_TIMEOUT: Duration = Duration::from_secs(10);
@@ -168,7 +169,7 @@ pub fn bind_error(what: &str, addr: SocketAddr, e: &std::io::Error) -> Failure {
 async fn bind_service(name: &str, svc: &Service) -> Result<Bound, Failure> {
     let what = format!("service \"{name}\"");
     match svc.protocol {
-        Protocol::Tcp => crate::net::bind_tcp(svc.bind)
+        Protocol::Tcp => crate::transport::tcp::bind_tcp(svc.bind)
             .map(Bound::Tcp)
             .map_err(|e| bind_error(&what, svc.bind, &e)),
         Protocol::Udp => UdpSocket::bind(svc.bind)
@@ -180,7 +181,7 @@ async fn bind_service(name: &str, svc: &Service) -> Result<Bound, Failure> {
 
 impl Server {
     pub async fn bind(settings: ServerSettings) -> Result<Server, Failure> {
-        let listener = crate::net::bind_tcp(settings.listen)
+        let listener = crate::transport::tcp::bind_tcp(settings.listen)
             .map_err(|e| bind_error("the control port", settings.listen, &e))?;
         let (shutdown_tx, shutdown) = watch::channel(false);
         let shared = Arc::new(Shared {
@@ -585,7 +586,7 @@ async fn handle_connection(
     tune(&stream, &settings.tcp);
     let result = tokio::time::timeout(
         settings.handshake_timeout,
-        accept(stream, |n| secrets_for(&shared, n)),
+        accept(Conn::from(stream), |n| secrets_for(&shared, n)),
     )
     .await;
     drop(permit);

@@ -5,7 +5,7 @@ use tokio::net::TcpStream;
 
 use crate::handshake::Channel;
 use crate::protocol::{Connect, Status};
-use crate::transport::{CHUNK, open_pump, raw_pump, seal_pump};
+use crate::record::{CHUNK, open_pump, raw_pump, seal_pump};
 
 #[derive(Debug)]
 pub enum ForwardError {
@@ -32,6 +32,7 @@ pub async fn server_tcp(
         mut reader,
     } = ch;
     writer.send(&mut stream, &connect.encode()).await?;
+    let plaintext = plaintext && stream.supports_half_close();
     let (mut cr, mut cw) = stream.split();
     let (mut vr, mut vw) = visitor.split();
     let up = async {
@@ -73,6 +74,7 @@ pub async fn client_tcp(
         mut reader,
     } = ch;
     writer.send(&mut stream, &[Status::Ok as u8]).await?;
+    let plaintext = plaintext && stream.supports_half_close();
     let (mut cr, mut cw) = stream.split();
     let (mut tr, mut tw) = target.split();
     let up = async {

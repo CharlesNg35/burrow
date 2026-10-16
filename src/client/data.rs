@@ -15,8 +15,9 @@ use crate::config::settings::ClientSettings;
 use crate::failure::io_reason;
 use crate::forward::{client_tcp, refuse};
 use crate::handshake::Channel;
-use crate::net::{connect_any, resolve, tune};
 use crate::protocol::{Connect, ServiceInfo, Status, decode_datagram, encode_datagram};
+use crate::transport::resolve::resolve;
+use crate::transport::tcp::{connect_any, tune};
 
 const MAX_PEERS: usize = 4096;
 

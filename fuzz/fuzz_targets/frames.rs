@@ -4,7 +4,7 @@ use burrow::config::model::Cipher;
 use burrow::noise::{Initiator, Responder};
 use burrow::protocol::{ClientMsg, Connect, Hello, ServerMsg, Status, decode_datagram};
 use burrow::secret::Secret;
-use burrow::transport::RecordReader;
+use burrow::record::RecordReader;
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {

@@ -9,10 +9,12 @@ use tracing::{debug, error, info, warn};
 use crate::config::settings::ClientSettings;
 use crate::failure::io_reason;
 use crate::handshake::{Channel, ClientHandshakeError, initiate};
-use crate::net::{dial, tune};
 use crate::protocol::{
     ByeReason, ChannelKind, ClientMsg, Hello, Preamble, ServerMsg, ServiceInfo, TOKEN_LEN, VERSION,
 };
+use crate::transport::Conn;
+use crate::transport::proxy::dial_tcp;
+use crate::transport::tcp::tune;
 
 const STABLE_AFTER: Duration = Duration::from_secs(10);
 const MAX_OPENING: usize = 32;
@@ -148,7 +150,7 @@ impl Client {
 
     async fn open(&self, kind: ChannelKind, hello: Hello) -> Result<Channel, SessionEnd> {
         let s = &self.settings;
-        let stream = dial(&s.server, s.proxy.as_ref(), s.connect_timeout)
+        let stream = dial_tcp(&s.server, s.proxy.as_ref(), s.connect_timeout)
             .await
             .map_err(|e| {
                 let via = s
@@ -164,7 +166,7 @@ impl Client {
             })?;
         tune(&stream, &s.tcp);
         let preamble = self.preamble(kind);
-        let fut = initiate(stream, &preamble, &s.secret, &hello);
+        let fut = initiate(Conn::from(stream), &preamble, &s.secret, &hello);
         match tokio::time::timeout(s.connect_timeout, fut).await {
             Ok(Ok(ch)) => Ok(ch),
             Ok(Err(ClientHandshakeError::Rejected)) => Err(SessionEnd::Rejected),

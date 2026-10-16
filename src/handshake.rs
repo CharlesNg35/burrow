@@ -1,17 +1,17 @@
 use std::io;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpStream;
 
 use crate::noise::{Initiator, MSG1_LEN, MSG2_LEN, Responder};
 use crate::protocol::{DecodeError, Hello, PREAMBLE_FIXED, Preamble};
+use crate::record::{RecordReader, RecordWriter};
 use crate::secret::Secret;
-use crate::transport::{RecordReader, RecordWriter};
+use crate::transport::Conn;
 
 const MAX_SMALL_RECORD: usize = 256;
 
 pub struct Channel {
-    pub stream: TcpStream,
+    pub stream: Conn,
     pub writer: RecordWriter,
     pub reader: RecordReader,
 }
@@ -29,7 +29,7 @@ impl From<io::Error> for ClientHandshakeError {
 }
 
 pub async fn initiate(
-    mut stream: TcpStream,
+    mut stream: Conn,
     preamble: &Preamble,
     secret: &Secret,
     hello: &Hello,
@@ -89,7 +89,7 @@ pub struct Accepted {
     pub channel: Channel,
 }
 
-pub async fn accept<F>(mut stream: TcpStream, secrets_for: F) -> Result<Accepted, AcceptError>
+pub async fn accept<F>(mut stream: Conn, secrets_for: F) -> Result<Accepted, AcceptError>
 where
     F: FnOnce(&str) -> Vec<Secret>,
 {
@@ -123,10 +123,7 @@ where
     })
 }
 
-async fn read_small(
-    stream: &mut TcpStream,
-    reader: &mut RecordReader,
-) -> Result<Vec<u8>, AcceptError> {
+async fn read_small(stream: &mut Conn, reader: &mut RecordReader) -> Result<Vec<u8>, AcceptError> {
     let mut hdr = [0u8; 2];
     stream.read_exact(&mut hdr).await?;
     let len = u16::from_be_bytes(hdr) as usize;
