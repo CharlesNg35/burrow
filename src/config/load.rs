@@ -239,6 +239,7 @@ pub fn load_str_in(
     {
         report.push(d);
         hide_secret_lines(&mut report);
+        report.mask_tokens = true;
         return fail(report, role);
     }
     let mut root = match tree::parse(src) {
@@ -253,6 +254,7 @@ pub fn load_str_in(
                 );
             }
             hide_secret_lines(&mut report);
+            report.mask_tokens = true;
             return fail(report, role);
         }
     };

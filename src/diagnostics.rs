@@ -94,7 +94,31 @@ pub struct Report {
     pub file: String,
     pub source: String,
     pub masked: Vec<Span>,
+    pub mask_tokens: bool,
     pub diagnostics: Vec<Diagnostic>,
+}
+
+const TOKEN_MIN: usize = 24;
+
+fn token_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || matches!(c, '+' | '/' | '=' | '-' | '_')
+}
+
+fn mask_long_tokens(line: &mut [char]) {
+    let mut i = 0;
+    while i < line.len() {
+        if !token_char(line[i]) {
+            i += 1;
+            continue;
+        }
+        let start = i;
+        while i < line.len() && token_char(line[i]) {
+            i += 1;
+        }
+        if i - start >= TOKEN_MIN {
+            line[start..i].iter_mut().for_each(|c| *c = '*');
+        }
+    }
 }
 
 impl Report {
@@ -103,6 +127,7 @@ impl Report {
             file: file.into(),
             source: source.into(),
             masked: Vec::new(),
+            mask_tokens: false,
             diagnostics: Vec::new(),
         }
     }
@@ -246,6 +271,9 @@ impl Report {
             for c in line.iter_mut().take(to).skip(from) {
                 *c = '*';
             }
+        }
+        if self.mask_tokens {
+            mask_long_tokens(&mut line);
         }
         Some(line.into_iter().collect())
     }

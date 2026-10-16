@@ -98,8 +98,15 @@ pub fn secret_spans(root: &Node) -> Vec<Span> {
             _ => out.push(n.span),
         }
     }
-    if let Some(s) = root.get("secret") {
-        collect(s, &mut out);
+    for key in ["secret", "proxy"] {
+        if let Some(s) = root.get(key) {
+            collect(s, &mut out);
+        }
+    }
+    if let Some(Value::Map(headers)) = root.get("headers").map(|h| &h.value) {
+        for h in headers {
+            collect(&h.value, &mut out);
+        }
     }
     if let Some(Value::Map(clients)) = root.get("clients").map(|c| &c.value) {
         for c in clients {

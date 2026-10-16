@@ -739,7 +739,7 @@ fn websocket_client_errors() {
     error: header "Host" cannot be set
       --> client.yaml:6:3
        |
-     6 |   Host: evil
+     6 |   Host: ****
        |   ^^^^ set by burrow itself
        = help: use custom headers such as an access token, for example CF-Access-Client-Id
 
@@ -895,4 +895,40 @@ fn public_address_is_checked() {
 
     server.yaml: 1 error, 0 warnings
     ");
+}
+
+#[test]
+fn syntax_errors_do_not_show_secrets() {
+    for src in [
+        format!(
+            "listen: 7835\nclients:\n  home:\n    secret:\n      - \"{SECRET}\" x\nservices: {{}}\n"
+        ),
+        format!(
+            "listen: 7835\nclients:\n  home:\n    secret:\n      \"{SECRET}\" x\nservices: {{}}\n"
+        ),
+        format!("listen: 7835\nclients: {{home: {{secret: \"{SECRET}\" x}}}}\n"),
+    ] {
+        let text = render("server.yaml", &src, None);
+        assert!(text.contains("error: invalid syntax"), "{text}");
+    }
+    let text = render(
+        "server.json",
+        &format!(
+            "{{\"listen\": \"7835\", \"clients\": {{\"home\": {{\"secret\": \"{SECRET}\" x}}}}}}"
+        ),
+        None,
+    );
+    assert!(text.contains("invalid JSON"), "{text}");
+}
+
+#[test]
+fn header_values_and_proxy_passwords_are_hidden() {
+    let src = format!(
+        "{{\"server\": \"h\", \"name\": \"home\", \"secret\": \"{SECRET}\", \"allow\": [\"127.0.0.0/8\"], \"headers\": {{\"X Tok\": \"tok-hidden-value\"}}, \"proxy\": \"socks5://u:hunter2@proxy:1080\"}}"
+    );
+    let text = render("client.json", &src, None);
+    assert!(text.contains("headers"), "{text}");
+    for leak in ["tok-hidden-value", "hunter2"] {
+        assert!(!text.contains(leak), "{leak} leaked:\n{text}");
+    }
 }
