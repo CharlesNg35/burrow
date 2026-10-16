@@ -34,6 +34,10 @@ jobs:
         env:
           BURROW_TEST_TRANSPORT: ws
         run: cargo test --locked --test integration --test reconnect
+      - name: Install and run as a systemd service
+        env:
+          BURROW_E2E_PROFILE: dev
+        run: bash tests/e2e/service.sh
 
   platforms:
     strategy:
@@ -46,6 +50,17 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - run: cargo build --locked
       - run: cargo test --locked --lib --test diagnostics --test init
+      - name: Install and run as a launchd service
+        if: runner.os == 'macOS'
+        env:
+          BURROW_E2E_PROFILE: dev
+        run: bash tests/e2e/service.sh
+      - name: Install and run as a Windows service
+        if: runner.os == 'Windows'
+        env:
+          BURROW_E2E_PROFILE: dev
+        shell: pwsh
+        run: ./tests/e2e/service.ps1
 
   supply-chain:
     runs-on: ubuntu-latest
