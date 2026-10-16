@@ -23,6 +23,7 @@ use reconnect::{Backoff, Outage, Report, human};
 use tokio_rustls::TlsConnector;
 
 const STABLE_AFTER: Duration = Duration::from_secs(10);
+const REJECT_CONFIRM_ATTEMPTS: u32 = 3;
 const MAX_OPENING: usize = 32;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -97,6 +98,7 @@ impl Client {
             warn!("insecure_plaintext is enabled: forwarded TCP data is NOT encrypted");
         }
         let mut backoff = Backoff::new(s.reconnect_initial, s.reconnect_max);
+        let mut rejected: Option<(Instant, u32)> = None;
         let end = loop {
             let started = Instant::now();
             let end = tokio::select! {
@@ -107,6 +109,9 @@ impl Client {
                 backoff.reset();
             }
             let delay = backoff.next_delay();
+            if !matches!(end, SessionEnd::Rejected) {
+                rejected = None;
+            }
             let why = match end {
                 SessionEnd::Stop => break RunEnd::Stopped,
                 SessionEnd::Lost(why) => {
@@ -114,12 +119,21 @@ impl Client {
                     why
                 }
                 SessionEnd::Rejected => {
-                    let _ = self.state.send(State::Rejected);
+                    let now = Instant::now();
+                    let (since, count) = rejected.get_or_insert((now, 0));
+                    *count += 1;
+                    let confirmed = *count >= REJECT_CONFIRM_ATTEMPTS
+                        && now.duration_since(*since) >= s.reject_confirm;
+                    if confirmed {
+                        let _ = self.state.send(State::Rejected);
+                    } else {
+                        let _ = self.state.send(State::Connecting);
+                    }
                     let why = format!(
-                        "handshake rejected by {}: wrong secret or unknown client name \"{}\" (check both against the server config, or regenerate with: burrow client-config {} -c server.yaml --server {})",
-                        s.server, s.name, s.name, s.server
+                        "handshake rejected by {}: wrong secret or unknown client name \"{}\", or the server is busy or restarting (check both against the server config, or print a new client config on the server with: burrow client-config {} -o client.yaml)",
+                        s.server, s.name, s.name
                     );
-                    if s.exit_on_rejected {
+                    if confirmed && s.exit_on_rejected {
                         error!("{why}; not retrying (reconnect.on_rejected: exit)");
                         break RunEnd::Rejected;
                     }
@@ -294,7 +308,11 @@ impl Client {
                     Ok(ServerMsg::Bye { reason }) => return bye(reason),
                     _ => return SessionEnd::Lost("server sent an unexpected first message".into()),
                 },
-                Ok(Ok(None)) => return SessionEnd::Rejected,
+                Ok(Ok(None)) => {
+                    return SessionEnd::Lost(
+                        "the server closed the connection before it was ready".into(),
+                    );
+                }
                 Ok(Err(e)) => {
                     return SessionEnd::Lost(format!(
                         "connection to {} failed ({})",

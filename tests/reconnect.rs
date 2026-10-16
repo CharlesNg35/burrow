@@ -137,3 +137,25 @@ async fn exits_on_rejection_only_when_configured() {
         "default policy keeps retrying after a rejection"
     );
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_busy_server_is_not_taken_for_a_wrong_secret() {
+    let secret = Secret::generate();
+    let mut s = server_settings(vec![secret.clone()]);
+    s.max_handshakes = 1;
+    let srv = start_server(s).await;
+    let hog = tokio::net::TcpStream::connect(srv.addr).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let mut c = client_settings(srv.addr, secret);
+    c.exit_on_rejected = true;
+    c.reject_confirm = Duration::from_secs(5);
+    let mut cli = start_client(c).await;
+    tokio::time::sleep(Duration::from_millis(800)).await;
+    assert!(
+        !cli.task.is_finished(),
+        "a full server must not end the client"
+    );
+    assert_ne!(*cli.state.borrow(), State::Rejected);
+    drop(hog);
+    wait_state(&mut cli.state, State::Connected).await;
+}

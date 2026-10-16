@@ -78,6 +78,7 @@ pub fn client_settings(server: SocketAddr, secret: Secret) -> ClientSettings {
         reconnect_max: Duration::from_millis(500),
         give_up_after: None,
         exit_on_rejected: false,
+        reject_confirm: Duration::ZERO,
         connect_timeout: Duration::from_secs(2),
         tcp: tuning(),
         udp_session_timeout: Duration::from_secs(30),

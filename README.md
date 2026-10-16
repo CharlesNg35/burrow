@@ -130,21 +130,21 @@ allow:
   - 192.168.1.0/24:22 # CIDR, optionally :port or :low-high
 ```
 
-| key                                             | default          | meaning                                                    |
-| ----------------------------------------------- | ---------------- | ---------------------------------------------------------- |
-| `server`, `name`, `secret`                      | required         | where to connect, this client's name, its secret           |
-| `allow`                                         | empty (deny all) | targets the server may reach, checked after DNS resolution |
-| `allow_all`                                     | `false`          | allow any target (not recommended)                         |
-| `cipher`                                        | `chachapoly`     | or `aes-gcm` (about 1.8x tunnel throughput with AES-NI)    |
-| `proxy`                                         | none             | `http://host:port` or `socks5://[user:pass@]host:port`     |
-| `insecure_plaintext`                            | `false`          | must match the server                                      |
-| `reconnect.initial_delay_ms` / `max_delay_secs` | `250` / `30`     | exponential backoff with jitter                            |
-| `reconnect.give_up_after_secs`                  | `0` (never)      | exit after the server was unreachable this long            |
-| `reconnect.on_rejected`                         | `retry`          | or `exit` when the server rejects the name or secret       |
-| `headers`                                       | none             | extra HTTP headers for the WebSocket upgrade               |
-| `ca`                                            | none             | extra CA certificate (PEM) to trust for `wss://`           |
-| `connect_timeout_secs`                          | `10`             |                                                            |
-| `tcp`, `udp`                                    | as on the server |                                                            |
+| key                                             | default          | meaning                                                               |
+| ----------------------------------------------- | ---------------- | --------------------------------------------------------------------- |
+| `server`, `name`, `secret`                      | required         | where to connect, this client's name, its secret                      |
+| `allow`                                         | empty (deny all) | targets the server may reach, checked after DNS resolution            |
+| `allow_all`                                     | `false`          | allow any target (not recommended)                                    |
+| `cipher`                                        | `chachapoly`     | or `aes-gcm` (about 1.8x tunnel throughput with AES-NI)               |
+| `proxy`                                         | none             | `http://host:port` or `socks5://[user:pass@]host:port`                |
+| `insecure_plaintext`                            | `false`          | must match the server                                                 |
+| `reconnect.initial_delay_ms` / `max_delay_secs` | `250` / `30`     | exponential backoff with jitter                                       |
+| `reconnect.give_up_after_secs`                  | `0` (never)      | exit after the server was unreachable this long                       |
+| `reconnect.on_rejected`                         | `retry`          | or `exit` when the server keeps rejecting the name or secret for 15 s |
+| `headers`                                       | none             | extra HTTP headers for the WebSocket upgrade                          |
+| `ca`                                            | none             | extra CA certificate (PEM) to trust for `wss://`                      |
+| `connect_timeout_secs`                          | `10`             |                                                                       |
+| `tcp`, `udp`                                    | as on the server |                                                                       |
 
 ## Servers reachable only through HTTP(S)
 

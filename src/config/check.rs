@@ -920,6 +920,7 @@ pub fn check_client(
         give_up_after: (cfg.reconnect.give_up_after_secs > 0)
             .then(|| Duration::from_secs(cfg.reconnect.give_up_after_secs.into())),
         exit_on_rejected: cfg.reconnect.on_rejected == super::model::OnRejected::Exit,
+        reject_confirm: Duration::from_secs(15),
         connect_timeout: Duration::from_secs(cfg.connect_timeout_secs.into()),
         tcp: tuning(&cfg.tcp),
         udp_session_timeout: Duration::from_secs(cfg.udp.session_timeout_secs.into()),

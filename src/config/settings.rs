@@ -64,6 +64,7 @@ pub struct ClientSettings {
     pub reconnect_max: Duration,
     pub give_up_after: Option<Duration>,
     pub exit_on_rejected: bool,
+    pub reject_confirm: Duration,
     pub connect_timeout: Duration,
     pub tcp: SocketTuning,
     pub udp_session_timeout: Duration,
