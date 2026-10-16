@@ -736,3 +736,29 @@ fn init_and_client_config_agree_on_the_tls_port_for_ipv6() {
         "{printed}"
     );
 }
+
+#[test]
+fn client_config_allows_mapped_ipv6_targets_as_ipv4() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("server.yaml");
+    std::fs::write(
+        &path,
+        format!(
+            "listen: 0.0.0.0:7835\nclients:\n  home:\n    secret: {}\nservices:\n  web: {{client: home, bind: 7840, target: \"[::ffff:127.0.0.1]:3000\"}}\n",
+            burrow::secret::Secret::generate().encode()
+        ),
+    )
+    .unwrap();
+    let out = client_config(
+        None,
+        &path,
+        Some("h.example.com"),
+        Format::Yaml,
+        &ProcessEnv,
+    )
+    .unwrap();
+    assert!(out.text.contains("127.0.0.1/32:3000"), "{}", out.text);
+    let client = dir.path().join("client.yaml");
+    std::fs::write(&client, &out.text).unwrap();
+    assert!(matches!(load(&client), Loaded::Client(..)));
+}

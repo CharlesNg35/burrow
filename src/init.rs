@@ -591,7 +591,11 @@ pub fn client_config(
         let Ok((host, port)) = parse_host_port(&svc.target) else {
             continue;
         };
-        let entries: Vec<String> = match host.parse::<IpAddr>() {
+        let host_ip = host.parse::<IpAddr>().map(|ip| match ip {
+            IpAddr::V6(v6) => v6.to_ipv4_mapped().map_or(ip, IpAddr::V4),
+            v4 => v4,
+        });
+        let entries: Vec<String> = match host_ip {
             Ok(IpAddr::V4(ip)) => vec![format!("{ip}/32:{port}")],
             Ok(IpAddr::V6(ip)) => vec![format!("[{ip}/128]:{port}")],
             Err(_) if host.eq_ignore_ascii_case("localhost") => {

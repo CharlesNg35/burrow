@@ -127,16 +127,18 @@ impl FromStr for Rule {
             Some((a, p)) => (a, Some(p)),
             None => (net, None),
         };
-        let ip: IpAddr = addr
+        let raw: IpAddr = addr
             .parse()
             .map_err(|_| RuleError::Address(addr.to_string()))?;
-        let ip = canonical(ip);
+        let ip = canonical(raw);
+        let mapped = raw != ip;
         let cidr = match prefix {
             None => Cidr::host(ip),
             Some(p) => p
                 .parse::<u8>()
                 .ok()
-                .and_then(|p| Cidr::new(ip, p))
+                .and_then(|n| if mapped { n.checked_sub(96) } else { Some(n) })
+                .and_then(|n| Cidr::new(ip, n))
                 .ok_or_else(|| RuleError::Prefix(p.to_string()))?,
         };
         if cidr.has_host_bits() {
@@ -229,6 +231,13 @@ mod tests {
         assert_eq!(rule("fd00::/8").to_string(), "fd00::/8");
         assert_eq!(rule("[fd00::/8]:443").to_string(), "[fd00::/8]:443");
         assert_eq!(rule("[::1]:22").to_string(), "[::1/128]:22");
+        assert_eq!(rule("::ffff:10.0.0.5").to_string(), "10.0.0.5/32");
+        assert_eq!(
+            rule("[::ffff:127.0.0.1/128]:3000").to_string(),
+            "127.0.0.1/32:3000"
+        );
+        assert_eq!(rule("::ffff:10.0.0.0/104").to_string(), "10.0.0.0/8");
+        assert!("::ffff:10.0.0.0/64".parse::<Rule>().is_err());
     }
 
     #[test]
