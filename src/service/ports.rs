@@ -32,7 +32,7 @@ pub fn check_free(proto: Protocol, addr: SocketAddr, label: &str) -> Result<(), 
     }
 }
 
-fn inspect_hint(proto: Protocol, port: u16) -> String {
+pub(crate) fn inspect_hint(proto: Protocol, port: u16) -> String {
     if cfg!(windows) {
         format!("netstat -ano | findstr :{port}")
     } else if cfg!(target_os = "macos") {

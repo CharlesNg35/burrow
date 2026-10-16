@@ -167,15 +167,22 @@ async fn accept_tcp(
     }
 }
 
-pub fn bind_error(what: &str, addr: SocketAddr, e: &std::io::Error) -> Failure {
+pub fn bind_error(what: &str, proto: Protocol, addr: SocketAddr, e: &std::io::Error) -> Failure {
     match e.kind() {
-        std::io::ErrorKind::AddrInUse => Failure::new(format!(
-            "cannot bind {what} on {addr}: address already in use"
-        ))
-        .hint(format!(
-            "pick another port, or find what is using it with: ss -ltnp 'sport = :{}'",
-            addr.port()
-        )),
+        std::io::ErrorKind::AddrInUse => {
+            let find = crate::service::ports::inspect_hint(proto, addr.port());
+            let hint = if crate::service::any_installed() {
+                format!(
+                    "a burrow service is installed here and may be using it: burrow service status; otherwise find what uses it with: {find}"
+                )
+            } else {
+                format!("pick another port, or find what uses it with: {find}")
+            };
+            Failure::new(format!(
+                "cannot bind {what} on {addr}: address already in use"
+            ))
+            .hint(hint)
+        }
         std::io::ErrorKind::PermissionDenied => {
             Failure::new(format!("cannot bind {what} on {addr}: permission denied"))
                 .hint("ports below 1024 need root or CAP_NET_BIND_SERVICE; use a port above 1024")
@@ -196,11 +203,11 @@ async fn bind_service(name: &str, svc: &Service) -> Result<Bound, Failure> {
     match svc.protocol {
         Protocol::Tcp => crate::transport::tcp::bind_tcp(svc.bind)
             .map(Bound::Tcp)
-            .map_err(|e| bind_error(&what, svc.bind, &e)),
+            .map_err(|e| bind_error(&what, Protocol::Tcp, svc.bind, &e)),
         Protocol::Udp => UdpSocket::bind(svc.bind)
             .await
             .map(Bound::Udp)
-            .map_err(|e| bind_error(&what, svc.bind, &e)),
+            .map_err(|e| bind_error(&what, Protocol::Udp, svc.bind, &e)),
     }
 }
 
@@ -209,7 +216,7 @@ impl Server {
         let listener = match settings.listen {
             Some(addr) => Some(
                 crate::transport::tcp::bind_tcp(addr)
-                    .map_err(|e| bind_error("the control port", addr, &e))?,
+                    .map_err(|e| bind_error("the control port", Protocol::Tcp, addr, &e))?,
             ),
             None => None,
         };
@@ -554,5 +561,37 @@ fn spawn_service(shared: &Arc<Shared>, name: &str, svc: &Service, bound: Bound) 
         config,
         task,
         addr,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn busy_port_hint_names_the_platform_tool_and_the_protocol() {
+        let busy = std::io::Error::from(std::io::ErrorKind::AddrInUse);
+        let addr: SocketAddr = "0.0.0.0:7835".parse().unwrap();
+        let tcp = bind_error("the control port", Protocol::Tcp, addr, &busy);
+        assert_eq!(
+            tcp.message,
+            "cannot bind the control port on 0.0.0.0:7835: address already in use"
+        );
+        let hint = tcp.hint.unwrap();
+        assert!(
+            hint.ends_with(&crate::service::ports::inspect_hint(Protocol::Tcp, 7835)),
+            "{hint}"
+        );
+        assert_eq!(
+            hint.contains("burrow service status"),
+            crate::service::any_installed(),
+            "{hint}"
+        );
+        let udp = bind_error("service \"dns\"", Protocol::Udp, addr, &busy).hint.unwrap();
+        assert!(
+            udp.ends_with(&crate::service::ports::inspect_hint(Protocol::Udp, 7835)),
+            "{udp}"
+        );
+        assert_ne!(hint, udp);
     }
 }

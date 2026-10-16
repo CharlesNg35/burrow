@@ -121,7 +121,11 @@ pub fn acquire_in(dir: &Path, identity: &Identity, config: &Path) -> Result<Inst
             };
             return Err(
                 Failure::new(format!("{} is already running{who}", identity.describe())).hint(
-                    "stop the other instance first; if it runs as a service: burrow service stop",
+                    if cfg!(windows) {
+                        "stop the other instance first; if it runs as a service: burrow service stop (as administrator)"
+                    } else {
+                        "stop the other instance first; if it runs as a service: sudo burrow service stop"
+                    },
                 ),
             );
         }

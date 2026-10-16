@@ -48,8 +48,14 @@ pub struct WsListener {
 impl WsListener {
     pub fn bind(settings: &WebSocketSettings) -> Result<WsListener, Failure> {
         let route = WsRoute::new(settings)?;
-        let listener = bind_tcp(settings.listen)
-            .map_err(|e| bind_error("the websocket listener", settings.listen, &e))?;
+        let listener = bind_tcp(settings.listen).map_err(|e| {
+            bind_error(
+                "the websocket listener",
+                crate::config::model::Protocol::Tcp,
+                settings.listen,
+                &e,
+            )
+        })?;
         Ok(WsListener {
             listener,
             route: RwLock::new(Arc::new(route)),

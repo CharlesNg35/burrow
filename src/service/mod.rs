@@ -1,5 +1,5 @@
 mod logview;
-mod ports;
+pub(crate) mod ports;
 mod system;
 
 #[cfg(target_os = "macos")]
@@ -465,6 +465,13 @@ fn save_manifest(m: &Manifest) -> Result<(), Failure> {
     let text = serde_json::to_string_pretty(m).expect("manifest serializes");
     std::fs::write(&path, text)
         .map_err(|e| Failure::new(format!("cannot write {}: {e}", path.display())))
+}
+
+pub fn any_installed() -> bool {
+    std::fs::read_dir(Platform::current().state_dir()).is_ok_and(|dir| {
+        dir.flatten()
+            .any(|e| e.path().extension().is_some_and(|x| x == "json"))
+    })
 }
 
 pub fn all_manifests() -> Vec<Manifest> {
