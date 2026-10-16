@@ -125,7 +125,7 @@ allow:
 
 ## Servers reachable only through HTTP(S)
 
-If the server sits behind nginx, Caddy, Cloudflare or a Kubernetes ingress and only HTTP(S) is open in the firewall, let clients connect over WebSocket. Nothing about it runs unless you turn it on:
+If the server sits behind nginx, Caddy, Cloudflare or a Kubernetes ingress and only HTTP(S) is open in the firewall, clients can connect over WebSocket. Nothing about it runs unless you turn it on:
 
 ```sh
 burrow init server --ws --server tunnel.example.com   # no TCP control port; WebSocket on 127.0.0.1:7836/burrow
@@ -137,17 +137,46 @@ websocket:
   path: /burrow
 ```
 
-The client config simply uses the URL: `server: wss://tunnel.example.com/burrow`. Data channels, UDP services, the allow list and hot reload work the same way; the Noise encryption runs inside the WebSocket, so the proxy only ever sees ciphertext. Point the proxy at burrow:
+The client config just uses the URL: `server: wss://tunnel.example.com/burrow`. Services (TCP and UDP), the allow list and hot reload work exactly as over TCP. Noise encryption runs inside the WebSocket, so the proxy only ever sees ciphertext. Idle pooled connections send a keepalive every 25 s (`websocket.keepalive_secs`, 5-30), below the idle timeouts of nginx (60 s) and Cloudflare (100 s).
+
+`listen` (TCP) and `websocket` can be enabled together, for example while moving clients from one to the other.
+
+<details>
+<summary><b>nginx</b></summary>
 
 ```nginx
-location /burrow {
-    proxy_pass http://127.0.0.1:7836;
-    proxy_http_version 1.1;
-    proxy_set_header Upgrade $http_upgrade;
-    proxy_set_header Connection "upgrade";
-    proxy_read_timeout 1h;
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+
+server {
+    listen 443 ssl;
+    server_name tunnel.example.com;
+    ssl_certificate     /etc/letsencrypt/live/tunnel.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/tunnel.example.com/privkey.pem;
+
+    location = /burrow {
+        proxy_pass http://127.0.0.1:7836;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_set_header Host $host;
+        proxy_read_timeout 1h;
+        proxy_send_timeout 1h;
+        proxy_buffering off;
+    }
 }
 ```
+
+Client: `server: wss://tunnel.example.com/burrow`
+
+</details>
+
+<details>
+<summary><b>Caddy</b></summary>
+
+Caddy gets the certificate itself and proxies WebSockets without extra settings:
 
 ```caddy
 tunnel.example.com {
@@ -155,18 +184,108 @@ tunnel.example.com {
 }
 ```
 
-With Cloudflare, proxy the hostname (orange cloud) to the origin that runs nginx or Caddy; WebSockets are on by default. Idle pooled connections send a keepalive every 25 s (`websocket.keepalive_secs`, 5-30), below the idle timeouts of Cloudflare (100 s) and nginx (60 s).
+Client: `server: wss://tunnel.example.com/burrow`
 
-Without a proxy, burrow can serve `wss://` itself with your certificate files (for example from Let's Encrypt):
+</details>
 
-```sh
-burrow init server --ws-tls-cert /etc/letsencrypt/live/tunnel.example.com/fullchain.pem \
-  --ws-tls-key /etc/letsencrypt/live/tunnel.example.com/privkey.pem --server tunnel.example.com
+<details>
+<summary><b>Cloudflare (proxied DNS)</b></summary>
+
+Point the DNS record at your server with the proxy enabled (orange cloud), and run nginx or Caddy on the origin as above. WebSockets are allowed on every plan. Use SSL mode "Full (strict)" so the hop between Cloudflare and your origin is also TLS.
+
+To restrict the endpoint with [Cloudflare Access](https://developers.cloudflare.com/cloudflare-one/identity/service-tokens/), create a service token and send it from the client:
+
+```yaml
+server: wss://tunnel.example.com/burrow
+headers:
+  CF-Access-Client-Id: ${CF_ACCESS_ID}
+  CF-Access-Client-Secret: ${CF_ACCESS_SECRET}
 ```
 
-This listens on `0.0.0.0:7837`; clients use `wss://tunnel.example.com:7837/burrow`. Send `SIGHUP` after renewing the certificate. A self-signed certificate works if the client trusts it with `ca: server-ca.pem`.
+</details>
 
-`listen` (TCP) and `websocket` can also be enabled together, for example while moving clients from one to the other.
+<details>
+<summary><b>Cloudflare Tunnel (no open inbound port at all)</b></summary>
+
+`cloudflared` makes an outbound connection to Cloudflare, so the server needs no open ports for the control link:
+
+```yaml
+tunnel: <tunnel-id>
+credentials-file: /etc/cloudflared/<tunnel-id>.json
+ingress:
+  - hostname: tunnel.example.com
+    path: ^/burrow$
+    service: http://127.0.0.1:7836
+  - service: http_status:404
+```
+
+Client: `server: wss://tunnel.example.com/burrow`. The services you expose with `bind` are still plain TCP/UDP ports on the server, so open those (or bind them to a private interface) as needed.
+
+</details>
+
+<details>
+<summary><b>Kubernetes (ingress-nginx)</b></summary>
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: burrow
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts: [tunnel.example.com]
+      secretName: tunnel-example-com-tls
+  rules:
+    - host: tunnel.example.com
+      http:
+        paths:
+          - path: /burrow
+            pathType: Exact
+            backend:
+              service:
+                name: burrow
+                port:
+                  number: 7836
+```
+
+Bind `websocket.listen` to `0.0.0.0:7836` inside the pod so the Service can reach it.
+
+</details>
+
+<details>
+<summary><b>No proxy: burrow serves wss:// itself</b></summary>
+
+Give burrow a certificate and key (for example from Let's Encrypt):
+
+```sh
+burrow init server \
+  --ws-tls-cert /etc/letsencrypt/live/tunnel.example.com/fullchain.pem \
+  --ws-tls-key  /etc/letsencrypt/live/tunnel.example.com/privkey.pem \
+  --server tunnel.example.com
+```
+
+```yaml
+websocket:
+  listen: 0.0.0.0:7837
+  path: /burrow
+  tls:
+    cert: /etc/letsencrypt/live/tunnel.example.com/fullchain.pem
+    key: /etc/letsencrypt/live/tunnel.example.com/privkey.pem
+```
+
+Clients use `wss://tunnel.example.com:7837/burrow`. Relative file paths are resolved from the config file's directory. The key must be readable by the user burrow runs as. Reload after renewing the certificate:
+
+```sh
+certbot renew --deploy-hook "systemctl reload burrow-server"
+```
+
+For a self-signed certificate, copy it to the client and trust it there with `ca: server-cert.pem`.
+
+</details>
 
 ## Reconnecting
 
