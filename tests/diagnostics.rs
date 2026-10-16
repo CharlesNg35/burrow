@@ -951,3 +951,22 @@ fn ipv4_and_ipv6_wildcards_on_one_port_conflict() {
     );
     assert!(text.contains("error"), "{text}");
 }
+
+#[test]
+fn a_byte_order_mark_is_ignored() {
+    let yaml = format!(
+        "\u{feff}{}",
+        server("  web: {client: home, bind: 7840, target: 3000}\n")
+    );
+    let text = render("server.yaml", &yaml, None);
+    assert!(
+        text.ends_with("valid server config (2 clients, 1 service)"),
+        "{text}"
+    );
+    let json = format!(
+        "\u{feff}{{\"listen\": \"0.0.0.0:7835\", \"clients\": {{\"home\": {{\"secret\": \"{SECRET}\"}}}}}}"
+    );
+    assert!(
+        render("server.json", &json, None).contains("valid server config (1 client, 0 services)")
+    );
+}

@@ -224,6 +224,7 @@ pub fn load_str_in(
     role: Option<Role>,
     env: &dyn EnvSource,
 ) -> Outcome {
+    let src = src.strip_prefix('\u{feff}').unwrap_or(src);
     let mut report = Report::new(name, src);
     let fail = |mut report: Report, role| {
         report.sort();
