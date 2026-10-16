@@ -125,7 +125,11 @@ pub fn client(path: &Path, logging: Logging) -> Result<u8, Failure> {
     })
 }
 
-async fn reloader(path: PathBuf, mut current: ServerSettings, tx: mpsc::Sender<ServerSettings>) {
+pub async fn reloader(
+    path: PathBuf,
+    mut current: ServerSettings,
+    tx: mpsc::Sender<ServerSettings>,
+) {
     let (trig_tx, mut trig) = mpsc::channel::<&'static str>(16);
     let _watcher = watch_file(&path, trig_tx.clone());
     #[cfg(unix)]

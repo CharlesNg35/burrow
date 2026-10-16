@@ -38,6 +38,23 @@ pub struct Shared {
 }
 
 impl Shared {
+    pub fn idle_channels(&self, client: &str) -> usize {
+        self.session(client).map_or(0, |s| s.idle_count())
+    }
+
+    pub fn session_names(&self) -> Vec<String> {
+        self.sessions
+            .lock()
+            .expect("sessions lock")
+            .keys()
+            .cloned()
+            .collect()
+    }
+
+    pub fn active_connections(&self) -> usize {
+        self.active.load(Ordering::Acquire)
+    }
+
     fn settings(&self) -> Arc<ServerSettings> {
         self.settings.read().expect("settings lock").clone()
     }
