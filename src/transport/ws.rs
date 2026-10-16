@@ -13,7 +13,7 @@ use super::endpoint::{Endpoint, join_host_port};
 pub const MAX_REQUEST_HEAD: usize = 8 * 1024;
 const MAX_HEADERS: usize = 32;
 const WRITE_BATCH: usize = 128 * 1024;
-const MAX_MESSAGE: usize = 1024 * 1024;
+const MAX_MESSAGE: usize = WRITE_BATCH;
 
 pub enum Carrier {
     Plain(TcpStream),
@@ -324,6 +324,33 @@ pub async fn connect(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    async fn send_message(len: usize) -> io::Result<usize> {
+        use futures_util::SinkExt;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (tcp, _) = listener.accept().await.unwrap();
+            let mut conn = accept(Carrier::Plain(tcp), "/burrow").await.unwrap();
+            let mut got = vec![0u8; len];
+            conn.read_exact(&mut got).await
+        });
+        let tcp = TcpStream::connect(addr).await.unwrap();
+        let (mut ws, _) = ClientBuilder::new()
+            .uri(&format!("ws://{addr}/burrow"))
+            .unwrap()
+            .connect_on(tcp)
+            .await
+            .unwrap();
+        let _ = ws.send(Message::binary(vec![7u8; len])).await;
+        server.await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn messages_larger_than_a_write_batch_are_refused() {
+        assert_eq!(send_message(WRITE_BATCH).await.unwrap(), WRITE_BATCH);
+        assert!(send_message(WRITE_BATCH + 1).await.is_err());
+    }
 
     fn req(path: &str, extra: &str) -> Vec<u8> {
         format!("GET {path} HTTP/1.1\r\nHost: x\r\n{extra}\r\n").into_bytes()
