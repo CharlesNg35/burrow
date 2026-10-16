@@ -10,7 +10,8 @@ First release.
 - Optional WebSocket transport (`ws://` behind a TLS proxy, or `wss://` with your own certificate) for servers that are only reachable over HTTP(S). It is off unless configured, and `init server --ws` writes a config without a TCP control port.
 - Clients never give up by default: jittered backoff, DNS re-resolved on every attempt, Happy Eyeballs dialing, one outage summary per minute, and optional `give_up_after_secs` / `on_rejected: exit`.
 - `burrow validate` reports every config problem with file:line:column, a caret, a fix and "did you mean" suggestions. The same checks run when the server or client starts and on every reload.
-- `burrow init`, `client-config`, `gensecret`, `schema` and `completions`.
+- `burrow init`, `client-config`, `gensecret`, `schema` and `completions`. `client-config` takes the client address from `--server` or the server's optional `public_address` and never guesses it from `listen`; a host alone gets its port from `listen`. The client name can be left out when there is only one, `-o FILE` writes a file only you can read, and the format follows the `-o` extension.
+- Short forms in config files: `listen: 7835`, `bind: 7840` and `target: 3000` (for `127.0.0.1:3000`), and `server: host` for port 7835.
 - `burrow service` installs a server or client as a system service on Linux (systemd, sandboxed), macOS (launchd) and Windows (SCM), with a dedicated account, a copied config and binary, a port check before install, rotating log files (`--log-file`), `status`, `logs -f`, `list`, and `update` with rollback.
 - The same tunnel cannot run twice (an OS file lock), and `-c` can be left out when `server.yaml` or `client.yaml` is in the current folder.
 - Static Linux binaries (amd64, arm64), macOS and Windows builds, and a multi-arch distroless image.

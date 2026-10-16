@@ -109,3 +109,9 @@ Hand-written unit files go stale, differ per OS, and leave the hard parts to the
 - **Own log files** with size-based rotation (10 MB, 5 files) rather than journald or the Windows event log, so `burrow service logs` works the same everywhere and a log cannot fill the disk. Startup failures are written there too, so a Windows service that has no console still says why it stopped.
 - **Updates:** `burrow service update` replaces the binary only when it is newer, keeps the previous one, restarts every affected service and rolls back if one does not come up. A self-download from GitHub releases is left for later.
 - **Crates:** `windows-service` (Mullvad) for the Windows dispatcher and SCM; systemd and launchd are driven through `systemctl` and `launchctl`, which are their stable interfaces.
+
+## D21. Ask only for what burrow cannot know, but write every field
+
+`listen` says where the server binds on its own machine, usually `0.0.0.0`. Behind NAT, a cloud firewall or DNS it says nothing about how clients reach it, so the client address is never guessed from it. `client-config` takes it from `--server`, or from the optional `public_address` in the server config, so it is typed once for all clients, and otherwise stops with a hint. A host alone gets its port from `listen`, which is the one thing `listen` does tell. `0.0.0.0` is refused; loopback and private addresses are allowed with a note, because tests, LANs and VPNs need them. Notes only warn about something that may not work.
+
+Config files accept short forms (`listen: 7835`, `target: 3000`, `server: host`), but required fields stay required, and `init` still writes `listen`, `bind`, `target` and `allow` in full, because a generated file is also the user's documentation. `init` writes `public_address` only when `--server` is given, because a placeholder would be an invalid value. WebSocket stays off unless its section is written.

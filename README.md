@@ -34,14 +34,15 @@ visitor ──> server:7840 ══ Noise-encrypted TCP or WebSocket ══ clien
 On the public server:
 
 ```sh
-burrow init server --server myserver.example.com:7835   # writes server.yaml, prints the client config
-burrow server -c server.yaml
+burrow init server                                                  # writes server.yaml
+burrow server                                                       # runs it
+burrow client-config --server myserver.example.com -o client.yaml  # the config for your client
 ```
 
-On the machine behind NAT, save the printed client config as `client.yaml`, then:
+Copy `client.yaml` to the machine behind NAT, then:
 
 ```sh
-burrow client -c client.yaml
+burrow client
 ```
 
 The generated server listens for clients on TCP `7835` and exposes `0.0.0.0:7840` → the client's `127.0.0.1:3000`. Edit `services` in `server.yaml` and save; the server reloads by itself. To keep either side running across reboots, install it as a service: `sudo burrow service install` (see [Running as a service](#running-as-a-service)).
@@ -50,11 +51,32 @@ Other commands:
 
 ```sh
 burrow validate -c server.yaml            # check a config without starting (exit 0 valid, 1 invalid, 2 usage)
-burrow client-config home -c server.yaml --server myserver.example.com:7835   # client config for a client
+burrow client-config office --server myserver.example.com -o office.yaml   # config for another client
 burrow gensecret                          # new 256-bit secret
 burrow schema server > server.schema.json # JSON Schema for editor completion
 burrow completions bash > /etc/bash_completion.d/burrow
 ```
+
+<details>
+<summary>How <code>client-config</code> picks the server address</summary>
+
+`listen` is where the server waits on its own machine (usually `0.0.0.0`, every interface), not how clients find it, so burrow never guesses the client address from it. The address comes from, in this order:
+
+1. `--server myserver.example.com`
+2. `public_address: myserver.example.com` in `server.yaml`, so you type it once for all your clients
+3. neither: `client-config` stops and tells you to set one of them
+
+Give the host alone and the port is taken from `listen`; add `:PORT` only when a router forwards a different one. For a WebSocket-only server, the host alone becomes `wss://HOST/burrow`. `burrow init server --server myserver.example.com` writes `public_address` for you. The client name can be left out when the server defines only one client.
+
+| `--server` or `public_address` | result                                                          |
+| ------------------------------ | --------------------------------------------------------------- |
+| `myserver.example.com`         | `server: myserver.example.com:7835`                             |
+| `myserver.example.com:9000`    | used as is, with a note that a router must forward 9000         |
+| `192.168.1.10`, `10.0.0.5`     | used, with a note that only the same network or VPN can connect |
+| `127.0.0.1`, `localhost`       | used, with a note that only this machine can connect            |
+| `0.0.0.0`                      | refused: clients cannot connect to it                           |
+
+</details>
 
 `burrow server` and `burrow client` run the same checks as `validate` before opening any socket, and the server runs them again on every reload.
 
@@ -74,7 +96,8 @@ YAML (`.yaml`, `.yml`) or JSON (`.json`), same schema. `${VAR}` expands environm
 ### server.yaml
 
 ```yaml
-listen: 0.0.0.0:7835
+listen: 0.0.0.0:7835 # ip:port, or a port alone for every interface
+public_address: myserver.example.com # optional: how clients reach this server
 clients:
   home:
     secret: ${HOME_SECRET} # or a list of secrets while rotating
@@ -82,7 +105,7 @@ services:
   web:
     client: home
     bind: 0.0.0.0:7840 # a port (means 0.0.0.0:port) or ip:port
-    target: 127.0.0.1:3000 # host:port as seen from the client
+    target: 127.0.0.1:3000 # host:port as seen from the client; a port alone means 127.0.0.1
   dns:
     client: home
     protocol: udp
@@ -93,6 +116,7 @@ services:
 | key                                          | default                             | meaning                                                        |
 | -------------------------------------------- | ----------------------------------- | -------------------------------------------------------------- |
 | `listen`                                     | none                                | TCP address clients connect to (`listen`, `websocket` or both) |
+| `public_address`                             | none                                | host clients use to reach the server; used by `client-config`  |
 | `websocket.listen` / `path`                  | none / `/burrow`                    | accept clients over WebSocket (see below)                      |
 | `websocket.tls.cert` / `key`                 | none                                | serve `wss://` directly with these PEM files                   |
 | `websocket.keepalive_secs`                   | `25`                                | keepalive on idle pooled connections, 5-30                     |
@@ -114,7 +138,7 @@ services:
 ### client.yaml
 
 ```yaml
-server: myserver.example.com:7835 # or wss://tunnel.example.com/burrow
+server: myserver.example.com:7835 # port 7835 when omitted; or wss://tunnel.example.com/burrow
 name: home
 secret: ${HOME_SECRET}
 allow:
@@ -147,6 +171,7 @@ burrow init server --ws --server tunnel.example.com   # no TCP control port; Web
 ```
 
 ```yaml
+public_address: tunnel.example.com
 websocket:
   listen: 127.0.0.1:7836
   path: /burrow
@@ -284,6 +309,7 @@ burrow init server \
 ```
 
 ```yaml
+public_address: tunnel.example.com
 websocket:
   listen: 0.0.0.0:7837
   path: /burrow
