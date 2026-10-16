@@ -85,6 +85,17 @@ try {
   if (@((Burrow service list) -split "`n" | Select-String "running").Count -ne 2) { Fail "list does not show both services" }
   Check "log file $log, status and list"
 
+  $users = (New-Object Security.Principal.SecurityIdentifier "S-1-5-32-545").Translate([Security.Principal.NTAccount]).Value
+  $write = [Security.AccessControl.FileSystemRights]"WriteData, AppendData, WriteExtendedAttributes, WriteAttributes, DeleteSubdirectoriesAndFiles, Delete, ChangePermissions, TakeOwnership"
+  foreach ($dir in "services", "logs", "") {
+    $path = Join-Path $env:ProgramData "burrow\$dir"
+    $open = (Get-Acl $path).Access | Where-Object {
+      $_.IdentityReference.Value -eq $users -and $_.AccessControlType -eq "Allow" -and ($_.FileSystemRights -band $write)
+    }
+    if ($open) { Fail "ordinary users can write to $path" }
+  }
+  Check "ordinary users cannot write to burrow's folders"
+
   Write-Host "== the same tunnel cannot also run by hand"
   $env:E2E_SECRET = $Secret
   $out = Burrow client -c e2e-client.yaml

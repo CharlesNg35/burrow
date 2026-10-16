@@ -23,6 +23,7 @@ use crate::run::{Env, Hosted, Logging};
 
 const SYSTEM: &str = "*S-1-5-18";
 const ADMINS: &str = "*S-1-5-32-544";
+const USERS: &str = "*S-1-5-32-545";
 const ALL: ServiceAccess = ServiceAccess::QUERY_STATUS
     .union(ServiceAccess::START)
     .union(ServiceAccess::STOP)
@@ -86,6 +87,13 @@ fn grant(path: &Path, account: &str, rights: &str) -> Result<(), Failure> {
         return Ok(());
     }
     icacls(path, &["/grant", &format!("{account}:{rights}")])
+}
+
+fn grant_dirs(account: &str) -> Result<(), Failure> {
+    let p = Platform::Windows;
+    grant(&p.state_dir(), account, "(OI)(CI)RX")?;
+    grant(&p.log_dir(), account, "(OI)(CI)M")?;
+    grant(&crate::instance::default_dir(), account, "(OI)(CI)M")
 }
 
 fn wait_for(
@@ -152,14 +160,32 @@ impl Backend for WindowsService {
 
     fn prepare_dirs(&self, _account: &str) -> Result<(), Failure> {
         let p = Platform::Windows;
-        for dir in [
-            p.config_dir(),
-            p.state_dir(),
-            p.log_dir(),
-            crate::instance::default_dir(),
-        ] {
-            std::fs::create_dir_all(&dir)
+        let root = p.config_dir();
+        let instances = crate::instance::default_dir();
+        let inner = [p.state_dir(), p.log_dir(), instances.clone()];
+        for dir in std::iter::once(&root).chain(&inner) {
+            std::fs::create_dir_all(dir)
                 .map_err(|e| Failure::new(format!("cannot create {}: {e}", dir.display())))?;
+        }
+        icacls(&root, &["/setowner", ADMINS, "/T", "/C", "/Q"])?;
+        icacls(
+            &root,
+            &[
+                "/inheritance:r",
+                "/grant:r",
+                &format!("{SYSTEM}:(OI)(CI)F"),
+                &format!("{ADMINS}:(OI)(CI)F"),
+                &format!("{USERS}:(RX)"),
+            ],
+        )?;
+        for dir in inner.iter().filter(|d| d.starts_with(&root)) {
+            icacls(dir, &["/reset"])?;
+        }
+        if instances.starts_with(&root) {
+            icacls(&instances, &["/grant", &format!("{USERS}:(OI)(CI)M")])?;
+        }
+        for m in crate::service::all_manifests() {
+            grant_dirs(&m.account)?;
         }
         Ok(())
     }
@@ -220,14 +246,11 @@ impl Backend for WindowsService {
         service
             .set_failure_actions_on_non_crash_failures(true)
             .map_err(|e| scm_error("set the restart policy", e))?;
-        let p = Platform::Windows;
         grant(&m.config, &m.account, "R")?;
         if let Some(env) = &m.env_file {
             grant(env, &m.account, "R")?;
         }
-        grant(&p.state_dir(), &m.account, "(OI)(CI)RX")?;
-        grant(&p.log_dir(), &m.account, "(OI)(CI)M")?;
-        grant(&crate::instance::default_dir(), &m.account, "(OI)(CI)M")?;
+        grant_dirs(&m.account)?;
         for f in &m.files {
             grant(f, &m.account, "R")?;
         }
