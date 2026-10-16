@@ -126,8 +126,25 @@ pub fn service_name(config: &Path, given: Option<&str>) -> Result<String, Failur
 }
 
 pub fn referenced_env(src: &str) -> Vec<String> {
+    fn values(n: &crate::config::tree::Node, out: &mut String) {
+        use crate::config::tree::Value;
+        match &n.value {
+            Value::Str(s) => {
+                out.push_str(s);
+                out.push('\n');
+            }
+            Value::Seq(items) => items.iter().for_each(|i| values(i, out)),
+            Value::Map(entries) => entries.iter().for_each(|e| values(&e.value, out)),
+            _ => {}
+        }
+    }
+    let mut text = String::new();
+    match crate::config::tree::parse(src) {
+        Ok(root) => values(&root, &mut text),
+        Err(_) => text.push_str(src),
+    }
     let mut out = Vec::new();
-    let mut rest = src;
+    let mut rest = text.as_str();
     while let Some(i) = rest.find("${") {
         if i > 0 && rest.as_bytes()[i - 1] == b'$' {
             rest = &rest[i + 2..];
@@ -991,5 +1008,9 @@ mod tests {
             referenced_env(src),
             vec!["HOME_SECRET".to_string(), "TOKEN".to_string()]
         );
+        let commented = "# old: ${GONE}\nsecret: ${HOME_SECRET} # was ${OLD}\n";
+        assert_eq!(referenced_env(commented), vec!["HOME_SECRET".to_string()]);
+        let json = "{\"secret\": \"${HOME_SECRET}\"}";
+        assert_eq!(referenced_env(json), vec!["HOME_SECRET".to_string()]);
     }
 }
