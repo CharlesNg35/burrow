@@ -58,6 +58,18 @@ pub fn default_dir() -> PathBuf {
     if let Some(dir) = std::env::var_os("BURROW_INSTANCE_DIR") {
         return PathBuf::from(dir);
     }
+    let service_dir = if cfg!(target_os = "linux") {
+        Some(PathBuf::from("/run/burrow-instances"))
+    } else if cfg!(target_os = "macos") {
+        Some(PathBuf::from(
+            "/Library/Application Support/burrow/instances",
+        ))
+    } else {
+        None
+    };
+    if let Some(dir) = service_dir.filter(|d| d.is_dir()) {
+        return dir;
+    }
     if cfg!(windows) {
         std::env::var_os("ProgramData")
             .map(PathBuf::from)
@@ -96,20 +108,24 @@ pub fn acquire_in(dir: &Path, identity: &Identity, config: &Path) -> Result<Inst
         .hint("burrow keeps a small lock file there so the same tunnel cannot run twice")
     })?;
     let path = dir.join(format!("{}.lock", identity.key()));
-    let mut file = OpenOptions::new()
+    let opened = OpenOptions::new()
         .read(true)
         .write(true)
         .create(true)
         .truncate(false)
-        .open(&path)
-        .map_err(|e| {
-            Failure::new(format!("cannot open {}: {}", path.display(), crate::failure::file_reason(&e)))
-                .hint("another account may own this lock file; check who runs burrow with: ps aux | grep burrow")
-        })?;
+        .open(&path);
+    let (mut file, writable) = match opened {
+        Ok(f) => (f, true),
+        Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => match File::open(&path) {
+            Ok(f) => (f, false),
+            Err(e) => return Err(open_failure(&path, &e)),
+        },
+        Err(e) => return Err(open_failure(&path, &e)),
+    };
     #[cfg(unix)]
-    {
+    if writable {
         use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644));
+        let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o666));
     }
     match file.try_lock() {
         Ok(()) => {}
@@ -143,11 +159,18 @@ pub fn acquire_in(dir: &Path, identity: &Identity, config: &Path) -> Result<Inst
             .unwrap_or_else(|_| config.to_path_buf())
             .display()
     );
-    let _ = file.set_len(0);
-    let _ = file.seek(SeekFrom::Start(0));
-    let _ = file.write_all(note.as_bytes());
-    let _ = file.flush();
+    if writable {
+        let _ = file.set_len(0);
+        let _ = file.seek(SeekFrom::Start(0));
+        let _ = file.write_all(note.as_bytes());
+        let _ = file.flush();
+    }
     Ok(InstanceLock { _file: file, path })
+}
+
+fn open_failure(path: &Path, e: &std::io::Error) -> Failure {
+    Failure::new(format!("cannot open {}: {}", path.display(), crate::failure::file_reason(e)))
+        .hint("check the permissions of that file; it only holds a lock and can be deleted when burrow is not running")
 }
 
 #[cfg(test)]

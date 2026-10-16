@@ -5,7 +5,7 @@ use std::process::ExitCode;
 
 use clap::{CommandFactory, Parser};
 
-use burrow::cli::{Cli, Command, FileFormat, LogLevel, OutputFormat, RoleArg};
+use burrow::cli::{Cli, Command, FileFormat, LogLevel, OutputFormat, RoleArg, ServiceAction};
 use burrow::config::env::ProcessEnv;
 use burrow::config::{Format, Role};
 use burrow::diagnostics::Style;
@@ -57,6 +57,50 @@ fn config_path(
     }
 }
 
+fn service(action: ServiceAction, logging: burrow::run::Logging) -> Result<u8, Failure> {
+    use burrow::service;
+    let mut out = std::io::stdout().lock();
+    match action {
+        ServiceAction::Install(a) => {
+            let config = config_path(a.config, None)?;
+            service::install(
+                &service::InstallOptions {
+                    config,
+                    name: a.name,
+                    run_as: a.run_as,
+                    start: !a.no_start,
+                    print: a.print,
+                },
+                &mut out,
+            )?;
+            Ok(0)
+        }
+        ServiceAction::Update(a) => {
+            service::update(a.name.as_deref(), a.force, &mut out).map(|_| 0)
+        }
+        ServiceAction::Uninstall(a) => {
+            service::uninstall(a.name.as_deref(), a.purge, &mut out).map(|_| 0)
+        }
+        ServiceAction::Start(n) => {
+            service::control("start", n.name.as_deref(), &mut out).map(|_| 0)
+        }
+        ServiceAction::Stop(n) => service::control("stop", n.name.as_deref(), &mut out).map(|_| 0),
+        ServiceAction::Restart(n) => {
+            service::control("restart", n.name.as_deref(), &mut out).map(|_| 0)
+        }
+        ServiceAction::Reload(n) => {
+            service::control("reload", n.name.as_deref(), &mut out).map(|_| 0)
+        }
+        ServiceAction::Status(n) => service::status(n.name.as_deref(), &mut out),
+        ServiceAction::Logs(a) => service::logs(a.name.as_deref(), a.lines, a.follow).map(|_| 0),
+        ServiceAction::List => service::list(&mut out).map(|_| 0),
+        ServiceAction::Run(n) => {
+            let _ = logging;
+            service::run_service(n.name.as_deref().unwrap_or("burrow"))
+        }
+    }
+}
+
 fn run(cli: Cli) -> Result<u8, Failure> {
     let out_style = Style::detect(std::io::stdout().is_terminal());
     let err_style = Style::detect(std::io::stderr().is_terminal());
@@ -70,6 +114,7 @@ fn run(cli: Cli) -> Result<u8, Failure> {
     let logging = burrow::run::Logging {
         level,
         json: cli.log_json,
+        file: cli.log_file.clone(),
     };
     match cli.command {
         Command::Validate(args) => {
@@ -161,6 +206,7 @@ fn run(cli: Cli) -> Result<u8, Failure> {
             }
             Ok(0)
         }
+        Command::Service { action } => service(action, logging),
         Command::Server(args) => {
             burrow::run::server(&config_path(args.config, Some(Role::Server))?, logging)
         }

@@ -171,7 +171,12 @@ async fn invalid_reload_is_rejected_and_old_config_kept() {
         _ => panic!("valid config"),
     };
     let (tx, mut rx) = tokio::sync::mpsc::channel::<ServerSettings>(4);
-    tokio::spawn(burrow::run::reloader(path.clone(), initial, tx));
+    tokio::spawn(burrow::run::reloader(
+        path.clone(),
+        initial,
+        burrow::run::Env::default(),
+        tx,
+    ));
     tokio::time::sleep(Duration::from_millis(300)).await;
 
     std::fs::write(&path, good.replace("client: home", "client: hom")).unwrap();

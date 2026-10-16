@@ -35,6 +35,9 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json", "fm
 webpki-roots = "1.0.9"
 zeroize = { version = "1.9.1", features = ["derive"] }
 
+[target.'cfg(windows)'.dependencies]
+windows-service = "0.8.1"
+
 [dev-dependencies]
 insta = "1.49.0"
 rcgen = { version = "0.14.10", default-features = false, features = ["ring", "pem", "crypto"] }

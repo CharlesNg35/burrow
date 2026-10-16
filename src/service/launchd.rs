@@ -1,0 +1,300 @@
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
+
+use super::system::{make_dir, private_file, run, run_ok, write_private};
+use super::{Backend, Manifest, Platform, Status};
+use crate::failure::Failure;
+
+pub const INSTANCE_DIR: &str = "/Library/Application Support/burrow/instances";
+
+pub struct Launchd;
+
+fn label(m: &Manifest) -> String {
+    format!("com.github.charlesng35.{}", m.name)
+}
+
+fn target(m: &Manifest) -> String {
+    format!("system/{}", label(m))
+}
+
+fn plist_path(m: &Manifest) -> PathBuf {
+    PathBuf::from(format!("/Library/LaunchDaemons/{}.plist", label(m)))
+}
+
+fn xml(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
+fn read_env(m: &Manifest) -> BTreeMap<String, String> {
+    m.env_file
+        .as_ref()
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or_default()
+}
+
+fn plist(m: &Manifest, env: &BTreeMap<String, String>) -> String {
+    let args = [
+        m.binary.display().to_string(),
+        m.role.clone(),
+        "-c".into(),
+        m.config.display().to_string(),
+        "--log-file".into(),
+        m.log_file.display().to_string(),
+    ];
+    let mut s = String::from(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\">\n<dict>\n",
+    );
+    s.push_str(&format!(
+        "  <key>Label</key>\n  <string>{}</string>\n",
+        xml(&label(m))
+    ));
+    s.push_str("  <key>ProgramArguments</key>\n  <array>\n");
+    for a in &args {
+        s.push_str(&format!("    <string>{}</string>\n", xml(a)));
+    }
+    s.push_str("  </array>\n");
+    if m.account != "root" {
+        s.push_str(&format!(
+            "  <key>UserName</key>\n  <string>{0}</string>\n  <key>GroupName</key>\n  <string>{0}</string>\n",
+            xml(&m.account)
+        ));
+    }
+    s.push_str("  <key>RunAtLoad</key>\n  <true/>\n  <key>KeepAlive</key>\n  <dict>\n    <key>SuccessfulExit</key>\n    <false/>\n  </dict>\n");
+    s.push_str("  <key>ThrottleInterval</key>\n  <integer>10</integer>\n  <key>Umask</key>\n  <integer>63</integer>\n");
+    s.push_str("  <key>SoftResourceLimits</key>\n  <dict>\n    <key>NumberOfFiles</key>\n    <integer>65536</integer>\n  </dict>\n");
+    if !env.is_empty() {
+        s.push_str("  <key>EnvironmentVariables</key>\n  <dict>\n");
+        for (k, v) in env {
+            s.push_str(&format!(
+                "    <key>{}</key>\n    <string>{}</string>\n",
+                xml(k),
+                xml(v)
+            ));
+        }
+        s.push_str("  </dict>\n");
+    }
+    s.push_str("</dict>\n</plist>\n");
+    s
+}
+
+fn free_id() -> Result<u32, Failure> {
+    let taken = |path: &str, key: &str| -> Vec<u32> {
+        run("dscl", &[".", "-list", path, key])
+            .unwrap_or_default()
+            .lines()
+            .filter_map(|l| l.split_whitespace().last()?.parse().ok())
+            .collect()
+    };
+    let mut used = taken("/Users", "UniqueID");
+    used.extend(taken("/Groups", "PrimaryGroupID"));
+    (300..500)
+        .rev()
+        .find(|id| !used.contains(id))
+        .ok_or_else(|| {
+            Failure::new("no free system id between 300 and 499 for the service account")
+                .hint("pass --run-as with an existing account")
+        })
+}
+
+impl Backend for Launchd {
+    fn kind(&self) -> &'static str {
+        "launchd"
+    }
+
+    fn render(&self, m: &Manifest) -> String {
+        plist(m, &read_env(m))
+    }
+
+    fn ensure_account(&self, account: &str) -> Result<bool, Failure> {
+        if account == "root" || run_ok("id", &["-u", account]) {
+            return Ok(false);
+        }
+        let id = free_id()?.to_string();
+        let group = format!("/Groups/{account}");
+        let user = format!("/Users/{account}");
+        let steps: [&[&str]; 10] = [
+            &[".", "-create", &group],
+            &[".", "-create", &group, "PrimaryGroupID", &id],
+            &[".", "-create", &group, "Password", "*"],
+            &[".", "-create", &user],
+            &[".", "-create", &user, "UniqueID", &id],
+            &[".", "-create", &user, "PrimaryGroupID", &id],
+            &[".", "-create", &user, "UserShell", "/usr/bin/false"],
+            &[".", "-create", &user, "NFSHomeDirectory", "/var/empty"],
+            &[".", "-create", &user, "RealName", "burrow tunnel"],
+            &[".", "-create", &user, "IsHidden", "1"],
+        ];
+        for args in steps {
+            if let Err(f) = run("dscl", args) {
+                let _ = self.remove_account(account);
+                return Err(f.hint(
+                    "burrow creates the account with dscl; create it yourself or pass --run-as",
+                ));
+            }
+        }
+        Ok(true)
+    }
+
+    fn remove_account(&self, account: &str) -> Result<(), Failure> {
+        let user = run("dscl", &[".", "-delete", &format!("/Users/{account}")]);
+        let _ = run("dscl", &[".", "-delete", &format!("/Groups/{account}")]);
+        user.map(drop)
+    }
+
+    fn can_read(&self, account: &str, path: &Path) -> bool {
+        if account == "root" {
+            return path.exists();
+        }
+        let p = path.to_string_lossy();
+        run_ok(
+            "/usr/bin/sudo",
+            &["-n", "-u", account, "/bin/test", "-r", &p],
+        )
+    }
+
+    fn secure_file(&self, path: &Path, account: &str) -> Result<(), Failure> {
+        private_file(path, Some(account))
+    }
+
+    fn prepare_dirs(&self, account: &str) -> Result<(), Failure> {
+        let p = Platform::MacOs;
+        make_dir(&p.config_dir(), 0o755, None)?;
+        make_dir(&p.state_dir(), 0o755, None)?;
+        make_dir(Path::new(INSTANCE_DIR), 0o1777, None)?;
+        let owner = (account != "root").then_some(account);
+        make_dir(&p.log_dir(), 0o750, owner)
+    }
+
+    fn write_env(&self, m: &Manifest, env: &BTreeMap<String, String>) -> Result<(), Failure> {
+        let Some(path) = &m.env_file else {
+            return Ok(());
+        };
+        write_private(
+            path,
+            &serde_json::to_string_pretty(env).expect("env serializes"),
+        )
+    }
+
+    fn install(&self, m: &Manifest) -> Result<(), Failure> {
+        let _ = run("launchctl", &["bootout", &target(m)]);
+        let path = plist_path(m);
+        write_private(&path, &self.render(m))?;
+        private_file(&path, None)?;
+        run("launchctl", &["enable", &target(m)])?;
+        Ok(())
+    }
+
+    fn uninstall(&self, m: &Manifest) -> Result<(), Failure> {
+        let _ = run("launchctl", &["bootout", &target(m)]);
+        let path = plist_path(m);
+        if path.exists() {
+            std::fs::remove_file(&path)
+                .map_err(|e| Failure::new(format!("cannot remove {}: {e}", path.display())))?;
+        }
+        Ok(())
+    }
+
+    fn start(&self, m: &Manifest) -> Result<(), Failure> {
+        let hint = |f: Failure| f.hint(format!("see why with: burrow service logs {}", m.name));
+        if run_ok("launchctl", &["print", &target(m)]) {
+            run("launchctl", &["kickstart", &target(m)])
+                .map(drop)
+                .map_err(hint)
+        } else {
+            let path = plist_path(m);
+            run(
+                "launchctl",
+                &["bootstrap", "system", &path.to_string_lossy()],
+            )
+            .map(drop)
+            .map_err(hint)
+        }
+    }
+
+    fn stop(&self, m: &Manifest) -> Result<(), Failure> {
+        if !run_ok("launchctl", &["print", &target(m)]) {
+            return Ok(());
+        }
+        run("launchctl", &["bootout", &target(m)]).map(drop)
+    }
+
+    fn reload(&self, m: &Manifest) -> Result<(), Failure> {
+        run("launchctl", &["kill", "SIGHUP", &target(m)]).map(drop)
+    }
+
+    fn status(&self, m: &Manifest) -> Status {
+        let installed = plist_path(m).exists();
+        let Ok(text) = run("launchctl", &["print", &target(m)]) else {
+            return Status {
+                installed,
+                running: false,
+                pid: None,
+                detail: "not loaded".into(),
+            };
+        };
+        let field = |k: &str| {
+            text.lines()
+                .find_map(|l| {
+                    l.trim()
+                        .strip_prefix(k)?
+                        .trim_start()
+                        .strip_prefix('=')
+                        .map(|v| v.trim().to_string())
+                })
+                .unwrap_or_default()
+        };
+        let state = field("state");
+        let code = field("last exit code");
+        let detail = match code.as_str() {
+            "3" => {
+                "the config has errors (exit 3); fix it, then: burrow service restart".to_string()
+            }
+            c if !c.is_empty() && c != "0" && !c.starts_with('(') => {
+                format!("{state} (last exit code {c})")
+            }
+            _ => state.clone(),
+        };
+        Status {
+            installed,
+            running: state == "running",
+            pid: field("pid").parse().ok(),
+            detail,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn plist_runs_the_service_account_and_escapes_values() {
+        let m = Manifest {
+            name: "burrow-home".into(),
+            role: "client".into(),
+            config: "/etc/burrow/home.yaml".into(),
+            source_config: "/Users/me/home.yaml".into(),
+            env_file: None,
+            log_file: "/var/log/burrow/home.log".into(),
+            binary: "/usr/local/bin/burrow".into(),
+            copied_binary: true,
+            account: "_burrow".into(),
+            created_account: true,
+            low_ports: false,
+            files: vec![],
+            version: "0.1.0".into(),
+        };
+        let env = BTreeMap::from([("SECRET".to_string(), "a<b&c".to_string())]);
+        let p = plist(&m, &env);
+        assert!(p.contains("<string>com.github.charlesng35.burrow-home</string>"));
+        assert!(p.contains("<key>UserName</key>\n  <string>_burrow</string>"));
+        assert!(p.contains(
+            "<string>--log-file</string>\n    <string>/var/log/burrow/home.log</string>"
+        ));
+        assert!(p.contains("<string>a&lt;b&amp;c</string>"));
+    }
+}

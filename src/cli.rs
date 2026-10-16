@@ -18,6 +18,13 @@ pub struct Cli {
     pub log_json: bool,
     #[arg(long, short, global = true, help = "Only log warnings and errors")]
     pub quiet: bool,
+    #[arg(
+        long,
+        global = true,
+        value_name = "FILE",
+        help = "Write logs to this file (rotated at 10 MB, 5 old files kept)"
+    )]
+    pub log_file: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -73,6 +80,103 @@ pub enum Command {
     },
     #[command(about = "Print the version")]
     Version,
+    #[command(about = "Run burrow as a system service: install, status, logs, uninstall")]
+    Service {
+        #[command(subcommand)]
+        action: ServiceAction,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum ServiceAction {
+    #[command(
+        about = "Install and start a service for a server or client config (needs admin rights)"
+    )]
+    Install(ServiceInstallArgs),
+    #[command(about = "Stop and remove a service")]
+    Uninstall(ServiceUninstallArgs),
+    #[command(
+        about = "Replace the installed burrow binary with this one if it is newer, and restart the services"
+    )]
+    Update(ServiceUpdateArgs),
+    #[command(about = "Start a service")]
+    Start(ServiceName),
+    #[command(about = "Stop a service")]
+    Stop(ServiceName),
+    #[command(about = "Restart a service")]
+    Restart(ServiceName),
+    #[command(about = "Reload the config of a running service")]
+    Reload(ServiceName),
+    #[command(about = "Show whether a service is running, and which files it uses")]
+    Status(ServiceName),
+    #[command(about = "Show the logs of a service")]
+    Logs(ServiceLogsArgs),
+    #[command(about = "List the burrow services on this machine")]
+    List,
+    #[command(hide = true)]
+    Run(ServiceName),
+}
+
+#[derive(Debug, Args)]
+pub struct ServiceInstallArgs {
+    #[arg(
+        short,
+        long,
+        help = "Config file; ./server.yaml or ./client.yaml when omitted"
+    )]
+    pub config: Option<PathBuf>,
+    #[arg(long, help = "Service name (default: burrow-<config file name>)")]
+    pub name: Option<String>,
+    #[arg(
+        long,
+        value_name = "USER",
+        help = "Run as this existing account instead of a dedicated one"
+    )]
+    pub run_as: Option<String>,
+    #[arg(long, help = "Install without starting")]
+    pub no_start: bool,
+    #[arg(long, help = "Print what would be installed, change nothing")]
+    pub print: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct ServiceUpdateArgs {
+    #[arg(help = "Update only this service; all burrow services when omitted")]
+    pub name: Option<String>,
+    #[arg(
+        long,
+        help = "Also replace a newer installed binary (downgrade) or reinstall the same version"
+    )]
+    pub force: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct ServiceUninstallArgs {
+    #[arg(help = "Service name; optional when only one burrow service is installed")]
+    pub name: Option<String>,
+    #[arg(long, help = "Also delete the installed config and saved environment")]
+    pub purge: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct ServiceName {
+    #[arg(help = "Service name; optional when only one burrow service is installed")]
+    pub name: Option<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct ServiceLogsArgs {
+    #[arg(help = "Service name; optional when only one burrow service is installed")]
+    pub name: Option<String>,
+    #[arg(short, long, help = "Keep printing new lines")]
+    pub follow: bool,
+    #[arg(
+        short = 'n',
+        long,
+        default_value_t = 50,
+        help = "Number of lines to show"
+    )]
+    pub lines: usize,
 }
 
 #[derive(Debug, Args)]

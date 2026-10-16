@@ -11,6 +11,7 @@ pub struct Failure {
 
 pub const EXIT_FAILURE: u8 = 1;
 pub const EXIT_USAGE: u8 = 2;
+pub const EXIT_CONFIG: u8 = 3;
 
 impl Failure {
     pub fn new(message: impl Into<String>) -> Self {
