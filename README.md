@@ -22,6 +22,7 @@ visitor ──> server:7840 ══ Noise-encrypted TCP or WebSocket ══ clien
   - [client.yaml](#clientyaml)
 - [Servers reachable only through HTTP(S)](#servers-reachable-only-through-https)
 - [Reconnecting](#reconnecting)
+- [Running as a service](#running-as-a-service)
 - [Security notes](#security-notes)
 - [Docker](#docker)
 - [Benchmarks](#benchmarks)
@@ -43,7 +44,7 @@ On the machine behind NAT, save the printed client config as `client.yaml`, then
 burrow client -c client.yaml
 ```
 
-The generated server listens for clients on TCP `7835` and exposes `0.0.0.0:7840` → the client's `127.0.0.1:3000`. Edit `services` in `server.yaml` and save; the server reloads by itself.
+The generated server listens for clients on TCP `7835` and exposes `0.0.0.0:7840` → the client's `127.0.0.1:3000`. Edit `services` in `server.yaml` and save; the server reloads by itself. To keep either side running across reboots, install it as a service: `sudo burrow service install` (see [Running as a service](#running-as-a-service)).
 
 Other commands:
 
@@ -305,6 +306,53 @@ For a self-signed certificate, copy it to the client and trust it there with `ca
 
 A client keeps retrying until it is stopped: exponential backoff with jitter (250 ms up to 30 s), resolving the server name again on every attempt and trying all its addresses in parallel (Happy Eyeballs). If you move the server to another machine and update DNS, clients follow on their own. During a long outage the client logs the first failure and then one summary per minute. `reconnect.give_up_after_secs` and `reconnect.on_rejected: exit` make it stop instead, for setups where a supervisor should notice.
 
+## Running as a service
+
+`burrow service` installs a server or client into the system service manager (systemd on Linux, launchd on macOS, the Service Control Manager on Windows), so it starts at boot and restarts after a failure. It needs administrator rights.
+
+```sh
+sudo burrow service install -c server.yaml   # or run it in the folder that holds server.yaml
+burrow service status                        # state, version, account, the last log lines
+sudo burrow service logs -f                  # follow the log
+sudo burrow service restart                  # also: start, stop, reload, uninstall [--purge]
+burrow service list
+```
+
+What `install` does:
+
+- Checks the config first, and checks that every port it listens on is free. If another program holds a port, it names it (`tcp port 7840 (service "web") is already in use by nginx (pid 812)`) and changes nothing.
+- Copies the config to `/etc/burrow/` (`%ProgramData%\burrow\` on Windows), readable only by the service. Edit that copy: a server reloads it on save, a client applies it on `burrow service restart`. `status` tells you when the file you installed from has changed since.
+- Copies the binary to `/usr/local/bin/burrow` (`%ProgramFiles%\burrow\` on Windows), unless it already lives in a root-owned folder such as one managed by a package manager. A service never runs a binary from a user's home folder.
+- Runs the service as a dedicated account without login or home: `burrow` on Linux, `_burrow` on macOS, the virtual account `NT SERVICE\burrow-<name>` on Windows. `--run-as` picks another one. Ports below 1024 get only `CAP_NET_BIND_SERVICE` on Linux.
+- Writes logs to `/var/log/burrow/<name>.log` (`%ProgramData%\burrow\logs\` on Windows), rotated at 10 MB with 5 old files kept, so a log never fills the disk.
+
+The service name comes from the config file name (`server.yaml` → `burrow-server`) or `--name`. You can install several servers and clients side by side. The same tunnel cannot run twice: a second copy of a server config, or a second client with the same name for the same server, is refused while the first one runs, whether it was started as a service or by hand.
+
+Variables used as `${VAR}` in the config are saved for the service at install time, readable by it only. `sudo` drops environment variables, so keep them with `sudo --preserve-env=HOME_SECRET burrow service install`; the install says so if one is missing.
+
+To update, download the new binary and run `sudo ./burrow service update`. It replaces the installed binary, restarts every service that uses it, and puts the old binary back if a service does not come up again. The same version or an older one is left alone (`--force` to replace it anyway). A binary installed by a package manager is upgraded there instead.
+
+<details>
+<summary><b>Linux (systemd)</b></summary>
+
+The unit is written to `/etc/systemd/system/burrow-<name>.service` and is sandboxed (`systemd-analyze security` rates it 1.1, "OK"): read-only system, no home folders, private `/tmp` and devices, no new privileges, a system call filter, and no capabilities unless a port below 1024 needs one. A config error stops it with exit code 3 instead of restarting it in a loop. `burrow service install --print` shows the unit without installing anything, if you prefer to manage it yourself.
+
+</details>
+
+<details>
+<summary><b>macOS (launchd)</b></summary>
+
+The job is written to `/Library/LaunchDaemons/com.github.charlesng35.burrow-<name>.plist` and is managed with `launchctl bootstrap`, `bootout` and `kickstart`. launchd restarts it after a failure, at most once every 10 seconds.
+
+</details>
+
+<details>
+<summary><b>Windows</b></summary>
+
+Run the commands from a terminal opened with "Run as administrator". The service starts automatically after the network stack, and Windows restarts it 5 seconds after a failure. Set variables used by the config in the same terminal before installing, for example `$env:HOME_SECRET = "..."`. `reload` restarts the service on Windows; a server also reloads its config on save.
+
+</details>
+
 ## Security notes
 
 - **Secrets must be random.** Anyone who records a handshake can try guesses offline, so a secret must be 256 random bits. burrow rejects anything that is not exactly 32 bytes, and anything that looks non-random. Generate secrets with `burrow gensecret`, and never use a password.
@@ -322,7 +370,37 @@ docker run -d --name burrow -p 7835:7835 -p 7840:7840 --user "$(id -u):$(id -g)"
   -v "$PWD/server.yaml:/etc/burrow/server.yaml:ro" ghcr.io/charlesng35/burrow
 ```
 
-The image is distroless and static, runs as a non-root user, and reads its config from `/etc/burrow`. Run it with `--user` matching the owner of your `0600` config file. See [deploy/docker-compose.example.yml](deploy/docker-compose.example.yml) for a server and client pair, and [deploy/](deploy/) for systemd units (`systemctl reload burrow-server` sends `SIGHUP`).
+The image is distroless and static, runs as a non-root user, and reads its config from `/etc/burrow`. Run it with `--user` matching the owner of your `0600` config file.
+
+<details>
+<summary><b>Docker Compose: a server and a client</b></summary>
+
+```yaml
+services:
+  burrow-server:
+    image: ghcr.io/charlesng35/burrow:latest
+    command: ["server", "-c", "/etc/burrow/server.yaml"]
+    user: "${UID:-1000}:${GID:-1000}"
+    volumes:
+      - ./server.yaml:/etc/burrow/server.yaml:ro
+    ports:
+      - "7835:7835"
+      - "7840:7840"
+    restart: unless-stopped
+
+  burrow-client:
+    image: ghcr.io/charlesng35/burrow:latest
+    command: ["client", "-c", "/etc/burrow/client.yaml"]
+    user: "${UID:-1000}:${GID:-1000}"
+    environment:
+      HOME_SECRET: ${HOME_SECRET:-}
+    volumes:
+      - ./client.yaml:/etc/burrow/client.yaml:ro
+    network_mode: host
+    restart: unless-stopped
+```
+
+</details>
 
 ## Benchmarks
 

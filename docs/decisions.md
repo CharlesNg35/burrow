@@ -97,3 +97,15 @@ Clients retry forever with jittered backoff (250 ms up to 30 s, reset after 10 s
 ## D19. Default ports 7835-7840
 
 2333 is rathole's default, and 8080, 8081 and 8443 are among the most used ports on any host. burrow uses its own block, none of which is in the services database: 7835 for TCP clients, 7836 for WebSocket behind a proxy (bound to 127.0.0.1), 7837 for WebSocket with its own TLS, and 7840 for the example service written by `init`.
+
+## D20. `burrow service` instead of shipped unit files
+
+Hand-written unit files go stale, differ per OS, and leave the hard parts to the user: a service account, file permissions, secrets that `sudo` dropped, log rotation, and updates. `burrow service` does them the same way on every platform, much like `cloudflared service install` and `tailscaled install-system-daemon`.
+
+- **Admin only, system services only.** A per-user service would stop at logout on Linux and macOS. One install path keeps it simple.
+- **A dedicated account, created by burrow.** `burrow` (useradd `--system`), `_burrow` (dscl, hidden, id below 500), or a Windows virtual account, which Windows creates with the service. Running as root would give an attacker who gets through the pre-auth parsers the whole machine. The account and the copied binary are removed by the last `uninstall` that used them.
+- **Copies, not references.** The config is copied to `/etc/burrow` and the binary to `/usr/local/bin`, because a service must not depend on, or run code from, a folder a normal user can write. A binary in a root-owned, non-writable folder (a package manager) is used where it is.
+- **Checks before changes.** The config is validated, every listen port is test-bound and its owner is named, and the instance lock is tried before anything is written. A failed reinstall restarts the previous service.
+- **Own log files** with size-based rotation (10 MB, 5 files) rather than journald or the Windows event log, so `burrow service logs` works the same everywhere and a log cannot fill the disk. Startup failures are written there too, so a Windows service that has no console still says why it stopped.
+- **Updates:** `burrow service update` replaces the binary only when it is newer, keeps the previous one, restarts every affected service and rolls back if one does not come up. A self-download from GitHub releases is left for later.
+- **Crates:** `windows-service` (Mullvad) for the Windows dispatcher and SCM; systemd and launchd are driven through `systemctl` and `launchctl`, which are their stable interfaces.
