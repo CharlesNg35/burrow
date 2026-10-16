@@ -34,7 +34,7 @@ jobs:
           - { target: aarch64-unknown-linux-musl, os: ubuntu-latest, zig: true }
           - { target: aarch64-apple-darwin, os: macos-latest }
           - { target: x86_64-apple-darwin, os: macos-latest }
-          - { target: x86_64-pc-windows-msvc, os: windows-latest }
+          - { target: x86_64-pc-windows-gnu, os: ubuntu-latest, zig: true }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -69,7 +69,7 @@ jobs:
           cp README.md LICENSE CHANGELOG.md "dist/$name/"
           if [[ "${{ matrix.target }}" == *windows* ]]; then
             cp "target/${{ matrix.target }}/release/burrow.exe" "dist/$name/"
-            (cd dist && 7z a -tzip "$name.zip" "$name" > /dev/null)
+            (cd dist && python3 -c 'import shutil, sys; shutil.make_archive(sys.argv[1], "zip", ".", sys.argv[1])' "$name")
           else
             cp "target/${{ matrix.target }}/release/burrow" "dist/$name/"
             tar -C dist -czf "dist/$name.tar.gz" "$name"
