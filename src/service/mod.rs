@@ -300,9 +300,12 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
     let current = std::env::current_exe()
         .map_err(|e| Failure::new(format!("cannot locate the burrow binary: {e}")))?;
     let current = system::canonical(&current).unwrap_or(current);
-    let (binary, copy_binary) = match system::trusted_binary(&current) {
-        true => (current.clone(), false),
-        false => (platform.binary_path(), true),
+    let (binary, copy_binary) = if current == platform.binary_path() {
+        (current.clone(), true)
+    } else if system::trusted_binary(&current) {
+        (current.clone(), false)
+    } else {
+        (platform.binary_path(), true)
     };
     let low_ports = checked.listens.iter().any(|(_, a, _)| a.port() < 1024);
     let manifest = Manifest {
