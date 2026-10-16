@@ -970,3 +970,16 @@ fn a_byte_order_mark_is_ignored() {
         render("server.json", &json, None).contains("valid server config (1 client, 0 services)")
     );
 }
+
+#[test]
+fn targets_longer_than_the_wire_allows_are_rejected() {
+    let host = format!("{}.example.com", "d".repeat(240));
+    let text = render(
+        "server.yaml",
+        &server(&format!(
+            "  web: {{client: home, bind: 7840, target: \"{host}:8080\"}}\n"
+        )),
+        None,
+    );
+    assert!(text.contains("is longer than 255 characters"), "{text}");
+}

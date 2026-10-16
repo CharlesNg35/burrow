@@ -118,6 +118,8 @@ pub fn secret_spans(root: &Node) -> Vec<Span> {
     out
 }
 
+pub const MAX_TARGET_LEN: usize = 255;
+
 pub fn parse_host_port(s: &str) -> Result<(String, u16), String> {
     let (host, port) = if let Some(rest) = s.strip_prefix('[') {
         let (h, tail) = rest
@@ -393,7 +395,14 @@ pub fn check_server(
             }
         };
         let target = svc.target.host_port();
-        if let Err(e) = parse_host_port(&target) {
+        let checked = if target.len() > MAX_TARGET_LEN {
+            Err(format!(
+                "\"{target}\" is longer than {MAX_TARGET_LEN} characters"
+            ))
+        } else {
+            parse_host_port(&target).map(drop)
+        };
+        if let Err(e) = checked {
             out.push(
                 Diagnostic::error(
                     "invalid-address",

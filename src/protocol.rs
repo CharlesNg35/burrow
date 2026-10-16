@@ -157,6 +157,7 @@ impl<'a> Reader<'a> {
 
 fn put_str(v: &mut Vec<u8>, s: &str) {
     let b = s.as_bytes();
+    debug_assert!(b.len() <= 255, "config checks keep wire strings short");
     let n = b.len().min(255);
     v.push(n as u8);
     v.extend_from_slice(&b[..n]);
