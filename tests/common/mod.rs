@@ -33,6 +33,7 @@ pub fn server_settings(secrets: Vec<Secret>) -> ServerSettings {
     );
     ServerSettings {
         listen: Some("127.0.0.1:0".parse().unwrap()),
+        public_address: None,
         websocket: None,
         clients,
         services: BTreeMap::new(),

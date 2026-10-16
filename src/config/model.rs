@@ -14,6 +14,11 @@ pub struct ServerConfig {
     pub listen: Option<Bind>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
+        description = "Host name or IP that clients use to reach this server, for example myserver.example.com; client-config writes it into client configs (the port comes from listen)"
+    )]
+    pub public_address: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
         description = "Accept clients over WebSocket, for servers reachable only through HTTP(S)"
     )]
     pub websocket: Option<WebSocketConfig>,

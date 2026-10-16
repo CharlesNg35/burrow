@@ -17,6 +17,7 @@ pub struct SocketTuning {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ServerSettings {
     pub listen: Option<SocketAddr>,
+    pub public_address: Option<String>,
     pub websocket: Option<WebSocketSettings>,
     pub clients: BTreeMap<String, ClientAuth>,
     pub services: BTreeMap<String, Service>,

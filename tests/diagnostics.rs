@@ -536,7 +536,7 @@ fn role_override_reports_fields_for_that_role() {
        |
      1 | server: a:1
        | ^^^^^^ unknown field
-       = help: valid fields: listen, websocket, clients, services, insecure_plaintext, heartbeat, limits, pool, tcp, udp
+       = help: valid fields: listen, public_address, websocket, clients, services, insecure_plaintext, heartbeat, limits, pool, tcp, udp
 
     warning: no clients are defined, so nobody can connect
       --> server.yaml:1:1
@@ -559,7 +559,7 @@ fn role_override_reports_fields_for_that_role() {
        |
      2 | name: home
        | ^^^^ unknown field
-       = help: valid fields: listen, websocket, clients, services, insecure_plaintext, heartbeat, limits, pool, tcp, udp
+       = help: valid fields: listen, public_address, websocket, clients, services, insecure_plaintext, heartbeat, limits, pool, tcp, udp
 
     server.yaml: 3 errors, 2 warnings
     "#);
@@ -853,4 +853,46 @@ fn bad_listen_types_are_explained() {
 
     server.yaml: 2 errors, 1 warning
     "#);
+}
+
+#[test]
+fn public_address_is_checked() {
+    let with = |addr: &str| {
+        format!(
+            "listen: 0.0.0.0:7835\npublic_address: {addr}\nclients:\n  home:\n    secret: {SECRET}\nservices: {{web: {{client: home, bind: 7840, target: 3000}}}}\n"
+        )
+    };
+    for ok in [
+        "myserver.example.com",
+        "myserver.example.com:9000",
+        "203.0.113.5",
+        "10.0.0.5",
+        "\"[2001:db8::1]\"",
+    ] {
+        let text = render("server.yaml", &with(ok), None);
+        assert!(
+            text.ends_with("valid server config (1 client, 1 service)"),
+            "{ok}: {text}"
+        );
+    }
+    insta::assert_snapshot!(render("server.yaml", &with("0.0.0.0"), None), @"
+    error: invalid public_address: 0.0.0.0 means every interface, not an address clients can connect to
+      --> server.yaml:2:17
+       |
+     2 | public_address: 0.0.0.0
+       |                 ^^^^^^^ expected a host, host:port or wss:// URL
+       = help: use the host name or IP clients connect to, for example myserver.example.com
+
+    server.yaml: 1 error, 0 warnings
+    ");
+    insta::assert_snapshot!(render("server.yaml", &with("wss://t.example.com/burrow"), None), @"
+    error: invalid public_address: the server has no websocket section
+      --> server.yaml:2:17
+       |
+     2 | public_address: wss://t.example.com/burrow
+       |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^ expected a host, host:port or wss:// URL
+       = help: use the host name, or add a websocket section to the server config
+
+    server.yaml: 1 error, 0 warnings
+    ");
 }

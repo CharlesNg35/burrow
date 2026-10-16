@@ -252,6 +252,26 @@ pub fn check_server(
         .as_ref()
         .and_then(|ws| check_websocket(ws, listen, spans, base_dir, out));
 
+    if let Some(text) = &cfg.public_address
+        && (listen.is_some() || websocket.is_some())
+        && let Err(e) = crate::config::address::client_address(
+            text,
+            listen,
+            websocket.as_ref(),
+            &mut Vec::new(),
+        )
+    {
+        out.push(
+            Diagnostic::error(
+                "invalid-address",
+                format!("invalid public_address: {}", e.message),
+            )
+            .at(spans.value(&["public_address"]))
+            .label("expected a host, host:port or wss:// URL")
+            .help(e.hint),
+        );
+    }
+
     if cfg.clients.is_empty() {
         out.push(
             Diagnostic::warning(
@@ -474,6 +494,7 @@ pub fn check_server(
     }
     Some(ServerSettings {
         listen,
+        public_address: cfg.public_address.clone(),
         websocket,
         clients,
         services,
