@@ -553,7 +553,7 @@ fn check_websocket(
                 Ok(bytes) => Some((path, bytes)),
                 Err(e) => {
                     out.push(
-                        Diagnostic::error("tls-file", format!("cannot read websocket.tls.{field} \"{}\": {}", path.display(), crate::failure::file_reason(&e)))
+                        Diagnostic::error("tls-file", format!("cannot read websocket.tls.{field} \"{file}\": {}", crate::failure::file_reason(&e)))
                             .at(spans.value(&["websocket", "tls", field]))
                             .label("file not readable")
                             .help("paths are relative to the config file; check the path and its permissions"),
@@ -737,7 +737,7 @@ pub fn check_client(
                     out.push(
                         Diagnostic::error(
                             "tls-file",
-                            format!("cannot use ca file \"{}\": {e}", path.display()),
+                            format!("cannot use ca file \"{file}\": {e}"),
                         )
                         .at(spans.value(&["ca"]))
                         .label("not a readable PEM certificate")

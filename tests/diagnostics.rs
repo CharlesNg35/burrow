@@ -677,14 +677,14 @@ fn websocket_server_errors() {
        |         ^^^^^^ expected a path like /burrow
        = help: start the path with "/" and leave out spaces, "?" and "#"
 
-    error: cannot read websocket.tls.cert "./missing-cert.pem": file not found
+    error: cannot read websocket.tls.cert "missing-cert.pem": file not found
       --> server.yaml:5:11
        |
      5 |     cert: missing-cert.pem
        |           ^^^^^^^^^^^^^^^^ file not readable
        = help: paths are relative to the config file; check the path and its permissions
 
-    error: cannot read websocket.tls.key "./missing-key.pem": file not found
+    error: cannot read websocket.tls.key "missing-key.pem": file not found
       --> server.yaml:6:10
        |
      6 |     key: missing-key.pem
@@ -743,7 +743,7 @@ fn websocket_client_errors() {
        |   ^^^^ set by burrow itself
        = help: use custom headers such as an access token, for example CF-Access-Client-Id
 
-    error: cannot use ca file "./missing-ca.pem": file not found
+    error: cannot use ca file "missing-ca.pem": file not found
       --> client.yaml:8:5
        |
      8 | ca: missing-ca.pem

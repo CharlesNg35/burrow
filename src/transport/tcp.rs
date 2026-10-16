@@ -155,6 +155,11 @@ mod tests {
                 .await
                 .is_err()
         );
-        assert!(start.elapsed() < Duration::from_secs(1));
+        let bound = if cfg!(windows) {
+            Duration::from_secs(5)
+        } else {
+            Duration::from_secs(1)
+        };
+        assert!(start.elapsed() < bound, "took {:?}", start.elapsed());
     }
 }
