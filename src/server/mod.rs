@@ -154,8 +154,7 @@ pub fn bind_error(what: &str, addr: SocketAddr, e: &std::io::Error) -> Failure {
 async fn bind_service(name: &str, svc: &Service) -> Result<Bound, Failure> {
     let what = format!("service \"{name}\"");
     match svc.protocol {
-        Protocol::Tcp => TcpListener::bind(svc.bind)
-            .await
+        Protocol::Tcp => crate::net::bind_tcp(svc.bind)
             .map(Bound::Tcp)
             .map_err(|e| bind_error(&what, svc.bind, &e)),
         Protocol::Udp => UdpSocket::bind(svc.bind)
@@ -167,8 +166,7 @@ async fn bind_service(name: &str, svc: &Service) -> Result<Bound, Failure> {
 
 impl Server {
     pub async fn bind(settings: ServerSettings) -> Result<Server, Failure> {
-        let listener = TcpListener::bind(settings.listen)
-            .await
+        let listener = crate::net::bind_tcp(settings.listen)
             .map_err(|e| bind_error("the control port", settings.listen, &e))?;
         let (shutdown_tx, shutdown) = watch::channel(false);
         let shared = Arc::new(Shared {
@@ -507,7 +505,10 @@ async fn visit(
             );
             return;
         }
-        Ok(Err(TakeError::Closed)) => return,
+        Ok(Err(TakeError::Closed)) => {
+            debug!(%peer, "service \"{name}\": session closed while waiting for a data channel");
+            return;
+        }
         Err(_) => {
             warn!(
                 "service \"{name}\": client \"{}\" did not open a data channel within {}s",

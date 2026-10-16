@@ -11,7 +11,7 @@ use burrow::config::settings::{ClientAuth, ClientSettings, ServerSettings, Servi
 use burrow::secret::Secret;
 use burrow::server::Server;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, UdpSocket};
+use tokio::net::UdpSocket;
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 
@@ -138,7 +138,7 @@ pub async fn wait_for<F: FnMut() -> bool>(mut f: F) {
 }
 
 pub async fn echo_server() -> SocketAddr {
-    let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let l = burrow::net::bind_tcp("127.0.0.1:0".parse().unwrap()).unwrap();
     let addr = l.local_addr().unwrap();
     tokio::spawn(async move {
         loop {
@@ -211,6 +211,7 @@ pub async fn tunnel_with(
     client: impl FnOnce(ClientSettings) -> ClientSettings,
     secret: Secret,
 ) -> Tunnel {
+    logs();
     for (n, s) in services {
         server.services.insert(n.to_string(), s);
     }
@@ -223,6 +224,15 @@ pub async fn tunnel_with(
         server: srv,
         client: cli,
         secret,
+    }
+}
+
+pub fn logs() {
+    if let Ok(filter) = std::env::var("BURROW_LOG") {
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter(tracing_subscriber::EnvFilter::new(filter))
+            .with_test_writer()
+            .try_init();
     }
 }
 

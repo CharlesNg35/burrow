@@ -4,7 +4,21 @@ use std::time::Duration;
 
 use socket2::{SockRef, TcpKeepalive};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpStream, lookup_host};
+use tokio::net::{TcpListener, TcpSocket, TcpStream, lookup_host};
+
+pub const LISTEN_BACKLOG: u32 = 4096;
+
+pub fn bind_tcp(addr: SocketAddr) -> io::Result<TcpListener> {
+    let socket = if addr.is_ipv4() {
+        TcpSocket::new_v4()?
+    } else {
+        TcpSocket::new_v6()?
+    };
+    #[cfg(not(windows))]
+    socket.set_reuseaddr(true)?;
+    socket.bind(addr)?;
+    socket.listen(LISTEN_BACKLOG)
+}
 
 use crate::config::settings::SocketTuning;
 use crate::proxy::{ProxyConfig, ProxyKind};
