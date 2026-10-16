@@ -588,6 +588,7 @@ fn check_websocket(
         listen: addr?,
         path: ws.path.clone(),
         tls,
+        keepalive: Duration::from_secs(ws.keepalive_secs.into()),
     })
 }
 

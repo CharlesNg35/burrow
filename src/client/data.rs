@@ -15,11 +15,14 @@ use crate::config::settings::ClientSettings;
 use crate::failure::io_reason;
 use crate::forward::{client_tcp, refuse};
 use crate::handshake::Channel;
-use crate::protocol::{Connect, ServiceInfo, Status, decode_datagram, encode_datagram};
+use crate::protocol::{
+    Connect, KEEPALIVE_RECORD, ServiceInfo, Status, decode_datagram, encode_datagram,
+};
 use crate::transport::resolve::Resolver;
 use crate::transport::tcp::{connect_any, tune};
 
 const MAX_PEERS: usize = 4096;
+const IDLE_CHANNEL_LIMIT: Duration = Duration::from_secs(90);
 
 struct Peer {
     sock: Arc<UdpSocket>,
@@ -107,9 +110,21 @@ pub fn precheck(settings: &ClientSettings, svc: &ServiceInfo) {
 }
 
 pub async fn serve(settings: Arc<ClientSettings>, resolver: Arc<dyn Resolver>, mut ch: Channel) {
-    let first = match ch.reader.recv(&mut ch.stream).await {
-        Ok(Some(b)) => Connect::decode(b),
-        _ => return,
+    let idle_limit = ch.stream.is_websocket().then_some(IDLE_CHANNEL_LIMIT);
+    let first = loop {
+        let next = ch.reader.recv(&mut ch.stream);
+        let rec = match idle_limit {
+            Some(limit) => match tokio::time::timeout(limit, next).await {
+                Ok(r) => r,
+                Err(_) => return,
+            },
+            None => next.await,
+        };
+        match rec {
+            Ok(Some([KEEPALIVE_RECORD])) => continue,
+            Ok(Some(b)) => break Connect::decode(b),
+            _ => return,
+        }
     };
     let connect = match first {
         Ok(c) => c,

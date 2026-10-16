@@ -73,6 +73,7 @@ pub struct WebSocketSettings {
     pub listen: SocketAddr,
     pub path: String,
     pub tls: Option<TlsMaterial>,
+    pub keepalive: std::time::Duration,
 }
 
 #[derive(Clone, PartialEq)]

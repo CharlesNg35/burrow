@@ -101,14 +101,8 @@ impl Conn {
         }
     }
 
-    pub fn idle_and_open(&self) -> bool {
-        match self {
-            Conn::Tcp(s) => {
-                let mut probe = [0u8; 1];
-                matches!(s.try_read(&mut probe), Err(e) if e.kind() == io::ErrorKind::WouldBlock)
-            }
-            Conn::Ws(_) => true,
-        }
+    pub fn is_websocket(&self) -> bool {
+        matches!(self, Conn::Ws(_))
     }
 
     pub fn supports_half_close(&self) -> bool {

@@ -39,6 +39,7 @@ fn ws_server(secret: &Secret, path: &str, tls: Option<&Cert>) -> ServerSettings 
             cert_pem: c.cert_pem.clone().into_bytes(),
             key_pem: zeroize::Zeroizing::new(c.key_pem.clone().into_bytes()),
         }),
+        keepalive: Duration::from_secs(25),
     });
     s
 }
@@ -266,4 +267,93 @@ async fn websocket_listener_only_runs_when_configured() {
         "no TCP control port when only websocket is configured"
     );
     assert!(ws_only.websocket_addr().is_some());
+}
+
+async fn idle_killing_proxy(
+    upstream: SocketAddr,
+    idle: Duration,
+) -> (SocketAddr, Arc<std::sync::atomic::AtomicUsize>) {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = l.local_addr().unwrap();
+    let opened = Arc::new(AtomicUsize::new(0));
+    let count = opened.clone();
+    tokio::spawn(async move {
+        loop {
+            let Ok((down, _)) = l.accept().await else {
+                return;
+            };
+            count.fetch_add(1, Ordering::Relaxed);
+            tokio::spawn(async move {
+                let Ok(up) = TcpStream::connect(upstream).await else {
+                    return;
+                };
+                let (mut dr, mut dw) = down.into_split();
+                let (mut ur, mut uw) = up.into_split();
+                let last = Arc::new(std::sync::Mutex::new(std::time::Instant::now()));
+                let (l1, l2) = (last.clone(), last.clone());
+                let a = async move {
+                    let mut b = vec![0u8; 65536];
+                    while let Ok(n) = dr.read(&mut b).await {
+                        if n == 0 || uw.write_all(&b[..n]).await.is_err() {
+                            break;
+                        }
+                        *l1.lock().unwrap() = std::time::Instant::now();
+                    }
+                };
+                let c = async move {
+                    let mut b = vec![0u8; 65536];
+                    while let Ok(n) = ur.read(&mut b).await {
+                        if n == 0 || dw.write_all(&b[..n]).await.is_err() {
+                            break;
+                        }
+                        *l2.lock().unwrap() = std::time::Instant::now();
+                    }
+                };
+                let watchdog = async move {
+                    loop {
+                        tokio::time::sleep(Duration::from_millis(100)).await;
+                        if last.lock().unwrap().elapsed() > idle {
+                            break;
+                        }
+                    }
+                };
+                tokio::select! { _ = a => {}, _ = c => {}, _ = watchdog => {} }
+            });
+        }
+    });
+    (addr, opened)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn keepalive_keeps_pooled_channels_alive_through_an_idle_timeout_proxy() {
+    let echo = echo_server().await;
+    let secret = Secret::generate();
+    let mut s = ws_server(&secret, "/burrow", None);
+    s.heartbeat_interval = Duration::from_millis(400);
+    s.websocket.as_mut().unwrap().keepalive = Duration::from_millis(400);
+    s.services
+        .insert("web".into(), service(echo, Protocol::Tcp));
+    let srv = start_server(s).await;
+    let (proxy, opened) =
+        idle_killing_proxy(srv.ws_addr.unwrap(), Duration::from_millis(1500)).await;
+    let _cli = connected(
+        &srv,
+        ws_client(&format!("ws://{proxy}/burrow"), secret, None),
+    )
+    .await;
+    let shared = srv.shared.clone();
+    wait_for(|| shared.idle_channels("home") >= 2).await;
+    let before = opened.load(std::sync::atomic::Ordering::Relaxed);
+    tokio::time::sleep(Duration::from_secs(5)).await;
+    let after = opened.load(std::sync::atomic::Ordering::Relaxed);
+    assert_eq!(
+        after, before,
+        "no reconnects: keepalives kept every channel alive past the 1.5 s idle timeout"
+    );
+    assert_eq!(
+        roundtrip(srv.services["web"], b"still warm").await,
+        b"still warm"
+    );
 }

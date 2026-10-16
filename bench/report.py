@@ -37,6 +37,7 @@ labels = {
     "burrow": "burrow (Noise ChaChaPoly, default)",
     "burrow-aesgcm": "burrow (Noise AES-GCM)",
     "burrow-plaintext": "burrow (insecure_plaintext)",
+    "burrow-ws": "burrow over WebSocket (ws://, ChaChaPoly)",
     "rathole": "rathole 0.5.0 (tcp, no encryption)",
     "rathole-noise": "rathole 0.5.0 (noise NK ChaChaPoly)",
     "frp": "frp 0.71.1 (default: TLS, tcpMux)",

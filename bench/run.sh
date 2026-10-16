@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BENCH_DIR="${BENCH_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/burrow-bench}"
-TOOLS="${TOOLS:-direct burrow burrow-aesgcm burrow-plaintext rathole rathole-noise frp frp-plain frp-nomux chisel}"
+TOOLS="${TOOLS:-direct burrow burrow-aesgcm burrow-plaintext burrow-ws rathole rathole-noise frp frp-plain frp-nomux chisel}"
 IPERF_SECS="${IPERF_SECS:-10}"
 CONNRATE_SECS="${CONNRATE_SECS:-10}"
 IDLE_COUNTS="${IDLE_COUNTS:-1000 10000}"
@@ -49,13 +49,17 @@ setup() {
   case "$tool" in
     direct)
       EP=$ECHO_PORT; IP=$IPERF_PORT; return ;;
-    burrow|burrow-aesgcm|burrow-plaintext)
-      local secret extra="" cextra=""
+    burrow|burrow-aesgcm|burrow-plaintext|burrow-ws)
+      local secret extra="" cextra="" listen="listen: 127.0.0.1:7835" server="127.0.0.1:7835"
       secret="$("$BURROW" gensecret)"
       [ "$tool" = burrow-plaintext ] && extra="insecure_plaintext: true" && cextra="insecure_plaintext: true"
       [ "$tool" = burrow-aesgcm ] && cextra="cipher: aes-gcm"
+      if [ "$tool" = burrow-ws ]; then
+        listen=$'websocket:\n  listen: 127.0.0.1:7836\n  path: /burrow'
+        server="ws://127.0.0.1:7836/burrow"
+      fi
       cat >"$dir/server.yaml" <<YAML
-listen: 127.0.0.1:7835
+$listen
 $extra
 limits:
   max_handshakes: 4096
@@ -69,7 +73,7 @@ services:
   iperf: { client: bench, bind: 127.0.0.1:30002, target: 127.0.0.1:$IPERF_PORT }
 YAML
       cat >"$dir/client.yaml" <<YAML
-server: 127.0.0.1:7835
+server: $server
 name: bench
 secret: $secret
 $cextra

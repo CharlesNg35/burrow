@@ -85,6 +85,10 @@ impl Shared {
             min_idle: s.pool_min_idle,
             max_idle: s.pool_max_idle,
             max_pending: s.max_pending,
+            keepalive: s
+                .websocket
+                .as_ref()
+                .map_or(Duration::from_secs(25), |w| w.keepalive),
         }
     }
 

@@ -51,6 +51,23 @@ pub struct WebSocketConfig {
         description = "Serve wss:// directly with these PEM files instead of behind a TLS proxy"
     )]
     pub tls: Option<TlsFiles>,
+    #[serde(
+        default = "default_ws_keepalive",
+        skip_serializing_if = "is_default_ws_keepalive"
+    )]
+    #[schemars(
+        description = "Seconds between keepalives on idle pooled channels, below your proxy's idle timeout"
+    )]
+    #[schemars(range(min = 5, max = 30))]
+    pub keepalive_secs: u32,
+}
+
+fn default_ws_keepalive() -> u32 {
+    25
+}
+
+fn is_default_ws_keepalive(v: &u32) -> bool {
+    *v == default_ws_keepalive()
 }
 
 pub fn default_ws_path() -> String {
