@@ -1,0 +1,44 @@
+[package]
+name = "burrow"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+base64 = "0.23.1"
+blake2 = "0.10.6"
+clap = { version = "4.6.7", features = ["derive", "env"] }
+clap_complete = "4.6.11"
+getrandom = "0.3.4"
+notify = "8.2.0"
+saphyr-parser = "0.2.2"
+schemars = "1.2.3"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = { version = "1.0.154", features = ["preserve_order"] }
+snow = { version = "0.10.0", default-features = false, features = ["default-resolver-crypto", "std"] }
+socket2 = "0.6.5"
+tokio = { version = "1.53.3", features = ["rt-multi-thread", "net", "io-util", "time", "sync", "signal", "macros", "fs"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json", "fmt", "ansi"] }
+zeroize = { version = "1.9.1", features = ["derive"] }
+
+[dev-dependencies]
+insta = "1.49.0"
+tempfile = "3.27.0"
+
+[features]
+default = ["ring"]
+ring = ["snow/ring-accelerated"]
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[profile.bench]
+inherits = "release"
+strip = false
+
+[[bench]]
+name = "cipher"
+harness = false

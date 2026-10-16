@@ -1,0 +1,7 @@
+/target
+/fuzz/target
+/fuzz/artifacts
+/fuzz/coverage
+/bench/results/raw
+*.swp
+.env

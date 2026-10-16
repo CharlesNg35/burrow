@@ -1,0 +1,269 @@
+use std::collections::BTreeMap;
+
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[schemars(title = "burrow server config")]
+pub struct ServerConfig {
+    #[schemars(description = "Control address clients connect to, for example 0.0.0.0:2333")]
+    pub listen: String,
+    #[serde(default)]
+    #[schemars(description = "Clients allowed to connect, keyed by client name")]
+    pub clients: BTreeMap<String, ClientEntry>,
+    #[serde(default)]
+    #[schemars(description = "Exposed services, keyed by service name")]
+    pub services: BTreeMap<String, ServiceEntry>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    #[schemars(description = "Disable encryption of forwarded data (authentication still runs)")]
+    pub insecure_plaintext: bool,
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub heartbeat: Heartbeat,
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub limits: Limits,
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub pool: Pool,
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub tcp: TcpOptions,
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub udp: UdpOptions,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ClientEntry {
+    #[schemars(description = "256-bit secret (base64 or hex), or a list of them during rotation")]
+    pub secret: Secrets,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(description = "Maximum concurrent forwarded connections for this client")]
+    pub max_connections: Option<u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged)]
+pub enum Secrets {
+    One(String),
+    Many(Vec<String>),
+}
+
+impl Secrets {
+    pub fn as_slice(&self) -> &[String] {
+        match self {
+            Secrets::One(s) => std::slice::from_ref(s),
+            Secrets::Many(v) => v,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ServiceEntry {
+    #[schemars(description = "Name of the client that reaches the target")]
+    pub client: String,
+    #[schemars(description = "Public address on the server: a port, or ip:port")]
+    pub bind: Bind,
+    #[schemars(description = "host:port as seen from the client")]
+    pub target: String,
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub protocol: Protocol,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(description = "Maximum concurrent connections for this service")]
+    pub max_connections: Option<u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged)]
+pub enum Bind {
+    Port(u16),
+    Addr(String),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum Protocol {
+    #[default]
+    Tcp,
+    Udp,
+}
+
+impl Protocol {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Protocol::Tcp => "tcp",
+            Protocol::Udp => "udp",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields, default)]
+pub struct Heartbeat {
+    #[schemars(range(min = 1, max = 3600))]
+    pub interval_secs: u32,
+}
+
+impl Default for Heartbeat {
+    fn default() -> Self {
+        Heartbeat { interval_secs: 10 }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields, default)]
+pub struct Limits {
+    #[schemars(range(min = 1, max = 120))]
+    pub handshake_timeout_secs: u32,
+    #[schemars(description = "Concurrent connections that have not finished authenticating")]
+    #[schemars(range(min = 1))]
+    pub max_handshakes: u32,
+    #[schemars(range(min = 1))]
+    pub max_connections_per_client: u32,
+    #[schemars(description = "Visitors waiting for a data channel, per client")]
+    #[schemars(range(min = 1))]
+    pub max_pending: u32,
+}
+
+impl Default for Limits {
+    fn default() -> Self {
+        Limits {
+            handshake_timeout_secs: 5,
+            max_handshakes: 256,
+            max_connections_per_client: 8192,
+            max_pending: 512,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields, default)]
+pub struct Pool {
+    #[schemars(range(max = 1024))]
+    pub min_idle: u32,
+    #[schemars(range(min = 1, max = 4096))]
+    pub max_idle: u32,
+}
+
+impl Default for Pool {
+    fn default() -> Self {
+        Pool {
+            min_idle: 4,
+            max_idle: 64,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields, default)]
+pub struct TcpOptions {
+    pub nodelay: bool,
+    #[schemars(description = "TCP keepalive idle time, 0 disables")]
+    pub keepalive_secs: u32,
+}
+
+impl Default for TcpOptions {
+    fn default() -> Self {
+        TcpOptions {
+            nodelay: true,
+            keepalive_secs: 30,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields, default)]
+pub struct UdpOptions {
+    #[schemars(range(min = 1))]
+    pub session_timeout_secs: u32,
+}
+
+impl Default for UdpOptions {
+    fn default() -> Self {
+        UdpOptions {
+            session_timeout_secs: 60,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[schemars(title = "burrow client config")]
+pub struct ClientConfig {
+    #[schemars(description = "Server control address, host:port")]
+    pub server: String,
+    #[schemars(description = "This client's name, as defined in the server config")]
+    pub name: String,
+    #[schemars(description = "256-bit secret (base64 or hex) shared with the server")]
+    pub secret: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(
+        description = "Targets the server may reach: CIDR, optionally with :port or :lo-hi"
+    )]
+    pub allow: Vec<String>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    #[schemars(description = "Allow the server to reach any target (not recommended)")]
+    pub allow_all: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub insecure_plaintext: bool,
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub cipher: Cipher,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        description = "Connect through a proxy: http://host:port or socks5://[user:pass@]host:port"
+    )]
+    pub proxy: Option<String>,
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub reconnect: Reconnect,
+    #[serde(
+        default = "default_connect_timeout",
+        skip_serializing_if = "is_default_connect_timeout"
+    )]
+    #[schemars(range(min = 1, max = 300))]
+    pub connect_timeout_secs: u32,
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub tcp: TcpOptions,
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub udp: UdpOptions,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum Cipher {
+    #[default]
+    Chachapoly,
+    AesGcm,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields, default)]
+pub struct Reconnect {
+    #[schemars(range(min = 10, max = 60000))]
+    pub initial_delay_ms: u32,
+    #[schemars(range(min = 1, max = 3600))]
+    pub max_delay_secs: u32,
+}
+
+impl Default for Reconnect {
+    fn default() -> Self {
+        Reconnect {
+            initial_delay_ms: 250,
+            max_delay_secs: 30,
+        }
+    }
+}
+
+fn default_connect_timeout() -> u32 {
+    10
+}
+
+fn is_default_connect_timeout(v: &u32) -> bool {
+    *v == default_connect_timeout()
+}
+
+fn is_false(v: &bool) -> bool {
+    !v
+}
+
+fn is_default<T: Default + PartialEq>(v: &T) -> bool {
+    *v == T::default()
+}
