@@ -209,14 +209,22 @@ fn run(cli: Cli) -> Result<u8, Failure> {
         }
         Command::ClientConfig(args) => {
             let path = config_path(args.config, Some(Role::Server))?;
+            let file_format =
+                burrow::init::output_format(args.format.map(format), args.output.as_deref())?;
             let r = burrow::init::client_config(
-                &args.name,
+                args.name.as_deref(),
                 &path,
-                &args.server,
-                format(args.format),
+                args.server.as_deref(),
+                file_format,
                 &ProcessEnv,
             )?;
-            print(&r.text)?;
+            match &args.output {
+                Some(out) => {
+                    burrow::init::write_new(out, &r.text, args.force)?;
+                    eprintln!("wrote {}; copy it to the client machine", out.display());
+                }
+                None => print(&r.text)?,
+            }
             for n in r.notes {
                 eprintln!(
                     "{} {n}",

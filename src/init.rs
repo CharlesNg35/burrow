@@ -235,6 +235,24 @@ pub fn server_value(client: &str, secret_text: &str) -> Value {
     })
 }
 
+fn with_public_address(value: Value, address: &str) -> Value {
+    let Value::Object(map) = value else {
+        return value;
+    };
+    let mut out = serde_json::Map::new();
+    if !map.contains_key("listen") {
+        out.insert("public_address".into(), address.into());
+    }
+    for (key, v) in map {
+        let after = key == "listen";
+        out.insert(key, v);
+        if after {
+            out.insert("public_address".into(), address.into());
+        }
+    }
+    Value::Object(out)
+}
+
 fn websocket_server_value(client: &str, secret_text: &str, ws: &WebSocketChoice) -> Value {
     let mut websocket = json!({ "listen": ws.listen, "path": ws.path });
     if let Some((cert, key)) = &ws.tls {
@@ -273,14 +291,14 @@ pub fn init_server(opts: &InitOptions, out: &mut dyn Write) -> Result<PathBuf, F
             if s.contains("://") {
                 return Err(
                     Failure::usage("--server is a URL but the server config is TCP")
-                        .hint("add --ws to accept WebSocket clients, or pass --server host:port"),
+                        .hint("add --ws to accept WebSocket clients, or pass the host name alone"),
                 );
             }
-            parse_host_port(s).map_err(|e| {
+            let e = Endpoint::parse(s).map_err(|e| {
                 Failure::usage(format!("invalid --server: {e}"))
-                    .hint("use host:port, for example myserver.com:7835")
+                    .hint("use a host name or IP, for example myserver.com (port 7835 is added)")
             })?;
-            Some(s.clone())
+            Some(e.to_string())
         }
         (None, _) => None,
     };
@@ -295,6 +313,10 @@ pub fn init_server(opts: &InitOptions, out: &mut dyn Write) -> Result<PathBuf, F
     let value = match &ws {
         Some(ws) => websocket_server_value(client, &secret_text, ws),
         None => server_value(client, &secret_text),
+    };
+    let value = match &opts.server {
+        Some(address) => with_public_address(value, address.trim()),
+        None => value,
     };
     write_new(&path, &render(&value, format), opts.force)?;
 
@@ -355,12 +377,12 @@ pub fn init_server(opts: &InitOptions, out: &mut dyn Write) -> Result<PathBuf, F
         None => {
             let example = match &ws {
                 Some(ws) => format!("wss://YOUR_PUBLIC_HOST{}", ws.path),
-                None => "YOUR_PUBLIC_HOST:7835".to_string(),
+                None => "YOUR_PUBLIC_HOST".to_string(),
             };
             w(
                 out,
                 format!(
-                    "\nnext, print the client config with:\n\n  burrow client-config {client} -c {} --server {example} > client.yaml\n",
+                    "\nnext, print the client config with:\n\n  burrow client-config -c {} --server {example} -o client.yaml",
                     path.display()
                 ),
             )?;
@@ -390,13 +412,16 @@ pub fn init_client(
     let server = match &opts.server {
         Some(s) => s.clone(),
         None => prompt
-            .ask("server address (host:port)")
-            .ok_or_else(|| missing("server address", "--server HOST:PORT"))?,
+            .ask("server host name or IP (port 7835 unless you add :PORT)")
+            .ok_or_else(|| missing("server address", "--server HOST"))?,
     };
-    Endpoint::parse(&server).map_err(|e| {
-        Failure::usage(format!("invalid server address: {e}"))
-            .hint("use host:port, for example myserver.com:7835")
-    })?;
+    let server = Endpoint::parse(&server)
+        .map_err(|e| {
+            Failure::usage(format!("invalid server address: {e}")).hint(
+                "use a host name or IP, for example myserver.com, or myserver.com:2333 for another port",
+            )
+        })?
+        .to_string();
     let name = match &opts.name {
         Some(n) => n.clone(),
         None => prompt
@@ -432,22 +457,38 @@ pub fn init_client(
     Ok(path)
 }
 
+pub fn output_format(given: Option<Format>, output: Option<&Path>) -> Result<Format, Failure> {
+    let Some(path) = output else {
+        return Ok(given.unwrap_or(Format::Yaml));
+    };
+    match (given, Format::from_path(path)) {
+        (Some(g), Some(f)) if g != f => Err(Failure::usage(format!(
+            "{} does not match --format {}",
+            path.display(),
+            if g == Format::Json { "json" } else { "yaml" }
+        ))
+        .hint("use a matching extension or change --format")),
+        (_, Some(f)) => Ok(f),
+        (_, None) => Err(Failure::usage(format!(
+            "{} has no .yaml, .yml or .json extension",
+            path.display()
+        ))
+        .hint("burrow picks the config format from the extension")),
+    }
+}
+
 pub struct ClientConfigOutput {
     pub text: String,
     pub notes: Vec<String>,
 }
 
 pub fn client_config(
-    name: &str,
+    name: Option<&str>,
     server_config: &Path,
-    server: &str,
+    server: Option<&str>,
     format: Format,
     env: &dyn EnvSource,
 ) -> Result<ClientConfigOutput, Failure> {
-    let endpoint = Endpoint::parse(server).map_err(|e| {
-        Failure::usage(format!("invalid --server: {e}"))
-            .hint("use host:port for TCP (myserver.com:7835) or the WebSocket URL (wss://tunnel.example.com/burrow)")
-    })?;
     let outcome = load_file(server_config, Some(Role::Server), env).map_err(|e| {
         let (m, h) = e.describe(server_config);
         Failure::new(m).hint(h)
@@ -460,24 +501,24 @@ pub fn client_config(
             )),
         );
     };
-    let mut notes = Vec::new();
-    match (&endpoint, settings.listen, &settings.websocket) {
-        (Endpoint::Tcp { .. }, None, Some(ws)) => {
-            return Err(Failure::usage(format!("{} only accepts WebSocket clients", server_config.display()))
-                .hint(format!("pass the WebSocket URL, for example --server wss://YOUR_PUBLIC_HOST{}", ws.path)));
+    let names: Vec<&str> = settings.clients.keys().map(String::as_str).collect();
+    let name = match (name, names.as_slice()) {
+        (Some(n), _) => n,
+        (None, [only]) => only,
+        (None, _) => {
+            return Err(Failure::usage(format!(
+                "{} defines {} clients; which one?",
+                server_config.display(),
+                names.len()
+            ))
+            .hint(format!(
+                "pass its name, for example: burrow client-config {} (defined clients: {})",
+                names.first().copied().unwrap_or("NAME"),
+                names.join(", ")
+            )));
         }
-        (Endpoint::WebSocket { .. }, _, None) => {
-            return Err(Failure::usage(format!("{} has no websocket section", server_config.display()))
-                .hint("pass --server host:port, or add a websocket section to the server config"));
-        }
-        (Endpoint::WebSocket { path, .. }, _, Some(ws)) if *path != ws.path => notes.push(format!(
-            "the URL path {path} differs from websocket.path {}; this only works if your proxy rewrites the path",
-            ws.path
-        )),
-        _ => {}
-    }
+    };
     let Some(_) = settings.clients.get(name) else {
-        let names: Vec<&str> = settings.clients.keys().map(String::as_str).collect();
         let hint = match crate::suggest::closest(name, names.iter().copied()) {
             Some(s) => format!(
                 "did you mean \"{s}\"? defined clients: {}",
@@ -491,6 +532,35 @@ pub fn client_config(
         ))
         .hint(hint));
     };
+    let shown = server_config.display();
+    let (given, from) = match server.map(str::trim).filter(|s| !s.is_empty()) {
+        Some(s) => (s.to_string(), "--server"),
+        None => match &settings.public_address {
+            Some(p) => (p.clone(), "public_address"),
+            None => {
+                let port = settings
+                    .listen
+                    .map(|l| format!(" (the port, {}, comes from listen)", l.port()))
+                    .unwrap_or_default();
+                return Err(Failure::usage(
+                    "client-config needs the address clients connect to",
+                )
+                .hint(format!(
+                    "pass --server myserver.example.com, or add \"public_address: myserver.example.com\" to {shown}{port}"
+                )));
+            }
+        },
+    };
+    let mut notes = Vec::new();
+    let server = crate::config::address::client_address(
+        &given,
+        settings.listen,
+        settings.websocket.as_ref(),
+        &mut notes,
+    )
+    .map_err(|e| Failure::usage(format!("invalid {from}: {}", e.message)).hint(e.hint))?
+    .to_string();
+    let server = server.as_str();
 
     let raw = std::fs::read_to_string(server_config).unwrap_or_default();
     let raw_secret = tree::parse(&raw).ok().and_then(|root| {

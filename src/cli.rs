@@ -244,8 +244,8 @@ pub struct InitArgs {
     pub force: bool,
     #[arg(
         long,
-        value_name = "HOST:PORT",
-        help = "Server address (client: where to connect; server: shown in the printed client config)"
+        value_name = "HOST",
+        help = "Server host name or IP, port 7835 unless you add :PORT (server: saved as public_address)"
     )]
     pub server: Option<String>,
     #[arg(long, value_name = "NAME", help = "Client name (client config)")]
@@ -302,16 +302,29 @@ pub struct InitArgs {
 
 #[derive(Debug, Args)]
 pub struct ClientConfigArgs {
-    #[arg(help = "Client name as defined in the server config")]
-    pub name: String,
+    #[arg(help = "Client name as defined in the server config; optional when it defines only one")]
+    pub name: Option<String>,
     #[arg(short, long, help = "Server config file; ./server.yaml when omitted")]
     pub config: Option<PathBuf>,
     #[arg(
         long,
-        value_name = "HOST:PORT",
-        help = "Public address clients use to reach the server"
+        value_name = "HOST",
+        help = "Host name or IP clients connect to; port from listen [default: public_address in the server config]"
     )]
-    pub server: String,
-    #[arg(long, value_enum, default_value_t = FileFormat::Yaml)]
-    pub format: FileFormat,
+    pub server: Option<String>,
+    #[arg(
+        short,
+        long,
+        value_name = "FILE",
+        help = "Write the client config to this file (readable by you only) instead of printing it"
+    )]
+    pub output: Option<PathBuf>,
+    #[arg(long, requires = "output", help = "Overwrite the -o file if it exists")]
+    pub force: bool,
+    #[arg(
+        long,
+        value_enum,
+        help = "Config format [default: yaml, or taken from the -o file extension]"
+    )]
+    pub format: Option<FileFormat>,
 }
