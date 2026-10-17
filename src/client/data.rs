@@ -58,6 +58,17 @@ async fn connected_socket(target: SocketAddr) -> Option<Arc<UdpSocket>> {
     Some(Arc::new(sock))
 }
 
+thread_local! {
+    static RECEIVE: std::cell::RefCell<Vec<u8>> = std::cell::RefCell::new(vec![0u8; 65536]);
+}
+
+fn receive(sock: &UdpSocket) -> Option<Vec<u8>> {
+    RECEIVE.with(|buf| {
+        let mut buf = buf.borrow_mut();
+        sock.try_recv(&mut buf).ok().map(|n| buf[..n].to_vec())
+    })
+}
+
 async fn peer_replies(
     id: u32,
     sock: Arc<UdpSocket>,
@@ -67,13 +78,15 @@ async fn peer_replies(
     tx: mpsc::Sender<(u32, Vec<u8>)>,
     peers: Arc<Mutex<HashMap<u32, Peer>>>,
 ) {
-    let mut buf = vec![0u8; 65536];
     let check = timeout.min(Duration::from_secs(5));
     loop {
-        match tokio::time::timeout(check, sock.recv(&mut buf)).await {
-            Ok(Ok(n)) => {
+        match tokio::time::timeout(check, sock.readable()).await {
+            Ok(Ok(())) => {
+                let Some(datagram) = receive(&sock) else {
+                    continue;
+                };
                 seen.store(epoch.elapsed().as_millis() as u64, Ordering::Relaxed);
-                if tx.send((id, buf[..n].to_vec())).await.is_err() {
+                if tx.send((id, datagram)).await.is_err() {
                     break;
                 }
             }
