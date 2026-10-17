@@ -6,17 +6,14 @@ A fast, small, secure reverse tunnel. A client behind NAT connects out to a publ
 user ──> server:7840 ══ Noise-encrypted TCP or WebSocket ══ client (behind NAT) ──> 127.0.0.1:3000
 ```
 
-- TCP and UDP services, port ranges, Unix socket targets, half-close
-- Private services: reach a service from your own machine with `burrow visit`, without a public port, also through a SOCKS5 proxy
-- Several clients per service with failover or load balancing, and health checks
-- Per service: source IP allow and deny lists, the real client address through the PROXY protocol, bandwidth limits
-- Noise `NNpsk0` with a separate 256-bit secret per client, and a client-side allow list (deny by default)
-- Hot reload on file change or `SIGHUP`; invalid edits are rejected and the old config keeps running
-- Optional WebSocket transport for servers that are only reachable over HTTP(S); off unless configured
-- Prometheus metrics and `burrow status`, off unless configured
-- Clients never give up: jittered backoff, DNS re-resolved on every attempt, Happy Eyeballs dialing
-- Every config error reported at once, with `file:line:column`, a caret and a fix
-- Single static binary, about 3 MB; container image about 6 MB; `burrow update` installs new releases
+- TCP and UDP services, port ranges and Unix sockets
+- Private services that only your own machines reach, with `burrow visit` or a SOCKS5 proxy
+- Several clients per service, with failover or load balancing and health checks
+- Per service: allowed source IPs, the real client address for your app, and speed limits
+- Encrypted, with a separate secret per client; a client only reaches what it allows
+- Config changes apply on save, without a restart
+- Works behind nginx, Caddy or Cloudflare when only HTTP(S) is open
+- Runs as a system service on Linux, macOS and Windows, with metrics, `burrow status` and `burrow update`
 
 ## Contents
 
