@@ -116,7 +116,12 @@ struct Staged {
 
 impl Drop for Staged {
     fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.dir);
+        for _ in 0..20 {
+            if std::fs::remove_dir_all(&self.dir).is_ok() || !self.dir.exists() {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
     }
 }
 
