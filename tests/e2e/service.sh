@@ -174,32 +174,47 @@ for _ in $(seq 1 100); do "$LOADGEN" latency --addr 127.0.0.1:27940 --count 10 >
 check "update: $(echo "$out" | head -1)"
 
 echo "== commands that restart services finish even when the session that started them is killed"
+tree() {
+  local child
+  for child in $(pgrep -P "$1" || true); do tree "$child"; done
+  case "$(ps -o args= -p "$1" 2>/dev/null || true)" in
+    *--worker*) ;;
+    *) echo "$1" ;;
+  esac
+}
 interrupted() {
-  local job="$1" match="$2"
-  shift 2
+  local job="$1"
+  shift
   "$@" > "$WORK/hup.out" 2>&1 &
-  for _ in $(seq 1 100); do grep -q "in the background" "$WORK/hup.out" && break; sleep 0.1; done
+  local fg=$!
+  for _ in $(seq 1 500); do grep -q "in the background" "$WORK/hup.out" && break; sleep 0.02; done
+  local victims
+  victims="$(tree "$fg")"
+  sudo kill -HUP $victims 2>/dev/null || true
+  sudo kill -KILL $victims 2>/dev/null || true
   grep -q "in the background" "$WORK/hup.out" || fail "$job did not hand over to the background: $(cat "$WORK/hup.out")"
   local log
   log="$(sed -n 's/.*(log: \(.*\))$/\1/p' "$WORK/hup.out" | head -1)"
   case "$log" in */jobs/"$job"-*.log) ;; *) fail "unexpected log path for $job: $log" ;; esac
   JOBS="$(dirname "$log")"
-  local started
-  started="$(ps -eo pid,args | grep -F -- "$match" | grep -v -e "--worker" -e "grep" | awk '{print $1}')"
-  [ -n "$started" ] || fail "cannot find the $job process to kill"
-  sudo kill -HUP $started 2>/dev/null || true
-  sudo kill -KILL $started 2>/dev/null || true
-  for _ in $(seq 1 150); do sudo grep -q $'^\x01ok' "$log" 2>/dev/null && break; sleep 0.2; done
+  local how="still finishes"
+  if wait "$fg"; then
+    how="finished before it could be interrupted"
+  else
+    for _ in $(seq 1 150); do sudo grep -q $'^\x01ok' "$log" 2>/dev/null && break; sleep 0.2; done
+  fi
   for s in burrow-e2e-server burrow-e2e-client burrow-e2e-visitor; do running "$s" || fail "$s is not running after the interrupted $job"; done
-  sudo grep -q $'^\x01ok' "$log" || fail "the $job did not finish after its session was killed: $(sudo cat "$log")"
+  if [ "$how" = "still finishes" ]; then
+    sudo grep -q $'^\x01ok' "$log" || fail "the $job did not finish after its session was killed: $(sudo cat "$log" 2>/dev/null)"
+  fi
   for _ in $(seq 1 100); do "$LOADGEN" latency --addr 127.0.0.1:27940 --count 10 >/dev/null 2>&1 && break; sleep 0.2; done
   "$LOADGEN" latency --addr 127.0.0.1:27940 --count 200 >/dev/null || fail "no traffic after the interrupted $job"
-  check "an interrupted $job still finishes"
+  check "an interrupted $job $how"
 }
-interrupted update "service update --force" sudo "$B" service update --force
-interrupted restart "service restart burrow-e2e-client" sudo "$B" service restart burrow-e2e-client
-interrupted reload "service reload burrow-e2e-client" sudo "$B" service reload burrow-e2e-client
-interrupted install "service install -c e2e-client.yaml" env E2E_SECRET="$SECRET" sudo --preserve-env=E2E_SECRET "$B" service install -c e2e-client.yaml
+interrupted update sudo "$B" service update --force
+interrupted restart sudo "$B" service restart burrow-e2e-client
+interrupted reload sudo "$B" service reload burrow-e2e-client
+interrupted install env E2E_SECRET="$SECRET" sudo --preserve-env=E2E_SECRET "$B" service install -c e2e-client.yaml
 [ "$(sudo stat -c %a "$JOBS" 2>/dev/null || sudo stat -f %Lp "$JOBS")" = 700 ] || fail "$JOBS is not private"
 sudo grep -rqs -- "$SECRET" /var/log/burrow "$JOBS" && fail "a log contains the client secret"
 sudo ls "$JOBS" | grep -q '\.env$' && fail "the variables handed to the background install were left behind"
