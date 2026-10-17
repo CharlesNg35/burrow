@@ -9,7 +9,6 @@ use super::render::{Paint, Rates, rates, render};
 use crate::failure::Failure;
 use crate::metrics::Status;
 
-const TIMEOUT: Duration = Duration::from_secs(5);
 const MAX_BODY: u64 = 16 * 1024 * 1024;
 
 pub enum Pick {
@@ -28,34 +27,173 @@ pub struct Scan {
     pub hidden: usize,
 }
 
+const DEADLINE: Duration = Duration::from_secs(2);
+const MAX_FILE: u64 = 4096;
+
+enum Fetch {
+    Gone,
+    Failed,
+}
+
 pub fn fetch(entry: &Entry) -> Result<Status, String> {
+    fetch_by(entry, Instant::now() + DEADLINE).map_err(|(_, why)| why)
+}
+
+fn fetch_by(entry: &Entry, deadline: Instant) -> Result<Status, (Fetch, String)> {
+    let failed = |e: String| (Fetch::Failed, e);
+    let left = || {
+        deadline
+            .checked_duration_since(Instant::now())
+            .filter(|d| !d.is_zero())
+            .ok_or_else(|| failed("it did not answer in time".into()))
+    };
     let addr = SocketAddr::from(([127, 0, 0, 1], entry.port));
-    let mut s = TcpStream::connect_timeout(&addr, TIMEOUT).map_err(|e| e.to_string())?;
-    s.set_read_timeout(Some(TIMEOUT))
-        .map_err(|e| e.to_string())?;
-    s.set_write_timeout(Some(TIMEOUT))
-        .map_err(|e| e.to_string())?;
+    let mut s = TcpStream::connect_timeout(&addr, left()?).map_err(|e| {
+        let kind = if e.kind() == std::io::ErrorKind::ConnectionRefused {
+            Fetch::Gone
+        } else {
+            Fetch::Failed
+        };
+        (kind, e.to_string())
+    })?;
+    s.set_write_timeout(Some(left()?))
+        .map_err(|e| failed(e.to_string()))?;
     let request = format!(
         "GET /status HTTP/1.1\r\nHost: {addr}\r\nAuthorization: Bearer {}\r\nConnection: close\r\n\r\n",
         entry.token
     );
-    s.write_all(request.as_bytes()).map_err(|e| e.to_string())?;
+    s.write_all(request.as_bytes())
+        .map_err(|e| failed(e.to_string()))?;
     let mut raw = Vec::new();
-    s.take(MAX_BODY)
-        .read_to_end(&mut raw)
-        .map_err(|e| e.to_string())?;
+    let mut chunk = [0u8; 16 * 1024];
+    loop {
+        s.set_read_timeout(Some(left()?))
+            .map_err(|e| failed(e.to_string()))?;
+        match s.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(n) if (raw.len() + n) as u64 <= MAX_BODY => raw.extend_from_slice(&chunk[..n]),
+            Ok(_) => return Err(failed("the answer is too large".into())),
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(e) => return Err(failed(e.to_string())),
+        }
+    }
     let split = raw
         .windows(4)
         .position(|w| w == b"\r\n\r\n")
-        .ok_or("the answer is not HTTP")?;
+        .ok_or_else(|| failed("the answer is not HTTP".into()))?;
     let head = String::from_utf8_lossy(&raw[..split]);
     if !head.starts_with("HTTP/1.1 200") {
-        return Err(format!(
+        return Err(failed(format!(
             "it answered {}",
             head.lines().next().unwrap_or("nothing")
-        ));
+        )));
     }
-    serde_json::from_slice(&raw[split + 4..]).map_err(|e| format!("not a burrow status: {e}"))
+    let mut status: Status = serde_json::from_slice(&raw[split + 4..])
+        .map_err(|e| failed(format!("not a burrow status: {e}")))?;
+    clean_status(&mut status);
+    Ok(status)
+}
+
+pub fn clean(s: &str) -> String {
+    s.chars().filter(|c| !c.is_control()).collect()
+}
+
+fn clean_status(s: &mut Status) {
+    let all = |v: &mut Vec<String>| v.iter_mut().for_each(|x| *x = clean(x));
+    let opt = |v: &mut Option<String>| {
+        if let Some(x) = v {
+            *x = clean(x);
+        }
+    };
+    s.version = clean(&s.version);
+    all(&mut s.listening);
+    for c in &mut s.clients {
+        c.name = clean(&c.name);
+        opt(&mut c.from);
+    }
+    for v in &mut s.services {
+        v.name = clean(&v.name);
+        v.protocol = clean(&v.protocol);
+        v.target = clean(&v.target);
+        opt(&mut v.bind);
+        opt(&mut v.mode);
+        opt(&mut v.proxy_protocol);
+        all(&mut v.clients);
+        all(&mut v.visitors);
+        for h in &mut v.health {
+            h.client = clean(&h.client);
+        }
+    }
+    for v in &mut s.visitors {
+        v.name = clean(&v.name);
+    }
+}
+
+enum Seen {
+    Entry(Entry),
+    Hidden,
+    Stale,
+    Skip,
+}
+
+fn alive(pid: u32) -> Option<bool> {
+    cfg!(target_os = "linux").then(|| Path::new(&format!("/proc/{pid}")).exists())
+}
+
+fn read_entry(path: &Path) -> Seen {
+    let Some(pid) = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .and_then(|s| s.parse::<u32>().ok())
+    else {
+        return Seen::Skip;
+    };
+    let mut opts = std::fs::OpenOptions::new();
+    opts.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    }
+    let file = match opts.open(path) {
+        Ok(f) => f,
+        Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+            return match alive(pid) {
+                Some(false) => Seen::Skip,
+                _ => Seen::Hidden,
+            };
+        }
+        Err(_) => return Seen::Skip,
+    };
+    let Ok(meta) = file.metadata() else {
+        return Seen::Skip;
+    };
+    if !meta.is_file() || meta.len() > MAX_FILE {
+        return Seen::Skip;
+    }
+    if alive(pid) == Some(false) {
+        return Seen::Stale;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let owner = std::fs::metadata(format!("/proc/{pid}")).map(|m| m.uid());
+        if owner.ok() != Some(meta.uid()) {
+            return Seen::Skip;
+        }
+    }
+    let mut text = String::new();
+    if file.take(MAX_FILE).read_to_string(&mut text).is_err() {
+        return Seen::Skip;
+    }
+    match serde_json::from_str::<Entry>(&text) {
+        Ok(e) if e.pid == pid && e.port != 0 && valid_token(&e.token) => Seen::Entry(e),
+        _ => Seen::Skip,
+    }
+}
+
+fn valid_token(t: &str) -> bool {
+    t.len() == 48 && t.bytes().all(|b| b.is_ascii_hexdigit())
 }
 
 fn canonical(p: &Path) -> PathBuf {
@@ -71,10 +209,12 @@ fn wanted(pick: &Pick) -> Result<Option<PathBuf>, Failure> {
 }
 
 pub fn scan(dir: &Path, wanted: Option<&Path>) -> Scan {
-    let mut found = Vec::new();
     let mut hidden = 0;
     let Ok(listing) = std::fs::read_dir(dir) else {
-        return Scan { found, hidden };
+        return Scan {
+            found: Vec::new(),
+            hidden,
+        };
     };
     let mut paths: Vec<PathBuf> = listing
         .flatten()
@@ -82,26 +222,37 @@ pub fn scan(dir: &Path, wanted: Option<&Path>) -> Scan {
         .filter(|p| p.extension().is_some_and(|x| x == "status"))
         .collect();
     paths.sort();
+    let mut entries = Vec::new();
     for path in paths {
-        let text = match std::fs::read_to_string(&path) {
-            Ok(t) => t,
-            Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
-                hidden += 1;
-                continue;
+        match read_entry(&path) {
+            Seen::Entry(entry) if wanted.is_none_or(|w| w == entry.config) => {
+                entries.push((path, entry));
             }
-            Err(_) => continue,
-        };
-        let Ok(entry) = serde_json::from_str::<Entry>(&text) else {
-            continue;
-        };
-        if wanted.is_some_and(|w| w != entry.config) {
-            continue;
-        }
-        match fetch(&entry) {
-            Ok(status) => found.push(Found { entry, status }),
-            Err(_) => {
+            Seen::Hidden => hidden += 1,
+            Seen::Stale => {
                 let _ = std::fs::remove_file(&path);
             }
+            Seen::Entry(_) | Seen::Skip => {}
+        }
+    }
+    let deadline = Instant::now() + DEADLINE;
+    let fetched: Vec<_> = std::thread::scope(|scope| {
+        let jobs: Vec<_> = entries
+            .iter()
+            .map(|(_, entry)| scope.spawn(move || fetch_by(entry, deadline)))
+            .collect();
+        jobs.into_iter()
+            .map(|j| j.join().unwrap_or(Err((Fetch::Failed, "panicked".into()))))
+            .collect()
+    });
+    let mut found = Vec::new();
+    for ((path, entry), result) in entries.into_iter().zip(fetched) {
+        match result {
+            Ok(status) => found.push(Found { entry, status }),
+            Err((Fetch::Gone, _)) => {
+                let _ = std::fs::remove_file(&path);
+            }
+            Err((Fetch::Failed, _)) => {}
         }
     }
     Scan { found, hidden }
@@ -137,7 +288,7 @@ fn frame(scan: &Scan, paint: Paint, rates: Option<&HashMap<u32, Rates>>, all: bo
             }
             let title = paint.clip(&format!(
                 "== {} (pid {})",
-                f.entry.config.display(),
+                clean(&f.entry.config.display().to_string()),
                 f.entry.pid
             ));
             text.push_str(&if paint.color {

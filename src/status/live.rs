@@ -1,4 +1,6 @@
 use std::io::{self, Write};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use crossterm::cursor::{Hide, MoveTo, Show};
@@ -9,6 +11,8 @@ use crossterm::terminal::{
     LeaveAlternateScreen,
 };
 use crossterm::{execute, queue};
+
+const TICK: Duration = Duration::from_millis(200);
 
 pub enum Outcome {
     Quit,
@@ -22,23 +26,64 @@ pub fn width() -> Option<usize> {
         .filter(|w| *w > 0)
 }
 
-struct Screen;
+struct Screen {
+    stop: Arc<AtomicBool>,
+    #[cfg(unix)]
+    hooks: Vec<signal_hook::SigId>,
+}
+
+fn restore() {
+    let _ = execute!(
+        io::stdout(),
+        EndSynchronizedUpdate,
+        Show,
+        LeaveAlternateScreen
+    );
+    let _ = terminal::disable_raw_mode();
+}
 
 impl Screen {
     fn enter() -> io::Result<Screen> {
+        let stop = Arc::new(AtomicBool::new(false));
+        #[cfg(unix)]
+        let hooks = [
+            signal_hook::consts::SIGTERM,
+            signal_hook::consts::SIGHUP,
+            signal_hook::consts::SIGINT,
+        ]
+        .into_iter()
+        .map(|sig| signal_hook::flag::register(sig, stop.clone()))
+        .collect::<io::Result<Vec<_>>>()?;
+        let previous = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            restore();
+            previous(info);
+        }));
         terminal::enable_raw_mode()?;
         if let Err(e) = execute!(io::stdout(), EnterAlternateScreen, Hide) {
             let _ = terminal::disable_raw_mode();
             return Err(e);
         }
-        Ok(Screen)
+        Ok(Screen {
+            stop,
+            #[cfg(unix)]
+            hooks,
+        })
+    }
+
+    fn stopped(&self) -> bool {
+        self.stop.load(Ordering::Relaxed)
     }
 }
 
 impl Drop for Screen {
     fn drop(&mut self) {
-        let _ = execute!(io::stdout(), Show, LeaveAlternateScreen);
-        let _ = terminal::disable_raw_mode();
+        restore();
+        drop(std::panic::take_hook());
+        #[cfg(unix)]
+        for id in self.hooks.drain(..) {
+            signal_hook::low_level::unregister(id);
+        }
     }
 }
 
@@ -98,7 +143,11 @@ pub fn run(
     draw(&shown, footer)?;
     let mut due = Instant::now() + every;
     loop {
-        if event::poll(due.saturating_duration_since(Instant::now()))? {
+        if screen.stopped() {
+            return Ok(Outcome::Quit);
+        }
+        let wait = due.saturating_duration_since(Instant::now()).min(TICK);
+        if event::poll(wait)? {
             match event::read()? {
                 Event::Key(k) if quits(&k) => return Ok(Outcome::Quit),
                 Event::Resize(..) => {
@@ -109,6 +158,9 @@ pub fn run(
                 }
                 _ => {}
             }
+            continue;
+        }
+        if Instant::now() < due {
             continue;
         }
         due = Instant::now() + every;

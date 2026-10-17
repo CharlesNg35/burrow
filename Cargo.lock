@@ -222,6 +222,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "signal-hook",
  "snow",
  "socket2",
  "tempfile",

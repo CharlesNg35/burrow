@@ -417,7 +417,11 @@ pub fn render(s: &Status, paint: Paint, rates: Option<&Rates>) -> String {
         head.extend(s.listening.iter().cloned());
         let _ = writeln!(out, "{}", head.join(&dot));
     } else {
-        let _ = writeln!(out, "{}{dot}{up}", paint.bold(&title));
+        let _ = writeln!(
+            out,
+            "{}",
+            paint.bold(&paint.clip(&format!("{title}  ·  {up}")))
+        );
         for l in &s.listening {
             let _ = writeln!(out, "{}", paint.clip(l));
         }
@@ -465,7 +469,7 @@ pub fn render(s: &Status, paint: Paint, rates: Option<&Rates>) -> String {
             )
         ),
         &[
-            col("NAME", ALWAYS),
+            long("NAME", ALWAYS),
             col("STATE", 9),
             col("SINCE", 5),
             long("FROM", 4),
@@ -478,7 +482,7 @@ pub fn render(s: &Status, paint: Paint, rates: Option<&Rates>) -> String {
     if !s.services.is_empty() {
         let totals = if rates.is_some() { 4 } else { 6 };
         let mut cols = vec![
-            col("NAME", ALWAYS),
+            long("NAME", ALWAYS),
             col("PROTO", 3),
             address("ADDRESS", 11),
             address("TARGET", 5),
@@ -580,7 +584,7 @@ pub fn render(s: &Status, paint: Paint, rates: Option<&Rates>) -> String {
             &mut out,
             paint,
             &paint.bold("VISITORS"),
-            &[col("NAME", ALWAYS), col("OPEN", 6), col("TOTAL", 2)],
+            &[long("NAME", ALWAYS), col("OPEN", 6), col("TOTAL", 2)],
             rows,
         );
     }

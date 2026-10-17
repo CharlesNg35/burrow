@@ -46,24 +46,32 @@ fn server_config(dir: &Path, file: &str) -> PathBuf {
 }
 
 fn start(instances: &Path, config: &Path) -> Running {
-    let child = Command::new(BIN)
-        .args(["server", "-c"])
-        .arg(config)
-        .env("BURROW_INSTANCE_DIR", instances)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .unwrap();
-    let running = Running(child);
-    for _ in 0..100 {
-        let ready = std::fs::read_dir(instances).is_ok_and(|d| {
-            d.flatten()
-                .any(|e| e.file_name().to_string_lossy() == format!("{}.status", running.0.id()))
-        });
-        if ready {
-            return running;
+    for _ in 0..5 {
+        let child = Command::new(BIN)
+            .args(["server", "-c"])
+            .arg(config)
+            .env("BURROW_INSTANCE_DIR", instances)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let mut running = Running(child);
+        for _ in 0..100 {
+            let ready = std::fs::read_dir(instances).is_ok_and(|d| {
+                d.flatten().any(|e| {
+                    e.file_name().to_string_lossy() == format!("{}.status", running.0.id())
+                })
+            });
+            if ready {
+                return running;
+            }
+            if running.0.try_wait().unwrap().is_some() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(50));
         }
-        std::thread::sleep(Duration::from_millis(50));
+        let name = config.file_name().unwrap().to_string_lossy().into_owned();
+        server_config(config.parent().unwrap(), &name);
     }
     panic!("the server did not publish its status");
 }
@@ -249,4 +257,144 @@ fn follow_keeps_refreshing_with_rates() {
         .output()
         .unwrap();
     assert!(!o.status.success(), "--interval needs --follow");
+}
+
+#[cfg(unix)]
+fn sleeper() -> Running {
+    Running(Command::new("sleep").arg("60").spawn().unwrap())
+}
+
+#[cfg(unix)]
+fn plant(instances: &Path, pid: u32, port: u16, token: &str) {
+    std::fs::create_dir_all(instances).unwrap();
+    let entry = serde_json::json!({"config": "/etc/burrow/server.yaml", "pid": pid, "port": port, "token": token});
+    std::fs::write(instances.join(format!("{pid}.status")), entry.to_string()).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn planted_status_files_cannot_hang_inject_or_paint_the_terminal() {
+    use std::net::TcpListener;
+    let dir = tempfile::tempdir().unwrap();
+    let instances = dir.path().join("instances");
+    std::fs::create_dir_all(&instances).unwrap();
+    let token = "ab".repeat(24);
+
+    let fifo = sleeper();
+    let made = Command::new("mkfifo")
+        .arg(instances.join(format!("{}.status", fifo.0.id())))
+        .status()
+        .unwrap();
+    assert!(made.success());
+
+    let silent = TcpListener::bind("127.0.0.1:0").unwrap();
+    let silent_port = silent.local_addr().unwrap().port();
+    std::thread::spawn(move || {
+        let mut held = Vec::new();
+        for c in silent.incoming().flatten() {
+            held.push(c);
+        }
+    });
+    let slow = sleeper();
+    plant(&instances, slow.0.id(), silent_port, &token);
+
+    let trap = TcpListener::bind("127.0.0.1:0").unwrap();
+    let trap_port = trap.local_addr().unwrap().port();
+    trap.set_nonblocking(true).unwrap();
+    let injected = sleeper();
+    plant(
+        &instances,
+        injected.0.id(),
+        trap_port,
+        &format!("{token}\r\nX-Injected: yes"),
+    );
+
+    #[cfg(target_os = "linux")]
+    plant(&instances, 1, trap_port, &token);
+
+    let painter = TcpListener::bind("127.0.0.1:0").unwrap();
+    let painter_port = painter.local_addr().unwrap().port();
+    std::thread::spawn(move || {
+        for mut c in painter.incoming().flatten() {
+            let mut head = [0u8; 4096];
+            let _ = c.read(&mut head);
+            let body = serde_json::json!({
+                "version": "6.6.6\u{1b}]0;PWNED\u{7}\u{1b}[2J",
+                "uptime_secs": 1,
+                "listening": ["clients on \u{1b}[31mred"],
+                "handshakes_refused": 0,
+                "udp_peers": 0,
+                "clients": [],
+                "services": [],
+                "visitors": []
+            })
+            .to_string();
+            let _ = write!(
+                c,
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{body}",
+                body.len()
+            );
+        }
+    });
+    let shown = sleeper();
+    plant(&instances, shown.0.id(), painter_port, &token);
+
+    let began = std::time::Instant::now();
+    let o = status(&instances, &[]);
+    let took = began.elapsed();
+    assert!(took < Duration::from_secs(4), "burrow status took {took:?}");
+    let out = text(&o);
+    assert!(o.status.success(), "{out}");
+    assert!(out.contains("burrow 6.6.6]0;PWNED"), "{out}");
+    assert!(!out.contains('\u{1b}') && !out.contains('\u{7}'), "{out:?}");
+    assert!(
+        trap.accept().is_err(),
+        "nothing may connect to the port of a bad entry"
+    );
+    drop((fifo, slow, injected, shown));
+}
+
+#[cfg(unix)]
+#[test]
+fn a_paused_server_keeps_its_status_file_and_shows_again() {
+    let dir = tempfile::tempdir().unwrap();
+    let instances = dir.path().join("instances");
+    let config = server_config(dir.path(), "server.yaml");
+    let server = start(&instances, &config);
+    let pid = server.0.id().to_string();
+    let file = instances.join(format!("{pid}.status"));
+    let signal = |sig: &str| {
+        assert!(
+            Command::new("kill")
+                .args([sig, &pid])
+                .status()
+                .unwrap()
+                .success()
+        );
+    };
+    signal("-STOP");
+    for _ in 0..100 {
+        let state = Command::new("ps")
+            .args(["-o", "stat=", "-p", &pid])
+            .output()
+            .unwrap();
+        if String::from_utf8_lossy(&state.stdout)
+            .trim_start()
+            .starts_with('T')
+        {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    std::thread::sleep(Duration::from_millis(100));
+    let began = std::time::Instant::now();
+    let o = status(&instances, &[]);
+    let took = began.elapsed();
+    signal("-CONT");
+    assert!(took < Duration::from_secs(4), "burrow status took {took:?}");
+    assert!(!o.status.success(), "{}", text(&o));
+    assert!(file.exists(), "the status file of a paused server is kept");
+    let o = status(&instances, &[]);
+    assert!(o.status.success(), "{}", text(&o));
+    assert!(text(&o).contains("CLIENTS"), "{}", text(&o));
 }
