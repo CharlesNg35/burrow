@@ -88,6 +88,11 @@ impl WsConn {
         }
     }
 
+    pub async fn finish(&mut self) -> io::Result<()> {
+        self.flush().await?;
+        self.inner.get_mut().shutdown().await
+    }
+
     fn poll_send_buffered(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         if self.write_buf.is_empty() {
             return Poll::Ready(Ok(()));

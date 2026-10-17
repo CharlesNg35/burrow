@@ -101,6 +101,13 @@ impl Conn {
         }
     }
 
+    pub async fn finish(&mut self) -> std::io::Result<()> {
+        match self {
+            Conn::Tcp(_) => Ok(()),
+            Conn::Ws(s) => s.finish().await,
+        }
+    }
+
     pub fn is_websocket(&self) -> bool {
         matches!(self, Conn::Ws(_))
     }

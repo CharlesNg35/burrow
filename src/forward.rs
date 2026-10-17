@@ -1,4 +1,5 @@
 use std::io;
+use std::time::Duration;
 
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
@@ -6,6 +7,13 @@ use tokio::net::TcpStream;
 use crate::handshake::Channel;
 use crate::protocol::{Connect, Status};
 use crate::record::{CHUNK, open_pump, raw_pump, relay_pump, seal_pump};
+use crate::transport::Conn;
+
+const CLOSE_TIMEOUT: Duration = Duration::from_secs(2);
+
+async fn close(stream: &mut Conn) {
+    let _ = tokio::time::timeout(CLOSE_TIMEOUT, stream.finish()).await;
+}
 
 #[derive(Debug)]
 pub enum ForwardError {
@@ -60,7 +68,9 @@ pub async fn open_tcp(
         Ok(())
     };
     let up = async { up.await.map_err(ForwardError::Io) };
-    tokio::try_join!(up, down).map(|_| ())
+    let done = tokio::try_join!(up, down).map(|_| ());
+    close(&mut stream).await;
+    done
 }
 
 pub async fn client_tcp(
@@ -113,7 +123,9 @@ async fn pump_tcp(ch: Channel, mut target: TcpStream, plaintext: bool) -> Result
             open_pump(&mut cr, &mut tw, &mut reader).await
         }
     };
-    tokio::try_join!(up, down)?;
+    let done = tokio::try_join!(up, down);
+    close(&mut stream).await;
+    done?;
     Ok(())
 }
 
@@ -171,7 +183,9 @@ pub async fn relay(
         Ok(())
     };
     let up = async { up.await.map_err(ForwardError::Io) };
-    tokio::try_join!(up, down).map(|_| ())
+    let done = tokio::try_join!(up, down).map(|_| ());
+    tokio::join!(close(&mut vs), close(&mut cs));
+    done
 }
 
 pub async fn reply(mut ch: Channel, status: Status) {

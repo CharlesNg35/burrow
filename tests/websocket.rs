@@ -142,7 +142,14 @@ async fn wss_without_trusting_the_certificate_fails() {
     assert!(srv.shared.session_names().is_empty());
 }
 
-async fn tls_terminating_proxy(cert: &Cert, upstream: SocketAddr) -> SocketAddr {
+async fn tls_terminating_proxy(
+    cert: &Cert,
+    upstream: SocketAddr,
+) -> (
+    SocketAddr,
+    tokio::sync::mpsc::UnboundedReceiver<std::io::Result<(u64, u64)>>,
+) {
+    let (ended, ends) = tokio::sync::mpsc::unbounded_channel();
     let acceptor =
         burrow::transport::tls::acceptor(cert.cert_pem.as_bytes(), cert.key_pem.as_bytes())
             .unwrap();
@@ -154,6 +161,7 @@ async fn tls_terminating_proxy(cert: &Cert, upstream: SocketAddr) -> SocketAddr 
                 return;
             };
             let acceptor = acceptor.clone();
+            let ended = ended.clone();
             tokio::spawn(async move {
                 let Ok(mut down) = acceptor.accept(down).await else {
                     return;
@@ -161,11 +169,11 @@ async fn tls_terminating_proxy(cert: &Cert, upstream: SocketAddr) -> SocketAddr 
                 let Ok(mut up) = TcpStream::connect(upstream).await else {
                     return;
                 };
-                let _ = tokio::io::copy_bidirectional(&mut down, &mut up).await;
+                let _ = ended.send(tokio::io::copy_bidirectional(&mut down, &mut up).await);
             });
         }
     });
-    addr
+    (addr, ends)
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -177,7 +185,7 @@ async fn behind_a_tls_terminating_proxy() {
     s.services
         .insert("web".into(), service(echo, Protocol::Tcp));
     let srv = start_server(s).await;
-    let proxy = tls_terminating_proxy(&cert, srv.ws_addr.unwrap()).await;
+    let (proxy, mut ends) = tls_terminating_proxy(&cert, srv.ws_addr.unwrap()).await;
     let _cli = connected(
         &srv,
         ws_client(
@@ -189,6 +197,14 @@ async fn behind_a_tls_terminating_proxy() {
     .await;
     let data = pattern(8 << 20, 11);
     assert_eq!(roundtrip(srv.services["web"], &data).await, data);
+    let end = tokio::time::timeout(Duration::from_secs(10), ends.recv())
+        .await
+        .expect("the data channel closes")
+        .unwrap();
+    assert!(
+        end.is_ok(),
+        "the data channel must end with a WebSocket close and TLS close_notify, not {end:?}"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
