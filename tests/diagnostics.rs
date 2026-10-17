@@ -56,7 +56,7 @@ fn typo_field() {
        |
     10 |     bnd: 0.0.0.0:4000
        |     ^^^ unknown field
-       = help: did you mean "bind"? valid fields: client, bind, target, protocol, max_connections, visitors, allow_from, deny_from
+       = help: did you mean "bind"? valid fields: client, bind, target, protocol, max_connections, visitors, allow_from, deny_from, proxy_protocol
 
     server.yaml: 2 errors, 0 warnings
     "#);
@@ -457,7 +457,7 @@ fn json_multiple_errors() {
        |
      5 |     "web": {"client": "hom", "bnd": 4000, "target": "127.0.0.1:3000"},
        |                              ^^^^^ unknown field
-       = help: did you mean "bind"? valid fields: client, bind, target, protocol, max_connections, visitors, allow_from, deny_from
+       = help: did you mean "bind"? valid fields: client, bind, target, protocol, max_connections, visitors, allow_from, deny_from, proxy_protocol
 
     error: unknown protocol "udpp" in service "dns"
       --> server.json:6:83
@@ -1323,5 +1323,29 @@ fn source_filters() {
        = help: use an IP like 203.0.113.7 or a network like 203.0.113.0/24 or 2001:db8::/32
 
     server.yaml: 3 errors, 0 warnings
+    "#);
+}
+
+#[test]
+fn proxy_protocol_needs_tcp() {
+    insta::assert_snapshot!(render("server.yaml", &server("  web:\n    client: home\n    bind: 8443\n    target: 8443\n    proxy_protocol: v2\n  dns:\n    client: home\n    bind: 5353\n    target: 53\n    protocol: udp\n    proxy_protocol: v1\n"), None), @r#"
+    error: service "dns" is udp, but proxy_protocol only works for tcp services
+      --> server.yaml:18:21
+       |
+    18 |     proxy_protocol: v1
+       |                     ^^
+       = help: remove "proxy_protocol", or use a tcp service
+
+    server.yaml: 1 error, 0 warnings
+    "#);
+    insta::assert_snapshot!(render("server.yaml", &server("  web:\n    client: home\n    bind: 8443\n    target: 8443\n    proxy_protocol: v3\n"), None), @r#"
+    error: unknown proxy_protocol "v3" in service "web"
+      --> server.yaml:12:21
+       |
+    12 |     proxy_protocol: v3
+       |                     ^^ not a valid proxy_protocol
+       = help: did you mean "v1"? valid values: v1, v2
+
+    server.yaml: 1 error, 0 warnings
     "#);
 }

@@ -208,6 +208,19 @@ pub fn check_server(
                 .help("remove \"visitors\", or use a tcp service"),
             );
         }
+        if svc.proxy_protocol.is_some() && svc.protocol != Protocol::Tcp {
+            out.push(
+                Diagnostic::error(
+                    "proxy-protocol-tcp-only",
+                    format!(
+                        "service \"{name}\" is {}, but proxy_protocol only works for tcp services",
+                        svc.protocol.as_str()
+                    ),
+                )
+                .at(spans.value(&path("proxy_protocol")))
+                .help("remove \"proxy_protocol\", or use a tcp service"),
+            );
+        }
         let target = svc.target.host_port();
         let checked = if target.len() > MAX_TARGET_LEN {
             Err(format!(
@@ -312,6 +325,7 @@ pub fn check_server(
                     max_connections: svc.max_connections.map(|m| m as usize),
                     visitors: listed,
                     sources,
+                    proxy_protocol: svc.proxy_protocol,
                 },
             );
         }

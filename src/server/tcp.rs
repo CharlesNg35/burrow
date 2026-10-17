@@ -12,6 +12,7 @@ use crate::config::model::Protocol;
 use crate::config::settings::Service;
 use crate::forward::{ForwardError, open_tcp};
 use crate::protocol::{Connect, Status};
+use crate::proxy_protocol::header;
 use crate::transport::tcp::tune;
 
 pub(super) async fn tcp_service(
@@ -88,7 +89,11 @@ async fn visit(
         return;
     }
     let first = connect.encode();
-    let forward = open_tcp(ch, visitor, &first, settings.insecure_plaintext);
+    let prefix = match (svc.proxy_protocol, visitor.local_addr()) {
+        (Some(version), Ok(local)) => header(version, peer, local),
+        _ => Vec::new(),
+    };
+    let forward = open_tcp(ch, visitor, &first, &prefix, settings.insecure_plaintext);
     tokio::pin!(forward);
     let result = loop {
         tokio::select! {

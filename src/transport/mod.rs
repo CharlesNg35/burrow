@@ -108,6 +108,13 @@ impl Conn {
         }
     }
 
+    pub fn local_addr(&self) -> std::io::Result<std::net::SocketAddr> {
+        match self {
+            Conn::Tcp(s) => s.local_addr(),
+            Conn::Ws(s) => s.local_addr(),
+        }
+    }
+
     pub fn is_websocket(&self) -> bool {
         matches!(self, Conn::Ws(_))
     }

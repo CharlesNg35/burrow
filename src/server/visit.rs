@@ -227,7 +227,16 @@ pub(super) async fn serve(
         service: grant.service.clone().unwrap_or_default(),
         target: grant.target.clone(),
     };
-    let forward = relay(channel, ch, &connect, settings.insecure_plaintext);
+    let version = grant
+        .service
+        .as_ref()
+        .and_then(|name| settings.services.get(name))
+        .and_then(|s| s.proxy_protocol);
+    let prefix = match (version, channel.stream.local_addr()) {
+        (Some(version), Ok(local)) => crate::proxy_protocol::header(version, peer, local),
+        _ => Vec::new(),
+    };
+    let forward = relay(channel, ch, &connect, &prefix, settings.insecure_plaintext);
     tokio::pin!(forward);
     let result = loop {
         tokio::select! {

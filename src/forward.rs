@@ -28,10 +28,24 @@ impl From<io::Error> for ForwardError {
     }
 }
 
+async fn send_prefix(
+    stream: &mut Conn,
+    writer: &mut crate::record::RecordWriter,
+    prefix: &[u8],
+    plaintext: bool,
+) -> io::Result<()> {
+    match (prefix.is_empty(), plaintext) {
+        (true, _) => Ok(()),
+        (false, true) => stream.write_all(prefix).await,
+        (false, false) => writer.send(stream, prefix).await,
+    }
+}
+
 pub async fn open_tcp(
     ch: Channel,
     mut visitor: TcpStream,
     first: &[u8],
+    prefix: &[u8],
     plaintext: bool,
 ) -> Result<(), ForwardError> {
     let Channel {
@@ -41,6 +55,7 @@ pub async fn open_tcp(
     } = ch;
     writer.send(&mut stream, first).await?;
     let plaintext = plaintext && stream.supports_half_close();
+    send_prefix(&mut stream, &mut writer, prefix, plaintext).await?;
     let (mut cr, mut cw) = stream.split();
     let (mut vr, mut vw) = visitor.split();
     let up = async {
@@ -133,6 +148,7 @@ pub async fn relay(
     visitor: Channel,
     client: Channel,
     connect: &Connect,
+    prefix: &[u8],
     plaintext: bool,
 ) -> Result<(), ForwardError> {
     let Channel {
@@ -147,6 +163,7 @@ pub async fn relay(
     } = client;
     cwriter.send(&mut cs, &connect.encode()).await?;
     let plaintext = plaintext && cs.supports_half_close();
+    send_prefix(&mut cs, &mut cwriter, prefix, plaintext).await?;
     let (mut cr, mut cw) = cs.split();
     let (mut vr, mut vw) = vs.split();
     let up = async {

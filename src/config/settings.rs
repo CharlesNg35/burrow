@@ -57,6 +57,7 @@ pub struct Service {
     pub max_connections: Option<usize>,
     pub visitors: Vec<String>,
     pub sources: Sources,
+    pub proxy_protocol: Option<crate::proxy_protocol::Version>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

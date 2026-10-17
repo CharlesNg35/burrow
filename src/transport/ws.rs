@@ -88,6 +88,14 @@ impl WsConn {
         }
     }
 
+    pub fn local_addr(&self) -> io::Result<std::net::SocketAddr> {
+        match &self.inner.get_ref().inner {
+            Carrier::Plain(s) => s.local_addr(),
+            Carrier::ClientTls(s) => s.get_ref().0.local_addr(),
+            Carrier::ServerTls(s) => s.get_ref().0.local_addr(),
+        }
+    }
+
     pub async fn finish(&mut self) -> io::Result<()> {
         self.flush().await?;
         self.inner.get_mut().shutdown().await
