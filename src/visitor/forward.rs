@@ -98,6 +98,12 @@ fn explain(status: Status, to: &VisitTarget, visitor: &str) -> String {
     }
 }
 
+fn socks_target_ok(target: &str) -> bool {
+    target.len() <= crate::config::check::MAX_TARGET_LEN
+        && !target.starts_with(crate::config::check::unix::PREFIX)
+        && crate::config::check::parse_host_port(target).is_ok()
+}
+
 pub(super) async fn check(dialer: Arc<Dialer>, forwards: Vec<(String, VisitTarget)>) {
     let mut ready = true;
     for (name, to) in forwards {
@@ -141,7 +147,7 @@ pub(super) async fn check(dialer: Arc<Dialer>, forwards: Vec<(String, VisitTarge
 
 async fn ask(mut ch: crate::handshake::Channel, request: &VisitRequest) -> Option<Status> {
     ch.writer
-        .send(&mut ch.stream, &request.encode())
+        .send(&mut ch.stream, &request.encode().ok()?)
         .await
         .ok()?;
     let answer = tokio::time::timeout(Duration::from_secs(10), ch.reader.recv(&mut ch.stream));
@@ -168,7 +174,14 @@ pub(super) async fn visit(
     let to = match (socks, to) {
         (true, VisitTarget::Client { client, .. }) => {
             match tokio::time::timeout(SOCKS_TIMEOUT, socks::request(&mut stream)).await {
-                Ok(Ok(target)) => VisitTarget::Client { client, target },
+                Ok(Ok(target)) if socks_target_ok(&target) => {
+                    VisitTarget::Client { client, target }
+                }
+                Ok(Ok(target)) => {
+                    debug!(%peer, "forward \"{name}\": SOCKS target {target:?} is not a valid host:port");
+                    let _ = socks::reply(&mut stream, Reply::HostUnreachable).await;
+                    return;
+                }
                 Ok(Err(e)) => {
                     debug!(%peer, "forward \"{name}\": SOCKS request refused: {e}");
                     return;
@@ -190,7 +203,7 @@ pub(super) async fn visit(
         drop(permit);
         attempt += 1;
         match ch {
-            Err(DialError::Rejected) if attempt < REJECT_ATTEMPTS => {
+            Err(DialError::Rejected | DialError::Lost(_)) if attempt < REJECT_ATTEMPTS => {
                 tokio::time::sleep(Duration::from_millis(100 * attempt)).await;
             }
             ch => break ch,
@@ -213,11 +226,17 @@ pub(super) async fn visit(
             return;
         }
     };
-    let request = VisitRequest {
+    let Ok(request) = (VisitRequest {
         check: false,
         to: to.clone(),
-    }
-    .encode();
+    })
+    .encode() else {
+        if socks {
+            let _ = socks::reply(&mut stream, Reply::HostUnreachable).await;
+        }
+        debug!(%peer, "forward \"{name}\": {to} is too long to send");
+        return;
+    };
     let result = if socks {
         let mut ch = ch;
         match request_visit(&mut ch, &request).await {

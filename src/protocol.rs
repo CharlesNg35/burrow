@@ -466,22 +466,30 @@ pub struct VisitRequest {
     pub to: VisitTarget,
 }
 
+fn put_short(v: &mut Vec<u8>, s: &str) -> Result<(), DecodeError> {
+    let b = s.as_bytes();
+    let n = u8::try_from(b.len()).map_err(|_| DecodeError::TooLong)?;
+    v.push(n);
+    v.extend_from_slice(b);
+    Ok(())
+}
+
 impl VisitRequest {
-    pub fn encode(&self) -> Vec<u8> {
+    pub fn encode(&self) -> Result<Vec<u8>, DecodeError> {
         let mut v = vec![0x20, u8::from(self.check)];
         match &self.to {
             VisitTarget::Service { name, index } => {
                 v.push(1);
-                put_str(&mut v, name);
+                put_short(&mut v, name)?;
                 v.extend_from_slice(&index.to_be_bytes());
             }
             VisitTarget::Client { client, target } => {
                 v.push(2);
-                put_str(&mut v, client);
-                put_str(&mut v, target);
+                put_short(&mut v, client)?;
+                put_short(&mut v, target)?;
             }
         }
-        v
+        Ok(v)
     }
 
     pub fn decode(b: &[u8]) -> Result<Self, DecodeError> {
@@ -534,6 +542,18 @@ pub fn decode_datagram(b: &[u8]) -> Result<(u32, &[u8]), DecodeError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fields_too_long_for_the_wire_are_an_error() {
+        let too_long = VisitRequest {
+            check: false,
+            to: VisitTarget::Client {
+                client: "home".into(),
+                target: format!("{}:8080", "a".repeat(252)),
+            },
+        };
+        assert_eq!(too_long.encode(), Err(DecodeError::TooLong));
+    }
 
     #[test]
     fn ports_of_a_range_are_shown_from_one() {
@@ -648,7 +668,7 @@ mod tests {
                 },
             },
         ] {
-            let b = r.encode();
+            let b = r.encode().unwrap();
             assert_eq!(VisitRequest::decode(&b).unwrap(), r);
             for i in 0..b.len() {
                 assert!(VisitRequest::decode(&b[..i]).is_err());

@@ -89,7 +89,10 @@ async fn ask(
         Err(DialError::Lost(_)) => return Err("lost"),
     };
     ch.writer
-        .send(&mut ch.stream, &VisitRequest { check, to }.encode())
+        .send(
+            &mut ch.stream,
+            &VisitRequest { check, to }.encode().unwrap(),
+        )
         .await
         .unwrap();
     match tokio::time::timeout(Duration::from_secs(10), ch.reader.recv(&mut ch.stream)).await {

@@ -16,7 +16,7 @@ fuzz_target!(|data: &[u8]| {
     let _ = Hello::decode(data);
     let _ = Status::decode(data);
     if let Ok(r) = VisitRequest::decode(data) {
-        assert_eq!(VisitRequest::decode(&r.encode()), Ok(r));
+        assert_eq!(VisitRequest::decode(&r.encode().unwrap()), Ok(r));
     }
     let _ = decode_datagram(data);
 
