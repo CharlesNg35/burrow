@@ -18,6 +18,7 @@ use crate::handshake::Channel;
 use crate::protocol::{
     Connect, KEEPALIVE_RECORD, ServiceInfo, Status, decode_datagram, encode_datagram,
 };
+use crate::throttle::Throttle;
 use crate::transport::resolve::Resolver;
 use crate::transport::tcp::{connect_any, tune};
 
@@ -145,19 +146,22 @@ pub async fn serve(settings: Arc<ClientSettings>, resolver: Arc<dyn Resolver>, m
             let target = match connect_any(&addrs, settings.connect_timeout).await {
                 Ok(t) => t,
                 Err(e) => {
-                    warn!(
-                        "service \"{}\": cannot connect to {} ({}); is it running?",
-                        connect.service,
-                        connect.target,
-                        io_reason(&e)
-                    );
+                    static UNREACHABLE: Throttle = Throttle::new();
+                    if let Some(more) = UNREACHABLE.allow() {
+                        warn!(
+                            "{}: cannot connect to {} ({}); is it running?{more}",
+                            label(&connect),
+                            connect.target,
+                            io_reason(&e)
+                        );
+                    }
                     reply(ch, Status::Unreachable).await;
                     return;
                 }
             };
             tune(&target, &settings.tcp);
             if let Err(e) = client_tcp(ch, target, settings.insecure_plaintext).await {
-                debug!("service \"{}\": connection ended: {e:?}", connect.service);
+                debug!("{}: connection ended: {e:?}", label(&connect));
             }
         }
         Protocol::Udp => udp(settings, ch, connect, addrs).await,
@@ -175,13 +179,20 @@ async fn permitted(
     let resolved = match resolver.resolve(&connect.target).await {
         Ok(a) => a,
         Err(e) => {
-            warn!(
-                "service \"{}\": cannot resolve {} ({})",
-                connect.service,
-                connect.target,
-                io_reason(&e)
-            );
-            return Err(Status::Unresolved);
+            static UNRESOLVED: Throttle = Throttle::new();
+            if let Some(more) = UNRESOLVED.allow() {
+                warn!(
+                    "{}: cannot resolve {} ({}){more}",
+                    label(connect),
+                    connect.target,
+                    io_reason(&e)
+                );
+            }
+            return Err(if connect.service.is_empty() {
+                Status::Denied
+            } else {
+                Status::Unresolved
+            });
         }
     };
     let allowed: Vec<SocketAddr> = resolved
@@ -190,16 +201,29 @@ async fn permitted(
         .filter(|a| settings.allow.permits(*a))
         .collect();
     if allowed.is_empty() {
-        let first = resolved[0];
-        warn!(
-            "denied connection to {} for service \"{}\": {first} is not in the allow list; add \"{}\" to \"allow\" to permit it",
-            connect.target,
-            connect.service,
-            AllowList::suggestion(first)
-        );
+        static DENIED: Throttle = Throttle::new();
+        if let Some(more) = DENIED.allow() {
+            let first = resolved[0];
+            let whom = match connect.service.as_str() {
+                "" => "a visitor".to_string(),
+                s => format!("service \"{s}\""),
+            };
+            warn!(
+                "denied connection to {} for {whom}: {first} is not in the allow list; add \"{}\" to \"allow\" to permit it{more}",
+                connect.target,
+                AllowList::suggestion(first)
+            );
+        }
         return Err(Status::Denied);
     }
     Ok(allowed)
+}
+
+fn label(connect: &Connect) -> String {
+    match connect.service.as_str() {
+        "" => "visitor connection".to_string(),
+        s => format!("service \"{s}\""),
+    }
 }
 
 async fn udp(settings: Arc<ClientSettings>, ch: Channel, connect: Connect, addrs: Vec<SocketAddr>) {
