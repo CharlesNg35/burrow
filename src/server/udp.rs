@@ -245,6 +245,7 @@ async fn relay(
         counted: 0,
     };
     let mut sweep = tokio::time::interval(Duration::from_secs(5));
+    let mut repick = tokio::time::interval(Duration::from_secs(1));
     let mut buf = vec![0u8; 65536];
     let mut rec = Vec::with_capacity(65536);
     let mut stop = shared.shutdown.clone();
@@ -292,6 +293,16 @@ async fn relay(
                     p.len()
                 };
                 gauge.set(count);
+            }
+            _ = repick.tick() => {
+                let current = config.borrow().clone();
+                if let Some(preferred) = shared
+                    .preferred(name, &current)
+                    .filter(|p| *p != session.name)
+                {
+                    debug!("service \"{name}\": moving the UDP relay to client \"{preferred}\"");
+                    break Ok(());
+                }
             }
             _ = &mut back.0 => break Err(None),
             r = config.changed() => {

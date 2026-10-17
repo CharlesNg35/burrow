@@ -6,19 +6,7 @@ use crate::config::settings::Service;
 
 impl Shared {
     pub(crate) fn pick(&self, service: &str, svc: &Service) -> Option<Arc<ClientSession>> {
-        let connected: Vec<Arc<ClientSession>> = {
-            let sessions = self.sessions.lock().expect("sessions lock");
-            svc.clients
-                .iter()
-                .filter_map(|c| sessions.get(c).cloned())
-                .collect()
-        };
-        let up: Vec<Arc<ClientSession>> = connected
-            .iter()
-            .filter(|s| svc.health.is_none() || self.is_up(service, &s.name))
-            .cloned()
-            .collect();
-        let pool = if up.is_empty() { connected } else { up };
+        let pool = self.candidates(service, svc);
         if pool.is_empty() {
             return None;
         }
@@ -32,6 +20,32 @@ impl Shared {
             }
         };
         Some(pool[at].clone())
+    }
+
+    pub(crate) fn preferred(&self, service: &str, svc: &Service) -> Option<String> {
+        match svc.mode {
+            Mode::Failover => self
+                .candidates(service, svc)
+                .first()
+                .map(|s| s.name.clone()),
+            Mode::Balance => None,
+        }
+    }
+
+    fn candidates(&self, service: &str, svc: &Service) -> Vec<Arc<ClientSession>> {
+        let connected: Vec<Arc<ClientSession>> = {
+            let sessions = self.sessions.lock().expect("sessions lock");
+            svc.clients
+                .iter()
+                .filter_map(|c| sessions.get(c).cloned())
+                .collect()
+        };
+        let up: Vec<Arc<ClientSession>> = connected
+            .iter()
+            .filter(|s| svc.health.is_none() || self.is_up(service, &s.name))
+            .cloned()
+            .collect();
+        if up.is_empty() { connected } else { up }
     }
 
     pub(crate) fn still_serves(&self, service: &str, client: &str) -> bool {

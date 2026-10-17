@@ -113,9 +113,13 @@ impl Shared {
         to: &VisitTarget,
         from: IpAddr,
         grant: &Grant,
+        client: &str,
     ) -> bool {
-        self.grant(visitor, secret, to, from)
-            .is_ok_and(|g| g == *grant)
+        self.grant(visitor, secret, to, from).is_ok_and(|g| {
+            g.target == grant.target
+                && g.service == grant.service
+                && g.clients.iter().any(|c| c == client)
+        })
     }
 }
 
@@ -178,6 +182,9 @@ pub(super) async fn serve(
         None => grant.clients.first().and_then(|c| shared.session(c)),
     };
     let Some(session) = picked else {
+        if let (Some(name), false) = (&grant.service, request.check) {
+            shared.metrics.refuse(name);
+        }
         debug!(%peer, "{label}: no client of {} is connected", request.to);
         reply(channel, Status::Offline).await;
         return;
@@ -251,7 +258,7 @@ pub(super) async fn serve(
     };
     let mut reloads = shared.reloads();
     let allowed = || {
-        shared.still_granted(&visitor, &secret, &request.to, peer.ip(), &grant)
+        shared.still_granted(&visitor, &secret, &request.to, peer.ip(), &grant, &client)
             && shared.allows(&client, &session.secret)
     };
     if !allowed() {

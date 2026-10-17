@@ -79,11 +79,10 @@ pub(super) async fn run(shared: Arc<Shared>) {
         {
             let mut probes = shared.probes.lock().expect("probes lock");
             probes.retain(|(service, client), _| {
-                connected.contains(client)
-                    && settings
-                        .services
-                        .get(service)
-                        .is_some_and(|s| s.health.is_some() && s.clients.contains(client))
+                settings
+                    .services
+                    .get(service)
+                    .is_some_and(|s| s.health.is_some() && s.clients.contains(client))
             });
             for (name, svc) in &settings.services {
                 let Some(health) = svc.health else { continue };
@@ -133,9 +132,14 @@ async fn probe(shared: &Shared, service: &str, client: &str, target: &str) -> Re
         Ok(Some(b)) => Status::decode(b).map_err(|_| "invalid reply".to_string())?,
         _ => return Err("the client closed the check".into()),
     };
-    let _ = ch.writer.send(&mut ch.stream, &[]).await;
-    let _ = ch.stream.flush().await;
-    let _ = ch.stream.finish().await;
+    let raw = shared.settings().insecure_plaintext && ch.stream.supports_half_close();
+    if raw {
+        let _ = ch.stream.shutdown().await;
+    } else {
+        let _ = ch.writer.send(&mut ch.stream, &[]).await;
+        let _ = ch.stream.flush().await;
+        let _ = ch.stream.finish().await;
+    }
     match answer {
         Status::Ok => Ok(()),
         Status::Unreachable => Err(format!("cannot connect to {target}")),
