@@ -133,14 +133,42 @@ fn write_executable(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     f.sync_all()
 }
 
+const STAGED_PREFIX: &str = ".burrow-update-";
+const STALE_AFTER: std::time::Duration = std::time::Duration::from_secs(600);
+
+fn sweep_stale(parent: &Path) {
+    let Ok(entries) = std::fs::read_dir(parent) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let stale = entry
+            .metadata()
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| t.elapsed().ok())
+            .is_some_and(|age| age > STALE_AFTER);
+        if stale
+            && entry
+                .file_name()
+                .to_string_lossy()
+                .starts_with(STAGED_PREFIX)
+        {
+            let _ = std::fs::remove_dir_all(entry.path());
+        }
+    }
+}
+
 fn stage(near: &Path, bytes: &[u8]) -> Result<Staged, Failure> {
-    let folder = format!(".burrow-update-{}", std::process::id());
+    let folder = format!("{STAGED_PREFIX}{}", std::process::id());
     let places = [
         near.parent().map(|p| p.join(&folder)),
         Some(std::env::temp_dir().join(&folder)),
     ];
     let mut last = None;
     for dir in places.into_iter().flatten() {
+        if let Some(parent) = dir.parent() {
+            sweep_stale(parent);
+        }
         let _ = std::fs::remove_dir_all(&dir);
         if let Err(e) = std::fs::create_dir(&dir) {
             last = Some(e);
@@ -387,6 +415,29 @@ mod tests {
         )) {
             assert!(platform().is_some());
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn only_old_download_folders_are_swept() {
+        let root = tempfile::tempdir().unwrap();
+        let old = root.path().join(".burrow-update-1");
+        let fresh = root.path().join(".burrow-update-2");
+        let other = root.path().join("keep");
+        for d in [&old, &fresh, &other] {
+            std::fs::create_dir(d).unwrap();
+        }
+        let hour_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(3600);
+        for d in [&old, &other] {
+            std::fs::File::open(d)
+                .unwrap()
+                .set_modified(hour_ago)
+                .unwrap();
+        }
+        sweep_stale(root.path());
+        assert!(!old.exists());
+        assert!(fresh.exists());
+        assert!(other.exists());
     }
 
     #[test]
