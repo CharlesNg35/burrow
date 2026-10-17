@@ -145,9 +145,15 @@ pub async fn relay(
         }
     };
     let down = async {
-        let status = match creader.recv(&mut cr).await? {
-            Some(b) => Status::decode(b).map_err(|_| ForwardError::Protocol)?,
-            None => return Err(ForwardError::Protocol),
+        let status = match creader.recv(&mut cr).await {
+            Ok(Some(b)) => Status::decode(b).map_err(|_| ForwardError::Protocol)?,
+            Ok(None) | Err(_) => {
+                let _ = vwriter.send(&mut vw, &[Status::Offline as u8]).await;
+                return Err(ForwardError::Io(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    "the client closed its channel before replying",
+                )));
+            }
         };
         vwriter.send(&mut vw, &[status as u8]).await?;
         if status != Status::Ok {

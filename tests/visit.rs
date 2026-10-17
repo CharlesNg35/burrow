@@ -483,3 +483,53 @@ async fn oversized_requests_are_dropped_without_a_reply() {
         "closed without an answer"
     );
 }
+
+struct SlowName;
+
+impl burrow::transport::resolve::Resolver for SlowName {
+    fn resolve<'a>(&'a self, host_port: &'a str) -> burrow::transport::resolve::Resolved<'a> {
+        Box::pin(async move {
+            if host_port.starts_with("slow.test:") {
+                tokio::time::sleep(Duration::from_secs(5)).await;
+            }
+            burrow::transport::resolve::resolve(host_port).await
+        })
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_client_that_leaves_mid_setup_is_reported_offline() {
+    logs();
+    let visitor_secret = Secret::generate();
+    let secret = Secret::generate();
+    let mut server = server_settings(vec![secret.clone()]);
+    server.visitors.insert(
+        "laptop".into(),
+        visitor_auth(visitor_secret.clone(), &["home"]),
+    );
+    let srv = start_server(server).await;
+    let mut cs = client_settings(srv.addr, secret);
+    if ws_mode() {
+        let url = format!("ws://{}/burrow", srv.addr);
+        cs.endpoint = burrow::transport::endpoint::Endpoint::parse(&url).unwrap();
+        cs.server = url;
+    }
+    let client = burrow::client::Client::new(cs).with_resolver(std::sync::Arc::new(SlowName));
+    let mut cli = start_client_with(client).await;
+    wait_state(&mut cli.state, burrow::client::State::Connected).await;
+    let shared = srv.shared.clone();
+    wait_for(|| shared.idle_channels("home") >= 1).await;
+    let stop = cli.stop.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        let _ = stop.send(true);
+    });
+    let to = VisitTarget::Client {
+        client: "home".into(),
+        target: "slow.test:9".into(),
+    };
+    assert_eq!(
+        ask(srv.addr, visitor_secret, false, to).await,
+        Ok(Status::Offline)
+    );
+}

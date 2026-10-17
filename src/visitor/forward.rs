@@ -49,7 +49,7 @@ pub(super) async fn accept(
 
 fn rejected(dialer: &Dialer) -> String {
     format!(
-        "the server {} rejected visitor \"{}\": wrong secret or unknown visitor name, or the server is older than burrow 0.2.0 (check both against the server config, or print a new visitor config on the server with: burrow visitor-config {} -o visitor.yaml)",
+        "the server {} closed the connection during the handshake: wrong secret or unknown visitor name \"{}\", the server is busy, or it is older than burrow 0.2.0 (check the name and secret against the server config, or print a new visitor config on the server with: burrow visitor-config {} -o visitor.yaml)",
         dialer.server, dialer.name, dialer.name
     )
 }
@@ -66,12 +66,12 @@ fn explain(status: Status, to: &VisitTarget, visitor: &str) -> String {
         (Status::Forbidden, VisitTarget::Client { client, .. }) => format!(
             "the server does not let visitor \"{visitor}\" reach client \"{client}\" directly: that needs \"reach: {{ {client}: any }}\" for \"{visitor}\" in the server config"
         ),
-        (Status::Offline, VisitTarget::Service(name)) => {
-            format!("the client behind service \"{name}\" is not connected to the server")
-        }
-        (Status::Offline, VisitTarget::Client { client, .. }) => {
-            format!("client \"{client}\" is not connected to the server")
-        }
+        (Status::Offline, VisitTarget::Service(name)) => format!(
+            "the client behind service \"{name}\" is not connected to the server, or did not answer in time (see the client's log)"
+        ),
+        (Status::Offline, VisitTarget::Client { client, .. }) => format!(
+            "client \"{client}\" is not connected to the server, or did not answer in time (see the client's log)"
+        ),
         (Status::Busy, _) => {
             "the server is at a connection limit for this visitor, service or client".into()
         }
