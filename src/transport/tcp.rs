@@ -73,7 +73,8 @@ pub async fn connect_any(addrs: &[SocketAddr], timeout: Duration) -> io::Result<
                             attempts.spawn(async move { (a, TcpStream::connect(a).await) });
                         }
                     }
-                    _ => {}
+                    Some(Err(e)) => last = io::Error::new(io::ErrorKind::Interrupted, e),
+                    None => {}
                 },
                 _ = tokio::time::sleep(ATTEMPT_DELAY), if more => {
                     if let Some(a) = next.next() {
