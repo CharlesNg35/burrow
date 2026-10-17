@@ -99,39 +99,39 @@ services:
 <details>
 <summary><b>All server.yaml keys</b></summary>
 
-| key                                        | default                             | meaning                                                             |
-| ------------------------------------------ | ----------------------------------- | ------------------------------------------------------------------- |
-| `listen`                                   | none                                | where the server waits for clients (and/or `websocket`)             |
-| `public_address`                           | none                                | how clients reach it: host, host:port or wss:// URL                 |
-| `websocket.listen` / `path`                | none / `/burrow`                    | accept clients over WebSocket (see below)                           |
-| `websocket.tls.cert` / `key`               | none                                | serve `wss://` directly with these PEM files                        |
-| `websocket.keepalive_secs`                 | `25`                                | keepalive on idle pooled connections, 5-30                          |
-| `clients.<name>.secret`                    | required                            | base64 or hex 256-bit secret, or a list of up to 4                  |
-| `clients.<name>.max_connections`           | `limits.max_connections_per_client` | concurrent forwarded connections for this client                    |
-| `services.<name>.client` or `clients`      | required                            | the client that reaches the target, or several of them              |
-| `services.<name>.target`                   | required                            | host:port, a port, a range like `30000-30010`, or `unix:/path`      |
-| `services.<name>.bind`                     | none (private)                      | public port, range or ip:port on the server                         |
-| `services.<name>.protocol`                 | `tcp`                               | `tcp` or `udp`                                                      |
-| `services.<name>.visitors`                 | none                                | visitors that may reach it with `burrow visit`                      |
-| `services.<name>.mode`                     | `failover`                          | with several clients: `failover` or `balance`                       |
-| `services.<name>.health_check`             | off                                 | `true`, or `{ interval_secs, timeout_secs, failures }`              |
-| `services.<name>.allow_from` / `deny_from` | everyone                            | source IPs or CIDRs that may or may not connect                     |
-| `services.<name>.proxy_protocol`           | off                                 | `v1` or `v2`: send the real client address to the target            |
-| `services.<name>.bandwidth`                | unlimited                           | per direction, for example `40mbit` or `5MB`                        |
-| `services.<name>.max_connections`          | unlimited                           | concurrent connections for this service                             |
-| `visitors.<name>.secret`                   | required                            | like a client secret; see below                                     |
-| `visitors.<name>.reach`                    | none                                | `CLIENT: any`: may pick any target that client allows               |
-| `visitors.<name>.max_connections`          | unlimited                           | concurrent connections for this visitor                             |
-| `metrics.listen`                           | off                                 | address for `/metrics`, see [Monitoring](#monitoring)               |
-| `insecure_plaintext`                       | `false`                             | do not encrypt forwarded TCP data (authentication still runs)       |
-| `heartbeat.interval_secs`                  | `10`                                | ping interval; peers time out after 3 missed intervals              |
-| `limits.handshake_timeout_secs`            | `5`                                 | time allowed to authenticate                                        |
-| `limits.max_handshakes`                    | `256`                               | concurrent unauthenticated connections                              |
-| `limits.max_connections_per_client`        | `8192`                              |                                                                     |
-| `limits.max_pending`                       | `512`                               | connections waiting for a data channel, per client                  |
-| `pool.min_idle` / `pool.max_idle`          | `4` / `64`                          | pre-opened data channels per client (adaptive)                      |
-| `tcp.nodelay` / `tcp.keepalive_secs`       | `true` / `30`                       | `keepalive_secs: 0` disables keepalive                              |
-| `udp.session_timeout_secs`                 | `60`                                | idle UDP peer expiry                                                |
+| key                                        | default                             | meaning                                                        |
+| ------------------------------------------ | ----------------------------------- | -------------------------------------------------------------- |
+| `listen`                                   | none                                | where the server waits for clients (and/or `websocket`)        |
+| `public_address`                           | none                                | how clients reach it: host, host:port or wss:// URL            |
+| `websocket.listen` / `path`                | none / `/burrow`                    | accept clients over WebSocket (see below)                      |
+| `websocket.tls.cert` / `key`               | none                                | serve `wss://` directly with these PEM files                   |
+| `websocket.keepalive_secs`                 | `25`                                | keepalive on idle pooled connections, 5-30                     |
+| `clients.<name>.secret`                    | required                            | base64 or hex 256-bit secret, or a list of up to 4             |
+| `clients.<name>.max_connections`           | `limits.max_connections_per_client` | concurrent forwarded connections for this client               |
+| `services.<name>.client` or `clients`      | required                            | the client that reaches the target, or several of them         |
+| `services.<name>.target`                   | required                            | host:port, a port, a range like `30000-30010`, or `unix:/path` |
+| `services.<name>.bind`                     | none (private)                      | public port, range or ip:port on the server                    |
+| `services.<name>.protocol`                 | `tcp`                               | `tcp` or `udp`                                                 |
+| `services.<name>.visitors`                 | none                                | visitors that may reach it with `burrow visit`                 |
+| `services.<name>.mode`                     | `failover`                          | with several clients: `failover` or `balance`                  |
+| `services.<name>.health_check`             | off                                 | `true`, or `{ interval_secs, timeout_secs, failures }`         |
+| `services.<name>.allow_from` / `deny_from` | everyone                            | source IPs or CIDRs that may or may not connect                |
+| `services.<name>.proxy_protocol`           | off                                 | `v1` or `v2`: send the real client address to the target       |
+| `services.<name>.bandwidth`                | unlimited                           | per direction, for example `40mbit` or `5MB`                   |
+| `services.<name>.max_connections`          | unlimited                           | concurrent connections for this service                        |
+| `visitors.<name>.secret`                   | required                            | like a client secret; see below                                |
+| `visitors.<name>.reach`                    | none                                | `CLIENT: any`: may pick any target that client allows          |
+| `visitors.<name>.max_connections`          | unlimited                           | concurrent connections for this visitor                        |
+| `metrics.listen`                           | off                                 | address for `/metrics`, see [Monitoring](#monitoring)          |
+| `insecure_plaintext`                       | `false`                             | do not encrypt forwarded TCP data (authentication still runs)  |
+| `heartbeat.interval_secs`                  | `10`                                | ping interval; peers time out after 3 missed intervals         |
+| `limits.handshake_timeout_secs`            | `5`                                 | time allowed to authenticate                                   |
+| `limits.max_handshakes`                    | `256`                               | concurrent unauthenticated connections                         |
+| `limits.max_connections_per_client`        | `8192`                              |                                                                |
+| `limits.max_pending`                       | `512`                               | connections waiting for a data channel, per client             |
+| `pool.min_idle` / `pool.max_idle`          | `4` / `64`                          | pre-opened data channels per client (adaptive)                 |
+| `tcp.nodelay` / `tcp.keepalive_secs`       | `true` / `30`                       | `keepalive_secs: 0` disables keepalive                         |
+| `udp.session_timeout_secs`                 | `60`                                | idle UDP peer expiry                                           |
 
 </details>
 
