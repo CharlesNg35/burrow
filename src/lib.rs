@@ -5,6 +5,7 @@ pub mod cli;
 pub mod client;
 pub mod config;
 pub mod diagnostics;
+pub mod dialer;
 pub mod failure;
 pub mod forward;
 pub mod handshake;
