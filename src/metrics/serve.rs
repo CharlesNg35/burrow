@@ -85,16 +85,7 @@ pub fn respond(head: &[u8], snapshot: &dyn Fn() -> Status) -> (u16, &'static str
             "text/plain; version=0.0.4; charset=utf-8",
             prometheus(&snapshot()),
         ),
-        ("GET", "/status") => (
-            200,
-            "application/json",
-            serde_json::to_string_pretty(&snapshot()).expect("status serializes"),
-        ),
-        ("GET", _) => (
-            404,
-            "text/plain",
-            "not found; try /metrics or /status\n".into(),
-        ),
+        ("GET", _) => (404, "text/plain", "not found; try /metrics\n".into()),
         _ => (405, "text/plain", "only GET is supported\n".into()),
     }
 }
@@ -145,9 +136,7 @@ mod tests {
         let (code, kind, body) = respond(b"GET /metrics HTTP/1.1\r\n\r\n", &empty);
         assert_eq!((code, kind.starts_with("text/plain")), (200, true));
         assert!(body.contains("burrow_uptime_seconds 5"));
-        let (code, kind, body) = respond(b"GET /status?x=1 HTTP/1.1\r\n\r\n", &empty);
-        assert_eq!((code, kind), (200, "application/json"));
-        assert_eq!(serde_json::from_str::<Status>(&body).unwrap(), empty());
+        assert_eq!(respond(b"GET /status HTTP/1.1\r\n\r\n", &empty).0, 404);
         assert_eq!(respond(b"GET / HTTP/1.1\r\n\r\n", &empty).0, 404);
         assert_eq!(respond(b"POST /metrics HTTP/1.1\r\n\r\n", &empty).0, 405);
         assert_eq!(respond(b"\r\n\r\n", &empty).0, 405);

@@ -8,7 +8,6 @@ use std::time::Duration;
 use burrow::client::{Client, State};
 use burrow::config::model::{Mode, Protocol};
 use burrow::config::settings::{ClientAuth, Health, ServerSettings, Service};
-use burrow::metrics::fetch;
 use burrow::protocol::VisitTarget;
 use burrow::secret::Secret;
 use burrow::transport::resolve::{Resolved, Resolver};
@@ -514,10 +513,7 @@ async fn many_probes_leave_no_open_connections_or_drained_pool() {
     assert_eq!(shared.active_connections(), 0);
     assert_eq!(shared.waiting_visitors(), 0);
     assert!(shared.idle_channels("home") <= 64);
-    let addr = t.server.metrics.unwrap();
-    let s = tokio::task::spawn_blocking(move || fetch(addr).unwrap())
-        .await
-        .unwrap();
+    let s = t.server.shared.status();
     assert_eq!(s.clients[0].open, 0);
     assert_eq!(
         (
@@ -551,12 +547,9 @@ async fn a_denied_target_marks_the_only_client_down_but_still_tries_it() {
         secret,
     )
     .await;
-    let addr = t.server.metrics.unwrap();
     let mut down = false;
     for _ in 0..50 {
-        let s = tokio::task::spawn_blocking(move || fetch(addr).unwrap())
-            .await
-            .unwrap();
+        let s = t.server.shared.status();
         if s.services[0].health.first().is_some_and(|h| !h.up) {
             down = true;
             break;
@@ -565,9 +558,7 @@ async fn a_denied_target_marks_the_only_client_down_but_still_tries_it() {
     }
     assert!(down);
     let _ = try_roundtrip(t.server.services["web"], b"x").await;
-    let s = tokio::task::spawn_blocking(move || fetch(addr).unwrap())
-        .await
-        .unwrap();
+    let s = t.server.shared.status();
     assert_eq!((s.services[0].total, s.services[0].refused), (1, 0));
 }
 

@@ -158,27 +158,3 @@ pub struct VisitorStatus {
     pub open: u64,
     pub total: u64,
 }
-
-pub fn fetch(addr: std::net::SocketAddr) -> Result<Status, String> {
-    use std::io::{Read, Write};
-    let timeout = std::time::Duration::from_secs(5);
-    let mut s = std::net::TcpStream::connect_timeout(&addr, timeout).map_err(|e| e.to_string())?;
-    s.set_read_timeout(Some(timeout))
-        .map_err(|e| e.to_string())?;
-    s.write_all(
-        format!("GET /status HTTP/1.1\r\nHost: {addr}\r\nConnection: close\r\n\r\n").as_bytes(),
-    )
-    .map_err(|e| e.to_string())?;
-    let mut raw = Vec::new();
-    s.take(16 * 1024 * 1024)
-        .read_to_end(&mut raw)
-        .map_err(|e| e.to_string())?;
-    let split = raw
-        .windows(4)
-        .position(|w| w == b"\r\n\r\n")
-        .ok_or("the answer is not HTTP")?;
-    if !raw.starts_with(b"HTTP/1.1 200") {
-        return Err("the metrics endpoint did not answer 200".into());
-    }
-    serde_json::from_slice(&raw[split + 4..]).map_err(|e| e.to_string())
-}

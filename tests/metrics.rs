@@ -6,8 +6,6 @@ use std::time::Duration;
 use burrow::allowlist::Sources;
 use burrow::config::model::Protocol;
 use burrow::config::settings::{Health, Service};
-use burrow::metrics::Status;
-use burrow::metrics::fetch;
 use burrow::protocol::VisitTarget;
 use burrow::secret::Secret;
 use common::*;
@@ -21,12 +19,6 @@ fn http_get(addr: SocketAddr, path: &str) -> String {
     let mut out = String::new();
     s.read_to_string(&mut out).unwrap();
     out
-}
-
-async fn status(addr: SocketAddr) -> Status {
-    tokio::task::spawn_blocking(move || fetch(addr).unwrap())
-        .await
-        .unwrap()
 }
 
 async fn metered(services: Vec<(&str, Service)>) -> Tunnel {
@@ -52,13 +44,13 @@ async fn status_counts_connections_and_bytes() {
         let data = pattern(10_000, seed);
         assert_eq!(roundtrip(t.server.services["web"], &data).await, data);
     }
-    let mut s = status(addr).await;
+    let mut s = t.server.shared.status();
     for _ in 0..50 {
         if s.services[0].open == 0 {
             break;
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
-        s = status(addr).await;
+        s = t.server.shared.status();
     }
     assert_eq!(s.version, env!("CARGO_PKG_VERSION"));
     let home = &s.clients[0];
@@ -104,14 +96,13 @@ async fn refusals_and_health_show_up() {
     };
     let t = metered(vec![("blocked", blocked), ("checked", checked)]).await;
     let _ = try_roundtrip(t.server.services["blocked"], b"x").await;
-    let addr = t.server.metrics.unwrap();
-    let mut s = status(addr).await;
+    let mut s = t.server.shared.status();
     for _ in 0..50 {
         if !s.services[1].health.is_empty() {
             break;
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
-        s = status(addr).await;
+        s = t.server.shared.status();
     }
     assert_eq!(s.services[0].name, "blocked");
     assert_eq!(s.services[0].refused, 1);
@@ -126,7 +117,7 @@ async fn reload_turns_the_endpoint_on_and_off() {
     let t = tunnel_with(settings.clone(), vec![], |c| c, secret).await;
     let (held, port) = refusing();
     let answers = |port| async move {
-        tokio::task::spawn_blocking(move || fetch(port).is_ok())
+        tokio::task::spawn_blocking(move || scrape(port).is_ok())
             .await
             .unwrap()
     };
@@ -143,7 +134,7 @@ async fn reload_turns_the_endpoint_on_and_off() {
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
     assert!(up, "metrics must start after reload");
-    assert_eq!(status(port).await.clients[0].name, "home");
+    assert_eq!(t.server.shared.status().clients[0].name, "home");
     t.server.reload(settings).await;
     for _ in 0..50 {
         if !answers(port).await {
@@ -178,11 +169,8 @@ async fn visit_bytes_count_payload_only() {
     ));
     let data = pattern(10_000, 1);
     assert_eq!(roundtrip(v.addr("web"), &data).await, data);
-    let addr = t.server.metrics.unwrap();
     tokio::time::sleep(Duration::from_millis(300)).await;
-    let s = tokio::task::spawn_blocking(move || fetch(addr).unwrap())
-        .await
-        .unwrap();
+    let s = t.server.shared.status();
     let web = &s.services[0];
     assert_eq!((web.bytes_in, web.bytes_out), (10_000, 10_000));
 }
@@ -215,11 +203,8 @@ async fn plaintext_visit_bytes_count_payload_only() {
     ));
     let data = pattern(10_000, 1);
     assert_eq!(roundtrip(v.addr("web"), &data).await, data);
-    let addr = t.server.metrics.unwrap();
     tokio::time::sleep(Duration::from_millis(300)).await;
-    let s = tokio::task::spawn_blocking(move || fetch(addr).unwrap())
-        .await
-        .unwrap();
+    let s = t.server.shared.status();
     let web = &s.services[0];
     assert_eq!((web.bytes_in, web.bytes_out), (10_000, 10_000));
 }
@@ -238,7 +223,7 @@ async fn idle_connections_do_not_lock_out_the_metrics_endpoint() {
     tokio::time::sleep(Duration::from_millis(200)).await;
     let r = tokio::time::timeout(
         Duration::from_secs(2),
-        tokio::task::spawn_blocking(move || fetch(addr)),
+        tokio::task::spawn_blocking(move || scrape(addr)),
     )
     .await;
     assert!(
@@ -263,10 +248,7 @@ async fn source_refusals_are_counted_in_total() {
     };
     let t = tunnel_with(settings, vec![("blocked", blocked)], |c| c, secret).await;
     let _ = try_roundtrip(t.server.services["blocked"], b"x").await;
-    let addr = t.server.metrics.unwrap();
-    let s = tokio::task::spawn_blocking(move || fetch(addr).unwrap())
-        .await
-        .unwrap();
+    let s = t.server.shared.status();
     let b = &s.services[0];
     assert!(
         b.refused <= b.total,
@@ -287,10 +269,7 @@ async fn a_client_kicked_by_reload_shows_when_it_left() {
     t.server.reload(rotated).await;
     let shared = t.server.shared.clone();
     wait_for(|| shared.session_names().is_empty()).await;
-    let addr = t.server.metrics.unwrap();
-    let s = tokio::task::spawn_blocking(move || fetch(addr).unwrap())
-        .await
-        .unwrap();
+    let s = t.server.shared.status();
     assert!(!s.clients[0].connected);
     assert!(
         s.clients[0].left_secs_ago.is_some(),
@@ -311,7 +290,7 @@ async fn moving_metrics_to_a_busy_port_keeps_the_old_endpoint() {
     next.metrics = Some(busy.local_addr().unwrap());
     t.server.reload(next).await;
     tokio::time::sleep(Duration::from_millis(2500)).await;
-    let r = tokio::task::spawn_blocking(move || fetch(old))
+    let r = tokio::task::spawn_blocking(move || scrape(old))
         .await
         .unwrap();
     assert!(
@@ -417,15 +396,8 @@ async fn the_metrics_endpoint_handles_odd_requests() {
         huge.extend(std::iter::repeat_n(b'a', 64 * 1024));
         assert_eq!(raw_http(addr, &huge), "");
         assert_eq!(raw_http(addr, b""), "");
-        let ok = raw_http(addr, b"GET /status HTTP/1.0\r\n\r\n");
-        let body = ok.split("\r\n\r\n").nth(1).unwrap();
-        let s: burrow::metrics::Status = serde_json::from_str(body).unwrap();
-        assert_eq!(
-            serde_json::from_str::<burrow::metrics::Status>(&serde_json::to_string(&s).unwrap())
-                .unwrap(),
-            s
-        );
-        assert!(fetch(addr).is_ok());
+        assert!(raw_http(addr, b"GET /status HTTP/1.0\r\n\r\n").starts_with("HTTP/1.1 404"));
+        assert!(scrape(addr).is_ok());
     })
     .await
     .unwrap();

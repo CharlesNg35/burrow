@@ -146,7 +146,7 @@ One token bucket per service and direction, shared by all its connections and po
 
 ## D27. Metrics off by default, one snapshot for everything
 
-The metrics endpoint is off unless `metrics.listen` is set, defaults to `127.0.0.1`, and `validate` warns when it is reachable from the network, because it shows client, service and visitor names and traffic. The server builds one status snapshot; `/metrics` renders it as Prometheus text and `/status` as JSON, which `burrow status` reads, so the two can never disagree. Counters are relaxed atomics updated per read, with no measurable cost.
+The metrics endpoint is off unless `metrics.listen` is set, defaults to `127.0.0.1`, and `validate` warns when it is reachable from the network, because it shows client, service and visitor names and traffic. The server builds one status snapshot; `/metrics` renders it as Prometheus text and `burrow status` reads it as JSON from a local endpoint only it can use, so the two can never disagree. The metrics port serves nothing else: the JSON holds more than a scraper needs, such as client addresses. Counters are relaxed atomics updated per read, with no measurable cost.
 
 ## D28. A SOCKS5 forward for visitors
 

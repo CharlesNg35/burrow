@@ -122,7 +122,7 @@ services:
 | `visitors.<name>.secret`                   | required                            | like a client secret; see below                                     |
 | `visitors.<name>.reach`                    | none                                | `CLIENT: any`: may pick any target that client allows               |
 | `visitors.<name>.max_connections`          | unlimited                           | concurrent connections for this visitor                             |
-| `metrics.listen`                           | off                                 | address for `/metrics` and `/status`, see [Monitoring](#monitoring) |
+| `metrics.listen`                           | off                                 | address for `/metrics`, see [Monitoring](#monitoring)               |
 | `insecure_plaintext`                       | `false`                             | do not encrypt forwarded TCP data (authentication still runs)       |
 | `heartbeat.interval_secs`                  | `10`                                | ping interval; peers time out after 3 missed intervals              |
 | `limits.handshake_timeout_secs`            | `5`                                 | time allowed to authenticate                                        |
@@ -509,7 +509,7 @@ metrics:
   listen: 127.0.0.1:9100 # a port alone means 127.0.0.1
 ```
 
-The server then serves Prometheus metrics at `/metrics` and the same state as `burrow status` as JSON at `/status`. Keep `listen` on `127.0.0.1` unless a firewall limits who can connect: anyone who reaches it sees names and traffic.
+The server then serves Prometheus metrics at `/metrics`. Keep `listen` on `127.0.0.1` unless a firewall limits who can connect: anyone who reaches it sees names and traffic.
 
 <details>
 <summary><b>Metrics</b></summary>
