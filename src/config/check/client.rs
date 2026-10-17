@@ -106,7 +106,7 @@ pub fn check_client(
         out.push(
             Diagnostic::warning(
                 "allow-all",
-                "allow_all is enabled: the server can make this client connect anywhere",
+                "allow_all is enabled: the server can make this client connect anywhere, Unix sockets included",
             )
             .at(spans.value(&["allow_all"]))
             .label("no restriction on targets")

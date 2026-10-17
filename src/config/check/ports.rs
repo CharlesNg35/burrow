@@ -36,7 +36,7 @@ pub fn parse_range(s: &str) -> Result<(u16, u16), String> {
 pub fn show(first: u16, count: u16) -> String {
     match count {
         0 | 1 => first.to_string(),
-        n => format!("{first}-{}", first + (n - 1)),
+        n => format!("{first}-{}", first.saturating_add(n - 1)),
     }
 }
 
@@ -65,14 +65,18 @@ pub fn parse_ranged(
         Some((h, p)) if !p.contains(']') => (h, p),
         _ => return Err(format!("\"{text}\" is not a valid {what} address")),
     };
-    let ip: IpAddr = host
-        .trim_start_matches('[')
-        .trim_end_matches(']')
-        .parse()
-        .map_err(|_| format!("\"{text}\" is not a valid {what} address"))?;
-    if ip.is_ipv6() && !host.starts_with('[') {
-        return Err(format!("\"{text}\" is not a valid {what} address"));
-    }
+    let invalid = || format!("\"{text}\" is not a valid {what} address");
+    let ip: IpAddr = match host.strip_prefix('[') {
+        Some(inner) => inner
+            .strip_suffix(']')
+            .and_then(|v6| v6.parse::<std::net::Ipv6Addr>().ok())
+            .map(IpAddr::V6)
+            .ok_or_else(invalid)?,
+        None => host
+            .parse::<std::net::Ipv4Addr>()
+            .map(IpAddr::V4)
+            .map_err(|_| invalid())?,
+    };
     let (first, count) = parse_range(ports)?;
     Ok((SocketAddr::new(ip, first), count))
 }
@@ -165,6 +169,18 @@ mod tests {
         assert!(p(Bind::Addr("localhost:22".into())).is_err());
         assert!(p(Bind::Port(0)).is_err());
         assert!(p(Bind::Addr("0.0.0.0:0".into())).is_err());
+    }
+
+    #[test]
+    fn malformed_brackets_and_edge_ranges() {
+        for bad in ["[::1:80", "[::1]]:80", "[127.0.0.1]:80", "::1:80"] {
+            assert!(
+                parse_ranged(&Bind::Addr(bad.into()), [0, 0, 0, 0], "bind").is_err(),
+                "{bad} was accepted"
+            );
+        }
+        assert_eq!(show(65535, 2), "65535-65535");
+        assert_eq!(show(64536, 1000), "64536-65535");
     }
 
     #[test]

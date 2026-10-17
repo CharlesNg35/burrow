@@ -111,11 +111,11 @@ pub fn visitor_config(
     }
     for client in &auth.reach {
         let local = free(1080, 1);
-        let key = if forwards.contains_key(client.as_str()) {
-            format!("{client}-socks")
-        } else {
-            client.clone()
-        };
+        let key = std::iter::once(client.clone())
+            .chain(std::iter::once(format!("{client}-socks")))
+            .chain((2..).map(|i| format!("{client}-socks-{i}")))
+            .find(|k| !forwards.contains_key(k.as_str()))
+            .expect("an unused forward name");
         forwards.insert(
             key,
             json!({ "client": client, "socks": true, "local": local }),

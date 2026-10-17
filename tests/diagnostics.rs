@@ -404,7 +404,7 @@ fn client_allow_all() {
     insta::assert_snapshot!(render("client.yaml", &format!(
         "server: myserver.com:7835\nname: home\nsecret: {SECRET}\nallow_all: true\nallow: [127.0.0.0/8]\ncipher: aes\nproxy: ftp://x\n"
     ), None), @r#"
-    warning: allow_all is enabled: the server can make this client connect anywhere
+    warning: allow_all is enabled: the server can make this client connect anywhere, Unix sockets included
       --> client.yaml:4:12
        |
      4 | allow_all: true

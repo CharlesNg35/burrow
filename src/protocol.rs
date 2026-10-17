@@ -452,7 +452,9 @@ impl std::fmt::Display for VisitTarget {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             VisitTarget::Service { name, index: 0 } => write!(f, "service \"{name}\""),
-            VisitTarget::Service { name, index } => write!(f, "service \"{name}\" port {index}"),
+            VisitTarget::Service { name, index } => {
+                write!(f, "service \"{name}\" port {}", u32::from(*index) + 1)
+            }
             VisitTarget::Client { client, target } => write!(f, "{target} on client \"{client}\""),
         }
     }
@@ -532,6 +534,16 @@ pub fn decode_datagram(b: &[u8]) -> Result<(u32, &[u8]), DecodeError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ports_of_a_range_are_shown_from_one() {
+        assert_eq!(VisitTarget::service("game").to_string(), "service \"game\"");
+        let second = VisitTarget::Service {
+            name: "game".into(),
+            index: 1,
+        };
+        assert_eq!(second.to_string(), "service \"game\" port 2");
+    }
 
     #[test]
     fn preamble_round_trip() {

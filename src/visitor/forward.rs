@@ -90,7 +90,7 @@ fn explain(status: Status, to: &VisitTarget, visitor: &str) -> String {
         }
         (Status::Unresolved, _) => format!("the client could not resolve the host of {goal}"),
         (Status::Invalid, VisitTarget::Service { name, index }) if *index > 0 => format!(
-            "service \"{name}\" has fewer ports than this forward's local range (port {} is past its end)",
+            "the server refused port {} of service \"{name}\": the service has fewer ports than this forward's local range, or its client rejected the target",
             index + 1
         ),
         (Status::Invalid, _) => format!("the request for {goal} was rejected as invalid"),

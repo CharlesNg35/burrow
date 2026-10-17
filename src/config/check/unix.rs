@@ -16,7 +16,10 @@ pub fn check_path(path: &str) -> Result<(), String> {
             "socket path \"{path}\" is longer than {MAX_PATH} bytes, the limit of Unix sockets"
         ));
     }
-    if path.split('/').any(|part| part == "..") || path.contains('\0') {
+    if path.contains('\0') {
+        return Err(format!("socket path {path:?} may not contain a NUL byte"));
+    }
+    if path.split('/').any(|part| part == "..") {
         return Err(format!("socket path \"{path}\" may not contain \"..\""));
     }
     Ok(())
@@ -32,7 +35,8 @@ mod tests {
         assert_eq!(path_of("127.0.0.1:22"), None);
         assert!(check_path("/var/run/docker.sock").is_ok());
         assert!(check_path("run/x").is_err());
-        assert!(check_path("/a/../b").is_err());
+        assert!(check_path("/a/../b").unwrap_err().contains(".."));
+        assert!(check_path("/a\0b").unwrap_err().contains("NUL"));
         assert!(check_path(&format!("/{}", "x".repeat(200))).is_err());
     }
 }

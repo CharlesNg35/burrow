@@ -1084,3 +1084,32 @@ fn client_config_allows_ranges_sockets_and_shared_services() {
     assert!(backup.contains("192.168.1.20/32:80"), "{backup}");
     assert!(!backup.contains("30000"), "{backup}");
 }
+
+#[test]
+fn visitor_config_keeps_a_service_named_like_the_socks_forward() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("server.yaml");
+    let s = || burrow::secret::Secret::generate().encode();
+    std::fs::write(
+        &path,
+        format!(
+            "listen: 7835\npublic_address: tunnel.example.com\nclients:\n  home:\n    secret: {}\nvisitors:\n  laptop:\n    secret: {}\n    reach:\n      home: any\nservices:\n  home:\n    client: home\n    target: 22\n    visitors: [laptop]\n  home-socks:\n    client: home\n    target: 80\n    visitors: [laptop]\n",
+            s(),
+            s()
+        ),
+    )
+    .unwrap();
+    let out = burrow::init::visitor_config(
+        None,
+        &path,
+        None,
+        burrow::config::Format::Yaml,
+        &burrow::config::env::ProcessEnv,
+    )
+    .unwrap();
+    assert!(
+        out.text.contains("service: home-socks"),
+        "the forward for service home-socks was overwritten:\n{}",
+        out.text
+    );
+}

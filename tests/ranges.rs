@@ -277,3 +277,100 @@ async fn a_visitor_range_reaches_a_client_port_range_directly() {
         assert_eq!(tcp_lands_on(at).await, Some(target + i));
     }
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_idle_udp_range_does_not_use_up_the_clients_connection_limit() {
+    let echo = echo_server().await;
+    let secret = Secret::generate();
+    let mut server = server_settings(vec![secret.clone()]);
+    server.clients.get_mut("home").unwrap().max_connections = Some(4);
+    let base = {
+        let mut found = None;
+        for p in (41000u16..60000).step_by(7) {
+            if (0..4).all(|i| std::net::UdpSocket::bind(("127.0.0.1", p + i)).is_ok()) {
+                found = Some(p);
+                break;
+            }
+        }
+        found.unwrap()
+    };
+    let t = tunnel_with(
+        server,
+        vec![
+            (
+                "voice",
+                Service {
+                    clients: vec!["home".into()],
+                    bind: Some(SocketAddr::from(([127, 0, 0, 1], base))),
+                    target: "127.0.0.1:9".into(),
+                    ports: 4,
+                    protocol: Protocol::Udp,
+                    ..Default::default()
+                },
+            ),
+            ("web", service(echo, Protocol::Tcp)),
+        ],
+        |c| c,
+        secret,
+    )
+    .await;
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    let web = t.server.services["web"];
+    assert_eq!(
+        try_roundtrip(web, b"ping").await.as_deref(),
+        Some(&b"ping"[..]),
+        "four idle UDP ports took all four connection slots of client \"home\""
+    );
+}
+
+fn free_tcp_range(from: u16, count: u16) -> u16 {
+    (from..60000)
+        .step_by(11)
+        .find(|p| (0..count).all(|i| std::net::TcpListener::bind(("127.0.0.1", p + i)).is_ok()))
+        .unwrap()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn shrinking_a_range_closes_connections_on_the_ports_it_dropped() {
+    use tokio::io::AsyncWriteExt;
+    let target = free_tcp_range(42000, 2);
+    for i in 0..2 {
+        let l = tokio::net::TcpListener::bind(("127.0.0.1", target + i))
+            .await
+            .unwrap();
+        tokio::spawn(async move {
+            while let Ok((mut s, _)) = l.accept().await {
+                tokio::spawn(async move {
+                    let (mut r, mut w) = s.split();
+                    let _ = tokio::io::copy(&mut r, &mut w).await;
+                    let _ = w.shutdown().await;
+                });
+            }
+        });
+    }
+    let public = free_tcp_range(target + 100, 2);
+    let ranged = |ports: u16| Service {
+        clients: vec!["home".into()],
+        bind: Some(SocketAddr::from(([127, 0, 0, 1], public))),
+        target: format!("127.0.0.1:{target}"),
+        ports,
+        ..Default::default()
+    };
+    let secret = Secret::generate();
+    let settings = server_settings(vec![secret.clone()]);
+    let t = tunnel_with(settings.clone(), vec![("game", ranged(2))], |c| c, secret).await;
+    let conn = open_echo(SocketAddr::from(([127, 0, 0, 1], public + 1))).await;
+    let mut next = settings;
+    next.services.insert("game".into(), ranged(1));
+    t.server.reload(next).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(
+        tokio::net::TcpStream::connect(("127.0.0.1", public + 1))
+            .await
+            .is_err(),
+        "the dropped port no longer listens"
+    );
+    let mut conn = conn;
+    let _ = conn.flush().await;
+    assert_cut(conn).await;
+}

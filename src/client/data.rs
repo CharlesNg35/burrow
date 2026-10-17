@@ -111,16 +111,14 @@ pub fn precheck(settings: &ClientSettings, svc: &ServiceInfo) {
         return;
     };
     let last = port.saturating_add(svc.ports.max(1) - 1);
-    let refused: Vec<SocketAddr> = [port, last]
-        .into_iter()
+    let refused = (port..=last)
         .map(|p| SocketAddr::new(ip, p))
-        .filter(|a| !settings.allow.permits(*a))
-        .collect();
-    if let Some(addr) = refused.first() {
+        .find(|a| !settings.allow.permits(*a));
+    if let Some(addr) = refused {
         let hint = if last > port {
             AllowList::range_suggestion(ip, port, last)
         } else {
-            AllowList::suggestion(*addr)
+            AllowList::suggestion(addr)
         };
         warn!(
             "service \"{}\" targets {addr}, which the allow list does not permit; add \"{hint}\" to \"allow\" to expose it",

@@ -136,7 +136,6 @@ pub async fn udp_service(
                 continue;
             }
         };
-        let (_active, _) = session.connection_guard();
         debug!(
             "service \"{name}\": UDP relay attached to client \"{}\"",
             session.name

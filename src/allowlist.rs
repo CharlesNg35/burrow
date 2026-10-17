@@ -184,7 +184,7 @@ impl FromStr for Rule {
             Some(dir) => (dir, true),
             None => (path, false),
         };
-        let checked = if folder && path.is_empty() {
+        let checked = if folder && path.trim_matches('/').is_empty() {
             Err(
                 "allowing every socket on the machine (unix:/*) is too broad; name a folder"
                     .to_string(),
@@ -464,7 +464,13 @@ mod tests {
             rule("unix:/run/postgresql/*").to_string(),
             "unix:/run/postgresql/*"
         );
-        for bad in ["unix:relative", "unix:/*", "unix:/a/../b", "unix:"] {
+        for bad in [
+            "unix:relative",
+            "unix:/*",
+            "unix://*",
+            "unix:/a/../b",
+            "unix:",
+        ] {
             assert!(
                 matches!(bad.parse::<Rule>(), Err(RuleError::Socket(_))),
                 "{bad}"
