@@ -224,6 +224,9 @@ fn check_config(path: &Path) -> Result<Checked, Failure> {
             if let Some(ws) = &s.websocket {
                 listens.push((Protocol::Tcp, ws.listen, "websocket.listen".into()));
             }
+            if let Some(m) = s.metrics {
+                listens.push((Protocol::Tcp, m, "metrics.listen".into()));
+            }
             for (name, svc) in &s.services {
                 for (_, bind) in svc.binds() {
                     listens.push((svc.protocol, bind, format!("service \"{name}\"")));

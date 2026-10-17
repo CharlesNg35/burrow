@@ -20,6 +20,8 @@ cleanup() {
   sudo "$B" service uninstall burrow-e2e-client --purge >/dev/null 2>&1
   sudo "$B" service uninstall burrow-e2e-server --purge >/dev/null 2>&1
   for p in "${PIDS[@]}"; do kill "$p" 2>/dev/null; done
+  [ -n "${SOCK_PID:-}" ] && sudo kill "$SOCK_PID" 2>/dev/null
+  sudo rm -rf "${SOCK_DIR:-/nonexistent-burrow}"
   rm -rf "$WORK"
 }
 trap cleanup EXIT
@@ -48,7 +50,33 @@ cd "$WORK"
 
 "$B" init server -o e2e-server.yaml >/dev/null
 sed -i.bak 's/0.0.0.0:7835/127.0.0.1:27935/; s/0.0.0.0:7840/127.0.0.1:27940/; s/127.0.0.1:3000/127.0.0.1:19100/' e2e-server.yaml
-printf '  db:\n    client: home\n    target: 127.0.0.1:19100\n    visitors: [laptop]\nvisitors:\n  laptop:\n    secret: %s\n' "$("$B" gensecret)" >> e2e-server.yaml
+case "$(uname)" in
+  Darwin) SOCK_DIR=/tmp/burrow-e2e-sock ;;
+  *) SOCK_DIR=/run/burrow-e2e-sock ;;
+esac
+SOCK="$SOCK_DIR/echo.sock"
+printf '  sock:\n    client: home\n    bind: 127.0.0.1:27941\n    target: unix:%s\n' "$SOCK" >> e2e-server.yaml
+printf '  db:\n    client: home\n    target: 127.0.0.1:19100\n    visitors: [laptop]\nvisitors:\n  laptop:\n    secret: %s\nmetrics:\n  listen: 127.0.0.1:27961\n' "$("$B" gensecret)" >> e2e-server.yaml
+sudo mkdir -p "$SOCK_DIR"
+sudo python3 -c '
+import os, socket, sys, threading
+path = sys.argv[1]
+if os.path.exists(path):
+    os.remove(path)
+s = socket.socket(socket.AF_UNIX)
+s.bind(path)
+os.chmod(path, 0o666)
+s.listen()
+def echo(c):
+    while True:
+        data = c.recv(65536)
+        if not data:
+            break
+        c.sendall(data)
+    c.close()
+while True:
+    threading.Thread(target=echo, args=(s.accept()[0],), daemon=True).start()
+' "$SOCK" >/dev/null 2>&1 & SOCK_PID=$!
 "$B" validate -c e2e-server.yaml >/dev/null || fail "server config with a visitor is invalid: $("$B" validate -c e2e-server.yaml)"
 "$B" client-config home -c e2e-server.yaml --server 127.0.0.1:27935 > e2e-client.yaml
 VISITOR="$("$B" visitor-config laptop -c e2e-server.yaml --server 127.0.0.1:27935 2>/dev/null)" || fail "visitor-config: $("$B" visitor-config laptop -c e2e-server.yaml --server 127.0.0.1:27935 2>&1)"
@@ -79,6 +107,14 @@ echo "$out"
 for _ in $(seq 1 50); do "$LOADGEN" latency --addr 127.0.0.1:27940 --count 10 >/dev/null 2>&1 && break; sleep 0.2; done
 "$LOADGEN" latency --addr 127.0.0.1:27940 --count 500 >/dev/null || fail "no traffic through the installed services"
 check "traffic flows through the installed server and client"
+
+for _ in $(seq 1 50); do "$LOADGEN" latency --addr 127.0.0.1:27941 --count 10 >/dev/null 2>&1 && break; sleep 0.2; done
+"$LOADGEN" latency --addr 127.0.0.1:27941 --count 300 >/dev/null || fail "no traffic to the unix socket through the sandboxed client"
+check "the sandboxed client reaches a unix socket target"
+out="$(sudo "$B" status -c /etc/burrow/e2e-server.yaml 2>&1)" || fail "burrow status: $out"
+echo "$out" | grep -q "home  connected" || fail "burrow status does not show the client: $out"
+echo "$out" | grep -Eq "sock +tcp 127.0.0.1:27941" || fail "burrow status does not show the services: $out"
+check "burrow status reads the installed server"
 
 running burrow-e2e-server || fail "server not running"
 LOG="$(sudo "$B" service status burrow-e2e-server | awk '/logs:/ {print $2}')"
