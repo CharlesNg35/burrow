@@ -421,6 +421,21 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
             out,
             format!("copied {} -> {}", current.display(), binary.display()),
         )?;
+        let others: Vec<String> = all_manifests()
+            .into_iter()
+            .filter(|m| m.name != name && m.copied_binary && m.binary == binary)
+            .map(|m| m.name)
+            .collect();
+        if !others.is_empty() {
+            say(
+                out,
+                format!(
+                    "note: {} still run the previous binary until restarted; restart them all with: {}",
+                    others.join(", "),
+                    crate::failure::admin("service update --force")
+                ),
+            )?;
+        }
     }
     if source != config {
         system::copy_file(&source, &config, false).map_err(restore)?;

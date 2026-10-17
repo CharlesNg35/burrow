@@ -23,6 +23,7 @@ function Fail($msg) {
   }
   Burrow service logs burrow-e2e-server -n 30 | Write-Host
   Burrow service logs burrow-e2e-client -n 30 | Write-Host
+  Burrow service logs burrow-e2e-visitor -n 30 | Write-Host
   throw $msg
 }
 function Traffic($count, $port = 27940) {

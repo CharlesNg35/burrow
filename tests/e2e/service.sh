@@ -33,7 +33,7 @@ fail() {
       echo "::error title=$n logs::$(sudo "$B" service logs "$n" -n 15 2>&1 | tr '\n' '|')"
     done
   fi
-  sudo "$B" service logs burrow-e2e-server -n 30 >&2 || true; sudo "$B" service logs burrow-e2e-client -n 30 >&2 || true; exit 1; }
+  for n in burrow-e2e-server burrow-e2e-client burrow-e2e-visitor; do sudo "$B" service logs "$n" -n 30 >&2 || true; done; exit 1; }
 check() { echo "  ok: $*"; }
 running() {
   for _ in $(seq 1 50); do
@@ -51,7 +51,8 @@ sed -i.bak 's/0.0.0.0:7835/127.0.0.1:27935/; s/0.0.0.0:7840/127.0.0.1:27940/; s/
 printf '  db:\n    client: home\n    target: 127.0.0.1:19100\n    visitors: [laptop]\nvisitors:\n  laptop:\n    secret: %s\n' "$("$B" gensecret)" >> e2e-server.yaml
 "$B" validate -c e2e-server.yaml >/dev/null || fail "server config with a visitor is invalid: $("$B" validate -c e2e-server.yaml)"
 "$B" client-config home -c e2e-server.yaml --server 127.0.0.1:27935 > e2e-client.yaml
-"$B" visitor-config laptop -c e2e-server.yaml --server 127.0.0.1:27935 2>/dev/null | sed 's/local: 19100/local: 27950/' > e2e-visitor.yaml
+VISITOR="$("$B" visitor-config laptop -c e2e-server.yaml --server 127.0.0.1:27935 2>/dev/null)" || fail "visitor-config: $("$B" visitor-config laptop -c e2e-server.yaml --server 127.0.0.1:27935 2>&1)"
+echo "$VISITOR" | sed 's/local: 19100/local: 27950/' > e2e-visitor.yaml
 SECRET="$(grep 'secret:' e2e-client.yaml | awk '{print $2}')"
 sed -i.bak "s|secret: .*|secret: \${E2E_SECRET}|" e2e-client.yaml
 chmod 600 e2e-server.yaml e2e-client.yaml e2e-visitor.yaml
