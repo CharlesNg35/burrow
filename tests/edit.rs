@@ -292,7 +292,7 @@ fn a_running_server_is_found_and_picks_up_the_edit() {
         shown.contains(&format!("running, pid {}", server.id())),
         "{shown}"
     );
-    assert!(shown.contains("reloads it by itself"), "{shown}");
+    assert!(shown.contains("applies it by itself"), "{shown}");
 }
 
 #[test]

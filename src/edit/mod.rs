@@ -267,7 +267,7 @@ fn edit(
         }
         Origin::Running { .. } => {}
     }
-    apply::apply(apply::after(f), prompt, out)?;
+    apply::apply(apply::after(f), out)?;
     Ok(0)
 }
 

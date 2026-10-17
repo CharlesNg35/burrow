@@ -62,6 +62,7 @@ pub struct Connection {
     pub endpoint: Option<Endpoint>,
     pub headers: Vec<(String, String)>,
     pub ca_pem: Option<Vec<u8>>,
+    pub ca_file: Option<std::path::PathBuf>,
     pub proxy: Option<ProxyConfig>,
 }
 
@@ -151,6 +152,10 @@ pub fn check_connection(
     Connection {
         endpoint,
         headers,
+        ca_file: ca_pem
+            .as_ref()
+            .and(given.ca)
+            .map(|file| base_dir.join(file)),
         ca_pem,
         proxy,
     }

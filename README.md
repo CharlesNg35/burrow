@@ -149,7 +149,7 @@ allow:
   - unix:/run/postgresql/* # Unix sockets: one path, or every socket in a folder
 ```
 
-The client connects only to targets in `allow`, checked after DNS resolution. `burrow client-config` writes this list from the server's services.
+The client connects only to targets in `allow`, checked after DNS resolution. `burrow client-config` writes this list from the server's services. Saving the file applies it, like on the server, and open connections keep running.
 
 <details>
 <summary><b>All client.yaml keys</b></summary>
@@ -550,7 +550,7 @@ On Linux and macOS, `install` copies the binary to `/usr/local/bin`, so after it
 <summary><b>What <code>install</code> does</b></summary>
 
 - Checks the config first, and checks that every port it listens on is free. If another program holds a port, it names it (`tcp port 7840 (service "web") is already in use by nginx (pid 812)`) and changes nothing.
-- Copies the config to `/etc/burrow/` (`%ProgramData%\burrow\` on Windows), readable only by the service. Edit that copy: a server reloads it on save, a client or visitor applies it on `burrow service restart`. `status` tells you when the file you installed from has changed since.
+- Copies the config to `/etc/burrow/` (`%ProgramData%\burrow\` on Windows), readable only by the service. Edit that copy, or use `burrow edit`: the service applies it on save. `status` tells you when the file you installed from has changed since.
 - Copies the binary to `/usr/local/bin/burrow` (`%ProgramFiles%\burrow\` on Windows), unless it already lives in a root-owned folder such as one managed by a package manager. A service never runs a binary from a user's home folder.
 - Runs the service as a dedicated account without login or home: `burrow` on Linux, `_burrow` on macOS, the virtual account `NT SERVICE\burrow-<name>` on Windows. `--run-as` picks another one. Ports below 1024 get only `CAP_NET_BIND_SERVICE` on Linux.
 - Writes logs to `/var/log/burrow/<name>/<name>.log` (`%ProgramData%\burrow\logs\<name>.log` on Windows), rotated at 10 MB with 5 old files kept, so a log never fills the disk.
@@ -589,7 +589,7 @@ The job is written to `/Library/LaunchDaemons/com.github.charlesng35.burrow-<nam
 <details>
 <summary><b>Windows</b></summary>
 
-Run the commands from a terminal opened with "Run as administrator". The service starts automatically after the network stack, and Windows restarts it 5 seconds after a failure. Set variables used by the config in the same terminal before installing, for example `$env:HOME_SECRET = "..."`. `reload` restarts the service on Windows; a server also reloads its config on save.
+Run the commands from a terminal opened with "Run as administrator". The service starts automatically after the network stack, and Windows restarts it 5 seconds after a failure. Set variables used by the config in the same terminal before installing, for example `$env:HOME_SECRET = "..."`. `reload` restarts the service on Windows; every role also applies its config on save.
 
 </details>
 

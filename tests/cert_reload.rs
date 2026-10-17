@@ -6,7 +6,8 @@ use std::time::Duration;
 
 use burrow::config::env::ProcessEnv;
 use burrow::config::{Loaded, Role, load_file};
-use burrow::run::{Env, reloader};
+use burrow::reload::{accept, follow};
+use burrow::run::Env;
 use burrow::secret::Secret;
 use burrow::server::Server;
 use burrow::transport::tls;
@@ -72,10 +73,11 @@ async fn serve(config: &Path) -> SocketAddr {
     let (reload_tx, reload_rx) = mpsc::channel(4);
     let (stop_tx, stop) = watch::channel(false);
     std::mem::forget(stop_tx);
-    tokio::spawn(reloader(
+    tokio::spawn(follow(
         config.to_path_buf(),
         *settings,
         Env::default(),
+        accept(),
         reload_tx,
     ));
     tokio::spawn(server.run(reload_rx, stop));
@@ -280,10 +282,11 @@ async fn a_renewed_certificate_is_used_without_a_restart() {
     let addr = server.websocket_addr().unwrap();
     let (reload_tx, reload_rx) = mpsc::channel(4);
     let (_stop_tx, stop) = watch::channel(false);
-    tokio::spawn(reloader(
+    tokio::spawn(follow(
         config.clone(),
         *settings,
         Env::default(),
+        accept(),
         reload_tx,
     ));
     tokio::spawn(server.run(reload_rx, stop));

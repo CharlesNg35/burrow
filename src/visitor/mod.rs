@@ -7,7 +7,7 @@ use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::sync::{Semaphore, mpsc, watch};
 use tokio::task::JoinSet;
-use tracing::info;
+use tracing::{error, info};
 
 use crate::config::check::ports::show_addr;
 use crate::config::model::Protocol;
@@ -20,6 +20,7 @@ use crate::transport::tcp::bind_tcp;
 
 const MAX_OPENING: usize = 32;
 
+#[derive(Clone)]
 pub enum Pick {
     All,
     Forward {
@@ -111,44 +112,144 @@ struct Bound {
     listener: TcpListener,
 }
 
+fn bind_forward(name: &str, forward: &Forward) -> Result<Vec<Bound>, Failure> {
+    forward
+        .listens()
+        .into_iter()
+        .map(|(index, local)| {
+            let listener = bind_tcp(local).map_err(|e| {
+                crate::server::bind_error(&format!("forward \"{name}\""), Protocol::Tcp, local, &e)
+            })?;
+            Ok(Bound {
+                name: name.to_string(),
+                to: forward.to.at(index),
+                socks: forward.socks,
+                listener,
+            })
+        })
+        .collect()
+}
+
+fn describe(forward: &Forward, at: SocketAddr) -> String {
+    let at = show_addr(at, forward.ports);
+    let to = match (&forward.to, forward.ports) {
+        (VisitTarget::Client { client, .. }, _) if forward.socks => {
+            format!("any target on client \"{client}\" (SOCKS5 proxy)")
+        }
+        (VisitTarget::Client { client, target }, n) if n > 1 => {
+            let end = match forward.to.at(n - 1) {
+                VisitTarget::Client { target, .. } => {
+                    target.rsplit_once(':').map_or("", |(_, p)| p).to_string()
+                }
+                VisitTarget::Service { .. } => String::new(),
+            };
+            format!("{target}-{end} on client \"{client}\"")
+        }
+        (to, _) => to.to_string(),
+    };
+    format!("forwarding {at} -> {to}")
+}
+
+fn ends<'a>(
+    forwards: impl Iterator<Item = (&'a String, &'a Forward)>,
+) -> Vec<(String, VisitTarget)> {
+    forwards
+        .flat_map(|(name, f)| {
+            let first = match &f.to {
+                VisitTarget::Client { client, .. } if f.socks => VisitTarget::Client {
+                    client: client.clone(),
+                    target: "127.0.0.1:1".into(),
+                },
+                to => to.clone(),
+            };
+            let last = f.ports.max(1) - 1;
+            let mut ends = vec![(name.clone(), first)];
+            if last > 0 {
+                ends.push((name.clone(), f.to.at(last)));
+            }
+            ends
+        })
+        .collect()
+}
+
+fn connection_changes(old: &VisitorSettings, new: &VisitorSettings) -> Vec<&'static str> {
+    [
+        (
+            old.server != new.server || old.endpoint != new.endpoint,
+            "server",
+        ),
+        (old.name != new.name, "name"),
+        (old.secret != new.secret, "secret"),
+        (old.headers != new.headers, "headers"),
+        (old.ca_pem != new.ca_pem, "ca"),
+        (old.cipher != new.cipher, "cipher"),
+        (old.proxy != new.proxy, "proxy"),
+        (
+            old.connect_timeout != new.connect_timeout,
+            "connect_timeout_secs",
+        ),
+        (old.tcp != new.tcp, "tcp"),
+    ]
+    .into_iter()
+    .filter_map(|(changed, name)| changed.then_some(name))
+    .collect()
+}
+
+struct Listening {
+    forward: Forward,
+    tasks: Vec<tokio::task::JoinHandle<()>>,
+}
+
+impl Listening {
+    async fn close(self) {
+        for task in &self.tasks {
+            task.abort();
+        }
+        for task in self.tasks {
+            let _ = task.await;
+        }
+    }
+}
+
+fn dialer_for(settings: &VisitorSettings, resolver: &Option<Arc<dyn Resolver>>) -> Arc<Dialer> {
+    let mut dialer = Dialer::visitor(settings);
+    if let Some(r) = resolver {
+        dialer.resolver = r.clone();
+    }
+    Arc::new(dialer)
+}
+
 pub struct Visitor {
     settings: Arc<VisitorSettings>,
     dialer: Arc<Dialer>,
+    resolver: Option<Arc<dyn Resolver>>,
     bound: Vec<Bound>,
+    reloads: Option<mpsc::Receiver<VisitorSettings>>,
 }
 
 impl Visitor {
     pub fn bind(settings: VisitorSettings) -> Result<Visitor, Failure> {
         let mut bound = Vec::new();
         for (name, forward) in &settings.forwards {
-            for (index, local) in forward.listens() {
-                let listener = bind_tcp(local).map_err(|e| {
-                    crate::server::bind_error(
-                        &format!("forward \"{name}\""),
-                        Protocol::Tcp,
-                        local,
-                        &e,
-                    )
-                })?;
-                bound.push(Bound {
-                    name: name.clone(),
-                    to: forward.to.at(index),
-                    socks: forward.socks,
-                    listener,
-                });
-            }
+            bound.extend(bind_forward(name, forward)?);
         }
         Ok(Visitor {
-            dialer: Arc::new(Dialer::visitor(&settings)),
+            dialer: dialer_for(&settings, &None),
             settings: Arc::new(settings),
+            resolver: None,
             bound,
+            reloads: None,
         })
     }
 
     pub fn with_resolver(mut self, resolver: Arc<dyn Resolver>) -> Self {
-        Arc::get_mut(&mut self.dialer)
-            .expect("set before the visitor runs")
-            .resolver = resolver;
+        self.resolver = Some(resolver);
+        self.dialer = dialer_for(&self.settings, &self.resolver);
+        self
+    }
+
+    pub fn with_reloads(mut self, reloads: mpsc::Receiver<VisitorSettings>) -> Self {
+        self.reloads = Some(reloads);
         self
     }
 
@@ -159,62 +260,44 @@ impl Visitor {
             .and_then(|b| b.listener.local_addr().ok())
     }
 
-    pub async fn run(self, mut stop: watch::Receiver<bool>) {
-        let (tx, mut rx) = mpsc::channel(64);
-        let mut accepting = JoinSet::new();
-        for (name, f) in &self.settings.forwards {
-            let at = self
-                .local_addr(name)
-                .map_or_else(|| show_addr(f.local, f.ports), |a| show_addr(a, f.ports));
-            let to = match (&f.to, f.ports) {
-                (VisitTarget::Client { client, .. }, _) if f.socks => {
-                    format!("any target on client \"{client}\" (SOCKS5 proxy)")
-                }
-                (VisitTarget::Client { client, target }, n) if n > 1 => {
-                    let last = f.to.at(n - 1);
-                    let end = match &last {
-                        VisitTarget::Client { target, .. } => {
-                            target.rsplit_once(':').map_or("", |(_, p)| p).to_string()
-                        }
-                        VisitTarget::Service { .. } => String::new(),
-                    };
-                    format!("{target}-{end} on client \"{client}\"")
-                }
-                (to, _) => to.to_string(),
-            };
-            info!("forwarding {at} -> {to}");
-        }
-        let forwards = self
-            .settings
-            .forwards
-            .iter()
-            .flat_map(|(name, f)| {
-                let last = f.ports.max(1) - 1;
-                let first = match &f.to {
-                    VisitTarget::Client { client, .. } if f.socks => VisitTarget::Client {
-                        client: client.clone(),
-                        target: "127.0.0.1:1".into(),
-                    },
-                    to => to.clone(),
-                };
-                let mut ends = vec![(name.clone(), first)];
-                if last > 0 {
-                    ends.push((name.clone(), f.to.at(last)));
-                }
-                ends
+    fn listen(
+        bound: Vec<Bound>,
+        tx: &mpsc::Sender<forward::Incoming>,
+    ) -> Vec<tokio::task::JoinHandle<()>> {
+        bound
+            .into_iter()
+            .map(|b| {
+                tokio::spawn(forward::accept(
+                    b.name,
+                    b.to,
+                    b.socks,
+                    b.listener,
+                    tx.clone(),
+                ))
             })
-            .collect();
-        for b in self.bound {
-            accepting.spawn(forward::accept(
-                b.name,
-                b.to,
-                b.socks,
-                b.listener,
-                tx.clone(),
-            ));
+            .collect()
+    }
+
+    pub async fn run(mut self, mut stop: watch::Receiver<bool>) {
+        let (tx, mut rx) = mpsc::channel(64);
+        let mut listening = std::collections::BTreeMap::new();
+        for (name, f) in self.settings.forwards.clone() {
+            let at = self.local_addr(&name).unwrap_or(f.local);
+            info!("{}", describe(&f, at));
+            let bound: Vec<Bound> = self.bound.extract_if(.., |b| b.name == name).collect();
+            listening.insert(
+                name,
+                Listening {
+                    forward: f,
+                    tasks: Self::listen(bound, &tx),
+                },
+            );
         }
-        drop(tx);
-        tokio::spawn(forward::check(self.dialer.clone(), forwards));
+        tokio::spawn(forward::check(
+            self.dialer.clone(),
+            ends(self.settings.forwards.iter()),
+        ));
+        let mut reloads = self.reloads.take();
         let mut open = JoinSet::new();
         let opening = Arc::new(Semaphore::new(MAX_OPENING));
         loop {
@@ -228,6 +311,9 @@ impl Visitor {
                     ));
                 }
                 Some(_) = open.join_next(), if !open.is_empty() => {}
+                next = next_reload(&mut reloads) => {
+                    self.apply(next, &mut listening, &tx).await;
+                }
                 _ = stop.changed() => break,
             }
         }
@@ -235,6 +321,111 @@ impl Visitor {
             info!("closing {} open connections", open.len());
         }
         info!("visitor stopped");
+    }
+
+    async fn apply(
+        &mut self,
+        next: VisitorSettings,
+        listening: &mut std::collections::BTreeMap<String, Listening>,
+        tx: &mpsc::Sender<forward::Incoming>,
+    ) {
+        let connection = connection_changes(&self.settings, &next);
+        let gone: Vec<String> = listening
+            .iter()
+            .filter(|(name, l)| next.forwards.get(*name) != Some(&l.forward))
+            .map(|(name, _)| name.clone())
+            .collect();
+        let mut forwards: Vec<&str> = gone
+            .iter()
+            .map(String::as_str)
+            .chain(
+                next.forwards
+                    .keys()
+                    .filter(|n| !listening.contains_key(*n))
+                    .map(String::as_str),
+            )
+            .collect();
+        forwards.sort_unstable();
+        forwards.dedup();
+        info!("{}", summary(&connection, &forwards));
+        for name in &gone {
+            if let Some(l) = listening.remove(name) {
+                l.close().await;
+            }
+            if !next.forwards.contains_key(name) {
+                info!("forward \"{name}\" removed");
+            }
+        }
+        if !connection.is_empty() {
+            self.dialer = dialer_for(&next, &self.resolver);
+        }
+        let mut added = Vec::new();
+        for (name, f) in &next.forwards {
+            if listening.contains_key(name) {
+                continue;
+            }
+            match bind_forward(name, f) {
+                Ok(bound) => {
+                    let at = bound
+                        .first()
+                        .and_then(|b| b.listener.local_addr().ok())
+                        .unwrap_or(f.local);
+                    info!("{}", describe(f, at));
+                    listening.insert(
+                        name.clone(),
+                        Listening {
+                            forward: f.clone(),
+                            tasks: Self::listen(bound, tx),
+                        },
+                    );
+                    added.push((name, f));
+                }
+                Err(e) => error!(
+                    "{}; forward \"{name}\" stays off until the config is fixed",
+                    e.message
+                ),
+            }
+        }
+        let check = if connection.is_empty() {
+            ends(added.into_iter())
+        } else {
+            ends(next.forwards.iter())
+        };
+        self.settings = Arc::new(next);
+        if !check.is_empty() {
+            tokio::spawn(forward::check(self.dialer.clone(), check));
+        }
+    }
+}
+
+fn summary(connection: &[&str], forwards: &[&str]) -> String {
+    let mut parts = Vec::new();
+    if !connection.is_empty() {
+        parts.push(format!(
+            "{} applied to new connections, open ones keep running",
+            connection.join(", ")
+        ));
+    }
+    match forwards {
+        [] => {}
+        [one] => parts.push(format!("forward {one} changed")),
+        many => parts.push(format!("forwards {} changed", many.join(", "))),
+    }
+    if parts.is_empty() {
+        return "config reloaded: nothing changed".into();
+    }
+    format!("config reloaded: {}", parts.join("; "))
+}
+
+async fn next_reload(reloads: &mut Option<mpsc::Receiver<VisitorSettings>>) -> VisitorSettings {
+    loop {
+        match reloads {
+            Some(rx) => match rx.recv().await {
+                Some(next) => return next,
+                None => *reloads = None,
+            },
+            None => std::future::pending::<()>().await,
+        }
     }
 }
 
@@ -251,6 +442,7 @@ mod tests {
             endpoint: crate::transport::endpoint::Endpoint::parse("tunnel.example.com").unwrap(),
             headers: Vec::new(),
             ca_pem: None,
+            ca_file: None,
             name: "laptop".into(),
             secret: crate::secret::Secret::generate(),
             cipher: crate::config::model::Cipher::Chachapoly,

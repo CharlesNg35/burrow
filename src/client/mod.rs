@@ -1,10 +1,11 @@
 mod data;
 pub mod reconnect;
+pub mod reload;
 
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use tokio::sync::{Semaphore, watch};
+use tokio::sync::{Semaphore, mpsc, watch};
 use tracing::{debug, error, info, warn};
 
 use crate::config::settings::ClientSettings;
@@ -29,12 +30,32 @@ pub enum State {
     Rejected,
 }
 
-pub struct Client {
+#[derive(Clone)]
+struct Current {
     settings: Arc<ClientSettings>,
+    dialer: Arc<Dialer>,
+}
+
+#[derive(Clone)]
+pub(crate) struct Live(Arc<watch::Sender<Current>>);
+
+impl Live {
+    pub(crate) fn settings(&self) -> Arc<ClientSettings> {
+        self.0.borrow().settings.clone()
+    }
+
+    fn dialer(&self) -> Arc<Dialer> {
+        self.0.borrow().dialer.clone()
+    }
+}
+
+pub struct Client {
+    live: Live,
+    resolver: Arc<dyn Resolver>,
     state: watch::Sender<State>,
     halt: watch::Sender<bool>,
-    dialer: Arc<Dialer>,
     outage: Arc<Mutex<Outage>>,
+    reloads: Option<mpsc::Receiver<ClientSettings>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -49,44 +70,109 @@ pub enum SessionEnd {
     Rejected,
     Removed,
     Stop,
+    Reconnect,
+}
+
+fn dialer_for(settings: &ClientSettings, resolver: &Arc<dyn Resolver>) -> Arc<Dialer> {
+    let mut dialer = Dialer::client(settings);
+    dialer.resolver = resolver.clone();
+    Arc::new(dialer)
+}
+
+async fn next_reload(reloads: &mut Option<mpsc::Receiver<ClientSettings>>) -> ClientSettings {
+    loop {
+        match reloads {
+            Some(rx) => match rx.recv().await {
+                Some(next) => return next,
+                None => *reloads = None,
+            },
+            None => std::future::pending::<()>().await,
+        }
+    }
 }
 
 impl Client {
     pub fn new(settings: ClientSettings) -> Self {
         let (state, _) = watch::channel(State::Connecting);
+        let resolver = crate::transport::resolve::system();
+        let current = Current {
+            dialer: dialer_for(&settings, &resolver),
+            settings: Arc::new(settings),
+        };
         Client {
+            live: Live(Arc::new(watch::Sender::new(current))),
+            resolver,
             state,
             halt: watch::Sender::new(false),
-            dialer: Arc::new(Dialer::client(&settings)),
-            settings: Arc::new(settings),
             outage: Arc::new(Mutex::new(Outage::default())),
+            reloads: None,
         }
     }
 
     pub fn with_resolver(mut self, resolver: Arc<dyn Resolver>) -> Self {
-        Arc::get_mut(&mut self.dialer)
-            .expect("set before the client runs")
-            .resolver = resolver;
+        let settings = self.live.settings();
+        self.live.0.send_replace(Current {
+            dialer: dialer_for(&settings, &resolver),
+            settings,
+        });
+        self.resolver = resolver;
         self
+    }
+
+    pub fn with_reloads(mut self, reloads: mpsc::Receiver<ClientSettings>) -> Self {
+        self.reloads = Some(reloads);
+        self
+    }
+
+    fn apply(&self, next: ClientSettings, backoff: &mut Backoff) -> bool {
+        let old = self.live.settings();
+        let changes = reload::compare(&old, &next);
+        info!("{}", changes.describe());
+        if changes.is_empty() {
+            return false;
+        }
+        if (old.reconnect_initial, old.reconnect_max)
+            != (next.reconnect_initial, next.reconnect_max)
+        {
+            *backoff = Backoff::new(next.reconnect_initial, next.reconnect_max);
+        }
+        self.live.0.send_replace(Current {
+            dialer: dialer_for(&next, &self.resolver),
+            settings: Arc::new(next),
+        });
+        !changes.reconnect.is_empty()
     }
 
     pub fn state(&self) -> watch::Receiver<State> {
         self.state.subscribe()
     }
 
-    pub async fn run(self, mut stop: watch::Receiver<bool>) -> RunEnd {
-        let s = self.settings.clone();
-        if s.insecure_plaintext {
+    pub async fn run(mut self, mut stop: watch::Receiver<bool>) -> RunEnd {
+        let mut reloads = self.reloads.take();
+        let first = self.live.settings();
+        if first.insecure_plaintext {
             warn!("insecure_plaintext is enabled: forwarded TCP data is NOT encrypted");
         }
-        let mut backoff = Backoff::new(s.reconnect_initial, s.reconnect_max);
+        let mut backoff = Backoff::new(first.reconnect_initial, first.reconnect_max);
         let mut rejected: Option<(Instant, u32)> = None;
         let end = loop {
             let started = Instant::now();
-            let end = tokio::select! {
-                e = self.session() => e,
-                _ = stop.changed() => SessionEnd::Stop,
+            let end = {
+                let session = self.session();
+                tokio::pin!(session);
+                loop {
+                    tokio::select! {
+                        e = &mut session => break e,
+                        _ = stop.changed() => break SessionEnd::Stop,
+                        next = next_reload(&mut reloads) => {
+                            if self.apply(next, &mut backoff) {
+                                break SessionEnd::Reconnect;
+                            }
+                        }
+                    }
+                }
             };
+            let s = self.live.settings();
             if started.elapsed() > STABLE_AFTER {
                 backoff.reset();
             }
@@ -96,6 +182,11 @@ impl Client {
             }
             let why = match end {
                 SessionEnd::Stop => break RunEnd::Stopped,
+                SessionEnd::Reconnect => {
+                    let _ = self.state.send(State::Connecting);
+                    backoff.reset();
+                    continue;
+                }
                 SessionEnd::Lost(why) => {
                     let _ = self.state.send(State::Connecting);
                     why
@@ -158,27 +249,49 @@ impl Client {
                     break RunEnd::GaveUp(down);
                 }
             }
-            tokio::select! {
-                _ = tokio::time::sleep(delay) => {}
-                _ = stop.changed() => break RunEnd::Stopped,
+            let sleep = tokio::time::sleep(delay);
+            tokio::pin!(sleep);
+            loop {
+                tokio::select! {
+                    _ = &mut sleep => break,
+                    _ = stop.changed() => return self.stopped(),
+                    next = next_reload(&mut reloads) => {
+                        if self.apply(next, &mut backoff) {
+                            rejected = None;
+                            let _ = self.state.send(State::Connecting);
+                            backoff.reset();
+                            break;
+                        }
+                    }
+                }
             }
         };
         if end == RunEnd::Stopped {
-            info!("client stopped");
+            return self.stopped();
         }
         self.halt.send_replace(true);
         end
     }
 
+    fn stopped(&self) -> RunEnd {
+        info!("client stopped");
+        self.halt.send_replace(true);
+        RunEnd::Stopped
+    }
+
     async fn open(&self, kind: ChannelKind, hello: Hello) -> Result<Channel, SessionEnd> {
-        self.dialer.open(kind, hello).await.map_err(|e| match e {
-            DialError::Lost(why) | DialError::Unreachable(why) => SessionEnd::Lost(why),
-            DialError::Rejected => SessionEnd::Rejected,
-        })
+        self.live
+            .dialer()
+            .open(kind, hello)
+            .await
+            .map_err(|e| match e {
+                DialError::Lost(why) | DialError::Unreachable(why) => SessionEnd::Lost(why),
+                DialError::Rejected => SessionEnd::Rejected,
+            })
     }
 
     async fn session(&self) -> SessionEnd {
-        let s = self.settings.clone();
+        let s = self.live.settings();
         let ch = match self
             .open(ChannelKind::Control, Hello::Control { version: VERSION })
             .await
@@ -311,17 +424,18 @@ impl Client {
                 svc.name,
                 svc.protocol.as_str(),
             );
-            data::precheck(&self.settings, svc);
+            data::precheck(&self.live.settings(), svc);
         }
     }
 
     fn spawn_data(&self, token: [u8; TOKEN_LEN], opening: Arc<Semaphore>) {
         let me = Client {
-            settings: self.settings.clone(),
+            live: self.live.clone(),
+            resolver: self.resolver.clone(),
             state: self.state.clone(),
             halt: self.halt.clone(),
-            dialer: self.dialer.clone(),
             outage: self.outage.clone(),
+            reloads: None,
         };
         let mut halted = self.halt.subscribe();
         tokio::spawn(async move {
@@ -343,11 +457,11 @@ impl Client {
                 version: VERSION,
                 token,
             };
-            let ch = self.dialer.open(ChannelKind::Data, hello).await;
+            let ch = self.live.dialer().open(ChannelKind::Data, hello).await;
             drop(permit);
             match ch {
                 Ok(ch) => {
-                    data::serve(self.settings.clone(), self.dialer.resolver.clone(), ch).await;
+                    data::serve(self.live.clone(), self.resolver.clone(), ch).await;
                     return;
                 }
                 Err(DialError::Rejected | DialError::Lost(_))

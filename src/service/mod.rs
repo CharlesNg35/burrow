@@ -538,19 +538,12 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
             )?;
         }
     }
-    let applies = if manifest.role == "server" {
-        "changes reload automatically".to_string()
-    } else {
-        format!(
-            "then run: {}",
-            crate::failure::admin(&format!("service restart{arg}"))
-        )
-    };
     say(
         out,
         format!(
-            "\nthe service uses {}; edit that file, {applies}",
-            config.display()
+            "\nthe service uses {}; change it with {} and it applies the change by itself",
+            config.display(),
+            crate::failure::admin(&format!("edit{arg}"))
         ),
     )?;
     say(
@@ -910,15 +903,15 @@ pub fn as_worker(log: &Path, job: impl FnOnce(&mut dyn Write) -> Result<(), Fail
     background::worker(log, job)
 }
 
-fn interrupts(action: &str, m: &Manifest) -> bool {
-    action == "restart" || (action == "reload" && (m.role != "server" || cfg!(windows)))
+fn interrupts(action: &str) -> bool {
+    action == "restart" || (action == "reload" && cfg!(windows))
 }
 
 pub fn control(action: &str, name: Option<&str>, out: &mut dyn Write) -> Result<(), Failure> {
     system::backend()?;
     system::require_admin()?;
     let m = resolve(name)?;
-    if !interrupts(action, &m) {
+    if !interrupts(action) {
         return control_now(action, Some(&m.name), out);
     }
     background::Run::new(action)?.start(
@@ -937,14 +930,6 @@ pub fn control_now(action: &str, name: Option<&str>, out: &mut dyn Write) -> Res
         "start" => backend.start(&m)?,
         "stop" => backend.stop(&m)?,
         "restart" => {
-            let _ = backend.stop(&m);
-            backend.start(&m)?;
-        }
-        "reload" if m.role != "server" => {
-            say(
-                out,
-                format!("{}s apply config changes on restart; restarting", m.role),
-            )?;
             let _ = backend.stop(&m);
             backend.start(&m)?;
         }
@@ -1091,23 +1076,10 @@ mod tests {
 
     #[test]
     fn commands_that_interrupt_a_service_go_to_the_background() {
-        let server = record(Platform::current());
-        let client = Manifest {
-            role: "client".into(),
-            ..record(Platform::current())
-        };
-        let visitor = Manifest {
-            role: "visitor".into(),
-            ..record(Platform::current())
-        };
-        for m in [&server, &client, &visitor] {
-            assert!(interrupts("restart", m), "{}", m.role);
-            assert!(!interrupts("start", m), "{}", m.role);
-            assert!(!interrupts("stop", m), "{}", m.role);
-        }
-        assert!(interrupts("reload", &client));
-        assert!(interrupts("reload", &visitor));
-        assert_eq!(interrupts("reload", &server), cfg!(windows));
+        assert!(interrupts("restart"));
+        assert!(!interrupts("start"));
+        assert!(!interrupts("stop"));
+        assert_eq!(interrupts("reload"), cfg!(windows));
     }
 
     fn record(p: Platform) -> Manifest {

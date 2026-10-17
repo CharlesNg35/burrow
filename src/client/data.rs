@@ -140,7 +140,7 @@ pub fn precheck(settings: &ClientSettings, svc: &ServiceInfo) {
     }
 }
 
-pub async fn serve(settings: Arc<ClientSettings>, resolver: Arc<dyn Resolver>, mut ch: Channel) {
+pub async fn serve(live: super::Live, resolver: Arc<dyn Resolver>, mut ch: Channel) {
     let idle_limit = ch.stream.is_websocket().then_some(IDLE_CHANNEL_LIMIT);
     let first = loop {
         let next = ch.reader.recv(&mut ch.stream);
@@ -164,6 +164,7 @@ pub async fn serve(settings: Arc<ClientSettings>, resolver: Arc<dyn Resolver>, m
             return;
         }
     };
+    let settings = live.settings();
     if let Some(path) = unix::path_of(&connect.target) {
         socket(&settings, ch, &connect, path).await;
         return;

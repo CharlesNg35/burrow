@@ -101,8 +101,7 @@ try {
   if (-not (Traffic 500 27950)) { Fail "no traffic through the installed visitor" }
   if ((Burrow service logs burrow-e2e-visitor -n 20) -notmatch "forwards are ready") { Fail "visitor logs do not say it is ready: $(Burrow service logs burrow-e2e-visitor -n 20)" }
   $out = Burrow service reload burrow-e2e-visitor
-  if ($out -notmatch "visitors apply config changes on restart") { Fail "visitor reload: $out" }
-  if (-not (Running burrow-e2e-visitor)) { Fail "visitor not running after reload" }
+  if (-not (Running burrow-e2e-visitor)) { Fail "visitor not running after reload: $out" }
   Check "visitor service reaches the private service"
   if (@((Burrow service list) -split "`n" | Select-String "running").Count -ne 3) { Fail "list does not show all three services" }
   Check "status and list"

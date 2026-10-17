@@ -26,6 +26,7 @@ pub fn check_visitor(
         endpoint,
         headers,
         ca_pem,
+        ca_file,
         proxy,
     } = check_connection(
         Dial {
@@ -143,6 +144,7 @@ pub fn check_visitor(
         endpoint,
         headers,
         ca_pem,
+        ca_file,
         name: cfg.name.clone(),
         secret: secret?,
         cipher: cfg.cipher,

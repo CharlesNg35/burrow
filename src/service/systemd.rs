@@ -98,9 +98,7 @@ impl Backend for Systemd {
             quote(&m.config),
             quote(&m.log_file)
         ));
-        if m.role == "server" {
-            s.push_str("ExecReload=/bin/kill -HUP $MAINPID\n");
-        }
+        s.push_str("ExecReload=/bin/kill -HUP $MAINPID\n");
         if let Some(env) = &m.env_file {
             s.push_str(&format!("EnvironmentFile={}\n", quote(env)));
         }
@@ -248,7 +246,11 @@ impl Backend for Systemd {
     }
 
     fn reload(&self, m: &Manifest) -> Result<(), Failure> {
-        run("systemctl", &["reload", &m.name]).map(drop)
+        run(
+            "systemctl",
+            &["kill", "--kill-whom=main", "--signal=SIGHUP", &m.name],
+        )
+        .map(drop)
     }
 
     fn status(&self, m: &Manifest) -> Status {
@@ -319,10 +321,10 @@ mod tests {
 
     #[test]
     fn units_run_the_command_of_each_role() {
-        for (role, command, reload) in [
-            ("server", "server", true),
-            ("client", "client", false),
-            ("visitor", "visit", false),
+        for (role, command) in [
+            ("server", "server"),
+            ("client", "client"),
+            ("visitor", "visit"),
         ] {
             let m = Manifest {
                 name: "burrow-home".into(),
@@ -347,7 +349,10 @@ mod tests {
                 "{unit}"
             );
             assert!(unit.contains(&format!("Description=burrow {role} \"home\"")));
-            assert_eq!(unit.contains("ExecReload="), reload, "{role}");
+            assert!(
+                unit.contains("ExecReload=/bin/kill -HUP $MAINPID"),
+                "{role}"
+            );
         }
     }
 }

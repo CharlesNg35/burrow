@@ -24,6 +24,7 @@ pub fn check_client(
         endpoint,
         headers,
         ca_pem,
+        ca_file,
         proxy,
     } = check_connection(
         Dial {
@@ -161,6 +162,7 @@ pub fn check_client(
         endpoint,
         headers,
         ca_pem,
+        ca_file,
         name: cfg.name.clone(),
         secret: secret?,
         allow: if cfg.allow_all {

@@ -140,8 +140,9 @@ for _ in $(seq 1 50); do "$LOADGEN" latency --addr 127.0.0.1:27950 --count 10 >/
 "$LOADGEN" latency --addr 127.0.0.1:27950 --count 500 >/dev/null || fail "no traffic through the installed visitor"
 sudo "$B" service logs burrow-e2e-visitor -n 20 | grep -q "forwards are ready" || fail "visitor logs do not say it is ready: $(sudo "$B" service logs burrow-e2e-visitor -n 20)"
 out="$(sudo "$B" service reload burrow-e2e-visitor 2>&1)" || fail "visitor reload: $out"
-echo "$out" | grep -q "visitors apply config changes on restart" || fail "visitor reload: $out"
-running burrow-e2e-visitor || fail "visitor not running after reload"
+running burrow-e2e-visitor || fail "visitor not running after reload: $out"
+for _ in $(seq 1 50); do sudo "$B" service logs burrow-e2e-visitor -n 20 | grep -q "config reloaded: nothing changed" && break; sleep 0.2; done
+sudo "$B" service logs burrow-e2e-visitor -n 20 | grep -q "config reloaded: nothing changed" || fail "the visitor did not reload in place: $(sudo "$B" service logs burrow-e2e-visitor -n 20)"
 check "visitor service reaches the private service"
 sudo "$B" service list | grep -c "running" | grep -q 3 || fail "list does not show all three services"
 check "status and list"
@@ -213,7 +214,22 @@ interrupted() {
 }
 interrupted update sudo "$B" service update --force
 interrupted restart sudo "$B" service restart burrow-e2e-client
-interrupted reload sudo "$B" service reload burrow-e2e-client
+pid_of() { sudo "$B" service status "$1" 2>/dev/null | sed -n 's/.*(pid \([0-9]*\)).*/\1/p' | head -1; }
+before="$(pid_of burrow-e2e-client)"
+sudo "$B" service reload burrow-e2e-client >/dev/null || fail "client reload failed"
+for _ in $(seq 1 50); do sudo "$B" service logs burrow-e2e-client -n 20 | grep -q "config reloaded: nothing changed" && break; sleep 0.2; done
+sudo "$B" service logs burrow-e2e-client -n 20 | grep -q "config reloaded: nothing changed" || fail "the client did not reload: $(sudo "$B" service logs burrow-e2e-client -n 20)"
+[ -n "$before" ] && [ "$(pid_of burrow-e2e-client)" = "$before" ] || fail "reload restarted the client instead of reloading it"
+check "reload applies the config in place, without a restart"
+if [ "$(uname -s)" = Linux ]; then
+  unit=/etc/systemd/system/burrow-e2e-client.service
+  sudo sed -i '/^ExecReload=/d' "$unit" && sudo systemctl daemon-reload
+  sudo "$B" service reload burrow-e2e-client >/dev/null || fail "reload failed on a unit without ExecReload"
+  for _ in $(seq 1 50); do [ "$(sudo "$B" service logs burrow-e2e-client -n 40 | grep -c "config reloaded: nothing changed")" -ge 2 ] && break; sleep 0.2; done
+  [ "$(sudo "$B" service logs burrow-e2e-client -n 40 | grep -c "config reloaded: nothing changed")" -ge 2 ] || fail "a unit installed before ExecReload existed does not reload"
+  [ "$(pid_of burrow-e2e-client)" = "$before" ] || fail "reload restarted a client whose unit has no ExecReload"
+  check "units installed before ExecReload existed reload too"
+fi
 interrupted install env E2E_SECRET="$SECRET" sudo --preserve-env=E2E_SECRET "$B" service install -c e2e-client.yaml
 [ "$(sudo stat -c %a "$JOBS" 2>/dev/null || sudo stat -f %Lp "$JOBS")" = 700 ] || fail "$JOBS is not private"
 sudo grep -rqs -- "$SECRET" /var/log/burrow "$JOBS" && fail "a log contains the client secret"

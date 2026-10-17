@@ -171,10 +171,11 @@ async fn invalid_reload_is_rejected_and_old_config_kept() {
         _ => panic!("valid config"),
     };
     let (tx, mut rx) = tokio::sync::mpsc::channel::<ServerSettings>(4);
-    tokio::spawn(burrow::run::reloader(
+    tokio::spawn(burrow::reload::follow(
         path.clone(),
         initial,
         burrow::run::Env::default(),
+        burrow::reload::accept(),
         tx,
     ));
     tokio::time::sleep(Duration::from_millis(300)).await;

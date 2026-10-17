@@ -2,14 +2,12 @@ use std::collections::BTreeMap;
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Duration;
 
 use tokio::sync::{mpsc, watch};
-use tracing::{debug, error, info, warn};
+use tracing::error;
 
 use crate::client::{Client, RunEnd};
 use crate::config::env::EnvSource;
-use crate::config::settings::ServerSettings;
 use crate::config::{Loaded, Role, load_file};
 use crate::diagnostics::Style;
 use crate::failure::Failure;
@@ -248,7 +246,13 @@ fn run_server(path: &Path, logging: Logging, hosted: Option<Hosted>) -> Result<u
         let _status = crate::status::publish(path, Arc::new(move || shared.status()));
         let stop = stop_on_signal(stop);
         let (reload_tx, reload_rx) = mpsc::channel(4);
-        tokio::spawn(reloader(path.to_path_buf(), *settings, env, reload_tx));
+        tokio::spawn(crate::reload::follow(
+            path.to_path_buf(),
+            *settings,
+            env,
+            crate::reload::accept(),
+            reload_tx,
+        ));
         server.run(reload_rx, stop).await;
         Ok(0)
     })
@@ -263,12 +267,19 @@ fn run_client(path: &Path, logging: Logging, hosted: Option<Hosted>) -> Result<u
         )));
     };
     let identity = Identity::client(&settings.endpoint.to_string(), &settings.name);
-    let _instance = instance::acquire(&identity, path)?;
+    let lock = instance::acquire(&identity, path)?;
     init_logging(&logging)?;
     runtime()?.block_on(async move {
         let stop = stop_on_signal(stop);
-        ignore_hangup("client");
-        match Client::new(*settings).run(stop).await {
+        let (reload_tx, reload_rx) = mpsc::channel(4);
+        tokio::spawn(crate::reload::follow(
+            path.to_path_buf(),
+            (*settings).clone(),
+            env,
+            same_tunnel_once(path.to_path_buf(), identity, lock),
+            reload_tx,
+        ));
+        match Client::new(*settings).with_reloads(reload_rx).run(stop).await {
             RunEnd::Stopped => Ok(0),
             RunEnd::GaveUp(down) => Err(Failure::new(format!(
                 "gave up after the server was unreachable for {}",
@@ -294,177 +305,40 @@ fn run_visitor(
             path.display()
         )));
     };
-    crate::visitor::pick(&mut settings, pick, &path.display().to_string())?;
+    let shown = path.display().to_string();
+    crate::visitor::pick(&mut settings, pick.clone(), &shown)?;
     init_logging(&logging)?;
     runtime()?.block_on(async move {
-        let visitor = Visitor::bind(*settings)?;
+        let (reload_tx, reload_rx) = mpsc::channel(4);
+        tokio::spawn(crate::reload::follow(
+            path.to_path_buf(),
+            (*settings).clone(),
+            env,
+            Box::new(move |mut next| {
+                crate::visitor::pick(&mut next, pick.clone(), &shown).map_err(|f| f.message)?;
+                Ok(next)
+            }),
+            reload_tx,
+        ));
+        let visitor = Visitor::bind(*settings)?.with_reloads(reload_rx);
         let stop = stop_on_signal(stop);
-        ignore_hangup("visitor");
         visitor.run(stop).await;
         Ok(0)
     })
 }
 
-#[cfg(unix)]
-fn ignore_hangup(role: &'static str) {
-    tokio::spawn(async move {
-        use tokio::signal::unix::{SignalKind, signal};
-        let Ok(mut hup) = signal(SignalKind::hangup()) else {
-            return;
-        };
-        while hup.recv().await.is_some() {
-            info!(
-                "a {role} applies config changes when it restarts; restart it to use the edited file"
-            );
-        }
-    });
-}
-
-#[cfg(not(unix))]
-fn ignore_hangup(_: &'static str) {}
-
-pub async fn reloader(
+fn same_tunnel_once(
     path: PathBuf,
-    mut current: ServerSettings,
-    env: Env,
-    tx: mpsc::Sender<ServerSettings>,
-) {
-    let (trig_tx, mut trig) = mpsc::channel::<&'static str>(16);
-    let mut watched = watched_files(&path, &current);
-    let mut watcher = watch_files(&watched, trig_tx.clone());
-    #[cfg(unix)]
-    {
-        let t = trig_tx.clone();
-        tokio::spawn(async move {
-            use tokio::signal::unix::{SignalKind, signal};
-            let Ok(mut hup) = signal(SignalKind::hangup()) else {
-                return;
-            };
-            while hup.recv().await.is_some() {
-                if t.send("SIGHUP").await.is_err() {
-                    return;
-                }
-            }
-        });
-    }
-    let mut rejected = false;
-    while let Some(first) = trig.recv().await {
-        tokio::time::sleep(Duration::from_millis(200)).await;
-        let mut why = first;
-        while let Ok(more) = trig.try_recv() {
-            if more == "SIGHUP" {
-                why = more;
-            }
+    identity: Identity,
+    lock: instance::InstanceLock,
+) -> crate::reload::Check<crate::config::settings::ClientSettings> {
+    let mut held = (identity, lock);
+    Box::new(move |next| {
+        let wanted = Identity::client(&next.endpoint.to_string(), &next.name);
+        if held.0 != wanted {
+            let lock = instance::acquire(&wanted, &path).map_err(|f| f.message)?;
+            held = (wanted, lock);
         }
-        let asked = why == "SIGHUP";
-        let outcome = match load_file(&path, Some(Role::Server), &env) {
-            Ok(o) => o,
-            Err(e) => {
-                let (m, h) = e.describe(&path);
-                error!("reload ({why}) rejected: {m} ({h}); keeping the current config");
-                rejected = true;
-                continue;
-            }
-        };
-        let style = Style::detect(std::io::stderr().is_terminal());
-        if outcome.report.has_errors() {
-            eprint!("{}", outcome.report.render_text(style));
-            error!(
-                "reload ({why}) rejected: {} has {} {}; keeping the current config",
-                path.display(),
-                outcome.report.error_count(),
-                crate::diagnostics::plural(outcome.report.error_count(), "error")
-            );
-            rejected = true;
-            continue;
-        }
-        let Some(Loaded::Server(next, _)) = outcome.loaded else {
-            continue;
-        };
-        let was_rejected = std::mem::take(&mut rejected);
-        if *next == current && !asked {
-            if was_rejected {
-                info!("config is valid again and matches the running config");
-            } else {
-                debug!("config file changed but settings are the same");
-            }
-            continue;
-        }
-        eprint!("{}", startup_report(&outcome.report, style));
-        info!("reloading config ({why})");
-        current = (*next).clone();
-        let files = watched_files(&path, &current);
-        if files != watched {
-            drop(watcher.take());
-            watcher = watch_files(&files, trig_tx.clone());
-            watched = files;
-        }
-        if tx.send(*next).await.is_err() {
-            return;
-        }
-    }
-}
-
-fn watched_files(config: &Path, settings: &ServerSettings) -> Vec<PathBuf> {
-    let mut files = vec![config.to_path_buf()];
-    if let Some(tls) = settings.websocket.as_ref().and_then(|w| w.tls.as_ref()) {
-        files.push(tls.cert_path.clone());
-        files.push(tls.key_path.clone());
-    }
-    files
-}
-
-fn watch_files(
-    files: &[PathBuf],
-    tx: mpsc::Sender<&'static str>,
-) -> Option<notify::RecommendedWatcher> {
-    use notify::{EventKind, RecursiveMode, Watcher};
-    let dir_of = |p: &Path| {
-        p.parent()
-            .filter(|d| !d.as_os_str().is_empty())
-            .map_or_else(|| PathBuf::from("."), Path::to_path_buf)
-    };
-    let real = |p: &Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
-    let (config, certs) = files.split_first()?;
-    let config_dir = real(&dir_of(config));
-    let config_name = config.file_name()?.to_os_string();
-    let mut cert_dirs: Vec<PathBuf> = certs
-        .iter()
-        .flat_map(|f| [real(&dir_of(f)), dir_of(&real(f))])
-        .collect();
-    cert_dirs.sort();
-    cert_dirs.dedup();
-    let mut dirs = cert_dirs.clone();
-    dirs.push(config_dir.clone());
-    dirs.sort();
-    dirs.dedup();
-    let mut watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
-        let Ok(ev) = res else { return };
-        if !matches!(
-            ev.kind,
-            EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_)
-        ) {
-            return;
-        }
-        let relevant = ev.paths.iter().any(|p| {
-            let dir = p.parent().map(real);
-            dir.as_ref().is_some_and(|d| cert_dirs.contains(d))
-                || (dir.as_ref() == Some(&config_dir)
-                    && p.file_name() == Some(config_name.as_os_str()))
-        });
-        if relevant {
-            let _ = tx.try_send("file changed");
-        }
+        Ok(next)
     })
-    .map_err(|e| warn!("cannot watch the config for changes ({e}); reload with SIGHUP instead"))
-    .ok()?;
-    for dir in dirs {
-        if let Err(e) = watcher.watch(&dir, RecursiveMode::NonRecursive) {
-            warn!(
-                "cannot watch {} for changes ({e}); reload with SIGHUP instead",
-                dir.display()
-            );
-        }
-    }
-    Some(watcher)
 }
