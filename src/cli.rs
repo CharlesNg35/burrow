@@ -102,7 +102,7 @@ pub enum Command {
 #[derive(Debug, Subcommand)]
 pub enum ServiceAction {
     #[command(
-        about = "Install and start a service for a server or client config (needs admin rights)"
+        about = "Install and start a service for a server, client or visitor config (needs admin rights)"
     )]
     Install(ServiceInstallArgs),
     #[command(about = "Stop and remove a service")]
@@ -134,7 +134,7 @@ pub struct ServiceInstallArgs {
     #[arg(
         short,
         long,
-        help = "Config file; ./server.yaml or ./client.yaml when omitted"
+        help = "Config file; found in the current folder when omitted"
     )]
     pub config: Option<PathBuf>,
     #[arg(long, help = "Service name (default: burrow-<config file name>)")]
