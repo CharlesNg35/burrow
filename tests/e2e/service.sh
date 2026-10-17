@@ -177,10 +177,12 @@ echo "== commands that restart services finish even when the session that starte
 interrupted() {
   local job="$1" match="$2"
   shift 2
-  local log="/var/log/burrow/$job.log"
   "$@" > "$WORK/hup.out" 2>&1 &
   for _ in $(seq 1 100); do grep -q "in the background" "$WORK/hup.out" && break; sleep 0.1; done
   grep -q "in the background" "$WORK/hup.out" || fail "$job did not hand over to the background: $(cat "$WORK/hup.out")"
+  local log
+  log="$(sed -n 's/.*(log: \(.*\))$/\1/p' "$WORK/hup.out" | head -1)"
+  case "$log" in */jobs/"$job"-*.log) ;; *) fail "unexpected log path for $job: $log" ;; esac
   local started
   started="$(ps -eo pid,args | grep -F -- "$match" | grep -v -e "--worker" -e "grep" | awk '{print $1}')"
   [ -n "$started" ] || fail "cannot find the $job process to kill"
@@ -197,8 +199,10 @@ interrupted update "service update --force" sudo "$B" service update --force
 interrupted restart "service restart burrow-e2e-client" sudo "$B" service restart burrow-e2e-client
 interrupted reload "service reload burrow-e2e-client" sudo "$B" service reload burrow-e2e-client
 interrupted install "service install -c e2e-client.yaml" env E2E_SECRET="$SECRET" sudo --preserve-env=E2E_SECRET "$B" service install -c e2e-client.yaml
-sudo grep -q "$SECRET" /var/log/burrow/*.log && fail "a log contains the client secret"
-sudo ls /var/log/burrow/ | grep -q '\.env$' && fail "the variables handed to the background install were left behind"
+JOBS=/var/lib/burrow/jobs
+[ "$(sudo stat -c %a "$JOBS" 2>/dev/null || sudo stat -f %Lp "$JOBS")" = 700 ] || fail "$JOBS is not private"
+sudo sh -c "grep -rqs -- '$SECRET' /var/log/burrow $JOBS" && fail "a log contains the client secret"
+sudo ls "$JOBS" | grep -q '\.env$' && fail "the variables handed to the background install were left behind"
 check "no secret left in the logs"
 
 echo "== burrow update downloads a release, verifies it and updates the services"
@@ -258,7 +262,7 @@ sudo "$B" service uninstall burrow-e2e-visitor --purge
 sudo "$B" service uninstall burrow-e2e-client --purge
 sudo "$B" service uninstall burrow-e2e-server --purge
 sudo "$B" service list | grep -q burrow-e2e && fail "services still listed"
-for f in "$STATE" /etc/burrow/e2e-server.yaml /etc/burrow/e2e-client.yaml /etc/burrow/e2e-client.env /etc/burrow/e2e-visitor.yaml /usr/local/bin/burrow /usr/local/bin/burrow.previous "$LOG"; do
+for f in "$STATE" /etc/burrow/e2e-server.yaml /etc/burrow/e2e-client.yaml /etc/burrow/e2e-client.env /etc/burrow/e2e-visitor.yaml /usr/local/bin/burrow /usr/local/bin/burrow.previous "$LOG" /var/lib/burrow/jobs; do
   [ -e "$f" ] && fail "$f still exists"
 done
 if id burrow >/dev/null 2>&1 || id _burrow >/dev/null 2>&1; then fail "service account still exists"; fi

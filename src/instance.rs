@@ -118,6 +118,41 @@ fn restrict_on_windows(path: &Path) {
     let _ = std::process::Command::new("icacls").args(&args).output();
 }
 
+pub fn private_dir(dir: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dir)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if !std::fs::symlink_metadata(dir)?.is_dir() {
+            return Err(std::io::Error::other(format!(
+                "{} is not a folder",
+                dir.display()
+            )));
+        }
+        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
+    }
+    #[cfg(windows)]
+    {
+        let done = std::process::Command::new("icacls")
+            .arg(dir)
+            .args([
+                "/inheritance:r",
+                "/grant:r",
+                "*S-1-5-18:(OI)(CI)F",
+                "*S-1-5-32-544:(OI)(CI)F",
+            ])
+            .output()
+            .is_ok_and(|o| o.status.success());
+        if !done {
+            return Err(std::io::Error::other(format!(
+                "cannot restrict {} to administrators",
+                dir.display()
+            )));
+        }
+    }
+    Ok(())
+}
+
 pub fn prepare(dir: &Path) -> std::io::Result<()> {
     prepare_dir(dir)
 }

@@ -395,8 +395,7 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
         if !opts.start {
             args.push("--no-start".into());
         }
-        return background::run(
-            "install",
+        return background::Run::new("install")?.start(
             &format!("reinstalling {name}"),
             args,
             Some(&env),
@@ -770,6 +769,7 @@ pub fn uninstall(name: Option<&str>, purge: bool, out: &mut dyn Write) -> Result
     }
     if others.is_empty() {
         let p = Platform::current();
+        let _ = std::fs::remove_dir_all(p.jobs_dir());
         let mut dirs = vec![p.state_dir()];
         dirs.extend(p.state_dir().parent().map(Path::to_path_buf));
         if purge {
@@ -855,8 +855,7 @@ pub fn control(action: &str, name: Option<&str>, out: &mut dyn Write) -> Result<
     if !interrupts(action, &m) {
         return control_now(action, Some(&m.name), out);
     }
-    background::run(
-        action,
+    background::Run::new(action)?.start(
         &format!("restarting {}", m.name),
         vec!["service".into(), action.into(), m.name.clone().into()],
         None,

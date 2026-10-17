@@ -42,11 +42,17 @@ pub fn update_from(
         .iter()
         .flat_map(|s| s.users.iter().map(|m| m.name.as_str()))
         .collect();
+    let run = background::Run::new("update")?;
+    let from = if this_binary().is_ok_and(|b| b == me) {
+        me.to_path_buf()
+    } else {
+        run.stage(me)?
+    };
     let mut args: Vec<OsString> = vec![
         "service".into(),
         "update".into(),
         "--from".into(),
-        me.into(),
+        from.into(),
         "--as-version".into(),
         mine.into(),
     ];
@@ -56,17 +62,19 @@ pub fn update_from(
     if force {
         args.push("--force".into());
     }
-    background::run(
-        "update",
-        &format!("updating {}", names.join(", ")),
-        args,
-        None,
-        out,
-    )
+    run.start(&format!("updating {}", names.join(", ")), args, None, out)
 }
 
 pub fn worker(log: &Path, from: &Path, version: &str, name: Option<&str>, force: bool) -> u8 {
-    background::worker(log, |out| swap_all(from, version, name, force, out))
+    background::worker(log, |out| {
+        if !background::trusted_binary(from) {
+            return Err(Failure::usage(format!(
+                "{} is not a binary prepared by burrow",
+                from.display()
+            )));
+        }
+        swap_all(from, version, name, force, out)
+    })
 }
 
 fn swap_all(

@@ -45,6 +45,17 @@ impl Platform {
         }
     }
 
+    pub fn jobs_dir(self) -> PathBuf {
+        match self {
+            Platform::Windows => Self::program_data().join("burrow").join("jobs"),
+            _ => self
+                .state_dir()
+                .parent()
+                .map_or_else(|| PathBuf::from("/var/lib/burrow"), Path::to_path_buf)
+                .join("jobs"),
+        }
+    }
+
     pub fn log_dir(self) -> PathBuf {
         match self {
             Platform::Windows => Self::program_data().join("burrow").join("logs"),
