@@ -469,3 +469,51 @@ async fn pinning_a_different_certificate_is_refused() {
     assert_eq!(*cli.state.borrow(), State::Connecting);
     assert!(srv.shared.session_names().is_empty());
 }
+
+fn dialer_for(url: &str, ca: Option<&Cert>) -> burrow::dialer::Dialer {
+    let mut v = visitor_settings("127.0.0.1:1".parse().unwrap(), Secret::generate(), vec![]);
+    v.server = url.into();
+    v.endpoint = Endpoint::parse(url).unwrap();
+    v.ca_pem = ca.map(|c| c.cert_pem.clone().into_bytes());
+    burrow::dialer::Dialer::visitor(&v)
+}
+
+async fn dial(d: &burrow::dialer::Dialer) -> burrow::dialer::DialError {
+    let hello = burrow::protocol::Hello::Visit { version: 1 };
+    match d.open(burrow::protocol::ChannelKind::Visit, hello).await {
+        Ok(_) => panic!("the dial should fail"),
+        Err(e) => e,
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_untrusted_certificate_fails_at_once_instead_of_being_retried() {
+    use burrow::dialer::DialError;
+    let cert = self_signed();
+    let srv = start_server(ws_server(&Secret::generate(), "/t", Some(&cert))).await;
+    let port = srv.ws_addr.unwrap().port();
+    let e = dial(&dialer_for(&format!("wss://localhost:{port}/t"), None)).await;
+    assert!(matches!(e, DialError::Unreachable(_)), "{e:?}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_proxy_that_cannot_reach_a_busy_server_is_retried_but_a_wrong_path_is_not() {
+    use burrow::dialer::DialError;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    for (code, retried) in [(502, true), (503, true), (504, true), (404, false)] {
+        let proxy = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = proxy.local_addr().unwrap();
+        tokio::spawn(async move {
+            while let Ok((mut c, _)) = proxy.accept().await {
+                let mut head = [0u8; 4096];
+                let _ = c.read(&mut head).await;
+                let _ = c
+                    .write_all(format!("HTTP/1.1 {code} X\r\nContent-Length: 0\r\n\r\n").as_bytes())
+                    .await;
+            }
+        });
+        let e = dial(&dialer_for(&format!("ws://{addr}/burrow"), None)).await;
+        let lost = matches!(e, DialError::Lost(_));
+        assert_eq!(lost, retried, "HTTP {code}: {e:?}");
+    }
+}

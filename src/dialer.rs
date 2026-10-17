@@ -17,6 +17,7 @@ use crate::transport::tcp::tune;
 use crate::transport::ws::{self, Carrier};
 use crate::transport::{Conn, tls};
 
+#[derive(Debug)]
 pub enum DialError {
     Unreachable(String),
     Lost(String),
@@ -121,11 +122,16 @@ impl Dialer {
             match tokio::time::timeout(self.connect_timeout, fut).await {
                 Ok(Ok(t)) => Carrier::ClientTls(Box::new(t)),
                 Ok(Err(e)) => {
-                    return Err(DialError::Lost(format!(
+                    let why = format!(
                         "TLS handshake with {} failed ({})",
                         self.server,
                         tls_reason(&e, self.role)
-                    )));
+                    );
+                    return Err(if e.kind() == std::io::ErrorKind::InvalidData {
+                        DialError::Unreachable(why)
+                    } else {
+                        DialError::Lost(why)
+                    });
                 }
                 Err(_) => {
                     return Err(DialError::Lost(format!(
@@ -144,6 +150,10 @@ impl Dialer {
         .await
         {
             Ok(Ok(c)) => Ok(Conn::from(c)),
+            Ok(Err(ws::ConnectError::Status(code @ 502..=504))) => Err(DialError::Lost(format!(
+                "{} answered HTTP {code}: the proxy in front of the server could not reach it, or the server is busy",
+                self.server
+            ))),
             Ok(Err(ws::ConnectError::Status(code))) => Err(DialError::Unreachable(format!(
                 "{} answered HTTP {code} instead of a WebSocket upgrade (check the URL path, websocket.path in server.yaml, and the proxy forwarding)",
                 self.server
