@@ -1,3 +1,4 @@
+mod live;
 mod publish;
 pub mod query;
 pub mod render;

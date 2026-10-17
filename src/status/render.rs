@@ -54,6 +54,10 @@ impl Paint {
         format!("\x1b[{code}m{text}\x1b[0m")
     }
 
+    pub fn dim(self, text: &str) -> String {
+        self.tone(text, Tone::Dim)
+    }
+
     fn bold(self, text: &str) -> String {
         self.tone(text, Tone::Bold)
     }

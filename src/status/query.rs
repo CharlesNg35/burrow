@@ -187,6 +187,47 @@ pub fn run(opts: Options, out: &mut dyn Write) -> Result<u8, Failure> {
     run_in(&crate::instance::default_dir(), opts, out)
 }
 
+struct Follow<'a> {
+    dir: &'a Path,
+    wanted: Option<PathBuf>,
+    last: Scan,
+    rates: Option<HashMap<u32, Rates>>,
+    taken: Instant,
+}
+
+impl Follow<'_> {
+    fn refresh(&mut self) -> bool {
+        let next = scan(self.dir, self.wanted.as_deref());
+        if next.found.is_empty() {
+            return false;
+        }
+        let now = Instant::now();
+        let secs = now.duration_since(self.taken).as_secs_f64();
+        let rates = next
+            .found
+            .iter()
+            .filter_map(|f| {
+                let before = self
+                    .last
+                    .found
+                    .iter()
+                    .find(|p| p.entry.pid == f.entry.pid)?;
+                Some((f.entry.pid, rates(&before.status, &f.status, secs)))
+            })
+            .collect();
+        self.rates = Some(rates);
+        self.last = next;
+        self.taken = now;
+        true
+    }
+}
+
+fn write(out: &mut dyn Write, text: &str) -> Result<(), Failure> {
+    out.write_all(text.as_bytes())
+        .and_then(|_| out.flush())
+        .map_err(|e| Failure::new(format!("cannot write output: {e}")))
+}
+
 pub fn run_in(dir: &Path, opts: Options, out: &mut dyn Write) -> Result<u8, Failure> {
     let wanted = wanted(&opts.pick)?;
     let all = matches!(opts.pick, Pick::All);
@@ -199,70 +240,56 @@ pub fn run_in(dir: &Path, opts: Options, out: &mut dyn Write) -> Result<u8, Fail
     let paint = || Paint {
         color,
         boxed: tty && !opts.json,
-        width: if tty {
-            terminal_size::terminal_size().map(|(w, _)| usize::from(w.0).saturating_sub(1))
-        } else {
-            None
-        },
+        width: if tty { super::live::width() } else { None },
     };
-    let write = |out: &mut dyn Write, text: &str| {
-        out.write_all(text.as_bytes())
-            .and_then(|_| out.flush())
-            .map_err(|e| Failure::new(format!("cannot write output: {e}")))
+    let show = |scan: &Scan, rates: Option<&HashMap<u32, Rates>>| {
+        if opts.json {
+            json(scan)
+        } else {
+            frame(scan, paint(), rates, all)
+        }
     };
     let Some(every) = opts.follow else {
-        let text = if opts.json {
-            json(&first)
-        } else {
-            frame(&first, paint(), None, all)
-        };
-        write(out, &text)?;
+        write(out, &show(&first, None))?;
         return Ok(0);
     };
-    let mut previous = first;
-    let mut taken = Instant::now();
-    let shown = if opts.json {
-        json(&previous)
-    } else {
-        frame(&previous, paint(), None, all)
+    let mut follow = Follow {
+        dir,
+        wanted,
+        last: first,
+        rates: None,
+        taken: Instant::now(),
     };
-    write(out, &clear(tty, &shown, every))?;
+    if tty && !opts.json {
+        let footer = paint().dim(&format!(
+            "refreshing every {}s · q to quit",
+            every.as_secs_f64()
+        ));
+        let outcome = super::live::run(every, &footer, |fresh| {
+            if fresh && !follow.refresh() {
+                return None;
+            }
+            Some(show(&follow.last, follow.rates.as_ref()))
+        })
+        .map_err(|e| Failure::new(format!("cannot draw the live status: {e}")))?;
+        return match outcome {
+            super::live::Outcome::Quit => Ok(0),
+            super::live::Outcome::Stopped(last) => {
+                write(out, &format!("{last}\nthe server stopped\n"))?;
+                Ok(1)
+            }
+        };
+    }
+    write(out, &format!("{}\n", show(&follow.last, None)))?;
     loop {
         std::thread::sleep(every);
-        let next = scan(dir, wanted.as_deref());
-        let now = Instant::now();
-        if next.found.is_empty() {
-            write(out, "\nthe server stopped\n")?;
+        if !follow.refresh() {
+            write(out, "the server stopped\n")?;
             return Ok(1);
         }
-        let secs = now.duration_since(taken).as_secs_f64();
-        let per_pid: HashMap<u32, Rates> = next
-            .found
-            .iter()
-            .filter_map(|f| {
-                let before = previous.found.iter().find(|p| p.entry.pid == f.entry.pid)?;
-                Some((f.entry.pid, rates(&before.status, &f.status, secs)))
-            })
-            .collect();
-        let text = if opts.json {
-            json(&next)
-        } else {
-            frame(&next, paint(), Some(&per_pid), all)
-        };
-        write(out, &clear(tty, &text, every))?;
-        previous = next;
-        taken = now;
-    }
-}
-
-fn clear(tty: bool, text: &str, every: Duration) -> String {
-    let footer = format!(
-        "\nrefreshing every {}s, Ctrl-C to stop\n",
-        every.as_secs_f64()
-    );
-    if tty {
-        format!("\x1b[H\x1b[2J{text}{footer}")
-    } else {
-        format!("{text}\n")
+        write(
+            out,
+            &format!("{}\n", show(&follow.last, follow.rates.as_ref())),
+        )?;
     }
 }
