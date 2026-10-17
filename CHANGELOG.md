@@ -15,7 +15,7 @@
 - **SOCKS5 for visitors**: `burrow visit --client home --socks 1080`, or `socks: true` on a forward; `visitor-config` writes one for each client in `reach`.
 - **`burrow status`** shows every server running on the machine, however it was started, with no setup and nothing reachable from the network: tables with color in a terminal that fit its width, `-f` for a live screen with rates, `--json` for scripts. Prometheus metrics stay optional (`metrics.listen`, off by default).
 - A renewed `wss://` certificate is picked up from its files without a restart.
-- Fix: an update over an SSH session that runs through the tunnel finishes even when the session drops; before, the services could stay stopped.
+- Fix: `update`, `service update`, `service restart`, `service reload` and reinstalling a running service finish even when the SSH session that started them runs through the tunnel and drops; before, the services could stay stopped.
 - Visitors and client data channels retry a handshake that a busy server dropped, for up to 5 s, instead of failing the connection; a server that is down still fails at once.
 - Protocol: a visit channel kind, request and statuses (docs/protocol.md section 9) and a port index in visit requests. The service list keeps its 0.1.0 format, so 0.1.0 clients work with a 0.2.0 server, and 0.2.0 clients with a 0.1.0 server.
 
