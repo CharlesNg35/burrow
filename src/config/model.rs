@@ -241,7 +241,7 @@ pub struct Limits {
     pub max_handshakes: u32,
     #[schemars(range(min = 1))]
     pub max_connections_per_client: u32,
-    #[schemars(description = "Visitors waiting for a data channel, per client")]
+    #[schemars(description = "Connections waiting for a data channel, per client")]
     #[schemars(range(min = 1))]
     pub max_pending: u32,
 }

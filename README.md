@@ -3,10 +3,11 @@
 A fast, small, secure reverse tunnel. A client behind NAT connects out to a public server, and the **server's** config decides what gets exposed. Adding or removing a service is a server config edit: no client change, no restart.
 
 ```
-visitor ──> server:7840 ══ Noise-encrypted TCP or WebSocket ══ client (behind NAT) ──> 127.0.0.1:3000
+user ──> server:7840 ══ Noise-encrypted TCP or WebSocket ══ client (behind NAT) ──> 127.0.0.1:3000
 ```
 
 - TCP and UDP services, half-close, an adaptive pool of pre-opened data channels
+- Private services: reach a service from your own machine with `burrow visit`, without a public port
 - Noise `NNpsk0` with a separate 256-bit secret per client, and a client-side allow list (deny by default)
 - Hot reload on file change or `SIGHUP`; invalid edits are rejected and the old config keeps running
 - Optional WebSocket transport for servers that are only reachable over HTTP(S); off unless configured
@@ -21,6 +22,7 @@ visitor ──> server:7840 ══ Noise-encrypted TCP or WebSocket ══ clien
 - [Configuration](#configuration)
   - [server.yaml](#serveryaml)
   - [client.yaml](#clientyaml)
+- [Private services and visitors](#private-services-and-visitors)
 - [Servers reachable only through HTTP(S)](#servers-reachable-only-through-https)
 - [Reconnecting](#reconnecting)
 - [Running as a service](#running-as-a-service)
@@ -97,27 +99,32 @@ services:
     target: 192.168.1.1:53
 ```
 
-| key                                          | default                             | meaning                                                       |
-| -------------------------------------------- | ----------------------------------- | ------------------------------------------------------------- |
-| `listen`                                     | none                                | where the server waits for clients (and/or `websocket`)       |
-| `public_address`                             | none                                | how clients reach it: host, host:port or wss:// URL           |
-| `websocket.listen` / `path`                  | none / `/burrow`                    | accept clients over WebSocket (see below)                     |
-| `websocket.tls.cert` / `key`                 | none                                | serve `wss://` directly with these PEM files                  |
-| `websocket.keepalive_secs`                   | `25`                                | keepalive on idle pooled connections, 5-30                    |
-| `clients.<name>.secret`                      | required                            | base64 or hex 256-bit secret, or a list of up to 4            |
-| `clients.<name>.max_connections`             | `limits.max_connections_per_client` | concurrent forwarded connections for this client              |
-| `services.<name>.client` / `bind` / `target` | required                            | who reaches the target, public address, target address        |
-| `services.<name>.protocol`                   | `tcp`                               | `tcp` or `udp`                                                |
-| `services.<name>.max_connections`            | unlimited                           | concurrent connections for this service                       |
-| `insecure_plaintext`                         | `false`                             | do not encrypt forwarded TCP data (authentication still runs) |
-| `heartbeat.interval_secs`                    | `10`                                | ping interval; peers time out after 3 missed intervals        |
-| `limits.handshake_timeout_secs`              | `5`                                 | time allowed to authenticate                                  |
-| `limits.max_handshakes`                      | `256`                               | concurrent unauthenticated connections                        |
-| `limits.max_connections_per_client`          | `8192`                              |                                                               |
-| `limits.max_pending`                         | `512`                               | visitors waiting for a data channel, per client               |
-| `pool.min_idle` / `pool.max_idle`            | `4` / `64`                          | pre-opened data channels per client (adaptive)                |
-| `tcp.nodelay` / `tcp.keepalive_secs`         | `true` / `30`                       | `keepalive_secs: 0` disables keepalive                        |
-| `udp.session_timeout_secs`                   | `60`                                | idle UDP peer expiry                                          |
+| key                                  | default                             | meaning                                                       |
+| ------------------------------------ | ----------------------------------- | ------------------------------------------------------------- |
+| `listen`                             | none                                | where the server waits for clients (and/or `websocket`)       |
+| `public_address`                     | none                                | how clients reach it: host, host:port or wss:// URL           |
+| `websocket.listen` / `path`          | none / `/burrow`                    | accept clients over WebSocket (see below)                     |
+| `websocket.tls.cert` / `key`         | none                                | serve `wss://` directly with these PEM files                  |
+| `websocket.keepalive_secs`           | `25`                                | keepalive on idle pooled connections, 5-30                    |
+| `clients.<name>.secret`              | required                            | base64 or hex 256-bit secret, or a list of up to 4            |
+| `clients.<name>.max_connections`     | `limits.max_connections_per_client` | concurrent forwarded connections for this client              |
+| `services.<name>.client` / `target`  | required                            | who reaches the target, and the target address                |
+| `services.<name>.bind`               | none (private)                      | public address on the server                                  |
+| `services.<name>.visitors`           | none                                | visitors that may reach it with `burrow visit`                |
+| `services.<name>.protocol`           | `tcp`                               | `tcp` or `udp`                                                |
+| `services.<name>.max_connections`    | unlimited                           | concurrent connections for this service                       |
+| `visitors.<name>.secret`             | required                            | like a client secret; see below                               |
+| `visitors.<name>.reach`              | none                                | `CLIENT: any`: may pick any target that client allows         |
+| `visitors.<name>.max_connections`    | unlimited                           | concurrent connections for this visitor                       |
+| `insecure_plaintext`                 | `false`                             | do not encrypt forwarded TCP data (authentication still runs) |
+| `heartbeat.interval_secs`            | `10`                                | ping interval; peers time out after 3 missed intervals        |
+| `limits.handshake_timeout_secs`      | `5`                                 | time allowed to authenticate                                  |
+| `limits.max_handshakes`              | `256`                               | concurrent unauthenticated connections                        |
+| `limits.max_connections_per_client`  | `8192`                              |                                                               |
+| `limits.max_pending`                 | `512`                               | connections waiting for a data channel, per client            |
+| `pool.min_idle` / `pool.max_idle`    | `4` / `64`                          | pre-opened data channels per client (adaptive)                |
+| `tcp.nodelay` / `tcp.keepalive_secs` | `true` / `30`                       | `keepalive_secs: 0` disables keepalive                        |
+| `udp.session_timeout_secs`           | `60`                                | idle UDP peer expiry                                          |
 
 ### client.yaml
 
@@ -146,6 +153,72 @@ allow:
 | `ca`                                            | none             | extra CA certificate (PEM) to trust for `wss://`                      |
 | `connect_timeout_secs`                          | `10`             |                                                                       |
 | `tcp`, `udp`                                    | as on the server |                                                                       |
+
+## Private services and visitors
+
+A service without `bind` opens no port on the server. Only the visitors it lists can reach it, from their own machine, through the server:
+
+```
+your PC: burrow visit 127.0.0.1:5432 ══ server ══ client (behind NAT) ──> 127.0.0.1:5432
+```
+
+In `server.yaml`, add a visitor with its own secret (from `./burrow gensecret`) and list it on the service:
+
+```yaml
+visitors:
+  laptop:
+    secret: ${LAPTOP_SECRET}
+services:
+  db:
+    client: home
+    target: 5432 # no bind: private
+    visitors: [laptop]
+```
+
+Then print the visitor's config on the server, and run it on your machine:
+
+```sh
+./burrow visitor-config laptop -o visitor.yaml   # on the server
+./burrow visit                                   # on your machine: 127.0.0.1:5432 now leads to db
+```
+
+```yaml
+server: myserver.example.com
+name: laptop
+secret: ${LAPTOP_SECRET}
+forwards:
+  db: { service: db, local: 5432 } # a port alone means 127.0.0.1
+```
+
+`./burrow visit db --local 5433` runs one forward on another port, and `sudo ./burrow service install -c visitor.yaml` keeps the visitor running. `./burrow init visitor` writes a `visitor.yaml` from a name and a secret if you do not have access to the server.
+
+**Any target on a client.** With `reach`, a visitor picks the target itself, like `ssh -L`, without a service for each one:
+
+```yaml
+visitors:
+  laptop:
+    secret: ${LAPTOP_SECRET}
+    reach:
+      home: any # any target that client home allows
+```
+
+```sh
+./burrow visit --client home --target 22 --local 2222   # then: ssh -p 2222 localhost
+```
+
+The same in `visitor.yaml`: `ssh: { client: home, target: 22, local: 2222 }`.
+
+- The client's `allow` list still has the final say: `reach` grants only what it permits, so keep it narrow (`validate` reminds you).
+- Removing a visitor, its secret, or its access and reloading the server closes its open connections.
+- Each local connection opens its own encrypted connection to the server. Visitors are TCP only, and need a server running burrow 0.2.0 or later.
+
+| key                                                               | default  | meaning                                                                        |
+| ----------------------------------------------------------------- | -------- | ------------------------------------------------------------------------------ |
+| `server`, `name`, `secret`                                        | required | as in `client.yaml`, with the visitor's name and secret                        |
+| `forwards.<name>.service`                                         |          | a private service to reach                                                     |
+| `forwards.<name>.client` / `target`                               |          | or a client and a target on it (needs `reach`)                                 |
+| `forwards.<name>.local`                                           | required | where to listen: a port alone means `127.0.0.1`; `validate` warns on `0.0.0.0` |
+| `headers`, `ca`, `cipher`, `proxy`, `connect_timeout_secs`, `tcp` |          | as in `client.yaml`                                                            |
 
 ## Servers reachable only through HTTP(S)
 
@@ -319,7 +392,7 @@ A client keeps retrying until it is stopped: exponential backoff with jitter (25
 
 ## Running as a service
 
-`burrow service` installs a server or client into the system service manager (systemd on Linux, launchd on macOS, the Service Control Manager on Windows), so it starts at boot and restarts after a failure. It needs administrator rights.
+`burrow service` installs a server, client or visitor into the system service manager (systemd on Linux, launchd on macOS, the Service Control Manager on Windows), so it starts at boot and restarts after a failure. It needs administrator rights.
 
 ```sh
 sudo ./burrow service install -c server.yaml   # or run it in the folder that holds server.yaml
@@ -334,7 +407,7 @@ On Linux and macOS, `install` copies the binary to `/usr/local/bin`, so after it
 What `install` does:
 
 - Checks the config first, and checks that every port it listens on is free. If another program holds a port, it names it (`tcp port 7840 (service "web") is already in use by nginx (pid 812)`) and changes nothing.
-- Copies the config to `/etc/burrow/` (`%ProgramData%\burrow\` on Windows), readable only by the service. Edit that copy: a server reloads it on save, a client applies it on `burrow service restart`. `status` tells you when the file you installed from has changed since.
+- Copies the config to `/etc/burrow/` (`%ProgramData%\burrow\` on Windows), readable only by the service. Edit that copy: a server reloads it on save, a client or visitor applies it on `burrow service restart`. `status` tells you when the file you installed from has changed since.
 - Copies the binary to `/usr/local/bin/burrow` (`%ProgramFiles%\burrow\` on Windows), unless it already lives in a root-owned folder such as one managed by a package manager. A service never runs a binary from a user's home folder.
 - Runs the service as a dedicated account without login or home: `burrow` on Linux, `_burrow` on macOS, the virtual account `NT SERVICE\burrow-<name>` on Windows. `--run-as` picks another one. Ports below 1024 get only `CAP_NET_BIND_SERVICE` on Linux.
 - Writes logs to `/var/log/burrow/<name>/<name>.log` (`%ProgramData%\burrow\logs\<name>.log` on Windows), rotated at 10 MB with 5 old files kept, so a log never fills the disk.
@@ -369,12 +442,13 @@ Run the commands from a terminal opened with "Run as administrator". The service
 ## Security notes
 
 - **Secrets must be random.** Anyone who records a handshake can try guesses offline, so a secret must be 256 random bits. burrow rejects anything that is not exactly 32 bytes, and anything that looks non-random. Generate secrets with `burrow gensecret`, and never use a password.
-- Each client has its own secret. To rotate, list the old and the new one (`secret: [old, new]`), switch the client, then remove the old one.
-- Unknown client names and wrong secrets get exactly the same response (the connection is closed with no data) after the same work, so client names cannot be discovered.
+- Each client and visitor has its own secret. To rotate, list the old and the new one (`secret: [old, new]`), switch the client, then remove the old one.
+- Unknown client or visitor names and wrong secrets get exactly the same response (the connection is closed with no data) after the same work, so names cannot be discovered.
 - Forward secrecy comes from fresh X25519 keys per connection. The protocol and the exact point where each side is authenticated are described in [docs/protocol.md](docs/protocol.md).
-- The client only connects to addresses in `allow`, checked after DNS resolution, so even a compromised server cannot use it to reach other hosts.
+- The client only connects to addresses in `allow`, checked after DNS resolution, so even a compromised server, or a visitor with `reach`, cannot use it to reach other hosts.
+- A visitor reaches only the services that list it, and clients only with `reach`. A private service has no port on the server at all.
 - Secrets never appear in logs or error messages (only their length or a short fingerprint). `validate` warns if a config file is readable by other users; use `chmod 600`.
-- Removing a client, or the secret it connected with, and reloading also closes that client's open connections.
+- Removing a client or visitor, or the secret it connected with, and reloading also closes its open connections.
 - The lock that stops the same tunnel from running twice lives in a folder every local user can write to, so it also catches copies started by hand. On a machine shared with untrusted users, one of them could hold a service's lock and keep it from starting.
 
 ## Docker

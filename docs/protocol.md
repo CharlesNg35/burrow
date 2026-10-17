@@ -9,6 +9,10 @@ A client opens TCP connections to the server's `listen` address. Each connection
 - a **control channel**: one per client, long-lived, carries commands and heartbeats;
 - a **data channel**: one per forwarded TCP connection, or one per UDP service; opened ahead of time into the server's pool.
 
+A visitor (`burrow visit`) opens a third kind:
+
+- a **visit channel**: one per local TCP connection, relayed by the server to a data channel of the client (section 9).
+
 Every channel, control or data, does its own full Noise handshake.
 
 ## 2. Carriers
@@ -27,10 +31,10 @@ The WebSocket upgrade and the Noise handshake share one `limits.handshake_timeou
 | field    | size | value                                                                             |
 | -------- | ---- | --------------------------------------------------------------------------------- |
 | magic    | 4    | `BRW1`                                                                            |
-| kind     | 1    | `1` control, `2` data                                                             |
+| kind     | 1    | `1` control, `2` data, `3` visit                                                  |
 | flags    | 1    | bit 0: AES-GCM (else ChaChaPoly); bit 1: insecure_plaintext; other bits must be 0 |
 | name_len | 1    | 1..=64                                                                            |
-| name     | n    | client name, `[A-Za-z0-9._-]`                                                     |
+| name     | n    | client name, or visitor name for kind 3, `[A-Za-z0-9._-]`                         |
 | msg1     | 48   | Noise message 1                                                                   |
 
 The server reads exactly 7 bytes, validates them, then reads exactly `name_len + 48` bytes into a fixed stack buffer. Nothing the peer sends before authentication controls an allocation size.
@@ -46,7 +50,7 @@ The server reads exactly 7 bytes, validates them, then reads exactly `name_len +
 
 ### Server-side secret lookup (anti-enumeration)
 
-The server takes the secrets listed for `name` (up to 4 during rotation) and pads the list to exactly 4 with freshly generated random secrets. Unknown names get 4 random secrets. It tries all 4 as the responder PSK, always all 4, and keeps the first that decrypts msg1. If none does, it closes the TCP connection without sending a byte. An unknown name and a wrong secret produce the same bytes (none), the same close, and the same work, so names cannot be enumerated. `tests/security.rs` measures the medians (ratio about 1.08 on loopback).
+The server takes the secrets listed for `name` (up to 4 during rotation), under `clients` for control and data channels and under `visitors` for visit channels, and pads the list to exactly 4 with freshly generated random secrets. Unknown names get 4 random secrets. It tries all 4 as the responder PSK, always all 4, and keeps the first that decrypts msg1. If none does, it closes the TCP connection without sending a byte. An unknown name and a wrong secret produce the same bytes (none), the same close, and the same work, so names cannot be enumerated. `tests/security.rs` measures the medians (ratio about 1.08 on loopback).
 
 ### Where each side is proven
 
@@ -74,8 +78,9 @@ The ciphertext is a Noise transport message (plaintext + 16-byte tag). Each dire
 | ------- | ------------------------- |
 | control | `01 version:u8`           |
 | data    | `02 version:u8 token[16]` |
+| visit   | `03 version:u8`           |
 
-On the server the hello is read with a fixed 256-byte limit. `version` is 1. `token` is the session token from the current control channel's Welcome. A data channel with an unknown or stale token is closed.
+The hello type must match the preamble kind; any other pairing is closed. On the server the hello is read with a fixed 256-byte limit. `version` is 1. `token` is the session token from the current control channel's Welcome. A data channel with an unknown or stale token is closed.
 
 ## 7. Control messages
 
@@ -99,11 +104,11 @@ A second control channel for the same name replaces the first (`Bye replaced`). 
 
 ## 8. Data channels
 
-The pool is per client. The server keeps `target` idle channels: it starts at `pool.min_idle`, doubles (up to `pool.max_idle`) whenever a visitor finds the pool empty, and decays by one per idle minute. It asks for the missing ones with OpenData. Idle channels whose peer has closed are dropped before use.
+The pool is per client. The server keeps `target` idle channels: it starts at `pool.min_idle`, doubles (up to `pool.max_idle`) whenever a connection finds the pool empty, and decays by one per idle minute. It asks for the missing ones with OpenData. Idle channels whose peer has closed are dropped before use.
 
 While a channel is idle in the pool, the server watches it: any data or close from the client discards it. On a WebSocket carrier, the server also sends a keepalive record (plaintext `0x00`) every `websocket.keepalive_secs` (default 25 s), so proxies with idle timeouts keep the connection open. The client ignores keepalive records before Connect, and on a WebSocket carrier it closes a channel that receives nothing for 90 s.
 
-When a visitor connects to a service, the server takes an idle channel and sends:
+When a connection arrives at a service, the server takes an idle channel and sends:
 
 ```
 Connect = 10 protocol:u8 service:str8 target:str8      (protocol 0 tcp, 1 udp)
@@ -113,17 +118,42 @@ The client resolves `target`, keeps only the addresses permitted by its allow li
 
 ```
 Status = 0 ok | 1 denied by allow list | 2 unreachable | 3 unresolved | 4 invalid
+         | 5 forbidden | 6 offline | 7 busy      (5-7 only from the server to a visitor)
 ```
 
-The server does not wait for Status before sending visitor bytes, so connection setup adds no round trip. If Status is not 0, the server logs the reason and closes the visitor.
+The server does not wait for Status before sending the connection's bytes, so connection setup adds no round trip. If Status is not 0, the server logs the reason and closes the connection.
 
 **TCP**: after Connect/Status both directions carry stream records, each ending with the end-of-stream record. Half-close is preserved: the EOF record makes the receiver `shutdown(Write)` its socket while the other direction keeps flowing.
 
-**UDP**: each record is `peer:u32 || datagram` (at most 65515 bytes). The server assigns a peer id per visitor address. The client keeps one connected UDP socket per peer id. Both sides expire peers after `udp.session_timeout_secs` of silence, with at most 4096 peers per service.
+**UDP**: each record is `peer:u32 || datagram` (at most 65515 bytes). The server assigns a peer id per sender address. The client keeps one connected UDP socket per peer id. Both sides expire peers after `udp.session_timeout_secs` of silence, with at most 4096 peers per service.
 
 **insecure_plaintext**: the handshake, hello, Connect and Status are still encrypted records. After them, TCP data channels carry raw bytes (TCP FIN carries half-close). UDP stays encrypted.
 
-## 9. Limits enforced before authentication
+## 9. Visit channels
+
+After the hello, the visitor sends one request record without waiting for a reply:
+
+```
+VisitRequest = 20 check:u8 kind:u8 ...
+  kind 1: service:str8               a service that lists this visitor in "visitors"
+  kind 2: client:str8 target:str8    any target on a client, if the visitor has reach for it
+```
+
+Names follow the rules of section 3. The server reads the request within the same `limits.handshake_timeout_secs` deadline, then checks it against its current config:
+
+- the visitor still exists and still has the secret it authenticated with;
+- for kind 1, the service exists, is TCP and lists the visitor;
+- for kind 2, the visitor has `reach` for the client, and the target is a valid `host:port` of at most 255 bytes.
+
+Unknown services and services that do not list the visitor get the same answer, `5 forbidden`, so names cannot be probed. Then the server checks that the client is connected (`6 offline`) and the limits of the visitor, the service and the client (`7 busy`). With `check = 1` it answers `0 ok` at this point and closes: `burrow visit` uses this at startup to report problems before the first connection.
+
+Otherwise the server takes a data channel of the client and sends it a Connect (section 8) with the service name, or an empty name for kind 2, and the target. The client applies its allow list as for any other connection and replies with Status, which the server passes on to the visitor. The visitor waits for this Status before sending data, so a refusal always arrives with its reason. From then on, the server decrypts each record from one channel and encrypts it for the other, both ways, until each side has sent its end-of-stream record. With `insecure_plaintext`, only the leg between server and client is raw; the visit channel is always encrypted.
+
+On every config reload, the server checks the request again; if the answer changed (the visitor, its secret, its place in `visitors`, its `reach`, or the service's client or target), the connection is closed.
+
+A server older than burrow 0.2.0 sees an unknown kind in the preamble and closes the connection without a reply, which the visitor reports as a rejection.
+
+## 10. Limits enforced before authentication
 
 - at most `limits.max_handshakes` connections in steps 2–5 at once; extra connections are closed immediately;
 - the whole of steps 2–5 must finish within `limits.handshake_timeout_secs`;

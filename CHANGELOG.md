@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.0]
+
+- **Private services and visitors.** A service without `bind` opens no port on the server; the visitors it lists reach it from their own machine with `burrow visit`, through the server and the client's tunnel. `reach: { CLIENT: any }` lets a visitor pick any target that client allows, like `ssh -L`. The client's `allow` list still decides, and reload closes the open connections of a visitor whose access was removed.
+- New commands: `burrow visit` (all forwards, one with `visit NAME --local PORT`, or ad hoc with `--service` or `--client --target`), `burrow visitor-config` on the server, and `burrow init visitor`. `burrow service install` runs visitor configs too.
+- `validate` checks visitors: unknown names in `visitors` and `reach`, private services nobody can reach, duplicate local ports, `0.0.0.0` forwards, and a warning for every `reach`.
+- The server refuses a hello that does not match its channel kind, and connection limits of a service now count across reloads that move its port.
+- Protocol: a new visit channel kind, request and statuses (docs/protocol.md section 9). Existing clients and configs are unchanged; visitors need a 0.2.0 server.
+
 ## [0.1.0]
 
 First release.

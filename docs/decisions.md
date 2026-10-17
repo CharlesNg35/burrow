@@ -115,3 +115,15 @@ Hand-written unit files go stale, differ per OS, and leave the hard parts to the
 `listen` says where the server binds on its own machine, usually `0.0.0.0`. Behind NAT, a cloud firewall or DNS it says nothing about how clients reach it, so the client address is never guessed from it. `client-config` takes it from `--server`, or from the optional `public_address` in the server config, so it is typed once for all clients, and otherwise stops with a hint. A host alone gets its port from `listen`, which is the one thing `listen` does tell. `0.0.0.0` is refused; loopback and private addresses are allowed with a note, because tests, LANs and VPNs need them. Notes only warn about something that may not work.
 
 Config files accept short forms (`listen: 7835`, `target: 3000`, `server: host`), but required fields stay required, and `init` still writes `listen`, `bind`, `target` and `allow` in full, because a generated file is also the user's documentation. `init` writes `public_address` only when `--server` is given, because a placeholder would be an invalid value. WebSocket stays off unless its section is written.
+
+## D22. Visitors: private by default, `reach` as an opt-in
+
+Some services should not be public at all: a database, SSH, an admin page. frp (`stcp` with a visitor) and rathole leave this to a second tool or a firewall rule. burrow lets the server relay a visitor to a client without opening a port.
+
+- **The server's config still decides.** A service without `bind` is private, and lists its `visitors`. A visitor reaches only those services, so a leaked visitor secret exposes what was listed and nothing else.
+- **`reach: { CLIENT: any }` is the explicit opt-in** for `ssh -L`-style access, where the visitor picks the target. It is bounded by the client's `allow` list, which the client owner controls and which a compromised server cannot widen. `validate` warns about every `reach`, because `init client` writes a broad `allow: [127.0.0.0/8]`.
+- **Visitors are not clients.** They have their own section, secrets and limits, they never expose anything, and their names are looked up only for visit channels, so a visitor secret cannot open a client session or the other way round. The same constant-work rejection hides which names exist.
+- **One channel per local connection**, with the same handshake as data channels. A visitor keeps no long-lived connection, so it has nothing to reconnect, and the server keeps no state for an idle visitor. The cost is one handshake per connection plus one round trip, because the visitor waits for the server's answer before sending data so that a refusal always carries its reason.
+- **`local` defaults to `127.0.0.1`,** unlike `bind` on the server: anyone who can reach a forward uses the visitor's access, so sharing it with a network has to be written out, and `validate` warns about `0.0.0.0`.
+- **Reload revokes**: open visits re-check their request when the config changes, as a removed client's connections do.
+- **TCP only** for now. UDP visitors would need a peer table on the visitor side as well, and can come later.
