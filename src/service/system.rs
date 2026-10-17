@@ -52,6 +52,13 @@ impl Platform {
         }
     }
 
+    pub fn log_file(self, short: &str) -> PathBuf {
+        match self {
+            Platform::Windows => self.log_dir().join(format!("{short}.log")),
+            _ => self.log_dir().join(short).join(format!("{short}.log")),
+        }
+    }
+
     pub fn binary_path(self) -> PathBuf {
         match self {
             Platform::Windows => std::env::var_os("ProgramFiles")

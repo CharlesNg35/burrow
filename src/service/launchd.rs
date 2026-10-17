@@ -166,13 +166,12 @@ impl Backend for Launchd {
         private_file(path, Some(account))
     }
 
-    fn prepare_dirs(&self, account: &str) -> Result<(), Failure> {
+    fn prepare_dirs(&self, _account: &str) -> Result<(), Failure> {
         let p = Platform::MacOs;
         make_dir(&p.config_dir(), 0o755, None)?;
         make_dir(&p.state_dir(), 0o755, None)?;
         make_dir(Path::new(INSTANCE_DIR), 0o1777, None)?;
-        let owner = (account != "root").then_some(account);
-        make_dir(&p.log_dir(), 0o750, owner)
+        make_dir(&p.log_dir(), 0o755, None)
     }
 
     fn write_env(&self, m: &Manifest, env: &BTreeMap<String, String>) -> Result<(), Failure> {
@@ -186,6 +185,10 @@ impl Backend for Launchd {
     }
 
     fn install(&self, m: &Manifest) -> Result<(), Failure> {
+        if let Some(dir) = m.log_file.parent() {
+            let owner = (m.account != "root").then_some(m.account.as_str());
+            make_dir(dir, 0o750, owner)?;
+        }
         let _ = run("launchctl", &["bootout", &target(m)]);
         let path = plist_path(m);
         write_private(&path, &self.render(m))?;
@@ -298,7 +301,7 @@ mod tests {
             config: "/etc/burrow/home.yaml".into(),
             source_config: "/Users/me/home.yaml".into(),
             env_file: None,
-            log_file: "/var/log/burrow/home.log".into(),
+            log_file: "/var/log/burrow/home/home.log".into(),
             binary: "/usr/local/bin/burrow".into(),
             copied_binary: true,
             account: "_burrow".into(),
@@ -312,7 +315,7 @@ mod tests {
         assert!(p.contains("<string>com.github.charlesng35.burrow-home</string>"));
         assert!(p.contains("<key>UserName</key>\n  <string>_burrow</string>"));
         assert!(p.contains(
-            "<string>--log-file</string>\n    <string>/var/log/burrow/home.log</string>"
+            "<string>--log-file</string>\n    <string>/var/log/burrow/home/home.log</string>"
         ));
         assert!(p.contains("<string>a&lt;b&amp;c</string>"));
     }

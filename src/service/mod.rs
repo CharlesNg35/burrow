@@ -314,7 +314,7 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
         config: config.clone(),
         source_config: source.clone(),
         env_file: env_file.clone(),
-        log_file: platform.log_dir().join(format!("{short}.log")),
+        log_file: platform.log_file(&short),
         binary: binary.clone(),
         copied_binary: copy_binary,
         account: account.clone(),
@@ -488,7 +488,7 @@ fn trustworthy(m: &Manifest, file: &Path) -> bool {
         && m.env_file
             .as_deref()
             .is_none_or(|e| in_dir(e, &p.config_dir()))
-        && (m.log_file.as_os_str().is_empty() || in_dir(&m.log_file, &p.log_dir()))
+        && (m.log_file.as_os_str().is_empty() || m.log_file == p.log_file(m.short()))
         && (m.binary == p.binary_path() || system::trusted_binary(&m.binary))
 }
 
@@ -575,6 +575,10 @@ pub fn resolve(name: Option<&str>) -> Result<Manifest, Failure> {
     }
 }
 
+fn p_log_dir() -> PathBuf {
+    Platform::current().log_dir()
+}
+
 pub fn uninstall(name: Option<&str>, purge: bool, out: &mut dyn Write) -> Result<(), Failure> {
     let backend = system::backend()?;
     system::require_admin()?;
@@ -602,6 +606,9 @@ pub fn uninstall(name: Option<&str>, purge: bool, out: &mut dyn Write) -> Result
             > 0
         {
             say(out, format!("removed the logs in {}", m.log_file.display()))?;
+        }
+        if let Some(dir) = m.log_file.parent().filter(|d| *d != p_log_dir()) {
+            let _ = std::fs::remove_dir(dir);
         }
     } else {
         kept.extend(
@@ -632,7 +639,7 @@ pub fn uninstall(name: Option<&str>, purge: bool, out: &mut dyn Write) -> Result
             let dir = m
                 .log_file
                 .parent()
-                .filter(|_| others.is_empty() && !kept.is_empty());
+                .filter(|d| !kept.is_empty() && *d != p_log_dir());
             for f in kept.iter().map(PathBuf::as_path).chain(dir) {
                 let _ = std::os::unix::fs::lchown(f, Some(0), Some(0));
             }
@@ -1009,7 +1016,7 @@ mod tests {
             config: p.config_dir().join("server.yaml"),
             source_config: PathBuf::from("server.yaml"),
             env_file: Some(p.config_dir().join("server.env")),
-            log_file: p.log_dir().join("server.log"),
+            log_file: p.log_file("server"),
             binary: p.binary_path(),
             copied_binary: true,
             account: p.default_account("burrow-server"),

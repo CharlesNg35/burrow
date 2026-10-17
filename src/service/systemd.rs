@@ -80,7 +80,8 @@ impl Backend for Systemd {
         }
         s.push_str("Restart=on-failure\nRestartSec=5\nRestartPreventExitStatus=2 3\nLimitNOFILE=1048576\nUMask=0077\n");
         s.push_str(&format!(
-            "ReadWritePaths={INSTANCE_DIR}\nLogsDirectory=burrow\nLogsDirectoryMode=0750\n"
+            "ReadWritePaths={INSTANCE_DIR}\nLogsDirectory=burrow/{}\nLogsDirectoryMode=0750\n",
+            m.short()
         ));
         s.push_str("NoNewPrivileges=yes\nProtectSystem=strict\n");
         s.push_str(if home_files {
