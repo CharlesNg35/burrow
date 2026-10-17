@@ -1,4 +1,3 @@
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -31,43 +30,6 @@ fn token() -> String {
     let mut bytes = [0u8; 24];
     getrandom::fill(&mut bytes).expect("operating system random source is available");
     bytes.iter().map(|b| format!("{b:02x}")).collect()
-}
-
-fn write_private(path: &Path, text: &str) -> std::io::Result<()> {
-    let _ = std::fs::remove_file(path);
-    let mut opts = std::fs::OpenOptions::new();
-    opts.write(true).create_new(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        opts.mode(0o600).custom_flags(libc::O_NOFOLLOW);
-    }
-    let mut f = opts.open(path)?;
-    f.write_all(text.as_bytes())?;
-    #[cfg(windows)]
-    restrict_on_windows(path);
-    Ok(())
-}
-
-#[cfg(windows)]
-fn restrict_on_windows(path: &Path) {
-    let me = std::process::Command::new("whoami")
-        .output()
-        .ok()
-        .filter(|o| o.status.success())
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-        .filter(|u| !u.is_empty());
-    let mut args = vec![
-        path.display().to_string(),
-        "/inheritance:r".into(),
-        "/grant:r".into(),
-        "*S-1-5-18:F".into(),
-        "*S-1-5-32-544:F".into(),
-    ];
-    if let Some(me) = me {
-        args.push(format!("{me}:F"));
-    }
-    let _ = std::process::Command::new("icacls").args(&args).output();
 }
 
 fn handler(token: String, snapshot: Arc<dyn Fn() -> Status + Send + Sync>) -> Handler {
@@ -129,7 +91,9 @@ pub fn publish_in(
     };
     let path = dir.join(format!("{}.status", entry.pid));
     let text = serde_json::to_string(&entry).expect("entry serializes");
-    if let Err(e) = crate::instance::prepare(dir).and_then(|()| write_private(&path, &text)) {
+    if let Err(e) =
+        crate::instance::prepare(dir).and_then(|()| crate::instance::write_private(&path, &text))
+    {
         warn!(
             "burrow status will not see this server: cannot write {} ({e})",
             path.display()
