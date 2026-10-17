@@ -1023,6 +1023,27 @@ pub fn run_service(name: &str) -> Result<u8, Failure> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn commands_that_interrupt_a_service_go_to_the_background() {
+        let server = record(Platform::current());
+        let client = Manifest {
+            role: "client".into(),
+            ..record(Platform::current())
+        };
+        let visitor = Manifest {
+            role: "visitor".into(),
+            ..record(Platform::current())
+        };
+        for m in [&server, &client, &visitor] {
+            assert!(interrupts("restart", m), "{}", m.role);
+            assert!(!interrupts("start", m), "{}", m.role);
+            assert!(!interrupts("stop", m), "{}", m.role);
+        }
+        assert!(interrupts("reload", &client));
+        assert!(interrupts("reload", &visitor));
+        assert_eq!(interrupts("reload", &server), cfg!(windows));
+    }
+
     fn record(p: Platform) -> Manifest {
         Manifest {
             name: "burrow-server".into(),

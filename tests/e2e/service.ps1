@@ -139,6 +139,37 @@ try {
   if (-not (Traffic 200)) { Fail "no traffic after update" }
   Check "update"
 
+  Write-Host "== a restart finishes in the background even when the command that started it is killed"
+  $hup = Join-Path $Work "hup.out"
+  $p = Start-Process -FilePath $B -ArgumentList "service","restart","burrow-e2e-client" -RedirectStandardOutput $hup -RedirectStandardError (Join-Path $Work "hup.err") -PassThru -WindowStyle Hidden
+  $line = $null
+  for ($i = 0; $i -lt 100; $i++) {
+    if (Test-Path $hup) { $line = Select-String -Path $hup -Pattern "in the background" | Select-Object -First 1 }
+    if ($line) { break }
+    Start-Sleep -Milliseconds 100
+  }
+  if (-not $line) { Fail "restart did not hand over to the background: $(Get-Content $hup -Raw)" }
+  Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+  $log = [regex]::Match($line.Line, '\(log: (.*)\)$').Groups[1].Value
+  if ($log -notmatch '\\jobs\\restart-\d+\.log$') { Fail "unexpected log path: $log" }
+  $done = [string][char]1 + "ok"
+  $finished = $false
+  for ($i = 0; $i -lt 150; $i++) {
+    if (Test-Path $log) {
+      $text = Get-Content $log -Raw
+      if ($text -and $text.Contains($done)) { $finished = $true; break }
+    } elseif ($p.HasExited -and $p.ExitCode -eq 0) {
+      $finished = $true; break
+    }
+    Start-Sleep -Milliseconds 200
+  }
+  if (-not $finished) { Fail "the restart did not finish after its command was killed: $(if (Test-Path $log) { Get-Content $log -Raw })" }
+  foreach ($n in "burrow-e2e-server", "burrow-e2e-client", "burrow-e2e-visitor") {
+    if (-not (Running $n)) { Fail "$n is not running after the interrupted restart" }
+  }
+  if (-not (Traffic 200)) { Fail "no traffic after the interrupted restart" }
+  Check "an interrupted restart still finishes"
+
   Write-Host "== burrow update downloads a release, verifies it and updates the services"
   $V = ((& $B version) -split ' ')[1].Trim()
   $Pkg = "burrow-$V-windows-amd64"

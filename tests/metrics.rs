@@ -124,16 +124,19 @@ async fn reload_turns_the_endpoint_on_and_off() {
     let secret = Secret::generate();
     let settings = server_settings(vec![secret.clone()]);
     let t = tunnel_with(settings.clone(), vec![], |c| c, secret).await;
-    let port = std::net::TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap();
+    let (held, port) = refusing();
+    let answers = |port| async move {
+        tokio::task::spawn_blocking(move || fetch(port).is_ok())
+            .await
+            .unwrap()
+    };
     let mut on = settings.clone();
     on.metrics = Some(port);
+    drop(held);
     t.server.reload(on).await;
     let mut up = false;
     for _ in 0..50 {
-        if std::net::TcpStream::connect(port).is_ok() {
+        if answers(port).await {
             up = true;
             break;
         }
@@ -143,7 +146,7 @@ async fn reload_turns_the_endpoint_on_and_off() {
     assert_eq!(status(port).await.clients[0].name, "home");
     t.server.reload(settings).await;
     for _ in 0..50 {
-        if std::net::TcpStream::connect(port).is_err() {
+        if !answers(port).await {
             return;
         }
         tokio::time::sleep(Duration::from_millis(100)).await;

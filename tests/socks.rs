@@ -222,7 +222,12 @@ async fn an_unreachable_server_answers_network_unreachable() {
         Forward::socks("127.0.0.1:0".parse().unwrap(), "home".into()),
     );
     let v = start_visitor(settings);
-    let (code, _) = socks_connect(v.addr("home"), "127.0.0.1", 22).await;
+    let (code, _) = tokio::time::timeout(
+        Duration::from_secs(2),
+        socks_connect(v.addr("home"), "127.0.0.1", 22),
+    )
+    .await
+    .expect("a server that is down is reported at once, not retried");
     assert_eq!(code, 3);
 }
 
