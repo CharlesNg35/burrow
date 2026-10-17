@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::watch;
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 
 use super::Shared;
 use crate::config::model::Protocol;
@@ -30,6 +30,11 @@ pub(super) async fn tcp_service(
             }
         };
         let svc = config.borrow().clone();
+        if !svc.sources.permits(peer.ip()) {
+            shared.rejected.fetch_add(1, Ordering::Relaxed);
+            debug!(%peer, "service \"{name}\": source address not allowed, closing");
+            continue;
+        }
         let shared = shared.clone();
         let name = name.clone();
         tokio::spawn(async move {
@@ -91,6 +96,10 @@ async fn visit(
             Ok(()) = reloads.changed() => {
                 if !shared.allows(&svc.client, &session.secret) {
                     debug!(%peer, "service \"{name}\": client \"{}\" is no longer allowed, closing", svc.client);
+                    return;
+                }
+                if !shared.source_allowed(&name, peer.ip()) {
+                    info!("service \"{name}\": {} is no longer allowed by allow_from or deny_from, closing its connection", peer.ip());
                     return;
                 }
             }

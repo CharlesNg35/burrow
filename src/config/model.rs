@@ -164,6 +164,14 @@ pub struct ServiceEntry {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[schemars(description = "Visitors that may reach this service with burrow visit")]
     pub visitors: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(
+        description = "Only these source IPs or CIDRs may connect, for example [203.0.113.0/24]; everyone when empty"
+    )]
+    pub allow_from: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(description = "Source IPs or CIDRs that may never connect")]
+    pub deny_from: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]

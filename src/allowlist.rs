@@ -2,7 +2,7 @@ use std::fmt;
 use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Cidr {
     addr: IpAddr,
     prefix: u8,
@@ -149,6 +149,35 @@ impl FromStr for Rule {
     }
 }
 
+impl FromStr for Cidr {
+    type Err = RuleError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let rule: Rule = s.parse()?;
+        match rule.ports {
+            None => Ok(rule.net),
+            Some(_) => Err(RuleError::Address(s.trim().to_string())),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
+pub struct Sources {
+    pub allow: Vec<Cidr>,
+    pub deny: Vec<Cidr>,
+}
+
+impl Sources {
+    pub fn permits(&self, ip: IpAddr) -> bool {
+        (self.allow.is_empty() || self.allow.iter().any(|c| c.contains(ip)))
+            && !self.deny.iter().any(|c| c.contains(ip))
+    }
+
+    pub fn is_open(&self) -> bool {
+        self.allow.is_empty() && self.deny.is_empty()
+    }
+}
+
 fn split_ports(s: &str) -> (&str, Option<&str>) {
     if let Some(rest) = s.strip_prefix('[') {
         return match rest.split_once(']') {
@@ -288,6 +317,31 @@ mod tests {
         assert!(!list.permits(sa("[::1]:80")));
         assert!(!AllowList::Rules(vec![]).permits(sa("127.0.0.1:1")));
         assert!(AllowList::All.permits(sa("8.8.8.8:53")));
+    }
+
+    #[test]
+    fn source_filters() {
+        let ip = |s: &str| s.parse::<IpAddr>().unwrap();
+        let cidr = |s: &str| s.parse::<Cidr>().unwrap();
+        assert!(Sources::default().permits(ip("8.8.8.8")));
+        let office = Sources {
+            allow: vec![cidr("203.0.113.0/24"), cidr("2001:db8::/32")],
+            deny: vec![cidr("203.0.113.66")],
+        };
+        assert!(office.permits(ip("203.0.113.7")));
+        assert!(office.permits(ip("::ffff:203.0.113.7")));
+        assert!(office.permits(ip("2001:db8::1")));
+        assert!(!office.permits(ip("203.0.113.66")));
+        assert!(!office.permits(ip("198.51.100.1")));
+        let blocklist = Sources {
+            allow: vec![],
+            deny: vec![cidr("45.9.0.0/16")],
+        };
+        assert!(blocklist.permits(ip("1.1.1.1")));
+        assert!(!blocklist.permits(ip("45.9.1.2")));
+        assert!("10.0.0.0/8:22".parse::<Cidr>().is_err());
+        assert!("10.0.0.1/8".parse::<Cidr>().is_err());
+        assert!("home".parse::<Cidr>().is_err());
     }
 
     #[test]

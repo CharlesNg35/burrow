@@ -12,6 +12,7 @@ use super::{
     MAX_SECRETS_PER_CLIENT, MAX_TARGET_LEN, SENSITIVE_PORTS, Spans, binds_conflict, name_error,
     parse_bind, parse_host_port, secret_error, tuning, valid_name,
 };
+use crate::allowlist::{Cidr, Sources};
 use crate::diagnostics::Diagnostic;
 use crate::secret::Secret;
 use crate::suggest::{closest, quoted_list};
@@ -290,6 +291,10 @@ pub fn check_server(
             }
             binds.push((bind, svc.protocol, name));
         }
+        let sources = Sources {
+            allow: parse_sources(name, "allow_from", &svc.allow_from, spans, out),
+            deny: parse_sources(name, "deny_from", &svc.deny_from, spans, out),
+        };
         let mut listed = Vec::new();
         for v in &svc.visitors {
             if !listed.contains(v) {
@@ -306,6 +311,7 @@ pub fn check_server(
                     protocol: svc.protocol,
                     max_connections: svc.max_connections.map(|m| m as usize),
                     visitors: listed,
+                    sources,
                 },
             );
         }
@@ -351,6 +357,36 @@ pub fn check_server(
         tcp: tuning(&cfg.tcp),
         udp_session_timeout: Duration::from_secs(cfg.udp.session_timeout_secs.into()),
     })
+}
+
+fn parse_sources(
+    service: &str,
+    field: &'static str,
+    list: &[String],
+    spans: &Spans,
+    out: &mut Vec<Diagnostic>,
+) -> Vec<Cidr> {
+    let mut nets = Vec::new();
+    for (i, text) in list.iter().enumerate() {
+        match text.parse::<Cidr>() {
+            Ok(net) => nets.push(net),
+            Err(e) => out.push(
+                Diagnostic::error(
+                    "invalid-source",
+                    format!(
+                        "invalid {field} entry for service \"{service}\": {}",
+                        e.describe()
+                    ),
+                )
+                .at(spans.value(&["services", service, field, &i.to_string()]))
+                .label("expected an IP or CIDR")
+                .help(
+                    "use an IP like 203.0.113.7 or a network like 203.0.113.0/24 or 2001:db8::/32",
+                ),
+            ),
+        }
+    }
+    nets
 }
 
 fn check_secrets(

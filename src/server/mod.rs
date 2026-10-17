@@ -74,6 +74,13 @@ impl Shared {
             .is_some_and(|c| c.secrets.contains(secret))
     }
 
+    pub(crate) fn source_allowed(&self, service: &str, ip: std::net::IpAddr) -> bool {
+        self.settings()
+            .services
+            .get(service)
+            .is_some_and(|s| s.sources.permits(ip))
+    }
+
     pub(crate) fn reloads(&self) -> watch::Receiver<u64> {
         self.reloaded.subscribe()
     }

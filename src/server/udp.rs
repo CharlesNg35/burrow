@@ -55,13 +55,21 @@ impl Peers {
     }
 
     fn expire(&mut self, timeout: Duration) {
+        self.retain_where(|_, seen| seen.elapsed() < timeout);
+    }
+
+    fn retain(&mut self, keep: impl Fn(SocketAddr) -> bool) {
+        self.retain_where(|addr, _| keep(addr));
+    }
+
+    fn retain_where(&mut self, keep: impl Fn(SocketAddr, Instant) -> bool) {
         let by_id = &mut self.by_id;
-        self.by_addr.retain(|_, (id, seen)| {
-            let keep = seen.elapsed() < timeout;
-            if !keep {
+        self.by_addr.retain(|addr, (id, seen)| {
+            let kept = keep(*addr, *seen);
+            if !kept {
                 by_id.remove(id);
             }
-            keep
+            kept
         });
     }
 }
@@ -233,7 +241,7 @@ async fn relay(
                         continue;
                     }
                 };
-                if n > MAX_DATAGRAM {
+                if n > MAX_DATAGRAM || !config.borrow().sources.permits(from.ip()) {
                     continue;
                 }
                 let (id, count) = {
@@ -266,6 +274,13 @@ async fn relay(
                 if r.is_err() || config.borrow().target != svc.target || config.borrow().client != svc.client {
                     break Ok(());
                 }
+                let sources = config.borrow().sources.clone();
+                let count = {
+                    let mut p = peers.lock().expect("peers lock");
+                    p.retain(|addr| sources.permits(addr.ip()));
+                    p.len()
+                };
+                gauge.set(count);
             }
             _ = session.closed() => break Ok(()),
             _ = stop.changed() => break Ok(()),

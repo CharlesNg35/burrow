@@ -56,7 +56,7 @@ fn typo_field() {
        |
     10 |     bnd: 0.0.0.0:4000
        |     ^^^ unknown field
-       = help: did you mean "bind"? valid fields: client, bind, target, protocol, max_connections, visitors
+       = help: did you mean "bind"? valid fields: client, bind, target, protocol, max_connections, visitors, allow_from, deny_from
 
     server.yaml: 2 errors, 0 warnings
     "#);
@@ -457,7 +457,7 @@ fn json_multiple_errors() {
        |
      5 |     "web": {"client": "hom", "bnd": 4000, "target": "127.0.0.1:3000"},
        |                              ^^^^^ unknown field
-       = help: did you mean "bind"? valid fields: client, bind, target, protocol, max_connections, visitors
+       = help: did you mean "bind"? valid fields: client, bind, target, protocol, max_connections, visitors, allow_from, deny_from
 
     error: unknown protocol "udpp" in service "dns"
       --> server.json:6:83
@@ -1295,4 +1295,33 @@ fn visitor_files_are_recognised_without_forwards() {
         None,
     );
     assert!(typo.contains("did you mean \"forwards\"?"), "{typo}");
+}
+
+#[test]
+fn source_filters() {
+    insta::assert_snapshot!(render("server.yaml", &server("  ssh:\n    client: home\n    bind: 2222\n    target: 22\n    allow_from: [203.0.113.0/24, 2001:db8::/32]\n    deny_from: [203.0.113.66]\n"), None), @"server.yaml: valid server config (2 clients, 1 service)");
+    insta::assert_snapshot!(render("server.yaml", &server("  ssh:\n    client: home\n    bind: 2222\n    target: 22\n    allow_from: [office, 10.0.0.1/8]\n    deny_from: [10.0.0.0/8:22]\n"), None), @r#"
+    error: invalid allow_from entry for service "ssh": "office" is not an IP address or CIDR
+      --> server.yaml:12:18
+       |
+    12 |     allow_from: [office, 10.0.0.1/8]
+       |                  ^^^^^^ expected an IP or CIDR
+       = help: use an IP like 203.0.113.7 or a network like 203.0.113.0/24 or 2001:db8::/32
+
+    error: invalid allow_from entry for service "ssh": "10.0.0.1/8" has host bits set
+      --> server.yaml:12:26
+       |
+    12 |     allow_from: [office, 10.0.0.1/8]
+       |                          ^^^^^^^^^^ expected an IP or CIDR
+       = help: use an IP like 203.0.113.7 or a network like 203.0.113.0/24 or 2001:db8::/32
+
+    error: invalid deny_from entry for service "ssh": "10.0.0.0/8:22" is not an IP address or CIDR
+      --> server.yaml:13:17
+       |
+    13 |     deny_from: [10.0.0.0/8:22]
+       |                 ^^^^^^^^^^^^^ expected an IP or CIDR
+       = help: use an IP like 203.0.113.7 or a network like 203.0.113.0/24 or 2001:db8::/32
+
+    server.yaml: 3 errors, 0 warnings
+    "#);
 }

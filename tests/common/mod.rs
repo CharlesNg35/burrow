@@ -61,8 +61,7 @@ pub fn service(target: SocketAddr, protocol: Protocol) -> Service {
         bind: Some("127.0.0.1:0".parse().unwrap()),
         target: target.to_string(),
         protocol,
-        max_connections: None,
-        visitors: Vec::new(),
+        ..Default::default()
     }
 }
 
@@ -265,6 +264,25 @@ pub async fn roundtrip(addr: SocketAddr, payload: &[u8]) -> Vec<u8> {
         .unwrap();
     writer.await.unwrap();
     out
+}
+
+pub async fn open_echo(addr: SocketAddr) -> tokio::net::TcpStream {
+    let mut conn = tokio::net::TcpStream::connect(addr).await.unwrap();
+    conn.write_all(b"ping").await.unwrap();
+    let mut buf = [0u8; 4];
+    conn.read_exact(&mut buf).await.unwrap();
+    assert_eq!(&buf, b"ping");
+    conn
+}
+
+pub async fn assert_cut(mut conn: tokio::net::TcpStream) {
+    let ended = tokio::time::timeout(Duration::from_secs(5), async {
+        let _ = conn.write_all(b"more").await;
+        let mut buf = [0u8; 4];
+        conn.read_exact(&mut buf).await.is_err()
+    })
+    .await;
+    assert_eq!(ended, Ok(true), "the open connection must be closed");
 }
 
 pub async fn try_roundtrip(addr: SocketAddr, payload: &[u8]) -> Option<Vec<u8>> {

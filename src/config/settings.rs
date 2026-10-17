@@ -3,7 +3,7 @@ use std::net::SocketAddr;
 use std::time::Duration;
 
 use super::model::{Cipher, Protocol};
-use crate::allowlist::AllowList;
+use crate::allowlist::{AllowList, Sources};
 use crate::protocol::VisitTarget;
 use crate::proxy::ProxyConfig;
 use crate::secret::Secret;
@@ -48,7 +48,7 @@ pub struct VisitorAuth {
     pub max_connections: Option<usize>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
 pub struct Service {
     pub client: String,
     pub bind: Option<SocketAddr>,
@@ -56,6 +56,7 @@ pub struct Service {
     pub protocol: Protocol,
     pub max_connections: Option<usize>,
     pub visitors: Vec<String>,
+    pub sources: Sources,
 }
 
 #[derive(Debug, Clone, PartialEq)]

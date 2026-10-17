@@ -1,4 +1,4 @@
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Instant;
@@ -35,6 +35,7 @@ impl Shared {
         visitor: &str,
         secret: &Secret,
         to: &VisitTarget,
+        from: IpAddr,
     ) -> Result<Grant, Refusal> {
         let settings = self.settings();
         let forbidden = |why: String| Refusal {
@@ -56,6 +57,11 @@ impl Shared {
                 if svc.protocol != Protocol::Tcp || !svc.visitors.iter().any(|v| v == visitor) {
                     return Err(forbidden(format!(
                         "visitor \"{visitor}\" may not use service \"{name}\"; to allow it, add it to \"visitors\" of service \"{name}\""
+                    )));
+                }
+                if !svc.sources.permits(from) {
+                    return Err(forbidden(format!(
+                        "visitor \"{visitor}\" connects from {from}, which allow_from or deny_from of service \"{name}\" does not permit"
                     )));
                 }
                 Ok(Grant {
@@ -90,9 +96,11 @@ impl Shared {
         visitor: &str,
         secret: &Secret,
         to: &VisitTarget,
+        from: IpAddr,
         grant: &Grant,
     ) -> bool {
-        self.grant(visitor, secret, to).is_ok_and(|g| g == *grant)
+        self.grant(visitor, secret, to, from)
+            .is_ok_and(|g| g == *grant)
     }
 }
 
@@ -133,7 +141,7 @@ pub(super) async fn serve(
         reply(channel, Status::Invalid).await;
         return;
     };
-    let grant = match shared.grant(&visitor, &secret, &request.to) {
+    let grant = match shared.grant(&visitor, &secret, &request.to, peer.ip()) {
         Ok(g) => g,
         Err(r) => {
             shared.rejected.fetch_add(1, Ordering::Relaxed);
@@ -207,7 +215,7 @@ pub(super) async fn serve(
     };
     let mut reloads = shared.reloads();
     let allowed = || {
-        shared.still_granted(&visitor, &secret, &request.to, &grant)
+        shared.still_granted(&visitor, &secret, &request.to, peer.ip(), &grant)
             && shared.allows(&grant.client, &session.secret)
     };
     if !allowed() {
