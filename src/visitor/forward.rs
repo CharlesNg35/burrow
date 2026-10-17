@@ -7,14 +7,15 @@ use tokio::sync::{Semaphore, mpsc};
 use tracing::{debug, info, warn};
 
 use super::socks::{self, Reply};
+use crate::client::reconnect::Backoff;
 use crate::config::settings::VisitorSettings;
 use crate::dialer::{DialError, Dialer};
-use crate::forward::{ForwardError, pump_tcp, request_visit, visit_tcp};
+use crate::forward::{ForwardError, pump_tcp, request_visit};
 use crate::protocol::{ChannelKind, Hello, Status, VERSION, VisitRequest, VisitTarget};
 use crate::throttle::Throttle;
 use crate::transport::tcp::tune;
 
-const REJECT_ATTEMPTS: u64 = 3;
+const OPEN_PATIENCE: Duration = Duration::from_secs(5);
 const SOCKS_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub(super) struct Incoming {
@@ -116,7 +117,7 @@ pub(super) async fn check(dialer: Arc<Dialer>, forwards: Vec<(String, VisitTarge
                 warn!("{}", rejected(&dialer));
                 return;
             }
-            Err(DialError::Lost(why)) => {
+            Err(DialError::Lost(why) | DialError::Unreachable(why)) => {
                 warn!("{why}; the forwards will work once the server is reachable");
                 return;
             }
@@ -194,38 +195,6 @@ pub(super) async fn visit(
         }
         (_, to) => to,
     };
-    let mut attempt = 0;
-    let ch = loop {
-        let permit = opening.clone().acquire_owned().await;
-        let ch = dialer
-            .open(ChannelKind::Visit, Hello::Visit { version: VERSION })
-            .await;
-        drop(permit);
-        attempt += 1;
-        match ch {
-            Err(DialError::Rejected | DialError::Lost(_)) if attempt < REJECT_ATTEMPTS => {
-                tokio::time::sleep(Duration::from_millis(100 * attempt)).await;
-            }
-            ch => break ch,
-        }
-    };
-    let ch = match ch {
-        Ok(ch) => ch,
-        Err(e) => {
-            if socks {
-                let _ = socks::reply(&mut stream, Reply::NetworkUnreachable).await;
-            }
-            static LOST: Throttle = Throttle::new();
-            if let Some(more) = LOST.allow() {
-                let why = match e {
-                    DialError::Rejected => rejected(&dialer),
-                    DialError::Lost(why) => why,
-                };
-                warn!("forward \"{name}\": {why}{more}");
-            }
-            return;
-        }
-    };
     let Ok(request) = (VisitRequest {
         check: false,
         to: to.clone(),
@@ -237,24 +206,55 @@ pub(super) async fn visit(
         debug!(%peer, "forward \"{name}\": {to} is too long to send");
         return;
     };
-    let result = if socks {
-        let mut ch = ch;
-        match request_visit(&mut ch, &request).await {
-            Ok(()) => match socks::reply(&mut stream, Reply::Succeeded).await {
-                Ok(()) => pump_tcp(ch, stream, false).await,
-                Err(e) => Err(ForwardError::Io(e)),
+    let started = tokio::time::Instant::now();
+    let mut backoff = Backoff::new(Duration::from_millis(100), Duration::from_secs(1));
+    let answer = loop {
+        let permit = opening.clone().acquire_owned().await;
+        let ch = dialer
+            .open(ChannelKind::Visit, Hello::Visit { version: VERSION })
+            .await;
+        drop(permit);
+        let patient = started.elapsed() < OPEN_PATIENCE;
+        match ch {
+            Ok(mut ch) => match request_visit(&mut ch, &request).await {
+                Ok(()) => break Ok(ch),
+                Err(ForwardError::Io(_)) if patient => {}
+                Err(e) => break Err(e),
             },
-            Err(ForwardError::Status(st)) => {
-                let _ = socks::reply(&mut stream, Reply::from(st)).await;
-                Err(ForwardError::Status(st))
-            }
+            Err(DialError::Rejected | DialError::Lost(_)) if patient => {}
             Err(e) => {
-                let _ = socks::reply(&mut stream, Reply::Failure).await;
-                Err(e)
+                if socks {
+                    let _ = socks::reply(&mut stream, Reply::NetworkUnreachable).await;
+                }
+                static LOST: Throttle = Throttle::new();
+                if let Some(more) = LOST.allow() {
+                    let why = match e {
+                        DialError::Rejected => rejected(&dialer),
+                        DialError::Lost(why) | DialError::Unreachable(why) => why,
+                    };
+                    warn!("forward \"{name}\": {why}{more}");
+                }
+                return;
             }
         }
-    } else {
-        visit_tcp(ch, stream, &request).await
+        tokio::time::sleep(backoff.next_delay()).await;
+    };
+    let result = match answer {
+        Ok(ch) if socks => match socks::reply(&mut stream, Reply::Succeeded).await {
+            Ok(()) => pump_tcp(ch, stream, false).await,
+            Err(e) => Err(ForwardError::Io(e)),
+        },
+        Ok(ch) => pump_tcp(ch, stream, false).await,
+        Err(e) => {
+            if socks {
+                let code = match &e {
+                    ForwardError::Status(st) => Reply::from(*st),
+                    _ => Reply::Failure,
+                };
+                let _ = socks::reply(&mut stream, code).await;
+            }
+            Err(e)
+        }
     };
     match result {
         Ok(()) => debug!(%peer, "forward \"{name}\": connection closed"),

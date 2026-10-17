@@ -20,6 +20,7 @@ use reconnect::{Backoff, Outage, Report, human};
 const STABLE_AFTER: Duration = Duration::from_secs(10);
 const REJECT_CONFIRM_ATTEMPTS: u32 = 3;
 const MAX_OPENING: usize = 32;
+const DATA_PATIENCE: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum State {
@@ -171,7 +172,7 @@ impl Client {
 
     async fn open(&self, kind: ChannelKind, hello: Hello) -> Result<Channel, SessionEnd> {
         self.dialer.open(kind, hello).await.map_err(|e| match e {
-            DialError::Lost(why) => SessionEnd::Lost(why),
+            DialError::Lost(why) | DialError::Unreachable(why) => SessionEnd::Lost(why),
             DialError::Rejected => SessionEnd::Rejected,
         })
     }
@@ -331,17 +332,33 @@ impl Client {
     }
 
     async fn data_channel(&self, token: [u8; TOKEN_LEN], opening: Arc<Semaphore>) {
-        let permit = opening.acquire_owned().await;
-        let hello = Hello::Data {
-            version: VERSION,
-            token,
-        };
-        let ch = self.open(ChannelKind::Data, hello).await;
-        drop(permit);
-        match ch {
-            Ok(ch) => data::serve(self.settings.clone(), self.dialer.resolver.clone(), ch).await,
-            Err(SessionEnd::Lost(why)) => debug!("data channel: {why}"),
-            Err(_) => debug!("data channel rejected"),
+        let started = Instant::now();
+        let mut backoff = Backoff::new(Duration::from_millis(100), Duration::from_secs(1));
+        loop {
+            let permit = opening.clone().acquire_owned().await;
+            let hello = Hello::Data {
+                version: VERSION,
+                token,
+            };
+            let ch = self.open(ChannelKind::Data, hello).await;
+            drop(permit);
+            match ch {
+                Ok(ch) => {
+                    data::serve(self.settings.clone(), self.dialer.resolver.clone(), ch).await;
+                    return;
+                }
+                Err(_) if started.elapsed() < DATA_PATIENCE => {
+                    tokio::time::sleep(backoff.next_delay()).await;
+                }
+                Err(SessionEnd::Lost(why)) => {
+                    debug!("data channel: {why}");
+                    return;
+                }
+                Err(_) => {
+                    debug!("data channel rejected");
+                    return;
+                }
+            }
         }
     }
 }

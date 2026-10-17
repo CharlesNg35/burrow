@@ -163,21 +163,12 @@ pub async fn request_visit(ch: &mut Channel, request: &[u8]) -> Result<(), Forwa
     ch.writer.send(&mut ch.stream, request).await?;
     let status = match ch.reader.recv(&mut ch.stream).await? {
         Some(b) => Status::decode(b).map_err(|_| ForwardError::Protocol)?,
-        None => return Err(ForwardError::Protocol),
+        None => return Err(ForwardError::Io(io::ErrorKind::UnexpectedEof.into())),
     };
     if status != Status::Ok {
         return Err(ForwardError::Status(status));
     }
     Ok(())
-}
-
-pub async fn visit_tcp(
-    mut ch: Channel,
-    local: TcpStream,
-    request: &[u8],
-) -> Result<(), ForwardError> {
-    request_visit(&mut ch, request).await?;
-    pump_tcp(ch, local, false).await
 }
 
 pub async fn pump_tcp<T: Split>(

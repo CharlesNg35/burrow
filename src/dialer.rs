@@ -18,6 +18,7 @@ use crate::transport::ws::{self, Carrier};
 use crate::transport::{Conn, tls};
 
 pub enum DialError {
+    Unreachable(String),
     Lost(String),
     Rejected,
 }
@@ -100,7 +101,7 @@ impl Dialer {
         )
         .await
         .map_err(|e| {
-            DialError::Lost(format!(
+            DialError::Unreachable(format!(
                 "server unreachable at {}{via} ({})",
                 self.server,
                 io_reason(&e)
@@ -114,8 +115,8 @@ impl Dialer {
             let connector = self
                 .tls
                 .as_ref()
-                .ok_or_else(|| DialError::Lost("TLS is not configured".into()))?;
-            let name = tls::server_name(host).map_err(DialError::Lost)?;
+                .ok_or_else(|| DialError::Unreachable("TLS is not configured".into()))?;
+            let name = tls::server_name(host).map_err(DialError::Unreachable)?;
             let fut = connector.connect(name, stream);
             match tokio::time::timeout(self.connect_timeout, fut).await {
                 Ok(Ok(t)) => Carrier::ClientTls(Box::new(t)),
@@ -143,7 +144,7 @@ impl Dialer {
         .await
         {
             Ok(Ok(c)) => Ok(Conn::from(c)),
-            Ok(Err(ws::ConnectError::Status(code))) => Err(DialError::Lost(format!(
+            Ok(Err(ws::ConnectError::Status(code))) => Err(DialError::Unreachable(format!(
                 "{} answered HTTP {code} instead of a WebSocket upgrade (check the URL path, websocket.path in server.yaml, and the proxy forwarding)",
                 self.server
             ))),

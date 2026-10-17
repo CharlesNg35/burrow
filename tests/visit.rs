@@ -86,7 +86,7 @@ async fn ask(
     {
         Ok(ch) => ch,
         Err(DialError::Rejected) => return Err("rejected"),
-        Err(DialError::Lost(_)) => return Err("lost"),
+        Err(DialError::Lost(_) | DialError::Unreachable(_)) => return Err("lost"),
     };
     ch.writer
         .send(
