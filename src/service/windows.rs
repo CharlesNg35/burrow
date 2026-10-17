@@ -419,9 +419,9 @@ fn serve(name: &str, stop: tokio::sync::watch::Receiver<bool>) -> Result<u8, Fai
         stop,
         env: Env::with(read_env(m.env_file.as_ref())),
     };
-    if m.role == "server" {
-        crate::run::server_until(&m.config, logging, Some(hosted))
-    } else {
-        crate::run::client_until(&m.config, logging, Some(hosted))
+    match m.role.as_str() {
+        "server" => crate::run::server_until(&m.config, logging, Some(hosted)),
+        "visitor" => crate::run::visit_until(&m.config, logging, Some(hosted)),
+        _ => crate::run::client_until(&m.config, logging, Some(hosted)),
     }
 }

@@ -48,6 +48,13 @@ impl Manifest {
     pub fn short(&self) -> &str {
         self.name.strip_prefix("burrow-").unwrap_or(&self.name)
     }
+
+    pub fn command(&self) -> &str {
+        match self.role.as_str() {
+            "visitor" => "visit",
+            role => role,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -918,8 +925,11 @@ pub fn control(action: &str, name: Option<&str>, out: &mut dyn Write) -> Result<
             let _ = backend.stop(&m);
             backend.start(&m)?;
         }
-        "reload" if m.role == "client" => {
-            say(out, "clients apply config changes on restart; restarting")?;
+        "reload" if m.role != "server" => {
+            say(
+                out,
+                format!("{}s apply config changes on restart; restarting", m.role),
+            )?;
             backend.stop(&m)?;
             backend.start(&m)?;
         }

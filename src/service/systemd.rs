@@ -73,7 +73,7 @@ impl Backend for Systemd {
         s.push_str(&format!(
             "ExecStart={} {} -c {} --log-file {}\n",
             quote(&m.binary),
-            m.role,
+            m.command(),
             quote(&m.config),
             quote(&m.log_file)
         ));
@@ -267,6 +267,45 @@ impl Backend for Systemd {
             running: get("ActiveState") == "active",
             pid,
             detail,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn units_run_the_command_of_each_role() {
+        for (role, command, reload) in [
+            ("server", "server", true),
+            ("client", "client", false),
+            ("visitor", "visit", false),
+        ] {
+            let m = Manifest {
+                name: "burrow-home".into(),
+                role: role.into(),
+                config: "/etc/burrow/home.yaml".into(),
+                source_config: "/home/me/home.yaml".into(),
+                env_file: None,
+                log_file: "/var/log/burrow/home/home.log".into(),
+                binary: "/usr/local/bin/burrow".into(),
+                copied_binary: true,
+                account: "burrow-home".into(),
+                created_account: true,
+                low_ports: false,
+                files: vec![],
+                version: "0.2.0".into(),
+            };
+            let unit = Systemd.render(&m);
+            assert!(
+                unit.contains(&format!(
+                    "ExecStart=/usr/local/bin/burrow {command} -c /etc/burrow/home.yaml --log-file"
+                )),
+                "{unit}"
+            );
+            assert!(unit.contains(&format!("Description=burrow {role} \"home\"")));
+            assert_eq!(unit.contains("ExecReload="), reload, "{role}");
         }
     }
 }

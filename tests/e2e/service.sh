@@ -16,6 +16,7 @@ PIDS=()
 
 cleanup() {
   set +e
+  sudo "$B" service uninstall burrow-e2e-visitor --purge >/dev/null 2>&1
   sudo "$B" service uninstall burrow-e2e-client --purge >/dev/null 2>&1
   sudo "$B" service uninstall burrow-e2e-server --purge >/dev/null 2>&1
   for p in "${PIDS[@]}"; do kill "$p" 2>/dev/null; done
@@ -28,7 +29,7 @@ fail() {
   echo "FAIL: $*" >&2
   if [ -n "${GITHUB_ACTIONS:-}" ]; then
     echo "::error title=service e2e::$(printf '%s' "$*" | tr '\n' ' ')"
-    for n in burrow-e2e-server burrow-e2e-client; do
+    for n in burrow-e2e-server burrow-e2e-client burrow-e2e-visitor; do
       echo "::error title=$n logs::$(sudo "$B" service logs "$n" -n 15 2>&1 | tr '\n' '|')"
     done
   fi
@@ -47,10 +48,13 @@ cd "$WORK"
 
 "$B" init server -o e2e-server.yaml >/dev/null
 sed -i.bak 's/0.0.0.0:7835/127.0.0.1:27935/; s/0.0.0.0:7840/127.0.0.1:27940/; s/127.0.0.1:3000/127.0.0.1:19100/' e2e-server.yaml
+printf '  db:\n    client: home\n    target: 127.0.0.1:19100\n    visitors: [laptop]\nvisitors:\n  laptop:\n    secret: %s\n' "$("$B" gensecret)" >> e2e-server.yaml
+"$B" validate -c e2e-server.yaml >/dev/null || fail "server config with a visitor is invalid: $("$B" validate -c e2e-server.yaml)"
 "$B" client-config home -c e2e-server.yaml --server 127.0.0.1:27935 > e2e-client.yaml
+"$B" visitor-config laptop -c e2e-server.yaml --server 127.0.0.1:27935 2>/dev/null | sed 's/local: 19100/local: 27950/' > e2e-visitor.yaml
 SECRET="$(grep 'secret:' e2e-client.yaml | awk '{print $2}')"
 sed -i.bak "s|secret: .*|secret: \${E2E_SECRET}|" e2e-client.yaml
-chmod 600 e2e-server.yaml e2e-client.yaml
+chmod 600 e2e-server.yaml e2e-client.yaml e2e-visitor.yaml
 
 echo "== a busy port stops the install before anything changes"
 python3 -c 'import socket,time; s=socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1); s.bind(("127.0.0.1",27940)); s.listen(); time.sleep(60)' & BUSY=$!
@@ -90,7 +94,17 @@ sudo "$B" service logs burrow-e2e-server -n 20 | grep -q "listening for clients"
 out="$("$B" service logs burrow-e2e-server 2>&1 || true)"
 echo "$out" | grep -q "run: sudo .*burrow service logs burrow-e2e-server" || fail "unprivileged logs should point to sudo: $out"
 check "log file $LOG ($perms) and burrow service logs"
-sudo "$B" service list | grep -c "running" | grep -q 2 || fail "list does not show both services"
+echo "== install a visitor and reach the private service"
+out="$(sudo "$B" service install -c e2e-visitor.yaml 2>&1)" || fail "visitor install: $out"
+echo "$out"
+for _ in $(seq 1 50); do "$LOADGEN" latency --addr 127.0.0.1:27950 --count 10 >/dev/null 2>&1 && break; sleep 0.2; done
+"$LOADGEN" latency --addr 127.0.0.1:27950 --count 500 >/dev/null || fail "no traffic through the installed visitor"
+sudo "$B" service logs burrow-e2e-visitor -n 20 | grep -q "forwards are ready" || fail "visitor logs do not say it is ready: $(sudo "$B" service logs burrow-e2e-visitor -n 20)"
+out="$(sudo "$B" service reload burrow-e2e-visitor 2>&1)" || fail "visitor reload: $out"
+echo "$out" | grep -q "visitors apply config changes on restart" || fail "visitor reload: $out"
+running burrow-e2e-visitor || fail "visitor not running after reload"
+check "visitor service reaches the private service"
+sudo "$B" service list | grep -c "running" | grep -q 3 || fail "list does not show all three services"
 check "status and list"
 
 echo "== the same tunnel cannot also run by hand"
@@ -115,7 +129,7 @@ echo "== update: same version is left alone, --force replaces and restarts"
 out="$(sudo "$B" service update 2>&1)" || fail "update: $out"
 echo "$out" | grep -q "nothing to do" || fail "same-version update did something: $out"
 out="$(sudo "$B" service update --force 2>&1)" || fail "forced update: $out"
-echo "$out" | grep -q "restarted burrow-e2e-client, burrow-e2e-server" || fail "forced update: $out"
+echo "$out" | grep -q "restarted burrow-e2e-client, burrow-e2e-server, burrow-e2e-visitor" || fail "forced update: $out"
 for _ in $(seq 1 100); do "$LOADGEN" latency --addr 127.0.0.1:27940 --count 10 >/dev/null 2>&1 && break; sleep 0.2; done
 "$LOADGEN" latency --addr 127.0.0.1:27940 --count 200 >/dev/null || fail "no traffic after update"
 check "update: $(echo "$out" | head -1)"
@@ -135,10 +149,11 @@ running burrow-e2e-client || fail "not running after fixing the config"
 check "broken config reported, fixed config runs again"
 
 echo "== uninstall removes everything it created"
+sudo "$B" service uninstall burrow-e2e-visitor --purge
 sudo "$B" service uninstall burrow-e2e-client --purge
 sudo "$B" service uninstall burrow-e2e-server --purge
 sudo "$B" service list | grep -q burrow-e2e && fail "services still listed"
-for f in "$STATE" /etc/burrow/e2e-server.yaml /etc/burrow/e2e-client.yaml /etc/burrow/e2e-client.env /usr/local/bin/burrow /usr/local/bin/burrow.previous "$LOG"; do
+for f in "$STATE" /etc/burrow/e2e-server.yaml /etc/burrow/e2e-client.yaml /etc/burrow/e2e-client.env /etc/burrow/e2e-visitor.yaml /usr/local/bin/burrow /usr/local/bin/burrow.previous "$LOG"; do
   [ -e "$f" ] && fail "$f still exists"
 done
 if id burrow >/dev/null 2>&1 || id _burrow >/dev/null 2>&1; then fail "service account still exists"; fi

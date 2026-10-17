@@ -44,7 +44,7 @@ fn read_env(m: &Manifest) -> BTreeMap<String, String> {
 fn plist(m: &Manifest, env: &BTreeMap<String, String>) -> String {
     let args = [
         m.binary.display().to_string(),
-        m.role.clone(),
+        m.command().to_string(),
         "-c".into(),
         m.config.display().to_string(),
         "--log-file".into(),
@@ -326,5 +326,14 @@ mod tests {
             "<string>--log-file</string>\n    <string>/var/log/burrow/home/home.log</string>"
         ));
         assert!(p.contains("<string>a&lt;b&amp;c</string>"));
+        assert!(p.contains("<string>/usr/local/bin/burrow</string>\n    <string>client</string>"));
+        let visitor = Manifest {
+            role: "visitor".into(),
+            ..m
+        };
+        assert!(
+            plist(&visitor, &env)
+                .contains("<string>/usr/local/bin/burrow</string>\n    <string>visit</string>")
+        );
     }
 }

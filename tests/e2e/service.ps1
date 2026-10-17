@@ -17,7 +17,7 @@ function Fail($msg) {
   Write-Host "FAIL: $msg"
   if ($env:GITHUB_ACTIONS) {
     Write-Host "::error title=service e2e::$($msg -replace "`r?`n", ' ')"
-    foreach ($n in "burrow-e2e-server", "burrow-e2e-client") {
+    foreach ($n in "burrow-e2e-server", "burrow-e2e-client", "burrow-e2e-visitor") {
       Write-Host "::error title=$n logs::$((Burrow service logs $n -n 15) -replace "`r?`n", '|')"
     }
   }
@@ -25,13 +25,13 @@ function Fail($msg) {
   Burrow service logs burrow-e2e-client -n 30 | Write-Host
   throw $msg
 }
-function Traffic($count) {
+function Traffic($count, $port = 27940) {
   for ($i = 0; $i -lt 100; $i++) {
-    & $Loadgen latency --addr 127.0.0.1:27940 --count 10 *> $null
+    & $Loadgen latency --addr "127.0.0.1:$port" --count 10 *> $null
     if ($LASTEXITCODE -eq 0) { break }
     Start-Sleep -Milliseconds 200
   }
-  & $Loadgen latency --addr 127.0.0.1:27940 --count $count *> $null
+  & $Loadgen latency --addr "127.0.0.1:$port" --count $count *> $null
   return $LASTEXITCODE -eq 0
 }
 function Running($name) {
@@ -48,7 +48,11 @@ try {
 
   & $B init server -o e2e-server.yaml | Out-Null
   (Get-Content e2e-server.yaml) -replace '0.0.0.0:7835','127.0.0.1:27935' -replace '0.0.0.0:7840','127.0.0.1:27940' -replace '127.0.0.1:3000','127.0.0.1:19100' | Set-Content e2e-server.yaml
+  Add-Content e2e-server.yaml "  db:`n    client: home`n    target: 127.0.0.1:19100`n    visitors: [laptop]`nvisitors:`n  laptop:`n    secret: $((& $B gensecret).Trim())"
+  & $B validate -c e2e-server.yaml | Out-Null
+  if ($LASTEXITCODE -ne 0) { Fail "server config with a visitor is invalid: $(Burrow validate -c e2e-server.yaml)" }
   & $B client-config home -c e2e-server.yaml --server 127.0.0.1:27935 | Set-Content e2e-client.yaml
+  & $B visitor-config laptop -c e2e-server.yaml --server 127.0.0.1:27935 2>$null | ForEach-Object { $_ -replace 'local: 19100','local: 27950' } | Set-Content e2e-visitor.yaml
   $Secret = ((Get-Content e2e-client.yaml | Select-String '^secret:').Line -split '\s+')[1]
   (Get-Content e2e-client.yaml) -replace '^secret: .*','secret: $${E2E_SECRET}' | Set-Content e2e-client.yaml
 
@@ -82,8 +86,20 @@ try {
   $log = ((Burrow service status burrow-e2e-server) -split "`n" | Select-String 'logs:').Line.Trim() -replace '^logs:\s+',''
   if (-not (Test-Path $log)) { Fail "no log file at $log" }
   if ((Burrow service logs burrow-e2e-server -n 20) -notmatch "listening for clients") { Fail "service logs show nothing" }
-  if (@((Burrow service list) -split "`n" | Select-String "running").Count -ne 2) { Fail "list does not show both services" }
-  Check "log file $log, status and list"
+  Check "log file $log"
+
+  Write-Host "== install a visitor and reach the private service"
+  $out = Burrow service install -c e2e-visitor.yaml
+  Write-Host $out
+  if ($out -notmatch "installed Windows service") { Fail "visitor install: $out" }
+  if (-not (Traffic 500 27950)) { Fail "no traffic through the installed visitor" }
+  if ((Burrow service logs burrow-e2e-visitor -n 20) -notmatch "forwards are ready") { Fail "visitor logs do not say it is ready: $(Burrow service logs burrow-e2e-visitor -n 20)" }
+  $out = Burrow service reload burrow-e2e-visitor
+  if ($out -notmatch "visitors apply config changes on restart") { Fail "visitor reload: $out" }
+  if (-not (Running burrow-e2e-visitor)) { Fail "visitor not running after reload" }
+  Check "visitor service reaches the private service"
+  if (@((Burrow service list) -split "`n" | Select-String "running").Count -ne 3) { Fail "list does not show all three services" }
+  Check "status and list"
 
   $users = (New-Object Security.Principal.SecurityIdentifier "S-1-5-32-545").Translate([Security.Principal.NTAccount]).Value
   $write = [Security.AccessControl.FileSystemRights]"WriteData, AppendData, WriteExtendedAttributes, WriteAttributes, DeleteSubdirectoriesAndFiles, Delete, ChangePermissions, TakeOwnership"
@@ -113,7 +129,7 @@ try {
   $out = Burrow service update
   if ($out -notmatch "nothing to do") { Fail "same-version update did something: $out" }
   $out = Burrow service update --force
-  if ($out -notmatch "restarted burrow-e2e-client, burrow-e2e-server") { Fail "forced update: $out" }
+  if ($out -notmatch "restarted burrow-e2e-client, burrow-e2e-server, burrow-e2e-visitor") { Fail "forced update: $out" }
   if (-not (Traffic 200)) { Fail "no traffic after update" }
   Check "update"
 
@@ -126,6 +142,7 @@ try {
   Check "stop and start"
 
   Write-Host "== uninstall removes everything it created"
+  Burrow service uninstall burrow-e2e-visitor --purge | Write-Host
   Burrow service uninstall burrow-e2e-client --purge | Write-Host
   Burrow service uninstall burrow-e2e-server --purge | Write-Host
   Start-Sleep -Seconds 2
@@ -134,6 +151,7 @@ try {
     "$env:ProgramData\burrow\e2e-server.yaml",
     "$env:ProgramData\burrow\e2e-client.yaml",
     "$env:ProgramData\burrow\e2e-client.env",
+    "$env:ProgramData\burrow\e2e-visitor.yaml",
     "$env:ProgramFiles\burrow\burrow.exe",
     $log
   ) | Where-Object { Test-Path $_ }
@@ -150,6 +168,7 @@ catch {
 }
 finally {
   $ErrorActionPreference = "Continue"
+  & $B service uninstall burrow-e2e-visitor --purge *> $null
   & $B service uninstall burrow-e2e-client --purge *> $null
   & $B service uninstall burrow-e2e-server --purge *> $null
   if ($Echo) { Stop-Process -Id $Echo.Id -Force -ErrorAction SilentlyContinue }
