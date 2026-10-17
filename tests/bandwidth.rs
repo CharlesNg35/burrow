@@ -316,3 +316,50 @@ async fn connections_opened_before_and_after_a_rate_change_still_share_the_cap()
         "800000 bytes each way under a ~200kb/s cap finished in {took:?}"
     );
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn services_are_unlimited_unless_bandwidth_is_set() {
+    let echo = echo_server().await;
+    let secret = Secret::generate();
+    let settings = server_settings(vec![secret.clone()]);
+    let web = service(echo, Protocol::Tcp);
+    assert_eq!(web.bandwidth, None, "no bandwidth unless configured");
+    let t = tunnel_with(settings.clone(), vec![("web", web.clone())], |c| c, secret).await;
+    let addr = t.server.services["web"];
+    assert_eq!(t.server.shared.status().services[0].limit, None);
+    let fast = timed_roundtrip(addr, 4_000_000, 7).await;
+    assert!(
+        fast < Duration::from_secs(2),
+        "an unlimited service took {fast:?}"
+    );
+
+    let mut next = settings.clone();
+    next.services.insert("web".into(), limited(web.clone()));
+    t.server.reload(next).await;
+    for _ in 0..50 {
+        if t.server.shared.status().services[0].limit.is_some() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let slow = timed_roundtrip(addr, 800_000, 8).await;
+    assert!(
+        slow >= Duration::from_millis(1200),
+        "the added limit took only {slow:?}"
+    );
+
+    let mut next = settings;
+    next.services.insert("web".into(), web);
+    t.server.reload(next).await;
+    for _ in 0..50 {
+        if t.server.shared.status().services[0].limit.is_none() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let again = timed_roundtrip(addr, 4_000_000, 9).await;
+    assert!(
+        again < Duration::from_secs(2),
+        "removing the limit left {again:?}"
+    );
+}
