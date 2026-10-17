@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="burrow">
+  <path d="M20 204 C20 110 70 52 128 52 C186 52 236 110 236 204 Z" fill="#D9862B"/>
+  <path d="M44 204 C44 124 82 72 128 72 C174 72 212 124 212 204 Z" fill="#EFA544"/>
+  <path d="M74 204 C74 148 98 116 128 116 C158 116 182 148 182 204 Z" fill="#241A13"/>
+  <path d="M104 180 L128 156 L152 180" fill="none" stroke="#45E0BF" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="12" y="200" width="232" height="12" rx="6" fill="#8C4E16"/>
+</svg>

@@ -1,4 +1,16 @@
-# burrow
+<p align="center">
+  <img src="docs/logo.svg" width="120" alt="burrow logo">
+</p>
+
+<h1 align="center">burrow</h1>
+
+<p align="center">
+  <a href="https://github.com/CharlesNg35/burrow/actions/workflows/ci.yml"><img src="https://github.com/CharlesNg35/burrow/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/CharlesNg35/burrow/releases/latest"><img src="https://img.shields.io/github/v/release/CharlesNg35/burrow" alt="latest release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT license"></a>
+  <img src="https://img.shields.io/badge/platforms-Linux%20%7C%20macOS%20%7C%20Windows-informational" alt="Linux, macOS, Windows">
+  <a href="#docker"><img src="https://img.shields.io/badge/docker-ghcr.io%2Fcharlesng35%2Fburrow-2496ED?logo=docker&amp;logoColor=white" alt="Docker image"></a>
+</p>
 
 A fast, small, secure reverse tunnel. A client behind NAT connects out to a public server, and the **server's** config decides what gets exposed. Adding or removing a service is a server config edit: no client change, no restart.
 
@@ -17,7 +29,6 @@ user ──> server:7840 ══ Noise-encrypted TCP or WebSocket ══ client (
 
 ## Contents
 
-- [Install](#install)
 - [Quickstart](#quickstart)
 - [Configuration](#configuration)
 - [Services](#services)
@@ -31,13 +42,9 @@ user ──> server:7840 ══ Noise-encrypted TCP or WebSocket ══ client (
 - [Development](#development)
 - [License](#license)
 
-## Install
-
-Download the archive for your system from the [latest release](https://github.com/CharlesNg35/burrow/releases/latest) (checksums in `SHA256SUMS`), unpack it, and run `./burrow` from that folder (`.\burrow.exe` on Windows). Later, `./burrow update` installs new releases. Or use the [Docker](#docker) image.
-
 ## Quickstart
 
-On the public server:
+[Download the latest release](https://github.com/CharlesNg35/burrow/releases/latest) for your system and unpack it (or use the [Docker](#docker) image). On the public server:
 
 ```sh
 ./burrow init server                                                  # writes server.yaml
@@ -45,7 +52,7 @@ On the public server:
 ./burrow client-config --server myserver.example.com -o client.yaml  # the config for your client
 ```
 
-On the machine behind NAT, [download burrow](#install) the same way, put `client.yaml` next to it, then:
+On the machine behind NAT, download burrow the same way, put `client.yaml` next to it, then:
 
 ```sh
 ./burrow client
