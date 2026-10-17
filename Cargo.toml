@@ -65,6 +65,8 @@ strip = false
 
 [profile.dev.package]
 sha2.opt-level = 3
+blake2.opt-level = 3
+curve25519-dalek.opt-level = 3
 miniz_oxide.opt-level = 3
 crc32fast.opt-level = 3
 
