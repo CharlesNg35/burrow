@@ -322,6 +322,45 @@ where
     }
 }
 
+pub async fn relay_pump<R, W>(
+    src: &mut R,
+    reader: &mut RecordReader,
+    dst: &mut W,
+    writer: &mut RecordWriter,
+) -> io::Result<()>
+where
+    R: AsyncRead + Unpin,
+    W: AsyncWrite + Unpin,
+{
+    let mut small = [0u8; SMALL + HEADER + TAG_LEN];
+    let mut big: Option<Box<[u8]>> = None;
+    loop {
+        let plain = match reader.recv(src).await? {
+            Some(p) => p,
+            None => {
+                return Err(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    "peer closed without an end-of-stream record",
+                ));
+            }
+        };
+        let end = plain.is_empty();
+        let out: &mut [u8] = if plain.len() <= SMALL {
+            &mut small
+        } else {
+            big.get_or_insert_with(|| vec![0u8; MAX_RECORD + HEADER].into_boxed_slice())
+        };
+        let n = writer.seal_into(plain, out);
+        dst.write_all(&out[..n]).await?;
+        if end {
+            return dst.flush().await;
+        }
+        if reader.buffered().is_empty() {
+            dst.flush().await?;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

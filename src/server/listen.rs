@@ -168,13 +168,13 @@ async fn handle_ws(
     }
 }
 
-fn secrets_for(shared: &Shared, name: &str) -> Vec<Secret> {
-    shared
-        .settings()
-        .clients
-        .get(name)
-        .map(|c| c.secrets.clone())
-        .unwrap_or_default()
+fn secrets_for(shared: &Shared, kind: ChannelKind, name: &str) -> Vec<Secret> {
+    let settings = shared.settings();
+    let secrets = match kind {
+        ChannelKind::Visit => settings.visitors.get(name).map(|v| &v.secrets),
+        ChannelKind::Control | ChannelKind::Data => settings.clients.get(name).map(|c| &c.secrets),
+    };
+    secrets.cloned().unwrap_or_default()
 }
 
 async fn authenticate(
@@ -185,8 +185,11 @@ async fn authenticate(
     deadline: Instant,
 ) {
     let settings = shared.settings();
-    let result =
-        tokio::time::timeout_at(deadline.into(), accept(conn, |n| secrets_for(&shared, n))).await;
+    let result = tokio::time::timeout_at(
+        deadline.into(),
+        accept(conn, |k, n| secrets_for(&shared, k, n)),
+    )
+    .await;
     drop(permit);
     let acc = match result {
         Ok(Ok(a)) => a,
@@ -218,6 +221,9 @@ async fn authenticate(
                 Some(s) if s.token == token => s.offer(acc.channel),
                 _ => debug!(%peer, "data channel for an unknown session, closing"),
             }
+        }
+        (ChannelKind::Visit, &Hello::Visit { version }) if version == VERSION => {
+            super::visit::serve(shared, acc, peer, deadline).await
         }
         (kind, hello) if kind != hello.kind() => {
             debug!(%peer, "hello does not match the channel kind, closing")

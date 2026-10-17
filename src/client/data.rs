@@ -13,7 +13,7 @@ use crate::config::check::parse_host_port;
 use crate::config::model::Protocol;
 use crate::config::settings::ClientSettings;
 use crate::failure::io_reason;
-use crate::forward::{client_tcp, refuse};
+use crate::forward::{client_tcp, reply};
 use crate::handshake::Channel;
 use crate::protocol::{
     Connect, KEEPALIVE_RECORD, ServiceInfo, Status, decode_datagram, encode_datagram,
@@ -129,14 +129,14 @@ pub async fn serve(settings: Arc<ClientSettings>, resolver: Arc<dyn Resolver>, m
     let connect = match first {
         Ok(c) => c,
         Err(_) => {
-            refuse(ch, Status::Invalid).await;
+            reply(ch, Status::Invalid).await;
             return;
         }
     };
     let addrs = match permitted(&settings, &*resolver, &connect).await {
         Ok(a) => a,
         Err(status) => {
-            refuse(ch, status).await;
+            reply(ch, status).await;
             return;
         }
     };
@@ -151,7 +151,7 @@ pub async fn serve(settings: Arc<ClientSettings>, resolver: Arc<dyn Resolver>, m
                         connect.target,
                         io_reason(&e)
                     );
-                    refuse(ch, Status::Unreachable).await;
+                    reply(ch, Status::Unreachable).await;
                     return;
                 }
             };

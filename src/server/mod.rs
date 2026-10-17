@@ -3,6 +3,7 @@ mod listen;
 mod session;
 mod tcp;
 mod udp;
+mod visit;
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -37,6 +38,7 @@ pub struct Shared {
     shutdown: watch::Receiver<bool>,
     reloaded: watch::Sender<u64>,
     service_counts: Counts,
+    visitor_counts: Counts,
 }
 
 #[derive(Default)]
@@ -205,6 +207,44 @@ async fn accept_tcp(
     }
 }
 
+async fn take_channel(
+    shared: &Shared,
+    session: &ClientSession,
+    label: &str,
+    peer: SocketAddr,
+) -> Result<crate::handshake::Channel, crate::protocol::Status> {
+    use crate::protocol::Status;
+    match tokio::time::timeout(TAKE_TIMEOUT, session.take()).await {
+        Ok(Ok(ch)) => Ok(ch),
+        Ok(Err(TakeError::TooManyPending)) => {
+            shared.rejected.fetch_add(1, Ordering::Relaxed);
+            static WAITING: crate::throttle::Throttle = crate::throttle::Throttle::new();
+            if let Some(more) = WAITING.allow() {
+                warn!(
+                    "{label}: too many connections waiting for client \"{}\", dropping one{more}",
+                    session.name
+                );
+            }
+            Err(Status::Busy)
+        }
+        Ok(Err(TakeError::Closed)) => {
+            tracing::debug!(%peer, "{label}: session closed while waiting for a data channel");
+            Err(Status::Offline)
+        }
+        Err(_) => {
+            static SLOW: crate::throttle::Throttle = crate::throttle::Throttle::new();
+            if let Some(more) = SLOW.allow() {
+                warn!(
+                    "{label}: client \"{}\" did not open a data channel within {}s{more}",
+                    session.name,
+                    TAKE_TIMEOUT.as_secs()
+                );
+            }
+            Err(Status::Offline)
+        }
+    }
+}
+
 pub fn bind_error(what: &str, proto: Protocol, addr: SocketAddr, e: &std::io::Error) -> Failure {
     match e.kind() {
         std::io::ErrorKind::AddrInUse => {
@@ -275,6 +315,7 @@ impl Server {
             shutdown,
             reloaded: watch::Sender::new(0),
             service_counts: Counts::default(),
+            visitor_counts: Counts::default(),
         });
         let mut services = HashMap::new();
         for (name, svc) in &settings.services {

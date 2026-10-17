@@ -144,7 +144,12 @@ pub async fn udp_service(
         {
             Ok(()) => {}
             Err(Some(status)) => {
-                log_status(&name, &svc, status);
+                log_status(
+                    &format!("service \"{name}\""),
+                    &svc.client,
+                    &svc.target,
+                    status,
+                );
                 tokio::time::sleep(Duration::from_secs(5)).await;
             }
             Err(None) => tokio::time::sleep(Duration::from_millis(200)).await,

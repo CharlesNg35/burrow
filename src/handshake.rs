@@ -3,7 +3,7 @@ use std::io;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::noise::{Initiator, MSG1_LEN, MSG2_LEN, Responder};
-use crate::protocol::{DecodeError, Hello, PREAMBLE_FIXED, Preamble};
+use crate::protocol::{ChannelKind, DecodeError, Hello, PREAMBLE_FIXED, Preamble};
 use crate::record::{RecordReader, RecordWriter};
 use crate::secret::Secret;
 use crate::transport::Conn;
@@ -93,7 +93,7 @@ pub struct Accepted {
 
 pub async fn accept<F>(mut stream: Conn, secrets_for: F) -> Result<Accepted, AcceptError>
 where
-    F: FnOnce(&str) -> Vec<Secret>,
+    F: FnOnce(ChannelKind, &str) -> Vec<Secret>,
 {
     let mut head = [0u8; PREAMBLE_FIXED];
     stream.read_exact(&mut head).await?;
@@ -104,7 +104,7 @@ where
     let (name, msg1) = rest.split_at(name_len);
     let msg1: &[u8; MSG1_LEN] = msg1.try_into().expect("sliced to MSG1_LEN");
     let preamble = Preamble::from_parts(kind, flags, name)?;
-    let candidates = secrets_for(&preamble.name);
+    let candidates = secrets_for(preamble.kind, &preamble.name);
     let responder = Responder::accept(preamble.cipher, &candidates, &preamble.prologue(), msg1)
         .map_err(|_| AcceptError::Rejected)?;
     let secret = candidates[responder.secret_index()].clone();

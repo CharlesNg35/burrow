@@ -5,7 +5,7 @@ use tokio::net::TcpStream;
 
 use crate::handshake::Channel;
 use crate::protocol::{Connect, Status};
-use crate::record::{CHUNK, open_pump, raw_pump, seal_pump};
+use crate::record::{CHUNK, open_pump, raw_pump, relay_pump, seal_pump};
 
 #[derive(Debug)]
 pub enum ForwardError {
@@ -97,7 +97,58 @@ pub async fn client_tcp(
     Ok(())
 }
 
-pub async fn refuse(mut ch: Channel, status: Status) {
+pub async fn relay(
+    visitor: Channel,
+    client: Channel,
+    connect: &Connect,
+    plaintext: bool,
+) -> Result<(), ForwardError> {
+    let Channel {
+        stream: mut vs,
+        writer: mut vwriter,
+        reader: mut vreader,
+    } = visitor;
+    let Channel {
+        stream: mut cs,
+        writer: mut cwriter,
+        reader: mut creader,
+    } = client;
+    cwriter.send(&mut cs, &connect.encode()).await?;
+    let plaintext = plaintext && cs.supports_half_close();
+    let (mut cr, mut cw) = cs.split();
+    let (mut vr, mut vw) = vs.split();
+    let up = async {
+        if plaintext {
+            open_pump(&mut vr, &mut cw, &mut vreader).await
+        } else {
+            relay_pump(&mut vr, &mut vreader, &mut cw, &mut cwriter).await
+        }
+    };
+    let down = async {
+        let status = match creader.recv(&mut cr).await? {
+            Some(b) => Status::decode(b).map_err(|_| ForwardError::Protocol)?,
+            None => return Err(ForwardError::Protocol),
+        };
+        vwriter.send(&mut vw, &[status as u8]).await?;
+        if status != Status::Ok {
+            return Err(ForwardError::Status(status));
+        }
+        if plaintext {
+            let rest = creader.take_buffered();
+            for chunk in rest.chunks(CHUNK) {
+                vwriter.send(&mut vw, chunk).await?;
+            }
+            seal_pump(&mut cr, &mut vw, &mut vwriter, CHUNK).await?;
+        } else {
+            relay_pump(&mut cr, &mut creader, &mut vw, &mut vwriter).await?;
+        }
+        Ok(())
+    };
+    let up = async { up.await.map_err(ForwardError::Io) };
+    tokio::try_join!(up, down).map(|_| ())
+}
+
+pub async fn reply(mut ch: Channel, status: Status) {
     let _ = ch.writer.send(&mut ch.stream, &[status as u8]).await;
     let _ = ch.stream.shutdown().await;
 }
