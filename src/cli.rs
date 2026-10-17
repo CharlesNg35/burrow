@@ -92,6 +92,10 @@ pub enum Command {
     },
     #[command(about = "Print the version")]
     Version,
+    #[command(
+        about = "Download the latest release, replace this binary and update the installed services"
+    )]
+    Update(UpdateArgs),
     #[command(about = "Run burrow as a system service: install, status, logs, uninstall")]
     Service {
         #[command(subcommand)]
@@ -149,6 +153,20 @@ pub struct ServiceInstallArgs {
     pub no_start: bool,
     #[arg(long, help = "Print what would be installed, change nothing")]
     pub print: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct UpdateArgs {
+    #[arg(long, help = "Only tell whether a newer release exists")]
+    pub check: bool,
+    #[arg(
+        long,
+        value_name = "VERSION",
+        help = "Install this release instead of the latest (also older ones)"
+    )]
+    pub to: Option<String>,
+    #[arg(long, help = "Reinstall even when this version is already installed")]
+    pub force: bool,
 }
 
 #[derive(Debug, Args)]

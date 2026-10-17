@@ -16,6 +16,7 @@ blake2 = "0.10.6"
 bytes = "1.12.1"
 clap = { version = "4.6.7", features = ["derive", "env"] }
 clap_complete = "4.6.11"
+flate2 = "1.1.10"
 futures-util = { version = "0.3.34", default-features = false, features = ["sink"] }
 getrandom = "0.3.4"
 http = "1.5.0"
@@ -25,6 +26,7 @@ saphyr-parser = "0.2.2"
 schemars = "1.2.3"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.154", features = ["preserve_order"] }
+sha2 = "0.10.9"
 snow = { version = "0.10.0", default-features = false, features = ["default-resolver-crypto", "std"] }
 socket2 = "0.6.5"
 tokio = { version = "1.53.3", features = ["rt-multi-thread", "net", "io-util", "time", "sync", "signal", "macros", "fs"] }
@@ -59,6 +61,11 @@ strip = true
 [profile.bench]
 inherits = "release"
 strip = false
+
+[profile.dev.package]
+sha2.opt-level = 3
+miniz_oxide.opt-level = 3
+crc32fast.opt-level = 3
 
 [[bench]]
 name = "cipher"

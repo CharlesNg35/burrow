@@ -281,6 +281,17 @@ fn run(cli: Cli) -> Result<u8, Failure> {
             print(&format!("burrow {}\n", env!("CARGO_PKG_VERSION")))?;
             Ok(0)
         }
+        Command::Update(a) => {
+            let mut out = std::io::stdout().lock();
+            burrow::update::run(
+                &burrow::update::Options {
+                    check: a.check,
+                    to: a.to,
+                    force: a.force,
+                },
+                &mut out,
+            )
+        }
         Command::Completions { shell } => {
             let mut cmd = Cli::command();
             let mut buf = Vec::new();

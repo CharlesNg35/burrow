@@ -23,5 +23,6 @@ pub mod service;
 pub mod suggest;
 pub mod throttle;
 pub mod transport;
+pub mod update;
 pub mod validate;
 pub mod visitor;
