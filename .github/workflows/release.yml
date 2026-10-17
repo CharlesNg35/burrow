@@ -20,11 +20,26 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   PUBLISH: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && 'true' || 'false' }}
+  PRERELEASE: ${{ contains(github.ref_name, '-') && 'true' || 'false' }}
   ZIG_VERSION: 0.17.0
   ZIG_SHA256: 1cbe9df9f27e6b78d14ccbca43b6703a404ef79ef1c463de901d7f088d4e2026
 
 jobs:
+  version:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Tag matches Cargo.toml
+        if: env.PUBLISH == 'true'
+        run: |
+          crate=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)
+          if [ "${GITHUB_REF_NAME#v}" != "$crate" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match the version in Cargo.toml ($crate)"
+            exit 1
+          fi
+
   binaries:
+    needs: version
     name: build ${{ matrix.target }}
     strategy:
       fail-fast: false
@@ -120,8 +135,11 @@ jobs:
           body_path: notes.md
           files: dist/*
           fail_on_unmatched_files: true
+          prerelease: ${{ env.PRERELEASE == 'true' }}
+          make_latest: ${{ env.PRERELEASE == 'true' && 'false' || 'true' }}
 
   image:
+    needs: version
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -155,7 +173,7 @@ jobs:
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable=${{ env.PUBLISH }}
+            type=raw,value=latest,enable=${{ env.PUBLISH == 'true' && env.PRERELEASE != 'true' }}
             type=sha,enable=${{ env.PUBLISH != 'true' }}
       - id: build
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
