@@ -751,6 +751,7 @@ pub fn uninstall(name: Option<&str>, purge: bool, out: &mut dyn Write) -> Result
         heir.created_account = true;
         save_manifest(&heir)?;
     }
+    let mut account_left = None;
     if m.created_account && !others.iter().any(|o| o.account == m.account) {
         #[cfg(unix)]
         {
@@ -762,8 +763,10 @@ pub fn uninstall(name: Option<&str>, purge: bool, out: &mut dyn Write) -> Result
                 let _ = std::os::unix::fs::lchown(f, Some(0), Some(0));
             }
         }
-        backend.remove_account(&m.account)?;
-        say(out, format!("removed service account {}", m.account))?;
+        match backend.remove_account(&m.account) {
+            Ok(()) => say(out, format!("removed service account {}", m.account))?,
+            Err(f) => account_left = Some(f),
+        }
     }
     if !kept.is_empty() {
         let list = kept
@@ -788,11 +791,31 @@ pub fn uninstall(name: Option<&str>, purge: bool, out: &mut dyn Write) -> Result
         if purge {
             dirs.extend([p.log_dir(), p.config_dir()]);
         }
+        if let Some(dir) = crate::instance::service_dir() {
+            crate::instance::remove_unused(&dir);
+        }
         for dir in dirs {
             let _ = std::fs::remove_dir(dir);
         }
     }
-    Ok(())
+    match account_left {
+        Some(f) => Err(account_not_removed(&m.account, f)),
+        None => Ok(()),
+    }
+}
+
+fn account_not_removed(account: &str, f: Failure) -> Failure {
+    let finish = match Platform::current() {
+        Platform::MacOs => format!(
+            "macOS lets only a local session or an app with full disk access delete accounts; finish in Terminal on the Mac with: sudo dscl . -delete /Users/{account}  (or allow full disk access for remote users under System Settings > General > Sharing > Remote Login, then run it over SSH)"
+        ),
+        _ => format!("finish with: sudo userdel {account}"),
+    };
+    Failure::new(format!(
+        "everything else is removed, but the service account {account} is not: {}",
+        f.message
+    ))
+    .hint(finish)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

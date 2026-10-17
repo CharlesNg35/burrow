@@ -280,6 +280,10 @@ sudo "$B" service list | grep -q burrow-e2e && fail "services still listed"
 for f in "$STATE" /etc/burrow/e2e-server.yaml /etc/burrow/e2e-client.yaml /etc/burrow/e2e-client.env /etc/burrow/e2e-visitor.yaml /usr/local/bin/burrow /usr/local/bin/burrow.previous "$LOG" "$JOBS"; do
   [ -e "$f" ] && fail "$f still exists"
 done
+case "$(uname -s)" in
+  Darwin) [ -e "/Library/Application Support/burrow" ] && fail "/Library/Application Support/burrow still exists" ;;
+  Linux) [ -e /run/burrow-instances ] && fail "/run/burrow-instances still exists" ;;
+esac
 if id burrow >/dev/null 2>&1 || id _burrow >/dev/null 2>&1; then fail "service account still exists"; fi
 check "nothing left behind"
 echo "service end-to-end checks passed"

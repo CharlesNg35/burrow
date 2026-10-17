@@ -54,11 +54,8 @@ impl InstanceLock {
     }
 }
 
-pub fn default_dir() -> PathBuf {
-    if let Some(dir) = std::env::var_os("BURROW_INSTANCE_DIR") {
-        return PathBuf::from(dir);
-    }
-    let service_dir = if cfg!(target_os = "linux") {
+pub fn service_dir() -> Option<PathBuf> {
+    if cfg!(target_os = "linux") {
         Some(PathBuf::from("/run/burrow-instances"))
     } else if cfg!(target_os = "macos") {
         Some(PathBuf::from(
@@ -66,8 +63,56 @@ pub fn default_dir() -> PathBuf {
         ))
     } else {
         None
+    }
+}
+
+pub fn remove_unused(dir: &Path) {
+    let Ok(listing) = std::fs::read_dir(dir) else {
+        return;
     };
-    if let Some(dir) = service_dir.filter(|d| d.is_dir()) {
+    for path in listing.flatten().map(|e| e.path()) {
+        match path.extension().and_then(|x| x.to_str()) {
+            Some("lock") => {
+                let mut opts = OpenOptions::new();
+                opts.read(true).write(true);
+                let held = no_follow(&mut opts)
+                    .open(&path)
+                    .and_then(single_file)
+                    .ok()
+                    .filter(|f| f.try_lock().is_ok());
+                if let Some(lock) = held {
+                    let _ = std::fs::remove_file(path.with_extension("info"));
+                    let _ = std::fs::remove_file(&path);
+                    drop(lock);
+                }
+            }
+            Some("status") if stale_status(&path) => {
+                let _ = std::fs::remove_file(&path);
+            }
+            _ => {}
+        }
+    }
+    let _ = std::fs::remove_dir(dir);
+}
+
+#[cfg(unix)]
+fn stale_status(path: &Path) -> bool {
+    path.file_stem()
+        .and_then(|s| s.to_str())
+        .and_then(|s| s.parse::<u32>().ok())
+        .is_some_and(|pid| !alive(pid))
+}
+
+#[cfg(not(unix))]
+fn stale_status(_path: &Path) -> bool {
+    false
+}
+
+pub fn default_dir() -> PathBuf {
+    if let Some(dir) = std::env::var_os("BURROW_INSTANCE_DIR") {
+        return PathBuf::from(dir);
+    }
+    if let Some(dir) = service_dir().filter(|d| d.is_dir()) {
         return dir;
     }
     if cfg!(windows) {
@@ -285,6 +330,19 @@ fn write_note(path: &Path, note: &str) {
     let _ = f.write_all(note.as_bytes());
 }
 
+#[cfg(unix)]
+fn alive(pid: u32) -> bool {
+    let Ok(pid) = i32::try_from(pid) else {
+        return false;
+    };
+    rustix::process::Pid::from_raw(pid).is_some_and(|pid| {
+        matches!(
+            rustix::process::test_kill_process(pid),
+            Ok(()) | Err(rustix::io::Errno::PERM)
+        )
+    })
+}
+
 fn open_failure(path: &Path, e: &std::io::Error) -> Failure {
     Failure::new(format!("cannot open {}: {}", path.display(), crate::failure::file_reason(e)))
         .hint("check the permissions of that file; it only holds a lock and can be deleted when burrow is not running")
@@ -293,6 +351,32 @@ fn open_failure(path: &Path, e: &std::io::Error) -> Failure {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn only_locks_and_status_files_nobody_uses_are_removed() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = dir.path().join("server.yaml");
+        let held = acquire_in(dir.path(), &Identity::server(&cfg), &cfg).unwrap();
+        let unused =
+            acquire_in(dir.path(), &Identity::client("example.com", "home"), &cfg).unwrap();
+        let unused_lock = unused.path().to_path_buf();
+        drop(unused);
+        let stale = dir.path().join("999999999.status");
+        let live = dir.path().join(format!("{}.status", std::process::id()));
+        std::fs::write(&stale, "{}").unwrap();
+        std::fs::write(&live, "{}").unwrap();
+        remove_unused(dir.path());
+        assert!(held.path().exists() && held.path().with_extension("info").exists());
+        assert!(!unused_lock.exists() && !unused_lock.with_extension("info").exists());
+        assert!(!stale.exists() && live.exists());
+        std::fs::remove_file(&live).unwrap();
+        let held_path = held.path().to_path_buf();
+        drop(held);
+        remove_unused(dir.path());
+        assert!(!held_path.exists());
+        assert!(!dir.path().exists(), "an empty folder is removed");
+    }
 
     #[test]
     fn second_instance_of_the_same_identity_is_refused() {

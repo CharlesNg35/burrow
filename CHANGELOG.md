@@ -18,6 +18,7 @@
 - Fix: `update`, `service update`, `service restart`, `service reload` and reinstalling a running service finish even when the SSH session that started them runs through the tunnel and drops; before, the services could stay stopped.
 - Fix: a connection on a data channel that went silent ends after three heartbeats instead of about 15 minutes; a burst of UDP peers no longer grows the client's memory or exhausts its open files; a reload no longer stalls on ports taken by other programs; failed accepts are logged once per 10 seconds.
 - Fix: UDP datagrams larger than 9 KB are forwarded on macOS too; its default send buffer dropped them.
+- Fix: uninstalling the last service over SSH on macOS, which blocks deleting accounts there, now removes everything else and says how to delete the account; unused instance locks are removed too.
 - Visitors and client data channels retry a handshake that a busy server dropped, for up to 5 s, instead of failing the connection; a server that is down still fails at once.
 - Protocol: a visit channel kind, request and statuses (docs/protocol.md section 9) and a port index in visit requests. The service list keeps its 0.1.0 format, so 0.1.0 clients work with a 0.2.0 server, and 0.2.0 clients with a 0.1.0 server.
 
