@@ -513,6 +513,11 @@ pub struct ForwardEntry {
         description = "host:port as seen from the client, or a port alone for 127.0.0.1 on the client"
     )]
     pub target: Option<Target>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    #[schemars(
+        description = "With client: listen as a SOCKS5 proxy, so each connection names its own target on that client"
+    )]
+    pub socks: bool,
     #[schemars(
         description = "Where to listen on this machine: a port alone for 127.0.0.1, or ip:port"
     )]

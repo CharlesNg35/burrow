@@ -154,6 +154,35 @@ fn visit_pick(args: burrow::cli::VisitArgs) -> Result<burrow::visitor::Pick, Fai
                 .hint("use 1-64 letters, digits, \"-\", \"_\" or \".\""))
         }
     };
+    if let Some(socks) = &args.socks {
+        let client = args.client.clone().unwrap_or_default();
+        name_ok("--client", &client)?;
+        let local = match burrow::config::check::parse_local(&Bind::Addr(socks.clone())) {
+            Ok((addr, 1)) => addr,
+            _ => {
+                return Err(Failure::usage(format!("invalid --socks \"{socks}\"")).hint(
+                    "use one port like 1080 (on 127.0.0.1), or ip:port like 127.0.0.1:1080",
+                ));
+            }
+        };
+        if local.ip().is_unspecified() {
+            eprintln!(
+                "warning: --socks {local} listens on all interfaces: other machines on your network get this visitor's access (use --socks {} for this machine only)",
+                local.port()
+            );
+        }
+        return Ok(Pick::Socks { client, local });
+    }
+    if args.client.is_some() && args.target.is_none() {
+        return Err(Failure::usage(
+            "--client needs --target HOST:PORT and --local PORT, or --socks PORT",
+        )
+        .hint(format!(
+            "for example: {}, or: {}",
+            burrow::failure::cmd("visit --client home --target 22 --local 2222"),
+            burrow::failure::cmd("visit --client home --socks 1080")
+        )));
+    }
     let adhoc = match (args.service, args.client, args.target) {
         (Some(service), _, _) => {
             name_ok("--service", &service)?;

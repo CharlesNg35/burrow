@@ -52,11 +52,14 @@ pub fn visitor_config(
     let names: Vec<&str> = settings.visitors.keys().map(String::as_str).collect();
     let name = pick_name(VISITOR, name, &names, server_config, server)?;
     let auth = &settings.visitors[&name];
-    let services: Vec<(&String, u16)> = settings
+    let services: Vec<(&String, u16, u16)> = settings
         .services
         .iter()
         .filter(|(_, s)| s.protocol == Protocol::Tcp && s.visitors.contains(&name))
-        .map(|(n, s)| (n, parse_host_port(&s.target).map_or(0, |(_, p)| p)))
+        .map(|(n, s)| {
+            let port = parse_host_port(&s.target).map_or(0, |(_, p)| p);
+            (n, port, s.ports.max(1))
+        })
         .collect();
     if services.is_empty() && auth.reach.is_empty() {
         return Err(Failure::new(format!(
@@ -71,30 +74,56 @@ pub fn visitor_config(
     let server = connect_address(VISITOR, &settings, server, server_config, &mut notes)?;
     let secret_text = secret_text(VISITOR, server_config, &name, &auth.secrets);
 
-    let mut used = Vec::new();
-    let mut forwards = Map::new();
-    for (service, port) in services {
-        let mut local = match port {
-            0 => 10000,
-            p if p < 1024 => p + 10000,
-            p => p,
-        };
-        while used.contains(&local) {
-            local = local.checked_add(1).unwrap_or(10000);
+    let mut used: Vec<u16> = Vec::new();
+    let mut free = |first: u16, count: u16| {
+        let mut local = first;
+        let taken =
+            |at: u16, used: &[u16]| (0..count).any(|i| used.contains(&at.saturating_add(i)));
+        while taken(local, &used) || u32::from(local) + u32::from(count) > 65536 {
+            local = if u32::from(local) + u32::from(count) >= 65535 {
+                10000
+            } else {
+                local + 1
+            };
         }
-        used.push(local);
+        used.extend((0..count).map(|i| local + i));
+        local
+    };
+    let mut forwards = Map::new();
+    for (service, port, count) in services {
+        let local = free(
+            match port {
+                0 => 10000,
+                p if p < 1024 => p + 10000,
+                p => p,
+            },
+            count,
+        );
+        let local = if count > 1 {
+            Value::String(crate::config::check::ports::show(local, count))
+        } else {
+            json!(local)
+        };
         forwards.insert(
             service.clone(),
             json!({ "service": service, "local": local }),
         );
     }
-    if forwards.is_empty() {
-        for client in &auth.reach {
-            notes.push(format!(
-                "visitor \"{name}\" has no services, only reach to client \"{client}\"; run it with the target, for example: {} visit --client {client} --target 127.0.0.1:22 --local 2222",
-                crate::failure::command()
-            ));
-        }
+    for client in &auth.reach {
+        let local = free(1080, 1);
+        let key = if forwards.contains_key(client.as_str()) {
+            format!("{client}-socks")
+        } else {
+            client.clone()
+        };
+        forwards.insert(
+            key,
+            json!({ "client": client, "socks": true, "local": local }),
+        );
+        notes.push(format!(
+            "127.0.0.1:{local} is a SOCKS5 proxy into client \"{client}\": point an app at it, or forward one target with: {} visit --client {client} --target 127.0.0.1:22 --local 2222",
+            crate::failure::command()
+        ));
     }
     let value = json!({
         "server": server,

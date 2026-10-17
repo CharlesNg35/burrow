@@ -882,14 +882,19 @@ fn visitor_config_lists_the_visitors_services() {
       ssh:
         service: ssh
         local: 10022
+      home:
+        client: home
+        socks: true
+        local: 1080
     ");
-    assert!(out.notes.is_empty(), "{:?}", out.notes);
+    assert_eq!(out.notes.len(), 1, "{:?}", out.notes);
+    assert!(out.notes[0].starts_with("127.0.0.1:1080 is a SOCKS5 proxy"));
     let written = dir.path().join("visitor.yaml");
     std::fs::write(&written, &out.text).unwrap();
     let Loaded::Visitor(v, _) = load(&written) else {
         panic!("not a visitor config")
     };
-    assert_eq!(v.forwards.len(), 3);
+    assert_eq!(v.forwards.len(), 4);
 }
 
 #[test]
@@ -1005,21 +1010,34 @@ async fn printed_visitor_config_reaches_the_private_service() {
 }
 
 #[test]
-fn visitor_config_for_reach_only_explains_how_to_run_it() {
+fn visitor_config_gives_reach_a_socks_proxy_and_ranges_a_local_range() {
     let dir = tempfile::tempdir().unwrap();
     let path = visitors_server(
         dir.path(),
         "  laptop:\n    secret: @SECRET@\n    reach:\n      home: any\n",
-        "  {}\n",
+        "  game:\n    client: home\n    target: 30000-30010\n    visitors: [laptop]\n",
     );
     let out = burrow::init::visitor_config(None, &path, None, Format::Yaml, &ProcessEnv).unwrap();
-    assert!(out.text.contains("forwards: {}"), "{}", out.text);
+    for line in ["local: 30000-30010", "socks: true", "local: 1080"] {
+        assert!(
+            out.text.contains(line),
+            "{line} missing from:\n{}",
+            out.text
+        );
+    }
     assert_eq!(
         out.notes,
         [
-            "visitor \"laptop\" has no services, only reach to client \"home\"; run it with the target, for example: burrow visit --client home --target 127.0.0.1:22 --local 2222"
+            "127.0.0.1:1080 is a SOCKS5 proxy into client \"home\": point an app at it, or forward one target with: burrow visit --client home --target 127.0.0.1:22 --local 2222"
         ]
     );
+    let written = dir.path().join("visitor.yaml");
+    std::fs::write(&written, &out.text).unwrap();
+    let Loaded::Visitor(v, _) = load(&written) else {
+        panic!("a visitor config")
+    };
+    assert_eq!(v.forwards["game"].ports, 11);
+    assert!(v.forwards["home"].socks);
 }
 
 #[test]

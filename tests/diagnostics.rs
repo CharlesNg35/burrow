@@ -1666,3 +1666,34 @@ fn metrics_endpoint() {
     server.yaml: 1 error, 0 warnings
     "#);
 }
+
+#[test]
+fn socks_forwards() {
+    insta::assert_snapshot!(render("visitor.yaml", &visitor("  home: { client: home, socks: true, local: 1080 }\n"), None), @r#"visitor.yaml: valid visitor config for "laptop" (1 forward)"#);
+    insta::assert_snapshot!(render("visitor.yaml", &visitor(
+        "  a: { client: home, socks: true, target: 22, local: 1080 }\n  b: { service: db, socks: true, local: 1081 }\n  c: { client: home, socks: true, local: 1082-1083 }\n",
+    ), None), @r#"
+    error: forward "a" is a SOCKS proxy, so it needs "client" and no "service" or "target"
+      --> visitor.yaml:5:3
+       |
+     5 |   a: { client: home, socks: true, target: 22, local: 1080 }
+       |   ^ socks: true needs only client
+       = help: each SOCKS connection names its target; write it as { client: home, socks: true, local: 1080 }
+
+    error: forward "b" is a SOCKS proxy, so it needs "client" and no "service" or "target"
+      --> visitor.yaml:6:3
+       |
+     6 |   b: { service: db, socks: true, local: 1081 }
+       |   ^ socks: true needs only client
+       = help: each SOCKS connection names its target; write it as { client: home, socks: true, local: 1080 }
+
+    error: forward "c" is a SOCKS proxy, which listens on one port
+      --> visitor.yaml:7:42
+       |
+     7 |   c: { client: home, socks: true, local: 1082-1083 }
+       |                                          ^^^^^^^^^ a range
+       = help: use a single port, for example local: 1080
+
+    visitor.yaml: 3 errors, 0 warnings
+    "#);
+}

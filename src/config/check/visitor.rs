@@ -94,6 +94,18 @@ pub fn check_visitor(
         }
         let to = check_destination(name, f, spans, out);
         if let (Some((local, ports)), Some((to, target_ports))) = (local, to) {
+            if f.socks && ports > 1 {
+                out.push(
+                    Diagnostic::error(
+                        "socks-one-port",
+                        format!("forward \"{name}\" is a SOCKS proxy, which listens on one port"),
+                    )
+                    .at(spans.value(&["forwards", name, "local"]))
+                    .label("a range")
+                    .help("use a single port, for example local: 1080"),
+                );
+                continue;
+            }
             if target_ports.is_some_and(|t| t != ports) {
                 out.push(
                     Diagnostic::error(
@@ -110,7 +122,15 @@ pub fn check_visitor(
                 );
                 continue;
             }
-            forwards.insert(name.clone(), Forward { local, ports, to });
+            forwards.insert(
+                name.clone(),
+                Forward {
+                    local,
+                    ports,
+                    to,
+                    socks: f.socks,
+                },
+            );
         }
     }
 
@@ -187,6 +207,31 @@ fn check_destination(
             .help(help.to_string())
     };
     let both = "use \"service\" for a private service, or \"client\" and \"target\" to reach a client directly";
+    if f.socks {
+        return match (&f.service, &f.client, &f.target) {
+            (None, Some(client), None) => {
+                if !valid_name(client) {
+                    out.push(name_error("client", client, spans.value(&path("client"))));
+                    return None;
+                }
+                Some((
+                    VisitTarget::Client {
+                        client: client.clone(),
+                        target: String::new(),
+                    },
+                    Some(1),
+                ))
+            }
+            _ => {
+                out.push(problem(
+                    format!("forward \"{name}\" is a SOCKS proxy, so it needs \"client\" and no \"service\" or \"target\""),
+                    "socks: true needs only client",
+                    "each SOCKS connection names its target; write it as { client: home, socks: true, local: 1080 }",
+                ));
+                None
+            }
+        };
+    }
     match (&f.service, &f.client, &f.target) {
         (Some(service), None, None) => {
             if !valid_name(service) {

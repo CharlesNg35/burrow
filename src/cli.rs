@@ -256,17 +256,24 @@ pub struct VisitArgs {
     #[arg(
         long,
         value_name = "NAME",
-        requires_all = ["target", "local"],
-        help = "Reach a target on this client directly (needs reach on the server)"
+        help = "Reach targets on this client directly, with --target or --socks (needs reach on the server)"
     )]
     pub client: Option<String>,
     #[arg(
         long,
         value_name = "HOST:PORT",
-        requires = "client",
+        requires_all = ["client", "local"],
         help = "Target as seen from the client, or a port alone for 127.0.0.1"
     )]
     pub target: Option<String>,
+    #[arg(
+        long,
+        value_name = "PORT",
+        requires = "client",
+        conflicts_with_all = ["target", "local", "service"],
+        help = "Listen as a SOCKS5 proxy into the client, on this port (127.0.0.1) or ip:port"
+    )]
+    pub socks: Option<String>,
     #[arg(
         long,
         value_name = "PORT",

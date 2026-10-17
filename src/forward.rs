@@ -151,11 +151,7 @@ pub async fn client_tcp<T: Split>(
     pump_tcp(ch, target, plaintext).await
 }
 
-pub async fn visit_tcp(
-    mut ch: Channel,
-    local: TcpStream,
-    request: &[u8],
-) -> Result<(), ForwardError> {
+pub async fn request_visit(ch: &mut Channel, request: &[u8]) -> Result<(), ForwardError> {
     ch.writer.send(&mut ch.stream, request).await?;
     let status = match ch.reader.recv(&mut ch.stream).await? {
         Some(b) => Status::decode(b).map_err(|_| ForwardError::Protocol)?,
@@ -164,10 +160,19 @@ pub async fn visit_tcp(
     if status != Status::Ok {
         return Err(ForwardError::Status(status));
     }
+    Ok(())
+}
+
+pub async fn visit_tcp(
+    mut ch: Channel,
+    local: TcpStream,
+    request: &[u8],
+) -> Result<(), ForwardError> {
+    request_visit(&mut ch, request).await?;
     pump_tcp(ch, local, false).await
 }
 
-async fn pump_tcp<T: Split>(
+pub async fn pump_tcp<T: Split>(
     ch: Channel,
     mut target: T,
     plaintext: bool,

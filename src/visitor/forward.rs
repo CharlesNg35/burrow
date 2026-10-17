@@ -6,18 +6,21 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{Semaphore, mpsc};
 use tracing::{debug, info, warn};
 
+use super::socks::{self, Reply};
 use crate::config::settings::VisitorSettings;
 use crate::dialer::{DialError, Dialer};
-use crate::forward::{ForwardError, visit_tcp};
+use crate::forward::{ForwardError, pump_tcp, request_visit, visit_tcp};
 use crate::protocol::{ChannelKind, Hello, Status, VERSION, VisitRequest, VisitTarget};
 use crate::throttle::Throttle;
 use crate::transport::tcp::tune;
 
 const REJECT_ATTEMPTS: u64 = 3;
+const SOCKS_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub(super) struct Incoming {
     name: String,
     to: VisitTarget,
+    socks: bool,
     stream: TcpStream,
     peer: SocketAddr,
 }
@@ -25,6 +28,7 @@ pub(super) struct Incoming {
 pub(super) async fn accept(
     name: String,
     to: VisitTarget,
+    socks: bool,
     listener: TcpListener,
     tx: mpsc::Sender<Incoming>,
 ) {
@@ -40,6 +44,7 @@ pub(super) async fn accept(
         let conn = Incoming {
             name: name.clone(),
             to: to.clone(),
+            socks,
             stream,
             peer,
         };
@@ -155,10 +160,27 @@ pub(super) async fn visit(
     let Incoming {
         name,
         to,
-        stream,
+        socks,
+        mut stream,
         peer,
     } = conn;
     tune(&stream, &settings.tcp);
+    let to = match (socks, to) {
+        (true, VisitTarget::Client { client, .. }) => {
+            match tokio::time::timeout(SOCKS_TIMEOUT, socks::request(&mut stream)).await {
+                Ok(Ok(target)) => VisitTarget::Client { client, target },
+                Ok(Err(e)) => {
+                    debug!(%peer, "forward \"{name}\": SOCKS request refused: {e}");
+                    return;
+                }
+                Err(_) => {
+                    debug!(%peer, "forward \"{name}\": no SOCKS request in time");
+                    return;
+                }
+            }
+        }
+        (_, to) => to,
+    };
     let mut attempt = 0;
     let ch = loop {
         let permit = opening.clone().acquire_owned().await;
@@ -177,6 +199,9 @@ pub(super) async fn visit(
     let ch = match ch {
         Ok(ch) => ch,
         Err(e) => {
+            if socks {
+                let _ = socks::reply(&mut stream, Reply::NetworkUnreachable).await;
+            }
             static LOST: Throttle = Throttle::new();
             if let Some(more) = LOST.allow() {
                 let why = match e {
@@ -193,7 +218,26 @@ pub(super) async fn visit(
         to: to.clone(),
     }
     .encode();
-    match visit_tcp(ch, stream, &request).await {
+    let result = if socks {
+        let mut ch = ch;
+        match request_visit(&mut ch, &request).await {
+            Ok(()) => match socks::reply(&mut stream, Reply::Succeeded).await {
+                Ok(()) => pump_tcp(ch, stream, false).await,
+                Err(e) => Err(ForwardError::Io(e)),
+            },
+            Err(ForwardError::Status(st)) => {
+                let _ = socks::reply(&mut stream, Reply::from(st)).await;
+                Err(ForwardError::Status(st))
+            }
+            Err(e) => {
+                let _ = socks::reply(&mut stream, Reply::Failure).await;
+                Err(e)
+            }
+        }
+    } else {
+        visit_tcp(ch, stream, &request).await
+    };
+    match result {
         Ok(()) => debug!(%peer, "forward \"{name}\": connection closed"),
         Err(ForwardError::Status(st)) => {
             static REFUSED: Throttle = Throttle::new();

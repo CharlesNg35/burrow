@@ -1,4 +1,5 @@
 mod forward;
+mod socks;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -28,6 +29,10 @@ pub enum Pick {
     Adhoc {
         to: VisitTarget,
         local: (SocketAddr, u16),
+    },
+    Socks {
+        client: String,
+        local: SocketAddr,
     },
 }
 
@@ -75,13 +80,25 @@ pub fn pick(settings: &mut VisitorSettings, choice: Pick, config: &str) -> Resul
             }
             settings.forwards = [(name, forward)].into();
         }
+        Pick::Socks { client, local } => {
+            settings.forwards = [(client.clone(), Forward::socks(local, client))].into();
+        }
         Pick::Adhoc { to, local } => {
             let name = match &to {
                 VisitTarget::Service { name, .. } => name.clone(),
                 VisitTarget::Client { client, .. } => client.clone(),
             };
             let (local, ports) = local;
-            settings.forwards = [(name, Forward { local, ports, to })].into();
+            settings.forwards = [(
+                name,
+                Forward {
+                    local,
+                    ports,
+                    to,
+                    socks: false,
+                },
+            )]
+            .into();
         }
     }
     Ok(())
@@ -90,6 +107,7 @@ pub fn pick(settings: &mut VisitorSettings, choice: Pick, config: &str) -> Resul
 struct Bound {
     name: String,
     to: VisitTarget,
+    socks: bool,
     listener: TcpListener,
 }
 
@@ -115,6 +133,7 @@ impl Visitor {
                 bound.push(Bound {
                     name: name.clone(),
                     to: forward.to.at(index),
+                    socks: forward.socks,
                     listener,
                 });
             }
@@ -148,6 +167,9 @@ impl Visitor {
                 .local_addr(name)
                 .map_or_else(|| show_addr(f.local, f.ports), |a| show_addr(a, f.ports));
             let to = match (&f.to, f.ports) {
+                (VisitTarget::Client { client, .. }, _) if f.socks => {
+                    format!("any target on client \"{client}\" (SOCKS5 proxy)")
+                }
                 (VisitTarget::Client { client, target }, n) if n > 1 => {
                     let last = f.to.at(n - 1);
                     let end = match &last {
@@ -168,7 +190,14 @@ impl Visitor {
             .iter()
             .flat_map(|(name, f)| {
                 let last = f.ports.max(1) - 1;
-                let mut ends = vec![(name.clone(), f.to.clone())];
+                let first = match &f.to {
+                    VisitTarget::Client { client, .. } if f.socks => VisitTarget::Client {
+                        client: client.clone(),
+                        target: "127.0.0.1:1".into(),
+                    },
+                    to => to.clone(),
+                };
+                let mut ends = vec![(name.clone(), first)];
                 if last > 0 {
                     ends.push((name.clone(), f.to.at(last)));
                 }
@@ -176,7 +205,13 @@ impl Visitor {
             })
             .collect();
         for b in self.bound {
-            accepting.spawn(forward::accept(b.name, b.to, b.listener, tx.clone()));
+            accepting.spawn(forward::accept(
+                b.name,
+                b.to,
+                b.socks,
+                b.listener,
+                tx.clone(),
+            ));
         }
         drop(tx);
         tokio::spawn(forward::check(self.dialer.clone(), forwards));

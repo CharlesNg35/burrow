@@ -228,6 +228,7 @@ impl Visits {
                 local: SocketAddr::from(([127, 0, 0, 1], local)),
                 ports,
                 to,
+                socks: false,
             },
         );
         start_visitor(settings)

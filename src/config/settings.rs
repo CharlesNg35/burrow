@@ -145,6 +145,7 @@ pub struct Forward {
     pub local: SocketAddr,
     pub ports: u16,
     pub to: VisitTarget,
+    pub socks: bool,
 }
 
 impl Forward {
@@ -153,6 +154,19 @@ impl Forward {
             local,
             ports: 1,
             to,
+            socks: false,
+        }
+    }
+
+    pub fn socks(local: SocketAddr, client: String) -> Self {
+        Forward {
+            local,
+            ports: 1,
+            to: VisitTarget::Client {
+                client,
+                target: String::new(),
+            },
+            socks: true,
         }
     }
 
