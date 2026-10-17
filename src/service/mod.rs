@@ -23,7 +23,7 @@ use crate::diagnostics::Style;
 use crate::failure::Failure;
 use crate::instance::Identity;
 
-pub use system::Platform;
+pub use system::{Platform, binary_version, copy_file, is_admin};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Manifest {
@@ -790,6 +790,22 @@ pub fn parse_version(v: &str) -> Option<Version> {
 }
 
 pub fn update(name: Option<&str>, force: bool, out: &mut dyn Write) -> Result<(), Failure> {
+    update_from(&this_binary()?, env!("CARGO_PKG_VERSION"), name, force, out)
+}
+
+pub fn this_binary() -> Result<PathBuf, Failure> {
+    let me = std::env::current_exe()
+        .map_err(|e| Failure::new(format!("cannot locate this burrow binary: {e}")))?;
+    Ok(system::canonical(&me).unwrap_or(me))
+}
+
+pub fn update_from(
+    me: &Path,
+    mine: &str,
+    name: Option<&str>,
+    force: bool,
+    out: &mut dyn Write,
+) -> Result<(), Failure> {
     let backend = system::backend()?;
     system::require_admin()?;
     let targets = match name {
@@ -802,10 +818,6 @@ pub fn update(name: Option<&str>, force: bool, out: &mut dyn Write) -> Result<()
             crate::failure::admin("service install")
         )));
     }
-    let me = std::env::current_exe()
-        .map_err(|e| Failure::new(format!("cannot locate this burrow binary: {e}")))?;
-    let me = system::canonical(&me).unwrap_or(me);
-    let mine = env!("CARGO_PKG_VERSION");
     let mut binaries: Vec<PathBuf> = targets.iter().map(|m| m.binary.clone()).collect();
     binaries.sort();
     binaries.dedup();
@@ -861,7 +873,7 @@ pub fn update(name: Option<&str>, force: bool, out: &mut dyn Write) -> Result<()
         }
         let previous = binary.with_extension("previous");
         let had_old = binary.exists() && system::copy_file(&binary, &previous, true).is_ok();
-        if let Err(f) = system::copy_file(&me, &binary, true) {
+        if let Err(f) = system::copy_file(me, &binary, true) {
             for m in &running {
                 let _ = backend.start(m);
             }
