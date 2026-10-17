@@ -25,6 +25,11 @@ pub struct ServerConfig {
     #[serde(default)]
     #[schemars(description = "Clients allowed to connect, keyed by client name")]
     pub clients: BTreeMap<String, ClientEntry>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    #[schemars(
+        description = "Visitors allowed to reach private services with burrow visit, keyed by visitor name"
+    )]
+    pub visitors: BTreeMap<String, VisitorEntry>,
     #[serde(default)]
     #[schemars(description = "Exposed services, keyed by service name")]
     pub services: BTreeMap<String, ServiceEntry>,
@@ -101,6 +106,27 @@ pub struct ClientEntry {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct VisitorEntry {
+    #[schemars(description = "256-bit secret (base64 or hex), or a list of them during rotation")]
+    pub secret: Secrets,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    #[schemars(
+        description = "Clients this visitor may reach at any target their allow list permits, for example home: any"
+    )]
+    pub reach: BTreeMap<String, Reach>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(description = "Maximum concurrent connections for this visitor")]
+    pub max_connections: Option<u32>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum Reach {
+    Any,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(untagged)]
 pub enum Secrets {
     One(String),
@@ -121,8 +147,11 @@ impl Secrets {
 pub struct ServiceEntry {
     #[schemars(description = "Name of the client that reaches the target")]
     pub client: String,
-    #[schemars(description = "Public address on the server: a port, or ip:port")]
-    pub bind: Bind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        description = "Public address on the server: a port, or ip:port; leave it out for a private service that only visitors reach"
+    )]
+    pub bind: Option<Bind>,
     #[schemars(
         description = "host:port as seen from the client, or a port alone for 127.0.0.1 on the client"
     )]
@@ -132,6 +161,9 @@ pub struct ServiceEntry {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(description = "Maximum concurrent connections for this service")]
     pub max_connections: Option<u32>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(description = "Visitors that may reach this service with burrow visit")]
+    pub visitors: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -326,6 +358,73 @@ pub struct ClientConfig {
     pub tcp: TcpOptions,
     #[serde(default, skip_serializing_if = "is_default")]
     pub udp: UdpOptions,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[schemars(title = "burrow visitor config")]
+pub struct VisitorConfig {
+    #[schemars(
+        description = "Server address: host or host:port for TCP (port 7835 when omitted), or ws://host/path or wss://host/path"
+    )]
+    pub server: String,
+    #[schemars(
+        description = "This visitor's name, as defined under visitors in the server config"
+    )]
+    pub name: String,
+    #[schemars(description = "256-bit secret (base64 or hex) shared with the server")]
+    pub secret: String,
+    #[schemars(
+        description = "Local ports that lead to private services or client targets, keyed by forward name"
+    )]
+    pub forwards: BTreeMap<String, ForwardEntry>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    #[schemars(
+        description = "Extra HTTP headers for the WebSocket upgrade, for example an access token for a proxy"
+    )]
+    pub headers: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        description = "CA certificate, or the server certificate itself (pinned), to trust for wss://; relative to the config file"
+    )]
+    pub ca: Option<String>,
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub cipher: Cipher,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        description = "Connect through a proxy: http://host:port or socks5://[user:pass@]host:port"
+    )]
+    pub proxy: Option<String>,
+    #[serde(
+        default = "default_connect_timeout",
+        skip_serializing_if = "is_default_connect_timeout"
+    )]
+    #[schemars(range(min = 1, max = 300))]
+    pub connect_timeout_secs: u32,
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub tcp: TcpOptions,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ForwardEntry {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(description = "Private service on the server to reach")]
+    pub service: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        description = "Client to reach directly, with target; needs reach for this visitor in the server config"
+    )]
+    pub client: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        description = "host:port as seen from the client, or a port alone for 127.0.0.1 on the client"
+    )]
+    pub target: Option<Target>,
+    #[schemars(
+        description = "Where to listen on this machine: a port alone for 127.0.0.1, or ip:port"
+    )]
+    pub local: Bind,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]

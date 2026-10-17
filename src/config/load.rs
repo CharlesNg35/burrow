@@ -1,10 +1,10 @@
 use std::path::Path;
 
-use super::check::{Spans, check_client, check_client_refs, check_server, secret_spans};
+use super::check::{Spans, check_client, check_refs, check_server, check_visitor, secret_spans};
 use super::env::{EnvSource, expand};
-use super::model::{ClientConfig, ServerConfig};
+use super::model::{ClientConfig, ServerConfig, VisitorConfig};
 use super::schema::Checker;
-use super::settings::{ClientSettings, ServerSettings};
+use super::settings::{ClientSettings, ServerSettings, VisitorSettings};
 use super::tree::{self, Node, Pos, Span, Value};
 use crate::diagnostics::{Diagnostic, Report};
 
@@ -12,6 +12,7 @@ use crate::diagnostics::{Diagnostic, Report};
 pub enum Role {
     Server,
     Client,
+    Visitor,
 }
 
 impl Role {
@@ -19,6 +20,7 @@ impl Role {
         match self {
             Role::Server => "server",
             Role::Client => "client",
+            Role::Visitor => "visitor",
         }
     }
 }
@@ -43,6 +45,7 @@ impl Format {
 pub enum Loaded {
     Server(Box<ServerSettings>, Box<ServerConfig>),
     Client(Box<ClientSettings>, Box<ClientConfig>),
+    Visitor(Box<VisitorSettings>, Box<VisitorConfig>),
 }
 
 #[derive(Debug, Clone)]
@@ -132,12 +135,22 @@ pub fn detect_role(root: &Node) -> Option<Role> {
     let Value::Map(entries) = &root.value else {
         return None;
     };
+    if entries.iter().any(|e| e.key == "forwards") {
+        return Some(Role::Visitor);
+    }
     let server = entries
         .iter()
         .filter(|e| {
             matches!(
                 e.key.as_str(),
-                "listen" | "websocket" | "clients" | "services" | "limits" | "pool" | "heartbeat"
+                "listen"
+                    | "websocket"
+                    | "clients"
+                    | "visitors"
+                    | "services"
+                    | "limits"
+                    | "pool"
+                    | "heartbeat"
             )
         })
         .count();
@@ -168,6 +181,7 @@ pub fn schema_json(role: Role) -> serde_json::Value {
     let schema = match role {
         Role::Server => schemars::schema_for!(ServerConfig),
         Role::Client => schemars::schema_for!(ClientConfig),
+        Role::Visitor => schemars::schema_for!(VisitorConfig),
     };
     serde_json::to_value(schema).expect("schema serializes")
 }
@@ -269,9 +283,9 @@ pub fn load_str_in(
         None => {
             if matches!(root.value, Value::Map(_)) {
                 report.push(
-                    Diagnostic::error("unknown-role", "cannot tell whether this is a server or a client config")
+                    Diagnostic::error("unknown-role", "cannot tell whether this is a server, client or visitor config")
                         .without_snippet()
-                        .help("a server config has \"listen\" and \"services\", a client config has \"server\" and \"name\"; or pass --role server|client"),
+                        .help("a server config has \"listen\" and \"services\", a client config has \"server\" and \"name\", a visitor config also has \"forwards\"; or pass --role server|client|visitor"),
                 );
                 return fail(report, None);
             }
@@ -309,7 +323,7 @@ pub fn load_str_in(
 
     if role == Role::Server {
         let mut refs = Vec::new();
-        check_client_refs(&root, &mut refs);
+        check_refs(&root, &mut refs);
         refs.into_iter().for_each(|d| report.push(d));
     }
 
@@ -331,6 +345,18 @@ pub fn load_str_in(
                 Ok(cfg) => {
                     if let Some(s) = check_client(&cfg, &spans, base_dir, &mut sem) {
                         loaded = Some(Loaded::Client(Box::new(s), Box::new(cfg)));
+                    }
+                }
+                Err(e) => {
+                    if structural_ok {
+                        sem.push(internal(e));
+                    }
+                }
+            },
+            Role::Visitor => match serde_json::from_value::<VisitorConfig>(json) {
+                Ok(cfg) => {
+                    if let Some(s) = check_visitor(&cfg, &spans, base_dir, &mut sem) {
+                        loaded = Some(Loaded::Visitor(Box::new(s), Box::new(cfg)));
                     }
                 }
                 Err(e) => {
@@ -371,13 +397,22 @@ fn fill_root_placeholders(node: &mut Node, role: Role) {
     let Value::Map(entries) = &mut node.value else {
         return;
     };
-    let placeholders: Vec<(&str, String)> = match role {
+    let text = |s: String| Value::Str(s);
+    let connection = || {
+        vec![
+            ("server", text("placeholder.invalid:1".into())),
+            ("name", text("placeholder".into())),
+            ("secret", text(crate::secret::Secret::generate().encode())),
+        ]
+    };
+    let placeholders: Vec<(&str, Value)> = match role {
         Role::Server => vec![],
-        Role::Client => vec![
-            ("server", "placeholder.invalid:1".into()),
-            ("name", "placeholder".into()),
-            ("secret", crate::secret::Secret::generate().encode()),
-        ],
+        Role::Client => connection(),
+        Role::Visitor => {
+            let mut v = connection();
+            v.push(("forwards", Value::Map(Vec::new())));
+            v
+        }
     };
     for (key, value) in placeholders {
         if !entries.iter().any(|e| e.key == key) {
@@ -385,7 +420,7 @@ fn fill_root_placeholders(node: &mut Node, role: Role) {
                 key: key.to_string(),
                 key_span: Span::default(),
                 value: Node {
-                    value: Value::Str(value),
+                    value,
                     span: Span::default(),
                     quoted: true,
                 },

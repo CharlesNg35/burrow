@@ -23,7 +23,7 @@ fn candidates(dir: &Path, role: Role) -> Vec<PathBuf> {
 pub fn discover(dir: &Path, role: Option<Role>) -> Result<PathBuf, Failure> {
     let roles = match role {
         Some(r) => vec![r],
-        None => vec![Role::Server, Role::Client],
+        None => vec![Role::Server, Role::Client, Role::Visitor],
     };
     let found: Vec<PathBuf> = roles.iter().flat_map(|r| candidates(dir, *r)).collect();
     let shown = |p: &PathBuf| {
@@ -35,13 +35,14 @@ pub fn discover(dir: &Path, role: Option<Role>) -> Result<PathBuf, Failure> {
         [] => {
             let wanted = match role {
                 Some(r) => format!("{}.yaml", r.as_str()),
-                None => "server.yaml or client.yaml".into(),
+                None => "server.yaml, client.yaml or visitor.yaml".into(),
             };
             let init = role.map_or("server", Role::as_str);
             let other = role
-                .map(|r| match r {
-                    Role::Server => Role::Client,
-                    Role::Client => Role::Server,
+                .and_then(|r| match r {
+                    Role::Server => Some(Role::Client),
+                    Role::Client => Some(Role::Server),
+                    Role::Visitor => None,
                 })
                 .and_then(|o| candidates(dir, o).first().map(|p| (o, shown(p))));
             let hint = match other {
@@ -121,7 +122,10 @@ mod tests {
     fn empty_folder_points_to_init() {
         let dir = tempfile::tempdir().unwrap();
         let err = discover(dir.path(), None).unwrap_err();
-        assert!(err.message.contains("server.yaml or client.yaml"));
+        assert!(
+            err.message
+                .contains("server.yaml, client.yaml or visitor.yaml")
+        );
         let err = discover(dir.path(), Some(Role::Server)).unwrap_err();
         assert_eq!(
             err.hint.unwrap(),

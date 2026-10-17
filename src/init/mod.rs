@@ -1,8 +1,10 @@
 mod client;
 mod server;
+mod visitor;
 
 pub use client::{ClientConfigOutput, client_config, client_value, init_client};
 pub use server::{init_server, server_value};
+pub use visitor::init_visitor;
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -10,6 +12,8 @@ use std::path::{Path, PathBuf};
 use crate::config::check::valid_name;
 use crate::config::{Format, Role};
 use crate::failure::Failure;
+use crate::secret::Secret;
+use crate::transport::endpoint::Endpoint;
 
 pub const DEFAULT_CLIENT_NAME: &str = "home";
 pub const DEFAULT_LISTEN: &str = "0.0.0.0:7835";
@@ -234,4 +238,74 @@ pub fn output_format(given: Option<Format>, output: Option<&Path>) -> Result<For
         ))
         .hint("burrow picks the config format from the extension")),
     }
+}
+
+struct Login {
+    server: String,
+    name: String,
+    secret_text: String,
+}
+
+fn ask_login(
+    role: Role,
+    path: &Path,
+    opts: &InitOptions,
+    prompt: &mut dyn Prompter,
+) -> Result<Login, Failure> {
+    if path.exists() && !opts.force {
+        return Err(Failure::new(format!(
+            "{} already exists, not overwriting it",
+            path.display()
+        ))
+        .hint("pass --force to replace it, or -o to write somewhere else"));
+    }
+    let missing = |what: &str, flag: &str| {
+        Failure::usage(format!("missing {what}")).hint(format!(
+            "pass {flag} (stdin is not a terminal, so burrow cannot ask)"
+        ))
+    };
+    let server = match &opts.server {
+        Some(s) => s.clone(),
+        None => prompt
+            .ask("server host name or IP (port 7835 unless you add :PORT)")
+            .ok_or_else(|| missing("server address", "--server HOST"))?,
+    };
+    let server = Endpoint::parse(&server)
+        .map_err(|e| {
+            Failure::usage(format!("invalid server address: {e}")).hint(
+                "use a host name or IP, for example myserver.com, or myserver.com:2333 for another port",
+            )
+        })?
+        .to_string();
+    let kind = role.as_str();
+    let name = match &opts.name {
+        Some(n) => n.clone(),
+        None => prompt
+            .ask(&format!("{kind} name (as in the server config)"))
+            .ok_or_else(|| missing(&format!("{kind} name"), "--name NAME"))?,
+    };
+    check_name(&format!("{kind} name"), &name)?;
+    let secret_text = match (&opts.env_secret, &opts.secret) {
+        (Some(var), _) => {
+            check_env_name(var)?;
+            format!("${{{var}}}")
+        }
+        (None, Some(s)) => s.clone(),
+        (None, None) => prompt
+            .ask("secret (from the server config)")
+            .ok_or_else(|| missing("secret", "--secret VALUE or --env-secret VAR"))?,
+    };
+    if !secret_text.starts_with("${") {
+        Secret::parse(&secret_text).map_err(|e| {
+            Failure::usage(format!("the secret {}", e.describe())).hint(format!(
+                "copy it from the server config, or run on the server: {} {kind}-config NAME -o {kind}.yaml",
+                crate::failure::command()
+            ))
+        })?;
+    }
+    Ok(Login {
+        server,
+        name,
+        secret_text,
+    })
 }

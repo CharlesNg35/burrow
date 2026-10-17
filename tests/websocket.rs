@@ -223,7 +223,7 @@ async fn reload_changes_the_websocket_path() {
     let mut next = s.clone();
     next.websocket.as_mut().unwrap().listen = ws;
     next.websocket.as_mut().unwrap().path = "/two".into();
-    next.services.get_mut("web").unwrap().bind = srv.services["web"];
+    next.services.get_mut("web").unwrap().bind = Some(srv.services["web"]);
     srv.reload(next).await;
     tokio::time::sleep(Duration::from_millis(500)).await;
     let _cli = connected(&srv, ws_client(&format!("ws://{ws}/two"), secret, None)).await;
@@ -378,7 +378,7 @@ async fn path_change_swaps_the_route_without_dropping_clients() {
 
     let mut next = s.clone();
     next.websocket.as_mut().unwrap().path = "/two".into();
-    next.services.get_mut("web").unwrap().bind = srv.services["web"];
+    next.services.get_mut("web").unwrap().bind = Some(srv.services["web"]);
     srv.reload(next).await;
     tokio::time::sleep(Duration::from_millis(300)).await;
 

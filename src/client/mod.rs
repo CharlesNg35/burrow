@@ -393,11 +393,14 @@ impl Client {
             info!("the server exposes no services for this client yet");
         }
         for svc in list {
+            let at = match svc.bind_port {
+                0 => "private, for visitors".to_string(),
+                p => format!("server port {p}"),
+            };
             info!(
-                "service \"{}\": {} server port {} -> {}",
+                "service \"{}\": {} {at} -> {}",
                 svc.name,
                 svc.protocol.as_str(),
-                svc.bind_port,
                 svc.target
             );
             data::precheck(&self.settings, svc);

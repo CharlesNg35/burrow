@@ -16,6 +16,7 @@ fn role(r: RoleArg) -> Role {
     match r {
         RoleArg::Server => Role::Server,
         RoleArg::Client => Role::Client,
+        RoleArg::Visitor => Role::Visitor,
     }
 }
 
@@ -65,16 +66,17 @@ fn ask_role() -> Result<RoleArg, Failure> {
             break;
         }
         let answer = prompt
-            .ask("which config? server (the public machine) or client (the machine behind NAT)");
+            .ask("which config? server (the public machine), client (the machine behind NAT) or visitor (a machine that uses private services)");
         match answer.map(|a| a.to_ascii_lowercase()).as_deref() {
             Some("server" | "s") => return Ok(RoleArg::Server),
             Some("client" | "c") => return Ok(RoleArg::Client),
+            Some("visitor" | "v") => return Ok(RoleArg::Visitor),
             _ => {}
         }
     }
     Err(
         Failure::usage("burrow init needs to know which config to write").hint(format!(
-            "run: {0} init server  (on the public machine), or: {0} init client  (behind NAT)",
+            "run: {0} init server  (on the public machine), {0} init client  (behind NAT), or: {0} init visitor  (to use private services)",
             burrow::failure::command()
         )),
     )
@@ -208,6 +210,7 @@ fn run(cli: Cli) -> Result<u8, Failure> {
             match role {
                 RoleArg::Server => burrow::init::init_server(&opts, &mut out)?,
                 RoleArg::Client => burrow::init::init_client(&opts, &mut TtyPrompt, &mut out)?,
+                RoleArg::Visitor => burrow::init::init_visitor(&opts, &mut TtyPrompt, &mut out)?,
             };
             Ok(0)
         }

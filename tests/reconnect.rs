@@ -66,7 +66,7 @@ async fn client_follows_the_server_to_a_new_address() {
     let mut moved = settings.clone();
     moved.listen = Some("127.0.0.2:0".parse().unwrap());
     for svc in moved.services.values_mut() {
-        svc.bind = "127.0.0.2:0".parse().unwrap();
+        svc.bind = Some("127.0.0.2:0".parse().unwrap());
     }
     let new = start_server(moved).await;
     *dns.addr.lock().unwrap() = new.addr;

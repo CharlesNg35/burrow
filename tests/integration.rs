@@ -89,7 +89,7 @@ async fn client_reconnects_after_server_restart() {
     wait_state(&mut cli.state, State::Connecting).await;
 
     settings.listen = Some(addr);
-    settings.services.get_mut("web").unwrap().bind = svc_addr;
+    settings.services.get_mut("web").unwrap().bind = Some(svc_addr);
     let srv2 = start_server(settings).await;
     wait_state(&mut cli.state, State::Connected).await;
     let shared = srv2.shared.clone();
@@ -129,9 +129,9 @@ async fn hot_reload_add_change_remove_without_dropping() {
     let new_addr = free.local_addr().unwrap();
     drop(free);
     let mut next = settings.clone();
-    next.services.get_mut("web").unwrap().bind = web;
+    next.services.get_mut("web").unwrap().bind = Some(web);
     let mut added = service(echo1, Protocol::Tcp);
-    added.bind = new_addr;
+    added.bind = Some(new_addr);
     next.services.insert("api".into(), added);
     t.server.reload(next.clone()).await;
     wait_for(|| std::net::TcpStream::connect(new_addr).is_ok()).await;
@@ -631,9 +631,9 @@ async fn reload_can_swap_the_ports_of_two_services() {
     let mut next = settings;
     next.listen = Some(t.server.addr);
     let mut a = service(echo, Protocol::Tcp);
-    a.bind = pb;
+    a.bind = Some(pb);
     let mut b = service(echo, Protocol::Tcp);
-    b.bind = pa;
+    b.bind = Some(pa);
     next.services.insert("a".into(), a);
     next.services.insert("b".into(), b);
     t.server.reload(next).await;
@@ -684,7 +684,7 @@ async fn reload_onto_the_kept_control_port_is_rejected() {
     let mut next = settings;
     next.listen = Some("127.0.0.1:1".parse().unwrap());
     let mut a = service(echo, Protocol::Tcp);
-    a.bind = t.server.addr;
+    a.bind = Some(t.server.addr);
     next.services.insert("a".into(), a);
     t.server.reload(next).await;
     tokio::time::sleep(Duration::from_millis(500)).await;

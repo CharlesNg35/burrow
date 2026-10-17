@@ -36,6 +36,7 @@ pub fn server_settings(secrets: Vec<Secret>) -> ServerSettings {
         public_address: None,
         websocket: None,
         clients,
+        visitors: BTreeMap::new(),
         services: BTreeMap::new(),
         insecure_plaintext: false,
         heartbeat_interval: Duration::from_secs(1),
@@ -53,10 +54,11 @@ pub fn server_settings(secrets: Vec<Secret>) -> ServerSettings {
 pub fn service(target: SocketAddr, protocol: Protocol) -> Service {
     Service {
         client: "home".into(),
-        bind: "127.0.0.1:0".parse().unwrap(),
+        bind: Some("127.0.0.1:0".parse().unwrap()),
         target: target.to_string(),
         protocol,
         max_connections: None,
+        visitors: Vec::new(),
     }
 }
 

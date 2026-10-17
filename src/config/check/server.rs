@@ -4,13 +4,17 @@ use std::path::Path;
 use std::time::Duration;
 
 use super::super::model::{Protocol, Secrets, ServerConfig, WebSocketConfig};
-use super::super::settings::{ClientAuth, ServerSettings, Service, TlsMaterial, WebSocketSettings};
+use super::super::settings::{
+    ClientAuth, ServerSettings, Service, TlsMaterial, VisitorAuth, WebSocketSettings,
+};
+use super::super::tree::{Node, Span, Value};
 use super::{
     MAX_SECRETS_PER_CLIENT, MAX_TARGET_LEN, SENSITIVE_PORTS, Spans, binds_conflict, name_error,
     parse_bind, parse_host_port, secret_error, tuning, valid_name,
 };
 use crate::diagnostics::Diagnostic;
 use crate::secret::Secret;
+use crate::suggest::{closest, quoted_list};
 
 pub fn check_server(
     cfg: &ServerConfig,
@@ -88,75 +92,60 @@ pub fn check_server(
     }
 
     let mut clients = BTreeMap::new();
-    let mut seen_secrets: Vec<([u8; 32], String)> = Vec::new();
+    let mut seen = Vec::new();
     for (name, entry) in &cfg.clients {
         if !valid_name(name) {
             out.push(name_error("client", name, spans.key(&["clients", name])));
         }
-        let owner = format!("client \"{name}\"");
-        let list = entry.secret.as_slice();
-        if list.is_empty() {
-            out.push(
-                Diagnostic::error(
-                    "missing-secret",
-                    format!("{owner} has an empty secret list"),
-                )
-                .at(spans.value(&["clients", name, "secret"]))
-                .help(format!(
-                    "add at least one secret; generate one with: {}",
-                    crate::failure::cmd("gensecret")
-                )),
-            );
-        }
-        if list.len() > MAX_SECRETS_PER_CLIENT {
-            out.push(
-                Diagnostic::error(
-                    "too-many-secrets",
-                    format!(
-                        "{owner} has {} secrets, the limit is {MAX_SECRETS_PER_CLIENT}",
-                        list.len()
-                    ),
-                )
-                .at(spans.value(&["clients", name, "secret"]))
-                .without_snippet()
-                .help("keep only the current and the next secret while rotating"),
-            );
-        }
-        let mut secrets = Vec::new();
-        for (i, text) in list.iter().enumerate() {
-            let idx = i.to_string();
-            let span = match &entry.secret {
-                Secrets::One(_) => spans.value(&["clients", name, "secret"]),
-                Secrets::Many(_) => spans.value(&["clients", name, "secret", &idx]),
-            };
-            match Secret::parse(text) {
-                Ok(s) => {
-                    if let Some((_, other)) = seen_secrets.iter().find(|(b, _)| b == s.as_bytes()) {
-                        let msg = if other == name {
-                            format!("{owner} lists the same secret twice")
-                        } else {
-                            format!("{owner} uses the same secret as client \"{other}\"")
-                        };
-                        out.push(
-                            Diagnostic::error("duplicate-secret", msg)
-                                .at(span)
-                                .without_snippet()
-                                .help(format!(
-                                    "every client needs its own secret; generate one with: {}",
-                                    crate::failure::cmd("gensecret")
-                                )),
-                        );
-                    }
-                    seen_secrets.push((*s.as_bytes(), name.clone()));
-                    secrets.push(s);
-                }
-                Err(e) => out.push(secret_error(&owner, &e, span)),
-            }
-        }
+        let secrets = check_secrets("client", name, &entry.secret, spans, &mut seen, out);
         clients.insert(
             name.clone(),
             ClientAuth {
                 secrets,
+                max_connections: entry.max_connections.map(|m| m as usize),
+            },
+        );
+    }
+
+    let mut visitors = BTreeMap::new();
+    for (name, entry) in &cfg.visitors {
+        if !valid_name(name) {
+            out.push(name_error("visitor", name, spans.key(&["visitors", name])));
+        }
+        let secrets = check_secrets("visitor", name, &entry.secret, spans, &mut seen, out);
+        for client in entry.reach.keys().filter(|c| cfg.clients.contains_key(*c)) {
+            out.push(
+                Diagnostic::warning(
+                    "reach-any",
+                    format!(
+                        "visitor \"{name}\" may reach any target that client \"{client}\" allows"
+                    ),
+                )
+                .at(spans.key(&["visitors", name, "reach", client]))
+                .label("limited only by the client's allow list")
+                .help(format!(
+                    "keep \"allow\" on client \"{client}\" narrow, for example allow: [127.0.0.1/32:22], or list only the services this visitor needs"
+                )),
+            );
+        }
+        let listed = cfg.services.values().any(|s| s.visitors.contains(name));
+        if !listed && entry.reach.is_empty() {
+            out.push(
+                Diagnostic::warning(
+                    "unused-visitor",
+                    format!("visitor \"{name}\" cannot reach anything"),
+                )
+                .at(spans.key(&["visitors", name]))
+                .help(format!(
+                    "add it to a service, for example visitors: [{name}], or give it reach: {{ CLIENT: any }}"
+                )),
+            );
+        }
+        visitors.insert(
+            name.clone(),
+            VisitorAuth {
+                secrets,
+                reach: entry.reach.keys().cloned().collect(),
                 max_connections: entry.max_connections.map(|m| m as usize),
             },
         );
@@ -177,9 +166,10 @@ pub fn check_server(
         if !valid_name(name) {
             out.push(name_error("service", name, spans.key(&["services", name])));
         }
-        let bind = match parse_bind(&svc.bind) {
-            Ok(b) => Some(b),
-            Err(e) => {
+        let bind = match svc.bind.as_ref().map(parse_bind) {
+            None => None,
+            Some(Ok(b)) => Some(b),
+            Some(Err(e)) => {
                 out.push(
                     Diagnostic::error(
                         "invalid-address",
@@ -192,6 +182,30 @@ pub fn check_server(
                 None
             }
         };
+        if svc.bind.is_none() && svc.visitors.is_empty() && !spans.has(&path("bind")) {
+            out.push(
+                Diagnostic::error(
+                    "unreachable-service",
+                    format!("service \"{name}\" has no \"bind\" and no \"visitors\", so nobody can reach it"),
+                )
+                .at(spans.key(&["services", name]))
+                .label("no bind and no visitors")
+                .help("add \"bind: 7840\" to expose it publicly, or \"visitors: [NAME]\" for visitors using burrow visit"),
+            );
+        }
+        if !svc.visitors.is_empty() && svc.protocol != Protocol::Tcp {
+            out.push(
+                Diagnostic::error(
+                    "visitors-tcp-only",
+                    format!(
+                        "service \"{name}\" is {}, but visitors can only reach tcp services",
+                        svc.protocol.as_str()
+                    ),
+                )
+                .at(spans.value(&path("visitors")))
+                .help("remove \"visitors\", or use a tcp service"),
+            );
+        }
         let target = svc.target.host_port();
         let checked = if target.len() > MAX_TARGET_LEN {
             Err(format!(
@@ -274,6 +288,14 @@ pub fn check_server(
                 );
             }
             binds.push((bind, svc.protocol, name));
+        }
+        let mut listed = Vec::new();
+        for v in &svc.visitors {
+            if !listed.contains(v) {
+                listed.push(v.clone());
+            }
+        }
+        if bind.is_some() || svc.bind.is_none() {
             services.insert(
                 name.clone(),
                 Service {
@@ -282,6 +304,7 @@ pub fn check_server(
                     target,
                     protocol: svc.protocol,
                     max_connections: svc.max_connections.map(|m| m as usize),
+                    visitors: listed,
                 },
             );
         }
@@ -314,6 +337,7 @@ pub fn check_server(
         public_address: cfg.public_address.clone(),
         websocket,
         clients,
+        visitors,
         services,
         insecure_plaintext: cfg.insecure_plaintext,
         heartbeat_interval: Duration::from_secs(cfg.heartbeat.interval_secs.into()),
@@ -326,6 +350,86 @@ pub fn check_server(
         tcp: tuning(&cfg.tcp),
         udp_session_timeout: Duration::from_secs(cfg.udp.session_timeout_secs.into()),
     })
+}
+
+fn check_secrets(
+    kind: &str,
+    name: &str,
+    secret: &Secrets,
+    spans: &Spans,
+    seen: &mut Vec<([u8; 32], String)>,
+    out: &mut Vec<Diagnostic>,
+) -> Vec<Secret> {
+    let section = match kind {
+        "client" => "clients",
+        _ => "visitors",
+    };
+    let owner = format!("{kind} \"{name}\"");
+    let list = secret.as_slice();
+    if list.is_empty() {
+        out.push(
+            Diagnostic::error(
+                "missing-secret",
+                format!("{owner} has an empty secret list"),
+            )
+            .at(spans.value(&[section, name, "secret"]))
+            .help(format!(
+                "add at least one secret; generate one with: {}",
+                crate::failure::cmd("gensecret")
+            )),
+        );
+    }
+    if list.len() > MAX_SECRETS_PER_CLIENT {
+        out.push(
+            Diagnostic::error(
+                "too-many-secrets",
+                format!(
+                    "{owner} has {} secrets, the limit is {MAX_SECRETS_PER_CLIENT}",
+                    list.len()
+                ),
+            )
+            .at(spans.value(&[section, name, "secret"]))
+            .without_snippet()
+            .help("keep only the current and the next secret while rotating"),
+        );
+    }
+    let mut secrets = Vec::new();
+    for (i, text) in list.iter().enumerate() {
+        let idx = i.to_string();
+        let span = match secret {
+            Secrets::One(_) => spans.value(&[section, name, "secret"]),
+            Secrets::Many(_) => spans.value(&[section, name, "secret", &idx]),
+        };
+        match Secret::parse(text) {
+            Ok(s) => {
+                if let Some((_, other)) = seen.iter().find(|(b, _)| b == s.as_bytes()) {
+                    let msg = if *other == owner {
+                        format!("{owner} lists the same secret twice")
+                    } else {
+                        format!("{owner} uses the same secret as {other}")
+                    };
+                    let who = if kind == "client" && other.starts_with("client ") {
+                        "client"
+                    } else {
+                        "client and visitor"
+                    };
+                    out.push(
+                        Diagnostic::error("duplicate-secret", msg)
+                            .at(span)
+                            .without_snippet()
+                            .help(format!(
+                                "every {who} needs its own secret; generate one with: {}",
+                                crate::failure::cmd("gensecret")
+                            )),
+                    );
+                }
+                seen.push((*s.as_bytes(), owner.clone()));
+                secrets.push(s);
+            }
+            Err(e) => out.push(secret_error(&owner, &e, span)),
+        }
+    }
+    secrets
 }
 
 pub(super) fn insecure_warning(spans: &Spans) -> Diagnostic {
@@ -429,4 +533,74 @@ fn check_websocket(
         tls,
         keepalive: Duration::from_secs(ws.keepalive_secs.into()),
     })
+}
+
+fn declared<'a>(root: &'a Node, section: &str) -> Vec<&'a str> {
+    match root.get(section).map(|c| &c.value) {
+        Some(Value::Map(entries)) => entries.iter().map(|e| e.key.as_str()).collect(),
+        _ => Vec::new(),
+    }
+}
+
+fn unknown_ref(kind: &str, name: &str, known: &[&str], by: String, span: Span) -> Diagnostic {
+    let section = format!("{kind}s");
+    let defined = if known.is_empty() {
+        format!("no {section} are defined")
+    } else {
+        format!("defined {section}: {}", quoted_list(known.iter().copied()))
+    };
+    let help = match closest(name, known.iter().copied()) {
+        Some(s) => format!("did you mean \"{s}\"? {defined}"),
+        None => format!("add it under \"{section}:\"; {defined}"),
+    };
+    let code = if kind == "client" {
+        "unknown-client"
+    } else {
+        "unknown-visitor"
+    };
+    Diagnostic::error(
+        code,
+        format!("unknown {kind} \"{name}\" referenced by {by}"),
+    )
+    .at(span)
+    .label(format!("no {kind} with this name"))
+    .help(help)
+}
+
+pub fn check_refs(root: &Node, out: &mut Vec<Diagnostic>) {
+    let clients = declared(root, "clients");
+    let visitors = declared(root, "visitors");
+    if let Some(Value::Map(services)) = root.get("services").map(|s| &s.value) {
+        for svc in services {
+            let by = || format!("service \"{}\"", svc.key);
+            if let Some(client) = svc.value.get("client")
+                && let Some(name) = client.as_str()
+                && !clients.contains(&name)
+            {
+                out.push(unknown_ref("client", name, &clients, by(), client.span));
+            }
+            if let Some(Value::Seq(items)) = svc.value.get("visitors").map(|v| &v.value) {
+                for item in items {
+                    if let Some(name) = item.as_str()
+                        && !visitors.contains(&name)
+                    {
+                        out.push(unknown_ref("visitor", name, &visitors, by(), item.span));
+                    }
+                }
+            }
+        }
+    }
+    if let Some(Value::Map(entries)) = root.get("visitors").map(|v| &v.value) {
+        for visitor in entries {
+            let Some(Value::Map(reach)) = visitor.value.get("reach").map(|r| &r.value) else {
+                continue;
+            };
+            for r in reach {
+                if !clients.contains(&r.key.as_str()) {
+                    let by = format!("\"reach\" of visitor \"{}\"", visitor.key);
+                    out.push(unknown_ref("client", &r.key, &clients, by, r.key_span));
+                }
+            }
+        }
+    }
 }

@@ -166,7 +166,7 @@ pub fn referenced_env(src: &str) -> Vec<String> {
 
 struct Checked {
     role: Role,
-    identity: Identity,
+    identity: Option<Identity>,
     listens: Vec<(Protocol, SocketAddr, String)>,
     files: Vec<(String, PathBuf)>,
 }
@@ -218,13 +218,15 @@ fn check_config(path: &Path) -> Result<Checked, Failure> {
                 listens.push((Protocol::Tcp, ws.listen, "websocket.listen".into()));
             }
             for (name, svc) in &s.services {
-                listens.push((svc.protocol, svc.bind, format!("service \"{name}\"")));
+                if let Some(bind) = svc.bind {
+                    listens.push((svc.protocol, bind, format!("service \"{name}\"")));
+                }
             }
             if let Some(tls) = cfg.websocket.as_ref().and_then(|w| w.tls.as_ref()) {
                 files.push(("websocket.tls.cert".to_string(), PathBuf::from(&tls.cert)));
                 files.push(("websocket.tls.key".to_string(), PathBuf::from(&tls.key)));
             }
-            (Role::Server, Identity::server(path))
+            (Role::Server, Some(Identity::server(path)))
         }
         Some(Loaded::Client(s, cfg)) => {
             if let Some(ca) = &cfg.ca {
@@ -232,8 +234,17 @@ fn check_config(path: &Path) -> Result<Checked, Failure> {
             }
             (
                 Role::Client,
-                Identity::client(&s.endpoint.to_string(), &s.name),
+                Some(Identity::client(&s.endpoint.to_string(), &s.name)),
             )
+        }
+        Some(Loaded::Visitor(s, cfg)) => {
+            if let Some(ca) = &cfg.ca {
+                files.push(("ca".to_string(), PathBuf::from(ca)));
+            }
+            for (name, f) in &s.forwards {
+                listens.push((Protocol::Tcp, f.local, format!("forward \"{name}\"")));
+            }
+            (Role::Visitor, None)
         }
         None => {
             return Err(Failure::new(format!(
@@ -356,7 +367,9 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
         f
     };
 
-    if let Err(e) = crate::instance::acquire(&checked.identity, &source) {
+    if let Some(identity) = &checked.identity
+        && let Err(e) = crate::instance::acquire(identity, &source)
+    {
         return Err(restore(Failure::new(format!("cannot install: {}", e.message)).hint(
             "stop the burrow process that is running outside the service first, then install again",
         )));

@@ -1,8 +1,11 @@
 mod client;
+mod connection;
 mod server;
+mod visitor;
 
-pub use client::{check_client, check_client_refs};
-pub use server::check_server;
+pub use client::check_client;
+pub use server::{check_refs, check_server};
+pub use visitor::check_visitor;
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -106,10 +109,12 @@ pub fn secret_spans(root: &Node) -> Vec<Span> {
             collect(&h.value, &mut out);
         }
     }
-    if let Some(Value::Map(clients)) = root.get("clients").map(|c| &c.value) {
-        for c in clients {
-            if let Some(s) = c.value.get("secret") {
-                collect(s, &mut out);
+    for section in ["clients", "visitors"] {
+        if let Some(Value::Map(entries)) = root.get(section).map(|c| &c.value) {
+            for c in entries {
+                if let Some(s) = c.value.get("secret") {
+                    collect(s, &mut out);
+                }
             }
         }
     }
@@ -205,14 +210,22 @@ pub(crate) fn binds_conflict(a: SocketAddr, b: SocketAddr) -> bool {
 }
 
 fn parse_bind(bind: &Bind) -> Result<SocketAddr, String> {
+    parse_addr(bind, [0, 0, 0, 0], "bind")
+}
+
+pub fn parse_local(local: &Bind) -> Result<SocketAddr, String> {
+    parse_addr(local, [127, 0, 0, 1], "local")
+}
+
+fn parse_addr(bind: &Bind, ip: [u8; 4], what: &str) -> Result<SocketAddr, String> {
     let addr = match bind {
-        Bind::Port(p) => SocketAddr::from(([0, 0, 0, 0], *p)),
+        Bind::Port(p) => SocketAddr::from((ip, *p)),
         Bind::Addr(s) => {
-            if let Ok(p) = s.parse::<u16>() {
-                SocketAddr::from(([0, 0, 0, 0], p))
+            if let Ok(p) = s.trim().parse::<u16>() {
+                SocketAddr::from((ip, p))
             } else {
                 s.parse::<SocketAddr>()
-                    .map_err(|_| format!("\"{s}\" is not a valid bind address"))?
+                    .map_err(|_| format!("\"{s}\" is not a valid {what} address"))?
             }
         }
     };
@@ -236,6 +249,21 @@ mod tests {
         assert!(parse_host_port("h:0").is_err());
         assert!(parse_host_port("h:99999").is_err());
         assert!(parse_host_port("bad host:1").is_err());
+    }
+
+    #[test]
+    fn local_ports_default_to_loopback() {
+        let p = |b: Bind| parse_local(&b).map(|a| a.to_string());
+        assert_eq!(p(Bind::Port(5432)).unwrap(), "127.0.0.1:5432");
+        assert_eq!(p(Bind::Addr("5432".into())).unwrap(), "127.0.0.1:5432");
+        assert_eq!(p(Bind::Addr("0.0.0.0:22".into())).unwrap(), "0.0.0.0:22");
+        assert_eq!(p(Bind::Addr("[::1]:22".into())).unwrap(), "[::1]:22");
+        assert!(p(Bind::Port(0)).is_err());
+        assert!(p(Bind::Addr("localhost:22".into())).is_err());
+        assert_eq!(
+            parse_bind(&Bind::Port(80)).unwrap().to_string(),
+            "0.0.0.0:80"
+        );
     }
 
     #[test]

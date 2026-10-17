@@ -47,6 +47,7 @@ pub enum LogLevel {
 pub enum RoleArg {
     Server,
     Client,
+    Visitor,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -69,7 +70,7 @@ pub enum Command {
     Client(RunArgs),
     #[command(about = "Check a config file and report every problem")]
     Validate(ValidateArgs),
-    #[command(about = "Write a new server or client config")]
+    #[command(about = "Write a new server, client or visitor config")]
     Init(InitArgs),
     #[command(about = "Print a ready client config for a client defined in the server config")]
     ClientConfig(ClientConfigArgs),
@@ -220,7 +221,7 @@ pub struct ValidateArgs {
 pub struct InitArgs {
     #[arg(
         value_enum,
-        help = "server for the public machine, client for the machine behind NAT; asked when omitted"
+        help = "server for the public machine, client for the machine behind NAT, visitor for a machine that uses private services; asked when omitted"
     )]
     pub role: Option<RoleArg>,
     #[arg(
@@ -243,7 +244,11 @@ pub struct InitArgs {
         help = "Server host name or IP, port 7835 unless you add :PORT (server: saved as public_address)"
     )]
     pub server: Option<String>,
-    #[arg(long, value_name = "NAME", help = "Client name (client config)")]
+    #[arg(
+        long,
+        value_name = "NAME",
+        help = "Client or visitor name (client and visitor configs)"
+    )]
     pub name: Option<String>,
     #[arg(
         long,
@@ -253,7 +258,7 @@ pub struct InitArgs {
     pub client_name: Option<String>,
     #[arg(
         long,
-        help = "Secret for the client config (prompted on a TTY when missing)"
+        help = "Secret for the client or visitor config (prompted on a TTY when missing)"
     )]
     pub secret: Option<String>,
     #[arg(

@@ -800,3 +800,44 @@ fn client_config_explains_a_missing_or_empty_server_config() {
         err.message
     );
 }
+
+#[test]
+fn visitor_init_asks_for_what_is_missing_and_validates() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("visitor.yaml");
+    let secret = burrow::secret::Secret::generate().encode();
+    let leaked: &'static str = Box::leak(secret.into_boxed_str());
+    let mut p = Answers(vec!["laptop", leaked], Vec::new());
+    let opts = InitOptions {
+        output: Some(path.clone()),
+        server: Some("tunnel.example.com".into()),
+        ..Default::default()
+    };
+    let mut out = Vec::new();
+    burrow::init::init_visitor(&opts, &mut p, &mut out).unwrap();
+    assert_eq!(
+        p.1,
+        [
+            "visitor name (as in the server config)",
+            "secret (from the server config)"
+        ]
+    );
+    let Loaded::Visitor(v, _) = load(&path) else {
+        panic!("not a visitor config")
+    };
+    assert_eq!(
+        (v.name.as_str(), v.server.as_str()),
+        ("laptop", "tunnel.example.com:7835")
+    );
+    assert!(v.forwards.is_empty());
+    let out = String::from_utf8(out).unwrap();
+    assert!(out.contains("db: { service: db, local: 5432 }"), "{out}");
+    assert!(
+        out.contains("visitor-config laptop -o visitor.yaml"),
+        "{out}"
+    );
+    #[cfg(unix)]
+    assert_eq!(mode(&path), 0o600);
+    let err = burrow::init::init_visitor(&opts, &mut NoPrompt, &mut Vec::new()).unwrap_err();
+    assert!(err.message.contains("already exists"), "{}", err.message);
+}

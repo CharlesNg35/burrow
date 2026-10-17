@@ -44,19 +44,19 @@ fn valid_server() {
 #[test]
 fn typo_field() {
     insta::assert_snapshot!(render("server.yaml", &server("  web:\n    client: home\n    bnd: 0.0.0.0:4000\n    target: 127.0.0.1:3000\n"), None), @r#"
-    error: missing field "bind" in service "web"
+    error: service "web" has no "bind" and no "visitors", so nobody can reach it
       --> server.yaml:8:3
        |
      8 |   web:
-       |   ^^^ "bind" is required here
-       = help: add "bind: ..." (public address on the server: a port, or ip:port)
+       |   ^^^ no bind and no visitors
+       = help: add "bind: 7840" to expose it publicly, or "visitors: [NAME]" for visitors using burrow visit
 
     error: unknown field "bnd" in service "web"
       --> server.yaml:10:5
        |
     10 |     bnd: 0.0.0.0:4000
        |     ^^^ unknown field
-       = help: did you mean "bind"? valid fields: client, bind, target, protocol, max_connections
+       = help: did you mean "bind"? valid fields: client, bind, target, protocol, max_connections, visitors
 
     server.yaml: 2 errors, 0 warnings
     "#);
@@ -124,13 +124,6 @@ fn missing_fields() {
       --> server.yaml:3:13
        = help: use a 32-byte value encoded as base64 or hex; generate one with: burrow gensecret
 
-    error: missing field "bind" in service "web"
-      --> server.yaml:5:3
-       |
-     5 |   web:
-       |   ^^^ "bind" is required here
-       = help: add "bind: ..." (public address on the server: a port, or ip:port)
-
     error: missing field "target" in service "web"
       --> server.yaml:5:3
        |
@@ -138,7 +131,7 @@ fn missing_fields() {
        |   ^^^ "target" is required here
        = help: add "target: ..." (host:port as seen from the client, or a port alone for 127.0.0.1 on the client)
 
-    server.yaml: 4 errors, 0 warnings
+    server.yaml: 3 errors, 0 warnings
     "#);
 }
 
@@ -445,12 +438,12 @@ fn json_multiple_errors() {
     insta::assert_snapshot!(render("server.json", &format!(
         "{{\n  \"listen\": \"0.0.0.0:7835\",\n  \"clients\": {{\"home\": {{\"secret\": \"{SECRET}\"}}}},\n  \"services\": {{\n    \"web\": {{\"client\": \"hom\", \"bnd\": 4000, \"target\": \"127.0.0.1:3000\"}},\n    \"dns\": {{\"client\": \"home\", \"bind\": \"5353\", \"target\": \"1.1.1.1:53\", \"protocol\": \"udpp\"}}\n  }},\n  \"limits\": {{\"max_handshakes\": -1}}\n}}\n"
     ), None), @r#"
-    error: missing field "bind" in service "web"
+    error: service "web" has no "bind" and no "visitors", so nobody can reach it
       --> server.json:5:5
        |
      5 |     "web": {"client": "hom", "bnd": 4000, "target": "127.0.0.1:3000"},
-       |     ^^^^^ "bind" is required here
-       = help: add "bind: ..." (public address on the server: a port, or ip:port)
+       |     ^^^^^ no bind and no visitors
+       = help: add "bind: 7840" to expose it publicly, or "visitors: [NAME]" for visitors using burrow visit
 
     error: unknown client "hom" referenced by service "web"
       --> server.json:5:23
@@ -464,7 +457,7 @@ fn json_multiple_errors() {
        |
      5 |     "web": {"client": "hom", "bnd": 4000, "target": "127.0.0.1:3000"},
        |                              ^^^^^ unknown field
-       = help: did you mean "bind"? valid fields: client, bind, target, protocol, max_connections
+       = help: did you mean "bind"? valid fields: client, bind, target, protocol, max_connections, visitors
 
     error: unknown protocol "udpp" in service "dns"
       --> server.json:6:83
@@ -516,9 +509,9 @@ fn json_secret_line_hidden() {
 #[test]
 fn unknown_role() {
     insta::assert_snapshot!(render("x.yaml", "foo: 1\n", None), @r#"
-    error: cannot tell whether this is a server or a client config
+    error: cannot tell whether this is a server, client or visitor config
       --> x.yaml
-       = help: a server config has "listen" and "services", a client config has "server" and "name"; or pass --role server|client
+       = help: a server config has "listen" and "services", a client config has "server" and "name", a visitor config also has "forwards"; or pass --role server|client|visitor
 
     x.yaml: 1 error, 0 warnings
     "#);
@@ -536,7 +529,7 @@ fn role_override_reports_fields_for_that_role() {
        |
      1 | server: a:1
        | ^^^^^^ unknown field
-       = help: valid fields: listen, public_address, websocket, clients, services, insecure_plaintext, heartbeat, limits, pool, tcp, udp
+       = help: valid fields: listen, public_address, websocket, clients, visitors, services, insecure_plaintext, heartbeat, limits, pool, tcp, udp
 
     warning: no clients are defined, so nobody can connect
       --> server.yaml:1:1
@@ -562,7 +555,7 @@ fn role_override_reports_fields_for_that_role() {
        |
      2 | name: home
        | ^^^^ unknown field
-       = help: valid fields: listen, public_address, websocket, clients, services, insecure_plaintext, heartbeat, limits, pool, tcp, udp
+       = help: valid fields: listen, public_address, websocket, clients, visitors, services, insecure_plaintext, heartbeat, limits, pool, tcp, udp
 
     server.yaml: 3 errors, 2 warnings
     "#);
@@ -815,7 +808,10 @@ fn bare_ports_are_accepted() {
             panic!("not a server")
         };
         assert_eq!(s.listen, Some("0.0.0.0:7835".parse().unwrap()));
-        assert_eq!(s.services["web"].bind, "0.0.0.0:7840".parse().unwrap());
+        assert_eq!(
+            s.services["web"].bind,
+            Some("0.0.0.0:7840".parse().unwrap())
+        );
         assert_eq!(s.services["web"].target, "127.0.0.1:3000");
     }
 }
@@ -1004,4 +1000,203 @@ fn websocket_listen_takes_a_bare_port_too() {
         panic!("not a server")
     };
     assert_eq!(s.websocket.unwrap().listen, "0.0.0.0:7836".parse().unwrap());
+}
+
+fn visitors_server(visitors: &str, services: &str) -> String {
+    format!(
+        "listen: 7835\nclients:\n  home:\n    secret: {SECRET}\nvisitors:\n{visitors}services:\n{services}"
+    )
+}
+
+#[test]
+fn private_services_and_visitors() {
+    use burrow::config::Loaded;
+    let src = visitors_server(
+        "  laptop:\n    secret: ${HOME_SECRET}\n    reach:\n      home: any\n",
+        "  web: { client: home, bind: 7840, target: 3000, visitors: [laptop] }\n  db: { client: home, target: 5432, visitors: [laptop, laptop] }\n",
+    );
+    insta::assert_snapshot!(render("server.yaml", &src, None), @r#"
+    warning: visitor "laptop" may reach any target that client "home" allows
+      --> server.yaml:9:7
+       |
+     9 |       home: any
+       |       ^^^^ limited only by the client's allow list
+       = help: keep "allow" on client "home" narrow, for example allow: [127.0.0.1/32:22], or list only the services this visitor needs
+
+    server.yaml: valid server config (1 client, 1 visitor, 2 services), 1 warning
+    "#);
+    let o = load_str("server.yaml", &src, Format::Yaml, None, &env);
+    let Some(Loaded::Server(s, _)) = o.loaded else {
+        panic!("not a server")
+    };
+    assert_eq!(s.services["db"].bind, None);
+    assert_eq!(s.services["db"].visitors, ["laptop"]);
+    assert_eq!(s.services["web"].visitors, ["laptop"]);
+    assert!(s.visitors["laptop"].reach.contains("home"));
+}
+
+#[test]
+fn visitor_mistakes_in_the_server_config() {
+    let src = visitors_server(
+        "  laptop:\n    secret: SECRET_A\n    reach:\n      hom: any\n  idle:\n    secret: ${HOME_SECRET}\n",
+        "  db: { client: home, target: 5432, visitors: [lapto] }\n  dns: { client: home, protocol: udp, target: 53, visitors: [laptop] }\n  nobody: { client: home, target: 1 }\n",
+    )
+    .replace("SECRET_A", SECRET);
+    insta::assert_snapshot!(render("server.yaml", &src, None), @r#"
+    error: visitor "laptop" uses the same secret as client "home"
+      --> server.yaml:7:13
+       = help: every client and visitor needs its own secret; generate one with: burrow gensecret
+
+    error: unknown client "hom" referenced by "reach" of visitor "laptop"
+      --> server.yaml:9:7
+       |
+     9 |       hom: any
+       |       ^^^ no client with this name
+       = help: did you mean "home"? defined clients: home
+
+    warning: visitor "idle" cannot reach anything
+      --> server.yaml:10:3
+       |
+    10 |   idle:
+       |   ^^^^
+       = help: add it to a service, for example visitors: [idle], or give it reach: { CLIENT: any }
+
+    error: unknown visitor "lapto" referenced by service "db"
+      --> server.yaml:13:48
+       |
+    13 |   db: { client: home, target: 5432, visitors: [lapto] }
+       |                                                ^^^^^ no visitor with this name
+       = help: did you mean "laptop"? defined visitors: laptop, idle
+
+    error: service "dns" is udp, but visitors can only reach tcp services
+      --> server.yaml:14:61
+       |
+    14 |   dns: { client: home, protocol: udp, target: 53, visitors: [laptop] }
+       |                                                             ^^^^^^^^^
+       = help: remove "visitors", or use a tcp service
+
+    error: service "nobody" has no "bind" and no "visitors", so nobody can reach it
+      --> server.yaml:15:3
+       |
+    15 |   nobody: { client: home, target: 1 }
+       |   ^^^^^^ no bind and no visitors
+       = help: add "bind: 7840" to expose it publicly, or "visitors: [NAME]" for visitors using burrow visit
+
+    server.yaml: 5 errors, 1 warning
+    "#);
+}
+
+fn visitor(forwards: &str) -> String {
+    format!("server: tunnel.example.com\nname: laptop\nsecret: {SECRET}\nforwards:\n{forwards}")
+}
+
+#[test]
+fn valid_visitor() {
+    use burrow::config::Loaded;
+    use burrow::protocol::VisitTarget;
+    let src = visitor(
+        "  db: { service: db, local: 5432 }\n  ssh: { client: home, target: 22, local: \"2222\" }\n",
+    );
+    insta::assert_snapshot!(render("visitor.yaml", &src, None), @r#"visitor.yaml: valid visitor config for "laptop" (2 forwards)"#);
+    let o = load_str("visitor.yaml", &src, Format::Yaml, None, &env);
+    assert_eq!(o.role, Some(Role::Visitor));
+    let Some(Loaded::Visitor(s, _)) = o.loaded else {
+        panic!("not a visitor")
+    };
+    assert_eq!(s.server, "tunnel.example.com:7835");
+    assert_eq!(s.forwards["db"].local, "127.0.0.1:5432".parse().unwrap());
+    assert_eq!(s.forwards["db"].to, VisitTarget::Service("db".into()));
+    assert_eq!(
+        s.forwards["ssh"].to,
+        VisitTarget::Client {
+            client: "home".into(),
+            target: "127.0.0.1:22".into()
+        }
+    );
+    assert_eq!(s.forwards["ssh"].local, "127.0.0.1:2222".parse().unwrap());
+}
+
+#[test]
+fn visitor_mistakes() {
+    insta::assert_snapshot!(render("visitor.yaml", &visitor(
+        "  a: { service: db, client: home, local: 1 }\n  b: { client: home, local: 2 }\n  c: { target: 22, local: 3 }\n  d: { local: 4 }\n  e: { service: db, local: 0.0.0.0:5432 }\n  f: { service: web, local: 5432 }\n  g: { service: x, local: nowhere }\n  h: { client: home, target: \"::1:22\", local: 8 }\n"
+    ), None), @r#"
+    error: forward "a" has both "service" and "client" or "target"
+      --> visitor.yaml:5:3
+       |
+     5 |   a: { service: db, client: home, local: 1 }
+       |   ^ use one or the other
+       = help: use "service" for a private service, or "client" and "target" to reach a client directly
+
+    error: forward "b" has "client" but no "target"
+      --> visitor.yaml:6:3
+       |
+     6 |   b: { client: home, local: 2 }
+       |   ^ missing target
+       = help: add the host:port to reach as seen from the client, for example target: 127.0.0.1:22
+
+    error: forward "c" has "target" but no "client"
+      --> visitor.yaml:7:3
+       |
+     7 |   c: { target: 22, local: 3 }
+       |   ^ missing client
+       = help: add the client to reach, for example client: home
+
+    error: forward "d" needs "service", or "client" and "target"
+      --> visitor.yaml:8:3
+       |
+     8 |   d: { local: 4 }
+       |   ^ nothing to reach
+       = help: use "service" for a private service, or "client" and "target" to reach a client directly
+
+    warning: forward "e" listens on all interfaces
+      --> visitor.yaml:9:28
+       |
+     9 |   e: { service: db, local: 0.0.0.0:5432 }
+       |                            ^^^^^^^^^^^^ reachable from your network
+       = help: use "local: 5432" (127.0.0.1 only) unless other machines should use it: they would get this visitor's access
+
+    error: forward "f" listens on 127.0.0.1:5432, already used by forward "e"
+      --> visitor.yaml:10:29
+       |
+    10 |   f: { service: web, local: 5432 }
+       |                             ^^^^ address already used
+       = help: pick a different local port for one of the forwards
+
+    error: invalid local address for forward "g": "nowhere" is not a valid local address
+      --> visitor.yaml:11:27
+       |
+    11 |   g: { service: x, local: nowhere }
+       |                           ^^^^^^^ expected a port or ip:port
+       = help: use a port like 5432 (on 127.0.0.1), or ip:port like 127.0.0.1:5432
+
+    error: invalid target for forward "h": "::1:22" looks like an IPv6 address; write it in brackets, like [::1]:22
+      --> visitor.yaml:12:30
+       |
+    12 |   h: { client: home, target: "::1:22", local: 8 }
+       |                              ^^^^^^^^ expected host:port or a port
+       = help: use host:port as seen from the client, for example 127.0.0.1:22, or a port alone like 22
+
+    visitor.yaml: 7 errors, 1 warning
+    "#);
+    insta::assert_snapshot!(render("visitor.yaml", &visitor("  {}\n"), None), @r#"
+    warning: no forwards are defined
+      --> visitor.yaml:4:1
+       |
+     4 | forwards:
+       | ^^^^^^^^
+       = help: add one, for example:
+             forwards:
+               db: { service: db, local: 5432 }
+           or pick the target on the command line with burrow visit --service or --client
+
+    visitor.yaml: valid visitor config for "laptop" (0 forwards), 1 warning
+    "#);
+    insta::assert_snapshot!(render("visitor.yaml", &format!("server: a\nname: laptop\nsecret: {SECRET}\n"), Some(Role::Visitor)), @r#"
+    error: missing field "forwards" in visitor config
+      --> visitor.yaml:1:1
+       = help: add "forwards: ..." (local ports that lead to private services or client targets, keyed by forward name)
+
+    visitor.yaml: 1 error, 0 warnings
+    "#);
 }

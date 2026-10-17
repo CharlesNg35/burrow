@@ -36,17 +36,30 @@ pub fn summary_line(outcome: &Outcome, strict: bool) -> String {
         String::new()
     };
     match &outcome.loaded {
-        Some(Loaded::Server(s, _)) if !(strict && w > 0) => format!(
-            "{}: valid server config ({} {}, {} {}){warn}",
-            r.file,
-            s.clients.len(),
-            crate::diagnostics::plural(s.clients.len(), "client"),
-            s.services.len(),
-            crate::diagnostics::plural(s.services.len(), "service"),
-        ),
+        Some(Loaded::Server(s, _)) if !(strict && w > 0) => {
+            let visitors = match s.visitors.len() {
+                0 => String::new(),
+                n => format!(", {n} {}", crate::diagnostics::plural(n, "visitor")),
+            };
+            format!(
+                "{}: valid server config ({} {}{visitors}, {} {}){warn}",
+                r.file,
+                s.clients.len(),
+                crate::diagnostics::plural(s.clients.len(), "client"),
+                s.services.len(),
+                crate::diagnostics::plural(s.services.len(), "service"),
+            )
+        }
         Some(Loaded::Client(s, _)) if !(strict && w > 0) => {
             format!("{}: valid client config for \"{}\"{warn}", r.file, s.name)
         }
+        Some(Loaded::Visitor(s, _)) if !(strict && w > 0) => format!(
+            "{}: valid visitor config for \"{}\" ({} {}){warn}",
+            r.file,
+            s.name,
+            s.forwards.len(),
+            crate::diagnostics::plural(s.forwards.len(), "forward"),
+        ),
         _ if strict && !r.has_errors() => format!(
             "{}: {w} {} (failing because of --strict)",
             r.file,

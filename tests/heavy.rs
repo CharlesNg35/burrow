@@ -257,7 +257,7 @@ async fn chaos_dropped_connections_and_restarts() {
             srv.stop.send(true).unwrap();
             srv.task.await.unwrap();
             settings.listen = Some(listen);
-            settings.services.get_mut("web").unwrap().bind = svc_addr;
+            settings.services.get_mut("web").unwrap().bind = Some(svc_addr);
             srv = start_server(settings.clone()).await;
             restarts += 1;
             last_restart = Instant::now();
@@ -388,8 +388,8 @@ async fn churn_returns_internal_state_to_baseline() {
         }
 
         let mut next = settings.clone();
-        next.services.get_mut("web").unwrap().bind = web;
-        next.services.get_mut("dns").unwrap().bind = dns;
+        next.services.get_mut("web").unwrap().bind = Some(web);
+        next.services.get_mut("dns").unwrap().bind = Some(dns);
         next.heartbeat_interval = Duration::from_millis(1000 + (round % 2) * 10);
         srv.reload(next).await;
 

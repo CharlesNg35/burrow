@@ -1,9 +1,10 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::net::SocketAddr;
 use std::time::Duration;
 
 use super::model::{Cipher, Protocol};
 use crate::allowlist::AllowList;
+use crate::protocol::VisitTarget;
 use crate::proxy::ProxyConfig;
 use crate::secret::Secret;
 use crate::transport::endpoint::Endpoint;
@@ -20,6 +21,7 @@ pub struct ServerSettings {
     pub public_address: Option<String>,
     pub websocket: Option<WebSocketSettings>,
     pub clients: BTreeMap<String, ClientAuth>,
+    pub visitors: BTreeMap<String, VisitorAuth>,
     pub services: BTreeMap<String, Service>,
     pub insecure_plaintext: bool,
     pub heartbeat_interval: Duration,
@@ -39,13 +41,42 @@ pub struct ClientAuth {
     pub max_connections: Option<usize>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct VisitorAuth {
+    pub secrets: Vec<Secret>,
+    pub reach: BTreeSet<String>,
+    pub max_connections: Option<usize>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Service {
     pub client: String,
-    pub bind: SocketAddr,
+    pub bind: Option<SocketAddr>,
     pub target: String,
     pub protocol: Protocol,
     pub max_connections: Option<usize>,
+    pub visitors: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct VisitorSettings {
+    pub server: String,
+    pub endpoint: Endpoint,
+    pub headers: Vec<(String, String)>,
+    pub ca_pem: Option<Vec<u8>>,
+    pub name: String,
+    pub secret: Secret,
+    pub cipher: Cipher,
+    pub proxy: Option<ProxyConfig>,
+    pub connect_timeout: Duration,
+    pub tcp: SocketTuning,
+    pub forwards: BTreeMap<String, Forward>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Forward {
+    pub local: SocketAddr,
+    pub to: VisitTarget,
 }
 
 #[derive(Debug, Clone, PartialEq)]

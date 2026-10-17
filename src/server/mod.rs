@@ -111,7 +111,7 @@ impl Shared {
             .map(|(name, svc)| ServiceInfo {
                 name: name.clone(),
                 protocol: svc.protocol,
-                bind_port: svc.bind.port(),
+                bind_port: svc.bind.map_or(0, |b| b.port()),
                 target: svc.target.clone(),
             })
             .collect()
@@ -244,16 +244,16 @@ pub fn bind_error(what: &str, proto: Protocol, addr: SocketAddr, e: &std::io::Er
     }
 }
 
-async fn bind_service(name: &str, svc: &Service) -> Result<Bound, Failure> {
+async fn bind_service(name: &str, svc: &Service, bind: SocketAddr) -> Result<Bound, Failure> {
     let what = format!("service \"{name}\"");
     match svc.protocol {
-        Protocol::Tcp => crate::transport::tcp::bind_tcp(svc.bind)
+        Protocol::Tcp => crate::transport::tcp::bind_tcp(bind)
             .map(Bound::Tcp)
-            .map_err(|e| bind_error(&what, Protocol::Tcp, svc.bind, &e)),
-        Protocol::Udp => UdpSocket::bind(svc.bind)
+            .map_err(|e| bind_error(&what, Protocol::Tcp, bind, &e)),
+        Protocol::Udp => UdpSocket::bind(bind)
             .await
             .map(Bound::Udp)
-            .map_err(|e| bind_error(&what, Protocol::Udp, svc.bind, &e)),
+            .map_err(|e| bind_error(&what, Protocol::Udp, bind, &e)),
     }
 }
 
@@ -284,7 +284,10 @@ impl Server {
         });
         let mut services = HashMap::new();
         for (name, svc) in &settings.services {
-            let bound = bind_service(name, svc).await?;
+            let Some(bind) = svc.bind else {
+                continue;
+            };
+            let bound = bind_service(name, svc, bind).await?;
             services.insert(name.clone(), spawn_service(&shared, name, svc, bound));
         }
         let websocket = ws_listener.map(|l| WsTask::start(&shared, l));
@@ -333,8 +336,8 @@ impl Server {
                 ws.listener.url_hint()
             );
         }
-        for (name, t) in &self.services {
-            log_service(name, &t.service, t.addr);
+        for (name, svc) in &s.services {
+            log_service(name, svc, self.services.get(name).and_then(|t| t.addr));
         }
         let mut tick = tokio::time::interval(Duration::from_secs(60));
         tick.tick().await;
@@ -418,7 +421,7 @@ impl Server {
                 let conflicts = |a| crate::config::check::binds_conflict(kept, a);
                 next.services
                     .iter()
-                    .find(|(_, s)| s.protocol == Protocol::Tcp && conflicts(s.bind))
+                    .find(|(_, s)| s.protocol == Protocol::Tcp && s.bind.is_some_and(conflicts))
                     .map(|(n, _)| format!("service \"{n}\""))
                     .or_else(|| {
                         next.websocket
@@ -467,12 +470,31 @@ impl Server {
             if let Some(t) = self.services.remove(&name) {
                 t.task.abort();
                 let _ = t.task.await;
-                if !next.services.contains_key(&name) {
-                    info!("service \"{name}\" removed");
+                match next.services.get(&name) {
+                    None => info!("service \"{name}\" removed"),
+                    Some(s) if s.bind.is_none() => {
+                        info!("service \"{name}\" is now private");
+                        log_service(&name, s, None);
+                    }
+                    Some(_) => {}
                 }
             }
         }
         for (name, svc) in &next.services {
+            let Some(bind) = svc.bind else {
+                if current
+                    .services
+                    .get(name)
+                    .is_some_and(|c| c.bind.is_none() && c != svc)
+                {
+                    info!("service \"{name}\" updated");
+                    log_service(name, svc, None);
+                } else if !current.services.contains_key(name) {
+                    info!("service \"{name}\" added");
+                    log_service(name, svc, None);
+                }
+                continue;
+            };
             let same_socket = self
                 .services
                 .get(name)
@@ -491,7 +513,7 @@ impl Server {
                 old.task.abort();
                 let _ = old.task.await;
             }
-            match bind_with_retry(name, svc).await {
+            match bind_with_retry(name, svc, bind).await {
                 Ok(bound) => {
                     let t = spawn_service(&self.shared, name, svc, bound);
                     info!("service \"{name}\" added");
@@ -601,10 +623,10 @@ async fn bind_ws_with_retry(
     Err(last.expect("at least one attempt"))
 }
 
-async fn bind_with_retry(name: &str, svc: &Service) -> Result<Bound, Failure> {
+async fn bind_with_retry(name: &str, svc: &Service, bind: SocketAddr) -> Result<Bound, Failure> {
     let mut last = None;
     for _ in 0..20 {
-        match bind_service(name, svc).await {
+        match bind_service(name, svc, bind).await {
             Ok(b) => return Ok(b),
             Err(f) => last = Some(f),
         }
@@ -614,10 +636,17 @@ async fn bind_with_retry(name: &str, svc: &Service) -> Result<Bound, Failure> {
 }
 
 fn log_service(name: &str, svc: &Service, addr: Option<SocketAddr>) {
+    let at = addr
+        .or(svc.bind)
+        .map_or_else(|| "private".to_string(), |a| a.to_string());
+    let visitors = if svc.visitors.is_empty() {
+        String::new()
+    } else {
+        format!(" (visitors: {})", svc.visitors.join(", "))
+    };
     info!(
-        "service \"{name}\": {} {} -> client \"{}\" {}",
+        "service \"{name}\": {} {at} -> client \"{}\" {}{visitors}",
         svc.protocol.as_str(),
-        addr.unwrap_or(svc.bind),
         svc.client,
         svc.target
     );

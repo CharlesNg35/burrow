@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
 
-use super::{InitOptions, Prompter, check_env_name, check_name, resolve_output, write_new};
+use super::{InitOptions, Login, Prompter, ask_login, resolve_output, write_new};
 use crate::config::check::parse_host_port;
 use crate::config::emit::render;
 use crate::config::env::EnvSource;
@@ -12,7 +12,6 @@ use crate::config::tree::{self, Value as TreeValue};
 use crate::config::{Format, Loaded, Role, load_file};
 use crate::failure::Failure;
 use crate::secret::Secret;
-use crate::transport::endpoint::Endpoint;
 
 pub fn client_value(server: &str, name: &str, secret_text: &str, allow: &[String]) -> Value {
     json!({
@@ -29,56 +28,11 @@ pub fn init_client(
     out: &mut dyn Write,
 ) -> Result<PathBuf, Failure> {
     let (path, format) = resolve_output(Role::Client, opts)?;
-    if path.exists() && !opts.force {
-        return Err(Failure::new(format!(
-            "{} already exists, not overwriting it",
-            path.display()
-        ))
-        .hint("pass --force to replace it, or -o to write somewhere else"));
-    }
-    let missing = |what: &str, flag: &str| {
-        Failure::usage(format!("missing {what}")).hint(format!(
-            "pass {flag} (stdin is not a terminal, so burrow cannot ask)"
-        ))
-    };
-    let server = match &opts.server {
-        Some(s) => s.clone(),
-        None => prompt
-            .ask("server host name or IP (port 7835 unless you add :PORT)")
-            .ok_or_else(|| missing("server address", "--server HOST"))?,
-    };
-    let server = Endpoint::parse(&server)
-        .map_err(|e| {
-            Failure::usage(format!("invalid server address: {e}")).hint(
-                "use a host name or IP, for example myserver.com, or myserver.com:2333 for another port",
-            )
-        })?
-        .to_string();
-    let name = match &opts.name {
-        Some(n) => n.clone(),
-        None => prompt
-            .ask("client name (as in the server config)")
-            .ok_or_else(|| missing("client name", "--name NAME"))?,
-    };
-    check_name("client name", &name)?;
-    let secret_text = match (&opts.env_secret, &opts.secret) {
-        (Some(var), _) => {
-            check_env_name(var)?;
-            format!("${{{var}}}")
-        }
-        (None, Some(s)) => s.clone(),
-        (None, None) => prompt
-            .ask("secret (from the server config)")
-            .ok_or_else(|| missing("secret", "--secret VALUE or --env-secret VAR"))?,
-    };
-    if !secret_text.starts_with("${") {
-        Secret::parse(&secret_text).map_err(|e| {
-            Failure::usage(format!("the secret {}", e.describe())).hint(format!(
-                "copy it from the server config, or run on the server: {} client-config NAME -o client.yaml",
-                crate::failure::command()
-            ))
-        })?;
-    }
+    let Login {
+        server,
+        name,
+        secret_text,
+    } = ask_login(Role::Client, &path, opts, prompt)?;
     let value = client_value(&server, &name, &secret_text, &["127.0.0.0/8".to_string()]);
     write_new(&path, &render(&value, format), opts.force)?;
     writeln!(
