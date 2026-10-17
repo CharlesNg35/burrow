@@ -374,6 +374,8 @@ Run the commands from a terminal opened with "Run as administrator". The service
 - Forward secrecy comes from fresh X25519 keys per connection. The protocol and the exact point where each side is authenticated are described in [docs/protocol.md](docs/protocol.md).
 - The client only connects to addresses in `allow`, checked after DNS resolution, so even a compromised server cannot use it to reach other hosts.
 - Secrets never appear in logs or error messages (only their length or a short fingerprint). `validate` warns if a config file is readable by other users; use `chmod 600`.
+- Removing a client, or the secret it connected with, and reloading also closes that client's open connections.
+- The lock that stops the same tunnel from running twice lives in a folder every local user can write to, so it also catches copies started by hand. On a machine shared with untrusted users, one of them could hold a service's lock and keep it from starting.
 
 ## Docker
 
