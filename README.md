@@ -416,7 +416,12 @@ The service name comes from the config file name (`server.yaml` → `burrow-serv
 
 Variables used as `${VAR}` in the config are saved for the service at install time, readable by it only. `sudo` drops environment variables, so keep them with `sudo --preserve-env=HOME_SECRET ./burrow service install`; the install says so if one is missing.
 
-To update, download the new binary and run `sudo ./burrow service update`. It replaces the installed binary, restarts every service that uses it, and puts the old binary back if a service does not come up again. The same version or an older one is left alone (`--force` to replace it anyway). A binary installed by a package manager is upgraded there instead.
+To update, run `sudo burrow update`. It downloads the latest release for your system from GitHub, checks it against the release's `SHA256SUMS`, makes sure it runs and reports the expected version, then replaces the installed binary, restarts every service that uses it, and puts the old binary back if a service does not come up again. Nothing changes when any of these checks fails. Without `sudo` it only replaces the binary you ran and tells you how to update the services.
+
+- `burrow update --check` only says whether a newer release exists.
+- `burrow update --to 0.2.0` installs that release, older ones included. The same version is left alone unless you add `--force`.
+- It goes through `HTTPS_PROXY` (or `ALL_PROXY`) when set, and `NO_PROXY` is respected. `BURROW_UPDATE_URL` points it to a mirror with the same layout as the GitHub releases.
+- `sudo ./burrow service update` does the same with a binary you downloaded yourself. A binary installed by a package manager is upgraded there instead, and in a container you pull the new image.
 
 <details>
 <summary><b>Linux (systemd)</b></summary>

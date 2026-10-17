@@ -6,6 +6,8 @@
 - New commands: `burrow visit` (all forwards, one with `visit NAME --local PORT`, or ad hoc with `--service` or `--client --target`), `burrow visitor-config` on the server, and `burrow init visitor`. `burrow service install` runs visitor configs too.
 - `validate` checks visitors: unknown names in `visitors` and `reach`, private services nobody can reach, duplicate local ports, `0.0.0.0` forwards, and a warning for every `reach`.
 - The server refuses a hello that does not match its channel kind, and connection limits of a service now count across reloads that move its port.
+- **`burrow update`** downloads the latest release (or `--to VERSION`), verifies it against `SHA256SUMS` and by running it, then replaces this binary and updates the installed services with rollback. `--check` only reports whether a newer release exists. It honours `HTTPS_PROXY` and `NO_PROXY`.
+- Fix: a WebSocket data channel now ends with a TLS `close_notify` (`wss://`) and a clean FIN. Before, a TLS proxy in front of the server could treat the abrupt end as an error and drop the last up to 128 KB of a stream under load.
 - Protocol: a new visit channel kind, request and statuses (docs/protocol.md section 9). Existing clients and configs are unchanged; visitors need a 0.2.0 server.
 
 ## [0.1.0]
