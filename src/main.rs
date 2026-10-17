@@ -257,9 +257,16 @@ fn service(action: ServiceAction, logging: burrow::run::Logging) -> Result<u8, F
             )?;
             Ok(0)
         }
-        ServiceAction::Update(a) => {
-            service::update(a.name.as_deref(), a.force, &mut out).map(|_| 0)
-        }
+        ServiceAction::Update(a) => match (&a.worker, &a.from, &a.as_version) {
+            (Some(log), Some(from), Some(version)) => Ok(service::update_worker(
+                log,
+                from,
+                version,
+                a.name.as_deref(),
+                a.force,
+            )),
+            _ => service::update(a.name.as_deref(), a.force, &mut out).map(|_| 0),
+        },
         ServiceAction::Uninstall(a) => {
             service::uninstall(a.name.as_deref(), a.purge, &mut out).map(|_| 0)
         }

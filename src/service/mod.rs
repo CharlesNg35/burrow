@@ -1,6 +1,7 @@
 mod logview;
 pub(crate) mod ports;
 mod system;
+mod update;
 
 #[cfg(target_os = "macos")]
 mod launchd;
@@ -24,6 +25,7 @@ use crate::failure::Failure;
 use crate::instance::Identity;
 
 pub use system::{Platform, binary_version, copy_file, is_admin};
+pub use update::{update, update_from, worker as update_worker};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Manifest {
@@ -794,163 +796,10 @@ pub fn parse_version(v: &str) -> Option<Version> {
     Some(Version { core, pre })
 }
 
-pub fn update(name: Option<&str>, force: bool, out: &mut dyn Write) -> Result<(), Failure> {
-    update_from(&this_binary()?, env!("CARGO_PKG_VERSION"), name, force, out)
-}
-
 pub fn this_binary() -> Result<PathBuf, Failure> {
     let me = std::env::current_exe()
         .map_err(|e| Failure::new(format!("cannot locate this burrow binary: {e}")))?;
     Ok(system::canonical(&me).unwrap_or(me))
-}
-
-pub fn update_from(
-    me: &Path,
-    mine: &str,
-    name: Option<&str>,
-    force: bool,
-    out: &mut dyn Write,
-) -> Result<(), Failure> {
-    let backend = system::backend()?;
-    system::require_admin()?;
-    let targets = match name {
-        Some(_) => vec![resolve(name)?],
-        None => all_manifests(),
-    };
-    if targets.is_empty() {
-        return Err(Failure::new("no burrow service is installed").hint(format!(
-            "install one with: {}",
-            crate::failure::admin("service install")
-        )));
-    }
-    let mut binaries: Vec<PathBuf> = targets.iter().map(|m| m.binary.clone()).collect();
-    binaries.sort();
-    binaries.dedup();
-    for binary in binaries {
-        let users: Vec<&Manifest> = targets.iter().filter(|m| m.binary == binary).collect();
-        let names = users
-            .iter()
-            .map(|m| m.name.as_str())
-            .collect::<Vec<_>>()
-            .join(", ");
-        if !users.iter().all(|m| m.copied_binary) {
-            say(
-                out,
-                format!(
-                    "{} is not managed by burrow; upgrade it where you installed it, then run: {}",
-                    binary.display(),
-                    crate::failure::admin(&format!("service restart {}", users[0].name))
-                ),
-            )?;
-            continue;
-        }
-        if binary == me {
-            say(out, format!("{names}: already uses this binary ({mine})"))?;
-            continue;
-        }
-        let installed = system::binary_version(&binary);
-        match (parse_version(mine), parse_version(&installed)) {
-            (Some(a), Some(b)) if a == b && !force => {
-                say(
-                    out,
-                    format!("{names}: already on {installed}, nothing to do"),
-                )?;
-                continue;
-            }
-            (Some(a), Some(b)) if a < b && !force => {
-                say(
-                    out,
-                    format!(
-                        "{names}: installed {installed} is newer than this binary ({mine}); not downgrading (use --force to do it anyway)"
-                    ),
-                )?;
-                continue;
-            }
-            _ => {}
-        }
-        let running: Vec<&Manifest> = users
-            .iter()
-            .copied()
-            .filter(|m| backend.status(m).running)
-            .collect();
-        for m in &running {
-            backend.stop(m)?;
-        }
-        let previous = binary.with_extension("previous");
-        let had_old = binary.exists() && system::copy_file(&binary, &previous, true).is_ok();
-        if let Err(f) = system::copy_file(me, &binary, true) {
-            for m in &running {
-                let _ = backend.start(m);
-            }
-            return Err(f);
-        }
-        let mut failed = Vec::new();
-        for m in &running {
-            if backend.start(m).is_err() {
-                failed.push(m.name.clone());
-                continue;
-            }
-        }
-        std::thread::sleep(std::time::Duration::from_millis(2000));
-        for m in &running {
-            if !backend.status(m).running && !failed.contains(&m.name) {
-                failed.push(m.name.clone());
-            }
-        }
-        if !failed.is_empty() {
-            let restored = had_old && system::copy_file(&previous, &binary, true).is_ok();
-            if restored {
-                for m in &running {
-                    let _ = backend.stop(m);
-                    let _ = backend.start(m);
-                }
-                std::thread::sleep(std::time::Duration::from_millis(2000));
-            }
-            let still_down: Vec<&str> = running
-                .iter()
-                .filter(|m| !backend.status(m).running)
-                .map(|m| m.name.as_str())
-                .collect();
-            let outcome = match (restored, still_down.is_empty()) {
-                (true, true) => format!("restored {installed}, and it runs again"),
-                (true, false) => format!(
-                    "restored {installed}, but {} still does not run",
-                    still_down.join(", ")
-                ),
-                (false, _) => format!(
-                    "could not put {installed} back, so {} is still {mine}",
-                    binary.display()
-                ),
-            };
-            return Err(Failure::new(format!(
-                "{} did not start with {mine}; {outcome}",
-                failed.join(", ")
-            ))
-            .hint(format!(
-                "see why with: {}",
-                crate::failure::admin(&format!("service logs {}", failed[0]))
-            )));
-        }
-        for m in &users {
-            let mut updated = (*m).clone();
-            updated.version = mine.to_string();
-            save_manifest(&updated)?;
-        }
-        say(
-            out,
-            format!(
-                "updated {} {installed} -> {mine}; restarted {names}",
-                binary.display()
-            ),
-        )?;
-        if had_old {
-            say(
-                out,
-                format!("  the previous binary is kept at {}", previous.display()),
-            )?;
-        }
-    }
-    Ok(())
 }
 
 pub fn control(action: &str, name: Option<&str>, out: &mut dyn Write) -> Result<(), Failure> {

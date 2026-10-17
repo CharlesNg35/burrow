@@ -173,6 +173,22 @@ for _ in $(seq 1 100); do "$LOADGEN" latency --addr 127.0.0.1:27940 --count 10 >
 "$LOADGEN" latency --addr 127.0.0.1:27940 --count 200 >/dev/null || fail "no traffic after update"
 check "update: $(echo "$out" | head -1)"
 
+echo "== an update finishes even when the session that started it is killed"
+UPLOG=/var/log/burrow/update.log
+sudo "$B" service update --force > "$WORK/hup.out" 2>&1 &
+for _ in $(seq 1 100); do grep -q "in the background" "$WORK/hup.out" && break; sleep 0.1; done
+grep -q "in the background" "$WORK/hup.out" || fail "update did not hand over to the background: $(cat "$WORK/hup.out")"
+started="$(ps -eo pid,args | grep "[s]ervice update --force" | grep -v -- "--worker" | awk '{print $1}')"
+[ -n "$started" ] || fail "cannot find the update process to kill"
+sudo kill -HUP $started 2>/dev/null || true
+sudo kill -KILL $started 2>/dev/null || true
+for _ in $(seq 1 150); do sudo grep -q $'^\x01ok' "$UPLOG" 2>/dev/null && break; sleep 0.2; done
+for s in burrow-e2e-server burrow-e2e-client burrow-e2e-visitor; do running "$s" || fail "$s is not running after the interrupted update"; done
+sudo grep -q $'^\x01ok' "$UPLOG" || fail "the update did not finish after its session was killed: $(sudo cat "$UPLOG")"
+for _ in $(seq 1 100); do "$LOADGEN" latency --addr 127.0.0.1:27940 --count 10 >/dev/null 2>&1 && break; sleep 0.2; done
+"$LOADGEN" latency --addr 127.0.0.1:27940 --count 200 >/dev/null || fail "no traffic after the interrupted update"
+check "an update survives the session that started it"
+
 echo "== burrow update downloads a release, verifies it and updates the services"
 case "$(uname -s)-$(uname -m)" in
   Linux-x86_64) PLAT=linux-amd64 ;;

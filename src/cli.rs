@@ -206,6 +206,12 @@ pub struct ServiceUpdateArgs {
         help = "Also replace a newer installed binary (downgrade) or reinstall the same version"
     )]
     pub force: bool,
+    #[arg(long, hide = true, requires_all = ["from", "as_version"])]
+    pub worker: Option<std::path::PathBuf>,
+    #[arg(long, hide = true, requires = "worker")]
+    pub from: Option<std::path::PathBuf>,
+    #[arg(long, hide = true, requires = "worker")]
+    pub as_version: Option<String>,
 }
 
 #[derive(Debug, Args)]
