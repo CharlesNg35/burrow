@@ -397,28 +397,40 @@ fn watch_files(
             .filter(|d| !d.as_os_str().is_empty())
             .map_or_else(|| PathBuf::from("."), Path::to_path_buf)
     };
-    let names: Vec<std::ffi::OsString> = files
+    let real = |p: &Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    let (config, certs) = files.split_first()?;
+    let config_dir = real(&dir_of(config));
+    let config_name = config.file_name()?.to_os_string();
+    let mut cert_dirs: Vec<PathBuf> = certs
         .iter()
-        .filter_map(|f| f.file_name().map(|n| n.to_os_string()))
+        .flat_map(|f| [real(&dir_of(f)), dir_of(&real(f))])
         .collect();
+    cert_dirs.sort();
+    cert_dirs.dedup();
+    let mut dirs = cert_dirs.clone();
+    dirs.push(config_dir.clone());
+    dirs.sort();
+    dirs.dedup();
     let mut watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
         let Ok(ev) = res else { return };
-        let relevant = matches!(
+        if !matches!(
             ev.kind,
             EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_)
-        ) && ev
-            .paths
-            .iter()
-            .any(|p| p.file_name().is_some_and(|n| names.iter().any(|w| w == n)));
+        ) {
+            return;
+        }
+        let relevant = ev.paths.iter().any(|p| {
+            let dir = p.parent().map(real);
+            dir.as_ref().is_some_and(|d| cert_dirs.contains(d))
+                || (dir.as_ref() == Some(&config_dir)
+                    && p.file_name() == Some(config_name.as_os_str()))
+        });
         if relevant {
             let _ = tx.try_send("file changed");
         }
     })
     .map_err(|e| warn!("cannot watch the config for changes ({e}); reload with SIGHUP instead"))
     .ok()?;
-    let mut dirs: Vec<PathBuf> = files.iter().map(|f| dir_of(f)).collect();
-    dirs.sort();
-    dirs.dedup();
     for dir in dirs {
         if let Err(e) = watcher.watch(&dir, RecursiveMode::NonRecursive) {
             warn!(
