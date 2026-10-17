@@ -737,3 +737,78 @@ async fn a_burst_on_a_public_service_wider_than_the_handshake_limit_still_gets_t
         "the burst should have hit the limit"
     );
 }
+
+async fn black_hole_proxy(
+    to: std::net::SocketAddr,
+) -> (
+    std::net::SocketAddr,
+    std::sync::Arc<std::sync::atomic::AtomicBool>,
+) {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let hole = std::sync::Arc::new(AtomicBool::new(false));
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let h = hole.clone();
+    tokio::spawn(async move {
+        while let Ok((inner, _)) = listener.accept().await {
+            let Ok(outer) = TcpStream::connect(to).await else {
+                continue;
+            };
+            let (ir, iw) = inner.into_split();
+            let (or, ow) = outer.into_split();
+            for (mut from, mut into, hole) in [
+                (
+                    Box::new(ir) as Box<dyn tokio::io::AsyncRead + Unpin + Send>,
+                    Box::new(ow) as Box<dyn tokio::io::AsyncWrite + Unpin + Send>,
+                    h.clone(),
+                ),
+                (Box::new(or) as _, Box::new(iw) as _, h.clone()),
+            ] {
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 16 * 1024];
+                    while let Ok(n) = from.read(&mut buf).await {
+                        if n == 0 {
+                            break;
+                        }
+                        if !hole.load(Ordering::Relaxed) && into.write_all(&buf[..n]).await.is_err()
+                        {
+                            break;
+                        }
+                    }
+                    if !hole.load(Ordering::Relaxed) {
+                        let _ = into.shutdown().await;
+                    }
+                    std::future::pending::<()>().await;
+                });
+            }
+        }
+    });
+    (addr, hole)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_connection_on_a_dead_data_channel_ends_instead_of_hanging() {
+    let echo = echo_server().await;
+    let secret = Secret::generate();
+    let srv = start_server({
+        let mut s = server_settings(vec![secret.clone()]);
+        s.services
+            .insert("web".into(), service(echo, Protocol::Tcp));
+        s
+    })
+    .await;
+    let (proxy, hole) = black_hole_proxy(srv.addr).await;
+    let mut cli = start_client(client_settings(proxy, secret)).await;
+    wait_state(&mut cli.state, State::Connected).await;
+    let shared = srv.shared.clone();
+    wait_for(|| shared.idle_channels("home") >= 1).await;
+    hole.store(true, std::sync::atomic::Ordering::Relaxed);
+    let mut user = TcpStream::connect(srv.services["web"]).await.unwrap();
+    user.write_all(b"anyone there?").await.unwrap();
+    let mut buf = [0u8; 64];
+    let ended = tokio::time::timeout(Duration::from_secs(10), user.read(&mut buf)).await;
+    assert!(
+        matches!(ended, Ok(Ok(0)) | Ok(Err(_))),
+        "the connection should be closed, not left hanging: {ended:?}"
+    );
+}

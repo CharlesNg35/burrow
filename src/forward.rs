@@ -11,6 +11,8 @@ use crate::ratelimit::{Limit, Throttled};
 use crate::record::{CHUNK, open_pump, raw_pump, relay_pump, seal_pump};
 use crate::transport::Conn;
 
+const VISIT_REPLY: Duration = Duration::from_secs(45);
+
 const CLOSE_TIMEOUT: Duration = Duration::from_secs(2);
 
 #[derive(Clone, Copy, Default)]
@@ -107,6 +109,7 @@ pub async fn open_tcp(
     prefix: &[u8],
     plaintext: bool,
     meter: Meter<'_>,
+    reply_timeout: Duration,
 ) -> Result<(), ForwardError> {
     let Channel {
         mut stream,
@@ -128,7 +131,10 @@ pub async fn open_tcp(
         }
     };
     let down = async {
-        let status = match reader.recv(&mut cr).await? {
+        let reply = tokio::time::timeout(reply_timeout, reader.recv(&mut cr))
+            .await
+            .map_err(|_| no_reply())?;
+        let status = match reply? {
             Some(b) => Status::decode(b).map_err(|_| ForwardError::Protocol)?,
             None => return Err(ForwardError::Protocol),
         };
@@ -159,9 +165,19 @@ pub async fn client_tcp<T: Split>(
     pump_tcp(ch, target, plaintext).await
 }
 
+fn no_reply() -> ForwardError {
+    ForwardError::Io(io::Error::new(
+        io::ErrorKind::TimedOut,
+        "the client did not answer in time",
+    ))
+}
+
 pub async fn request_visit(ch: &mut Channel, request: &[u8]) -> Result<(), ForwardError> {
     ch.writer.send(&mut ch.stream, request).await?;
-    let status = match ch.reader.recv(&mut ch.stream).await? {
+    let reply = tokio::time::timeout(VISIT_REPLY, ch.reader.recv(&mut ch.stream))
+        .await
+        .map_err(|_| no_reply())?;
+    let status = match reply? {
         Some(b) => Status::decode(b).map_err(|_| ForwardError::Protocol)?,
         None => return Err(ForwardError::Io(io::ErrorKind::UnexpectedEof.into())),
     };
@@ -213,6 +229,7 @@ pub async fn relay(
     prefix: &[u8],
     plaintext: bool,
     meter: Meter<'_>,
+    reply_timeout: Duration,
 ) -> Result<(), ForwardError> {
     let Channel {
         stream: mut vs,
@@ -243,9 +260,14 @@ pub async fn relay(
         }
     };
     let down = async {
-        let status = match creader.recv(&mut cr).await {
-            Ok(Some(b)) => Status::decode(b).map_err(|_| ForwardError::Protocol)?,
-            Ok(None) | Err(_) => {
+        let reply = tokio::time::timeout(reply_timeout, creader.recv(&mut cr)).await;
+        let status = match reply {
+            Ok(Ok(Some(b))) => Status::decode(b).map_err(|_| ForwardError::Protocol)?,
+            Err(_) => {
+                let _ = vwriter.send(&mut vw, &[Status::Offline as u8]).await;
+                return Err(no_reply());
+            }
+            Ok(Ok(None) | Err(_)) => {
                 let _ = vwriter.send(&mut vw, &[Status::Offline as u8]).await;
                 return Err(ForwardError::Io(io::Error::new(
                     io::ErrorKind::UnexpectedEof,

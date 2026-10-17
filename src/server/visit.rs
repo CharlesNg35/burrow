@@ -290,6 +290,7 @@ pub(super) async fn serve(
             limit: limit.as_deref(),
             traffic: stats.as_ref().map(|s| &s.traffic),
         },
+        settings.heartbeat_interval * 3,
     );
     tokio::pin!(forward);
     let result = loop {

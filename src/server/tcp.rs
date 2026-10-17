@@ -125,6 +125,7 @@ async fn visit(
             limit: Some(&limit),
             traffic: Some(&stats.traffic),
         },
+        settings.heartbeat_interval * 3,
     );
     tokio::pin!(forward);
     let result = loop {
