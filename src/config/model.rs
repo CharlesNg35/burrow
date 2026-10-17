@@ -9,12 +9,12 @@ use serde::{Deserialize, Serialize};
 pub struct ServerConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
-        description = "TCP address clients connect to: ip:port like 0.0.0.0:7835, or a port alone for every interface"
+        description = "Where the server waits for clients: ip:port like 0.0.0.0:7835, or a port alone for 0.0.0.0 (all IPv4 addresses)"
     )]
     pub listen: Option<Bind>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
-        description = "Host name or IP that clients use to reach this server, for example myserver.example.com; client-config writes it into client configs (the port comes from listen)"
+        description = "How clients reach this server: a host name or IP (the port comes from listen), host:port, or a wss:// URL; client-config writes it into client configs"
     )]
     pub public_address: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

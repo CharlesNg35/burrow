@@ -50,7 +50,7 @@ On the machine behind NAT, [download burrow](#install) the same way, put `client
 ./burrow client
 ```
 
-The generated server listens for clients on TCP `7835` and exposes `0.0.0.0:7840` → the client's `127.0.0.1:3000`. Edit `services` in `server.yaml` and save; the server reloads by itself. To keep either side running across reboots, install it as a service: `sudo ./burrow service install` (see [Running as a service](#running-as-a-service)).
+The generated server listens for clients on TCP `7835` and exposes `0.0.0.0:7840` → the client's `127.0.0.1:3000`. Edit `services` in `server.yaml` and save; the server reloads by itself. To keep either side running across reboots, install it as a service: `sudo ./burrow service install -c server.yaml` on the server and `sudo ./burrow service install -c client.yaml` on the client (see [Running as a service](#running-as-a-service)).
 
 Other commands:
 
@@ -80,7 +80,7 @@ YAML (`.yaml`, `.yml`) or JSON (`.json`), same schema. `${VAR}` expands environm
 ### server.yaml
 
 ```yaml
-listen: 0.0.0.0:7835 # ip:port, or a port alone for every interface
+listen: 0.0.0.0:7835 # ip:port, or a port alone (means 0.0.0.0:port, all IPv4 addresses)
 public_address: myserver.example.com # optional: how clients reach this server
 clients:
   home:
@@ -97,27 +97,27 @@ services:
     target: 192.168.1.1:53
 ```
 
-| key                                          | default                             | meaning                                                        |
-| -------------------------------------------- | ----------------------------------- | -------------------------------------------------------------- |
-| `listen`                                     | none                                | TCP address clients connect to (`listen`, `websocket` or both) |
-| `public_address`                             | none                                | host clients use to reach the server; used by `client-config`  |
-| `websocket.listen` / `path`                  | none / `/burrow`                    | accept clients over WebSocket (see below)                      |
-| `websocket.tls.cert` / `key`                 | none                                | serve `wss://` directly with these PEM files                   |
-| `websocket.keepalive_secs`                   | `25`                                | keepalive on idle pooled connections, 5-30                     |
-| `clients.<name>.secret`                      | required                            | base64 or hex 256-bit secret, or a list of up to 4             |
-| `clients.<name>.max_connections`             | `limits.max_connections_per_client` | concurrent forwarded connections for this client               |
-| `services.<name>.client` / `bind` / `target` | required                            | who reaches the target, public address, target address         |
-| `services.<name>.protocol`                   | `tcp`                               | `tcp` or `udp`                                                 |
-| `services.<name>.max_connections`            | unlimited                           | concurrent connections for this service                        |
-| `insecure_plaintext`                         | `false`                             | do not encrypt forwarded TCP data (authentication still runs)  |
-| `heartbeat.interval_secs`                    | `10`                                | ping interval; peers time out after 3 missed intervals         |
-| `limits.handshake_timeout_secs`              | `5`                                 | time allowed to authenticate                                   |
-| `limits.max_handshakes`                      | `256`                               | concurrent unauthenticated connections                         |
-| `limits.max_connections_per_client`          | `8192`                              |                                                                |
-| `limits.max_pending`                         | `512`                               | visitors waiting for a data channel, per client                |
-| `pool.min_idle` / `pool.max_idle`            | `4` / `64`                          | pre-opened data channels per client (adaptive)                 |
-| `tcp.nodelay` / `tcp.keepalive_secs`         | `true` / `30`                       | `keepalive_secs: 0` disables keepalive                         |
-| `udp.session_timeout_secs`                   | `60`                                | idle UDP peer expiry                                           |
+| key                                          | default                             | meaning                                                       |
+| -------------------------------------------- | ----------------------------------- | ------------------------------------------------------------- |
+| `listen`                                     | none                                | where the server waits for clients (and/or `websocket`)       |
+| `public_address`                             | none                                | how clients reach it: host, host:port or wss:// URL           |
+| `websocket.listen` / `path`                  | none / `/burrow`                    | accept clients over WebSocket (see below)                     |
+| `websocket.tls.cert` / `key`                 | none                                | serve `wss://` directly with these PEM files                  |
+| `websocket.keepalive_secs`                   | `25`                                | keepalive on idle pooled connections, 5-30                    |
+| `clients.<name>.secret`                      | required                            | base64 or hex 256-bit secret, or a list of up to 4            |
+| `clients.<name>.max_connections`             | `limits.max_connections_per_client` | concurrent forwarded connections for this client              |
+| `services.<name>.client` / `bind` / `target` | required                            | who reaches the target, public address, target address        |
+| `services.<name>.protocol`                   | `tcp`                               | `tcp` or `udp`                                                |
+| `services.<name>.max_connections`            | unlimited                           | concurrent connections for this service                       |
+| `insecure_plaintext`                         | `false`                             | do not encrypt forwarded TCP data (authentication still runs) |
+| `heartbeat.interval_secs`                    | `10`                                | ping interval; peers time out after 3 missed intervals        |
+| `limits.handshake_timeout_secs`              | `5`                                 | time allowed to authenticate                                  |
+| `limits.max_handshakes`                      | `256`                               | concurrent unauthenticated connections                        |
+| `limits.max_connections_per_client`          | `8192`                              |                                                               |
+| `limits.max_pending`                         | `512`                               | visitors waiting for a data channel, per client               |
+| `pool.min_idle` / `pool.max_idle`            | `4` / `64`                          | pre-opened data channels per client (adaptive)                |
+| `tcp.nodelay` / `tcp.keepalive_secs`         | `true` / `30`                       | `keepalive_secs: 0` disables keepalive                        |
+| `udp.session_timeout_secs`                   | `60`                                | idle UDP peer expiry                                          |
 
 ### client.yaml
 
@@ -128,6 +128,7 @@ secret: ${HOME_SECRET}
 allow:
   - 127.0.0.0/8
   - 192.168.1.0/24:22 # CIDR, optionally :port or :low-high
+  - 192.168.1.1/32:53 # the dns service above
 ```
 
 | key                                             | default          | meaning                                                               |
@@ -377,7 +378,7 @@ Run the commands from a terminal opened with "Run as administrator". The service
 ## Docker
 
 ```sh
-docker run --rm -v "$PWD/server.yaml:/etc/burrow/server.yaml:ro" ghcr.io/charlesng35/burrow validate -c /etc/burrow/server.yaml
+docker run --rm --user "$(id -u):$(id -g)" -v "$PWD/server.yaml:/etc/burrow/server.yaml:ro" ghcr.io/charlesng35/burrow validate -c /etc/burrow/server.yaml
 docker run -d --name burrow -p 7835:7835 -p 7840:7840 --user "$(id -u):$(id -g)" \
   -v "$PWD/server.yaml:/etc/burrow/server.yaml:ro" ghcr.io/charlesng35/burrow
 ```
