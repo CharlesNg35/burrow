@@ -575,10 +575,7 @@ async fn a_denied_target_marks_the_only_client_down_but_still_tries_it() {
 async fn balance_stays_even_while_one_client_is_down() {
     let ea = tcp_tag_echo(b'A').await;
     let eb = tcp_tag_echo(b'B').await;
-    let dead = std::net::TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap();
+    let (_held, dead) = refusing();
     let names = [
         ("a", Secret::generate(), ea),
         ("b", Secret::generate(), eb),
@@ -658,10 +655,7 @@ async fn first_byte(addr: SocketAddr) -> Option<u8> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_reconnecting_client_with_a_dead_target_does_not_take_traffic_back() {
     logs();
-    let dead = std::net::TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap();
+    let (_held, dead) = refusing();
     let eb = tcp_tag_echo(b'B').await;
     let (sa, sb) = (Secret::generate(), Secret::generate());
     let mut settings = server_settings(vec![]);

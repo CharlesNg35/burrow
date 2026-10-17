@@ -215,10 +215,7 @@ async fn many_socks_connections_at_once() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn an_unreachable_server_answers_network_unreachable() {
-    let gone = std::net::TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap();
+    let (_held, gone) = refusing();
     let mut settings = visitor_settings(gone, Secret::generate(), vec![]);
     settings.forwards.insert(
         "home".into(),
@@ -263,6 +260,43 @@ async fn many_plain_visits_at_once() {
     drop(tunnel);
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_burst_wider_than_the_server_handshake_limit_still_gets_through() {
+    let echo = echo_server().await;
+    let secret = Secret::generate();
+    let visitor_secret = Secret::generate();
+    let mut server = server_settings(vec![secret.clone()]);
+    server.max_handshakes = 2;
+    server.visitors.insert(
+        "laptop".into(),
+        visitor_auth(visitor_secret.clone(), &["home"]),
+    );
+    let tunnel = tunnel_with(server, vec![], |c| c, secret).await;
+    let mut settings = visitor_settings(tunnel.server.addr, visitor_secret, vec![]);
+    settings.forwards.insert(
+        "home".into(),
+        Forward::socks("127.0.0.1:0".parse().unwrap(), "home".into()),
+    );
+    let v = start_visitor(settings);
+    let addr = v.addr("home");
+    let port = echo.port();
+    let mut tasks = tokio::task::JoinSet::new();
+    for i in 0..40u64 {
+        tasks.spawn(async move {
+            let (code, s) = socks_connect(addr, "127.0.0.1", port).await;
+            assert_eq!(code, 0);
+            echoes(s, &pattern(2_000, i)).await;
+        });
+    }
+    while let Some(r) = tasks.join_next().await {
+        r.unwrap();
+    }
+    assert!(
+        tunnel.server.shared.status().handshakes_refused > 0,
+        "the burst should have hit the limit"
+    );
+}
+
 #[test]
 fn long_targets_survive_the_wire() {
     let host = "a".repeat(252);
@@ -298,11 +332,8 @@ async fn one_socks_port_reaches_any_allowed_target() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn refusals_come_back_as_socks_reply_codes() {
     let echo = echo_server().await;
-    let closed = std::net::TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port();
+    let (_held, closed) = refusing();
+    let closed = closed.port();
     let p = proxy(&["home"], vec![&format!("127.0.0.1/32:{}", echo.port())]).await;
     let (code, _) = socks_connect(p.addr, "127.0.0.1", closed).await;
     assert_eq!(code, 2, "outside the client's allow list");

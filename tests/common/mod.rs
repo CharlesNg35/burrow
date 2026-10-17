@@ -337,6 +337,13 @@ pub async fn tunnel_with(
     }
 }
 
+pub fn refusing() -> (tokio::net::TcpSocket, SocketAddr) {
+    let socket = tokio::net::TcpSocket::new_v4().unwrap();
+    socket.bind("127.0.0.1:0".parse().unwrap()).unwrap();
+    let addr = socket.local_addr().unwrap();
+    (socket, addr)
+}
+
 pub fn logs() {
     if let Ok(filter) = std::env::var("BURROW_LOG") {
         let _ = tracing_subscriber::fmt()
