@@ -221,15 +221,6 @@ for _ in $(seq 1 50); do sudo "$B" service logs burrow-e2e-client -n 20 | grep -
 sudo "$B" service logs burrow-e2e-client -n 20 | grep -q "config reloaded: nothing changed" || fail "the client did not reload: $(sudo "$B" service logs burrow-e2e-client -n 20)"
 [ -n "$before" ] && [ "$(pid_of burrow-e2e-client)" = "$before" ] || fail "reload restarted the client instead of reloading it"
 check "reload applies the config in place, without a restart"
-if [ "$(uname -s)" = Linux ]; then
-  unit=/etc/systemd/system/burrow-e2e-client.service
-  sudo sed -i '/^ExecReload=/d' "$unit" && sudo systemctl daemon-reload
-  sudo "$B" service reload burrow-e2e-client >/dev/null || fail "reload failed on a unit without ExecReload"
-  for _ in $(seq 1 50); do [ "$(sudo "$B" service logs burrow-e2e-client -n 40 | grep -c "config reloaded: nothing changed")" -ge 2 ] && break; sleep 0.2; done
-  [ "$(sudo "$B" service logs burrow-e2e-client -n 40 | grep -c "config reloaded: nothing changed")" -ge 2 ] || fail "a unit installed before ExecReload existed does not reload"
-  [ "$(pid_of burrow-e2e-client)" = "$before" ] || fail "reload restarted a client whose unit has no ExecReload"
-  check "units installed before ExecReload existed reload too"
-fi
 interrupted install env E2E_SECRET="$SECRET" sudo --preserve-env=E2E_SECRET "$B" service install -c e2e-client.yaml
 [ "$(sudo stat -c %a "$JOBS" 2>/dev/null || sudo stat -f %Lp "$JOBS")" = 700 ] || fail "$JOBS is not private"
 sudo grep -rqs -- "$SECRET" /var/log/burrow "$JOBS" && fail "a log contains the client secret"

@@ -246,11 +246,7 @@ impl Backend for Systemd {
     }
 
     fn reload(&self, m: &Manifest) -> Result<(), Failure> {
-        run(
-            "systemctl",
-            &["kill", "--kill-whom=main", "--signal=SIGHUP", &m.name],
-        )
-        .map(drop)
+        run("systemctl", &["reload", &m.name]).map(drop)
     }
 
     fn status(&self, m: &Manifest) -> Status {
