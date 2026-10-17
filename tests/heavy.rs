@@ -446,3 +446,88 @@ async fn churn_returns_internal_state_to_baseline() {
         last.0
     );
 }
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "heavy: run with --ignored"]
+async fn visitor_churn_returns_to_baseline() {
+    use burrow::protocol::VisitTarget;
+    logs();
+    let rounds = env_u64("BURROW_CHURN_ROUNDS", 20);
+    let per_round = env_u64("BURROW_CHURN_CONNS", 2000) as usize;
+    let echo = echo_server().await;
+    let secret = Secret::generate();
+    let visitor_secret = Secret::generate();
+    let mut settings = server_settings(vec![secret.clone()]);
+    settings.max_connections_per_client = 1_000_000;
+    settings.max_pending = 100_000;
+    settings.max_handshakes = 256;
+    settings
+        .visitors
+        .insert("laptop".into(), visitor_auth(visitor_secret.clone(), &[]));
+    settings
+        .services
+        .insert("db".into(), private_service(echo, &["laptop"]));
+    let srv = start_server(settings).await;
+    let mut cli = start_client(client_settings(srv.addr, secret)).await;
+    wait_state(&mut cli.state, State::Connected).await;
+    let shared = srv.shared.clone();
+    wait_for(|| shared.idle_channels("home") >= 1).await;
+    let metrics = tokio::runtime::Handle::current().metrics();
+    let mut samples = Vec::new();
+    for round in 0..rounds {
+        let v = start_visitor(visitor_settings(
+            srv.addr,
+            visitor_secret.clone(),
+            vec![
+                ("db", VisitTarget::Service("db".into())),
+                ("nope", VisitTarget::Service("nope".into())),
+            ],
+        ));
+        let (db, nope) = (v.addr("db"), v.addr("nope"));
+        let gate = Arc::new(tokio::sync::Semaphore::new(256));
+        let tasks: Vec<_> = (0..per_round)
+            .map(|i| {
+                let gate = gate.clone();
+                tokio::spawn(async move {
+                    let _p = gate.acquire_owned().await.unwrap();
+                    if i % 10 == 0 {
+                        let _ = try_roundtrip(nope, b"x").await;
+                    } else {
+                        let data = pattern(100 + (i % 50) * 997, i as u64);
+                        assert_eq!(roundtrip(db, &data).await, data);
+                    }
+                })
+            })
+            .collect();
+        for t in tasks {
+            t.await.unwrap();
+        }
+        v.stop.send(true).unwrap();
+        v.task.await.unwrap();
+        let shared = srv.shared.clone();
+        wait_for(|| shared.active_connections() == 0).await;
+        assert_eq!(srv.shared.waiting_visitors(), 0);
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        let sample = (rss_kib(), open_fds(), metrics.num_alive_tasks());
+        eprintln!(
+            "round {round}: RSS {} KiB, open fds {}, alive tasks {}",
+            sample.0, sample.1, sample.2
+        );
+        samples.push(sample);
+    }
+    let warm = samples[samples.len() / 4];
+    let last = *samples.last().unwrap();
+    assert!(
+        last.1 <= warm.1 + 4,
+        "file descriptors leak: {} -> {}",
+        warm.1,
+        last.1
+    );
+    assert!(last.2 <= warm.2 + 4, "tasks leak: {} -> {}", warm.2, last.2);
+    assert!(
+        last.0 <= warm.0 + 16 * 1024,
+        "RSS keeps growing: {} KiB -> {} KiB",
+        warm.0,
+        last.0
+    );
+}

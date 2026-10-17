@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::mpsc;
+use tokio::sync::{Semaphore, mpsc};
 use tracing::{debug, info, warn};
 
 use crate::config::settings::{Forward, VisitorSettings};
@@ -12,6 +12,8 @@ use crate::forward::{ForwardError, visit_tcp};
 use crate::protocol::{ChannelKind, Hello, Status, VERSION, VisitRequest, VisitTarget};
 use crate::throttle::Throttle;
 use crate::transport::tcp::tune;
+
+const REJECT_ATTEMPTS: u64 = 3;
 
 pub(super) struct Incoming {
     name: String,
@@ -142,7 +144,12 @@ async fn ask(mut ch: crate::handshake::Channel, request: &VisitRequest) -> Optio
     }
 }
 
-pub(super) async fn visit(dialer: Arc<Dialer>, settings: Arc<VisitorSettings>, conn: Incoming) {
+pub(super) async fn visit(
+    dialer: Arc<Dialer>,
+    settings: Arc<VisitorSettings>,
+    opening: Arc<Semaphore>,
+    conn: Incoming,
+) {
     let Incoming {
         name,
         to,
@@ -150,10 +157,22 @@ pub(super) async fn visit(dialer: Arc<Dialer>, settings: Arc<VisitorSettings>, c
         peer,
     } = conn;
     tune(&stream, &settings.tcp);
-    let ch = match dialer
-        .open(ChannelKind::Visit, Hello::Visit { version: VERSION })
-        .await
-    {
+    let mut attempt = 0;
+    let ch = loop {
+        let permit = opening.clone().acquire_owned().await;
+        let ch = dialer
+            .open(ChannelKind::Visit, Hello::Visit { version: VERSION })
+            .await;
+        drop(permit);
+        attempt += 1;
+        match ch {
+            Err(DialError::Rejected) if attempt < REJECT_ATTEMPTS => {
+                tokio::time::sleep(Duration::from_millis(100 * attempt)).await;
+            }
+            ch => break ch,
+        }
+    };
+    let ch = match ch {
         Ok(ch) => ch,
         Err(e) => {
             static LOST: Throttle = Throttle::new();

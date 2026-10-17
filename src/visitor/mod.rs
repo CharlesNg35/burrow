@@ -4,7 +4,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use tokio::net::TcpListener;
-use tokio::sync::{mpsc, watch};
+use tokio::sync::{Semaphore, mpsc, watch};
 use tokio::task::JoinSet;
 use tracing::info;
 
@@ -15,6 +15,8 @@ use crate::failure::Failure;
 use crate::protocol::VisitTarget;
 use crate::transport::resolve::Resolver;
 use crate::transport::tcp::bind_tcp;
+
+const MAX_OPENING: usize = 32;
 
 pub enum Pick {
     All,
@@ -139,10 +141,16 @@ impl Visitor {
         drop(tx);
         tokio::spawn(forward::check(self.dialer.clone(), forwards));
         let mut open = JoinSet::new();
+        let opening = Arc::new(Semaphore::new(MAX_OPENING));
         loop {
             tokio::select! {
                 Some(conn) = rx.recv() => {
-                    open.spawn(forward::visit(self.dialer.clone(), self.settings.clone(), conn));
+                    open.spawn(forward::visit(
+                        self.dialer.clone(),
+                        self.settings.clone(),
+                        opening.clone(),
+                        conn,
+                    ));
                 }
                 Some(_) = open.join_next(), if !open.is_empty() => {}
                 _ = stop.changed() => break,
