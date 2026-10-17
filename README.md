@@ -61,7 +61,7 @@ Other commands:
 ./burrow gensecret                          # new 256-bit secret
 ./burrow schema server > server.schema.json # JSON Schema for editor completion
 ./burrow completions bash                   # shell completions: bash, zsh, fish, powershell, elvish
-./burrow status                             # clients, services and traffic of the running server (needs metrics)
+./burrow status                             # clients, services and traffic of the running servers (-f to follow)
 ./burrow update                             # install the latest release
 ```
 
@@ -207,7 +207,7 @@ web:
   target: 127.0.0.1:8443
 ```
 
-**Speed limits.** `bandwidth: 40mbit` (or `5MB`, bytes per second) caps each direction of a service, shared by all its connections. TCP slows down; UDP datagrams over the rate are dropped.
+**Speed limits.** Services are unlimited unless `bandwidth` is set. `bandwidth: 40mbit` (or `5MB`, bytes per second) caps each direction of a service, shared by all its connections. TCP slows down; UDP datagrams over the rate are dropped.
 
 **Unix sockets.** `target: unix:/var/run/docker.sock` makes the client connect to a Unix socket. Its `allow` list must permit it, with `unix:/var/run/docker.sock` or `unix:/var/run/*`. A client installed with `burrow service` cannot see sockets under `/tmp` or in home folders, and its account must be allowed to connect (`--run-as` picks another one).
 
@@ -456,29 +456,61 @@ For a self-signed certificate, copy it to the client and trust it there with `ca
 
 ## Monitoring
 
-Metrics are off unless you turn them on in `server.yaml`:
+`burrow status` shows every burrow server running on the machine, however it was started: by hand, by your own systemd unit, or with `burrow service install`. It needs no config and no metrics.
+
+```
+$ sudo burrow status
+burrow 0.2.0  ·  up 3 d 4 h  ·  clients on tcp 0.0.0.0:7835
+
+CLIENTS  1/2 connected
+  NAME    STATE      SINCE           FROM            OPEN  IDLE
+  home    connected  2 h 13 min      81.2.3.4:51234     3     4
+  office  offline    left 5 min ago                     0     0
+
+SERVICES
+  NAME  PROTO  ADDRESS      TARGET          CLIENTS                  OPEN  TOTAL  REFUSED      IN     OUT
+  web   tcp    0.0.0.0:443  127.0.0.1:8443  home up, office offline    12    153        1  1.2 GB  8.4 GB
+  web: balance, limit 40mbit, proxy protocol v2, source filter
+```
+
+```sh
+sudo burrow status               # every server on the machine
+sudo burrow status burrow-server # only this installed service
+burrow status -c server.yaml     # the server running this config
+burrow status -f                 # refresh every second, with connections/s and bytes/s
+burrow status -f --interval 5
+burrow status --json             # the raw data, for scripts
+```
+
+A server installed as a service needs `sudo` (an administrator terminal on Windows). Clients and visitors have no status: use `burrow service status`.
+
+**Prometheus.** Metrics are off unless you turn them on in `server.yaml`:
 
 ```yaml
 metrics:
   listen: 127.0.0.1:9100 # a port alone means 127.0.0.1
 ```
 
-The server then serves Prometheus metrics at `/metrics` (connections, bytes, refusals and health per service, connected clients, visitors, refused handshakes) and its state as JSON at `/status`. `burrow status` reads the config to find it and prints an overview:
+The server then serves Prometheus metrics at `/metrics` and the same state as `burrow status` as JSON at `/status`. Keep `listen` on `127.0.0.1` unless a firewall limits who can connect: anyone who reaches it sees names and traffic.
 
-```
-$ burrow status
-burrow 0.2.0, up 3 d 4 h
+<details>
+<summary><b>Metrics</b></summary>
 
-clients
-  home    connected 2 h 13 min from 81.2.3.4:51234, 3 open, 4 idle channels
-  office  offline, last seen 5 min ago
+| Metric                                      | Type           | Labels                 |                                                     |
+| ------------------------------------------- | -------------- | ---------------------- | --------------------------------------------------- |
+| `burrow_info`                               | gauge          | `version`              | always 1                                            |
+| `burrow_uptime_seconds`                     | gauge          |                        |                                                     |
+| `burrow_handshakes_refused_total`           | counter        |                        | connections refused before or during authentication |
+| `burrow_udp_peers`                          | gauge          |                        | UDP peers with an open session                      |
+| `burrow_client_connected`                   | gauge          | `client`               | 1 when connected                                    |
+| `burrow_client_connections_open`            | gauge          | `client`               |                                                     |
+| `burrow_service_connections_open`, `_total` | gauge, counter | `service`              |                                                     |
+| `burrow_service_refused_total`              | counter        | `service`              | source address, limits, or no client                |
+| `burrow_service_bytes_total`                | counter        | `service`, `direction` | `in` from users to the target, `out` back           |
+| `burrow_service_client_up`                  | gauge          | `service`, `client`    | health check result, with `health_check` only       |
+| `burrow_visitor_connections_open`, `_total` | gauge, counter | `visitor`              |                                                     |
 
-services
-  web  tcp 0.0.0.0:443 -> home, office 127.0.0.1:8443, 12 open, 153 total, 1.2 GB in, 8.4 GB out
-       health: home up, office down
-```
-
-`burrow status --json` prints the raw data. Keep `listen` on `127.0.0.1` unless a firewall limits who can connect: anyone who reaches it sees names and traffic.
+</details>
 
 ## Running as a service
 
@@ -488,6 +520,7 @@ services
 sudo ./burrow service install -c server.yaml   # or run it in the folder that holds server.yaml
 burrow service status                          # state, version, account, the last log lines
 sudo burrow service logs -f                    # follow the log
+sudo burrow status -f                          # live clients and traffic
 sudo burrow service restart                    # also: start, stop, reload, uninstall [--purge]
 burrow service list
 ```
