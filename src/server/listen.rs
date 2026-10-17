@@ -13,7 +13,7 @@ use super::{Shared, bind_error};
 use crate::config::settings::WebSocketSettings;
 use crate::failure::Failure;
 use crate::handshake::{AcceptError, accept};
-use crate::protocol::{Hello, VERSION};
+use crate::protocol::{ChannelKind, Hello, VERSION};
 use crate::secret::Secret;
 use crate::transport::tcp::{bind_tcp, tune};
 use crate::transport::ws::{self, Carrier};
@@ -206,11 +206,11 @@ async fn authenticate(
             return;
         }
     };
-    match acc.hello {
-        Hello::Control { version } if version == VERSION => {
+    match (acc.preamble.kind, &acc.hello) {
+        (ChannelKind::Control, &Hello::Control { version }) if version == VERSION => {
             control_session(shared, acc, peer).await
         }
-        Hello::Data { version, token } if version == VERSION => {
+        (ChannelKind::Data, &Hello::Data { version, token }) if version == VERSION => {
             if acc.preamble.plaintext != settings.insecure_plaintext {
                 return;
             }
@@ -218,6 +218,9 @@ async fn authenticate(
                 Some(s) if s.token == token => s.offer(acc.channel),
                 _ => debug!(%peer, "data channel for an unknown session, closing"),
             }
+        }
+        (kind, hello) if kind != hello.kind() => {
+            debug!(%peer, "hello does not match the channel kind, closing")
         }
         _ => debug!(%peer, "unsupported protocol version"),
     }

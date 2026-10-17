@@ -2,7 +2,7 @@
 
 use burrow::config::model::Cipher;
 use burrow::noise::{Initiator, Responder};
-use burrow::protocol::{ClientMsg, Connect, Hello, ServerMsg, Status, decode_datagram};
+use burrow::protocol::{ClientMsg, Connect, Hello, ServerMsg, Status, VisitRequest, decode_datagram};
 use burrow::secret::Secret;
 use burrow::record::RecordReader;
 use libfuzzer_sys::fuzz_target;
@@ -13,6 +13,9 @@ fuzz_target!(|data: &[u8]| {
     let _ = Connect::decode(data);
     let _ = Hello::decode(data);
     let _ = Status::decode(data);
+    if let Ok(r) = VisitRequest::decode(data) {
+        assert_eq!(VisitRequest::decode(&r.encode()), Ok(r));
+    }
     let _ = decode_datagram(data);
 
     let secret = Secret::from_bytes([9u8; 32]);

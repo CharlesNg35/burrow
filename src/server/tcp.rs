@@ -166,6 +166,9 @@ pub(super) fn log_status(name: &str, svc: &Service, st: Status) {
                 "service \"{name}\": client \"{client}\" rejected the target {target} as invalid{more}"
             )
         }
+        Status::Forbidden | Status::Offline | Status::Busy => {
+            warn!("service \"{name}\": client \"{client}\" sent an unexpected reply{more}")
+        }
         Status::Ok => {}
     }
 }

@@ -14,6 +14,7 @@ pub const FLAG_PLAINTEXT: u8 = 0b10;
 pub enum ChannelKind {
     Control = 1,
     Data = 2,
+    Visit = 3,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -68,6 +69,7 @@ impl Preamble {
         let kind = match head[4] {
             1 => ChannelKind::Control,
             2 => ChannelKind::Data,
+            3 => ChannelKind::Visit,
             _ => return Err(DecodeError::BadKind),
         };
         let flags = head[5];
@@ -182,9 +184,18 @@ fn proto_from(b: u8) -> Result<Protocol, DecodeError> {
 pub enum Hello {
     Control { version: u8 },
     Data { version: u8, token: [u8; TOKEN_LEN] },
+    Visit { version: u8 },
 }
 
 impl Hello {
+    pub fn kind(&self) -> ChannelKind {
+        match self {
+            Hello::Control { .. } => ChannelKind::Control,
+            Hello::Data { .. } => ChannelKind::Data,
+            Hello::Visit { .. } => ChannelKind::Visit,
+        }
+    }
+
     pub fn encode(&self) -> Vec<u8> {
         match self {
             Hello::Control { version } => vec![1, *version],
@@ -193,6 +204,7 @@ impl Hello {
                 v.extend_from_slice(token);
                 v
             }
+            Hello::Visit { version } => vec![3, *version],
         }
     }
 
@@ -204,6 +216,7 @@ impl Hello {
                 version: r.u8()?,
                 token: r.token()?,
             },
+            3 => Hello::Visit { version: r.u8()? },
             x => return Err(DecodeError::UnknownType(x)),
         };
         r.end()?;
@@ -380,6 +393,9 @@ pub enum Status {
     Unreachable = 2,
     Unresolved = 3,
     Invalid = 4,
+    Forbidden = 5,
+    Offline = 6,
+    Busy = 7,
 }
 
 impl Status {
@@ -390,10 +406,83 @@ impl Status {
             [2] => Ok(Status::Unreachable),
             [3] => Ok(Status::Unresolved),
             [4] => Ok(Status::Invalid),
+            [5] => Ok(Status::Forbidden),
+            [6] => Ok(Status::Offline),
+            [7] => Ok(Status::Busy),
             [x] => Err(DecodeError::UnknownType(*x)),
             [] => Err(DecodeError::Truncated),
             _ => Err(DecodeError::Trailing),
         }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum VisitTarget {
+    Service(String),
+    Client { client: String, target: String },
+}
+
+impl std::fmt::Display for VisitTarget {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            VisitTarget::Service(name) => write!(f, "service \"{name}\""),
+            VisitTarget::Client { client, target } => write!(f, "{target} on client \"{client}\""),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VisitRequest {
+    pub check: bool,
+    pub to: VisitTarget,
+}
+
+impl VisitRequest {
+    pub fn encode(&self) -> Vec<u8> {
+        let mut v = vec![0x20, u8::from(self.check)];
+        match &self.to {
+            VisitTarget::Service(name) => {
+                v.push(1);
+                put_str(&mut v, name);
+            }
+            VisitTarget::Client { client, target } => {
+                v.push(2);
+                put_str(&mut v, client);
+                put_str(&mut v, target);
+            }
+        }
+        v
+    }
+
+    pub fn decode(b: &[u8]) -> Result<Self, DecodeError> {
+        let mut r = Reader { buf: b };
+        match r.u8()? {
+            0x20 => {}
+            x => return Err(DecodeError::UnknownType(x)),
+        }
+        let check = match r.u8()? {
+            0 => false,
+            1 => true,
+            x => return Err(DecodeError::UnknownType(x)),
+        };
+        let name = |r: &mut Reader| {
+            let n = r.short_str()?;
+            if crate::config::check::valid_name(&n) {
+                Ok(n)
+            } else {
+                Err(DecodeError::BadName)
+            }
+        };
+        let to = match r.u8()? {
+            1 => VisitTarget::Service(name(&mut r)?),
+            2 => VisitTarget::Client {
+                client: name(&mut r)?,
+                target: r.short_str()?,
+            },
+            x => return Err(DecodeError::UnknownType(x)),
+        };
+        r.end()?;
+        Ok(VisitRequest { check, to })
     }
 }
 
@@ -438,7 +527,7 @@ mod tests {
             Err(DecodeError::BadMagic)
         );
         assert_eq!(
-            Preamble::decode_fixed(b"BRW1\x03\x00\x01"),
+            Preamble::decode_fixed(b"BRW1\x04\x00\x01"),
             Err(DecodeError::BadKind)
         );
         assert_eq!(
@@ -496,6 +585,61 @@ mod tests {
             token: [3; 16],
         };
         assert_eq!(Hello::decode(&h.encode()).unwrap(), h);
+        let v = Hello::Visit { version: 1 };
+        assert_eq!(Hello::decode(&v.encode()).unwrap(), v);
+    }
+
+    #[test]
+    fn visit_requests_round_trip() {
+        for r in [
+            VisitRequest {
+                check: false,
+                to: VisitTarget::Service("db".into()),
+            },
+            VisitRequest {
+                check: true,
+                to: VisitTarget::Client {
+                    client: "home".into(),
+                    target: "[::1]:22".into(),
+                },
+            },
+        ] {
+            let b = r.encode();
+            assert_eq!(VisitRequest::decode(&b).unwrap(), r);
+            for i in 0..b.len() {
+                assert!(VisitRequest::decode(&b[..i]).is_err());
+            }
+            let mut t = b.clone();
+            t.push(0);
+            assert_eq!(VisitRequest::decode(&t), Err(DecodeError::Trailing));
+        }
+        assert!(VisitRequest::decode(&[0x20, 2, 1, 2, b'd', b'b']).is_err());
+        assert!(VisitRequest::decode(&[0x20, 0, 3, 2, b'd', b'b']).is_err());
+        assert_eq!(
+            VisitRequest::decode(&[0x20, 0, 1, 3, b'a', b' ', b'b']),
+            Err(DecodeError::BadName)
+        );
+        assert_eq!(
+            VisitRequest::decode(&[0x10, 0, 1, 2, b'd', b'b']),
+            Err(DecodeError::UnknownType(0x10))
+        );
+    }
+
+    #[test]
+    fn statuses_decode() {
+        for s in [
+            Status::Ok,
+            Status::Denied,
+            Status::Unreachable,
+            Status::Unresolved,
+            Status::Invalid,
+            Status::Forbidden,
+            Status::Offline,
+            Status::Busy,
+        ] {
+            assert_eq!(Status::decode(&[s as u8]), Ok(s));
+        }
+        assert_eq!(Status::decode(&[8]), Err(DecodeError::UnknownType(8)));
     }
 
     #[test]

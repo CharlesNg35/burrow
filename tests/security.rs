@@ -295,3 +295,31 @@ async fn silent_client_is_closed_after_heartbeat_timeout() {
     );
     assert!(srv.shared.session_names().is_empty());
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hello_must_match_the_channel_kind() {
+    let secret = Secret::generate();
+    let srv = start_server(server_settings(vec![secret.clone()])).await;
+    for (kind, hello) in [
+        (ChannelKind::Visit, Hello::Control { version: 1 }),
+        (ChannelKind::Data, Hello::Control { version: 1 }),
+        (ChannelKind::Control, Hello::Visit { version: 1 }),
+    ] {
+        let s = TcpStream::connect(srv.addr).await.unwrap();
+        let p = Preamble {
+            kind,
+            cipher: Cipher::Chachapoly,
+            plaintext: false,
+            name: "home".into(),
+        };
+        if let Ok(mut ch) = burrow::handshake::initiate(s.into(), &p, &secret, &hello).await {
+            let mut buf = [0u8; 8];
+            let n = tokio::time::timeout(Duration::from_secs(3), ch.stream.read(&mut buf))
+                .await
+                .unwrap()
+                .unwrap_or(0);
+            assert_eq!(n, 0, "{kind:?} with {hello:?} is closed without a reply");
+        }
+        assert!(srv.shared.session_names().is_empty(), "{kind:?} {hello:?}");
+    }
+}
