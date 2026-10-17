@@ -76,6 +76,10 @@ pub enum Command {
         about = "Show the running burrow servers on this machine: clients, services, visitors and traffic"
     )]
     Status(StatusArgs),
+    #[command(
+        about = "Open a config in your editor, check it, save it and apply it: one in this folder, of an installed service or of a running instance"
+    )]
+    Edit(EditArgs),
     #[command(about = "Write a new server, client or visitor config")]
     Init(InitArgs),
     #[command(about = "Print a ready client config for a client defined in the server config")]
@@ -159,6 +163,21 @@ pub struct ServiceInstallArgs {
     pub print: bool,
     #[arg(long, hide = true)]
     pub worker: Option<PathBuf>,
+}
+
+#[derive(Debug, Args)]
+pub struct EditArgs {
+    #[arg(
+        value_name = "WHAT",
+        help = "A service name, a config file, or server, client or visitor when only one is found; a list to pick from when omitted"
+    )]
+    pub target: Option<String>,
+    #[arg(
+        long,
+        value_name = "COMMAND",
+        help = "Editor to use, for example \"code --wait\"; VISUAL or EDITOR when omitted"
+    )]
+    pub editor: Option<String>,
 }
 
 #[derive(Debug, Args)]

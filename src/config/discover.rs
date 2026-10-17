@@ -20,6 +20,13 @@ fn candidates(dir: &Path, role: Role) -> Vec<PathBuf> {
         .collect()
 }
 
+pub fn in_folder(dir: &Path) -> Vec<(PathBuf, Role)> {
+    [Role::Server, Role::Client, Role::Visitor]
+        .into_iter()
+        .flat_map(|role| candidates(dir, role).into_iter().map(move |p| (p, role)))
+        .collect()
+}
+
 pub fn discover(dir: &Path, role: Option<Role>) -> Result<PathBuf, Failure> {
     let roles = match role {
         Some(r) => vec![r],

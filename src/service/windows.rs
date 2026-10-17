@@ -190,6 +190,10 @@ impl Backend for WindowsService {
         Ok(())
     }
 
+    fn read_env(&self, m: &Manifest) -> BTreeMap<String, String> {
+        read_env(m.env_file.as_ref())
+    }
+
     fn write_env(&self, m: &Manifest, env: &BTreeMap<String, String>) -> Result<(), Failure> {
         let Some(path) = &m.env_file else {
             return Ok(());

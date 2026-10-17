@@ -24,6 +24,12 @@ impl Role {
         }
     }
 
+    pub fn parse(word: &str) -> Option<Role> {
+        [Role::Server, Role::Client, Role::Visitor]
+            .into_iter()
+            .find(|r| r.as_str() == word)
+    }
+
     pub fn command(self) -> &'static str {
         match self {
             Role::Visitor => "visit",

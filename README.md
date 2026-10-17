@@ -69,6 +69,7 @@ Other commands:
 ./burrow schema server > server.schema.json # JSON Schema for editor completion
 ./burrow completions bash                   # shell completions: bash, zsh, fish, powershell, elvish
 ./burrow status                             # clients, services and traffic of the running servers (-f to follow)
+./burrow edit                               # open a config in your editor; it is checked, saved and applied
 ./burrow update                             # install the latest release
 ```
 

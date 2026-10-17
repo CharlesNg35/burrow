@@ -10,7 +10,8 @@ use burrow::config::env::ProcessEnv;
 use burrow::config::{Format, Role};
 use burrow::diagnostics::Style;
 use burrow::failure::Failure;
-use burrow::init::{InitOptions, TtyPrompt};
+use burrow::init::InitOptions;
+use burrow::prompt::TtyPrompt;
 
 fn role(r: RoleArg) -> Role {
     match r {
@@ -59,7 +60,7 @@ fn config_path(
 }
 
 fn ask_role() -> Result<RoleArg, Failure> {
-    use burrow::init::Prompter;
+    use burrow::prompt::Prompter;
     let mut prompt = TtyPrompt;
     for _ in 0..3 {
         if !prompt.interactive() {
@@ -349,6 +350,14 @@ fn run(cli: Cli) -> Result<u8, Failure> {
             print(&format!("burrow {}\n", env!("CARGO_PKG_VERSION")))?;
             Ok(0)
         }
+        Command::Edit(a) => burrow::edit::run(
+            &burrow::edit::Options {
+                target: a.target,
+                editor: a.editor,
+            },
+            &mut TtyPrompt,
+            &mut std::io::stdout().lock(),
+        ),
         Command::Status(a) => {
             use burrow::status::query::{Options, Pick, run};
             let pick = match (a.name, a.config) {

@@ -14,6 +14,7 @@
 - **Unix socket targets**: `target: unix:/path`, permitted on the client by `unix:` entries in `allow`.
 - **SOCKS5 for visitors**: `burrow visit --client home --socks 1080`, or `socks: true` on a forward; `visitor-config` writes one for each client in `reach`.
 - **`burrow status`** shows every server running on the machine, however it was started, with no setup and nothing reachable from the network: tables with color in a terminal that fit its width, `-f` for a live screen with rates, `--json` for scripts. Prometheus metrics stay optional (`metrics.listen`, off by default).
+- **`burrow edit`** finds the configs in this folder, of installed services and of running instances, opens one in your editor (`--editor`, `VISUAL` or `EDITOR`), checks it like `validate`, saves it with its owner and permissions only if nobody changed it meanwhile, and applies it: a server reloads by itself, a client or visitor service is restarted after asking.
 - A renewed `wss://` certificate is picked up from its files without a restart.
 - Fix: `update`, `service update`, `service restart`, `service reload` and reinstalling a running service finish even when the SSH session that started them runs through the tunnel and drops; before, the services could stay stopped.
 - Fix: a connection on a data channel that went silent ends after three heartbeats instead of about 15 minutes; a burst of UDP peers no longer grows the client's memory or exhausts its open files; a reload no longer stalls on ports taken by other programs; failed accepts are logged once per 10 seconds.

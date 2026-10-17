@@ -174,6 +174,10 @@ impl Backend for Launchd {
         make_dir(&p.log_dir(), 0o755, None)
     }
 
+    fn read_env(&self, m: &Manifest) -> BTreeMap<String, String> {
+        read_env(m)
+    }
+
     fn write_env(&self, m: &Manifest, env: &BTreeMap<String, String>) -> Result<(), Failure> {
         let Some(path) = &m.env_file else {
             return Ok(());

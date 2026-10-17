@@ -80,7 +80,7 @@ impl Style {
         }
     }
 
-    fn paint(&self, code: &str, text: &str) -> String {
+    pub fn paint(&self, code: &str, text: &str) -> String {
         if self.color {
             format!("\x1b[{code}m{text}\x1b[0m")
         } else {

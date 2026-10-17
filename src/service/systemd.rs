@@ -48,6 +48,27 @@ fn env_value(v: &str) -> String {
     )
 }
 
+fn parse_env(text: &str) -> BTreeMap<String, String> {
+    text.lines()
+        .filter_map(|line| {
+            let (key, quoted) = line.split_once('=')?;
+            let inner = quoted.strip_prefix('"')?.strip_suffix('"')?;
+            let mut value = String::new();
+            let mut chars = inner.chars();
+            while let Some(c) = chars.next() {
+                value.push(match c {
+                    '\\' => match chars.next()? {
+                        'n' => '\n',
+                        other => other,
+                    },
+                    c => c,
+                });
+            }
+            Some((key.to_string(), value))
+        })
+        .collect()
+}
+
 impl Backend for Systemd {
     fn kind(&self) -> &'static str {
         "systemd"
@@ -168,6 +189,14 @@ impl Backend for Systemd {
         Ok(())
     }
 
+    fn read_env(&self, m: &Manifest) -> BTreeMap<String, String> {
+        m.env_file
+            .as_ref()
+            .and_then(|p| std::fs::read_to_string(p).ok())
+            .map(|text| parse_env(&text))
+            .unwrap_or_default()
+    }
+
     fn write_env(&self, m: &Manifest, env: &BTreeMap<String, String>) -> Result<(), Failure> {
         let Some(path) = &m.env_file else {
             return Ok(());
@@ -274,6 +303,19 @@ impl Backend for Systemd {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_environment_file_reads_back_what_was_written() {
+        let env = BTreeMap::from([
+            ("HOME_SECRET".to_string(), "a\"b\\c\nd=e".to_string()),
+            ("PLAIN".to_string(), "x".to_string()),
+        ]);
+        let text: String = env
+            .iter()
+            .map(|(k, v)| format!("{k}={}\n", env_value(v)))
+            .collect();
+        assert_eq!(parse_env(&text), env);
+    }
 
     #[test]
     fn units_run_the_command_of_each_role() {

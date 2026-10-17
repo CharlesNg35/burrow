@@ -5,12 +5,13 @@ use std::path::{Path, PathBuf};
 use serde_json::{Value, json};
 
 use super::export::{CLIENT, ConfigOutput, connect_address, load_server, pick_name, secret_text};
-use super::{InitOptions, Login, Prompter, ask_login, resolve_output, write_new};
+use super::{InitOptions, Login, ask_login, resolve_output, write_new};
 use crate::config::check::parse_host_port;
 use crate::config::emit::render;
 use crate::config::env::EnvSource;
 use crate::config::{Format, Role};
 use crate::failure::Failure;
+use crate::prompt::Prompter;
 
 pub fn client_value(server: &str, name: &str, secret_text: &str, allow: &[String]) -> Value {
     json!({

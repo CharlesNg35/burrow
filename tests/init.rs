@@ -5,7 +5,8 @@ use std::path::Path;
 use burrow::client::State;
 use burrow::config::env::ProcessEnv;
 use burrow::config::{Format, Loaded, Role, load_file};
-use burrow::init::{InitOptions, NoPrompt, Prompter, client_config, init_client, init_server};
+use burrow::init::{InitOptions, client_config, init_client, init_server};
+use burrow::prompt::{NoPrompt, Prompter};
 use common::*;
 
 fn load(path: &Path) -> Loaded {

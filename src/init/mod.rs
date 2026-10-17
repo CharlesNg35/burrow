@@ -14,48 +14,13 @@ use std::path::{Path, PathBuf};
 use crate::config::check::valid_name;
 use crate::config::{Format, Role};
 use crate::failure::Failure;
+use crate::prompt::Prompter;
 use crate::secret::Secret;
 use crate::transport::endpoint::Endpoint;
 
 pub const DEFAULT_CLIENT_NAME: &str = "home";
 pub const DEFAULT_LISTEN: &str = "0.0.0.0:7835";
 pub const DEFAULT_SERVICE_BIND: &str = "0.0.0.0:7840";
-
-pub trait Prompter {
-    fn ask(&mut self, question: &str) -> Option<String>;
-    fn interactive(&self) -> bool {
-        false
-    }
-}
-
-pub struct NoPrompt;
-
-impl Prompter for NoPrompt {
-    fn ask(&mut self, _: &str) -> Option<String> {
-        None
-    }
-}
-
-pub struct TtyPrompt;
-
-impl Prompter for TtyPrompt {
-    fn interactive(&self) -> bool {
-        use std::io::IsTerminal;
-        std::io::stdin().is_terminal()
-    }
-
-    fn ask(&mut self, question: &str) -> Option<String> {
-        if !self.interactive() {
-            return None;
-        }
-        eprint!("{question}: ");
-        let _ = std::io::stderr().flush();
-        let mut line = String::new();
-        std::io::stdin().read_line(&mut line).ok()?;
-        let line = line.trim().to_string();
-        (!line.is_empty()).then_some(line)
-    }
-}
 
 #[derive(Debug, Clone, Default)]
 pub struct InitOptions {

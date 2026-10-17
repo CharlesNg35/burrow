@@ -328,6 +328,104 @@ fn write_note(path: &Path, note: &str) {
     };
     let _ = f.set_len(0);
     let _ = f.write_all(note.as_bytes());
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = f.set_permissions(std::fs::Permissions::from_mode(0o644));
+    }
+}
+
+pub struct Running {
+    pub pid: u32,
+    pub config: PathBuf,
+}
+
+pub fn running() -> Vec<Running> {
+    running_in(&default_dir())
+}
+
+pub fn running_in(dir: &Path) -> Vec<Running> {
+    let Ok(listing) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    let mut found: Vec<Running> = listing
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|x| x == "info"))
+        .filter_map(|p| {
+            let owner = trusted_note(&p)?;
+            let r = parse_note(&std::fs::read_to_string(&p).ok()?)?;
+            runs_as(r.pid, owner).then_some(r)
+        })
+        .collect();
+    found.sort_by(|a, b| a.config.cmp(&b.config));
+    found
+}
+
+fn parse_note(text: &str) -> Option<Running> {
+    let (pid, config) = text.trim().strip_prefix("pid ")?.split_once(", config ")?;
+    Some(Running {
+        pid: pid.parse().ok()?,
+        config: PathBuf::from(config),
+    })
+}
+
+#[cfg(unix)]
+fn trusted_note(path: &Path) -> Option<u32> {
+    use std::os::unix::fs::MetadataExt;
+    let m = std::fs::symlink_metadata(path).ok()?;
+    let me = rustix::process::geteuid().as_raw();
+    (m.is_file() && m.len() <= 4096 && m.mode() & 0o022 == 0 && (m.uid() == 0 || m.uid() == me))
+        .then_some(m.uid())
+}
+
+#[cfg(not(unix))]
+fn trusted_note(path: &Path) -> Option<u32> {
+    std::fs::symlink_metadata(path)
+        .is_ok_and(|m| m.is_file() && m.len() <= 4096)
+        .then_some(0)
+}
+
+#[cfg(target_os = "linux")]
+fn pid_owner(pid: u32) -> Option<u32> {
+    use std::os::unix::fs::MetadataExt;
+    std::fs::metadata(format!("/proc/{pid}"))
+        .ok()
+        .map(|m| m.uid())
+}
+
+#[cfg(all(unix, not(target_os = "linux")))]
+fn pid_owner(pid: u32) -> Option<u32> {
+    let out = std::process::Command::new("ps")
+        .args(["-o", "uid=", "-p", &pid.to_string()])
+        .stderr(std::process::Stdio::null())
+        .output()
+        .ok()
+        .filter(|o| o.status.success())?;
+    String::from_utf8_lossy(&out.stdout).trim().parse().ok()
+}
+
+#[cfg(unix)]
+fn runs_as(pid: u32, owner: u32) -> bool {
+    pid_owner(pid) == Some(owner)
+}
+
+#[cfg(windows)]
+fn runs_as(pid: u32, _owner: u32) -> bool {
+    std::process::Command::new("tasklist")
+        .args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .is_some_and(|o| {
+            let text = String::from_utf8_lossy(&o.stdout).to_ascii_lowercase();
+            text.starts_with("\"burrow") && text.contains(&format!("\"{pid}\""))
+        })
+}
+
+#[cfg(not(any(unix, windows)))]
+fn runs_as(_pid: u32, _owner: u32) -> bool {
+    false
 }
 
 #[cfg(unix)]
@@ -376,6 +474,25 @@ mod tests {
         remove_unused(dir.path());
         assert!(!held_path.exists());
         assert!(!dir.path().exists(), "an empty folder is removed");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn running_instances_are_read_from_their_notes() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = dir.path().join("client.yaml");
+        let lock = acquire_in(dir.path(), &Identity::client("example.com", "home"), &cfg).unwrap();
+        std::fs::write(
+            dir.path().join("dead.info"),
+            "pid 999999999, config /x/server.yaml",
+        )
+        .unwrap();
+        std::fs::write(dir.path().join("odd.info"), "something else").unwrap();
+        let found = running_in(dir.path());
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].pid, std::process::id());
+        assert!(found[0].config.ends_with("client.yaml"));
+        drop(lock);
     }
 
     #[test]

@@ -76,6 +76,9 @@ pub trait Backend {
     fn secure_file(&self, path: &Path, account: &str) -> Result<(), Failure>;
     fn prepare_dirs(&self, account: &str) -> Result<(), Failure>;
     fn write_env(&self, m: &Manifest, env: &BTreeMap<String, String>) -> Result<(), Failure>;
+    fn read_env(&self, _m: &Manifest) -> BTreeMap<String, String> {
+        BTreeMap::new()
+    }
     fn install(&self, m: &Manifest) -> Result<(), Failure>;
     fn uninstall(&self, m: &Manifest) -> Result<(), Failure>;
     fn start(&self, m: &Manifest) -> Result<(), Failure>;
@@ -635,6 +638,33 @@ pub fn any_installed() -> bool {
         dir.flatten()
             .any(|e| e.path().extension().is_some_and(|x| x == "json"))
     })
+}
+
+pub struct Installed {
+    pub manifest: Manifest,
+    pub running: bool,
+}
+
+pub fn installed() -> Vec<Installed> {
+    let Ok(backend) = system::backend() else {
+        return Vec::new();
+    };
+    all_manifests()
+        .into_iter()
+        .map(|manifest| Installed {
+            running: backend.status(&manifest).running,
+            manifest,
+        })
+        .collect()
+}
+
+pub fn env_of(m: &Manifest) -> BTreeMap<String, String> {
+    system::backend().map(|b| b.read_env(m)).unwrap_or_default()
+}
+
+pub fn services_hidden() -> bool {
+    let dir = Platform::current().state_dir();
+    dir.exists() && std::fs::read_dir(&dir).is_err()
 }
 
 pub fn all_manifests() -> Vec<Manifest> {
