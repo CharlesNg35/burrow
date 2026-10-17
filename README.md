@@ -6,25 +6,27 @@ A fast, small, secure reverse tunnel. A client behind NAT connects out to a publ
 user ──> server:7840 ══ Noise-encrypted TCP or WebSocket ══ client (behind NAT) ──> 127.0.0.1:3000
 ```
 
-- TCP and UDP services, half-close, an adaptive pool of pre-opened data channels
-- Private services: reach a service from your own machine with `burrow visit`, without a public port
+- TCP and UDP services, port ranges, Unix socket targets, half-close
+- Private services: reach a service from your own machine with `burrow visit`, without a public port, also through a SOCKS5 proxy
+- Several clients per service with failover or load balancing, and health checks
+- Per service: source IP allow and deny lists, the real client address through the PROXY protocol, bandwidth limits
 - Noise `NNpsk0` with a separate 256-bit secret per client, and a client-side allow list (deny by default)
 - Hot reload on file change or `SIGHUP`; invalid edits are rejected and the old config keeps running
 - Optional WebSocket transport for servers that are only reachable over HTTP(S); off unless configured
+- Prometheus metrics and `burrow status`, off unless configured
 - Clients never give up: jittered backoff, DNS re-resolved on every attempt, Happy Eyeballs dialing
 - Every config error reported at once, with `file:line:column`, a caret and a fix
-- Single static binary, about 3 MB; container image about 6 MB
+- Single static binary, about 3 MB; container image about 6 MB; `burrow update` installs new releases
 
 ## Contents
 
 - [Install](#install)
 - [Quickstart](#quickstart)
 - [Configuration](#configuration)
-  - [server.yaml](#serveryaml)
-  - [client.yaml](#clientyaml)
+- [Services](#services)
 - [Private services and visitors](#private-services-and-visitors)
 - [Servers reachable only through HTTP(S)](#servers-reachable-only-through-https)
-- [Reconnecting](#reconnecting)
+- [Monitoring](#monitoring)
 - [Running as a service](#running-as-a-service)
 - [Security notes](#security-notes)
 - [Docker](#docker)
@@ -34,7 +36,7 @@ user ──> server:7840 ══ Noise-encrypted TCP or WebSocket ══ client (
 
 ## Install
 
-Download the archive for your system from the [latest release](https://github.com/CharlesNg35/burrow/releases/latest) (checksums in `SHA256SUMS`), unpack it, and run `./burrow` from that folder (`.\burrow.exe` on Windows). Or use the [Docker](#docker) image.
+Download the archive for your system from the [latest release](https://github.com/CharlesNg35/burrow/releases/latest) (checksums in `SHA256SUMS`), unpack it, and run `./burrow` from that folder (`.\burrow.exe` on Windows). Later, `./burrow update` installs new releases. Or use the [Docker](#docker) image.
 
 ## Quickstart
 
@@ -62,24 +64,15 @@ Other commands:
 ./burrow gensecret                          # new 256-bit secret
 ./burrow schema server > server.schema.json # JSON Schema for editor completion
 ./burrow completions bash                   # shell completions: bash, zsh, fish, powershell, elvish
-```
-
-`burrow server` and `burrow client` run the same checks as `validate` before opening any socket, and the server runs them again on every reload.
-
-```
-error: unknown client "hom" referenced by service "web"
-  --> server.yaml:9:13
-   |
- 9 |     client: hom
-   |             ^^^ no client with this name
-   = help: did you mean "home"? defined clients: home, office
+./burrow status                             # clients, services and traffic of the running server (needs metrics)
+./burrow update                             # install the latest release
 ```
 
 ## Configuration
 
-YAML (`.yaml`, `.yml`) or JSON (`.json`), same schema. `${VAR}` expands environment variables (`$${` for a literal `${`). Unknown fields are errors.
+YAML (`.yaml`, `.yml`) or JSON (`.json`), same schema. `${VAR}` expands environment variables (`$${` for a literal `${`). Unknown fields are errors, and `burrow validate` reports every problem with its line and a fix.
 
-### server.yaml
+**server.yaml**
 
 ```yaml
 listen: 0.0.0.0:7835 # ip:port, or a port alone (means 0.0.0.0:port, all IPv4 addresses)
@@ -99,34 +92,46 @@ services:
     target: 192.168.1.1:53
 ```
 
-| key                                  | default                             | meaning                                                       |
-| ------------------------------------ | ----------------------------------- | ------------------------------------------------------------- |
-| `listen`                             | none                                | where the server waits for clients (and/or `websocket`)       |
-| `public_address`                     | none                                | how clients reach it: host, host:port or wss:// URL           |
-| `websocket.listen` / `path`          | none / `/burrow`                    | accept clients over WebSocket (see below)                     |
-| `websocket.tls.cert` / `key`         | none                                | serve `wss://` directly with these PEM files                  |
-| `websocket.keepalive_secs`           | `25`                                | keepalive on idle pooled connections, 5-30                    |
-| `clients.<name>.secret`              | required                            | base64 or hex 256-bit secret, or a list of up to 4            |
-| `clients.<name>.max_connections`     | `limits.max_connections_per_client` | concurrent forwarded connections for this client              |
-| `services.<name>.client` / `target`  | required                            | who reaches the target, and the target address                |
-| `services.<name>.bind`               | none (private)                      | public address on the server                                  |
-| `services.<name>.visitors`           | none                                | visitors that may reach it with `burrow visit`                |
-| `services.<name>.protocol`           | `tcp`                               | `tcp` or `udp`                                                |
-| `services.<name>.max_connections`    | unlimited                           | concurrent connections for this service                       |
-| `visitors.<name>.secret`             | required                            | like a client secret; see below                               |
-| `visitors.<name>.reach`              | none                                | `CLIENT: any`: may pick any target that client allows         |
-| `visitors.<name>.max_connections`    | unlimited                           | concurrent connections for this visitor                       |
-| `insecure_plaintext`                 | `false`                             | do not encrypt forwarded TCP data (authentication still runs) |
-| `heartbeat.interval_secs`            | `10`                                | ping interval; peers time out after 3 missed intervals        |
-| `limits.handshake_timeout_secs`      | `5`                                 | time allowed to authenticate                                  |
-| `limits.max_handshakes`              | `256`                               | concurrent unauthenticated connections                        |
-| `limits.max_connections_per_client`  | `8192`                              |                                                               |
-| `limits.max_pending`                 | `512`                               | connections waiting for a data channel, per client            |
-| `pool.min_idle` / `pool.max_idle`    | `4` / `64`                          | pre-opened data channels per client (adaptive)                |
-| `tcp.nodelay` / `tcp.keepalive_secs` | `true` / `30`                       | `keepalive_secs: 0` disables keepalive                        |
-| `udp.session_timeout_secs`           | `60`                                | idle UDP peer expiry                                          |
+<details>
+<summary><b>All server.yaml keys</b></summary>
 
-### client.yaml
+| key                                        | default                             | meaning                                                             |
+| ------------------------------------------ | ----------------------------------- | ------------------------------------------------------------------- |
+| `listen`                                   | none                                | where the server waits for clients (and/or `websocket`)             |
+| `public_address`                           | none                                | how clients reach it: host, host:port or wss:// URL                 |
+| `websocket.listen` / `path`                | none / `/burrow`                    | accept clients over WebSocket (see below)                           |
+| `websocket.tls.cert` / `key`               | none                                | serve `wss://` directly with these PEM files                        |
+| `websocket.keepalive_secs`                 | `25`                                | keepalive on idle pooled connections, 5-30                          |
+| `clients.<name>.secret`                    | required                            | base64 or hex 256-bit secret, or a list of up to 4                  |
+| `clients.<name>.max_connections`           | `limits.max_connections_per_client` | concurrent forwarded connections for this client                    |
+| `services.<name>.client` or `clients`      | required                            | the client that reaches the target, or several of them              |
+| `services.<name>.target`                   | required                            | host:port, a port, a range like `30000-30010`, or `unix:/path`      |
+| `services.<name>.bind`                     | none (private)                      | public port, range or ip:port on the server                         |
+| `services.<name>.protocol`                 | `tcp`                               | `tcp` or `udp`                                                      |
+| `services.<name>.visitors`                 | none                                | visitors that may reach it with `burrow visit`                      |
+| `services.<name>.mode`                     | `failover`                          | with several clients: `failover` or `balance`                       |
+| `services.<name>.health_check`             | off                                 | `true`, or `{ interval_secs, timeout_secs, failures }`              |
+| `services.<name>.allow_from` / `deny_from` | everyone                            | source IPs or CIDRs that may or may not connect                     |
+| `services.<name>.proxy_protocol`           | off                                 | `v1` or `v2`: send the real client address to the target            |
+| `services.<name>.bandwidth`                | unlimited                           | per direction, for example `40mbit` or `5MB`                        |
+| `services.<name>.max_connections`          | unlimited                           | concurrent connections for this service                             |
+| `visitors.<name>.secret`                   | required                            | like a client secret; see below                                     |
+| `visitors.<name>.reach`                    | none                                | `CLIENT: any`: may pick any target that client allows               |
+| `visitors.<name>.max_connections`          | unlimited                           | concurrent connections for this visitor                             |
+| `metrics.listen`                           | off                                 | address for `/metrics` and `/status`, see [Monitoring](#monitoring) |
+| `insecure_plaintext`                       | `false`                             | do not encrypt forwarded TCP data (authentication still runs)       |
+| `heartbeat.interval_secs`                  | `10`                                | ping interval; peers time out after 3 missed intervals              |
+| `limits.handshake_timeout_secs`            | `5`                                 | time allowed to authenticate                                        |
+| `limits.max_handshakes`                    | `256`                               | concurrent unauthenticated connections                              |
+| `limits.max_connections_per_client`        | `8192`                              |                                                                     |
+| `limits.max_pending`                       | `512`                               | connections waiting for a data channel, per client                  |
+| `pool.min_idle` / `pool.max_idle`          | `4` / `64`                          | pre-opened data channels per client (adaptive)                      |
+| `tcp.nodelay` / `tcp.keepalive_secs`       | `true` / `30`                       | `keepalive_secs: 0` disables keepalive                              |
+| `udp.session_timeout_secs`                 | `60`                                | idle UDP peer expiry                                                |
+
+</details>
+
+**client.yaml**
 
 ```yaml
 server: myserver.example.com:7835 # port 7835 when omitted; or wss://tunnel.example.com/burrow
@@ -136,12 +141,18 @@ allow:
   - 127.0.0.0/8
   - 192.168.1.0/24:22 # CIDR, optionally :port or :low-high
   - 192.168.1.1/32:53 # the dns service above
+  - unix:/run/postgresql/* # Unix sockets: one path, or every socket in a folder
 ```
+
+The client connects only to targets in `allow`, checked after DNS resolution. `burrow client-config` writes this list from the server's services.
+
+<details>
+<summary><b>All client.yaml keys</b></summary>
 
 | key                                             | default          | meaning                                                               |
 | ----------------------------------------------- | ---------------- | --------------------------------------------------------------------- |
 | `server`, `name`, `secret`                      | required         | where to connect, this client's name, its secret                      |
-| `allow`                                         | empty (deny all) | targets the server may reach, checked after DNS resolution            |
+| `allow`                                         | empty (deny all) | targets the server may reach: CIDR with optional ports, or `unix:`    |
 | `allow_all`                                     | `false`          | allow any target (not recommended)                                    |
 | `cipher`                                        | `chachapoly`     | or `aes-gcm` (about 1.8x tunnel throughput with AES-NI)               |
 | `proxy`                                         | none             | `http://host:port` or `socks5://[user:pass@]host:port`                |
@@ -153,6 +164,55 @@ allow:
 | `ca`                                            | none             | extra CA certificate (PEM) to trust for `wss://`                      |
 | `connect_timeout_secs`                          | `10`             |                                                                       |
 | `tcp`, `udp`                                    | as on the server |                                                                       |
+
+A client keeps retrying until it is stopped: exponential backoff with jitter, resolving the server name again on every attempt and trying all its addresses in parallel (Happy Eyeballs), so it follows a server that moved to a new address. During a long outage it logs the first failure and then one summary per minute.
+
+</details>
+
+## Services
+
+Everything about a service is set on the server; clients need no change, and a reload applies it.
+
+**Port ranges.** One service can expose a range, where each public port leads to the same position in the target range. Visitors can forward ranges too.
+
+```yaml
+game:
+  client: home
+  protocol: udp
+  bind: 30000-30010
+  target: 192.168.1.50:30000-30010
+```
+
+**Who may connect.** `allow_from` admits only these source addresses; `deny_from` blocks some. Blocked connections are closed on the server and never reach your network. A reload closes open connections that are no longer allowed.
+
+```yaml
+ssh:
+  client: home
+  bind: 2222
+  target: 22
+  allow_from: [203.0.113.0/24, 2001:db8::/32]
+```
+
+**The real client address.** Behind a tunnel, your app sees every connection coming from the burrow client. With `proxy_protocol: v1` or `v2`, the server sends the real address first, in the PROXY protocol that nginx, Caddy, HAProxy, Traefik and Postfix understand. Turn it on only when the target expects it.
+
+```nginx
+server { listen 8443 ssl proxy_protocol; set_real_ip_from 127.0.0.1; real_ip_header proxy_protocol; }
+```
+
+**Several clients.** List more than one client to keep a service up when a machine goes away. `failover` (the default) uses the first connected client and moves to the next one while it is away; `balance` spreads new connections over all of them. With `health_check`, the server also checks through each client that its target answers, and skips clients whose target is down. Open connections stay on their client.
+
+```yaml
+web:
+  clients: [home-1, home-2]
+  mode: balance
+  health_check: true # or { interval_secs: 10, timeout_secs: 3, failures: 2 }
+  bind: 443
+  target: 127.0.0.1:8443
+```
+
+**Speed limits.** `bandwidth: 40mbit` (or `5MB`, bytes per second) caps each direction of a service, shared by all its connections. TCP slows down; UDP datagrams over the rate are dropped.
+
+**Unix sockets.** `target: unix:/var/run/docker.sock` makes the client connect to a Unix socket. Its `allow` list must permit it, with `unix:/var/run/docker.sock` or `unix:/var/run/*`.
 
 ## Private services and visitors
 
@@ -208,17 +268,32 @@ visitors:
 
 The same in `visitor.yaml`: `ssh: { client: home, target: 22, local: 2222 }`.
 
+**A SOCKS5 proxy into a client.** Instead of one forward per target, open one local SOCKS5 port and let each app name its target. `burrow visitor-config` writes one for each client in `reach`.
+
+```sh
+./burrow visit --client home --socks 1080
+curl --socks5-hostname 127.0.0.1:1080 http://nas.local:5000   # or: ssh -o ProxyCommand='nc -X 5 -x 127.0.0.1:1080 %h %p' 192.168.1.20
+```
+
+In `visitor.yaml`: `home: { client: home, socks: true, local: 1080 }`. Ranges work as on the server: `game: { service: game, local: 40000-40010 }`.
+
 - The client's `allow` list still has the final say: `reach` grants only what it permits, so keep it narrow (`validate` reminds you).
 - Removing a visitor, its secret, or its access and reloading the server closes its open connections.
-- Each local connection opens its own encrypted connection to the server. Visitors are TCP only, and need a server running burrow 0.2.0 or later.
+- Each local connection opens its own encrypted connection to the server. Visitors are TCP only.
 
-| key                                                               | default  | meaning                                                                        |
-| ----------------------------------------------------------------- | -------- | ------------------------------------------------------------------------------ |
-| `server`, `name`, `secret`                                        | required | as in `client.yaml`, with the visitor's name and secret                        |
-| `forwards.<name>.service`                                         |          | a private service to reach                                                     |
-| `forwards.<name>.client` / `target`                               |          | or a client and a target on it (needs `reach`)                                 |
-| `forwards.<name>.local`                                           | required | where to listen: a port alone means `127.0.0.1`; `validate` warns on `0.0.0.0` |
-| `headers`, `ca`, `cipher`, `proxy`, `connect_timeout_secs`, `tcp` |          | as in `client.yaml`                                                            |
+<details>
+<summary><b>All visitor.yaml keys</b></summary>
+
+| key                                                               | default  | meaning                                                         |
+| ----------------------------------------------------------------- | -------- | --------------------------------------------------------------- |
+| `server`, `name`, `secret`                                        | required | as in `client.yaml`, with the visitor's name and secret         |
+| `forwards.<name>.service`                                         |          | a private service to reach                                      |
+| `forwards.<name>.client` / `target`                               |          | or a client and a target on it (needs `reach`)                  |
+| `forwards.<name>.socks`                                           | `false`  | with `client`: a SOCKS5 proxy, each connection names its target |
+| `forwards.<name>.local`                                           | required | port, range or ip:port; a port alone means `127.0.0.1`          |
+| `headers`, `ca`, `cipher`, `proxy`, `connect_timeout_secs`, `tcp` |          | as in `client.yaml`                                             |
+
+</details>
 
 ## Servers reachable only through HTTP(S)
 
@@ -376,19 +451,37 @@ websocket:
     key: /etc/letsencrypt/live/tunnel.example.com/privkey.pem
 ```
 
-Clients use `wss://tunnel.example.com:7837/burrow`. Relative file paths are resolved from the config file's directory. The key must be readable by the user burrow runs as. Reload after renewing the certificate:
-
-```sh
-certbot renew --deploy-hook "systemctl reload burrow-server"
-```
+Clients use `wss://tunnel.example.com:7837/burrow`. Relative file paths are resolved from the config file's directory. The key must be readable by the user burrow runs as. burrow watches both files and uses a renewed certificate for new connections by itself, without a restart.
 
 For a self-signed certificate, copy it to the client and trust it there with `ca: server-cert.pem`. `ca` accepts either a CA that signed the server certificate, or the server certificate itself, which is then pinned: only that exact certificate is accepted.
 
 </details>
 
-## Reconnecting
+## Monitoring
 
-A client keeps retrying until it is stopped: exponential backoff with jitter (250 ms up to 30 s), resolving the server name again on every attempt and trying all its addresses in parallel (Happy Eyeballs). If you move the server to another machine and update DNS, clients follow on their own. During a long outage the client logs the first failure and then one summary per minute. `reconnect.give_up_after_secs` and `reconnect.on_rejected: exit` make it stop instead, for setups where a supervisor should notice.
+Metrics are off unless you turn them on in `server.yaml`:
+
+```yaml
+metrics:
+  listen: 127.0.0.1:9100 # a port alone means 127.0.0.1
+```
+
+The server then serves Prometheus metrics at `/metrics` (connections, bytes, refusals and health per service, connected clients, visitors, refused handshakes) and its state as JSON at `/status`. `burrow status` reads the config to find it and prints an overview:
+
+```
+$ burrow status
+burrow 0.2.0, up 3 d 4 h
+
+clients
+  home    connected 2 h 13 min from 81.2.3.4:51234, 3 open, 4 idle channels
+  office  offline, last seen 5 min ago
+
+services
+  web  tcp 0.0.0.0:443 -> home, office 127.0.0.1:8443, 12 open, 153 total, 1.2 GB in, 8.4 GB out
+       health: home up, office down
+```
+
+`burrow status --json` prints the raw data. Keep `listen` on `127.0.0.1` unless a firewall limits who can connect: anyone who reaches it sees names and traffic.
 
 ## Running as a service
 
@@ -404,7 +497,8 @@ burrow service list
 
 On Linux and macOS, `install` copies the binary to `/usr/local/bin`, so after it `burrow` works from any folder, as in the commands above. On Windows, run them as `.\burrow.exe` from the download folder.
 
-What `install` does:
+<details>
+<summary><b>What <code>install</code> does</b></summary>
 
 - Checks the config first, and checks that every port it listens on is free. If another program holds a port, it names it (`tcp port 7840 (service "web") is already in use by nginx (pid 812)`) and changes nothing.
 - Copies the config to `/etc/burrow/` (`%ProgramData%\burrow\` on Windows), readable only by the service. Edit that copy: a server reloads it on save, a client or visitor applies it on `burrow service restart`. `status` tells you when the file you installed from has changed since.
@@ -416,12 +510,18 @@ The service name comes from the config file name (`server.yaml` → `burrow-serv
 
 Variables used as `${VAR}` in the config are saved for the service at install time, readable by it only. `sudo` drops environment variables, so keep them with `sudo --preserve-env=HOME_SECRET ./burrow service install`; the install says so if one is missing.
 
-To update, run `sudo burrow update`. It downloads the latest release for your system from GitHub, checks it against the release's `SHA256SUMS`, makes sure it runs and reports the expected version, then replaces the installed binary, restarts every service that uses it, and puts the old binary back if a service does not come up again. Nothing changes when any of these checks fails. Without `sudo` it only replaces the binary you ran and tells you how to update the services.
+</details>
 
-- `burrow update --check` only says whether a newer release exists.
-- `burrow update --to 0.2.0` installs that release, older ones included. The same version is left alone unless you add `--force`.
-- It goes through `HTTPS_PROXY` (or `ALL_PROXY`) when set, and `NO_PROXY` is respected. `BURROW_UPDATE_URL` points it to a mirror with the same layout as the GitHub releases.
+**Updating.** `sudo burrow update` downloads the latest release for your system, checks it against the release's `SHA256SUMS` and runs it to confirm its version, then replaces the installed binary and restarts every service that uses it. If a service does not come up again, the old binary is put back. Without `sudo` it only replaces the binary you ran. `burrow update --check` only reports whether a newer release exists, and `--to 0.2.0` installs a given release.
+
+<details>
+<summary><b>More about updating</b></summary>
+
+- The same version is left alone unless you add `--force`.
+- Downloads go through `HTTPS_PROXY` (or `ALL_PROXY`) when set, and `NO_PROXY` is respected. `BURROW_UPDATE_URL` points to a mirror with the same layout as the GitHub releases.
 - `sudo ./burrow service update` does the same with a binary you downloaded yourself. A binary installed by a package manager is upgraded there instead, and in a container you pull the new image.
+
+</details>
 
 <details>
 <summary><b>Linux (systemd)</b></summary>
@@ -452,6 +552,7 @@ Run the commands from a terminal opened with "Run as administrator". The service
 - Forward secrecy comes from fresh X25519 keys per connection. The protocol and the exact point where each side is authenticated are described in [docs/protocol.md](docs/protocol.md).
 - The client only connects to addresses in `allow`, checked after DNS resolution, so even a compromised server, or a visitor with `reach`, cannot use it to reach other hosts.
 - A visitor reaches only the services that list it, and clients only with `reach`. A private service has no port on the server at all.
+- `allow_from` and `deny_from` are checked on the server before anything enters the tunnel, also for visitors of private services. Unix socket targets need a `unix:` entry in the client's `allow` list.
 - Secrets never appear in logs or error messages (only their length or a short fingerprint). `validate` warns if a config file is readable by other users; use `chmod 600`.
 - Removing a client or visitor, or the secret it connected with, and reloading also closes its open connections.
 - The lock that stops the same tunnel from running twice lives in a folder every local user can write to, so it also catches copies started by hand. On a machine shared with untrusted users, one of them could hold a service's lock and keep it from starting.

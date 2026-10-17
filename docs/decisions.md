@@ -127,3 +127,35 @@ Some services should not be public at all: a database, SSH, an admin page. frp (
 - **`local` defaults to `127.0.0.1`,** unlike `bind` on the server: anyone who can reach a forward uses the visitor's access, so sharing it with a network has to be written out, and `validate` warns about `0.0.0.0`.
 - **Reload revokes**: open visits re-check their request when the config changes, as a removed client's connections do.
 - **TCP only** for now. UDP visitors would need a peer table on the visitor side as well, and can come later.
+
+## D23. Port ranges are one service
+
+A range like `bind: 30000-30010` stays one service with a first port and a count, instead of eleven generated services. `max_connections`, `bandwidth`, metrics and logs then describe what the user wrote. Each public port has its own listener and maps to the same position in the target range; a visit request carries the index. A range holds at most 1000 ports, so a typo cannot open tens of thousands of sockets.
+
+## D24. PROXY protocol written by the server
+
+The server knows the real source address, so it writes the PROXY v1 or v2 header into the tunnel right after Connect, and the client forwards it as data. Clients need no change, the same code covers visits (with the visitor's address), and the header works in `insecure_plaintext` mode too. It is off by default and per service, because a target that does not expect it fails on the first bytes. Checked against nginx `listen ... proxy_protocol` with both versions.
+
+## D25. Several clients, and health checks through the tunnel
+
+A service can list several clients. `failover` takes the first connected one, `balance` rotates new connections; an open connection never moves. Health checks run on the server and use the tunnel itself: a normal Connect to the target through each client, closed at once. This needs no client config, tests the real path including the client's allow list, and works with any target the client can reach. A client is down after `failures` failed checks in a row and up again after one success. When no client passes, connections still go to a connected one, so a broken check cannot take a working service down.
+
+## D26. Bandwidth limits
+
+One token bucket per service and direction, shared by all its connections and ports, refilled continuously with a burst of 100 ms (at least 16 KiB). TCP waits for tokens, so senders slow down through normal backpressure; UDP has no backpressure, so datagrams over the rate are dropped, as a router would. Throughput, latency and connection rate without a limit are unchanged (measured against the previous commit).
+
+## D27. Metrics off by default, one snapshot for everything
+
+The metrics endpoint is off unless `metrics.listen` is set, defaults to `127.0.0.1`, and `validate` warns when it is reachable from the network, because it shows client, service and visitor names and traffic. The server builds one status snapshot; `/metrics` renders it as Prometheus text and `/status` as JSON, which `burrow status` reads, so the two can never disagree. Counters are relaxed atomics updated per read, with no measurable cost.
+
+## D28. A SOCKS5 forward for visitors
+
+`reach` lets a visitor pick any target its client allows, but one forward per target is tedious. A SOCKS5 forward (`socks: true`, or `visit --socks`) reads the target from each SOCKS request and sends it as a normal reach request, so the server and the client's allow list decide exactly as before. Only CONNECT without authentication is supported: the listener is on `127.0.0.1` by default, like any forward.
+
+## D29. Our own updater instead of a crate
+
+`burrow update` downloads a release with the TLS, proxy and HTTP pieces burrow already has, checks it against `SHA256SUMS`, runs it to confirm its version, and hands it to `service update` for rollback. The `self_update` crate would have added 2.3 MB (42%) and about 100 crates to the binary and ignored burrow's proxy settings; the own code adds about 110 KB and one small dependency for gzip.
+
+## D30. WebSocket channels end with TLS close_notify
+
+A data channel over `wss://` used to end by dropping the connection. A TLS proxy in front of the server can treat that as an error and drop the last message of the stream under load, which a test reproduced (80 KB missing out of 8 MB). Channels now shut down the TLS layer below the WebSocket, which sends close_notify and a FIN. A WebSocket Close frame as well would cost 3-5% of new connections per second for no benefit, because the record layer already marks the end of each stream.

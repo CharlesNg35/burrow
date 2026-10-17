@@ -86,13 +86,13 @@ The hello type must match the preamble kind; any other pairing is closed. On the
 
 Server → client (one message per record):
 
-| id  | message  | body                                                                             |
-| --- | -------- | -------------------------------------------------------------------------------- |
-| 1   | Welcome  | `token[16] heartbeat_secs:u16`                                                   |
-| 2   | Services | `count:u16` then per service `name:str8 protocol:u8 bind_port:u16 target:str8`   |
-| 3   | Ping     | (none)                                                                           |
-| 4   | OpenData | `count:u16`: open this many data channels                                        |
-| 5   | Bye      | `reason:u8` (1 shutdown, 2 replaced, 3 removed, 4 timeout, 5 plaintext mismatch) |
+| id  | message  | body                                                                                     |
+| --- | -------- | ---------------------------------------------------------------------------------------- |
+| 1   | Welcome  | `token[16] heartbeat_secs:u16`                                                           |
+| 2   | Services | `count:u16` then per service `name:str8 protocol:u8 bind_port:u16 target:str8 ports:u16` |
+| 3   | Ping     | (none)                                                                                   |
+| 4   | OpenData | `count:u16`: open this many data channels                                                |
+| 5   | Bye      | `reason:u8` (1 shutdown, 2 replaced, 3 removed, 4 timeout, 5 plaintext mismatch)         |
 
 Client → server: `0x81` Pong.
 
@@ -123,6 +123,12 @@ Status = 0 ok | 1 denied by allow list | 2 unreachable | 3 unresolved | 4 invali
 
 The server does not wait for Status before sending the connection's bytes, so connection setup adds no round trip. If Status is not 0, the server logs the reason and closes the connection.
 
+`target` is `host:port`, or `unix:/absolute/path` for a Unix socket, which the client checks against the `unix:` entries of its allow list. For a port range the server sends the target port that matches the public port the connection arrived on; Services carries the first target port and the number of ports, for the client's log and allow-list check.
+
+With `proxy_protocol`, the first bytes the server sends after Connect are a PROXY protocol v1 or v2 header with the real source address and the public address it connected to (for a visit, the visitor's address as the server sees it). The client forwards them like any other data, so it needs no part in it.
+
+With `health_check`, the server also opens connections of its own: every interval it sends Connect for the service's first target port on each client, reads Status, and ends the channel at once. Status 0 counts as up; other answers and timeouts count as failures.
+
 **TCP**: after Connect/Status both directions carry stream records, each ending with the end-of-stream record. Half-close is preserved: the EOF record makes the receiver `shutdown(Write)` its socket while the other direction keeps flowing.
 
 **UDP**: each record is `peer:u32 || datagram` (at most 65515 bytes). The server assigns a peer id per sender address. The client keeps one connected UDP socket per peer id. Both sides expire peers after `udp.session_timeout_secs` of silence, with at most 4096 peers per service.
@@ -135,23 +141,24 @@ After the hello, the visitor sends one request record without waiting for a repl
 
 ```
 VisitRequest = 20 check:u8 kind:u8 ...
-  kind 1: service:str8               a service that lists this visitor in "visitors"
+  kind 1: service:str8 index:u16     a service that lists this visitor in "visitors";
+                                     index picks a port of a port range, 0 for one port
   kind 2: client:str8 target:str8    any target on a client, if the visitor has reach for it
 ```
 
 Names follow the rules of section 3. The server reads the request, a record of at most 512 bytes, within the same `limits.handshake_timeout_secs` deadline and while it still counts against `limits.max_handshakes`, then checks it against its current config:
 
 - the visitor still exists and still has the secret it authenticated with;
-- for kind 1, the service exists, is TCP and lists the visitor;
-- for kind 2, the visitor has `reach` for the client, and the target is a valid `host:port` of at most 255 bytes.
+- for kind 1, the service exists, is TCP, lists the visitor, admits the visitor's address in `allow_from`/`deny_from`, and `index` is inside its range (`4 invalid` otherwise);
+- for kind 2, the visitor has `reach` for the client, and the target is a valid `host:port` of at most 255 bytes, or `unix:/absolute/path`.
 
 Unknown services and services that do not list the visitor get the same answer, `5 forbidden`, so names cannot be probed. Then the server checks that the client is connected (`6 offline`). With `check = 1` it answers `0 ok` at this point and closes: `burrow visit` uses this at startup to report problems before the first connection. Otherwise it checks the limits of the visitor, the service and the client (`7 busy`).
 
-Otherwise the server takes a data channel of the client and sends it a Connect (section 8) with the service name, or an empty name for kind 2, and the target. The client applies its allow list as for any other connection and replies with Status, which the server passes on to the visitor. The visitor waits for this Status before sending data, so a refusal always arrives with its reason. From then on, the server decrypts each record from one channel and encrypts it for the other, both ways, until each side has sent its end-of-stream record. With `insecure_plaintext`, only the leg between server and client is raw; the visit channel is always encrypted.
+Otherwise the server takes a data channel of the client (for a service with several clients, the one chosen as for public connections) and sends it a Connect (section 8) with the service name, or an empty name for kind 2, and the target. The client applies its allow list as for any other connection and replies with Status, which the server passes on to the visitor. The visitor waits for this Status before sending data, so a refusal always arrives with its reason. From then on, the server decrypts each record from one channel and encrypts it for the other, both ways, until each side has sent its end-of-stream record. With `insecure_plaintext`, only the leg between server and client is raw; the visit channel is always encrypted.
 
 On every config reload, the server checks the request again; if the answer changed (the visitor, its secret, its place in `visitors`, its `reach`, or the service's client or target), the connection is closed.
 
-A server older than burrow 0.2.0 sees an unknown kind in the preamble and closes the connection without a reply, which the visitor reports as a rejection.
+A visitor's SOCKS5 forward reads the target from the SOCKS request (CONNECT only, no authentication, IPv4, IPv6 or a host name) and sends it as kind 2. It answers the SOCKS client only after the server's Status, mapping refusals to SOCKS reply codes.
 
 ## 10. Limits enforced before authentication
 

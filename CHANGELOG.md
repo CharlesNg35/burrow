@@ -8,7 +8,14 @@
 - The server refuses a hello that does not match its channel kind, and connection limits of a service now count across reloads that move its port.
 - **`burrow update`** downloads the latest release (or `--to VERSION`), verifies it against `SHA256SUMS` and by running it, then replaces this binary and updates the installed services with rollback. `--check` only reports whether a newer release exists. It honours `HTTPS_PROXY` and `NO_PROXY`.
 - Fix: a WebSocket data channel now ends with a TLS `close_notify` (`wss://`) and a clean FIN. Before, a TLS proxy in front of the server could treat the abrupt end as an error and drop the last up to 128 KB of a stream under load.
-- Protocol: a new visit channel kind, request and statuses (docs/protocol.md section 9). Existing clients and configs are unchanged; visitors need a 0.2.0 server.
+- **Port ranges**: `bind`, `target` and a visitor's `local` take ranges like `30000-30010`; each port reaches the same position in the target range.
+- **Several clients per service**: `clients: [a, b]` with `mode: failover` or `balance`, and `health_check`, which checks through each client that the target answers and skips clients whose target is down.
+- **Per-service controls**: `allow_from` and `deny_from` for source addresses (checked again on reload, also for visitors), `proxy_protocol: v1 | v2` to send the real client address to the target, and `bandwidth` to cap each direction.
+- **Unix socket targets**: `target: unix:/path`, permitted on the client by `unix:` entries in `allow`.
+- **SOCKS5 for visitors**: `burrow visit --client home --socks 1080`, or `socks: true` on a forward; `visitor-config` writes one for each client in `reach`.
+- **Monitoring**: an optional endpoint (`metrics.listen`, off by default) with Prometheus metrics and status data, and `burrow status` to show the running server.
+- A renewed `wss://` certificate is picked up from its files without a restart.
+- Protocol: a visit channel kind, request and statuses (docs/protocol.md section 9), a port index in visit requests and a port count in the service list.
 
 ## [0.1.0]
 
