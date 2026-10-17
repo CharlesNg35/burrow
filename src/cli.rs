@@ -124,9 +124,9 @@ pub enum ServiceAction {
     #[command(about = "Stop a service")]
     Stop(ServiceName),
     #[command(about = "Restart a service")]
-    Restart(ServiceName),
+    Restart(ServiceControlArgs),
     #[command(about = "Reload the config of a running service")]
-    Reload(ServiceName),
+    Reload(ServiceControlArgs),
     #[command(about = "Show whether a service is running, and which files it uses")]
     Status(ServiceName),
     #[command(about = "Show the logs of a service")]
@@ -157,6 +157,8 @@ pub struct ServiceInstallArgs {
     pub no_start: bool,
     #[arg(long, help = "Print what would be installed, change nothing")]
     pub print: bool,
+    #[arg(long, hide = true)]
+    pub worker: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]
@@ -226,6 +228,14 @@ pub struct ServiceUninstallArgs {
 pub struct ServiceName {
     #[arg(help = "Service name; optional when only one burrow service is installed")]
     pub name: Option<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct ServiceControlArgs {
+    #[arg(help = "Service name; optional when only one burrow service is installed")]
+    pub name: Option<String>,
+    #[arg(long, hide = true)]
+    pub worker: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]

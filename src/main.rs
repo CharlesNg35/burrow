@@ -239,23 +239,38 @@ fn visit_pick(args: burrow::cli::VisitArgs) -> Result<burrow::visitor::Pick, Fai
     })
 }
 
+fn control(
+    action: &str,
+    a: burrow::cli::ServiceControlArgs,
+    out: &mut dyn std::io::Write,
+) -> Result<u8, Failure> {
+    use burrow::service;
+    match &a.worker {
+        Some(log) => Ok(service::as_worker(log, |o| {
+            service::control_now(action, a.name.as_deref(), o)
+        })),
+        None => service::control(action, a.name.as_deref(), out).map(|_| 0),
+    }
+}
+
 fn service(action: ServiceAction, logging: burrow::run::Logging) -> Result<u8, Failure> {
     use burrow::service;
     let mut out = std::io::stdout().lock();
     match action {
         ServiceAction::Install(a) => {
             let config = config_path(a.config, None)?;
-            service::install(
-                &service::InstallOptions {
-                    config,
-                    name: a.name,
-                    run_as: a.run_as,
-                    start: !a.no_start,
-                    print: a.print,
-                },
-                &mut out,
-            )?;
-            Ok(0)
+            let opts = service::InstallOptions {
+                config,
+                name: a.name,
+                run_as: a.run_as,
+                start: !a.no_start,
+                print: a.print,
+                worker: a.worker,
+            };
+            match &opts.worker {
+                Some(log) => Ok(service::as_worker(log, |out| service::install(&opts, out))),
+                None => service::install(&opts, &mut out).map(|_| 0),
+            }
         }
         ServiceAction::Update(a) => match (&a.worker, &a.from, &a.as_version) {
             (Some(log), Some(from), Some(version)) => Ok(service::update_worker(
@@ -274,12 +289,8 @@ fn service(action: ServiceAction, logging: burrow::run::Logging) -> Result<u8, F
             service::control("start", n.name.as_deref(), &mut out).map(|_| 0)
         }
         ServiceAction::Stop(n) => service::control("stop", n.name.as_deref(), &mut out).map(|_| 0),
-        ServiceAction::Restart(n) => {
-            service::control("restart", n.name.as_deref(), &mut out).map(|_| 0)
-        }
-        ServiceAction::Reload(n) => {
-            service::control("reload", n.name.as_deref(), &mut out).map(|_| 0)
-        }
+        ServiceAction::Restart(a) => control("restart", a, &mut out),
+        ServiceAction::Reload(a) => control("reload", a, &mut out),
         ServiceAction::Status(n) => service::status(n.name.as_deref(), &mut out),
         ServiceAction::Logs(a) => service::logs(a.name.as_deref(), a.lines, a.follow).map(|_| 0),
         ServiceAction::List => service::list(&mut out).map(|_| 0),

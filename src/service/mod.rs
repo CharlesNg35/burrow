@@ -1,3 +1,4 @@
+mod background;
 mod logview;
 pub(crate) mod ports;
 mod system;
@@ -17,7 +18,6 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::config::env::ProcessEnv;
 use crate::config::model::Protocol;
 use crate::config::{Loaded, Role, load_file};
 use crate::diagnostics::Style;
@@ -90,6 +90,7 @@ pub struct InstallOptions {
     pub run_as: Option<String>,
     pub start: bool,
     pub print: bool,
+    pub worker: Option<PathBuf>,
 }
 
 fn say(out: &mut dyn Write, line: impl AsRef<str>) -> Result<(), Failure> {
@@ -180,11 +181,11 @@ struct Checked {
     files: Vec<(String, PathBuf)>,
 }
 
-fn check_config(path: &Path) -> Result<Checked, Failure> {
+fn check_config(path: &Path, env: &BTreeMap<String, String>) -> Result<Checked, Failure> {
     let text = std::fs::read_to_string(path).unwrap_or_default();
     let unset: Vec<String> = referenced_env(&text)
         .into_iter()
-        .filter(|k| std::env::var_os(k).is_none())
+        .filter(|k| !env.contains_key(k))
         .collect();
     if !unset.is_empty() {
         let list = unset.join(",");
@@ -203,7 +204,8 @@ fn check_config(path: &Path) -> Result<Checked, Failure> {
             )
         }));
     }
-    let outcome = load_file(path, None, &ProcessEnv).map_err(|e| {
+    let lookup = |k: &str| env.get(k).cloned();
+    let outcome = load_file(path, None, &lookup).map_err(|e| {
         let (m, h) = e.describe(path);
         Failure::usage(m).hint(h)
     })?;
@@ -302,7 +304,15 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
         ))
     })?;
     let name = service_name(&source, opts.name.as_deref())?;
-    let checked = check_config(&source)?;
+    let src_text = std::fs::read_to_string(&source).unwrap_or_default();
+    let env: BTreeMap<String, String> = match &opts.worker {
+        Some(log) => background::take_secrets(log),
+        None => referenced_env(&src_text)
+            .into_iter()
+            .filter_map(|k| std::env::var(&k).ok().map(|v| (k, v)))
+            .collect(),
+    };
+    let checked = check_config(&source, &env)?;
     if let Ok(existing) = load_manifest(&name)
         && existing.source_config != source
     {
@@ -316,11 +326,6 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
             existing.config.display()
         )));
     }
-    let src_text = std::fs::read_to_string(&source).unwrap_or_default();
-    let env: BTreeMap<String, String> = referenced_env(&src_text)
-        .into_iter()
-        .filter_map(|k| std::env::var(&k).ok().map(|v| (k, v)))
-        .collect();
     let account = opts
         .run_as
         .clone()
@@ -374,6 +379,30 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
     system::require_admin()?;
     let previous = load_manifest(&name).ok();
     let was_running = previous.as_ref().is_some_and(|p| backend.status(p).running);
+    if was_running && opts.worker.is_none() {
+        let mut args: Vec<std::ffi::OsString> = vec![
+            "service".into(),
+            "install".into(),
+            "--config".into(),
+            source.clone().into(),
+            "--name".into(),
+            name.clone().into(),
+        ];
+        if let Some(account) = &opts.run_as {
+            args.push("--run-as".into());
+            args.push(account.into());
+        }
+        if !opts.start {
+            args.push("--no-start".into());
+        }
+        return background::run(
+            "install",
+            &format!("reinstalling {name}"),
+            args,
+            Some(&env),
+            out,
+        );
+    }
     if let Some(p) = &previous
         && was_running
     {
@@ -802,7 +831,31 @@ pub fn this_binary() -> Result<PathBuf, Failure> {
     Ok(system::canonical(&me).unwrap_or(me))
 }
 
+pub fn as_worker(log: &Path, job: impl FnOnce(&mut dyn Write) -> Result<(), Failure>) -> u8 {
+    background::worker(log, job)
+}
+
+fn interrupts(action: &str, m: &Manifest) -> bool {
+    action == "restart" || (action == "reload" && (m.role != "server" || cfg!(windows)))
+}
+
 pub fn control(action: &str, name: Option<&str>, out: &mut dyn Write) -> Result<(), Failure> {
+    system::backend()?;
+    system::require_admin()?;
+    let m = resolve(name)?;
+    if !interrupts(action, &m) {
+        return control_now(action, Some(&m.name), out);
+    }
+    background::run(
+        action,
+        &format!("restarting {}", m.name),
+        vec!["service".into(), action.into(), m.name.clone().into()],
+        None,
+        out,
+    )
+}
+
+pub fn control_now(action: &str, name: Option<&str>, out: &mut dyn Write) -> Result<(), Failure> {
     let backend = system::backend()?;
     system::require_admin()?;
     let m = resolve(name)?;
