@@ -66,6 +66,8 @@ pub struct RecordReader {
     start: usize,
     end: usize,
     small: [u8; SMALL],
+    head: [u8; HEADER],
+    head_len: usize,
 }
 
 impl RecordReader {
@@ -77,6 +79,8 @@ impl RecordReader {
             start: 0,
             end: 0,
             small: [0; SMALL],
+            head: [0; HEADER],
+            head_len: 0,
         }
     }
 
@@ -170,16 +174,22 @@ impl RecordReader {
                     None => self.release(),
                 }
             }
-            let mut hdr = [0u8; HEADER];
-            let first = r.read(&mut hdr).await?;
-            if first == 0 {
-                return Ok(());
+            while self.head_len < HEADER {
+                let n = r.read(&mut self.head[self.head_len..]).await?;
+                if n == 0 && self.head_len == 0 {
+                    return Ok(());
+                }
+                if n == 0 {
+                    return Err(io::Error::new(
+                        io::ErrorKind::UnexpectedEof,
+                        "connection closed in the middle of a record",
+                    ));
+                }
+                self.head_len += n;
             }
-            if first < HEADER {
-                r.read_exact(&mut hdr[first..]).await?;
-            }
+            self.head_len = 0;
             let mut buf = vec![0u8; READ_BUF].into_boxed_slice();
-            buf[..HEADER].copy_from_slice(&hdr);
+            buf[..HEADER].copy_from_slice(&self.head);
             self.buf = Some(buf);
             self.start = 0;
             self.end = HEADER;
@@ -387,6 +397,27 @@ mod tests {
             (RecordWriter::new(cs), RecordReader::new(co)),
             (RecordWriter::new(ss), RecordReader::new(so)),
         )
+    }
+
+    #[tokio::test]
+    async fn a_read_stopped_in_the_middle_of_a_header_loses_nothing() {
+        let ((mut w, _), (_, mut r)) = pair();
+        let mut sealed = vec![0u8; SMALL + HEADER + TAG_LEN];
+        let n = w.seal_into(b"hello", &mut sealed);
+        let mut more = vec![0u8; SMALL + HEADER + TAG_LEN];
+        let m = w.seal_into(b"again", &mut more);
+        let (mut a, mut b) = tokio::io::duplex(1 << 16);
+        for (bytes, want) in [(&sealed[..n], &b"hello"[..]), (&more[..m], &b"again"[..])] {
+            a.write_all(&bytes[..1]).await.unwrap();
+            let stopped =
+                tokio::time::timeout(std::time::Duration::from_millis(50), r.recv(&mut b)).await;
+            assert!(stopped.is_err());
+            a.write_all(&bytes[1..]).await.unwrap();
+            let got = tokio::time::timeout(std::time::Duration::from_secs(5), r.recv(&mut b))
+                .await
+                .expect("the rest of the record is read");
+            assert_eq!(got.unwrap(), Some(want));
+        }
     }
 
     #[tokio::test]
