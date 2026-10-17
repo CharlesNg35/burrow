@@ -555,11 +555,23 @@ impl Server {
             match bind_with_retry(name, svc, bind).await {
                 Ok(bound) => {
                     let t = spawn_service(&self.shared, name, svc, bound);
-                    info!("service \"{name}\" added");
+                    if !current.services.get(name).is_some_and(|c| c.bind.is_none()) {
+                        info!("service \"{name}\" added");
+                    }
                     log_service(name, svc, t.addr);
                     self.services.insert(name.clone(), t);
                 }
                 Err(f) => error!("{}", f.message),
+            }
+        }
+
+        for (name, svc) in &current.services {
+            match next.services.get(name) {
+                None if svc.bind.is_none() => info!("service \"{name}\" removed"),
+                Some(n) if svc.bind.is_none() && n.bind.is_some() => {
+                    info!("service \"{name}\" is now public")
+                }
+                _ => {}
             }
         }
 

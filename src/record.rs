@@ -357,6 +357,9 @@ where
         }
         if reader.buffered().is_empty() {
             dst.flush().await?;
+            if !reader.holds_buffers() {
+                big = None;
+            }
         }
     }
 }

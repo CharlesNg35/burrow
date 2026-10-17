@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Instant;
 
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 
 use super::Shared;
 use super::tcp::log_status;
@@ -226,7 +226,7 @@ pub(super) async fn serve(
             biased;
             Ok(()) = reloads.changed() => {
                 if !allowed() {
-                    debug!(%peer, "{label} is no longer allowed to reach {}, closing", grant.target);
+                    info!("{label} may no longer reach {}, closing its connection", grant.target);
                     return;
                 }
             }
