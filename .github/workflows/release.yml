@@ -40,16 +40,16 @@ jobs:
 
   binaries:
     needs: version
-    name: build ${{ matrix.target }}
+    name: build ${{ matrix.asset }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { target: x86_64-unknown-linux-musl, os: ubuntu-latest, zig: true }
-          - { target: aarch64-unknown-linux-musl, os: ubuntu-latest, zig: true }
-          - { target: aarch64-apple-darwin, os: macos-latest }
-          - { target: x86_64-apple-darwin, os: macos-latest }
-          - { target: x86_64-pc-windows-gnu, os: ubuntu-latest, zig: true }
+          - { asset: linux-amd64, target: x86_64-unknown-linux-musl, os: ubuntu-latest, zig: true }
+          - { asset: linux-arm64, target: aarch64-unknown-linux-musl, os: ubuntu-latest, zig: true }
+          - { asset: macos-arm64, target: aarch64-apple-darwin, os: macos-latest }
+          - { asset: macos-amd64, target: x86_64-apple-darwin, os: macos-latest }
+          - { asset: windows-amd64, target: x86_64-pc-windows-gnu, os: ubuntu-latest, zig: true }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -79,7 +79,7 @@ jobs:
         run: |
           version="${GITHUB_REF_NAME#v}"
           [[ "$GITHUB_REF" == refs/tags/v* ]] || version="0.0.0-dev.${GITHUB_SHA::7}"
-          name="burrow-${version}-${{ matrix.target }}"
+          name="burrow-${version}-${{ matrix.asset }}"
           mkdir -p "dist/$name"
           cp LICENSE "dist/$name/"
           if [[ "${{ matrix.target }}" == *windows* ]]; then
