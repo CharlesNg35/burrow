@@ -1188,15 +1188,111 @@ fn visitor_mistakes() {
        = help: add one, for example:
              forwards:
                db: { service: db, local: 5432 }
-           or pick the target on the command line with burrow visit --service or --client
+           or name the target when you run it: burrow visit --service NAME --local PORT
 
     visitor.yaml: valid visitor config for "laptop" (0 forwards), 1 warning
     "#);
     insta::assert_snapshot!(render("visitor.yaml", &format!("server: a\nname: laptop\nsecret: {SECRET}\n"), Some(Role::Visitor)), @r#"
-    error: missing field "forwards" in visitor config
-      --> visitor.yaml:1:1
-       = help: add "forwards: ..." (local ports that lead to private services or client targets, keyed by forward name)
+    warning: no forwards are defined
+      --> visitor.yaml
+       = help: add one, for example:
+             forwards:
+               db: { service: db, local: 5432 }
+           or name the target when you run it: burrow visit --service NAME --local PORT
 
-    visitor.yaml: 1 error, 0 warnings
+    visitor.yaml: valid visitor config for "laptop" (0 forwards), 1 warning
     "#);
+}
+
+#[test]
+fn reach_mistakes_are_explained() {
+    let src = |reach: &str| {
+        visitors_server(
+            &format!("  laptop:\n    secret: ${{HOME_SECRET}}\n    reach: {reach}\n"),
+            "  db: { client: home, target: 5432, bind: , visitors: [] }\n",
+        )
+    };
+    insta::assert_snapshot!(render("server.yaml", &src("{ home: all }"), None), @r#"
+    error: invalid reach "all" for client "home"
+      --> server.yaml:8:20
+       |
+     8 |     reach: { home: all }
+       |                    ^^^ expected any
+       = help: the only value is any: home: any
+
+    error: service "db" has no "bind" and no "visitors", so nobody can reach it
+      --> server.yaml:10:3
+       |
+    10 |   db: { client: home, target: 5432, bind: , visitors: [] }
+       |   ^^ no bind and no visitors
+       = help: add "bind: 7840" to expose it publicly, or "visitors: [NAME]" for visitors using burrow visit
+
+    server.yaml: 2 errors, 0 warnings
+    "#);
+    insta::assert_snapshot!(render("server.yaml", &src("[home]"), None), @r#"
+    error: "reach" in visitor "laptop" must be a mapping, found a list
+      --> server.yaml:8:12
+       |
+     8 |     reach: [home]
+       |            ^^^^^^ expected a mapping
+       = help: write it as a mapping of client names, for example: reach: { home: any }
+
+    error: service "db" has no "bind" and no "visitors", so nobody can reach it
+      --> server.yaml:10:3
+       |
+    10 |   db: { client: home, target: 5432, bind: , visitors: [] }
+       |   ^^ no bind and no visitors
+       = help: add "bind: 7840" to expose it publicly, or "visitors: [NAME]" for visitors using burrow visit
+
+    server.yaml: 2 errors, 0 warnings
+    "#);
+}
+
+#[test]
+fn reach_alone_is_not_nothing_exposed() {
+    let src = format!(
+        "listen: 7835\nclients:\n  home:\n    secret: {SECRET}\nvisitors:\n  laptop:\n    secret: ${{HOME_SECRET}}\n    reach:\n      home: any\n"
+    );
+    let text = render("server.yaml", &src, None);
+    assert!(!text.contains("no services are defined"), "{text}");
+}
+
+#[test]
+fn misspelled_secret_keys_are_hidden_too() {
+    let text = render(
+        "server.yaml",
+        &visitors_server(
+            &format!("  laptop:\n    secrte: {SECRET}\n"),
+            "  db: { client: home, target: 5432, visitors: [laptop] }\n",
+        )
+        .replace(&format!("secret: {SECRET}"), &format!("secret: {SECRET2}")),
+        None,
+    );
+    assert!(text.contains("unknown field \"secrte\""), "{text}");
+    let text = render(
+        "visitor.yaml",
+        &format!("server: a\nname: laptop\nsecrets: {SECRET}\nforwards: {{}}\n"),
+        None,
+    );
+    assert!(text.contains("unknown field \"secrets\""), "{text}");
+}
+
+#[test]
+fn visitor_files_are_recognised_without_forwards() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("visitor.yaml");
+    std::fs::write(
+        &path,
+        format!("server: a\nname: laptop\nsecret: {SECRET}\n"),
+    )
+    .unwrap();
+    let o = burrow::config::load_file(&path, None, &env).unwrap();
+    assert_eq!(o.role, Some(Role::Visitor));
+    assert!(!o.report.has_errors());
+    let typo = render(
+        "my.yaml",
+        &format!("server: a\nname: laptop\nsecret: {SECRET}\nforward: {{}}\n"),
+        None,
+    );
+    assert!(typo.contains("did you mean \"forwards\"?"), "{typo}");
 }

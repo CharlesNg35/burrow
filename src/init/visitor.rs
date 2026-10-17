@@ -88,11 +88,13 @@ pub fn visitor_config(
             json!({ "service": service, "local": local }),
         );
     }
-    for client in &auth.reach {
-        notes.push(format!(
-            "visitor \"{name}\" may also reach client \"{client}\" directly, for example: {} visit --client {client} --target 127.0.0.1:22 --local 2222",
-            crate::failure::command()
-        ));
+    if forwards.is_empty() {
+        for client in &auth.reach {
+            notes.push(format!(
+                "visitor \"{name}\" has no services, only reach to client \"{client}\"; run it with the target, for example: {} visit --client {client} --target 127.0.0.1:22 --local 2222",
+                crate::failure::command()
+            ));
+        }
     }
     let value = json!({
         "server": server,

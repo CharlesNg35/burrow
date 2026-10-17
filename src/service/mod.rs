@@ -245,6 +245,13 @@ fn check_config(path: &Path) -> Result<Checked, Failure> {
             )
         }
         Some(Loaded::Visitor(s, cfg)) => {
+            if s.forwards.is_empty() {
+                return Err(Failure::usage(format!(
+                    "{} has no forwards, so a service would have nothing to run",
+                    path.display()
+                ))
+                .hint("add one under \"forwards\", for example db: { service: db, local: 5432 }"));
+            }
             if let Some(ca) = &cfg.ca {
                 files.push(("ca".to_string(), PathBuf::from(ca)));
             }

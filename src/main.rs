@@ -139,6 +139,12 @@ fn visit_pick(args: burrow::cli::VisitArgs) -> Result<burrow::visitor::Pick, Fai
         ),
         None => None,
     };
+    if let Some(l) = local.filter(|l| l.ip().is_unspecified()) {
+        eprintln!(
+            "warning: --local {l} listens on all interfaces: other machines on your network get this visitor's access (use --local {} for this machine only)",
+            l.port()
+        );
+    }
     let name_ok = |flag: &str, name: &str| {
         if burrow::config::check::valid_name(name) {
             Ok(())

@@ -51,12 +51,17 @@ pub fn check_visitor(
             None
         }
     };
-    if cfg.forwards.is_empty() && spans.has(&["forwards"]) {
-        out.push(
-            Diagnostic::warning("no-forwards", "no forwards are defined")
-                .at(spans.key(&["forwards"]))
-                .help("add one, for example:\n         forwards:\n           db: { service: db, local: 5432 }\n       or pick the target on the command line with burrow visit --service or --client"),
-        );
+    if cfg.forwards.is_empty() {
+        let d = Diagnostic::warning("no-forwards", "no forwards are defined")
+            .help(format!(
+                "add one, for example:\n         forwards:\n           db: {{ service: db, local: 5432 }}\n       or name the target when you run it: {}",
+                crate::failure::cmd("visit --service NAME --local PORT")
+            ));
+        out.push(if spans.has(&["forwards"]) {
+            d.at(spans.key(&["forwards"]))
+        } else {
+            d
+        });
     }
 
     let mut forwards = BTreeMap::new();

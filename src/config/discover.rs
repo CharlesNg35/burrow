@@ -38,17 +38,17 @@ pub fn discover(dir: &Path, role: Option<Role>) -> Result<PathBuf, Failure> {
                 None => "server.yaml, client.yaml or visitor.yaml".into(),
             };
             let init = role.map_or("server", Role::as_str);
-            let other = role
-                .and_then(|r| match r {
-                    Role::Server => Some(Role::Client),
-                    Role::Client => Some(Role::Server),
-                    Role::Visitor => None,
-                })
-                .and_then(|o| candidates(dir, o).first().map(|p| (o, shown(p))));
+            let other = role.and_then(|r| {
+                [Role::Server, Role::Client, Role::Visitor]
+                    .into_iter()
+                    .filter(|o| *o != r)
+                    .find_map(|o| candidates(dir, o).first().map(|p| (o, shown(p))))
+            });
             let hint = match other {
                 Some((o, file)) => format!(
-                    "{file} here is a {o} config, run it with: {cmd} {o}; otherwise pass -c FILE, or create one with: {cmd} init {init}",
-                    o = o.as_str(),
+                    "{file} here is a {} config, run it with: {cmd} {}; otherwise pass -c FILE, or create one with: {cmd} init {init}",
+                    o.as_str(),
+                    o.command(),
                     cmd = crate::failure::command()
                 ),
                 None => format!(
@@ -96,6 +96,20 @@ mod tests {
         assert!(hint.contains("burrow init client"), "{hint}");
         assert!(
             hint.contains("server.yaml here is a server config, run it with: burrow server"),
+            "{hint}"
+        );
+    }
+
+    #[test]
+    fn a_visitor_config_points_to_visit() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("visitor.yaml"), "").unwrap();
+        let hint = discover(dir.path(), Some(Role::Client))
+            .unwrap_err()
+            .hint
+            .unwrap();
+        assert!(
+            hint.starts_with("visitor.yaml here is a visitor config, run it with: burrow visit;"),
             "{hint}"
         );
     }

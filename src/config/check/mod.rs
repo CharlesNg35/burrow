@@ -7,7 +7,7 @@ pub use client::check_client;
 pub use server::{check_refs, check_server};
 pub use visitor::check_visitor;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::time::Duration;
 
@@ -37,38 +37,43 @@ const SENSITIVE_PORTS: &[(u16, &str)] = &[
 
 pub struct Spans {
     map: HashMap<Vec<String>, (Span, Span)>,
+    nulls: HashSet<Vec<String>>,
     root: Span,
 }
 
 impl Spans {
     pub fn new(root: &Node) -> Self {
-        let mut map = HashMap::new();
-        fn walk(n: &Node, path: &mut Vec<String>, map: &mut HashMap<Vec<String>, (Span, Span)>) {
+        let mut spans = Spans {
+            map: HashMap::new(),
+            nulls: HashSet::new(),
+            root: Span::point(root.span.start),
+        };
+        fn walk(n: &Node, path: &mut Vec<String>, spans: &mut Spans) {
             match &n.value {
                 Value::Map(entries) => {
                     for e in entries {
                         path.push(e.key.clone());
-                        map.insert(path.clone(), (e.key_span, e.value.span));
-                        walk(&e.value, path, map);
+                        spans.map.insert(path.clone(), (e.key_span, e.value.span));
+                        if e.value.value == Value::Null {
+                            spans.nulls.insert(path.clone());
+                        }
+                        walk(&e.value, path, spans);
                         path.pop();
                     }
                 }
                 Value::Seq(items) => {
                     for (i, item) in items.iter().enumerate() {
                         path.push(i.to_string());
-                        map.insert(path.clone(), (item.span, item.span));
-                        walk(item, path, map);
+                        spans.map.insert(path.clone(), (item.span, item.span));
+                        walk(item, path, spans);
                         path.pop();
                     }
                 }
                 _ => {}
             }
         }
-        walk(root, &mut Vec::new(), &mut map);
-        Spans {
-            map,
-            root: Span::point(root.span.start),
-        }
+        walk(root, &mut Vec::new(), &mut spans);
+        spans
     }
 
     fn get(&self, path: &[&str]) -> Option<(Span, Span)> {
@@ -87,6 +92,11 @@ impl Spans {
     pub fn has(&self, path: &[&str]) -> bool {
         self.get(path).is_some()
     }
+
+    pub fn has_value(&self, path: &[&str]) -> bool {
+        let key: Vec<String> = path.iter().map(|s| s.to_string()).collect();
+        self.has(path) && !self.nulls.contains(&key)
+    }
 }
 
 pub fn secret_spans(root: &Node) -> Vec<Span> {
@@ -99,9 +109,11 @@ pub fn secret_spans(root: &Node) -> Vec<Span> {
             _ => out.push(n.span),
         }
     }
-    for key in ["secret", "proxy"] {
-        if let Some(s) = root.get(key) {
-            collect(s, &mut out);
+    let secretish =
+        |key: &str| key == "secret" || crate::suggest::closest(key, ["secret"]).is_some();
+    if let Value::Map(top) = &root.value {
+        for e in top.iter().filter(|e| secretish(&e.key) || e.key == "proxy") {
+            collect(&e.value, &mut out);
         }
     }
     if let Some(Value::Map(headers)) = root.get("headers").map(|h| &h.value) {
@@ -110,10 +122,12 @@ pub fn secret_spans(root: &Node) -> Vec<Span> {
         }
     }
     for section in ["clients", "visitors"] {
-        if let Some(Value::Map(entries)) = root.get(section).map(|c| &c.value) {
-            for c in entries {
-                if let Some(s) = c.value.get("secret") {
-                    collect(s, &mut out);
+        if let Some(Value::Map(sections)) = root.get(section).map(|c| &c.value) {
+            for c in sections {
+                if let Value::Map(fields) = &c.value.value {
+                    for f in fields.iter().filter(|f| secretish(&f.key)) {
+                        collect(&f.value, &mut out);
+                    }
                 }
             }
         }

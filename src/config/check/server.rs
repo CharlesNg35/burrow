@@ -130,7 +130,7 @@ pub fn check_server(
             );
         }
         let listed = cfg.services.values().any(|s| s.visitors.contains(name));
-        if !listed && entry.reach.is_empty() {
+        if !listed && entry.reach.is_empty() && !spans.has(&["visitors", name, "reach"]) {
             out.push(
                 Diagnostic::warning(
                     "unused-visitor",
@@ -152,7 +152,7 @@ pub fn check_server(
         );
     }
 
-    if cfg.services.is_empty() {
+    if cfg.services.is_empty() && cfg.visitors.values().all(|v| v.reach.is_empty()) {
         out.push(
             Diagnostic::warning("no-services", "no services are defined, so nothing is exposed")
                 .at(spans.key(&["services"]))
@@ -183,7 +183,7 @@ pub fn check_server(
                 None
             }
         };
-        if svc.bind.is_none() && svc.visitors.is_empty() && !spans.has(&path("bind")) {
+        if svc.bind.is_none() && svc.visitors.is_empty() && !spans.has_value(&path("bind")) {
             out.push(
                 Diagnostic::error(
                     "unreachable-service",

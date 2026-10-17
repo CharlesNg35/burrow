@@ -41,6 +41,8 @@ pub fn owner_name(role: &str, path: &[&str]) -> String {
         [] => format!("{role} config"),
         ["services", name] => format!("service \"{name}\""),
         ["clients", name] => format!("client \"{name}\""),
+        ["visitors", name] => format!("visitor \"{name}\""),
+        ["forwards", name] => format!("forward \"{name}\""),
         [section] => format!("\"{section}\""),
         [.., last] => format!("\"{last}\""),
     }
@@ -212,6 +214,19 @@ impl<'a> Checker<'a> {
             Some(s) => format!("did you mean \"{s}\"? valid values: {list}"),
             None => format!("valid values: {list}"),
         };
+        if let [.., "reach", client] = ctx.path.as_slice() {
+            self.diagnostics.push(
+                Diagnostic::error(
+                    "unknown-value",
+                    format!("invalid reach \"{given}\" for client \"{client}\""),
+                )
+                .at(node.span)
+                .label("expected any")
+                .help(format!("the only value is any: {client}: any")),
+            );
+            self.prune.push(ctx.path());
+            return;
+        }
         self.diagnostics.push(
             Diagnostic::error(
                 "unknown-value",
@@ -360,7 +375,12 @@ impl<'a> Checker<'a> {
             .map(|t| type_name(t))
             .collect::<Vec<_>>()
             .join(" or ");
-        let help = type_help(types, node);
+        let help = match (ctx.field(), &node.value) {
+            ("reach", Value::Seq(_)) => {
+                "write it as a mapping of client names, for example: reach: { home: any }".into()
+            }
+            _ => type_help(types, node),
+        };
         self.diagnostics.push(
             Diagnostic::error(
                 "wrong-type",

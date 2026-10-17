@@ -33,7 +33,11 @@ pub fn pick(settings: &mut VisitorSettings, choice: Pick, config: &str) -> Resul
         Pick::All => {
             if settings.forwards.is_empty() {
                 return Err(Failure::usage(format!("{config} has no forwards")).hint(
-                    "add one under \"forwards\", for example db: { service: db, local: 5432 }, or pass --service NAME --local PORT",
+                    format!(
+                        "add one under \"forwards\", for example db: {{ service: db, local: 5432 }}, or name the target: {}, or: {}",
+                        crate::failure::cmd("visit --service NAME --local PORT"),
+                        crate::failure::cmd("visit --client NAME --target HOST:PORT --local PORT")
+                    ),
                 ));
             }
         }

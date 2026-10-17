@@ -23,6 +23,13 @@ impl Role {
             Role::Visitor => "visitor",
         }
     }
+
+    pub fn command(self) -> &'static str {
+        match self {
+            Role::Visitor => "visit",
+            r => r.as_str(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -102,6 +109,11 @@ pub fn load_file(
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
         .unwrap_or(Path::new("."));
+    let named = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .is_some_and(|s| s.to_ascii_lowercase().ends_with("visitor"));
+    let role = role.or(named.then_some(Role::Visitor));
     let mut outcome = load_str_in(base, &path.display().to_string(), &src, format, role, env);
     if let Some(w) = permission_warning(path) {
         outcome.report.push(w);
@@ -135,7 +147,10 @@ pub fn detect_role(root: &Node) -> Option<Role> {
     let Value::Map(entries) = &root.value else {
         return None;
     };
-    if entries.iter().any(|e| e.key == "forwards") {
+    if entries
+        .iter()
+        .any(|e| e.key == "forwards" || e.key == "forward")
+    {
         return Some(Role::Visitor);
     }
     let server = entries
@@ -408,11 +423,7 @@ fn fill_root_placeholders(node: &mut Node, role: Role) {
     let placeholders: Vec<(&str, Value)> = match role {
         Role::Server => vec![],
         Role::Client => connection(),
-        Role::Visitor => {
-            let mut v = connection();
-            v.push(("forwards", Value::Map(Vec::new())));
-            v
-        }
+        Role::Visitor => connection(),
     };
     for (key, value) in placeholders {
         if !entries.iter().any(|e| e.key == key) {

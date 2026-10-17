@@ -374,6 +374,7 @@ pub struct VisitorConfig {
     pub name: String,
     #[schemars(description = "256-bit secret (base64 or hex) shared with the server")]
     pub secret: String,
+    #[serde(default)]
     #[schemars(
         description = "Local ports that lead to private services or client targets, keyed by forward name"
     )]
