@@ -173,22 +173,33 @@ fn ends<'a>(
 }
 
 fn connection_changes(old: &VisitorSettings, new: &VisitorSettings) -> Vec<&'static str> {
+    let VisitorSettings {
+        server,
+        endpoint,
+        headers,
+        ca_pem,
+        ca_file: _,
+        name,
+        secret,
+        cipher,
+        proxy,
+        connect_timeout,
+        tcp,
+        forwards: _,
+    } = new;
     [
+        (*server != old.server || *endpoint != old.endpoint, "server"),
+        (*name != old.name, "name"),
+        (*secret != old.secret, "secret"),
+        (*headers != old.headers, "headers"),
+        (*ca_pem != old.ca_pem, "ca"),
+        (*cipher != old.cipher, "cipher"),
+        (*proxy != old.proxy, "proxy"),
         (
-            old.server != new.server || old.endpoint != new.endpoint,
-            "server",
-        ),
-        (old.name != new.name, "name"),
-        (old.secret != new.secret, "secret"),
-        (old.headers != new.headers, "headers"),
-        (old.ca_pem != new.ca_pem, "ca"),
-        (old.cipher != new.cipher, "cipher"),
-        (old.proxy != new.proxy, "proxy"),
-        (
-            old.connect_timeout != new.connect_timeout,
+            *connect_timeout != old.connect_timeout,
             "connect_timeout_secs",
         ),
-        (old.tcp != new.tcp, "tcp"),
+        (*tcp != old.tcp, "tcp"),
     ]
     .into_iter()
     .filter_map(|(changed, name)| changed.then_some(name))
@@ -468,6 +479,26 @@ mod tests {
             ]
             .into(),
         }
+    }
+
+    #[test]
+    fn connection_changes_name_each_field_and_ignore_forwards() {
+        let old = settings();
+        let mut new = old.clone();
+        new.forwards.clear();
+        assert!(connection_changes(&old, &new).is_empty());
+        new.secret = crate::secret::Secret::generate();
+        new.connect_timeout = std::time::Duration::from_secs(9);
+        new.tcp.nodelay = false;
+        assert_eq!(
+            connection_changes(&old, &new),
+            vec!["secret", "connect_timeout_secs", "tcp"]
+        );
+        assert_eq!(
+            summary(&["secret"], &["db", "web"]),
+            "config reloaded: secret applied to new connections, open ones keep running; forwards db, web changed"
+        );
+        assert_eq!(summary(&[], &[]), "config reloaded: nothing changed");
     }
 
     #[test]

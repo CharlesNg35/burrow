@@ -84,7 +84,8 @@ impl WsListener {
 }
 
 pub fn try_permit(shared: &Arc<Shared>, peer: SocketAddr) -> Option<OwnedSemaphorePermit> {
-    match shared.handshakes.clone().try_acquire_owned() {
+    let handshakes = shared.handshakes.read().expect("handshakes lock").clone();
+    match handshakes.try_acquire_owned() {
         Ok(p) => Some(p),
         Err(_) => {
             shared.rejected.fetch_add(1, Ordering::Relaxed);

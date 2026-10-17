@@ -1,4 +1,5 @@
 mod control;
+mod fields;
 mod health;
 mod listen;
 mod pick;
@@ -40,7 +41,7 @@ pub struct Shared {
     udp_peers: AtomicUsize,
     drained: Notify,
     rejected: AtomicUsize,
-    handshakes: Arc<Semaphore>,
+    handshakes: RwLock<Arc<Semaphore>>,
     shutdown: watch::Receiver<bool>,
     reloaded: watch::Sender<u64>,
     service_counts: Counts,
@@ -408,7 +409,7 @@ impl Server {
             udp_peers: AtomicUsize::new(0),
             drained: Notify::new(),
             rejected: AtomicUsize::new(0),
-            handshakes: Arc::new(Semaphore::new(settings.max_handshakes)),
+            handshakes: RwLock::new(Arc::new(Semaphore::new(settings.max_handshakes))),
             shutdown,
             reloaded: watch::Sender::new(0),
             service_counts: Counts::default(),
@@ -608,6 +609,17 @@ impl Server {
         }
         let mut next = next;
         next.listen = current.listen;
+        let changed = fields::changed(&current, &next);
+        for (name, _) in changed
+            .iter()
+            .filter(|(_, how)| *how == fields::Applied::Restart)
+        {
+            warn!("\"{name}\" takes effect when the server restarts");
+        }
+        if next.max_handshakes != current.max_handshakes {
+            *self.shared.handshakes.write().expect("handshakes lock") =
+                Arc::new(Semaphore::new(next.max_handshakes));
+        }
         *self.shared.settings.write().expect("settings lock") = Arc::new(next.clone());
         self.shared.sync_limits(&next);
         self.shared.prune_standing(&next);
@@ -753,8 +765,14 @@ impl Server {
                 .try_send(ServerMsg::Services(Shared::services_for(&next, &s.name)));
         }
         let (c, v) = (next.clients.len(), next.services.len());
+        let names: Vec<&str> = changed.iter().map(|(name, _)| *name).collect();
+        let what = if names.is_empty() {
+            String::new()
+        } else {
+            format!("; changed: {}", names.join(", "))
+        };
         info!(
-            "config reloaded ({c} {}, {v} {})",
+            "config reloaded ({c} {}, {v} {}{what})",
             crate::diagnostics::plural(c, "client"),
             crate::diagnostics::plural(v, "service")
         );

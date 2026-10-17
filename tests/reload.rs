@@ -537,3 +537,25 @@ async fn replacing_the_ca_file_reloads_the_client() {
         .unwrap();
     assert_ne!(next.ca_pem, settings.ca_pem);
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_new_handshake_limit_is_used_after_a_reload() {
+    logs();
+    let mut settings = server_settings(vec![Secret::generate()]);
+    settings.max_handshakes = 1;
+    settings.handshake_timeout = Duration::from_secs(10);
+    let server = start_server(settings.clone()).await;
+    let refused = || server.shared.status().handshakes_refused;
+    let _first = TcpStream::connect(server.addr).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let _second = TcpStream::connect(server.addr).await.unwrap();
+    let shared = server.shared.clone();
+    wait_for(|| shared.status().handshakes_refused >= 1).await;
+    settings.max_handshakes = 4;
+    server.reload(settings).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let before = refused();
+    let _third = TcpStream::connect(server.addr).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(refused(), before, "the raised limit was not used");
+}

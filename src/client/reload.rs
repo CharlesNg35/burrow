@@ -34,47 +34,67 @@ impl Changes {
 }
 
 pub fn compare(old: &ClientSettings, new: &ClientSettings) -> Changes {
-    let mut c = Changes::default();
-    let mut reconnect = |changed: bool, name: &'static str| {
-        if changed {
-            c.reconnect.push(name);
-        }
+    let ClientSettings {
+        server,
+        endpoint,
+        headers,
+        ca_pem,
+        ca_file: _,
+        name,
+        secret,
+        allow,
+        insecure_plaintext,
+        cipher,
+        proxy,
+        reconnect_initial,
+        reconnect_max,
+        give_up_after,
+        exit_on_rejected,
+        reject_confirm,
+        connect_timeout,
+        tcp,
+        udp_session_timeout,
+    } = new;
+    let reconnect = [
+        (*server != old.server || *endpoint != old.endpoint, "server"),
+        (*name != old.name, "name"),
+        (*secret != old.secret, "secret"),
+        (*headers != old.headers, "headers"),
+        (*ca_pem != old.ca_pem, "ca"),
+        (*cipher != old.cipher, "cipher"),
+        (*proxy != old.proxy, "proxy"),
+        (
+            *insecure_plaintext != old.insecure_plaintext,
+            "insecure_plaintext",
+        ),
+        (*allow != old.allow, "allow"),
+    ];
+    let live = [
+        (
+            *reconnect_initial != old.reconnect_initial
+                || *reconnect_max != old.reconnect_max
+                || *give_up_after != old.give_up_after
+                || *exit_on_rejected != old.exit_on_rejected
+                || *reject_confirm != old.reject_confirm,
+            "reconnect",
+        ),
+        (
+            *connect_timeout != old.connect_timeout,
+            "connect_timeout_secs",
+        ),
+        (*tcp != old.tcp, "tcp"),
+        (*udp_session_timeout != old.udp_session_timeout, "udp"),
+    ];
+    let names = |fields: &[(bool, &'static str)]| {
+        fields
+            .iter()
+            .filter_map(|(changed, name)| changed.then_some(*name))
+            .collect()
     };
-    reconnect(
-        old.endpoint != new.endpoint || old.server != new.server,
-        "server",
-    );
-    reconnect(old.name != new.name, "name");
-    reconnect(old.secret != new.secret, "secret");
-    reconnect(old.headers != new.headers, "headers");
-    reconnect(old.ca_pem != new.ca_pem, "ca");
-    reconnect(old.cipher != new.cipher, "cipher");
-    reconnect(old.proxy != new.proxy, "proxy");
-    reconnect(
-        old.insecure_plaintext != new.insecure_plaintext,
-        "insecure_plaintext",
-    );
-    reconnect(old.allow != new.allow, "allow");
-    let mut live = |changed: bool, name: &'static str| {
-        if changed {
-            c.live.push(name);
-        }
-    };
-    live(
-        old.reconnect_initial != new.reconnect_initial
-            || old.reconnect_max != new.reconnect_max
-            || old.give_up_after != new.give_up_after
-            || old.exit_on_rejected != new.exit_on_rejected
-            || old.reject_confirm != new.reject_confirm,
-        "reconnect",
-    );
-    live(
-        old.connect_timeout != new.connect_timeout,
-        "connect_timeout_secs",
-    );
-    live(old.tcp != new.tcp, "tcp");
-    live(old.udp_session_timeout != new.udp_session_timeout, "udp");
-    c
+    Changes {
+        reconnect: names(&reconnect),
+        live: names(&live),
+    }
 }
 
 #[cfg(test)]
@@ -137,6 +157,27 @@ mod tests {
             compare(&old, &new).reconnect,
             vec!["server", "secret", "allow"]
         );
+    }
+
+    #[test]
+    fn the_running_client_takes_every_change_and_reconnects_only_when_needed() {
+        let old = settings();
+        let client = crate::client::Client::new(old.clone());
+        let mut backoff =
+            crate::client::reconnect::Backoff::new(old.reconnect_initial, old.reconnect_max);
+        let mut next = old.clone();
+        next.connect_timeout = Duration::from_secs(3);
+        next.tcp.nodelay = false;
+        next.udp_session_timeout = Duration::from_secs(5);
+        next.reconnect_max = Duration::from_secs(60);
+        next.exit_on_rejected = true;
+        assert!(!client.apply(next.clone(), &mut backoff));
+        assert_eq!(*client.live.settings(), next);
+        let mut renamed = next.clone();
+        renamed.name = "office".into();
+        assert!(client.apply(renamed.clone(), &mut backoff));
+        assert_eq!(*client.live.settings(), renamed);
+        assert_eq!(client.live.dialer().name, "office");
     }
 
     #[test]
