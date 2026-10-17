@@ -60,10 +60,21 @@ pub fn client_config(
     let secret_text = secret_text(CLIENT, server_config, name, &settings.clients[name].secrets);
 
     let mut allow = Vec::new();
-    for (svc_name, svc) in settings.services.iter().filter(|(_, s)| s.client == name) {
-        let Ok((host, port)) = parse_host_port(&svc.target) else {
+    let served = settings
+        .services
+        .iter()
+        .filter(|(_, s)| s.clients.iter().any(|c| c == name));
+    for (svc_name, svc) in served {
+        if crate::config::check::unix::path_of(&svc.target).is_some() {
+            if !allow.contains(&svc.target) {
+                allow.push(svc.target.clone());
+            }
+            continue;
+        }
+        let Ok((host, first)) = parse_host_port(&svc.target) else {
             continue;
         };
+        let port = crate::config::check::ports::show(first, svc.ports);
         let host_ip = host.parse::<IpAddr>().map(|ip| match ip {
             IpAddr::V6(v6) => v6.to_ipv4_mapped().map_or(ip, IpAddr::V4),
             v4 => v4,

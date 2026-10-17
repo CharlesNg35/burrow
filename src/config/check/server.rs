@@ -442,6 +442,15 @@ pub fn check_refs(root: &Node, out: &mut Vec<Diagnostic>) {
             {
                 out.push(unknown_ref("client", name, &clients, by(), client.span));
             }
+            if let Some(Value::Seq(items)) = svc.value.get("clients").map(|v| &v.value) {
+                for item in items {
+                    if let Some(name) = item.as_str()
+                        && !clients.contains(&name)
+                    {
+                        out.push(unknown_ref("client", name, &clients, by(), item.span));
+                    }
+                }
+            }
             if let Some(Value::Seq(items)) = svc.value.get("visitors").map(|v| &v.value) {
                 for item in items {
                     if let Some(name) = item.as_str()

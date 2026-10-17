@@ -1,7 +1,8 @@
 use std::net::SocketAddr;
+use std::time::Duration;
 
-use super::super::model::{Protocol, ServiceEntry};
-use super::super::settings::Service;
+use super::super::model::{HealthCheck, HealthCheckSetting, Mode, Protocol, ServiceEntry};
+use super::super::settings::{Health, Service};
 use super::ports::{parse_ranged, ranges_conflict, show_addr, split_target};
 use super::{
     MAX_TARGET_LEN, SENSITIVE_PORTS, Spans, name_error, parse_host_port, unix, valid_name,
@@ -125,12 +126,38 @@ pub(super) fn check_service<'a>(
             None
         }
     };
+    let clients = check_clients(name, svc, spans, out);
+    let health = health(svc);
+    if svc.mode == Mode::Balance && clients.len() > 1 {
+        tcp_only(
+            name,
+            svc,
+            "mode",
+            "balance-tcp-only",
+            "mode balance only works for tcp services",
+            spans,
+            out,
+        );
+    }
+    if health.is_some() {
+        tcp_only(
+            name,
+            svc,
+            "health_check",
+            "health-check-tcp-only",
+            "health_check only works for tcp services",
+            spans,
+            out,
+        );
+    }
     let (target, ports) = target?;
     if svc.bind.is_some() && bind.is_none() {
         return None;
     }
     Some(Service {
-        client: svc.client.clone(),
+        clients,
+        mode: svc.mode,
+        health,
         bind: bind.map(|(a, _)| a),
         target,
         ports,
@@ -140,6 +167,64 @@ pub(super) fn check_service<'a>(
         sources,
         proxy_protocol: svc.proxy_protocol,
         bandwidth,
+    })
+}
+
+fn check_clients(
+    name: &str,
+    svc: &ServiceEntry,
+    spans: &Spans,
+    out: &mut Vec<Diagnostic>,
+) -> Vec<String> {
+    let mut clients: Vec<String> = Vec::new();
+    match (&svc.client, svc.clients.is_empty()) {
+        (Some(_), false) => out.push(
+            Diagnostic::error(
+                "client-and-clients",
+                format!("service \"{name}\" has both \"client\" and \"clients\""),
+            )
+            .at(spans.key(&["services", name, "clients"]))
+            .label("use one or the other")
+            .help("keep \"client: NAME\" for one client, or list them all under \"clients\""),
+        ),
+        (None, true) if !spans.has(&["services", name, "client"]) => out.push(
+            Diagnostic::error(
+                "missing-client",
+                format!("service \"{name}\" has no \"client\""),
+            )
+            .at(spans.key(&["services", name]))
+            .label("which client reaches the target?")
+            .help("add \"client: NAME\" with a client from \"clients:\", or \"clients: [A, B]\" for several"),
+        ),
+        _ => {}
+    }
+    for c in svc.client.iter().chain(&svc.clients) {
+        if clients.contains(c) {
+            out.push(
+                Diagnostic::error(
+                    "duplicate-client",
+                    format!("service \"{name}\" lists client \"{c}\" twice"),
+                )
+                .at(spans.value(&["services", name, "clients"]))
+                .help("list each client once"),
+            );
+            continue;
+        }
+        clients.push(c.clone());
+    }
+    clients
+}
+
+fn health(svc: &ServiceEntry) -> Option<Health> {
+    let tuned = match &svc.health_check {
+        None | Some(HealthCheckSetting::On(false)) => return None,
+        Some(HealthCheckSetting::On(true)) => HealthCheck::default(),
+        Some(HealthCheckSetting::Tuned(h)) => h.clone(),
+    };
+    Some(Health {
+        interval: Duration::from_secs(tuned.interval_secs.into()),
+        timeout: Duration::from_secs(tuned.timeout_secs.into()),
+        failures: tuned.failures.max(1),
     })
 }
 

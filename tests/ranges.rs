@@ -100,7 +100,7 @@ async fn udp_lands_on(addr: SocketAddr) -> Option<u16> {
 
 fn ranged(protocol: Protocol, bind: Option<u16>, target: u16, ports: u16) -> Service {
     Service {
-        client: "home".into(),
+        clients: vec!["home".into()],
         bind: bind.map(|p| SocketAddr::from(([127, 0, 0, 1], p))),
         target: format!("127.0.0.1:{target}"),
         ports,

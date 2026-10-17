@@ -145,8 +145,24 @@ impl Secrets {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ServiceEntry {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(description = "Name of the client that reaches the target")]
-    pub client: String,
+    pub client: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(
+        description = "Several clients that can each reach the target, instead of client; see mode"
+    )]
+    pub clients: Vec<String>,
+    #[serde(default, skip_serializing_if = "is_default")]
+    #[schemars(
+        description = "With several clients: failover uses the first one that is up, balance spreads new connections over all of them"
+    )]
+    pub mode: Mode,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        description = "Check that each client can reach the target, and send connections only to those that can: true, or a map with interval_secs, timeout_secs and failures"
+    )]
+    pub health_check: Option<HealthCheckSetting>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
         description = "Public address on the server: a port, or ip:port; leave it out for a private service that only visitors reach"
@@ -182,6 +198,45 @@ pub struct ServiceEntry {
         description = "Speed limit for each direction, shared by all connections of this service, for example 40mbit or 5MB (per second)"
     )]
     pub bandwidth: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum Mode {
+    #[default]
+    Failover,
+    Balance,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged)]
+pub enum HealthCheckSetting {
+    On(bool),
+    Tuned(HealthCheck),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields, default)]
+pub struct HealthCheck {
+    #[schemars(description = "Seconds between checks of each client")]
+    #[schemars(range(min = 1, max = 3600))]
+    pub interval_secs: u32,
+    #[schemars(description = "Seconds a check may take")]
+    #[schemars(range(min = 1, max = 60))]
+    pub timeout_secs: u32,
+    #[schemars(description = "Failed checks in a row before a client counts as down")]
+    #[schemars(range(min = 1, max = 100))]
+    pub failures: u32,
+}
+
+impl Default for HealthCheck {
+    fn default() -> Self {
+        HealthCheck {
+            interval_secs: 10,
+            timeout_secs: 3,
+            failures: 2,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]

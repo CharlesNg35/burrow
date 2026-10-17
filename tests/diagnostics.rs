@@ -56,7 +56,7 @@ fn typo_field() {
        |
     10 |     bnd: 0.0.0.0:4000
        |     ^^^ unknown field
-       = help: did you mean "bind"? valid fields: client, bind, target, protocol, max_connections, visitors, allow_from, deny_from, proxy_protocol, bandwidth
+       = help: did you mean "bind"? valid fields: client, clients, mode, health_check, bind, target, protocol, max_connections, visitors, allow_from, deny_from, proxy_protocol, bandwidth
 
     server.yaml: 2 errors, 0 warnings
     "#);
@@ -457,7 +457,7 @@ fn json_multiple_errors() {
        |
      5 |     "web": {"client": "hom", "bnd": 4000, "target": "127.0.0.1:3000"},
        |                              ^^^^^ unknown field
-       = help: did you mean "bind"? valid fields: client, bind, target, protocol, max_connections, visitors, allow_from, deny_from, proxy_protocol, bandwidth
+       = help: did you mean "bind"? valid fields: client, clients, mode, health_check, bind, target, protocol, max_connections, visitors, allow_from, deny_from, proxy_protocol, bandwidth
 
     error: unknown protocol "udpp" in service "dns"
       --> server.json:6:83
@@ -1529,5 +1529,89 @@ fn bandwidth_limits() {
        = help: use a number with kbit, mbit or gbit (bits per second), or kb, mb or gb (bytes per second), for example 40mbit
 
     server.yaml: 2 errors, 0 warnings
+    "#);
+}
+
+#[test]
+fn several_clients() {
+    use burrow::config::Loaded;
+    use burrow::config::model::Mode;
+    let ok = server(
+        "  web:\n    clients: [home, office]\n    mode: balance\n    health_check: true\n    bind: 4000\n    target: 4000\n  db:\n    clients: [home, office]\n    health_check: { interval_secs: 5, failures: 3 }\n    bind: 4001\n    target: 4001\n",
+    );
+    insta::assert_snapshot!(render("server.yaml", &ok, None), @"server.yaml: valid server config (2 clients, 2 services)");
+    let o = load_str("server.yaml", &ok, Format::Yaml, None, &env);
+    let Some(Loaded::Server(s, _)) = o.loaded else {
+        panic!("server config loads")
+    };
+    let web = &s.services["web"];
+    assert_eq!(web.clients, ["home", "office"]);
+    assert_eq!(web.mode, Mode::Balance);
+    let h = web.health.unwrap();
+    assert_eq!(
+        (h.interval.as_secs(), h.timeout.as_secs(), h.failures),
+        (10, 3, 2)
+    );
+    let h = s.services["db"].health.unwrap();
+    assert_eq!((h.interval.as_secs(), h.failures), (5, 3));
+    assert_eq!(s.services["db"].mode, Mode::Failover);
+    insta::assert_snapshot!(render("server.yaml", &server("  a:\n    client: home\n    clients: [office]\n    bind: 4000\n    target: 4000\n  b:\n    bind: 4001\n    target: 4001\n  c:\n    clients: [home, home, ofice]\n    bind: 4002\n    target: 4002\n  d:\n    clients: [home, office]\n    mode: balance\n    health_check: true\n    protocol: udp\n    bind: 4003\n    target: 4003\n  e:\n    client: home\n    mode: random\n    health_check: often\n    bind: 4004\n    target: 4004\n"), None), @r#"
+    error: service "a" has both "client" and "clients"
+      --> server.yaml:10:5
+       |
+    10 |     clients: [office]
+       |     ^^^^^^^ use one or the other
+       = help: keep "client: NAME" for one client, or list them all under "clients"
+
+    error: service "b" has no "client"
+      --> server.yaml:13:3
+       |
+    13 |   b:
+       |   ^ which client reaches the target?
+       = help: add "client: NAME" with a client from "clients:", or "clients: [A, B]" for several
+
+    error: service "c" lists client "home" twice
+      --> server.yaml:17:14
+       |
+    17 |     clients: [home, home, ofice]
+       |              ^^^^^^^^^^^^^^^^^^^
+       = help: list each client once
+
+    error: unknown client "ofice" referenced by service "c"
+      --> server.yaml:17:27
+       |
+    17 |     clients: [home, home, ofice]
+       |                           ^^^^^ no client with this name
+       = help: did you mean "office"? defined clients: home, office
+
+    error: service "d" is udp, but mode balance only works for tcp services
+      --> server.yaml:22:11
+       |
+    22 |     mode: balance
+       |           ^^^^^^^
+       = help: remove "mode", or use a tcp service
+
+    error: service "d" is udp, but health_check only works for tcp services
+      --> server.yaml:23:19
+       |
+    23 |     health_check: true
+       |                   ^^^^
+       = help: remove "health_check", or use a tcp service
+
+    error: unknown mode "random" in service "e"
+      --> server.yaml:29:11
+       |
+    29 |     mode: random
+       |           ^^^^^^ not a valid mode
+       = help: valid values: failover, balance
+
+    error: "health_check" in service "e" must be true or false or a mapping, found a string
+      --> server.yaml:30:19
+       |
+    30 |     health_check: often
+       |                   ^^^^^ expected true or false or a mapping
+       = help: write it as an indented block of "key: value" lines
+
+    server.yaml: 8 errors, 0 warnings
     "#);
 }

@@ -1,5 +1,7 @@
 mod control;
+mod health;
 mod listen;
+mod pick;
 mod session;
 mod tcp;
 mod udp;
@@ -41,6 +43,8 @@ pub struct Shared {
     service_counts: Counts,
     visitor_counts: Counts,
     limits: Mutex<HashMap<String, Arc<Limit>>>,
+    probes: Mutex<health::Probes>,
+    turns: Mutex<HashMap<String, usize>>,
 }
 
 #[derive(Default)]
@@ -161,7 +165,7 @@ impl Shared {
     fn services_for(s: &ServerSettings, client: &str) -> Vec<ServiceInfo> {
         s.services
             .iter()
-            .filter(|(_, svc)| svc.client == client)
+            .filter(|(_, svc)| svc.clients.iter().any(|c| c == client))
             .map(|(name, svc)| ServiceInfo {
                 name: name.clone(),
                 protocol: svc.protocol,
@@ -217,6 +221,7 @@ impl ServiceTask {
 
 pub struct Server {
     shared: Arc<Shared>,
+    health: JoinHandle<()>,
     listener: Option<TcpListener>,
     websocket: Option<WsTask>,
     services: HashMap<String, ServiceTask>,
@@ -360,6 +365,8 @@ impl Server {
             service_counts: Counts::default(),
             visitor_counts: Counts::default(),
             limits: Mutex::new(HashMap::new()),
+            probes: Mutex::new(HashMap::new()),
+            turns: Mutex::new(HashMap::new()),
         });
         let mut services = HashMap::new();
         for (name, svc) in &settings.services {
@@ -370,7 +377,9 @@ impl Server {
             services.insert(name.clone(), spawn_service(&shared, name, svc, bound));
         }
         let websocket = ws_listener.map(|l| WsTask::start(&shared, l));
+        let health = tokio::spawn(health::run(shared.clone()));
         Ok(Server {
+            health,
             shared,
             listener,
             websocket,
@@ -453,6 +462,7 @@ impl Server {
     async fn shutdown(mut self) {
         info!("shutting down");
         let _ = self.shutdown_tx.send(true);
+        self.health.abort();
         if let Some(ws) = self.websocket.take() {
             ws.task.abort();
         }
@@ -744,15 +754,31 @@ fn log_service(name: &str, svc: &Service, addr: Option<SocketAddr>) {
     if let Some(rate) = svc.bandwidth {
         extras.push(format!("limited to {}", crate::ratelimit::describe(rate)));
     }
+    let clients = match svc.clients.as_slice() {
+        [one] => format!("client \"{one}\""),
+        many => format!(
+            "clients {} ({})",
+            many.iter()
+                .map(|c| format!("\"{c}\""))
+                .collect::<Vec<_>>()
+                .join(", "),
+            match svc.mode {
+                crate::config::model::Mode::Failover => "failover",
+                crate::config::model::Mode::Balance => "balance",
+            }
+        ),
+    };
+    if svc.health.is_some() {
+        extras.push("health checked".into());
+    }
     let visitors = if extras.is_empty() {
         String::new()
     } else {
         format!(" ({})", extras.join("; "))
     };
     info!(
-        "service \"{name}\": {} {at} -> client \"{}\" {}{visitors}",
+        "service \"{name}\": {} {at} -> {clients} {}{visitors}",
         svc.protocol.as_str(),
-        svc.client,
         svc.shown_target()
     );
 }

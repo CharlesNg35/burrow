@@ -19,7 +19,7 @@ use crate::throttle::Throttle;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Grant {
-    pub client: String,
+    pub clients: Vec<String>,
     pub target: String,
     pub service: Option<String>,
 }
@@ -76,7 +76,7 @@ impl Shared {
                     });
                 }
                 Ok(Grant {
-                    client: svc.client.clone(),
+                    clients: svc.clients.clone(),
                     target: svc.target_at(*index),
                     service: Some(name.clone()),
                 })
@@ -98,7 +98,7 @@ impl Shared {
                     });
                 }
                 Ok(Grant {
-                    client: client.clone(),
+                    clients: vec![client.clone()],
                     target: target.clone(),
                     service: None,
                 })
@@ -169,11 +169,20 @@ pub(super) async fn serve(
         }
     };
     let label = format!("visitor \"{visitor}\"");
-    let Some(session) = shared.session(&grant.client) else {
-        debug!(%peer, "{label}: client \"{}\" is not connected", grant.client);
+    let picked = match &grant.service {
+        Some(name) => shared
+            .settings()
+            .services
+            .get(name)
+            .and_then(|svc| shared.pick(name, svc)),
+        None => grant.clients.first().and_then(|c| shared.session(c)),
+    };
+    let Some(session) = picked else {
+        debug!(%peer, "{label}: no client of {} is connected", request.to);
         reply(channel, Status::Offline).await;
         return;
     };
+    let client = session.name.clone();
     if request.check {
         reply(channel, Status::Ok).await;
         return;
@@ -208,15 +217,12 @@ pub(super) async fn serve(
     };
     let client_limit = settings
         .clients
-        .get(&grant.client)
+        .get(&client)
         .and_then(|c| c.max_connections)
         .unwrap_or(settings.max_connections_per_client);
     let (_active, before) = session.connection_guard();
     if before >= client_limit {
-        busy(format!(
-            "client \"{}\" is at its connection limit",
-            grant.client
-        ));
+        busy(format!("client \"{client}\" is at its connection limit"));
         reply(channel, Status::Busy).await;
         return;
     }
@@ -231,7 +237,7 @@ pub(super) async fn serve(
     let mut reloads = shared.reloads();
     let allowed = || {
         shared.still_granted(&visitor, &secret, &request.to, peer.ip(), &grant)
-            && shared.allows(&grant.client, &session.secret)
+            && shared.allows(&client, &session.secret)
     };
     if !allowed() {
         reply(channel, Status::Forbidden).await;
@@ -278,9 +284,9 @@ pub(super) async fn serve(
     };
     match result {
         Ok(()) => debug!(%peer, "{label}: connection closed"),
-        Err(ForwardError::Status(st)) => log_status(&label, &grant.client, &grant.target, st),
+        Err(ForwardError::Status(st)) => log_status(&label, &client, &grant.target, st),
         Err(ForwardError::Protocol) => {
-            warn!("{label}: client \"{}\" sent an invalid reply", grant.client)
+            warn!("{label}: client \"{}\" sent an invalid reply", client)
         }
         Err(ForwardError::Io(e)) => debug!(%peer, "{label}: connection ended: {e}"),
     }

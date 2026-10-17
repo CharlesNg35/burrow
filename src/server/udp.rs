@@ -123,7 +123,7 @@ pub async fn udp_service(
         }
         let svc = config.borrow().clone();
         let target = svc.target_at(index);
-        let Some(session) = shared.session(&svc.client) else {
+        let Some(session) = shared.pick(&name, &svc) else {
             tokio::select! {
                 _ = tokio::time::sleep(Duration::from_millis(500)) => continue,
                 _ = stop.changed() => return,
@@ -139,7 +139,7 @@ pub async fn udp_service(
         let (_active, _) = session.connection_guard();
         debug!(
             "service \"{name}\": UDP relay attached to client \"{}\"",
-            svc.client
+            session.name
         );
         let port = Port {
             name: &name,
@@ -149,7 +149,12 @@ pub async fn udp_service(
         match relay(&shared, port, &session, socket.clone(), ch, config.clone()).await {
             Ok(()) => {}
             Err(Some(status)) => {
-                log_status(&format!("service \"{name}\""), &svc.client, &target, status);
+                log_status(
+                    &format!("service \"{name}\""),
+                    &session.name,
+                    &target,
+                    status,
+                );
                 tokio::time::sleep(Duration::from_secs(5)).await;
             }
             Err(None) => tokio::time::sleep(Duration::from_millis(200)).await,
@@ -196,7 +201,7 @@ async fn relay(
     }
     info!(
         "service \"{name}\": UDP relay ready via client \"{}\"",
-        svc.client
+        session.name
     );
 
     let peers = Arc::new(Mutex::new(Peers::default()));
@@ -280,7 +285,11 @@ async fn relay(
             }
             _ = &mut back.0 => break Err(None),
             r = config.changed() => {
-                if r.is_err() || config.borrow().target != svc.target || config.borrow().client != svc.client {
+                let moved = {
+                    let next = config.borrow();
+                    next.target != svc.target || !next.clients.contains(&session.name)
+                };
+                if r.is_err() || moved {
                     break Ok(());
                 }
                 let sources = config.borrow().sources.clone();

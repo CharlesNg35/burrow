@@ -61,19 +61,20 @@ async fn visit(
         debug!(%peer, "service \"{name}\" is at its connection limit");
         return;
     }
-    let Some(session) = shared.session(&svc.client) else {
-        debug!(%peer, "service \"{name}\": client \"{}\" is not connected, dropping visitor", svc.client);
+    let Some(session) = shared.pick(&name, &svc) else {
+        debug!(%peer, "service \"{name}\": no client is connected, dropping visitor");
         return;
     };
+    let client = session.name.clone();
     let client_limit = settings
         .clients
-        .get(&svc.client)
+        .get(&client)
         .and_then(|c| c.max_connections)
         .unwrap_or(settings.max_connections_per_client);
     let (_active, before) = session.connection_guard();
     if before >= client_limit {
         shared.rejected.fetch_add(1, Ordering::Relaxed);
-        debug!(%peer, "client \"{}\" is at its connection limit", svc.client);
+        debug!(%peer, "client \"{client}\" is at its connection limit");
         return;
     }
     let _tracked = shared.track();
@@ -88,7 +89,7 @@ async fn visit(
         target: target.clone(),
     };
     let mut reloads = shared.reloads();
-    if !shared.allows(&svc.client, &session.secret) {
+    if !shared.allows(&client, &session.secret) {
         return;
     }
     let first = connect.encode();
@@ -110,8 +111,8 @@ async fn visit(
         tokio::select! {
             biased;
             Ok(()) = reloads.changed() => {
-                if !shared.allows(&svc.client, &session.secret) {
-                    debug!(%peer, "service \"{name}\": client \"{}\" is no longer allowed, closing", svc.client);
+                if !shared.allows(&client, &session.secret) || !shared.still_serves(&name, &client) {
+                    debug!(%peer, "service \"{name}\": client \"{client}\" no longer serves it, closing");
                     return;
                 }
                 if !shared.source_allowed(&name, peer.ip()) {
@@ -124,7 +125,7 @@ async fn visit(
     };
     match result {
         Ok(()) => debug!(%peer, "service \"{name}\": connection closed"),
-        Err(ForwardError::Status(st)) => log_status(&label, &svc.client, &target, st),
+        Err(ForwardError::Status(st)) => log_status(&label, &client, &target, st),
         Err(ForwardError::Protocol) => warn!("service \"{name}\": client sent an invalid reply"),
         Err(ForwardError::Io(e)) => debug!(%peer, "service \"{name}\": connection ended: {e}"),
     }

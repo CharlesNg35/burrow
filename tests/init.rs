@@ -1021,3 +1021,48 @@ fn visitor_config_for_reach_only_explains_how_to_run_it() {
         ]
     );
 }
+
+#[test]
+fn client_config_allows_ranges_sockets_and_shared_services() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("server.yaml");
+    let secret = burrow::secret::Secret::generate().encode();
+    let other = burrow::secret::Secret::generate().encode();
+    std::fs::write(
+        &path,
+        format!(
+            "listen: 7835\nclients:\n  home:\n    secret: {secret}\n  backup:\n    secret: {other}\nservices:\n  game:\n    client: home\n    bind: 30000-30010\n    target: 30000-30010\n  db:\n    client: home\n    bind: 5433\n    target: unix:/run/postgresql/.s.PGSQL.5432\n  web:\n    clients: [backup, home]\n    bind: 8080\n    target: 192.168.1.20:80\n"
+        ),
+    )
+    .unwrap();
+    let home = client_config(
+        Some("home"),
+        &path,
+        Some("t.example"),
+        Format::Yaml,
+        &ProcessEnv,
+    )
+    .unwrap()
+    .text;
+    for entry in [
+        "127.0.0.1/32:30000-30010",
+        "unix:/run/postgresql/.s.PGSQL.5432",
+        "192.168.1.20/32:80",
+    ] {
+        assert!(home.contains(entry), "{entry} missing from:\n{home}");
+    }
+    let written = dir.path().join("client.yaml");
+    std::fs::write(&written, &home).unwrap();
+    assert!(matches!(load(&written), Loaded::Client(..)));
+    let backup = client_config(
+        Some("backup"),
+        &path,
+        Some("t.example"),
+        Format::Yaml,
+        &ProcessEnv,
+    )
+    .unwrap()
+    .text;
+    assert!(backup.contains("192.168.1.20/32:80"), "{backup}");
+    assert!(!backup.contains("30000"), "{backup}");
+}

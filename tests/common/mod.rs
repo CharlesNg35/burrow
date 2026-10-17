@@ -57,7 +57,7 @@ pub fn server_settings(secrets: Vec<Secret>) -> ServerSettings {
 
 pub fn service(target: SocketAddr, protocol: Protocol) -> Service {
     Service {
-        client: "home".into(),
+        clients: vec!["home".into()],
         bind: Some("127.0.0.1:0".parse().unwrap()),
         target: target.to_string(),
         protocol,
@@ -181,7 +181,7 @@ pub struct RunningClient {
     pub task: JoinHandle<burrow::client::RunEnd>,
 }
 
-pub async fn start_client(mut settings: ClientSettings) -> RunningClient {
+pub fn over_transport(mut settings: ClientSettings) -> ClientSettings {
     if ws_mode()
         && let burrow::transport::endpoint::Endpoint::Tcp { host_port } = &settings.endpoint
     {
@@ -189,7 +189,11 @@ pub async fn start_client(mut settings: ClientSettings) -> RunningClient {
         settings.endpoint = burrow::transport::endpoint::Endpoint::parse(&url).unwrap();
         settings.server = url;
     }
-    start_client_with(Client::new(settings)).await
+    settings
+}
+
+pub async fn start_client(settings: ClientSettings) -> RunningClient {
+    start_client_with(Client::new(over_transport(settings))).await
 }
 
 pub async fn start_client_with(client: Client) -> RunningClient {

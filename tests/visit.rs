@@ -508,12 +508,7 @@ async fn a_client_that_leaves_mid_setup_is_reported_offline() {
         visitor_auth(visitor_secret.clone(), &["home"]),
     );
     let srv = start_server(server).await;
-    let mut cs = client_settings(srv.addr, secret);
-    if ws_mode() {
-        let url = format!("ws://{}/burrow", srv.addr);
-        cs.endpoint = burrow::transport::endpoint::Endpoint::parse(&url).unwrap();
-        cs.server = url;
-    }
+    let cs = over_transport(client_settings(srv.addr, secret));
     let client = burrow::client::Client::new(cs).with_resolver(std::sync::Arc::new(SlowName));
     let mut cli = start_client_with(client).await;
     wait_state(&mut cli.state, burrow::client::State::Connected).await;

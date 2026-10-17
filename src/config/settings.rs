@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::net::SocketAddr;
 use std::time::Duration;
 
-use super::model::{Cipher, Protocol};
+use super::model::{Cipher, Mode, Protocol};
 use crate::allowlist::{AllowList, Sources};
 use crate::protocol::VisitTarget;
 use crate::proxy::ProxyConfig;
@@ -48,9 +48,18 @@ pub struct VisitorAuth {
     pub max_connections: Option<usize>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Health {
+    pub interval: Duration,
+    pub timeout: Duration,
+    pub failures: u32,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Service {
-    pub client: String,
+    pub clients: Vec<String>,
+    pub mode: Mode,
+    pub health: Option<Health>,
     pub bind: Option<SocketAddr>,
     pub target: String,
     pub ports: u16,
@@ -65,7 +74,9 @@ pub struct Service {
 impl Default for Service {
     fn default() -> Self {
         Service {
-            client: String::new(),
+            clients: Vec::new(),
+            mode: Mode::Failover,
+            health: None,
             bind: None,
             target: String::new(),
             ports: 1,
