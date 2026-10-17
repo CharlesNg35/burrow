@@ -208,7 +208,12 @@ impl Backend for Launchd {
     }
 
     fn start(&self, m: &Manifest) -> Result<(), Failure> {
-        let hint = |f: Failure| f.hint(format!("see why with: burrow service logs {}", m.name));
+        let hint = |f: Failure| {
+            f.hint(format!(
+                "see why with: {}",
+                crate::failure::admin(&format!("service logs {}", m.name))
+            ))
+        };
         if loaded(m) {
             return run("launchctl", &["kickstart", &target(m)])
                 .map(drop)
@@ -273,7 +278,10 @@ impl Backend for Launchd {
         let code = field("last exit code");
         let detail = match code.as_str() {
             "3" => {
-                "the config has errors (exit 3); fix it, then: burrow service restart".to_string()
+                format!(
+                    "the config has errors (exit 3); fix it, then: {}",
+                    crate::failure::admin(&format!("service start {}", m.name))
+                )
             }
             c if !c.is_empty() && c != "0" && !c.starts_with('(') => {
                 format!("{state} (last exit code {c})")

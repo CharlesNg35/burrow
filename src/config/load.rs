@@ -63,7 +63,10 @@ impl LoadError {
         match self {
             LoadError::Read(e) if e.kind() == std::io::ErrorKind::NotFound => (
                 format!("config file {} does not exist", path.display()),
-                "create one with: burrow init server  (or: burrow init client)".into(),
+                format!(
+                    "check the path, or create one with: {0} init server  (or: {0} init client)",
+                    crate::failure::command()
+                ),
             ),
             LoadError::Read(e) if e.kind() == std::io::ErrorKind::PermissionDenied => (
                 format!("cannot read {}: permission denied", path.display()),

@@ -388,7 +388,8 @@ pub fn init_server(opts: &InitOptions, out: &mut dyn Write) -> Result<PathBuf, F
             w(
                 out,
                 format!(
-                    "\nnext, print the client config with:\n\n  burrow client-config -c {} --server {example} -o client.yaml",
+                    "\nnext, print the client config with:\n\n  {} client-config -c {} --server {example} -o client.yaml",
+                    crate::failure::command(),
                     path.display()
                 ),
             )?;
@@ -447,9 +448,10 @@ pub fn init_client(
     };
     if !secret_text.starts_with("${") {
         Secret::parse(&secret_text).map_err(|e| {
-            Failure::usage(format!("the secret {}", e.describe())).hint(
-                "copy it from the server config, or run: burrow client-config NAME on the server",
-            )
+            Failure::usage(format!("the secret {}", e.describe())).hint(format!(
+                "copy it from the server config, or run on the server: {} client-config NAME -o client.yaml",
+                crate::failure::command()
+            ))
         })?;
     }
     let value = client_value(&server, &name, &secret_text, &["127.0.0.0/8".to_string()]);
@@ -495,14 +497,27 @@ pub fn client_config(
     format: Format,
     env: &dyn EnvSource,
 ) -> Result<ClientConfigOutput, Failure> {
-    let outcome = load_file(server_config, Some(Role::Server), env).map_err(|e| {
-        let (m, h) = e.describe(server_config);
-        Failure::new(m).hint(h)
+    let outcome = load_file(server_config, Some(Role::Server), env).map_err(|e| match &e {
+        crate::config::load::LoadError::Read(io) if io.kind() == std::io::ErrorKind::NotFound => {
+            Failure::usage(format!(
+                "server config {} does not exist",
+                server_config.display()
+            ))
+            .hint(format!(
+                "pass the server config with -c, or create one with: {}",
+                crate::failure::cmd("init server")
+            ))
+        }
+        _ => {
+            let (m, h) = e.describe(server_config);
+            Failure::new(m).hint(h)
+        }
     })?;
     let Some(Loaded::Server(settings, _)) = outcome.loaded else {
         return Err(
             Failure::new(format!("{} has errors", server_config.display())).hint(format!(
-                "see them with: burrow validate -c {}",
+                "see them with: {} validate -c {}",
+                crate::failure::command(),
                 server_config.display()
             )),
         );
@@ -511,15 +526,33 @@ pub fn client_config(
     let name = match (name, names.as_slice()) {
         (Some(n), _) => n,
         (None, [only]) => only,
+        (None, []) => {
+            return Err(
+                Failure::new(format!("{} defines no clients", server_config.display())).hint(
+                    format!(
+                        "add one under \"clients\", with a secret from: {} gensecret",
+                        crate::failure::command()
+                    ),
+                ),
+            );
+        }
         (None, _) => {
+            let mut example = format!(
+                "{} client-config {} -c {}",
+                crate::failure::command(),
+                names[0],
+                server_config.display()
+            );
+            if let Some(s) = server {
+                example.push_str(&format!(" --server {s}"));
+            }
             return Err(Failure::usage(format!(
                 "{} defines {} clients; which one?",
                 server_config.display(),
                 names.len()
             ))
             .hint(format!(
-                "pass its name, for example: burrow client-config {} (defined clients: {})",
-                names.first().copied().unwrap_or("NAME"),
+                "pass its name, for example: {example} (defined clients: {})",
                 names.join(", ")
             )));
         }

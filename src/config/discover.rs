@@ -46,10 +46,14 @@ pub fn discover(dir: &Path, role: Option<Role>) -> Result<PathBuf, Failure> {
                 .and_then(|o| candidates(dir, o).first().map(|p| (o, shown(p))));
             let hint = match other {
                 Some((o, file)) => format!(
-                    "{file} here is a {o} config, run it with: burrow {o}; otherwise pass -c FILE, or create one with: burrow init {init}",
-                    o = o.as_str()
+                    "{file} here is a {o} config, run it with: {cmd} {o}; otherwise pass -c FILE, or create one with: {cmd} init {init}",
+                    o = o.as_str(),
+                    cmd = crate::failure::command()
                 ),
-                None => format!("pass -c FILE, or create one with: burrow init {init}"),
+                None => format!(
+                    "pass -c FILE, or create one with: {} init {init}",
+                    crate::failure::command()
+                ),
             };
             Err(Failure::usage(format!("no {wanted} in {}", dir.display())).hint(hint))
         }

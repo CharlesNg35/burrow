@@ -177,11 +177,12 @@ fn name_error(kind: &str, name: &str, span: Span) -> Diagnostic {
 }
 
 fn secret_error(owner: &str, err: &SecretError, span: Span) -> Diagnostic {
+    let make = crate::failure::cmd("gensecret");
     let help = match err {
         SecretError::NotDecodable { .. } => {
-            "use a 32-byte value encoded as base64 or hex; generate one with: burrow gensecret"
+            format!("use a 32-byte value encoded as base64 or hex; generate one with: {make}")
         }
-        _ => "generate one with: burrow gensecret",
+        _ => format!("generate one with: {make}"),
     };
     Diagnostic::error(
         "weak-secret",
@@ -291,7 +292,10 @@ pub fn check_server(
                 "no clients are defined, so nobody can connect",
             )
             .at(spans.key(&["clients"]))
-            .help("add a client with: burrow init server, or burrow gensecret"),
+            .help(format!(
+                "add one, for example:\n         clients:\n           home: {{ secret: SECRET }}\n       with a SECRET from: {}",
+                crate::failure::cmd("gensecret")
+            )),
         );
     }
 
@@ -310,7 +314,10 @@ pub fn check_server(
                     format!("{owner} has an empty secret list"),
                 )
                 .at(spans.value(&["clients", name, "secret"]))
-                .help("add at least one secret; generate one with: burrow gensecret"),
+                .help(format!(
+                    "add at least one secret; generate one with: {}",
+                    crate::failure::cmd("gensecret")
+                )),
             );
         }
         if list.len() > MAX_SECRETS_PER_CLIENT {
@@ -346,7 +353,10 @@ pub fn check_server(
                             Diagnostic::error("duplicate-secret", msg)
                                 .at(span)
                                 .without_snippet()
-                                .help("every client needs its own secret; generate one with: burrow gensecret"),
+                                .help(format!(
+                                    "every client needs its own secret; generate one with: {}",
+                                    crate::failure::cmd("gensecret")
+                                )),
                         );
                     }
                     seen_secrets.push((*s.as_bytes(), name.clone()));

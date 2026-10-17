@@ -95,3 +95,81 @@ pub fn file_reason(e: &std::io::Error) -> String {
         _ => io_reason(e),
     }
 }
+
+fn on_path(exe: &std::path::Path) -> bool {
+    let name = if cfg!(windows) {
+        "burrow.exe"
+    } else {
+        "burrow"
+    };
+    let Ok(me) = std::fs::canonicalize(exe) else {
+        return false;
+    };
+    std::env::var_os("PATH").is_some_and(|path| {
+        std::env::split_paths(&path)
+            .any(|dir| std::fs::canonicalize(dir.join(name)).is_ok_and(|p| p == me))
+    })
+}
+
+fn command_for(arg0: Option<&std::ffi::OsStr>) -> String {
+    let Some(path) = arg0.map(std::path::Path::new) else {
+        return "burrow".into();
+    };
+    let typed_path = path.components().count() > 1;
+    let is_burrow = path.file_stem().is_some_and(|s| s == "burrow");
+    if !typed_path || !is_burrow || on_path(path) {
+        return "burrow".into();
+    }
+    let shown = path.display().to_string();
+    if shown.contains(' ') {
+        if cfg!(windows) {
+            format!("& \"{shown}\"")
+        } else {
+            format!("'{shown}'")
+        }
+    } else {
+        shown
+    }
+}
+
+pub fn command() -> &'static str {
+    static NAME: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    NAME.get_or_init(|| command_for(std::env::args_os().next().as_deref()))
+}
+
+pub fn cmd(rest: &str) -> String {
+    format!("{} {rest}", command())
+}
+
+pub fn admin(rest: &str) -> String {
+    if cfg!(windows) {
+        format!("{} {rest} (as administrator)", command())
+    } else {
+        format!("sudo {} {rest}", command())
+    }
+}
+
+#[cfg(test)]
+mod command_tests {
+    use super::*;
+    use std::ffi::OsStr;
+
+    #[test]
+    fn hints_use_the_command_the_user_typed() {
+        assert_eq!(command_for(None), "burrow");
+        assert_eq!(command_for(Some(OsStr::new("burrow"))), "burrow");
+        assert_eq!(command_for(Some(OsStr::new("./burrow"))), "./burrow");
+        assert_eq!(
+            command_for(Some(OsStr::new("/opt/burrow 1/burrow"))),
+            if cfg!(windows) {
+                "& \"/opt/burrow 1/burrow\""
+            } else {
+                "'/opt/burrow 1/burrow'"
+            }
+        );
+        assert_eq!(
+            command_for(Some(OsStr::new("target/debug/deps/integration-1234"))),
+            "burrow"
+        );
+    }
+}

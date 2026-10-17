@@ -188,7 +188,10 @@ fn check_config(path: &Path) -> Result<Checked, Failure> {
         .hint(if cfg!(windows) {
             format!("set it in this terminal first, for example: $env:{} = \"...\" (the values are saved for the service, readable by it only)", unset[0])
         } else {
-            format!("sudo drops environment variables; keep them with: sudo --preserve-env={list} burrow service install (the values are saved for the service, readable by it only)")
+            format!(
+                "sudo drops environment variables; keep them with: sudo --preserve-env={list} {} (the values are saved for the service, readable by it only)",
+                crate::failure::cmd(&format!("service install -c {}", path.display()))
+            )
         }));
     }
     let outcome = load_file(path, None, &ProcessEnv).map_err(|e| {
@@ -199,8 +202,8 @@ fn check_config(path: &Path) -> Result<Checked, Failure> {
         eprint!("{}", outcome.report.render_text(Style::detect(false)));
         return Err(
             Failure::new(format!("{} has errors, not installing", path.display())).hint(format!(
-                "fix them, then check with: burrow validate -c {}",
-                path.display()
+                "fix them, then check with: {}",
+                crate::failure::cmd(&format!("validate -c {}", path.display()))
             )),
         );
     }
@@ -452,14 +455,20 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
             )?;
             say(
                 out,
-                format!("  see why with: sudo burrow service logs{arg}"),
+                format!(
+                    "  see why with: {}",
+                    crate::failure::admin(&format!("service logs{arg}"))
+                ),
             )?;
         }
     }
     let applies = if manifest.role == "server" {
         "changes reload automatically".to_string()
     } else {
-        format!("then run: sudo burrow service restart{arg}")
+        format!(
+            "then run: {}",
+            crate::failure::admin(&format!("service restart{arg}"))
+        )
     };
     say(
         out,
@@ -470,7 +479,11 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
     )?;
     say(
         out,
-        format!("  status: burrow service status{arg}    logs: sudo burrow service logs{arg} -f"),
+        format!(
+            "  status: {}    logs: {}",
+            crate::failure::cmd(&format!("service status{arg}")),
+            crate::failure::admin(&format!("service logs{arg} -f"))
+        ),
     )?;
     Ok(())
 }
@@ -505,8 +518,12 @@ fn read_manifest(path: &Path) -> Result<Manifest, String> {
 pub fn load_manifest(name: &str) -> Result<Manifest, Failure> {
     let path = manifest_path(name);
     if !path.exists() {
-        return Err(Failure::new(format!("no burrow service named {name}"))
-            .hint("see the installed ones with: burrow service list"));
+        return Err(
+            Failure::new(format!("no burrow service named {name}")).hint(format!(
+                "see the installed ones with: {}",
+                crate::failure::cmd("service list")
+            )),
+        );
     }
     read_manifest(&path).map_err(|why| {
         Failure::new(format!("ignoring {}: {why}", path.display())).hint(format!(
@@ -559,8 +576,10 @@ pub fn resolve(name: Option<&str>) -> Result<Manifest, Failure> {
     let all = all_manifests();
     match all.as_slice() {
         [one] => Ok(one.clone()),
-        [] => Err(Failure::new("no burrow service is installed")
-            .hint("install one with: sudo burrow service install")),
+        [] => Err(Failure::new("no burrow service is installed").hint(format!(
+            "install one with: {}",
+            crate::failure::admin("service install")
+        ))),
         many => Err(
             Failure::usage("more than one burrow service is installed; say which one").hint(
                 format!(
@@ -736,8 +755,10 @@ pub fn update(name: Option<&str>, force: bool, out: &mut dyn Write) -> Result<()
         None => all_manifests(),
     };
     if targets.is_empty() {
-        return Err(Failure::new("no burrow service is installed")
-            .hint("install one with: sudo burrow service install"));
+        return Err(Failure::new("no burrow service is installed").hint(format!(
+            "install one with: {}",
+            crate::failure::admin("service install")
+        )));
     }
     let me = std::env::current_exe()
         .map_err(|e| Failure::new(format!("cannot locate this burrow binary: {e}")))?;
@@ -757,8 +778,9 @@ pub fn update(name: Option<&str>, force: bool, out: &mut dyn Write) -> Result<()
             say(
                 out,
                 format!(
-                    "{} is not managed by burrow; upgrade it where you installed it, then run: sudo burrow service restart",
-                    binary.display()
+                    "{} is not managed by burrow; upgrade it where you installed it, then run: {}",
+                    binary.display(),
+                    crate::failure::admin(&format!("service restart {}", users[0].name))
                 ),
             )?;
             continue;
@@ -846,8 +868,8 @@ pub fn update(name: Option<&str>, force: bool, out: &mut dyn Write) -> Result<()
                 failed.join(", ")
             ))
             .hint(format!(
-                "see why with: sudo burrow service logs {}",
-                failed[0]
+                "see why with: {}",
+                crate::failure::admin(&format!("service logs {}", failed[0]))
             )));
         }
         for m in &users {
@@ -902,16 +924,23 @@ pub fn control(action: &str, name: Option<&str>, out: &mut dyn Write) -> Result<
     )
 }
 
+fn install_args(m: &Manifest) -> String {
+    let mut args = format!("service install -c {}", m.source_config.display());
+    if service_name(&m.source_config, None).ok().as_deref() != Some(m.name.as_str()) {
+        args.push_str(&format!(" --name {}", m.name));
+    }
+    args
+}
+
 pub fn status(name: Option<&str>, out: &mut dyn Write) -> Result<u8, Failure> {
     let backend = system::backend()?;
     let m = resolve(name)?;
     let st = backend.status(&m);
+    let reinstall = crate::failure::admin(&install_args(&m));
     let state = match (st.installed, st.running) {
-        (false, _) => {
-            "not installed in the service manager (run: sudo burrow service install again)"
-        }
-        (true, true) => "running",
-        (true, false) => "stopped",
+        (false, _) => format!("not installed in the service manager (run: {reinstall})"),
+        (true, true) => "running".to_string(),
+        (true, false) => "stopped".to_string(),
     };
     say(
         out,
@@ -959,9 +988,9 @@ pub fn status(name: Option<&str>, out: &mut dyn Write) -> Result<u8, Failure> {
             say(
                 out,
                 format!(
-                    "  note:    {} differs from the installed copy; to use it, run: sudo burrow service install -c {}",
+                    "  note:    {} differs from the installed copy; to use it, run: {}",
                     m.source_config.display(),
-                    m.source_config.display()
+                    reinstall
                 ),
             )?;
         }
@@ -998,7 +1027,20 @@ pub fn list(out: &mut dyn Write) -> Result<(), Failure> {
 pub fn logs(name: Option<&str>, lines: usize, follow: bool) -> Result<(), Failure> {
     let m = resolve(name)?;
     let mut out = std::io::stdout().lock();
-    logview::show(&m.log_file, lines, follow, &mut out)
+    let mut retry = format!("service logs {}", m.name);
+    if lines != 50 {
+        retry.push_str(&format!(" -n {lines}"));
+    }
+    if follow {
+        retry.push_str(" -f");
+    }
+    logview::show(
+        &m.log_file,
+        lines,
+        follow,
+        &crate::failure::admin(&retry),
+        &mut out,
+    )
 }
 
 pub fn run_service(name: &str) -> Result<u8, Failure> {

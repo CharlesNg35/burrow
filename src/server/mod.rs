@@ -218,7 +218,8 @@ pub fn bind_error(what: &str, proto: Protocol, addr: SocketAddr, e: &std::io::Er
             let find = crate::service::ports::inspect_hint(proto, addr.port());
             let hint = if crate::service::any_installed() {
                 format!(
-                    "a burrow service is installed here and may be using it: burrow service status; otherwise find what uses it with: {find}"
+                    "a burrow service is installed here and may be using it, see: {}; otherwise find what uses it with: {find}",
+                    crate::failure::cmd("service list")
                 )
             } else {
                 format!("pick another port, or find what uses it with: {find}")
@@ -678,7 +679,7 @@ mod tests {
             "{hint}"
         );
         assert_eq!(
-            hint.contains("burrow service status"),
+            hint.contains("burrow service list"),
             crate::service::any_installed(),
             "{hint}"
         );

@@ -88,7 +88,8 @@ fn expand_str(
                             .at(sub_span(src, span, token))
                             .label("referenced here")
                             .help(format!(
-                                "set it before starting burrow, for example: export {name}=\"$(burrow gensecret)\" (for a secret) or export {name}=value"
+                                "set it before starting burrow, for example: export {name}=\"$({})\" (for a secret) or export {name}=value",
+                                crate::failure::cmd("gensecret")
                             )),
                         );
                         ok = false;

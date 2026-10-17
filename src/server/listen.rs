@@ -28,8 +28,10 @@ impl WsRoute {
     pub fn new(settings: &WebSocketSettings) -> Result<WsRoute, Failure> {
         let tls = match &settings.tls {
             Some(m) => Some(tls::acceptor(&m.cert_pem, &m.key_pem).map_err(|e| {
-                Failure::new(format!("websocket TLS files are not usable: {e}"))
-                    .hint("check websocket.tls.cert and websocket.tls.key with: burrow validate")
+                Failure::new(format!("websocket TLS files are not usable: {e}")).hint(format!(
+                    "check websocket.tls.cert and websocket.tls.key with: {}",
+                    crate::failure::cmd("validate")
+                ))
             })?),
             None => None,
         };

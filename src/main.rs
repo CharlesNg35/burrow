@@ -72,8 +72,12 @@ fn ask_role() -> Result<RoleArg, Failure> {
             _ => {}
         }
     }
-    Err(Failure::usage("burrow init needs to know which config to write")
-        .hint("run: burrow init server  (on the public machine), or: burrow init client  (behind NAT)"))
+    Err(
+        Failure::usage("burrow init needs to know which config to write").hint(format!(
+            "run: {0} init server  (on the public machine), or: {0} init client  (behind NAT)",
+            burrow::failure::command()
+        )),
+    )
 }
 
 fn service(action: ServiceAction, logging: burrow::run::Logging) -> Result<u8, Failure> {

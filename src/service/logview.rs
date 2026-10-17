@@ -33,12 +33,20 @@ pub fn last_lines(path: &Path, n: usize) -> Vec<String> {
     lines.split_off(skip)
 }
 
-pub fn show(path: &Path, n: usize, follow: bool, out: &mut dyn Write) -> Result<(), Failure> {
+pub fn show(
+    path: &Path,
+    n: usize,
+    follow: bool,
+    retry: &str,
+    out: &mut dyn Write,
+) -> Result<(), Failure> {
     match File::open(path) {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             return Err(
-                Failure::new(format!("no log file yet at {}", path.display()))
-                    .hint("the service creates it when it starts; check: burrow service status"),
+                Failure::new(format!("no log file yet at {}", path.display())).hint(format!(
+                    "the service creates it when it starts; check it with: {}",
+                    crate::failure::cmd("service list")
+                )),
             );
         }
         Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
@@ -47,9 +55,9 @@ pub fn show(path: &Path, n: usize, follow: bool, out: &mut dyn Write) -> Result<
                 path.display()
             ))
             .hint(if cfg!(windows) {
-                "run it from a terminal opened with \"Run as administrator\""
+                "run it from a terminal opened with \"Run as administrator\"".to_string()
             } else {
-                "run: sudo burrow service logs"
+                format!("run: {retry}")
             }));
         }
         _ => {}

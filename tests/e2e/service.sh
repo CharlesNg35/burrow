@@ -88,7 +88,7 @@ case "${perms%% *}" in
 esac
 sudo "$B" service logs burrow-e2e-server -n 20 | grep -q "listening for clients" || fail "service logs show nothing"
 out="$("$B" service logs burrow-e2e-server 2>&1 || true)"
-echo "$out" | grep -q "sudo burrow service logs" || fail "unprivileged logs should point to sudo: $out"
+echo "$out" | grep -q "run: sudo .*burrow service logs burrow-e2e-server" || fail "unprivileged logs should point to sudo: $out"
 check "log file $LOG ($perms) and burrow service logs"
 sudo "$B" service list | grep -c "running" | grep -q 2 || fail "list does not show both services"
 check "status and list"

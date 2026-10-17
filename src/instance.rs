@@ -113,7 +113,10 @@ pub fn acquire_in(dir: &Path, identity: &Identity, config: &Path) -> Result<Inst
         Ok(()) => {}
         Err(TryLockError::WouldBlock) => {
             let holder = std::fs::read_to_string(path.with_extension("info")).unwrap_or_default();
-            let holder = holder.trim();
+            let mut holder = holder.trim().to_string();
+            if let Identity::Server { config } = identity {
+                holder = holder.replace(&format!(", config {}", config.display()), "");
+            }
             let who = if holder.is_empty() {
                 String::new()
             } else {
@@ -121,11 +124,10 @@ pub fn acquire_in(dir: &Path, identity: &Identity, config: &Path) -> Result<Inst
             };
             return Err(
                 Failure::new(format!("{} is already running{who}", identity.describe())).hint(
-                    if cfg!(windows) {
-                        "stop the other instance first; if it runs as a service: burrow service stop (as administrator)"
-                    } else {
-                        "stop the other instance first; if it runs as a service: sudo burrow service stop"
-                    },
+                    format!(
+                        "stop the other instance first; if it runs as a service, find it with: {}",
+                        crate::failure::cmd("service list")
+                    ),
                 ),
             );
         }

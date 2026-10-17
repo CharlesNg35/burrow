@@ -543,7 +543,10 @@ fn role_override_reports_fields_for_that_role() {
        |
      1 | server: a:1
        | ^
-       = help: add a client with: burrow init server, or burrow gensecret
+       = help: add one, for example:
+             clients:
+               home: { secret: SECRET }
+           with a SECRET from: burrow gensecret
 
     warning: no services are defined, so nothing is exposed
       --> server.yaml:1:1

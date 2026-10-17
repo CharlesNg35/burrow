@@ -102,7 +102,8 @@ fn load(path: &Path, role: Role, env: &Env) -> Result<Loaded, Failure> {
                 crate::diagnostics::plural(outcome.report.error_count(), "error")
             ))
             .hint(format!(
-                "fix them, then check again with: burrow validate -c {}",
+                "fix them, then check again with: {} validate -c {}",
+                crate::failure::command(),
                 path.display()
             )),
         ));
@@ -249,7 +250,9 @@ fn ignore_hangup_on_client() {
             return;
         };
         while hup.recv().await.is_some() {
-            info!("client config changes apply on restart; run: burrow service restart");
+            info!(
+                "a client applies config changes when it restarts; restart it to use the edited file"
+            );
         }
     });
 }

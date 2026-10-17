@@ -762,3 +762,41 @@ fn client_config_allows_mapped_ipv6_targets_as_ipv4() {
     std::fs::write(&client, &out.text).unwrap();
     assert!(matches!(load(&client), Loaded::Client(..)));
 }
+
+#[test]
+fn client_config_explains_a_missing_or_empty_server_config() {
+    let dir = tempfile::tempdir().unwrap();
+    let missing = dir.path().join("server.yaml");
+    let err = client_config(
+        None,
+        &missing,
+        Some("h.example.com"),
+        Format::Yaml,
+        &ProcessEnv,
+    )
+    .err()
+    .unwrap();
+    assert_eq!(err.exit, 2);
+    assert!(err.message.contains("does not exist"), "{}", err.message);
+    assert!(err.hint.unwrap().contains("init server"));
+
+    std::fs::write(
+        &missing,
+        "listen: 0.0.0.0:7835\nclients: {}\nservices: {}\n",
+    )
+    .unwrap();
+    let err = client_config(
+        None,
+        &missing,
+        Some("h.example.com"),
+        Format::Yaml,
+        &ProcessEnv,
+    )
+    .err()
+    .unwrap();
+    assert!(
+        err.message.ends_with("defines no clients"),
+        "{}",
+        err.message
+    );
+}

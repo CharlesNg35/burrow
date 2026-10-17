@@ -15,8 +15,13 @@ impl Systemd {
         if Path::new("/run/systemd/system").is_dir() {
             Ok(Systemd)
         } else {
-            Err(Failure::new("this machine does not run systemd, which burrow service needs on Linux")
-                .hint("print a unit for your own setup with: burrow service install --print, or run burrow in Docker"))
+            Err(Failure::new(
+                "this machine does not run systemd, which burrow service needs on Linux",
+            )
+            .hint(format!(
+                "print a unit for your own setup with: {}, or run burrow in Docker",
+                crate::failure::cmd("service install --print")
+            )))
         }
     }
 
@@ -201,7 +206,12 @@ impl Backend for Systemd {
     fn start(&self, m: &Manifest) -> Result<(), Failure> {
         run("systemctl", &["start", &m.name])
             .map(drop)
-            .map_err(|f| f.hint(format!("see why with: burrow service logs {}", m.name)))
+            .map_err(|f| {
+                f.hint(format!(
+                    "see why with: {}",
+                    crate::failure::admin(&format!("service logs {}", m.name))
+                ))
+            })
     }
 
     fn stop(&self, m: &Manifest) -> Result<(), Failure> {
@@ -241,7 +251,10 @@ impl Backend for Systemd {
         };
         let pid = get("MainPID").parse::<u32>().ok().filter(|p| *p > 0);
         let detail = match get("ExecMainStatus").as_str() {
-            "3" => "the config has errors (exit 3); fix it, then: burrow service start".to_string(),
+            "3" => format!(
+                "the config has errors (exit 3); fix it, then: {}",
+                crate::failure::admin(&format!("service start {}", m.name))
+            ),
             code if !code.is_empty() && code != "0" => format!(
                 "{} {} (last exit code {code})",
                 get("ActiveState"),

@@ -273,8 +273,10 @@ impl Backend for WindowsService {
             return Ok(());
         }
         service.start::<&OsStr>(&[]).map_err(|e| {
-            scm_error(&format!("start {}", m.name), e)
-                .hint(format!("see why with: burrow service logs {}", m.name))
+            scm_error(&format!("start {}", m.name), e).hint(format!(
+                "see why with: {}",
+                crate::failure::admin(&format!("service logs {}", m.name))
+            ))
         })?;
         wait_for(
             &service,
@@ -329,7 +331,10 @@ impl Backend for WindowsService {
         let state = format!("{:?}", st.current_state).to_lowercase();
         let detail = match st.exit_code {
             ServiceExitCode::ServiceSpecific(3) => {
-                "the config has errors (exit 3); fix it, then: burrow service start".to_string()
+                format!(
+                    "the config has errors (exit 3); fix it, then: {}",
+                    crate::failure::admin(&format!("service start {}", m.name))
+                )
             }
             ServiceExitCode::ServiceSpecific(c) if c != 0 => {
                 format!("{state} (last exit code {c})")
@@ -354,7 +359,8 @@ pub fn dispatch(name: &str) -> Result<u8, Failure> {
     let _ = NAME.set(name.to_string());
     service_dispatcher::start(name, ffi_service_main).map_err(|e| {
         scm_error("talk to the Windows service manager", e).hint(format!(
-            "this command is run by Windows; start the service with: burrow service start {name}"
+            "this command is run by Windows; start the service with: {}",
+            crate::failure::admin(&format!("service start {name}"))
         ))
     })?;
     Ok(EXIT.load(Ordering::SeqCst))
