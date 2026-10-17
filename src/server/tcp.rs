@@ -26,7 +26,10 @@ pub(super) async fn tcp_service(
         let (visitor, peer) = match listener.accept().await {
             Ok(v) => v,
             Err(e) => {
-                warn!("service \"{name}\": accept failed: {e}");
+                static FAILED: crate::throttle::Throttle = crate::throttle::Throttle::new();
+                if let Some(more) = FAILED.allow() {
+                    warn!("service \"{name}\": accept failed: {e}{more}");
+                }
                 tokio::time::sleep(Duration::from_millis(100)).await;
                 continue;
             }

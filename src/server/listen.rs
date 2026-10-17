@@ -103,7 +103,10 @@ pub async fn ws_accept_loop(shared: Arc<Shared>, ws: Arc<WsListener>) {
         let (stream, peer) = match ws.listener.accept().await {
             Ok(v) => v,
             Err(e) => {
-                warn!("websocket accept failed: {e}");
+                static FAILED: crate::throttle::Throttle = crate::throttle::Throttle::new();
+                if let Some(more) = FAILED.allow() {
+                    warn!("websocket accept failed: {e}{more}");
+                }
                 tokio::time::sleep(std::time::Duration::from_millis(100)).await;
                 continue;
             }

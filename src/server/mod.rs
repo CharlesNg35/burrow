@@ -498,7 +498,10 @@ impl Server {
                         });
                     }
                     Err(e) => {
-                        warn!("accept failed: {e}");
+                        static FAILED: crate::throttle::Throttle = crate::throttle::Throttle::new();
+                        if let Some(more) = FAILED.allow() {
+                            warn!("accept failed: {e}{more}");
+                        }
                         tokio::time::sleep(Duration::from_millis(100)).await;
                     }
                 },

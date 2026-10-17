@@ -37,7 +37,10 @@ pub(super) async fn accept(
         let (stream, peer) = match listener.accept().await {
             Ok(v) => v,
             Err(e) => {
-                warn!("forward \"{name}\": accept failed: {e}");
+                static FAILED: Throttle = Throttle::new();
+                if let Some(more) = FAILED.allow() {
+                    warn!("forward \"{name}\": accept failed: {e}{more}");
+                }
                 tokio::time::sleep(Duration::from_millis(100)).await;
                 continue;
             }
