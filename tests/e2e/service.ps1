@@ -134,6 +134,43 @@ try {
   if (-not (Traffic 200)) { Fail "no traffic after update" }
   Check "update"
 
+  Write-Host "== burrow update downloads a release, verifies it and updates the services"
+  $V = ((& $B version) -split ' ')[1].Trim()
+  $Pkg = "burrow-$V-windows-amd64"
+  $Rel = Join-Path $Work "mirror/releases"
+  $Dl = Join-Path $Rel "download/v$V"
+  New-Item -ItemType Directory (Join-Path $Dl $Pkg), (Join-Path $Rel "latest/download") -Force | Out-Null
+  $New = Join-Path $Dl "$Pkg/burrow.exe"
+  Copy-Item $B $New
+  [IO.File]::AppendAllText($New, "e2e build")
+  Compress-Archive -Path (Join-Path $Dl $Pkg) -DestinationPath (Join-Path $Dl "$Pkg.zip")
+  $Hash = (Get-FileHash (Join-Path $Dl "$Pkg.zip") -Algorithm SHA256).Hash.ToLower()
+  Set-Content (Join-Path $Dl "SHA256SUMS") "$Hash  $Pkg.zip"
+  Copy-Item (Join-Path $Dl "SHA256SUMS") (Join-Path $Rel "latest/download/SHA256SUMS")
+  $Mirror = Start-Process -FilePath python -ArgumentList "-m","http.server","27960","--bind","127.0.0.1","--directory",(Join-Path $Work "mirror") -PassThru -WindowStyle Hidden
+  $env:BURROW_UPDATE_URL = "http://127.0.0.1:27960/releases"
+  $Copy = Join-Path $Work "burrow.exe"
+  Copy-Item $B $Copy
+  for ($i = 0; $i -lt 50; $i++) {
+    $out = & $Copy update --check 2>&1 | Out-String
+    if ($LASTEXITCODE -eq 0) { break }
+    Start-Sleep -Milliseconds 200
+  }
+  if ($out -notmatch "burrow $V is up to date") { Fail "update --check: $out" }
+  $out = & $Copy update --force 2>&1 | Out-String
+  Write-Host $out
+  if ($LASTEXITCODE -ne 0) { Fail "update: $out" }
+  if ($out -notmatch "restarted burrow-e2e-client, burrow-e2e-server, burrow-e2e-visitor") { Fail "update did not restart the services: $out" }
+  $Installed = ((Burrow service status burrow-e2e-server) -split "`n" | Select-String 'binary:').Line.Trim() -replace '^binary:\s+','' -replace '\s+\(.*$',''
+  if ((Get-FileHash $Installed).Hash -ne (Get-FileHash $New).Hash) { Fail "the services do not run the downloaded binary ($Installed)" }
+  if ((Get-FileHash $Copy).Hash -ne (Get-FileHash $New).Hash) { Fail "update did not replace its own binary" }
+  Remove-Item Env:BURROW_UPDATE_URL
+  Stop-Process -Id $Mirror.Id -Force -ErrorAction SilentlyContinue
+  if (-not (Traffic 200)) { Fail "no traffic after burrow update" }
+  if (-not (Traffic 200 27950)) { Fail "no visitor traffic after burrow update" }
+  if (Get-ChildItem $Work -Filter "*burrow-update*" -Force) { Fail "burrow update left its download folder behind" }
+  Check "burrow update replaced the installed binary and restarted every service"
+
   Write-Host "== a stopped service stays stopped"
   Burrow service stop burrow-e2e-client | Out-Null
   Start-Sleep -Seconds 7

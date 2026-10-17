@@ -135,6 +135,44 @@ for _ in $(seq 1 100); do "$LOADGEN" latency --addr 127.0.0.1:27940 --count 10 >
 "$LOADGEN" latency --addr 127.0.0.1:27940 --count 200 >/dev/null || fail "no traffic after update"
 check "update: $(echo "$out" | head -1)"
 
+echo "== burrow update downloads a release, verifies it and updates the services"
+case "$(uname -s)-$(uname -m)" in
+  Linux-x86_64) PLAT=linux-amd64 ;;
+  Linux-aarch64) PLAT=linux-arm64 ;;
+  Darwin-arm64) PLAT=macos-arm64 ;;
+  Darwin-x86_64) PLAT=macos-amd64 ;;
+esac
+V="$("$B" version | awk '{print $2}')"
+REL="$WORK/mirror/releases"
+PKG="burrow-$V-$PLAT"
+mkdir -p "$REL/download/v$V/$PKG" "$REL/latest/download"
+cp "$B" "$REL/download/v$V/$PKG/burrow"
+printf 'e2e build' >> "$REL/download/v$V/$PKG/burrow"
+tar -C "$REL/download/v$V" -czf "$REL/download/v$V/$PKG.tar.gz" "$PKG"
+(cd "$REL/download/v$V" && shasum -a 256 "$PKG.tar.gz" > SHA256SUMS)
+cp "$REL/download/v$V/SHA256SUMS" "$REL/latest/download/SHA256SUMS"
+python3 -m http.server 27960 --bind 127.0.0.1 --directory "$WORK/mirror" >/dev/null 2>&1 & PIDS+=($!)
+MIRROR=http://127.0.0.1:27960/releases
+for _ in $(seq 1 50); do curl -fs "$MIRROR/latest/download/SHA256SUMS" >/dev/null && break; sleep 0.1; done
+cp "$B" "$WORK/burrow"
+out="$(BURROW_UPDATE_URL="$MIRROR" "$WORK/burrow" update --check 2>&1)" || fail "update --check: $out"
+echo "$out" | grep -q "burrow $V is up to date" || fail "update --check: $out"
+out="$(BURROW_UPDATE_URL="$MIRROR" "$WORK/burrow" update --force 2>&1)" || fail "unprivileged update: $out"
+echo "$out" | grep -q "the installed services still use" || fail "unprivileged update does not point to the services: $out"
+cmp -s "$WORK/burrow" "$REL/download/v$V/$PKG/burrow" || fail "unprivileged update did not replace its own binary"
+cp "$B" "$WORK/burrow"
+out="$(sudo env BURROW_UPDATE_URL="$MIRROR" "$WORK/burrow" update --force 2>&1)" || fail "update: $out"
+echo "$out"
+echo "$out" | grep -q "restarted burrow-e2e-client, burrow-e2e-server, burrow-e2e-visitor" || fail "update did not restart the services: $out"
+INSTALLED="$(sudo "$B" service status burrow-e2e-server | awk '/binary:/ {print $2}')"
+sudo cmp -s "$INSTALLED" "$REL/download/v$V/$PKG/burrow" || fail "the services do not run the downloaded binary"
+cmp -s "$WORK/burrow" "$REL/download/v$V/$PKG/burrow" || fail "update did not replace its own binary"
+for _ in $(seq 1 100); do "$LOADGEN" latency --addr 127.0.0.1:27940 --count 10 >/dev/null 2>&1 && break; sleep 0.2; done
+"$LOADGEN" latency --addr 127.0.0.1:27940 --count 200 >/dev/null || fail "no traffic after burrow update"
+"$LOADGEN" latency --addr 127.0.0.1:27950 --count 200 >/dev/null || fail "no visitor traffic after burrow update"
+ls -a "$WORK" | grep -q burrow-update && fail "burrow update left its download folder behind"
+check "burrow update replaced the installed binary and restarted every service"
+
 echo "== a broken config is explained in status and logs"
 CFG="$(sudo "$B" service status burrow-e2e-client | awk '/config:/ {print $2}')"
 sudo cp "$CFG" "$WORK/good.yaml"
