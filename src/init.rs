@@ -335,7 +335,7 @@ pub fn init_server(opts: &InitOptions, out: &mut dyn Write) -> Result<PathBuf, F
     if let Some(ws) = &ws {
         let note = match &ws.tls {
             Some((cert, key)) => format!(
-                "clients connect with wss:// to {} using {cert} and {key}; no TCP control port is opened",
+                "the server serves wss:// on {} with {cert} and {key}; no TCP control port is opened",
                 ws.listen
             ),
             None => format!(

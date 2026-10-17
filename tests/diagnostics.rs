@@ -987,3 +987,21 @@ fn targets_longer_than_the_wire_allows_are_rejected() {
     );
     assert!(text.contains("is longer than 255 characters"), "{text}");
 }
+
+#[test]
+fn websocket_listen_takes_a_bare_port_too() {
+    use burrow::config::Loaded;
+    let src = format!(
+        "websocket:\n  listen: 7836\nclients:\n  home:\n    secret: {SECRET}\nservices:\n  web: {{client: home, bind: 7840, target: 3000}}\n"
+    );
+    let o = load_str("server.yaml", &src, Format::Yaml, None, &env);
+    assert!(
+        !o.report.has_errors(),
+        "{}",
+        o.report.render_text(Style { color: false })
+    );
+    let Some(Loaded::Server(s, _)) = o.loaded else {
+        panic!("not a server")
+    };
+    assert_eq!(s.websocket.unwrap().listen, "0.0.0.0:7836".parse().unwrap());
+}

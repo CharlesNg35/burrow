@@ -47,9 +47,9 @@ pub struct ServerConfig {
 #[serde(deny_unknown_fields)]
 pub struct WebSocketConfig {
     #[schemars(
-        description = "Address to accept WebSocket connections on, for example 127.0.0.1:7836 behind a proxy"
+        description = "Address to accept WebSocket connections on, for example 127.0.0.1:7836 behind a proxy; a port alone means 0.0.0.0"
     )]
-    pub listen: String,
+    pub listen: Bind,
     #[serde(default = "default_ws_path")]
     #[schemars(description = "URL path clients connect to")]
     pub path: String,

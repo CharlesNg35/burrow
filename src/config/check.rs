@@ -558,17 +558,17 @@ fn check_websocket(
     out: &mut Vec<Diagnostic>,
 ) -> Option<WebSocketSettings> {
     let errors_before = out.iter().filter(|d| d.is_error()).count();
-    let addr = match ws.listen.parse::<SocketAddr>() {
-        Ok(a) if a.port() != 0 => Some(a),
-        _ => {
+    let addr = match parse_bind(&ws.listen) {
+        Ok(a) => Some(a),
+        Err(_) => {
             out.push(
                 Diagnostic::error(
                     "invalid-address",
                     format!("invalid websocket listen address \"{}\"", ws.listen),
                 )
                 .at(spans.value(&["websocket", "listen"]))
-                .label("expected ip:port")
-                .help("use an IP and port, for example 127.0.0.1:7836 behind a proxy"),
+                .label("expected ip:port or a port")
+                .help("use an IP and port, for example 127.0.0.1:7836 behind a proxy, or a port alone for 0.0.0.0"),
             );
             None
         }
