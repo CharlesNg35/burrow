@@ -1,5 +1,9 @@
 # Changelog
 
+## [Unreleased]
+
+- Fix: an update over an SSH session that runs through the tunnel finishes even when the session drops; before, the services could stay stopped.
+
 ## [0.2.0]
 
 - **Private services and visitors.** A service without `bind` opens no port on the server; the visitors it lists reach it from their own machine with `burrow visit`, through the server and the client's tunnel. `reach: { CLIENT: any }` lets a visitor pick any target that client allows, like `ssh -L`. The client's `allow` list still decides, and reload closes the open connections of a visitor whose access was removed.
