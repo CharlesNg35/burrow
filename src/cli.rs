@@ -3,12 +3,7 @@ use std::path::PathBuf;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 
 #[derive(Debug, Parser)]
-#[command(
-    name = "burrow",
-    version,
-    about = "Fast, secure reverse tunnel",
-    disable_version_flag = true
-)]
+#[command(name = "burrow", version, about = "Fast, secure reverse tunnel")]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Command,

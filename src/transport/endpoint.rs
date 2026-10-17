@@ -20,6 +20,9 @@ pub enum Endpoint {
 impl Endpoint {
     pub fn parse(s: &str) -> Result<Endpoint, String> {
         let s = s.trim();
+        if s.is_empty() {
+            return Err("the address is empty".into());
+        }
         let Some((scheme, rest)) = s.split_once("://") else {
             let host_port = with_default_port(s, DEFAULT_PORT);
             parse_host_port(&host_port)?;
@@ -188,7 +191,7 @@ mod tests {
                 .contains("missing the port")
         );
         assert!(Endpoint::parse("::1").is_err());
-        assert!(Endpoint::parse("").is_err());
+        assert_eq!(Endpoint::parse(" ").unwrap_err(), "the address is empty");
     }
 
     #[test]
