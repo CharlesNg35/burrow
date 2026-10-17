@@ -137,7 +137,7 @@ pub struct ServiceEntry {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(untagged)]
 pub enum Bind {
-    Port(u16),
+    Port(#[schemars(range(min = 1))] u16),
     Addr(String),
 }
 
@@ -153,7 +153,7 @@ impl std::fmt::Display for Bind {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(untagged)]
 pub enum Target {
-    Port(u16),
+    Port(#[schemars(range(min = 1))] u16),
     Addr(String),
 }
 
