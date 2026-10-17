@@ -29,6 +29,7 @@ serde_json = { version = "1.0.154", features = ["preserve_order"] }
 sha2 = "0.10.9"
 snow = { version = "0.10.0", default-features = false, features = ["default-resolver-crypto", "std"] }
 socket2 = "0.6.5"
+terminal_size = "0.4.4"
 tokio = { version = "1.53.3", features = ["rt-multi-thread", "net", "io-util", "time", "sync", "signal", "macros", "fs"] }
 tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring", "logging", "tls12"] }
 tokio-websockets = { version = "0.13.3", default-features = false, features = ["client", "server", "ring", "getrandom"] }

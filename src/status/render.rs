@@ -19,13 +19,27 @@ pub enum Tone {
 pub struct Paint {
     pub color: bool,
     pub boxed: bool,
+    pub width: Option<usize>,
 }
 
 impl Paint {
     pub const PLAIN: Paint = Paint {
         color: false,
         boxed: false,
+        width: None,
     };
+
+    pub fn clip(self, text: &str) -> String {
+        match self.width {
+            Some(w) if text.chars().count() > w => {
+                let cut: String = text.chars().take(w.saturating_sub(1)).collect();
+                let mut cut = cut.trim_end().to_string();
+                cut.push('…');
+                cut
+            }
+            _ => text.to_string(),
+        }
+    }
 
     fn tone(self, text: &str, tone: Tone) -> String {
         let code = match (self.color, tone) {
@@ -54,12 +68,76 @@ impl Paint {
     }
 }
 
+#[derive(Clone)]
 struct Cell {
     parts: Vec<(String, Tone)>,
     right: bool,
 }
 
 impl Cell {
+    fn clip(&self, width: usize, tail: bool) -> Cell {
+        if self.width() <= width {
+            return self.clone();
+        }
+        if tail {
+            return self.clip_start(width);
+        }
+        let mut left = width.saturating_sub(1);
+        let mut parts = Vec::new();
+        let mut last = Tone::Plain;
+        for (text, tone) in &self.parts {
+            if left == 0 {
+                break;
+            }
+            let taken: String = text.chars().take(left).collect();
+            left -= taken.chars().count();
+            last = *tone;
+            parts.push((taken, *tone));
+        }
+        while let Some((text, _)) = parts.last_mut() {
+            let trimmed = text.trim_end().len();
+            text.truncate(trimmed);
+            if !text.is_empty() {
+                break;
+            }
+            parts.pop();
+        }
+        parts.push(("…".into(), last));
+        Cell {
+            parts,
+            right: self.right,
+        }
+    }
+
+    fn clip_start(&self, width: usize) -> Cell {
+        let mut left = width.saturating_sub(1);
+        let mut parts = Vec::new();
+        let mut first = Tone::Plain;
+        for (text, tone) in self.parts.iter().rev() {
+            if left == 0 {
+                break;
+            }
+            let count = text.chars().count();
+            let taken: String = text.chars().skip(count.saturating_sub(left)).collect();
+            left -= taken.chars().count();
+            first = *tone;
+            parts.push((taken, *tone));
+        }
+        parts.reverse();
+        while let Some((text, _)) = parts.first_mut() {
+            *text = text.trim_start().to_string();
+            if !text.is_empty() {
+                break;
+            }
+            parts.remove(0);
+        }
+        parts.insert(0, ("…".into(), first));
+        Cell {
+            parts,
+            right: self.right,
+        }
+    }
+
     fn width(&self) -> usize {
         self.parts.iter().map(|(t, _)| t.chars().count()).sum()
     }
@@ -97,15 +175,122 @@ fn right(text: impl Into<String>, tone: Tone) -> Cell {
     }
 }
 
-fn table(out: &mut String, paint: Paint, title: &str, headers: &[&str], rows: Vec<Vec<Cell>>) {
+const ALWAYS: u8 = u8::MAX;
+const CAP: usize = 24;
+const FLOOR: usize = 10;
+const CHEAP: u8 = 3;
+
+struct Col {
+    name: &'static str,
+    keep: u8,
+    long: bool,
+    tail: bool,
+}
+
+fn col(name: &'static str, keep: u8) -> Col {
+    Col {
+        name,
+        keep,
+        long: false,
+        tail: false,
+    }
+}
+
+fn long(name: &'static str, keep: u8) -> Col {
+    Col {
+        long: true,
+        ..col(name, keep)
+    }
+}
+
+fn address(name: &'static str, keep: u8) -> Col {
+    Col {
+        tail: true,
+        ..long(name, keep)
+    }
+}
+
+fn span(widths: &[usize], shown: &[bool], boxed: bool) -> usize {
+    let visible: Vec<usize> = widths
+        .iter()
+        .zip(shown)
+        .filter(|(_, s)| **s)
+        .map(|(w, _)| *w)
+        .collect();
+    if boxed {
+        1 + visible.iter().map(|w| w + 3).sum::<usize>()
+    } else {
+        2 + visible.iter().sum::<usize>() + 2 * visible.len().saturating_sub(1)
+    }
+}
+
+fn fit(cols: &[Col], widths: &mut [usize], shown: &mut [bool], max: usize, boxed: bool) {
+    if span(widths, shown, boxed) <= max {
+        return;
+    }
+    let floor = |i: usize| FLOOR.max(cols[i].name.chars().count());
+    for (i, c) in cols.iter().enumerate() {
+        if c.long {
+            widths[i] = widths[i].min(CAP.max(floor(i)));
+        }
+    }
+    loop {
+        let need = span(widths, shown, boxed).saturating_sub(max);
+        if need == 0 {
+            return;
+        }
+        let room: usize = (0..cols.len())
+            .filter(|&i| shown[i] && cols[i].long && !cols[i].tail)
+            .map(|i| widths[i].saturating_sub(floor(i)))
+            .sum();
+        let weakest = (0..cols.len())
+            .filter(|&i| shown[i] && cols[i].keep < ALWAYS)
+            .min_by_key(|&i| (cols[i].keep, std::cmp::Reverse(i)));
+        match weakest {
+            Some(i) if cols[i].keep <= CHEAP || room < need => {
+                let keep = cols[i].keep;
+                for (j, c) in cols.iter().enumerate() {
+                    if c.keep == keep {
+                        shown[j] = false;
+                    }
+                }
+            }
+            _ => {
+                let any = weakest.is_none();
+                for _ in 0..need {
+                    let widest = (0..cols.len())
+                        .filter(|&i| {
+                            shown[i]
+                                && cols[i].long
+                                && (any || !cols[i].tail)
+                                && widths[i] > floor(i)
+                        })
+                        .max_by_key(|&i| widths[i] - floor(i));
+                    match widest {
+                        Some(i) => widths[i] -= 1,
+                        None => return,
+                    }
+                }
+                return;
+            }
+        }
+    }
+}
+
+fn table(out: &mut String, paint: Paint, title: &str, cols: &[Col], rows: Vec<Vec<Cell>>) {
     let _ = writeln!(out, "\n{title}");
-    let mut widths: Vec<usize> = headers.iter().map(|h| h.chars().count()).collect();
+    let mut widths: Vec<usize> = cols.iter().map(|c| c.name.chars().count()).collect();
     for row in &rows {
         for (i, c) in row.iter().enumerate() {
             widths[i] = widths[i].max(c.width());
         }
     }
-    let aligned: Vec<bool> = (0..headers.len())
+    let mut shown = vec![true; cols.len()];
+    if let Some(max) = paint.width {
+        fit(cols, &mut widths, &mut shown, max, paint.boxed);
+    }
+    let visible: Vec<usize> = (0..cols.len()).filter(|&i| shown[i]).collect();
+    let aligned: Vec<bool> = (0..cols.len())
         .map(|i| rows.first().is_some_and(|r| r[i].right))
         .collect();
     let pad = |text: String, width: usize, seen: usize, right_aligned: bool| {
@@ -116,15 +301,15 @@ fn table(out: &mut String, paint: Paint, title: &str, headers: &[&str], rows: Ve
             format!("{text}{fill}")
         }
     };
-    let head: Vec<String> = headers
+    let head: Vec<String> = visible
         .iter()
-        .enumerate()
-        .map(|(i, h)| {
+        .map(|&i| {
             let tone = if paint.boxed { Tone::Bold } else { Tone::Dim };
+            let name = cols[i].name;
             pad(
-                paint.tone(h, tone),
+                paint.tone(name, tone),
                 widths[i],
-                h.chars().count(),
+                name.chars().count(),
                 aligned[i],
             )
         })
@@ -132,32 +317,43 @@ fn table(out: &mut String, paint: Paint, title: &str, headers: &[&str], rows: Ve
     let body: Vec<Vec<String>> = rows
         .iter()
         .map(|row| {
-            row.iter()
-                .enumerate()
-                .map(|(i, c)| pad(c.painted(paint), widths[i], c.width(), c.right))
+            visible
+                .iter()
+                .map(|&i| {
+                    let c = row[i].clip(widths[i], cols[i].tail);
+                    pad(c.painted(paint), widths[i], c.width(), c.right)
+                })
                 .collect()
         })
         .collect();
-    if !paint.boxed {
+    if paint.boxed {
+        let rule = |l: &str, m: &str, r: &str| {
+            let inner: Vec<String> = visible.iter().map(|&i| "─".repeat(widths[i] + 2)).collect();
+            paint.tone(&format!("{l}{}{r}", inner.join(m)), Tone::Dim)
+        };
+        let bar = paint.tone("│", Tone::Dim);
+        let line = |cells: &Vec<String>| format!("{bar} {} {bar}", cells.join(&format!(" {bar} ")));
+        let _ = writeln!(out, "{}", rule("╭", "┬", "╮"));
+        let _ = writeln!(out, "{}", line(&head));
+        let _ = writeln!(out, "{}", rule("├", "┼", "┤"));
+        for cells in &body {
+            let _ = writeln!(out, "{}", line(cells));
+        }
+        let _ = writeln!(out, "{}", rule("╰", "┴", "╯"));
+    } else {
         for cells in std::iter::once(&head).chain(&body) {
             let line = format!("  {}", cells.join("  "));
             let _ = writeln!(out, "{}", line.trim_end());
         }
-        return;
     }
-    let rule = |l: &str, m: &str, r: &str| {
-        let inner: Vec<String> = widths.iter().map(|w| "─".repeat(w + 2)).collect();
-        paint.tone(&format!("{l}{}{r}", inner.join(m)), Tone::Dim)
-    };
-    let bar = paint.tone("│", Tone::Dim);
-    let line = |cells: &Vec<String>| format!("{bar} {} {bar}", cells.join(&format!(" {bar} ")));
-    let _ = writeln!(out, "{}", rule("╭", "┬", "╮"));
-    let _ = writeln!(out, "{}", line(&head));
-    let _ = writeln!(out, "{}", rule("├", "┼", "┤"));
-    for cells in &body {
-        let _ = writeln!(out, "{}", line(cells));
+    let hidden: Vec<&str> = (0..cols.len())
+        .filter(|&i| !shown[i])
+        .map(|i| cols[i].name)
+        .collect();
+    if !hidden.is_empty() {
+        let note = paint.clip(&format!("  hidden to fit: {}", hidden.join(", ")));
+        let _ = writeln!(out, "{}", paint.tone(&note, Tone::Dim));
     }
-    let _ = writeln!(out, "{}", rule("╰", "┴", "╯"));
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
@@ -202,12 +398,26 @@ fn speed(bytes_per_sec: f64) -> Cell {
 
 pub fn render(s: &Status, paint: Paint, rates: Option<&Rates>) -> String {
     let mut out = String::new();
-    let mut head = vec![
-        paint.bold(&format!("burrow {}", s.version)),
-        format!("up {}", duration(s.uptime_secs)),
-    ];
-    head.extend(s.listening.iter().cloned());
-    let _ = writeln!(out, "{}", head.join(&paint.tone("  ·  ", Tone::Dim)));
+    let title = format!("burrow {}", s.version);
+    let up = format!("up {}", duration(s.uptime_secs));
+    let dot = paint.tone("  ·  ", Tone::Dim);
+    let one_line = [title.clone(), up.clone()]
+        .iter()
+        .chain(&s.listening)
+        .map(|p| p.chars().count())
+        .sum::<usize>()
+        + 5 * s.listening.len()
+        + 5;
+    if paint.width.is_none_or(|w| one_line <= w) {
+        let mut head = vec![paint.bold(&title), up];
+        head.extend(s.listening.iter().cloned());
+        let _ = writeln!(out, "{}", head.join(&dot));
+    } else {
+        let _ = writeln!(out, "{}{dot}{up}", paint.bold(&title));
+        for l in &s.listening {
+            let _ = writeln!(out, "{}", paint.clip(l));
+        }
+    }
 
     let connected = s.clients.iter().filter(|c| c.connected).count();
     let rows = s
@@ -250,17 +460,33 @@ pub fn render(s: &Status, paint: Paint, rates: Option<&Rates>) -> String {
                 if all_in { Tone::Good } else { Tone::Warn }
             )
         ),
-        &["NAME", "STATE", "SINCE", "FROM", "OPEN", "IDLE"],
+        &[
+            col("NAME", ALWAYS),
+            col("STATE", 9),
+            col("SINCE", 5),
+            long("FROM", 4),
+            col("OPEN", 7),
+            col("IDLE", 1),
+        ],
         rows,
     );
 
     if !s.services.is_empty() {
-        let mut headers = vec![
-            "NAME", "PROTO", "ADDRESS", "TARGET", "CLIENTS", "OPEN", "TOTAL", "REFUSED", "IN",
-            "OUT",
+        let totals = if rates.is_some() { 4 } else { 6 };
+        let mut cols = vec![
+            col("NAME", ALWAYS),
+            col("PROTO", 3),
+            address("ADDRESS", 11),
+            address("TARGET", 5),
+            long("CLIENTS", 9),
+            col("OPEN", 8),
+            col("TOTAL", 2),
+            col("REFUSED", 1),
+            col("IN", totals),
+            col("OUT", totals),
         ];
         if rates.is_some() {
-            headers.extend(["CONN/S", "IN/S", "OUT/S"]);
+            cols.extend([col("CONN/S", 2), col("IN/S", 10), col("OUT/S", 10)]);
         }
         let mut notes = Vec::new();
         let rows = s
@@ -333,9 +559,10 @@ pub fn render(s: &Status, paint: Paint, rates: Option<&Rates>) -> String {
                 row
             })
             .collect();
-        table(&mut out, paint, &paint.bold("SERVICES"), &headers, rows);
+        table(&mut out, paint, &paint.bold("SERVICES"), &cols, rows);
         for n in notes {
-            let _ = writeln!(out, "  {}", paint.tone(&n, Tone::Dim));
+            let note = paint.clip(&format!("  {n}"));
+            let _ = writeln!(out, "{}", paint.tone(&note, Tone::Dim));
         }
     }
 
@@ -349,7 +576,7 @@ pub fn render(s: &Status, paint: Paint, rates: Option<&Rates>) -> String {
             &mut out,
             paint,
             &paint.bold("VISITORS"),
-            &["NAME", "OPEN", "TOTAL"],
+            &[col("NAME", ALWAYS), col("OPEN", 6), col("TOTAL", 2)],
             rows,
         );
     }
@@ -367,7 +594,8 @@ pub fn render(s: &Status, paint: Paint, rates: Option<&Rates>) -> String {
         ));
     }
     if !footer.is_empty() {
-        let _ = writeln!(out, "\n{}", paint.tone(&footer.join("  ·  "), Tone::Dim));
+        let line = paint.clip(&footer.join("  ·  "));
+        let _ = writeln!(out, "\n{}", paint.tone(&line, Tone::Dim));
     }
     out
 }
@@ -506,6 +734,7 @@ VISITORS
             Paint {
                 color: true,
                 boxed: false,
+                width: None,
             },
             None,
         );
@@ -518,6 +747,7 @@ VISITORS
         let boxed = Paint {
             color: false,
             boxed: true,
+            width: None,
         };
         let text = render(&sample(), boxed, None);
         let clients = "\
@@ -544,11 +774,159 @@ VISITORS
             Paint {
                 color: true,
                 boxed: true,
+                width: None,
             },
             None,
         );
         assert!(colored.contains("\x1b[32mhome up\x1b[0m, \x1b[31moffice offline\x1b[0m"));
         assert_eq!(strip(&colored), text);
+    }
+
+    fn rated() -> (Status, Rates) {
+        let before = sample();
+        let mut after = sample();
+        after.services[0].bytes_in += 3_000_000;
+        after.services[0].bytes_out += 9_000_000;
+        after.services[0].total += 20;
+        let r = rates(&before, &after, 1.0);
+        (after, r)
+    }
+
+    fn fitted(width: usize, color: bool) -> String {
+        let (s, r) = rated();
+        let paint = Paint {
+            color,
+            boxed: true,
+            width: Some(width),
+        };
+        render(&s, paint, Some(&r))
+    }
+
+    #[test]
+    fn a_wide_terminal_shows_every_column() {
+        let text = fitted(400, false);
+        assert!(!text.contains("hidden"), "{text}");
+        assert!(!text.contains('…'), "{text}");
+        let (s, r) = rated();
+        let unlimited = render(
+            &s,
+            Paint {
+                color: false,
+                boxed: true,
+                width: None,
+            },
+            Some(&r),
+        );
+        assert_eq!(text, unlimited);
+    }
+
+    #[test]
+    fn every_line_fits_the_terminal() {
+        for width in [200, 160, 140, 120, 100, 80, 60, 40] {
+            let text = fitted(width, false);
+            for line in text.lines() {
+                assert!(
+                    line.chars().count() <= width,
+                    "{width}: {} chars: {line}\n{text}",
+                    line.chars().count()
+                );
+            }
+            assert!(text.contains("│ web "), "{width}: {text}");
+            assert_eq!(strip(&fitted(width, true)), text, "{width}");
+        }
+    }
+
+    #[test]
+    fn narrow_terminals_drop_the_least_useful_columns_first() {
+        let header = |width: usize| {
+            fitted(width, false)
+                .lines()
+                .find(|l| l.contains("│ NAME") && l.contains("ADDRESS"))
+                .unwrap()
+                .to_string()
+        };
+        let wide = header(400);
+        for name in ["REFUSED", "TOTAL", "CONN/S", "PROTO", "IN/S", "OUT/S"] {
+            assert!(wide.contains(name), "{wide}");
+        }
+        let medium = header(120);
+        assert!(!medium.contains("REFUSED"), "{medium}");
+        for name in ["ADDRESS", "CLIENTS", "OPEN", "IN/S", "OUT/S"] {
+            assert!(medium.contains(name), "{medium}");
+        }
+        let small = header(80);
+        for name in ["NAME", "ADDRESS", "CLIENTS", "OPEN", "IN/S", "OUT/S"] {
+            assert!(small.contains(name), "{small}");
+        }
+        for name in ["REFUSED", "TOTAL", "CONN/S", "PROTO"] {
+            assert!(!small.contains(name), "{small}");
+        }
+        let text = fitted(80, false);
+        assert!(text.contains("hidden to fit: "), "{text}");
+        assert!(text.contains("REFUSED"), "{text}");
+    }
+
+    #[test]
+    fn long_cells_end_with_an_ellipsis() {
+        let mut s = sample();
+        s.services[0].clients = (1..=6).map(|i| format!("home-{i}")).collect();
+        let paint = Paint {
+            color: true,
+            boxed: true,
+            width: Some(100),
+        };
+        let text = strip(&render(&s, paint, None));
+        let row = text.lines().find(|l| l.starts_with("│ web")).unwrap();
+        assert!(row.contains("home-1 offline, home-2…"), "{text}");
+        assert!(row.chars().count() <= 100, "{row}");
+    }
+
+    #[test]
+    fn addresses_keep_their_port_when_cut() {
+        let cell = cell("[2001:db8::1234:5678]:30000-30010");
+        let cut = cell.clip(14, true);
+        assert_eq!(cut.painted(Paint::PLAIN), "…]:30000-30010");
+        assert_eq!(cut.width(), 14);
+        let cut = cell.clip(14, false);
+        assert_eq!(cut.painted(Paint::PLAIN), "[2001:db8::12…");
+    }
+
+    #[test]
+    fn paired_columns_are_hidden_together() {
+        for width in [60, 70, 80, 90, 100, 110, 120, 130] {
+            let text = fitted(width, false);
+            let head = text
+                .lines()
+                .find(|l| l.contains("│ NAME") && l.contains("ADDRESS"))
+                .unwrap();
+            let has = |name: &str| head.split('│').any(|c| c.trim() == name);
+            assert_eq!(has("IN"), has("OUT"), "{width}: {head}");
+            assert_eq!(has("IN/S"), has("OUT/S"), "{width}: {head}");
+            assert!(has("NAME") && has("ADDRESS"), "{width}: {head}");
+        }
+    }
+
+    #[test]
+    fn a_long_header_goes_on_several_lines() {
+        let mut s = sample();
+        s.listening = vec![
+            "clients on tcp 0.0.0.0:7835".into(),
+            "clients on wss://tunnel.example.com:7837/burrow".into(),
+            "metrics on http://127.0.0.1:9100/metrics".into(),
+        ];
+        let paint = Paint {
+            color: false,
+            boxed: true,
+            width: Some(60),
+        };
+        let text = render(&s, paint, None);
+        let mut lines = text.lines();
+        assert_eq!(lines.next(), Some("burrow 9.9.9  ·  up 3 d 4 h"));
+        assert_eq!(lines.next(), Some("clients on tcp 0.0.0.0:7835"));
+        assert_eq!(
+            lines.next(),
+            Some("clients on wss://tunnel.example.com:7837/burrow")
+        );
     }
 
     #[test]

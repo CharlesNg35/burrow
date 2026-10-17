@@ -135,7 +135,11 @@ fn frame(scan: &Scan, paint: Paint, rates: Option<&HashMap<u32, Rates>>, all: bo
             if i > 0 {
                 text.push('\n');
             }
-            let title = format!("== {} (pid {})", f.entry.config.display(), f.entry.pid);
+            let title = paint.clip(&format!(
+                "== {} (pid {})",
+                f.entry.config.display(),
+                f.entry.pid
+            ));
             text.push_str(&if paint.color {
                 format!("\x1b[1m{title}\x1b[0m\n")
             } else {
@@ -191,9 +195,15 @@ pub fn run_in(dir: &Path, opts: Options, out: &mut dyn Write) -> Result<u8, Fail
         return Err(none_running(&opts.pick, first.hidden));
     }
     let tty = std::io::stdout().is_terminal();
-    let paint = Paint {
-        color: tty && crate::diagnostics::Style::detect(true).color,
+    let color = tty && crate::diagnostics::Style::detect(true).color;
+    let paint = || Paint {
+        color,
         boxed: tty && !opts.json,
+        width: if tty {
+            terminal_size::terminal_size().map(|(w, _)| usize::from(w.0).saturating_sub(1))
+        } else {
+            None
+        },
     };
     let write = |out: &mut dyn Write, text: &str| {
         out.write_all(text.as_bytes())
@@ -204,7 +214,7 @@ pub fn run_in(dir: &Path, opts: Options, out: &mut dyn Write) -> Result<u8, Fail
         let text = if opts.json {
             json(&first)
         } else {
-            frame(&first, paint, None, all)
+            frame(&first, paint(), None, all)
         };
         write(out, &text)?;
         return Ok(0);
@@ -214,7 +224,7 @@ pub fn run_in(dir: &Path, opts: Options, out: &mut dyn Write) -> Result<u8, Fail
     let shown = if opts.json {
         json(&previous)
     } else {
-        frame(&previous, paint, None, all)
+        frame(&previous, paint(), None, all)
     };
     write(out, &clear(tty, &shown, every))?;
     loop {
@@ -237,7 +247,7 @@ pub fn run_in(dir: &Path, opts: Options, out: &mut dyn Write) -> Result<u8, Fail
         let text = if opts.json {
             json(&next)
         } else {
-            frame(&next, paint, Some(&per_pid), all)
+            frame(&next, paint(), Some(&per_pid), all)
         };
         write(out, &clear(tty, &text, every))?;
         previous = next;
