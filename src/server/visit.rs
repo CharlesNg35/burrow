@@ -279,10 +279,7 @@ pub(super) async fn serve(
         (Some(version), Ok(local)) => crate::proxy_protocol::header(version, peer, local),
         _ => Vec::new(),
     };
-    let limit = grant
-        .service
-        .as_ref()
-        .and_then(|name| shared.limit(name, settings.services.get(name).and_then(|s| s.bandwidth)));
+    let limit = grant.service.as_ref().map(|name| shared.limit(name));
     let forward = relay(
         channel,
         ch,

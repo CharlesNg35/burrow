@@ -48,10 +48,28 @@ impl Shared {
         if up.is_empty() { connected } else { up }
     }
 
-    pub(crate) fn still_serves(&self, service: &str, client: &str) -> bool {
-        self.settings()
-            .services
-            .get(service)
-            .is_some_and(|s| s.clients.iter().any(|c| c == client))
+    pub(crate) fn still_open(
+        &self,
+        service: &str,
+        client: &str,
+        from: std::net::IpAddr,
+        index: u16,
+    ) -> Result<(), String> {
+        let settings = self.settings();
+        let Some(s) = settings.services.get(service) else {
+            return Err("the service was removed".into());
+        };
+        if !s.clients.iter().any(|c| c == client) {
+            return Err(format!("client \"{client}\" no longer serves it"));
+        }
+        if !s.sources.permits(from) {
+            return Err(format!(
+                "{from} is no longer allowed by allow_from or deny_from"
+            ));
+        }
+        if index >= s.ports.max(1) {
+            return Err("its port was removed from the range".into());
+        }
+        Ok(())
     }
 }

@@ -97,16 +97,26 @@ impl Shared {
             .is_some_and(|s| s.sources.permits(ip))
     }
 
-    pub(crate) fn limit(&self, service: &str, rate: Option<u64>) -> Option<Arc<Limit>> {
-        let rate = rate?;
+    pub(crate) fn limit(&self, service: &str) -> Arc<Limit> {
+        let rate = self
+            .settings()
+            .services
+            .get(service)
+            .and_then(|s| s.bandwidth)
+            .unwrap_or(0);
+        self.limits
+            .lock()
+            .expect("limits lock")
+            .entry(service.to_string())
+            .or_insert_with(|| Limit::new(rate))
+            .clone()
+    }
+
+    fn sync_limits(&self, settings: &ServerSettings) {
         let mut limits = self.limits.lock().expect("limits lock");
-        match limits.get(service) {
-            Some(l) if l.bytes_per_sec == rate => Some(l.clone()),
-            _ => {
-                let l = Limit::new(rate);
-                limits.insert(service.to_string(), l.clone());
-                Some(l)
-            }
+        limits.retain(|name, _| settings.services.contains_key(name));
+        for (name, limit) in limits.iter() {
+            limit.set_rate(settings.services[name].bandwidth.unwrap_or(0));
         }
     }
 
@@ -592,6 +602,7 @@ impl Server {
         let mut next = next;
         next.listen = current.listen;
         *self.shared.settings.write().expect("settings lock") = Arc::new(next.clone());
+        self.shared.sync_limits(&next);
         self.shared.reloaded.send_modify(|n| *n += 1);
 
         if next.websocket != current.websocket {

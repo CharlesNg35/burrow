@@ -1,6 +1,7 @@
 use std::future::Future;
 use std::io;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll, ready};
 use std::time::{Duration, Instant};
@@ -9,13 +10,20 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::time::Sleep;
 
 const MIN_BURST: f64 = 16.0 * 1024.0;
+const MIN_CHUNK: f64 = 1400.0;
 
 pub fn parse_rate(text: &str) -> Result<u64, String> {
-    let lower = text.trim().to_ascii_lowercase();
-    let lower = lower.strip_suffix("/s").unwrap_or(&lower);
-    let t = match lower.strip_suffix("bps") {
-        Some(prefix) => format!("{prefix}bit"),
-        None => lower.to_string(),
+    let trimmed = text.trim();
+    let trimmed = trimmed.strip_suffix("/s").unwrap_or(trimmed);
+    let t = match trimmed.strip_suffix("Bps") {
+        Some(prefix) => format!("{}b", prefix.to_ascii_lowercase()),
+        None => {
+            let lower = trimmed.to_ascii_lowercase();
+            match lower.strip_suffix("bps") {
+                Some(prefix) => format!("{prefix}bit"),
+                None => lower,
+            }
+        }
     };
     let split = t
         .find(|c: char| !(c.is_ascii_digit() || c == '.'))
@@ -39,7 +47,7 @@ pub fn parse_rate(text: &str) -> Result<u64, String> {
             return Err(format!("\"{other}\" is not a rate unit"));
         }
     };
-    if bytes < 1024.0 {
+    if bytes < 1000.0 {
         return Err(format!("{text} is below the minimum of 1kb (8kbit)"));
     }
     Ok(bytes as u64)
@@ -60,51 +68,80 @@ pub fn describe(bytes_per_sec: u64) -> String {
     format!("{bits}bit")
 }
 
+fn burst_of(rate: f64) -> f64 {
+    (rate / 10.0).max(MIN_BURST)
+}
+
 #[derive(Debug)]
 pub struct Bucket {
-    rate: f64,
-    burst: f64,
+    rate: AtomicU64,
     state: Mutex<(f64, Instant)>,
 }
 
 impl Bucket {
     pub fn new(bytes_per_sec: u64) -> Bucket {
-        let rate = bytes_per_sec as f64;
-        let burst = (rate / 10.0).max(MIN_BURST);
         Bucket {
-            rate,
-            burst,
-            state: Mutex::new((burst, Instant::now())),
+            rate: AtomicU64::new(bytes_per_sec),
+            state: Mutex::new((burst_of(bytes_per_sec as f64), Instant::now())),
         }
     }
 
-    fn refill(&self, state: &mut (f64, Instant)) {
-        let now = Instant::now();
-        let earned = now.duration_since(state.1).as_secs_f64() * self.rate;
-        state.0 = (state.0 + earned).min(self.burst);
-        state.1 = now;
+    pub fn rate(&self) -> u64 {
+        self.rate.load(Ordering::Relaxed)
     }
 
-    pub fn available(&self) -> Result<usize, Duration> {
+    pub fn set_rate(&self, bytes_per_sec: u64) {
         let mut state = self.state.lock().expect("bucket lock");
-        self.refill(&mut state);
-        if state.0 >= 1.0 {
-            Ok(state.0 as usize)
+        let old = self.rate.load(Ordering::Relaxed);
+        if old == bytes_per_sec {
+            return;
+        }
+        if old == 0 {
+            *state = (burst_of(bytes_per_sec as f64), Instant::now());
         } else {
-            Err(Duration::from_secs_f64((1.0 - state.0) / self.rate).max(Duration::from_millis(1)))
+            refill(old as f64, &mut state);
+            state.0 = state.0.min(burst_of(bytes_per_sec as f64));
+        }
+        self.rate.store(bytes_per_sec, Ordering::Relaxed);
+    }
+
+    pub fn ready(&self, want: usize) -> Result<usize, Duration> {
+        let rate = self.rate();
+        if rate == 0 || want == 0 {
+            return Ok(want);
+        }
+        let rate = rate as f64;
+        let mut state = self.state.lock().expect("bucket lock");
+        refill(rate, &mut state);
+        let chunk = (want as f64)
+            .min((rate / 50.0).max(MIN_CHUNK))
+            .min(burst_of(rate));
+        if state.0 >= chunk {
+            Ok((state.0 as usize).clamp(1, want))
+        } else {
+            Err(Duration::from_secs_f64((chunk - state.0) / rate).max(Duration::from_millis(1)))
         }
     }
 
     pub fn consume(&self, n: usize) {
+        let rate = self.rate();
+        if rate == 0 {
+            return;
+        }
         let mut state = self.state.lock().expect("bucket lock");
-        self.refill(&mut state);
+        refill(rate as f64, &mut state);
         state.0 -= n as f64;
     }
 
     pub fn try_take(&self, n: usize) -> bool {
+        let rate = self.rate();
+        if rate == 0 {
+            return true;
+        }
+        let rate = rate as f64;
         let mut state = self.state.lock().expect("bucket lock");
-        self.refill(&mut state);
-        if state.0 >= n as f64 {
+        refill(rate, &mut state);
+        if state.0 >= (n as f64).min(burst_of(rate)) {
             state.0 -= n as f64;
             true
         } else {
@@ -113,9 +150,15 @@ impl Bucket {
     }
 }
 
+fn refill(rate: f64, state: &mut (f64, Instant)) {
+    let now = Instant::now();
+    let earned = now.duration_since(state.1).as_secs_f64() * rate;
+    state.0 = (state.0 + earned).min(burst_of(rate));
+    state.1 = now;
+}
+
 #[derive(Debug)]
 pub struct Limit {
-    pub bytes_per_sec: u64,
     pub inbound: Bucket,
     pub outbound: Bucket,
 }
@@ -123,10 +166,18 @@ pub struct Limit {
 impl Limit {
     pub fn new(bytes_per_sec: u64) -> Arc<Limit> {
         Arc::new(Limit {
-            bytes_per_sec,
             inbound: Bucket::new(bytes_per_sec),
             outbound: Bucket::new(bytes_per_sec),
         })
+    }
+
+    pub fn rate(&self) -> u64 {
+        self.inbound.rate()
+    }
+
+    pub fn set_rate(&self, bytes_per_sec: u64) {
+        self.inbound.set_rate(bytes_per_sec);
+        self.outbound.set_rate(bytes_per_sec);
     }
 }
 
@@ -154,8 +205,8 @@ impl<'a, S> Throttled<'a, S> {
                 ready!(sleep.as_mut().poll(cx));
                 self.sleep = None;
             }
-            match bucket.available() {
-                Ok(n) => return Poll::Ready(want.min(n.max(1))),
+            match bucket.ready(want) {
+                Ok(n) => return Poll::Ready(n),
                 Err(wait) => {
                     self.sleep = Some(Box::pin(tokio::time::sleep(wait)));
                 }
@@ -241,6 +292,34 @@ mod tests {
         assert_eq!(describe(62_500), "500kbit");
         assert_eq!(describe(125_000_000), "1gbit");
         assert_eq!(describe(312_500), "2.5mbit");
+    }
+
+    #[test]
+    fn bytes_and_bits_per_second_are_told_apart() {
+        assert_eq!(parse_rate("5MBps").unwrap(), 5_000_000);
+        assert_eq!(parse_rate("5Mbps").unwrap(), 625_000);
+        assert_eq!(parse_rate("1kb").unwrap(), 1000);
+        assert_eq!(parse_rate("8kbit").unwrap(), 1000);
+        assert!(parse_rate("999b").is_err());
+    }
+
+    #[test]
+    fn a_rate_changes_in_place() {
+        let b = Bucket::new(0);
+        assert_eq!(b.ready(1_000_000), Ok(1_000_000), "0 means unlimited");
+        assert!(b.try_take(1_000_000));
+        b.set_rate(100_000);
+        assert!(b.try_take(16_000));
+        assert!(!b.try_take(16_000), "the new limit applies at once");
+        b.set_rate(0);
+        assert!(b.try_take(1_000_000), "removing the limit lifts it");
+    }
+
+    #[test]
+    fn a_datagram_larger_than_the_burst_passes_an_idle_bucket() {
+        let b = Bucket::new(100_000);
+        assert!(b.try_take(60_000));
+        assert!(!b.try_take(1), "the bucket is in debt now");
     }
 
     #[test]

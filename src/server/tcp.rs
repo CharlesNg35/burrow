@@ -32,7 +32,7 @@ pub(super) async fn tcp_service(
             }
         };
         let svc = config.borrow().clone();
-        if !svc.sources.permits(peer.ip()) {
+        if !shared.source_allowed(&name, peer.ip()) {
             shared.rejected.fetch_add(1, Ordering::Relaxed);
             shared.metrics.refuse(&name);
             debug!(%peer, "service \"{name}\": source address not allowed, closing");
@@ -96,7 +96,14 @@ async fn visit(
         target: target.clone(),
     };
     let mut reloads = shared.reloads();
-    if !shared.allows(&client, &session.secret) {
+    let still_open = || match shared.still_open(&name, &client, peer.ip(), index) {
+        _ if !shared.allows(&client, &session.secret) => {
+            Err(format!("client \"{client}\" is no longer allowed"))
+        }
+        r => r,
+    };
+    if let Err(why) = still_open() {
+        debug!(%peer, "service \"{name}\": {why}, closing");
         return;
     }
     let first = connect.encode();
@@ -104,7 +111,7 @@ async fn visit(
         (Some(version), Ok(local)) => header(version, peer, local),
         _ => Vec::new(),
     };
-    let limit = shared.limit(&name, svc.bandwidth);
+    let limit = shared.limit(&name);
     let forward = open_tcp(
         ch,
         visitor,
@@ -112,7 +119,7 @@ async fn visit(
         &prefix,
         settings.insecure_plaintext,
         Meter {
-            limit: limit.as_deref(),
+            limit: Some(&limit),
             traffic: Some(&stats.traffic),
         },
     );
@@ -121,12 +128,8 @@ async fn visit(
         tokio::select! {
             biased;
             Ok(()) = reloads.changed() => {
-                if !shared.allows(&client, &session.secret) || !shared.still_serves(&name, &client) {
-                    debug!(%peer, "service \"{name}\": client \"{client}\" no longer serves it, closing");
-                    return;
-                }
-                if !shared.source_allowed(&name, peer.ip()) {
-                    info!("service \"{name}\": {} is no longer allowed by allow_from or deny_from, closing its connection", peer.ip());
+                if let Err(why) = still_open() {
+                    info!("service \"{name}\": {why}, closing the connection from {peer}");
                     return;
                 }
             }
