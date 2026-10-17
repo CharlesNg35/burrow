@@ -436,7 +436,7 @@ Full table, machine details and exact commands: [docs/benchmark.md](docs/benchma
 
 ```sh
 cargo test                                            # unit, integration, security, diagnostics, init
-cargo test --release --test heavy -- --ignored       # 10k connections, soak, chaos, churn and leak checks
+cargo test --release --test heavy -- --ignored --test-threads=1   # 10k connections, soak, chaos, churn and leak checks
 cd fuzz && cargo +nightly fuzz run config            # also: handshake, frames
 tests/e2e/proxies.sh                                  # wss:// through real nginx and Caddy containers (needs docker)
 BURROW_TEST_TRANSPORT=ws cargo test --test integration   # run the integration suite over WebSocket
