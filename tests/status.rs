@@ -398,3 +398,40 @@ fn a_paused_server_keeps_its_status_file_and_shows_again() {
     assert!(o.status.success(), "{}", text(&o));
     assert!(text(&o).contains("CLIENTS"), "{}", text(&o));
 }
+
+#[cfg(target_os = "linux")]
+#[test]
+fn a_server_raises_its_open_file_limit_to_the_hard_limit() {
+    let dir = tempfile::tempdir().unwrap();
+    let instances = dir.path().join("instances");
+    let config = server_config(dir.path(), "server.yaml");
+    let child = Command::new("sh")
+        .args(["-c", "ulimit -Sn 256 && exec \"$0\" server -c \"$1\""])
+        .arg(BIN)
+        .arg(&config)
+        .env("BURROW_INSTANCE_DIR", &instances)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let server = Running(child);
+    let pid = server.0.id();
+    let mut soft_hard = None;
+    for _ in 0..100 {
+        if instances.join(format!("{pid}.status")).exists() {
+            let limits = std::fs::read_to_string(format!("/proc/{pid}/limits")).unwrap();
+            let line = limits
+                .lines()
+                .find(|l| l.starts_with("Max open files"))
+                .unwrap()
+                .to_string();
+            let fields: Vec<&str> = line.split_whitespace().collect();
+            soft_hard = Some((fields[3].to_string(), fields[4].to_string()));
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let (soft, hard) = soft_hard.expect("the server did not start");
+    assert_ne!(soft, "256", "the soft limit was not raised");
+    assert_eq!(soft, hard);
+}

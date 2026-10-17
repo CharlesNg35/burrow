@@ -171,10 +171,33 @@ pub fn client(path: &Path, logging: Logging) -> Result<u8, Failure> {
 }
 
 pub fn visit(path: &Path, logging: Logging, pick: Pick) -> Result<u8, Failure> {
+    raise_open_files();
     logged(&logging.clone(), run_visitor(path, logging, pick, None))
 }
 
+fn raise_open_files() {
+    #[cfg(unix)]
+    {
+        use rustix::process::{Resource, Rlimit, getrlimit, setrlimit};
+        let limit = getrlimit(Resource::Nofile);
+        let most = limit.maximum.unwrap_or(1 << 20);
+        if limit.current.is_some_and(|c| c >= most) {
+            return;
+        }
+        for want in [most, most.min(10240)] {
+            let raised = Rlimit {
+                current: Some(want),
+                maximum: limit.maximum,
+            };
+            if setrlimit(Resource::Nofile, raised).is_ok() {
+                return;
+            }
+        }
+    }
+}
+
 pub fn visit_until(path: &Path, logging: Logging, hosted: Option<Hosted>) -> Result<u8, Failure> {
+    raise_open_files();
     logged(
         &logging.clone(),
         run_visitor(path, logging, Pick::All, hosted),
@@ -193,10 +216,12 @@ fn logged(logging: &Logging, result: Result<u8, Failure>) -> Result<u8, Failure>
 }
 
 pub fn server_until(path: &Path, logging: Logging, hosted: Option<Hosted>) -> Result<u8, Failure> {
+    raise_open_files();
     logged(&logging.clone(), run_server(path, logging, hosted))
 }
 
 pub fn client_until(path: &Path, logging: Logging, hosted: Option<Hosted>) -> Result<u8, Failure> {
+    raise_open_files();
     logged(&logging.clone(), run_client(path, logging, hosted))
 }
 

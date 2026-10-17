@@ -217,6 +217,7 @@ dependencies = [
  "libc",
  "notify",
  "rcgen",
+ "rustix",
  "saphyr-parser",
  "schemars",
  "serde",
