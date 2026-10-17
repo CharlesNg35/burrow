@@ -8,7 +8,9 @@ use burrow::record::RecordReader;
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {
-    let _ = ServerMsg::decode(data);
+    if let Ok(m) = ServerMsg::decode(data) {
+        assert_eq!(ServerMsg::decode(&m.encode()), Ok(m));
+    }
     let _ = ClientMsg::decode(data);
     let _ = Connect::decode(data);
     let _ = Hello::decode(data);
