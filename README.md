@@ -106,7 +106,7 @@ services:
 | `public_address`                           | none                                | how clients reach it: host, host:port or wss:// URL            |
 | `websocket.listen` / `path`                | none / `/burrow`                    | accept clients over WebSocket (see below)                      |
 | `websocket.tls.cert` / `key`               | none                                | serve `wss://` directly with these PEM files                   |
-| `websocket.keepalive_secs`                 | `25`                                | keepalive on idle pooled connections, 5-30                     |
+| `websocket.keepalive_secs`                 | `25`                                | keepalive on idle connections, 5-30                            |
 | `clients.<name>.secret`                    | required                            | base64 or hex 256-bit secret, or a list of up to 4             |
 | `clients.<name>.max_connections`           | `limits.max_connections_per_client` | concurrent forwarded connections for this client               |
 | `services.<name>.client` or `clients`      | required                            | the client that reaches the target, or several of them         |
@@ -129,8 +129,8 @@ services:
 | `limits.handshake_timeout_secs`            | `5`                                 | time allowed to authenticate                                   |
 | `limits.max_handshakes`                    | `256`                               | concurrent unauthenticated connections                         |
 | `limits.max_connections_per_client`        | `8192`                              |                                                                |
-| `limits.max_pending`                       | `512`                               | connections waiting for a data channel, per client             |
-| `pool.min_idle` / `pool.max_idle`          | `4` / `64`                          | pre-opened data channels per client (adaptive)                 |
+| `limits.max_pending`                       | `512`                               | connections waiting for the client, per client                 |
+| `pool.min_idle` / `pool.max_idle`          | `4` / `64`                          | connections kept ready per client                              |
 | `tcp.nodelay` / `tcp.keepalive_secs`       | `true` / `30`                       | `keepalive_secs: 0` disables keepalive                         |
 | `udp.session_timeout_secs`                 | `60`                                | idle UDP peer expiry                                           |
 
@@ -170,7 +170,7 @@ The client connects only to targets in `allow`, checked after DNS resolution. `b
 | `connect_timeout_secs`                          | `10`             |                                                                       |
 | `tcp`, `udp`                                    | as on the server |                                                                       |
 
-A client keeps retrying until it is stopped: exponential backoff with jitter, resolving the server name again on every attempt and trying all its addresses in parallel (Happy Eyeballs), so it follows a server that moved to a new address. During a long outage it logs the first failure and then one summary per minute.
+A client keeps retrying until it is stopped, and follows a server that moved to a new address.
 
 </details>
 
@@ -284,7 +284,7 @@ In `visitor.yaml`: `home: { client: home, socks: true, local: 1080 }`. Ranges wo
 
 - The client's `allow` list still has the final say: `reach` grants only what it permits, so keep it narrow (`validate` reminds you).
 - Removing a visitor, its secret, or its access and reloading the server closes its open connections.
-- Each local connection opens its own encrypted connection to the server. Visitors are TCP only.
+- Visitors are TCP only.
 
 <details>
 <summary><b>All visitor.yaml keys</b></summary>
@@ -315,7 +315,7 @@ websocket:
   path: /burrow
 ```
 
-The client config just uses the URL: `server: wss://tunnel.example.com/burrow`. Services (TCP and UDP), the allow list and hot reload work exactly as over TCP. Noise encryption runs inside the WebSocket, so the proxy only ever sees ciphertext. Idle pooled connections send a keepalive every 25 s (`websocket.keepalive_secs`, 5-30), below the idle timeouts of nginx (60 s) and Cloudflare (100 s).
+The client config just uses the URL: `server: wss://tunnel.example.com/burrow`. Everything works exactly as over TCP, and the proxy only sees encrypted data. Idle connections send a keepalive every 25 s (`websocket.keepalive_secs`), below the idle timeouts of nginx and Cloudflare.
 
 `listen` (TCP) and `websocket` can be enabled together, for example while moving clients from one to the other.
 
@@ -456,7 +456,7 @@ websocket:
     key: /etc/letsencrypt/live/tunnel.example.com/privkey.pem
 ```
 
-Clients use `wss://tunnel.example.com:7837/burrow`. Relative file paths are resolved from the config file's directory. The key must be readable by the user burrow runs as. burrow watches both files and uses a renewed certificate for new connections by itself, without a restart.
+Clients use `wss://tunnel.example.com:7837/burrow`. Relative file paths are resolved from the config file's directory. The key must be readable by the user burrow runs as. A renewed certificate is used without a restart.
 
 For a self-signed certificate, copy it to the client and trust it there with `ca: server-cert.pem`. `ca` accepts either a CA that signed the server certificate, or the server certificate itself, which is then pinned: only that exact certificate is accepted.
 
@@ -575,14 +575,14 @@ Variables used as `${VAR}` in the config are saved for the service at install ti
 <details>
 <summary><b>Linux (systemd)</b></summary>
 
-The unit is written to `/etc/systemd/system/burrow-<name>.service` and is sandboxed (`systemd-analyze security` rates it 1.1, "OK"): read-only system, no home folders, private `/tmp` and devices, no new privileges, a system call filter, and no capabilities unless a port below 1024 needs one. A config error stops it with exit code 3 instead of restarting it in a loop. `burrow service install --print` shows the unit without installing anything, if you prefer to manage it yourself.
+The unit is written to `/etc/systemd/system/burrow-<name>.service` and is sandboxed: read-only system, no home folders, no new privileges, and no capabilities unless a port below 1024 needs one. A config error stops it with exit code 3 instead of restarting it in a loop. `burrow service install --print` shows the unit without installing anything, if you prefer to manage it yourself.
 
 </details>
 
 <details>
 <summary><b>macOS (launchd)</b></summary>
 
-The job is written to `/Library/LaunchDaemons/com.github.charlesng35.burrow-<name>.plist` and is managed with `launchctl bootstrap`, `bootout` and `kickstart`. launchd restarts it after a failure, at most once every 10 seconds.
+The job is written to `/Library/LaunchDaemons/com.github.charlesng35.burrow-<name>.plist`. launchd restarts it after a failure, at most once every 10 seconds.
 
 </details>
 
@@ -657,7 +657,7 @@ One machine (i5-12600K, 10 vCPUs), everything on loopback, from `bench/run.sh`:
 | p99 latency under load        | **527 µs**             | 658 µs              | 638 µs             | 1096 µs     |
 | RSS with 10k idle connections | **176 MiB**            | 2770 MiB            | 784 MiB            | 708 MiB     |
 
-With `cipher: aes-gcm` burrow reaches 22.6 / 51.5 Gbit/s. Over WebSocket it does 11.9 / 31.3 Gbit/s with 348 MiB for 10k idle connections (chisel, also WebSocket: 6.1 / 5.7 Gbit/s, 708 MiB). Unencrypted, burrow moves 2x rathole's plain TCP throughput, but opens 7% fewer connections per second (14.3k vs 15.4k), because it still authenticates every data channel with Noise.
+With `cipher: aes-gcm` burrow reaches 22.6 / 51.5 Gbit/s. Over WebSocket it does 11.9 / 31.3 Gbit/s with 348 MiB for 10k idle connections (chisel, also WebSocket: 6.1 / 5.7 Gbit/s, 708 MiB). Unencrypted, burrow moves 2x rathole's plain TCP throughput and opens 7% fewer connections per second (14.3k vs 15.4k).
 
 Full table, machine details and exact commands: [docs/benchmark.md](docs/benchmark.md). Reproduce with `bench/run.sh`.
 
