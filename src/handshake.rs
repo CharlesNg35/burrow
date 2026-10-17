@@ -9,6 +9,7 @@ use crate::secret::Secret;
 use crate::transport::Conn;
 
 const MAX_SMALL_RECORD: usize = 256;
+pub const MAX_REQUEST_RECORD: usize = 512;
 
 pub struct Channel {
     pub stream: Conn,
@@ -114,7 +115,7 @@ where
     stream.flush().await?;
     let (sealer, opener) = session.split();
     let mut reader = RecordReader::new(opener);
-    let hello = read_small(&mut stream, &mut reader).await?;
+    let hello = read_small(&mut stream, &mut reader, MAX_SMALL_RECORD).await?;
     let hello = Hello::decode(&hello)?;
     Ok(Accepted {
         preamble,
@@ -128,16 +129,21 @@ where
     })
 }
 
-async fn read_small(stream: &mut Conn, reader: &mut RecordReader) -> Result<Vec<u8>, AcceptError> {
+pub async fn read_small(
+    stream: &mut Conn,
+    reader: &mut RecordReader,
+    max: usize,
+) -> Result<Vec<u8>, AcceptError> {
+    let max = max.min(MAX_REQUEST_RECORD);
     let mut hdr = [0u8; 2];
     stream.read_exact(&mut hdr).await?;
     let len = u16::from_be_bytes(hdr) as usize;
-    if !(crate::noise::TAG_LEN..=MAX_SMALL_RECORD).contains(&len) {
+    if !(crate::noise::TAG_LEN..=max).contains(&len) {
         return Err(AcceptError::Decode(DecodeError::TooLong));
     }
-    let mut body = [0u8; MAX_SMALL_RECORD];
+    let mut body = [0u8; MAX_REQUEST_RECORD];
     stream.read_exact(&mut body[..len]).await?;
-    let mut plain = [0u8; MAX_SMALL_RECORD];
+    let mut plain = [0u8; MAX_REQUEST_RECORD];
     let n = reader
         .open_record(&body[..len], &mut plain)
         .ok_or(AcceptError::Rejected)?;

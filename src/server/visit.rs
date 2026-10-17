@@ -10,7 +10,9 @@ use super::tcp::log_status;
 use crate::config::check::{MAX_TARGET_LEN, parse_host_port};
 use crate::config::model::Protocol;
 use crate::forward::{ForwardError, relay, reply};
-use crate::handshake::Accepted;
+use tokio::sync::OwnedSemaphorePermit;
+
+use crate::handshake::{Accepted, MAX_REQUEST_RECORD, read_small};
 use crate::protocol::{Connect, Status, VisitRequest, VisitTarget};
 use crate::secret::Secret;
 use crate::throttle::Throttle;
@@ -94,7 +96,13 @@ impl Shared {
     }
 }
 
-pub(super) async fn serve(shared: Arc<Shared>, acc: Accepted, peer: SocketAddr, deadline: Instant) {
+pub(super) async fn serve(
+    shared: Arc<Shared>,
+    acc: Accepted,
+    peer: SocketAddr,
+    deadline: Instant,
+    permit: Option<OwnedSemaphorePermit>,
+) {
     let Accepted {
         preamble,
         mut channel,
@@ -107,12 +115,17 @@ pub(super) async fn serve(shared: Arc<Shared>, acc: Accepted, peer: SocketAddr, 
         debug!(%peer, "visitor \"{visitor}\" asked for insecure_plaintext, closing");
         return;
     }
-    let first =
-        tokio::time::timeout_at(deadline.into(), channel.reader.recv(&mut channel.stream)).await;
+    let first = tokio::time::timeout_at(
+        deadline.into(),
+        read_small(&mut channel.stream, &mut channel.reader, MAX_REQUEST_RECORD),
+    )
+    .await;
+    drop(permit);
     let request = match first {
-        Ok(Ok(Some(b))) => VisitRequest::decode(b),
+        Ok(Ok(b)) => VisitRequest::decode(&b),
         _ => {
-            debug!(%peer, "visitor \"{visitor}\" sent no request");
+            shared.rejected.fetch_add(1, Ordering::Relaxed);
+            debug!(%peer, "visitor \"{visitor}\" sent no valid request");
             return;
         }
     };

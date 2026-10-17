@@ -190,7 +190,6 @@ async fn authenticate(
         accept(conn, |k, n| secrets_for(&shared, k, n)),
     )
     .await;
-    drop(permit);
     let acc = match result {
         Ok(Ok(a)) => a,
         Ok(Err(AcceptError::Rejected)) => {
@@ -209,6 +208,7 @@ async fn authenticate(
             return;
         }
     };
+    let permit = (acc.preamble.kind == ChannelKind::Visit).then_some(permit);
     match (acc.preamble.kind, &acc.hello) {
         (ChannelKind::Control, &Hello::Control { version }) if version == VERSION => {
             control_session(shared, acc, peer).await
@@ -223,7 +223,7 @@ async fn authenticate(
             }
         }
         (ChannelKind::Visit, &Hello::Visit { version }) if version == VERSION => {
-            super::visit::serve(shared, acc, peer, deadline).await
+            super::visit::serve(shared, acc, peer, deadline, permit).await
         }
         (kind, hello) if kind != hello.kind() => {
             debug!(%peer, "hello does not match the channel kind, closing")

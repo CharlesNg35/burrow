@@ -462,3 +462,24 @@ async fn a_busy_local_port_is_explained() {
         f.message
     );
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn oversized_requests_are_dropped_without_a_reply() {
+    let s = setup(|_, _| {}).await;
+    let dialer = Dialer::visitor(&visitor_settings(
+        s.tunnel.server.addr,
+        s.visitor_secret.clone(),
+        vec![],
+    ));
+    let mut ch = dialer
+        .open(ChannelKind::Visit, Hello::Visit { version: 1 })
+        .await
+        .ok()
+        .unwrap();
+    ch.writer.send(&mut ch.stream, &[0x20; 2000]).await.unwrap();
+    let r = tokio::time::timeout(Duration::from_secs(5), ch.reader.recv(&mut ch.stream)).await;
+    assert!(
+        matches!(r, Ok(Ok(None)) | Ok(Err(_))),
+        "closed without an answer"
+    );
+}

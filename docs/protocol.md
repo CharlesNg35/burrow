@@ -139,13 +139,13 @@ VisitRequest = 20 check:u8 kind:u8 ...
   kind 2: client:str8 target:str8    any target on a client, if the visitor has reach for it
 ```
 
-Names follow the rules of section 3. The server reads the request within the same `limits.handshake_timeout_secs` deadline, then checks it against its current config:
+Names follow the rules of section 3. The server reads the request, a record of at most 512 bytes, within the same `limits.handshake_timeout_secs` deadline and while it still counts against `limits.max_handshakes`, then checks it against its current config:
 
 - the visitor still exists and still has the secret it authenticated with;
 - for kind 1, the service exists, is TCP and lists the visitor;
 - for kind 2, the visitor has `reach` for the client, and the target is a valid `host:port` of at most 255 bytes.
 
-Unknown services and services that do not list the visitor get the same answer, `5 forbidden`, so names cannot be probed. Then the server checks that the client is connected (`6 offline`) and the limits of the visitor, the service and the client (`7 busy`). With `check = 1` it answers `0 ok` at this point and closes: `burrow visit` uses this at startup to report problems before the first connection.
+Unknown services and services that do not list the visitor get the same answer, `5 forbidden`, so names cannot be probed. Then the server checks that the client is connected (`6 offline`). With `check = 1` it answers `0 ok` at this point and closes: `burrow visit` uses this at startup to report problems before the first connection. Otherwise it checks the limits of the visitor, the service and the client (`7 busy`).
 
 Otherwise the server takes a data channel of the client and sends it a Connect (section 8) with the service name, or an empty name for kind 2, and the target. The client applies its allow list as for any other connection and replies with Status, which the server passes on to the visitor. The visitor waits for this Status before sending data, so a refusal always arrives with its reason. From then on, the server decrypts each record from one channel and encrypts it for the other, both ways, until each side has sent its end-of-stream record. With `insecure_plaintext`, only the leg between server and client is raw; the visit channel is always encrypted.
 
@@ -157,4 +157,4 @@ A server older than burrow 0.2.0 sees an unknown kind in the preamble and closes
 
 - at most `limits.max_handshakes` connections in steps 2–5 at once; extra connections are closed immediately;
 - the whole of steps 2–5 must finish within `limits.handshake_timeout_secs`;
-- every read before authentication has a fixed maximum size: on WebSocket, an 8 KiB request head; then 7, 64 + 48, 2 and 256 bytes.
+- every read before authentication has a fixed maximum size: on WebSocket, an 8 KiB request head; then 7, 64 + 48, 2 and 256 bytes, and 512 bytes for a visit request.
