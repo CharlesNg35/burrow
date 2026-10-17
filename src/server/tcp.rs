@@ -1,6 +1,6 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use tokio::net::{TcpListener, TcpStream};
@@ -20,7 +20,6 @@ pub(super) async fn tcp_service(
     listener: TcpListener,
     config: watch::Receiver<Service>,
 ) {
-    let count = Arc::new(AtomicUsize::new(0));
     loop {
         let (visitor, peer) = match listener.accept().await {
             Ok(v) => v,
@@ -33,18 +32,9 @@ pub(super) async fn tcp_service(
         let svc = config.borrow().clone();
         let shared = shared.clone();
         let name = name.clone();
-        let count = count.clone();
         tokio::spawn(async move {
-            visit(shared, name, svc, visitor, peer, count).await;
+            visit(shared, name, svc, visitor, peer).await;
         });
-    }
-}
-
-struct CountGuard(Arc<AtomicUsize>);
-
-impl Drop for CountGuard {
-    fn drop(&mut self) {
-        self.0.fetch_sub(1, Ordering::AcqRel);
     }
 }
 
@@ -54,11 +44,9 @@ async fn visit(
     svc: Service,
     visitor: TcpStream,
     peer: SocketAddr,
-    count: Arc<AtomicUsize>,
 ) {
     let settings = shared.settings();
-    let n = count.fetch_add(1, Ordering::AcqRel);
-    let _guard = CountGuard(count);
+    let (_guard, n) = shared.service_counts.enter(&name);
     if svc.max_connections.is_some_and(|m| n >= m) {
         shared.rejected.fetch_add(1, Ordering::Relaxed);
         debug!(%peer, "service \"{name}\" is at its connection limit");
@@ -85,7 +73,7 @@ async fn visit(
         Ok(Ok(ch)) => ch,
         Ok(Err(TakeError::TooManyPending)) => {
             shared.rejected.fetch_add(1, Ordering::Relaxed);
-            static WAITING: super::Throttle = super::Throttle::new();
+            static WAITING: crate::throttle::Throttle = crate::throttle::Throttle::new();
             if let Some(more) = WAITING.allow() {
                 warn!(
                     "service \"{name}\": too many visitors waiting for client \"{}\", dropping one{more}",
@@ -99,7 +87,7 @@ async fn visit(
             return;
         }
         Err(_) => {
-            static SLOW: super::Throttle = super::Throttle::new();
+            static SLOW: crate::throttle::Throttle = crate::throttle::Throttle::new();
             if let Some(more) = SLOW.allow() {
                 warn!(
                     "service \"{name}\": client \"{}\" did not open a data channel within {}s{more}",
@@ -142,7 +130,7 @@ async fn visit(
 }
 
 pub(super) fn log_status(name: &str, svc: &Service, st: Status) {
-    static STATUS: super::Throttle = super::Throttle::new();
+    static STATUS: crate::throttle::Throttle = crate::throttle::Throttle::new();
     if st == Status::Ok {
         return;
     }

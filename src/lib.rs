@@ -20,5 +20,6 @@ pub mod secret;
 pub mod server;
 pub mod service;
 pub mod suggest;
+pub mod throttle;
 pub mod transport;
 pub mod validate;

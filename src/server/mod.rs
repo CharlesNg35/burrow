@@ -36,6 +36,32 @@ pub struct Shared {
     handshakes: Arc<Semaphore>,
     shutdown: watch::Receiver<bool>,
     reloaded: watch::Sender<u64>,
+    service_counts: Counts,
+}
+
+#[derive(Default)]
+struct Counts(Mutex<HashMap<String, Arc<AtomicUsize>>>);
+
+impl Counts {
+    fn enter(&self, name: &str) -> (CountGuard, usize) {
+        let count = self
+            .0
+            .lock()
+            .expect("counts lock")
+            .entry(name.to_string())
+            .or_default()
+            .clone();
+        let before = count.fetch_add(1, Ordering::AcqRel);
+        (CountGuard(count), before)
+    }
+}
+
+struct CountGuard(Arc<AtomicUsize>);
+
+impl Drop for CountGuard {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::AcqRel);
+    }
 }
 
 impl Shared {
@@ -179,39 +205,6 @@ async fn accept_tcp(
     }
 }
 
-pub(crate) struct Throttle {
-    next: std::sync::Mutex<Option<std::time::Instant>>,
-    skipped: AtomicUsize,
-}
-
-impl Throttle {
-    const EVERY: Duration = Duration::from_secs(10);
-
-    pub(crate) const fn new() -> Self {
-        Throttle {
-            next: std::sync::Mutex::new(None),
-            skipped: AtomicUsize::new(0),
-        }
-    }
-
-    pub(crate) fn allow(&self) -> Option<String> {
-        let now = std::time::Instant::now();
-        let mut next = self.next.lock().expect("throttle lock");
-        if next.is_some_and(|t| now < t) {
-            self.skipped.fetch_add(1, Ordering::Relaxed);
-            return None;
-        }
-        *next = Some(now + Self::EVERY);
-        Some(match self.skipped.swap(0, Ordering::Relaxed) {
-            0 => String::new(),
-            n => format!(
-                " ({n} more like this in the last {}s)",
-                Self::EVERY.as_secs()
-            ),
-        })
-    }
-}
-
 pub fn bind_error(what: &str, proto: Protocol, addr: SocketAddr, e: &std::io::Error) -> Failure {
     match e.kind() {
         std::io::ErrorKind::AddrInUse => {
@@ -281,6 +274,7 @@ impl Server {
             handshakes: Arc::new(Semaphore::new(settings.max_handshakes)),
             shutdown,
             reloaded: watch::Sender::new(0),
+            service_counts: Counts::default(),
         });
         let mut services = HashMap::new();
         for (name, svc) in &settings.services {
@@ -677,21 +671,6 @@ fn spawn_service(shared: &Arc<Shared>, name: &str, svc: &Service, bound: Bound) 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn throttled_warnings_count_what_they_skip() {
-        let t = Throttle::new();
-        assert_eq!(t.allow().as_deref(), Some(""));
-        for _ in 0..5 {
-            assert_eq!(t.allow(), None);
-        }
-        *t.next.lock().unwrap() = Some(std::time::Instant::now());
-        assert_eq!(
-            t.allow().as_deref(),
-            Some(" (5 more like this in the last 10s)")
-        );
-        assert_eq!(t.allow(), None);
-    }
 
     #[test]
     fn busy_port_hint_names_the_platform_tool_and_the_protocol() {

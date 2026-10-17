@@ -237,7 +237,7 @@ async fn relay(
                 };
                 gauge.set(count);
                 let Some(id) = id else {
-                    static FULL: super::Throttle = super::Throttle::new();
+                    static FULL: crate::throttle::Throttle = crate::throttle::Throttle::new();
                     if let Some(more) = FULL.allow() {
                         warn!("service \"{name}\": too many UDP peers ({MAX_PEERS}), dropping datagram from {from}{more}");
                     }
