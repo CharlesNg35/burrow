@@ -13,9 +13,10 @@
 - **Per-service controls**: `allow_from` and `deny_from` for source addresses (checked again on reload, also for visitors), `proxy_protocol: v1 | v2` to send the real client address to the target, and `bandwidth` to cap each direction.
 - **Unix socket targets**: `target: unix:/path`, permitted on the client by `unix:` entries in `allow`.
 - **SOCKS5 for visitors**: `burrow visit --client home --socks 1080`, or `socks: true` on a forward; `visitor-config` writes one for each client in `reach`.
-- **Monitoring**: an optional endpoint (`metrics.listen`, off by default) with Prometheus metrics and status data, and `burrow status` to show the running server.
+- **`burrow status`** shows every server running on the machine, however it was started, with no setup and nothing reachable from the network: tables with color in a terminal that fit its width, `-f` to follow live rates, `--json` for scripts. Prometheus metrics stay optional (`metrics.listen`, off by default).
 - A renewed `wss://` certificate is picked up from its files without a restart.
-- Protocol: a visit channel kind, request and statuses (docs/protocol.md section 9), a port index in visit requests and a port count in the service list.
+- Visitors and client data channels retry a handshake that a busy server dropped, for up to 5 s, instead of failing the connection; a server that is down still fails at once.
+- Protocol: a visit channel kind, request and statuses (docs/protocol.md section 9) and a port index in visit requests. The service list keeps its 0.1.0 format, so 0.1.0 clients work with a 0.2.0 server, and 0.2.0 clients with a 0.1.0 server.
 
 ## [0.1.0]
 

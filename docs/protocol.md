@@ -86,13 +86,13 @@ The hello type must match the preamble kind; any other pairing is closed. On the
 
 Server → client (one message per record):
 
-| id  | message  | body                                                                                     |
-| --- | -------- | ---------------------------------------------------------------------------------------- |
-| 1   | Welcome  | `token[16] heartbeat_secs:u16`                                                           |
-| 2   | Services | `count:u16` then per service `name:str8 protocol:u8 bind_port:u16 target:str8 ports:u16` |
-| 3   | Ping     | (none)                                                                                   |
-| 4   | OpenData | `count:u16`: open this many data channels                                                |
-| 5   | Bye      | `reason:u8` (1 shutdown, 2 replaced, 3 removed, 4 timeout, 5 plaintext mismatch)         |
+| id  | message  | body                                                                             |
+| --- | -------- | -------------------------------------------------------------------------------- |
+| 1   | Welcome  | `token[16] heartbeat_secs:u16`                                                   |
+| 2   | Services | `count:u16` then per service `name:str8 protocol:u8 bind_port:u16 target:str8`   |
+| 3   | Ping     | (none)                                                                           |
+| 4   | OpenData | `count:u16`: open this many data channels                                        |
+| 5   | Bye      | `reason:u8` (1 shutdown, 2 replaced, 3 removed, 4 timeout, 5 plaintext mismatch) |
 
 Client → server: `0x81` Pong.
 
@@ -123,7 +123,7 @@ Status = 0 ok | 1 denied by allow list | 2 unreachable | 3 unresolved | 4 invali
 
 The server does not wait for Status before sending the connection's bytes, so connection setup adds no round trip. If Status is not 0, the server logs the reason and closes the connection.
 
-`target` is `host:port`, or `unix:/absolute/path` for a Unix socket, which the client checks against the `unix:` entries of its allow list. For a port range the server sends the target port that matches the public port the connection arrived on; Services carries the first target port and the number of ports, for the client's log and allow-list check.
+`target` is `host:port`, or `unix:/absolute/path` for a Unix socket, which the client checks against the `unix:` entries of its allow list. For a port range the server sends the target port that matches the public port the connection arrived on; Services carries a range as `host:first-last` in `target`, for the client's log and allow-list check; this keeps the message readable by version 0.1.0 clients.
 
 With `proxy_protocol`, the first bytes the server sends after Connect are a PROXY protocol v1 or v2 header with the real source address and the public address it connected to (for a visit, the visitor's address as the server sees it). The client forwards them like any other data, so it needs no part in it.
 
