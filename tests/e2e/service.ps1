@@ -89,6 +89,11 @@ try {
   if ((Burrow service logs burrow-e2e-server -n 20) -notmatch "listening for clients") { Fail "service logs show nothing" }
   Check "log file $log"
 
+  $out = Burrow status burrow-e2e-server
+  if ($out -notmatch "home\s+connected") { Fail "burrow status does not show the client: $out" }
+  if ($out -notmatch "web\s+tcp") { Fail "burrow status does not show the services: $out" }
+  Check "burrow status reads the installed server"
+
   Write-Host "== install a visitor and reach the private service"
   $out = Burrow service install -c e2e-visitor.yaml
   Write-Host $out

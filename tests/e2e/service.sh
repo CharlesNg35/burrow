@@ -111,9 +111,11 @@ check "traffic flows through the installed server and client"
 for _ in $(seq 1 50); do "$LOADGEN" latency --addr 127.0.0.1:27941 --count 10 >/dev/null 2>&1 && break; sleep 0.2; done
 "$LOADGEN" latency --addr 127.0.0.1:27941 --count 300 >/dev/null || fail "no traffic to the unix socket through the sandboxed client"
 check "the sandboxed client reaches a unix socket target"
-out="$(sudo "$B" status -c /etc/burrow/e2e-server.yaml 2>&1)" || fail "burrow status: $out"
+out="$(sudo "$B" status burrow-e2e-server 2>&1)" || fail "burrow status: $out"
 echo "$out" | grep -q "home  connected" || fail "burrow status does not show the client: $out"
-echo "$out" | grep -Eq "sock +tcp 127.0.0.1:27941" || fail "burrow status does not show the services: $out"
+echo "$out" | grep -Eq "sock +tcp +127.0.0.1:27941" || fail "burrow status does not show the services: $out"
+out="$("$B" status 2>&1 || true)"
+echo "$out" | grep -q "belong to another user" || fail "unprivileged burrow status should point to sudo: $out"
 check "burrow status reads the installed server"
 
 running burrow-e2e-server || fail "server not running"
