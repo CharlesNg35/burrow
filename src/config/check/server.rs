@@ -3,15 +3,16 @@ use std::net::SocketAddr;
 use std::path::Path;
 use std::time::Duration;
 
-use super::super::model::{Secrets, ServerConfig, WebSocketConfig};
+use super::super::model::{Bind, Protocol, Secrets, ServerConfig, WebSocketConfig};
 use super::super::settings::{
     ClientAuth, ServerSettings, TlsMaterial, VisitorAuth, WebSocketSettings,
 };
 use super::super::tree::{Node, Span, Value};
+use super::ports::ranges_conflict;
 use super::service::{Taken, check_service};
 use super::{
-    MAX_SECRETS_PER_CLIENT, Spans, binds_conflict, name_error, parse_bind, secret_error, tuning,
-    valid_name,
+    MAX_SECRETS_PER_CLIENT, Spans, binds_conflict, name_error, parse_bind, parse_local,
+    secret_error, tuning, valid_name,
 };
 use crate::diagnostics::Diagnostic;
 use crate::secret::Secret;
@@ -173,6 +174,11 @@ pub fn check_server(
         }
     }
 
+    let metrics = cfg
+        .metrics
+        .as_ref()
+        .and_then(|m| check_metrics(&m.listen, &taken, spans, out));
+
     if cfg.pool.min_idle > cfg.pool.max_idle {
         out.push(
             Diagnostic::error(
@@ -212,7 +218,70 @@ pub fn check_server(
         pool_max_idle: cfg.pool.max_idle as usize,
         tcp: tuning(&cfg.tcp),
         udp_session_timeout: Duration::from_secs(cfg.udp.session_timeout_secs.into()),
+        metrics,
     })
+}
+
+fn check_metrics(
+    listen: &Bind,
+    taken: &Taken<'_>,
+    spans: &Spans,
+    out: &mut Vec<Diagnostic>,
+) -> Option<SocketAddr> {
+    let at = spans.value(&["metrics", "listen"]);
+    let addr = match parse_local(listen) {
+        Ok((addr, 1)) => addr,
+        Ok(_) | Err(_) => {
+            out.push(
+                Diagnostic::error(
+                    "invalid-address",
+                    format!("invalid metrics listen address \"{listen}\""),
+                )
+                .at(at)
+                .label("expected ip:port or a port")
+                .help("use a port like 9100 (on 127.0.0.1), or ip:port like 127.0.0.1:9100"),
+            );
+            return None;
+        }
+    };
+    let clash = [
+        (taken.listen, "the control port (listen)".to_string()),
+        (taken.websocket, "websocket.listen".to_string()),
+    ]
+    .into_iter()
+    .filter_map(|(a, what)| a.map(|a| (a, 1, what)))
+    .chain(
+        taken
+            .binds
+            .iter()
+            .filter(|(_, _, p, _)| *p == Protocol::Tcp)
+            .map(|(a, n, _, name)| (*a, *n, format!("service \"{name}\""))),
+    )
+    .find(|(a, n, _)| ranges_conflict(*a, *n, addr, 1));
+    if let Some((_, _, what)) = clash {
+        out.push(
+            Diagnostic::error(
+                "duplicate-bind",
+                format!("metrics.listen {addr} is already used by {what}"),
+            )
+            .at(at)
+            .label("address already used")
+            .help("pick another port for the metrics endpoint"),
+        );
+        return None;
+    }
+    if !addr.ip().is_loopback() {
+        out.push(
+            Diagnostic::warning(
+                "public-metrics",
+                format!("the metrics endpoint listens on {addr}, not only on this machine"),
+            )
+            .at(at)
+            .label("reachable from the network")
+            .help("anyone who reaches it sees client, service and visitor names and traffic; use 127.0.0.1 unless a firewall limits who can connect"),
+        );
+    }
+    Some(addr)
 }
 
 fn check_secrets(

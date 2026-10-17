@@ -44,6 +44,7 @@ pub(super) async fn control_session(shared: Arc<Shared>, acc: Accepted, peer: So
     let (tx, mut rx) = mpsc::channel::<ServerMsg>(256);
     let session = Arc::new(ClientSession::new(
         name.clone(),
+        peer,
         token,
         tx,
         secret,
@@ -123,6 +124,7 @@ pub(super) async fn control_session(shared: Arc<Shared>, acc: Accepted, peer: So
     };
     session.close();
     if current {
+        shared.metrics.client_left(&name);
         match reason {
             Some(reason) => info!("client \"{name}\" disconnected ({reason})"),
             None => info!("client \"{name}\" disconnected"),

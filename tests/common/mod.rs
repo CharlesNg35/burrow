@@ -52,6 +52,7 @@ pub fn server_settings(secrets: Vec<Secret>) -> ServerSettings {
         pool_max_idle: 64,
         tcp: tuning(),
         udp_session_timeout: Duration::from_secs(30),
+        metrics: None,
     }
 }
 
@@ -92,6 +93,7 @@ pub fn client_settings(server: SocketAddr, secret: Secret) -> ClientSettings {
 
 pub struct RunningServer {
     pub addr: SocketAddr,
+    pub metrics: Option<SocketAddr>,
     pub ws_addr: Option<SocketAddr>,
     pub services: BTreeMap<String, SocketAddr>,
     pub reload_tx: mpsc::Sender<ServerSettings>,
@@ -137,6 +139,7 @@ pub async fn start_server(settings: ServerSettings) -> RunningServer {
         }
     };
     let ws_addr = server.websocket_addr();
+    let metrics = server.metrics_addr();
     let ws_settings = settings_ws.map(|mut w| {
         w.listen = ws_addr.expect("websocket bound");
         w
@@ -155,6 +158,7 @@ pub async fn start_server(settings: ServerSettings) -> RunningServer {
     let task = tokio::spawn(server.run(reload_rx, stop_rx));
     RunningServer {
         addr,
+        metrics,
         ws_addr,
         ws_settings,
         services,

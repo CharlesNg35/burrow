@@ -209,6 +209,8 @@ async fn relay(
     let back_socket = socket.clone();
     let limit = shared.limit(name, svc.bandwidth);
     let back_limit = limit.clone();
+    let stats = shared.metrics.service(name);
+    let back_stats = stats.clone();
     let back = tokio::spawn(async move {
         loop {
             match reader.recv(&mut rd).await {
@@ -224,6 +226,10 @@ async fn relay(
                     }
                     let addr = back_peers.lock().expect("peers lock").touch(id);
                     if let Some(addr) = addr {
+                        back_stats
+                            .traffic
+                            .outbound
+                            .fetch_add(payload.len() as u64, std::sync::atomic::Ordering::Relaxed);
                         let _ = back_socket.send_to(payload, addr).await;
                     }
                 }
@@ -258,6 +264,10 @@ async fn relay(
                 if limit.as_ref().is_some_and(|l| !l.inbound.try_take(n)) {
                     continue;
                 }
+                stats
+                    .traffic
+                    .inbound
+                    .fetch_add(n as u64, std::sync::atomic::Ordering::Relaxed);
                 let (id, count) = {
                     let mut p = peers.lock().expect("peers lock");
                     (p.id_for(from), p.len())

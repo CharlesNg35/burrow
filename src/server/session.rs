@@ -33,6 +33,8 @@ struct Pool {
 
 pub struct ClientSession {
     pub name: String,
+    pub peer: std::net::SocketAddr,
+    pub since: Instant,
     pub token: [u8; TOKEN_LEN],
     pub control: mpsc::Sender<ServerMsg>,
     pub active: AtomicUsize,
@@ -53,6 +55,7 @@ const DECAY_AFTER: Duration = Duration::from_secs(60);
 impl ClientSession {
     pub fn new(
         name: String,
+        peer: std::net::SocketAddr,
         token: [u8; TOKEN_LEN],
         control: mpsc::Sender<ServerMsg>,
         secret: Secret,
@@ -61,6 +64,8 @@ impl ClientSession {
         let now = Instant::now();
         ClientSession {
             name,
+            peer,
+            since: now,
             token,
             control,
             active: AtomicUsize::new(0),

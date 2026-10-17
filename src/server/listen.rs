@@ -88,6 +88,10 @@ pub fn try_permit(shared: &Arc<Shared>, peer: SocketAddr) -> Option<OwnedSemapho
         Ok(p) => Some(p),
         Err(_) => {
             shared.rejected.fetch_add(1, Ordering::Relaxed);
+            shared
+                .metrics
+                .handshakes_refused
+                .fetch_add(1, Ordering::Relaxed);
             debug!(%peer, "too many unauthenticated connections, dropping");
             None
         }
@@ -160,9 +164,17 @@ async fn handle_ws(
         Ok(Ok(conn)) => authenticate(shared, Conn::from(conn), peer, permit, deadline).await,
         Ok(Err(())) => {
             shared.rejected.fetch_add(1, Ordering::Relaxed);
+            shared
+                .metrics
+                .handshakes_refused
+                .fetch_add(1, Ordering::Relaxed);
         }
         Err(_) => {
             shared.rejected.fetch_add(1, Ordering::Relaxed);
+            shared
+                .metrics
+                .handshakes_refused
+                .fetch_add(1, Ordering::Relaxed);
             debug!(%peer, "websocket upgrade timed out");
         }
     }
@@ -194,16 +206,28 @@ async fn authenticate(
         Ok(Ok(a)) => a,
         Ok(Err(AcceptError::Rejected)) => {
             shared.rejected.fetch_add(1, Ordering::Relaxed);
+            shared
+                .metrics
+                .handshakes_refused
+                .fetch_add(1, Ordering::Relaxed);
             debug!(%peer, "handshake rejected (wrong secret or unknown client name)");
             return;
         }
         Ok(Err(e)) => {
             shared.rejected.fetch_add(1, Ordering::Relaxed);
+            shared
+                .metrics
+                .handshakes_refused
+                .fetch_add(1, Ordering::Relaxed);
             debug!(%peer, "handshake failed: {e:?}");
             return;
         }
         Err(_) => {
             shared.rejected.fetch_add(1, Ordering::Relaxed);
+            shared
+                .metrics
+                .handshakes_refused
+                .fetch_add(1, Ordering::Relaxed);
             debug!(%peer, "handshake timed out");
             return;
         }

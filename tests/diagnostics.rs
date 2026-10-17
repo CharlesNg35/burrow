@@ -529,7 +529,7 @@ fn role_override_reports_fields_for_that_role() {
        |
      1 | server: a:1
        | ^^^^^^ unknown field
-       = help: valid fields: listen, public_address, websocket, clients, visitors, services, insecure_plaintext, heartbeat, limits, pool, tcp, udp
+       = help: valid fields: listen, public_address, websocket, clients, visitors, services, insecure_plaintext, heartbeat, limits, pool, tcp, udp, metrics
 
     warning: no clients are defined, so nobody can connect
       --> server.yaml:1:1
@@ -555,7 +555,7 @@ fn role_override_reports_fields_for_that_role() {
        |
      2 | name: home
        | ^^^^ unknown field
-       = help: valid fields: listen, public_address, websocket, clients, visitors, services, insecure_plaintext, heartbeat, limits, pool, tcp, udp
+       = help: valid fields: listen, public_address, websocket, clients, visitors, services, insecure_plaintext, heartbeat, limits, pool, tcp, udp, metrics
 
     server.yaml: 3 errors, 2 warnings
     "#);
@@ -1613,5 +1613,56 @@ fn several_clients() {
        = help: write it as an indented block of "key: value" lines
 
     server.yaml: 8 errors, 0 warnings
+    "#);
+}
+
+#[test]
+fn metrics_endpoint() {
+    let with = |metrics: &str| {
+        format!(
+            "{}metrics:\n  listen: {metrics}\n",
+            server("  web:\n    client: home\n    bind: 4000\n    target: 4000\n")
+        )
+    };
+    insta::assert_snapshot!(render("server.yaml", &with("9100"), None), @"server.yaml: valid server config (2 clients, 1 service)");
+    insta::assert_snapshot!(render("server.yaml", &with("0.0.0.0:9100"), None), @"
+    warning: the metrics endpoint listens on 0.0.0.0:9100, not only on this machine
+      --> server.yaml:13:11
+       |
+    13 |   listen: 0.0.0.0:9100
+       |           ^^^^^^^^^^^^ reachable from the network
+       = help: anyone who reaches it sees client, service and visitor names and traffic; use 127.0.0.1 unless a firewall limits who can connect
+
+    server.yaml: valid server config (2 clients, 1 service), 1 warning
+    ");
+    insta::assert_snapshot!(render("server.yaml", &with("4000"), None), @r#"
+    error: metrics.listen 127.0.0.1:4000 is already used by service "web"
+      --> server.yaml:13:11
+       |
+    13 |   listen: 4000
+       |           ^^^^ address already used
+       = help: pick another port for the metrics endpoint
+
+    server.yaml: 1 error, 0 warnings
+    "#);
+    insta::assert_snapshot!(render("server.yaml", &with("0.0.0.0:7835"), None), @"
+    error: metrics.listen 0.0.0.0:7835 is already used by the control port (listen)
+      --> server.yaml:13:11
+       |
+    13 |   listen: 0.0.0.0:7835
+       |           ^^^^^^^^^^^^ address already used
+       = help: pick another port for the metrics endpoint
+
+    server.yaml: 1 error, 0 warnings
+    ");
+    insta::assert_snapshot!(render("server.yaml", &with("9100-9101"), None), @r#"
+    error: invalid metrics listen address "9100-9101"
+      --> server.yaml:13:11
+       |
+    13 |   listen: 9100-9101
+       |           ^^^^^^^^^ expected ip:port or a port
+       = help: use a port like 9100 (on 127.0.0.1), or ip:port like 127.0.0.1:9100
+
+    server.yaml: 1 error, 0 warnings
     "#);
 }

@@ -5,12 +5,35 @@ use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
 
 use crate::handshake::Channel;
+use crate::metrics::{Counted, Traffic};
 use crate::protocol::{Connect, Status};
 use crate::ratelimit::{Limit, Throttled};
 use crate::record::{CHUNK, open_pump, raw_pump, relay_pump, seal_pump};
 use crate::transport::Conn;
 
 const CLOSE_TIMEOUT: Duration = Duration::from_secs(2);
+
+#[derive(Clone, Copy, Default)]
+pub struct Meter<'a> {
+    pub limit: Option<&'a Limit>,
+    pub traffic: Option<&'a Traffic>,
+}
+
+impl<'a> Meter<'a> {
+    fn inbound<S>(self, inner: S) -> Counted<'a, Throttled<'a, S>> {
+        Counted::new(
+            Throttled::new(inner, self.limit.map(|l| &l.inbound)),
+            self.traffic.map(|t| &t.inbound),
+        )
+    }
+
+    fn outbound<S>(self, inner: S) -> Counted<'a, Throttled<'a, S>> {
+        Counted::new(
+            Throttled::new(inner, self.limit.map(|l| &l.outbound)),
+            self.traffic.map(|t| &t.outbound),
+        )
+    }
+}
 
 pub trait Split {
     type Read<'a>: tokio::io::AsyncRead + Unpin + Send
@@ -75,7 +98,7 @@ pub async fn open_tcp(
     first: &[u8],
     prefix: &[u8],
     plaintext: bool,
-    limit: Option<&Limit>,
+    meter: Meter<'_>,
 ) -> Result<(), ForwardError> {
     let Channel {
         mut stream,
@@ -87,8 +110,8 @@ pub async fn open_tcp(
     send_prefix(&mut stream, &mut writer, prefix, plaintext).await?;
     let (mut cr, mut cw) = stream.split();
     let (vr, vw) = visitor.split();
-    let mut vr = Throttled::new(vr, limit.map(|l| &l.inbound));
-    let mut vw = Throttled::new(vw, limit.map(|l| &l.outbound));
+    let mut vr = meter.inbound(vr);
+    let mut vw = meter.outbound(vw);
     let up = async {
         if plaintext {
             raw_pump(&mut vr, &mut cw).await
@@ -185,7 +208,7 @@ pub async fn relay(
     connect: &Connect,
     prefix: &[u8],
     plaintext: bool,
-    limit: Option<&Limit>,
+    meter: Meter<'_>,
 ) -> Result<(), ForwardError> {
     let Channel {
         stream: mut vs,
@@ -202,8 +225,8 @@ pub async fn relay(
     send_prefix(&mut cs, &mut cwriter, prefix, plaintext).await?;
     let (mut cr, mut cw) = cs.split();
     let (vr, vw) = vs.split();
-    let mut vr = Throttled::new(vr, limit.map(|l| &l.inbound));
-    let mut vw = Throttled::new(vw, limit.map(|l| &l.outbound));
+    let mut vr = meter.inbound(vr);
+    let mut vw = meter.outbound(vw);
     let up = async {
         if plaintext {
             open_pump(&mut vr, &mut cw, &mut vreader).await

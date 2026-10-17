@@ -12,6 +12,7 @@ pub mod handshake;
 pub mod init;
 pub mod instance;
 pub mod logfile;
+pub mod metrics;
 pub mod noise;
 pub mod protocol;
 pub mod proxy;

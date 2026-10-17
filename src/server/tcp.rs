@@ -10,7 +10,7 @@ use tracing::{debug, info, warn};
 use super::Shared;
 use crate::config::model::Protocol;
 use crate::config::settings::Service;
-use crate::forward::{ForwardError, open_tcp};
+use crate::forward::{ForwardError, Meter, open_tcp};
 use crate::protocol::{Connect, Status};
 use crate::proxy_protocol::header;
 use crate::transport::tcp::tune;
@@ -34,6 +34,7 @@ pub(super) async fn tcp_service(
         let svc = config.borrow().clone();
         if !svc.sources.permits(peer.ip()) {
             shared.rejected.fetch_add(1, Ordering::Relaxed);
+            shared.metrics.refuse(&name);
             debug!(%peer, "service \"{name}\": source address not allowed, closing");
             continue;
         }
@@ -55,13 +56,18 @@ async fn visit(
 ) {
     let settings = shared.settings();
     let target = svc.target_at(index);
+    let stats = shared.metrics.service(&name);
+    stats.total.fetch_add(1, Ordering::Relaxed);
+    let refuse = || stats.refused.fetch_add(1, Ordering::Relaxed);
     let (_guard, n) = shared.service_counts.enter(&name);
     if svc.max_connections.is_some_and(|m| n >= m) {
         shared.rejected.fetch_add(1, Ordering::Relaxed);
+        refuse();
         debug!(%peer, "service \"{name}\" is at its connection limit");
         return;
     }
     let Some(session) = shared.pick(&name, &svc) else {
+        refuse();
         debug!(%peer, "service \"{name}\": no client is connected, dropping visitor");
         return;
     };
@@ -74,6 +80,7 @@ async fn visit(
     let (_active, before) = session.connection_guard();
     if before >= client_limit {
         shared.rejected.fetch_add(1, Ordering::Relaxed);
+        refuse();
         debug!(%peer, "client \"{client}\" is at its connection limit");
         return;
     }
@@ -104,7 +111,10 @@ async fn visit(
         &first,
         &prefix,
         settings.insecure_plaintext,
-        limit.as_deref(),
+        Meter {
+            limit: limit.as_deref(),
+            traffic: Some(&stats.traffic),
+        },
     );
     tokio::pin!(forward);
     let result = loop {

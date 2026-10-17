@@ -3,6 +3,7 @@ mod health;
 mod listen;
 mod pick;
 mod session;
+mod status;
 mod tcp;
 mod udp;
 mod visit;
@@ -45,6 +46,7 @@ pub struct Shared {
     limits: Mutex<HashMap<String, Arc<Limit>>>,
     probes: Mutex<health::Probes>,
     turns: Mutex<HashMap<String, usize>>,
+    pub(crate) metrics: crate::metrics::Metrics,
 }
 
 #[derive(Default)]
@@ -61,6 +63,14 @@ impl Counts {
             .clone();
         let before = count.fetch_add(1, Ordering::AcqRel);
         (CountGuard(count), before)
+    }
+
+    fn current(&self, name: &str) -> u64 {
+        self.0
+            .lock()
+            .expect("counts lock")
+            .get(name)
+            .map_or(0, |c| c.load(Ordering::Acquire) as u64)
     }
 }
 
@@ -222,10 +232,35 @@ impl ServiceTask {
 pub struct Server {
     shared: Arc<Shared>,
     health: JoinHandle<()>,
+    metrics: Option<MetricsTask>,
     listener: Option<TcpListener>,
     websocket: Option<WsTask>,
     services: HashMap<String, ServiceTask>,
     shutdown_tx: watch::Sender<bool>,
+}
+
+struct MetricsTask {
+    addr: SocketAddr,
+    task: JoinHandle<()>,
+}
+
+impl MetricsTask {
+    fn start(shared: &Arc<Shared>, listener: TcpListener) -> MetricsTask {
+        let addr = listener
+            .local_addr()
+            .expect("a bound listener has an address");
+        let snapshot_of = shared.clone();
+        let snapshot: crate::metrics::Snapshot = Arc::new(move || snapshot_of.status());
+        MetricsTask {
+            addr,
+            task: tokio::spawn(crate::metrics::serve(listener, snapshot)),
+        }
+    }
+}
+
+fn bind_metrics(addr: SocketAddr) -> Result<TcpListener, Failure> {
+    crate::transport::tcp::bind_tcp(addr)
+        .map_err(|e| bind_error("the metrics endpoint", Protocol::Tcp, addr, &e))
 }
 
 struct WsTask {
@@ -351,6 +386,7 @@ impl Server {
             Some(ws) => Some(WsListener::bind(ws)?),
             None => None,
         };
+        let metrics_listener = settings.metrics.map(bind_metrics).transpose()?;
         let (shutdown_tx, shutdown) = watch::channel(false);
         let shared = Arc::new(Shared {
             settings: RwLock::new(Arc::new(settings.clone())),
@@ -367,6 +403,7 @@ impl Server {
             limits: Mutex::new(HashMap::new()),
             probes: Mutex::new(HashMap::new()),
             turns: Mutex::new(HashMap::new()),
+            metrics: crate::metrics::Metrics::default(),
         });
         let mut services = HashMap::new();
         for (name, svc) in &settings.services {
@@ -378,8 +415,10 @@ impl Server {
         }
         let websocket = ws_listener.map(|l| WsTask::start(&shared, l));
         let health = tokio::spawn(health::run(shared.clone()));
+        let metrics = metrics_listener.map(|l| MetricsTask::start(&shared, l));
         Ok(Server {
             health,
+            metrics,
             shared,
             listener,
             websocket,
@@ -390,6 +429,10 @@ impl Server {
 
     pub fn local_addr(&self) -> Option<SocketAddr> {
         self.listener.as_ref().and_then(|l| l.local_addr().ok())
+    }
+
+    pub fn metrics_addr(&self) -> Option<SocketAddr> {
+        self.metrics.as_ref().map(|m| m.addr)
     }
 
     pub fn websocket_addr(&self) -> Option<SocketAddr> {
@@ -423,6 +466,9 @@ impl Server {
                 "listening for WebSocket clients on {}",
                 ws.listener.url_hint()
             );
+        }
+        if let Some(m) = &self.metrics {
+            info!("metrics on http://{}/metrics", m.addr);
         }
         for (name, svc) in &s.services {
             log_service(name, svc, self.services.get(name).and_then(|t| t.addr));
@@ -463,6 +509,9 @@ impl Server {
         info!("shutting down");
         let _ = self.shutdown_tx.send(true);
         self.health.abort();
+        if let Some(m) = self.metrics.take() {
+            m.task.abort();
+        }
         if let Some(ws) = self.websocket.take() {
             ws.task.abort();
         }
@@ -548,6 +597,9 @@ impl Server {
         if next.websocket != current.websocket {
             self.apply_websocket(current.websocket.as_ref(), next.websocket.as_ref())
                 .await;
+        }
+        if next.metrics != current.metrics {
+            self.apply_metrics(next.metrics).await;
         }
 
         let moving: Vec<String> = self
@@ -712,6 +764,35 @@ impl Server {
                     info!("websocket listener stopped");
                 }
             }
+        }
+    }
+}
+
+impl Server {
+    async fn apply_metrics(&mut self, next: Option<SocketAddr>) {
+        if let Some(old) = self.metrics.take() {
+            old.task.abort();
+            let _ = old.task.await;
+        }
+        let Some(addr) = next else {
+            info!("metrics endpoint stopped");
+            return;
+        };
+        let mut last = None;
+        for _ in 0..20 {
+            match bind_metrics(addr) {
+                Ok(l) => {
+                    let m = MetricsTask::start(&self.shared, l);
+                    info!("metrics now on http://{}/metrics", m.addr);
+                    self.metrics = Some(m);
+                    return;
+                }
+                Err(f) => last = Some(f),
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        if let Some(f) = last {
+            error!("{}", f.message);
         }
     }
 }

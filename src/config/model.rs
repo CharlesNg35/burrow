@@ -46,6 +46,20 @@ pub struct ServerConfig {
     pub tcp: TcpOptions,
     #[serde(default, skip_serializing_if = "is_default")]
     pub udp: UdpOptions,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        description = "Serve Prometheus metrics at /metrics and the burrow status data at /status; off unless set"
+    )]
+    pub metrics: Option<MetricsConfig>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct MetricsConfig {
+    #[schemars(
+        description = "Address for the metrics endpoint, for example 127.0.0.1:9100; a port alone means 127.0.0.1"
+    )]
+    pub listen: Bind,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]

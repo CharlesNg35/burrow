@@ -33,6 +33,7 @@ pub struct ServerSettings {
     pub pool_max_idle: usize,
     pub tcp: SocketTuning,
     pub udp_session_timeout: Duration,
+    pub metrics: Option<SocketAddr>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

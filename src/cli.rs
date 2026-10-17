@@ -72,6 +72,10 @@ pub enum Command {
     Visit(VisitArgs),
     #[command(about = "Check a config file and report every problem")]
     Validate(ValidateArgs),
+    #[command(
+        about = "Show clients, services and traffic of the running server (needs metrics in its config)"
+    )]
+    Status(StatusArgs),
     #[command(about = "Write a new server, client or visitor config")]
     Init(InitArgs),
     #[command(about = "Print a ready client config for a client defined in the server config")]
@@ -153,6 +157,18 @@ pub struct ServiceInstallArgs {
     pub no_start: bool,
     #[arg(long, help = "Print what would be installed, change nothing")]
     pub print: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct StatusArgs {
+    #[arg(
+        short,
+        long,
+        help = "Server config; found in the current folder when omitted"
+    )]
+    pub config: Option<PathBuf>,
+    #[arg(long, help = "Print the raw status as JSON")]
+    pub json: bool,
 }
 
 #[derive(Debug, Args)]

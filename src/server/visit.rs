@@ -9,7 +9,7 @@ use super::Shared;
 use super::tcp::log_status;
 use crate::config::check::{MAX_TARGET_LEN, parse_host_port};
 use crate::config::model::Protocol;
-use crate::forward::{ForwardError, relay, reply};
+use crate::forward::{ForwardError, Meter, relay, reply};
 use tokio::sync::OwnedSemaphorePermit;
 
 use crate::handshake::{Accepted, MAX_REQUEST_RECORD, read_small};
@@ -188,8 +188,23 @@ pub(super) async fn serve(
         return;
     }
     let settings = shared.settings();
+    shared
+        .metrics
+        .visitor(&visitor)
+        .total
+        .fetch_add(1, Ordering::Relaxed);
+    let stats = grant
+        .service
+        .as_ref()
+        .map(|name| shared.metrics.service(name));
+    if let Some(s) = &stats {
+        s.total.fetch_add(1, Ordering::Relaxed);
+    }
     let busy = |why: String| {
         shared.rejected.fetch_add(1, Ordering::Relaxed);
+        if let Some(s) = &stats {
+            s.refused.fetch_add(1, Ordering::Relaxed);
+        }
         debug!(%peer, "{why}");
     };
     let (_visitor_count, before) = shared.visitor_counts.enter(&visitor);
@@ -267,7 +282,10 @@ pub(super) async fn serve(
         &connect,
         &prefix,
         settings.insecure_plaintext,
-        limit.as_deref(),
+        Meter {
+            limit: limit.as_deref(),
+            traffic: stats.as_ref().map(|s| &s.traffic),
+        },
     );
     tokio::pin!(forward);
     let result = loop {

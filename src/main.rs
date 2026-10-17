@@ -302,6 +302,11 @@ fn run(cli: Cli) -> Result<u8, Failure> {
             print(&format!("burrow {}\n", env!("CARGO_PKG_VERSION")))?;
             Ok(0)
         }
+        Command::Status(a) => {
+            let path = config_path(a.config, Some(Role::Server))?;
+            let mut out = std::io::stdout().lock();
+            burrow::metrics::query::run(&path, a.json, &ProcessEnv, &mut out)
+        }
         Command::Update(a) => {
             let mut out = std::io::stdout().lock();
             burrow::update::run(
