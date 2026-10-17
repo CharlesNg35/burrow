@@ -6,10 +6,11 @@ use std::time::Instant;
 use tracing::{debug, info, warn};
 
 use super::Shared;
-use super::tcp::log_status;
+use super::route::{Outcome, Tries, Way};
+use super::tcp::log_refusal;
 use crate::config::check::{MAX_TARGET_LEN, parse_host_port};
 use crate::config::model::Protocol;
-use crate::forward::{ForwardError, Meter, relay, reply};
+use crate::forward::{ForwardError, Meter, Opened, Opening, relay, reply};
 use tokio::sync::OwnedSemaphorePermit;
 
 use crate::handshake::{Accepted, MAX_REQUEST_RECORD, read_small};
@@ -173,23 +174,28 @@ pub(super) async fn serve(
         }
     };
     let label = format!("visitor \"{visitor}\"");
-    let picked = match &grant.service {
+    let clients = match &grant.service {
         Some(name) => shared
             .settings()
             .services
             .get(name)
-            .and_then(|svc| shared.pick(name, svc)),
-        None => grant.clients.first().and_then(|c| shared.session(c)),
+            .map(|svc| shared.route(name, svc, &grant.target))
+            .unwrap_or_default(),
+        None => grant
+            .clients
+            .first()
+            .and_then(|c| shared.session(c))
+            .into_iter()
+            .collect(),
     };
-    let Some(session) = picked else {
+    if clients.is_empty() {
         if let (Some(name), false) = (&grant.service, request.check) {
             shared.metrics.refuse(name);
         }
         debug!(%peer, "{label}: no client of {} is connected", request.to);
         reply(channel, Status::Offline).await;
         return;
-    };
-    let client = session.name.clone();
+    }
     if request.check {
         reply(channel, Status::Ok).await;
         return;
@@ -224,11 +230,14 @@ pub(super) async fn serve(
         reply(channel, Status::Busy).await;
         return;
     }
-    let _service_count = match &grant.service {
-        Some(name) => {
+    let service = grant
+        .service
+        .as_ref()
+        .and_then(|name| settings.services.get(name).map(|svc| (name, svc)));
+    let _service_count = match service {
+        Some((name, svc)) => {
             let (guard, before) = shared.service_counts.enter(name);
-            let limit = settings.services.get(name).and_then(|s| s.max_connections);
-            if limit.is_some_and(|m| before >= m) {
+            if svc.max_connections.is_some_and(|m| before >= m) {
                 busy(format!("service \"{name}\" is at its connection limit"));
                 reply(channel, Status::Busy).await;
                 return;
@@ -237,80 +246,101 @@ pub(super) async fn serve(
         }
         None => None,
     };
-    let client_limit = settings
-        .clients
-        .get(&client)
-        .and_then(|c| c.max_connections)
-        .unwrap_or(settings.max_connections_per_client);
-    let (_active, before) = session.connection_guard();
-    if before >= client_limit {
-        busy(format!("client \"{client}\" is at its connection limit"));
-        reply(channel, Status::Busy).await;
-        return;
-    }
     let _tracked = shared.track();
-    let ch = match super::take_channel(&shared, &session, &label, peer).await {
-        Ok(ch) => ch,
-        Err(status) => {
-            reply(channel, status).await;
-            return;
-        }
-    };
-    let mut reloads = shared.reloads();
-    let allowed = || {
-        shared.still_granted(&visitor, &secret, &request.to, peer.ip(), &grant, &client)
-            && shared.allows(&client, &session.secret)
-    };
-    if !allowed() {
-        reply(channel, Status::Forbidden).await;
-        return;
-    }
-    let connect = Connect {
+    let first = Connect {
         protocol: Protocol::Tcp,
         service: grant.service.clone().unwrap_or_default(),
         target: grant.target.clone(),
-    };
-    let version = grant
-        .service
-        .as_ref()
-        .and_then(|name| settings.services.get(name))
-        .and_then(|s| s.proxy_protocol);
-    let prefix = match (version, channel.stream.local_addr()) {
+    }
+    .encode();
+    let prefix = match (
+        service.and_then(|(_, svc)| svc.proxy_protocol),
+        channel.stream.local_addr(),
+    ) {
         (Some(version), Ok(local)) => crate::proxy_protocol::header(version, peer, local),
         _ => Vec::new(),
     };
+    let opening = Opening {
+        first: &first,
+        prefix: &prefix,
+        plaintext: settings.insecure_plaintext,
+        reply_timeout: settings.heartbeat_interval * 3,
+    };
     let limit = grant.service.as_ref().map(|name| shared.limit(name));
-    let forward = relay(
-        channel,
-        ch,
-        &connect,
-        &prefix,
-        settings.insecure_plaintext,
-        Meter {
-            limit: limit.as_deref(),
-            traffic: stats.as_ref().map(|s| &s.traffic),
-        },
-        settings.heartbeat_interval * 3,
-    );
-    tokio::pin!(forward);
-    let result = loop {
-        tokio::select! {
-            biased;
-            Ok(()) = reloads.changed() => {
-                if !allowed() {
-                    info!("{label} may no longer reach {}, closing its connection", grant.target);
-                    return;
+    let meter = Meter {
+        limit: limit.as_deref(),
+        traffic: stats.as_ref().map(|s| &s.traffic),
+    };
+    let way = Way {
+        service: grant.service.as_deref(),
+        target: &grant.target,
+        label: &label,
+        peer,
+        several: service.is_some_and(|(_, svc)| svc.clients.len() > 1),
+    };
+    let mut forbidden = false;
+    let mut tries = Tries::new(&shared, &way, clients);
+    let outcome = loop {
+        let Some((session, ch)) = tries.next().await else {
+            break tries.outcome();
+        };
+        let opened = 'attempt: {
+            let client = &session.name;
+            let mut reloads = shared.reloads();
+            let allowed = || {
+                shared.still_granted(&visitor, &secret, &request.to, peer.ip(), &grant, client)
+                    && shared.allows(client, &session.secret)
+            };
+            if !allowed() {
+                forbidden = true;
+                break 'attempt Opened::Gone(None);
+            }
+            let forward = relay(&mut channel, ch, &opening, meter, tries.early(), || {
+                way.accepted(&shared, client)
+            });
+            tokio::pin!(forward);
+            loop {
+                tokio::select! {
+                    biased;
+                    Ok(()) = reloads.changed() => {
+                        if !allowed() {
+                            info!("{label} may no longer reach {}, closing its connection", grant.target);
+                            break 'attempt Opened::Gone(None);
+                        }
+                    }
+                    r = &mut forward => break 'attempt r,
                 }
             }
-            r = &mut forward => break r,
+        };
+        if let Some(outcome) = tries.opened(&session, opened) {
+            break outcome;
         }
     };
-    match result {
-        Ok(()) => debug!(%peer, "{label}: connection closed"),
-        Err(ForwardError::Status(st)) => log_status(&label, &client, &grant.target, st),
-        Err(ForwardError::Protocol) => {
-            warn!("{label}: client \"{}\" sent an invalid reply", client)
+    match outcome {
+        Outcome::Done { result: Ok(()), .. } => debug!(%peer, "{label}: connection closed"),
+        Outcome::Done {
+            result: Err(ForwardError::Io(e)),
+            ..
+        } => debug!(%peer, "{label}: connection ended: {e}"),
+        Outcome::Done {
+            client,
+            result: Err(error),
+        } => log_refusal(&label, &client, &grant.target, &error),
+        Outcome::Refused { client, error } => {
+            log_refusal(&label, &client, &grant.target, &error);
+            let status = match error {
+                ForwardError::Status(st) => st,
+                ForwardError::Protocol | ForwardError::Io(_) => Status::Offline,
+            };
+            reply(channel, status).await;
         }
-        Err(ForwardError::Io(e)) => debug!(%peer, "{label}: connection ended: {e}"),
+        Outcome::Full(client) => {
+            busy(format!("client \"{client}\" is at its connection limit"));
+            reply(channel, Status::Busy).await;
+        }
+        Outcome::Unavailable(status) => reply(channel, status).await,
+        Outcome::Gone(_) if forbidden => reply(channel, Status::Forbidden).await,
+        Outcome::Gone(Some(e)) => debug!(%peer, "{label}: connection ended: {e}"),
+        Outcome::Gone(None) => {}
     }
 }

@@ -203,7 +203,7 @@ ssh:
 server { listen 8443 ssl proxy_protocol; set_real_ip_from 127.0.0.1; real_ip_header proxy_protocol; }
 ```
 
-**Several clients.** List more than one client to keep a service up when a machine goes away. `failover` (the default) uses the first connected client and moves to the next one while it is away; `balance` spreads new connections over all of them. With `health_check`, the server also checks through each client that its target answers, and skips clients whose target is down. Open connections stay on their client.
+**Several clients.** List more than one client to keep a service up when a machine goes away. `failover` (the default) uses the first connected client and moves to the next one while it is away; `balance` spreads new connections over all of them. When a client cannot reach the target or its `allow` list refuses it, the connection moves to the next client at once, and `burrow status` shows that client as `failing` or `refused`. With `health_check`, the server also checks through each client that its target answers, so a dead target is skipped before anyone connects. Open connections stay on their client.
 
 ```yaml
 web:

@@ -144,6 +144,14 @@ pub struct ServiceStatus {
     pub bytes_in: u64,
     pub bytes_out: u64,
     pub health: Vec<HealthStatus>,
+    #[serde(default)]
+    pub set_aside: Vec<SetAside>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SetAside {
+    pub client: String,
+    pub refused: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -11,6 +11,7 @@ use super::tcp::log_status;
 use super::{Shared, TakeError};
 use crate::config::model::Protocol;
 use crate::config::settings::Service;
+use crate::forward::ForwardError;
 use crate::protocol::{Connect, Status, decode_datagram, encode_datagram};
 
 pub const MAX_PEERS: usize = 4096;
@@ -123,7 +124,7 @@ pub async fn udp_service(
         }
         let svc = config.borrow().clone();
         let target = svc.target_at(index);
-        let Some(session) = shared.pick(&name, &svc) else {
+        let Some(session) = shared.pick(&name, &svc, &target) else {
             tokio::select! {
                 _ = tokio::time::sleep(Duration::from_millis(500)) => continue,
                 _ = stop.changed() => return,
@@ -154,7 +155,15 @@ pub async fn udp_service(
                     &target,
                     status,
                 );
-                tokio::time::sleep(Duration::from_secs(5)).await;
+                if svc.clients.len() > 1 {
+                    shared.troubled(&name, &session, &target, &ForwardError::Status(status));
+                }
+                let pause = if svc.clients.len() > 1 && shared.has_clear(&name, &svc, &target) {
+                    Duration::from_millis(200)
+                } else {
+                    Duration::from_secs(5)
+                };
+                tokio::time::sleep(pause).await;
             }
             Err(None) => tokio::time::sleep(Duration::from_millis(200)).await,
         }
@@ -197,6 +206,9 @@ async fn relay(
     };
     if status != Status::Ok {
         return Err(Some(status));
+    }
+    if svc.clients.len() > 1 {
+        shared.accepted(name, &session.name, target);
     }
     info!(
         "service \"{name}\": UDP relay ready via client \"{}\"",
@@ -297,7 +309,7 @@ async fn relay(
             _ = repick.tick() => {
                 let current = config.borrow().clone();
                 if let Some(preferred) = shared
-                    .preferred(name, &current)
+                    .preferred(name, &current, target)
                     .filter(|p| *p != session.name)
                 {
                     debug!("service \"{name}\": moving the UDP relay to client \"{preferred}\"");

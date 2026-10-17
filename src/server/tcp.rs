@@ -8,9 +8,10 @@ use tokio::sync::watch;
 use tracing::{debug, info, warn};
 
 use super::Shared;
+use super::route::{Outcome, Tries, Way};
 use crate::config::model::Protocol;
 use crate::config::settings::Service;
-use crate::forward::{ForwardError, Meter, open_tcp};
+use crate::forward::{ForwardError, Meter, Opened, Opening, open_tcp};
 use crate::protocol::{Connect, Status};
 use crate::proxy_protocol::header;
 use crate::transport::tcp::tune;
@@ -53,7 +54,7 @@ async fn visit(
     shared: Arc<Shared>,
     name: String,
     svc: Service,
-    visitor: TcpStream,
+    mut visitor: TcpStream,
     peer: SocketAddr,
     index: u16,
 ) {
@@ -69,82 +70,111 @@ async fn visit(
         debug!(%peer, "service \"{name}\" is at its connection limit");
         return;
     }
-    let Some(session) = shared.pick(&name, &svc) else {
+    let clients = shared.route(&name, &svc, &target);
+    if clients.is_empty() {
         refuse();
         debug!(%peer, "service \"{name}\": no client is connected, dropping visitor");
-        return;
-    };
-    let client = session.name.clone();
-    let client_limit = settings
-        .clients
-        .get(&client)
-        .and_then(|c| c.max_connections)
-        .unwrap_or(settings.max_connections_per_client);
-    let (_active, before) = session.connection_guard();
-    if before >= client_limit {
-        shared.rejected.fetch_add(1, Ordering::Relaxed);
-        refuse();
-        debug!(%peer, "client \"{client}\" is at its connection limit");
         return;
     }
     let _tracked = shared.track();
     tune(&visitor, &settings.tcp);
     let label = format!("service \"{name}\"");
-    let Ok(ch) = super::take_channel(&shared, &session, &label, peer).await else {
-        return;
-    };
-    let connect = Connect {
+    let first = Connect {
         protocol: Protocol::Tcp,
         service: name.clone(),
         target: target.clone(),
-    };
-    let mut reloads = shared.reloads();
-    let still_open = || match shared.still_open(&name, &client, peer.ip(), index) {
-        _ if !shared.allows(&client, &session.secret) => {
-            Err(format!("client \"{client}\" is no longer allowed"))
-        }
-        r => r,
-    };
-    if let Err(why) = still_open() {
-        debug!(%peer, "service \"{name}\": {why}, closing");
-        return;
     }
-    let first = connect.encode();
+    .encode();
     let prefix = match (svc.proxy_protocol, visitor.local_addr()) {
         (Some(version), Ok(local)) => header(version, peer, local),
         _ => Vec::new(),
     };
+    let opening = Opening {
+        first: &first,
+        prefix: &prefix,
+        plaintext: settings.insecure_plaintext,
+        reply_timeout: settings.heartbeat_interval * 3,
+    };
     let limit = shared.limit(&name);
-    let forward = open_tcp(
-        ch,
-        visitor,
-        &first,
-        &prefix,
-        settings.insecure_plaintext,
-        Meter {
-            limit: Some(&limit),
-            traffic: Some(&stats.traffic),
-        },
-        settings.heartbeat_interval * 3,
-    );
-    tokio::pin!(forward);
-    let result = loop {
-        tokio::select! {
-            biased;
-            Ok(()) = reloads.changed() => {
-                if let Err(why) = still_open() {
-                    info!("service \"{name}\": {why}, closing the connection from {peer}");
-                    return;
+    let meter = Meter {
+        limit: Some(&limit),
+        traffic: Some(&stats.traffic),
+    };
+    let way = Way {
+        service: Some(&name),
+        target: &target,
+        label: &label,
+        peer,
+        several: svc.clients.len() > 1,
+    };
+    let mut tries = Tries::new(&shared, &way, clients);
+    let outcome = loop {
+        let Some((session, ch)) = tries.next().await else {
+            break tries.outcome();
+        };
+        let opened = 'attempt: {
+            let client = &session.name;
+            let mut reloads = shared.reloads();
+            let still_open = || match shared.still_open(&name, client, peer.ip(), index) {
+                _ if !shared.allows(client, &session.secret) => {
+                    Err(format!("client \"{client}\" is no longer allowed"))
+                }
+                r => r,
+            };
+            if let Err(why) = still_open() {
+                debug!(%peer, "service \"{name}\": {why}, closing");
+                break 'attempt Opened::Gone(None);
+            }
+            let forward = open_tcp(ch, &mut visitor, &opening, meter, tries.early(), || {
+                way.accepted(&shared, client)
+            });
+            tokio::pin!(forward);
+            loop {
+                tokio::select! {
+                    biased;
+                    Ok(()) = reloads.changed() => {
+                        if let Err(why) = still_open() {
+                            info!("service \"{name}\": {why}, closing the connection from {peer}");
+                            break 'attempt Opened::Gone(None);
+                        }
+                    }
+                    r = &mut forward => break 'attempt r,
                 }
             }
-            r = &mut forward => break r,
+        };
+        if let Some(outcome) = tries.opened(&session, opened) {
+            break outcome;
         }
     };
-    match result {
-        Ok(()) => debug!(%peer, "service \"{name}\": connection closed"),
-        Err(ForwardError::Status(st)) => log_status(&label, &client, &target, st),
-        Err(ForwardError::Protocol) => warn!("service \"{name}\": client sent an invalid reply"),
-        Err(ForwardError::Io(e)) => debug!(%peer, "service \"{name}\": connection ended: {e}"),
+    match outcome {
+        Outcome::Done { result: Ok(()), .. } => {
+            debug!(%peer, "service \"{name}\": connection closed")
+        }
+        Outcome::Done {
+            result: Err(ForwardError::Io(e)),
+            ..
+        } => debug!(%peer, "service \"{name}\": connection ended: {e}"),
+        Outcome::Done {
+            client,
+            result: Err(error),
+        } => log_refusal(&label, &client, &target, &error),
+        Outcome::Refused { client, error } => log_refusal(&label, &client, &target, &error),
+        Outcome::Full(client) => {
+            debug!(%peer, "client \"{client}\" is at its connection limit");
+            shared.rejected.fetch_add(1, Ordering::Relaxed);
+            refuse();
+        }
+        Outcome::Unavailable(_) => {}
+        Outcome::Gone(Some(e)) => debug!(%peer, "service \"{name}\": connection ended: {e}"),
+        Outcome::Gone(None) => {}
+    }
+}
+
+pub(super) fn log_refusal(label: &str, client: &str, target: &str, error: &ForwardError) {
+    match error {
+        ForwardError::Status(st) => log_status(label, client, target, *st),
+        ForwardError::Protocol => warn!("{label}: client \"{client}\" sent an invalid reply"),
+        ForwardError::Io(e) => debug!("{label}: client \"{client}\" did not answer: {e}"),
     }
 }
 

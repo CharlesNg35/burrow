@@ -9,7 +9,7 @@
 - **`burrow update`** downloads the latest release (or `--to VERSION`), verifies it against `SHA256SUMS` and by running it, then replaces this binary and updates the installed services with rollback. `--check` only reports whether a newer release exists. It honours `HTTPS_PROXY` and `NO_PROXY`.
 - Fix: a WebSocket data channel now ends with a TLS `close_notify` (`wss://`) and a clean FIN. Before, a TLS proxy in front of the server could treat the abrupt end as an error and drop the last up to 128 KB of a stream under load.
 - **Port ranges**: `bind`, `target` and a visitor's `local` take ranges like `30000-30010`; each port reaches the same position in the target range.
-- **Several clients per service**: `clients: [a, b]` with `mode: failover` or `balance`, and `health_check`, which checks through each client that the target answers and skips clients whose target is down.
+- **Several clients per service**: `clients: [a, b]` with `mode: failover` or `balance`. A connection that a client cannot serve, because its target is down or not in its `allow` list, moves to the next client, and that client is skipped for a while (a refusal until it reconnects). `health_check` also checks the target through each client ahead of time.
 - **Per-service controls**: `allow_from` and `deny_from` for source addresses (checked again on reload, also for visitors), `proxy_protocol: v1 | v2` to send the real client address to the target, and `bandwidth` to cap each direction.
 - **Unix socket targets**: `target: unix:/path`, permitted on the client by `unix:` entries in `allow`.
 - **SOCKS5 for visitors**: `burrow visit --client home --socks 1080`, or `socks: true` on a forward; `visitor-config` writes one for each client in `reach`.

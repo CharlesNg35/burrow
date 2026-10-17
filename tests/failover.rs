@@ -5,9 +5,11 @@ use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use burrow::allowlist::AllowList;
 use burrow::client::{Client, State};
 use burrow::config::model::{Mode, Protocol};
 use burrow::config::settings::{ClientAuth, Health, ServerSettings, Service};
+use burrow::metrics::SetAside;
 use burrow::protocol::VisitTarget;
 use burrow::secret::Secret;
 use burrow::transport::resolve::{Resolved, Resolver};
@@ -28,6 +30,20 @@ impl Resolver for Local {
             } else {
                 burrow::transport::resolve::resolve(host_port).await
             }
+        })
+    }
+}
+
+struct Slow(SocketAddr);
+
+impl Resolver for Slow {
+    fn resolve<'a>(&'a self, host_port: &'a str) -> Resolved<'a> {
+        Box::pin(async move {
+            if host_port != TARGET {
+                return burrow::transport::resolve::resolve(host_port).await;
+            }
+            tokio::time::sleep(Duration::from_secs(5)).await;
+            Ok(vec![self.0])
         })
     }
 }
@@ -63,6 +79,7 @@ struct Site {
 struct Farm {
     server: RunningServer,
     sites: Vec<Site>,
+    plaintext: bool,
 }
 
 impl Farm {
@@ -94,8 +111,13 @@ impl Farm {
             .collect::<BTreeMap<_, _>>();
         settings.services.insert("web".into(), service);
         extra(&mut settings);
+        let plaintext = settings.insecure_plaintext;
         let server = start_server(settings).await;
-        let mut farm = Farm { server, sites };
+        let mut farm = Farm {
+            server,
+            sites,
+            plaintext,
+        };
         for i in 0..farm.sites.len() {
             farm.connect(i).await;
         }
@@ -103,10 +125,33 @@ impl Farm {
     }
 
     async fn connect(&mut self, i: usize) {
+        self.connect_allowing(i, "127.0.0.0/8").await;
+    }
+
+    async fn connect_refusing(&mut self, i: usize) {
+        self.disconnect(i).await;
+        self.connect_allowing(i, "10.0.0.0/8").await;
+    }
+
+    async fn connect_allowing(&mut self, i: usize, allow: &str) {
+        let target = self.sites[i].target;
+        self.connect_using(i, allow, Arc::new(Local(target))).await;
+    }
+
+    async fn connect_slow(&mut self, i: usize) {
+        self.disconnect(i).await;
+        let target = self.sites[i].target;
+        self.connect_using(i, "127.0.0.0/8", Arc::new(Slow(target)))
+            .await;
+    }
+
+    async fn connect_using(&mut self, i: usize, allow: &str, resolver: Arc<dyn Resolver>) {
         let site = &self.sites[i];
         let mut c = client_settings(self.server.addr, site.secret.clone());
         c.name = site.name.into();
-        let client = Client::new(over_transport(c)).with_resolver(Arc::new(Local(site.target)));
+        c.allow = AllowList::Rules(vec![allow.parse().unwrap()]);
+        c.insecure_plaintext = self.plaintext;
+        let client = Client::new(over_transport(c)).with_resolver(resolver);
         let mut running = start_client_with(client).await;
         wait_state(&mut running.state, State::Connected).await;
         let shared = self.server.shared.clone();
@@ -221,13 +266,205 @@ async fn health_checks_skip_a_client_whose_target_is_down() {
     eventually_served_by(addr, 'A').await;
 }
 
+fn set_aside(farm: &Farm) -> Vec<SetAside> {
+    farm.server.shared.status().services[0].set_aside.clone()
+}
+
+fn aside(client: &str, refused: bool) -> SetAside {
+    SetAside {
+        client: client.into(),
+        refused,
+    }
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn without_health_checks_a_down_target_is_still_tried() {
+async fn a_down_target_is_skipped_for_each_connection() {
     let mut farm = Farm::start(web(Mode::Failover, None), |_| {}).await;
     let addr = farm.server.services["web"];
     farm.stop_target(0).await;
-    tokio::time::sleep(Duration::from_millis(800)).await;
+    for _ in 0..5 {
+        assert_eq!(served_by(addr).await, Some('B'));
+    }
+    assert_eq!(set_aside(&farm), vec![aside("a", false)]);
+    farm.stop_target(1).await;
     assert_eq!(served_by(addr).await, None);
+    farm.restart_target(0).await;
+    assert_eq!(
+        served_by(addr).await,
+        Some('A'),
+        "a client set aside is still tried when the others fail"
+    );
+    assert_eq!(set_aside(&farm), vec![aside("b", false)]);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_client_that_refuses_the_target_is_skipped_until_it_reconnects() {
+    for mode in [Mode::Failover, Mode::Balance] {
+        let mut farm = Farm::start(web(mode, None), |_| {}).await;
+        let addr = farm.server.services["web"];
+        farm.connect_refusing(0).await;
+        for _ in 0..10 {
+            assert_eq!(served_by(addr).await, Some('B'), "{mode:?}");
+        }
+        assert_eq!(set_aside(&farm), vec![aside("a", true)]);
+        farm.disconnect(1).await;
+        assert_eq!(
+            served_by(addr).await,
+            None,
+            "with only a refusing client left, connections fail as before"
+        );
+        farm.connect(1).await;
+        farm.disconnect(0).await;
+        farm.connect(0).await;
+        assert!(set_aside(&farm).is_empty());
+        let mut seen = BTreeMap::new();
+        for _ in 0..10 {
+            *seen.entry(served_by(addr).await.unwrap()).or_insert(0) += 1;
+        }
+        let want = match mode {
+            Mode::Failover => BTreeMap::from([('A', 10)]),
+            Mode::Balance => BTreeMap::from([('A', 5), ('B', 5)]),
+        };
+        assert_eq!(seen, want, "{mode:?}");
+    }
+}
+
+async fn echoed_through(addr: SocketAddr, data: Vec<u8>) -> Vec<u8> {
+    let s = TcpStream::connect(addr).await.unwrap();
+    let (mut r, mut w) = s.into_split();
+    let writer = tokio::spawn(async move {
+        w.write_all(&data).await.unwrap();
+        w.shutdown().await.unwrap();
+    });
+    let mut back = Vec::new();
+    tokio::time::timeout(Duration::from_secs(20), r.read_to_end(&mut back))
+        .await
+        .unwrap()
+        .unwrap();
+    writer.await.unwrap();
+    back
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn what_the_visitor_sent_first_reaches_the_next_client_intact() {
+    for plaintext in [false, true] {
+        let mut farm = Farm::start(web(Mode::Failover, None), |s| {
+            s.insecure_plaintext = plaintext;
+        })
+        .await;
+        let addr = farm.server.services["web"];
+        for refusing in [true, false] {
+            if refusing {
+                farm.connect_refusing(0).await;
+            } else {
+                farm.disconnect(0).await;
+                farm.connect(0).await;
+                farm.stop_target(0).await;
+            }
+            for size in [0usize, 10, 70_000, 1_000_000] {
+                let data: Vec<u8> = (0..size).map(|i| (i % 251) as u8).collect();
+                let back = echoed_through(addr, data.clone()).await;
+                assert_eq!(
+                    back.first(),
+                    Some(&b'B'),
+                    "plaintext {plaintext}, {size} bytes"
+                );
+                assert!(
+                    back[1..] == data[..],
+                    "plaintext {plaintext}, refusing {refusing}: {size} bytes sent, {} came back",
+                    back.len() - 1
+                );
+            }
+        }
+        let shared = farm.server.shared.clone();
+        wait_for(|| shared.active_connections() == 0).await;
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn bytes_a_client_got_before_it_went_silent_are_never_sent_to_another() {
+    let mut farm = Farm::start(web(Mode::Failover, None), |_| {}).await;
+    let addr = farm.server.services["web"];
+    farm.connect_slow(0).await;
+    let back = echoed_through(addr, b"POST /pay".to_vec()).await;
+    assert!(
+        back.is_empty(),
+        "the bytes may already be on their way to the target through client a: {back:?}"
+    );
+    assert_eq!(set_aside(&farm), vec![aside("a", false)]);
+    assert_eq!(served_by(addr).await, Some('B'));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_visitor_that_sent_nothing_yet_moves_on_from_a_silent_client() {
+    let mut farm = Farm::start(web(Mode::Failover, None), |_| {}).await;
+    let addr = farm.server.services["web"];
+    farm.connect_slow(0).await;
+    assert_eq!(served_by(addr).await, Some('B'));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_refusing_client_is_skipped_for_visitors_too() {
+    let visitor_secret = Secret::generate();
+    let private = Service {
+        bind: None,
+        visitors: vec!["laptop".into()],
+        ..web(Mode::Failover, None)
+    };
+    let mut farm = Farm::start(private, |s| {
+        s.visitors
+            .insert("laptop".into(), visitor_auth(visitor_secret.clone(), &[]));
+    })
+    .await;
+    farm.connect_refusing(0).await;
+    let v = start_visitor(visitor_settings(
+        farm.server.addr,
+        visitor_secret,
+        vec![("web", VisitTarget::service("web"))],
+    ));
+    for _ in 0..5 {
+        assert_eq!(served_by(v.addr("web")).await, Some('B'));
+    }
+    let data: Vec<u8> = (0..200_000).map(|i| (i % 251) as u8).collect();
+    let back = echoed_through(v.addr("web"), data.clone()).await;
+    assert_eq!(back.first(), Some(&b'B'));
+    assert!(back[1..] == data[..], "{} bytes came back", back.len() - 1);
+    assert_eq!(set_aside(&farm), vec![aside("a", true)]);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_udp_service_moves_away_from_a_refusing_client() {
+    let ta = tagged_udp_echo(b'A').await;
+    let dns = Service {
+        clients: vec!["a".into(), "b".into()],
+        target: TARGET.into(),
+        ..service(ta, Protocol::Udp)
+    };
+    let mut farm = Farm::start(dns, |_| {}).await;
+    for (i, tag) in [(0, b'A'), (1, b'B')] {
+        farm.disconnect(i).await;
+        farm.sites[i].target = tagged_udp_echo(tag).await;
+        farm.connect(i).await;
+    }
+    let s = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    s.connect(farm.server.services["web"]).await.unwrap();
+    assert_eq!(udp_tag(&s).await, Some(b'A'));
+    farm.connect_refusing(0).await;
+    let mut tag = None;
+    for _ in 0..20 {
+        tag = udp_tag(&s).await;
+        if tag == Some(b'B') {
+            break;
+        }
+    }
+    assert_eq!(tag, Some(b'B'));
+    let shared = farm.server.shared.clone();
+    wait_for(|| shared.status().services[0].set_aside == vec![aside("a", true)]).await;
+    assert_eq!(
+        udp_tag(&s).await,
+        Some(b'B'),
+        "the relay does not move back to the refusing client"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

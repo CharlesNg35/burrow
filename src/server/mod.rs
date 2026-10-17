@@ -2,7 +2,9 @@ mod control;
 mod health;
 mod listen;
 mod pick;
+mod route;
 mod session;
+mod standing;
 mod status;
 mod tcp;
 mod udp;
@@ -45,6 +47,7 @@ pub struct Shared {
     visitor_counts: Counts,
     limits: Mutex<HashMap<String, Arc<Limit>>>,
     probes: Mutex<health::Probes>,
+    standing: Mutex<standing::Standing>,
     turns: Mutex<HashMap<String, usize>>,
     pub(crate) metrics: crate::metrics::Metrics,
 }
@@ -412,6 +415,7 @@ impl Server {
             visitor_counts: Counts::default(),
             limits: Mutex::new(HashMap::new()),
             probes: Mutex::new(HashMap::new()),
+            standing: Mutex::new(standing::Standing::default()),
             turns: Mutex::new(HashMap::new()),
             metrics: crate::metrics::Metrics::default(),
         });
@@ -606,6 +610,7 @@ impl Server {
         next.listen = current.listen;
         *self.shared.settings.write().expect("settings lock") = Arc::new(next.clone());
         self.shared.sync_limits(&next);
+        self.shared.prune_standing(&next);
         self.shared.reloaded.send_modify(|n| *n += 1);
 
         if next.websocket != current.websocket {

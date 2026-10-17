@@ -510,12 +510,17 @@ pub fn render(s: &Status, paint: Paint, rates: Option<&Rates>) -> String {
                         clients.parts.push((", ".into(), Tone::Plain));
                     }
                     let health = v.health.iter().find(|h| &h.client == c);
-                    clients.parts.push(match (v.health.is_empty(), health) {
-                        (true, _) => (c.clone(), Tone::Plain),
-                        (false, Some(h)) if h.up => (format!("{c} up"), Tone::Good),
-                        (false, Some(_)) => (format!("{c} down"), Tone::Bad),
-                        (false, None) => (format!("{c} offline"), Tone::Bad),
-                    });
+                    let aside = v.set_aside.iter().find(|a| &a.client == c);
+                    clients
+                        .parts
+                        .push(match (v.health.is_empty(), health, aside) {
+                            (_, _, Some(a)) if a.refused => (format!("{c} refused"), Tone::Bad),
+                            (false, Some(h), _) if !h.up => (format!("{c} down"), Tone::Bad),
+                            (_, _, Some(_)) => (format!("{c} failing"), Tone::Warn),
+                            (true, _, None) => (c.clone(), Tone::Plain),
+                            (false, Some(_), None) => (format!("{c} up"), Tone::Good),
+                            (false, None, None) => (format!("{c} offline"), Tone::Bad),
+                        });
                 }
                 let mut row = vec![
                     cell(&v.name),
@@ -611,7 +616,7 @@ pub fn render(s: &Status, paint: Paint, rates: Option<&Rates>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::metrics::{ClientStatus, HealthStatus, ServiceStatus, VisitorStatus};
+    use crate::metrics::{ClientStatus, HealthStatus, ServiceStatus, SetAside, VisitorStatus};
 
     fn strip(text: &str) -> String {
         let mut out = String::with_capacity(text.len());
@@ -678,6 +683,7 @@ mod tests {
                         client: "home".into(),
                         up: true,
                     }],
+                    set_aside: vec![],
                 },
                 ServiceStatus {
                     name: "db".into(),
@@ -696,6 +702,7 @@ mod tests {
                     bytes_in: 0,
                     bytes_out: 0,
                     health: vec![],
+                    set_aside: vec![],
                 },
             ],
             visitors: vec![VisitorStatus {
@@ -732,6 +739,30 @@ VISITORS
 2 refused handshakes since start (wrong secret, unknown name or limits)
 "
         );
+    }
+
+    #[test]
+    fn clients_set_aside_say_why() {
+        let mut s = sample();
+        let web = &mut s.services[0];
+        web.set_aside = vec![SetAside {
+            client: "home".into(),
+            refused: true,
+        }];
+        let text = render(&s, Paint::PLAIN, None);
+        assert!(text.contains("home refused, office offline"), "{text}");
+        let web = &mut s.services[0];
+        web.health.clear();
+        web.set_aside[0].refused = false;
+        let text = render(&s, Paint::PLAIN, None);
+        assert!(text.contains("home failing, office "), "{text}");
+        let web = &mut s.services[0];
+        web.health = vec![HealthStatus {
+            client: "home".into(),
+            up: false,
+        }];
+        let text = render(&s, Paint::PLAIN, None);
+        assert!(text.contains("home down, office offline"), "{text}");
     }
 
     #[test]

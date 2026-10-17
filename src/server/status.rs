@@ -1,7 +1,8 @@
 use std::sync::atomic::Ordering;
 
 use super::Shared;
-use crate::metrics::{ClientStatus, HealthStatus, ServiceStatus, Status, VisitorStatus};
+use super::standing::Seen;
+use crate::metrics::{ClientStatus, HealthStatus, ServiceStatus, SetAside, Status, VisitorStatus};
 
 impl Shared {
     pub fn status(&self) -> Status {
@@ -48,6 +49,21 @@ impl Shared {
                         .collect(),
                     None => Vec::new(),
                 };
+                let set_aside = match svc.clients.len() {
+                    0 | 1 => Vec::new(),
+                    _ => svc
+                        .clients
+                        .iter()
+                        .filter_map(|c| sessions.get(c))
+                        .filter_map(|s| match self.seen_any(name, s) {
+                            Seen::Clear => None,
+                            seen => Some(SetAside {
+                                client: s.name.clone(),
+                                refused: seen == Seen::Refused,
+                            }),
+                        })
+                        .collect(),
+                };
                 ServiceStatus {
                     name: name.clone(),
                     protocol: svc.protocol.as_str().to_string(),
@@ -77,6 +93,7 @@ impl Shared {
                     bytes_in: stats.traffic.inbound.load(Ordering::Relaxed),
                     bytes_out: stats.traffic.outbound.load(Ordering::Relaxed),
                     health,
+                    set_aside,
                 }
             })
             .collect();

@@ -1,38 +1,54 @@
 use std::sync::Arc;
 
+use super::standing::Seen;
 use super::{ClientSession, Shared};
 use crate::config::model::Mode;
 use crate::config::settings::Service;
 
 impl Shared {
-    pub(crate) fn pick(&self, service: &str, svc: &Service) -> Option<Arc<ClientSession>> {
-        let pool = self.candidates(service, svc);
-        if pool.is_empty() {
-            return None;
-        }
-        let at = match svc.mode {
-            Mode::Failover => 0,
-            Mode::Balance => {
-                let mut turns = self.turns.lock().expect("turns lock");
-                let turn = turns.entry(service.to_string()).or_default();
-                *turn = turn.wrapping_add(1);
-                *turn % pool.len()
-            }
-        };
-        Some(pool[at].clone())
+    pub(crate) fn route(
+        &self,
+        service: &str,
+        svc: &Service,
+        target: &str,
+    ) -> Vec<Arc<ClientSession>> {
+        self.order(service, svc, target, true)
     }
 
-    pub(crate) fn preferred(&self, service: &str, svc: &Service) -> Option<String> {
+    pub(crate) fn pick(
+        &self,
+        service: &str,
+        svc: &Service,
+        target: &str,
+    ) -> Option<Arc<ClientSession>> {
+        self.route(service, svc, target).into_iter().next()
+    }
+
+    pub(crate) fn preferred(&self, service: &str, svc: &Service, target: &str) -> Option<String> {
         match svc.mode {
             Mode::Failover => self
-                .candidates(service, svc)
+                .order(service, svc, target, false)
                 .first()
                 .map(|s| s.name.clone()),
             Mode::Balance => None,
         }
     }
 
-    fn candidates(&self, service: &str, svc: &Service) -> Vec<Arc<ClientSession>> {
+    pub(crate) fn has_clear(&self, service: &str, svc: &Service, target: &str) -> bool {
+        let sessions = self.sessions.lock().expect("sessions lock").clone();
+        svc.clients.iter().filter_map(|c| sessions.get(c)).any(|s| {
+            (svc.health.is_none() || self.is_up(service, &s.name))
+                && self.seen(service, s, target) == Seen::Clear
+        })
+    }
+
+    fn order(
+        &self,
+        service: &str,
+        svc: &Service,
+        target: &str,
+        rotate: bool,
+    ) -> Vec<Arc<ClientSession>> {
         let connected: Vec<Arc<ClientSession>> = {
             let sessions = self.sessions.lock().expect("sessions lock");
             svc.clients
@@ -40,12 +56,34 @@ impl Shared {
                 .filter_map(|c| sessions.get(c).cloned())
                 .collect()
         };
-        let up: Vec<Arc<ClientSession>> = connected
-            .iter()
-            .filter(|s| svc.health.is_none() || self.is_up(service, &s.name))
-            .cloned()
-            .collect();
-        if up.is_empty() { connected } else { up }
+        let (mut clear, mut aside, mut refused) = (Vec::new(), Vec::new(), Vec::new());
+        for s in connected {
+            let healthy = svc.health.is_none() || self.is_up(service, &s.name);
+            match self.seen(service, &s, target) {
+                Seen::Refused => refused.push(s),
+                Seen::Aside => aside.push(s),
+                Seen::Clear if healthy => clear.push(s),
+                Seen::Clear => aside.push(s),
+            }
+        }
+        let head = [&mut clear, &mut aside, &mut refused]
+            .into_iter()
+            .find(|g| !g.is_empty());
+        if let Some(head) = head
+            && rotate
+            && svc.mode == Mode::Balance
+        {
+            let mut turns = self.turns.lock().expect("turns lock");
+            let turn = turns.entry(service.to_string()).or_default();
+            *turn = turn.wrapping_add(1);
+            let len = head.len();
+            head.rotate_left(*turn % len);
+        }
+        if clear.is_empty() && aside.is_empty() {
+            return refused;
+        }
+        clear.extend(aside);
+        clear
     }
 
     pub(crate) fn still_open(

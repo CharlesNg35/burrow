@@ -1,17 +1,25 @@
 use std::io;
 use std::time::Duration;
 
-use tokio::io::AsyncWriteExt;
+use std::future::Future;
+
+use tokio::io::{AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpStream;
 
 use crate::handshake::Channel;
 use crate::metrics::{Counted, Traffic};
-use crate::protocol::{Connect, Status};
+use crate::protocol::Status;
 use crate::ratelimit::{Limit, Throttled};
-use crate::record::{CHUNK, open_pump, raw_pump, relay_pump, seal_pump};
-use crate::transport::Conn;
+use crate::record::{
+    CHUNK, RecordReader, RecordWriter, SMALL, open_pump, raw_pump, relay_pump, seal_pump,
+};
+use crate::transport::{Conn, ReadHalf, WriteHalf};
 
 const VISIT_REPLY: Duration = Duration::from_secs(45);
+
+const KEEP_EARLY: usize = 64 * 1024;
+
+const EARLY_READ: usize = SMALL;
 
 const CLOSE_TIMEOUT: Duration = Duration::from_secs(2);
 
@@ -102,58 +110,326 @@ async fn send_prefix(
     }
 }
 
+pub struct Opening<'a> {
+    pub first: &'a [u8],
+    pub prefix: &'a [u8],
+    pub plaintext: bool,
+    pub reply_timeout: Duration,
+}
+
+pub enum Opened {
+    Done(Result<(), ForwardError>),
+    Refused(ForwardError),
+    Gone(Option<io::Error>),
+}
+
+pub struct Early {
+    bytes: Vec<u8>,
+    ended: bool,
+    keep: bool,
+}
+
+impl Default for Early {
+    fn default() -> Self {
+        Early {
+            bytes: Vec::new(),
+            ended: false,
+            keep: true,
+        }
+    }
+}
+
+impl Early {
+    pub fn last_try(&mut self) {
+        self.keep = false;
+    }
+
+    pub fn sent_nothing(&self) -> bool {
+        self.bytes.is_empty()
+    }
+
+    fn room(&self) -> usize {
+        match (self.ended, self.keep) {
+            (true, _) => 0,
+            (false, true) => KEEP_EARLY.saturating_sub(self.bytes.len()),
+            (false, false) => usize::MAX,
+        }
+    }
+
+    fn took(&mut self, plain: &[u8]) {
+        if self.keep {
+            self.bytes.extend_from_slice(plain);
+        }
+    }
+
+    fn accepted(&mut self) {
+        self.bytes = Vec::new();
+        self.keep = false;
+    }
+}
+
+trait Source {
+    fn next(&mut self, room: usize) -> impl Future<Output = io::Result<Option<&[u8]>>> + Send;
+}
+
+struct Raw<'a, R> {
+    r: &'a mut R,
+    buf: [u8; EARLY_READ],
+}
+
+impl<R: tokio::io::AsyncRead + Unpin + Send> Source for Raw<'_, R> {
+    async fn next(&mut self, room: usize) -> io::Result<Option<&[u8]>> {
+        let want = room.min(EARLY_READ);
+        let n = self.r.read(&mut self.buf[..want]).await?;
+        Ok((n > 0).then_some(&self.buf[..n]))
+    }
+}
+
+struct Sealed<'a, R> {
+    r: &'a mut R,
+    reader: &'a mut RecordReader,
+    counted: Option<&'a std::sync::atomic::AtomicU64>,
+}
+
+impl<R: tokio::io::AsyncRead + Unpin + Send> Source for Sealed<'_, R> {
+    async fn next(&mut self, _room: usize) -> io::Result<Option<&[u8]>> {
+        match self.reader.recv(self.r).await? {
+            Some([]) => Ok(None),
+            Some(plain) => {
+                if let Some(c) = self.counted {
+                    c.fetch_add(plain.len() as u64, std::sync::atomic::Ordering::Relaxed);
+                }
+                Ok(Some(plain))
+            }
+            None => Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "peer closed without an end-of-stream record",
+            )),
+        }
+    }
+}
+
+async fn send_early<W: AsyncWrite + Unpin>(
+    w: &mut W,
+    writer: &mut RecordWriter,
+    plain: &[u8],
+    plaintext: bool,
+) -> io::Result<()> {
+    if plaintext {
+        w.write_all(plain).await?;
+        return w.flush().await;
+    }
+    for chunk in plain.chunks(CHUNK) {
+        writer.send(w, chunk).await?;
+    }
+    Ok(())
+}
+
+async fn end_early<W: AsyncWrite + Unpin>(
+    w: &mut W,
+    writer: &mut RecordWriter,
+    plaintext: bool,
+) -> io::Result<()> {
+    if plaintext {
+        w.flush().await?;
+        w.shutdown().await
+    } else {
+        writer.send(w, &[]).await
+    }
+}
+
+async fn start(
+    stream: &mut Conn,
+    writer: &mut RecordWriter,
+    opening: &Opening<'_>,
+    early: &mut Early,
+    plaintext: bool,
+) -> io::Result<()> {
+    writer.send(stream, opening.first).await?;
+    send_prefix(stream, writer, opening.prefix, plaintext).await?;
+    if !early.bytes.is_empty() {
+        send_early(stream, writer, &early.bytes, plaintext).await?;
+    }
+    if !early.keep {
+        early.bytes = Vec::new();
+    }
+    if early.ended {
+        end_early(stream, writer, plaintext).await?;
+    }
+    Ok(())
+}
+
+enum Answer {
+    Status(Status),
+    Failed(ForwardError),
+    Gone(io::Error),
+}
+
+struct Client<'r, 'w, 'c> {
+    r: &'r mut ReadHalf<'c>,
+    reader: &'r mut RecordReader,
+    w: &'w mut WriteHalf<'c>,
+    writer: &'w mut RecordWriter,
+}
+
+fn reply_of(reply: io::Result<Option<&[u8]>>) -> Answer {
+    match reply {
+        Ok(Some(b)) => {
+            Status::decode(b).map_or(Answer::Failed(ForwardError::Protocol), Answer::Status)
+        }
+        Ok(None) => Answer::Failed(ForwardError::Io(io::Error::new(
+            io::ErrorKind::UnexpectedEof,
+            "the client closed its channel before replying",
+        ))),
+        Err(e) => Answer::Failed(ForwardError::Io(e)),
+    }
+}
+
+async fn answer(
+    client: Client<'_, '_, '_>,
+    source: &mut impl Source,
+    early: &mut Early,
+    plaintext: bool,
+    timeout: Duration,
+) -> Answer {
+    let Client {
+        r,
+        reader,
+        w,
+        writer,
+    } = client;
+    let deadline = tokio::time::sleep(timeout);
+    tokio::pin!(deadline);
+    let mut broken = false;
+    loop {
+        let room = if broken { 0 } else { early.room() };
+        tokio::select! {
+            biased;
+            reply = reader.recv(r) => return reply_of(reply),
+            _ = &mut deadline => return Answer::Failed(no_reply()),
+            more = source.next(room), if room > 0 => {
+                let more = match more {
+                    Ok(more) => more,
+                    Err(e) => return Answer::Gone(e),
+                };
+                let send = async {
+                    match more {
+                        Some(plain) => {
+                            early.took(plain);
+                            send_early(w, writer, plain, plaintext).await
+                        }
+                        None => {
+                            early.ended = true;
+                            end_early(w, writer, plaintext).await
+                        }
+                    }
+                };
+                tokio::pin!(send);
+                let sent = tokio::select! {
+                    biased;
+                    sent = &mut send => sent,
+                    reply = reader.recv(r) => match reply_of(reply) {
+                        Answer::Status(Status::Ok) => match send.await {
+                            Ok(()) => return Answer::Status(Status::Ok),
+                            Err(e) => return Answer::Failed(ForwardError::Io(e)),
+                        },
+                        other => return other,
+                    },
+                    _ = &mut deadline => return Answer::Failed(no_reply()),
+                };
+                if sent.is_err() {
+                    broken = true;
+                }
+            }
+        }
+    }
+}
+
+async fn answer_raw<R: tokio::io::AsyncRead + Unpin + Send>(
+    client: Client<'_, '_, '_>,
+    r: &mut R,
+    early: &mut Early,
+    plaintext: bool,
+    timeout: Duration,
+) -> Answer {
+    let mut source = Raw {
+        r,
+        buf: [0; EARLY_READ],
+    };
+    answer(client, &mut source, early, plaintext, timeout).await
+}
+
+fn refused(answer: Answer) -> Option<Opened> {
+    match answer {
+        Answer::Status(Status::Ok) => None,
+        Answer::Status(s) => Some(Opened::Refused(ForwardError::Status(s))),
+        Answer::Failed(e) => Some(Opened::Refused(e)),
+        Answer::Gone(e) => Some(Opened::Gone(Some(e))),
+    }
+}
+
 pub async fn open_tcp(
     ch: Channel,
-    mut visitor: TcpStream,
-    first: &[u8],
-    prefix: &[u8],
-    plaintext: bool,
+    visitor: &mut TcpStream,
+    opening: &Opening<'_>,
     meter: Meter<'_>,
-    reply_timeout: Duration,
-) -> Result<(), ForwardError> {
+    early: &mut Early,
+    accepted: impl FnOnce(),
+) -> Opened {
     let Channel {
         mut stream,
         mut writer,
         mut reader,
     } = ch;
-    writer.send(&mut stream, first).await?;
-    let plaintext = plaintext && stream.supports_half_close();
-    send_prefix(&mut stream, &mut writer, prefix, plaintext).await?;
-    let (mut cr, mut cw) = stream.split();
-    let (vr, vw) = visitor.split();
-    let mut vr = meter.inbound(vr);
-    let mut vw = meter.outbound(vw);
-    let up = async {
-        if plaintext {
-            raw_pump(&mut vr, &mut cw).await
-        } else {
-            seal_pump(&mut vr, &mut cw, &mut writer, CHUNK).await
-        }
-    };
-    let down = async {
-        let reply = tokio::time::timeout(reply_timeout, reader.recv(&mut cr))
-            .await
-            .map_err(|_| no_reply())?;
-        let status = match reply? {
-            Some(b) => Status::decode(b).map_err(|_| ForwardError::Protocol)?,
-            None => return Err(ForwardError::Protocol),
+    let plaintext = opening.plaintext && stream.supports_half_close();
+    if let Err(e) = start(&mut stream, &mut writer, opening, early, plaintext).await {
+        return Opened::Refused(ForwardError::Io(e));
+    }
+    let done = {
+        let (mut cr, mut cw) = stream.split();
+        let (vr, vw) = visitor.split();
+        let mut vr = meter.inbound(vr);
+        let mut vw = meter.outbound(vw);
+        let client = Client {
+            r: &mut cr,
+            reader: &mut reader,
+            w: &mut cw,
+            writer: &mut writer,
         };
-        if status != Status::Ok {
-            return Err(ForwardError::Status(status));
+        let answer = answer_raw(client, &mut vr, early, plaintext, opening.reply_timeout).await;
+        match refused(answer) {
+            Some(opened) => Err(opened),
+            None => {
+                accepted();
+                early.accepted();
+                let ended = early.ended;
+                let up = async {
+                    match (ended, plaintext) {
+                        (true, _) => Ok(()),
+                        (false, true) => raw_pump(&mut vr, &mut cw).await,
+                        (false, false) => seal_pump(&mut vr, &mut cw, &mut writer, CHUNK).await,
+                    }
+                };
+                let down = async {
+                    if plaintext {
+                        let rest = reader.take_buffered();
+                        vw.write_all(&rest).await?;
+                        raw_pump(&mut cr, &mut vw).await?;
+                    } else {
+                        open_pump(&mut cr, &mut vw, &mut reader).await?;
+                    }
+                    Ok(())
+                };
+                let up = async { up.await.map_err(ForwardError::Io) };
+                Ok(tokio::try_join!(up, down).map(|_| ()))
+            }
         }
-        if plaintext {
-            let rest = reader.take_buffered();
-            vw.write_all(&rest).await?;
-            raw_pump(&mut cr, &mut vw).await?;
-        } else {
-            open_pump(&mut cr, &mut vw, &mut reader).await?;
-        }
-        Ok(())
     };
-    let up = async { up.await.map_err(ForwardError::Io) };
-    let done = tokio::try_join!(up, down).map(|_| ());
     close(&mut stream).await;
-    done
+    match done {
+        Ok(result) => Opened::Done(result),
+        Err(opened) => opened,
+    }
 }
 
 pub async fn client_tcp<T: Split>(
@@ -223,86 +499,170 @@ pub async fn pump_tcp<T: Split>(
 }
 
 pub async fn relay(
-    visitor: Channel,
+    visitor: &mut Channel,
     client: Channel,
-    connect: &Connect,
-    prefix: &[u8],
-    plaintext: bool,
+    opening: &Opening<'_>,
     meter: Meter<'_>,
-    reply_timeout: Duration,
-) -> Result<(), ForwardError> {
+    early: &mut Early,
+    accepted: impl FnOnce(),
+) -> Opened {
     let Channel {
-        stream: mut vs,
-        writer: mut vwriter,
-        reader: mut vreader,
+        stream: vs,
+        writer: vwriter,
+        reader: vreader,
     } = visitor;
     let Channel {
         stream: mut cs,
         writer: mut cwriter,
         reader: mut creader,
     } = client;
-    cwriter.send(&mut cs, &connect.encode()).await?;
-    let plaintext = plaintext && cs.supports_half_close();
-    send_prefix(&mut cs, &mut cwriter, prefix, plaintext).await?;
-    let (mut cr, cw) = cs.split();
-    let raw = |bytes| if plaintext { bytes } else { None };
-    let mut cw = Counted::new(cw, raw(meter.traffic.map(|t| &t.inbound)));
-    let sealed = |bytes| if plaintext { None } else { bytes };
-    let (vr, vw) = vs.split();
-    let mut vr = meter.throttle_in(vr);
-    let mut vw = meter.throttle_out(vw);
-    let up = async {
-        if plaintext {
-            open_pump(&mut vr, &mut cw, &mut vreader).await
-        } else {
-            let counted = sealed(meter.traffic.map(|t| &t.inbound));
-            relay_pump(&mut vr, &mut vreader, &mut cw, &mut cwriter, counted).await
-        }
-    };
-    let down = async {
-        let reply = tokio::time::timeout(reply_timeout, creader.recv(&mut cr)).await;
-        let status = match reply {
-            Ok(Ok(Some(b))) => Status::decode(b).map_err(|_| ForwardError::Protocol)?,
-            Err(_) => {
-                let _ = vwriter.send(&mut vw, &[Status::Offline as u8]).await;
-                return Err(no_reply());
-            }
-            Ok(Ok(None) | Err(_)) => {
-                let _ = vwriter.send(&mut vw, &[Status::Offline as u8]).await;
-                return Err(ForwardError::Io(io::Error::new(
-                    io::ErrorKind::UnexpectedEof,
-                    "the client closed its channel before replying",
-                )));
-            }
+    let plaintext = opening.plaintext && cs.supports_half_close();
+    if let Err(e) = start(&mut cs, &mut cwriter, opening, early, plaintext).await {
+        return Opened::Refused(ForwardError::Io(e));
+    }
+    let done = {
+        let (mut cr, mut cw) = cs.split();
+        let (vr, vw) = vs.split();
+        let mut vr = meter.throttle_in(vr);
+        let mut vw = meter.throttle_out(vw);
+        let inbound = meter.traffic.map(|t| &t.inbound);
+        let client = Client {
+            r: &mut cr,
+            reader: &mut creader,
+            w: &mut cw,
+            writer: &mut cwriter,
         };
-        vwriter.send(&mut vw, &[status as u8]).await?;
-        if status != Status::Ok {
-            return Err(ForwardError::Status(status));
-        }
-        if plaintext {
-            let outbound = meter.traffic.map(|t| &t.outbound);
-            let rest = creader.take_buffered();
-            if let Some(c) = outbound {
-                c.fetch_add(rest.len() as u64, std::sync::atomic::Ordering::Relaxed);
+        let source = &mut Sealed {
+            r: &mut vr,
+            reader: &mut *vreader,
+            counted: inbound,
+        };
+        let answer = answer(client, source, early, plaintext, opening.reply_timeout).await;
+        match refused(answer) {
+            Some(opened) => Err(opened),
+            None => {
+                accepted();
+                early.accepted();
+                let ended = early.ended;
+                let raw = |bytes| if plaintext { bytes } else { None };
+                let mut cw = Counted::new(cw, raw(inbound));
+                let sealed = |bytes| if plaintext { None } else { bytes };
+                let up = async {
+                    match (ended, plaintext) {
+                        (true, _) => Ok(()),
+                        (false, true) => open_pump(&mut vr, &mut cw, vreader).await,
+                        (false, false) => {
+                            relay_pump(&mut vr, vreader, &mut cw, &mut cwriter, sealed(inbound))
+                                .await
+                        }
+                    }
+                };
+                let down = async {
+                    vwriter.send(&mut vw, &[Status::Ok as u8]).await?;
+                    if plaintext {
+                        let outbound = meter.traffic.map(|t| &t.outbound);
+                        let rest = creader.take_buffered();
+                        if let Some(c) = outbound {
+                            c.fetch_add(rest.len() as u64, std::sync::atomic::Ordering::Relaxed);
+                        }
+                        for chunk in rest.chunks(CHUNK) {
+                            vwriter.send(&mut vw, chunk).await?;
+                        }
+                        let mut cr = Counted::new(&mut cr, outbound);
+                        seal_pump(&mut cr, &mut vw, vwriter, CHUNK).await?;
+                    } else {
+                        let counted = sealed(meter.traffic.map(|t| &t.outbound));
+                        relay_pump(&mut cr, &mut creader, &mut vw, vwriter, counted).await?;
+                    }
+                    Ok(())
+                };
+                let up = async { up.await.map_err(ForwardError::Io) };
+                Ok(tokio::try_join!(up, down).map(|_| ()))
             }
-            for chunk in rest.chunks(CHUNK) {
-                vwriter.send(&mut vw, chunk).await?;
-            }
-            let mut cr = Counted::new(&mut cr, outbound);
-            seal_pump(&mut cr, &mut vw, &mut vwriter, CHUNK).await?;
-        } else {
-            let counted = sealed(meter.traffic.map(|t| &t.outbound));
-            relay_pump(&mut cr, &mut creader, &mut vw, &mut vwriter, counted).await?;
         }
-        Ok(())
     };
-    let up = async { up.await.map_err(ForwardError::Io) };
-    let done = tokio::try_join!(up, down).map(|_| ());
-    tokio::join!(close(&mut vs), close(&mut cs));
-    done
+    match done {
+        Ok(result) => {
+            tokio::join!(close(vs), close(&mut cs));
+            Opened::Done(result)
+        }
+        Err(opened) => {
+            close(&mut cs).await;
+            opened
+        }
+    }
 }
 
 pub async fn reply(mut ch: Channel, status: Status) {
     let _ = ch.writer.send(&mut ch.stream, &[status as u8]).await;
     let _ = ch.stream.shutdown().await;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::model::Cipher;
+    use crate::noise::{Initiator, Responder};
+    use crate::secret::Secret;
+    use std::time::Instant;
+    use tokio::net::TcpListener;
+
+    fn channel(stream: TcpStream) -> Channel {
+        let s = Secret::generate();
+        let (_, m1) = Initiator::start(Cipher::Chachapoly, &s, b"t");
+        let r = Responder::accept(Cipher::Chachapoly, std::slice::from_ref(&s), b"t", &m1).unwrap();
+        let (session, _) = r.reply().unwrap();
+        let (sealer, opener) = session.split();
+        Channel {
+            stream: Conn::Tcp(stream),
+            writer: RecordWriter::new(sealer),
+            reader: RecordReader::new(opener),
+        }
+    }
+
+    async fn tcp_pair() -> (TcpStream, TcpStream) {
+        let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let (a, b) = tokio::join!(TcpStream::connect(l.local_addr().unwrap()), l.accept());
+        (a.unwrap(), b.unwrap().0)
+    }
+
+    #[tokio::test]
+    async fn a_client_that_never_answers_nor_reads_is_given_up_in_time() {
+        for plaintext in [false, true] {
+            let (ours, _silent) = tcp_pair().await;
+            let (mut visitor, mut user) = tcp_pair().await;
+            let upload = tokio::spawn(async move {
+                let _ = user.write_all(&vec![7u8; 64 << 20]).await;
+                user
+            });
+            let mut early = Early::default();
+            early.last_try();
+            let opening = Opening {
+                first: b"connect",
+                prefix: &[],
+                plaintext,
+                reply_timeout: Duration::from_millis(300),
+            };
+            let started = Instant::now();
+            let opened = tokio::time::timeout(
+                Duration::from_secs(5),
+                open_tcp(
+                    channel(ours),
+                    &mut visitor,
+                    &opening,
+                    Meter::default(),
+                    &mut early,
+                    || {},
+                ),
+            )
+            .await
+            .expect("the reply timeout holds while the upload waits");
+            assert!(
+                matches!(&opened, Opened::Refused(ForwardError::Io(e)) if e.kind() == io::ErrorKind::TimedOut),
+                "plaintext {plaintext}"
+            );
+            assert!(started.elapsed() < Duration::from_secs(2));
+            upload.abort();
+        }
+    }
 }

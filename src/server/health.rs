@@ -105,6 +105,9 @@ pub(super) async fn run(shared: Arc<Shared>) {
                 )
                 .await
                 .unwrap_or_else(|_| Err(format!("no answer within {}s", health.timeout.as_secs())));
+                if result.is_ok() {
+                    shared.accepted(&service, &client, &target);
+                }
                 shared.record(&service, &client, health, result);
             });
         }
