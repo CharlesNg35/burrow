@@ -123,13 +123,14 @@ async fn visit(
     tokio::pin!(forward);
     let result = loop {
         tokio::select! {
-            r = &mut forward => break r,
+            biased;
             Ok(()) = reloads.changed() => {
                 if !shared.allows(&svc.client, &session.secret) {
                     debug!(%peer, "service \"{name}\": client \"{}\" is no longer allowed, closing", svc.client);
                     return;
                 }
             }
+            r = &mut forward => break r,
         }
     };
     match result {

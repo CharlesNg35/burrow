@@ -446,6 +446,7 @@ impl Server {
         let mut next = next;
         next.listen = current.listen;
         *self.shared.settings.write().expect("settings lock") = Arc::new(next.clone());
+        self.shared.reloaded.send_modify(|n| *n += 1);
 
         if next.websocket != current.websocket {
             self.apply_websocket(current.websocket.as_ref(), next.websocket.as_ref())
@@ -536,7 +537,6 @@ impl Server {
                 .control
                 .try_send(ServerMsg::Services(Shared::services_for(&next, &s.name)));
         }
-        self.shared.reloaded.send_modify(|n| *n += 1);
         let (c, v) = (next.clients.len(), next.services.len());
         info!(
             "config reloaded ({c} {}, {v} {})",
