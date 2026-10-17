@@ -628,8 +628,12 @@ impl Server {
             })
             .map(|(k, _)| k.clone())
             .collect();
+        let mut released: Vec<(Protocol, SocketAddr, u16)> = Vec::new();
         for name in moving {
             if let Some(t) = self.services.remove(&name) {
+                if let Some(b) = t.service.bind {
+                    released.push((t.service.protocol, b, t.service.ports));
+                }
                 t.stop().await;
                 match next.services.get(&name) {
                     None => info!("service \"{name}\" removed"),
@@ -672,9 +676,19 @@ impl Server {
                 continue;
             }
             if let Some(old) = self.services.remove(name) {
+                if let Some(b) = old.service.bind {
+                    released.push((old.service.protocol, b, old.service.ports));
+                }
                 old.stop().await;
             }
-            match bind_with_retry(name, svc).await {
+            let freed = svc.bind.is_some_and(|b| {
+                released.iter().any(|(p, a, n)| {
+                    *p == svc.protocol
+                        && crate::config::check::ports::ranges_conflict(*a, *n, b, svc.ports)
+                })
+            });
+            let tries = if freed { FREED_TRIES } else { 1 };
+            match bind_with_retry(name, svc, tries).await {
                 Ok(bound) => {
                     let t = spawn_service(&self.shared, name, svc, bound);
                     if !current.services.get(name).is_some_and(|c| c.bind.is_none()) {
@@ -771,7 +785,9 @@ impl Server {
                     old.task.abort();
                     let _ = old.task.await;
                 }
-                match bind_ws_with_retry(n).await {
+                let freed = current
+                    .is_some_and(|c| crate::config::check::binds_conflict(c.listen, n.listen));
+                match bind_ws_with_retry(n, if freed { FREED_TRIES } else { 1 }).await {
                     Ok(l) => {
                         let t = WsTask::start(&self.shared, l);
                         info!("websocket listener now on {}", t.listener.url_hint());
@@ -809,7 +825,7 @@ impl Server {
             let _ = old.task.await;
         }
         let mut last = None;
-        for _ in 0..20 {
+        for _ in 0..if clashes { FREED_TRIES } else { 1 } {
             match bind_metrics(addr) {
                 Ok(l) => {
                     if let Some(old) = self.metrics.take() {
@@ -836,9 +852,10 @@ impl Server {
 
 async fn bind_ws_with_retry(
     ws: &crate::config::settings::WebSocketSettings,
+    tries: usize,
 ) -> Result<WsListener, Failure> {
     let mut last = None;
-    for _ in 0..20 {
+    for _ in 0..tries {
         match WsListener::bind(ws) {
             Ok(l) => return Ok(l),
             Err(f) => last = Some(f),
@@ -848,9 +865,15 @@ async fn bind_ws_with_retry(
     Err(last.expect("at least one attempt"))
 }
 
-async fn bind_with_retry(name: &str, svc: &Service) -> Result<Vec<(u16, Bound)>, Failure> {
+const FREED_TRIES: usize = 20;
+
+async fn bind_with_retry(
+    name: &str,
+    svc: &Service,
+    tries: usize,
+) -> Result<Vec<(u16, Bound)>, Failure> {
     let mut last = None;
-    for _ in 0..20 {
+    for _ in 0..tries {
         match bind_service(name, svc).await {
             Ok(b) => return Ok(b),
             Err(f) => last = Some(f),

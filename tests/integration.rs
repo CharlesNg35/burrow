@@ -812,3 +812,49 @@ async fn a_connection_on_a_dead_data_channel_ends_instead_of_hanging() {
         "the connection should be closed, not left hanging: {ended:?}"
     );
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_reload_with_ports_taken_by_other_programs_does_not_stall() {
+    let echo = echo_server().await;
+    let secret = Secret::generate();
+    let settings = server_settings(vec![secret.clone()]);
+    let t = tunnel_with(
+        settings.clone(),
+        vec![("web", service(echo, Protocol::Tcp))],
+        |c| c,
+        secret,
+    )
+    .await;
+    let mut held = Vec::new();
+    let mut next = t.server.shared.settings_snapshot();
+    for name in ["a1", "a2", "a3"] {
+        let taken = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let mut busy = service(echo, Protocol::Tcp);
+        busy.bind = Some(taken.local_addr().unwrap());
+        next.services.insert(name.into(), busy);
+        held.push(taken);
+    }
+    let (_hold, free) = refusing();
+    drop(_hold);
+    let mut last = service(echo, Protocol::Tcp);
+    last.bind = Some(free);
+    next.services.insert("zz".into(), last);
+    let began = std::time::Instant::now();
+    t.server.reload(next).await;
+    let mut reachable = false;
+    while began.elapsed() < Duration::from_secs(10) {
+        if TcpStream::connect(free).await.is_ok() {
+            reachable = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let took = began.elapsed();
+    assert!(reachable, "the free service was never bound");
+    assert!(
+        took < Duration::from_secs(1),
+        "the reload stalled for {took:?}"
+    );
+    let data = pattern(1_000, 3);
+    assert_eq!(roundtrip(t.server.services["web"], &data).await, data);
+}
