@@ -56,7 +56,7 @@ fn typo_field() {
        |
     10 |     bnd: 0.0.0.0:4000
        |     ^^^ unknown field
-       = help: did you mean "bind"? valid fields: client, bind, target, protocol, max_connections, visitors, allow_from, deny_from, proxy_protocol
+       = help: did you mean "bind"? valid fields: client, bind, target, protocol, max_connections, visitors, allow_from, deny_from, proxy_protocol, bandwidth
 
     server.yaml: 2 errors, 0 warnings
     "#);
@@ -457,7 +457,7 @@ fn json_multiple_errors() {
        |
      5 |     "web": {"client": "hom", "bnd": 4000, "target": "127.0.0.1:3000"},
        |                              ^^^^^ unknown field
-       = help: did you mean "bind"? valid fields: client, bind, target, protocol, max_connections, visitors, allow_from, deny_from, proxy_protocol
+       = help: did you mean "bind"? valid fields: client, bind, target, protocol, max_connections, visitors, allow_from, deny_from, proxy_protocol, bandwidth
 
     error: unknown protocol "udpp" in service "dns"
       --> server.json:6:83
@@ -1508,5 +1508,26 @@ fn unix_socket_targets() {
        = help: use unix:/absolute/path.sock for one socket, or unix:/folder/* for the sockets in a folder
 
     client.yaml: 2 errors, 0 warnings
+    "#);
+}
+
+#[test]
+fn bandwidth_limits() {
+    insta::assert_snapshot!(render("server.yaml", &server("  a:\n    client: home\n    bind: 4000\n    target: 4000\n    bandwidth: 40mbit\n  b:\n    client: home\n    bind: 4001\n    target: 4001\n    bandwidth: fast\n  c:\n    client: home\n    bind: 4002\n    target: 4002\n    bandwidth: 5 apples\n"), None), @r#"
+    error: invalid bandwidth for service "b": "fast" does not start with a positive number
+      --> server.yaml:17:16
+       |
+    17 |     bandwidth: fast
+       |                ^^^^ expected a rate like 40mbit
+       = help: use a number with kbit, mbit or gbit (bits per second), or kb, mb or gb (bytes per second), for example 40mbit
+
+    error: invalid bandwidth for service "c": "apples" is not a rate unit
+      --> server.yaml:22:16
+       |
+    22 |     bandwidth: 5 apples
+       |                ^^^^^^^^ expected a rate like 40mbit
+       = help: use a number with kbit, mbit or gbit (bits per second), or kb, mb or gb (bytes per second), for example 40mbit
+
+    server.yaml: 2 errors, 0 warnings
     "#);
 }

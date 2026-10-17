@@ -109,6 +109,22 @@ pub(super) fn check_service<'a>(
             listed.push(v.clone());
         }
     }
+    let bandwidth = match svc.bandwidth.as_deref().map(crate::ratelimit::parse_rate) {
+        None => None,
+        Some(Ok(rate)) => Some(rate),
+        Some(Err(e)) => {
+            out.push(
+                Diagnostic::error(
+                    "invalid-bandwidth",
+                    format!("invalid bandwidth for service \"{name}\": {e}"),
+                )
+                .at(spans.value(&path("bandwidth")))
+                .label("expected a rate like 40mbit")
+                .help("use a number with kbit, mbit or gbit (bits per second), or kb, mb or gb (bytes per second), for example 40mbit"),
+            );
+            None
+        }
+    };
     let (target, ports) = target?;
     if svc.bind.is_some() && bind.is_none() {
         return None;
@@ -123,6 +139,7 @@ pub(super) fn check_service<'a>(
         visitors: listed,
         sources,
         proxy_protocol: svc.proxy_protocol,
+        bandwidth,
     })
 }
 

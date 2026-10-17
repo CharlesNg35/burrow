@@ -202,6 +202,8 @@ async fn relay(
     let peers = Arc::new(Mutex::new(Peers::default()));
     let back_peers = peers.clone();
     let back_socket = socket.clone();
+    let limit = shared.limit(name, svc.bandwidth);
+    let back_limit = limit.clone();
     let back = tokio::spawn(async move {
         loop {
             match reader.recv(&mut rd).await {
@@ -209,6 +211,12 @@ async fn relay(
                     let Ok((id, payload)) = decode_datagram(rec) else {
                         return;
                     };
+                    if back_limit
+                        .as_ref()
+                        .is_some_and(|l| !l.outbound.try_take(payload.len()))
+                    {
+                        continue;
+                    }
                     let addr = back_peers.lock().expect("peers lock").touch(id);
                     if let Some(addr) = addr {
                         let _ = back_socket.send_to(payload, addr).await;
@@ -240,6 +248,9 @@ async fn relay(
                     }
                 };
                 if n > MAX_DATAGRAM || !config.borrow().sources.permits(from.ip()) {
+                    continue;
+                }
+                if limit.as_ref().is_some_and(|l| !l.inbound.try_take(n)) {
                     continue;
                 }
                 let (id, count) = {

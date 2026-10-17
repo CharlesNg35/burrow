@@ -177,6 +177,11 @@ pub struct ServiceEntry {
         description = "Send the real source address to the target with the PROXY protocol, v1 (text) or v2 (binary); only for targets that expect it"
     )]
     pub proxy_protocol: Option<crate::proxy_protocol::Version>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        description = "Speed limit for each direction, shared by all connections of this service, for example 40mbit or 5MB (per second)"
+    )]
+    pub bandwidth: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]

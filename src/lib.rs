@@ -16,6 +16,7 @@ pub mod noise;
 pub mod protocol;
 pub mod proxy;
 pub mod proxy_protocol;
+pub mod ratelimit;
 pub mod record;
 pub mod run;
 pub mod secret;

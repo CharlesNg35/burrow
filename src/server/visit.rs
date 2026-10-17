@@ -251,7 +251,18 @@ pub(super) async fn serve(
         (Some(version), Ok(local)) => crate::proxy_protocol::header(version, peer, local),
         _ => Vec::new(),
     };
-    let forward = relay(channel, ch, &connect, &prefix, settings.insecure_plaintext);
+    let limit = grant
+        .service
+        .as_ref()
+        .and_then(|name| shared.limit(name, settings.services.get(name).and_then(|s| s.bandwidth)));
+    let forward = relay(
+        channel,
+        ch,
+        &connect,
+        &prefix,
+        settings.insecure_plaintext,
+        limit.as_deref(),
+    );
     tokio::pin!(forward);
     let result = loop {
         tokio::select! {

@@ -59,6 +59,7 @@ pub struct Service {
     pub visitors: Vec<String>,
     pub sources: Sources,
     pub proxy_protocol: Option<crate::proxy_protocol::Version>,
+    pub bandwidth: Option<u64>,
 }
 
 impl Default for Service {
@@ -73,6 +74,7 @@ impl Default for Service {
             visitors: Vec::new(),
             sources: Sources::default(),
             proxy_protocol: None,
+            bandwidth: None,
         }
     }
 }

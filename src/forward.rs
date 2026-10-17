@@ -6,6 +6,7 @@ use tokio::net::TcpStream;
 
 use crate::handshake::Channel;
 use crate::protocol::{Connect, Status};
+use crate::ratelimit::{Limit, Throttled};
 use crate::record::{CHUNK, open_pump, raw_pump, relay_pump, seal_pump};
 use crate::transport::Conn;
 
@@ -74,6 +75,7 @@ pub async fn open_tcp(
     first: &[u8],
     prefix: &[u8],
     plaintext: bool,
+    limit: Option<&Limit>,
 ) -> Result<(), ForwardError> {
     let Channel {
         mut stream,
@@ -84,7 +86,9 @@ pub async fn open_tcp(
     let plaintext = plaintext && stream.supports_half_close();
     send_prefix(&mut stream, &mut writer, prefix, plaintext).await?;
     let (mut cr, mut cw) = stream.split();
-    let (mut vr, mut vw) = visitor.split();
+    let (vr, vw) = visitor.split();
+    let mut vr = Throttled::new(vr, limit.map(|l| &l.inbound));
+    let mut vw = Throttled::new(vw, limit.map(|l| &l.outbound));
     let up = async {
         if plaintext {
             raw_pump(&mut vr, &mut cw).await
@@ -181,6 +185,7 @@ pub async fn relay(
     connect: &Connect,
     prefix: &[u8],
     plaintext: bool,
+    limit: Option<&Limit>,
 ) -> Result<(), ForwardError> {
     let Channel {
         stream: mut vs,
@@ -196,7 +201,9 @@ pub async fn relay(
     let plaintext = plaintext && cs.supports_half_close();
     send_prefix(&mut cs, &mut cwriter, prefix, plaintext).await?;
     let (mut cr, mut cw) = cs.split();
-    let (mut vr, mut vw) = vs.split();
+    let (vr, vw) = vs.split();
+    let mut vr = Throttled::new(vr, limit.map(|l| &l.inbound));
+    let mut vw = Throttled::new(vw, limit.map(|l| &l.outbound));
     let up = async {
         if plaintext {
             open_pump(&mut vr, &mut cw, &mut vreader).await

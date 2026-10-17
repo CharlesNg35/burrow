@@ -20,6 +20,7 @@ use crate::config::model::Protocol;
 use crate::config::settings::{ServerSettings, Service};
 use crate::failure::Failure;
 use crate::protocol::{ByeReason, ServerMsg, ServiceInfo};
+use crate::ratelimit::Limit;
 use listen::WsListener;
 pub use session::{ClientSession, PoolConfig, TakeError};
 
@@ -39,6 +40,7 @@ pub struct Shared {
     reloaded: watch::Sender<u64>,
     service_counts: Counts,
     visitor_counts: Counts,
+    limits: Mutex<HashMap<String, Arc<Limit>>>,
 }
 
 #[derive(Default)]
@@ -79,6 +81,19 @@ impl Shared {
             .services
             .get(service)
             .is_some_and(|s| s.sources.permits(ip))
+    }
+
+    pub(crate) fn limit(&self, service: &str, rate: Option<u64>) -> Option<Arc<Limit>> {
+        let rate = rate?;
+        let mut limits = self.limits.lock().expect("limits lock");
+        match limits.get(service) {
+            Some(l) if l.bytes_per_sec == rate => Some(l.clone()),
+            _ => {
+                let l = Limit::new(rate);
+                limits.insert(service.to_string(), l.clone());
+                Some(l)
+            }
+        }
     }
 
     pub(crate) fn reloads(&self) -> watch::Receiver<u64> {
@@ -344,6 +359,7 @@ impl Server {
             reloaded: watch::Sender::new(0),
             service_counts: Counts::default(),
             visitor_counts: Counts::default(),
+            limits: Mutex::new(HashMap::new()),
         });
         let mut services = HashMap::new();
         for (name, svc) in &settings.services {
@@ -721,10 +737,17 @@ fn log_service(name: &str, svc: &Service, addr: Option<SocketAddr>) {
         || "private".to_string(),
         |a| crate::config::check::ports::show_addr(a, svc.ports),
     );
-    let visitors = if svc.visitors.is_empty() {
+    let mut extras = Vec::new();
+    if !svc.visitors.is_empty() {
+        extras.push(format!("visitors: {}", svc.visitors.join(", ")));
+    }
+    if let Some(rate) = svc.bandwidth {
+        extras.push(format!("limited to {}", crate::ratelimit::describe(rate)));
+    }
+    let visitors = if extras.is_empty() {
         String::new()
     } else {
-        format!(" (visitors: {})", svc.visitors.join(", "))
+        format!(" ({})", extras.join("; "))
     };
     info!(
         "service \"{name}\": {} {at} -> client \"{}\" {}{visitors}",

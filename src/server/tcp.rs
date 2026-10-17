@@ -96,7 +96,15 @@ async fn visit(
         (Some(version), Ok(local)) => header(version, peer, local),
         _ => Vec::new(),
     };
-    let forward = open_tcp(ch, visitor, &first, &prefix, settings.insecure_plaintext);
+    let limit = shared.limit(&name, svc.bandwidth);
+    let forward = open_tcp(
+        ch,
+        visitor,
+        &first,
+        &prefix,
+        settings.insecure_plaintext,
+        limit.as_deref(),
+    );
     tokio::pin!(forward);
     let result = loop {
         tokio::select! {
