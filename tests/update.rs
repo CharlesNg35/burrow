@@ -5,7 +5,10 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
+use burrow::update::archive::{from_tar_gz, from_zip};
+use burrow::update::http::{Fetched, dechunk, get};
 use sha2::{Digest, Sha256};
 
 const MINE: &str = env!("CARGO_PKG_VERSION");
@@ -434,4 +437,238 @@ fn downloads_go_through_the_proxy_from_the_environment() {
         "{}",
         text(&out)
     );
+}
+
+fn serve_raw(reply: Vec<u8>, close: bool) -> String {
+    serve_parts(vec![reply], close)
+}
+
+fn serve_parts(parts: Vec<Vec<u8>>, close: bool) -> String {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}/x", listener.local_addr().unwrap());
+    std::thread::spawn(move || {
+        for conn in listener.incoming() {
+            let Ok(mut conn) = conn else { continue };
+            let mut req = Vec::new();
+            let mut byte = [0u8; 1];
+            while !req.ends_with(b"\r\n\r\n") && conn.read(&mut byte).unwrap_or(0) == 1 {
+                req.push(byte[0]);
+            }
+            for part in &parts {
+                let _ = conn.write_all(part);
+                let _ = conn.flush();
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            if close {
+                drop(conn);
+            } else {
+                std::thread::sleep(Duration::from_secs(60));
+            }
+        }
+    });
+    url
+}
+
+fn no_env(_: &str) -> Option<String> {
+    None
+}
+
+#[test]
+fn a_huge_chunk_size_is_an_error_not_a_panic() {
+    let got = std::panic::catch_unwind(|| dechunk(b"ffffffffffffffff\r\nabc\r\n0\r\n\r\n"));
+    assert!(got.is_ok(), "dechunk panicked");
+    assert!(got.unwrap().is_err());
+}
+
+#[test]
+fn a_server_sending_a_huge_chunk_size_does_not_crash_the_update() {
+    let url = serve_raw(
+        b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\nffffffffffffffff\r\nabc\r\n0\r\n\r\n".to_vec(),
+        true,
+    );
+    let base = url.trim_end_matches("/x").to_string();
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_burrow"))
+        .args(["update", "--check"])
+        .env("BURROW_UPDATE_URL", &base)
+        .env_remove("HTTP_PROXY")
+        .env_remove("http_proxy")
+        .env_remove("ALL_PROXY")
+        .env_remove("all_proxy")
+        .output()
+        .unwrap();
+    let text = String::from_utf8_lossy(&out.stderr).into_owned();
+    assert!(!text.contains("panicked"), "{text}");
+    assert_eq!(out.status.code(), Some(1), "{text}");
+}
+
+#[tokio::test]
+async fn chunked_wins_over_content_length() {
+    let url = serve_parts(
+        vec![
+            b"HTTP/1.1 200 OK\r\nContent-Length: 3\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n5\r\nhel".to_vec(),
+            b"lo\r\n0\r\n\r\n".to_vec(),
+        ],
+        true,
+    );
+    match get(&url, 1 << 20, &no_env).await {
+        Ok(Fetched::Body(b)) => assert_eq!(b, b"hello"),
+        Ok(Fetched::NotFound) => panic!("not found"),
+        Err(e) => panic!("{e}"),
+    }
+}
+
+#[tokio::test]
+async fn a_complete_chunked_body_does_not_wait_for_the_server_to_close() {
+    let url = serve_raw(
+        b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\n\r\n".to_vec(),
+        false,
+    );
+    let started = Instant::now();
+    let got = tokio::time::timeout(Duration::from_secs(40), get(&url, 1 << 20, &no_env)).await;
+    let took = started.elapsed();
+    match got {
+        Ok(Ok(Fetched::Body(b))) => assert_eq!(b, b"hello"),
+        Ok(Ok(Fetched::NotFound)) => panic!("not found"),
+        Ok(Err(e)) => panic!("failed after {took:?}: {e}"),
+        Err(_) => panic!("hung"),
+    }
+    assert!(took < Duration::from_secs(5), "took {took:?}");
+}
+
+fn rng(seed: &mut u64) -> u64 {
+    *seed ^= *seed << 13;
+    *seed ^= *seed >> 7;
+    *seed ^= *seed << 17;
+    *seed
+}
+
+fn tar_gz(files: &[(&str, &[u8])]) -> (Vec<u8>, Vec<u8>) {
+    let mut tar = Vec::new();
+    for (name, body) in files {
+        let mut h = [0u8; 512];
+        h[..name.len()].copy_from_slice(name.as_bytes());
+        h[100..107].copy_from_slice(b"0000755");
+        h[124..135].copy_from_slice(format!("{:011o}", body.len()).as_bytes());
+        h[156] = b'0';
+        h[257..262].copy_from_slice(b"ustar");
+        tar.extend_from_slice(&h);
+        tar.extend_from_slice(body);
+        tar.resize(tar.len().div_ceil(512) * 512, 0);
+    }
+    tar.resize(tar.len() + 1024, 0);
+    (tar.clone(), gz(&tar))
+}
+
+fn gz(data: &[u8]) -> Vec<u8> {
+    let mut e = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
+    e.write_all(data).unwrap();
+    e.finish().unwrap()
+}
+
+fn zip(name: &str, body: &[u8]) -> Vec<u8> {
+    let mut out = vec![
+        0x50, 0x4b, 0x03, 0x04, 20, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    ];
+    out.extend_from_slice(&(body.len() as u32).to_le_bytes());
+    out.extend_from_slice(&(body.len() as u32).to_le_bytes());
+    out.extend_from_slice(&(name.len() as u16).to_le_bytes());
+    out.extend_from_slice(&[0, 0]);
+    out.extend_from_slice(name.as_bytes());
+    out.extend_from_slice(body);
+    let start = out.len() as u32;
+    let mut central = vec![
+        0x50, 0x4b, 0x01, 0x02, 20, 0, 20, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    ];
+    central.extend_from_slice(&(body.len() as u32).to_le_bytes());
+    central.extend_from_slice(&(body.len() as u32).to_le_bytes());
+    central.extend_from_slice(&(name.len() as u16).to_le_bytes());
+    central.extend_from_slice(&[0; 16]);
+    central.extend_from_slice(name.as_bytes());
+    out.extend_from_slice(&central);
+    out.extend_from_slice(&[0x50, 0x4b, 0x05, 0x06, 0, 0, 0, 0, 1, 0, 1, 0]);
+    out.extend_from_slice(&(central.len() as u32).to_le_bytes());
+    out.extend_from_slice(&start.to_le_bytes());
+    out.extend_from_slice(&[0, 0]);
+    out
+}
+
+#[test]
+fn mutated_archives_never_panic() {
+    let body = vec![9u8; 3000];
+    let (tar, good_gz) = tar_gz(&[("../../etc/burrow", b"x"), ("d/burrow", &body)]);
+    let good_zip = zip("d/burrow.exe", &body);
+    let mut seed = 0x9e3779b97f4a7c15u64;
+    for _ in 0..3000 {
+        let mut t = tar.clone();
+        let mut z = good_zip.clone();
+        for _ in 0..1 + rng(&mut seed) % 8 {
+            let i = (rng(&mut seed) as usize) % t.len().min(1600);
+            t[i] = rng(&mut seed) as u8;
+            let j = (rng(&mut seed) as usize) % z.len();
+            z[j] = rng(&mut seed) as u8;
+        }
+        let cut = (rng(&mut seed) as usize) % z.len();
+        let gz_t = gz(&t);
+        assert!(std::panic::catch_unwind(|| from_tar_gz(&gz_t, "burrow")).is_ok());
+        assert!(std::panic::catch_unwind(|| from_zip(&z, "burrow.exe")).is_ok());
+        assert!(std::panic::catch_unwind(|| from_zip(&z[..cut], "burrow.exe")).is_ok());
+        let gcut = (rng(&mut seed) as usize) % good_gz.len();
+        assert!(std::panic::catch_unwind(|| from_tar_gz(&good_gz[..gcut], "burrow")).is_ok());
+    }
+}
+
+#[test]
+fn hostile_tar_and_zip_headers_are_errors() {
+    let mut huge = [0u8; 512];
+    huge[..6].copy_from_slice(b"burrow");
+    huge[124..136].copy_from_slice(b"77777777777\0");
+    huge[156] = b'0';
+    let mut tar = huge.to_vec();
+    tar.resize(4096, 0);
+    assert!(
+        from_tar_gz(&gz(&tar), "burrow")
+            .unwrap_err()
+            .contains("truncated")
+    );
+    let mut bomb = vec![0u8; 512];
+    bomb[..6].copy_from_slice(b"burrow");
+    bomb[124..136].copy_from_slice(format!("{:011o}\0", 300u64 << 20).as_bytes());
+    bomb[156] = b'0';
+    let mut stream = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
+    stream.write_all(&bomb).unwrap();
+    let zeros = vec![0u8; 1 << 20];
+    for _ in 0..300 {
+        stream.write_all(&zeros).unwrap();
+    }
+    assert!(from_tar_gz(&stream.finish().unwrap(), "burrow").is_err());
+    let mut z = zip("burrow.exe", b"tiny");
+    let central = z.len() - 22 - (46 + "burrow.exe".len());
+    z[central + 24..central + 28].copy_from_slice(&u32::MAX.to_le_bytes());
+    assert!(from_zip(&z, "burrow.exe").is_err());
+    let mut z = zip("burrow.exe", b"tiny");
+    z[central + 20..central + 24].copy_from_slice(&u32::MAX.to_le_bytes());
+    assert!(from_zip(&z, "burrow.exe").is_err());
+    let mut z = zip("burrow.exe", b"tiny");
+    z[central + 42..central + 46].copy_from_slice(&u32::MAX.to_le_bytes());
+    assert!(from_zip(&z, "burrow.exe").is_err());
+    let n = z.len();
+    z[n - 6..n - 2].copy_from_slice(&u32::MAX.to_le_bytes());
+    assert!(from_zip(&z, "burrow.exe").is_err());
+    assert!(from_zip(&[], "burrow.exe").is_err());
+    assert!(from_tar_gz(&[], "burrow").is_err());
+}
+
+#[test]
+fn malformed_chunked_bodies_are_errors() {
+    for body in [
+        &b""[..],
+        b"\r\n",
+        b"-1\r\n",
+        b"7fffffffffffffff\r\nab\r\n0\r\n\r\n",
+        b"3\r\nabcX\n0\r\n\r\n",
+        b"3 ; ext\r\nabc\r\n",
+    ] {
+        assert!(dechunk(body).is_err(), "{body:?}");
+    }
+    assert_eq!(dechunk(b"3 ; ext\r\nabc\r\n0\r\n\r\n").unwrap(), b"abc");
 }

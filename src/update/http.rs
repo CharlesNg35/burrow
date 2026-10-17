@@ -202,23 +202,53 @@ fn parse_head(buf: &[u8]) -> Result<Option<Head>, String> {
     }))
 }
 
-pub fn dechunk(mut data: &[u8]) -> Result<Vec<u8>, String> {
+fn chunk_size(data: &[u8]) -> Result<Option<(usize, usize)>, String> {
     let bad = || "invalid chunked response".to_string();
+    let Some(line) = data.windows(2).position(|w| w == b"\r\n") else {
+        return Ok(None);
+    };
+    let size = std::str::from_utf8(&data[..line]).map_err(|_| bad())?;
+    let size = size.split(';').next().unwrap_or("").trim();
+    let size = usize::from_str_radix(size, 16).map_err(|_| bad())?;
+    Ok(Some((line + 2, size)))
+}
+
+fn chunk_end(start: usize, size: usize, len: usize) -> Option<usize> {
+    start
+        .checked_add(size)
+        .and_then(|e| e.checked_add(2))
+        .filter(|e| *e <= len)
+}
+
+pub fn dechunk(mut data: &[u8]) -> Result<Vec<u8>, String> {
     let mut out = Vec::with_capacity(data.len());
     loop {
-        let line = data.windows(2).position(|w| w == b"\r\n").ok_or_else(bad)?;
-        let size = std::str::from_utf8(&data[..line]).map_err(|_| bad())?;
-        let size = size.split(';').next().unwrap_or("").trim();
-        let size = usize::from_str_radix(size, 16).map_err(|_| bad())?;
-        data = &data[line + 2..];
+        let (start, size) =
+            chunk_size(data)?.ok_or_else(|| "invalid chunked response".to_string())?;
         if size == 0 {
             return Ok(out);
         }
-        if data.len() < size + 2 || &data[size..size + 2] != b"\r\n" {
-            return Err("the download was cut short".into());
+        let end = chunk_end(start, size, data.len())
+            .filter(|e| &data[e - 2..*e] == b"\r\n")
+            .ok_or_else(|| "the download was cut short".to_string())?;
+        out.extend_from_slice(&data[start..end - 2]);
+        data = &data[end..];
+    }
+}
+
+fn chunked_complete(mut data: &[u8]) -> Result<bool, String> {
+    loop {
+        let Some((start, size)) = chunk_size(data)? else {
+            return Ok(false);
+        };
+        if size == 0 {
+            let rest = &data[start..];
+            return Ok(rest.starts_with(b"\r\n") || rest.windows(4).any(|w| w == b"\r\n\r\n"));
         }
-        out.extend_from_slice(&data[..size]);
-        data = &data[size + 2..];
+        let Some(end) = chunk_end(start, size, data.len()) else {
+            return Ok(false);
+        };
+        data = &data[end..];
     }
 }
 
@@ -260,7 +290,12 @@ async fn fetch_once(
     }
     let mut body = buf.split_off(head.size);
     loop {
-        if head.length.is_some_and(|n| body.len() >= n) {
+        let complete = if head.chunked {
+            chunked_complete(&body)?
+        } else {
+            head.length.is_some_and(|n| body.len() >= n)
+        };
+        if complete {
             break;
         }
         if body.len() > limit + MAX_HEAD {
@@ -397,6 +432,12 @@ mod tests {
         assert!(dechunk(b"3\r\nabc\r\n").is_err());
         assert!(dechunk(b"5\r\nabc").is_err());
         assert!(dechunk(b"zz\r\n").is_err());
+        assert!(dechunk(b"ffffffffffffffff\r\nabc\r\n0\r\n\r\n").is_err());
+        assert!(chunked_complete(b"3\r\nabc\r\n0\r\n\r\n").unwrap());
+        assert!(chunked_complete(b"3\r\nabc\r\n0\r\nX-Trailer: 1\r\n\r\n").unwrap());
+        assert!(!chunked_complete(b"3\r\nabc\r\n0\r\n").unwrap());
+        assert!(!chunked_complete(b"5\r\nabc").unwrap());
+        assert!(!chunked_complete(b"ffffffffffffffff\r\nabc").unwrap());
     }
 
     #[test]
