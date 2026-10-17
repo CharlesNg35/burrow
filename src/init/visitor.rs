@@ -111,9 +111,14 @@ pub fn visitor_config(
     }
     for client in &auth.reach {
         let local = free(1080, 1);
+        let named = |suffix: String| {
+            let keep = crate::config::check::MAX_NAME_LEN.saturating_sub(suffix.len());
+            let base: String = client.chars().take(keep).collect();
+            format!("{base}{suffix}")
+        };
         let key = std::iter::once(client.clone())
-            .chain(std::iter::once(format!("{client}-socks")))
-            .chain((2..).map(|i| format!("{client}-socks-{i}")))
+            .chain(std::iter::once(named("-socks".into())))
+            .chain((2..).map(|i| named(format!("-socks-{i}"))))
             .find(|k| !forwards.contains_key(k.as_str()))
             .expect("an unused forward name");
         forwards.insert(

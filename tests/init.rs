@@ -1113,3 +1113,67 @@ fn visitor_config_keeps_a_service_named_like_the_socks_forward() {
         out.text
     );
 }
+
+fn server(dir: &Path, client: &str, services: &str) -> std::path::PathBuf {
+    let path = dir.join("server.yaml");
+    let s = || burrow::secret::Secret::generate().encode();
+    std::fs::write(
+        &path,
+        format!(
+            "listen: 7835\npublic_address: tunnel.example.com\nclients:\n  {client}:\n    secret: {}\nvisitors:\n  laptop:\n    secret: {}\n    reach:\n      {client}: any\nservices:\n{services}",
+            s(),
+            s()
+        ),
+    )
+    .unwrap();
+    path
+}
+
+fn printed(dir: &Path, path: &Path) -> (String, burrow::config::Outcome) {
+    let out = burrow::init::visitor_config(None, path, None, Format::Yaml, &ProcessEnv).unwrap();
+    let written = dir.join("visitor.yaml");
+    std::fs::write(&written, &out.text).unwrap();
+    let loaded = load_file(&written, Some(Role::Visitor), &ProcessEnv).unwrap();
+    (out.text, loaded)
+}
+
+#[test]
+fn the_socks_forward_never_replaces_a_service_forward() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = server(
+        dir.path(),
+        "home",
+        "  home: { client: home, target: 5432, visitors: [laptop] }\n  home-socks: { client: home, target: 22, visitors: [laptop] }\n",
+    );
+    let (text, outcome) = printed(dir.path(), &path);
+    let Some(Loaded::Visitor(v, _)) = outcome.loaded else {
+        panic!("not a visitor config:\n{text}")
+    };
+    assert_eq!(v.forwards.len(), 3, "{text}");
+    assert!(v.forwards.values().any(|f| f.socks), "{text}");
+    assert!(
+        v.forwards
+            .values()
+            .any(|f| f.to == burrow::protocol::VisitTarget::service("home-socks")),
+        "the home-socks service lost its forward:\n{text}"
+    );
+}
+
+#[test]
+fn a_long_client_name_still_gives_a_valid_visitor_config() {
+    let dir = tempfile::tempdir().unwrap();
+    let long = "c".repeat(64);
+    let path = server(
+        dir.path(),
+        &long,
+        &format!("  {long}: {{ client: {long}, target: 5432, visitors: [laptop] }}\n"),
+    );
+    let (text, outcome) = printed(dir.path(), &path);
+    assert!(
+        !outcome.report.has_errors(),
+        "{text}\n{}",
+        outcome
+            .report
+            .render_text(burrow::diagnostics::Style { color: false })
+    );
+}
