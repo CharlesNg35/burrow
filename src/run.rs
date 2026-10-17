@@ -303,7 +303,8 @@ pub async fn reloader(
     tx: mpsc::Sender<ServerSettings>,
 ) {
     let (trig_tx, mut trig) = mpsc::channel::<&'static str>(16);
-    let _watcher = watch_file(&path, trig_tx.clone());
+    let mut watched = watched_files(&path, &current);
+    let mut watcher = watch_files(&watched, trig_tx.clone());
     #[cfg(unix)]
     {
         let t = trig_tx.clone();
@@ -365,19 +366,41 @@ pub async fn reloader(
         eprint!("{}", startup_report(&outcome.report, style));
         info!("reloading config ({why})");
         current = (*next).clone();
+        let files = watched_files(&path, &current);
+        if files != watched {
+            drop(watcher.take());
+            watcher = watch_files(&files, trig_tx.clone());
+            watched = files;
+        }
         if tx.send(*next).await.is_err() {
             return;
         }
     }
 }
 
-fn watch_file(path: &Path, tx: mpsc::Sender<&'static str>) -> Option<notify::RecommendedWatcher> {
+fn watched_files(config: &Path, settings: &ServerSettings) -> Vec<PathBuf> {
+    let mut files = vec![config.to_path_buf()];
+    if let Some(tls) = settings.websocket.as_ref().and_then(|w| w.tls.as_ref()) {
+        files.push(tls.cert_path.clone());
+        files.push(tls.key_path.clone());
+    }
+    files
+}
+
+fn watch_files(
+    files: &[PathBuf],
+    tx: mpsc::Sender<&'static str>,
+) -> Option<notify::RecommendedWatcher> {
     use notify::{EventKind, RecursiveMode, Watcher};
-    let dir = path
-        .parent()
-        .filter(|p| !p.as_os_str().is_empty())
-        .map_or_else(|| PathBuf::from("."), Path::to_path_buf);
-    let file_name = path.file_name()?.to_os_string();
+    let dir_of = |p: &Path| {
+        p.parent()
+            .filter(|d| !d.as_os_str().is_empty())
+            .map_or_else(|| PathBuf::from("."), Path::to_path_buf)
+    };
+    let names: Vec<std::ffi::OsString> = files
+        .iter()
+        .filter_map(|f| f.file_name().map(|n| n.to_os_string()))
+        .collect();
     let mut watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
         let Ok(ev) = res else { return };
         let relevant = matches!(
@@ -386,26 +409,23 @@ fn watch_file(path: &Path, tx: mpsc::Sender<&'static str>) -> Option<notify::Rec
         ) && ev
             .paths
             .iter()
-            .any(|p| p.file_name() == Some(file_name.as_os_str()));
+            .any(|p| p.file_name().is_some_and(|n| names.iter().any(|w| w == n)));
         if relevant {
             let _ = tx.try_send("file changed");
         }
     })
-    .map_err(|e| {
-        warn!(
-            "cannot watch {} for changes ({e}); reload with SIGHUP instead",
-            path.display()
-        )
-    })
+    .map_err(|e| warn!("cannot watch the config for changes ({e}); reload with SIGHUP instead"))
     .ok()?;
-    watcher
-        .watch(&dir, RecursiveMode::NonRecursive)
-        .map_err(|e| {
+    let mut dirs: Vec<PathBuf> = files.iter().map(|f| dir_of(f)).collect();
+    dirs.sort();
+    dirs.dedup();
+    for dir in dirs {
+        if let Err(e) = watcher.watch(&dir, RecursiveMode::NonRecursive) {
             warn!(
                 "cannot watch {} for changes ({e}); reload with SIGHUP instead",
                 dir.display()
-            )
-        })
-        .ok()?;
+            );
+        }
+    }
     Some(watcher)
 }

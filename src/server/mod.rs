@@ -740,7 +740,14 @@ impl Server {
                 Ok(route) => {
                     let t = self.websocket.as_ref().expect("checked above");
                     t.listener.set_route(route);
-                    info!("websocket listener updated: {}", t.listener.url_hint());
+                    let only_tls = current.is_some_and(|c| {
+                        c.listen == n.listen && c.path == n.path && c.keepalive == n.keepalive
+                    });
+                    if only_tls {
+                        info!("websocket TLS certificate reloaded; new connections use it");
+                    } else {
+                        info!("websocket listener updated: {}", t.listener.url_hint());
+                    }
                 }
                 Err(f) => error!("{}", f.message),
             },
