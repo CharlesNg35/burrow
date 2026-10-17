@@ -3,7 +3,9 @@ use std::net::SocketAddr;
 use super::super::model::{Protocol, ServiceEntry};
 use super::super::settings::Service;
 use super::ports::{parse_ranged, ranges_conflict, show_addr, split_target};
-use super::{MAX_TARGET_LEN, SENSITIVE_PORTS, Spans, name_error, parse_host_port, valid_name};
+use super::{
+    MAX_TARGET_LEN, SENSITIVE_PORTS, Spans, name_error, parse_host_port, unix, valid_name,
+};
 use crate::allowlist::{Cidr, Sources};
 use crate::diagnostics::Diagnostic;
 
@@ -152,6 +154,9 @@ fn check_target(
     out: &mut Vec<Diagnostic>,
 ) -> Option<(String, u16)> {
     let text = svc.target.host_port();
+    if let Some(path) = unix::path_of(&text) {
+        return check_socket(name, svc, &text, path, spans, out);
+    }
     let checked = if text.len() > MAX_TARGET_LEN {
         Err(format!(
             "\"{text}\" is longer than {MAX_TARGET_LEN} characters"
@@ -169,7 +174,44 @@ fn check_target(
                 )
                 .at(spans.value(&["services", name, "target"]))
                 .label("expected host:port or a port")
-                .help("use host:port as seen from the client, for example 127.0.0.1:3000, a port alone like 3000, or a range like 30000-30010"),
+                .help("use host:port as seen from the client, for example 127.0.0.1:3000, a port alone like 3000, a range like 30000-30010, or unix:/path/to.sock"),
+            );
+            None
+        }
+    }
+}
+
+fn check_socket(
+    name: &str,
+    svc: &ServiceEntry,
+    text: &str,
+    path: &str,
+    spans: &Spans,
+    out: &mut Vec<Diagnostic>,
+) -> Option<(String, u16)> {
+    let at = spans.value(&["services", name, "target"]);
+    if svc.protocol != Protocol::Tcp {
+        out.push(
+            Diagnostic::error(
+                "socket-tcp-only",
+                format!("service \"{name}\" is udp, but its target is a Unix socket"),
+            )
+            .at(at)
+            .help("Unix socket targets work for tcp services only"),
+        );
+        return None;
+    }
+    match unix::check_path(path) {
+        Ok(()) => Some((text.to_string(), 1)),
+        Err(e) => {
+            out.push(
+                Diagnostic::error(
+                    "invalid-address",
+                    format!("invalid target for service \"{name}\": {e}"),
+                )
+                .at(at)
+                .label("expected unix:/absolute/path")
+                .help("use the socket's full path as seen from the client, for example unix:/var/run/postgresql/.s.PGSQL.5432"),
             );
             None
         }

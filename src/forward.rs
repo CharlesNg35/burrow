@@ -11,6 +11,33 @@ use crate::transport::Conn;
 
 const CLOSE_TIMEOUT: Duration = Duration::from_secs(2);
 
+pub trait Split {
+    type Read<'a>: tokio::io::AsyncRead + Unpin + Send
+    where
+        Self: 'a;
+    type Write<'a>: tokio::io::AsyncWrite + Unpin + Send
+    where
+        Self: 'a;
+    fn halves(&mut self) -> (Self::Read<'_>, Self::Write<'_>);
+}
+
+impl Split for TcpStream {
+    type Read<'a> = tokio::net::tcp::ReadHalf<'a>;
+    type Write<'a> = tokio::net::tcp::WriteHalf<'a>;
+    fn halves(&mut self) -> (Self::Read<'_>, Self::Write<'_>) {
+        self.split()
+    }
+}
+
+#[cfg(unix)]
+impl Split for tokio::net::UnixStream {
+    type Read<'a> = tokio::net::unix::ReadHalf<'a>;
+    type Write<'a> = tokio::net::unix::WriteHalf<'a>;
+    fn halves(&mut self) -> (Self::Read<'_>, Self::Write<'_>) {
+        self.split()
+    }
+}
+
 async fn close(stream: &mut Conn) {
     let _ = tokio::time::timeout(CLOSE_TIMEOUT, stream.finish()).await;
 }
@@ -88,9 +115,9 @@ pub async fn open_tcp(
     done
 }
 
-pub async fn client_tcp(
+pub async fn client_tcp<T: Split>(
     mut ch: Channel,
-    target: TcpStream,
+    target: T,
     plaintext: bool,
 ) -> Result<(), ForwardError> {
     ch.writer.send(&mut ch.stream, &[Status::Ok as u8]).await?;
@@ -113,7 +140,11 @@ pub async fn visit_tcp(
     pump_tcp(ch, local, false).await
 }
 
-async fn pump_tcp(ch: Channel, mut target: TcpStream, plaintext: bool) -> Result<(), ForwardError> {
+async fn pump_tcp<T: Split>(
+    ch: Channel,
+    mut target: T,
+    plaintext: bool,
+) -> Result<(), ForwardError> {
     let Channel {
         mut stream,
         mut writer,
@@ -121,7 +152,7 @@ async fn pump_tcp(ch: Channel, mut target: TcpStream, plaintext: bool) -> Result
     } = ch;
     let plaintext = plaintext && stream.supports_half_close();
     let (mut cr, mut cw) = stream.split();
-    let (mut tr, mut tw) = target.split();
+    let (mut tr, mut tw) = target.halves();
     let up = async {
         if plaintext {
             raw_pump(&mut tr, &mut cw).await

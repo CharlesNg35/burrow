@@ -3,6 +3,7 @@ mod connection;
 pub mod ports;
 mod server;
 mod service;
+pub mod unix;
 mod visitor;
 
 pub use client::check_client;

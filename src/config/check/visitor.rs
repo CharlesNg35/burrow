@@ -8,7 +8,7 @@ use super::super::settings::{Forward, VisitorSettings};
 use super::connection::{Connection, Dial, check_connection};
 use super::ports::{ranges_conflict, show, show_addr, split_target};
 use super::{
-    MAX_TARGET_LEN, Spans, name_error, parse_host_port, parse_local, secret_error, tuning,
+    MAX_TARGET_LEN, Spans, name_error, parse_host_port, parse_local, secret_error, tuning, unix,
     valid_name,
 };
 use crate::diagnostics::Diagnostic;
@@ -204,7 +204,9 @@ fn check_destination(
                 out.push(name_error("client", client, spans.value(&path("client"))));
             }
             let target = target.host_port();
-            let checked = if target.len() > MAX_TARGET_LEN {
+            let checked = if let Some(path) = unix::path_of(&target) {
+                unix::check_path(path).map(|()| (target.clone(), 1))
+            } else if target.len() > MAX_TARGET_LEN {
                 Err(format!(
                     "\"{target}\" is longer than {MAX_TARGET_LEN} characters"
                 ))

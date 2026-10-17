@@ -87,7 +87,11 @@ impl Shared {
                         "visitor \"{visitor}\" may not reach client \"{client}\" directly; to allow it, add \"reach: {{ {client}: any }}\" to visitor \"{visitor}\""
                     )));
                 }
-                if target.len() > MAX_TARGET_LEN || parse_host_port(target).is_err() {
+                let valid = match crate::config::check::unix::path_of(target) {
+                    Some(path) => crate::config::check::unix::check_path(path).is_ok(),
+                    None => target.len() <= MAX_TARGET_LEN && parse_host_port(target).is_ok(),
+                };
+                if !valid {
                     return Err(Refusal {
                         status: Status::Invalid,
                         why: format!("visitor \"{visitor}\" asked for an invalid target"),

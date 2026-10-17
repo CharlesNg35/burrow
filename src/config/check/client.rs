@@ -6,7 +6,7 @@ use super::super::model::{ClientConfig, OnRejected};
 use super::super::settings::ClientSettings;
 use super::connection::{Connection, Dial, check_connection};
 use super::server::insecure_warning;
-use super::{Spans, name_error, secret_error, tuning, valid_name};
+use super::{Spans, name_error, secret_error, tuning, unix, valid_name};
 use crate::allowlist::{AllowList, Rule};
 use crate::diagnostics::Diagnostic;
 use crate::secret::Secret;
@@ -68,6 +68,17 @@ pub fn check_client(
     for (i, entry) in cfg.allow.iter().enumerate() {
         match entry.parse::<Rule>() {
             Ok(r) => rules.push(r),
+            Err(e) if entry.trim().starts_with(unix::PREFIX) => {
+                out.push(
+                    Diagnostic::error(
+                        "invalid-socket",
+                        format!("invalid allow entry: {}", e.describe()),
+                    )
+                    .at(spans.value(&["allow", &i.to_string()]))
+                    .label("not a valid socket rule")
+                    .help("use unix:/absolute/path.sock for one socket, or unix:/folder/* for the sockets in a folder"),
+                );
+            }
             Err(e) => {
                 let idx = i.to_string();
                 let help = if entry.parse::<IpAddr>().is_err()

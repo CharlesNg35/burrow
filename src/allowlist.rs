@@ -70,12 +70,65 @@ impl fmt::Display for Cidr {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Rule {
+pub struct NetRule {
     pub net: Cidr,
     pub ports: Option<(u16, u16)>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SocketRule {
+    path: String,
+    folder: bool,
+}
+
+impl SocketRule {
+    pub fn matches(&self, path: &str) -> bool {
+        if crate::config::check::unix::check_path(path).is_err() {
+            return false;
+        }
+        if self.folder {
+            path.strip_prefix(self.path.as_str())
+                .and_then(|rest| rest.strip_prefix('/'))
+                .is_some_and(|name| !name.is_empty() && !name.contains('/'))
+        } else {
+            path == self.path
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Rule {
+    Net(NetRule),
+    Socket(SocketRule),
+}
+
 impl Rule {
+    pub fn matches(&self, target: SocketAddr) -> bool {
+        match self {
+            Rule::Net(r) => r.matches(target),
+            Rule::Socket(_) => false,
+        }
+    }
+
+    pub fn matches_socket(&self, path: &str) -> bool {
+        match self {
+            Rule::Socket(r) => r.matches(path),
+            Rule::Net(_) => false,
+        }
+    }
+}
+
+impl fmt::Display for Rule {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Rule::Net(r) => r.fmt(f),
+            Rule::Socket(r) if r.folder => write!(f, "unix:{}/*", r.path),
+            Rule::Socket(r) => write!(f, "unix:{}", r.path),
+        }
+    }
+}
+
+impl NetRule {
     pub fn matches(&self, target: SocketAddr) -> bool {
         self.net.contains(target.ip())
             && self
@@ -84,7 +137,7 @@ impl Rule {
     }
 }
 
-impl fmt::Display for Rule {
+impl fmt::Display for NetRule {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let net = match self.net.addr {
             IpAddr::V6(_) if self.ports.is_some() => format!("[{}]", self.net),
@@ -104,6 +157,7 @@ pub enum RuleError {
     Prefix(String),
     Port(String),
     HostBits(String),
+    Socket(String),
 }
 
 impl RuleError {
@@ -113,11 +167,40 @@ impl RuleError {
             RuleError::Prefix(p) => format!("\"{p}\" is not a valid prefix length"),
             RuleError::Port(p) => format!("\"{p}\" is not a valid port or port range"),
             RuleError::HostBits(net) => format!("\"{net}\" has host bits set"),
+            RuleError::Socket(why) => why.clone(),
         }
     }
 }
 
 impl FromStr for Rule {
+    type Err = RuleError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let s = s.trim();
+        let Some(path) = s.strip_prefix("unix:") else {
+            return s.parse().map(Rule::Net);
+        };
+        let (path, folder) = match path.strip_suffix("/*") {
+            Some(dir) => (dir, true),
+            None => (path, false),
+        };
+        let checked = if folder && path.is_empty() {
+            Err(
+                "allowing every socket on the machine (unix:/*) is too broad; name a folder"
+                    .to_string(),
+            )
+        } else {
+            crate::config::check::unix::check_path(path)
+        };
+        checked.map_err(RuleError::Socket)?;
+        Ok(Rule::Socket(SocketRule {
+            path: path.to_string(),
+            folder,
+        }))
+    }
+}
+
+impl FromStr for NetRule {
     type Err = RuleError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -145,7 +228,7 @@ impl FromStr for Rule {
             return Err(RuleError::HostBits(net.to_string()));
         }
         let ports = ports.map(parse_ports).transpose()?;
-        Ok(Rule { net: cidr, ports })
+        Ok(NetRule { net: cidr, ports })
     }
 }
 
@@ -153,7 +236,7 @@ impl FromStr for Cidr {
     type Err = RuleError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let rule: Rule = s.parse()?;
+        let rule: NetRule = s.parse()?;
         match rule.ports {
             None => Ok(rule.net),
             Some(_) => Err(RuleError::Address(s.trim().to_string())),
@@ -224,6 +307,13 @@ impl AllowList {
         match self {
             AllowList::All => true,
             AllowList::Rules(rules) => rules.iter().any(|r| r.matches(target)),
+        }
+    }
+
+    pub fn permits_socket(&self, path: &str) -> bool {
+        match self {
+            AllowList::All => crate::config::check::unix::check_path(path).is_ok(),
+            AllowList::Rules(rules) => rules.iter().any(|r| r.matches_socket(path)),
         }
     }
 
@@ -349,6 +439,37 @@ mod tests {
         assert!("10.0.0.0/8:22".parse::<Cidr>().is_err());
         assert!("10.0.0.1/8".parse::<Cidr>().is_err());
         assert!("home".parse::<Cidr>().is_err());
+    }
+
+    #[test]
+    fn socket_rules() {
+        let list = AllowList::Rules(vec![
+            rule("unix:/var/run/docker.sock"),
+            rule("unix:/run/postgresql/*"),
+            rule("127.0.0.0/8"),
+        ]);
+        assert!(list.permits_socket("/var/run/docker.sock"));
+        assert!(!list.permits_socket("/var/run/docker.sock2"));
+        assert!(list.permits_socket("/run/postgresql/.s.PGSQL.5432"));
+        assert!(!list.permits_socket("/run/postgresql"));
+        assert!(!list.permits_socket("/run/postgresql/sub/x"));
+        assert!(!list.permits_socket("/run/postgresql/../docker.sock"));
+        assert!(!list.permits_socket("/run/postgresql2/x"));
+        assert!(!list.permits(sa("10.0.0.1:1")));
+        assert!(list.permits(sa("127.0.0.1:1")));
+        assert!(!AllowList::Rules(vec![rule("127.0.0.0/8")]).permits_socket("/tmp/x.sock"));
+        assert!(AllowList::All.permits_socket("/tmp/x.sock"));
+        assert!(!AllowList::All.permits_socket("relative.sock"));
+        assert_eq!(
+            rule("unix:/run/postgresql/*").to_string(),
+            "unix:/run/postgresql/*"
+        );
+        for bad in ["unix:relative", "unix:/*", "unix:/a/../b", "unix:"] {
+            assert!(
+                matches!(bad.parse::<Rule>(), Err(RuleError::Socket(_))),
+                "{bad}"
+            );
+        }
     }
 
     #[test]

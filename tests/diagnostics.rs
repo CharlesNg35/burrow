@@ -260,7 +260,7 @@ fn bad_addresses() {
        |
     11 |     target: localhost
        |             ^^^^^^^^^ expected host:port or a port
-       = help: use host:port as seen from the client, for example 127.0.0.1:3000, a port alone like 3000, or a range like 30000-30010
+       = help: use host:port as seen from the client, for example 127.0.0.1:3000, a port alone like 3000, a range like 30000-30010, or unix:/path/to.sock
 
     error: invalid bind address for service "b": "nowhere:80" is not a valid bind address
       --> server.yaml:14:11
@@ -274,7 +274,7 @@ fn bad_addresses() {
        |
     15 |     target: "::1:22"
        |             ^^^^^^^^ expected host:port or a port
-       = help: use host:port as seen from the client, for example 127.0.0.1:3000, a port alone like 3000, or a range like 30000-30010
+       = help: use host:port as seen from the client, for example 127.0.0.1:3000, a port alone like 3000, a range like 30000-30010, or unix:/path/to.sock
 
     server.yaml: 4 errors, 0 warnings
     "#);
@@ -1399,7 +1399,7 @@ fn port_ranges() {
        |
     23 |     target: 1-2000
        |             ^^^^^^ expected host:port or a port
-       = help: use host:port as seen from the client, for example 127.0.0.1:3000, a port alone like 3000, or a range like 30000-30010
+       = help: use host:port as seen from the client, for example 127.0.0.1:3000, a port alone like 3000, a range like 30000-30010, or unix:/path/to.sock
 
     warning: service "e" exposes port 22 (SSH) on all interfaces
       --> server.yaml:26:11
@@ -1442,5 +1442,71 @@ fn visitor_port_ranges() {
        = help: give local and target ranges of the same size, for example local: 40000-40010 and target: 30000-30010
 
     visitor.yaml: 2 errors, 0 warnings
+    "#);
+}
+
+#[test]
+fn unix_socket_targets() {
+    insta::assert_snapshot!(render("server.yaml", &server("  db:\n    client: home\n    bind: 5432\n    target: unix:/var/run/postgresql/.s.PGSQL.5432\n"), None), @r#"
+    warning: service "db" exposes port 5432 (PostgreSQL) on all interfaces
+      --> server.yaml:10:11
+       |
+    10 |     bind: 5432
+       |           ^^^^ reachable from the internet
+       = help: bind to 127.0.0.1:5432 unless it must be public
+
+    server.yaml: valid server config (2 clients, 1 service), 1 warning
+    "#);
+    insta::assert_snapshot!(render("server.yaml", &server("  a:\n    client: home\n    bind: 5432\n    target: unix:run/x.sock\n  b:\n    client: home\n    bind: 5353\n    protocol: udp\n    target: unix:/run/dns.sock\n  c:\n    client: home\n    bind: 5433\n    target: unix:/run/../etc/x.sock\n"), None), @r#"
+    warning: service "a" exposes port 5432 (PostgreSQL) on all interfaces
+      --> server.yaml:10:11
+       |
+    10 |     bind: 5432
+       |           ^^^^ reachable from the internet
+       = help: bind to 127.0.0.1:5432 unless it must be public
+
+    error: invalid target for service "a": socket path "run/x.sock" must be absolute, starting with "/"
+      --> server.yaml:11:13
+       |
+    11 |     target: unix:run/x.sock
+       |             ^^^^^^^^^^^^^^^ expected unix:/absolute/path
+       = help: use the socket's full path as seen from the client, for example unix:/var/run/postgresql/.s.PGSQL.5432
+
+    error: service "b" is udp, but its target is a Unix socket
+      --> server.yaml:16:13
+       |
+    16 |     target: unix:/run/dns.sock
+       |             ^^^^^^^^^^^^^^^^^^
+       = help: Unix socket targets work for tcp services only
+
+    error: invalid target for service "c": socket path "/run/../etc/x.sock" may not contain ".."
+      --> server.yaml:20:13
+       |
+    20 |     target: unix:/run/../etc/x.sock
+       |             ^^^^^^^^^^^^^^^^^^^^^^^ expected unix:/absolute/path
+       = help: use the socket's full path as seen from the client, for example unix:/var/run/postgresql/.s.PGSQL.5432
+
+    server.yaml: 3 errors, 1 warning
+    "#);
+    let client = |allow: &str| {
+        format!("server: tunnel.example.com\nname: home\nsecret: {SECRET}\nallow: {allow}\n")
+    };
+    insta::assert_snapshot!(render("client.yaml", &client("[127.0.0.0/8, \"unix:/var/run/docker.sock\", \"unix:/run/postgresql/*\"]"), None), @r#"client.yaml: valid client config for "home""#);
+    insta::assert_snapshot!(render("client.yaml", &client("[\"unix:relative.sock\", \"unix:/*\"]"), None), @r#"
+    error: invalid allow entry: socket path "relative.sock" must be absolute, starting with "/"
+      --> client.yaml:4:9
+       |
+     4 | allow: ["unix:relative.sock", "unix:/*"]
+       |         ^^^^^^^^^^^^^^^^^^^^ not a valid socket rule
+       = help: use unix:/absolute/path.sock for one socket, or unix:/folder/* for the sockets in a folder
+
+    error: invalid allow entry: allowing every socket on the machine (unix:/*) is too broad; name a folder
+      --> client.yaml:4:31
+       |
+     4 | allow: ["unix:relative.sock", "unix:/*"]
+       |                               ^^^^^^^^^ not a valid socket rule
+       = help: use unix:/absolute/path.sock for one socket, or unix:/folder/* for the sockets in a folder
+
+    client.yaml: 2 errors, 0 warnings
     "#);
 }

@@ -162,13 +162,20 @@ fn visit_pick(args: burrow::cli::VisitArgs) -> Result<burrow::visitor::Pick, Fai
         (None, Some(client), Some(target)) => {
             name_ok("--client", &client)?;
             let target = Target::Addr(target).host_port();
-            let (target, ports) = burrow::config::check::ports::split_target(&target)
-                .and_then(|(base, n)| {
-                    burrow::config::check::parse_host_port(&base).map(|_| (base, n))
-                })
+            let checked = match burrow::config::check::unix::path_of(&target) {
+                Some(path) => {
+                    burrow::config::check::unix::check_path(path).map(|()| (target.clone(), 1))
+                }
+                None => {
+                    burrow::config::check::ports::split_target(&target).and_then(|(base, n)| {
+                        burrow::config::check::parse_host_port(&base).map(|_| (base, n))
+                    })
+                }
+            };
+            let (target, ports) = checked
                 .map_err(|e| {
                     Failure::usage(format!("invalid --target: {e}"))
-                        .hint("use host:port as seen from the client, for example 127.0.0.1:22, a port alone like 22, or a range like 30000-30010")
+                        .hint("use host:port as seen from the client, for example 127.0.0.1:22, a port alone like 22, a range like 30000-30010, or unix:/path/to.sock")
                 })?;
             if let Some((_, n)) = local
                 && n != ports

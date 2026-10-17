@@ -9,7 +9,7 @@ use tokio::sync::mpsc;
 use tracing::{debug, warn};
 
 use crate::allowlist::AllowList;
-use crate::config::check::parse_host_port;
+use crate::config::check::{parse_host_port, unix};
 use crate::config::model::Protocol;
 use crate::config::settings::ClientSettings;
 use crate::failure::io_reason;
@@ -95,6 +95,15 @@ async fn peer_replies(
 }
 
 pub fn precheck(settings: &ClientSettings, svc: &ServiceInfo) {
+    if let Some(path) = unix::path_of(&svc.target) {
+        if !settings.allow.permits_socket(path) {
+            warn!(
+                "service \"{}\" targets {}, which the allow list does not permit; add \"{}\" to \"allow\" to expose it",
+                svc.name, svc.target, svc.target
+            );
+        }
+        return;
+    }
     let Ok((host, port)) = parse_host_port(&svc.target) else {
         return;
     };
@@ -144,6 +153,10 @@ pub async fn serve(settings: Arc<ClientSettings>, resolver: Arc<dyn Resolver>, m
             return;
         }
     };
+    if let Some(path) = unix::path_of(&connect.target) {
+        socket(&settings, ch, &connect, path).await;
+        return;
+    }
     let addrs = match permitted(&settings, &*resolver, &connect).await {
         Ok(a) => a,
         Err(status) => {
@@ -175,6 +188,65 @@ pub async fn serve(settings: Arc<ClientSettings>, resolver: Arc<dyn Resolver>, m
             }
         }
         Protocol::Udp => udp(settings, ch, connect, addrs).await,
+    }
+}
+
+async fn socket(settings: &ClientSettings, ch: Channel, connect: &Connect, path: &str) {
+    if connect.protocol != Protocol::Tcp || unix::check_path(path).is_err() {
+        reply(ch, Status::Invalid).await;
+        return;
+    }
+    if !settings.allow.permits_socket(path) {
+        static DENIED: Throttle = Throttle::new();
+        if let Some(more) = DENIED.allow() {
+            warn!(
+                "denied connection to {} for {}: it is not in the allow list; add \"{}\" to \"allow\" to permit it{more}",
+                connect.target,
+                whom(connect),
+                connect.target
+            );
+        }
+        reply(ch, Status::Denied).await;
+        return;
+    }
+    #[cfg(unix)]
+    match tokio::net::UnixStream::connect(path).await {
+        Ok(target) => {
+            if let Err(e) = client_tcp(ch, target, settings.insecure_plaintext).await {
+                debug!("{}: connection ended: {e:?}", label(connect));
+            }
+        }
+        Err(e) => {
+            static UNREACHABLE: Throttle = Throttle::new();
+            if let Some(more) = UNREACHABLE.allow() {
+                warn!(
+                    "{}: cannot connect to {} ({}); is it running?{more}",
+                    label(connect),
+                    connect.target,
+                    io_reason(&e)
+                );
+            }
+            reply(ch, Status::Unreachable).await;
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        static UNSUPPORTED: Throttle = Throttle::new();
+        if let Some(more) = UNSUPPORTED.allow() {
+            warn!(
+                "{}: {} is a Unix socket, which this system does not support{more}",
+                label(connect),
+                connect.target
+            );
+        }
+        reply(ch, Status::Invalid).await;
+    }
+}
+
+fn whom(connect: &Connect) -> String {
+    match connect.service.as_str() {
+        "" => "a visitor".to_string(),
+        s => format!("service \"{s}\""),
     }
 }
 
@@ -214,10 +286,7 @@ async fn permitted(
         static DENIED: Throttle = Throttle::new();
         if let Some(more) = DENIED.allow() {
             let first = resolved[0];
-            let whom = match connect.service.as_str() {
-                "" => "a visitor".to_string(),
-                s => format!("service \"{s}\""),
-            };
+            let whom = whom(connect);
             warn!(
                 "denied connection to {} for {whom}: {first} is not in the allow list; add \"{}\" to \"allow\" to permit it{more}",
                 connect.target,
