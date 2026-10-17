@@ -258,9 +258,9 @@ running burrow-e2e-client || fail "not running after fixing the config"
 check "broken config reported, fixed config runs again"
 
 echo "== uninstall removes everything it created"
-sudo "$B" service uninstall burrow-e2e-visitor --purge
-sudo "$B" service uninstall burrow-e2e-client --purge
 sudo "$B" service uninstall burrow-e2e-server --purge
+sudo "$B" service uninstall burrow-e2e-client --purge
+sudo "$B" service uninstall burrow-e2e-visitor --purge
 sudo "$B" service list | grep -q burrow-e2e && fail "services still listed"
 for f in "$STATE" /etc/burrow/e2e-server.yaml /etc/burrow/e2e-client.yaml /etc/burrow/e2e-client.env /etc/burrow/e2e-visitor.yaml /usr/local/bin/burrow /usr/local/bin/burrow.previous "$LOG" "$JOBS"; do
   [ -e "$f" ] && fail "$f still exists"

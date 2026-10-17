@@ -738,6 +738,19 @@ pub fn uninstall(name: Option<&str>, purge: bool, out: &mut dyn Write) -> Result
         }
         say(out, format!("removed {}", m.binary.display()))?;
     }
+    let heir = others
+        .iter()
+        .find(|o| o.account == m.account && !o.created_account);
+    if m.created_account
+        && let Some(heir) = heir
+        && !others
+            .iter()
+            .any(|o| o.account == m.account && o.created_account)
+    {
+        let mut heir = heir.clone();
+        heir.created_account = true;
+        save_manifest(&heir)?;
+    }
     if m.created_account && !others.iter().any(|o| o.account == m.account) {
         #[cfg(unix)]
         {
