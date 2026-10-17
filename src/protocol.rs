@@ -165,6 +165,27 @@ fn put_str(v: &mut Vec<u8>, s: &str) {
     v.extend_from_slice(&b[..n]);
 }
 
+fn ranged_target(target: &str, ports: u16) -> String {
+    match target.rsplit_once(':') {
+        Some((host, port)) if ports > 1 => match port.parse::<u16>() {
+            Ok(first) => format!("{host}:{}", crate::config::check::ports::show(first, ports)),
+            Err(_) => target.to_string(),
+        },
+        _ => target.to_string(),
+    }
+}
+
+fn split_ranged(target: String) -> (String, u16) {
+    if let Some((host, ports)) = target.rsplit_once(':')
+        && let Some((a, b)) = ports.split_once('-')
+        && let (Ok(first), Ok(last)) = (a.parse::<u16>(), b.parse::<u16>())
+        && last > first
+    {
+        return (format!("{host}:{first}"), last - first + 1);
+    }
+    (target, 1)
+}
+
 fn proto_byte(p: Protocol) -> u8 {
     match p {
         Protocol::Tcp => 0,
@@ -282,8 +303,7 @@ impl ServerMsg {
                     put_str(&mut v, &s.name);
                     v.push(proto_byte(s.protocol));
                     v.extend_from_slice(&s.bind_port.to_be_bytes());
-                    put_str(&mut v, &s.target);
-                    v.extend_from_slice(&s.ports.to_be_bytes());
+                    put_str(&mut v, &ranged_target(&s.target, s.ports));
                 }
                 v
             }
@@ -311,8 +331,7 @@ impl ServerMsg {
                     let name = r.short_str()?;
                     let protocol = proto_from(r.u8()?)?;
                     let bind_port = r.u16()?;
-                    let target = r.short_str()?;
-                    let ports = r.u16()?;
+                    let (target, ports) = split_ranged(r.short_str()?);
                     list.push(ServiceInfo {
                         name,
                         protocol,
@@ -542,6 +561,129 @@ pub fn decode_datagram(b: &[u8]) -> Result<(u32, &[u8]), DecodeError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn unhex(s: &str) -> Vec<u8> {
+        (0..s.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
+            .collect()
+    }
+
+    #[test]
+    fn version_1_peers_read_the_same_bytes() {
+        let services = ServerMsg::Services(vec![
+            ServiceInfo {
+                name: "web".into(),
+                protocol: Protocol::Tcp,
+                bind_port: 443,
+                target: "127.0.0.1:8443".into(),
+                ports: 1,
+            },
+            ServiceInfo {
+                name: "game".into(),
+                protocol: Protocol::Udp,
+                bind_port: 30000,
+                target: "192.168.1.50:30000".into(),
+                ports: 11,
+            },
+            ServiceInfo {
+                name: "db".into(),
+                protocol: Protocol::Tcp,
+                bind_port: 0,
+                target: "unix:/run/my-db.sock".into(),
+                ports: 1,
+            },
+        ]);
+        let server = [
+            (
+                ServerMsg::Welcome {
+                    token: [9; 16],
+                    heartbeat_secs: 10,
+                },
+                "0109090909090909090909090909090909000a",
+            ),
+            (
+                services,
+                "020003037765620001bb0e3132372e302e302e313a383434330467616d65017530183139322e3136382e312e35303a33303030302d333030313002646200000014756e69783a2f72756e2f6d792d64622e736f636b",
+            ),
+            (ServerMsg::Ping, "03"),
+            (ServerMsg::OpenData { count: 7 }, "040007"),
+            (
+                ServerMsg::Bye {
+                    reason: ByeReason::Replaced,
+                },
+                "0502",
+            ),
+        ];
+        for (msg, wire) in server {
+            assert_eq!(msg.encode(), unhex(wire), "{msg:?}");
+            assert_eq!(ServerMsg::decode(&unhex(wire)).unwrap(), msg);
+        }
+        assert_eq!(ClientMsg::decode(&unhex("81")).unwrap(), ClientMsg::Pong);
+        let preambles = [
+            (
+                Preamble {
+                    kind: ChannelKind::Control,
+                    cipher: Cipher::Chachapoly,
+                    plaintext: false,
+                    name: "home".into(),
+                },
+                "42525731010004686f6d65",
+            ),
+            (
+                Preamble {
+                    kind: ChannelKind::Data,
+                    cipher: Cipher::AesGcm,
+                    plaintext: true,
+                    name: "home".into(),
+                },
+                "42525731020304686f6d65",
+            ),
+        ];
+        for (p, wire) in preambles {
+            let b = unhex(wire);
+            assert_eq!(p.encode(), b);
+            let head: [u8; PREAMBLE_FIXED] = b[..PREAMBLE_FIXED].try_into().unwrap();
+            let (kind, flags, _) = Preamble::decode_fixed(&head).unwrap();
+            assert_eq!(
+                Preamble::from_parts(kind, flags, &b[PREAMBLE_FIXED..]).unwrap(),
+                p
+            );
+        }
+        for (hello, wire) in [
+            (Hello::Control { version: 1 }, "0101"),
+            (
+                Hello::Data {
+                    version: 1,
+                    token: [7; 16],
+                },
+                "020107070707070707070707070707070707",
+            ),
+        ] {
+            assert_eq!(hello.encode(), unhex(wire));
+            assert_eq!(Hello::decode(&unhex(wire)).unwrap(), hello);
+        }
+        let connect = Connect {
+            protocol: Protocol::Udp,
+            service: "dns".into(),
+            target: "192.168.1.1:53".into(),
+        };
+        let wire = unhex("100103646e730e3139322e3136382e312e313a3533");
+        assert_eq!(connect.encode(), wire);
+        assert_eq!(Connect::decode(&wire).unwrap(), connect);
+        for (status, byte) in [
+            (Status::Ok, 0),
+            (Status::Denied, 1),
+            (Status::Unreachable, 2),
+            (Status::Unresolved, 3),
+            (Status::Invalid, 4),
+        ] {
+            assert_eq!(Status::decode(&[byte]).unwrap(), status);
+        }
+        let mut out = Vec::new();
+        encode_datagram(5, b"hi", &mut out);
+        assert_eq!(out, unhex("000000056869"));
+    }
 
     #[test]
     fn fields_too_long_for_the_wire_are_an_error() {
