@@ -285,9 +285,13 @@ pub async fn open_echo(addr: SocketAddr) -> tokio::net::TcpStream {
 
 pub async fn assert_cut(mut conn: tokio::net::TcpStream) {
     let ended = tokio::time::timeout(Duration::from_secs(5), async {
-        let _ = conn.write_all(b"more").await;
         let mut buf = [0u8; 4];
-        conn.read_exact(&mut buf).await.is_err()
+        loop {
+            if conn.write_all(b"more").await.is_err() || conn.read_exact(&mut buf).await.is_err() {
+                return true;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
     })
     .await;
     assert_eq!(ended, Ok(true), "the open connection must be closed");
