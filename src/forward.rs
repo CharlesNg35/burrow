@@ -20,10 +20,10 @@ impl From<io::Error> for ForwardError {
     }
 }
 
-pub async fn server_tcp(
+pub async fn open_tcp(
     ch: Channel,
     mut visitor: TcpStream,
-    connect: &Connect,
+    first: &[u8],
     plaintext: bool,
 ) -> Result<(), ForwardError> {
     let Channel {
@@ -31,7 +31,7 @@ pub async fn server_tcp(
         mut writer,
         mut reader,
     } = ch;
-    writer.send(&mut stream, &connect.encode()).await?;
+    writer.send(&mut stream, first).await?;
     let plaintext = plaintext && stream.supports_half_close();
     let (mut cr, mut cw) = stream.split();
     let (mut vr, mut vw) = visitor.split();
@@ -64,16 +64,36 @@ pub async fn server_tcp(
 }
 
 pub async fn client_tcp(
-    ch: Channel,
-    mut target: TcpStream,
+    mut ch: Channel,
+    target: TcpStream,
     plaintext: bool,
 ) -> Result<(), ForwardError> {
+    ch.writer.send(&mut ch.stream, &[Status::Ok as u8]).await?;
+    pump_tcp(ch, target, plaintext).await
+}
+
+pub async fn visit_tcp(
+    mut ch: Channel,
+    local: TcpStream,
+    request: &[u8],
+) -> Result<(), ForwardError> {
+    ch.writer.send(&mut ch.stream, request).await?;
+    let status = match ch.reader.recv(&mut ch.stream).await? {
+        Some(b) => Status::decode(b).map_err(|_| ForwardError::Protocol)?,
+        None => return Err(ForwardError::Protocol),
+    };
+    if status != Status::Ok {
+        return Err(ForwardError::Status(status));
+    }
+    pump_tcp(ch, local, false).await
+}
+
+async fn pump_tcp(ch: Channel, mut target: TcpStream, plaintext: bool) -> Result<(), ForwardError> {
     let Channel {
         mut stream,
         mut writer,
         mut reader,
     } = ch;
-    writer.send(&mut stream, &[Status::Ok as u8]).await?;
     let plaintext = plaintext && stream.supports_half_close();
     let (mut cr, mut cw) = stream.split();
     let (mut tr, mut tw) = target.split();

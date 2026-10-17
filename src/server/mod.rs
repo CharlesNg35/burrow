@@ -78,6 +78,10 @@ impl Shared {
         self.reloaded.subscribe()
     }
 
+    pub fn settings_snapshot(&self) -> ServerSettings {
+        (*self.settings()).clone()
+    }
+
     pub fn idle_channels(&self, client: &str) -> usize {
         self.session(client).map_or(0, |s| s.idle_count())
     }

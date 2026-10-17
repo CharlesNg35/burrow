@@ -7,7 +7,11 @@ use std::time::Duration;
 use burrow::allowlist::{AllowList, Rule};
 use burrow::client::{Client, State};
 use burrow::config::model::{Cipher, Protocol};
-use burrow::config::settings::{ClientAuth, ClientSettings, ServerSettings, Service, SocketTuning};
+use burrow::config::settings::{
+    ClientAuth, ClientSettings, Forward, ServerSettings, Service, SocketTuning, VisitorAuth,
+    VisitorSettings,
+};
+use burrow::protocol::VisitTarget;
 use burrow::secret::Secret;
 use burrow::server::Server;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -144,7 +148,7 @@ pub async fn start_server(settings: ServerSettings) -> RunningServer {
         .expect("server has a listener");
     let services = names
         .iter()
-        .map(|n| (n.clone(), server.service_addr(n).unwrap()))
+        .filter_map(|n| server.service_addr(n).map(|a| (n.clone(), a)))
         .collect();
     let shared = server.shared();
     let (reload_tx, reload_rx) = mpsc::channel(4);
@@ -335,4 +339,82 @@ pub fn pattern(len: usize, seed: u64) -> Vec<u8> {
             x as u8
         })
         .collect()
+}
+
+pub fn visitor_auth(secret: Secret, reach: &[&str]) -> VisitorAuth {
+    VisitorAuth {
+        secrets: vec![secret],
+        reach: reach.iter().map(|c| c.to_string()).collect(),
+        max_connections: None,
+    }
+}
+
+pub fn private_service(target: SocketAddr, visitors: &[&str]) -> Service {
+    Service {
+        bind: None,
+        visitors: visitors.iter().map(|v| v.to_string()).collect(),
+        ..service(target, Protocol::Tcp)
+    }
+}
+
+pub fn visitor_settings(
+    server: SocketAddr,
+    secret: Secret,
+    forwards: Vec<(&str, VisitTarget)>,
+) -> VisitorSettings {
+    let mut endpoint = burrow::transport::endpoint::Endpoint::Tcp {
+        host_port: server.to_string(),
+    };
+    if ws_mode() {
+        endpoint =
+            burrow::transport::endpoint::Endpoint::parse(&format!("ws://{server}/burrow")).unwrap();
+    }
+    VisitorSettings {
+        server: endpoint.to_string(),
+        endpoint,
+        headers: Vec::new(),
+        ca_pem: None,
+        name: "laptop".into(),
+        secret,
+        cipher: Cipher::Chachapoly,
+        proxy: None,
+        connect_timeout: Duration::from_secs(2),
+        tcp: tuning(),
+        forwards: forwards
+            .into_iter()
+            .map(|(n, to)| {
+                (
+                    n.to_string(),
+                    Forward {
+                        local: "127.0.0.1:0".parse().unwrap(),
+                        to,
+                    },
+                )
+            })
+            .collect(),
+    }
+}
+
+pub struct RunningVisitor {
+    pub addrs: BTreeMap<String, SocketAddr>,
+    pub stop: watch::Sender<bool>,
+    pub task: JoinHandle<()>,
+}
+
+impl RunningVisitor {
+    pub fn addr(&self, forward: &str) -> SocketAddr {
+        self.addrs[forward]
+    }
+}
+
+pub fn start_visitor(settings: VisitorSettings) -> RunningVisitor {
+    let names: Vec<String> = settings.forwards.keys().cloned().collect();
+    let visitor = burrow::visitor::Visitor::bind(settings).expect("visitor binds");
+    let addrs = names
+        .iter()
+        .map(|n| (n.clone(), visitor.local_addr(n).unwrap()))
+        .collect();
+    let (stop, stop_rx) = watch::channel(false);
+    let task = tokio::spawn(visitor.run(stop_rx));
+    RunningVisitor { addrs, stop, task }
 }

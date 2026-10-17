@@ -24,3 +24,4 @@ pub mod suggest;
 pub mod throttle;
 pub mod transport;
 pub mod validate;
+pub mod visitor;

@@ -10,7 +10,7 @@ use tracing::{debug, warn};
 use super::Shared;
 use crate::config::model::Protocol;
 use crate::config::settings::Service;
-use crate::forward::{ForwardError, server_tcp};
+use crate::forward::{ForwardError, open_tcp};
 use crate::protocol::{Connect, Status};
 use crate::transport::tcp::tune;
 
@@ -82,7 +82,8 @@ async fn visit(
     if !shared.allows(&svc.client, &session.secret) {
         return;
     }
-    let forward = server_tcp(ch, visitor, &connect, settings.insecure_plaintext);
+    let first = connect.encode();
+    let forward = open_tcp(ch, visitor, &first, settings.insecure_plaintext);
     tokio::pin!(forward);
     let result = loop {
         tokio::select! {
