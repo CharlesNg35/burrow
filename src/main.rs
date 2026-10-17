@@ -332,9 +332,29 @@ fn run(cli: Cli) -> Result<u8, Failure> {
             Ok(0)
         }
         Command::Status(a) => {
-            let path = config_path(a.config, Some(Role::Server))?;
+            use burrow::status::query::{Options, Pick, run};
+            let pick = match (a.name, a.config) {
+                (Some(name), _) => Pick::Service(name),
+                (None, Some(config)) => Pick::Config(config),
+                (None, None) => Pick::All,
+            };
+            if !(a.interval.is_finite() && (0.2..=3600.0).contains(&a.interval)) {
+                return Err(Failure::usage(
+                    "--interval must be between 0.2 and 3600 seconds",
+                ));
+            }
+            let follow = a
+                .follow
+                .then(|| std::time::Duration::from_secs_f64(a.interval));
             let mut out = std::io::stdout().lock();
-            burrow::metrics::query::run(&path, a.json, &ProcessEnv, &mut out)
+            run(
+                Options {
+                    pick,
+                    json: a.json,
+                    follow,
+                },
+                &mut out,
+            )
         }
         Command::Update(a) => {
             let mut out = std::io::stdout().lock();

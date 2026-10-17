@@ -1,14 +1,13 @@
 mod common;
 
 use std::net::SocketAddr;
-use std::process::{Child, Command, Stdio};
 use std::time::Duration;
 
 use burrow::allowlist::Sources;
 use burrow::config::model::Protocol;
 use burrow::config::settings::{Health, Service};
 use burrow::metrics::Status;
-use burrow::metrics::query::fetch;
+use burrow::metrics::fetch;
 use burrow::protocol::VisitTarget;
 use burrow::secret::Secret;
 use common::*;
@@ -150,104 +149,6 @@ async fn reload_turns_the_endpoint_on_and_off() {
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
     panic!("metrics must stop after reload");
-}
-
-struct Running(Child);
-
-impl Drop for Running {
-    fn drop(&mut self) {
-        let _ = self.0.kill();
-        let _ = self.0.wait();
-    }
-}
-
-fn free_port() -> u16 {
-    std::net::TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port()
-}
-
-#[test]
-fn burrow_status_prints_the_running_server() {
-    let dir = tempfile::tempdir().unwrap();
-    let config = dir.path().join("server.yaml");
-    let (listen, metrics) = (free_port(), free_port());
-    std::fs::write(
-        &config,
-        format!(
-            "listen: 127.0.0.1:{listen}\nclients:\n  home:\n    secret: {}\nservices:\n  web:\n    client: home\n    bind: 127.0.0.1:{}\n    target: 3000\nmetrics:\n  listen: {metrics}\n",
-            Secret::generate().encode(),
-            free_port()
-        ),
-    )
-    .unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&config, std::fs::Permissions::from_mode(0o600)).unwrap();
-    }
-    let bin = env!("CARGO_BIN_EXE_burrow");
-    let _server = Running(
-        Command::new(bin)
-            .args(["server", "-c"])
-            .arg(&config)
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .unwrap(),
-    );
-    let mut out = None;
-    for _ in 0..50 {
-        let o = Command::new(bin)
-            .args(["status", "-c"])
-            .arg(&config)
-            .output()
-            .unwrap();
-        if o.status.success() {
-            out = Some(String::from_utf8(o.stdout).unwrap());
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(100));
-    }
-    let text = out.expect("burrow status succeeds once the server runs");
-    assert!(
-        text.starts_with(&format!("burrow {}, up ", env!("CARGO_PKG_VERSION"))),
-        "{text}"
-    );
-    assert!(
-        text.contains("home  offline, not seen since the server started"),
-        "{text}"
-    );
-    assert!(text.contains("web  tcp 127.0.0.1:"), "{text}");
-    let json = Command::new(bin)
-        .args(["status", "--json", "-c"])
-        .arg(&config)
-        .output()
-        .unwrap();
-    let parsed: Status = serde_json::from_slice(&json.stdout).unwrap();
-    assert_eq!(parsed.services[0].name, "web");
-
-    let off = dir.path().join("off.yaml");
-    std::fs::write(
-        &off,
-        std::fs::read_to_string(&config)
-            .unwrap()
-            .split("metrics:")
-            .next()
-            .unwrap(),
-    )
-    .unwrap();
-    let o = Command::new(bin)
-        .args(["status", "-c"])
-        .arg(&off)
-        .output()
-        .unwrap();
-    assert!(!o.status.success());
-    let err = String::from_utf8_lossy(&o.stderr);
-    assert!(err.contains("does not turn on"), "{err}");
-    assert!(err.contains("listen: 127.0.0.1:9100"), "{err}");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

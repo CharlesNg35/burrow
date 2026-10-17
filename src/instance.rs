@@ -81,6 +81,10 @@ pub fn default_dir() -> PathBuf {
     }
 }
 
+pub fn prepare(dir: &Path) -> std::io::Result<()> {
+    prepare_dir(dir)
+}
+
 fn prepare_dir(dir: &Path) -> std::io::Result<()> {
     if dir.is_dir() {
         return Ok(());

@@ -201,83 +201,6 @@ pub fn bytes(n: u64) -> String {
     format!("{n} B")
 }
 
-fn pad<'a>(names: impl Iterator<Item = &'a String>) -> usize {
-    names.map(String::len).max().unwrap_or(0)
-}
-
-pub fn human(s: &Status) -> String {
-    let mut out = String::new();
-    let _ = writeln!(out, "burrow {}, up {}", s.version, duration(s.uptime_secs));
-    if !s.clients.is_empty() {
-        let w = pad(s.clients.iter().map(|c| &c.name));
-        let _ = writeln!(out, "\nclients");
-        for c in &s.clients {
-            let state = match (c.connected, c.connected_secs, c.left_secs_ago) {
-                (true, secs, _) => format!(
-                    "connected {}{}, {} open, {} idle channels",
-                    secs.map(duration).unwrap_or_default(),
-                    c.from
-                        .as_ref()
-                        .map(|f| format!(" from {f}"))
-                        .unwrap_or_default(),
-                    c.open,
-                    c.idle_channels
-                ),
-                (false, _, Some(ago)) => format!("offline, last seen {} ago", duration(ago)),
-                (false, _, None) => "offline, not seen since the server started".to_string(),
-            };
-            let _ = writeln!(out, "  {:w$}  {state}", c.name);
-        }
-    }
-    if !s.services.is_empty() {
-        let w = pad(s.services.iter().map(|v| &v.name));
-        let _ = writeln!(out, "\nservices");
-        for v in &s.services {
-            let at = v.bind.clone().unwrap_or_else(|| "private".to_string());
-            let _ = writeln!(
-                out,
-                "  {:w$}  {} {at} -> {} {}, {} open, {} total, {} in, {} out{}",
-                v.name,
-                v.protocol,
-                v.clients.join(", "),
-                v.target,
-                v.open,
-                v.total,
-                bytes(v.bytes_in),
-                bytes(v.bytes_out),
-                if v.refused > 0 {
-                    format!(", {} refused", v.refused)
-                } else {
-                    String::new()
-                }
-            );
-            if !v.health.is_empty() {
-                let states: Vec<String> = v
-                    .health
-                    .iter()
-                    .map(|h| format!("{} {}", h.client, if h.up { "up" } else { "down" }))
-                    .collect();
-                let _ = writeln!(out, "  {:w$}  health: {}", "", states.join(", "));
-            }
-        }
-    }
-    if !s.visitors.is_empty() {
-        let w = pad(s.visitors.iter().map(|v| &v.name));
-        let _ = writeln!(out, "\nvisitors");
-        for v in &s.visitors {
-            let _ = writeln!(out, "  {:w$}  {} open, {} total", v.name, v.open, v.total);
-        }
-    }
-    if s.handshakes_refused > 0 {
-        let _ = writeln!(
-            out,
-            "\n{} refused handshakes since the server started (wrong secret, unknown name or limits)",
-            s.handshakes_refused
-        );
-    }
-    out
-}
-
 #[cfg(test)]
 mod tests {
     use super::super::*;
@@ -287,6 +210,7 @@ mod tests {
         Status {
             version: "9.9.9".into(),
             uptime_secs: 3 * 86400 + 4 * 3600,
+            listening: vec![],
             handshakes_refused: 2,
             udp_peers: 0,
             clients: vec![
@@ -315,6 +239,11 @@ mod tests {
                 bind: Some("0.0.0.0:443".into()),
                 target: "127.0.0.1:8443".into(),
                 clients: vec!["home".into(), "office".into()],
+                mode: None,
+                limit: None,
+                visitors: vec![],
+                proxy_protocol: None,
+                filtered: false,
                 open: 12,
                 total: 153,
                 refused: 1,
@@ -337,15 +266,6 @@ mod tests {
                 total: 12,
             }],
         }
-    }
-
-    #[test]
-    fn readable_overview() {
-        let text = human(&sample());
-        assert_eq!(
-            text,
-            "burrow 9.9.9, up 3 d 4 h\n\nclients\n  home    connected 2 h 13 min from 81.2.3.4:51234, 3 open, 4 idle channels\n  office  offline, last seen 5 min ago\n\nservices\n  web  tcp 0.0.0.0:443 -> home, office 127.0.0.1:8443, 12 open, 153 total, 1.2 GB in, 8.4 GB out, 1 refused\n       health: home up, office down\n\nvisitors\n  lap\"top  1 open, 12 total\n\n2 refused handshakes since the server started (wrong secret, unknown name or limits)\n"
-        );
     }
 
     #[test]

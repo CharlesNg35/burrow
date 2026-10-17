@@ -1,0 +1,142 @@
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+use tokio::task::JoinHandle;
+use tracing::{debug, warn};
+
+use super::Entry;
+use crate::metrics::Status;
+use crate::metrics::{Handler, serve_with};
+
+pub struct Published {
+    path: PathBuf,
+    task: JoinHandle<()>,
+}
+
+impl Published {
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+impl Drop for Published {
+    fn drop(&mut self) {
+        self.task.abort();
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
+fn token() -> String {
+    let mut bytes = [0u8; 24];
+    getrandom::fill(&mut bytes).expect("operating system random source is available");
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+fn write_private(path: &Path, text: &str) -> std::io::Result<()> {
+    let _ = std::fs::remove_file(path);
+    let mut opts = std::fs::OpenOptions::new();
+    opts.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.mode(0o600).custom_flags(libc::O_NOFOLLOW);
+    }
+    let mut f = opts.open(path)?;
+    f.write_all(text.as_bytes())?;
+    #[cfg(windows)]
+    restrict_on_windows(path);
+    Ok(())
+}
+
+#[cfg(windows)]
+fn restrict_on_windows(path: &Path) {
+    let me = std::process::Command::new("whoami")
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .filter(|u| !u.is_empty());
+    let mut args = vec![
+        path.display().to_string(),
+        "/inheritance:r".into(),
+        "/grant:r".into(),
+        "*S-1-5-18:F".into(),
+        "*S-1-5-32-544:F".into(),
+    ];
+    if let Some(me) = me {
+        args.push(format!("{me}:F"));
+    }
+    let _ = std::process::Command::new("icacls").args(&args).output();
+}
+
+fn handler(token: String, snapshot: Arc<dyn Fn() -> Status + Send + Sync>) -> Handler {
+    let expected = format!("bearer {token}");
+    Arc::new(move |head: &[u8]| {
+        let text = String::from_utf8_lossy(head);
+        let mut lines = text.split("\r\n");
+        let request = lines.next().unwrap_or("");
+        let authorized = lines.any(|l| {
+            l.split_once(':').is_some_and(|(k, v)| {
+                k.trim().eq_ignore_ascii_case("authorization")
+                    && v.trim().eq_ignore_ascii_case(&expected)
+            })
+        });
+        if !authorized {
+            return (401, "text/plain", "a token is required\n".into());
+        }
+        match request.split(' ').take(2).collect::<Vec<_>>().as_slice() {
+            ["GET", "/status"] => (
+                200,
+                "application/json",
+                serde_json::to_string(&snapshot()).expect("status serializes"),
+            ),
+            ["GET", _] => (404, "text/plain", "not found\n".into()),
+            _ => (405, "text/plain", "only GET is supported\n".into()),
+        }
+    })
+}
+
+pub fn publish(
+    config: &Path,
+    snapshot: Arc<dyn Fn() -> Status + Send + Sync>,
+) -> Option<Published> {
+    publish_in(&crate::instance::default_dir(), config, snapshot)
+}
+
+pub fn publish_in(
+    dir: &Path,
+    config: &Path,
+    snapshot: Arc<dyn Fn() -> Status + Send + Sync>,
+) -> Option<Published> {
+    let listener = match std::net::TcpListener::bind("127.0.0.1:0")
+        .and_then(|l| l.set_nonblocking(true).map(|()| l))
+        .and_then(tokio::net::TcpListener::from_std)
+    {
+        Ok(l) => l,
+        Err(e) => {
+            warn!("burrow status will not see this server: cannot open its status port ({e})");
+            return None;
+        }
+    };
+    let port = listener.local_addr().ok()?.port();
+    let token = token();
+    let entry = Entry {
+        config: std::fs::canonicalize(config).unwrap_or_else(|_| config.to_path_buf()),
+        pid: std::process::id(),
+        port,
+        token: token.clone(),
+    };
+    let path = dir.join(format!("{}.status", entry.pid));
+    let text = serde_json::to_string(&entry).expect("entry serializes");
+    if let Err(e) = crate::instance::prepare(dir).and_then(|()| write_private(&path, &text)) {
+        warn!(
+            "burrow status will not see this server: cannot write {} ({e})",
+            path.display()
+        );
+        return None;
+    }
+    debug!("status for burrow status at {}", path.display());
+    let task = tokio::spawn(serve_with(listener, handler(token, snapshot)));
+    Some(Published { path, task })
+}

@@ -8,7 +8,7 @@ use std::time::Duration;
 use burrow::client::{Client, State};
 use burrow::config::model::{Mode, Protocol};
 use burrow::config::settings::{ClientAuth, Health, ServerSettings, Service};
-use burrow::metrics::query::fetch;
+use burrow::metrics::fetch;
 use burrow::protocol::VisitTarget;
 use burrow::secret::Secret;
 use burrow::transport::resolve::{Resolved, Resolver};

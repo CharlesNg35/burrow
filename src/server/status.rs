@@ -54,6 +54,23 @@ impl Shared {
                     bind: svc.shown_bind(),
                     target: svc.shown_target(),
                     clients: svc.clients.clone(),
+                    mode: (svc.clients.len() > 1).then(|| {
+                        match svc.mode {
+                            crate::config::model::Mode::Failover => "failover",
+                            crate::config::model::Mode::Balance => "balance",
+                        }
+                        .to_string()
+                    }),
+                    limit: svc.bandwidth.map(crate::ratelimit::describe),
+                    visitors: svc.visitors.clone(),
+                    proxy_protocol: svc.proxy_protocol.map(|v| {
+                        match v {
+                            crate::proxy_protocol::Version::V1 => "v1",
+                            crate::proxy_protocol::Version::V2 => "v2",
+                        }
+                        .to_string()
+                    }),
+                    filtered: !svc.sources.is_open(),
                     open: self.service_counts.current(name),
                     total: stats.total.load(Ordering::Relaxed),
                     refused: stats.refused.load(Ordering::Relaxed),
@@ -72,9 +89,21 @@ impl Shared {
                 total: self.metrics.visitor(name).total.load(Ordering::Relaxed),
             })
             .collect();
+        let mut listening = Vec::new();
+        if let Some(l) = settings.listen {
+            listening.push(format!("clients on tcp {l}"));
+        }
+        if let Some(ws) = &settings.websocket {
+            let scheme = if ws.tls.is_some() { "wss" } else { "ws" };
+            listening.push(format!("clients on {scheme}://{}{}", ws.listen, ws.path));
+        }
+        if let Some(m) = settings.metrics {
+            listening.push(format!("metrics on http://{m}/metrics"));
+        }
         Status {
             version: env!("CARGO_PKG_VERSION").to_string(),
             uptime_secs: self.metrics.uptime_secs(),
+            listening,
             handshakes_refused: self.metrics.handshakes_refused.load(Ordering::Relaxed),
             udp_peers: self.udp_peers() as u64,
             clients,

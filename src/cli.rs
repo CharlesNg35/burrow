@@ -73,7 +73,7 @@ pub enum Command {
     #[command(about = "Check a config file and report every problem")]
     Validate(ValidateArgs),
     #[command(
-        about = "Show clients, services and traffic of the running server (needs metrics in its config)"
+        about = "Show the running burrow servers on this machine: clients, services, visitors and traffic"
     )]
     Status(StatusArgs),
     #[command(about = "Write a new server, client or visitor config")]
@@ -162,13 +162,25 @@ pub struct ServiceInstallArgs {
 #[derive(Debug, Args)]
 pub struct StatusArgs {
     #[arg(
-        short,
-        long,
-        help = "Server config; found in the current folder when omitted"
+        value_name = "SERVICE",
+        conflicts_with = "config",
+        help = "Only this installed service, for example burrow-server"
     )]
+    pub name: Option<String>,
+    #[arg(short, long, help = "Only the instance running this config file")]
     pub config: Option<PathBuf>,
     #[arg(long, help = "Print the raw status as JSON")]
     pub json: bool,
+    #[arg(short, long, help = "Keep refreshing, with live rates, until Ctrl-C")]
+    pub follow: bool,
+    #[arg(
+        long,
+        value_name = "SECS",
+        default_value_t = 1.0,
+        requires = "follow",
+        help = "Seconds between refreshes with --follow"
+    )]
+    pub interval: f64,
 }
 
 #[derive(Debug, Args)]

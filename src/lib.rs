@@ -23,6 +23,7 @@ pub mod run;
 pub mod secret;
 pub mod server;
 pub mod service;
+pub mod status;
 pub mod suggest;
 pub mod throttle;
 pub mod transport;

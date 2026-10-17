@@ -219,6 +219,8 @@ fn run_server(path: &Path, logging: Logging, hosted: Option<Hosted>) -> Result<u
     init_logging(&logging)?;
     runtime()?.block_on(async move {
         let server = Server::bind(*settings.clone()).await?;
+        let shared = server.shared();
+        let _status = crate::status::publish(path, Arc::new(move || shared.status()));
         let stop = stop_on_signal(stop);
         let (reload_tx, reload_rx) = mpsc::channel(4);
         tokio::spawn(reloader(path.to_path_buf(), *settings, env, reload_tx));

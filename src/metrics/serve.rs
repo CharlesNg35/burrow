@@ -16,8 +16,14 @@ const WRITE_TIMEOUT: Duration = Duration::from_secs(5);
 const WAIT_FOR_SLOT: Duration = Duration::from_secs(2);
 
 pub type Snapshot = Arc<dyn Fn() -> Status + Send + Sync>;
+pub type Handler = Arc<dyn Fn(&[u8]) -> (u16, &'static str, String) + Send + Sync>;
 
 pub async fn serve(listener: TcpListener, snapshot: Snapshot) {
+    let handler: Handler = Arc::new(move |head| respond(head, snapshot.as_ref()));
+    serve_with(listener, handler).await
+}
+
+pub async fn serve_with(listener: TcpListener, handler: Handler) {
     let open = Arc::new(Semaphore::new(MAX_OPEN));
     let waiting = Arc::new(Semaphore::new(MAX_WAITING));
     loop {
@@ -33,7 +39,7 @@ pub async fn serve(listener: TcpListener, snapshot: Snapshot) {
             debug!(%peer, "metrics: too many waiting requests, closing");
             continue;
         };
-        let (open, snapshot) = (open.clone(), snapshot.clone());
+        let (open, handler) = (open.clone(), handler.clone());
         tokio::spawn(async move {
             let slot = tokio::time::timeout(WAIT_FOR_SLOT, open.acquire_owned()).await;
             drop(queued);
@@ -41,7 +47,7 @@ pub async fn serve(listener: TcpListener, snapshot: Snapshot) {
                 debug!(%peer, "metrics: no free slot, closing");
                 return;
             };
-            if let Err(e) = answer(stream, &snapshot).await {
+            if let Err(e) = answer(stream, &handler).await {
                 debug!(%peer, "metrics: {e}");
             }
         });
@@ -90,14 +96,15 @@ pub fn respond(head: &[u8], snapshot: &dyn Fn() -> Status) -> (u16, &'static str
     }
 }
 
-async fn answer(mut stream: TcpStream, snapshot: &Snapshot) -> std::io::Result<()> {
+async fn answer(mut stream: TcpStream, handler: &Handler) -> std::io::Result<()> {
     let head = tokio::time::timeout(READ_TIMEOUT, read_head(&mut stream))
         .await
         .map_err(|_| std::io::Error::other("request timed out"))??;
-    let (code, kind, body) = respond(&head, snapshot.as_ref());
+    let (code, kind, body) = handler(&head);
     let write = async {
         let reason = match code {
             200 => "OK",
+            401 => "Unauthorized",
             404 => "Not Found",
             _ => "Method Not Allowed",
         };
@@ -121,6 +128,7 @@ mod tests {
         Status {
             version: "1.0.0".into(),
             uptime_secs: 5,
+            listening: vec![],
             handshakes_refused: 0,
             udp_peers: 0,
             clients: vec![],

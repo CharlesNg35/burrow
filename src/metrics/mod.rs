@@ -1,8 +1,6 @@
 mod counted;
-mod render;
+pub mod render;
 mod serve;
-
-pub mod query;
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -12,8 +10,8 @@ use std::time::{Instant, SystemTime};
 use serde::{Deserialize, Serialize};
 
 pub use counted::Counted;
-pub use render::{human, prometheus};
-pub use serve::{Snapshot, serve};
+pub use render::prometheus;
+pub use serve::{Handler, Snapshot, serve, serve_with};
 
 #[derive(Debug, Default)]
 pub struct Traffic {
@@ -103,6 +101,8 @@ impl Metrics {
 pub struct Status {
     pub version: String,
     pub uptime_secs: u64,
+    #[serde(default)]
+    pub listening: Vec<String>,
     pub handshakes_refused: u64,
     pub udp_peers: u64,
     pub clients: Vec<ClientStatus>,
@@ -128,6 +128,16 @@ pub struct ServiceStatus {
     pub bind: Option<String>,
     pub target: String,
     pub clients: Vec<String>,
+    #[serde(default)]
+    pub mode: Option<String>,
+    #[serde(default)]
+    pub limit: Option<String>,
+    #[serde(default)]
+    pub visitors: Vec<String>,
+    #[serde(default)]
+    pub proxy_protocol: Option<String>,
+    #[serde(default)]
+    pub filtered: bool,
     pub open: u64,
     pub total: u64,
     pub refused: u64,
@@ -147,4 +157,28 @@ pub struct VisitorStatus {
     pub name: String,
     pub open: u64,
     pub total: u64,
+}
+
+pub fn fetch(addr: std::net::SocketAddr) -> Result<Status, String> {
+    use std::io::{Read, Write};
+    let timeout = std::time::Duration::from_secs(5);
+    let mut s = std::net::TcpStream::connect_timeout(&addr, timeout).map_err(|e| e.to_string())?;
+    s.set_read_timeout(Some(timeout))
+        .map_err(|e| e.to_string())?;
+    s.write_all(
+        format!("GET /status HTTP/1.1\r\nHost: {addr}\r\nConnection: close\r\n\r\n").as_bytes(),
+    )
+    .map_err(|e| e.to_string())?;
+    let mut raw = Vec::new();
+    s.take(16 * 1024 * 1024)
+        .read_to_end(&mut raw)
+        .map_err(|e| e.to_string())?;
+    let split = raw
+        .windows(4)
+        .position(|w| w == b"\r\n\r\n")
+        .ok_or("the answer is not HTTP")?;
+    if !raw.starts_with(b"HTTP/1.1 200") {
+        return Err("the metrics endpoint did not answer 200".into());
+    }
+    serde_json::from_slice(&raw[split + 4..]).map_err(|e| e.to_string())
 }
