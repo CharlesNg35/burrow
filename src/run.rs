@@ -16,6 +16,7 @@ use crate::failure::Failure;
 use crate::instance::{self, Identity};
 use crate::server::Server;
 use crate::validate::startup_report;
+use crate::visitor::{Pick, Visitor};
 
 #[derive(Debug, Clone)]
 pub struct Logging {
@@ -169,6 +170,17 @@ pub fn client(path: &Path, logging: Logging) -> Result<u8, Failure> {
     client_until(path, logging, None)
 }
 
+pub fn visit(path: &Path, logging: Logging, pick: Pick) -> Result<u8, Failure> {
+    logged(&logging.clone(), run_visitor(path, logging, pick, None))
+}
+
+pub fn visit_until(path: &Path, logging: Logging, hosted: Option<Hosted>) -> Result<u8, Failure> {
+    logged(
+        &logging.clone(),
+        run_visitor(path, logging, Pick::All, hosted),
+    )
+}
+
 fn logged(logging: &Logging, result: Result<u8, Failure>) -> Result<u8, Failure> {
     if let (Err(f), Some(_)) = (&result, &logging.file) {
         let _ = init_logging(logging);
@@ -228,7 +240,7 @@ fn run_client(path: &Path, logging: Logging, hosted: Option<Hosted>) -> Result<u
     init_logging(&logging)?;
     runtime()?.block_on(async move {
         let stop = stop_on_signal(stop);
-        ignore_hangup_on_client();
+        ignore_hangup("client");
         match Client::new(*settings).run(stop).await {
             RunEnd::Stopped => Ok(0),
             RunEnd::GaveUp(down) => Err(Failure::new(format!(
@@ -242,23 +254,47 @@ fn run_client(path: &Path, logging: Logging, hosted: Option<Hosted>) -> Result<u
     })
 }
 
+fn run_visitor(
+    path: &Path,
+    logging: Logging,
+    pick: Pick,
+    hosted: Option<Hosted>,
+) -> Result<u8, Failure> {
+    let (stop, env) = split(hosted);
+    let Loaded::Visitor(mut settings, _) = load(path, Role::Visitor, &env)? else {
+        return Err(Failure::new(format!(
+            "{} is not a visitor config",
+            path.display()
+        )));
+    };
+    crate::visitor::pick(&mut settings, pick, &path.display().to_string())?;
+    init_logging(&logging)?;
+    runtime()?.block_on(async move {
+        let visitor = Visitor::bind(*settings)?;
+        let stop = stop_on_signal(stop);
+        ignore_hangup("visitor");
+        visitor.run(stop).await;
+        Ok(0)
+    })
+}
+
 #[cfg(unix)]
-fn ignore_hangup_on_client() {
-    tokio::spawn(async {
+fn ignore_hangup(role: &'static str) {
+    tokio::spawn(async move {
         use tokio::signal::unix::{SignalKind, signal};
         let Ok(mut hup) = signal(SignalKind::hangup()) else {
             return;
         };
         while hup.recv().await.is_some() {
             info!(
-                "a client applies config changes when it restarts; restart it to use the edited file"
+                "a {role} applies config changes when it restarts; restart it to use the edited file"
             );
         }
     });
 }
 
 #[cfg(not(unix))]
-fn ignore_hangup_on_client() {}
+fn ignore_hangup(_: &'static str) {}
 
 pub async fn reloader(
     path: PathBuf,

@@ -4,14 +4,13 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
 
+use super::export::{CLIENT, ConfigOutput, connect_address, load_server, pick_name, secret_text};
 use super::{InitOptions, Login, Prompter, ask_login, resolve_output, write_new};
 use crate::config::check::parse_host_port;
 use crate::config::emit::render;
 use crate::config::env::EnvSource;
-use crate::config::tree::{self, Value as TreeValue};
-use crate::config::{Format, Loaded, Role, load_file};
+use crate::config::{Format, Role};
 use crate::failure::Failure;
-use crate::secret::Secret;
 
 pub fn client_value(server: &str, name: &str, secret_text: &str, allow: &[String]) -> Value {
     json!({
@@ -44,139 +43,21 @@ pub fn init_client(
     Ok(path)
 }
 
-pub struct ClientConfigOutput {
-    pub text: String,
-    pub notes: Vec<String>,
-}
-
 pub fn client_config(
     name: Option<&str>,
     server_config: &Path,
     server: Option<&str>,
     format: Format,
     env: &dyn EnvSource,
-) -> Result<ClientConfigOutput, Failure> {
-    let outcome = load_file(server_config, Some(Role::Server), env).map_err(|e| match &e {
-        crate::config::load::LoadError::Read(io) if io.kind() == std::io::ErrorKind::NotFound => {
-            Failure::usage(format!(
-                "server config {} does not exist",
-                server_config.display()
-            ))
-            .hint(format!(
-                "pass the server config with -c, or create one with: {}",
-                crate::failure::cmd("init server")
-            ))
-        }
-        _ => {
-            let (m, h) = e.describe(server_config);
-            Failure::new(m).hint(h)
-        }
-    })?;
-    let Some(Loaded::Server(settings, _)) = outcome.loaded else {
-        return Err(
-            Failure::new(format!("{} has errors", server_config.display())).hint(format!(
-                "see them with: {} validate -c {}",
-                crate::failure::command(),
-                server_config.display()
-            )),
-        );
-    };
+) -> Result<ConfigOutput, Failure> {
+    let settings = load_server(server_config, env)?;
     let names: Vec<&str> = settings.clients.keys().map(String::as_str).collect();
-    let name = match (name, names.as_slice()) {
-        (Some(n), _) => n,
-        (None, [only]) => only,
-        (None, []) => {
-            return Err(
-                Failure::new(format!("{} defines no clients", server_config.display())).hint(
-                    format!(
-                        "add one under \"clients\", with a secret from: {} gensecret",
-                        crate::failure::command()
-                    ),
-                ),
-            );
-        }
-        (None, _) => {
-            let mut example = format!(
-                "{} client-config {} -c {}",
-                crate::failure::command(),
-                names[0],
-                server_config.display()
-            );
-            if let Some(s) = server {
-                example.push_str(&format!(" --server {s}"));
-            }
-            return Err(Failure::usage(format!(
-                "{} defines {} clients; which one?",
-                server_config.display(),
-                names.len()
-            ))
-            .hint(format!(
-                "pass its name, for example: {example} (defined clients: {})",
-                names.join(", ")
-            )));
-        }
-    };
-    let Some(_) = settings.clients.get(name) else {
-        let hint = match crate::suggest::closest(name, names.iter().copied()) {
-            Some(s) => format!(
-                "did you mean \"{s}\"? defined clients: {}",
-                names.join(", ")
-            ),
-            None => format!("defined clients: {}", names.join(", ")),
-        };
-        return Err(Failure::new(format!(
-            "no client named \"{name}\" in {}",
-            server_config.display()
-        ))
-        .hint(hint));
-    };
-    let shown = server_config.display();
-    let (given, from) = match server.map(str::trim).filter(|s| !s.is_empty()) {
-        Some(s) => (s.to_string(), "--server"),
-        None => match &settings.public_address {
-            Some(p) => (p.clone(), "public_address"),
-            None => {
-                let port = settings
-                    .listen
-                    .map(|l| format!(" (the port, {}, comes from listen)", l.port()))
-                    .unwrap_or_default();
-                return Err(Failure::usage(
-                    "client-config needs the address clients connect to",
-                )
-                .hint(format!(
-                    "pass --server myserver.example.com, or add \"public_address: myserver.example.com\" to {shown}{port}"
-                )));
-            }
-        },
-    };
+    let name = pick_name(CLIENT, name, &names, server_config, server)?;
+    let name = name.as_str();
     let mut notes = Vec::new();
-    let server = crate::config::address::client_address(
-        &given,
-        settings.listen,
-        settings.websocket.as_ref().map(Into::into),
-        &mut notes,
-    )
-    .map_err(|e| Failure::usage(format!("invalid {from}: {}", e.message)).hint(e.hint))?
-    .to_string();
+    let server = connect_address(CLIENT, &settings, server, server_config, &mut notes)?;
     let server = server.as_str();
-
-    let raw = std::fs::read_to_string(server_config).unwrap_or_default();
-    let raw_secret = tree::parse(&raw).ok().and_then(|root| {
-        let node = root.get("clients")?.get(name)?.get("secret")?.clone();
-        match node.value {
-            TreeValue::Str(s) => Some(s),
-            TreeValue::Seq(items) => items.last().and_then(|n| n.as_str().map(str::to_string)),
-            _ => None,
-        }
-    });
-    let secret_text = match raw_secret {
-        Some(s) if s.contains("${") => s,
-        _ => settings.clients[name]
-            .secrets
-            .last()
-            .map(Secret::encode)
-            .unwrap_or_default(),
-    };
+    let secret_text = secret_text(CLIENT, server_config, name, &settings.clients[name].secrets);
 
     let mut allow = Vec::new();
     for (svc_name, svc) in settings.services.iter().filter(|(_, s)| s.client == name) {
@@ -213,7 +94,7 @@ pub fn client_config(
     if settings.insecure_plaintext {
         value["insecure_plaintext"] = Value::Bool(true);
     }
-    Ok(ClientConfigOutput {
+    Ok(ConfigOutput {
         text: render(&value, format),
         notes,
     })

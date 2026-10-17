@@ -79,6 +79,7 @@ pub fn init_server(opts: &InitOptions, out: &mut dyn Write) -> Result<PathBuf, F
                 s,
                 listen,
                 ws.as_ref().map(WebSocketChoice::shape),
+                "clients",
                 &mut Vec::new(),
             )
             .map_err(|e| Failure::usage(format!("invalid --server: {}", e.message)).hint(e.hint))?;

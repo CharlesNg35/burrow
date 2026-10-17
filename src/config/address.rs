@@ -90,6 +90,7 @@ pub fn client_address(
     given: &str,
     listen: Option<SocketAddr>,
     websocket: Option<WsShape<'_>>,
+    who: &str,
     notes: &mut Vec<String>,
 ) -> Result<Endpoint, AddressError> {
     let given = given.trim();
@@ -169,10 +170,10 @@ pub fn client_address(
             ));
         }
         Some(Reach::ThisMachine) => notes.push(format!(
-            "{host} is this machine: only clients running on it can connect"
+            "{host} is this machine: only {who} running on it can connect"
         )),
         Some(Reach::LocalNetwork) => notes.push(format!(
-            "{host} is a private address: only clients on the same network or VPN can connect"
+            "{host} is a private address: only {who} on the same network or VPN can connect"
         )),
         None => {}
     }
@@ -185,8 +186,14 @@ mod tests {
 
     fn tcp(given: &str, listen: &str) -> Result<(String, Vec<String>), AddressError> {
         let mut notes = Vec::new();
-        client_address(given, Some(listen.parse().unwrap()), None, &mut notes)
-            .map(|e| (e.to_string(), notes))
+        client_address(
+            given,
+            Some(listen.parse().unwrap()),
+            None,
+            "clients",
+            &mut notes,
+        )
+        .map(|e| (e.to_string(), notes))
     }
 
     #[test]

@@ -63,6 +63,7 @@ pub fn check_server(
             text,
             listen,
             websocket.as_ref().map(Into::into),
+            "clients",
             &mut Vec::new(),
         )
     {

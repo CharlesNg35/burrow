@@ -124,7 +124,7 @@ pub(super) async fn check(dialer: Arc<Dialer>, forwards: Vec<(String, VisitTarge
     }
     if ready {
         info!(
-            "connected to {} as visitor \"{}\"",
+            "the server at {} accepts visitor \"{}\"; forwards are ready",
             dialer.server, dialer.name
         );
     }

@@ -82,6 +82,107 @@ fn ask_role() -> Result<RoleArg, Failure> {
     )
 }
 
+type Export = fn(
+    Option<&str>,
+    &std::path::Path,
+    Option<&str>,
+    Format,
+    &dyn burrow::config::env::EnvSource,
+) -> Result<burrow::init::ConfigOutput, Failure>;
+
+fn export(
+    make: Export,
+    name: Option<&str>,
+    args: burrow::cli::ExportArgs,
+    role: &str,
+    err_style: Style,
+) -> Result<u8, Failure> {
+    let path = config_path(args.config, Some(Role::Server))?;
+    let file_format = burrow::init::output_format(args.format.map(format), args.output.as_deref())?;
+    let r = make(
+        name,
+        &path,
+        args.server.as_deref(),
+        file_format,
+        &ProcessEnv,
+    )?;
+    match &args.output {
+        Some(out) => {
+            burrow::init::write_new(out, &r.text, args.force)?;
+            eprintln!("wrote {}; copy it to the {role} machine", out.display());
+        }
+        None => print(&r.text)?,
+    }
+    for n in r.notes {
+        eprintln!(
+            "{} {n}",
+            if err_style.color {
+                "\x1b[1;33mnote:\x1b[0m"
+            } else {
+                "note:"
+            }
+        );
+    }
+    Ok(0)
+}
+
+fn visit_pick(args: burrow::cli::VisitArgs) -> Result<burrow::visitor::Pick, Failure> {
+    use burrow::config::model::{Bind, Target};
+    use burrow::protocol::VisitTarget;
+    use burrow::visitor::Pick;
+    let local = match &args.local {
+        Some(l) => Some(
+            burrow::config::check::parse_local(&Bind::Addr(l.clone())).map_err(|e| {
+                Failure::usage(format!("invalid --local: {e}"))
+                    .hint("use a port like 5432 (on 127.0.0.1), or ip:port like 127.0.0.1:5432")
+            })?,
+        ),
+        None => None,
+    };
+    let name_ok = |flag: &str, name: &str| {
+        if burrow::config::check::valid_name(name) {
+            Ok(())
+        } else {
+            Err(Failure::usage(format!("invalid {flag} \"{name}\""))
+                .hint("use 1-64 letters, digits, \"-\", \"_\" or \".\""))
+        }
+    };
+    let adhoc = match (args.service, args.client, args.target) {
+        (Some(service), _, _) => {
+            name_ok("--service", &service)?;
+            Some(VisitTarget::Service(service))
+        }
+        (None, Some(client), Some(target)) => {
+            name_ok("--client", &client)?;
+            let target = Target::Addr(target).host_port();
+            burrow::config::check::parse_host_port(&target).map_err(|e| {
+                Failure::usage(format!("invalid --target: {e}"))
+                    .hint("use host:port as seen from the client, for example 127.0.0.1:22, or a port alone like 22")
+            })?;
+            Some(VisitTarget::Client { client, target })
+        }
+        _ => None,
+    };
+    Ok(match (adhoc, args.forward, local) {
+        (Some(to), _, Some(local)) => Pick::Adhoc { to, local },
+        (Some(_), _, None) => {
+            return Err(Failure::usage("--service and --client need --local PORT"));
+        }
+        (None, Some(name), local) => Pick::Forward { name, local },
+        (None, None, None) => Pick::All,
+        (None, None, Some(_)) => {
+            return Err(
+                Failure::usage("--local needs a forward name, --service or --client").hint(
+                    format!(
+                        "for example: {}",
+                        burrow::failure::cmd("visit db --local 5433")
+                    ),
+                ),
+            );
+        }
+    })
+}
+
 fn service(action: ServiceAction, logging: burrow::run::Logging) -> Result<u8, Failure> {
     use burrow::service;
     let mut out = std::io::stdout().lock();
@@ -214,42 +315,30 @@ fn run(cli: Cli) -> Result<u8, Failure> {
             };
             Ok(0)
         }
-        Command::ClientConfig(args) => {
-            let path = config_path(args.config, Some(Role::Server))?;
-            let file_format =
-                burrow::init::output_format(args.format.map(format), args.output.as_deref())?;
-            let r = burrow::init::client_config(
-                args.name.as_deref(),
-                &path,
-                args.server.as_deref(),
-                file_format,
-                &ProcessEnv,
-            )?;
-            match &args.output {
-                Some(out) => {
-                    burrow::init::write_new(out, &r.text, args.force)?;
-                    eprintln!("wrote {}; copy it to the client machine", out.display());
-                }
-                None => print(&r.text)?,
-            }
-            for n in r.notes {
-                eprintln!(
-                    "{} {n}",
-                    if err_style.color {
-                        "\x1b[1;33mnote:\x1b[0m"
-                    } else {
-                        "note:"
-                    }
-                );
-            }
-            Ok(0)
-        }
+        Command::ClientConfig(args) => export(
+            burrow::init::client_config,
+            args.name.as_deref(),
+            args.export,
+            "client",
+            err_style,
+        ),
+        Command::VisitorConfig(args) => export(
+            burrow::init::visitor_config,
+            args.name.as_deref(),
+            args.export,
+            "visitor",
+            err_style,
+        ),
         Command::Service { action } => service(action, logging),
         Command::Server(args) => {
             burrow::run::server(&config_path(args.config, Some(Role::Server))?, logging)
         }
         Command::Client(args) => {
             burrow::run::client(&config_path(args.config, Some(Role::Client))?, logging)
+        }
+        Command::Visit(args) => {
+            let path = config_path(args.config.clone(), Some(Role::Visitor))?;
+            burrow::run::visit(&path, logging, visit_pick(args)?)
         }
     }
 }

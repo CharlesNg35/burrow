@@ -67,7 +67,7 @@ impl LoadError {
             LoadError::Read(e) if e.kind() == std::io::ErrorKind::NotFound => (
                 format!("config file {} does not exist", path.display()),
                 format!(
-                    "check the path, or create one with: {0} init server  (or: {0} init client)",
+                    "check the path, or create one with: {0} init server  (or: {0} init client, {0} init visitor)",
                     crate::failure::command()
                 ),
             ),

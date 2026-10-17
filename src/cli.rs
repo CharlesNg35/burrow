@@ -68,12 +68,16 @@ pub enum Command {
     Server(RunArgs),
     #[command(about = "Run the client behind NAT")]
     Client(RunArgs),
+    #[command(about = "Forward local ports to private services through the server")]
+    Visit(VisitArgs),
     #[command(about = "Check a config file and report every problem")]
     Validate(ValidateArgs),
     #[command(about = "Write a new server, client or visitor config")]
     Init(InitArgs),
     #[command(about = "Print a ready client config for a client defined in the server config")]
     ClientConfig(ClientConfigArgs),
+    #[command(about = "Print a ready visitor config for a visitor defined in the server config")]
+    VisitorConfig(VisitorConfigArgs),
     #[command(about = "Print a new random 256-bit secret")]
     Gensecret,
     #[command(about = "Print the JSON Schema of a config file")]
@@ -198,6 +202,46 @@ pub struct RunArgs {
 }
 
 #[derive(Debug, Args)]
+pub struct VisitArgs {
+    #[arg(
+        value_name = "FORWARD",
+        conflicts_with_all = ["service", "client"],
+        help = "Run only this forward from the config; all of them when omitted"
+    )]
+    pub forward: Option<String>,
+    #[arg(short, long, help = "Visitor config file; ./visitor.yaml when omitted")]
+    pub config: Option<PathBuf>,
+    #[arg(
+        long,
+        value_name = "NAME",
+        conflicts_with = "client",
+        requires = "local",
+        help = "Reach this private service instead of the forwards in the config"
+    )]
+    pub service: Option<String>,
+    #[arg(
+        long,
+        value_name = "NAME",
+        requires_all = ["target", "local"],
+        help = "Reach a target on this client directly (needs reach on the server)"
+    )]
+    pub client: Option<String>,
+    #[arg(
+        long,
+        value_name = "HOST:PORT",
+        requires = "client",
+        help = "Target as seen from the client, or a port alone for 127.0.0.1"
+    )]
+    pub target: Option<String>,
+    #[arg(
+        long,
+        value_name = "PORT",
+        help = "Local port to listen on (127.0.0.1), or ip:port"
+    )]
+    pub local: Option<String>,
+}
+
+#[derive(Debug, Args)]
 pub struct ValidateArgs {
     #[arg(
         short,
@@ -304,19 +348,35 @@ pub struct InitArgs {
 pub struct ClientConfigArgs {
     #[arg(help = "Client name as defined in the server config; optional when it defines only one")]
     pub name: Option<String>,
+    #[command(flatten)]
+    pub export: ExportArgs,
+}
+
+#[derive(Debug, Args)]
+pub struct VisitorConfigArgs {
+    #[arg(
+        help = "Visitor name as defined in the server config; optional when it defines only one"
+    )]
+    pub name: Option<String>,
+    #[command(flatten)]
+    pub export: ExportArgs,
+}
+
+#[derive(Debug, Args)]
+pub struct ExportArgs {
     #[arg(short, long, help = "Server config file; ./server.yaml when omitted")]
     pub config: Option<PathBuf>,
     #[arg(
         long,
         value_name = "HOST",
-        help = "Host name or IP clients connect to; port from listen [default: public_address in the server config]"
+        help = "Host name or IP of this server; port from listen [default: public_address in the server config]"
     )]
     pub server: Option<String>,
     #[arg(
         short,
         long,
         value_name = "FILE",
-        help = "Write the client config to this file (readable by you only) instead of printing it"
+        help = "Write the config to this file (readable by you only) instead of printing it"
     )]
     pub output: Option<PathBuf>,
     #[arg(long, requires = "output", help = "Overwrite the -o file if it exists")]
