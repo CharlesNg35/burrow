@@ -236,6 +236,7 @@ impl Client {
         }
 
         let opening = Arc::new(Semaphore::new(MAX_OPENING));
+        let _ended = CloseOnDrop(opening.clone());
         let timeout = heartbeat * 3;
         loop {
             let msg = match tokio::time::timeout(timeout, reader.recv(&mut rd)).await {
@@ -335,31 +336,43 @@ impl Client {
         let started = Instant::now();
         let mut backoff = Backoff::new(Duration::from_millis(100), Duration::from_secs(1));
         loop {
-            let permit = opening.clone().acquire_owned().await;
+            let Ok(permit) = opening.clone().acquire_owned().await else {
+                return;
+            };
             let hello = Hello::Data {
                 version: VERSION,
                 token,
             };
-            let ch = self.open(ChannelKind::Data, hello).await;
+            let ch = self.dialer.open(ChannelKind::Data, hello).await;
             drop(permit);
             match ch {
                 Ok(ch) => {
                     data::serve(self.settings.clone(), self.dialer.resolver.clone(), ch).await;
                     return;
                 }
-                Err(_) if started.elapsed() < DATA_PATIENCE => {
+                Err(DialError::Rejected | DialError::Lost(_))
+                    if started.elapsed() < DATA_PATIENCE =>
+                {
                     tokio::time::sleep(backoff.next_delay()).await;
                 }
-                Err(SessionEnd::Lost(why)) => {
+                Err(DialError::Lost(why) | DialError::Unreachable(why)) => {
                     debug!("data channel: {why}");
                     return;
                 }
-                Err(_) => {
+                Err(DialError::Rejected) => {
                     debug!("data channel rejected");
                     return;
                 }
             }
         }
+    }
+}
+
+struct CloseOnDrop(Arc<Semaphore>);
+
+impl Drop for CloseOnDrop {
+    fn drop(&mut self) {
+        self.0.close();
     }
 }
 

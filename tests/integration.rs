@@ -707,3 +707,33 @@ async fn the_client_connection_limit_holds_under_a_burst() {
     );
     assert!(!open.is_empty());
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_burst_on_a_public_service_wider_than_the_handshake_limit_still_gets_through() {
+    let echo = echo_server().await;
+    let secret = Secret::generate();
+    let mut settings = server_settings(vec![secret.clone()]);
+    settings.max_handshakes = 2;
+    let t = tunnel_with(
+        settings,
+        vec![("web", service(echo, Protocol::Tcp))],
+        |c| c,
+        secret,
+    )
+    .await;
+    let addr = t.server.services["web"];
+    let mut tasks = tokio::task::JoinSet::new();
+    for i in 0..60u64 {
+        tasks.spawn(async move {
+            let data = pattern(2_000, i);
+            assert_eq!(roundtrip(addr, &data).await, data);
+        });
+    }
+    while let Some(r) = tasks.join_next().await {
+        r.unwrap();
+    }
+    assert!(
+        t.server.shared.status().handshakes_refused > 0,
+        "the burst should have hit the limit"
+    );
+}
