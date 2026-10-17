@@ -376,7 +376,7 @@ async fn bind_service(name: &str, svc: &Service) -> Result<Vec<(u16, Bound)>, Fa
             Protocol::Tcp => crate::transport::tcp::bind_tcp(addr)
                 .map(Bound::Tcp)
                 .map_err(|e| bind_error(&what, Protocol::Tcp, addr, &e))?,
-            Protocol::Udp => UdpSocket::bind(addr)
+            Protocol::Udp => crate::transport::udp::bind_udp(addr)
                 .await
                 .map(Bound::Udp)
                 .map_err(|e| bind_error(&what, Protocol::Udp, addr, &e))?,

@@ -53,7 +53,7 @@ async fn connected_socket(target: SocketAddr) -> Option<Arc<UdpSocket>> {
     } else {
         (std::net::Ipv6Addr::UNSPECIFIED, 0).into()
     };
-    let sock = UdpSocket::bind(bind).await.ok()?;
+    let sock = crate::transport::udp::bind_udp(bind).await.ok()?;
     sock.connect(target).await.ok()?;
     Some(Arc::new(sock))
 }
