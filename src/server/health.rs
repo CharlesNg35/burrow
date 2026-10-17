@@ -128,11 +128,25 @@ async fn probe(shared: &Shared, service: &str, client: &str, target: &str) -> Re
         .send(&mut ch.stream, &connect.encode())
         .await
         .map_err(|e| format!("cannot reach the client: {e}"))?;
+    let settings = shared.settings();
+    let raw = settings.insecure_plaintext && ch.stream.supports_half_close();
+    if let Some(version) = settings
+        .services
+        .get(service)
+        .and_then(|s| s.proxy_protocol)
+    {
+        let header = crate::proxy_protocol::local(version);
+        let sent = if raw {
+            ch.stream.write_all(&header).await
+        } else {
+            ch.writer.send(&mut ch.stream, &header).await
+        };
+        sent.map_err(|e| format!("cannot reach the client: {e}"))?;
+    }
     let answer = match ch.reader.recv(&mut ch.stream).await {
         Ok(Some(b)) => Status::decode(b).map_err(|_| "invalid reply".to_string())?,
         _ => return Err("the client closed the check".into()),
     };
-    let raw = shared.settings().insecure_plaintext && ch.stream.supports_half_close();
     if raw {
         let _ = ch.stream.shutdown().await;
     } else {

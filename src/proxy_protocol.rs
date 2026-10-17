@@ -64,6 +64,17 @@ pub fn header(version: Version, src: SocketAddr, dst: SocketAddr) -> Vec<u8> {
     }
 }
 
+pub fn local(version: Version) -> Vec<u8> {
+    match version {
+        Version::V1 => b"PROXY UNKNOWN\r\n".to_vec(),
+        Version::V2 => {
+            let mut out = V2_SIGNATURE.to_vec();
+            out.extend_from_slice(&[0x20, 0x00, 0, 0]);
+            out
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -92,6 +103,14 @@ mod tests {
             b"PROXY TCP6 ::ffff:81.2.3.4 2001:db8::5 1 2\r\n",
             "mixed families are both sent as IPv6"
         );
+    }
+
+    #[test]
+    fn local_headers_carry_no_address() {
+        assert_eq!(local(Version::V1), b"PROXY UNKNOWN\r\n");
+        let v2 = local(Version::V2);
+        assert_eq!(&v2[..12], &V2_SIGNATURE);
+        assert_eq!(&v2[12..], &[0x20, 0x00, 0, 0]);
     }
 
     #[test]
