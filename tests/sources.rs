@@ -74,8 +74,16 @@ async fn reload_closes_connections_from_sources_no_longer_allowed() {
     next.services
         .insert("web".into(), filtered(web.clone(), &[], &["127.0.0.0/8"]));
     t.server.reload(next.clone()).await;
+    let mut refused = false;
+    for _ in 0..50 {
+        if !reaches(web_addr).await {
+            refused = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    assert!(refused, "new connections must be refused after the reload");
     assert_cut(cut).await;
-    assert!(!reaches(web_addr).await);
     kept.write_all(b"ping").await.unwrap();
     let mut buf = [0u8; 4];
     kept.read_exact(&mut buf).await.unwrap();
