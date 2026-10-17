@@ -166,6 +166,9 @@ fn put_str(v: &mut Vec<u8>, s: &str) {
 }
 
 fn ranged_target(target: &str, ports: u16) -> String {
+    if crate::config::check::unix::path_of(target).is_some() {
+        return target.to_string();
+    }
     match target.rsplit_once(':') {
         Some((host, port)) if ports > 1 => match port.parse::<u16>() {
             Ok(first) => format!("{host}:{}", crate::config::check::ports::show(first, ports)),
@@ -176,9 +179,11 @@ fn ranged_target(target: &str, ports: u16) -> String {
 }
 
 fn split_ranged(target: String) -> (String, u16) {
-    if let Some((host, ports)) = target.rsplit_once(':')
+    if crate::config::check::unix::path_of(&target).is_none()
+        && let Some((host, ports)) = target.rsplit_once(':')
         && let Some((a, b)) = ports.split_once('-')
         && let (Ok(first), Ok(last)) = (a.parse::<u16>(), b.parse::<u16>())
+        && first > 0
         && last > first
     {
         return (format!("{host}:{first}"), last - first + 1);
@@ -567,6 +572,23 @@ mod tests {
             .step_by(2)
             .map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
             .collect()
+    }
+
+    #[test]
+    fn only_real_port_ranges_are_read_from_a_target() {
+        let split = |t: &str| split_ranged(t.to_string());
+        assert_eq!(split("10.0.0.1:30000-30010"), ("10.0.0.1:30000".into(), 11));
+        assert_eq!(split("[::1]:1-3"), ("[::1]:1".into(), 3));
+        assert_eq!(split("my-host:7-9"), ("my-host:7".into(), 3));
+        assert_eq!(split("host:80-80"), ("host:80-80".into(), 1));
+        assert_eq!(split("host:0-65535"), ("host:0-65535".into(), 1));
+        assert_eq!(split("host:1-65535"), ("host:1".into(), 65535));
+        assert_eq!(
+            split("unix:/run/app:10-20"),
+            ("unix:/run/app:10-20".into(), 1)
+        );
+        assert_eq!(ranged_target("unix:/run/app:10", 5), "unix:/run/app:10");
+        assert_eq!(ranged_target("10.0.0.1:30000", 11), "10.0.0.1:30000-30010");
     }
 
     #[test]
