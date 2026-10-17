@@ -458,21 +458,6 @@ For a self-signed certificate, copy it to the client and trust it there with `ca
 
 `burrow status` shows every burrow server running on the machine, however it was started: by hand, by your own systemd unit, or with `burrow service install`. It needs no config and no metrics.
 
-```
-$ sudo burrow status
-burrow 0.2.0  ·  up 3 d 4 h  ·  clients on tcp 0.0.0.0:7835
-
-CLIENTS  1/2 connected
-  NAME    STATE      SINCE           FROM            OPEN  IDLE
-  home    connected  2 h 13 min      81.2.3.4:51234     3     4
-  office  offline    left 5 min ago                     0     0
-
-SERVICES
-  NAME  PROTO  ADDRESS      TARGET          CLIENTS                  OPEN  TOTAL  REFUSED      IN     OUT
-  web   tcp    0.0.0.0:443  127.0.0.1:8443  home up, office offline    12    153        1  1.2 GB  8.4 GB
-  web: balance, limit 40mbit, proxy protocol v2, source filter
-```
-
 ```sh
 sudo burrow status               # every server on the machine
 sudo burrow status burrow-server # only this installed service
@@ -483,6 +468,32 @@ burrow status --json             # the raw data, for scripts
 ```
 
 A server installed as a service needs `sudo` (an administrator terminal on Windows). Clients and visitors have no status: use `burrow service status`.
+
+<details>
+<summary><b>Example output</b></summary>
+
+```
+$ sudo burrow status
+burrow 0.2.0  ·  up 3 d 4 h  ·  clients on tcp 0.0.0.0:7835
+
+CLIENTS  1/2 connected
+╭────────┬─────────────┬────────────────┬────────────────┬──────┬──────╮
+│ NAME   │ STATE       │ SINCE          │ FROM           │ OPEN │ IDLE │
+├────────┼─────────────┼────────────────┼────────────────┼──────┼──────┤
+│ home   │ ● connected │ 2 h 13 min     │ 81.2.3.4:51234 │    3 │    4 │
+│ office │ ○ offline   │ left 5 min ago │                │    0 │    0 │
+╰────────┴─────────────┴────────────────┴────────────────┴──────┴──────╯
+
+SERVICES
+╭──────┬───────┬─────────────┬────────────────┬─────────────────────────┬──────┬───────┬─────────┬────────┬────────╮
+│ NAME │ PROTO │ ADDRESS     │ TARGET         │ CLIENTS                 │ OPEN │ TOTAL │ REFUSED │     IN │    OUT │
+├──────┼───────┼─────────────┼────────────────┼─────────────────────────┼──────┼───────┼─────────┼────────┼────────┤
+│ web  │ tcp   │ 0.0.0.0:443 │ 127.0.0.1:8443 │ home up, office offline │   12 │   153 │       1 │ 1.2 GB │ 8.4 GB │
+╰──────┴───────┴─────────────┴────────────────┴─────────────────────────┴──────┴───────┴─────────┴────────┴────────╯
+  web: balance, limit 5.0 MB/s, proxy protocol v2, source filter
+```
+
+</details>
 
 **Prometheus.** Metrics are off unless you turn them on in `server.yaml`:
 
