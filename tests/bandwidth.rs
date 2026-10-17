@@ -326,7 +326,7 @@ async fn services_are_unlimited_unless_bandwidth_is_set() {
     assert_eq!(web.bandwidth, None, "no bandwidth unless configured");
     let t = tunnel_with(settings.clone(), vec![("web", web.clone())], |c| c, secret).await;
     let addr = t.server.services["web"];
-    assert_eq!(t.server.shared.status().services[0].limit, None);
+    assert_eq!(t.server.shared.status().services[0].bandwidth, None);
     let fast = timed_roundtrip(addr, 4_000_000, 7).await;
     assert!(
         fast < Duration::from_secs(2),
@@ -337,7 +337,7 @@ async fn services_are_unlimited_unless_bandwidth_is_set() {
     next.services.insert("web".into(), limited(web.clone()));
     t.server.reload(next).await;
     for _ in 0..50 {
-        if t.server.shared.status().services[0].limit.is_some() {
+        if t.server.shared.status().services[0].bandwidth.is_some() {
             break;
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
@@ -352,7 +352,7 @@ async fn services_are_unlimited_unless_bandwidth_is_set() {
     next.services.insert("web".into(), web);
     t.server.reload(next).await;
     for _ in 0..50 {
-        if t.server.shared.status().services[0].limit.is_none() {
+        if t.server.shared.status().services[0].bandwidth.is_none() {
             break;
         }
         tokio::time::sleep(Duration::from_millis(50)).await;

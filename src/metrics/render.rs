@@ -240,7 +240,7 @@ mod tests {
                 target: "127.0.0.1:8443".into(),
                 clients: vec!["home".into(), "office".into()],
                 mode: None,
-                limit: None,
+                bandwidth: None,
                 visitors: vec![],
                 proxy_protocol: None,
                 filtered: false,

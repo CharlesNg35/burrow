@@ -101,13 +101,13 @@ fn status_works_without_a_metrics_endpoint() {
     );
     assert!(out.contains("CLIENTS  0/1 connected"), "{out}");
     assert!(out.contains("home  offline  never seen"), "{out}");
-    assert!(out.contains("web: limit 40mbit"), "{out}");
+    assert!(out.contains("web: limit 5.0 MB/s"), "{out}");
     let o = status(&instances, &["-c", config.to_str().unwrap(), "--json"]);
     let list: Vec<serde_json::Value> = serde_json::from_slice(&o.stdout).unwrap();
     assert_eq!(list.len(), 1);
     let s: Status = serde_json::from_value(list[0]["status"].clone()).unwrap();
     assert_eq!(s.services[0].name, "web");
-    assert_eq!(s.services[0].limit.as_deref(), Some("40mbit"));
+    assert_eq!(s.services[0].bandwidth, Some(5_000_000));
 }
 
 #[test]

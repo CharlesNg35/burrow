@@ -131,7 +131,7 @@ pub struct ServiceStatus {
     #[serde(default)]
     pub mode: Option<String>,
     #[serde(default)]
-    pub limit: Option<String>,
+    pub bandwidth: Option<u64>,
     #[serde(default)]
     pub visitors: Vec<String>,
     #[serde(default)]

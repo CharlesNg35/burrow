@@ -193,6 +193,7 @@ pub fn run_in(dir: &Path, opts: Options, out: &mut dyn Write) -> Result<u8, Fail
     let tty = std::io::stdout().is_terminal();
     let paint = Paint {
         color: tty && crate::diagnostics::Style::detect(true).color,
+        boxed: tty && !opts.json,
     };
     let write = |out: &mut dyn Write, text: &str| {
         out.write_all(text.as_bytes())

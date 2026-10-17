@@ -9,125 +9,155 @@ pub enum Tone {
     Plain,
     Good,
     Bad,
+    Warn,
+    Accent,
     Dim,
+    Bold,
 }
 
 #[derive(Debug, Clone, Copy)]
 pub struct Paint {
     pub color: bool,
+    pub boxed: bool,
 }
 
 impl Paint {
+    pub const PLAIN: Paint = Paint {
+        color: false,
+        boxed: false,
+    };
+
     fn tone(self, text: &str, tone: Tone) -> String {
         let code = match (self.color, tone) {
             (false, _) | (_, Tone::Plain) => return text.to_string(),
             (_, Tone::Good) => "32",
             (_, Tone::Bad) => "31",
+            (_, Tone::Warn) => "33",
+            (_, Tone::Accent) => "36",
             (_, Tone::Dim) => "2",
+            (_, Tone::Bold) => "1",
         };
         format!("\x1b[{code}m{text}\x1b[0m")
     }
 
     fn bold(self, text: &str) -> String {
-        if self.color {
-            format!("\x1b[1m{text}\x1b[0m")
-        } else {
-            text.to_string()
+        self.tone(text, Tone::Bold)
+    }
+
+    fn state(self, word: &str, up: bool) -> Cell {
+        let tone = if up { Tone::Good } else { Tone::Bad };
+        match (self.boxed, up) {
+            (false, _) => toned(word, tone),
+            (true, true) => toned(format!("● {word}"), tone),
+            (true, false) => toned(format!("○ {word}"), tone),
         }
     }
 }
 
 struct Cell {
-    text: String,
-    tone: Tone,
+    parts: Vec<(String, Tone)>,
     right: bool,
 }
 
-fn cell(text: impl Into<String>) -> Cell {
-    Cell {
-        text: text.into(),
-        tone: Tone::Plain,
-        right: false,
+impl Cell {
+    fn width(&self) -> usize {
+        self.parts.iter().map(|(t, _)| t.chars().count()).sum()
     }
-}
 
-fn num(n: u64) -> Cell {
-    Cell {
-        text: n.to_string(),
-        tone: if n == 0 { Tone::Dim } else { Tone::Plain },
-        right: true,
-    }
-}
-
-fn right(text: impl Into<String>) -> Cell {
-    Cell {
-        right: true,
-        ..cell(text)
+    fn painted(&self, paint: Paint) -> String {
+        self.parts
+            .iter()
+            .map(|(t, tone)| paint.tone(t, *tone))
+            .collect()
     }
 }
 
 fn toned(text: impl Into<String>, tone: Tone) -> Cell {
-    Cell { tone, ..cell(text) }
+    Cell {
+        parts: vec![(text.into(), tone)],
+        right: false,
+    }
+}
+
+fn cell(text: impl Into<String>) -> Cell {
+    toned(text, Tone::Plain)
+}
+
+fn num(n: u64) -> Cell {
+    Cell {
+        right: true,
+        ..toned(n.to_string(), if n == 0 { Tone::Dim } else { Tone::Plain })
+    }
+}
+
+fn right(text: impl Into<String>, tone: Tone) -> Cell {
+    Cell {
+        right: true,
+        ..toned(text, tone)
+    }
 }
 
 fn table(out: &mut String, paint: Paint, title: &str, headers: &[&str], rows: Vec<Vec<Cell>>) {
-    let _ = writeln!(out, "\n{}", paint.bold(title));
+    let _ = writeln!(out, "\n{title}");
     let mut widths: Vec<usize> = headers.iter().map(|h| h.chars().count()).collect();
     for row in &rows {
         for (i, c) in row.iter().enumerate() {
-            widths[i] = widths[i].max(c.text.chars().count());
+            widths[i] = widths[i].max(c.width());
         }
     }
     let aligned: Vec<bool> = (0..headers.len())
         .map(|i| rows.first().is_some_and(|r| r[i].right))
         .collect();
-    let line = |cells: Vec<(String, usize, bool)>| {
-        let mut s = String::from(" ");
-        for (text, width, right_aligned) in cells {
-            let pad = width.saturating_sub(strip(&text).chars().count());
-            s.push(' ');
-            if right_aligned {
-                s.push_str(&" ".repeat(pad));
-                s.push_str(&text);
-            } else {
-                s.push_str(&text);
-                s.push_str(&" ".repeat(pad));
-            }
-            s.push(' ');
+    let pad = |text: String, width: usize, seen: usize, right_aligned: bool| {
+        let fill = " ".repeat(width.saturating_sub(seen));
+        if right_aligned {
+            format!("{fill}{text}")
+        } else {
+            format!("{text}{fill}")
         }
-        s.trim_end().to_string()
     };
-    let head = headers
+    let head: Vec<String> = headers
         .iter()
         .enumerate()
-        .map(|(i, h)| (paint.tone(h, Tone::Dim), widths[i], aligned[i]))
+        .map(|(i, h)| {
+            let tone = if paint.boxed { Tone::Bold } else { Tone::Dim };
+            pad(
+                paint.tone(h, tone),
+                widths[i],
+                h.chars().count(),
+                aligned[i],
+            )
+        })
         .collect();
-    let _ = writeln!(out, "{}", line(head));
-    for row in rows {
-        let cells = row
-            .into_iter()
-            .enumerate()
-            .map(|(i, c)| (paint.tone(&c.text, c.tone), widths[i], c.right))
-            .collect();
+    let body: Vec<Vec<String>> = rows
+        .iter()
+        .map(|row| {
+            row.iter()
+                .enumerate()
+                .map(|(i, c)| pad(c.painted(paint), widths[i], c.width(), c.right))
+                .collect()
+        })
+        .collect();
+    if !paint.boxed {
+        for cells in std::iter::once(&head).chain(&body) {
+            let line = format!("  {}", cells.join("  "));
+            let _ = writeln!(out, "{}", line.trim_end());
+        }
+        return;
+    }
+    let rule = |l: &str, m: &str, r: &str| {
+        let inner: Vec<String> = widths.iter().map(|w| "─".repeat(w + 2)).collect();
+        paint.tone(&format!("{l}{}{r}", inner.join(m)), Tone::Dim)
+    };
+    let bar = paint.tone("│", Tone::Dim);
+    let line = |cells: &Vec<String>| format!("{bar} {} {bar}", cells.join(&format!(" {bar} ")));
+    let _ = writeln!(out, "{}", rule("╭", "┬", "╮"));
+    let _ = writeln!(out, "{}", line(&head));
+    let _ = writeln!(out, "{}", rule("├", "┼", "┤"));
+    for cells in &body {
         let _ = writeln!(out, "{}", line(cells));
     }
-}
-
-fn strip(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    let mut chars = text.chars();
-    while let Some(c) = chars.next() {
-        if c == '\x1b' {
-            for c in chars.by_ref() {
-                if c == 'm' {
-                    break;
-                }
-            }
-        } else {
-            out.push(c);
-        }
-    }
-    out
+    let _ = writeln!(out, "{}", rule("╰", "┴", "╯"));
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
@@ -159,11 +189,15 @@ pub fn rates(before: &Status, after: &Status, secs: f64) -> Rates {
         .collect()
 }
 
-fn speed(bytes_per_sec: f64) -> String {
+fn amount(n: u64) -> Cell {
+    right(bytes(n), if n == 0 { Tone::Dim } else { Tone::Plain })
+}
+
+fn speed(bytes_per_sec: f64) -> Cell {
     if bytes_per_sec < 1.0 {
-        return "-".into();
+        return right("-", Tone::Dim);
     }
-    format!("{}/s", bytes(bytes_per_sec as u64))
+    right(format!("{}/s", bytes(bytes_per_sec as u64)), Tone::Accent)
 }
 
 pub fn render(s: &Status, paint: Paint, rates: Option<&Rates>) -> String {
@@ -173,7 +207,7 @@ pub fn render(s: &Status, paint: Paint, rates: Option<&Rates>) -> String {
         format!("up {}", duration(s.uptime_secs)),
     ];
     head.extend(s.listening.iter().cloned());
-    let _ = writeln!(out, "{}", head.join("  ·  "));
+    let _ = writeln!(out, "{}", head.join(&paint.tone("  ·  ", Tone::Dim)));
 
     let connected = s.clients.iter().filter(|c| c.connected).count();
     let rows = s
@@ -182,14 +216,17 @@ pub fn render(s: &Status, paint: Paint, rates: Option<&Rates>) -> String {
         .map(|c| {
             let (state, since) = match (c.connected, c.connected_secs, c.left_secs_ago) {
                 (true, secs, _) => (
-                    toned("connected", Tone::Good),
+                    paint.state("connected", true),
                     cell(secs.map(duration).unwrap_or_default()),
                 ),
                 (false, _, Some(ago)) => (
-                    toned("offline", Tone::Bad),
+                    paint.state("offline", false),
                     toned(format!("left {} ago", duration(ago)), Tone::Dim),
                 ),
-                (false, _, None) => (toned("offline", Tone::Bad), toned("never seen", Tone::Dim)),
+                (false, _, None) => (
+                    paint.state("offline", false),
+                    toned("never seen", Tone::Dim),
+                ),
             };
             vec![
                 cell(&c.name),
@@ -201,10 +238,18 @@ pub fn render(s: &Status, paint: Paint, rates: Option<&Rates>) -> String {
             ]
         })
         .collect();
+    let all_in = connected == s.clients.len();
     table(
         &mut out,
         paint,
-        &format!("CLIENTS  {connected}/{} connected", s.clients.len()),
+        &format!(
+            "{}  {}",
+            paint.bold("CLIENTS"),
+            paint.tone(
+                &format!("{connected}/{} connected", s.clients.len()),
+                if all_in { Tone::Good } else { Tone::Warn }
+            )
+        ),
         &["NAME", "STATE", "SINCE", "FROM", "OPEN", "IDLE"],
         rows,
     );
@@ -222,20 +267,22 @@ pub fn render(s: &Status, paint: Paint, rates: Option<&Rates>) -> String {
             .services
             .iter()
             .map(|v| {
-                let clients = if v.health.is_empty() {
-                    v.clients.join(", ")
-                } else {
-                    v.clients
-                        .iter()
-                        .map(|c| match v.health.iter().find(|h| &h.client == c) {
-                            Some(h) if h.up => format!("{c} up"),
-                            Some(_) => format!("{c} down"),
-                            None => format!("{c} offline"),
-                        })
-                        .collect::<Vec<_>>()
-                        .join(", ")
+                let mut clients = Cell {
+                    parts: Vec::new(),
+                    right: false,
                 };
-                let down = v.health.iter().any(|h| !h.up);
+                for (i, c) in v.clients.iter().enumerate() {
+                    if i > 0 {
+                        clients.parts.push((", ".into(), Tone::Plain));
+                    }
+                    let health = v.health.iter().find(|h| &h.client == c);
+                    clients.parts.push(match (v.health.is_empty(), health) {
+                        (true, _) => (c.clone(), Tone::Plain),
+                        (false, Some(h)) if h.up => (format!("{c} up"), Tone::Good),
+                        (false, Some(_)) => (format!("{c} down"), Tone::Bad),
+                        (false, None) => (format!("{c} offline"), Tone::Bad),
+                    });
+                }
                 let mut row = vec![
                     cell(&v.name),
                     cell(&v.protocol),
@@ -244,32 +291,32 @@ pub fn render(s: &Status, paint: Paint, rates: Option<&Rates>) -> String {
                         None => toned("private", Tone::Dim),
                     },
                     cell(&v.target),
-                    toned(clients, if down { Tone::Bad } else { Tone::Plain }),
+                    clients,
                     num(v.open),
                     num(v.total),
-                    Cell {
-                        tone: if v.refused > 0 { Tone::Bad } else { Tone::Dim },
-                        ..num(v.refused)
-                    },
-                    right(bytes(v.bytes_in)),
-                    right(bytes(v.bytes_out)),
+                    right(
+                        v.refused.to_string(),
+                        if v.refused > 0 { Tone::Warn } else { Tone::Dim },
+                    ),
+                    amount(v.bytes_in),
+                    amount(v.bytes_out),
                 ];
                 if let Some(rates) = rates {
                     let r = rates.get(&v.name).copied().unwrap_or_default();
-                    row.push(right(if r.conns_per_sec < 0.05 {
-                        "-".to_string()
+                    row.push(if r.conns_per_sec < 0.05 {
+                        right("-", Tone::Dim)
                     } else {
-                        format!("{:.1}", r.conns_per_sec)
-                    }));
-                    row.push(right(speed(r.in_per_sec)));
-                    row.push(right(speed(r.out_per_sec)));
+                        right(format!("{:.1}", r.conns_per_sec), Tone::Accent)
+                    });
+                    row.push(speed(r.in_per_sec));
+                    row.push(speed(r.out_per_sec));
                 }
                 let mut extra = Vec::new();
                 if let Some(m) = &v.mode {
                     extra.push(m.clone());
                 }
-                if let Some(l) = &v.limit {
-                    extra.push(format!("limit {l}"));
+                if let Some(b) = v.bandwidth {
+                    extra.push(format!("limit {}/s", bytes(b)));
                 }
                 if let Some(p) = &v.proxy_protocol {
                     extra.push(format!("proxy protocol {p}"));
@@ -286,7 +333,7 @@ pub fn render(s: &Status, paint: Paint, rates: Option<&Rates>) -> String {
                 row
             })
             .collect();
-        table(&mut out, paint, "SERVICES", &headers, rows);
+        table(&mut out, paint, &paint.bold("SERVICES"), &headers, rows);
         for n in notes {
             let _ = writeln!(out, "  {}", paint.tone(&n, Tone::Dim));
         }
@@ -301,15 +348,17 @@ pub fn render(s: &Status, paint: Paint, rates: Option<&Rates>) -> String {
         table(
             &mut out,
             paint,
-            "VISITORS",
+            &paint.bold("VISITORS"),
             &["NAME", "OPEN", "TOTAL"],
             rows,
         );
     }
 
     let mut footer = Vec::new();
-    if s.udp_peers > 0 {
-        footer.push(format!("{} UDP peers", s.udp_peers));
+    match s.udp_peers {
+        0 => {}
+        1 => footer.push("1 UDP peer".into()),
+        n => footer.push(format!("{n} UDP peers")),
     }
     if s.handshakes_refused > 0 {
         footer.push(format!(
@@ -318,7 +367,7 @@ pub fn render(s: &Status, paint: Paint, rates: Option<&Rates>) -> String {
         ));
     }
     if !footer.is_empty() {
-        let _ = writeln!(out, "\n{}", footer.join("  ·  "));
+        let _ = writeln!(out, "\n{}", paint.tone(&footer.join("  ·  "), Tone::Dim));
     }
     out
 }
@@ -327,6 +376,23 @@ pub fn render(s: &Status, paint: Paint, rates: Option<&Rates>) -> String {
 mod tests {
     use super::*;
     use crate::metrics::{ClientStatus, HealthStatus, ServiceStatus, VisitorStatus};
+
+    fn strip(text: &str) -> String {
+        let mut out = String::with_capacity(text.len());
+        let mut chars = text.chars();
+        while let Some(c) = chars.next() {
+            if c == '\x1b' {
+                for c in chars.by_ref() {
+                    if c == 'm' {
+                        break;
+                    }
+                }
+            } else {
+                out.push(c);
+            }
+        }
+        out
+    }
 
     pub(crate) fn sample() -> Status {
         Status {
@@ -363,7 +429,7 @@ mod tests {
                     target: "127.0.0.1:8443".into(),
                     clients: vec!["home".into(), "office".into()],
                     mode: Some("balance".into()),
-                    limit: Some("40mbit".into()),
+                    bandwidth: Some(5_000_000),
                     visitors: vec![],
                     proxy_protocol: Some("v2".into()),
                     filtered: true,
@@ -384,7 +450,7 @@ mod tests {
                     target: "127.0.0.1:5432".into(),
                     clients: vec!["home".into()],
                     mode: None,
-                    limit: None,
+                    bandwidth: None,
                     visitors: vec!["laptop".into()],
                     proxy_protocol: None,
                     filtered: false,
@@ -406,7 +472,7 @@ mod tests {
 
     #[test]
     fn plain_tables() {
-        let text = render(&sample(), Paint { color: false }, None);
+        let text = render(&sample(), Paint::PLAIN, None);
         assert_eq!(
             text,
             "burrow 9.9.9  ·  up 3 d 4 h  ·  clients on tcp 0.0.0.0:7835
@@ -420,7 +486,7 @@ SERVICES
   NAME  PROTO  ADDRESS      TARGET          CLIENTS                  OPEN  TOTAL  REFUSED      IN     OUT
   web   tcp    0.0.0.0:443  127.0.0.1:8443  home up, office offline    12    153        1  1.2 GB  8.4 GB
   db    tcp    private      127.0.0.1:5432  home                        0      0        0     0 B     0 B
-  web: balance, limit 40mbit, proxy protocol v2, source filter
+  web: balance, limit 5.0 MB/s, proxy protocol v2, source filter
   db: visitors laptop
 
 VISITORS
@@ -434,10 +500,55 @@ VISITORS
 
     #[test]
     fn colors_keep_the_columns_aligned() {
-        let plain = render(&sample(), Paint { color: false }, None);
-        let colored = render(&sample(), Paint { color: true }, None);
+        let plain = render(&sample(), Paint::PLAIN, None);
+        let colored = render(
+            &sample(),
+            Paint {
+                color: true,
+                boxed: false,
+            },
+            None,
+        );
         assert_ne!(plain, colored);
         assert_eq!(strip(&colored), plain);
+    }
+
+    #[test]
+    fn boxed_tables_in_a_terminal() {
+        let boxed = Paint {
+            color: false,
+            boxed: true,
+        };
+        let text = render(&sample(), boxed, None);
+        let clients = "\
+╭────────┬─────────────┬────────────────┬────────────────┬──────┬──────╮
+│ NAME   │ STATE       │ SINCE          │ FROM           │ OPEN │ IDLE │
+├────────┼─────────────┼────────────────┼────────────────┼──────┼──────┤
+│ home   │ ● connected │ 2 h 13 min     │ 81.2.3.4:51234 │    3 │    4 │
+│ office │ ○ offline   │ left 5 min ago │                │    0 │    0 │
+╰────────┴─────────────┴────────────────┴────────────────┴──────┴──────╯
+";
+        assert!(text.contains(clients), "{text}");
+        assert!(
+            text.contains("│ web  │ tcp   │ 0.0.0.0:443 │ 127.0.0.1:8443 │ home up, office offline │   12 │   153 │       1 │ 1.2 GB │ 8.4 GB │"),
+            "{text}"
+        );
+        let widths: Vec<usize> = text
+            .lines()
+            .filter(|l| l.starts_with(['╭', '│', '├', '╰']))
+            .map(|l| l.chars().count())
+            .collect();
+        assert_eq!(widths.iter().filter(|w| **w == 72).count(), 6, "{text}");
+        let colored = render(
+            &sample(),
+            Paint {
+                color: true,
+                boxed: true,
+            },
+            None,
+        );
+        assert!(colored.contains("\x1b[32mhome up\x1b[0m, \x1b[31moffice offline\x1b[0m"));
+        assert_eq!(strip(&colored), text);
     }
 
     #[test]
@@ -449,7 +560,7 @@ VISITORS
         let r = rates(&before, &after, 2.0);
         assert_eq!(r["web"].in_per_sec, 1_500_000.0);
         assert_eq!(r["web"].conns_per_sec, 10.0);
-        let text = render(&after, Paint { color: false }, Some(&r));
+        let text = render(&after, Paint::PLAIN, Some(&r));
         assert!(text.contains("CONN/S"), "{text}");
         assert!(text.contains("10.0  1.5 MB/s"), "{text}");
     }

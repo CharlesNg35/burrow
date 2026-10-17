@@ -61,7 +61,7 @@ impl Shared {
                         }
                         .to_string()
                     }),
-                    limit: svc.bandwidth.map(crate::ratelimit::describe),
+                    bandwidth: svc.bandwidth,
                     visitors: svc.visitors.clone(),
                     proxy_protocol: svc.proxy_protocol.map(|v| {
                         match v {
