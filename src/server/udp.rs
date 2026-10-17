@@ -265,10 +265,14 @@ async fn relay(
                     .traffic
                     .inbound
                     .fetch_add(n as u64, std::sync::atomic::Ordering::Relaxed);
-                let (id, count) = {
+                let (id, count, before) = {
                     let mut p = peers.lock().expect("peers lock");
-                    (p.id_for(from), p.len())
+                    let before = p.len();
+                    (p.id_for(from), p.len(), before)
                 };
+                if count > before {
+                    stats.total.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                }
                 gauge.set(count);
                 let Some(id) = id else {
                     static FULL: crate::throttle::Throttle = crate::throttle::Throttle::new();

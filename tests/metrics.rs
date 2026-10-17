@@ -427,3 +427,33 @@ async fn the_metrics_endpoint_handles_odd_requests() {
     .await
     .unwrap();
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn each_udp_peer_counts_as_one_connection() {
+    let echo = udp_echo_server().await;
+    let t = tunnel(vec![("dns", service(echo, Protocol::Udp))]).await;
+    let target = t.server.services["dns"];
+    let mut buf = vec![0u8; 65536];
+    for peer in 0..3 {
+        let s = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        s.connect(target).await.unwrap();
+        for round in 0..5 {
+            let msg = format!("peer {peer} round {round}");
+            let mut got = false;
+            for _ in 0..50 {
+                s.send(msg.as_bytes()).await.unwrap();
+                if let Ok(Ok(n)) =
+                    tokio::time::timeout(Duration::from_millis(200), s.recv(&mut buf)).await
+                    && &buf[..n] == msg.as_bytes()
+                {
+                    got = true;
+                    break;
+                }
+            }
+            assert!(got, "no echo for {msg}");
+        }
+    }
+    let dns = t.server.shared.status().services[0].clone();
+    assert_eq!(dns.total, 3);
+    assert_eq!(t.server.shared.status().udp_peers, 3);
+}
