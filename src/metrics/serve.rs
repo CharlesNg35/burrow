@@ -9,13 +9,17 @@ use tracing::{debug, warn};
 use super::{Status, prometheus};
 
 const MAX_HEAD: usize = 8 * 1024;
-const MAX_OPEN: usize = 32;
-const READ_TIMEOUT: Duration = Duration::from_secs(5);
+const MAX_OPEN: usize = 64;
+const MAX_WAITING: usize = 256;
+const READ_TIMEOUT: Duration = Duration::from_secs(1);
+const WRITE_TIMEOUT: Duration = Duration::from_secs(5);
+const WAIT_FOR_SLOT: Duration = Duration::from_secs(2);
 
 pub type Snapshot = Arc<dyn Fn() -> Status + Send + Sync>;
 
 pub async fn serve(listener: TcpListener, snapshot: Snapshot) {
     let open = Arc::new(Semaphore::new(MAX_OPEN));
+    let waiting = Arc::new(Semaphore::new(MAX_WAITING));
     loop {
         let (stream, peer) = match listener.accept().await {
             Ok(v) => v,
@@ -25,13 +29,18 @@ pub async fn serve(listener: TcpListener, snapshot: Snapshot) {
                 continue;
             }
         };
-        let Ok(permit) = open.clone().try_acquire_owned() else {
-            debug!(%peer, "metrics: too many open requests, closing");
+        let Ok(queued) = waiting.clone().try_acquire_owned() else {
+            debug!(%peer, "metrics: too many waiting requests, closing");
             continue;
         };
-        let snapshot = snapshot.clone();
+        let (open, snapshot) = (open.clone(), snapshot.clone());
         tokio::spawn(async move {
-            let _permit = permit;
+            let slot = tokio::time::timeout(WAIT_FOR_SLOT, open.acquire_owned()).await;
+            drop(queued);
+            let Ok(Ok(_permit)) = slot else {
+                debug!(%peer, "metrics: no free slot, closing");
+                return;
+            };
             if let Err(e) = answer(stream, &snapshot).await {
                 debug!(%peer, "metrics: {e}");
             }
@@ -86,17 +95,22 @@ async fn answer(mut stream: TcpStream, snapshot: &Snapshot) -> std::io::Result<(
         .await
         .map_err(|_| std::io::Error::other("request timed out"))??;
     let (code, kind, body) = respond(&head, snapshot.as_ref());
-    let reason = match code {
-        200 => "OK",
-        404 => "Not Found",
-        _ => "Method Not Allowed",
+    let write = async {
+        let reason = match code {
+            200 => "OK",
+            404 => "Not Found",
+            _ => "Method Not Allowed",
+        };
+        let response = format!(
+            "HTTP/1.1 {code} {reason}\r\nContent-Type: {kind}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        );
+        stream.write_all(response.as_bytes()).await?;
+        stream.shutdown().await
     };
-    let response = format!(
-        "HTTP/1.1 {code} {reason}\r\nContent-Type: {kind}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-        body.len()
-    );
-    stream.write_all(response.as_bytes()).await?;
-    stream.shutdown().await
+    tokio::time::timeout(WRITE_TIMEOUT, write)
+        .await
+        .map_err(|_| std::io::Error::other("the reader is too slow"))?
 }
 
 #[cfg(test)]

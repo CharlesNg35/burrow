@@ -327,6 +327,7 @@ pub async fn relay_pump<R, W>(
     reader: &mut RecordReader,
     dst: &mut W,
     writer: &mut RecordWriter,
+    counted: Option<&std::sync::atomic::AtomicU64>,
 ) -> io::Result<()>
 where
     R: AsyncRead + Unpin,
@@ -345,6 +346,9 @@ where
             }
         };
         let end = plain.is_empty();
+        if let Some(c) = counted {
+            c.fetch_add(plain.len() as u64, std::sync::atomic::Ordering::Relaxed);
+        }
         let out: &mut [u8] = if plain.len() <= SMALL {
             &mut small
         } else {

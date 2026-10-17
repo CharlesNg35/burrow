@@ -73,9 +73,9 @@ impl Metrics {
     }
 
     pub fn refuse(&self, service: &str) {
-        self.service(service)
-            .refused
-            .fetch_add(1, Ordering::Relaxed);
+        let stats = self.service(service);
+        stats.total.fetch_add(1, Ordering::Relaxed);
+        stats.refused.fetch_add(1, Ordering::Relaxed);
     }
 
     pub fn client_left(&self, name: &str) {

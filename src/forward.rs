@@ -20,6 +20,14 @@ pub struct Meter<'a> {
 }
 
 impl<'a> Meter<'a> {
+    fn throttle_in<S>(self, inner: S) -> Throttled<'a, S> {
+        Throttled::new(inner, self.limit.map(|l| &l.inbound))
+    }
+
+    fn throttle_out<S>(self, inner: S) -> Throttled<'a, S> {
+        Throttled::new(inner, self.limit.map(|l| &l.outbound))
+    }
+
     fn inbound<S>(self, inner: S) -> Counted<'a, Throttled<'a, S>> {
         Counted::new(
             Throttled::new(inner, self.limit.map(|l| &l.inbound)),
@@ -228,15 +236,19 @@ pub async fn relay(
     cwriter.send(&mut cs, &connect.encode()).await?;
     let plaintext = plaintext && cs.supports_half_close();
     send_prefix(&mut cs, &mut cwriter, prefix, plaintext).await?;
-    let (mut cr, mut cw) = cs.split();
+    let (mut cr, cw) = cs.split();
+    let raw = |bytes| if plaintext { bytes } else { None };
+    let mut cw = Counted::new(cw, raw(meter.traffic.map(|t| &t.inbound)));
+    let sealed = |bytes| if plaintext { None } else { bytes };
     let (vr, vw) = vs.split();
-    let mut vr = meter.inbound(vr);
-    let mut vw = meter.outbound(vw);
+    let mut vr = meter.throttle_in(vr);
+    let mut vw = meter.throttle_out(vw);
     let up = async {
         if plaintext {
             open_pump(&mut vr, &mut cw, &mut vreader).await
         } else {
-            relay_pump(&mut vr, &mut vreader, &mut cw, &mut cwriter).await
+            let counted = sealed(meter.traffic.map(|t| &t.inbound));
+            relay_pump(&mut vr, &mut vreader, &mut cw, &mut cwriter, counted).await
         }
     };
     let down = async {
@@ -255,13 +267,19 @@ pub async fn relay(
             return Err(ForwardError::Status(status));
         }
         if plaintext {
+            let outbound = meter.traffic.map(|t| &t.outbound);
             let rest = creader.take_buffered();
+            if let Some(c) = outbound {
+                c.fetch_add(rest.len() as u64, std::sync::atomic::Ordering::Relaxed);
+            }
             for chunk in rest.chunks(CHUNK) {
                 vwriter.send(&mut vw, chunk).await?;
             }
+            let mut cr = Counted::new(&mut cr, outbound);
             seal_pump(&mut cr, &mut vw, &mut vwriter, CHUNK).await?;
         } else {
-            relay_pump(&mut cr, &mut creader, &mut vw, &mut vwriter).await?;
+            let counted = sealed(meter.traffic.map(|t| &t.outbound));
+            relay_pump(&mut cr, &mut creader, &mut vw, &mut vwriter, counted).await?;
         }
         Ok(())
     };

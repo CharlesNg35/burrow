@@ -702,6 +702,7 @@ impl Server {
                     "client \"{}\" {why}, disconnecting it and its open connections",
                     s.name
                 );
+                self.shared.metrics.client_left(&s.name);
                 let _ = s.control.try_send(ServerMsg::Bye {
                     reason: ByeReason::Removed,
                 });
@@ -777,18 +778,30 @@ impl Server {
 
 impl Server {
     async fn apply_metrics(&mut self, next: Option<SocketAddr>) {
-        if let Some(old) = self.metrics.take() {
+        let Some(addr) = next else {
+            if let Some(old) = self.metrics.take() {
+                old.task.abort();
+                let _ = old.task.await;
+                info!("metrics endpoint stopped");
+            }
+            return;
+        };
+        let clashes = self
+            .metrics
+            .as_ref()
+            .is_some_and(|m| crate::config::check::binds_conflict(m.addr, addr));
+        if clashes && let Some(old) = self.metrics.take() {
             old.task.abort();
             let _ = old.task.await;
         }
-        let Some(addr) = next else {
-            info!("metrics endpoint stopped");
-            return;
-        };
         let mut last = None;
         for _ in 0..20 {
             match bind_metrics(addr) {
                 Ok(l) => {
+                    if let Some(old) = self.metrics.take() {
+                        old.task.abort();
+                        let _ = old.task.await;
+                    }
                     let m = MetricsTask::start(&self.shared, l);
                     info!("metrics now on http://{}/metrics", m.addr);
                     self.metrics = Some(m);
@@ -799,7 +812,10 @@ impl Server {
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
         if let Some(f) = last {
-            error!("{}", f.message);
+            match &self.metrics {
+                Some(m) => error!("{}; metrics stay on http://{}/metrics", f.message, m.addr),
+                None => error!("{}", f.message),
+            }
         }
     }
 }

@@ -9,8 +9,10 @@ use burrow::config::model::Protocol;
 use burrow::config::settings::{Health, Service};
 use burrow::metrics::Status;
 use burrow::metrics::query::fetch;
+use burrow::protocol::VisitTarget;
 use burrow::secret::Secret;
 use common::*;
+use tokio::net::TcpStream;
 
 fn http_get(addr: SocketAddr, path: &str) -> String {
     use std::io::{Read, Write};
@@ -246,4 +248,281 @@ fn burrow_status_prints_the_running_server() {
     let err = String::from_utf8_lossy(&o.stderr);
     assert!(err.contains("does not turn on"), "{err}");
     assert!(err.contains("listen: 127.0.0.1:9100"), "{err}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn visit_bytes_count_payload_only() {
+    let echo = echo_server().await;
+    let secret = Secret::generate();
+    let visitor_secret = Secret::generate();
+    let mut settings = server_settings(vec![secret.clone()]);
+    settings.metrics = Some("127.0.0.1:0".parse().unwrap());
+    settings
+        .visitors
+        .insert("laptop".into(), visitor_auth(visitor_secret.clone(), &[]));
+    let t = tunnel_with(
+        settings,
+        vec![("web", private_service(echo, &["laptop"]))],
+        |c| c,
+        secret,
+    )
+    .await;
+    let v = start_visitor(visitor_settings(
+        t.server.addr,
+        visitor_secret,
+        vec![("web", VisitTarget::service("web"))],
+    ));
+    let data = pattern(10_000, 1);
+    assert_eq!(roundtrip(v.addr("web"), &data).await, data);
+    let addr = t.server.metrics.unwrap();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let s = tokio::task::spawn_blocking(move || fetch(addr).unwrap())
+        .await
+        .unwrap();
+    let web = &s.services[0];
+    assert_eq!((web.bytes_in, web.bytes_out), (10_000, 10_000));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn plaintext_visit_bytes_count_payload_only() {
+    let echo = echo_server().await;
+    let secret = Secret::generate();
+    let visitor_secret = Secret::generate();
+    let mut settings = server_settings(vec![secret.clone()]);
+    settings.metrics = Some("127.0.0.1:0".parse().unwrap());
+    settings.insecure_plaintext = true;
+    settings
+        .visitors
+        .insert("laptop".into(), visitor_auth(visitor_secret.clone(), &[]));
+    let t = tunnel_with(
+        settings,
+        vec![("web", private_service(echo, &["laptop"]))],
+        |mut c| {
+            c.insecure_plaintext = true;
+            c
+        },
+        secret,
+    )
+    .await;
+    let v = start_visitor(visitor_settings(
+        t.server.addr,
+        visitor_secret,
+        vec![("web", VisitTarget::service("web"))],
+    ));
+    let data = pattern(10_000, 1);
+    assert_eq!(roundtrip(v.addr("web"), &data).await, data);
+    let addr = t.server.metrics.unwrap();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let s = tokio::task::spawn_blocking(move || fetch(addr).unwrap())
+        .await
+        .unwrap();
+    let web = &s.services[0];
+    assert_eq!((web.bytes_in, web.bytes_out), (10_000, 10_000));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn idle_connections_do_not_lock_out_the_metrics_endpoint() {
+    let secret = Secret::generate();
+    let mut settings = server_settings(vec![secret.clone()]);
+    settings.metrics = Some("127.0.0.1:0".parse().unwrap());
+    let t = tunnel_with(settings, vec![], |c| c, secret).await;
+    let addr = t.server.metrics.unwrap();
+    let mut idle = Vec::new();
+    for _ in 0..40 {
+        idle.push(TcpStream::connect(addr).await.unwrap());
+    }
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let r = tokio::time::timeout(
+        Duration::from_secs(2),
+        tokio::task::spawn_blocking(move || fetch(addr)),
+    )
+    .await;
+    assert!(
+        matches!(r, Ok(Ok(Ok(_)))),
+        "40 idle sockets made the endpoint refuse a scrape: {r:?}"
+    );
+    drop(idle);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn source_refusals_are_counted_in_total() {
+    let echo = echo_server().await;
+    let secret = Secret::generate();
+    let mut settings = server_settings(vec![secret.clone()]);
+    settings.metrics = Some("127.0.0.1:0".parse().unwrap());
+    let blocked = Service {
+        sources: burrow::allowlist::Sources {
+            allow: vec![],
+            deny: vec!["127.0.0.0/8".parse().unwrap()],
+        },
+        ..service(echo, Protocol::Tcp)
+    };
+    let t = tunnel_with(settings, vec![("blocked", blocked)], |c| c, secret).await;
+    let _ = try_roundtrip(t.server.services["blocked"], b"x").await;
+    let addr = t.server.metrics.unwrap();
+    let s = tokio::task::spawn_blocking(move || fetch(addr).unwrap())
+        .await
+        .unwrap();
+    let b = &s.services[0];
+    assert!(
+        b.refused <= b.total,
+        "refused {} > total {}",
+        b.refused,
+        b.total
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_client_kicked_by_reload_shows_when_it_left() {
+    let secret = Secret::generate();
+    let mut settings = server_settings(vec![secret.clone()]);
+    settings.metrics = Some("127.0.0.1:0".parse().unwrap());
+    let t = tunnel_with(settings.clone(), vec![], |c| c, secret).await;
+    let mut rotated = settings.clone();
+    rotated.clients.get_mut("home").unwrap().secrets = vec![Secret::generate()];
+    t.server.reload(rotated).await;
+    let shared = t.server.shared.clone();
+    wait_for(|| shared.session_names().is_empty()).await;
+    let addr = t.server.metrics.unwrap();
+    let s = tokio::task::spawn_blocking(move || fetch(addr).unwrap())
+        .await
+        .unwrap();
+    assert!(!s.clients[0].connected);
+    assert!(
+        s.clients[0].left_secs_ago.is_some(),
+        "status says home was never seen: {:?}",
+        s.clients[0]
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn moving_metrics_to_a_busy_port_keeps_the_old_endpoint() {
+    let secret = Secret::generate();
+    let mut settings = server_settings(vec![secret.clone()]);
+    settings.metrics = Some("127.0.0.1:0".parse().unwrap());
+    let t = tunnel_with(settings.clone(), vec![], |c| c, secret).await;
+    let old = t.server.metrics.unwrap();
+    let busy = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let mut next = settings.clone();
+    next.metrics = Some(busy.local_addr().unwrap());
+    t.server.reload(next).await;
+    tokio::time::sleep(Duration::from_millis(2500)).await;
+    let r = tokio::task::spawn_blocking(move || fetch(old))
+        .await
+        .unwrap();
+    assert!(
+        r.is_ok(),
+        "no metrics endpoint left after a failed move: {r:?}"
+    );
+}
+
+fn raw_http(addr: SocketAddr, request: &[u8]) -> String {
+    use std::io::{Read, Write};
+    let mut s = std::net::TcpStream::connect(addr).unwrap();
+    s.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+    let _ = s.write_all(request);
+    let mut out = Vec::new();
+    let _ = s.read_to_end(&mut out);
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn prometheus_text_has_each_family_once_and_unique_series() {
+    let echo = echo_server().await;
+    let secret = Secret::generate();
+    let visitor_secret = Secret::generate();
+    let mut settings = server_settings(vec![secret.clone()]);
+    settings.metrics = Some("127.0.0.1:0".parse().unwrap());
+    settings
+        .visitors
+        .insert("lap\"top\\x".into(), visitor_auth(visitor_secret, &[]));
+    let checked = Service {
+        health: Some(Health {
+            interval: Duration::from_millis(200),
+            timeout: Duration::from_secs(1),
+            failures: 1,
+        }),
+        ..service(echo, Protocol::Tcp)
+    };
+    let t = tunnel_with(
+        settings,
+        vec![
+            ("web", checked),
+            ("api", service(echo, Protocol::Tcp)),
+            ("dns", service(udp_echo_server().await, Protocol::Udp)),
+        ],
+        |c| c,
+        secret,
+    )
+    .await;
+    let addr = t.server.metrics.unwrap();
+    let shared = t.server.shared.clone();
+    wait_for(|| !shared.status().services.iter().all(|s| s.health.is_empty())).await;
+    let text =
+        tokio::task::spawn_blocking(move || raw_http(addr, b"GET /metrics HTTP/1.1\r\n\r\n"))
+            .await
+            .unwrap();
+    let body = text.split("\r\n\r\n").nth(1).unwrap();
+    let mut help = std::collections::BTreeMap::new();
+    let mut kind = std::collections::BTreeMap::new();
+    let mut series = std::collections::BTreeSet::new();
+    for line in body.lines() {
+        if let Some(rest) = line.strip_prefix("# HELP ") {
+            *help
+                .entry(rest.split(' ').next().unwrap().to_string())
+                .or_insert(0) += 1;
+        } else if let Some(rest) = line.strip_prefix("# TYPE ") {
+            let mut p = rest.split(' ');
+            let name = p.next().unwrap().to_string();
+            let k = p.next().unwrap();
+            assert!(k == "gauge" || k == "counter", "{line}");
+            assert!(k != "counter" || name.ends_with("_total"), "{line}");
+            *kind.entry(name).or_insert(0) += 1;
+        } else {
+            let (key, value) = line.rsplit_once(' ').unwrap();
+            assert!(value.parse::<u64>().is_ok(), "{line}");
+            let family = key.split('{').next().unwrap();
+            assert_eq!(kind.get(family), Some(&1), "sample before its TYPE: {line}");
+            assert!(series.insert(key.to_string()), "duplicate series {key}");
+        }
+    }
+    assert!(help.values().all(|n| *n == 1) && kind.values().all(|n| *n == 1));
+    assert_eq!(
+        help.keys().collect::<Vec<_>>(),
+        kind.keys().collect::<Vec<_>>()
+    );
+    assert!(series.contains("burrow_visitor_connections_total{visitor=\"lap\\\"top\\\\x\"}"));
+    assert!(series.contains("burrow_service_client_up{service=\"web\",client=\"home\"}"));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_metrics_endpoint_handles_odd_requests() {
+    let secret = Secret::generate();
+    let mut settings = server_settings(vec![secret.clone()]);
+    settings.metrics = Some("127.0.0.1:0".parse().unwrap());
+    let t = tunnel_with(settings, vec![], |c| c, secret).await;
+    let addr = t.server.metrics.unwrap();
+    tokio::task::spawn_blocking(move || {
+        assert!(
+            raw_http(addr, b"POST /metrics HTTP/1.1\r\nContent-Length: 0\r\n\r\n")
+                .starts_with("HTTP/1.1 405")
+        );
+        assert!(raw_http(addr, b"HEAD /metrics HTTP/1.1\r\n\r\n").starts_with("HTTP/1.1 405"));
+        assert!(raw_http(addr, b"GET /metricsx HTTP/1.1\r\n\r\n").starts_with("HTTP/1.1 404"));
+        let mut huge = b"GET /metrics HTTP/1.1\r\nX: ".to_vec();
+        huge.extend(std::iter::repeat_n(b'a', 64 * 1024));
+        assert_eq!(raw_http(addr, &huge), "");
+        assert_eq!(raw_http(addr, b""), "");
+        let ok = raw_http(addr, b"GET /status HTTP/1.0\r\n\r\n");
+        let body = ok.split("\r\n\r\n").nth(1).unwrap();
+        let s: burrow::metrics::Status = serde_json::from_str(body).unwrap();
+        assert_eq!(
+            serde_json::from_str::<burrow::metrics::Status>(&serde_json::to_string(&s).unwrap())
+                .unwrap(),
+            s
+        );
+        assert!(fetch(addr).is_ok());
+    })
+    .await
+    .unwrap();
 }
