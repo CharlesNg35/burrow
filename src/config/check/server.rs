@@ -3,16 +3,16 @@ use std::net::SocketAddr;
 use std::path::Path;
 use std::time::Duration;
 
-use super::super::model::{Protocol, Secrets, ServerConfig, WebSocketConfig};
+use super::super::model::{Secrets, ServerConfig, WebSocketConfig};
 use super::super::settings::{
-    ClientAuth, ServerSettings, Service, TlsMaterial, VisitorAuth, WebSocketSettings,
+    ClientAuth, ServerSettings, TlsMaterial, VisitorAuth, WebSocketSettings,
 };
 use super::super::tree::{Node, Span, Value};
+use super::service::{Taken, check_service};
 use super::{
-    MAX_SECRETS_PER_CLIENT, MAX_TARGET_LEN, SENSITIVE_PORTS, Spans, binds_conflict, name_error,
-    parse_bind, parse_host_port, secret_error, tuning, valid_name,
+    MAX_SECRETS_PER_CLIENT, Spans, binds_conflict, name_error, parse_bind, secret_error, tuning,
+    valid_name,
 };
-use crate::allowlist::{Cidr, Sources};
 use crate::diagnostics::Diagnostic;
 use crate::secret::Secret;
 use crate::suggest::{closest, quoted_list};
@@ -162,172 +162,14 @@ pub fn check_server(
     }
 
     let mut services = BTreeMap::new();
-    let mut binds: Vec<(SocketAddr, Protocol, &str)> = Vec::new();
+    let mut taken = Taken {
+        listen,
+        websocket: websocket.as_ref().map(|w| w.listen),
+        binds: Vec::new(),
+    };
     for (name, svc) in &cfg.services {
-        let path = |f: &'static str| ["services", name.as_str(), f];
-        if !valid_name(name) {
-            out.push(name_error("service", name, spans.key(&["services", name])));
-        }
-        let bind = match svc.bind.as_ref().map(parse_bind) {
-            None => None,
-            Some(Ok(b)) => Some(b),
-            Some(Err(e)) => {
-                out.push(
-                    Diagnostic::error(
-                        "invalid-address",
-                        format!("invalid bind address for service \"{name}\": {e}"),
-                    )
-                    .at(spans.value(&path("bind")))
-                    .label("expected a port or ip:port")
-                    .help("use a port like 7840, or ip:port like 127.0.0.1:7840"),
-                );
-                None
-            }
-        };
-        if svc.bind.is_none() && svc.visitors.is_empty() && !spans.has_value(&path("bind")) {
-            out.push(
-                Diagnostic::error(
-                    "unreachable-service",
-                    format!("service \"{name}\" has no \"bind\" and no \"visitors\", so nobody can reach it"),
-                )
-                .at(spans.key(&["services", name]))
-                .label("no bind and no visitors")
-                .help("add \"bind: 7840\" to expose it publicly, or \"visitors: [NAME]\" for visitors using burrow visit"),
-            );
-        }
-        if !svc.visitors.is_empty() && svc.protocol != Protocol::Tcp {
-            out.push(
-                Diagnostic::error(
-                    "visitors-tcp-only",
-                    format!(
-                        "service \"{name}\" is {}, but visitors can only reach tcp services",
-                        svc.protocol.as_str()
-                    ),
-                )
-                .at(spans.value(&path("visitors")))
-                .help("remove \"visitors\", or use a tcp service"),
-            );
-        }
-        if svc.proxy_protocol.is_some() && svc.protocol != Protocol::Tcp {
-            out.push(
-                Diagnostic::error(
-                    "proxy-protocol-tcp-only",
-                    format!(
-                        "service \"{name}\" is {}, but proxy_protocol only works for tcp services",
-                        svc.protocol.as_str()
-                    ),
-                )
-                .at(spans.value(&path("proxy_protocol")))
-                .help("remove \"proxy_protocol\", or use a tcp service"),
-            );
-        }
-        let target = svc.target.host_port();
-        let checked = if target.len() > MAX_TARGET_LEN {
-            Err(format!(
-                "\"{target}\" is longer than {MAX_TARGET_LEN} characters"
-            ))
-        } else {
-            parse_host_port(&target).map(drop)
-        };
-        if let Err(e) = checked {
-            out.push(
-                Diagnostic::error(
-                    "invalid-address",
-                    format!("invalid target for service \"{name}\": {e}"),
-                )
-                .at(spans.value(&path("target")))
-                .label("expected host:port or a port")
-                .help("use host:port as seen from the client, for example 127.0.0.1:3000, or a port alone like 3000"),
-            );
-        }
-        if let Some(bind) = bind {
-            if let Some((_, _, other)) = binds
-                .iter()
-                .find(|(b, p, _)| *p == svc.protocol && binds_conflict(*b, bind))
-            {
-                out.push(
-                    Diagnostic::error(
-                        "duplicate-bind",
-                        format!("service \"{name}\" binds {} {bind}, already used by service \"{other}\"", svc.protocol.as_str()),
-                    )
-                    .at(spans.value(&path("bind")))
-                    .label("address already used")
-                    .help("pick a different port for one of the services"),
-                );
-            }
-            if let Some(ws) = &websocket
-                && svc.protocol == Protocol::Tcp
-                && binds_conflict(ws.listen, bind)
-            {
-                out.push(
-                    Diagnostic::error(
-                        "bind-is-control-port",
-                        format!("service \"{name}\" binds {bind}, which is the websocket listener"),
-                    )
-                    .at(spans.value(&path("bind")))
-                    .label("same as \"websocket.listen\"")
-                    .help(format!("pick a port other than {}", ws.listen.port())),
-                );
-            }
-            if let Some(listen) = listen
-                && svc.protocol == Protocol::Tcp
-                && binds_conflict(listen, bind)
-            {
-                out.push(
-                    Diagnostic::error(
-                        "bind-is-control-port",
-                        format!("service \"{name}\" binds {bind}, which is the control port"),
-                    )
-                    .at(spans.value(&path("bind")))
-                    .label("same as \"listen\"")
-                    .help(format!("pick a port other than {}", listen.port())),
-                );
-            }
-            if bind.ip().is_unspecified()
-                && let Some((_, what)) = SENSITIVE_PORTS.iter().find(|(p, _)| *p == bind.port())
-            {
-                out.push(
-                    Diagnostic::warning(
-                        "sensitive-port",
-                        format!(
-                            "service \"{name}\" exposes port {} ({what}) on all interfaces",
-                            bind.port()
-                        ),
-                    )
-                    .at(spans.value(&path("bind")))
-                    .label("reachable from the internet")
-                    .help(format!(
-                        "bind to 127.0.0.1:{} unless it must be public",
-                        bind.port()
-                    )),
-                );
-            }
-            binds.push((bind, svc.protocol, name));
-        }
-        let sources = Sources {
-            allow: parse_sources(name, "allow_from", &svc.allow_from, spans, out),
-            deny: parse_sources(name, "deny_from", &svc.deny_from, spans, out),
-        };
-        let mut listed = Vec::new();
-        for v in &svc.visitors {
-            if !listed.contains(v) {
-                listed.push(v.clone());
-            }
-        }
-        if bind.is_some() || svc.bind.is_none() {
-            services.insert(
-                name.clone(),
-                Service {
-                    client: svc.client.clone(),
-                    bind,
-                    target,
-                    protocol: svc.protocol,
-                    max_connections: svc.max_connections.map(|m| m as usize),
-                    visitors: listed,
-                    sources,
-                    proxy_protocol: svc.proxy_protocol,
-                },
-            );
+        if let Some(service) = check_service(name, svc, &mut taken, spans, out) {
+            services.insert(name.clone(), service);
         }
     }
 
@@ -371,36 +213,6 @@ pub fn check_server(
         tcp: tuning(&cfg.tcp),
         udp_session_timeout: Duration::from_secs(cfg.udp.session_timeout_secs.into()),
     })
-}
-
-fn parse_sources(
-    service: &str,
-    field: &'static str,
-    list: &[String],
-    spans: &Spans,
-    out: &mut Vec<Diagnostic>,
-) -> Vec<Cidr> {
-    let mut nets = Vec::new();
-    for (i, text) in list.iter().enumerate() {
-        match text.parse::<Cidr>() {
-            Ok(net) => nets.push(net),
-            Err(e) => out.push(
-                Diagnostic::error(
-                    "invalid-source",
-                    format!(
-                        "invalid {field} entry for service \"{service}\": {}",
-                        e.describe()
-                    ),
-                )
-                .at(spans.value(&["services", service, field, &i.to_string()]))
-                .label("expected an IP or CIDR")
-                .help(
-                    "use an IP like 203.0.113.7 or a network like 203.0.113.0/24 or 2001:db8::/32",
-                ),
-            ),
-        }
-    }
-    nets
 }
 
 fn check_secrets(

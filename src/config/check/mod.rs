@@ -1,6 +1,8 @@
 mod client;
 mod connection;
+pub mod ports;
 mod server;
+mod service;
 mod visitor;
 
 pub use client::check_client;
@@ -227,8 +229,8 @@ fn parse_bind(bind: &Bind) -> Result<SocketAddr, String> {
     parse_addr(bind, [0, 0, 0, 0], "bind")
 }
 
-pub fn parse_local(local: &Bind) -> Result<SocketAddr, String> {
-    parse_addr(local, [127, 0, 0, 1], "local")
+pub fn parse_local(local: &Bind) -> Result<(SocketAddr, u16), String> {
+    ports::parse_ranged(local, [127, 0, 0, 1], "local")
 }
 
 fn parse_addr(bind: &Bind, ip: [u8; 4], what: &str) -> Result<SocketAddr, String> {
@@ -267,7 +269,7 @@ mod tests {
 
     #[test]
     fn local_ports_default_to_loopback() {
-        let p = |b: Bind| parse_local(&b).map(|a| a.to_string());
+        let p = |b: Bind| parse_local(&b).map(|(a, _)| a.to_string());
         assert_eq!(p(Bind::Port(5432)).unwrap(), "127.0.0.1:5432");
         assert_eq!(p(Bind::Addr("5432".into())).unwrap(), "127.0.0.1:5432");
         assert_eq!(p(Bind::Addr("0.0.0.0:22".into())).unwrap(), "0.0.0.0:22");

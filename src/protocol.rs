@@ -230,6 +230,7 @@ pub struct ServiceInfo {
     pub protocol: Protocol,
     pub bind_port: u16,
     pub target: String,
+    pub ports: u16,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -282,6 +283,7 @@ impl ServerMsg {
                     v.push(proto_byte(s.protocol));
                     v.extend_from_slice(&s.bind_port.to_be_bytes());
                     put_str(&mut v, &s.target);
+                    v.extend_from_slice(&s.ports.to_be_bytes());
                 }
                 v
             }
@@ -310,11 +312,13 @@ impl ServerMsg {
                     let protocol = proto_from(r.u8()?)?;
                     let bind_port = r.u16()?;
                     let target = r.short_str()?;
+                    let ports = r.u16()?;
                     list.push(ServiceInfo {
                         name,
                         protocol,
                         bind_port,
                         target,
+                        ports,
                     });
                 }
                 ServerMsg::Services(list)
@@ -418,14 +422,37 @@ impl Status {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum VisitTarget {
-    Service(String),
+    Service { name: String, index: u16 },
     Client { client: String, target: String },
+}
+
+impl VisitTarget {
+    pub fn service(name: impl Into<String>) -> Self {
+        VisitTarget::Service {
+            name: name.into(),
+            index: 0,
+        }
+    }
+
+    pub fn at(&self, offset: u16) -> Self {
+        match self {
+            VisitTarget::Service { name, index } => VisitTarget::Service {
+                name: name.clone(),
+                index: index.saturating_add(offset),
+            },
+            VisitTarget::Client { client, target } => VisitTarget::Client {
+                client: client.clone(),
+                target: crate::config::check::ports::port_at(target, offset),
+            },
+        }
+    }
 }
 
 impl std::fmt::Display for VisitTarget {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            VisitTarget::Service(name) => write!(f, "service \"{name}\""),
+            VisitTarget::Service { name, index: 0 } => write!(f, "service \"{name}\""),
+            VisitTarget::Service { name, index } => write!(f, "service \"{name}\" port {index}"),
             VisitTarget::Client { client, target } => write!(f, "{target} on client \"{client}\""),
         }
     }
@@ -441,9 +468,10 @@ impl VisitRequest {
     pub fn encode(&self) -> Vec<u8> {
         let mut v = vec![0x20, u8::from(self.check)];
         match &self.to {
-            VisitTarget::Service(name) => {
+            VisitTarget::Service { name, index } => {
                 v.push(1);
                 put_str(&mut v, name);
+                v.extend_from_slice(&index.to_be_bytes());
             }
             VisitTarget::Client { client, target } => {
                 v.push(2);
@@ -474,7 +502,10 @@ impl VisitRequest {
             }
         };
         let to = match r.u8()? {
-            1 => VisitTarget::Service(name(&mut r)?),
+            1 => VisitTarget::Service {
+                name: name(&mut r)?,
+                index: r.u16()?,
+            },
             2 => VisitTarget::Client {
                 client: name(&mut r)?,
                 target: r.short_str()?,
@@ -560,6 +591,7 @@ mod tests {
                 protocol: Protocol::Udp,
                 bind_port: 4000,
                 target: "127.0.0.1:3000".into(),
+                ports: 11,
             }]),
             ServerMsg::Ping,
             ServerMsg::OpenData { count: 7 },
@@ -594,7 +626,7 @@ mod tests {
         for r in [
             VisitRequest {
                 check: false,
-                to: VisitTarget::Service("db".into()),
+                to: VisitTarget::service("db"),
             },
             VisitRequest {
                 check: true,

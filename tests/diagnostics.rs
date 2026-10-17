@@ -248,33 +248,33 @@ fn bad_addresses() {
     insta::assert_snapshot!(render("server.yaml", &server(
         "  a:\n    client: home\n    bind: 0.0.0.0:99999\n    target: localhost\n  b:\n    client: home\n    bind: nowhere:80\n    target: \"::1:22\"\n"
     ), None), @r#"
-    error: invalid bind address for service "a": "0.0.0.0:99999" is not a valid bind address
+    error: invalid bind address for service "a": "99999" is not a valid port (1-65535)
       --> server.yaml:10:11
        |
     10 |     bind: 0.0.0.0:99999
-       |           ^^^^^^^^^^^^^ expected a port or ip:port
-       = help: use a port like 7840, or ip:port like 127.0.0.1:7840
+       |           ^^^^^^^^^^^^^ expected a port, a range or ip:port
+       = help: use a port like 7840, a range like 30000-30010, or ip:port like 127.0.0.1:7840
 
     error: invalid target for service "a": "localhost" is missing a port
       --> server.yaml:11:13
        |
     11 |     target: localhost
        |             ^^^^^^^^^ expected host:port or a port
-       = help: use host:port as seen from the client, for example 127.0.0.1:3000, or a port alone like 3000
+       = help: use host:port as seen from the client, for example 127.0.0.1:3000, a port alone like 3000, or a range like 30000-30010
 
     error: invalid bind address for service "b": "nowhere:80" is not a valid bind address
       --> server.yaml:14:11
        |
     14 |     bind: nowhere:80
-       |           ^^^^^^^^^^ expected a port or ip:port
-       = help: use a port like 7840, or ip:port like 127.0.0.1:7840
+       |           ^^^^^^^^^^ expected a port, a range or ip:port
+       = help: use a port like 7840, a range like 30000-30010, or ip:port like 127.0.0.1:7840
 
     error: invalid target for service "b": "::1:22" looks like an IPv6 address; write it in brackets, like [::1]:22
       --> server.yaml:15:13
        |
     15 |     target: "::1:22"
        |             ^^^^^^^^ expected host:port or a port
-       = help: use host:port as seen from the client, for example 127.0.0.1:3000, or a port alone like 3000
+       = help: use host:port as seen from the client, for example 127.0.0.1:3000, a port alone like 3000, or a range like 30000-30010
 
     server.yaml: 4 errors, 0 warnings
     "#);
@@ -1105,7 +1105,7 @@ fn valid_visitor() {
     };
     assert_eq!(s.server, "tunnel.example.com:7835");
     assert_eq!(s.forwards["db"].local, "127.0.0.1:5432".parse().unwrap());
-    assert_eq!(s.forwards["db"].to, VisitTarget::Service("db".into()));
+    assert_eq!(s.forwards["db"].to, VisitTarget::service("db"));
     assert_eq!(
         s.forwards["ssh"].to,
         VisitTarget::Client {
@@ -1167,8 +1167,8 @@ fn visitor_mistakes() {
       --> visitor.yaml:11:27
        |
     11 |   g: { service: x, local: nowhere }
-       |                           ^^^^^^^ expected a port or ip:port
-       = help: use a port like 5432 (on 127.0.0.1), or ip:port like 127.0.0.1:5432
+       |                           ^^^^^^^ expected a port, a range or ip:port
+       = help: use a port like 5432 (on 127.0.0.1), a range like 40000-40010, or ip:port like 127.0.0.1:5432
 
     error: invalid target for forward "h": "::1:22" looks like an IPv6 address; write it in brackets, like [::1]:22
       --> visitor.yaml:12:30
@@ -1347,5 +1347,100 @@ fn proxy_protocol_needs_tcp() {
        = help: did you mean "v1"? valid values: v1, v2
 
     server.yaml: 1 error, 0 warnings
+    "#);
+}
+
+#[test]
+fn port_ranges() {
+    use burrow::config::Loaded;
+    let ok = server(
+        "  game:\n    client: home\n    bind: 30000-30010\n    target: 192.168.1.50:30000-30010\n    protocol: udp\n  media:\n    client: home\n    bind: 127.0.0.1:40000-40001\n    target: 50000-50001\n",
+    );
+    insta::assert_snapshot!(render("server.yaml", &ok, None), @"server.yaml: valid server config (2 clients, 2 services)");
+    let o = load_str("server.yaml", &ok, Format::Yaml, None, &env);
+    let Some(Loaded::Server(s, _)) = o.loaded else {
+        panic!("server config loads")
+    };
+    let game = &s.services["game"];
+    assert_eq!((game.bind.unwrap().port(), game.ports), (30000, 11));
+    assert_eq!(game.target_at(10), "192.168.1.50:30010");
+    assert_eq!(s.services["media"].target_at(1), "127.0.0.1:50001");
+    insta::assert_snapshot!(render("server.yaml", &server("  a:\n    client: home\n    bind: 30000-30010\n    target: 30000-30005\n  b:\n    client: home\n    bind: 30005-30020\n    target: 40000-40015\n  c:\n    client: home\n    bind: 7830-7840\n    target: 1000-1010\n  d:\n    client: home\n    bind: 1-2000\n    target: 1-2000\n  e:\n    client: home\n    bind: 20-30\n    target: 20-30\n  f:\n    client: home\n    bind: 9-5\n    target: 1\n"), None), @r#"
+    error: service "a" binds 11 ports but targets 6
+      --> server.yaml:11:13
+       |
+    11 |     target: 30000-30005
+       |             ^^^^^^^^^^^ not the same number of ports as bind
+       = help: give bind and target ranges of the same size, for example bind: 30000-30010 and target: 30000-30010
+
+    error: service "b" binds tcp 0.0.0.0:30005-30020, already used by service "a"
+      --> server.yaml:14:11
+       |
+    14 |     bind: 30005-30020
+       |           ^^^^^^^^^^^ address already used
+       = help: pick a different port for one of the services
+
+    error: service "c" binds 0.0.0.0:7830-7840, which includes the control port
+      --> server.yaml:18:11
+       |
+    18 |     bind: 7830-7840
+       |           ^^^^^^^^^ same as "listen"
+       = help: pick a port other than 7835
+
+    error: invalid bind address for service "d": the range 1-2000 has 2000 ports, the limit is 1000
+      --> server.yaml:22:11
+       |
+    22 |     bind: 1-2000
+       |           ^^^^^^ expected a port, a range or ip:port
+       = help: use a port like 7840, a range like 30000-30010, or ip:port like 127.0.0.1:7840
+
+    error: invalid target for service "d": the range 1-2000 has 2000 ports, the limit is 1000
+      --> server.yaml:23:13
+       |
+    23 |     target: 1-2000
+       |             ^^^^^^ expected host:port or a port
+       = help: use host:port as seen from the client, for example 127.0.0.1:3000, a port alone like 3000, or a range like 30000-30010
+
+    warning: service "e" exposes port 22 (SSH) on all interfaces
+      --> server.yaml:26:11
+       |
+    26 |     bind: 20-30
+       |           ^^^^^ reachable from the internet
+       = help: bind to 127.0.0.1:20-30 unless it must be public
+
+    error: invalid bind address for service "f": the range 9-5 ends before it starts
+      --> server.yaml:30:11
+       |
+    30 |     bind: 9-5
+       |           ^^^ expected a port, a range or ip:port
+       = help: use a port like 7840, a range like 30000-30010, or ip:port like 127.0.0.1:7840
+
+    server.yaml: 6 errors, 1 warning
+    "#);
+}
+
+#[test]
+fn visitor_port_ranges() {
+    insta::assert_snapshot!(render("visitor.yaml", &visitor(
+        "  game: { service: game, local: 40000-40010 }\n  ssh: { client: home, target: 30000-30002, local: 2220-2222 }\n",
+    ), None), @r#"visitor.yaml: valid visitor config for "laptop" (2 forwards)"#);
+    insta::assert_snapshot!(render("visitor.yaml", &visitor(
+        "  game: { service: game, local: 40000-40010 }\n  more: { service: more, local: 40010 }\n  ssh: { client: home, target: 30000-30002, local: 2222 }\n",
+    ), None), @r#"
+    error: forward "more" listens on 127.0.0.1:40010, already used by forward "game"
+      --> visitor.yaml:6:33
+       |
+     6 |   more: { service: more, local: 40010 }
+       |                                 ^^^^^ address already used
+       = help: pick a different local port for one of the forwards
+
+    error: forward "ssh" listens on 1 port but targets 3
+      --> visitor.yaml:7:32
+       |
+     7 |   ssh: { client: home, target: 30000-30002, local: 2222 }
+       |                                ^^^^^^^^^^^ not the same number of ports as local
+       = help: give local and target ranges of the same size, for example local: 40000-40010 and target: 30000-30010
+
+    visitor.yaml: 2 errors, 0 warnings
     "#);
 }

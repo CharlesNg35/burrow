@@ -6,9 +6,10 @@ use std::time::Duration;
 use super::super::model::{ForwardEntry, VisitorConfig};
 use super::super::settings::{Forward, VisitorSettings};
 use super::connection::{Connection, Dial, check_connection};
+use super::ports::{ranges_conflict, show, show_addr, split_target};
 use super::{
-    MAX_TARGET_LEN, Spans, binds_conflict, name_error, parse_host_port, parse_local, secret_error,
-    tuning, valid_name,
+    MAX_TARGET_LEN, Spans, name_error, parse_host_port, parse_local, secret_error, tuning,
+    valid_name,
 };
 use crate::diagnostics::Diagnostic;
 use crate::protocol::VisitTarget;
@@ -65,19 +66,23 @@ pub fn check_visitor(
     }
 
     let mut forwards = BTreeMap::new();
-    let mut locals: Vec<(SocketAddr, &str)> = Vec::new();
+    let mut locals: Vec<(SocketAddr, u16, &str)> = Vec::new();
     for (name, f) in &cfg.forwards {
         if !valid_name(name) {
             out.push(name_error("forward", name, spans.key(&["forwards", name])));
         }
         let local = check_local(name, f, spans, out);
-        if let Some(l) = local {
-            if let Some((_, other)) = locals.iter().find(|(a, _)| binds_conflict(*a, l)) {
+        if let Some((l, n)) = local {
+            if let Some((_, _, other)) = locals
+                .iter()
+                .find(|(a, an, _)| ranges_conflict(*a, *an, l, n))
+            {
                 out.push(
                     Diagnostic::error(
                         "duplicate-bind",
                         format!(
-                            "forward \"{name}\" listens on {l}, already used by forward \"{other}\""
+                            "forward \"{name}\" listens on {}, already used by forward \"{other}\"",
+                            show_addr(l, n)
                         ),
                     )
                     .at(spans.value(&["forwards", name, "local"]))
@@ -85,11 +90,27 @@ pub fn check_visitor(
                     .help("pick a different local port for one of the forwards"),
                 );
             }
-            locals.push((l, name));
+            locals.push((l, n, name));
         }
         let to = check_destination(name, f, spans, out);
-        if let (Some(local), Some(to)) = (local, to) {
-            forwards.insert(name.clone(), Forward { local, to });
+        if let (Some((local, ports)), Some((to, target_ports))) = (local, to) {
+            if target_ports.is_some_and(|t| t != ports) {
+                out.push(
+                    Diagnostic::error(
+                        "range-mismatch",
+                        format!(
+                            "forward \"{name}\" listens on {ports} {} but targets {}",
+                            crate::diagnostics::plural(ports.into(), "port"),
+                            target_ports.unwrap_or(1)
+                        ),
+                    )
+                    .at(spans.value(&["forwards", name, "target"]))
+                    .label("not the same number of ports as local")
+                    .help("give local and target ranges of the same size, for example local: 40000-40010 and target: 30000-30010"),
+                );
+                continue;
+            }
+            forwards.insert(name.clone(), Forward { local, ports, to });
         }
     }
 
@@ -117,10 +138,10 @@ fn check_local(
     f: &ForwardEntry,
     spans: &Spans,
     out: &mut Vec<Diagnostic>,
-) -> Option<SocketAddr> {
+) -> Option<(SocketAddr, u16)> {
     let span = spans.value(&["forwards", name, "local"]);
     match parse_local(&f.local) {
-        Ok(l) => {
+        Ok((l, n)) => {
             if l.ip().is_unspecified() {
                 out.push(
                     Diagnostic::warning(
@@ -131,11 +152,11 @@ fn check_local(
                     .label("reachable from your network")
                     .help(format!(
                         "use \"local: {}\" (127.0.0.1 only) unless other machines should use it: they would get this visitor's access",
-                        l.port()
+                        show(l.port(), n)
                     )),
                 );
             }
-            Some(l)
+            Some((l, n))
         }
         Err(e) => {
             out.push(
@@ -144,8 +165,8 @@ fn check_local(
                     format!("invalid local address for forward \"{name}\": {e}"),
                 )
                 .at(span)
-                .label("expected a port or ip:port")
-                .help("use a port like 5432 (on 127.0.0.1), or ip:port like 127.0.0.1:5432"),
+                .label("expected a port, a range or ip:port")
+                .help("use a port like 5432 (on 127.0.0.1), a range like 40000-40010, or ip:port like 127.0.0.1:5432"),
             );
             None
         }
@@ -157,7 +178,7 @@ fn check_destination(
     f: &ForwardEntry,
     spans: &Spans,
     out: &mut Vec<Diagnostic>,
-) -> Option<VisitTarget> {
+) -> Option<(VisitTarget, Option<u16>)> {
     let path = |k: &'static str| ["forwards", name, k];
     let problem = |message: String, label: &'static str, help: &str| {
         Diagnostic::error("invalid-forward", message)
@@ -176,7 +197,7 @@ fn check_destination(
                 ));
                 return None;
             }
-            Some(VisitTarget::Service(service.clone()))
+            Some((VisitTarget::service(service.clone()), None))
         }
         (None, Some(client), Some(target)) => {
             if !valid_name(client) {
@@ -188,10 +209,13 @@ fn check_destination(
                     "\"{target}\" is longer than {MAX_TARGET_LEN} characters"
                 ))
             } else {
-                parse_host_port(&target).map(drop)
+                split_target(&target)
+                    .and_then(|(base, n)| parse_host_port(&base).map(|_| (base, n)))
             };
-            if let Err(e) = checked {
-                out.push(
+            let (target, ports) = match checked {
+                Ok(t) => t,
+                Err(e) => {
+                    out.push(
                     Diagnostic::error(
                         "invalid-address",
                         format!("invalid target for forward \"{name}\": {e}"),
@@ -200,11 +224,17 @@ fn check_destination(
                     .label("expected host:port or a port")
                     .help("use host:port as seen from the client, for example 127.0.0.1:22, or a port alone like 22"),
                 );
-                return None;
-            }
-            valid_name(client).then(|| VisitTarget::Client {
-                client: client.clone(),
-                target,
+                    return None;
+                }
+            };
+            valid_name(client).then(|| {
+                (
+                    VisitTarget::Client {
+                        client: client.clone(),
+                        target,
+                    },
+                    Some(ports),
+                )
             })
         }
         (Some(_), _, _) => {

@@ -479,8 +479,8 @@ async fn visitor_churn_returns_to_baseline() {
             srv.addr,
             visitor_secret.clone(),
             vec![
-                ("db", VisitTarget::Service("db".into())),
-                ("nope", VisitTarget::Service("nope".into())),
+                ("db", VisitTarget::service("db")),
+                ("nope", VisitTarget::service("nope")),
             ],
         ));
         let (db, nope) = (v.addr("db"), v.addr("nope"));

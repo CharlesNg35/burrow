@@ -113,8 +113,8 @@ async fn visitors_of_a_private_service_are_filtered_by_source_too() {
         t.server.addr,
         visitor_secret,
         vec![
-            ("db", VisitTarget::Service("db".into())),
-            ("office", VisitTarget::Service("office".into())),
+            ("db", VisitTarget::service("db")),
+            ("office", VisitTarget::service("office")),
         ],
     ));
     assert!(reaches(v.addr("db")).await);

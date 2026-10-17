@@ -113,6 +113,7 @@ pub async fn udp_service(
     name: String,
     socket: UdpSocket,
     config: watch::Receiver<Service>,
+    index: u16,
 ) {
     let socket = Arc::new(socket);
     let mut stop = shared.shutdown.clone();
@@ -121,6 +122,7 @@ pub async fn udp_service(
             return;
         }
         let svc = config.borrow().clone();
+        let target = svc.target_at(index);
         let Some(session) = shared.session(&svc.client) else {
             tokio::select! {
                 _ = tokio::time::sleep(Duration::from_millis(500)) => continue,
@@ -139,25 +141,15 @@ pub async fn udp_service(
             "service \"{name}\": UDP relay attached to client \"{}\"",
             svc.client
         );
-        match relay(
-            &shared,
-            &name,
-            &svc,
-            &session,
-            socket.clone(),
-            ch,
-            config.clone(),
-        )
-        .await
-        {
+        let port = Port {
+            name: &name,
+            svc: &svc,
+            target: &target,
+        };
+        match relay(&shared, port, &session, socket.clone(), ch, config.clone()).await {
             Ok(()) => {}
             Err(Some(status)) => {
-                log_status(
-                    &format!("service \"{name}\""),
-                    &svc.client,
-                    &svc.target,
-                    status,
-                );
+                log_status(&format!("service \"{name}\""), &svc.client, &target, status);
                 tokio::time::sleep(Duration::from_secs(5)).await;
             }
             Err(None) => tokio::time::sleep(Duration::from_millis(200)).await,
@@ -165,15 +157,21 @@ pub async fn udp_service(
     }
 }
 
+struct Port<'a> {
+    name: &'a str,
+    svc: &'a Service,
+    target: &'a str,
+}
+
 async fn relay(
     shared: &Arc<Shared>,
-    name: &str,
-    svc: &Service,
+    port: Port<'_>,
     session: &super::ClientSession,
     socket: Arc<UdpSocket>,
     ch: crate::handshake::Channel,
     mut config: watch::Receiver<Service>,
 ) -> Result<(), Option<Status>> {
+    let Port { name, svc, target } = port;
     let crate::handshake::Channel {
         stream,
         mut writer,
@@ -183,7 +181,7 @@ async fn relay(
     let connect = Connect {
         protocol: Protocol::Udp,
         service: name.to_string(),
-        target: svc.target.clone(),
+        target: target.to_string(),
     };
     writer
         .send(&mut wr, &connect.encode())

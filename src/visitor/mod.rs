@@ -8,6 +8,7 @@ use tokio::sync::{Semaphore, mpsc, watch};
 use tokio::task::JoinSet;
 use tracing::info;
 
+use crate::config::check::ports::show_addr;
 use crate::config::model::Protocol;
 use crate::config::settings::{Forward, VisitorSettings};
 use crate::dialer::Dialer;
@@ -22,11 +23,11 @@ pub enum Pick {
     All,
     Forward {
         name: String,
-        local: Option<SocketAddr>,
+        local: Option<(SocketAddr, u16)>,
     },
     Adhoc {
         to: VisitTarget,
-        local: SocketAddr,
+        local: (SocketAddr, u16),
     },
 }
 
@@ -61,17 +62,26 @@ pub fn pick(settings: &mut VisitorSettings, choice: Pick, config: &str) -> Resul
                     Failure::usage(format!("no forward named \"{name}\" in {config}")).hint(hint),
                 );
             };
-            if let Some(local) = local {
+            if let Some((local, ports)) = local {
+                if ports != forward.ports {
+                    return Err(Failure::usage(format!(
+                        "forward \"{name}\" has {} {}, but --local has {ports}",
+                        forward.ports,
+                        crate::diagnostics::plural(forward.ports.into(), "port")
+                    ))
+                    .hint("give --local a range of the same size"));
+                }
                 forward.local = local;
             }
             settings.forwards = [(name, forward)].into();
         }
         Pick::Adhoc { to, local } => {
             let name = match &to {
-                VisitTarget::Service(s) => s.clone(),
+                VisitTarget::Service { name, .. } => name.clone(),
                 VisitTarget::Client { client, .. } => client.clone(),
             };
-            settings.forwards = [(name, Forward { local, to })].into();
+            let (local, ports) = local;
+            settings.forwards = [(name, Forward { local, ports, to })].into();
         }
     }
     Ok(())
@@ -79,7 +89,7 @@ pub fn pick(settings: &mut VisitorSettings, choice: Pick, config: &str) -> Resul
 
 struct Bound {
     name: String,
-    forward: Forward,
+    to: VisitTarget,
     listener: TcpListener,
 }
 
@@ -93,19 +103,21 @@ impl Visitor {
     pub fn bind(settings: VisitorSettings) -> Result<Visitor, Failure> {
         let mut bound = Vec::new();
         for (name, forward) in &settings.forwards {
-            let listener = bind_tcp(forward.local).map_err(|e| {
-                crate::server::bind_error(
-                    &format!("forward \"{name}\""),
-                    Protocol::Tcp,
-                    forward.local,
-                    &e,
-                )
-            })?;
-            bound.push(Bound {
-                name: name.clone(),
-                forward: forward.clone(),
-                listener,
-            });
+            for (index, local) in forward.listens() {
+                let listener = bind_tcp(local).map_err(|e| {
+                    crate::server::bind_error(
+                        &format!("forward \"{name}\""),
+                        Protocol::Tcp,
+                        local,
+                        &e,
+                    )
+                })?;
+                bound.push(Bound {
+                    name: name.clone(),
+                    to: forward.to.at(index),
+                    listener,
+                });
+            }
         }
         Ok(Visitor {
             dialer: Arc::new(Dialer::visitor(&settings)),
@@ -131,12 +143,40 @@ impl Visitor {
     pub async fn run(self, mut stop: watch::Receiver<bool>) {
         let (tx, mut rx) = mpsc::channel(64);
         let mut accepting = JoinSet::new();
-        let mut forwards = Vec::new();
+        for (name, f) in &self.settings.forwards {
+            let at = self
+                .local_addr(name)
+                .map_or_else(|| show_addr(f.local, f.ports), |a| show_addr(a, f.ports));
+            let to = match (&f.to, f.ports) {
+                (VisitTarget::Client { client, target }, n) if n > 1 => {
+                    let last = f.to.at(n - 1);
+                    let end = match &last {
+                        VisitTarget::Client { target, .. } => {
+                            target.rsplit_once(':').map_or("", |(_, p)| p).to_string()
+                        }
+                        VisitTarget::Service { .. } => String::new(),
+                    };
+                    format!("{target}-{end} on client \"{client}\"")
+                }
+                (to, _) => to.to_string(),
+            };
+            info!("forwarding {at} -> {to}");
+        }
+        let forwards = self
+            .settings
+            .forwards
+            .iter()
+            .flat_map(|(name, f)| {
+                let last = f.ports.max(1) - 1;
+                let mut ends = vec![(name.clone(), f.to.clone())];
+                if last > 0 {
+                    ends.push((name.clone(), f.to.at(last)));
+                }
+                ends
+            })
+            .collect();
         for b in self.bound {
-            let at = b.listener.local_addr().unwrap_or(b.forward.local);
-            info!("forwarding {at} -> {}", b.forward.to);
-            forwards.push((b.name.clone(), b.forward.to.clone()));
-            accepting.spawn(forward::accept(b.name, b.forward, b.listener, tx.clone()));
+            accepting.spawn(forward::accept(b.name, b.to, b.listener, tx.clone()));
         }
         drop(tx);
         tokio::spawn(forward::check(self.dialer.clone(), forwards));
@@ -168,9 +208,8 @@ mod tests {
     use super::*;
 
     fn settings() -> VisitorSettings {
-        let forward = |port: u16, to: VisitTarget| Forward {
-            local: SocketAddr::from(([127, 0, 0, 1], port)),
-            to,
+        let forward = |port: u16, to: VisitTarget| {
+            Forward::single(SocketAddr::from(([127, 0, 0, 1], port)), to)
         };
         VisitorSettings {
             server: "tunnel.example.com:7835".into(),
@@ -187,13 +226,17 @@ mod tests {
                 keepalive: None,
             },
             forwards: [
+                ("db".to_string(), forward(5432, VisitTarget::service("db"))),
                 (
-                    "db".to_string(),
-                    forward(5432, VisitTarget::Service("db".into())),
+                    "game".to_string(),
+                    Forward {
+                        ports: 11,
+                        ..forward(40000, VisitTarget::service("game"))
+                    },
                 ),
                 (
                     "web".to_string(),
-                    forward(8080, VisitTarget::Service("web".into())),
+                    forward(8080, VisitTarget::service("web")),
                 ),
             ]
             .into(),
@@ -208,13 +251,34 @@ mod tests {
             &mut s,
             Pick::Forward {
                 name: "db".into(),
-                local: Some(local),
+                local: Some((local, 1)),
             },
             "visitor.yaml",
         )
         .unwrap();
         assert_eq!(s.forwards.len(), 1);
         assert_eq!(s.forwards["db"].local, local);
+    }
+
+    #[test]
+    fn a_range_forward_moves_only_to_a_range_of_the_same_size() {
+        let local = "127.0.0.1:50000".parse().unwrap();
+        let move_to = |ports| {
+            pick(
+                &mut settings(),
+                Pick::Forward {
+                    name: "game".into(),
+                    local: Some((local, ports)),
+                },
+                "visitor.yaml",
+            )
+        };
+        assert!(move_to(11).is_ok());
+        let err = move_to(1).unwrap_err();
+        assert_eq!(
+            err.message,
+            "forward \"game\" has 11 ports, but --local has 1"
+        );
     }
 
     #[test]
@@ -231,7 +295,7 @@ mod tests {
         assert_eq!(err.message, "no forward named \"dv\" in visitor.yaml");
         assert_eq!(
             err.hint.unwrap(),
-            "did you mean \"db\"? defined forwards: db, web"
+            "did you mean \"db\"? defined forwards: db, game, web"
         );
         let err = pick(
             &mut settings(),
@@ -262,13 +326,13 @@ mod tests {
             &mut s,
             Pick::Adhoc {
                 to: to.clone(),
-                local,
+                local: (local, 1),
             },
             "visitor.yaml",
         )
         .unwrap();
         assert_eq!(s.forwards.len(), 1);
-        assert_eq!(s.forwards["home"], Forward { local, to });
+        assert_eq!(s.forwards["home"], Forward::single(local, to));
         s.forwards.clear();
         assert!(pick(&mut s, Pick::All, "visitor.yaml").is_err());
     }

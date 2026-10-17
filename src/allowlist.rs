@@ -227,6 +227,13 @@ impl AllowList {
         }
     }
 
+    pub fn range_suggestion(ip: IpAddr, first: u16, last: u16) -> String {
+        match canonical(ip) {
+            IpAddr::V4(ip) => format!("{ip}/32:{first}-{last}"),
+            IpAddr::V6(ip) => format!("[{ip}/128]:{first}-{last}"),
+        }
+    }
+
     pub fn suggestion(target: SocketAddr) -> String {
         match canonical(target.ip()) {
             IpAddr::V4(ip) => format!("{ip}/32:{}", target.port()),

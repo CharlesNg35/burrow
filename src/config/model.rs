@@ -206,10 +206,14 @@ impl Target {
     pub fn host_port(&self) -> String {
         match self {
             Target::Port(p) => format!("127.0.0.1:{p}"),
-            Target::Addr(s) => match s.trim().parse::<u16>() {
-                Ok(p) => format!("127.0.0.1:{p}"),
-                Err(_) => s.clone(),
-            },
+            Target::Addr(s) => {
+                let s = s.trim();
+                if !s.is_empty() && s.chars().all(|c| c.is_ascii_digit() || c == '-') {
+                    format!("127.0.0.1:{s}")
+                } else {
+                    s.to_string()
+                }
+            }
         }
     }
 }

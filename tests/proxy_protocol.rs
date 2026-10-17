@@ -178,7 +178,7 @@ async fn visits_send_the_visitor_address() {
     let v = start_visitor(visitor_settings(
         t.server.addr,
         visitor_secret,
-        vec![("db", VisitTarget::Service("db".into()))],
+        vec![("db", VisitTarget::service("db"))],
     ));
     let (src, dst, _) = seen_through(v.addr("db")).await;
     assert!(src.ip().is_loopback(), "{src}");

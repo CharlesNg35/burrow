@@ -48,7 +48,7 @@ impl Shared {
             .filter(|v| v.secrets.contains(secret))
             .ok_or_else(|| forbidden(format!("visitor \"{visitor}\" is no longer allowed")))?;
         match to {
-            VisitTarget::Service(name) => {
+            VisitTarget::Service { name, index } => {
                 let Some(svc) = settings.services.get(name) else {
                     return Err(forbidden(format!(
                         "visitor \"{visitor}\" asked for service \"{name}\", which does not exist"
@@ -64,9 +64,20 @@ impl Shared {
                         "visitor \"{visitor}\" connects from {from}, which allow_from or deny_from of service \"{name}\" does not permit"
                     )));
                 }
+                if *index >= svc.ports.max(1) {
+                    return Err(Refusal {
+                        status: Status::Invalid,
+                        why: format!(
+                            "visitor \"{visitor}\" asked for port {} of service \"{name}\", which has {} {}",
+                            index + 1,
+                            svc.ports.max(1),
+                            crate::diagnostics::plural(svc.ports.max(1).into(), "port")
+                        ),
+                    });
+                }
                 Ok(Grant {
                     client: svc.client.clone(),
-                    target: svc.target.clone(),
+                    target: svc.target_at(*index),
                     service: Some(name.clone()),
                 })
             }

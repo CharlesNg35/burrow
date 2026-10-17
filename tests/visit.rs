@@ -110,7 +110,7 @@ async fn visitor_reaches_a_private_service() {
         !s.tunnel.server.services.contains_key("db"),
         "a private service opens no port on the server"
     );
-    let v = s.visitor(vec![("db", VisitTarget::Service("db".into()))]);
+    let v = s.visitor(vec![("db", VisitTarget::service("db"))]);
     for (len, seed) in [(0, 1), (1, 2), (70_000, 3), (3_000_000, 4)] {
         let data = pattern(len, seed);
         assert_eq!(roundtrip(v.addr("db"), &data).await, data, "{len} bytes");
@@ -137,7 +137,7 @@ async fn a_public_service_can_list_visitors_too() {
         srv.services.insert("web".into(), web);
     })
     .await;
-    let v = s.visitor(vec![("web", VisitTarget::Service("web".into()))]);
+    let v = s.visitor(vec![("web", VisitTarget::service("web"))]);
     let data = pattern(10_000, 9);
     assert_eq!(roundtrip(v.addr("web"), &data).await, data);
     assert_eq!(
@@ -167,12 +167,12 @@ async fn visitors_only_get_what_the_server_grants() {
     })
     .await;
     assert_eq!(
-        s.ask(true, VisitTarget::Service("db".into())).await,
+        s.ask(true, VisitTarget::service("db")).await,
         Ok(Status::Ok)
     );
     for to in [
-        VisitTarget::Service("other".into()),
-        VisitTarget::Service("missing".into()),
+        VisitTarget::service("other"),
+        VisitTarget::service("missing"),
         s.reach(),
     ] {
         assert_eq!(s.ask(true, to.clone()).await, Ok(Status::Forbidden), "{to}");
@@ -183,7 +183,7 @@ async fn visitors_only_get_what_the_server_grants() {
         );
     }
     let v = s.visitor(vec![
-        ("other", VisitTarget::Service("other".into())),
+        ("other", VisitTarget::service("other")),
         ("echo", s.reach()),
     ]);
     assert!(refused(v.addr("other")).await);
@@ -193,7 +193,7 @@ async fn visitors_only_get_what_the_server_grants() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn wrong_secrets_and_client_secrets_are_rejected() {
     let s = setup(|_, _| {}).await;
-    let db = || VisitTarget::Service("db".into());
+    let db = || VisitTarget::service("db");
     assert_eq!(
         ask(s.tunnel.server.addr, Secret::generate(), true, db()).await,
         Err("rejected")
@@ -229,7 +229,7 @@ async fn the_client_allow_list_still_decides() {
     .await;
     assert_eq!(s.ask(false, s.reach()).await, Ok(Status::Denied));
     assert_eq!(
-        s.ask(false, VisitTarget::Service("db".into())).await,
+        s.ask(false, VisitTarget::service("db")).await,
         Ok(Status::Denied)
     );
 }
@@ -246,7 +246,7 @@ async fn an_offline_client_is_reported() {
         private_service("127.0.0.1:9".parse().unwrap(), &["laptop"]),
     );
     let srv = start_server(server).await;
-    let db = VisitTarget::Service("db".into());
+    let db = VisitTarget::service("db");
     assert_eq!(
         ask(srv.addr, visitor_secret.clone(), true, db.clone()).await,
         Ok(Status::Offline)
@@ -263,14 +263,14 @@ async fn connection_limits_apply_to_visitors() {
         srv.visitors.get_mut("laptop").unwrap().max_connections = Some(1);
     })
     .await;
-    let v = s.visitor(vec![("db", VisitTarget::Service("db".into()))]);
+    let v = s.visitor(vec![("db", VisitTarget::service("db"))]);
     let mut held = tokio::net::TcpStream::connect(v.addr("db")).await.unwrap();
     held.write_all(b"ping").await.unwrap();
     let mut buf = [0u8; 4];
     held.read_exact(&mut buf).await.unwrap();
     assert_eq!(&buf, b"ping");
     assert_eq!(
-        s.ask(false, VisitTarget::Service("db".into())).await,
+        s.ask(false, VisitTarget::service("db")).await,
         Ok(Status::Busy)
     );
     drop(held);
@@ -295,7 +295,7 @@ async fn closed_after_reload(change: impl FnOnce(&mut ServerSettings)) {
     })
     .await;
     let v = s.visitor(vec![
-        ("db", VisitTarget::Service("db".into())),
+        ("db", VisitTarget::service("db")),
         ("echo", s.reach()),
     ]);
     let mut open = Vec::new();
@@ -339,7 +339,7 @@ async fn reload_closes_each_revoked_permission() {
     })
     .await;
     let v = s.visitor(vec![
-        ("db", VisitTarget::Service("db".into())),
+        ("db", VisitTarget::service("db")),
         ("echo", s.reach()),
     ]);
     let connect = |name: &'static str| {
@@ -390,7 +390,7 @@ async fn visits_work_with_insecure_plaintext() {
         },
     )
     .await;
-    let v = s.visitor(vec![("db", VisitTarget::Service("db".into()))]);
+    let v = s.visitor(vec![("db", VisitTarget::service("db"))]);
     for (len, seed) in [(10, 1), (1_000_000, 2)] {
         let data = pattern(len, seed);
         assert_eq!(roundtrip(v.addr("db"), &data).await, data);
@@ -444,7 +444,7 @@ async fn a_busy_local_port_is_explained() {
     let mut settings = visitor_settings(
         "127.0.0.1:1".parse().unwrap(),
         Secret::generate(),
-        vec![("db", VisitTarget::Service("db".into()))],
+        vec![("db", VisitTarget::service("db"))],
     );
     settings.forwards.get_mut("db").unwrap().local = taken.local_addr().unwrap();
     let Err(f) = burrow::visitor::Visitor::bind(settings) else {

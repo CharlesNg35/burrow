@@ -225,7 +225,7 @@ fn check_config(path: &Path) -> Result<Checked, Failure> {
                 listens.push((Protocol::Tcp, ws.listen, "websocket.listen".into()));
             }
             for (name, svc) in &s.services {
-                if let Some(bind) = svc.bind {
+                for (_, bind) in svc.binds() {
                     listens.push((svc.protocol, bind, format!("service \"{name}\"")));
                 }
             }
@@ -256,7 +256,9 @@ fn check_config(path: &Path) -> Result<Checked, Failure> {
                 files.push(("ca".to_string(), PathBuf::from(ca)));
             }
             for (name, f) in &s.forwards {
-                listens.push((Protocol::Tcp, f.local, format!("forward \"{name}\"")));
+                for (_, local) in f.listens() {
+                    listens.push((Protocol::Tcp, local, format!("forward \"{name}\"")));
+                }
             }
             (Role::Visitor, None)
         }

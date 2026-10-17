@@ -20,6 +20,7 @@ pub(super) async fn tcp_service(
     name: String,
     listener: TcpListener,
     config: watch::Receiver<Service>,
+    index: u16,
 ) {
     loop {
         let (visitor, peer) = match listener.accept().await {
@@ -39,7 +40,7 @@ pub(super) async fn tcp_service(
         let shared = shared.clone();
         let name = name.clone();
         tokio::spawn(async move {
-            visit(shared, name, svc, visitor, peer).await;
+            visit(shared, name, svc, visitor, peer, index).await;
         });
     }
 }
@@ -50,8 +51,10 @@ async fn visit(
     svc: Service,
     visitor: TcpStream,
     peer: SocketAddr,
+    index: u16,
 ) {
     let settings = shared.settings();
+    let target = svc.target_at(index);
     let (_guard, n) = shared.service_counts.enter(&name);
     if svc.max_connections.is_some_and(|m| n >= m) {
         shared.rejected.fetch_add(1, Ordering::Relaxed);
@@ -82,7 +85,7 @@ async fn visit(
     let connect = Connect {
         protocol: Protocol::Tcp,
         service: name.clone(),
-        target: svc.target.clone(),
+        target: target.clone(),
     };
     let mut reloads = shared.reloads();
     if !shared.allows(&svc.client, &session.secret) {
@@ -113,7 +116,7 @@ async fn visit(
     };
     match result {
         Ok(()) => debug!(%peer, "service \"{name}\": connection closed"),
-        Err(ForwardError::Status(st)) => log_status(&label, &svc.client, &svc.target, st),
+        Err(ForwardError::Status(st)) => log_status(&label, &svc.client, &target, st),
         Err(ForwardError::Protocol) => warn!("service \"{name}\": client sent an invalid reply"),
         Err(ForwardError::Io(e)) => debug!(%peer, "service \"{name}\": connection ended: {e}"),
     }

@@ -152,6 +152,7 @@ impl Shared {
                 protocol: svc.protocol,
                 bind_port: svc.bind.map_or(0, |b| b.port()),
                 target: svc.target.clone(),
+                ports: svc.ports,
             })
             .collect()
     }
@@ -184,8 +185,19 @@ enum Bound {
 struct ServiceTask {
     service: Service,
     config: watch::Sender<Service>,
-    task: JoinHandle<()>,
+    tasks: Vec<JoinHandle<()>>,
     addr: Option<SocketAddr>,
+}
+
+impl ServiceTask {
+    async fn stop(self) {
+        for t in &self.tasks {
+            t.abort();
+        }
+        for t in self.tasks {
+            let _ = t.await;
+        }
+    }
 }
 
 pub struct Server {
@@ -288,17 +300,22 @@ pub fn bind_error(what: &str, proto: Protocol, addr: SocketAddr, e: &std::io::Er
     }
 }
 
-async fn bind_service(name: &str, svc: &Service, bind: SocketAddr) -> Result<Bound, Failure> {
+async fn bind_service(name: &str, svc: &Service) -> Result<Vec<(u16, Bound)>, Failure> {
     let what = format!("service \"{name}\"");
-    match svc.protocol {
-        Protocol::Tcp => crate::transport::tcp::bind_tcp(bind)
-            .map(Bound::Tcp)
-            .map_err(|e| bind_error(&what, Protocol::Tcp, bind, &e)),
-        Protocol::Udp => UdpSocket::bind(bind)
-            .await
-            .map(Bound::Udp)
-            .map_err(|e| bind_error(&what, Protocol::Udp, bind, &e)),
+    let mut bound = Vec::new();
+    for (index, addr) in svc.binds() {
+        let b = match svc.protocol {
+            Protocol::Tcp => crate::transport::tcp::bind_tcp(addr)
+                .map(Bound::Tcp)
+                .map_err(|e| bind_error(&what, Protocol::Tcp, addr, &e))?,
+            Protocol::Udp => UdpSocket::bind(addr)
+                .await
+                .map(Bound::Udp)
+                .map_err(|e| bind_error(&what, Protocol::Udp, addr, &e))?,
+        };
+        bound.push((index, b));
     }
+    Ok(bound)
 }
 
 impl Server {
@@ -330,10 +347,10 @@ impl Server {
         });
         let mut services = HashMap::new();
         for (name, svc) in &settings.services {
-            let Some(bind) = svc.bind else {
+            if svc.bind.is_none() {
                 continue;
-            };
-            let bound = bind_service(name, svc, bind).await?;
+            }
+            let bound = bind_service(name, svc).await?;
             services.insert(name.clone(), spawn_service(&shared, name, svc, bound));
         }
         let websocket = ws_listener.map(|l| WsTask::start(&shared, l));
@@ -424,7 +441,9 @@ impl Server {
             ws.task.abort();
         }
         for (_, t) in self.services.drain() {
-            t.task.abort();
+            for task in &t.tasks {
+                task.abort();
+            }
         }
         let sessions: Vec<_> = self
             .shared
@@ -467,7 +486,10 @@ impl Server {
                 let conflicts = |a| crate::config::check::binds_conflict(kept, a);
                 next.services
                     .iter()
-                    .find(|(_, s)| s.protocol == Protocol::Tcp && s.bind.is_some_and(conflicts))
+                    .find(|(_, s)| {
+                        s.protocol == Protocol::Tcp
+                            && s.binds().into_iter().any(|(_, a)| conflicts(a))
+                    })
                     .map(|(n, _)| format!("service \"{n}\""))
                     .or_else(|| {
                         next.websocket
@@ -506,16 +528,17 @@ impl Server {
             .services
             .iter()
             .filter(|(k, t)| {
-                next.services
-                    .get(*k)
-                    .is_none_or(|s| s.bind != t.service.bind || s.protocol != t.service.protocol)
+                next.services.get(*k).is_none_or(|s| {
+                    s.bind != t.service.bind
+                        || s.protocol != t.service.protocol
+                        || s.ports != t.service.ports
+                })
             })
             .map(|(k, _)| k.clone())
             .collect();
         for name in moving {
             if let Some(t) = self.services.remove(&name) {
-                t.task.abort();
-                let _ = t.task.await;
+                t.stop().await;
                 match next.services.get(&name) {
                     None => info!("service \"{name}\" removed"),
                     Some(s) if s.bind.is_none() => {
@@ -527,7 +550,7 @@ impl Server {
             }
         }
         for (name, svc) in &next.services {
-            let Some(bind) = svc.bind else {
+            if svc.bind.is_none() {
                 if current
                     .services
                     .get(name)
@@ -540,11 +563,12 @@ impl Server {
                     log_service(name, svc, None);
                 }
                 continue;
-            };
-            let same_socket = self
-                .services
-                .get(name)
-                .is_some_and(|t| t.service.bind == svc.bind && t.service.protocol == svc.protocol);
+            }
+            let same_socket = self.services.get(name).is_some_and(|t| {
+                t.service.bind == svc.bind
+                    && t.service.protocol == svc.protocol
+                    && t.service.ports == svc.ports
+            });
             if same_socket {
                 let t = self.services.get_mut(name).expect("checked above");
                 if t.service != *svc {
@@ -556,10 +580,9 @@ impl Server {
                 continue;
             }
             if let Some(old) = self.services.remove(name) {
-                old.task.abort();
-                let _ = old.task.await;
+                old.stop().await;
             }
-            match bind_with_retry(name, svc, bind).await {
+            match bind_with_retry(name, svc).await {
                 Ok(bound) => {
                     let t = spawn_service(&self.shared, name, svc, bound);
                     if !current.services.get(name).is_some_and(|c| c.bind.is_none()) {
@@ -681,10 +704,10 @@ async fn bind_ws_with_retry(
     Err(last.expect("at least one attempt"))
 }
 
-async fn bind_with_retry(name: &str, svc: &Service, bind: SocketAddr) -> Result<Bound, Failure> {
+async fn bind_with_retry(name: &str, svc: &Service) -> Result<Vec<(u16, Bound)>, Failure> {
     let mut last = None;
     for _ in 0..20 {
-        match bind_service(name, svc, bind).await {
+        match bind_service(name, svc).await {
             Ok(b) => return Ok(b),
             Err(f) => last = Some(f),
         }
@@ -694,9 +717,10 @@ async fn bind_with_retry(name: &str, svc: &Service, bind: SocketAddr) -> Result<
 }
 
 fn log_service(name: &str, svc: &Service, addr: Option<SocketAddr>) {
-    let at = addr
-        .or(svc.bind)
-        .map_or_else(|| "private".to_string(), |a| a.to_string());
+    let at = addr.or(svc.bind).map_or_else(
+        || "private".to_string(),
+        |a| crate::config::check::ports::show_addr(a, svc.ports),
+    );
     let visitors = if svc.visitors.is_empty() {
         String::new()
     } else {
@@ -706,28 +730,38 @@ fn log_service(name: &str, svc: &Service, addr: Option<SocketAddr>) {
         "service \"{name}\": {} {at} -> client \"{}\" {}{visitors}",
         svc.protocol.as_str(),
         svc.client,
-        svc.target
+        svc.shown_target()
     );
 }
 
-fn spawn_service(shared: &Arc<Shared>, name: &str, svc: &Service, bound: Bound) -> ServiceTask {
+fn spawn_service(
+    shared: &Arc<Shared>,
+    name: &str,
+    svc: &Service,
+    bound: Vec<(u16, Bound)>,
+) -> ServiceTask {
     let (config, rx) = watch::channel(svc.clone());
-    let shared = shared.clone();
-    let name_owned = name.to_string();
-    let (addr, task) = match bound {
-        Bound::Tcp(l) => (
-            l.local_addr().ok(),
-            tokio::spawn(tcp::tcp_service(shared, name_owned, l, rx)),
-        ),
-        Bound::Udp(sock) => (
-            sock.local_addr().ok(),
-            tokio::spawn(udp::udp_service(shared, name_owned, sock, rx)),
-        ),
-    };
+    let mut addr = None;
+    let mut tasks = Vec::with_capacity(bound.len());
+    for (index, b) in bound {
+        let (shared, name, rx) = (shared.clone(), name.to_string(), rx.clone());
+        let (at, task) = match b {
+            Bound::Tcp(l) => (
+                l.local_addr().ok(),
+                tokio::spawn(tcp::tcp_service(shared, name, l, rx, index)),
+            ),
+            Bound::Udp(sock) => (
+                sock.local_addr().ok(),
+                tokio::spawn(udp::udp_service(shared, name, sock, rx, index)),
+            ),
+        };
+        addr = addr.or(at);
+        tasks.push(task);
+    }
     ServiceTask {
         service: svc.clone(),
         config,
-        task,
+        tasks,
         addr,
     }
 }

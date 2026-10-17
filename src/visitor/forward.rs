@@ -6,7 +6,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{Semaphore, mpsc};
 use tracing::{debug, info, warn};
 
-use crate::config::settings::{Forward, VisitorSettings};
+use crate::config::settings::VisitorSettings;
 use crate::dialer::{DialError, Dialer};
 use crate::forward::{ForwardError, visit_tcp};
 use crate::protocol::{ChannelKind, Hello, Status, VERSION, VisitRequest, VisitTarget};
@@ -24,7 +24,7 @@ pub(super) struct Incoming {
 
 pub(super) async fn accept(
     name: String,
-    forward: Forward,
+    to: VisitTarget,
     listener: TcpListener,
     tx: mpsc::Sender<Incoming>,
 ) {
@@ -39,7 +39,7 @@ pub(super) async fn accept(
         };
         let conn = Incoming {
             name: name.clone(),
-            to: forward.to.clone(),
+            to: to.clone(),
             stream,
             peer,
         };
@@ -51,24 +51,24 @@ pub(super) async fn accept(
 
 fn rejected(dialer: &Dialer) -> String {
     format!(
-        "the server {} closed the connection during the handshake: wrong secret or unknown visitor name \"{}\", the server is busy, or it is older than burrow 0.2.0 (check the name and secret against the server config, or print a new visitor config on the server with: burrow visitor-config {} -o visitor.yaml)",
+        "the server {} closed the connection during the handshake: wrong secret or unknown visitor name \"{}\", or the server is busy (check the name and secret against the server config, or print a new visitor config on the server with: burrow visitor-config {} -o visitor.yaml)",
         dialer.server, dialer.name, dialer.name
     )
 }
 
 fn explain(status: Status, to: &VisitTarget, visitor: &str) -> String {
     let goal = match to {
-        VisitTarget::Service(name) => format!("service \"{name}\""),
+        VisitTarget::Service { name, .. } => format!("service \"{name}\""),
         VisitTarget::Client { target, .. } => target.clone(),
     };
     match (status, to) {
-        (Status::Forbidden, VisitTarget::Service(name)) => format!(
+        (Status::Forbidden, VisitTarget::Service { name, .. }) => format!(
             "the server does not let visitor \"{visitor}\" use service \"{name}\": it does not exist, or does not list \"{visitor}\" in its \"visitors\""
         ),
         (Status::Forbidden, VisitTarget::Client { client, .. }) => format!(
             "the server does not let visitor \"{visitor}\" reach client \"{client}\" directly: that needs \"reach: {{ {client}: any }}\" for \"{visitor}\" in the server config"
         ),
-        (Status::Offline, VisitTarget::Service(name)) => format!(
+        (Status::Offline, VisitTarget::Service { name, .. }) => format!(
             "the client behind service \"{name}\" is not connected to the server, or did not answer in time (see the client's log)"
         ),
         (Status::Offline, VisitTarget::Client { client, .. }) => format!(
@@ -84,6 +84,10 @@ fn explain(status: Status, to: &VisitTarget, visitor: &str) -> String {
             format!("the client could not connect to {goal} (is it running?)")
         }
         (Status::Unresolved, _) => format!("the client could not resolve the host of {goal}"),
+        (Status::Invalid, VisitTarget::Service { name, index }) if *index > 0 => format!(
+            "service \"{name}\" has fewer ports than this forward's local range (port {} is past its end)",
+            index + 1
+        ),
         (Status::Invalid, _) => format!("the request for {goal} was rejected as invalid"),
         (Status::Ok, _) => String::new(),
     }
@@ -118,9 +122,7 @@ pub(super) async fn check(dialer: Arc<Dialer>, forwards: Vec<(String, VisitTarge
             }
             None => {
                 ready = false;
-                warn!(
-                    "forward \"{name}\": the server did not answer the check; it may be older than burrow 0.2.0"
-                );
+                warn!("forward \"{name}\": the server did not answer the check");
             }
         }
     }

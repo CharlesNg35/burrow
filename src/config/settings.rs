@@ -48,16 +48,67 @@ pub struct VisitorAuth {
     pub max_connections: Option<usize>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Service {
     pub client: String,
     pub bind: Option<SocketAddr>,
     pub target: String,
+    pub ports: u16,
     pub protocol: Protocol,
     pub max_connections: Option<usize>,
     pub visitors: Vec<String>,
     pub sources: Sources,
     pub proxy_protocol: Option<crate::proxy_protocol::Version>,
+}
+
+impl Default for Service {
+    fn default() -> Self {
+        Service {
+            client: String::new(),
+            bind: None,
+            target: String::new(),
+            ports: 1,
+            protocol: Protocol::Tcp,
+            max_connections: None,
+            visitors: Vec::new(),
+            sources: Sources::default(),
+            proxy_protocol: None,
+        }
+    }
+}
+
+impl Service {
+    pub fn target_at(&self, index: u16) -> String {
+        crate::config::check::ports::port_at(&self.target, index)
+    }
+
+    pub fn binds(&self) -> Vec<(u16, SocketAddr)> {
+        self.bind
+            .map(|b| {
+                (0..self.ports.max(1))
+                    .map(|i| (i, SocketAddr::new(b.ip(), b.port().saturating_add(i))))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    pub fn shown_target(&self) -> String {
+        match self.target.rsplit_once(':') {
+            Some((host, port)) if self.ports > 1 => match port.parse::<u16>() {
+                Ok(p) => format!(
+                    "{host}:{}",
+                    crate::config::check::ports::show(p, self.ports)
+                ),
+                Err(_) => self.target.clone(),
+            },
+            _ => self.target.clone(),
+        }
+    }
+
+    pub fn shown_bind(&self) -> Option<String> {
+        self.bind
+            .map(|b| crate::config::check::ports::show_addr(b, self.ports))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -78,7 +129,29 @@ pub struct VisitorSettings {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Forward {
     pub local: SocketAddr,
+    pub ports: u16,
     pub to: VisitTarget,
+}
+
+impl Forward {
+    pub fn single(local: SocketAddr, to: VisitTarget) -> Self {
+        Forward {
+            local,
+            ports: 1,
+            to,
+        }
+    }
+
+    pub fn listens(&self) -> Vec<(u16, SocketAddr)> {
+        (0..self.ports.max(1))
+            .map(|i| {
+                (
+                    i,
+                    SocketAddr::new(self.local.ip(), self.local.port().saturating_add(i)),
+                )
+            })
+            .collect()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

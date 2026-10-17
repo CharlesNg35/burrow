@@ -134,15 +134,16 @@ fn visit_pick(args: burrow::cli::VisitArgs) -> Result<burrow::visitor::Pick, Fai
         Some(l) => Some(
             burrow::config::check::parse_local(&Bind::Addr(l.clone())).map_err(|e| {
                 Failure::usage(format!("invalid --local: {e}"))
-                    .hint("use a port like 5432 (on 127.0.0.1), or ip:port like 127.0.0.1:5432")
+                    .hint("use a port like 5432 (on 127.0.0.1), a range like 40000-40010, or ip:port like 127.0.0.1:5432")
             })?,
         ),
         None => None,
     };
-    if let Some(l) = local.filter(|l| l.ip().is_unspecified()) {
+    if let Some((l, n)) = local.filter(|(l, _)| l.ip().is_unspecified()) {
+        let ports = burrow::config::check::ports::show(l.port(), n);
         eprintln!(
-            "warning: --local {l} listens on all interfaces: other machines on your network get this visitor's access (use --local {} for this machine only)",
-            l.port()
+            "warning: --local {} listens on all interfaces: other machines on your network get this visitor's access (use --local {ports} for this machine only)",
+            burrow::config::check::ports::show_addr(l, n)
         );
     }
     let name_ok = |flag: &str, name: &str| {
@@ -156,15 +157,28 @@ fn visit_pick(args: burrow::cli::VisitArgs) -> Result<burrow::visitor::Pick, Fai
     let adhoc = match (args.service, args.client, args.target) {
         (Some(service), _, _) => {
             name_ok("--service", &service)?;
-            Some(VisitTarget::Service(service))
+            Some(VisitTarget::service(service))
         }
         (None, Some(client), Some(target)) => {
             name_ok("--client", &client)?;
             let target = Target::Addr(target).host_port();
-            burrow::config::check::parse_host_port(&target).map_err(|e| {
-                Failure::usage(format!("invalid --target: {e}"))
-                    .hint("use host:port as seen from the client, for example 127.0.0.1:22, or a port alone like 22")
-            })?;
+            let (target, ports) = burrow::config::check::ports::split_target(&target)
+                .and_then(|(base, n)| {
+                    burrow::config::check::parse_host_port(&base).map(|_| (base, n))
+                })
+                .map_err(|e| {
+                    Failure::usage(format!("invalid --target: {e}"))
+                        .hint("use host:port as seen from the client, for example 127.0.0.1:22, a port alone like 22, or a range like 30000-30010")
+                })?;
+            if let Some((_, n)) = local
+                && n != ports
+            {
+                return Err(Failure::usage(format!(
+                    "--target has {ports} {} but --local has {n}",
+                    burrow::diagnostics::plural(ports.into(), "port")
+                ))
+                .hint("give --local and --target ranges of the same size"));
+            }
             Some(VisitTarget::Client { client, target })
         }
         _ => None,

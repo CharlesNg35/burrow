@@ -98,15 +98,25 @@ pub fn precheck(settings: &ClientSettings, svc: &ServiceInfo) {
     let Ok((host, port)) = parse_host_port(&svc.target) else {
         return;
     };
-    if let Ok(ip) = host.parse::<std::net::IpAddr>() {
-        let addr = SocketAddr::new(ip, port);
-        if !settings.allow.permits(addr) {
-            warn!(
-                "service \"{}\" targets {addr}, which the allow list does not permit; add \"{}\" to \"allow\" to expose it",
-                svc.name,
-                AllowList::suggestion(addr)
-            );
-        }
+    let Ok(ip) = host.parse::<std::net::IpAddr>() else {
+        return;
+    };
+    let last = port.saturating_add(svc.ports.max(1) - 1);
+    let refused: Vec<SocketAddr> = [port, last]
+        .into_iter()
+        .map(|p| SocketAddr::new(ip, p))
+        .filter(|a| !settings.allow.permits(*a))
+        .collect();
+    if let Some(addr) = refused.first() {
+        let hint = if last > port {
+            AllowList::range_suggestion(ip, port, last)
+        } else {
+            AllowList::suggestion(*addr)
+        };
+        warn!(
+            "service \"{}\" targets {addr}, which the allow list does not permit; add \"{hint}\" to \"allow\" to expose it",
+            svc.name,
+        );
     }
 }
 

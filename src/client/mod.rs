@@ -287,15 +287,27 @@ impl Client {
             info!("the server exposes no services for this client yet");
         }
         for svc in list {
+            let ports = svc.ports.max(1);
             let at = match svc.bind_port {
                 0 => "private, for visitors".to_string(),
+                p if ports > 1 => format!(
+                    "server ports {}",
+                    crate::config::check::ports::show(p, ports)
+                ),
                 p => format!("server port {p}"),
             };
+            let target = match crate::config::check::parse_host_port(&svc.target) {
+                Ok((_, p)) if ports > 1 => format!(
+                    "{}:{}",
+                    svc.target.rsplit_once(':').map_or("", |(h, _)| h),
+                    crate::config::check::ports::show(p, ports)
+                ),
+                _ => svc.target.clone(),
+            };
             info!(
-                "service \"{}\": {} {at} -> {}",
+                "service \"{}\": {} {at} -> {target}",
                 svc.name,
                 svc.protocol.as_str(),
-                svc.target
             );
             data::precheck(&self.settings, svc);
         }

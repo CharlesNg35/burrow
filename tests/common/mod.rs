@@ -403,10 +403,7 @@ pub fn visitor_settings(
             .map(|(n, to)| {
                 (
                     n.to_string(),
-                    Forward {
-                        local: "127.0.0.1:0".parse().unwrap(),
-                        to,
-                    },
+                    Forward::single("127.0.0.1:0".parse().unwrap(), to),
                 )
             })
             .collect(),
