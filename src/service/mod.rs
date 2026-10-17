@@ -403,34 +403,26 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
             out,
         );
     }
-    if let Some(p) = &previous
-        && was_running
-    {
+    let mut again = StartAgain {
+        backend: &*backend,
+        manifest: previous.as_ref().filter(|_| was_running),
+    };
+    if let Some(p) = again.manifest {
         backend.stop(p)?;
     }
-    let restore = |f: Failure| -> Failure {
-        if let Some(p) = &previous
-            && was_running
-        {
-            let _ = backend.start(p);
-        }
-        f
-    };
 
     if let Some(identity) = &checked.identity
         && let Err(e) = crate::instance::acquire(identity, &source)
     {
-        return Err(restore(Failure::new(format!("cannot install: {}", e.message)).hint(
+        return Err(Failure::new(format!("cannot install: {}", e.message)).hint(
             "stop the burrow process that is running outside the service first, then install again",
-        )));
+        ));
     }
     for (proto, addr, label) in &checked.listens {
-        if let Err(f) = ports::check_free(*proto, *addr, label) {
-            return Err(restore(f));
-        }
+        ports::check_free(*proto, *addr, label)?;
     }
 
-    let created = backend.ensure_account(&account).map_err(restore)?;
+    let created = backend.ensure_account(&account)?;
     if created {
         say(
             out,
@@ -446,20 +438,20 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
     };
     for (field, file) in &checked.files {
         if !backend.can_read(&account, file) {
-            return Err(restore(Failure::new(format!(
+            return Err(Failure::new(format!(
                 "the service account {account} cannot read {field} ({})",
                 file.display()
             ))
             .hint(format!(
                 "grant read access, for example: sudo setfacl -m u:{account}:r {} (and x on its folders), or pass --run-as with an account that can read it",
                 file.display()
-            ))));
+            )));
         }
     }
 
-    backend.prepare_dirs(&account).map_err(restore)?;
+    backend.prepare_dirs(&account)?;
     if copy_binary && !system::same_content(&current, &binary) {
-        system::copy_file(&current, &binary, true).map_err(restore)?;
+        system::copy_file(&current, &binary, true)?;
         say(
             out,
             format!("copied {} -> {}", current.display(), binary.display()),
@@ -481,15 +473,15 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
         }
     }
     if source != config {
-        system::copy_file(&source, &config, false).map_err(restore)?;
+        system::copy_file(&source, &config, false)?;
         say(
             out,
             format!("copied {} -> {}", source.display(), config.display()),
         )?;
     }
-    backend.secure_file(&config, &account).map_err(restore)?;
+    backend.secure_file(&config, &account)?;
     if let Some(f) = &env_file {
-        backend.write_env(&manifest, &env).map_err(restore)?;
+        backend.write_env(&manifest, &env)?;
         say(
             out,
             format!(
@@ -499,7 +491,10 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
             ),
         )?;
     }
-    backend.install(&manifest).map_err(restore)?;
+    backend.install(&manifest)?;
+    if !opts.start {
+        again.manifest = None;
+    }
     save_manifest(&manifest)?;
     say(
         out,
@@ -516,6 +511,7 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
     };
     if opts.start {
         backend.start(&manifest)?;
+        again.manifest = None;
         std::thread::sleep(std::time::Duration::from_millis(1500));
         let st = backend.status(&manifest);
         if st.running {
@@ -564,6 +560,19 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
         ),
     )?;
     Ok(())
+}
+
+struct StartAgain<'a> {
+    backend: &'a dyn Backend,
+    manifest: Option<&'a Manifest>,
+}
+
+impl Drop for StartAgain<'_> {
+    fn drop(&mut self) {
+        if let Some(m) = self.manifest.take() {
+            let _ = self.backend.start(m);
+        }
+    }
 }
 
 pub fn manifest_path(name: &str) -> PathBuf {
@@ -871,7 +880,7 @@ pub fn control_now(action: &str, name: Option<&str>, out: &mut dyn Write) -> Res
                 out,
                 format!("{}s apply config changes on restart; restarting", m.role),
             )?;
-            backend.stop(&m)?;
+            let _ = backend.stop(&m);
             backend.start(&m)?;
         }
         "reload" => backend.reload(&m)?,

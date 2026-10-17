@@ -9,6 +9,12 @@ use super::{
 };
 use crate::failure::Failure;
 
+const SETTLE: Duration = if cfg!(test) {
+    Duration::from_millis(100)
+} else {
+    Duration::from_millis(2000)
+};
+
 struct Swap {
     binary: PathBuf,
     users: Vec<Manifest>,
@@ -172,8 +178,13 @@ fn swap(
         .collect::<Vec<_>>()
         .join(", ");
     let running: Vec<&Manifest> = users.iter().filter(|m| backend.status(m).running).collect();
-    for m in &running {
-        backend.stop(m)?;
+    for (i, m) in running.iter().enumerate() {
+        if let Err(f) = backend.stop(m) {
+            for again in &running[..=i] {
+                let _ = backend.start(again);
+            }
+            return Err(f);
+        }
     }
     let previous = binary.with_extension("previous");
     let had_old = binary.exists() && system::copy_file(&binary, &previous, true).is_ok();
@@ -189,7 +200,7 @@ fn swap(
             failed.push(m.name.clone());
         }
     }
-    std::thread::sleep(Duration::from_millis(2000));
+    std::thread::sleep(SETTLE);
     for m in &running {
         if !backend.status(m).running && !failed.contains(&m.name) {
             failed.push(m.name.clone());
@@ -202,7 +213,7 @@ fn swap(
                 let _ = backend.stop(m);
                 let _ = backend.start(m);
             }
-            std::thread::sleep(Duration::from_millis(2000));
+            std::thread::sleep(SETTLE);
         }
         let still_down: Vec<&str> = running
             .iter()
@@ -248,4 +259,149 @@ fn swap(
         )?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::service::Status;
+    use std::cell::RefCell;
+    use std::collections::{BTreeMap, BTreeSet};
+
+    struct Fake {
+        running: RefCell<BTreeSet<String>>,
+        stop_fails: BTreeSet<String>,
+        broken: Vec<u8>,
+    }
+
+    impl Backend for Fake {
+        fn kind(&self) -> &'static str {
+            "fake"
+        }
+        fn render(&self, _: &Manifest) -> String {
+            String::new()
+        }
+        fn ensure_account(&self, _: &str) -> Result<bool, Failure> {
+            Ok(false)
+        }
+        fn remove_account(&self, _: &str) -> Result<(), Failure> {
+            Ok(())
+        }
+        fn can_read(&self, _: &str, _: &Path) -> bool {
+            true
+        }
+        fn secure_file(&self, _: &Path, _: &str) -> Result<(), Failure> {
+            Ok(())
+        }
+        fn prepare_dirs(&self, _: &str) -> Result<(), Failure> {
+            Ok(())
+        }
+        fn write_env(&self, _: &Manifest, _: &BTreeMap<String, String>) -> Result<(), Failure> {
+            Ok(())
+        }
+        fn install(&self, _: &Manifest) -> Result<(), Failure> {
+            Ok(())
+        }
+        fn uninstall(&self, _: &Manifest) -> Result<(), Failure> {
+            Ok(())
+        }
+        fn start(&self, m: &Manifest) -> Result<(), Failure> {
+            if std::fs::read(&m.binary).unwrap() == self.broken {
+                return Err(Failure::new("exited at once"));
+            }
+            self.running.borrow_mut().insert(m.name.clone());
+            Ok(())
+        }
+        fn stop(&self, m: &Manifest) -> Result<(), Failure> {
+            self.running.borrow_mut().remove(&m.name);
+            if self.stop_fails.contains(&m.name) {
+                return Err(Failure::new("did not stop within 10 seconds"));
+            }
+            Ok(())
+        }
+        fn reload(&self, _: &Manifest) -> Result<(), Failure> {
+            Ok(())
+        }
+        fn status(&self, m: &Manifest) -> Status {
+            Status {
+                installed: true,
+                running: self.running.borrow().contains(&m.name),
+                pid: None,
+                detail: String::new(),
+            }
+        }
+    }
+
+    fn service(name: &str, binary: &Path) -> Manifest {
+        Manifest {
+            name: name.into(),
+            role: "client".into(),
+            config: PathBuf::from("/etc/burrow/x.yaml"),
+            source_config: PathBuf::from("/tmp/x.yaml"),
+            env_file: None,
+            log_file: PathBuf::new(),
+            binary: binary.to_path_buf(),
+            copied_binary: true,
+            account: "burrow".into(),
+            created_account: false,
+            low_ports: false,
+            files: vec![],
+            version: "1.0.0".into(),
+        }
+    }
+
+    fn setup(new: &[u8]) -> (tempfile::TempDir, PathBuf, PathBuf) {
+        let dir = tempfile::tempdir().unwrap();
+        let installed = dir.path().join("burrow");
+        let me = dir.path().join("new-burrow");
+        std::fs::write(&installed, b"old").unwrap();
+        std::fs::write(&me, new).unwrap();
+        (dir, installed, me)
+    }
+
+    #[test]
+    fn a_stop_that_fails_starts_again_what_was_stopped() {
+        let (_dir, installed, me) = setup(b"new");
+        let users = vec![service("a", &installed), service("b", &installed)];
+        let fake = Fake {
+            running: RefCell::new(["a".to_string(), "b".to_string()].into()),
+            stop_fails: ["b".to_string()].into(),
+            broken: b"never".to_vec(),
+        };
+        let swap_one = Swap {
+            binary: installed.clone(),
+            users,
+            installed: "1.0.0".into(),
+        };
+        let err = swap(&fake, swap_one, &me, "9.9.9", &mut Vec::new()).unwrap_err();
+        assert!(err.message.contains("did not stop"), "{}", err.message);
+        assert_eq!(
+            *fake.running.borrow(),
+            ["a".to_string(), "b".to_string()].into()
+        );
+        assert_eq!(std::fs::read(&installed).unwrap(), b"old");
+    }
+
+    #[test]
+    fn a_binary_that_does_not_start_is_rolled_back_and_the_services_run_again() {
+        let (_dir, installed, me) = setup(b"broken");
+        let fake = Fake {
+            running: RefCell::new(["a".to_string()].into()),
+            stop_fails: BTreeSet::new(),
+            broken: b"broken".to_vec(),
+        };
+        let swap_one = Swap {
+            binary: installed.clone(),
+            users: vec![service("a", &installed)],
+            installed: "1.0.0".into(),
+        };
+        let err = swap(&fake, swap_one, &me, "9.9.9", &mut Vec::new()).unwrap_err();
+        assert!(
+            err.message.contains("restored 1.0.0, and it runs again"),
+            "{}",
+            err.message
+        );
+        assert_eq!(std::fs::read(&installed).unwrap(), b"old");
+        assert!(fake.running.borrow().contains("a"));
+    }
 }

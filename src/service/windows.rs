@@ -307,7 +307,7 @@ impl Backend for WindowsService {
     }
 
     fn reload(&self, m: &Manifest) -> Result<(), Failure> {
-        self.stop(m)?;
+        let _ = self.stop(m);
         self.start(m)
     }
 
