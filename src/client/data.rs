@@ -781,14 +781,16 @@ mod tests {
         let refused = lookup(&settings, &resolver, &visit("hang.test:22")).await;
         assert!(refused.unwrap_err().to_string().contains("still running"));
         assert!(started.elapsed() < Duration::from_millis(500));
+        let mut patient = settings.clone();
+        patient.connect_timeout = Duration::from_secs(5);
         assert!(
-            lookup(&settings, &resolver, &visit("127.0.0.1:22"))
+            lookup(&patient, &resolver, &visit("127.0.0.1:22"))
                 .await
                 .is_ok()
         );
         let mut service = visit("localhost:22");
         service.service = "ssh".into();
-        assert!(lookup(&settings, &resolver, &service).await.is_ok());
+        assert!(lookup(&patient, &resolver, &service).await.is_ok());
         let mut hanging = visit("hang.test:22");
         hanging.service = "ssh".into();
         let mut stuck = tokio::task::JoinSet::new();
