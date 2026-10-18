@@ -724,7 +724,11 @@ mod tests {
         assert!(held_elsewhere(dir.path(), &id).is_none());
         let lock = acquire_in(dir.path(), &id, &cfg).unwrap();
         let found = held_elsewhere(dir.path(), &id).expect("the held lock is found");
-        assert!(found.message.contains("is already running"), "{}", found.message);
+        assert!(
+            found.message.contains("is already running"),
+            "{}",
+            found.message
+        );
         drop(lock);
         assert!(held_elsewhere(dir.path(), &id).is_none());
     }

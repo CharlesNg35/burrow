@@ -719,6 +719,10 @@ impl Server {
         self.shared.reloaded.send_modify(|n| *n += 1);
 
         if next.websocket != current.websocket {
+            let before = (
+                self.websocket_addr(),
+                current.websocket.as_ref().map(|w| w.path.clone()),
+            );
             let kept = self
                 .apply_websocket(current.websocket.as_ref(), next.websocket.as_ref())
                 .await;
@@ -726,7 +730,11 @@ impl Server {
                 next.websocket = kept;
                 *self.shared.settings.write().expect("settings lock") = Arc::new(next.clone());
             }
-            if where_of(current.websocket.as_ref()) != where_of(next.websocket.as_ref()) {
+            let after = (
+                self.websocket_addr(),
+                next.websocket.as_ref().map(|w| w.path.clone()),
+            );
+            if before != after {
                 self.shared.close_websocket_clients();
             }
         }
@@ -1067,10 +1075,6 @@ async fn bind_ws_with_retry(
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
     Err(last.expect("at least one attempt"))
-}
-
-fn where_of(ws: Option<&WebSocketSettings>) -> Option<(SocketAddr, &str)> {
-    ws.map(|w| (w.listen, w.path.as_str()))
 }
 
 const FREED_TRIES: usize = 20;
