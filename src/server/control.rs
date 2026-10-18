@@ -164,6 +164,7 @@ pub(super) async fn control_session(
                 Err(_) => break Some(format!("no heartbeat for {}s", timeout.as_secs())),
             },
             _ = stop.changed() => break Some("server shutting down".to_string()),
+            _ = session.closed() => break None,
         }
     };
     let current = {

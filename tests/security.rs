@@ -481,3 +481,51 @@ async fn a_server_cannot_make_a_client_open_unbounded_data_channels() {
     assert!(n <= 4096, "the client opened {n} data channels");
     assert_eq!(*cli.state.borrow(), State::Connected);
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_replaced_control_connection_is_closed_even_if_its_peer_keeps_talking() {
+    use burrow::protocol::ClientMsg;
+    if ws_mode() {
+        return;
+    }
+    let secret = Secret::generate();
+    let srv = start_server(server_settings(vec![secret.clone()])).await;
+    let control = |secret: Secret| async move {
+        let p = Preamble {
+            kind: ChannelKind::Control,
+            cipher: Cipher::Chachapoly,
+            plaintext: false,
+            name: "home".into(),
+        };
+        let s = TcpStream::connect(srv.addr).await.unwrap();
+        burrow::handshake::initiate(
+            s.into(),
+            &p,
+            &secret,
+            &Hello::Control {
+                version: 1,
+                instance: [5; 16],
+            },
+        )
+        .await
+        .unwrap()
+    };
+    let mut old = control(secret.clone()).await;
+    let shared = srv.shared.clone();
+    wait_for(|| shared.session_names().len() == 1).await;
+    let _new = control(secret.clone()).await;
+    let pong = ClientMsg::Pong.encode();
+    let closed = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if old.writer.send(&mut old.stream, &pong).await.is_err() {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+    })
+    .await;
+    assert!(
+        closed.is_ok(),
+        "the replaced control connection stayed open"
+    );
+}
