@@ -11,6 +11,7 @@ use crate::metrics::{Handler, serve_with};
 pub struct Published {
     path: PathBuf,
     task: JoinHandle<()>,
+    _fresh: crate::instance::Fresh,
 }
 
 impl Published {
@@ -102,5 +103,10 @@ pub fn publish_in(
     }
     debug!("status for burrow status at {}", path.display());
     let task = tokio::spawn(serve_with(listener, handler(token, snapshot)));
-    Some(Published { path, task })
+    let fresh = crate::instance::keep_fresh(vec![path.clone()]);
+    Some(Published {
+        path,
+        task,
+        _fresh: fresh,
+    })
 }

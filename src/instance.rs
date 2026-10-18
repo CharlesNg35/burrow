@@ -47,6 +47,43 @@ pub struct InstanceLock {
     _file: Option<File>,
     path: PathBuf,
     noted: bool,
+    _fresh: Option<Fresh>,
+}
+
+const REFRESH: std::time::Duration = std::time::Duration::from_secs(3600);
+
+pub struct Fresh {
+    _stop: std::sync::mpsc::Sender<()>,
+}
+
+pub fn keep_fresh(paths: Vec<PathBuf>) -> Fresh {
+    keep_fresh_every(paths, REFRESH)
+}
+
+fn keep_fresh_every(paths: Vec<PathBuf>, every: std::time::Duration) -> Fresh {
+    let (stop, stopped) = std::sync::mpsc::channel::<()>();
+    let _ = std::thread::Builder::new()
+        .name("burrow-fresh".into())
+        .spawn(move || {
+            while let Err(std::sync::mpsc::RecvTimeoutError::Timeout) = stopped.recv_timeout(every)
+            {
+                for path in &paths {
+                    touch(path);
+                }
+            }
+        });
+    Fresh { _stop: stop }
+}
+
+fn touch(path: &Path) {
+    if let Ok(f) = no_follow(OpenOptions::new().read(true).write(true)).open(path) {
+        let now = std::time::SystemTime::now();
+        let _ = f.set_times(
+            std::fs::FileTimes::new()
+                .set_accessed(now)
+                .set_modified(now),
+        );
+    }
 }
 
 impl Drop for InstanceLock {
@@ -290,6 +327,7 @@ pub fn acquire(identity: &Identity, config: &Path) -> Result<InstanceLock, Failu
             _file: None,
             path: dir.join(format!("{}.lock", identity.key())),
             noted: false,
+            _fresh: None,
         });
     }
     taken
@@ -333,6 +371,7 @@ pub fn acquire_in(dir: &Path, identity: &Identity, config: &Path) -> Result<Inst
                 _file: Some(file),
                 path,
                 noted: false,
+                _fresh: None,
             });
         }
         Err(TryLockError::WouldBlock) => return Err(already_running(identity, &path)),
@@ -350,10 +389,15 @@ pub fn acquire_in(dir: &Path, identity: &Identity, config: &Path) -> Result<Inst
         crate::service::system::canonical_or_same(config).display()
     );
     let noted = writable && write_note(&path.with_extension("info"), &note);
+    let mut fresh = vec![path.clone()];
+    if noted {
+        fresh.push(path.with_extension("info"));
+    }
     Ok(InstanceLock {
         _file: Some(file),
         path,
         noted,
+        _fresh: Some(keep_fresh(fresh)),
     })
 }
 
@@ -366,6 +410,7 @@ fn unlocked(entry: &Path, path: &Path) -> InstanceLock {
         _file: None,
         path: path.to_path_buf(),
         noted: false,
+        _fresh: None,
     }
 }
 
@@ -628,6 +673,44 @@ fn open_failure(path: &Path, e: &std::io::Error) -> Failure {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn files_of_a_running_instance_stay_fresh_for_tmp_cleaners() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("a.status");
+        std::fs::write(&file, "x").unwrap();
+        let old = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_000_000_000);
+        let age = |p: &Path| std::fs::metadata(p).unwrap().modified().unwrap();
+        let set_old = || {
+            std::fs::File::options()
+                .write(true)
+                .open(&file)
+                .unwrap()
+                .set_times(
+                    std::fs::FileTimes::new()
+                        .set_accessed(old)
+                        .set_modified(old),
+                )
+                .unwrap()
+        };
+        set_old();
+        let fresh = keep_fresh_every(vec![file.clone()], std::time::Duration::from_millis(20));
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while age(&file) == old && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert_ne!(age(&file), old);
+        drop(fresh);
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        set_old();
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        assert_eq!(age(&file), old, "a dropped guard kept touching");
+        std::fs::remove_file(&file).unwrap();
+        let fresh = keep_fresh_every(vec![file.clone()], std::time::Duration::from_millis(20));
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        drop(fresh);
+        assert!(!file.exists(), "touching must not create a removed file");
+    }
 
     #[cfg(unix)]
     fn soon(mut done: impl FnMut() -> bool) -> bool {
