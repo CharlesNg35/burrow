@@ -673,7 +673,12 @@ async fn udp(
                 let found = permitted(&live.settings(), &resolver, &connect).await;
                 let mut current = resolved.lock().expect("resolved lock");
                 *current = match found {
-                    Ok(addrs) if addrs.contains(&current.0) => (current.0, Instant::now()),
+                    Ok(addrs)
+                        if addrs.contains(&current.0)
+                            && current.0.is_ipv4() == preferred(&addrs).is_ipv4() =>
+                    {
+                        (current.0, Instant::now())
+                    }
                     Ok(addrs) => (preferred(&addrs), Instant::now()),
                     Err(_) => (current.0, Instant::now()),
                 };

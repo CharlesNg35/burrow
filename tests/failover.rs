@@ -1308,3 +1308,71 @@ async fn a_steady_udp_sender_stays_put_while_round_robin_dns_rotates() {
     }
     assert_eq!(tags.len(), 1, "a steady sender moved between addresses: {tags:?}");
 }
+
+struct Phased(SocketAddr, SocketAddr, Arc<std::sync::atomic::AtomicUsize>);
+
+impl burrow::transport::resolve::Resolver for Phased {
+    fn resolve<'a>(&'a self, host_port: &'a str) -> burrow::transport::resolve::Resolved<'a> {
+        Box::pin(async move {
+            if !host_port.starts_with("app.test:") {
+                return burrow::transport::resolve::resolve(host_port).await;
+            }
+            match self.2.load(std::sync::atomic::Ordering::Relaxed) {
+                1 => Ok(vec![self.1]),
+                _ => Ok(vec![self.0, self.1]),
+            }
+        })
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_udp_relay_returns_to_ipv4_after_one_ipv6_only_answer() {
+    let ea = tagged_udp_echo(b'A').await;
+    let six = tokio::net::UdpSocket::bind("[::1]:0").await.unwrap();
+    let eb = six.local_addr().unwrap();
+    tokio::spawn(async move {
+        let mut buf = vec![0u8; 2048];
+        while let Ok((n, from)) = six.recv_from(&mut buf).await {
+            let mut out = vec![b'B'];
+            out.extend_from_slice(&buf[..n]);
+            let _ = six.send_to(&out, from).await;
+        }
+    });
+    let secret = Secret::generate();
+    let mut settings = server_settings(vec![secret.clone()]);
+    let app = Service {
+        target: "app.test:53".into(),
+        ..service(ea, Protocol::Udp)
+    };
+    settings.services.insert("app".into(), app);
+    let server = start_server(settings).await;
+    let phase = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let mut c = client_settings(server.addr, secret);
+    c.allow = AllowList::Rules(vec!["127.0.0.0/8".parse().unwrap(), "::1/128".parse().unwrap()]);
+    let client = burrow::client::Client::new(over_transport(c))
+        .with_resolver(Arc::new(Phased(ea, eb, phase.clone())));
+    let mut running = start_client_with(client).await;
+    wait_state(&mut running.state, burrow::client::State::Connected).await;
+    let sock = udp_bind().await;
+    sock.connect(server.services["app"]).await.unwrap();
+    let mut now = None;
+    for _ in 0..20 {
+        now = udp_tag(&sock).await;
+        if now.is_some() {
+            break;
+        }
+    }
+    assert_eq!(now, Some(b'A'));
+    phase.store(1, std::sync::atomic::Ordering::Relaxed);
+    let started = std::time::Instant::now();
+    while started.elapsed() < Duration::from_secs(45) && now != Some(b'B') {
+        now = udp_tag(&sock).await.or(now);
+    }
+    assert_eq!(now, Some(b'B'), "the relay did not follow the IPv6-only answer");
+    phase.store(2, std::sync::atomic::Ordering::Relaxed);
+    let started = std::time::Instant::now();
+    while started.elapsed() < Duration::from_secs(45) && now != Some(b'A') {
+        now = udp_tag(&sock).await.or(now);
+    }
+    assert_eq!(now, Some(b'A'), "the relay stayed on IPv6 once IPv4 was listed again");
+}
