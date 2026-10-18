@@ -165,21 +165,11 @@ impl WsConn {
             let next = tokio::time::Instant::from_std(k.active + k.every);
             k.timer.as_mut().reset(next);
         }
-        if !k.due {
-            return Ok(());
+        if k.due {
+            k.due = false;
+            let _ = Pin::new(&mut self.inner).start_send(Message::ping(Vec::new()));
         }
-        match Pin::new(&mut self.inner).poll_ready(cx) {
-            Poll::Ready(Ok(())) => {
-                k.due = false;
-                Pin::new(&mut self.inner)
-                    .start_send(Message::ping(Vec::new()))
-                    .map_err(ws_err)?;
-                let _ = Pin::new(&mut self.inner).poll_flush(cx).map_err(ws_err)?;
-                Ok(())
-            }
-            Poll::Ready(Err(e)) => Err(ws_err(e)),
-            Poll::Pending => Ok(()),
-        }
+        Ok(())
     }
 
     pub async fn finish(&mut self) -> io::Result<()> {
@@ -614,6 +604,53 @@ mod tests {
         assert!(quiet.is_err());
         assert!((2..=5).contains(&pings), "{pings} pings");
         server.abort();
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_writer_in_another_task_resumes_after_a_stall_while_pings_are_due() {
+        use futures_util::StreamExt;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let total = 16 << 20;
+        let server = tokio::spawn(async move {
+            let (tcp, _) = listener.accept().await.unwrap();
+            let mut conn = accept(Carrier::Plain(tcp), "/burrow").await.unwrap();
+            conn.keep_alive(std::time::Duration::from_millis(300));
+            let (mut rd, mut wr) = tokio::io::split(conn);
+            tokio::spawn(async move {
+                let mut buf = [0u8; 64];
+                while rd.read(&mut buf).await.is_ok_and(|n| n > 0) {}
+            });
+            let chunk = vec![7u8; 64 * 1024];
+            for _ in 0..total / chunk.len() {
+                wr.write_all(&chunk).await.unwrap();
+            }
+            wr.flush().await.unwrap();
+        });
+        let tcp = TcpStream::connect(addr).await.unwrap();
+        let (mut ws, _) = ClientBuilder::new()
+            .uri(&format!("ws://{addr}/burrow"))
+            .unwrap()
+            .connect_on(tcp)
+            .await
+            .unwrap();
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        let mut got = 0;
+        let read = tokio::time::timeout(std::time::Duration::from_secs(15), async {
+            while got < total {
+                match ws.next().await {
+                    Some(Ok(m)) if m.is_binary() => got += m.as_payload().len(),
+                    Some(Ok(_)) => {}
+                    _ => break,
+                }
+            }
+        })
+        .await;
+        assert!(read.is_ok(), "got {got} of {total} bytes");
+        tokio::time::timeout(std::time::Duration::from_secs(5), server)
+            .await
+            .expect("the writer finishes")
+            .unwrap();
     }
 
     #[tokio::test]
