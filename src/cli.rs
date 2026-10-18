@@ -368,6 +368,18 @@ pub struct InitArgs {
         help = "Output path (default: server.yaml or client.yaml)"
     )]
     pub output: Option<PathBuf>,
+    #[arg(
+        long,
+        conflicts_with_all = ["force", "server", "name", "secret", "env_secret"],
+        help = "Visitor only: ask the server again what this visitor may use and update the forwards of visitor.yaml (or -o FILE)"
+    )]
+    pub update: bool,
+    #[arg(
+        long,
+        requires = "update",
+        help = "With --update: write the changes without asking"
+    )]
+    pub yes: bool,
     #[arg(long, help = "Overwrite an existing file")]
     pub force: bool,
     #[arg(

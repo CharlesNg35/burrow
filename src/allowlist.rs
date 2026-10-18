@@ -310,6 +310,30 @@ impl AllowList {
         }
     }
 
+    pub fn describe(&self) -> Vec<String> {
+        let max = crate::protocol::MAX_ALLOW_RULES;
+        match self {
+            AllowList::All => vec!["any".into()],
+            AllowList::Rules(rules) => {
+                let shown = |r: &Rule| {
+                    let text = r.to_string();
+                    if text.len() <= 200 {
+                        text
+                    } else {
+                        let cut: String = text.chars().take(190).collect();
+                        format!("{cut}…")
+                    }
+                };
+                if rules.len() <= max {
+                    return rules.iter().map(shown).collect();
+                }
+                let mut out: Vec<String> = rules.iter().take(max - 1).map(shown).collect();
+                out.push(format!("and {} more", rules.len() - (max - 1)));
+                out
+            }
+        }
+    }
+
     pub fn permits_socket(&self, path: &str) -> bool {
         match self {
             AllowList::All => crate::config::check::unix::check_path(path).is_ok(),
@@ -335,6 +359,17 @@ impl AllowList {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_long_allow_list_says_how_many_more_it_has() {
+        let rules: Vec<Rule> = (0..100)
+            .map(|i| format!("10.{i}.0.0/16").parse().unwrap())
+            .collect();
+        let told = AllowList::Rules(rules).describe();
+        assert_eq!(told.len(), crate::protocol::MAX_ALLOW_RULES);
+        assert_eq!(told.last().unwrap(), "and 37 more");
+        assert_eq!(AllowList::All.describe(), vec!["any"]);
+    }
 
     fn rule(s: &str) -> Rule {
         s.parse().unwrap()

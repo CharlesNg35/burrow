@@ -41,6 +41,7 @@ pub struct ClientSession {
     pub secret: Secret,
     pool: Mutex<Pool>,
     closed: watch::Sender<bool>,
+    allow: Mutex<Option<Vec<String>>>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -71,6 +72,7 @@ impl ClientSession {
             active: AtomicUsize::new(0),
             secret,
             closed: watch::Sender::new(false),
+            allow: Mutex::new(None),
             pool: Mutex::new(Pool {
                 idle: VecDeque::new(),
                 waiters: VecDeque::new(),
@@ -94,6 +96,14 @@ impl ClientSession {
         p.keepalive = cfg.keepalive;
         p.target = p.target.clamp(p.min_idle, p.max_idle);
         self.replenish(&mut p);
+    }
+
+    pub fn set_allow(&self, rules: Vec<String>) {
+        *self.allow.lock().expect("allow lock") = Some(rules);
+    }
+
+    pub fn allow(&self) -> Option<Vec<String>> {
+        self.allow.lock().expect("allow lock").clone()
     }
 
     pub fn idle_count(&self) -> usize {

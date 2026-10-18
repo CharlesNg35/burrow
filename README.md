@@ -255,7 +255,7 @@ forwards:
   db: { service: db, local: 5432 } # a port alone means 127.0.0.1
 ```
 
-`./burrow visit db --local 5433` runs one forward on another port, and `sudo ./burrow service install -c visitor.yaml` keeps the visitor running. `./burrow init visitor` writes a `visitor.yaml` from a name and a secret if you do not have access to the server.
+`./burrow visit db --local 5433` runs one forward on another port, and `sudo ./burrow service install -c visitor.yaml` keeps the visitor running. Without access to the server, `./burrow init visitor` asks for its address, the visitor's name and secret, and writes the forwards this visitor may use; `./burrow init visitor --update` refreshes them later.
 
 **Any target on a client.** With `reach`, a visitor picks the target itself, like `ssh -L`, without a service for each one:
 

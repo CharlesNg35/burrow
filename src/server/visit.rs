@@ -124,6 +124,42 @@ impl Shared {
     }
 }
 
+async fn answer_grants(
+    shared: &Shared,
+    visitor: &str,
+    secret: &Secret,
+    from: IpAddr,
+    mut channel: crate::handshake::Channel,
+) {
+    let settings = shared.settings();
+    let allowed = settings
+        .visitors
+        .get(visitor)
+        .is_some_and(|v| v.secrets.contains(secret));
+    let grants = allowed
+        .then(|| crate::config::grants::for_visitor(&settings, visitor, Some(from)))
+        .flatten();
+    let Some(mut grants) = grants else {
+        reply(channel, Status::Forbidden).await;
+        return;
+    };
+    for c in &mut grants.clients {
+        c.allow = shared.session(&c.name).and_then(|s| s.allow());
+    }
+    let Ok(bytes) = grants.encode() else {
+        warn!(
+            "visitor \"{visitor}\" asked what it may use, but the answer does not fit in one record ({} services, {} clients)",
+            grants.services.len(),
+            grants.clients.len()
+        );
+        reply(channel, Status::Invalid).await;
+        return;
+    };
+    debug!("visitor \"{visitor}\" asked what it may use");
+    let _ = channel.writer.send(&mut channel.stream, &bytes).await;
+    let _ = tokio::io::AsyncWriteExt::shutdown(&mut channel.stream).await;
+}
+
 pub(super) async fn serve(
     shared: Arc<Shared>,
     acc: Accepted,
@@ -150,6 +186,10 @@ pub(super) async fn serve(
     .await;
     drop(permit);
     let request = match first {
+        Ok(Ok(b)) if b[..] == crate::protocol::GRANTS_REQUEST => {
+            answer_grants(&shared, &visitor, &secret, peer.ip(), channel).await;
+            return;
+        }
         Ok(Ok(b)) => VisitRequest::decode(&b),
         _ => {
             shared.rejected.fetch_add(1, Ordering::Relaxed);

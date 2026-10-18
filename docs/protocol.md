@@ -86,15 +86,22 @@ The hello type must match the preamble kind; any other pairing is closed. On the
 
 Server → client (one message per record):
 
-| id  | message  | body                                                                             |
-| --- | -------- | -------------------------------------------------------------------------------- |
-| 1   | Welcome  | `token[16] heartbeat_secs:u16`                                                   |
-| 2   | Services | `count:u16` then per service `name:str8 protocol:u8 bind_port:u16 target:str8`   |
-| 3   | Ping     | (none)                                                                           |
-| 4   | OpenData | `count:u16`: open this many data channels                                        |
-| 5   | Bye      | `reason:u8` (1 shutdown, 2 replaced, 3 removed, 4 timeout, 5 plaintext mismatch) |
+| id  | message  | body                                                                                     |
+| --- | -------- | ---------------------------------------------------------------------------------------- |
+| 1   | Welcome  | `token[16] heartbeat_secs:u16`                                                           |
+| 2   | Services | `count:u16` then per service `name:str8 protocol:u8 bind_port:u16 target:str8 ports:u16` |
+| 3   | Ping     | (none)                                                                                   |
+| 4   | OpenData | `count:u16`: open this many data channels                                                |
+| 5   | Bye      | `reason:u8` (1 shutdown, 2 replaced, 3 removed, 4 timeout, 5 plaintext mismatch)         |
 
-Client → server: `0x81` Pong.
+Client → server:
+
+| id     | message | body                                                                                    |
+| ------ | ------- | --------------------------------------------------------------------------------------- |
+| `0x81` | Pong    | (none)                                                                                  |
+| `0x82` | Allow   | `count:u8` (at most 64) then `rule:str8` each: the client's `allow` list, `any` for all |
+
+A client sends Allow once after Welcome; the server keeps it for the session and shows it only to visitors with `reach` for that client (see section 9).
 
 `str8` = `len:u8 bytes`. Unknown ids, truncated bodies and trailing bytes are errors.
 
@@ -123,7 +130,7 @@ Status = 0 ok | 1 denied by allow list | 2 unreachable | 3 unresolved | 4 invali
 
 The server does not wait for Status before sending the connection's bytes, so connection setup adds no round trip. If Status is not 0, the server logs the reason and closes the connection.
 
-`target` is `host:port`, or `unix:/absolute/path` for a Unix socket, which the client checks against the `unix:` entries of its allow list. For a port range the server sends the target port that matches the public port the connection arrived on; Services carries a range as `host:first-last` in `target`, for the client's log and allow-list check; this keeps the message readable by version 0.1.0 clients.
+`target` is `host:port`, or `unix:/absolute/path` for a Unix socket, which the client checks against the `unix:` entries of its allow list. For a port range the server sends the target port that matches the public port the connection arrived on; Services carries the first target port in `target` and the size of the range in `ports`.
 
 With `proxy_protocol`, the first bytes the server sends after Connect are a PROXY protocol v1 or v2 header with the real source address and the public address it connected to (for a visit, the visitor's address as the server sees it). The client forwards them like any other data, so it needs no part in it.
 
@@ -157,6 +164,14 @@ Unknown services and services that do not list the visitor get the same answer, 
 Otherwise the server takes a data channel of the client (for a service with several clients, the one chosen as for public connections) and sends it a Connect (section 8) with the service name, or an empty name for kind 2, and the target. The client applies its allow list as for any other connection and replies with Status, which the server passes on to the visitor. The visitor waits for this Status before sending data, so a refusal always arrives with its reason. From then on, the server decrypts each record from one channel and encrypts it for the other, both ways, until each side has sent its end-of-stream record. With `insecure_plaintext`, only the leg between server and client is raw; the visit channel is always encrypted.
 
 On every config reload, the server checks the request again; if the answer changed (the visitor, its secret, its place in `visitors`, its `reach`, or the service's client or target), the connection is closed.
+
+Instead of a VisitRequest, the visitor may send the single byte `21` to ask what it may use. The server checks the visitor and its secret against its current config, answers `5 forbidden` if they no longer match, and otherwise sends one record and closes:
+
+```
+Grants = 22 services:u16 (name:str8 port:u16 ports:u16)* clients:u16 (name:str8 known:u8 [count:u8 rule:str8*])*
+```
+
+`services` are the TCP services that list the visitor and whose `allow_from`/`deny_from` admit its address, with the target's port (0 for a Unix socket) and the size of their range (at most 1000); `clients` are the clients in its `reach`, with the Allow list of their current session when `known` is 1. If the answer does not fit in one record, the server leaves out the Allow lists, and answers `4 invalid` if it still does not fit. `burrow init visitor` uses it to write the forwards, and `--update` to refresh them.
 
 A visitor's SOCKS5 forward reads the target from the SOCKS request (CONNECT only, no authentication, IPv4, IPv6 or a host name) and sends it as kind 2. It answers the SOCKS client only after the server's Status, mapping refusals to SOCKS reply codes.
 

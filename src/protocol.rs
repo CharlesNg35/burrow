@@ -148,6 +148,32 @@ impl<'a> Reader<'a> {
         Ok(t)
     }
 
+    fn strings(&mut self) -> Result<Vec<String>, DecodeError> {
+        let n = self.u8()? as usize;
+        if n > MAX_ALLOW_RULES {
+            return Err(DecodeError::TooLong);
+        }
+        (0..n)
+            .map(|_| {
+                let s = self.short_str()?;
+                if s.chars().any(char::is_control) {
+                    Err(DecodeError::BadName)
+                } else {
+                    Ok(s)
+                }
+            })
+            .collect()
+    }
+
+    fn name(&mut self) -> Result<String, DecodeError> {
+        let n = self.short_str()?;
+        if crate::config::check::valid_name(&n) {
+            Ok(n)
+        } else {
+            Err(DecodeError::BadName)
+        }
+    }
+
     fn end(&self) -> Result<(), DecodeError> {
         if self.buf.is_empty() {
             Ok(())
@@ -163,32 +189,6 @@ fn put_str(v: &mut Vec<u8>, s: &str) {
     let n = b.len().min(255);
     v.push(n as u8);
     v.extend_from_slice(&b[..n]);
-}
-
-fn ranged_target(target: &str, ports: u16) -> String {
-    if crate::config::check::unix::path_of(target).is_some() {
-        return target.to_string();
-    }
-    match target.rsplit_once(':') {
-        Some((host, port)) if ports > 1 => match port.parse::<u16>() {
-            Ok(first) => format!("{host}:{}", crate::config::check::ports::show(first, ports)),
-            Err(_) => target.to_string(),
-        },
-        _ => target.to_string(),
-    }
-}
-
-fn split_ranged(target: String) -> (String, u16) {
-    if crate::config::check::unix::path_of(&target).is_none()
-        && let Some((host, ports)) = target.rsplit_once(':')
-        && let Some((a, b)) = ports.split_once('-')
-        && let (Ok(first), Ok(last)) = (a.parse::<u16>(), b.parse::<u16>())
-        && first > 0
-        && last > first
-    {
-        return (format!("{host}:{first}"), last - first + 1);
-    }
-    (target, 1)
 }
 
 fn proto_byte(p: Protocol) -> u8 {
@@ -284,10 +284,13 @@ pub enum ByeReason {
     PlaintextMismatch = 5,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ClientMsg {
     Pong,
+    Allow(Vec<String>),
 }
+
+pub const MAX_ALLOW_RULES: usize = 64;
 
 impl ServerMsg {
     pub fn encode(&self) -> Vec<u8> {
@@ -308,7 +311,8 @@ impl ServerMsg {
                     put_str(&mut v, &s.name);
                     v.push(proto_byte(s.protocol));
                     v.extend_from_slice(&s.bind_port.to_be_bytes());
-                    put_str(&mut v, &ranged_target(&s.target, s.ports));
+                    put_str(&mut v, &s.target);
+                    v.extend_from_slice(&s.ports.max(1).to_be_bytes());
                 }
                 v
             }
@@ -336,7 +340,8 @@ impl ServerMsg {
                     let name = r.short_str()?;
                     let protocol = proto_from(r.u8()?)?;
                     let bind_port = r.u16()?;
-                    let (target, ports) = split_ranged(r.short_str()?);
+                    let target = r.short_str()?;
+                    let ports = r.u16()?.max(1);
                     list.push(ServiceInfo {
                         name,
                         protocol,
@@ -370,6 +375,11 @@ impl ClientMsg {
     pub fn encode(&self) -> Vec<u8> {
         match self {
             ClientMsg::Pong => vec![0x81],
+            ClientMsg::Allow(rules) => {
+                let mut v = vec![0x82];
+                put_strings(&mut v, rules);
+                v
+            }
         }
     }
 
@@ -377,6 +387,7 @@ impl ClientMsg {
         let mut r = Reader { buf: b };
         let m = match r.u8()? {
             0x81 => ClientMsg::Pong,
+            0x82 => ClientMsg::Allow(r.strings()?),
             x => return Err(DecodeError::UnknownType(x)),
         };
         r.end()?;
@@ -484,6 +495,115 @@ impl std::fmt::Display for VisitTarget {
     }
 }
 
+fn put_strings(v: &mut Vec<u8>, items: &[String]) {
+    let fitting: Vec<&String> = items
+        .iter()
+        .filter(|s| s.len() <= u8::MAX as usize)
+        .take(MAX_ALLOW_RULES)
+        .collect();
+    v.push(fitting.len() as u8);
+    for s in fitting {
+        v.push(s.len() as u8);
+        v.extend_from_slice(s.as_bytes());
+    }
+}
+
+pub const GRANTS_REQUEST: [u8; 1] = [0x21];
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Grants {
+    pub services: Vec<GrantedService>,
+    pub clients: Vec<GrantedClient>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GrantedService {
+    pub name: String,
+    pub port: u16,
+    pub ports: u16,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GrantedClient {
+    pub name: String,
+    pub allow: Option<Vec<String>>,
+}
+
+impl Grants {
+    pub fn encode(&self) -> Result<Vec<u8>, DecodeError> {
+        let full = self.encode_all()?;
+        if full.len() <= crate::noise::MAX_PLAINTEXT {
+            return Ok(full);
+        }
+        let mut lean = self.clone();
+        for c in &mut lean.clients {
+            c.allow = None;
+        }
+        let lean = lean.encode_all()?;
+        if lean.len() <= crate::noise::MAX_PLAINTEXT {
+            return Ok(lean);
+        }
+        Err(DecodeError::TooLong)
+    }
+
+    fn encode_all(&self) -> Result<Vec<u8>, DecodeError> {
+        let count = |n: usize| u16::try_from(n).map_err(|_| DecodeError::TooLong);
+        let mut v = vec![0x22];
+        v.extend_from_slice(&count(self.services.len())?.to_be_bytes());
+        for s in &self.services {
+            put_short(&mut v, &s.name)?;
+            v.extend_from_slice(&s.port.to_be_bytes());
+            v.extend_from_slice(&s.ports.to_be_bytes());
+        }
+        v.extend_from_slice(&count(self.clients.len())?.to_be_bytes());
+        for c in &self.clients {
+            put_short(&mut v, &c.name)?;
+            match &c.allow {
+                None => v.push(0),
+                Some(rules) => {
+                    v.push(1);
+                    put_strings(&mut v, rules);
+                }
+            }
+        }
+        Ok(v)
+    }
+
+    pub fn decode(b: &[u8]) -> Result<Self, DecodeError> {
+        let mut r = Reader { buf: b };
+        match r.u8()? {
+            0x22 => {}
+            x => return Err(DecodeError::UnknownType(x)),
+        }
+        let services = (0..r.u16()?)
+            .map(|_| {
+                let name = r.name()?;
+                let (port, ports) = (r.u16()?, r.u16()?);
+                if ports == 0
+                    || ports > crate::config::check::ports::MAX_RANGE
+                    || u32::from(port) + u32::from(ports) > 65536
+                {
+                    return Err(DecodeError::TooLong);
+                }
+                Ok(GrantedService { name, port, ports })
+            })
+            .collect::<Result<Vec<_>, DecodeError>>()?;
+        let clients = (0..r.u16()?)
+            .map(|_| {
+                let name = r.name()?;
+                let allow = match r.u8()? {
+                    0 => None,
+                    1 => Some(r.strings()?),
+                    x => return Err(DecodeError::UnknownType(x)),
+                };
+                Ok(GrantedClient { name, allow })
+            })
+            .collect::<Result<Vec<_>, DecodeError>>()?;
+        r.end()?;
+        Ok(Grants { services, clients })
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VisitRequest {
     pub check: bool,
@@ -567,6 +687,55 @@ pub fn decode_datagram(b: &[u8]) -> Result<(u32, &[u8]), DecodeError> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn a_grants_answer_rejects_what_cannot_be_true() {
+        let one = |port: u16, ports: u16| Grants {
+            services: vec![GrantedService {
+                name: "db".into(),
+                port,
+                ports,
+            }],
+            clients: vec![],
+        };
+        assert!(Grants::decode(&one(5432, 1).encode().unwrap()).is_ok());
+        assert!(Grants::decode(&one(65535, 1).encode().unwrap()).is_ok());
+        assert!(Grants::decode(&one(5432, 0).encode().unwrap()).is_err());
+        assert!(Grants::decode(&one(65000, 1000).encode().unwrap()).is_err());
+        assert!(Grants::decode(&one(1, 1001).encode().unwrap()).is_err());
+        assert!(Grants::decode(&one(64536, 1000).encode().unwrap()).is_ok());
+        let evil = ClientMsg::Allow(vec!["unix:/x\n  evil:".into()]).encode();
+        assert!(ClientMsg::decode(&evil).is_err());
+    }
+
+    #[test]
+    fn a_large_answer_drops_allow_lists_first() {
+        let rule = "10.0.0.0/8:1-65535".repeat(10);
+        let clients: Vec<GrantedClient> = (0..60)
+            .map(|i| GrantedClient {
+                name: format!("client-{i}"),
+                allow: Some(vec![rule.clone(); MAX_ALLOW_RULES]),
+            })
+            .collect();
+        let big = Grants {
+            services: vec![],
+            clients,
+        };
+        let sent = Grants::decode(&big.encode().unwrap()).unwrap();
+        assert_eq!(sent.clients.len(), 60);
+        assert!(sent.clients.iter().all(|c| c.allow.is_none()));
+        let huge = Grants {
+            services: (0..2000)
+                .map(|i| GrantedService {
+                    name: format!("service-with-a-rather-long-name-{i:04}"),
+                    port: 1,
+                    ports: 1,
+                })
+                .collect(),
+            clients: vec![],
+        };
+        assert!(huge.encode().is_err());
+    }
+
     fn unhex(s: &str) -> Vec<u8> {
         (0..s.len())
             .step_by(2)
@@ -575,24 +744,65 @@ mod tests {
     }
 
     #[test]
-    fn only_real_port_ranges_are_read_from_a_target() {
-        let split = |t: &str| split_ranged(t.to_string());
-        assert_eq!(split("10.0.0.1:30000-30010"), ("10.0.0.1:30000".into(), 11));
-        assert_eq!(split("[::1]:1-3"), ("[::1]:1".into(), 3));
-        assert_eq!(split("my-host:7-9"), ("my-host:7".into(), 3));
-        assert_eq!(split("host:80-80"), ("host:80-80".into(), 1));
-        assert_eq!(split("host:0-65535"), ("host:0-65535".into(), 1));
-        assert_eq!(split("host:1-65535"), ("host:1".into(), 65535));
+    fn grants_travel_with_known_and_unknown_allow_lists() {
+        let grants = Grants {
+            services: vec![GrantedService {
+                name: "db".into(),
+                port: 5432,
+                ports: 1,
+            }],
+            clients: vec![
+                GrantedClient {
+                    name: "home".into(),
+                    allow: Some(vec!["127.0.0.0/8".into()]),
+                },
+                GrantedClient {
+                    name: "office".into(),
+                    allow: None,
+                },
+            ],
+        };
+        let bytes = grants.encode().unwrap();
         assert_eq!(
-            split("unix:/run/app:10-20"),
-            ("unix:/run/app:10-20".into(), 1)
+            bytes,
+            unhex("22000102646215380001000204686f6d6501010b3132372e302e302e302f38066f666669636500")
         );
-        assert_eq!(ranged_target("unix:/run/app:10", 5), "unix:/run/app:10");
-        assert_eq!(ranged_target("10.0.0.1:30000", 11), "10.0.0.1:30000-30010");
+        assert_eq!(Grants::decode(&bytes).unwrap(), grants);
+        let mut trailing = bytes.clone();
+        trailing.push(0);
+        assert!(Grants::decode(&trailing).is_err());
+        let bad = Grants {
+            services: vec![GrantedService {
+                name: "no spaces".into(),
+                port: 1,
+                ports: 1,
+            }],
+            clients: vec![],
+        };
+        assert!(Grants::decode(&bad.encode().unwrap()).is_err());
     }
 
     #[test]
-    fn version_1_peers_read_the_same_bytes() {
+    fn an_allow_list_is_capped_on_the_wire() {
+        let many: Vec<String> = (0..100).map(|i| format!("10.0.{i}.0/24")).collect();
+        let sent = ClientMsg::Allow(many.clone()).encode();
+        let ClientMsg::Allow(got) = ClientMsg::decode(&sent).unwrap() else {
+            panic!("an allow message")
+        };
+        assert_eq!(got, many[..MAX_ALLOW_RULES].to_vec());
+        let mut too_many = vec![0x82, (MAX_ALLOW_RULES + 1) as u8];
+        for _ in 0..=MAX_ALLOW_RULES {
+            too_many.extend_from_slice(&[1, b'x']);
+        }
+        assert!(ClientMsg::decode(&too_many).is_err());
+        assert_eq!(
+            ClientMsg::decode(&ClientMsg::Pong.encode()).unwrap(),
+            ClientMsg::Pong
+        );
+    }
+
+    #[test]
+    fn the_wire_format_stays_as_documented() {
         let services = ServerMsg::Services(vec![
             ServiceInfo {
                 name: "web".into(),
@@ -626,7 +836,7 @@ mod tests {
             ),
             (
                 services,
-                "020003037765620001bb0e3132372e302e302e313a383434330467616d65017530183139322e3136382e312e35303a33303030302d333030313002646200000014756e69783a2f72756e2f6d792d64622e736f636b",
+                "020003037765620001bb0e3132372e302e302e313a3834343300010467616d65017530123139322e3136382e312e35303a3330303030000b02646200000014756e69783a2f72756e2f6d792d64622e736f636b0001",
             ),
             (ServerMsg::Ping, "03"),
             (ServerMsg::OpenData { count: 7 }, "040007"),

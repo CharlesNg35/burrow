@@ -1,6 +1,9 @@
 mod client;
 mod export;
+mod fetch;
+mod plan;
 mod server;
+mod splice;
 mod visitor;
 
 pub use client::{client_config, client_value, init_client};
@@ -33,6 +36,8 @@ pub struct InitOptions {
     pub secret: Option<String>,
     pub env_secret: Option<String>,
     pub websocket: Option<WebSocketInit>,
+    pub update: bool,
+    pub yes: bool,
 }
 
 #[derive(Debug, Clone, Default)]

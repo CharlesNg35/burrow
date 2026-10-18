@@ -5,7 +5,7 @@ mod editor;
 mod found;
 mod notes;
 mod pick;
-mod save;
+pub(crate) mod save;
 mod source;
 
 use std::collections::BTreeMap;

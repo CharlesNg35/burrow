@@ -411,6 +411,8 @@ fn run(cli: Cli) -> Result<u8, Failure> {
                 client_name: args.client_name,
                 secret: args.secret,
                 env_secret: args.env_secret,
+                update: args.update,
+                yes: args.yes,
                 websocket: (args.ws
                     || args.ws_listen.is_some()
                     || args.ws_path.is_some()
@@ -422,10 +424,17 @@ fn run(cli: Cli) -> Result<u8, Failure> {
                     tls_key: args.ws_tls_key,
                 }),
             };
-            let role = match args.role {
-                Some(r) => r,
-                None => ask_role()?,
-            };
+            let role =
+                match (args.role, args.update) {
+                    (Some(RoleArg::Visitor) | None, true) => RoleArg::Visitor,
+                    (Some(_), true) => {
+                        return Err(Failure::usage("--update is for visitor configs").hint(
+                            format!("run: {}", burrow::failure::cmd("init visitor --update")),
+                        ));
+                    }
+                    (Some(r), false) => r,
+                    (None, false) => ask_role()?,
+                };
             let mut out = std::io::stdout().lock();
             match role {
                 RoleArg::Server => burrow::init::init_server(&opts, &mut out)?,

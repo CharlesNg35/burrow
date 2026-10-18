@@ -348,6 +348,10 @@ impl Client {
             _ => info!("connected to {} as \"{}\"", s.server, s.name),
         }
 
+        let allow = ClientMsg::Allow(s.allow.describe());
+        if writer.send(&mut wr, &allow.encode()).await.is_err() {
+            return SessionEnd::Lost(format!("connection to {} lost", s.server));
+        }
         let opening = Arc::new(Semaphore::new(MAX_OPENING));
         let _ended = CloseOnDrop(opening.clone());
         let timeout = heartbeat * 3;

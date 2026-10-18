@@ -811,7 +811,7 @@ fn visitor_init_asks_for_what_is_missing_and_validates() {
     let mut p = Answers(vec!["laptop", leaked], Vec::new());
     let opts = InitOptions {
         output: Some(path.clone()),
-        server: Some("tunnel.example.com".into()),
+        server: Some("127.0.0.1:1".into()),
         ..Default::default()
     };
     let mut out = Vec::new();
@@ -828,11 +828,18 @@ fn visitor_init_asks_for_what_is_missing_and_validates() {
     };
     assert_eq!(
         (v.name.as_str(), v.server.as_str()),
-        ("laptop", "tunnel.example.com:7835")
+        ("laptop", "127.0.0.1:1")
     );
     assert!(v.forwards.is_empty());
     let out = String::from_utf8(out).unwrap();
-    assert!(out.contains("db: { service: db, local: 5432 }"), "{out}");
+    assert!(
+        out.contains("without forwards: cannot ask the server"),
+        "{out}"
+    );
+    assert!(
+        out.contains(&format!("init visitor --update -o {}", path.display())),
+        "{out}"
+    );
     assert!(
         out.contains("visitor-config laptop -o visitor.yaml"),
         "{out}"

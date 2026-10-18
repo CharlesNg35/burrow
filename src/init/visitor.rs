@@ -1,14 +1,14 @@
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
+use std::collections::BTreeMap;
+
 use serde_json::{Map, Value, json};
 
 use super::export::{ConfigOutput, VISITOR, connect_address, load_server, pick_name, secret_text};
 use super::{InitOptions, Login, ask_login, resolve_output, write_new};
-use crate::config::check::parse_host_port;
 use crate::config::emit::render;
 use crate::config::env::EnvSource;
-use crate::config::model::Protocol;
 use crate::config::{Format, Role};
 use crate::failure::Failure;
 use crate::prompt::Prompter;
@@ -18,28 +18,363 @@ pub fn init_visitor(
     prompt: &mut dyn Prompter,
     out: &mut dyn Write,
 ) -> Result<PathBuf, Failure> {
+    if opts.update {
+        return update_visitor(opts, prompt, out);
+    }
     let (path, format) = resolve_output(Role::Visitor, opts)?;
     let Login {
         server,
         name,
         secret_text,
     } = ask_login(Role::Visitor, &path, opts, prompt)?;
-    let value = json!({
-        "server": server,
-        "name": name,
-        "secret": secret_text,
-        "forwards": {},
-    });
-    write_new(&path, &render(&value, format), opts.force)?;
-    writeln!(
-        out,
-        "wrote {}; add the services to forward, for example:\n\n  forwards:\n    db: {{ service: db, local: 5432 }}\n\nor print a ready config on the server with: {} visitor-config {name} -o {}",
+    let bare = document(
+        format,
+        &server,
+        &name,
+        &secret_text,
+        &Map::new(),
+        &BTreeMap::new(),
+    );
+    let later = |why: &str| {
+        let update = match &opts.output {
+            Some(p) => format!("init visitor --update -o {}", p.display()),
+            None => "init visitor --update".to_string(),
+        };
+        format!(
+            "wrote {} without forwards: {why}\nadd them later with: {}\nor ask the server's admin for a ready config: {}",
+            path.display(),
+            crate::failure::cmd(&update),
+            crate::failure::cmd(&format!("visitor-config {name} -o visitor.yaml"))
+        )
+    };
+    let settings = match settings_of(&path, &bare, format) {
+        Ok(s) => s,
+        Err(f) => {
+            write_new(&path, &bare, opts.force)?;
+            let why = format!("{}, so the server was not asked", f.message);
+            return say(out, &later(&why)).map(|()| path);
+        }
+    };
+    let grants = match super::fetch::grants(&settings) {
+        Ok(g) => g,
+        Err(n) if !n.rejected => {
+            write_new(&path, &bare, opts.force)?;
+            return say(out, &later(&n.failure.message)).map(|()| path);
+        }
+        Err(n) => return Err(n.failure),
+    };
+    let planned = super::plan::plan(&grants, &BTreeMap::new());
+    let notes = allow_notes(&grants, &planned);
+    write_new(
+        &path,
+        &document(
+            format,
+            &server,
+            &name,
+            &secret_text,
+            &planned.forwards,
+            &notes,
+        ),
+        opts.force,
+    )?;
+    if planned.forwards.is_empty() && planned.unplaced.is_empty() {
+        return say(
+            out,
+            &format!(
+                "wrote {}; the server lets visitor \"{name}\" use nothing yet",
+                path.display()
+            ),
+        )
+        .map(|()| path);
+    }
+    let mut text = format!(
+        "wrote {} with {} {}:\n",
         path.display(),
-        crate::failure::command(),
-        path.file_name().map_or_else(|| path.display().to_string(), |f| f.to_string_lossy().into_owned())
+        planned.forwards.len(),
+        crate::diagnostics::plural(planned.forwards.len(), "forward")
+    );
+    text.push_str(&listing(&planned.forwards, &notes, |_| ("", "")));
+    if let Some(line) = left_out(&planned) {
+        text.push_str(&format!("{line}\n"));
+    }
+    text.push_str(&format!("run them with: {}", crate::failure::cmd("visit")));
+    say(out, &text).map(|()| path)
+}
+
+fn update_visitor(
+    opts: &InitOptions,
+    prompt: &mut dyn Prompter,
+    out: &mut dyn Write,
+) -> Result<PathBuf, Failure> {
+    let path = match &opts.output {
+        Some(p) => p.clone(),
+        None => crate::config::discover::discover(Path::new("."), Some(Role::Visitor))?,
+    };
+    let format = Format::from_path(&path).ok_or_else(|| {
+        Failure::usage(format!("cannot tell the format of {}", path.display()))
+            .hint("visitor configs end in .yaml, .yml or .json")
+    })?;
+    let text = std::fs::read_to_string(&path).map_err(|e| {
+        Failure::new(format!(
+            "cannot read {}: {}",
+            path.display(),
+            crate::failure::file_reason(&e)
+        ))
+    })?;
+    let settings = settings_of(&path, &text, format)?;
+    let grants = super::fetch::grants(&settings).map_err(Failure::from)?;
+    let planned = super::plan::plan(&grants, &settings.forwards);
+    let notes = allow_notes(&grants, &planned);
+    let stale: Map<String, Value> = match format {
+        Format::Yaml => planned
+            .forwards
+            .iter()
+            .filter(|(k, _)| !planned.added.contains(k))
+            .filter(|(k, _)| {
+                notes
+                    .get(k.as_str())
+                    .is_some_and(|n| !text.contains(&format!("# {n}")))
+            })
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect(),
+        Format::Json => Map::new(),
+    };
+    if !planned.changed() && stale.is_empty() {
+        let mut text = format!(
+            "{} is up to date ({} {})",
+            path.display(),
+            planned.forwards.len(),
+            crate::diagnostics::plural(planned.forwards.len(), "forward")
+        );
+        if let Some(line) = left_out(&planned) {
+            text.push_str(&format!("\n{line}"));
+        }
+        return say(out, &text).map(|()| path);
+    }
+    let mut changes = String::new();
+    for name in planned
+        .removed
+        .iter()
+        .filter(|n| !planned.added.contains(n))
+    {
+        changes.push_str(&format!("  - {name}  (no longer granted)\n"));
+    }
+    let added: Map<String, Value> = planned
+        .forwards
+        .iter()
+        .filter(|(k, _)| planned.added.contains(k))
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
+    changes.push_str(&listing(&added, &notes, |k| {
+        if planned.removed.contains(&k.to_string()) {
+            ("~ ", "  (changed)")
+        } else {
+            ("+ ", "  (new)")
+        }
+    }));
+    changes.push_str(&listing(&stale, &notes, |_| {
+        ("~ ", "  (what it allows changed)")
+    }));
+    if let Some(line) = left_out(&planned) {
+        changes.push_str(&format!("{line}\n"));
+    }
+    say(out, changes.trim_end_matches('\n'))?;
+    if !opts.yes {
+        if !prompt.interactive() {
+            say(
+                out,
+                "not written; run again with --yes to write these changes",
+            )?;
+            return Ok(path);
+        }
+        if !prompt.confirm(&format!("update {}?", path.display()), true) {
+            say(out, "not written")?;
+            return Ok(path);
+        }
+    }
+    let edit = super::splice::Edit {
+        removed: &planned.removed,
+        added: &added,
+        notes: &notes,
+    };
+    let next = match format {
+        Format::Yaml => super::splice::update_yaml(&text, &edit),
+        Format::Json => super::splice::update_json(&text, &edit),
+    }
+    .ok_or_else(|| {
+        Failure::new(format!(
+            "burrow cannot rewrite the forwards of {}",
+            path.display()
+        ))
+        .hint("edit them by hand, or write a new file with: burrow init visitor -o FILE")
+    })?;
+    if settings_of(&path, &next, format).is_err() {
+        return Err(Failure::new(format!(
+            "the updated {} would not load, so it was not written",
+            path.display()
+        ))
+        .hint("this is likely a burrow bug; please report it with the file (without its secret)"));
+    }
+    crate::edit::save::write_back(&path, &text, &next).map_err(|e| match e {
+        crate::edit::save::Refused::Changed => Failure::new(format!(
+            "{} changed while burrow was asking the server; nothing was written",
+            path.display()
+        ))
+        .hint("run the update again"),
+        crate::edit::save::Refused::Io(e) => Failure::new(format!(
+            "cannot write {}: {}",
+            path.display(),
+            crate::failure::file_reason(&e)
+        )),
+    })?;
+    say(
+        out,
+        &format!(
+            "updated {}; a running burrow visit applies it by itself",
+            path.display()
+        ),
     )
-    .map_err(|e| Failure::new(format!("cannot write output: {e}")))?;
-    Ok(path)
+    .map(|()| path)
+}
+
+fn say(out: &mut dyn Write, text: &str) -> Result<(), Failure> {
+    writeln!(out, "{text}").map_err(|e| Failure::new(format!("cannot write output: {e}")))
+}
+
+fn settings_of(
+    path: &Path,
+    text: &str,
+    format: Format,
+) -> Result<crate::config::settings::VisitorSettings, Failure> {
+    let dir = path
+        .parent()
+        .filter(|d| !d.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    let outcome = crate::config::load::load_str_in(
+        dir,
+        &path.display().to_string(),
+        text,
+        format,
+        Some(Role::Visitor),
+        &crate::config::env::ProcessEnv,
+    );
+    let first = outcome
+        .report
+        .diagnostics
+        .iter()
+        .find(|d| d.is_error())
+        .map(|d| d.message.clone());
+    match outcome.loaded {
+        Some(crate::config::Loaded::Visitor(s, _)) if first.is_none() => Ok(*s),
+        _ => Err(Failure::new(format!(
+            "{} does not load as a visitor config: {}",
+            path.display(),
+            first.unwrap_or_else(|| "it is not a visitor config".into())
+        ))
+        .hint(format!(
+            "see why with: {}",
+            crate::failure::cmd(&format!("validate -c {}", path.display()))
+        ))),
+    }
+}
+
+fn allow_notes(
+    grants: &crate::protocol::Grants,
+    planned: &super::plan::Plan,
+) -> BTreeMap<String, String> {
+    planned
+        .allows
+        .iter()
+        .filter_map(|(key, allow)| {
+            let client = planned.forwards.get(key)?.get("client")?.as_str()?;
+            grants
+                .clients
+                .iter()
+                .any(|c| c.name == client)
+                .then(|| (key.clone(), super::splice::allow_note(client, allow)))
+        })
+        .collect()
+}
+
+fn document(
+    format: Format,
+    server: &str,
+    name: &str,
+    secret: &str,
+    forwards: &Map<String, Value>,
+    notes: &BTreeMap<String, String>,
+) -> String {
+    match format {
+        Format::Json => super::splice::new_json(server, name, secret, forwards),
+        Format::Yaml => {
+            let head = render(
+                &json!({ "server": server, "name": name, "secret": secret }),
+                Format::Yaml,
+            );
+            format!("{head}{}", super::splice::forwards_yaml(forwards, notes))
+        }
+    }
+}
+
+fn listing(
+    forwards: &Map<String, Value>,
+    notes: &BTreeMap<String, String>,
+    tag: impl Fn(&str) -> (&'static str, &'static str),
+) -> String {
+    let width = forwards
+        .keys()
+        .map(|k| k.chars().count())
+        .max()
+        .unwrap_or(0);
+    forwards
+        .iter()
+        .map(|(key, v)| {
+            let local = match &v["local"] {
+                Value::Number(n) => format!("127.0.0.1:{n}"),
+                Value::String(s) if s.contains(':') => s.clone(),
+                Value::String(s) => format!("127.0.0.1:{s}"),
+                _ => String::new(),
+            };
+            let to = match (v.get("service"), v.get("client"), v.get("target")) {
+                (Some(s), _, _) => format!("service {}", s.as_str().unwrap_or("")),
+                (_, Some(c), Some(t)) => format!(
+                    "{} on client {}",
+                    t.as_str().unwrap_or(""),
+                    c.as_str().unwrap_or("")
+                ),
+                (_, Some(c), None) => {
+                    format!("SOCKS5 proxy into client {}", c.as_str().unwrap_or(""))
+                }
+                _ => String::new(),
+            };
+            let note = match (notes.get(key), v.get("client").and_then(Value::as_str)) {
+                (Some(n), Some(c)) => {
+                    format!(" ({})", n.trim_start_matches(&format!("client {c} ")))
+                }
+                _ => String::new(),
+            };
+            let (mark, label) = tag(key);
+            format!("  {mark}{key:<width$}  {local} -> {to}{note}{label}\n")
+        })
+        .collect()
+}
+
+fn left_out(planned: &super::plan::Plan) -> Option<String> {
+    let names = &planned.unplaced;
+    (!names.is_empty()).then(|| {
+        format!(
+            "  no free local ports for {}; add {} by hand",
+            names.join(", "),
+            if names.len() == 1 { "it" } else { "them" }
+        )
+    })
+}
+
+pub fn socks_note(client: &str, local: u16) -> String {
+    format!(
+        "127.0.0.1:{local} is a SOCKS5 proxy into client \"{client}\": point an app at it, or forward one target with: {} visit --client {client} --target 127.0.0.1:22 --local 2222",
+        crate::failure::command()
+    )
 }
 
 pub fn visitor_config(
@@ -52,17 +387,9 @@ pub fn visitor_config(
     let settings = load_server(server_config, env)?;
     let names: Vec<&str> = settings.visitors.keys().map(String::as_str).collect();
     let name = pick_name(VISITOR, name, &names, server_config, server)?;
-    let auth = &settings.visitors[&name];
-    let services: Vec<(&String, u16, u16)> = settings
-        .services
-        .iter()
-        .filter(|(_, s)| s.protocol == Protocol::Tcp && s.visitors.contains(&name))
-        .map(|(n, s)| {
-            let port = parse_host_port(&s.target).map_or(0, |(_, p)| p);
-            (n, port, s.ports.max(1))
-        })
-        .collect();
-    if services.is_empty() && auth.reach.is_empty() {
+    let grants = crate::config::grants::for_visitor(&settings, &name, None)
+        .expect("a picked visitor is in the config");
+    if grants.services.is_empty() && grants.clients.is_empty() {
         return Err(Failure::new(format!(
             "visitor \"{name}\" cannot reach anything in {}",
             server_config.display()
@@ -71,66 +398,18 @@ pub fn visitor_config(
             "add it to a service, for example visitors: [{name}], or give it reach: {{ CLIENT: any }}"
         )));
     }
+    let auth = &settings.visitors[&name];
     let mut notes = Vec::new();
     let server = connect_address(VISITOR, &settings, server, server_config, &mut notes)?;
     let secret_text = secret_text(VISITOR, server_config, &name, &auth.secrets);
-
-    let mut used: Vec<u16> = Vec::new();
-    let mut free = |first: u16, count: u16| {
-        let mut local = first;
-        let taken =
-            |at: u16, used: &[u16]| (0..count).any(|i| used.contains(&at.saturating_add(i)));
-        while taken(local, &used) || u32::from(local) + u32::from(count) > 65536 {
-            local = if u32::from(local) + u32::from(count) >= 65535 {
-                10000
-            } else {
-                local + 1
-            };
-        }
-        used.extend((0..count).map(|i| local + i));
-        local
-    };
-    let mut forwards = Map::new();
-    for (service, port, count) in services {
-        let local = free(
-            match port {
-                0 => 10000,
-                p if p < 1024 => p + 10000,
-                p => p,
-            },
-            count,
-        );
-        let local = if count > 1 {
-            Value::String(crate::config::check::ports::show(local, count))
-        } else {
-            json!(local)
-        };
-        forwards.insert(
-            service.clone(),
-            json!({ "service": service, "local": local }),
-        );
+    let planned = super::plan::plan(&grants, &std::collections::BTreeMap::new());
+    for (_, client, local) in &planned.socks {
+        notes.push(socks_note(client, *local));
     }
-    for client in &auth.reach {
-        let local = free(1080, 1);
-        let named = |suffix: String| {
-            let keep = crate::config::check::MAX_NAME_LEN.saturating_sub(suffix.len());
-            let base: String = client.chars().take(keep).collect();
-            format!("{base}{suffix}")
-        };
-        let key = std::iter::once(client.clone())
-            .chain(std::iter::once(named("-socks".into())))
-            .chain((2..).map(|i| named(format!("-socks-{i}"))))
-            .find(|k| !forwards.contains_key(k.as_str()))
-            .expect("an unused forward name");
-        forwards.insert(
-            key,
-            json!({ "client": client, "socks": true, "local": local }),
-        );
-        notes.push(format!(
-            "127.0.0.1:{local} is a SOCKS5 proxy into client \"{client}\": point an app at it, or forward one target with: {} visit --client {client} --target 127.0.0.1:22 --local 2222",
-            crate::failure::command()
-        ));
+    if let Some(line) = left_out(&planned) {
+        notes.push(line.trim_start().to_string());
     }
+    let forwards = planned.forwards;
     let value = json!({
         "server": server,
         "name": name,

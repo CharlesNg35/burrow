@@ -7,7 +7,7 @@ use tracing::{info, warn};
 
 use super::{ClientSession, Shared, TICK};
 use crate::handshake::Accepted;
-use crate::protocol::{ByeReason, ServerMsg, TOKEN_LEN};
+use crate::protocol::{ByeReason, ClientMsg, ServerMsg, TOKEN_LEN};
 
 pub(super) async fn control_session(shared: Arc<Shared>, acc: Accepted, peer: SocketAddr) {
     let Accepted {
@@ -104,7 +104,12 @@ pub(super) async fn control_session(shared: Arc<Shared>, acc: Accepted, peer: So
     let reason = loop {
         tokio::select! {
             r = tokio::time::timeout(timeout, reader.recv(&mut rd)) => match r {
-                Ok(Ok(Some(_))) => continue,
+                Ok(Ok(Some(b))) => {
+                    if let Ok(ClientMsg::Allow(rules)) = ClientMsg::decode(b) {
+                        session.set_allow(rules);
+                    }
+                    continue;
+                }
                 Ok(Ok(None)) => break None,
                 Ok(Err(e)) => break Some(format!("connection error: {e}")),
                 Err(_) => break Some(format!("no heartbeat for {}s", timeout.as_secs())),
