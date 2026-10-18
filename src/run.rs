@@ -109,18 +109,27 @@ fn load(path: &Path, role: Role, env: &Env, quiet: &[&str]) -> Result<Loaded, Fa
     }
     if outcome.report.has_errors() {
         crate::say_err!("{}", outcome.report.render_text(style));
-        return Err(config_failure(
-            Failure::new(format!(
-                "{} has {} {}, not starting",
-                path.display(),
-                outcome.report.error_count(),
-                crate::diagnostics::plural(outcome.report.error_count(), "error")
-            ))
-            .hint(format!(
-                "fix them, then check again with: {}",
-                crate::failure::cmd(&format!("validate -c {}", crate::failure::path_arg(path)))
-            )),
+        let failure = Failure::new(format!(
+            "{} has {} {}, not starting",
+            path.display(),
+            outcome.report.error_count(),
+            crate::diagnostics::plural(outcome.report.error_count(), "error")
+        ))
+        .hint(format!(
+            "fix them, then check again with: {}",
+            crate::failure::cmd(&format!("validate -c {}", crate::failure::path_arg(path)))
         ));
+        let only_files = outcome
+            .report
+            .diagnostics
+            .iter()
+            .filter(|d| d.is_error())
+            .all(|d| d.code == "tls-file");
+        return Err(if only_files {
+            failure
+        } else {
+            config_failure(failure)
+        });
     }
     crate::say_err!("{}", startup_report(&outcome.report, style));
     outcome
