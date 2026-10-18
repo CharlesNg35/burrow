@@ -595,21 +595,11 @@ async fn narrowing_reach_on_reload_closes_connections_it_no_longer_covers() {
     .await;
     let mut next = settings.unwrap();
     let v = s.visitor(vec![("echo", s.reach())]);
-    let mut open = open_echo(v.addr("echo")).await;
+    let open = open_echo(v.addr("echo")).await;
     next.visitors.get_mut("laptop").unwrap().reach =
         [("home".to_string(), narrowed(&["10.0.0.0/8"]))].into();
     s.tunnel.server.reload(next).await;
-    let mut buf = [0u8; 4];
-    let closed = tokio::time::timeout(Duration::from_secs(5), async {
-        let _ = open.write_all(b"ping").await;
-        matches!(open.read(&mut buf).await, Ok(0) | Err(_))
-    })
-    .await;
-    assert_eq!(
-        closed,
-        Ok(true),
-        "the open connection outside the new reach stayed open"
-    );
+    assert_cut(open).await;
     assert!(refused(v.addr("echo")).await);
 }
 
