@@ -319,11 +319,20 @@ pub fn load_str_in(
         Ok(n) => n,
         Err(errors) => {
             for e in errors {
+                let line = src
+                    .lines()
+                    .nth(e.span.start.line.saturating_sub(1))
+                    .unwrap_or("");
+                let help = if line.contains("${") && line.contains('{') {
+                    "a ${VAR} inside { ... } must be quoted, like \"${VAR}\""
+                } else {
+                    "check the indentation and the \"key: value\" structure around this line"
+                };
                 report.push(
                     Diagnostic::error("syntax", e.message)
                         .at(e.span)
                         .label("here")
-                        .help("check the indentation and the \"key: value\" structure around this line"),
+                        .help(help),
                 );
             }
             hide_secret_lines(&mut report);

@@ -2002,6 +2002,16 @@ fn small_messages_say_what_is_wrong() {
 }
 
 #[test]
+fn an_unquoted_variable_in_a_flow_mapping_says_to_quote_it() {
+    let shown = render(
+        "server.yaml",
+        "listen: 7835\nclients:\n  home: { secret: ${S} }\nservices: {}\n",
+        None,
+    );
+    assert!(shown.contains("must be quoted, like \"${VAR}\""), "{shown}");
+}
+
+#[test]
 fn a_handshake_limit_beyond_what_any_build_can_hold_is_refused() {
     let limit = |n: u64| {
         render(
