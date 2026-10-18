@@ -189,6 +189,10 @@ impl FromStr for Rule {
                 "allowing every socket on the machine (unix:/*) is too broad; name a folder"
                     .to_string(),
             )
+        } else if path.ends_with('/') || path.contains("//") {
+            Err(format!(
+                "\"{s}\" has a stray \"/\"; write unix:/folder/* for every socket in a folder, or the full path of one socket"
+            ))
         } else {
             crate::config::check::unix::check_path(path)
         };
@@ -371,6 +375,16 @@ impl AllowList {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn socket_rules_with_a_stray_slash_are_refused() {
+        for bad in ["unix:/run/app/", "unix:/run/app/*/", "unix:/run/app//*", "unix:/run//x.sock"] {
+            assert!(bad.parse::<Rule>().is_err(), "{bad}");
+        }
+        for good in ["unix:/run/app/*", "unix:/run/app/x.sock"] {
+            assert!(good.parse::<Rule>().is_ok(), "{good}");
+        }
+    }
 
     #[test]
     fn rules_travel_as_text_and_a_bad_one_allows_nothing() {
