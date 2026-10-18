@@ -1,20 +1,5 @@
 #![forbid(unsafe_code)]
 
-#[cfg(all(
-    target_env = "musl",
-    any(
-        target_arch = "x86_64",
-        target_arch = "aarch64",
-        target_arch = "riscv64"
-    )
-))]
-#[global_allocator]
-static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
-
-#[cfg(all(target_env = "musl", target_arch = "arm"))]
-#[global_allocator]
-static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
-
 use std::io::{IsTerminal, Write};
 use std::process::ExitCode;
 
