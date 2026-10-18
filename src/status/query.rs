@@ -140,6 +140,14 @@ enum Seen {
 }
 
 fn alive(pid: u32) -> Option<bool> {
+    if cfg!(windows) {
+        let out = std::process::Command::new("tasklist")
+            .args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"])
+            .output()
+            .ok()
+            .filter(|o| o.status.success())?;
+        return Some(String::from_utf8_lossy(&out.stdout).contains(&format!("\"{pid}\"")));
+    }
     cfg!(target_os = "linux").then(|| Path::new(&format!("/proc/{pid}")).exists())
 }
 
