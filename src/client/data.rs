@@ -481,8 +481,8 @@ fn foreign_link_on(path: &std::path::Path) -> Option<std::path::PathBuf> {
     })
 }
 
-const MAX_LOOKUPS: usize = 256;
-const MAX_SERVICE_LOOKUPS: usize = 384;
+const MAX_LOOKUPS: usize = 128;
+const MAX_SERVICE_LOOKUPS: usize = 192;
 
 static VISITOR_LOOKUPS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(MAX_LOOKUPS);
 static SERVICE_LOOKUPS: tokio::sync::Semaphore =
