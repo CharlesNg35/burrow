@@ -154,7 +154,17 @@ fn edit(
         let text = {
             let draft = Draft::new(name, &opened)
                 .map_err(|e| Failure::new(format!("cannot make a private copy to edit: {e}")))?;
-            open(draft.path())?;
+            if let Err(mut f) = open(draft.path()) {
+                if opened != before {
+                    let kept = draft.keep();
+                    let saved = format!("your edited version is kept in {}", kept.display());
+                    f.hint = Some(match f.hint.take() {
+                        Some(h) => format!("{h}; {saved}"),
+                        None => saved,
+                    });
+                }
+                return Err(f);
+            }
             notes::strip(
                 &draft
                     .read()
@@ -388,6 +398,35 @@ mod tests {
         assert!(seen[1].contains("nmae"), "{}", seen[1]);
         assert!(seen[1].ends_with(&wrong));
         assert_eq!(std::fs::read_to_string(&f.path).unwrap(), right);
+    }
+
+    #[test]
+    fn an_editor_that_fails_when_reopened_keeps_the_earlier_edit() {
+        let dir = tempfile::tempdir().unwrap();
+        let good = good();
+        let f = config(dir.path(), "client.yaml", &good);
+        let wrong = good.replace("name: home", "nmae: home");
+        let mut step = 0;
+        let mut open = |file: &Path| {
+            step += 1;
+            if step == 1 {
+                std::fs::write(file, &wrong).unwrap();
+                return Ok(());
+            }
+            Err(Failure::new("the editor exited with 1"))
+        };
+        let mut out = Vec::new();
+        let failed = edit(&f, &mut open, &mut Answers::new(&[]), &mut out).unwrap_err();
+        let hint = failed.hint.unwrap_or_default();
+        let kept = hint.rsplit("kept in ").next().unwrap();
+        let kept = Path::new(kept);
+        assert!(
+            std::fs::read_to_string(kept).unwrap().ends_with(&wrong),
+            "{hint}"
+        );
+        assert_eq!(std::fs::read_to_string(&f.path).unwrap(), good);
+        std::fs::remove_file(kept).unwrap();
+        let _ = std::fs::remove_dir(kept.parent().unwrap());
     }
 
     #[test]
