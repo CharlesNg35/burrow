@@ -542,6 +542,12 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
     }
 
     backend.prepare_dirs(&account)?;
+    let kept_binary = (again.manifest.is_some_and(|p| p.binary == binary)
+        && copy_binary
+        && binary.exists()
+        && !system::same_content(&current, &binary))
+    .then(|| binary.with_extension("previous"))
+    .filter(|kept| system::copy_file(&binary, kept, true).is_ok());
     if copy_binary && !system::same_content(&current, &binary) {
         #[cfg(unix)]
         if binary != platform.binary_path()
@@ -585,6 +591,7 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
         manifest: p.clone(),
         config: std::fs::read(&p.config).ok(),
         env: backend.read_env(p),
+        binary: kept_binary.clone().map(|kept| (kept, binary.clone())),
     });
     if source != config {
         system::copy_file(&source, &config, false)?;
@@ -661,6 +668,9 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
             )?;
         }
     }
+    if let Some(kept) = &kept_binary {
+        let _ = std::fs::remove_file(kept);
+    }
     if let Some(p) = &previous {
         release_previous(&*backend, p, &manifest, out)?;
     }
@@ -700,6 +710,7 @@ struct Undo {
     manifest: Manifest,
     config: Option<Vec<u8>>,
     env: BTreeMap<String, String>,
+    binary: Option<(PathBuf, PathBuf)>,
 }
 
 impl Undo {
@@ -721,17 +732,31 @@ impl Undo {
         if p.env_file.is_some() {
             steps.push(backend.write_env(p, &self.env));
         }
+        if let Some((kept, binary)) = &self.binary {
+            steps.push(system::copy_file(kept, binary, true));
+            let _ = std::fs::remove_file(kept);
+        }
         steps.push(backend.install(p));
         steps.push(save(p));
         steps.push(backend.start(p));
-        let failed = steps.into_iter().find_map(Result::err);
+        let mut failed = steps.into_iter().find_map(Result::err);
+        if failed.is_none() {
+            std::thread::sleep(std::time::Duration::from_millis(1500));
+            let st = backend.status(p);
+            if !st.running {
+                failed = Some(Failure::new(format!(
+                    "the previous one does not run either: {}",
+                    st.detail
+                )));
+            }
+        }
         let _ = say(
             out,
             format!("error: the reinstalled {} did not run: {why}", new.name),
         );
         match failed {
             None => Failure::new(format!(
-                "the reinstalled {} did not run, so its previous config was put back and it runs again",
+                "the reinstalled {} did not run, so its previous setup was put back and it runs again",
                 new.name
             ))
             .hint(format!(
@@ -739,7 +764,7 @@ impl Undo {
                 crate::failure::admin(&format!("service logs {} -n 50", new.name))
             )),
             Some(f) => Failure::new(format!(
-                "the reinstalled {} did not run, and putting back its previous config failed too: {}",
+                "the reinstalled {} did not run, and putting back its previous setup failed too: {}",
                 new.name, f.message
             ))
             .hint(format!(
@@ -1380,7 +1405,7 @@ mod tests {
         assert_eq!(interrupts("reload"), cfg!(windows));
     }
 
-    struct Recorder(std::cell::RefCell<Vec<String>>);
+    struct Recorder(std::cell::RefCell<Vec<String>>, bool);
 
     impl Recorder {
         fn note(&self, what: &str, m: &Manifest) -> Result<(), Failure> {
@@ -1432,7 +1457,7 @@ mod tests {
         fn status(&self, _: &Manifest) -> Status {
             Status {
                 installed: true,
-                running: true,
+                running: self.1,
                 pid: None,
                 detail: String::new(),
             }
@@ -1456,12 +1481,17 @@ mod tests {
             account: "new".into(),
             ..record(Platform::Linux)
         };
+        let binary = dir.path().join("burrow");
+        let kept = dir.path().join("burrow.previous");
+        std::fs::write(&binary, "new binary").unwrap();
+        std::fs::write(&kept, "old binary").unwrap();
         let undo = Undo {
             manifest: old.clone(),
             config: Some(b"old config".to_vec()),
             env: [("SECRET".to_string(), "x".to_string())].into(),
+            binary: Some((kept.clone(), binary.clone())),
         };
-        let rec = Recorder(Default::default());
+        let rec = Recorder(Default::default(), true);
         let saved = std::cell::RefCell::new(Vec::new());
         let mut out = Vec::new();
         let f = undo.put_back(
@@ -1476,6 +1506,8 @@ mod tests {
         );
         assert!(f.message.contains("runs again"), "{}", f.message);
         assert_eq!(std::fs::read_to_string(&config).unwrap(), "old config");
+        assert_eq!(std::fs::read_to_string(&binary).unwrap(), "old binary");
+        assert!(!kept.exists());
         assert_eq!(
             *rec.0.borrow(),
             ["stop new", "env 1 old", "install old", "start old"]
@@ -1486,6 +1518,30 @@ mod tests {
                 .unwrap()
                 .contains("exited with status 3")
         );
+    }
+
+    #[test]
+    fn a_put_back_that_does_not_run_either_says_so() {
+        let dir = tempfile::tempdir().unwrap();
+        let old = Manifest {
+            config: dir.path().join("home.yaml"),
+            env_file: None,
+            ..record(Platform::Linux)
+        };
+        let undo = Undo {
+            manifest: old.clone(),
+            config: Some(b"old config".to_vec()),
+            env: BTreeMap::new(),
+            binary: None,
+        };
+        let f = undo.put_back(
+            &Recorder(Default::default(), false),
+            &old,
+            "exited with status 3",
+            |_| Ok(()),
+            &mut Vec::new(),
+        );
+        assert!(f.message.contains("does not run either"), "{}", f.message);
     }
 
     fn record(p: Platform) -> Manifest {
