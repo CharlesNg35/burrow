@@ -120,6 +120,9 @@ impl ClientSession {
 
     pub fn offer(&self, mut ch: Channel) {
         let mut p = self.pool.lock().expect("pool lock");
+        if *self.closed.borrow() {
+            return;
+        }
         p.requested = p.requested.saturating_sub(1);
         while let Some(w) = p.waiters.pop_front() {
             match w.send(ch) {
@@ -140,6 +143,9 @@ impl ClientSession {
         let rx = loop {
             let parked = {
                 let mut p = self.pool.lock().expect("pool lock");
+                if *self.closed.borrow() {
+                    return Err(TakeError::Closed);
+                }
                 match p.idle.pop_front() {
                     Some(parked) => parked,
                     None => {
@@ -271,5 +277,34 @@ async fn park(
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn a_closed_session_answers_take_at_once() {
+        let (tx, _rx) = mpsc::channel(4);
+        let cfg = PoolConfig {
+            min_idle: 0,
+            max_idle: 4,
+            max_pending: 4,
+            keepalive: Duration::from_secs(25),
+        };
+        let s = ClientSession::new(
+            "home".into(),
+            "127.0.0.1:1".parse().unwrap(),
+            [0; TOKEN_LEN],
+            tx,
+            Secret::generate(),
+            [0; TOKEN_LEN],
+            &cfg,
+        );
+        s.close();
+        let took = tokio::time::timeout(Duration::from_secs(1), s.take()).await;
+        assert!(matches!(took, Ok(Err(TakeError::Closed))));
+        assert_eq!(s.waiter_count(), 0);
     }
 }
