@@ -102,10 +102,13 @@ pub fn check_connection(
         None => None,
         Some(file) => {
             let path = base_dir.join(file);
-            match std::fs::read(&path)
-                .map_err(|e| crate::failure::file_reason(&e))
-                .and_then(|pem| crate::transport::tls::parse_certs(&pem).map(|_| pem))
-            {
+            let read = std::fs::read(&path).map_err(|e| crate::failure::file_reason(&e));
+            let code = if read.is_err() {
+                "tls-unreadable"
+            } else {
+                "tls-file"
+            };
+            match read.and_then(|pem| crate::transport::tls::parse_certs(&pem).map(|_| pem)) {
                 Ok(pem) => {
                     if !tls && endpoint.is_some() {
                         out.push(
@@ -121,13 +124,10 @@ pub fn check_connection(
                 }
                 Err(e) => {
                     out.push(
-                        Diagnostic::error(
-                            "tls-file",
-                            format!("cannot use ca file \"{file}\": {e}"),
-                        )
-                        .at(spans.value(&["ca"]))
-                        .label("not a readable PEM certificate")
-                        .help("paths are relative to the config file"),
+                        Diagnostic::error(code, format!("cannot use ca file \"{file}\": {e}"))
+                            .at(spans.value(&["ca"]))
+                            .label("not a readable PEM certificate")
+                            .help("paths are relative to the config file"),
                     );
                     None
                 }

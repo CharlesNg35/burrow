@@ -124,7 +124,7 @@ fn load(path: &Path, role: Role, env: &Env, quiet: &[&str]) -> Result<Loaded, Fa
             .diagnostics
             .iter()
             .filter(|d| d.is_error())
-            .all(|d| d.code == "tls-file");
+            .all(|d| d.code == "tls-unreadable");
         return Err(if only_files {
             failure
         } else {

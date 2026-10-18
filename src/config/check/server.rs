@@ -480,7 +480,7 @@ fn check_websocket(
                 Ok(bytes) => Some((path, bytes)),
                 Err(e) => {
                     out.push(
-                        Diagnostic::error("tls-file", format!("cannot read websocket.tls.{field} \"{file}\": {}", crate::failure::file_reason(&e)))
+                        Diagnostic::error("tls-unreadable", format!("cannot read websocket.tls.{field} \"{file}\": {}", crate::failure::file_reason(&e)))
                             .at(spans.value(&["websocket", "tls", field]))
                             .label("file not readable")
                             .help("paths are relative to the config file; check the path and its permissions"),
