@@ -80,6 +80,7 @@ YAML (`.yaml`, `.yml`) or JSON (`.json`), same schema. `${VAR}` expands environm
 **server.yaml**
 
 ```yaml
+# server.yaml
 listen: 0.0.0.0:7835 # ip:port, or a port alone (means 0.0.0.0:port, all IPv4 addresses)
 public_address: myserver.example.com # optional: how clients reach this server
 clients:
@@ -139,6 +140,7 @@ services:
 **client.yaml**
 
 ```yaml
+# client.yaml
 server: myserver.example.com:7835 # port 7835 when omitted; or wss://tunnel.example.com/burrow
 name: home
 secret: ${HOME_SECRET}
@@ -181,6 +183,7 @@ Everything about a service is set on the server; clients need no change, and a r
 **Port ranges.** One service can expose a range, where each public port leads to the same position in the target range. Visitors can forward ranges too.
 
 ```yaml
+# server.yaml, under services:
 game:
   client: home
   protocol: udp
@@ -191,6 +194,7 @@ game:
 **Who may connect.** `allow_from` admits only these source addresses; `deny_from` blocks some. Blocked connections are closed on the server and never reach your network. A reload closes open connections that are no longer allowed.
 
 ```yaml
+# server.yaml, under services:
 ssh:
   client: home
   bind: 2222
@@ -201,12 +205,14 @@ ssh:
 **The real client address.** Behind a tunnel, your app sees every connection coming from the burrow client. With `proxy_protocol: v1` or `v2`, the server sends the real address first, in the PROXY protocol that nginx, Caddy, HAProxy, Traefik and Postfix understand. Turn it on only when the target expects it.
 
 ```nginx
+# nginx.conf of the target app
 server { listen 8443 ssl proxy_protocol; set_real_ip_from 127.0.0.1; real_ip_header proxy_protocol; }
 ```
 
 **Several clients.** List more than one client to keep a service up when a machine goes away. `failover` (the default) uses the first connected client and moves to the next one while it is away; `balance` spreads new connections over all of them. When a client cannot reach the target or its `allow` list refuses it, the connection moves to the next client at once, and `burrow status` shows that client as `failing` or `refused`. With `health_check`, the server also checks through each client that its target answers, so a dead target is skipped before anyone connects. Open connections stay on their client.
 
 ```yaml
+# server.yaml, under services:
 web:
   clients: [home-1, home-2]
   mode: balance
@@ -230,6 +236,7 @@ your PC: burrow visit 127.0.0.1:5432 ══ server ══ client (behind NAT) �
 In `server.yaml`, add a visitor with its own secret (from `./burrow gensecret`) and list it on the service:
 
 ```yaml
+# server.yaml
 visitors:
   laptop:
     secret: ${LAPTOP_SECRET}
@@ -248,6 +255,7 @@ Then print the visitor's config on the server, and run it on your machine:
 ```
 
 ```yaml
+# visitor.yaml
 server: myserver.example.com
 name: laptop
 secret: ${LAPTOP_SECRET}
@@ -260,6 +268,7 @@ forwards:
 **Any target on a client.** With `reach`, a visitor picks the target itself, like `ssh -L`, without a service for each one:
 
 ```yaml
+# server.yaml
 visitors:
   laptop:
     secret: ${LAPTOP_SECRET}
@@ -311,6 +320,7 @@ If the server sits behind nginx, Caddy, Cloudflare or a Kubernetes ingress and o
 ```
 
 ```yaml
+# server.yaml
 public_address: tunnel.example.com
 websocket:
   listen: 127.0.0.1:7836
@@ -325,6 +335,7 @@ The client config just uses the URL: `server: wss://tunnel.example.com/burrow`. 
 <summary><b>nginx</b></summary>
 
 ```nginx
+# /etc/nginx/conf.d/burrow.conf
 map $http_upgrade $connection_upgrade {
     default upgrade;
     ''      close;
@@ -359,6 +370,7 @@ Client: `server: wss://tunnel.example.com/burrow`
 Caddy gets the certificate itself and proxies WebSockets without extra settings:
 
 ```caddy
+# Caddyfile
 tunnel.example.com {
     reverse_proxy /burrow 127.0.0.1:7836
 }
@@ -376,6 +388,7 @@ Point the DNS record at your server with the proxy enabled (orange cloud), and r
 To restrict the endpoint with [Cloudflare Access](https://developers.cloudflare.com/cloudflare-one/identity/service-tokens/), create a service token and send it from the client:
 
 ```yaml
+# client.yaml (or visitor.yaml)
 server: wss://tunnel.example.com/burrow
 headers:
   CF-Access-Client-Id: ${CF_ACCESS_ID}
@@ -390,6 +403,7 @@ headers:
 `cloudflared` makes an outbound connection to Cloudflare, so the server needs no open ports for the control link:
 
 ```yaml
+# /etc/cloudflared/config.yml
 tunnel: <tunnel-id>
 credentials-file: /etc/cloudflared/<tunnel-id>.json
 ingress:
@@ -407,6 +421,7 @@ Client: `server: wss://tunnel.example.com/burrow`. The services you expose with 
 <summary><b>Kubernetes (ingress-nginx)</b></summary>
 
 ```yaml
+# ingress.yaml
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -449,6 +464,7 @@ Give burrow a certificate and key (for example from Let's Encrypt):
 ```
 
 ```yaml
+# server.yaml
 public_address: tunnel.example.com
 websocket:
   listen: 0.0.0.0:7837
@@ -508,6 +524,7 @@ SERVICES
 **Prometheus.** Metrics are off unless you turn them on in `server.yaml`:
 
 ```yaml
+# server.yaml
 metrics:
   listen: 127.0.0.1:9100 # a port alone means 127.0.0.1
 ```
@@ -622,6 +639,7 @@ The image is distroless and static, runs as a non-root user, and reads its confi
 <summary><b>Docker Compose: a server and a client</b></summary>
 
 ```yaml
+# compose.yaml
 services:
   burrow-server:
     image: ghcr.io/charlesng35/burrow:latest
