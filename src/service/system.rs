@@ -200,7 +200,14 @@ pub fn trusted_binary(path: &Path) -> bool {
         .file_name()
         .and_then(|n| n.to_str())
         .is_some_and(|n| n.eq_ignore_ascii_case("burrow.exe"));
+    let plain = path.components().all(|c| {
+        !matches!(
+            c,
+            std::path::Component::ParentDir | std::path::Component::CurDir
+        )
+    });
     named_burrow
+        && plain
         && std::env::var_os("ProgramFiles")
             .map(PathBuf::from)
             .is_some_and(|root| path.starts_with(root))
@@ -430,33 +437,55 @@ fn names(_path: &Path, _file: &std::fs::File) -> bool {
     true
 }
 
+pub const OPERATION_LOCK: &str = "operation.lock";
+
 pub fn operation() -> Result<Operation, Failure> {
     operation_in(
-        &Platform::current().state_dir(),
+        &Platform::current().jobs_dir(),
         std::time::Duration::from_secs(300),
     )
 }
 
 fn operation_in(dir: &Path, patience: std::time::Duration) -> Result<Operation, Failure> {
-    std::fs::create_dir_all(dir)
-        .map_err(|e| Failure::new(format!("cannot create {}: {e}", dir.display())))?;
-    let path = dir.join("operation.lock");
+    let path = dir.join(OPERATION_LOCK);
     let deadline = std::time::Instant::now() + patience;
     let mut told = false;
+    let mut replaced = 0;
     loop {
+        crate::instance::private_dir(dir)
+            .map_err(|e| Failure::new(format!("cannot prepare {}: {e}", dir.display())))?;
+        if replaced > 20 {
+            return Err(Failure::new(format!(
+                "cannot keep a private lock file at {}",
+                path.display()
+            )));
+        }
         let mut opts = std::fs::OpenOptions::new();
         opts.read(true).write(true).create(true).truncate(false);
         #[cfg(unix)]
         {
             use std::os::unix::fs::OpenOptionsExt;
-            opts.custom_flags(libc::O_NOFOLLOW);
+            opts.mode(0o600).custom_flags(libc::O_NOFOLLOW);
+        }
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::OpenOptionsExt;
+            opts.share_mode(0x1 | 0x2);
         }
         let file = opts
             .open(&path)
             .map_err(|e| Failure::new(format!("cannot open {}: {e}", path.display())))?;
+        if !private_lock(&file) {
+            let _ = std::fs::remove_file(&path);
+            replaced += 1;
+            continue;
+        }
         match file.try_lock() {
             Ok(()) if names(&path, &file) => return Ok(Operation { _file: file, path }),
-            Ok(()) => continue,
+            Ok(()) => {
+                replaced += 1;
+                continue;
+            }
             Err(std::fs::TryLockError::WouldBlock) => {
                 if std::time::Instant::now() >= deadline {
                     return Err(
@@ -475,6 +504,22 @@ fn operation_in(dir: &Path, patience: std::time::Duration) -> Result<Operation, 
             }
         }
     }
+}
+
+#[cfg(unix)]
+fn private_lock(file: &std::fs::File) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    file.metadata().is_ok_and(|m| {
+        m.is_file()
+            && m.nlink() == 1
+            && m.uid() == rustix::process::geteuid().as_raw()
+            && m.mode() & 0o077 == 0
+    })
+}
+
+#[cfg(not(unix))]
+fn private_lock(_file: &std::fs::File) -> bool {
+    true
 }
 
 #[cfg(unix)]
@@ -523,12 +568,30 @@ mod tests {
         let first = operation_in(dir.path(), short).unwrap();
         assert!(operation_in(dir.path(), short).is_err());
         drop(first);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let lock = dir.path().join(OPERATION_LOCK);
+            let mode = std::fs::metadata(&lock).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o600, "only the owner may open the lock");
+        }
         let second = operation_in(dir.path(), short).unwrap();
         second.remove();
-        assert!(!dir.path().join("operation.lock").exists());
+        assert!(!dir.path().join(OPERATION_LOCK).exists());
         let third = operation_in(dir.path(), short).unwrap();
         assert!(operation_in(dir.path(), short).is_err());
         drop(third);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let lock = dir.path().join(OPERATION_LOCK);
+            std::fs::set_permissions(&lock, std::fs::Permissions::from_mode(0o644)).unwrap();
+            let outsider = std::fs::File::open(&lock).unwrap();
+            outsider.try_lock().unwrap();
+            let fresh = operation_in(dir.path(), short);
+            assert!(fresh.is_ok(), "a lock others could open is replaced");
+            drop(outsider);
+        }
     }
 
     #[cfg(unix)]

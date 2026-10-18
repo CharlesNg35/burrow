@@ -86,6 +86,9 @@ fn sweep(dir: &Path) {
         return;
     };
     for entry in entries.flatten() {
+        if entry.file_name() == super::system::OPERATION_LOCK {
+            continue;
+        }
         let old = entry
             .metadata()
             .and_then(|m| m.modified())

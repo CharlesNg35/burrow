@@ -483,9 +483,11 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
     }
 
     system::require_admin()?;
+    let operation = system::operation()?;
     let previous = load_manifest(&name).ok();
     let was_running = previous.as_ref().is_some_and(|p| backend.status(p).running);
     if was_running && opts.worker.is_none() {
+        drop(operation);
         let mut args: Vec<std::ffi::OsString> = vec![
             "service".into(),
             "install".into(),
@@ -508,7 +510,7 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
             out,
         );
     }
-    let _operation = system::operation()?;
+    let _operation = operation;
     let mut again = StartAgain {
         backend: &*backend,
         manifest: previous.as_ref().filter(|_| was_running),

@@ -215,7 +215,7 @@ impl Backend for WindowsService {
             ],
         )?;
         for dir in inner.iter().filter(|d| d.starts_with(&root)) {
-            icacls(dir, &["/reset"])?;
+            icacls(dir, &["/reset", "/T", "/C", "/Q"])?;
         }
         if instances.starts_with(&root) {
             icacls(&instances, &["/grant", &format!("{USERS}:(OI)(CI)M")])?;
@@ -504,6 +504,12 @@ mod tests {
         assert!(!crate::service::system::trusted_binary(
             &pf.join("Tools").join("setup.exe")
         ));
+        let around = pf
+            .join("..")
+            .join("Users")
+            .join("Public")
+            .join("burrow.exe");
+        assert!(!crate::service::system::trusted_binary(&around));
         let windows = PathBuf::from(std::env::var_os("SystemRoot").unwrap());
         assert!(!crate::service::system::trusted_binary(
             &windows.join("Temp").join("burrow.exe")
