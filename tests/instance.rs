@@ -115,3 +115,62 @@ fn an_ad_hoc_visit_does_not_warn_that_the_file_has_no_forwards() {
     assert!(!err.contains("no forwards are defined"), "{err}");
     assert!(err.contains("service \"web\""), "{err}");
 }
+
+#[test]
+fn init_refuses_flags_that_are_not_for_the_role() {
+    let s = setup();
+    let secret = burrow::secret::Secret::generate().encode();
+    let cases: [(&[&str], &str); 4] = [
+        (
+            &["init", "server", "--name", "x", "-o", "a.yaml"],
+            "--name is not for server configs",
+        ),
+        (
+            &["init", "server", "--secret", &secret, "-o", "a.yaml"],
+            "--secret is not for server configs",
+        ),
+        (
+            &[
+                "init",
+                "client",
+                "--server",
+                "example.com",
+                "--name",
+                "home",
+                "--secret",
+                &secret,
+                "--ws",
+                "-o",
+                "a.yaml",
+            ],
+            "--ws and its options are not for client configs",
+        ),
+        (
+            &[
+                "init",
+                "visitor",
+                "--server",
+                "127.0.0.1:1",
+                "--name",
+                "l",
+                "--secret",
+                &secret,
+                "--client-name",
+                "x",
+                "-o",
+                "a.yaml",
+            ],
+            "the visitor's own name is --name",
+        ),
+    ];
+    for (args, want) in cases {
+        let out = burrow(&s).args(args).output().unwrap();
+        let err = String::from_utf8_lossy(&out.stderr);
+        assert_eq!(out.status.code(), Some(2), "{args:?}: {err}");
+        assert!(err.contains(want), "{args:?}: {err}");
+        assert!(
+            !s.dir.path().join("a.yaml").exists(),
+            "{args:?} wrote a file"
+        );
+    }
+}

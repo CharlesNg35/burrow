@@ -416,7 +416,8 @@ fn run(cli: Cli) -> Result<u8, Failure> {
                 websocket: (args.ws
                     || args.ws_listen.is_some()
                     || args.ws_path.is_some()
-                    || args.ws_tls_cert.is_some())
+                    || args.ws_tls_cert.is_some()
+                    || args.ws_tls_key.is_some())
                 .then_some(burrow::init::WebSocketInit {
                     listen: args.ws_listen,
                     path: args.ws_path,
@@ -435,6 +436,32 @@ fn run(cli: Cli) -> Result<u8, Failure> {
                     (Some(r), false) => r,
                     (None, false) => ask_role()?,
                 };
+            let given = [
+                ("--name", opts.name.is_some()),
+                ("--secret", opts.secret.is_some()),
+                ("--client-name", opts.client_name.is_some()),
+                ("--ws", opts.websocket.is_some()),
+            ];
+            let (kind, applies): (&str, &[&str]) = match role {
+                RoleArg::Server => ("server", &["--client-name", "--ws"]),
+                RoleArg::Client => ("client", &["--name", "--secret"]),
+                RoleArg::Visitor => ("visitor", &["--name", "--secret"]),
+            };
+            if let Some((flag, _)) = given.iter().find(|(f, set)| *set && !applies.contains(f)) {
+                let what = if *flag == "--ws" {
+                    "--ws and its options are".to_string()
+                } else {
+                    format!("{flag} is")
+                };
+                return Err(Failure::usage(format!(
+                    "{what} not for {kind} configs"
+                ))
+                .hint(match *flag {
+                    "--name" | "--secret" => "for a server config, name the first client with --client-name; its secret is generated".to_string(),
+                    "--client-name" => format!("the {kind}'s own name is --name"),
+                    _ => "a client or visitor gets a WebSocket server from its --server URL, for example --server wss://tunnel.example.com/burrow".to_string(),
+                }));
+            }
             let mut out = std::io::stdout().lock();
             match role {
                 RoleArg::Server => burrow::init::init_server(&opts, &mut out)?,
