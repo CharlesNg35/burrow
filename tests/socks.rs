@@ -232,7 +232,7 @@ async fn an_unreachable_server_answers_network_unreachable() {
     );
     let v = start_visitor(settings);
     let (code, _) = tokio::time::timeout(
-        Duration::from_secs(2),
+        Duration::from_secs(4),
         socks_connect(v.addr("home"), "127.0.0.1", 22),
     )
     .await

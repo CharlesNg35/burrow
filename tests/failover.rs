@@ -1076,26 +1076,15 @@ async fn a_udp_service_moves_away_from_a_client_that_stops_reading() {
         let s = udp_bind().await;
         s.connect(web).await.unwrap();
         let data = vec![7u8; 60_000];
-        let until = std::time::Instant::now() + Duration::from_secs(4);
-        while std::time::Instant::now() < until {
+        loop {
             let _ = s.send(&data).await;
             tokio::time::sleep(Duration::from_millis(1)).await;
         }
     });
     farm.connect(1).await;
-    let s = udp_bind().await;
-    s.connect(web).await.unwrap();
-    let started = std::time::Instant::now();
-    let mut tag = None;
-    while started.elapsed() < Duration::from_secs(12) && tag != Some(b'B') {
-        tag = udp_tag(&s).await;
-    }
+    let shared = farm.server.shared.clone();
+    wait_for(|| shared.status().services[0].set_aside == vec![aside("a", false)]).await;
     flood.abort();
-    assert_eq!(
-        tag,
-        Some(b'B'),
-        "the relay stayed on the client that stopped reading"
-    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

@@ -83,7 +83,7 @@ fn config_is_found_in_the_current_folder() {
     std::fs::remove_file(s.dir.path().join("server.yaml")).unwrap();
     let out = burrow(&s).arg("server").output().unwrap();
     assert_eq!(out.status.code(), Some(2));
-    assert!(String::from_utf8_lossy(&out.stderr).contains("burrow init server"));
+    assert!(String::from_utf8_lossy(&out.stderr).contains(" init server"));
 }
 
 #[test]

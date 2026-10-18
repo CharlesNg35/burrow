@@ -376,7 +376,7 @@ pub fn refusing() -> (tokio::net::TcpSocket, SocketAddr) {
     let socket = tokio::net::TcpSocket::new_v4().unwrap();
     socket.bind("127.0.0.1:0".parse().unwrap()).unwrap();
     let addr = socket.local_addr().unwrap();
-    if cfg!(target_os = "macos") {
+    if cfg!(any(target_os = "macos", windows)) {
         drop(socket);
         return (tokio::net::TcpSocket::new_v4().unwrap(), addr);
     }
