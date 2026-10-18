@@ -87,6 +87,21 @@ pub fn render_json(outcome: &Outcome, strict: bool) -> String {
     s
 }
 
+pub fn unreadable_json(path: &Path, f: &Failure, strict: bool) -> String {
+    let mut report = crate::diagnostics::Report::new(path.display().to_string(), "");
+    let mut d = Diagnostic::error("read", f.message.clone()).without_snippet();
+    if let Some(h) = &f.hint {
+        d = d.help(h.clone());
+    }
+    report.push(d);
+    let mut v = report.render_json();
+    v["role"] = serde_json::Value::Null;
+    v["strict"] = strict.into();
+    let mut s = serde_json::to_string_pretty(&v).expect("json serializes");
+    s.push('\n');
+    s
+}
+
 pub fn startup_report(report: &Report, style: Style) -> String {
     let warnings: Vec<&Diagnostic> = report
         .diagnostics

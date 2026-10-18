@@ -174,3 +174,28 @@ fn init_refuses_flags_that_are_not_for_the_role() {
         );
     }
 }
+
+#[test]
+fn validate_in_json_reports_an_unreadable_file_as_json() {
+    let s = setup();
+    std::fs::create_dir(s.dir.path().join("folder.yaml")).unwrap();
+    let mut cases = vec![("nope.yaml", "does not exist")];
+    if cfg!(unix) {
+        cases.push(("folder.yaml", "is a directory, not a file"));
+    }
+    for (file, want) in cases {
+        let out = burrow(&s)
+            .args(["validate", "-c", file, "--format", "json"])
+            .stdout(Stdio::piped())
+            .output()
+            .unwrap();
+        assert_eq!(out.status.code(), Some(2));
+        let v: serde_json::Value = serde_json::from_slice(&out.stdout)
+            .unwrap_or_else(|e| panic!("{e}: {}", String::from_utf8_lossy(&out.stdout)));
+        assert_eq!(v["valid"], false);
+        assert_eq!(v["errors"], 1);
+        assert_eq!(v["diagnostics"][0]["code"], "read");
+        let message = v["diagnostics"][0]["message"].as_str().unwrap();
+        assert!(message.contains(want), "{message}");
+    }
+}

@@ -93,7 +93,11 @@ impl LoadError {
                 "save the file as UTF-8".into(),
             ),
             LoadError::Read(e) => (
-                format!("cannot read {}: {e}", path.display()),
+                format!(
+                    "cannot read {}: {}",
+                    path.display(),
+                    crate::failure::file_reason(e)
+                ),
                 "check that the path is a readable file".into(),
             ),
             LoadError::UnknownExtension => (

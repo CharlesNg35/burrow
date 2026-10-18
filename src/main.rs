@@ -320,8 +320,19 @@ fn run(cli: Cli) -> Result<u8, Failure> {
     match cli.command {
         Command::Validate(args) => {
             let path = config_path(args.config, args.role.map(role))?;
-            let v =
-                burrow::validate::validate(&path, args.role.map(role), args.strict, &ProcessEnv)?;
+            let v = match burrow::validate::validate(
+                &path,
+                args.role.map(role),
+                args.strict,
+                &ProcessEnv,
+            ) {
+                Ok(v) => v,
+                Err(f) if matches!(args.format, OutputFormat::Json) => {
+                    print(&burrow::validate::unreadable_json(&path, &f, args.strict))?;
+                    return Ok(f.exit);
+                }
+                Err(f) => return Err(f),
+            };
             let text = match args.format {
                 OutputFormat::Text => {
                     burrow::validate::render_text(&v.outcome, args.strict, out_style)
