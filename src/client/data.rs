@@ -352,7 +352,7 @@ async fn connected(
             let label = connect.clone();
             tokio::select! {
                 _ = udp(live, resolver, ch, connect, addrs) => {}
-                _ = revoked(&watched, |s| permitted.iter().any(|a| s.allow.permits(*a))) => {
+                _ = revoked(&watched, |s| s.allow.permits(preferred(&permitted))) => {
                     no_longer_allowed(&label);
                 }
             }
