@@ -1619,7 +1619,7 @@ mod tests {
             source_config: PathBuf::from("server.yaml"),
             env_file: Some(p.config_dir().join("server.env")),
             log_file: p.log_file("server"),
-            binary: p.binary_path(),
+            binary: p.service_binary(),
             copied_binary: true,
             account: p.default_account("burrow-server"),
             created_account: true,
