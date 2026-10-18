@@ -374,7 +374,9 @@ pub fn bind_error(what: &str, proto: Protocol, addr: SocketAddr, e: &std::io::Er
         std::io::ErrorKind::PermissionDenied => Failure::new(format!(
             "cannot bind {what} on {addr}: permission denied"
         ))
-        .hint(if cfg!(target_os = "macos") {
+        .hint(if cfg!(windows) {
+            "another program holds this port exclusively, or Windows reserves it; see: netsh interface ipv4 show excludedportrange protocol=tcp"
+        } else if cfg!(target_os = "macos") {
             "ports below 1024 need root, except on all addresses (0.0.0.0); use a port above 1023"
         } else if cfg!(target_os = "linux") {
             "ports below 1024 need root or CAP_NET_BIND_SERVICE; use a port above 1023"
