@@ -132,7 +132,11 @@ pub async fn udp_service(
         };
         let ch = match tokio::time::timeout(Duration::from_secs(10), session.take()).await {
             Ok(Ok(ch)) => ch,
-            Ok(Err(TakeError::TooManyPending)) | Ok(Err(TakeError::Closed)) | Err(_) => {
+            Ok(Err(TakeError::TooManyPending)) | Ok(Err(TakeError::Closed)) => {
+                tokio::time::sleep(Duration::from_millis(500)).await;
+                continue;
+            }
+            Err(_) => {
                 if svc.clients.len() > 1 {
                     shared.troubled(&name, &session, &target, &crate::forward::no_reply());
                 }
