@@ -102,6 +102,7 @@ struct Keepalive {
     active: std::time::Instant,
     timer: Pin<Box<tokio::time::Sleep>>,
     due: bool,
+    written_at_ping: Option<u64>,
 }
 
 const MAX_CONTROLS: u32 = 100;
@@ -144,6 +145,7 @@ impl WsConn {
             active: std::time::Instant::now(),
             timer: Box::pin(tokio::time::sleep(every)),
             due: false,
+            written_at_ping: None,
         });
     }
 
@@ -167,7 +169,11 @@ impl WsConn {
         }
         if k.due {
             k.due = false;
-            let _ = Pin::new(&mut self.inner).start_send(Message::ping(Vec::new()));
+            let written = self.inner.get_ref().written;
+            if k.written_at_ping != Some(written) {
+                k.written_at_ping = Some(written);
+                let _ = Pin::new(&mut self.inner).start_send(Message::ping(Vec::new()));
+            }
         }
         Ok(())
     }
@@ -358,7 +364,10 @@ pub async fn accept(mut carrier: Carrier, path: &str) -> Result<WsConn, AcceptEr
             return Err(AcceptError::Io(io::ErrorKind::UnexpectedEof.into()));
         }
         head.extend_from_slice(&chunk[..n]);
-        let method = head.iter().take_while(|b| **b != b' ');
+        let method = head
+            .iter()
+            .skip_while(|b| matches!(b, b'\r' | b'\n'))
+            .take_while(|b| **b != b' ');
         if method.clone().count() > 16 || !method.into_iter().all(u8::is_ascii_uppercase) {
             refuse(&mut carrier, Refused::BadRequest).await;
             return Err(AcceptError::Refused(Refused::BadRequest));
@@ -656,6 +665,35 @@ mod tests {
             .await
             .expect("the writer finishes")
             .unwrap();
+    }
+
+    #[tokio::test]
+    async fn an_upgrade_after_an_empty_line_is_accepted_and_garbage_is_not() {
+        for (sent, upgraded) in [
+            (&b"\r\nGET /burrow HTTP/1.1\r\n"[..], true),
+            (&b"\x01\x02 noise"[..], false),
+        ] {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let addr = listener.local_addr().unwrap();
+            let server = tokio::spawn(async move {
+                let (tcp, _) = listener.accept().await.unwrap();
+                accept(Carrier::Plain(tcp), "/burrow").await.is_ok()
+            });
+            let mut tcp = TcpStream::connect(addr).await.unwrap();
+            tcp.write_all(sent).await.unwrap();
+            if upgraded {
+                tcp.write_all(b"Host: x\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n").await.unwrap();
+            }
+            let mut answer = [0u8; 12];
+            tcp.read_exact(&mut answer).await.unwrap();
+            let code = if upgraded {
+                &b"HTTP/1.1 101"[..]
+            } else {
+                &b"HTTP/1.1 400"[..]
+            };
+            assert_eq!(&answer[..], code);
+            assert_eq!(server.await.unwrap(), upgraded);
+        }
     }
 
     #[tokio::test]
