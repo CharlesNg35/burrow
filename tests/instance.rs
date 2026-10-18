@@ -85,3 +85,33 @@ fn config_is_found_in_the_current_folder() {
     assert_eq!(out.status.code(), Some(2));
     assert!(String::from_utf8_lossy(&out.stderr).contains("burrow init server"));
 }
+
+#[test]
+fn an_ad_hoc_visit_does_not_warn_that_the_file_has_no_forwards() {
+    let s = setup();
+    let secret = burrow::secret::Secret::generate().encode();
+    std::fs::write(
+        s.dir.path().join("visitor.yaml"),
+        format!("server: 127.0.0.1:1\nname: laptop\nsecret: {secret}\n"),
+    )
+    .unwrap();
+    let local = format!("127.0.0.1:{}", free_port());
+    let mut child = burrow(&s)
+        .args([
+            "visit",
+            "-c",
+            "visitor.yaml",
+            "--service",
+            "web",
+            "--local",
+            &local,
+        ])
+        .spawn()
+        .unwrap();
+    std::thread::sleep(Duration::from_millis(1500));
+    let _ = child.kill();
+    let out = child.wait_with_output().unwrap();
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(!err.contains("no forwards are defined"), "{err}");
+    assert!(err.contains("service \"web\""), "{err}");
+}

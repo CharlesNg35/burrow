@@ -85,11 +85,15 @@ pub struct Hosted {
     pub env: Env,
 }
 
-fn load(path: &Path, role: Role, env: &Env) -> Result<Loaded, Failure> {
-    let outcome = load_file(path, Some(role), env).map_err(|e| {
+fn load(path: &Path, role: Role, env: &Env, quiet: &[&str]) -> Result<Loaded, Failure> {
+    let mut outcome = load_file(path, Some(role), env).map_err(|e| {
         let (m, h) = e.describe(path);
         config_failure(Failure::new(m).hint(h))
     })?;
+    outcome
+        .report
+        .diagnostics
+        .retain(|d| d.is_error() || !quiet.contains(&d.code));
     let style = Style::detect(std::io::stderr().is_terminal());
     if let Some(d) = outcome
         .report
@@ -244,7 +248,7 @@ fn split(hosted: Option<Hosted>) -> (Option<watch::Receiver<bool>>, Env) {
 
 fn run_server(path: &Path, logging: Logging, hosted: Option<Hosted>) -> Result<u8, Failure> {
     let (stop, env) = split(hosted);
-    let Loaded::Server(settings, _) = load(path, Role::Server, &env)? else {
+    let Loaded::Server(settings, _) = load(path, Role::Server, &env, &[])? else {
         return Err(Failure::new(format!(
             "{} is not a server config",
             path.display()
@@ -272,7 +276,7 @@ fn run_server(path: &Path, logging: Logging, hosted: Option<Hosted>) -> Result<u
 
 fn run_client(path: &Path, logging: Logging, hosted: Option<Hosted>) -> Result<u8, Failure> {
     let (stop, env) = split(hosted);
-    let Loaded::Client(settings, _) = load(path, Role::Client, &env)? else {
+    let Loaded::Client(settings, _) = load(path, Role::Client, &env, &[])? else {
         return Err(Failure::new(format!(
             "{} is not a client config",
             path.display()
@@ -311,7 +315,11 @@ fn run_visitor(
     hosted: Option<Hosted>,
 ) -> Result<u8, Failure> {
     let (stop, env) = split(hosted);
-    let Loaded::Visitor(mut settings, _) = load(path, Role::Visitor, &env)? else {
+    let quiet: &[&str] = match pick {
+        Pick::Adhoc { .. } => &["no-forwards"],
+        _ => &[],
+    };
+    let Loaded::Visitor(mut settings, _) = load(path, Role::Visitor, &env, quiet)? else {
         return Err(Failure::new(format!(
             "{} is not a visitor config",
             path.display()
