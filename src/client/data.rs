@@ -593,7 +593,28 @@ async fn udp(
             }
         };
         seen.store(epoch.elapsed().as_millis() as u64, Ordering::Relaxed);
-        let _ = sock.send(payload).await;
+        if let Err(e) = sock.send(payload).await
+            && !matches!(
+                e.kind(),
+                std::io::ErrorKind::ConnectionRefused | std::io::ErrorKind::ConnectionReset
+            )
+        {
+            let mut map = peers.lock().expect("peers lock");
+            if map.get(&id).is_some_and(|p| Arc::ptr_eq(&p.sock, &sock))
+                && let Some(p) = map.remove(&id)
+            {
+                p.task.abort();
+            }
+            static SEND: Throttle = Throttle::new();
+            if let Some(more) = SEND.allow() {
+                warn!(
+                    "UDP to {}: cannot send ({}), so the next datagram opens a new socket{more}",
+                    sock.peer_addr()
+                        .map_or_else(|_| "the target".to_string(), |a| a.to_string()),
+                    io_reason(&e)
+                );
+            }
+        }
     }
     debug!("service \"{}\": UDP relay closed", connect.service);
 }
