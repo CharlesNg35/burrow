@@ -209,7 +209,11 @@ fn chunk_size(data: &[u8]) -> Result<Option<(usize, usize)>, String> {
     };
     let size = std::str::from_utf8(&data[..line]).map_err(|_| bad())?;
     let size = size.split(';').next().unwrap_or("").trim();
-    let size = usize::from_str_radix(size, 16).map_err(|_| bad())?;
+    let size = u64::from_str_radix(size, 16)
+        .ok()
+        .filter(|n| *n <= u64::from(u32::MAX))
+        .and_then(|n| usize::try_from(n).ok())
+        .ok_or_else(bad)?;
     Ok(Some((line + 2, size)))
 }
 
@@ -437,7 +441,8 @@ mod tests {
         assert!(chunked_complete(b"3\r\nabc\r\n0\r\nX-Trailer: 1\r\n\r\n").unwrap());
         assert!(!chunked_complete(b"3\r\nabc\r\n0\r\n").unwrap());
         assert!(!chunked_complete(b"5\r\nabc").unwrap());
-        assert!(!chunked_complete(b"ffffffffffffffff\r\nabc").unwrap());
+        assert!(chunked_complete(b"ffffffffffffffff\r\nabc").is_err());
+        assert!(dechunk(b"100000000\r\nabc\r\n0\r\n\r\n").is_err());
     }
 
     #[test]
