@@ -637,6 +637,19 @@ pub async fn reply(ch: Channel, status: Status) {
     send_and_close(ch, &[status as u8]).await;
 }
 
+pub async fn refuse(mut ch: Channel, status: Status) {
+    let byte = [status as u8];
+    let sent = ch.writer.send(&mut ch.stream, &byte);
+    if !matches!(tokio::time::timeout(ANSWER_TIMEOUT, sent).await, Ok(Ok(()))) {
+        return;
+    }
+    let mut drain = [0u8; 4096];
+    let _ = tokio::time::timeout(CLOSE_TIMEOUT, async {
+        while matches!(ch.stream.read(&mut drain).await, Ok(n) if n > 0) {}
+    })
+    .await;
+}
+
 pub async fn send_and_close(mut ch: Channel, bytes: &[u8]) {
     let sent = async {
         ch.writer.send(&mut ch.stream, bytes).await?;

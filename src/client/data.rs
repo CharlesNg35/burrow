@@ -13,7 +13,7 @@ use crate::config::check::{parse_host_port, unix};
 use crate::config::model::Protocol;
 use crate::config::settings::ClientSettings;
 use crate::failure::io_reason;
-use crate::forward::{client_tcp, reply};
+use crate::forward::{client_tcp, refuse};
 use crate::handshake::Channel;
 use crate::protocol::{
     Connect, KEEPALIVE_RECORD, STALE_RECORD, ServiceInfo, Status, decode_datagram, encode_datagram,
@@ -287,7 +287,7 @@ async fn connected(
     let connect = match first {
         Ok(c) => c,
         Err(_) => {
-            reply(ch, Status::Invalid).await;
+            refuse(ch, Status::Invalid).await;
             return;
         }
     };
@@ -300,7 +300,7 @@ async fn connected(
                 OPEN_CONNECTIONS.most()
             );
         }
-        reply(ch, Status::Busy).await;
+        refuse(ch, Status::Busy).await;
         return;
     };
     let settings = live.settings();
@@ -311,7 +311,7 @@ async fn connected(
     let addrs = match permitted(&settings, &resolver, &connect).await {
         Ok(a) => a,
         Err(status) => {
-            reply(ch, status).await;
+            refuse(ch, status).await;
             return;
         }
     };
@@ -329,7 +329,7 @@ async fn connected(
                             io_reason(&e)
                         );
                     }
-                    reply(ch, Status::Unreachable).await;
+                    refuse(ch, Status::Unreachable).await;
                     return;
                 }
             };
@@ -392,14 +392,14 @@ async fn socket(
     path: &str,
 ) {
     if connect.protocol != Protocol::Tcp || unix::check_path(path).is_err() {
-        reply(ch, Status::Invalid).await;
+        refuse(ch, Status::Invalid).await;
         return;
     }
     if let Some(only) = connect.only.as_deref()
         && !AllowList::from_rules(only).permits_socket(path)
     {
         outside_reach(connect);
-        reply(ch, Status::Denied).await;
+        refuse(ch, Status::Denied).await;
         return;
     }
     if !settings.allow.permits_socket(path) {
@@ -412,7 +412,7 @@ async fn socket(
                 connect.target
             );
         }
-        reply(ch, Status::Denied).await;
+        refuse(ch, Status::Denied).await;
         return;
     }
     #[cfg(unix)]
@@ -428,7 +428,7 @@ async fn socket(
                 whom(connect)
             );
         }
-        reply(ch, Status::Denied).await;
+        refuse(ch, Status::Denied).await;
         return;
     }
     #[cfg(unix)]
@@ -442,7 +442,7 @@ async fn socket(
                 link.display()
             );
         }
-        reply(ch, Status::Denied).await;
+        refuse(ch, Status::Denied).await;
         return;
     }
     #[cfg(unix)]
@@ -469,7 +469,7 @@ async fn socket(
                     io_reason(&e)
                 );
             }
-            reply(ch, Status::Unreachable).await;
+            refuse(ch, Status::Unreachable).await;
         }
     }
     #[cfg(not(unix))]
@@ -483,7 +483,7 @@ async fn socket(
                 connect.target
             );
         }
-        reply(ch, Status::Invalid).await;
+        refuse(ch, Status::Invalid).await;
     }
 }
 
