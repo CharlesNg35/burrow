@@ -178,16 +178,21 @@ pub fn private_dir(dir: &Path) -> std::io::Result<()> {
     }
     #[cfg(windows)]
     {
-        let done = std::process::Command::new("icacls")
-            .arg(dir)
-            .args([
+        let icacls = |args: &[&str]| {
+            std::process::Command::new("icacls")
+                .arg(dir)
+                .args(args)
+                .output()
+                .is_ok_and(|o| o.status.success())
+        };
+        let done = icacls(&["/setowner", "*S-1-5-32-544"])
+            && icacls(&["/reset"])
+            && icacls(&[
                 "/inheritance:r",
                 "/grant:r",
                 "*S-1-5-18:(OI)(CI)F",
                 "*S-1-5-32-544:(OI)(CI)F",
-            ])
-            .output()
-            .is_ok_and(|o| o.status.success());
+            ]);
         if !done {
             return Err(std::io::Error::other(format!(
                 "cannot restrict {} to administrators",
@@ -216,7 +221,27 @@ fn prepare_dir(dir: &Path) -> std::io::Result<()> {
 }
 
 pub fn acquire(identity: &Identity, config: &Path) -> Result<InstanceLock, Failure> {
-    acquire_in(&default_dir(), identity, config)
+    let dir = default_dir();
+    let taken = acquire_in(&dir, identity, config);
+    #[cfg(windows)]
+    if let Err(f) = &taken
+        && AS_SERVICE.load(std::sync::atomic::Ordering::Relaxed)
+    {
+        eprintln!("warning: {}; a service starts anyway", f.message);
+        return Ok(InstanceLock {
+            _file: None,
+            path: dir.join(format!("{}.lock", identity.key())),
+        });
+    }
+    taken
+}
+
+#[cfg(windows)]
+static AS_SERVICE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+#[cfg(windows)]
+pub fn running_as_service() {
+    AS_SERVICE.store(true, std::sync::atomic::Ordering::Relaxed);
 }
 
 pub fn acquire_in(dir: &Path, identity: &Identity, config: &Path) -> Result<InstanceLock, Failure> {
@@ -434,9 +459,9 @@ fn trusted_owner(uid: u32) -> bool {
     let me = rustix::process::geteuid().as_raw();
     uid == 0
         || uid == me
-        || crate::service::all_manifests().iter().any(|m| {
-            crate::service::system::account_ids(&m.account).is_ok_and(|(id, _)| id == uid)
-        })
+        || crate::service::all_manifests()
+            .iter()
+            .any(|m| crate::service::system::account_ids(&m.account).is_ok_and(|(id, _)| id == uid))
 }
 
 #[cfg(not(unix))]

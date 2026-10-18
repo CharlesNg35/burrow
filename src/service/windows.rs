@@ -175,12 +175,13 @@ impl Backend for WindowsService {
         let p = Platform::Windows;
         let root = p.config_dir();
         let instances = crate::instance::default_dir();
-        let inner = [p.state_dir(), p.log_dir(), instances.clone()];
+        let inner = [p.state_dir(), p.log_dir(), instances.clone(), p.jobs_dir()];
         for dir in std::iter::once(&root).chain(&inner) {
             std::fs::create_dir_all(dir)
                 .map_err(|e| Failure::new(format!("cannot create {}: {e}", dir.display())))?;
         }
         icacls(&root, &["/setowner", ADMINS, "/T", "/C", "/Q"])?;
+        icacls(&root, &["/reset"])?;
         icacls(
             &root,
             &[
@@ -434,6 +435,7 @@ fn service_main(_args: Vec<OsString>) {
 
 fn serve(name: &str, stop: tokio::sync::watch::Receiver<bool>) -> Result<u8, Failure> {
     let m = super::load_manifest(name)?;
+    crate::instance::running_as_service();
     let logging = Logging {
         level: tracing::Level::INFO,
         json: false,
