@@ -539,7 +539,7 @@ async fn permitted(
     let reach = connect.only.as_deref().map(AllowList::from_rules);
     let reachable: Vec<SocketAddr> = resolved
         .iter()
-        .copied()
+        .map(|a| SocketAddr::new(a.ip().to_canonical(), a.port()))
         .filter(|a| reach.as_ref().is_none_or(|r| r.permits(*a)))
         .collect();
     if reachable.is_empty() {
@@ -769,6 +769,17 @@ mod tests {
             target: target.into(),
             only: None,
         }
+    }
+
+    #[tokio::test]
+    async fn a_mapped_ipv6_target_is_dialed_as_ipv4() {
+        let mut settings = crate::client::reload::tests::settings();
+        settings.allow = AllowList::Rules(vec!["127.0.0.0/8".parse().unwrap()]);
+        let resolver: Arc<dyn Resolver> = Arc::new(Hanging);
+        let addrs = permitted(&settings, &resolver, &visit("[::ffff:127.0.0.1]:22"))
+            .await
+            .unwrap();
+        assert_eq!(addrs, vec!["127.0.0.1:22".parse::<SocketAddr>().unwrap()]);
     }
 
     #[cfg(unix)]
