@@ -28,6 +28,17 @@ fn id_of(_meta: &std::fs::Metadata) -> Option<(u64, u64)> {
     None
 }
 
+#[cfg(unix)]
+fn unlinked(file: &File) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    file.metadata().is_ok_and(|m| m.nlink() == 0)
+}
+
+#[cfg(not(unix))]
+fn unlinked(_file: &File) -> bool {
+    false
+}
+
 fn reopen(path: &Path) -> io::Result<File> {
     if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
         std::fs::create_dir_all(dir)?;
@@ -134,7 +145,7 @@ impl Write for RotatingFile {
             && state.size > 0
             && self.rotate(&mut state).is_err()
         {
-            if self.path.symlink_metadata().is_err() && state.file.set_len(0).is_ok() {
+            if unlinked(&state.file) && state.file.set_len(0).is_ok() {
                 state.size = 0;
                 state.rotate_at = self.max;
             } else {
