@@ -13,14 +13,14 @@ pub struct Checker<'a> {
 
 #[derive(Clone)]
 struct Ctx<'a> {
-    path: Vec<&'a str>,
+    path: Vec<std::borrow::Cow<'a, str>>,
     owner_span: Span,
 }
 
 impl<'a> Ctx<'a> {
-    fn child(&self, key: &'a str, span: Span) -> Ctx<'a> {
+    fn child(&self, key: impl Into<std::borrow::Cow<'a, str>>, span: Span) -> Ctx<'a> {
         let mut path = self.path.clone();
-        path.push(key);
+        path.push(key.into());
         Ctx {
             path,
             owner_span: span,
@@ -28,7 +28,11 @@ impl<'a> Ctx<'a> {
     }
 
     fn field(&self) -> &str {
-        self.path.last().copied().unwrap_or("")
+        self.path.last().map_or("", |s| s.as_ref())
+    }
+
+    fn parts(&self) -> Vec<&str> {
+        self.path.iter().map(|s| s.as_ref()).collect()
     }
 
     fn path(&self) -> Vec<String> {
@@ -87,11 +91,12 @@ impl<'a> Checker<'a> {
     }
 
     fn owner(&self, ctx: &Ctx<'a>) -> String {
-        owner_name(self.role, &ctx.path)
+        owner_name(self.role, &ctx.parts())
     }
 
     fn container(&self, ctx: &Ctx<'a>) -> String {
-        owner_name(self.role, &ctx.path[..ctx.path.len().saturating_sub(1)])
+        let parts = ctx.parts();
+        owner_name(self.role, &parts[..parts.len().saturating_sub(1)])
     }
 
     fn resolve(&self, schema: &'a J) -> &'a J {
@@ -135,8 +140,7 @@ impl<'a> Checker<'a> {
             Value::Seq(items) => {
                 if let Some(item) = schema.get("items") {
                     for (i, n) in items.iter().enumerate() {
-                        let key: &'a str = INDEX_NAMES.get(i).copied().unwrap_or("item");
-                        self.node(item, n, &ctx.child(key, n.span));
+                        self.node(item, n, &ctx.child(i.to_string(), n.span));
                     }
                 }
             }
@@ -214,19 +218,6 @@ impl<'a> Checker<'a> {
             Some(s) => format!("did you mean \"{s}\"? valid values: {list}"),
             None => format!("valid values: {list}"),
         };
-        if let [.., "reach", client] = ctx.path.as_slice() {
-            self.diagnostics.push(
-                Diagnostic::error(
-                    "unknown-value",
-                    format!("invalid reach \"{given}\" for client \"{client}\""),
-                )
-                .at(node.span)
-                .label("expected any")
-                .help(format!("the only value is any: {client}: any")),
-            );
-            self.prune.push(ctx.path());
-            return;
-        }
         self.diagnostics.push(
             Diagnostic::error(
                 "unknown-value",
@@ -400,13 +391,6 @@ impl<'a> Checker<'a> {
 }
 
 static EMPTY: std::sync::LazyLock<Map<String, J>> = std::sync::LazyLock::new(Map::new);
-
-const INDEX_NAMES: [&str; 64] = [
-    "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16",
-    "17", "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29", "30", "31", "32",
-    "33", "34", "35", "36", "37", "38", "39", "40", "41", "42", "43", "44", "45", "46", "47", "48",
-    "49", "50", "51", "52", "53", "54", "55", "56", "57", "58", "59", "60", "61", "62", "63",
-];
 
 fn types_of(schema: &J) -> Vec<&str> {
     match schema.get("type") {

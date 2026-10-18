@@ -1819,3 +1819,27 @@ fn a_config_of_another_role_is_one_clear_error() {
     );
     assert!(o.report.diagnostics.iter().any(|d| d.code == "wrong-role"));
 }
+
+#[test]
+fn a_bad_item_late_in_a_long_list_is_reported_where_it_is() {
+    let many: String = (0..70)
+        .map(|i| format!("      - 10.{i}.0.0/16\n"))
+        .collect();
+    let src = server(&format!(
+        "  web:\n    client: home\n    bind: 0.0.0.0:4000\n    target: 127.0.0.1:3000\n    allow_from:\n{many}      - [x]\n"
+    ));
+    let o = load_str("server.yaml", &src, Format::Yaml, None, &env);
+    let errors: Vec<_> = o
+        .report
+        .diagnostics
+        .iter()
+        .filter(|d| d.is_error())
+        .collect();
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    assert!(
+        errors[0].message.contains("\"70\""),
+        "{}",
+        errors[0].message
+    );
+    assert!(!errors[0].message.contains("could not be loaded"));
+}

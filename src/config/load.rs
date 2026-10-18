@@ -392,7 +392,11 @@ pub fn load_str_in(
                         loaded = Some(Loaded::Server(Box::new(s), Box::new(cfg)));
                     }
                 }
-                Err(e) => sem.push(internal(e)),
+                Err(e) => {
+                    if structural_ok {
+                        sem.push(internal(e));
+                    }
+                }
             },
             Role::Client => match serde_json::from_value::<ClientConfig>(json) {
                 Ok(cfg) => {
