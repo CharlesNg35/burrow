@@ -1359,9 +1359,7 @@ pub fn status(name: Option<&str>, out: &mut dyn Write) -> Result<u8, Failure> {
         say(out, format!("  detail:  {}", st.detail))?;
     }
     say(out, format!("  logs:    {}", m.log_file.display()))?;
-    if std::fs::File::open(&m.log_file)
-        .is_err_and(|e| e.kind() == std::io::ErrorKind::PermissionDenied)
-    {
+    if logview::open(&m.log_file).is_err_and(|e| e.kind() == std::io::ErrorKind::PermissionDenied) {
         say(out, "  recent:  (readable by administrators only)")?;
     }
     let recent = logview::last_lines(&m.log_file, 3);

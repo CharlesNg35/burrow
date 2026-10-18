@@ -11,7 +11,7 @@ fn rotated(path: &Path, n: usize) -> PathBuf {
     PathBuf::from(name)
 }
 
-fn open(path: &Path) -> std::io::Result<File> {
+pub(crate) fn open(path: &Path) -> std::io::Result<File> {
     let mut opts = std::fs::OpenOptions::new();
     opts.read(true);
     #[cfg(unix)]
