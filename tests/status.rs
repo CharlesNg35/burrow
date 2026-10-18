@@ -465,3 +465,62 @@ fn a_server_raises_its_open_file_limit_to_the_hard_limit() {
     assert_ne!(soft, "256", "the soft limit was not raised");
     assert_eq!(soft, hard);
 }
+
+#[cfg(unix)]
+#[test]
+fn following_a_server_that_stops_answering_says_so() {
+    let dir = tempfile::tempdir().unwrap();
+    let instances = dir.path().join("instances");
+    let config = server_config(dir.path(), "server.yaml");
+    let server = start(&instances, &config);
+    let mut follow = Command::new(BIN)
+        .args(["status", "-f", "--json", "--interval", "1"])
+        .env("BURROW_INSTANCE_DIR", &instances)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let pid = rustix::process::Pid::from_raw(server.0.id() as i32).unwrap();
+    std::thread::sleep(Duration::from_millis(1500));
+    rustix::process::kill_process(pid, rustix::process::Signal::STOP).unwrap();
+    std::thread::sleep(Duration::from_secs(5));
+    rustix::process::kill_process(pid, rustix::process::Signal::CONT).unwrap();
+    let _ = follow.kill();
+    let mut shown = String::new();
+    follow
+        .stdout
+        .take()
+        .unwrap()
+        .read_to_string(&mut shown)
+        .unwrap();
+    let _ = follow.wait();
+    assert!(shown.contains("did not answer"), "{shown}");
+}
+
+#[test]
+fn a_closed_pipe_ends_status_follow_quietly() {
+    let dir = tempfile::tempdir().unwrap();
+    let instances = dir.path().join("instances");
+    let config = server_config(dir.path(), "server.yaml");
+    let _server = start(&instances, &config);
+    let mut follow = Command::new(BIN)
+        .args(["status", "-f", "--interval", "1"])
+        .env("BURROW_INSTANCE_DIR", &instances)
+        .env("NO_COLOR", "1")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    std::thread::sleep(Duration::from_millis(500));
+    drop(follow.stdout.take());
+    let status = follow.wait().unwrap();
+    let mut err = String::new();
+    follow
+        .stderr
+        .take()
+        .unwrap()
+        .read_to_string(&mut err)
+        .unwrap();
+    assert!(status.success(), "{status:?} {err}");
+    assert!(err.is_empty(), "{err}");
+}

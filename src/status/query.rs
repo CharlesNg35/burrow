@@ -370,6 +370,13 @@ fn json(scan: &Scan) -> String {
                 "status": f.status,
             })
         })
+        .chain(scan.silent.iter().map(|(entry, why)| {
+            serde_json::json!({
+                "config": entry.config,
+                "pid": entry.pid,
+                "error": format!("did not answer: {why}"),
+            })
+        }))
         .collect();
     format!(
         "{}\n",
@@ -399,7 +406,12 @@ impl Follow<'_> {
     fn refresh(&mut self) -> bool {
         let next = scan(self.dir, self.wanted.as_deref());
         if next.found.is_empty() {
-            return !next.silent.is_empty();
+            if next.silent.is_empty() {
+                return false;
+            }
+            self.last = next;
+            self.rates = None;
+            return true;
         }
         let now = Instant::now();
         let secs = now.duration_since(self.taken).as_secs_f64();
@@ -422,10 +434,12 @@ impl Follow<'_> {
     }
 }
 
-fn write(out: &mut dyn Write, text: &str) -> Result<(), Failure> {
-    out.write_all(text.as_bytes())
-        .and_then(|_| out.flush())
-        .map_err(|e| Failure::new(format!("cannot write output: {e}")))
+fn write(out: &mut dyn Write, text: &str) -> Result<bool, Failure> {
+    match out.write_all(text.as_bytes()).and_then(|_| out.flush()) {
+        Ok(()) => Ok(true),
+        Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => Ok(false),
+        Err(e) => Err(Failure::new(format!("cannot write output: {e}"))),
+    }
 }
 
 pub fn run_in(dir: &Path, opts: Options, out: &mut dyn Write) -> Result<u8, Failure> {
@@ -480,17 +494,21 @@ pub fn run_in(dir: &Path, opts: Options, out: &mut dyn Write) -> Result<u8, Fail
             }
         };
     }
-    write(out, &format!("{}\n", show(&follow.last, None)))?;
+    if !write(out, &format!("{}\n", show(&follow.last, None)))? {
+        return Ok(0);
+    }
     loop {
         std::thread::sleep(every);
         if !follow.refresh() {
             write(out, "the server stopped\n")?;
             return Ok(1);
         }
-        write(
+        if !write(
             out,
             &format!("{}\n", show(&follow.last, follow.rates.as_ref())),
-        )?;
+        )? {
+            return Ok(0);
+        }
     }
 }
 
