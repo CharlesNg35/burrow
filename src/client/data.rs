@@ -29,38 +29,41 @@ struct Peer {
     sock: Arc<UdpSocket>,
     seen: Arc<AtomicU64>,
     task: tokio::task::AbortHandle,
-    _slot: PeerSlot,
+    _slot: Slot,
 }
 
 const MAX_OPEN_PEERS: usize = 8192;
-static OPEN_PEERS: PeerSlots = PeerSlots::new(MAX_OPEN_PEERS);
+static OPEN_PEERS: Slots = Slots::new(MAX_OPEN_PEERS);
 
-struct PeerSlots {
+const MAX_OPEN_CONNECTIONS: usize = 16384;
+static OPEN_CONNECTIONS: Slots = Slots::new(MAX_OPEN_CONNECTIONS);
+
+struct Slots {
     open: AtomicUsize,
     max: usize,
 }
 
-impl PeerSlots {
-    const fn new(max: usize) -> PeerSlots {
-        PeerSlots {
+impl Slots {
+    const fn new(max: usize) -> Slots {
+        Slots {
             open: AtomicUsize::new(0),
             max,
         }
     }
 
-    fn take(&'static self) -> Option<PeerSlot> {
+    fn take(&'static self) -> Option<Slot> {
         self.open
             .try_update(Ordering::AcqRel, Ordering::Acquire, |n| {
                 (n < self.max).then_some(n + 1)
             })
             .ok()
-            .map(|_| PeerSlot(self))
+            .map(|_| Slot(self))
     }
 }
 
-struct PeerSlot(&'static PeerSlots);
+struct Slot(&'static Slots);
 
-impl Drop for PeerSlot {
+impl Drop for Slot {
     fn drop(&mut self) {
         self.0.open.fetch_sub(1, Ordering::AcqRel);
     }
@@ -255,6 +258,17 @@ pub async fn serve(
             reply(ch, Status::Invalid).await;
             return;
         }
+    };
+    let Some(_slot) = OPEN_CONNECTIONS.take() else {
+        static FULL: Throttle = Throttle::new();
+        if let Some(more) = FULL.allow() {
+            warn!(
+                "{}: {MAX_OPEN_CONNECTIONS} connections are open through this client, so a new one was refused{more}",
+                label(&connect)
+            );
+        }
+        reply(ch, Status::Busy).await;
+        return;
     };
     let settings = live.settings();
     if let Some(path) = unix::path_of(&connect.target) {
@@ -726,7 +740,7 @@ mod tests {
 
     #[test]
     fn udp_peers_across_all_services_share_one_limit() {
-        let slots: &'static PeerSlots = Box::leak(Box::new(PeerSlots::new(2)));
+        let slots: &'static Slots = Box::leak(Box::new(Slots::new(2)));
         let first = slots.take().unwrap();
         let _second = slots.take().unwrap();
         assert!(slots.take().is_none());

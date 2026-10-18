@@ -205,7 +205,12 @@ pub(super) fn log_status(label: &str, client: &str, target: &str, st: Status) {
         Status::Invalid => {
             warn!("{label}: client \"{client}\" rejected the target {target} as invalid{more}")
         }
-        Status::Forbidden | Status::Offline | Status::Busy => {
+        Status::Busy => {
+            warn!(
+                "{label}: client \"{client}\" has too many connections open to take another{more}"
+            )
+        }
+        Status::Forbidden | Status::Offline => {
             warn!("{label}: client \"{client}\" sent an unexpected reply{more}")
         }
         Status::Ok => {}
