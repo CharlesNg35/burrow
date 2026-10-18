@@ -343,3 +343,87 @@ async fn hello_must_match_the_channel_kind() {
         assert!(srv.shared.session_names().is_empty(), "{kind:?} {hello:?}");
     }
 }
+
+async fn hello_holding_proxy(
+    to: SocketAddr,
+) -> (SocketAddr, std::sync::Arc<std::sync::atomic::AtomicBool>) {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = l.local_addr().unwrap();
+    let answered = Arc::new(AtomicBool::new(false));
+    let seen = answered.clone();
+    tokio::spawn(async move {
+        let Ok((down, _)) = l.accept().await else {
+            return;
+        };
+        let up = TcpStream::connect(to).await.unwrap();
+        let (mut dr, mut dw) = down.into_split();
+        let (mut ur, mut uw) = up.into_split();
+        let flag = seen.clone();
+        tokio::spawn(async move {
+            let mut buf = vec![0u8; 65536];
+            while let Ok(n) = ur.read(&mut buf).await {
+                if n == 0 || dw.write_all(&buf[..n]).await.is_err() {
+                    return;
+                }
+                flag.store(true, Ordering::SeqCst);
+            }
+        });
+        let mut buf = vec![0u8; 65536];
+        let mut held = false;
+        while let Ok(n) = dr.read(&mut buf).await {
+            if n == 0 {
+                return;
+            }
+            if seen.load(Ordering::SeqCst) && !held {
+                held = true;
+                tokio::time::sleep(Duration::from_millis(1500)).await;
+            }
+            if uw.write_all(&buf[..n]).await.is_err() {
+                return;
+            }
+        }
+    });
+    (addr, answered)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_secret_removed_during_a_handshake_does_not_open_a_session() {
+    let old = Secret::generate();
+    let new = Secret::generate();
+    let settings = server_settings(vec![old.clone()]);
+    let srv = start_server(settings.clone()).await;
+    let (via, answered) = hello_holding_proxy(srv.addr).await;
+    let p = Preamble {
+        kind: ChannelKind::Control,
+        cipher: Cipher::Chachapoly,
+        plaintext: false,
+        name: "home".into(),
+    };
+    let late = tokio::spawn(async move {
+        let s = TcpStream::connect(via).await.unwrap();
+        burrow::handshake::initiate(
+            s.into(),
+            &p,
+            &old,
+            &Hello::Control {
+                version: 1,
+                instance: [7; 16],
+            },
+        )
+        .await
+    });
+    wait_for(|| answered.load(std::sync::atomic::Ordering::SeqCst)).await;
+    let mut next = settings.clone();
+    next.clients.get_mut("home").unwrap().secrets = vec![new.clone()];
+    srv.reload(next).await;
+    let _held = late.await.unwrap();
+    tokio::time::sleep(Duration::from_millis(2000)).await;
+    assert!(
+        srv.shared.session_names().is_empty(),
+        "a session opened with the removed secret"
+    );
+    let mut cli = start_client(client_settings(srv.addr, new)).await;
+    wait_state(&mut cli.state, State::Connected).await;
+}

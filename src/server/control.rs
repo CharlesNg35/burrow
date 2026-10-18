@@ -58,14 +58,33 @@ pub(super) async fn control_session(
     ));
     let taken = {
         let mut sessions = shared.sessions.lock().expect("sessions lock");
-        match sessions.get(&name) {
-            Some(other) if other.instance != instance => Err(other.peer),
-            _ => Ok(sessions.insert(name.clone(), session.clone())),
+        if !shared.allows(&name, &session.secret) {
+            Err(None)
+        } else {
+            match sessions.get(&name) {
+                Some(other) if other.instance != instance => Err(Some(other.peer)),
+                _ => Ok(sessions.insert(name.clone(), session.clone())),
+            }
         }
     };
     let old = match taken {
         Ok(old) => old,
-        Err(other) => {
+        Err(None) => {
+            info!(
+                "client \"{name}\" from {peer} refused: its secret was removed while it connected"
+            );
+            let _ = writer
+                .send(
+                    &mut wr,
+                    &ServerMsg::Bye {
+                        reason: ByeReason::Removed,
+                    }
+                    .encode(),
+                )
+                .await;
+            return;
+        }
+        Err(Some(other)) => {
             static TWICE: crate::throttle::Throttle = crate::throttle::Throttle::new();
             if let Some(more) = TWICE.allow() {
                 warn!(
