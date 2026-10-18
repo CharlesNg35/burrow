@@ -2000,3 +2000,27 @@ fn small_messages_say_what_is_wrong() {
     );
     assert!(big.contains("too large"), "{big}");
 }
+
+#[test]
+fn source_checks_for_visitors_behind_a_websocket_proxy_are_flagged() {
+    let codes = |ws: &str, extra: &str| {
+        let src = visitors_server(
+            "  laptop:\n    secret: ${HOME_SECRET}\n",
+            &format!("  db: {{ client: home, target: 5432, visitors: [laptop]{extra} }}\n"),
+        )
+        .replace(
+            "listen: 7835\n",
+            &format!("listen: 7835\nwebsocket:\n  listen: {ws}\n"),
+        );
+        let o = load_str("server.yaml", &src, Format::Yaml, None, &env);
+        o.report
+            .diagnostics
+            .iter()
+            .filter(|d| d.code == "proxied-source")
+            .count()
+    };
+    assert_eq!(codes("127.0.0.1:7836", ", deny_from: [203.0.113.0/24]"), 1);
+    assert_eq!(codes("127.0.0.1:7836", ", proxy_protocol: v2"), 1);
+    assert_eq!(codes("127.0.0.1:7836", ""), 0);
+    assert_eq!(codes("0.0.0.0:7837", ", allow_from: [10.0.0.0/8]"), 0);
+}

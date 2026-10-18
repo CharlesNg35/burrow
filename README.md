@@ -620,7 +620,7 @@ Run the commands from a terminal opened with "Run as administrator". The service
 - Forward secrecy comes from fresh X25519 keys per connection. The protocol and the exact point where each side is authenticated are described in [docs/protocol.md](docs/protocol.md).
 - The client only connects to addresses in `allow`, checked after DNS resolution, so even a compromised server, or a visitor with `reach`, cannot use it to reach other hosts.
 - A visitor reaches only the services that list it, and clients only with `reach`. A private service has no port on the server at all.
-- `allow_from` and `deny_from` are checked on the server before anything enters the tunnel, also for visitors of private services. Unix socket targets need a `unix:` entry in the client's `allow` list.
+- `allow_from` and `deny_from` are checked on the server before anything enters the tunnel, also for visitors of private services. A visitor that comes through a proxy in front of `websocket.listen` has the proxy's address, and `validate` warns where a service relies on it. Unix socket targets need a `unix:` entry in the client's `allow` list.
 - Secrets never appear in logs or error messages (only their length or a short fingerprint). `validate` warns if a config file is readable by other users; use `chmod 600`.
 - Removing a client or visitor, or the secret it connected with, and reloading also closes its open connections.
 - The lock that stops the same tunnel from running twice lives in a folder every local user can write to, so it also catches copies started by hand. A lock held by another user's process is ignored with a warning, so nobody can keep a service from starting that way.

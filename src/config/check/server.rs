@@ -185,6 +185,26 @@ pub fn check_server(
         }
     }
 
+    if let Some(ws) = websocket.as_ref().filter(|w| w.listen.ip().is_loopback()) {
+        for (name, svc) in &services {
+            let by_source = !svc.sources.is_open() || svc.proxy_protocol.is_some();
+            if svc.visitors.is_empty() || !by_source {
+                continue;
+            }
+            out.push(
+                Diagnostic::warning(
+                    "proxied-source",
+                    format!(
+                        "visitors of service \"{name}\" that connect through the proxy in front of websocket.listen ({}) all come from the proxy's address, so allow_from, deny_from and proxy_protocol see that address for them",
+                        ws.listen
+                    ),
+                )
+                .at(spans.key(&["services", name]))
+                .help("rely on the visitor's secret for those visitors, or have them connect to the TCP listen port"),
+            );
+        }
+    }
+
     for name in clients.keys() {
         let list = super::super::settings::services_for(&services, name);
         let (count, size) = (
