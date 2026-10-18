@@ -234,9 +234,40 @@ pub fn copy_file(from: &Path, to: &Path, executable: bool) -> Result<(), Failure
             to.display()
         )));
     }
+    replace(&tmp, to)
+}
+
+pub fn write_file(to: &Path, bytes: &[u8]) -> Result<(), Failure> {
+    use std::io::Write;
+    if let Some(dir) = to.parent() {
+        std::fs::create_dir_all(dir)
+            .map_err(|e| Failure::new(format!("cannot create {}: {e}", dir.display())))?;
+    }
+    let tmp = to.with_extension("burrow-new");
+    let _ = std::fs::remove_file(&tmp);
+    let written = (|| {
+        let mut opts = std::fs::OpenOptions::new();
+        opts.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            opts.mode(0o644);
+        }
+        let mut f = opts.open(&tmp)?;
+        f.write_all(bytes)?;
+        f.sync_all()
+    })();
+    if let Err(e) = written {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(Failure::new(format!("cannot write {}: {e}", to.display())));
+    }
+    replace(&tmp, to)
+}
+
+fn replace(tmp: &Path, to: &Path) -> Result<(), Failure> {
     let mut tries = 0;
     loop {
-        match std::fs::rename(&tmp, to) {
+        match std::fs::rename(tmp, to) {
             Ok(()) => return Ok(()),
             Err(e)
                 if cfg!(windows)
@@ -257,7 +288,7 @@ pub fn copy_file(from: &Path, to: &Path, executable: bool) -> Result<(), Failure
                 let _ = std::fs::rename(to, &aside);
             }
             Err(e) => {
-                let _ = std::fs::remove_file(&tmp);
+                let _ = std::fs::remove_file(tmp);
                 return Err(Failure::new(format!(
                     "cannot replace {}: {e}",
                     to.display()
@@ -357,6 +388,16 @@ pub fn all_paths_under(files: &[PathBuf], roots: &[&str]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_rewritten_file_is_replaced_whole_and_leaves_no_temp_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("burrow-x.json");
+        write_file(&path, b"{\"old\": true}").unwrap();
+        write_file(&path, b"{\"new\": true}").unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "{\"new\": true}");
+        assert!(!path.with_extension("burrow-new").exists());
+    }
 
     #[test]
     fn copies_are_private_and_leave_no_temp_file() {

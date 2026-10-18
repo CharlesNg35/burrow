@@ -799,8 +799,7 @@ fn save_manifest(m: &Manifest) -> Result<(), Failure> {
             .map_err(|e| Failure::new(format!("cannot create {}: {e}", dir.display())))?;
     }
     let text = serde_json::to_string_pretty(m).expect("manifest serializes");
-    std::fs::write(&path, text)
-        .map_err(|e| Failure::new(format!("cannot write {}: {e}", path.display())))
+    system::write_file(&path, text.as_bytes())
 }
 
 pub fn any_installed() -> bool {

@@ -227,8 +227,7 @@ impl Backend for Systemd {
 
     fn install(&self, m: &Manifest) -> Result<(), Failure> {
         let path = Self::unit_path(m);
-        std::fs::write(&path, self.render(m))
-            .map_err(|e| Failure::new(format!("cannot write {}: {e}", path.display())))?;
+        super::system::write_file(&path, self.render(m).as_bytes())?;
         run("systemctl", &["daemon-reload"])?;
         run("systemctl", &["enable", "--quiet", &m.name])?;
         Ok(())
