@@ -75,9 +75,10 @@ pub struct Style {
 impl Style {
     pub fn detect(stream_is_tty: bool) -> Self {
         let no_color = std::env::var_os("NO_COLOR").is_some_and(|v| !v.is_empty());
-        Style {
-            color: stream_is_tty && !no_color,
-        }
+        let color = stream_is_tty && !no_color;
+        #[cfg(windows)]
+        let color = color && crossterm::ansi_support::supports_ansi();
+        Style { color }
     }
 
     pub fn paint(&self, code: &str, text: &str) -> String {
