@@ -271,6 +271,51 @@ async fn visitor_forwards_change_one_by_one() {
     );
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_visitor_forward_moved_to_a_busy_port_listens_once_it_is_free() {
+    logs();
+    let db = echo_server().await;
+    let secret = Secret::generate();
+    let visitor_secret = Secret::generate();
+    let mut server = server_settings(vec![secret.clone()]);
+    server
+        .visitors
+        .insert("laptop".into(), visitor_auth(visitor_secret.clone(), &[]));
+    server
+        .services
+        .insert("db".into(), private_service(db, &["laptop"]));
+    let server = start_server(server).await;
+    let mut client = start_client(client_settings(server.addr, secret)).await;
+    wait_state(&mut client.state, State::Connected).await;
+    let mut settings = visitor_settings(server.addr, visitor_secret, vec![]);
+    settings.forwards.insert(
+        "db".into(),
+        Forward::single(free_local(), VisitTarget::service("db")),
+    );
+    let visitor = burrow::visitor::Visitor::bind(settings.clone()).unwrap();
+    let (reload, reloads) = mpsc::channel(4);
+    let (_stop, stop_rx) = tokio::sync::watch::channel(false);
+    let _task = tokio::spawn(visitor.with_reloads(reloads).run(stop_rx));
+    let busy = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let moved = busy.local_addr().unwrap();
+    settings.forwards.get_mut("db").unwrap().local = moved;
+    reload.send(settings).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    drop(busy);
+    let mut up = false;
+    for _ in 0..30 {
+        if try_roundtrip(moved, b"x").await.as_deref() == Some(&b"x"[..]) {
+            up = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+    assert!(
+        up,
+        "the moved forward never listened after its port was freed"
+    );
+}
+
 mod process {
     use super::*;
     use std::path::{Path, PathBuf};

@@ -311,8 +311,12 @@ impl Visitor {
         let mut reloads = self.reloads.take();
         let mut open = JoinSet::new();
         let opening = Arc::new(Semaphore::new(MAX_OPENING));
+        let mut retry = tokio::time::interval(BIND_RETRY);
+        retry.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        retry.tick().await;
         loop {
             tokio::select! {
+                _ = retry.tick() => self.bind_waiting(&mut listening, &tx),
                 Some(conn) = rx.recv() => {
                     open.spawn(forward::visit(
                         self.dialer.clone(),
@@ -335,6 +339,32 @@ impl Visitor {
             info!("closing {} open connections", open.len());
         }
         info!("visitor stopped");
+    }
+
+    fn bind_waiting(
+        &self,
+        listening: &mut std::collections::BTreeMap<String, Listening>,
+        tx: &mpsc::Sender<forward::Incoming>,
+    ) {
+        for (name, f) in &self.settings.forwards {
+            if listening.contains_key(name) {
+                continue;
+            }
+            if let Ok(bound) = bind_forward(name, f) {
+                let at = bound
+                    .first()
+                    .and_then(|b| b.listener.local_addr().ok())
+                    .unwrap_or(f.local);
+                info!("forward \"{name}\" could listen now: {}", describe(f, at));
+                listening.insert(
+                    name.clone(),
+                    Listening {
+                        forward: f.clone(),
+                        tasks: Self::listen(bound, tx),
+                    },
+                );
+            }
+        }
     }
 
     async fn apply(
@@ -395,8 +425,9 @@ impl Visitor {
                     added.push((name, f));
                 }
                 Err(e) => error!(
-                    "{}; forward \"{name}\" stays off until the config is fixed",
-                    e.message
+                    "{}; forward \"{name}\" tries again every {}s",
+                    e.message,
+                    BIND_RETRY.as_secs()
                 ),
             }
         }
@@ -411,6 +442,8 @@ impl Visitor {
         }
     }
 }
+
+const BIND_RETRY: std::time::Duration = std::time::Duration::from_secs(10);
 
 fn summary(connection: &[&str], forwards: &[&str]) -> String {
     let mut parts = Vec::new();
