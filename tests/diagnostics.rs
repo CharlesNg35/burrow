@@ -1769,3 +1769,21 @@ fn reach_takes_any_or_rules_and_warns_only_for_any() {
         (vec![("invalid-socket", true)], false)
     );
 }
+
+#[test]
+fn keepalive_longer_than_systems_accept_is_refused() {
+    let client = |secs: u32| {
+        format!(
+            "server: example.com\nname: home\nsecret: {SECRET}\nallow: [127.0.0.0/8]\ntcp: {{ keepalive_secs: {secs} }}\n"
+        )
+    };
+    let ok = load_str("client.yaml", &client(32767), Format::Yaml, None, &env);
+    assert!(!ok.report.has_errors());
+    let too_long = load_str("client.yaml", &client(100_000), Format::Yaml, None, &env);
+    assert!(too_long.report.has_errors());
+    assert!(
+        too_long.report.diagnostics.iter().any(|d| d.message.contains("keepalive_secs")),
+        "{:?}",
+        too_long.report.diagnostics
+    );
+}

@@ -380,7 +380,10 @@ impl Default for Pool {
 #[serde(deny_unknown_fields, default)]
 pub struct TcpOptions {
     pub nodelay: bool,
-    #[schemars(description = "TCP keepalive idle time, 0 disables")]
+    #[schemars(
+        description = "TCP keepalive idle time, 0 disables",
+        range(max = 32767)
+    )]
     pub keepalive_secs: u32,
 }
 
