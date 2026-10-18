@@ -75,6 +75,15 @@ pub fn service_dir() -> Option<PathBuf> {
     }
 }
 
+fn left_behind(draft: &Path) -> bool {
+    std::fs::symlink_metadata(draft)
+        .and_then(|m| m.modified())
+        .is_ok_and(|t| {
+            t.elapsed()
+                .is_ok_and(|age| age > std::time::Duration::from_secs(60))
+        })
+}
+
 pub fn remove_unused(dir: &Path) {
     let Ok(listing) = std::fs::read_dir(dir) else {
         return;
@@ -96,6 +105,9 @@ pub fn remove_unused(dir: &Path) {
                 }
             }
             Some("status") if stale_status(&path) => {
+                let _ = std::fs::remove_file(&path);
+            }
+            Some("new") if left_behind(&path) => {
                 let _ = std::fs::remove_file(&path);
             }
             _ => {}
@@ -652,6 +664,25 @@ mod tests {
         assert!(!planted(&mine));
         assert!(!planted(&dir.path().join("missing.lock")));
         assert!(!planted(Path::new("/")));
+    }
+
+    #[test]
+    fn only_old_drafts_are_cleaned_up() {
+        let dir = tempfile::tempdir().unwrap();
+        let fresh = dir.path().join("1.new");
+        std::fs::write(&fresh, "x").unwrap();
+        let old = dir.path().join("2.new");
+        std::fs::write(&old, "x").unwrap();
+        let hour_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(3600);
+        std::fs::File::options()
+            .write(true)
+            .open(&old)
+            .unwrap()
+            .set_modified(hour_ago)
+            .unwrap();
+        remove_unused(dir.path());
+        assert!(fresh.exists());
+        assert!(!old.exists());
     }
 
     #[test]
