@@ -335,7 +335,7 @@ mod tests {
                 created_account: true,
                 low_ports: false,
                 files: vec![],
-                version: "0.2.0".into(),
+                version: "0.1.0".into(),
             };
             let unit = Systemd.render(&m);
             assert!(

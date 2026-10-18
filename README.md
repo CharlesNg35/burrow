@@ -482,7 +482,7 @@ A server installed as a service needs `sudo` (an administrator terminal on Windo
 
 ```
 $ sudo burrow status
-burrow 0.2.0  ·  up 3 d 4 h  ·  clients on tcp 0.0.0.0:7835
+burrow 0.1.0  ·  up 3 d 4 h  ·  clients on tcp 0.0.0.0:7835
 
 CLIENTS  1/2 connected
 ╭────────┬─────────────┬────────────────┬────────────────┬──────┬──────╮
@@ -561,7 +561,7 @@ Variables used as `${VAR}` in the config are saved for the service at install ti
 
 </details>
 
-**Updating.** `sudo burrow update` downloads the latest release for your system, checks it against the release's `SHA256SUMS` and runs it to confirm its version, then replaces the installed binary and restarts every service that uses it. If a service does not come up again, the old binary is put back. Without `sudo` it only replaces the binary you ran. `burrow update --check` only reports whether a newer release exists, and `--to 0.2.0` installs a given release.
+**Updating.** `sudo burrow update` downloads the latest release for your system, checks it against the release's `SHA256SUMS` and runs it to confirm its version, then replaces the installed binary and restarts every service that uses it. If a service does not come up again, the old binary is put back. Without `sudo` it only replaces the binary you ran. `burrow update --check` only reports whether a newer release exists, and `--to 0.1.0` installs a given release.
 
 <details>
 <summary><b>More about updating</b></summary>

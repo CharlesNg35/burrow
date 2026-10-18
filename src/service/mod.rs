@@ -1146,12 +1146,12 @@ mod tests {
     fn versions_compare_numerically() {
         let v = |s: &str| parse_version(s).unwrap();
         assert!(v("0.10.0") > v("0.9.9"));
-        assert!(v("0.2.0") > v("0.2.0-rc.1"));
-        assert!(v("0.2.0-rc.2") > v("0.2.0-rc.1"));
-        assert!(v("0.2.0-rc.10") > v("0.2.0-rc.9"));
-        assert!(v("0.2.0-rc.1") > v("0.2.0-rc"));
-        assert!(v("0.2.0-beta") > v("0.2.0-alpha.9"));
-        assert!(v("0.2.0-rc.1") > v("0.1.9"));
+        assert!(v("1.2.0") > v("1.2.0-rc.1"));
+        assert!(v("1.2.0-rc.2") > v("1.2.0-rc.1"));
+        assert!(v("1.2.0-rc.10") > v("1.2.0-rc.9"));
+        assert!(v("1.2.0-rc.1") > v("1.2.0-rc"));
+        assert!(v("1.2.0-beta") > v("1.2.0-alpha.9"));
+        assert!(v("1.2.0-rc.1") > v("1.1.9"));
         assert_eq!(v("1.2.3+build.5"), v("1.2.3"));
         assert_eq!(v("1.2.3 (abc)"), v("1.2.3"));
         assert_eq!(parse_version("unknown version"), None);
