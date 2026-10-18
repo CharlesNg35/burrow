@@ -1,4 +1,4 @@
-use super::tree::{Node, Pos, Span, Value};
+use super::tree::{FromEnv, Node, Pos, Span, Value};
 use crate::diagnostics::Diagnostic;
 
 pub trait EnvSource {
@@ -23,8 +23,15 @@ pub fn expand(node: &mut Node, src: &str, env: &dyn EnvSource, out: &mut Vec<Dia
     match &mut node.value {
         Value::Str(s) if s.contains('$') => {
             let span = node.span;
-            if let Some(v) = expand_str(s, span, src, env, out) {
-                *s = v;
+            let errors = out.len();
+            let referenced = s.replace("$${", "").contains("${");
+            match expand_str(s, span, src, env, out) {
+                Some(v) => *s = v,
+                None if out.len() > errors => node.env = FromEnv::Unset,
+                None => {}
+            }
+            if referenced && node.env == FromEnv::No {
+                node.env = FromEnv::Expanded;
             }
         }
         Value::Seq(items) => items.iter_mut().for_each(|n| expand(n, src, env, out)),

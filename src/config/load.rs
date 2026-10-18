@@ -358,11 +358,15 @@ pub fn load_str_in(
     let schema = schema_json(role);
     let mut checker = Checker::new(&schema, role.as_str());
     checker.check(&root);
-    let structural_ok = checker.diagnostics.is_empty();
+    let structural_ok = checker.diagnostics.is_empty() && checker.prune.is_empty();
     let prune = std::mem::take(&mut checker.prune);
+    let retype = std::mem::take(&mut checker.retype);
     checker.diagnostics.into_iter().for_each(|d| report.push(d));
 
     let mut pruned = root.clone();
+    for (path, value) in retype {
+        set_path(&mut pruned, &path, value);
+    }
     let mut semantic = matches!(root.value, Value::Map(_));
     if !structural_ok {
         for path in &prune {
@@ -480,6 +484,7 @@ fn fill_root_placeholders(node: &mut Node, role: Role) {
                     value,
                     span: Span::default(),
                     quoted: true,
+                    env: tree::FromEnv::No,
                 },
             });
         }
@@ -495,6 +500,24 @@ fn internal(e: serde_json::Error) -> Diagnostic {
 fn within(a: Span, b: Span) -> bool {
     a.start.line == b.start.line
         || (a.start.offset <= b.start.offset && b.end.offset <= a.end.offset)
+}
+
+fn set_path(node: &mut Node, path: &[String], value: Value) {
+    let Some((first, rest)) = path.split_first() else {
+        node.value = value;
+        return;
+    };
+    let next = match &mut node.value {
+        Value::Map(entries) => entries
+            .iter_mut()
+            .find(|e| &e.key == first)
+            .map(|e| &mut e.value),
+        Value::Seq(items) => first.parse::<usize>().ok().and_then(|i| items.get_mut(i)),
+        _ => None,
+    };
+    if let Some(next) = next {
+        set_path(next, rest, value);
+    }
 }
 
 fn remove_path(node: &mut Node, path: &[String]) {

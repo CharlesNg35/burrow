@@ -9,6 +9,7 @@ pub struct Checker<'a> {
     role: &'static str,
     pub diagnostics: Vec<Diagnostic>,
     pub prune: Vec<Vec<String>>,
+    pub retype: Vec<(Vec<String>, Value)>,
 }
 
 #[derive(Clone)]
@@ -59,6 +60,7 @@ impl<'a> Checker<'a> {
             role,
             diagnostics: Vec::new(),
             prune: Vec::new(),
+            retype: Vec::new(),
         }
     }
 
@@ -132,6 +134,17 @@ impl<'a> Checker<'a> {
         }
         let types = types_of(schema);
         if !types.is_empty() && !types.iter().any(|t| type_matches(t, node)) {
+            if let Some(v) = from_env(&types, node) {
+                if let Value::Int(i) = v {
+                    self.range(schema, i, node, ctx);
+                }
+                self.retype.push((ctx.path(), v));
+                return;
+            }
+            if unset(node) {
+                self.prune.push(ctx.path());
+                return;
+            }
             self.type_error(&types, node, ctx);
             return;
         }
@@ -171,12 +184,17 @@ impl<'a> Checker<'a> {
         for &b in &branches {
             let types = types_of(b);
             if types.iter().any(|t| type_matches(t, node))
+                || from_env(&types, node).is_some()
                 || (types.is_empty()
                     && b.get("enum").is_some()
                     && matches!(node.value, Value::Str(_)))
             {
                 candidates.push(b);
             }
+        }
+        if candidates.is_empty() && unset(node) {
+            self.prune.push(ctx.path());
+            return;
         }
         if candidates.is_empty() {
             let mut all: Vec<&str> = branches.iter().flat_map(|b| types_of(b)).collect();
@@ -188,12 +206,14 @@ impl<'a> Checker<'a> {
         for b in candidates {
             let saved = std::mem::take(&mut self.diagnostics);
             let saved_prune = std::mem::take(&mut self.prune);
+            let saved_retype = self.retype.len();
             self.node(b, node, ctx);
             let found = std::mem::replace(&mut self.diagnostics, saved);
             let found_prune = std::mem::replace(&mut self.prune, saved_prune);
             if found.is_empty() {
                 return;
             }
+            self.retype.truncate(saved_retype);
             if best.as_ref().is_none_or(|(b, _)| found.len() < b.len()) {
                 best = Some((found, found_prune));
             }
@@ -398,6 +418,35 @@ fn types_of(schema: &J) -> Vec<&str> {
         Some(J::Array(a)) => a.iter().filter_map(J::as_str).collect(),
         _ => Vec::new(),
     }
+}
+
+fn from_env(types: &[&str], node: &Node) -> Option<Value> {
+    let (crate::config::tree::FromEnv::Expanded, Value::Str(s)) = (node.env, &node.value) else {
+        return None;
+    };
+    let s = s.trim();
+    if (types.contains(&"integer") || types.contains(&"number"))
+        && let Ok(i) = s.parse::<i64>()
+    {
+        return Some(Value::Int(i));
+    }
+    if types.contains(&"number")
+        && let Ok(f) = s.parse::<f64>()
+    {
+        return Some(Value::Float(f));
+    }
+    if types.contains(&"boolean") {
+        return match s {
+            "true" => Some(Value::Bool(true)),
+            "false" => Some(Value::Bool(false)),
+            _ => None,
+        };
+    }
+    None
+}
+
+fn unset(node: &Node) -> bool {
+    node.env == crate::config::tree::FromEnv::Unset
 }
 
 fn type_matches(t: &str, node: &Node) -> bool {

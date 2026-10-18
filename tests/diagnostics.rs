@@ -1843,3 +1843,96 @@ fn a_bad_item_late_in_a_long_list_is_reported_where_it_is() {
     );
     assert!(!errors[0].message.contains("could not be loaded"));
 }
+
+#[test]
+fn variables_fill_number_and_boolean_fields() {
+    let src = format!(
+        "server: example.com\nname: home\nsecret: {SECRET}\nallow: [127.0.0.0/8]\nconnect_timeout_secs: ${{T}}\ntcp:\n  keepalive_secs: ${{K}}\n  nodelay: ${{ND}}\n"
+    );
+    let vars = |t: &'static str, k: &'static str, nd: &'static str| {
+        move |name: &str| match name {
+            "T" => Some(t.to_string()),
+            "K" => Some(k.to_string()),
+            "ND" => Some(nd.to_string()),
+            _ => None,
+        }
+    };
+    let o = load_str(
+        "client.yaml",
+        &src,
+        Format::Yaml,
+        None,
+        &vars("7", "45", "false"),
+    );
+    assert!(!o.report.has_errors(), "{:?}", o.report.diagnostics);
+    let Some(burrow::config::Loaded::Client(c, _)) = o.loaded else {
+        panic!("loads")
+    };
+    assert_eq!(c.connect_timeout, std::time::Duration::from_secs(7));
+    assert_eq!(c.tcp.keepalive, Some(std::time::Duration::from_secs(45)));
+    assert!(!c.tcp.nodelay);
+    let bad = load_str(
+        "client.yaml",
+        &src,
+        Format::Yaml,
+        None,
+        &vars("soon", "45", "maybe"),
+    );
+    let codes: Vec<&str> = bad
+        .report
+        .diagnostics
+        .iter()
+        .filter(|d| d.is_error())
+        .map(|d| d.code)
+        .collect();
+    assert_eq!(codes.len(), 2, "{codes:?}");
+    let far = load_str(
+        "client.yaml",
+        &src,
+        Format::Yaml,
+        None,
+        &vars("7", "100000", "true"),
+    );
+    assert!(far.report.has_errors(), "the range still applies");
+    let unset = load_str("client.yaml", &src, Format::Yaml, None, &|_: &str| None);
+    let errors: Vec<&str> = unset
+        .report
+        .diagnostics
+        .iter()
+        .filter(|d| d.is_error())
+        .map(|d| d.code)
+        .collect();
+    assert_eq!(
+        errors,
+        ["env-unset", "env-unset", "env-unset"],
+        "one error per unset variable"
+    );
+    let name = load_str(
+        "client.yaml",
+        &format!("server: example.com\nname: ${{N}}\nsecret: {SECRET}\nallow: [127.0.0.0/8]\n"),
+        Format::Yaml,
+        None,
+        &|_: &str| Some("123".to_string()),
+    );
+    assert!(
+        !name.report.has_errors(),
+        "a string field stays a string: {:?}",
+        name.report.diagnostics
+    );
+    let literal = load_str(
+        "client.yaml",
+        &format!(
+            "server: example.com\nname: home\nsecret: {SECRET}\nallow: [127.0.0.0/8]\nproxy: http://p:3128/$${{x}}\n"
+        ),
+        Format::Yaml,
+        None,
+        &|_: &str| None,
+    );
+    assert!(
+        !literal
+            .report
+            .diagnostics
+            .iter()
+            .any(|d| d.code == "env-unset")
+    );
+}
