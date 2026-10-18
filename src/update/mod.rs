@@ -32,6 +32,8 @@ pub fn platform() -> Option<(&'static str, &'static str)> {
         "linux"
     } else if cfg!(target_os = "macos") {
         "macos"
+    } else if cfg!(target_os = "freebsd") {
+        "freebsd"
     } else if cfg!(windows) {
         "windows"
     } else {
@@ -41,15 +43,26 @@ pub fn platform() -> Option<(&'static str, &'static str)> {
         "amd64"
     } else if cfg!(target_arch = "aarch64") {
         "arm64"
+    } else if cfg!(all(target_arch = "arm", target_feature = "v7")) {
+        "armv7"
+    } else if cfg!(target_arch = "arm") {
+        "armv6"
+    } else if cfg!(target_arch = "riscv64") {
+        "riscv64"
     } else {
         return None;
     };
     let name = match (os, arch) {
         ("linux", "amd64") => "linux-amd64",
         ("linux", "arm64") => "linux-arm64",
+        ("linux", "armv7") => "linux-armv7",
+        ("linux", "armv6") => "linux-armv6",
+        ("linux", "riscv64") => "linux-riscv64",
         ("macos", "amd64") => "macos-amd64",
         ("macos", "arm64") => "macos-arm64",
+        ("freebsd", "amd64") => "freebsd-amd64",
         ("windows", "amd64") => "windows-amd64",
+        ("windows", "arm64") => "windows-arm64",
         _ => return None,
     };
     Some((name, if os == "windows" { "zip" } else { "tar.gz" }))

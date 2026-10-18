@@ -50,6 +50,11 @@ jobs:
           - { asset: macos-arm64, target: aarch64-apple-darwin, os: macos-latest }
           - { asset: macos-amd64, target: x86_64-apple-darwin, os: macos-latest }
           - { asset: windows-amd64, target: x86_64-pc-windows-gnu, os: ubuntu-latest, zig: true }
+          - { asset: windows-arm64, target: aarch64-pc-windows-gnullvm, os: ubuntu-latest, zig: true }
+          - { asset: linux-armv7, target: armv7-unknown-linux-musleabihf, os: ubuntu-latest, zig: true }
+          - { asset: linux-armv6, target: arm-unknown-linux-musleabihf, os: ubuntu-latest, zig: true }
+          - { asset: linux-riscv64, target: riscv64gc-unknown-linux-musl, os: ubuntu-latest, zig: true }
+          - { asset: freebsd-amd64, target: x86_64-unknown-freebsd, os: ubuntu-latest, zig: true }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

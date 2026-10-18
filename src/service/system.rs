@@ -139,6 +139,7 @@ pub fn run(program: &str, args: &[&str]) -> Result<String, Failure> {
     }
 }
 
+#[cfg(any(target_os = "linux", target_os = "macos", windows))]
 pub fn run_ok(program: &str, args: &[&str]) -> bool {
     Command::new(program)
         .args(args)
@@ -376,7 +377,7 @@ pub fn account_ids(account: &str) -> Result<(u32, u32), Failure> {
     Ok((read("-u")?, read("-g")?))
 }
 
-#[cfg(unix)]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 pub fn private_file(path: &Path, owner: Option<&str>) -> Result<(), Failure> {
     use std::os::unix::fs::PermissionsExt;
     if let Some(account) = owner {
@@ -389,7 +390,7 @@ pub fn private_file(path: &Path, owner: Option<&str>) -> Result<(), Failure> {
         .map_err(|e| Failure::new(format!("cannot set permissions on {}: {e}", path.display())))
 }
 
-#[cfg(unix)]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 pub fn write_private(path: &Path, text: &str) -> Result<(), Failure> {
     write_file_mode(path, text.as_bytes(), 0o600)
 }
@@ -428,7 +429,7 @@ mod tests {
         assert!(!path.with_extension("burrow-new").exists());
     }
 
-    #[cfg(unix)]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[test]
     fn shared_folders_and_files_get_their_mode_whatever_the_umask() {
         use std::os::unix::fs::PermissionsExt;
