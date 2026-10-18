@@ -915,7 +915,7 @@ fn visitor_config_suggests_a_socks_target_inside_reach() {
         ("[192.168.150.0/25]", "192.168.150.1:22"),
         ("[\"10.0.0.7:8080-8090\"]", "10.0.0.7:8080"),
         ("[\"127.0.0.0/8:5432\"]", "127.0.0.1:5432"),
-        ("any", "127.0.0.1:22"),
+        ("any", "HOST:PORT"),
     ] {
         let path = visitors_server(
             dir.path(),
@@ -1093,7 +1093,7 @@ fn visitor_config_gives_reach_a_socks_proxy_and_ranges_a_local_range() {
     assert_eq!(
         out.notes,
         [
-            "127.0.0.1:1080 is a SOCKS5 proxy into client \"home\": point an app at it, or forward one target with: burrow visit --client home --target 127.0.0.1:22 --local 2222"
+            "127.0.0.1:1080 is a SOCKS5 proxy into client \"home\": point an app at it, or forward one target with: burrow visit --client home --target HOST:PORT --local 2222"
         ]
     );
     let written = dir.path().join("visitor.yaml");

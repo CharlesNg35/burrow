@@ -376,7 +376,7 @@ pub fn socks_note(client: &str, local: u16, reach: &[String]) -> String {
             Ok(crate::allowlist::Rule::Net(rule)) => Some(rule.example().to_string()),
             _ => None,
         })
-        .unwrap_or_else(|| "127.0.0.1:22".to_string());
+        .unwrap_or_else(|| "HOST:PORT".to_string());
     format!(
         "127.0.0.1:{local} is a SOCKS5 proxy into client \"{client}\": point an app at it, or forward one target with: {} visit --client {client} --target {target} --local 2222",
         crate::failure::command()
