@@ -16,7 +16,7 @@ use crate::failure::io_reason;
 use crate::forward::{client_tcp, reply};
 use crate::handshake::Channel;
 use crate::protocol::{
-    Connect, KEEPALIVE_RECORD, ServiceInfo, Status, decode_datagram, encode_datagram,
+    Connect, KEEPALIVE_RECORD, STALE_RECORD, ServiceInfo, Status, decode_datagram, encode_datagram,
 };
 use crate::throttle::Throttle;
 use crate::transport::resolve::Resolver;
@@ -228,7 +228,7 @@ pub async fn serve(
     mut ch: Channel,
     mut ended: tokio::sync::watch::Receiver<bool>,
     held: super::Waiting,
-) {
+) -> bool {
     let idle_limit = ch.stream.is_websocket().then_some(IDLE_CHANNEL_LIMIT);
     let first = loop {
         let next = ch.reader.recv(&mut ch.stream);
@@ -241,16 +241,28 @@ pub async fn serve(
         let rec = tokio::select! {
             r = limited => match r {
                 Some(r) => r,
-                None => return,
+                None => return false,
             },
-            _ = ended.wait_for(|e| *e) => return,
+            _ = ended.wait_for(|e| *e) => return false,
         };
         match rec {
             Ok(Some([KEEPALIVE_RECORD])) => continue,
+            Ok(Some([STALE_RECORD])) => return true,
             Ok(Some(b)) => break Connect::decode(b),
-            _ => return,
+            _ => return false,
         }
     };
+    connected(live, resolver, ch, first, held).await;
+    false
+}
+
+async fn connected(
+    live: super::Live,
+    resolver: Arc<dyn Resolver>,
+    ch: Channel,
+    first: Result<Connect, crate::protocol::DecodeError>,
+    held: super::Waiting,
+) {
     drop(held);
     let connect = match first {
         Ok(c) => c,

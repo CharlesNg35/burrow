@@ -387,9 +387,19 @@ impl Client {
         let waiting = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let (ended, session_ended) = watch::channel(false);
         let _ended = CloseOnDrop(opening.clone(), ended);
+        let strays = Arc::new(Strays::default());
         let timeout = heartbeat * 3;
         loop {
-            let msg = match tokio::time::timeout(timeout, reader.recv(&mut rd)).await {
+            let next = tokio::select! {
+                r = tokio::time::timeout(timeout, reader.recv(&mut rd)) => r,
+                _ = strays.seen.notified() => {
+                    return SessionEnd::Lost(format!(
+                        "{} does not know this session ({STRAYS} data channels were refused as stale), so its address may now lead to another server; reconnecting",
+                        s.server
+                    ));
+                }
+            };
+            let msg = match next {
                 Ok(Ok(Some(b))) => match ServerMsg::decode(b) {
                     Ok(m) => m,
                     Err(_) => return SessionEnd::Lost("server sent an invalid message".into()),
@@ -428,7 +438,13 @@ impl Client {
                     for _ in 0..usize::from(count).min(room) {
                         waiting.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
                         let held = Waiting(waiting.clone());
-                        self.spawn_data(token, opening.clone(), session_ended.clone(), held);
+                        self.spawn_data(
+                            token,
+                            opening.clone(),
+                            session_ended.clone(),
+                            held,
+                            strays.clone(),
+                        );
                     }
                     if usize::from(count) > room {
                         static MANY: crate::throttle::Throttle = crate::throttle::Throttle::new();
@@ -483,6 +499,7 @@ impl Client {
         opening: Arc<Semaphore>,
         ended: watch::Receiver<bool>,
         held: Waiting,
+        strays: Arc<Strays>,
     ) {
         let me = Client {
             live: self.live.clone(),
@@ -497,7 +514,7 @@ impl Client {
         let mut halted = self.halt.subscribe();
         tokio::spawn(async move {
             tokio::select! {
-                _ = me.data_channel(token, opening, ended, held) => {}
+                _ = me.data_channel(token, opening, ended, held, strays) => {}
                 _ = halted.wait_for(|h| *h) => {}
             }
         });
@@ -509,6 +526,7 @@ impl Client {
         opening: Arc<Semaphore>,
         ended: watch::Receiver<bool>,
         held: Waiting,
+        strays: Arc<Strays>,
     ) {
         let started = Instant::now();
         let mut backoff = Backoff::new(Duration::from_millis(100), Duration::from_secs(1));
@@ -524,7 +542,19 @@ impl Client {
             drop(permit);
             match ch {
                 Ok(ch) => {
-                    data::serve(self.live.clone(), self.resolver.clone(), ch, ended, held).await;
+                    let stale =
+                        data::serve(self.live.clone(), self.resolver.clone(), ch, ended, held)
+                            .await;
+                    if !stale {
+                        strays.count.store(0, std::sync::atomic::Ordering::Relaxed);
+                    } else if strays
+                        .count
+                        .fetch_add(1, std::sync::atomic::Ordering::AcqRel)
+                        + 1
+                        >= STRAYS
+                    {
+                        strays.seen.notify_one();
+                    }
                     return;
                 }
                 Err(DialError::Rejected | DialError::Lost(_))
@@ -552,6 +582,14 @@ impl Client {
             }
         }
     }
+}
+
+const STRAYS: usize = 3;
+
+#[derive(Default)]
+struct Strays {
+    count: std::sync::atomic::AtomicUsize,
+    seen: tokio::sync::Notify,
 }
 
 struct CloseOnDrop(Arc<Semaphore>, watch::Sender<bool>);

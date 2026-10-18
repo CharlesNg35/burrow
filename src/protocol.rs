@@ -6,6 +6,7 @@ pub const VERSION: u8 = 1;
 pub const PREAMBLE_FIXED: usize = 7;
 pub const TOKEN_LEN: usize = 16;
 pub const KEEPALIVE_RECORD: u8 = 0x00;
+pub const STALE_RECORD: u8 = 0x01;
 
 pub const FLAG_AES_GCM: u8 = 0b01;
 pub const FLAG_PLAINTEXT: u8 = 0b10;

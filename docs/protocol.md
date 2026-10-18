@@ -80,7 +80,7 @@ The ciphertext is a Noise transport message (plaintext + 16-byte tag). Each dire
 | data    | `02 version:u8 token[16]`    |
 | visit   | `03 version:u8`              |
 
-The hello type must match the preamble kind; any other pairing is closed. On the server the hello is read with a fixed 256-byte limit. `version` is 1. `instance` is random and stays the same for the life of a client process. `token` is the session token from the current control channel's Welcome. A data channel with an unknown or stale token is closed.
+The hello type must match the preamble kind; any other pairing is closed. On the server the hello is read with a fixed 256-byte limit. `version` is 1. `instance` is random and stays the same for the life of a client process. `token` is the session token from the current control channel's Welcome. A data channel with an unknown or stale token gets one record `0x01` and is closed; a client that gets this on three data channels in a row reconnects, since its server's address may now lead to another server.
 
 ## 7. Control messages
 

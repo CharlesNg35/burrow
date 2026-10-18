@@ -186,12 +186,19 @@ async fn data_channel_with_wrong_token_is_not_pooled() {
     )
     .await;
     let mut ch = ch.expect("handshake itself succeeds");
-    let mut buf = [0u8; 8];
-    let n = tokio::time::timeout(Duration::from_secs(3), ch.stream.read(&mut buf))
+    let first = tokio::time::timeout(Duration::from_secs(3), ch.reader.recv(&mut ch.stream))
         .await
         .unwrap()
+        .unwrap()
+        .map(<[u8]>::to_vec);
+    assert_eq!(first, Some(vec![burrow::protocol::STALE_RECORD]));
+    let then = tokio::time::timeout(Duration::from_secs(3), ch.reader.recv(&mut ch.stream))
+        .await
         .unwrap();
-    assert_eq!(n, 0, "server closes a data channel with a stale token");
+    assert!(
+        !matches!(then, Ok(Some(_))),
+        "server closes a data channel with a stale token"
+    );
     assert_eq!(srv.shared.idle_channels("home"), before);
 }
 
