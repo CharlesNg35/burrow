@@ -101,6 +101,10 @@ fn swap_all(
 ) -> Result<(), Failure> {
     let backend = system::backend()?;
     system::require_admin()?;
+    if plan(from, version, name, force, &mut std::io::sink())?.is_empty() {
+        return Ok(());
+    }
+    let _operation = system::operation()?;
     for s in plan(from, version, name, force, &mut std::io::sink())? {
         swap(&*backend, s, from, version, out)?;
     }

@@ -403,6 +403,80 @@ pub fn write_private(path: &Path, text: &str) -> Result<(), Failure> {
     write_file_mode(path, text.as_bytes(), 0o600)
 }
 
+pub struct Operation {
+    _file: std::fs::File,
+    path: PathBuf,
+}
+
+impl Operation {
+    pub fn remove(self) {
+        let Operation { _file, path } = self;
+        drop(_file);
+        let _ = std::fs::remove_file(path);
+    }
+}
+
+#[cfg(unix)]
+fn names(path: &Path, file: &std::fs::File) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    match (std::fs::symlink_metadata(path), file.metadata()) {
+        (Ok(a), Ok(b)) => a.dev() == b.dev() && a.ino() == b.ino(),
+        _ => false,
+    }
+}
+
+#[cfg(not(unix))]
+fn names(_path: &Path, _file: &std::fs::File) -> bool {
+    true
+}
+
+pub fn operation() -> Result<Operation, Failure> {
+    operation_in(
+        &Platform::current().state_dir(),
+        std::time::Duration::from_secs(300),
+    )
+}
+
+fn operation_in(dir: &Path, patience: std::time::Duration) -> Result<Operation, Failure> {
+    std::fs::create_dir_all(dir)
+        .map_err(|e| Failure::new(format!("cannot create {}: {e}", dir.display())))?;
+    let path = dir.join("operation.lock");
+    let deadline = std::time::Instant::now() + patience;
+    let mut told = false;
+    loop {
+        let mut opts = std::fs::OpenOptions::new();
+        opts.read(true).write(true).create(true).truncate(false);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            opts.custom_flags(libc::O_NOFOLLOW);
+        }
+        let file = opts
+            .open(&path)
+            .map_err(|e| Failure::new(format!("cannot open {}: {e}", path.display())))?;
+        match file.try_lock() {
+            Ok(()) if names(&path, &file) => return Ok(Operation { _file: file, path }),
+            Ok(()) => continue,
+            Err(std::fs::TryLockError::WouldBlock) => {
+                if std::time::Instant::now() >= deadline {
+                    return Err(
+                        Failure::new("another burrow service change is still running")
+                            .hint("try again once it has finished"),
+                    );
+                }
+                if !told {
+                    crate::say_errln!("waiting for another burrow service change to finish");
+                    told = true;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(500));
+            }
+            Err(std::fs::TryLockError::Error(e)) => {
+                return Err(Failure::new(format!("cannot lock {}: {e}", path.display())));
+            }
+        }
+    }
+}
+
 #[cfg(unix)]
 pub fn give_plain_file(path: &Path, uid: u32, gid: u32) -> std::io::Result<bool> {
     use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
@@ -441,6 +515,21 @@ pub fn all_paths_under(files: &[PathBuf], roots: &[&str]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn service_changes_take_turns() {
+        let dir = tempfile::tempdir().unwrap();
+        let short = std::time::Duration::from_millis(300);
+        let first = operation_in(dir.path(), short).unwrap();
+        assert!(operation_in(dir.path(), short).is_err());
+        drop(first);
+        let second = operation_in(dir.path(), short).unwrap();
+        second.remove();
+        assert!(!dir.path().join("operation.lock").exists());
+        let third = operation_in(dir.path(), short).unwrap();
+        assert!(operation_in(dir.path(), short).is_err());
+        drop(third);
+    }
 
     #[cfg(unix)]
     #[test]

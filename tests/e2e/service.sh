@@ -322,5 +322,7 @@ case "$(uname -s)" in
   Linux) [ -e /run/burrow-instances ] && fail "/run/burrow-instances still exists" ;;
 esac
 if id burrow >/dev/null 2>&1 || id _burrow >/dev/null 2>&1; then fail "service account still exists"; fi
+sudo "$B" service uninstall burrow-e2e-server --purge >/dev/null 2>&1 && fail "uninstalling a missing service succeeded"
+[ -e "$STATE" ] && fail "uninstalling a missing service created $STATE"
 check "nothing left behind"
 echo "service end-to-end checks passed"

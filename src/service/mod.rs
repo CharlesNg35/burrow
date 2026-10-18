@@ -508,6 +508,7 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
             out,
         );
     }
+    let _operation = system::operation()?;
     let mut again = StartAgain {
         backend: &*backend,
         manifest: previous.as_ref().filter(|_| was_running),
@@ -1049,6 +1050,8 @@ fn p_log_dir() -> PathBuf {
 pub fn uninstall(name: Option<&str>, purge: bool, out: &mut dyn Write) -> Result<(), Failure> {
     let backend = system::backend()?;
     system::require_admin()?;
+    resolve(name)?;
+    let operation = system::operation()?;
     let m = resolve(name)?;
     let _ = backend.stop(&m);
     backend.uninstall(&m)?;
@@ -1093,6 +1096,7 @@ pub fn uninstall(name: Option<&str>, purge: bool, out: &mut dyn Write) -> Result
                 let _ = std::fs::remove_file(m.binary.with_extension("previous"));
                 let _ = std::fs::remove_file(m.binary.with_extension("old"));
                 let _ = std::fs::remove_file(m.binary.with_extension("reinstall"));
+                let _ = std::fs::remove_file(m.binary.with_extension("burrow-new"));
                 let own_folder = cfg!(windows) || m.binary != Platform::current().binary_path();
                 if own_folder && let Some(dir) = m.binary.parent() {
                     let _ = std::fs::remove_dir(dir);
@@ -1166,6 +1170,7 @@ pub fn uninstall(name: Option<&str>, purge: bool, out: &mut dyn Write) -> Result
     }
     if others.is_empty() {
         let p = Platform::current();
+        operation.remove();
         let _ = std::fs::remove_dir_all(p.jobs_dir());
         let mut dirs = vec![p.state_dir()];
         dirs.extend(p.state_dir().parent().map(Path::to_path_buf));
