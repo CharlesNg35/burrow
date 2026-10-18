@@ -232,6 +232,13 @@ pub fn acquire_in(dir: &Path, identity: &Identity, config: &Path) -> Result<Inst
     let (file, writable) = open_shared(&path).map_err(|e| open_failure(&path, &e))?;
     match file.try_lock() {
         Ok(()) => {}
+        Err(TryLockError::WouldBlock) if !held_by_a_trusted_instance(&path) => {
+            eprintln!(
+                "warning: {} is locked by a process burrow does not trust (another user's, or one that left no note); starting anyway",
+                path.display()
+            );
+            return Ok(InstanceLock { _file: file, path });
+        }
         Err(TryLockError::WouldBlock) => {
             let holder = std::fs::read_to_string(path.with_extension("info")).unwrap_or_default();
             let mut holder = holder.trim().to_string();
@@ -271,6 +278,16 @@ pub fn acquire_in(dir: &Path, identity: &Identity, config: &Path) -> Result<Inst
         write_note(&path.with_extension("info"), &note);
     }
     Ok(InstanceLock { _file: file, path })
+}
+
+fn held_by_a_trusted_instance(lock: &Path) -> bool {
+    let info = lock.with_extension("info");
+    trusted_note(&info).is_some_and(|owner| {
+        std::fs::read_to_string(&info)
+            .ok()
+            .and_then(|text| parse_note(&text))
+            .is_some_and(|note| runs_as(note.pid, owner))
+    })
 }
 
 fn no_follow(o: &mut OpenOptions) -> &mut OpenOptions {
@@ -450,6 +467,7 @@ fn open_failure(path: &Path, e: &std::io::Error) -> Failure {
 mod tests {
     use super::*;
 
+    #[cfg(unix)]
     fn soon(mut done: impl FnMut() -> bool) -> bool {
         (0..100).any(|_| {
             done() || {
@@ -506,6 +524,19 @@ mod tests {
         drop(lock);
     }
 
+    #[test]
+    fn a_lock_held_without_a_trusted_note_does_not_stop_a_start() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = dir.path().join("server.yaml");
+        std::fs::write(&cfg, "x").unwrap();
+        let id = Identity::server(&cfg);
+        let first = acquire_in(dir.path(), &id, &cfg).unwrap();
+        std::fs::remove_file(first.path().with_extension("info")).unwrap();
+        assert!(acquire_in(dir.path(), &id, &cfg).is_ok());
+        drop(first);
+    }
+
+    #[cfg(unix)]
     #[test]
     fn second_instance_of_the_same_identity_is_refused() {
         let dir = tempfile::tempdir().unwrap();

@@ -606,7 +606,7 @@ Run the commands from a terminal opened with "Run as administrator". The service
 - `allow_from` and `deny_from` are checked on the server before anything enters the tunnel, also for visitors of private services. Unix socket targets need a `unix:` entry in the client's `allow` list.
 - Secrets never appear in logs or error messages (only their length or a short fingerprint). `validate` warns if a config file is readable by other users; use `chmod 600`.
 - Removing a client or visitor, or the secret it connected with, and reloading also closes its open connections.
-- The lock that stops the same tunnel from running twice lives in a folder every local user can write to, so it also catches copies started by hand. On a machine shared with untrusted users, one of them could hold a service's lock and keep it from starting.
+- The lock that stops the same tunnel from running twice lives in a folder every local user can write to, so it also catches copies started by hand. A lock held by another user's process is ignored with a warning, so nobody can keep a service from starting that way.
 
 ## Docker
 
