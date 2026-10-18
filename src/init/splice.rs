@@ -33,11 +33,30 @@ pub fn reach_note(client: &crate::protocol::GrantedClient) -> String {
 }
 
 fn is_note(line: &str) -> bool {
-    let line = line.trim();
-    line.starts_with("# client ")
-        && (line.contains(" allows ")
-            || line.contains(" is offline")
-            || line.contains(" lets you reach "))
+    let Some(rest) = line.trim().strip_prefix("# client ") else {
+        return false;
+    };
+    let Some((_, said)) = rest.split_once(' ') else {
+        return false;
+    };
+    let rules = |list: &str| {
+        list.split(", ").all(|r| {
+            r.parse::<crate::allowlist::Rule>().is_ok()
+                || r.ends_with('…')
+                || r.strip_prefix("and ")
+                    .and_then(|n| n.strip_suffix(" more"))
+                    .is_some_and(|n| n.parse::<u32>().is_ok())
+        })
+    };
+    match said {
+        "allows any target" | "allows nothing yet" | "is offline; what it allows is unknown" => {
+            true
+        }
+        _ => said
+            .strip_prefix("allows ")
+            .or_else(|| said.strip_prefix("lets you reach "))
+            .is_some_and(rules),
+    }
 }
 
 fn entry_yaml(key: &str, value: &Value, note: Option<&String>, indent: &str) -> String {
@@ -474,6 +493,22 @@ mod tests {
         )
         .unwrap();
         assert_eq!(flow, "forwards: {} # keep me\nproxy: http://p:1\n");
+    }
+
+    #[test]
+    fn only_burrows_own_notes_are_replaced() {
+        assert!(is_note("  # client home allows 127.0.0.0/8, 10.0.0.0/8:22"));
+        assert!(is_note("  # client home allows any target"));
+        assert!(is_note(
+            "  # client home is offline; what it allows is unknown"
+        ));
+        assert!(is_note("  # client home lets you reach unix:/run/app.sock"));
+        assert!(is_note("  # client home allows 10.1.0.0/16, and 3 more"));
+        assert!(!is_note(
+            "  # client 1 allows only my NAS; do not widen without asking Bob"
+        ));
+        assert!(!is_note("  # client home lets you reach the printer"));
+        assert!(!is_note("  # my client"));
     }
 
     #[test]
