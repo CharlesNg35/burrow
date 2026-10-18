@@ -23,7 +23,6 @@ use reconnect::{Backoff, Outage, Report, human};
 const STABLE_AFTER: Duration = Duration::from_secs(10);
 const REJECT_CONFIRM_ATTEMPTS: u32 = 3;
 const MAX_OPENING: usize = 32;
-const MAX_WAITING: usize = 4096;
 
 pub(crate) struct Waiting(Arc<std::sync::atomic::AtomicUsize>);
 
@@ -436,7 +435,8 @@ impl Client {
                 }
                 ServerMsg::OpenData { count } => {
                     let now = waiting.load(std::sync::atomic::Ordering::Acquire);
-                    let room = MAX_WAITING.saturating_sub(now);
+                    let most = data::WAITING_CAP.load(std::sync::atomic::Ordering::Relaxed);
+                    let room = most.saturating_sub(now);
                     for _ in 0..usize::from(count).min(room) {
                         waiting.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
                         let held = Waiting(waiting.clone());
@@ -452,7 +452,7 @@ impl Client {
                         static MANY: crate::throttle::Throttle = crate::throttle::Throttle::new();
                         if let Some(more) = MANY.allow() {
                             warn!(
-                                "the server asked for {count} more data channels while {now} are waiting; opening at most {MAX_WAITING}{more}"
+                                "the server asked for {count} more data channels while {now} are waiting; opening at most {most}{more}"
                             );
                         }
                     }

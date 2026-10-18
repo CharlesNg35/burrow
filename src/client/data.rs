@@ -66,18 +66,26 @@ impl Slots {
     }
 }
 
+pub(crate) const MAX_WAITING: usize = 4096;
+pub(crate) static WAITING_CAP: AtomicUsize = AtomicUsize::new(MAX_WAITING);
+
 #[cfg(any(unix, test))]
-fn caps(open_files: u64) -> (usize, usize) {
+fn caps(open_files: u64) -> (usize, usize, usize) {
     let budget = usize::try_from(open_files.saturating_sub(512)).unwrap_or(usize::MAX);
-    let fit = |share: usize, cap: usize| (budget / 5).saturating_mul(share).clamp(64, cap);
-    (fit(2, MAX_OPEN_CONNECTIONS), fit(1, MAX_OPEN_PEERS))
+    let fit = |share: usize, cap: usize| (budget / 8).saturating_mul(share).clamp(64, cap);
+    (
+        fit(3, MAX_OPEN_CONNECTIONS),
+        fit(1, MAX_OPEN_PEERS),
+        fit(1, MAX_WAITING),
+    )
 }
 
 #[cfg(unix)]
 pub(crate) fn fit_to_open_files(limit: u64) {
-    let (connections, peers) = caps(limit);
+    let (connections, peers, waiting) = caps(limit);
     OPEN_CONNECTIONS.max.store(connections, Ordering::Relaxed);
     OPEN_PEERS.max.store(peers, Ordering::Relaxed);
+    WAITING_CAP.store(waiting, Ordering::Relaxed);
 }
 
 struct Slot(&'static Slots);
@@ -775,14 +783,15 @@ mod tests {
 
     #[test]
     fn connection_and_peer_caps_fit_the_open_file_limit() {
-        let (connections, peers) = caps(10240);
+        let (connections, peers, waiting) = caps(10240);
         assert!(
-            connections * 2 + peers <= 10240 - 512,
-            "{connections} {peers}"
+            waiting + connections * 2 + peers <= 10240 - 512,
+            "{waiting} {connections} {peers}"
         );
-        assert_eq!(caps(1 << 20), (MAX_OPEN_CONNECTIONS, MAX_OPEN_PEERS));
-        assert_eq!(caps(256), (64, 64));
-        assert_eq!(caps(u64::MAX), (MAX_OPEN_CONNECTIONS, MAX_OPEN_PEERS));
+        let most = (MAX_OPEN_CONNECTIONS, MAX_OPEN_PEERS, MAX_WAITING);
+        assert_eq!(caps(1 << 20), most);
+        assert_eq!(caps(256), (64, 64, 64));
+        assert_eq!(caps(u64::MAX), most);
     }
 
     #[test]
