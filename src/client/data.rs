@@ -196,7 +196,7 @@ pub async fn serve(
         socket(&settings, ch, &connect, path).await;
         return;
     }
-    let addrs = match permitted(&settings, &*resolver, &connect).await {
+    let addrs = match permitted(&settings, &resolver, &connect).await {
         Ok(a) => a,
         Err(status) => {
             reply(ch, status).await;
@@ -305,6 +305,58 @@ async fn socket(settings: &ClientSettings, ch: Channel, connect: &Connect, path:
     }
 }
 
+async fn lookup(
+    settings: &ClientSettings,
+    resolver: &Arc<dyn Resolver>,
+    connect: &Connect,
+) -> std::io::Result<Vec<SocketAddr>> {
+    let timed_out = || std::io::Error::new(std::io::ErrorKind::TimedOut, "the lookup timed out");
+    let by_name = connect.service.is_empty() && connect.target.parse::<SocketAddr>().is_err();
+    if !by_name {
+        return tokio::time::timeout(settings.connect_timeout, resolver.resolve(&connect.target))
+            .await
+            .unwrap_or_else(|_| Err(timed_out()));
+    }
+    let Some(held) = Lookup::start() else {
+        return Err(std::io::Error::other(format!(
+            "{MAX_LOOKUPS} host name lookups for visitors are still running"
+        )));
+    };
+    let (resolver, target) = (resolver.clone(), connect.target.clone());
+    let running = tokio::spawn(async move {
+        let _held = held;
+        resolver.resolve(&target).await
+    });
+    match tokio::time::timeout(settings.connect_timeout, running).await {
+        Ok(Ok(resolved)) => resolved,
+        Ok(Err(_)) => Err(std::io::Error::other("the lookup stopped")),
+        Err(_) => Err(timed_out()),
+    }
+}
+
+const MAX_LOOKUPS: usize = 256;
+
+static LOOKUPS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+struct Lookup;
+
+impl Lookup {
+    fn start() -> Option<Lookup> {
+        use std::sync::atomic::Ordering::AcqRel;
+        if LOOKUPS.fetch_add(1, AcqRel) >= MAX_LOOKUPS {
+            LOOKUPS.fetch_sub(1, AcqRel);
+            return None;
+        }
+        Some(Lookup)
+    }
+}
+
+impl Drop for Lookup {
+    fn drop(&mut self) {
+        LOOKUPS.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
+    }
+}
+
 fn whom(connect: &Connect) -> String {
     match connect.service.as_str() {
         "" => "a visitor".to_string(),
@@ -314,19 +366,13 @@ fn whom(connect: &Connect) -> String {
 
 async fn permitted(
     settings: &ClientSettings,
-    resolver: &dyn Resolver,
+    resolver: &Arc<dyn Resolver>,
     connect: &Connect,
 ) -> Result<Vec<SocketAddr>, Status> {
     if parse_host_port(&connect.target).is_err() {
         return Err(Status::Invalid);
     }
-    let lookup = tokio::time::timeout(settings.connect_timeout, resolver.resolve(&connect.target));
-    let resolved = match lookup.await.unwrap_or_else(|_| {
-        Err(std::io::Error::new(
-            std::io::ErrorKind::TimedOut,
-            "the lookup timed out",
-        ))
-    }) {
+    let resolved = match lookup(settings, resolver, connect).await {
         Ok(a) => a,
         Err(e) => {
             static UNRESOLVED: Throttle = Throttle::new();
@@ -486,4 +532,59 @@ async fn udp(settings: Arc<ClientSettings>, ch: Channel, connect: Connect, addrs
         let _ = sock.send(payload).await;
     }
     debug!("service \"{}\": UDP relay closed", connect.service);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::transport::resolve::Resolved;
+
+    struct Hanging;
+
+    impl Resolver for Hanging {
+        fn resolve<'a>(&'a self, host_port: &'a str) -> Resolved<'a> {
+            Box::pin(async move {
+                if host_port.starts_with("hang.test:") {
+                    std::future::pending::<()>().await;
+                }
+                crate::transport::resolve::resolve(host_port).await
+            })
+        }
+    }
+
+    fn visit(target: &str) -> Connect {
+        Connect {
+            protocol: Protocol::Tcp,
+            service: String::new(),
+            target: target.into(),
+            only: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn lookups_that_never_return_cannot_use_up_more_than_their_share() {
+        let mut settings = crate::client::reload::tests::settings();
+        settings.connect_timeout = Duration::from_millis(50);
+        let resolver: Arc<dyn Resolver> = Arc::new(Hanging);
+        let mut stuck = tokio::task::JoinSet::new();
+        for _ in 0..MAX_LOOKUPS {
+            let (settings, resolver) = (settings.clone(), resolver.clone());
+            stuck.spawn(async move { lookup(&settings, &resolver, &visit("hang.test:22")).await });
+        }
+        while let Some(r) = stuck.join_next().await {
+            assert_eq!(r.unwrap().unwrap_err().kind(), std::io::ErrorKind::TimedOut);
+        }
+        let started = Instant::now();
+        let refused = lookup(&settings, &resolver, &visit("hang.test:22")).await;
+        assert!(refused.unwrap_err().to_string().contains("still running"));
+        assert!(started.elapsed() < Duration::from_millis(40));
+        assert!(
+            lookup(&settings, &resolver, &visit("127.0.0.1:22"))
+                .await
+                .is_ok()
+        );
+        let mut service = visit("localhost:22");
+        service.service = "ssh".into();
+        assert!(lookup(&settings, &resolver, &service).await.is_ok());
+    }
 }

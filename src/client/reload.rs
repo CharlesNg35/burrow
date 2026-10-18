@@ -98,7 +98,7 @@ pub fn compare(old: &ClientSettings, new: &ClientSettings) -> Changes {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::allowlist::AllowList;
     use crate::config::model::Cipher;
@@ -107,7 +107,7 @@ mod tests {
     use crate::transport::endpoint::Endpoint;
     use std::time::Duration;
 
-    fn settings() -> ClientSettings {
+    pub(crate) fn settings() -> ClientSettings {
         ClientSettings {
             server: "tunnel.example.com".into(),
             endpoint: Endpoint::parse("tunnel.example.com").unwrap(),
