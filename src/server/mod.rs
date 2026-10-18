@@ -650,7 +650,11 @@ impl Server {
             }
         }
         if next.metrics != current.metrics {
-            self.apply_metrics(next.metrics).await;
+            let kept = self.apply_metrics(current.metrics, next.metrics).await;
+            if kept != next.metrics {
+                next.metrics = kept;
+                *self.shared.settings.write().expect("settings lock") = Arc::new(next.clone());
+            }
         }
 
         let moving: Vec<String> = self
@@ -919,14 +923,18 @@ impl Server {
 }
 
 impl Server {
-    async fn apply_metrics(&mut self, next: Option<SocketAddr>) {
+    async fn apply_metrics(
+        &mut self,
+        current: Option<SocketAddr>,
+        next: Option<SocketAddr>,
+    ) -> Option<SocketAddr> {
         let Some(addr) = next else {
             if let Some(old) = self.metrics.take() {
                 old.task.abort();
                 let _ = old.task.await;
                 info!("metrics endpoint stopped");
             }
-            return;
+            return None;
         };
         let clashes = self
             .metrics
@@ -947,7 +955,7 @@ impl Server {
                     let m = MetricsTask::start(&self.shared, l);
                     info!("metrics now on http://{}/metrics", m.addr);
                     self.metrics = Some(m);
-                    return;
+                    return next;
                 }
                 Err(f) => last = Some(f),
             }
@@ -959,6 +967,7 @@ impl Server {
                 None => error!("{}", f.message),
             }
         }
+        self.metrics.as_ref().and(current)
     }
 }
 

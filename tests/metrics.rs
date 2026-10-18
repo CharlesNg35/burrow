@@ -287,8 +287,9 @@ async fn moving_metrics_to_a_busy_port_keeps_the_old_endpoint() {
     let old = t.server.metrics.unwrap();
     let busy = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let mut next = settings.clone();
-    next.metrics = Some(busy.local_addr().unwrap());
-    t.server.reload(next).await;
+    let moved = busy.local_addr().unwrap();
+    next.metrics = Some(moved);
+    t.server.reload(next.clone()).await;
     tokio::time::sleep(Duration::from_millis(2500)).await;
     let r = tokio::task::spawn_blocking(move || scrape(old))
         .await
@@ -297,6 +298,13 @@ async fn moving_metrics_to_a_busy_port_keeps_the_old_endpoint() {
         r.is_ok(),
         "no metrics endpoint left after a failed move: {r:?}"
     );
+    drop(busy);
+    t.server.reload(next).await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let r = tokio::task::spawn_blocking(move || scrape(moved))
+        .await
+        .unwrap();
+    assert!(r.is_ok(), "the same reload did not retry the move: {r:?}");
 }
 
 fn raw_http(addr: SocketAddr, request: &[u8]) -> String {
