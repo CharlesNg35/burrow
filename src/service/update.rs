@@ -244,12 +244,14 @@ fn swap(
     }
     steady(backend, &running, &mut failed);
     if !failed.is_empty() {
+        for m in &running {
+            let _ = backend.stop(m);
+        }
         let restored = had_old && system::copy_file(&previous, &binary, true).is_ok();
+        for m in &running {
+            let _ = backend.start(m);
+        }
         if restored {
-            for m in &running {
-                let _ = backend.stop(m);
-                let _ = backend.start(m);
-            }
             std::thread::sleep(SETTLE);
         }
         let still_down: Vec<&str> = running
