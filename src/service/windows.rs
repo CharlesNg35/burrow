@@ -215,7 +215,11 @@ impl Backend for WindowsService {
             ],
         )?;
         for dir in inner.iter().filter(|d| d.starts_with(&root)) {
-            icacls(dir, &["/reset", "/T", "/C", "/Q"])?;
+            if *dir == instances {
+                icacls(dir, &["/reset"])?;
+            } else {
+                icacls(dir, &["/reset", "/T", "/C", "/Q"])?;
+            }
         }
         if instances.starts_with(&root) {
             icacls(&instances, &["/grant", &format!("{USERS}:(OI)(CI)M")])?;
