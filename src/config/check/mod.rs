@@ -244,10 +244,11 @@ fn tuning(t: &TcpOptions) -> SocketTuning {
 }
 
 pub(crate) fn binds_conflict(a: SocketAddr, b: SocketAddr) -> bool {
+    let canonical = |x: SocketAddr| SocketAddr::new(x.ip().to_canonical(), x.port());
+    let (a, b) = (canonical(a), canonical(b));
     let covers =
         |x: SocketAddr, y: SocketAddr| x.ip().is_unspecified() && (x.is_ipv6() || y.is_ipv4());
-    a.port() == b.port()
-        && (a.ip().to_canonical() == b.ip().to_canonical() || covers(a, b) || covers(b, a))
+    a.port() == b.port() && (a.ip() == b.ip() || covers(a, b) || covers(b, a))
 }
 
 fn parse_bind(bind: &Bind) -> Result<SocketAddr, String> {
@@ -330,6 +331,9 @@ mod tests {
         assert!(!binds_conflict(a("10.0.0.1:80"), a("10.0.0.2:80")));
         assert!(!binds_conflict(a("0.0.0.0:80"), a("0.0.0.0:81")));
         assert!(binds_conflict(a("0.0.0.0:80"), a("[::]:80")));
+        assert!(binds_conflict(a("0.0.0.0:80"), a("[::ffff:127.0.0.1]:80")));
+        assert!(binds_conflict(a("[::ffff:10.0.0.1]:80"), a("10.0.0.1:80")));
+        assert!(!binds_conflict(a("[::ffff:10.0.0.1]:80"), a("10.0.0.2:80")));
         assert!(binds_conflict(a("[::]:80"), a("127.0.0.1:80")));
         assert!(binds_conflict(a("[::1]:80"), a("[::]:80")));
         assert!(!binds_conflict(a("0.0.0.0:80"), a("[::1]:80")));
