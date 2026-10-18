@@ -474,25 +474,53 @@ pub async fn pump_tcp<T: Split>(
         mut reader,
     } = ch;
     let plaintext = plaintext && stream.supports_half_close();
-    let (mut cr, mut cw) = stream.split();
-    let (mut tr, mut tw) = target.halves();
-    let up = async {
-        if plaintext {
-            raw_pump(&mut tr, &mut cw).await
-        } else {
-            seal_pump(&mut tr, &mut cw, &mut writer, CHUNK).await
+    let done: io::Result<()> = {
+        let (mut cr, mut cw) = stream.split();
+        let (mut tr, mut tw) = target.halves();
+        let up = async {
+            if plaintext {
+                raw_pump(&mut tr, &mut cw).await
+            } else {
+                seal_pump(&mut tr, &mut cw, &mut writer, CHUNK).await
+            }
+        };
+        use std::sync::atomic::Ordering::Relaxed;
+        let up_done = std::sync::atomic::AtomicBool::new(false);
+        let down_done = std::sync::atomic::AtomicBool::new(false);
+        let down = async {
+            if plaintext {
+                let rest = reader.take_buffered();
+                tw.write_all(&rest).await?;
+                raw_pump(&mut cr, &mut tw).await?;
+            } else {
+                open_pump(&mut cr, &mut tw, &mut reader).await?;
+            }
+            down_done.store(true, Relaxed);
+            if up_done.load(Relaxed) {
+                return Ok(());
+            }
+            if plaintext {
+                std::future::pending::<()>().await;
+            }
+            while reader.recv(&mut cr).await?.is_some() {}
+            Ok(())
+        };
+        tokio::pin!(up, down);
+        loop {
+            tokio::select! {
+                r = &mut up, if !up_done.load(Relaxed) => {
+                    if let Err(e) = r {
+                        break Err(e);
+                    }
+                    up_done.store(true, Relaxed);
+                    if down_done.load(Relaxed) {
+                        break Ok(());
+                    }
+                }
+                r = &mut down => break r,
+            }
         }
     };
-    let down = async {
-        if plaintext {
-            let rest = reader.take_buffered();
-            tw.write_all(&rest).await?;
-            raw_pump(&mut cr, &mut tw).await
-        } else {
-            open_pump(&mut cr, &mut tw, &mut reader).await
-        }
-    };
-    let done = tokio::try_join!(up, down);
     close(&mut stream).await;
     done?;
     Ok(())
@@ -618,6 +646,76 @@ mod tests {
             writer: RecordWriter::new(sealer),
             reader: RecordReader::new(opener),
         }
+    }
+
+    fn channels(a: TcpStream, b: TcpStream) -> (Channel, Channel) {
+        let s = Secret::generate();
+        let (init, m1) = Initiator::start(Cipher::Chachapoly, &s, b"t");
+        let r = Responder::accept(Cipher::Chachapoly, std::slice::from_ref(&s), b"t", &m1).unwrap();
+        let (theirs, m2) = r.reply().unwrap();
+        let ours = init.finish(&m2).unwrap();
+        let make = |stream, session: crate::noise::Session| {
+            let (sealer, opener) = session.split();
+            Channel {
+                stream: Conn::Tcp(stream),
+                writer: RecordWriter::new(sealer),
+                reader: RecordReader::new(opener),
+            }
+        };
+        (make(a, ours), make(b, theirs))
+    }
+
+    #[tokio::test]
+    async fn a_channel_dropped_after_its_end_of_stream_ends_the_target_connection() {
+        let (a, b) = tcp_pair().await;
+        let (ch, mut server) = channels(a, b);
+        let (target, _silent) = tcp_pair().await;
+        let pump = tokio::spawn(pump_tcp(ch, target, false));
+        server.writer.send(&mut server.stream, &[]).await.unwrap();
+        drop(server);
+        tokio::time::timeout(std::time::Duration::from_secs(5), pump)
+            .await
+            .expect("the pump ends once the server has closed the channel")
+            .unwrap()
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_half_closed_channel_still_carries_the_target_reply() {
+        let (a, b) = tcp_pair().await;
+        let (ch, mut server) = channels(a, b);
+        let (target, mut app) = tcp_pair().await;
+        let pump = tokio::spawn(pump_tcp(ch, target, false));
+        server
+            .writer
+            .send(&mut server.stream, b"ping")
+            .await
+            .unwrap();
+        server.writer.send(&mut server.stream, &[]).await.unwrap();
+        let mut got = Vec::new();
+        app.read_to_end(&mut got).await.unwrap();
+        assert_eq!(got, b"ping");
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        app.write_all(b"pong").await.unwrap();
+        drop(app);
+        let reply = server
+            .reader
+            .recv(&mut server.stream)
+            .await
+            .unwrap()
+            .unwrap()
+            .to_vec();
+        assert_eq!(reply, b"pong");
+        assert_eq!(
+            server.reader.recv(&mut server.stream).await.unwrap(),
+            Some(&[][..])
+        );
+        drop(server);
+        tokio::time::timeout(std::time::Duration::from_secs(5), pump)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
     }
 
     async fn tcp_pair() -> (TcpStream, TcpStream) {
