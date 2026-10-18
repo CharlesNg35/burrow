@@ -7,3 +7,4 @@
 .env
 /fuzz/corpus
 /fuzz/Cargo.lock
+*.pending-snap
