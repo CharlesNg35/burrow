@@ -336,7 +336,7 @@ pub struct Limits {
     #[schemars(range(min = 1, max = 120))]
     pub handshake_timeout_secs: u32,
     #[schemars(description = "Concurrent connections that have not finished authenticating")]
-    #[schemars(range(min = 1))]
+    #[schemars(range(min = 1, max = 1000000))]
     pub max_handshakes: u32,
     #[schemars(range(min = 1))]
     pub max_connections_per_client: u32,

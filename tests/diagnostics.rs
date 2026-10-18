@@ -467,12 +467,12 @@ fn json_multiple_errors() {
        |                                                                                   ^^^^^^ not a valid protocol
        = help: did you mean "udp"? valid values: tcp, udp
 
-    error: "max_handshakes" in "limits" must be at least 1, found -1
+    error: "max_handshakes" in "limits" must be between 1 and 1000000, found -1
       --> server.json:8:32
        |
      8 |   "limits": {"max_handshakes": -1}
-       |                                ^^ must be at least 1
-       = help: use 1 or more
+       |                                ^^ must be between 1 and 1000000
+       = help: use a value between 1 and 1000000
 
     server.json: 5 errors, 0 warnings
     "#);
@@ -1999,6 +1999,27 @@ fn small_messages_say_what_is_wrong() {
         None,
     );
     assert!(big.contains("too large"), "{big}");
+}
+
+#[test]
+fn a_handshake_limit_beyond_what_any_build_can_hold_is_refused() {
+    let limit = |n: u64| {
+        render(
+            "server.yaml",
+            &format!("limits:\n  max_handshakes: {n}\n{}", server("  {}\n")),
+            None,
+        )
+    };
+    assert!(
+        limit(1_000_000).contains("valid server config"),
+        "{}",
+        limit(1_000_000)
+    );
+    let big = limit(1_000_000_000);
+    assert!(
+        big.contains("error") && big.contains("max_handshakes"),
+        "{big}"
+    );
 }
 
 #[test]
