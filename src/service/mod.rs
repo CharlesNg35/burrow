@@ -563,6 +563,11 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
             )?;
         }
     }
+    let undo = again.manifest.map(|p| Undo {
+        manifest: p.clone(),
+        config: std::fs::read(&p.config).ok(),
+        env: backend.read_env(p),
+    });
     if source != config {
         system::copy_file(&source, &config, false)?;
         say(
@@ -588,9 +593,6 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
     }
     save_manifest(&manifest)?;
     fresh.account = None;
-    if let Some(p) = &previous {
-        release_previous(&*backend, p, &manifest, out)?;
-    }
     say(
         out,
         format!(
@@ -605,10 +607,20 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
         format!(" {name}")
     };
     if opts.start {
-        backend.start(&manifest)?;
+        let started = backend.start(&manifest);
         again.manifest = None;
-        std::thread::sleep(std::time::Duration::from_millis(1500));
+        if started.is_ok() {
+            std::thread::sleep(std::time::Duration::from_millis(1500));
+        }
         let st = backend.status(&manifest);
+        if let Some(undo) = undo.filter(|_| started.is_err() || !st.running) {
+            let why = match started {
+                Err(f) => f.message,
+                Ok(()) => st.detail.clone(),
+            };
+            return Err(undo.put_back(&*backend, &manifest, &why, save_manifest, out));
+        }
+        started?;
         if st.running {
             say(
                 out,
@@ -630,6 +642,9 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
                 ),
             )?;
         }
+    }
+    if let Some(p) = &previous {
+        release_previous(&*backend, p, &manifest, out)?;
     }
     say(
         out,
@@ -659,6 +674,60 @@ impl Drop for StartAgain<'_> {
     fn drop(&mut self) {
         if let Some(m) = self.manifest.take() {
             let _ = self.backend.start(m);
+        }
+    }
+}
+
+struct Undo {
+    manifest: Manifest,
+    config: Option<Vec<u8>>,
+    env: BTreeMap<String, String>,
+}
+
+impl Undo {
+    fn put_back(
+        self,
+        backend: &dyn Backend,
+        new: &Manifest,
+        why: &str,
+        save: impl Fn(&Manifest) -> Result<(), Failure>,
+        out: &mut dyn Write,
+    ) -> Failure {
+        let _ = backend.stop(new);
+        let p = &self.manifest;
+        let mut steps: Vec<Result<(), Failure>> = Vec::new();
+        if let Some(bytes) = &self.config {
+            steps.push(system::write_file(&p.config, bytes));
+            steps.push(backend.secure_file(&p.config, &p.account));
+        }
+        if p.env_file.is_some() {
+            steps.push(backend.write_env(p, &self.env));
+        }
+        steps.push(backend.install(p));
+        steps.push(save(p));
+        steps.push(backend.start(p));
+        let failed = steps.into_iter().find_map(Result::err);
+        let _ = say(
+            out,
+            format!("error: the reinstalled {} did not run: {why}", new.name),
+        );
+        match failed {
+            None => Failure::new(format!(
+                "the reinstalled {} did not run, so its previous config was put back and it runs again",
+                new.name
+            ))
+            .hint(format!(
+                "see why the new one failed with: {}",
+                crate::failure::admin(&format!("service logs {} -n 50", new.name))
+            )),
+            Some(f) => Failure::new(format!(
+                "the reinstalled {} did not run, and putting back its previous config failed too: {}",
+                new.name, f.message
+            ))
+            .hint(format!(
+                "install it again from a config that works: {}",
+                crate::failure::admin(&install_args(p))
+            )),
         }
     }
 }
@@ -1285,6 +1354,114 @@ mod tests {
         assert!(!interrupts("start"));
         assert!(!interrupts("stop"));
         assert_eq!(interrupts("reload"), cfg!(windows));
+    }
+
+    struct Recorder(std::cell::RefCell<Vec<String>>);
+
+    impl Recorder {
+        fn note(&self, what: &str, m: &Manifest) -> Result<(), Failure> {
+            self.0.borrow_mut().push(format!("{what} {}", m.account));
+            Ok(())
+        }
+    }
+
+    impl Backend for Recorder {
+        fn kind(&self) -> &'static str {
+            "recorder"
+        }
+        fn render(&self, _: &Manifest) -> String {
+            String::new()
+        }
+        fn ensure_account(&self, _: &str) -> Result<bool, Failure> {
+            Ok(false)
+        }
+        fn remove_account(&self, _: &str) -> Result<(), Failure> {
+            Ok(())
+        }
+        fn can_read(&self, _: &str, _: &Path) -> bool {
+            true
+        }
+        fn secure_file(&self, _: &Path, _: &str) -> Result<(), Failure> {
+            Ok(())
+        }
+        fn prepare_dirs(&self, _: &str) -> Result<(), Failure> {
+            Ok(())
+        }
+        fn write_env(&self, m: &Manifest, env: &BTreeMap<String, String>) -> Result<(), Failure> {
+            self.note(&format!("env {}", env.len()), m)
+        }
+        fn install(&self, m: &Manifest) -> Result<(), Failure> {
+            self.note("install", m)
+        }
+        fn uninstall(&self, m: &Manifest) -> Result<(), Failure> {
+            self.note("uninstall", m)
+        }
+        fn start(&self, m: &Manifest) -> Result<(), Failure> {
+            self.note("start", m)
+        }
+        fn stop(&self, m: &Manifest) -> Result<(), Failure> {
+            self.note("stop", m)
+        }
+        fn reload(&self, _: &Manifest) -> Result<(), Failure> {
+            Ok(())
+        }
+        fn status(&self, _: &Manifest) -> Status {
+            Status {
+                installed: true,
+                running: true,
+                pid: None,
+                detail: String::new(),
+            }
+        }
+    }
+
+    #[test]
+    fn a_reinstall_that_does_not_run_puts_the_previous_one_back() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = dir.path().join("home.yaml");
+        std::fs::write(&config, "new config").unwrap();
+        let old = Manifest {
+            config: config.clone(),
+            env_file: Some(dir.path().join("home.env")),
+            account: "old".into(),
+            ..record(Platform::Linux)
+        };
+        let new = Manifest {
+            config: config.clone(),
+            env_file: None,
+            account: "new".into(),
+            ..record(Platform::Linux)
+        };
+        let undo = Undo {
+            manifest: old.clone(),
+            config: Some(b"old config".to_vec()),
+            env: [("SECRET".to_string(), "x".to_string())].into(),
+        };
+        let rec = Recorder(Default::default());
+        let saved = std::cell::RefCell::new(Vec::new());
+        let mut out = Vec::new();
+        let f = undo.put_back(
+            &rec,
+            &new,
+            "exited with status 3",
+            |m| {
+                saved.borrow_mut().push(m.account.clone());
+                Ok(())
+            },
+            &mut out,
+        );
+        assert!(f.message.contains("runs again"), "{}", f.message);
+        assert_eq!(std::fs::read_to_string(&config).unwrap(), "old config");
+        assert_eq!(
+            *rec.0.borrow(),
+            ["stop new", "env 1 old", "install old", "start old"]
+        );
+        assert_eq!(*saved.borrow(), ["old"]);
+        assert!(
+            String::from_utf8(out)
+                .unwrap()
+                .contains("exited with status 3")
+        );
     }
 
     fn record(p: Platform) -> Manifest {
