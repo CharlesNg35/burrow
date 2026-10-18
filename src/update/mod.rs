@@ -249,6 +249,9 @@ pub fn run(opts: &Options, out: &mut dyn Write) -> Result<u8, Failure> {
             return Err(Failure::new(format!("{what} at {base}"))
                 .hint(format!("see the releases at {base}")));
         }
+        Err(e) if e.contains("is plain http") => {
+            return Err(Failure::new(format!("cannot check for a new version: {e}")));
+        }
         Err(e) => {
             return Err(Failure::new(format!("cannot check for a new version: {e}"))
                 .hint(connect_hint(&sums_url, &|name| std::env::var(name).ok())));
