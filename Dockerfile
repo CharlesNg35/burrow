@@ -24,7 +24,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     set -eux; \
     case "$TARGETARCH" in \
       amd64) target=x86_64-unknown-linux-musl ;; \
-      arm64) target=aarch64-unknown-linux-musl ;; \
+      arm64) target=aarch64-unknown-linux-musl; export JEMALLOC_SYS_WITH_LG_PAGE=16 ;; \
       *) echo "unsupported target $TARGETARCH"; exit 1 ;; \
     esac; \
     cargo zigbuild --locked --release --target "$target"; \
