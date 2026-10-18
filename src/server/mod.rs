@@ -375,13 +375,17 @@ pub fn bind_error(what: &str, proto: Protocol, addr: SocketAddr, e: &std::io::Er
             "cannot bind {what} on {addr}: permission denied"
         ))
         .hint(if cfg!(windows) {
-            "another program holds this port exclusively, or Windows reserves it; see: netsh interface ipv4 show excludedportrange protocol=tcp"
+            format!(
+                "another program holds this port exclusively, or Windows reserves it; see: netsh interface {} show excludedportrange protocol={}",
+                if addr.is_ipv6() { "ipv6" } else { "ipv4" },
+                if proto == Protocol::Udp { "udp" } else { "tcp" }
+            )
         } else if cfg!(target_os = "macos") {
-            "ports below 1024 need root, except on all addresses (0.0.0.0); use a port above 1023"
+            "ports below 1024 need root, except on all addresses (0.0.0.0); use a port above 1023".to_string()
         } else if cfg!(target_os = "linux") {
-            "ports below 1024 need root or CAP_NET_BIND_SERVICE; use a port above 1023"
+            "ports below 1024 need root or CAP_NET_BIND_SERVICE; use a port above 1023".to_string()
         } else {
-            "ports below 1024 need root; use a port above 1023"
+            "ports below 1024 need root; use a port above 1023".to_string()
         }),
         std::io::ErrorKind::AddrNotAvailable => Failure::new(format!(
             "cannot bind {what} on {addr}: address not available on this machine"
