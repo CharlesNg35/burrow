@@ -739,6 +739,14 @@ impl Undo {
         steps.push(backend.install(p));
         steps.push(save(p));
         steps.push(backend.start(p));
+        if let Some(env) = &new.env_file
+            && p.env_file.as_ref() != Some(env)
+        {
+            let _ = std::fs::remove_file(env);
+        }
+        if new.created_account && new.account != p.account {
+            let _ = backend.remove_account(&new.account);
+        }
         let mut failed = steps.into_iter().find_map(Result::err);
         if failed.is_none() {
             std::thread::sleep(std::time::Duration::from_millis(1500));
@@ -1424,7 +1432,8 @@ mod tests {
         fn ensure_account(&self, _: &str) -> Result<bool, Failure> {
             Ok(false)
         }
-        fn remove_account(&self, _: &str) -> Result<(), Failure> {
+        fn remove_account(&self, account: &str) -> Result<(), Failure> {
+            self.0.borrow_mut().push(format!("remove {account}"));
             Ok(())
         }
         fn can_read(&self, _: &str, _: &Path) -> bool {
@@ -1475,10 +1484,13 @@ mod tests {
             account: "old".into(),
             ..record(Platform::Linux)
         };
+        let new_env = dir.path().join("home-new.env");
+        std::fs::write(&new_env, "SECRET=y").unwrap();
         let new = Manifest {
             config: config.clone(),
-            env_file: None,
+            env_file: Some(new_env.clone()),
             account: "new".into(),
+            created_account: true,
             ..record(Platform::Linux)
         };
         let binary = dir.path().join("burrow");
@@ -1508,9 +1520,16 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&config).unwrap(), "old config");
         assert_eq!(std::fs::read_to_string(&binary).unwrap(), "old binary");
         assert!(!kept.exists());
+        assert!(!new_env.exists());
         assert_eq!(
             *rec.0.borrow(),
-            ["stop new", "env 1 old", "install old", "start old"]
+            [
+                "stop new",
+                "env 1 old",
+                "install old",
+                "start old",
+                "remove new"
+            ]
         );
         assert_eq!(*saved.borrow(), ["old"]);
         assert!(
