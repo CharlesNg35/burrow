@@ -40,33 +40,46 @@ fn quote(p: &Path) -> String {
 }
 
 fn env_value(v: &str) -> String {
-    format!(
-        "\"{}\"",
-        v.replace('\\', "\\\\")
-            .replace('"', "\\\"")
-            .replace('\n', "\\n")
-    )
+    format!("\"{}\"", v.replace('\\', "\\\\").replace('"', "\\\""))
 }
 
 fn parse_env(text: &str) -> BTreeMap<String, String> {
-    text.lines()
-        .filter_map(|line| {
-            let (key, quoted) = line.split_once('=')?;
-            let inner = quoted.strip_prefix('"')?.strip_suffix('"')?;
-            let mut value = String::new();
-            let mut chars = inner.chars();
-            while let Some(c) = chars.next() {
-                value.push(match c {
-                    '\\' => match chars.next()? {
-                        'n' => '\n',
-                        other => other,
-                    },
-                    c => c,
-                });
+    let mut out = BTreeMap::new();
+    let mut rest = text;
+    while let Some(line) = rest.lines().next() {
+        let Some((key, _)) = line.split_once("=\"") else {
+            rest = rest.get(line.len() + 1..).unwrap_or("");
+            continue;
+        };
+        let mut value = String::new();
+        let mut chars = rest[key.len() + 2..].char_indices();
+        let mut end = None;
+        while let Some((i, c)) = chars.next() {
+            match c {
+                '"' => {
+                    end = Some(key.len() + 2 + i + 1);
+                    break;
+                }
+                '\\' => match chars.next() {
+                    Some((_, e @ ('\\' | '"' | '`' | '$'))) => value.push(e),
+                    Some((_, '\n')) => {}
+                    Some((_, other)) => {
+                        value.push('\\');
+                        value.push(other);
+                    }
+                    None => break,
+                },
+                c => value.push(c),
             }
-            Some((key.to_string(), value))
-        })
-        .collect()
+        }
+        let Some(end) = end else {
+            break;
+        };
+        out.insert(key.to_string(), value);
+        rest = &rest[end..];
+        rest = rest.find('\n').map_or("", |i| &rest[i + 1..]);
+    }
+    out
 }
 
 impl Backend for Systemd {
@@ -334,13 +347,20 @@ mod tests {
     fn the_environment_file_reads_back_what_was_written() {
         let env = BTreeMap::from([
             ("HOME_SECRET".to_string(), "a\"b\\c\nd=e".to_string()),
+            (
+                "PEM".to_string(),
+                "-----BEGIN-----\nAAA\n-----END-----\n".to_string(),
+            ),
+            ("SHELLY".to_string(), "$HOME `x` \\n".to_string()),
             ("PLAIN".to_string(), "x".to_string()),
         ]);
         let text: String = env
             .iter()
             .map(|(k, v)| format!("{k}={}\n", env_value(v)))
             .collect();
+        assert!(text.contains("PEM=\"-----BEGIN-----\nAAA\n"), "{text}");
         assert_eq!(parse_env(&text), env);
+        assert_eq!(parse_env(&format!("# note\n{text}")), env);
     }
 
     #[test]
