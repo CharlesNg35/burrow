@@ -81,8 +81,9 @@ pub async fn follow<S: Watched>(
     tx: mpsc::Sender<S>,
 ) {
     let (trig_tx, mut trig) = mpsc::channel::<&'static str>(16);
-    let dirs = watched_dirs(&current.files(&path));
-    let mut watcher = watch_files(&dirs, &current.files(&path), trig_tx.clone());
+    let mut watched = Vec::new();
+    let mut watcher = None;
+    renew(&mut watcher, &mut watched, &current.files(&path), &trig_tx);
     #[cfg(unix)]
     {
         let t = trig_tx.clone();
@@ -103,9 +104,7 @@ pub async fn follow<S: Watched>(
     let _ = trig_tx.try_send("file changed");
     while let Some(first) = trig.recv().await {
         tokio::time::sleep(Duration::from_millis(200)).await;
-        let dirs = watched_dirs(&current.files(&path));
-        let renewed = watch_files(&dirs, &current.files(&path), trig_tx.clone());
-        drop(std::mem::replace(&mut watcher, renewed));
+        renew(&mut watcher, &mut watched, &current.files(&path), &trig_tx);
         let mut why = first;
         while let Ok(more) = trig.try_recv() {
             if more == "SIGHUP" {
@@ -164,9 +163,7 @@ pub async fn follow<S: Watched>(
             info!("reloading config ({why})");
         }
         current = next.clone();
-        let dirs = watched_dirs(&current.files(&path));
-        let renewed = watch_files(&dirs, &current.files(&path), trig_tx.clone());
-        drop(std::mem::replace(&mut watcher, renewed));
+        renew(&mut watcher, &mut watched, &current.files(&path), &trig_tx);
         if tx.send(next).await.is_err() {
             return;
         }
@@ -233,11 +230,39 @@ fn watched_dirs(files: &[PathBuf]) -> Vec<PathBuf> {
     dirs
 }
 
+const KQUEUE: bool = cfg!(any(
+    target_os = "freebsd",
+    target_os = "openbsd",
+    target_os = "netbsd",
+    target_os = "dragonfly"
+));
+
+fn renew(
+    watcher: &mut Option<notify::RecommendedWatcher>,
+    watched: &mut Vec<PathBuf>,
+    files: &[PathBuf],
+    tx: &mpsc::Sender<&'static str>,
+) {
+    let dirs = watched_dirs(files);
+    let wanted: Vec<PathBuf> = dirs.iter().chain(files).cloned().collect();
+    if wanted == *watched && !KQUEUE {
+        return;
+    }
+    match watch_files(&dirs, files, tx.clone()) {
+        Some((fresh, true)) => {
+            *watcher = Some(fresh);
+            *watched = wanted;
+        }
+        Some((partial, false)) if watcher.is_none() => *watcher = Some(partial),
+        _ => {}
+    }
+}
+
 fn watch_files(
     dirs: &[PathBuf],
     files: &[PathBuf],
     tx: mpsc::Sender<&'static str>,
-) -> Option<notify::RecommendedWatcher> {
+) -> Option<(notify::RecommendedWatcher, bool)> {
     use notify::{EventKind, RecursiveMode, Watcher};
     let relevant_dirs = dirs.to_vec();
     let mut watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
@@ -259,8 +284,10 @@ fn watch_files(
     })
     .map_err(|e| warn!("cannot watch the config for changes ({e}); {}", by_hand()))
     .ok()?;
+    let mut complete = true;
     for dir in dirs {
         if let Err(e) = watcher.watch(dir, RecursiveMode::NonRecursive) {
+            complete = false;
             warn!(
                 "cannot watch {} for changes ({e}); {}",
                 dir.display(),
@@ -271,12 +298,31 @@ fn watch_files(
     for file in files {
         let _ = watcher.watch(file, RecursiveMode::NonRecursive);
     }
-    Some(watcher)
+    Some((watcher, complete))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn a_failed_renewal_keeps_the_watcher_that_works() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = dir.path().join("server.yaml");
+        std::fs::write(&config, "a").unwrap();
+        let (tx, mut rx) = mpsc::channel(16);
+        let (mut watcher, mut watched) = (None, Vec::new());
+        renew(&mut watcher, &mut watched, std::slice::from_ref(&config), &tx);
+        let kept = watched.clone();
+        let gone = dir.path().join("missing").join("server.yaml");
+        renew(&mut watcher, &mut watched, &[gone], &tx);
+        assert_eq!(watched, kept);
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        while rx.try_recv().is_ok() {}
+        std::fs::write(&config, "b").unwrap();
+        let seen = tokio::time::timeout(Duration::from_secs(5), rx.recv()).await;
+        assert!(matches!(seen, Ok(Some(_))), "the working watcher was dropped");
+    }
 
     #[test]
     fn links_at_the_top_of_the_disk_never_make_the_whole_disk_watched() {
