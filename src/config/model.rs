@@ -48,7 +48,7 @@ pub struct ServerConfig {
     pub udp: UdpOptions,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
-        description = "Serve Prometheus metrics at /metrics and the burrow status data at /status; off unless set"
+        description = "Serve Prometheus metrics at /metrics; off unless set"
     )]
     pub metrics: Option<MetricsConfig>,
 }

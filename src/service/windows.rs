@@ -124,7 +124,7 @@ impl Backend for WindowsService {
 
     fn render(&self, m: &Manifest) -> String {
         format!(
-            "name:     {}\ncommand:  \"{}\" service run {}\naccount:  {}\nstart:    automatic, after Tcpip\nrecovery: restart after 5 s, reset after 1 day\nconfig:   {}\nlogs:     {}\n",
+            "name:     {}\ncommand:  \"{}\" service run {}\naccount:  {}\nstart:    automatic, after Tcpip\nrecovery: restart after 5 s, 30 s from the third failure, reset after 1 day\nconfig:   {}\nlogs:     {}\n",
             m.name,
             m.binary.display(),
             m.name,

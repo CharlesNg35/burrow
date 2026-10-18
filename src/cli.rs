@@ -369,7 +369,7 @@ pub struct InitArgs {
     #[arg(
         short,
         long,
-        help = "Output path (default: server.yaml or client.yaml)"
+        help = "Output path (default: server.yaml, client.yaml or visitor.yaml)"
     )]
     pub output: Option<PathBuf>,
     #[arg(
