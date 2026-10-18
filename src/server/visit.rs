@@ -166,11 +166,14 @@ async fn answer_grants(
         }
     }
     let Ok(bytes) = grants.encode() else {
-        warn!(
-            "visitor \"{visitor}\" asked what it may use, but the answer does not fit in one record ({} services, {} clients)",
-            grants.services.len(),
-            grants.clients.len()
-        );
+        static LARGE: Throttle = Throttle::new();
+        if let Some(more) = LARGE.allow() {
+            warn!(
+                "visitor \"{visitor}\" asked what it may use, but the answer does not fit in one record ({} services, {} clients){more}",
+                grants.services.len(),
+                grants.clients.len()
+            );
+        }
         reply(channel, Status::Invalid).await;
         return;
     };

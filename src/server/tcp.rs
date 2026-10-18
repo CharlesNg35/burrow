@@ -175,7 +175,12 @@ async fn visit(
 pub(super) fn log_refusal(label: &str, client: &str, target: &str, error: &ForwardError) {
     match error {
         ForwardError::Status(st) => log_status(label, client, target, *st),
-        ForwardError::Protocol => warn!("{label}: client \"{client}\" sent an invalid reply"),
+        ForwardError::Protocol => {
+            static INVALID: crate::throttle::Throttle = crate::throttle::Throttle::new();
+            if let Some(more) = INVALID.allow() {
+                warn!("{label}: client \"{client}\" sent an invalid reply{more}");
+            }
+        }
         ForwardError::Io(e) => debug!("{label}: client \"{client}\" did not answer: {e}"),
     }
 }
