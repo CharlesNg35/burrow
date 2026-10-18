@@ -94,6 +94,14 @@ pub struct WsConn {
     window: std::time::Instant,
     stalled: u32,
     written_at_ping: u64,
+    keepalive: Option<Keepalive>,
+}
+
+struct Keepalive {
+    every: std::time::Duration,
+    active: std::time::Instant,
+    timer: Pin<Box<tokio::time::Sleep>>,
+    due: bool,
 }
 
 const MAX_CONTROLS: u32 = 100;
@@ -118,6 +126,7 @@ impl WsConn {
             window: std::time::Instant::now(),
             stalled: 0,
             written_at_ping: 0,
+            keepalive: None,
         }
     }
 
@@ -126,6 +135,50 @@ impl WsConn {
             Carrier::Plain(s) => s.local_addr(),
             Carrier::ClientTls(s) => s.get_ref().0.local_addr(),
             Carrier::ServerTls(s) => s.get_ref().0.local_addr(),
+        }
+    }
+
+    pub fn keep_alive(&mut self, every: std::time::Duration) {
+        self.keepalive = Some(Keepalive {
+            every,
+            active: std::time::Instant::now(),
+            timer: Box::pin(tokio::time::sleep(every)),
+            due: false,
+        });
+    }
+
+    fn active(&mut self) {
+        if let Some(k) = &mut self.keepalive {
+            k.active = std::time::Instant::now();
+        }
+    }
+
+    fn poll_keepalive(&mut self, cx: &mut Context<'_>) -> io::Result<()> {
+        let Some(k) = &mut self.keepalive else {
+            return Ok(());
+        };
+        while k.timer.as_mut().poll(cx).is_ready() {
+            if k.active.elapsed() >= k.every {
+                k.due = true;
+                k.active = std::time::Instant::now();
+            }
+            let next = tokio::time::Instant::from_std(k.active + k.every);
+            k.timer.as_mut().reset(next);
+        }
+        if !k.due {
+            return Ok(());
+        }
+        match Pin::new(&mut self.inner).poll_ready(cx) {
+            Poll::Ready(Ok(())) => {
+                k.due = false;
+                Pin::new(&mut self.inner)
+                    .start_send(Message::ping(Vec::new()))
+                    .map_err(ws_err)?;
+                let _ = Pin::new(&mut self.inner).poll_flush(cx).map_err(ws_err)?;
+                Ok(())
+            }
+            Poll::Ready(Err(e)) => Err(ws_err(e)),
+            Poll::Pending => Ok(()),
         }
     }
 
@@ -154,6 +207,7 @@ impl AsyncRead for WsConn {
         buf: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
         let me = self.get_mut();
+        me.poll_keepalive(cx)?;
         loop {
             if !me.read_buf.is_empty() {
                 let n = me.read_buf.len().min(buf.remaining());
@@ -165,7 +219,10 @@ impl AsyncRead for WsConn {
                 return Poll::Ready(Ok(()));
             }
             match ready!(Pin::new(&mut me.inner).poll_next(cx)) {
-                Some(Ok(msg)) if msg.is_binary() => me.read_buf = Bytes::from(msg.into_payload()),
+                Some(Ok(msg)) if msg.is_binary() => {
+                    me.active();
+                    me.read_buf = Bytes::from(msg.into_payload())
+                }
                 Some(Ok(msg)) if msg.is_close() => me.eof = true,
                 Some(Ok(msg)) => {
                     if msg.is_ping() {
@@ -214,6 +271,7 @@ impl AsyncWrite for WsConn {
         }
         let n = buf.len().min(WRITE_BATCH - me.write_buf.len());
         me.write_buf.extend_from_slice(&buf[..n]);
+        me.active();
         Poll::Ready(Ok(n))
     }
 
@@ -523,6 +581,39 @@ mod tests {
     async fn pings_from_a_slow_reader_do_not_end_the_connection() {
         let slow = Some(std::time::Duration::from_millis(20));
         assert!(!pinging_while_reading(slow).await);
+    }
+
+    #[tokio::test]
+    async fn a_quiet_server_connection_pings_its_peer() {
+        use futures_util::StreamExt;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (tcp, _) = listener.accept().await.unwrap();
+            let mut conn = accept(Carrier::Plain(tcp), "/burrow").await.unwrap();
+            conn.keep_alive(std::time::Duration::from_millis(200));
+            let mut buf = [0u8; 16];
+            let _ = conn.read(&mut buf).await;
+        });
+        let tcp = TcpStream::connect(addr).await.unwrap();
+        let (mut ws, _) = ClientBuilder::new()
+            .uri(&format!("ws://{addr}/burrow"))
+            .unwrap()
+            .connect_on(tcp)
+            .await
+            .unwrap();
+        let mut pings = 0;
+        let quiet = tokio::time::timeout(std::time::Duration::from_millis(900), async {
+            while let Some(Ok(msg)) = ws.next().await {
+                if msg.is_ping() {
+                    pings += 1;
+                }
+            }
+        })
+        .await;
+        assert!(quiet.is_err());
+        assert!((2..=5).contains(&pings), "{pings} pings");
+        server.abort();
     }
 
     #[tokio::test]

@@ -165,7 +165,10 @@ async fn handle_ws(
         })
     };
     match tokio::time::timeout_at(deadline.into(), upgrade).await {
-        Ok(Ok(conn)) => authenticate(shared, Conn::from(conn), peer, permit, deadline).await,
+        Ok(Ok(mut conn)) => {
+            conn.keep_alive(ws.settings.keepalive);
+            authenticate(shared, Conn::from(conn), peer, permit, deadline).await
+        }
         Ok(Err(())) => {
             shared.rejected.fetch_add(1, Ordering::Relaxed);
             shared
