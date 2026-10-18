@@ -5,7 +5,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use tokio::net::TcpListener;
-use tokio::sync::{Semaphore, mpsc, watch};
+use tokio::sync::{mpsc, watch};
 use tokio::task::JoinSet;
 use tracing::{error, info};
 
@@ -310,7 +310,7 @@ impl Visitor {
         ));
         let mut reloads = self.reloads.take();
         let mut open = JoinSet::new();
-        let opening = Arc::new(Semaphore::new(MAX_OPENING));
+        let opening = Arc::new(forward::Slots::new(MAX_OPENING));
         let mut retry = tokio::time::interval(BIND_RETRY);
         retry.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         retry.tick().await;

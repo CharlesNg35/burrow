@@ -18,6 +18,31 @@ use crate::transport::tcp::tune;
 const OPEN_PATIENCE: Duration = Duration::from_secs(5);
 const SOCKS_TIMEOUT: Duration = Duration::from_secs(10);
 
+pub(super) struct Slots {
+    free: Arc<Semaphore>,
+    opened: std::sync::atomic::AtomicU64,
+}
+
+impl Slots {
+    pub(super) fn new(count: usize) -> Slots {
+        Slots {
+            free: Arc::new(Semaphore::new(count)),
+            opened: std::sync::atomic::AtomicU64::new(0),
+        }
+    }
+
+    async fn wait(&self, patience: Duration) -> Option<tokio::sync::OwnedSemaphorePermit> {
+        loop {
+            let seen = self.opened.load(std::sync::atomic::Ordering::Relaxed);
+            match tokio::time::timeout(patience, self.free.clone().acquire_owned()).await {
+                Ok(permit) => return permit.ok(),
+                Err(_) if self.opened.load(std::sync::atomic::Ordering::Relaxed) != seen => {}
+                Err(_) => return None,
+            }
+        }
+    }
+}
+
 pub(super) struct Incoming {
     name: String,
     to: VisitTarget,
@@ -172,7 +197,7 @@ async fn ask(mut ch: crate::handshake::Channel, request: &VisitRequest) -> Optio
 pub(super) async fn visit(
     dialer: Arc<Dialer>,
     settings: Arc<VisitorSettings>,
-    opening: Arc<Semaphore>,
+    opening: Arc<Slots>,
     conn: Incoming,
 ) {
     let Incoming {
@@ -220,17 +245,15 @@ pub(super) async fn visit(
     let started = tokio::time::Instant::now();
     let mut backoff = Backoff::new(Duration::from_millis(100), Duration::from_secs(1));
     let answer = loop {
-        let waiting = OPEN_PATIENCE + settings.connect_timeout;
-        let Ok(permit) = tokio::time::timeout(waiting, opening.clone().acquire_owned()).await
-        else {
+        let Some(permit) = opening.wait(OPEN_PATIENCE + settings.connect_timeout).await else {
             if socks {
                 let _ = socks::reply(&mut stream, Reply::NetworkUnreachable).await;
             }
             static BUSY: Throttle = Throttle::new();
             if let Some(more) = BUSY.allow() {
                 warn!(
-                    "forward \"{name}\": closing a connection that waited {}s for the server{more}",
-                    waiting.as_secs()
+                    "forward \"{name}\": closing a connection that waited {}s without the server answering any dial{more}",
+                    (OPEN_PATIENCE + settings.connect_timeout).as_secs()
                 );
             }
             return;
@@ -239,6 +262,11 @@ pub(super) async fn visit(
             .open(ChannelKind::Visit, Hello::Visit { version: VERSION })
             .await;
         drop(permit);
+        if ch.is_ok() {
+            opening
+                .opened
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
         let patient = started.elapsed() < OPEN_PATIENCE;
         match ch {
             Ok(mut ch) => match request_visit(&mut ch, &request).await {
@@ -304,6 +332,23 @@ mod tests {
     use super::*;
 
     #[tokio::test]
+    async fn a_slot_wait_goes_on_while_other_dials_succeed() {
+        let slots = Arc::new(Slots::new(0));
+        let busy = slots.clone();
+        tokio::spawn(async move {
+            for _ in 0..10 {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                busy.opened
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            }
+            busy.free.add_permits(1);
+        });
+        let held = slots.wait(Duration::from_millis(300)).await;
+        assert!(held.is_some());
+        assert!(slots.wait(Duration::from_millis(300)).await.is_none());
+    }
+
+    #[tokio::test]
     async fn a_connection_does_not_wait_forever_for_a_free_dial_slot() {
         use tokio::io::AsyncReadExt;
         let settings = Arc::new(super::super::tests::settings());
@@ -320,7 +365,7 @@ mod tests {
             stream,
             peer,
         };
-        let full = Arc::new(Semaphore::new(0));
+        let full = Arc::new(Slots::new(0));
         tokio::time::timeout(
             OPEN_PATIENCE + settings.connect_timeout + Duration::from_secs(3),
             visit(dialer, settings, full, conn),
