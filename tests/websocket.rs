@@ -517,3 +517,32 @@ async fn a_proxy_that_cannot_reach_a_busy_server_is_retried_but_a_wrong_path_is_
         assert_eq!(lost, retried, "HTTP {code}: {e:?}");
     }
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_move_to_a_busy_port_keeps_the_listener_and_retries_on_the_next_reload() {
+    let secret = Secret::generate();
+    let s = ws_server(&secret, "/burrow", None);
+    let srv = start_server(s.clone()).await;
+    let ws = srv.ws_addr.unwrap();
+    let mut first = s.clone();
+    first.websocket.as_mut().unwrap().listen = ws;
+    let busy = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let elsewhere = busy.local_addr().unwrap();
+    let mut moved = first.clone();
+    moved.websocket.as_mut().unwrap().listen = elsewhere;
+    srv.reload(moved.clone()).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let _kept = connected(
+        &srv,
+        ws_client(&format!("ws://{ws}/burrow"), secret.clone(), None),
+    )
+    .await;
+    drop(busy);
+    srv.reload(moved).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let _moved = connected(
+        &srv,
+        ws_client(&format!("ws://{elsewhere}/burrow"), secret, None),
+    )
+    .await;
+}

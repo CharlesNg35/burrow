@@ -23,6 +23,7 @@ use tokio::task::JoinHandle;
 use tracing::{error, info, warn};
 
 use crate::config::model::Protocol;
+use crate::config::settings::WebSocketSettings;
 use crate::config::settings::{ServerSettings, Service};
 use crate::failure::Failure;
 use crate::protocol::{ByeReason, ServerMsg, ServiceInfo};
@@ -626,8 +627,13 @@ impl Server {
         self.shared.reloaded.send_modify(|n| *n += 1);
 
         if next.websocket != current.websocket {
-            self.apply_websocket(current.websocket.as_ref(), next.websocket.as_ref())
+            let kept = self
+                .apply_websocket(current.websocket.as_ref(), next.websocket.as_ref())
                 .await;
+            if kept != next.websocket {
+                next.websocket = kept;
+                *self.shared.settings.write().expect("settings lock") = Arc::new(next.clone());
+            }
         }
         if next.metrics != current.metrics {
             self.apply_metrics(next.metrics).await;
@@ -782,9 +788,9 @@ impl Server {
 impl Server {
     async fn apply_websocket(
         &mut self,
-        current: Option<&crate::config::settings::WebSocketSettings>,
-        next: Option<&crate::config::settings::WebSocketSettings>,
-    ) {
+        current: Option<&WebSocketSettings>,
+        next: Option<&WebSocketSettings>,
+    ) -> Option<WebSocketSettings> {
         let same_socket = self.websocket.is_some()
             && matches!((current, next), (Some(c), Some(n)) if c.listen == n.listen);
         match (next, same_socket) {
@@ -800,23 +806,30 @@ impl Server {
                     } else {
                         info!("websocket listener updated: {}", t.listener.url_hint());
                     }
+                    Some(n.clone())
                 }
-                Err(f) => error!("{}", f.message),
+                Err(f) => {
+                    error!("{}; websocket keeps its current settings", f.message);
+                    current.cloned()
+                }
             },
             (Some(n), false) => {
-                if let Some(old) = self.websocket.take() {
-                    old.task.abort();
-                    let _ = old.task.await;
+                let conflicts = |a| crate::config::check::binds_conflict(a, n.listen);
+                let freed = self.websocket.is_some()
+                    && (current.is_some_and(|c| conflicts(c.listen))
+                        || self.websocket_addr().is_some_and(conflicts));
+                if freed {
+                    self.stop_websocket().await;
                 }
-                let freed = current
-                    .is_some_and(|c| crate::config::check::binds_conflict(c.listen, n.listen));
                 match bind_ws_with_retry(n, if freed { FREED_TRIES } else { 1 }).await {
                     Ok(l) => {
+                        self.stop_websocket().await;
                         let t = WsTask::start(&self.shared, l);
                         info!("websocket listener now on {}", t.listener.url_hint());
                         self.websocket = Some(t);
+                        Some(n.clone())
                     }
-                    Err(f) => error!("{}", f.message),
+                    Err(f) => self.keep_websocket(current, freed, &f.message).await,
                 }
             }
             (None, _) => {
@@ -824,6 +837,50 @@ impl Server {
                     old.task.abort();
                     info!("websocket listener stopped");
                 }
+                None
+            }
+        }
+    }
+
+    async fn stop_websocket(&mut self) {
+        if let Some(old) = self.websocket.take() {
+            old.task.abort();
+            let _ = old.task.await;
+        }
+    }
+
+    async fn keep_websocket(
+        &mut self,
+        current: Option<&WebSocketSettings>,
+        freed: bool,
+        why: &str,
+    ) -> Option<WebSocketSettings> {
+        let Some(c) = current.filter(|_| freed || self.websocket.is_some()) else {
+            error!("{why}; websocket stays off");
+            return None;
+        };
+        if !freed {
+            error!(
+                "{why}; websocket stays on {}",
+                self.websocket
+                    .as_ref()
+                    .map_or_else(String::new, |t| t.listener.url_hint())
+            );
+            return Some(c.clone());
+        }
+        match bind_ws_with_retry(c, FREED_TRIES).await {
+            Ok(l) => {
+                let t = WsTask::start(&self.shared, l);
+                error!("{why}; websocket stays on {}", t.listener.url_hint());
+                self.websocket = Some(t);
+                Some(c.clone())
+            }
+            Err(f) => {
+                error!(
+                    "{why}, and its previous address is no longer free either ({}); websocket clients cannot connect until the config is fixed or the server restarts",
+                    f.message
+                );
+                None
             }
         }
     }
