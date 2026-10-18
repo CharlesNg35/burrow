@@ -284,7 +284,31 @@ pub fn run(opts: &Options, out: &mut dyn Write) -> Result<u8, Failure> {
         return Ok(0);
     }
     if let Some(line) = current.filter(|_| !opts.force) {
-        say(out, format!("{line}, nothing to do"))?;
+        let me = service::this_binary()?;
+        let installed = service::all_manifests();
+        let behind: Vec<&Manifest> = installed
+            .iter()
+            .filter(|m| m.copied_binary && m.binary != me)
+            .filter(|m| service::binary_version(&m.binary) != mine)
+            .collect();
+        if behind.is_empty() {
+            say(out, format!("{line}, nothing to do"))?;
+        } else if service::is_admin() {
+            say(
+                out,
+                format!("{line}; the installed services run another version"),
+            )?;
+            service::update_from(&me, mine, None, false, out)?;
+        } else {
+            say(
+                out,
+                format!(
+                    "{line}, but the installed services run {}; update them with: {}",
+                    service::binary_version(&behind[0].binary),
+                    update_services_with(&me)
+                ),
+            )?;
+        }
         return Ok(0);
     }
 
@@ -367,11 +391,20 @@ pub fn run(opts: &Options, out: &mut dyn Write) -> Result<u8, Failure> {
             format!(
                 "the installed services still use {}; update them with: {}",
                 managed[0].binary.display(),
-                admin("service update")
+                update_services_with(&me)
             ),
         )?;
     }
     Ok(0)
+}
+
+fn update_services_with(me: &Path) -> String {
+    let me = crate::failure::path_arg(me);
+    if cfg!(windows) {
+        format!("{me} service update (as administrator)")
+    } else {
+        format!("sudo {me} service update")
+    }
 }
 
 fn hex(bytes: &[u8]) -> String {
