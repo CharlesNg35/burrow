@@ -246,7 +246,8 @@ fn tuning(t: &TcpOptions) -> SocketTuning {
 pub(crate) fn binds_conflict(a: SocketAddr, b: SocketAddr) -> bool {
     let covers =
         |x: SocketAddr, y: SocketAddr| x.ip().is_unspecified() && (x.is_ipv6() || y.is_ipv4());
-    a.port() == b.port() && (a.ip() == b.ip() || covers(a, b) || covers(b, a))
+    a.port() == b.port()
+        && (a.ip().to_canonical() == b.ip().to_canonical() || covers(a, b) || covers(b, a))
 }
 
 fn parse_bind(bind: &Bind) -> Result<SocketAddr, String> {
@@ -291,6 +292,13 @@ mod tests {
         assert!(parse_host_port("bad host:1").is_err());
         assert!(parse_host_port("[127.0.0.1]:80").is_err());
         assert!(parse_host_port("[localhost]:80").is_err());
+    }
+
+    #[test]
+    fn a_mapped_ipv4_bind_is_the_same_address_as_plain_ipv4() {
+        let at = |s: &str| s.parse::<SocketAddr>().unwrap();
+        assert!(binds_conflict(at("[::ffff:127.0.0.1]:4000"), at("127.0.0.1:4000")));
+        assert!(!binds_conflict(at("[::ffff:127.0.0.1]:4000"), at("127.0.0.2:4000")));
     }
 
     #[test]
