@@ -31,7 +31,7 @@ impl Slots {
         }
     }
 
-    async fn wait(&self, patience: Duration) -> Option<tokio::sync::OwnedSemaphorePermit> {
+    async fn wait(&self, patience: Duration) -> Result<tokio::sync::OwnedSemaphorePermit, bool> {
         let acquire = self.free.clone().acquire_owned();
         tokio::pin!(acquire);
         let deadline = tokio::time::Instant::now() + patience * 4;
@@ -40,11 +40,13 @@ impl Slots {
             let window =
                 patience.min(deadline.saturating_duration_since(tokio::time::Instant::now()));
             match tokio::time::timeout(window, &mut acquire).await {
-                Ok(permit) => return permit.ok(),
-                Err(_)
-                    if self.opened.load(std::sync::atomic::Ordering::Relaxed) != seen
-                        && tokio::time::Instant::now() < deadline => {}
-                Err(_) => return None,
+                Ok(permit) => return permit.map_err(|_| false),
+                Err(_) if self.opened.load(std::sync::atomic::Ordering::Relaxed) != seen => {
+                    if tokio::time::Instant::now() >= deadline {
+                        return Err(true);
+                    }
+                }
+                Err(_) => return Err(false),
             }
         }
     }
@@ -252,18 +254,29 @@ pub(super) async fn visit(
     let started = tokio::time::Instant::now();
     let mut backoff = Backoff::new(Duration::from_millis(100), Duration::from_secs(1));
     let answer = loop {
-        let Some(permit) = opening.wait(OPEN_PATIENCE + settings.connect_timeout).await else {
-            if socks {
-                let _ = socks::reply(&mut stream, Reply::NetworkUnreachable).await;
+        let patience = OPEN_PATIENCE + settings.connect_timeout;
+        let permit = match opening.wait(patience).await {
+            Ok(permit) => permit,
+            Err(queued) => {
+                if socks {
+                    let _ = socks::reply(&mut stream, Reply::NetworkUnreachable).await;
+                }
+                static BUSY: Throttle = Throttle::new();
+                if let Some(more) = BUSY.allow() {
+                    if queued {
+                        warn!(
+                            "forward \"{name}\": closing a connection that waited {}s in line: new connections arrive faster than the server accepts them{more}",
+                            (patience * 4).as_secs()
+                        );
+                    } else {
+                        warn!(
+                            "forward \"{name}\": closing a connection that waited {}s without the server answering any dial{more}",
+                            patience.as_secs()
+                        );
+                    }
+                }
+                return;
             }
-            static BUSY: Throttle = Throttle::new();
-            if let Some(more) = BUSY.allow() {
-                warn!(
-                    "forward \"{name}\": closing a connection that waited {}s without the server answering any dial{more}",
-                    (OPEN_PATIENCE + settings.connect_timeout).as_secs()
-                );
-            }
-            return;
         };
         let ch = dialer
             .open(ChannelKind::Visit, Hello::Visit { version: VERSION })
@@ -351,8 +364,11 @@ mod tests {
             busy.free.add_permits(1);
         });
         let held = slots.wait(Duration::from_millis(300)).await;
-        assert!(held.is_some());
-        assert!(slots.wait(Duration::from_millis(300)).await.is_none());
+        assert!(held.is_ok());
+        assert_eq!(
+            slots.wait(Duration::from_millis(300)).await.err(),
+            Some(false)
+        );
     }
 
     #[tokio::test]
@@ -367,7 +383,10 @@ mod tests {
             }
         });
         let started = std::time::Instant::now();
-        assert!(slots.wait(Duration::from_millis(200)).await.is_none());
+        assert_eq!(
+            slots.wait(Duration::from_millis(200)).await.err(),
+            Some(true)
+        );
         assert!(started.elapsed() < Duration::from_millis(1500));
         progress.abort();
     }
