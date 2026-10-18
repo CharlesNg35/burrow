@@ -291,13 +291,12 @@ pub fn run(opts: &Options, out: &mut dyn Write) -> Result<u8, Failure> {
         let installed = service::all_manifests();
         let behind: Vec<&Manifest> = installed
             .iter()
-            .filter(|_| theirs == ours)
             .filter(|m| m.copied_binary && m.binary != me)
             .filter(|m| version_of(&service::binary_version(&m.binary)).is_ok_and(|v| v < ours))
             .collect();
         if behind.is_empty() {
             say(out, format!("{line}, nothing to do"))?;
-        } else if service::is_admin() {
+        } else if theirs == ours && service::is_admin() {
             say(
                 out,
                 format!("{line}; the installed services run an older version"),
