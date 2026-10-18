@@ -354,7 +354,15 @@ pub fn acquire_in(dir: &Path, identity: &Identity, config: &Path) -> Result<Inst
         ))
         .hint("burrow keeps a small lock file there so the same tunnel cannot run twice"));
     }
-    let (file, writable) = match open_shared(&path) {
+    let opened = match open_shared(&path) {
+        Err(_) if extra_links(&path) => match replace_linked(&path) {
+            Ok(Some(opened)) => Ok(opened),
+            Ok(None) => return Err(already_running(identity, &path)),
+            Err(e) => Err(e),
+        },
+        other => other,
+    };
+    let (file, writable) = match opened {
         Ok(opened) => opened,
         Err(_) if planted(&path) => return Ok(unlocked(&path, &path)),
         Err(_) if planted(dir) => return Ok(unlocked(dir, &path)),
@@ -476,6 +484,29 @@ fn no_follow(o: &mut OpenOptions) -> &mut OpenOptions {
         o.custom_flags(libc::O_NOFOLLOW);
     }
     o
+}
+
+#[cfg(unix)]
+fn extra_links(path: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    std::fs::symlink_metadata(path).is_ok_and(|m| m.is_file() && m.nlink() > 1)
+}
+
+#[cfg(not(unix))]
+fn extra_links(_path: &Path) -> bool {
+    false
+}
+
+fn replace_linked(path: &Path) -> std::io::Result<Option<(File, bool)>> {
+    let old = no_follow(OpenOptions::new().read(true)).open(path)?;
+    match old.try_lock() {
+        Ok(()) => {}
+        Err(TryLockError::WouldBlock) if held_by_a_trusted_instance(path) => return Ok(None),
+        Err(TryLockError::WouldBlock) => {}
+        Err(TryLockError::Error(e)) => return Err(e),
+    }
+    std::fs::remove_file(path)?;
+    open_shared(path).map(Some)
 }
 
 fn single_file(f: File) -> std::io::Result<File> {
@@ -759,6 +790,35 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn a_hard_link_to_the_lock_cannot_keep_an_instance_from_starting() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = dir.path().join("server.yaml");
+        let id = Identity::server(&cfg);
+        let held = acquire_in(dir.path(), &id, &cfg).unwrap();
+        let lock = held.path().to_path_buf();
+        std::fs::hard_link(&lock, dir.path().join("planted")).unwrap();
+        let again = acquire_in(dir.path(), &id, &cfg).err().unwrap();
+        assert!(
+            again.message.contains("already running"),
+            "{}",
+            again.message
+        );
+        drop(held);
+        let restarted = acquire_in(dir.path(), &id, &cfg).unwrap();
+        use std::os::unix::fs::MetadataExt;
+        assert_eq!(std::fs::metadata(restarted.path()).unwrap().nlink(), 1);
+        let planted = std::fs::File::open(dir.path().join("planted")).unwrap();
+        planted.try_lock().unwrap();
+        drop(restarted);
+        let ignored = acquire_in(dir.path(), &id, &cfg);
+        assert!(
+            ignored.is_ok(),
+            "an outsider holding the old file must not lock it out"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn running_instances_are_read_from_their_notes() {
         let dir = tempfile::tempdir().unwrap();
         let cfg = dir.path().join("client.yaml");
@@ -967,8 +1027,12 @@ mod tests {
         std::fs::remove_file(&lock).unwrap();
 
         std::fs::hard_link(&victim, &lock).unwrap();
-        assert!(acquire_in(dir.path(), &id, &cfg).is_err());
+        let replaced = acquire_in(dir.path(), &id, &cfg).unwrap();
+        assert_eq!(std::fs::read_to_string(&victim).unwrap(), "keep");
+        assert_eq!(std::fs::read_to_string(&lock).unwrap(), "");
+        drop(replaced);
         std::fs::remove_file(&lock).unwrap();
+        let _ = std::fs::remove_file(lock.with_extension("info"));
 
         std::os::unix::fs::symlink(&victim, lock.with_extension("info")).unwrap();
         let held = acquire_in(dir.path(), &id, &cfg).unwrap();
