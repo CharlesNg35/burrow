@@ -27,6 +27,7 @@ const IDLE_CHANNEL_LIMIT: Duration = Duration::from_secs(90);
 
 struct Peer {
     sock: Arc<UdpSocket>,
+    to: SocketAddr,
     seen: Arc<AtomicU64>,
     task: tokio::task::AbortHandle,
     _slot: Slot,
@@ -664,29 +665,37 @@ async fn udp(
         let Ok((id, payload)) = decode_datagram(rec) else {
             break;
         };
-        let existing = peers.lock().expect("peers lock").get(&id).map(|p| {
-            p.seen
-                .store(epoch.elapsed().as_millis() as u64, Ordering::Relaxed);
-            (p.sock.clone(), p.seen.clone())
-        });
+        let (target, at) = *resolved.lock().expect("resolved lock");
+        if at.elapsed() >= RESOLVE_AGAIN && !resolving.swap(true, Ordering::AcqRel) {
+            let (live, resolver, connect) = (live.clone(), resolver.clone(), connect.clone());
+            let (resolved, resolving) = (resolved.clone(), resolving.clone());
+            tokio::spawn(async move {
+                let found = permitted(&live.settings(), &resolver, &connect).await;
+                let mut current = resolved.lock().expect("resolved lock");
+                *current = match found {
+                    Ok(addrs) if addrs.contains(&current.0) => (current.0, Instant::now()),
+                    Ok(addrs) => (preferred(&addrs), Instant::now()),
+                    Err(_) => (current.0, Instant::now()),
+                };
+                resolving.store(false, Ordering::Release);
+            });
+        }
+        let existing = {
+            let mut map = peers.lock().expect("peers lock");
+            if map.get(&id).is_some_and(|p| p.to != target)
+                && let Some(moved) = map.remove(&id)
+            {
+                moved.task.abort();
+            }
+            map.get(&id).map(|p| {
+                p.seen
+                    .store(epoch.elapsed().as_millis() as u64, Ordering::Relaxed);
+                (p.sock.clone(), p.seen.clone())
+            })
+        };
         let (sock, seen) = match existing {
             Some(p) => p,
             None => {
-                let (target, at) = *resolved.lock().expect("resolved lock");
-                if at.elapsed() >= RESOLVE_AGAIN && !resolving.swap(true, Ordering::AcqRel) {
-                    let (live, resolver, connect) =
-                        (live.clone(), resolver.clone(), connect.clone());
-                    let (resolved, resolving) = (resolved.clone(), resolving.clone());
-                    tokio::spawn(async move {
-                        let found = permitted(&live.settings(), &resolver, &connect).await;
-                        let mut current = resolved.lock().expect("resolved lock");
-                        *current = match found {
-                            Ok(addrs) => (preferred(&addrs), Instant::now()),
-                            Err(_) => (current.0, Instant::now()),
-                        };
-                        resolving.store(false, Ordering::Release);
-                    });
-                }
                 if peers.lock().expect("peers lock").len() >= MAX_PEERS {
                     static FULL: Throttle = Throttle::new();
                     if let Some(more) = FULL.allow() {
@@ -733,6 +742,7 @@ async fn udp(
                     id,
                     Peer {
                         sock: sock.clone(),
+                        to: target,
                         seen: seen.clone(),
                         task: task.abort_handle(),
                         _slot: slot,

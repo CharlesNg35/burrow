@@ -1205,3 +1205,106 @@ async fn a_health_probe_given_up_in_plaintext_leaves_no_target_connection_behind
         "the client still holds target connections for probes the server gave up"
     );
 }
+
+struct Moving(SocketAddr, SocketAddr, Arc<std::sync::atomic::AtomicBool>);
+
+impl burrow::transport::resolve::Resolver for Moving {
+    fn resolve<'a>(&'a self, host_port: &'a str) -> burrow::transport::resolve::Resolved<'a> {
+        Box::pin(async move {
+            if !host_port.starts_with("app.test:") {
+                return burrow::transport::resolve::resolve(host_port).await;
+            }
+            if self.2.load(std::sync::atomic::Ordering::Relaxed) {
+                Ok(vec![self.1])
+            } else {
+                Ok(vec![self.0])
+            }
+        })
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_steady_udp_sender_follows_its_target_to_a_new_address() {
+    let (ea, eb) = (tagged_udp_echo(b'A').await, tagged_udp_echo(b'B').await);
+    let secret = Secret::generate();
+    let mut settings = server_settings(vec![secret.clone()]);
+    let app = Service {
+        target: "app.test:53".into(),
+        ..service(ea, Protocol::Udp)
+    };
+    settings.services.insert("app".into(), app);
+    let server = start_server(settings).await;
+    let moved = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let c = client_settings(server.addr, secret);
+    let client = burrow::client::Client::new(over_transport(c))
+        .with_resolver(Arc::new(Moving(ea, eb, moved.clone())));
+    let mut running = start_client_with(client).await;
+    wait_state(&mut running.state, burrow::client::State::Connected).await;
+    let sock = udp_bind().await;
+    sock.connect(server.services["app"]).await.unwrap();
+    let mut first = None;
+    for _ in 0..20 {
+        first = udp_tag(&sock).await;
+        if first.is_some() {
+            break;
+        }
+    }
+    assert_eq!(first, Some(b'A'));
+    moved.store(true, std::sync::atomic::Ordering::Relaxed);
+    let started = std::time::Instant::now();
+    let mut now = first;
+    while started.elapsed() < Duration::from_secs(45) && now != Some(b'B') {
+        now = udp_tag(&sock).await.or(now);
+    }
+    assert_eq!(
+        now,
+        Some(b'B'),
+        "a sender that never paused stayed on the address its target left"
+    );
+}
+
+struct Rotating(SocketAddr, SocketAddr, std::sync::atomic::AtomicUsize);
+
+impl burrow::transport::resolve::Resolver for Rotating {
+    fn resolve<'a>(&'a self, host_port: &'a str) -> burrow::transport::resolve::Resolved<'a> {
+        Box::pin(async move {
+            if !host_port.starts_with("app.test:") {
+                return burrow::transport::resolve::resolve(host_port).await;
+            }
+            if self.2.fetch_add(1, std::sync::atomic::Ordering::Relaxed).is_multiple_of(2) {
+                Ok(vec![self.0, self.1])
+            } else {
+                Ok(vec![self.1, self.0])
+            }
+        })
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_steady_udp_sender_stays_put_while_round_robin_dns_rotates() {
+    let (ea, eb) = (tagged_udp_echo(b'A').await, tagged_udp_echo(b'B').await);
+    let secret = Secret::generate();
+    let mut settings = server_settings(vec![secret.clone()]);
+    let app = Service {
+        target: "app.test:53".into(),
+        ..service(ea, Protocol::Udp)
+    };
+    settings.services.insert("app".into(), app);
+    let server = start_server(settings).await;
+    let c = client_settings(server.addr, secret);
+    let client = burrow::client::Client::new(over_transport(c)).with_resolver(Arc::new(
+        Rotating(ea, eb, std::sync::atomic::AtomicUsize::new(0)),
+    ));
+    let mut running = start_client_with(client).await;
+    wait_state(&mut running.state, burrow::client::State::Connected).await;
+    let sock = udp_bind().await;
+    sock.connect(server.services["app"]).await.unwrap();
+    let mut tags = std::collections::BTreeSet::new();
+    let started = std::time::Instant::now();
+    while started.elapsed() < Duration::from_secs(40) {
+        if let Some(t) = udp_tag(&sock).await {
+            tags.insert(t);
+        }
+    }
+    assert_eq!(tags.len(), 1, "a steady sender moved between addresses: {tags:?}");
+}
