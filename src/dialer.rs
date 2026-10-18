@@ -151,11 +151,16 @@ impl Dialer {
         )
         .await
         .map_err(|e| {
-            DialError::Unreachable(format!(
+            let why = format!(
                 "server unreachable at {}{via} ({})",
                 self.server,
                 io_reason(&e)
-            ))
+            );
+            if e.kind() == std::io::ErrorKind::ConnectionAborted {
+                DialError::Lost(why)
+            } else {
+                DialError::Unreachable(why)
+            }
         })?;
         tune(&stream, &self.tcp);
         let peer = self

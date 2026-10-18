@@ -52,7 +52,9 @@ pub async fn dial_tcp_ordered(
                 }
             })
             .await
-            .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "proxy handshake timed out"))??;
+            .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "proxy handshake timed out"))
+            .and_then(|r| r)
+            .map_err(|e| io::Error::new(io::ErrorKind::ConnectionAborted, e.to_string()))?;
             Ok(s)
         }
     }
