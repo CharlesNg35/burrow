@@ -90,7 +90,19 @@ impl<'a> Tries<'a> {
                     self.active = Some(active);
                     return Some((session, ch));
                 }
-                Err(status) => self.last = Outcome::Unavailable(status),
+                Err(status) => {
+                    if self.way.several
+                        && let Some(service) = self.way.service
+                    {
+                        self.shared.troubled(
+                            service,
+                            &session,
+                            self.way.target,
+                            &crate::forward::no_reply(),
+                        );
+                    }
+                    self.last = Outcome::Unavailable(status);
+                }
             }
         }
         None
