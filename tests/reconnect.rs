@@ -159,3 +159,26 @@ async fn a_busy_server_is_not_taken_for_a_wrong_secret() {
     drop(hog);
     wait_state(&mut cli.state, State::Connected).await;
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_second_machine_with_the_same_name_does_not_take_over() {
+    let echo = echo_server().await;
+    let t = tunnel(vec![("web", service(echo, Protocol::Tcp))]).await;
+    let web = t.server.services["web"];
+    let mut open = open_echo(web).await;
+    let first = t.server.shared.status().clients[0].from.clone();
+    let mut copy = start_client(client_settings(t.server.addr, t.secret.clone())).await;
+    let state = copy.state.clone();
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    assert_eq!(*state.borrow(), State::Connecting, "the copy got in");
+    assert_eq!(*t.client.state.borrow(), State::Connected);
+    assert_eq!(t.server.shared.status().clients[0].from, first);
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    open.write_all(b"ping").await.unwrap();
+    let mut back = [0u8; 4];
+    open.read_exact(&mut back).await.unwrap();
+    assert_eq!(&back, b"ping");
+    assert_eq!(roundtrip(web, b"still").await, b"still");
+    t.client.stop.send(true).unwrap();
+    wait_state(&mut copy.state, State::Connected).await;
+}

@@ -208,9 +208,17 @@ fn proto_from(b: u8) -> Result<Protocol, DecodeError> {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Hello {
-    Control { version: u8 },
-    Data { version: u8, token: [u8; TOKEN_LEN] },
-    Visit { version: u8 },
+    Control {
+        version: u8,
+        instance: [u8; TOKEN_LEN],
+    },
+    Data {
+        version: u8,
+        token: [u8; TOKEN_LEN],
+    },
+    Visit {
+        version: u8,
+    },
 }
 
 impl Hello {
@@ -224,7 +232,11 @@ impl Hello {
 
     pub fn encode(&self) -> Vec<u8> {
         match self {
-            Hello::Control { version } => vec![1, *version],
+            Hello::Control { version, instance } => {
+                let mut v = vec![1, *version];
+                v.extend_from_slice(instance);
+                v
+            }
             Hello::Data { version, token } => {
                 let mut v = vec![2, *version];
                 v.extend_from_slice(token);
@@ -237,7 +249,10 @@ impl Hello {
     pub fn decode(b: &[u8]) -> Result<Self, DecodeError> {
         let mut r = Reader { buf: b };
         let h = match r.u8()? {
-            1 => Hello::Control { version: r.u8()? },
+            1 => Hello::Control {
+                version: r.u8()?,
+                instance: r.token()?,
+            },
             2 => Hello::Data {
                 version: r.u8()?,
                 token: r.token()?,
@@ -282,6 +297,7 @@ pub enum ByeReason {
     Removed = 3,
     Timeout = 4,
     PlaintextMismatch = 5,
+    Duplicate = 6,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -361,6 +377,7 @@ impl ServerMsg {
                     3 => ByeReason::Removed,
                     4 => ByeReason::Timeout,
                     5 => ByeReason::PlaintextMismatch,
+                    6 => ByeReason::Duplicate,
                     x => return Err(DecodeError::UnknownType(x)),
                 },
             },
@@ -883,7 +900,13 @@ mod tests {
             );
         }
         for (hello, wire) in [
-            (Hello::Control { version: 1 }, "0101"),
+            (
+                Hello::Control {
+                    version: 1,
+                    instance: [9; 16],
+                },
+                "010109090909090909090909090909090909",
+            ),
             (
                 Hello::Data {
                     version: 1,

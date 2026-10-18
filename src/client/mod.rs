@@ -56,6 +56,7 @@ pub struct Client {
     halt: watch::Sender<bool>,
     outage: Arc<Mutex<Outage>>,
     reloads: Option<mpsc::Receiver<ClientSettings>>,
+    instance: [u8; crate::protocol::TOKEN_LEN],
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -106,6 +107,11 @@ impl Client {
             halt: watch::Sender::new(false),
             outage: Arc::new(Mutex::new(Outage::default())),
             reloads: None,
+            instance: {
+                let mut id = [0u8; crate::protocol::TOKEN_LEN];
+                getrandom::fill(&mut id).expect("operating system random source is available");
+                id
+            },
         }
     }
 
@@ -293,7 +299,13 @@ impl Client {
     async fn session(&self) -> SessionEnd {
         let s = self.live.settings();
         let ch = match self
-            .open(ChannelKind::Control, Hello::Control { version: VERSION })
+            .open(
+                ChannelKind::Control,
+                Hello::Control {
+                    version: VERSION,
+                    instance: self.instance,
+                },
+            )
             .await
         {
             Ok(c) => c,
@@ -440,6 +452,7 @@ impl Client {
             halt: self.halt.clone(),
             outage: self.outage.clone(),
             reloads: None,
+            instance: self.instance,
         };
         let mut halted = self.halt.subscribe();
         tokio::spawn(async move {
@@ -502,6 +515,10 @@ fn bye(reason: ByeReason) -> SessionEnd {
         ),
         ByeReason::Removed => SessionEnd::Removed,
         ByeReason::Timeout => SessionEnd::Lost("server timed out this connection".into()),
+        ByeReason::Duplicate => SessionEnd::Lost(
+            "the server already has a client with this name connected from elsewhere; is a copy of this config running on another machine? this one keeps trying and takes over when the other leaves"
+                .into(),
+        ),
         ByeReason::PlaintextMismatch => SessionEnd::Lost(
             "server and client disagree on insecure_plaintext (set it the same on both sides)"
                 .into(),

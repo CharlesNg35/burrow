@@ -36,6 +36,7 @@ pub struct ClientSession {
     pub token: [u8; TOKEN_LEN],
     pub control: mpsc::Sender<ServerMsg>,
     pub secret: Secret,
+    pub instance: [u8; TOKEN_LEN],
     pool: Mutex<Pool>,
     closed: watch::Sender<bool>,
     allow: Mutex<Option<Vec<String>>>,
@@ -57,6 +58,7 @@ impl ClientSession {
         token: [u8; TOKEN_LEN],
         control: mpsc::Sender<ServerMsg>,
         secret: Secret,
+        instance: [u8; TOKEN_LEN],
         cfg: &PoolConfig,
     ) -> Self {
         let now = Instant::now();
@@ -67,6 +69,7 @@ impl ClientSession {
             token,
             control,
             secret,
+            instance,
             closed: watch::Sender::new(false),
             allow: Mutex::new(None),
             pool: Mutex::new(Pool {

@@ -269,9 +269,17 @@ async fn silent_client_is_closed_after_heartbeat_timeout() {
         plaintext: false,
         name: "home".into(),
     };
-    let mut ch = burrow::handshake::initiate(s.into(), &p, &secret, &Hello::Control { version: 1 })
-        .await
-        .expect("handshake");
+    let mut ch = burrow::handshake::initiate(
+        s.into(),
+        &p,
+        &secret,
+        &Hello::Control {
+            version: 1,
+            instance: [1; 16],
+        },
+    )
+    .await
+    .expect("handshake");
     let shared = srv.shared.clone();
     wait_for(|| shared.session_names().len() == 1).await;
     let start = Instant::now();
@@ -301,8 +309,20 @@ async fn hello_must_match_the_channel_kind() {
     let secret = Secret::generate();
     let srv = start_server(server_settings(vec![secret.clone()])).await;
     for (kind, hello) in [
-        (ChannelKind::Visit, Hello::Control { version: 1 }),
-        (ChannelKind::Data, Hello::Control { version: 1 }),
+        (
+            ChannelKind::Visit,
+            Hello::Control {
+                version: 1,
+                instance: [1; 16],
+            },
+        ),
+        (
+            ChannelKind::Data,
+            Hello::Control {
+                version: 1,
+                instance: [1; 16],
+            },
+        ),
         (ChannelKind::Control, Hello::Visit { version: 1 }),
     ] {
         let s = TcpStream::connect(srv.addr).await.unwrap();

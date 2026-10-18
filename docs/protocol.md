@@ -74,25 +74,25 @@ The ciphertext is a Noise transport message (plaintext + 16-byte tag). Each dire
 
 ## 6. Hello (client → server, first record)
 
-| type    | bytes                     |
-| ------- | ------------------------- |
-| control | `01 version:u8`           |
-| data    | `02 version:u8 token[16]` |
-| visit   | `03 version:u8`           |
+| type    | bytes                        |
+| ------- | ---------------------------- |
+| control | `01 version:u8 instance[16]` |
+| data    | `02 version:u8 token[16]`    |
+| visit   | `03 version:u8`              |
 
-The hello type must match the preamble kind; any other pairing is closed. On the server the hello is read with a fixed 256-byte limit. `version` is 1. `token` is the session token from the current control channel's Welcome. A data channel with an unknown or stale token is closed.
+The hello type must match the preamble kind; any other pairing is closed. On the server the hello is read with a fixed 256-byte limit. `version` is 1. `instance` is random and stays the same for the life of a client process. `token` is the session token from the current control channel's Welcome. A data channel with an unknown or stale token is closed.
 
 ## 7. Control messages
 
 Server → client (one message per record):
 
-| id  | message  | body                                                                                     |
-| --- | -------- | ---------------------------------------------------------------------------------------- |
-| 1   | Welcome  | `token[16] heartbeat_secs:u16`                                                           |
-| 2   | Services | `count:u16` then per service `name:str8 protocol:u8 bind_port:u16 target:str8 ports:u16` |
-| 3   | Ping     | (none)                                                                                   |
-| 4   | OpenData | `count:u16`: open this many data channels                                                |
-| 5   | Bye      | `reason:u8` (1 shutdown, 2 replaced, 3 removed, 4 timeout, 5 plaintext mismatch)         |
+| id  | message  | body                                                                                          |
+| --- | -------- | --------------------------------------------------------------------------------------------- |
+| 1   | Welcome  | `token[16] heartbeat_secs:u16`                                                                |
+| 2   | Services | `count:u16` then per service `name:str8 protocol:u8 bind_port:u16 target:str8 ports:u16`      |
+| 3   | Ping     | (none)                                                                                        |
+| 4   | OpenData | `count:u16`: open this many data channels                                                     |
+| 5   | Bye      | `reason:u8` (1 shutdown, 2 replaced, 3 removed, 4 timeout, 5 plaintext mismatch, 6 duplicate) |
 
 Client → server:
 
@@ -107,7 +107,7 @@ A client sends Allow once after Welcome; the server keeps it for the session and
 
 Heartbeat: the server sends Ping every `heartbeat.interval_secs`, and the client answers Pong. Each side drops the channel after 3 intervals without receiving anything. The client learns the interval from Welcome, so the two sides cannot disagree.
 
-A second control channel for the same name replaces the first (`Bye replaced`). If `insecure_plaintext` differs between the two sides, the server authenticates first and then sends `Bye plaintext mismatch`, so the client can print an exact reason.
+A second control channel for the same name with the same `instance` replaces the first (`Bye replaced`), so a client that reconnects is not kept out by its own stale session. One with another `instance` is refused with `Bye duplicate` while the first is connected, so two machines with the same config do not take the name from each other. If `insecure_plaintext` differs between the two sides, the server authenticates first and then sends `Bye plaintext mismatch`, so the client can print an exact reason.
 
 ## 8. Data channels
 

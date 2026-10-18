@@ -9,7 +9,12 @@ use super::{ClientSession, Shared, TICK};
 use crate::handshake::Accepted;
 use crate::protocol::{ByeReason, ClientMsg, ServerMsg, TOKEN_LEN};
 
-pub(super) async fn control_session(shared: Arc<Shared>, acc: Accepted, peer: SocketAddr) {
+pub(super) async fn control_session(
+    shared: Arc<Shared>,
+    acc: Accepted,
+    peer: SocketAddr,
+    instance: [u8; TOKEN_LEN],
+) {
     let Accepted {
         preamble,
         channel,
@@ -48,13 +53,37 @@ pub(super) async fn control_session(shared: Arc<Shared>, acc: Accepted, peer: So
         token,
         tx,
         secret,
+        instance,
         &Shared::pool_config(&settings),
     ));
-    let old = shared
-        .sessions
-        .lock()
-        .expect("sessions lock")
-        .insert(name.clone(), session.clone());
+    let taken = {
+        let mut sessions = shared.sessions.lock().expect("sessions lock");
+        match sessions.get(&name) {
+            Some(other) if other.instance != instance => Err(other.peer),
+            _ => Ok(sessions.insert(name.clone(), session.clone())),
+        }
+    };
+    let old = match taken {
+        Ok(old) => old,
+        Err(other) => {
+            static TWICE: crate::throttle::Throttle = crate::throttle::Throttle::new();
+            if let Some(more) = TWICE.allow() {
+                warn!(
+                    "client \"{name}\" from {peer} refused: a client with that name is already connected from {other}; two machines may be using the same config{more}"
+                );
+            }
+            let _ = writer
+                .send(
+                    &mut wr,
+                    &ServerMsg::Bye {
+                        reason: ByeReason::Duplicate,
+                    }
+                    .encode(),
+                )
+                .await;
+            return;
+        }
+    };
     if let Some(old) = old {
         warn!("client \"{name}\" connected again from {peer}; closing its previous connection");
         let _ = old.control.try_send(ServerMsg::Bye {

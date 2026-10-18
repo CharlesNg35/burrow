@@ -382,6 +382,15 @@ async fn path_change_swaps_the_route_without_dropping_clients() {
     let port_addr = free.local_addr().unwrap();
     drop(free);
     let mut s = ws_server(&secret, "/one", None);
+    for name in ["office", "lab"] {
+        s.clients.insert(
+            name.into(),
+            burrow::config::settings::ClientAuth {
+                secrets: vec![secret.clone()],
+                max_connections: None,
+            },
+        );
+    }
     s.websocket.as_mut().unwrap().listen = port_addr;
     s.services
         .insert("web".into(), service(echo, Protocol::Tcp));
@@ -407,14 +416,14 @@ async fn path_change_swaps_the_route_without_dropping_clients() {
         roundtrip(srv.services["web"], b"same socket").await,
         b"same socket"
     );
-    let mut second = start_client(ws_client(
-        &format!("ws://{port_addr}/two"),
-        secret.clone(),
-        None,
-    ))
-    .await;
+    let named = |name: &str, path: &str| {
+        let mut c = ws_client(&format!("ws://{port_addr}{path}"), secret.clone(), None);
+        c.name = name.into();
+        c
+    };
+    let mut second = start_client(named("office", "/two")).await;
     wait_state(&mut second.state, State::Connected).await;
-    let old_path = start_client(ws_client(&format!("ws://{port_addr}/one"), secret, None)).await;
+    let old_path = start_client(named("lab", "/one")).await;
     tokio::time::sleep(Duration::from_millis(600)).await;
     assert_eq!(
         *old_path.state.borrow(),
@@ -532,11 +541,13 @@ async fn a_move_to_a_busy_port_keeps_the_listener_and_retries_on_the_next_reload
     moved.websocket.as_mut().unwrap().listen = elsewhere;
     srv.reload(moved.clone()).await;
     tokio::time::sleep(Duration::from_millis(300)).await;
-    let _kept = connected(
+    let kept = connected(
         &srv,
         ws_client(&format!("ws://{ws}/burrow"), secret.clone(), None),
     )
     .await;
+    kept.stop.send(true).unwrap();
+    kept.task.await.unwrap();
     drop(busy);
     srv.reload(moved).await;
     tokio::time::sleep(Duration::from_millis(300)).await;

@@ -238,8 +238,8 @@ async fn authenticate(
     };
     let permit = (acc.preamble.kind == ChannelKind::Visit).then_some(permit);
     match (acc.preamble.kind, &acc.hello) {
-        (ChannelKind::Control, &Hello::Control { version }) if version == VERSION => {
-            control_session(shared, acc, peer).await
+        (ChannelKind::Control, &Hello::Control { version, instance }) if version == VERSION => {
+            control_session(shared, acc, peer, instance).await
         }
         (ChannelKind::Data, &Hello::Data { version, token }) if version == VERSION => {
             if acc.preamble.plaintext != settings.insecure_plaintext {
