@@ -57,9 +57,11 @@ Evidence from measurement (docs/benchmark.md): frp is the cleanest experiment, b
 
 Measured with `bench/run.sh` (burrow only, 2 runs each). Single-stream iperf3 through the tunnel: 8 KiB chunks 7.7 Gbit/s, 16 KiB 10.1, 32 KiB 12.2, 65519 B (largest Noise message) 12.8. With 4 streams: 23.0, 28.5, 32.8, 34.7. Small-message latency was unchanged (p50 61 µs in every case) because short reads are sealed from a 512-byte stack buffer. Big buffers exist only while data is flowing: a pump drops them when the socket has no data ready, so idle connections hold no large buffers.
 
-## D12. Allocator: system malloc, not mimalloc
+## D12. Allocator: system malloc, except on musl
 
-With mimalloc: throughput unchanged (12.6 vs 12.8 Gbit/s single stream), new connections per second +3% (14.1k vs 13.7k), but RSS with 10k idle connections rose from 167 MB to 273 MB. The cost outweighs the gain, so the dependency was removed.
+With mimalloc: throughput unchanged (12.6 vs 12.8 Gbit/s single stream), new connections per second +3% (14.1k vs 13.7k), but RSS with 10k idle connections rose from 167 MB to 273 MB. The cost outweighs the gain, so glibc, macOS, Windows and FreeBSD builds keep the system allocator.
+
+The release Linux binaries are static musl builds, and musl's mallocng fragments under connection churn: in a soak the RSS of a server grew from 6.3 to 16.2 MB in under 2 hours while its live heap stayed at about 1.4 MB. Musl builds therefore use jemalloc (x86_64, aarch64 with 64 KiB pages allowed, riscv64), and mimalloc on 32-bit ARM, where jemalloc does not build with zig. With them the same soak stays flat.
 
 ## D13. insecure_plaintext copy path
 
