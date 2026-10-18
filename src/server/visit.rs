@@ -132,10 +132,11 @@ impl Shared {
         grant: &Grant,
         client: &str,
     ) -> bool {
+        let checked_here = crate::config::check::unix::path_of(&grant.target).is_some()
+            || grant.target.parse::<SocketAddr>().is_ok();
         self.grant(visitor, secret, to, from).is_ok_and(|g| {
-            g.target == grant.target
-                && g.service == grant.service
-                && g.only == grant.only
+            g.service == grant.service
+                && (g.only.is_none() || g.only == grant.only || checked_here)
                 && g.clients.iter().any(|c| c == client)
         })
     }

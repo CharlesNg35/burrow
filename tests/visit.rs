@@ -651,3 +651,40 @@ async fn a_stopped_visitor_no_longer_listens() {
         "the port still accepts after the visitor stopped"
     );
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn widening_reach_keeps_open_visits() {
+    for wider in ["wider", "any"] {
+        let mut settings = None;
+        let s = setup(|srv, echo| {
+            srv.visitors.get_mut("laptop").unwrap().reach = [(
+                "home".to_string(),
+                narrowed(&[&format!("127.0.0.1/32:{}", echo.port())]),
+            )]
+            .into();
+            settings = Some(srv.clone());
+        })
+        .await;
+        let mut next = settings.unwrap();
+        let v = s.visitor(vec![("echo", s.reach())]);
+        let mut open = open_echo(v.addr("echo")).await;
+        next.visitors.get_mut("laptop").unwrap().reach = [(
+            "home".to_string(),
+            if wider == "any" {
+                AllowList::All
+            } else {
+                narrowed(&[&format!("127.0.0.1/32:{}", s.echo.port()), "10.0.0.0/8"])
+            },
+        )]
+        .into();
+        s.tunnel.server.reload(next).await;
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        open.write_all(b"ping").await.unwrap();
+        let mut back = [0u8; 4];
+        let got = tokio::time::timeout(Duration::from_secs(3), open.read_exact(&mut back)).await;
+        assert!(
+            matches!(got, Ok(Ok(_))) && &back == b"ping",
+            "{wider} reach cut an open visit"
+        );
+    }
+}
