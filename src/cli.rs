@@ -280,6 +280,8 @@ pub struct RunArgs {
         help = "Config file (.yaml, .yml or .json); found in the current folder when omitted"
     )]
     pub config: Option<PathBuf>,
+    #[arg(long, hide = true, value_name = "FILE")]
+    pub env_file: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]
@@ -292,6 +294,8 @@ pub struct VisitArgs {
     pub forward: Option<String>,
     #[arg(short, long, help = "Visitor config file; ./visitor.yaml when omitted")]
     pub config: Option<PathBuf>,
+    #[arg(long, hide = true, value_name = "FILE")]
+    pub env_file: Option<PathBuf>,
     #[arg(
         long,
         value_name = "NAME",

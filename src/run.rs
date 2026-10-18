@@ -81,7 +81,7 @@ impl EnvSource for Env {
 }
 
 pub struct Hosted {
-    pub stop: watch::Receiver<bool>,
+    pub stop: Option<watch::Receiver<bool>>,
     pub env: Env,
 }
 
@@ -175,17 +175,34 @@ fn stop_on_signal(external: Option<watch::Receiver<bool>>) -> watch::Receiver<bo
     rx
 }
 
-pub fn server(path: &Path, logging: Logging) -> Result<u8, Failure> {
-    server_until(path, logging, None)
+fn with_env(env: Env) -> Option<Hosted> {
+    Some(Hosted { stop: None, env })
 }
 
-pub fn client(path: &Path, logging: Logging) -> Result<u8, Failure> {
-    client_until(path, logging, None)
+pub fn server(path: &Path, logging: Logging, env: Env) -> Result<u8, Failure> {
+    server_until(path, logging, with_env(env))
 }
 
-pub fn visit(path: &Path, logging: Logging, pick: Pick) -> Result<u8, Failure> {
+pub fn client(path: &Path, logging: Logging, env: Env) -> Result<u8, Failure> {
+    client_until(path, logging, with_env(env))
+}
+
+pub fn visit(path: &Path, logging: Logging, pick: Pick, env: Env) -> Result<u8, Failure> {
     raise_open_files();
-    logged(&logging.clone(), run_visitor(path, logging, pick, None))
+    logged(&logging.clone(), run_visitor(path, logging, pick, with_env(env)))
+}
+
+pub fn env_file(path: &Path) -> Result<Env, Failure> {
+    let text = std::fs::read_to_string(path).map_err(|e| {
+        Failure::new(format!(
+            "cannot read {}: {}",
+            path.display(),
+            crate::failure::file_reason(&e)
+        ))
+    })?;
+    let vars: BTreeMap<String, String> = serde_json::from_str(&text)
+        .map_err(|e| Failure::new(format!("{} is not a burrow env file: {e}", path.display())))?;
+    Ok(Env::with(vars))
 }
 
 fn raise_open_files() {
@@ -240,7 +257,7 @@ pub fn client_until(path: &Path, logging: Logging, hosted: Option<Hosted>) -> Re
 
 fn split(hosted: Option<Hosted>) -> (Option<watch::Receiver<bool>>, Env) {
     match hosted {
-        Some(h) => (Some(h.stop), h.env),
+        Some(h) => (h.stop, h.env),
         None => (None, Env::default()),
     }
 }

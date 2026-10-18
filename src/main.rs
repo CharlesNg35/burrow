@@ -497,14 +497,24 @@ fn run(cli: Cli) -> Result<u8, Failure> {
         ),
         Command::Service { action } => service(action, logging),
         Command::Server(args) => {
-            burrow::run::server(&config_path(args.config, Some(Role::Server))?, logging)
+            let env = run_env(args.env_file.as_deref())?;
+            burrow::run::server(&config_path(args.config, Some(Role::Server))?, logging, env)
         }
         Command::Client(args) => {
-            burrow::run::client(&config_path(args.config, Some(Role::Client))?, logging)
+            let env = run_env(args.env_file.as_deref())?;
+            burrow::run::client(&config_path(args.config, Some(Role::Client))?, logging, env)
         }
         Command::Visit(args) => {
             let path = config_path(args.config.clone(), Some(Role::Visitor))?;
-            burrow::run::visit(&path, logging, visit_pick(args)?)
+            let env = run_env(args.env_file.as_deref())?;
+            burrow::run::visit(&path, logging, visit_pick(args)?, env)
         }
+    }
+}
+
+fn run_env(file: Option<&std::path::Path>) -> Result<burrow::run::Env, Failure> {
+    match file {
+        Some(f) => burrow::run::env_file(f),
+        None => Ok(burrow::run::Env::default()),
     }
 }

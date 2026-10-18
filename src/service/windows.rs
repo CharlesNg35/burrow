@@ -433,7 +433,7 @@ fn serve(name: &str, stop: tokio::sync::watch::Receiver<bool>) -> Result<u8, Fai
         file: Some(m.log_file.clone()),
     };
     let hosted = Hosted {
-        stop,
+        stop: Some(stop),
         env: Env::with(read_env(m.env_file.as_ref())),
     };
     match m.role.as_str() {

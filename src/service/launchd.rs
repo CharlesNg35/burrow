@@ -41,8 +41,8 @@ fn read_env(m: &Manifest) -> BTreeMap<String, String> {
         .unwrap_or_default()
 }
 
-fn plist(m: &Manifest, env: &BTreeMap<String, String>) -> String {
-    let args = [
+fn plist(m: &Manifest) -> String {
+    let mut args = vec![
         m.binary.display().to_string(),
         m.command().to_string(),
         "-c".into(),
@@ -50,6 +50,10 @@ fn plist(m: &Manifest, env: &BTreeMap<String, String>) -> String {
         "--log-file".into(),
         m.log_file.display().to_string(),
     ];
+    if let Some(env) = &m.env_file {
+        args.push("--env-file".into());
+        args.push(env.display().to_string());
+    }
     let mut s = String::from(
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\">\n<dict>\n",
     );
@@ -71,17 +75,6 @@ fn plist(m: &Manifest, env: &BTreeMap<String, String>) -> String {
     s.push_str("  <key>RunAtLoad</key>\n  <true/>\n  <key>KeepAlive</key>\n  <dict>\n    <key>SuccessfulExit</key>\n    <false/>\n  </dict>\n");
     s.push_str("  <key>ThrottleInterval</key>\n  <integer>10</integer>\n  <key>Umask</key>\n  <integer>63</integer>\n");
     s.push_str("  <key>SoftResourceLimits</key>\n  <dict>\n    <key>NumberOfFiles</key>\n    <integer>10240</integer>\n  </dict>\n");
-    if !env.is_empty() {
-        s.push_str("  <key>EnvironmentVariables</key>\n  <dict>\n");
-        for (k, v) in env {
-            s.push_str(&format!(
-                "    <key>{}</key>\n    <string>{}</string>\n",
-                xml(k),
-                xml(v)
-            ));
-        }
-        s.push_str("  </dict>\n");
-    }
     s.push_str("</dict>\n</plist>\n");
     s
 }
@@ -111,7 +104,7 @@ impl Backend for Launchd {
     }
 
     fn render(&self, m: &Manifest) -> String {
-        plist(m, &read_env(m))
+        plist(m)
     }
 
     fn ensure_account(&self, account: &str) -> Result<bool, Failure> {
@@ -185,7 +178,8 @@ impl Backend for Launchd {
         write_private(
             path,
             &serde_json::to_string_pretty(env).expect("env serializes"),
-        )
+        )?;
+        self.secure_file(path, &m.account)
     }
 
     fn install(&self, m: &Manifest) -> Result<(), Failure> {
@@ -336,21 +330,26 @@ mod tests {
             files: vec![],
             version: "0.1.0".into(),
         };
-        let env = BTreeMap::from([("SECRET".to_string(), "a<b&c".to_string())]);
-        let p = plist(&m, &env);
+        let p = plist(&Manifest {
+            env_file: Some("/etc/burrow/home.env".into()),
+            ..m.clone()
+        });
         assert!(p.contains("<string>com.github.charlesng35.burrow-home</string>"));
         assert!(p.contains("<key>UserName</key>\n  <string>_burrow</string>"));
         assert!(p.contains(
             "<string>--log-file</string>\n    <string>/var/log/burrow/home/home.log</string>"
         ));
-        assert!(p.contains("<string>a&lt;b&amp;c</string>"));
+        assert!(!p.contains("EnvironmentVariables"));
+        assert!(p.contains(
+            "<string>--env-file</string>\n    <string>/etc/burrow/home.env</string>"
+        ));
         assert!(p.contains("<string>/usr/local/bin/burrow</string>\n    <string>client</string>"));
         let visitor = Manifest {
             role: "visitor".into(),
             ..m
         };
         assert!(
-            plist(&visitor, &env)
+            plist(&visitor)
                 .contains("<string>/usr/local/bin/burrow</string>\n    <string>visit</string>")
         );
     }
