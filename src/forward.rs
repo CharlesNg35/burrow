@@ -22,6 +22,7 @@ const KEEP_EARLY: usize = 64 * 1024;
 const EARLY_READ: usize = SMALL;
 
 const CLOSE_TIMEOUT: Duration = Duration::from_secs(2);
+const ANSWER_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Clone, Copy, Default)]
 pub struct Meter<'a> {
@@ -621,9 +622,16 @@ pub async fn relay(
     }
 }
 
-pub async fn reply(mut ch: Channel, status: Status) {
-    let _ = ch.writer.send(&mut ch.stream, &[status as u8]).await;
-    let _ = ch.stream.shutdown().await;
+pub async fn reply(ch: Channel, status: Status) {
+    send_and_close(ch, &[status as u8]).await;
+}
+
+pub async fn send_and_close(mut ch: Channel, bytes: &[u8]) {
+    let sent = async {
+        ch.writer.send(&mut ch.stream, bytes).await?;
+        ch.stream.shutdown().await
+    };
+    let _ = tokio::time::timeout(ANSWER_TIMEOUT, sent).await;
 }
 
 #[cfg(test)]
@@ -716,6 +724,23 @@ mod tests {
             .unwrap()
             .unwrap()
             .unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_reply_to_a_peer_that_never_reads_gives_up() {
+        let (a, _never_reads) = tcp_pair().await;
+        let ch = channel(a);
+        let Conn::Tcp(tcp) = &ch.stream else {
+            unreachable!()
+        };
+        let junk = vec![0u8; 1 << 16];
+        while tcp.try_write(&junk).is_ok() {}
+        tokio::time::timeout(
+            ANSWER_TIMEOUT + Duration::from_secs(3),
+            send_and_close(ch, &[0u8; 60_000]),
+        )
+        .await
+        .expect("the answer gives up");
     }
 
     async fn tcp_pair() -> (TcpStream, TcpStream) {

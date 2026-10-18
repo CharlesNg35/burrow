@@ -147,7 +147,7 @@ async fn answer_grants(
     visitor: &str,
     secret: &Secret,
     from: IpAddr,
-    mut channel: crate::handshake::Channel,
+    channel: crate::handshake::Channel,
 ) {
     let settings = shared.settings();
     let allowed = settings
@@ -179,8 +179,7 @@ async fn answer_grants(
         return;
     };
     debug!("visitor \"{visitor}\" asked what it may use");
-    let _ = channel.writer.send(&mut channel.stream, &bytes).await;
-    let _ = tokio::io::AsyncWriteExt::shutdown(&mut channel.stream).await;
+    crate::forward::send_and_close(channel, &bytes).await;
 }
 
 pub(super) async fn serve(
