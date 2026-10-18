@@ -236,7 +236,7 @@ pub fn run(opts: &Options, out: &mut dyn Write) -> Result<u8, Failure> {
         }
         Err(e) => {
             return Err(Failure::new(format!("cannot check for a new version: {e}"))
-                .hint(proxy_hint(std::env::var_os("SUDO_USER").is_some())));
+                .hint(connect_hint(&sums_url, &|name| std::env::var(name).ok())));
         }
     };
     let asset = find_asset(&sums, platform, ext).ok_or_else(|| {
@@ -363,6 +363,23 @@ fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
+fn connect_hint(url: &str, env: &dyn Fn(&str) -> Option<String>) -> String {
+    let proxy = http::Url::parse(url)
+        .ok()
+        .and_then(|u| http::proxy_from_env(&u, env).ok().flatten());
+    let mut hint = match proxy {
+        Some(p) => format!("check the internet connection and the proxy {p:?}"),
+        None => proxy_hint(env("SUDO_USER").is_some()),
+    };
+    if let Some(custom) = env("BURROW_UPDATE_URL").filter(|v| !v.trim().is_empty()) {
+        hint.push_str(&format!(
+            "; BURROW_UPDATE_URL is set to {}, unset it to use the official releases",
+            custom.trim()
+        ));
+    }
+    hint
+}
+
 fn proxy_hint(under_sudo: bool) -> String {
     let how = if cfg!(windows) {
         "set $env:HTTPS_PROXY = \"http://host:port\"".to_string()
@@ -380,6 +397,37 @@ fn proxy_hint(under_sudo: bool) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_connect_hint_names_the_proxy_and_the_update_url_in_use() {
+        let env = |pairs: &'static [(&'static str, &'static str)]| {
+            move |name: &str| {
+                pairs
+                    .iter()
+                    .find(|(k, _)| *k == name)
+                    .map(|(_, v)| v.to_string())
+            }
+        };
+        let url = "https://github.com/x/y/releases/latest/download/SHA256SUMS";
+        let plain = connect_hint(url, &env(&[]));
+        assert!(plain.contains("behind a proxy, set"), "{plain}");
+        assert!(!plain.contains("BURROW_UPDATE_URL"), "{plain}");
+        let proxied = connect_hint(url, &env(&[("HTTPS_PROXY", "http://proxy:3128")]));
+        assert!(proxied.contains("the proxy http://proxy:3128"), "{proxied}");
+        assert!(!proxied.contains("behind a proxy, set"), "{proxied}");
+        let custom = connect_hint(
+            "http://mirror.lan/burrow/latest/download/SHA256SUMS",
+            &env(&[
+                ("HTTPS_PROXY", "http://proxy:3128"),
+                ("BURROW_UPDATE_URL", "http://mirror.lan/burrow"),
+            ]),
+        );
+        assert!(custom.contains("behind a proxy, set"), "{custom}");
+        assert!(
+            custom.contains("BURROW_UPDATE_URL is set to http://mirror.lan/burrow"),
+            "{custom}"
+        );
+    }
 
     #[test]
     fn the_proxy_hint_says_how_to_keep_the_variable_through_sudo() {

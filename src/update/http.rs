@@ -135,7 +135,7 @@ async fn open(url: &Url, proxy: Option<&ProxyConfig>) -> Result<Box<dyn Io>, Str
         .unwrap_or_default();
     let tcp = dial_tcp(&url.authority(), proxy, CONNECT_TIMEOUT, &SystemResolver)
         .await
-        .map_err(|e| format!("cannot connect to {}{via}: {e}", url.host))?;
+        .map_err(|e| format!("cannot connect to {}{via}: {e}", url.authority()))?;
     if !url.tls {
         return Ok(Box::new(tcp));
     }
