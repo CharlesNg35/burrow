@@ -20,13 +20,17 @@ pub struct Url {
     pub path: String,
 }
 
+fn loopback_host(host: &str) -> bool {
+    let host = host.trim_start_matches('[').trim_end_matches(']');
+    host.eq_ignore_ascii_case("localhost")
+        || host
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|ip| ip.is_loopback())
+}
+
 impl Url {
     fn is_loopback(&self) -> bool {
-        let host = self.host.trim_start_matches('[').trim_end_matches(']');
-        host.eq_ignore_ascii_case("localhost")
-            || host
-                .parse::<std::net::IpAddr>()
-                .is_ok_and(|ip| ip.is_loopback())
+        loopback_host(&self.host)
     }
 
     pub fn parse(url: &str) -> Result<Url, String> {
@@ -348,6 +352,15 @@ pub async fn get(
             ));
         }
         let proxy = proxy_from_env(&url, env)?;
+        if !url.tls
+            && let Some(p) = &proxy
+            && !loopback_host(p.addr.rsplit_once(':').map_or(p.addr.as_str(), |(h, _)| h))
+        {
+            return Err(format!(
+                "{url} is plain http, and the proxy {} would carry it over the network; use https://",
+                p.addr
+            ));
+        }
         let (head, body) = fetch_once(&url, proxy.as_ref(), limit).await?;
         match head.code {
             200 => return Ok(Fetched::Body(body)),
@@ -398,6 +411,13 @@ mod tests {
             .err()
             .unwrap();
         assert!(refused.contains("use https://"), "{refused}");
+        let proxied = get("http://127.0.0.1:1/releases", 1024, &|n: &str| {
+            (n == "HTTP_PROXY").then(|| "http://proxy.example:3128".to_string())
+        })
+        .await
+        .err()
+        .unwrap();
+        assert!(proxied.contains("over the network"), "{proxied}");
     }
 
     #[test]
