@@ -64,7 +64,7 @@ Other commands:
 
 ```sh
 ./burrow validate -c server.yaml            # check a config without starting (exit 0 valid, 1 invalid, 2 usage)
-./burrow client-config office --server myserver.example.com -o office.yaml   # config for another client
+./burrow client-config office --server myserver.example.com -o office.yaml   # config for a client added as office: under clients
 ./burrow gensecret                          # new 256-bit secret
 ./burrow schema server > server.schema.json # JSON Schema for editor completion
 ./burrow completions bash                   # shell completions: bash, zsh, fish, powershell, elvish
