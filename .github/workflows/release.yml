@@ -4,11 +4,6 @@ on:
   push:
     tags: ["v*.*.*"]
   workflow_dispatch:
-    inputs:
-      dry_run:
-        description: Build everything but do not publish
-        type: boolean
-        default: true
 
 permissions:
   contents: read
@@ -45,9 +40,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { asset: linux-amd64, target: x86_64-unknown-linux-musl, os: ubuntu-latest, zig: true }
+          - { asset: linux-amd64, target: x86_64-unknown-linux-musl, os: ubuntu-latest, zig: true, runs: true }
           - { asset: linux-arm64, target: aarch64-unknown-linux-musl, os: ubuntu-latest, zig: true }
-          - { asset: macos-arm64, target: aarch64-apple-darwin, os: macos-latest }
+          - { asset: macos-arm64, target: aarch64-apple-darwin, os: macos-latest, runs: true }
           - { asset: macos-amd64, target: x86_64-apple-darwin, os: macos-latest }
           - { asset: windows-amd64, target: x86_64-pc-windows-gnu, os: ubuntu-latest, zig: true }
           - { asset: windows-arm64, target: aarch64-pc-windows-gnullvm, os: ubuntu-latest, zig: true }
@@ -79,6 +74,9 @@ jobs:
       - name: Build (native)
         if: ${{ !matrix.zig }}
         run: cargo build --locked --release --target ${{ matrix.target }}
+      - name: Run the built binary
+        if: matrix.runs
+        run: ./target/${{ matrix.target }}/release/burrow version
       - name: Package
         shell: bash
         run: |
@@ -144,7 +142,7 @@ jobs:
           make_latest: ${{ env.PRERELEASE == 'true' && 'false' || 'true' }}
 
   image:
-    needs: version
+    needs: publish
     runs-on: ubuntu-latest
     permissions:
       contents: read
