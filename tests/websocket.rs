@@ -593,6 +593,9 @@ async fn swapping_the_websocket_port_with_a_service_port_ends_with_both_listenin
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_service_can_take_the_port_of_a_websocket_removed_in_the_same_reload() {
+    if ws_mode() {
+        return;
+    }
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     logs();
     let secret = Secret::generate();

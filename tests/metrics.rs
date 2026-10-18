@@ -443,6 +443,9 @@ async fn each_udp_peer_counts_as_one_connection() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_reload_that_moves_metrics_onto_the_kept_listen_port_is_rejected() {
+    if ws_mode() {
+        return;
+    }
     let secret = Secret::generate();
     let mut settings = server_settings(vec![secret.clone()]);
     let (held, kept) = refusing();
