@@ -109,6 +109,11 @@ async fn socks5_connect(s: &mut TcpStream, target: &str, p: &ProxyConfig) -> io:
                 ));
             }
         }
+        _ if p.auth.is_none() => {
+            return Err(proxy_err(
+                "SOCKS5 proxy wants a user name and password; give them in the proxy URL, like socks5://user:pass@host:port".into(),
+            ));
+        }
         _ => {
             return Err(proxy_err(
                 "SOCKS5 proxy requires an unsupported authentication method".into(),

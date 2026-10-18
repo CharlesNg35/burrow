@@ -61,6 +61,9 @@ impl std::error::Error for Failure {}
 
 pub fn io_reason(e: &std::io::Error) -> String {
     use std::io::ErrorKind as K;
+    if let Some(inner) = e.get_ref() {
+        return inner.to_string();
+    }
     let s = match e.kind() {
         K::ConnectionRefused => "connection refused",
         K::ConnectionReset => "connection reset",
@@ -223,5 +226,21 @@ mod command_tests {
             command_for(Some(OsStr::new("target/debug/deps/integration-1234"))),
             "burrow"
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_reason_keeps_its_own_message() {
+        let proxy = std::io::Error::new(
+            std::io::ErrorKind::ConnectionRefused,
+            "proxy refused CONNECT: HTTP/1.1 407 Proxy Authentication Required",
+        );
+        assert!(io_reason(&proxy).contains("407"));
+        let os = std::io::Error::from(std::io::ErrorKind::ConnectionRefused);
+        assert_eq!(io_reason(&os), "connection refused");
     }
 }
