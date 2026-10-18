@@ -421,12 +421,13 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
     let current = std::env::current_exe()
         .map_err(|e| Failure::new(format!("cannot locate the burrow binary: {e}")))?;
     let current = system::canonical(&current).unwrap_or(current);
-    let (binary, copy_binary) = if current == platform.binary_path() {
+    let home = platform.service_binary();
+    let (binary, copy_binary) = if current == home {
         (current.clone(), true)
     } else if system::trusted_binary(&current) {
         (current.clone(), false)
     } else {
-        (platform.binary_path(), true)
+        (home, true)
     };
     let low_ports = checked.listens.iter().any(|(_, a, _)| a.port() < 1024);
     let manifest = Manifest {
@@ -542,11 +543,28 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
 
     backend.prepare_dirs(&account)?;
     if copy_binary && !system::same_content(&current, &binary) {
+        #[cfg(unix)]
+        if binary != platform.binary_path()
+            && let Some(dir) = binary.parent()
+        {
+            system::make_dir(dir, 0o755, None)?;
+        }
         system::copy_file(&current, &binary, true)?;
         say(
             out,
             format!("copied {} -> {}", current.display(), binary.display()),
         )?;
+        if let Some(usual) = platform.binary_path().parent()
+            && binary != platform.binary_path()
+        {
+            say(
+                out,
+                format!(
+                    "note: users other than root can change {}, so the service runs its own copy",
+                    usual.display()
+                ),
+            )?;
+        }
         let others: Vec<String> = all_manifests()
             .into_iter()
             .filter(|m| m.name != name && m.copied_binary && m.binary == binary)
@@ -840,7 +858,7 @@ fn trustworthy(m: &Manifest, file: &Path) -> bool {
             .as_deref()
             .is_none_or(|e| in_dir(e, &p.config_dir()))
         && (m.log_file.as_os_str().is_empty() || m.log_file == p.log_file(m.short()))
-        && (m.binary == p.binary_path() || system::trusted_binary(&m.binary))
+        && (m.binary == p.service_binary() || system::trusted_binary(&m.binary))
 }
 
 fn read_manifest(path: &Path) -> Result<Manifest, String> {

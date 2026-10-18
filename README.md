@@ -570,7 +570,7 @@ On Linux and macOS, `install` copies the binary to `/usr/local/bin`, so after it
 
 - Checks the config first, and checks that every port it listens on is free. If another program holds a port, it names it (`tcp port 7840 (service "web") is already in use by nginx (pid 812)`) and changes nothing.
 - Copies the config to `/etc/burrow/` (`%ProgramData%\burrow\` on Windows), readable only by the service. Edit that copy, or use `burrow edit`: the service applies it on save, and `edit` refuses a change the service could not run after a restart, such as a port below 1024 it was not installed for. `status` tells you when the file you installed from has changed since.
-- Copies the binary to `/usr/local/bin/burrow` (`%ProgramFiles%\burrow\` on Windows), unless it already lives in a root-owned folder such as one managed by a package manager. A service never runs a binary from a user's home folder.
+- Copies the binary to `/usr/local/bin/burrow` (`%ProgramFiles%\burrow\` on Windows), unless it already lives in a root-owned folder such as one managed by a package manager. If other users can write `/usr/local/bin`, the service gets its own copy in a root-only folder. A service never runs a binary from a user's home folder.
 - Runs the service as a dedicated account without login or home: `burrow` on Linux, `_burrow` on macOS, the virtual account `NT SERVICE\burrow-<name>` on Windows. `--run-as` picks another one. Ports below 1024 get only `CAP_NET_BIND_SERVICE` on Linux.
 - Writes logs to `/var/log/burrow/<name>/<name>.log` (`%ProgramData%\burrow\logs\<name>.log` on Windows), rotated at 10 MB with 5 old files kept, so a log never fills the disk.
 

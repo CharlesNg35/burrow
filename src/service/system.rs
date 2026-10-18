@@ -80,6 +80,16 @@ impl Platform {
         }
     }
 
+    pub fn service_binary(self) -> PathBuf {
+        let usual = self.binary_path();
+        match usual.parent() {
+            Some(dir) if !trusted_folder(dir) => {
+                self.state_dir().with_file_name("bin").join("burrow")
+            }
+            _ => usual,
+        }
+    }
+
     pub fn default_account(self, service: &str) -> String {
         match self {
             Platform::Windows => format!(r"NT SERVICE\{service}"),
@@ -163,11 +173,24 @@ pub fn require_admin() -> Result<(), Failure> {
 }
 
 #[cfg(unix)]
-pub fn trusted_binary(path: &Path) -> bool {
+fn owned_by_root(p: &Path) -> bool {
     use std::os::unix::fs::MetadataExt;
-    let owned_by_root =
-        |p: &Path| std::fs::metadata(p).is_ok_and(|m| m.uid() == 0 && m.mode() & 0o022 == 0);
+    std::fs::metadata(p).is_ok_and(|m| m.uid() == 0 && m.mode() & 0o022 == 0)
+}
+
+#[cfg(unix)]
+pub fn trusted_binary(path: &Path) -> bool {
     owned_by_root(path) && path.ancestors().skip(1).all(owned_by_root)
+}
+
+#[cfg(unix)]
+pub fn trusted_folder(dir: &Path) -> bool {
+    dir.ancestors().filter(|p| p.exists()).all(owned_by_root)
+}
+
+#[cfg(windows)]
+pub fn trusted_folder(_dir: &Path) -> bool {
+    true
 }
 
 #[cfg(windows)]
@@ -428,6 +451,16 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&plist).unwrap(), "job");
         assert_eq!(mode(&plist), 0o600);
         assert!(!plist.with_extension("burrow-new").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_folder_users_can_change_is_not_trusted_for_the_service_binary() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(!trusted_folder(dir.path()));
+        assert!(!trusted_folder(&dir.path().join("bin")));
+        assert!(trusted_folder(Path::new("/usr")));
+        assert!(trusted_folder(Path::new("/usr/no-such-folder/bin")));
     }
 
     #[test]
