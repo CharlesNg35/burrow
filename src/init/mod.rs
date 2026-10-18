@@ -89,7 +89,7 @@ impl WebSocketInit {
             .path
             .clone()
             .unwrap_or_else(crate::config::model::default_ws_path);
-        if !path.starts_with('/') || path.contains(['?', '#', ' ']) {
+        if !crate::transport::endpoint::valid_path(&path) {
             return Err(Failure::usage(format!("invalid --ws-path \"{path}\""))
                 .hint("use a path like /burrow"));
         }

@@ -44,9 +44,9 @@ impl Endpoint {
         if authority.contains('@') {
             return Err("user names and passwords are not allowed in the server URL".into());
         }
-        if path.contains(['?', '#', ' ']) {
+        if !valid_path(path) {
             return Err(format!(
-                "path \"{path}\" must not contain spaces, \"?\" or \"#\""
+                "path \"{path}\" must use letters, digits and - . _ ~ / only"
             ));
         }
         let default_port = if tls { 443 } else { 80 };
@@ -137,9 +137,29 @@ impl fmt::Display for Endpoint {
     }
 }
 
+pub fn valid_path(path: &str) -> bool {
+    path.starts_with('/')
+        && path.len() <= 1024
+        && path
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "-._~/!$&'()*+,;=:@%".contains(c))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_paths_an_http_request_can_carry_are_valid() {
+        assert!(valid_path("/burrow"));
+        assert!(valid_path("/a/b-c_d.e~f"));
+        for bad in [
+            "burrow", "/a b", "/a?b", "/a#b", "/a`b", "/a<b>", "/a\tb", "/a\"b",
+        ] {
+            assert!(!valid_path(bad), "{bad:?}");
+        }
+        assert!(!valid_path(&format!("/{}", "a".repeat(1024))));
+    }
 
     fn ws(tls: bool, host: &str, port: u16, path: &str) -> Endpoint {
         Endpoint::WebSocket {

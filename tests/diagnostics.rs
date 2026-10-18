@@ -639,7 +639,7 @@ fn websocket_server_errors() {
        |
      3 |   path: burrow
        |         ^^^^^^ expected a path like /burrow
-       = help: start the path with "/" and leave out spaces, "?" and "#"
+       = help: start the path with "/" and use letters, digits and - . _ ~ / only, at most 1024 of them
 
     error: cannot read websocket.tls.cert "missing-cert.pem": file not found
       --> server.yaml:5:11

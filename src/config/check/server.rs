@@ -462,7 +462,7 @@ fn check_websocket(
             .help("use a different port for the websocket listener"),
         );
     }
-    if !ws.path.starts_with('/') || ws.path.contains(['?', '#', ' ']) {
+    if !crate::transport::endpoint::valid_path(&ws.path) {
         out.push(
             Diagnostic::error(
                 "invalid-path",
@@ -470,7 +470,7 @@ fn check_websocket(
             )
             .at(spans.value(&["websocket", "path"]))
             .label("expected a path like /burrow")
-            .help("start the path with \"/\" and leave out spaces, \"?\" and \"#\""),
+            .help("start the path with \"/\" and use letters, digits and - . _ ~ / only, at most 1024 of them"),
         );
     }
     let tls = ws.tls.as_ref().and_then(|t| {
