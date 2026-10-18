@@ -483,7 +483,7 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
     }
 
     system::require_admin()?;
-    let operation = system::operation()?;
+    let operation = system::operation(out)?;
     let previous = load_manifest(&name).ok();
     let was_running = previous.as_ref().is_some_and(|p| backend.status(p).running);
     if was_running && opts.worker.is_none() {
@@ -1053,7 +1053,7 @@ pub fn uninstall(name: Option<&str>, purge: bool, out: &mut dyn Write) -> Result
     let backend = system::backend()?;
     system::require_admin()?;
     resolve(name)?;
-    let operation = system::operation()?;
+    let operation = system::operation(out)?;
     let m = resolve(name)?;
     let _ = backend.stop(&m);
     backend.uninstall(&m)?;

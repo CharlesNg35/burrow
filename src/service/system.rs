@@ -439,14 +439,19 @@ fn names(_path: &Path, _file: &std::fs::File) -> bool {
 
 pub const OPERATION_LOCK: &str = "operation.lock";
 
-pub fn operation() -> Result<Operation, Failure> {
+pub fn operation(out: &mut dyn std::io::Write) -> Result<Operation, Failure> {
     operation_in(
         &Platform::current().jobs_dir(),
         std::time::Duration::from_secs(300),
+        out,
     )
 }
 
-fn operation_in(dir: &Path, patience: std::time::Duration) -> Result<Operation, Failure> {
+fn operation_in(
+    dir: &Path,
+    patience: std::time::Duration,
+    out: &mut dyn std::io::Write,
+) -> Result<Operation, Failure> {
     let path = dir.join(OPERATION_LOCK);
     let deadline = std::time::Instant::now() + patience;
     let mut told = false;
@@ -494,7 +499,8 @@ fn operation_in(dir: &Path, patience: std::time::Duration) -> Result<Operation, 
                     );
                 }
                 if !told {
-                    crate::say_errln!("waiting for another burrow service change to finish");
+                    let _ = writeln!(out, "waiting for another burrow service change to finish");
+                    let _ = out.flush();
                     told = true;
                 }
                 std::thread::sleep(std::time::Duration::from_millis(500));
@@ -565,8 +571,8 @@ mod tests {
     fn service_changes_take_turns() {
         let dir = tempfile::tempdir().unwrap();
         let short = std::time::Duration::from_millis(300);
-        let first = operation_in(dir.path(), short).unwrap();
-        assert!(operation_in(dir.path(), short).is_err());
+        let first = operation_in(dir.path(), short, &mut std::io::sink()).unwrap();
+        assert!(operation_in(dir.path(), short, &mut std::io::sink()).is_err());
         drop(first);
         #[cfg(unix)]
         {
@@ -575,11 +581,11 @@ mod tests {
             let mode = std::fs::metadata(&lock).unwrap().permissions().mode();
             assert_eq!(mode & 0o777, 0o600, "only the owner may open the lock");
         }
-        let second = operation_in(dir.path(), short).unwrap();
+        let second = operation_in(dir.path(), short, &mut std::io::sink()).unwrap();
         second.remove();
         assert!(!dir.path().join(OPERATION_LOCK).exists());
-        let third = operation_in(dir.path(), short).unwrap();
-        assert!(operation_in(dir.path(), short).is_err());
+        let third = operation_in(dir.path(), short, &mut std::io::sink()).unwrap();
+        assert!(operation_in(dir.path(), short, &mut std::io::sink()).is_err());
         drop(third);
         #[cfg(unix)]
         {
@@ -588,7 +594,7 @@ mod tests {
             std::fs::set_permissions(&lock, std::fs::Permissions::from_mode(0o644)).unwrap();
             let outsider = std::fs::File::open(&lock).unwrap();
             outsider.try_lock().unwrap();
-            let fresh = operation_in(dir.path(), short);
+            let fresh = operation_in(dir.path(), short, &mut std::io::sink());
             assert!(fresh.is_ok(), "a lock others could open is replaced");
             drop(outsider);
         }

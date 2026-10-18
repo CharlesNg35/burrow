@@ -104,7 +104,7 @@ fn swap_all(
     if plan(from, version, name, force, &mut std::io::sink())?.is_empty() {
         return Ok(());
     }
-    let _operation = system::operation()?;
+    let _operation = system::operation(out)?;
     for s in plan(from, version, name, force, &mut std::io::sink())? {
         swap(&*backend, s, from, version, out)?;
     }
