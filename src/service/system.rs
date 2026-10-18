@@ -368,16 +368,7 @@ pub fn private_file(path: &Path, owner: Option<&str>) -> Result<(), Failure> {
 
 #[cfg(unix)]
 pub fn write_private(path: &Path, text: &str) -> Result<(), Failure> {
-    use std::os::unix::fs::OpenOptionsExt;
-    let _ = std::fs::remove_file(path);
-    let mut f = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(path)
-        .map_err(|e| Failure::new(format!("cannot write {}: {e}", path.display())))?;
-    std::io::Write::write_all(&mut f, text.as_bytes())
-        .map_err(|e| Failure::new(format!("cannot write {}: {e}", path.display())))
+    write_file_mode(path, text.as_bytes(), 0o600)
 }
 
 #[cfg(unix)]
@@ -431,6 +422,12 @@ mod tests {
         let config = shared.join("x.yaml");
         write_file_mode(&config, b"secret", 0o600).unwrap();
         assert_eq!(mode(&config), 0o600);
+        let plist = shared.join("x.plist");
+        std::fs::write(&plist, "a much longer previous job description").unwrap();
+        write_private(&plist, "job").unwrap();
+        assert_eq!(std::fs::read_to_string(&plist).unwrap(), "job");
+        assert_eq!(mode(&plist), 0o600);
+        assert!(!plist.with_extension("burrow-new").exists());
     }
 
     #[test]
