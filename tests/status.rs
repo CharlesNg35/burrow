@@ -128,8 +128,9 @@ fn several_servers_are_shown_and_picked_by_config() {
     let _b = start(&instances, &b);
     let out = text(&status(&instances, &[]));
     for config in [&a, &b] {
-        let shown = std::fs::canonicalize(config).unwrap();
-        assert!(out.contains(&format!("== {}", shown.display())), "{out}");
+        let shown = std::fs::canonicalize(config).unwrap().display().to_string();
+        let shown = shown.strip_prefix(r"\\?\").unwrap_or(&shown);
+        assert!(out.contains(&format!("== {shown}")), "{out}");
     }
     let only_b = text(&status(&instances, &["-c", b.to_str().unwrap()]));
     assert!(
