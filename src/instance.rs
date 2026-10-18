@@ -355,7 +355,8 @@ fn unlocked(entry: &Path, path: &Path) -> InstanceLock {
 #[cfg(unix)]
 fn planted(entry: &Path) -> bool {
     use std::os::unix::fs::MetadataExt;
-    std::fs::symlink_metadata(entry).is_ok_and(|m| !trusted_owner(m.uid()))
+    let me = rustix::process::geteuid().as_raw();
+    std::fs::symlink_metadata(entry).is_ok_and(|m| m.uid() != 0 && m.uid() != me)
 }
 
 #[cfg(not(unix))]
@@ -483,9 +484,10 @@ fn trusted_owner(uid: u32) -> bool {
     let me = rustix::process::geteuid().as_raw();
     uid == 0
         || uid == me
-        || crate::service::all_manifests()
-            .iter()
-            .any(|m| crate::service::system::account_ids(&m.account).is_ok_and(|(id, _)| id == uid))
+        || crate::service::all_manifests().iter().any(|m| {
+            m.created_account
+                && crate::service::system::account_ids(&m.account).is_ok_and(|(id, _)| id == uid)
+        })
 }
 
 #[cfg(not(unix))]
