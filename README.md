@@ -628,12 +628,12 @@ Run the commands from a terminal opened with "Run as administrator". The service
 ## Docker
 
 ```sh
-docker run --rm --user "$(id -u):$(id -g)" -v "$PWD/server.yaml:/etc/burrow/server.yaml:ro" ghcr.io/charlesng35/burrow validate -c /etc/burrow/server.yaml
+docker run --rm --user "$(id -u):$(id -g)" -v "$PWD/burrow:/etc/burrow:ro" ghcr.io/charlesng35/burrow validate -c /etc/burrow/server.yaml
 docker run -d --name burrow -p 7835:7835 -p 7840:7840 --user "$(id -u):$(id -g)" \
-  -v "$PWD/server.yaml:/etc/burrow/server.yaml:ro" ghcr.io/charlesng35/burrow
+  -v "$PWD/burrow:/etc/burrow:ro" ghcr.io/charlesng35/burrow
 ```
 
-The image is distroless and static, runs as a non-root user, and reads its config from `/etc/burrow`. Run it with `--user` matching the owner of your `0600` config file.
+The image is distroless and static, runs as a non-root user, and reads its config from `/etc/burrow`. Run it with `--user` matching the owner of your `0600` config file. Mount the folder that holds the config, not the file itself: an editor that saves by writing a new file would leave a file mount on the old one, and the change would never apply.
 
 <details>
 <summary><b>Docker Compose: a server and a client</b></summary>
@@ -646,7 +646,7 @@ services:
     command: ["server", "-c", "/etc/burrow/server.yaml"]
     user: "${UID:-1000}:${GID:-1000}"
     volumes:
-      - ./server.yaml:/etc/burrow/server.yaml:ro
+      - ./burrow:/etc/burrow:ro
     ports:
       - "7835:7835"
       - "7840:7840"
@@ -659,7 +659,7 @@ services:
     environment:
       HOME_SECRET: ${HOME_SECRET:-}
     volumes:
-      - ./client.yaml:/etc/burrow/client.yaml:ro
+      - ./burrow:/etc/burrow:ro
     network_mode: host
     restart: unless-stopped
 ```
