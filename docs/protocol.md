@@ -128,7 +128,7 @@ Status = 0 ok | 1 denied by allow list or reach rules | 2 unreachable | 3 unreso
          | 5 forbidden | 6 offline | 7 busy      (5-6 only from the server to a visitor; 7 also from a client at its connection limit: 16384, or less where the open file limit is lower)
 ```
 
-The server does not wait for Status before sending the connection's bytes, so connection setup adds no round trip. If Status is not 0, or none arrives within 3 × the heartbeat interval, the server logs the reason; for a service with several clients it moves the connection to the next one, sending again the PROXY header and up to 64 KiB of bytes it had already sent, and otherwise closes the connection.
+The server does not wait for Status before sending the connection's bytes, so connection setup adds no round trip. If Status is not 0, or none arrives within 3 × the heartbeat interval, the server logs the reason; for a service with several clients it moves the connection to the next one (after a timeout, only if the connection has sent nothing yet), sending again the PROXY header and up to 64 KiB of bytes it had already sent, and otherwise closes the connection.
 
 `target` is `host:port`, or `unix:/absolute/path` for a Unix socket, which the client checks against the `unix:` entries of its allow list. For a port range the server sends the target port that matches the public port the connection arrived on; Services carries the first target port in `target` and the size of the range in `ports`.
 

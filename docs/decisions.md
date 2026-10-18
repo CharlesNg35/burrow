@@ -45,7 +45,7 @@ The server sends its heartbeat interval in the welcome message. The client times
 
 ## D9. Insecure plaintext still authenticates
 
-With `insecure_plaintext: true` on both sides, the Noise handshake still runs (so the secret is never exposed and auth stays strong), but data channels copy raw bytes after the hello. The mode is bound into the prologue, so a mismatch fails the handshake.
+With `insecure_plaintext: true` on both sides, the Noise handshake still runs (so the secret is never exposed and auth stays strong), but data channels copy raw bytes after Connect and Status. The flag is part of the authenticated prologue, and a mismatch is refused after authentication with `Bye` reason plaintext mismatch.
 
 ## D10. Data plane: data-channel pool, not a multiplexed connection
 

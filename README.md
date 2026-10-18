@@ -290,7 +290,7 @@ The same in `visitor.yaml`: `ssh: { client: home, target: 22, local: 2222 }`.
 curl --socks5-hostname 127.0.0.1:1080 http://nas.local:5000   # or: ssh -o ProxyCommand='nc -X 5 -x 127.0.0.1:1080 %h %p' 192.168.1.20
 ```
 
-In `visitor.yaml`: `home: { client: home, socks: true, local: 1080 }`. Ranges work as on the server: `game: { service: game, local: 40000-40010 }`.
+In `visitor.yaml`: `home: { client: home, socks: true, local: 1080 }`. Ranges work as on the server, for a private TCP service with a port range: `admin: { service: admin, local: 40000-40010 }`.
 
 - The client's `allow` list still has the final say: `reach` grants only what it permits, so keep it narrow (`validate` reminds you about `any`).
 - With rules, a host name is checked after the client resolves it on its own network, so SOCKS apps that send names work too.
