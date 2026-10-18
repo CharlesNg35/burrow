@@ -125,6 +125,9 @@ fn granted(f: &Forward, grants: &Grants) -> bool {
 }
 
 fn within(target: &str, ports: u16, reach: &[String]) -> bool {
+    if reach.iter().any(|r| r.parse::<Rule>().is_err()) {
+        return true;
+    }
     let rules = crate::allowlist::AllowList::from_rules(reach);
     if let Some(path) = crate::config::check::unix::path_of(target) {
         return rules.permits_socket(path);
@@ -343,6 +346,8 @@ mod tests {
         let p = plan(&g, &existing);
         assert_eq!(p.removed, ["outside", "socket"]);
         assert!(p.forwards.contains_key("inside") && p.forwards.contains_key("named"));
+        g.clients[0].reach.push("a-rule-from-a-newer-server".into());
+        assert!(plan(&g, &existing).removed.is_empty());
     }
 
     #[test]
