@@ -2024,3 +2024,30 @@ fn source_checks_for_visitors_behind_a_websocket_proxy_are_flagged() {
     assert_eq!(codes("127.0.0.1:7836", ""), 0);
     assert_eq!(codes("0.0.0.0:7837", ", allow_from: [10.0.0.0/8]"), 0);
 }
+
+#[test]
+fn a_file_named_like_a_visitor_keeps_the_role_its_content_shows() {
+    let dir = tempfile::tempdir().unwrap();
+    let role_of = |name: &str, text: &str| {
+        let path = dir.path().join(name);
+        std::fs::write(&path, text).unwrap();
+        let o = burrow::config::load_file(&path, None, &env).unwrap();
+        (o.role, o.report.has_errors())
+    };
+    assert_eq!(
+        role_of(
+            "relay-for-visitor.yaml",
+            &server("  web: { client: home, bind: 4000, target: 3000 }\n")
+        ),
+        (Some(Role::Server), false)
+    );
+    let client = format!(
+        "server: tunnel.example.com\nname: home\nsecret: {SECRET}\nallow: [127.0.0.1/32]\n"
+    );
+    assert_eq!(
+        role_of("home-visitor.yaml", &client),
+        (Some(Role::Client), false)
+    );
+    let visitor = format!("server: tunnel.example.com\nname: laptop\nsecret: {SECRET}\n");
+    assert_eq!(role_of("visitor.yaml", &visitor).0, Some(Role::Visitor));
+}

@@ -133,7 +133,7 @@ pub fn load_file(
         .file_stem()
         .and_then(|s| s.to_str())
         .is_some_and(|s| s.to_ascii_lowercase().ends_with("visitor"));
-    let role = role.or(named.then_some(Role::Visitor));
+    let role = role.or_else(|| named.then(|| visitor_by_name(&src)).flatten());
     let mut outcome = load_str_in(base, &path.display().to_string(), &src, format, role, env);
     if let Some(w) = permission_warning(path) {
         outcome.report.push(w);
@@ -164,6 +164,17 @@ fn permission_warning(path: &Path) -> Option<Diagnostic> {
 #[cfg(not(unix))]
 fn permission_warning(_: &Path) -> Option<Diagnostic> {
     None
+}
+
+fn visitor_by_name(src: &str) -> Option<Role> {
+    let root = tree::parse(src).ok()?;
+    let says_client = match &root.value {
+        Value::Map(entries) => entries
+            .iter()
+            .any(|e| e.key == "allow" || e.key == "allow_all"),
+        _ => false,
+    };
+    (detect_role(&root) != Some(Role::Server) && !says_client).then_some(Role::Visitor)
 }
 
 pub fn detect_role(root: &Node) -> Option<Role> {
