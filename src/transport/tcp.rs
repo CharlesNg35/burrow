@@ -87,6 +87,21 @@ pub fn tune(stream: &TcpStream, t: &SocketTuning) {
     }
 }
 
+pub fn gone_before_accept(e: &io::Error) -> bool {
+    use io::ErrorKind as K;
+    matches!(
+        e.kind(),
+        K::ConnectionAborted
+            | K::ConnectionReset
+            | K::ConnectionRefused
+            | K::Interrupted
+            | K::TimedOut
+            | K::HostUnreachable
+            | K::NetworkUnreachable
+            | K::NetworkDown
+    )
+}
+
 pub const ATTEMPT_DELAY: Duration = Duration::from_millis(250);
 
 pub fn interleave(addrs: &[SocketAddr]) -> Vec<SocketAddr> {
@@ -150,6 +165,16 @@ pub async fn connect_any(addrs: &[SocketAddr], timeout: Duration) -> io::Result<
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_connection_lost_in_the_queue_is_skipped_but_running_out_of_files_is_not() {
+        for kind in [io::ErrorKind::ConnectionAborted, io::ErrorKind::ConnectionReset] {
+            assert!(gone_before_accept(&kind.into()), "{kind:?}");
+        }
+        #[cfg(unix)]
+        assert!(!gone_before_accept(&io::Error::from_raw_os_error(libc::EMFILE)));
+        assert!(!gone_before_accept(&io::ErrorKind::OutOfMemory.into()));
+    }
 
     fn a(s: &str) -> SocketAddr {
         s.parse().unwrap()

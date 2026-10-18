@@ -70,6 +70,10 @@ pub(super) async fn accept(
     loop {
         let (stream, peer) = match listener.accept().await {
             Ok(v) => v,
+            Err(e) if crate::transport::tcp::gone_before_accept(&e) => {
+                debug!("forward \"{name}\": a connection was gone before it was accepted: {e}");
+                continue;
+            }
             Err(e) => {
                 static FAILED: Throttle = Throttle::new();
                 if let Some(more) = FAILED.allow() {

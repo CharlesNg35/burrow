@@ -20,7 +20,7 @@ use std::time::Duration;
 use tokio::net::{TcpListener, UdpSocket};
 use tokio::sync::{Notify, Semaphore, mpsc, watch};
 use tokio::task::JoinHandle;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::config::model::Protocol;
 use crate::config::settings::WebSocketSettings;
@@ -540,6 +540,9 @@ impl Server {
                         tokio::spawn(async move {
                             listen::handle_tcp(shared, stream, peer, permit).await;
                         });
+                    }
+                    Err(e) if crate::transport::tcp::gone_before_accept(&e) => {
+                        debug!("a connection was gone before it was accepted: {e}");
                     }
                     Err(e) => {
                         static FAILED: crate::throttle::Throttle = crate::throttle::Throttle::new();

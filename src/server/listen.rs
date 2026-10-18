@@ -179,6 +179,10 @@ pub async fn ws_accept_loop(shared: Arc<Shared>, ws: Arc<WsListener>) {
     loop {
         let (stream, peer) = match ws.listener.accept().await {
             Ok(v) => v,
+            Err(e) if crate::transport::tcp::gone_before_accept(&e) => {
+                debug!("websocket: a connection was gone before it was accepted: {e}");
+                continue;
+            }
             Err(e) => {
                 static FAILED: crate::throttle::Throttle = crate::throttle::Throttle::new();
                 if let Some(more) = FAILED.allow() {

@@ -26,6 +26,10 @@ pub(super) async fn tcp_service(
     loop {
         let (visitor, peer) = match listener.accept().await {
             Ok(v) => v,
+            Err(e) if crate::transport::tcp::gone_before_accept(&e) => {
+                debug!("service \"{name}\": a connection was gone before it was accepted: {e}");
+                continue;
+            }
             Err(e) => {
                 static FAILED: crate::throttle::Throttle = crate::throttle::Throttle::new();
                 if let Some(more) = FAILED.allow() {
