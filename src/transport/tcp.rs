@@ -17,6 +17,9 @@ pub fn bind_tcp(addr: SocketAddr) -> io::Result<TcpListener> {
     };
     #[cfg(not(windows))]
     socket.set_reuseaddr(true)?;
+    if addr.is_ipv6() && addr.ip().is_unspecified() {
+        SockRef::from(&socket).set_only_v6(false)?;
+    }
     socket.bind(addr)?;
     socket.listen(LISTEN_BACKLOG)
 }

@@ -4,10 +4,11 @@ use crate::config::model::Protocol;
 use crate::failure::Failure;
 
 pub fn check_free(proto: Protocol, addr: SocketAddr, label: &str) -> Result<(), Failure> {
-    let result = match proto {
-        Protocol::Tcp => std::net::TcpListener::bind(addr).map(drop),
-        Protocol::Udp => std::net::UdpSocket::bind(addr).map(drop),
+    let kind = match proto {
+        Protocol::Tcp => socket2::Type::STREAM,
+        Protocol::Udp => socket2::Type::DGRAM,
     };
+    let result = crate::transport::udp::std_socket(addr, kind).map(drop);
     match result {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
