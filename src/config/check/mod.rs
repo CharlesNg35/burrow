@@ -127,7 +127,13 @@ pub fn secret_spans(root: &Node) -> Vec<Span> {
     let secretish =
         |key: &str| key == "secret" || crate::suggest::closest(key, ["secret"]).is_some();
     if let Value::Map(top) = &root.value {
-        for e in top.iter().filter(|e| secretish(&e.key) || e.key == "proxy") {
+        let credentials = |e: &&crate::config::tree::Entry| {
+            e.key == "server" && matches!(&e.value.value, Value::Str(s) if s.contains('@'))
+        };
+        for e in top
+            .iter()
+            .filter(|e| secretish(&e.key) || e.key == "proxy" || credentials(e))
+        {
             collect(&e.value, &mut out);
         }
     }

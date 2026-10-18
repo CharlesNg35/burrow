@@ -233,10 +233,17 @@ impl Client {
             let now = Instant::now();
             let report = self.outage.lock().expect("outage lock").failed(now);
             match report {
-                Report::First => warn!(
-                    "{why}; retrying in {:.1}s, and will keep retrying",
-                    delay.as_secs_f64()
-                ),
+                Report::First => match s.give_up_after {
+                    Some(limit) => warn!(
+                        "{why}; retrying in {:.1}s, for up to {} (reconnect.give_up_after_secs)",
+                        delay.as_secs_f64(),
+                        human(limit)
+                    ),
+                    None => warn!(
+                        "{why}; retrying in {:.1}s, and will keep retrying",
+                        delay.as_secs_f64()
+                    ),
+                },
                 Report::Summary { down_for, attempts } => warn!(
                     "still cannot reach {} after {} ({attempts} attempts); retrying every {}s at most. last error: {why}",
                     s.server,

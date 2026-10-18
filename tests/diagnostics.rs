@@ -1980,3 +1980,23 @@ fn invalid_forwards_are_not_called_missing() {
     assert!(!warned("forwards:\n"));
     assert!(!warned("forwards:\n  a: { service: db, local: 5432 }\n"));
 }
+
+#[test]
+fn small_messages_say_what_is_wrong() {
+    let leaked = render(
+        "client.yaml",
+        &format!(
+            "server: wss://bob:hunter2@host/b\nname: home\nsecret: {SECRET}\nallow: [127.0.0.0/8]\n"
+        ),
+        None,
+    );
+    assert!(!leaked.contains("hunter2"), "{leaked}");
+    let big = render(
+        "server.yaml",
+        &server(
+            "  web:\n    client: home\n    bind: 0.0.0.0:4000\n    target: 127.0.0.1:3000\n    max_connections: 18446744073709551615\n",
+        ),
+        None,
+    );
+    assert!(big.contains("too large"), "{big}");
+}

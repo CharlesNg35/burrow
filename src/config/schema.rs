@@ -491,6 +491,9 @@ fn type_help(types: &[&str], node: &Node) -> String {
         {
             format!("remove the quotes: {s}")
         }
+        (Value::Float(f), t) if t.contains(&"integer") && f.fract() == 0.0 => {
+            "this number is far too large for the field".into()
+        }
         (Value::Null, _) => "give it a value, or remove the line".into(),
         (Value::Seq(_), t) if !t.contains(&"array") => "use a single value, not a list".into(),
         (Value::Map(_), t) if !t.contains(&"object") => "use a single value, not a mapping".into(),
