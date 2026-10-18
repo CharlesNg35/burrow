@@ -323,10 +323,11 @@ async fn connected(
                     static UNREACHABLE: Throttle = Throttle::new();
                     if let Some(more) = UNREACHABLE.allow() {
                         warn!(
-                            "{}: cannot connect to {} ({}); is it running?{more}",
+                            "{}: cannot connect to {} ({}); {}{more}",
                             label(&connect),
                             connect.target,
-                            io_reason(&e)
+                            io_reason(&e),
+                            unreachable_hint(&e)
                         );
                     }
                     refuse(ch, Status::Unreachable).await;
@@ -770,6 +771,15 @@ async fn udp(
     debug!("service \"{}\": UDP relay closed", connect.service);
 }
 
+fn unreachable_hint(e: &std::io::Error) -> &'static str {
+    match e.kind() {
+        std::io::ErrorKind::AddrNotAvailable | std::io::ErrorKind::AddrInUse => {
+            "this machine has no local port left for it, usually because many recent connections to it are still closing (TIME_WAIT)"
+        }
+        _ => "is it running?",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -785,6 +795,14 @@ mod tests {
         assert_eq!(caps(1 << 20), most);
         assert_eq!(caps(256), (64, 64, 64));
         assert_eq!(caps(u64::MAX), most);
+    }
+
+    #[test]
+    fn running_out_of_local_ports_is_named_as_such() {
+        let ports = std::io::Error::from(std::io::ErrorKind::AddrNotAvailable);
+        assert!(unreachable_hint(&ports).contains("TIME_WAIT"));
+        let refused = std::io::Error::from(std::io::ErrorKind::ConnectionRefused);
+        assert_eq!(unreachable_hint(&refused), "is it running?");
     }
 
     #[test]
