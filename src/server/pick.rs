@@ -92,11 +92,19 @@ impl Shared {
         client: &str,
         from: std::net::IpAddr,
         index: u16,
+        public: Option<(crate::config::model::Protocol, std::net::SocketAddr)>,
     ) -> Result<(), String> {
         let settings = self.settings();
         let Some(s) = settings.services.get(service) else {
             return Err("the service was removed".into());
         };
+        if let Some((protocol, bind)) = public
+            && (s.protocol != protocol
+                || s.bind.is_none()
+                || (bind.port() != 0 && s.bind != Some(bind)))
+        {
+            return Err(format!("the service no longer listens on {bind}"));
+        }
         if !s.clients.iter().any(|c| c == client) {
             return Err(format!("client \"{client}\" no longer serves it"));
         }

@@ -116,7 +116,8 @@ async fn visit(
         let opened = 'attempt: {
             let client = &session.name;
             let mut reloads = shared.reloads();
-            let still_open = || match shared.still_open(&name, client, peer.ip(), index) {
+            let public = svc.bind.map(|b| (svc.protocol, b));
+            let still_open = || match shared.still_open(&name, client, peer.ip(), index, public) {
                 _ if !shared.allows(client, &session.secret) => {
                     Err(format!("client \"{client}\" is no longer allowed"))
                 }

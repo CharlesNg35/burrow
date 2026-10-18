@@ -889,3 +889,34 @@ async fn a_service_whose_port_was_busy_at_reload_listens_once_it_is_free() {
     }
     assert!(up, "the service never listened after its port was freed");
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn making_a_service_private_closes_its_public_connections() {
+    let echo = echo_server().await;
+    let secret = Secret::generate();
+    let mut settings = server_settings(vec![secret.clone()]);
+    settings
+        .services
+        .insert("web".into(), service(echo, Protocol::Tcp));
+    settings
+        .visitors
+        .insert("laptop".into(), visitor_auth(Secret::generate(), &[]));
+    let t = tunnel_with(settings.clone(), vec![], |c| c, secret).await;
+    let mut open = open_echo(t.server.services["web"]).await;
+    let mut next = settings.clone();
+    let web = next.services.get_mut("web").unwrap();
+    web.bind = None;
+    web.visitors = vec!["laptop".into()];
+    t.server.reload(next).await;
+    let closed = tokio::time::timeout(Duration::from_secs(5), async {
+        let _ = open.write_all(b"ping").await;
+        let mut b = [0u8; 4];
+        matches!(open.read(&mut b).await, Ok(0) | Err(_))
+    })
+    .await;
+    assert_eq!(
+        closed,
+        Ok(true),
+        "a public connection survived the service going private"
+    );
+}
