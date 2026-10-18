@@ -654,12 +654,12 @@ One machine (i5-12600K, 10 vCPUs), everything on loopback, from `bench/run.sh`:
 
 |                               | burrow (default)       | rathole 0.5 (noise) | frp 0.71 (default) | chisel 1.12 |
 | ----------------------------- | ---------------------- | ------------------- | ------------------ | ----------- |
-| throughput, 1 / 4 streams     | **12.7 / 34.7 Gbit/s** | 6.5 / 18.2          | 8.5 / 9.7          | 6.1 / 5.7   |
-| new connections/s             | **13.8k**              | 6.2k                | 10.1k              | 11.7k       |
-| p99 latency under load        | **527 µs**             | 658 µs              | 638 µs             | 1096 µs     |
-| RSS with 10k idle connections | **176 MiB**            | 2770 MiB            | 784 MiB            | 708 MiB     |
+| throughput, 1 / 4 streams     | **12.6 / 33.4 Gbit/s** | 5.4 / 18.1          | 8.5 / 8.8          | 6.0 / 5.6   |
+| new connections/s             | **13.5k**              | 5.9k                | 10.0k              | 11.8k       |
+| p99 latency under load        | **549 µs**             | 769 µs              | 678 µs             | 1057 µs     |
+| RSS with 10k idle connections | **220 MiB**            | 2784 MiB            | 796 MiB            | 719 MiB     |
 
-With `cipher: aes-gcm` burrow reaches 22.6 / 51.5 Gbit/s. Over WebSocket it does 11.9 / 31.3 Gbit/s with 348 MiB for 10k idle connections (chisel, also WebSocket: 6.1 / 5.7 Gbit/s, 708 MiB). Unencrypted, burrow moves 2x rathole's plain TCP throughput and opens 7% fewer connections per second (14.3k vs 15.4k).
+With `cipher: aes-gcm` burrow reaches 22.3 / 49.9 Gbit/s. Over WebSocket it does 11.8 / 31.1 Gbit/s with 391 MiB for 10k idle connections (chisel, also WebSocket: 6.0 / 5.6 Gbit/s, 719 MiB). Unencrypted, burrow moves 2x rathole's plain TCP throughput and opens 7% fewer connections per second (14.2k vs 15.3k).
 
 Full table, machine details and exact commands: [docs/benchmark.md](docs/benchmark.md). Reproduce with `bench/run.sh`.
 
