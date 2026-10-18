@@ -14,6 +14,16 @@ pub async fn dial_tcp(
     timeout: Duration,
     resolver: &dyn Resolver,
 ) -> io::Result<TcpStream> {
+    dial_tcp_ordered(target, proxy, timeout, resolver, &|_| {}).await
+}
+
+pub async fn dial_tcp_ordered(
+    target: &str,
+    proxy: Option<&ProxyConfig>,
+    timeout: Duration,
+    resolver: &dyn Resolver,
+    order: &(dyn Fn(&mut Vec<std::net::SocketAddr>) + Sync),
+) -> io::Result<TcpStream> {
     let lookup = |host: &str| {
         let host = host.to_string();
         async move {
@@ -28,7 +38,11 @@ pub async fn dial_tcp(
         }
     };
     match proxy {
-        None => connect_any(&lookup(target).await?, timeout).await,
+        None => {
+            let mut addrs = lookup(target).await?;
+            order(&mut addrs);
+            connect_any(&addrs, timeout).await
+        }
         Some(p) => {
             let mut s = connect_any(&lookup(&p.addr).await?, timeout).await?;
             tokio::time::timeout(timeout, async {

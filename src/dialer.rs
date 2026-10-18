@@ -11,7 +11,7 @@ use crate::protocol::{ChannelKind, Hello, Preamble};
 use crate::proxy::ProxyConfig;
 use crate::secret::Secret;
 use crate::transport::endpoint::Endpoint;
-use crate::transport::proxy::dial_tcp;
+use crate::transport::proxy::dial_tcp_ordered;
 use crate::transport::resolve::{self, Resolver};
 use crate::transport::tcp::tune;
 use crate::transport::ws::{self, Carrier};
@@ -38,6 +38,45 @@ pub struct Dialer {
     plaintext: bool,
     tls: Option<TlsConnector>,
     role: &'static str,
+    recent: std::sync::Mutex<Recent>,
+}
+
+#[derive(Default)]
+struct Recent {
+    good: Option<std::net::SocketAddr>,
+    bad: Option<std::net::SocketAddr>,
+}
+
+impl Recent {
+    fn order(&self, addrs: &mut Vec<std::net::SocketAddr>) {
+        if let Some(bad) = self.bad
+            && addrs.len() > 1
+            && let Some(i) = addrs.iter().position(|a| *a == bad)
+        {
+            let a = addrs.remove(i);
+            addrs.push(a);
+        }
+        if let Some(good) = self.good
+            && let Some(i) = addrs.iter().position(|a| *a == good)
+        {
+            let a = addrs.remove(i);
+            addrs.insert(0, a);
+        }
+    }
+
+    fn worked(&mut self, peer: std::net::SocketAddr, ok: bool) {
+        if ok {
+            self.good = Some(peer);
+            if self.bad == Some(peer) {
+                self.bad = None;
+            }
+        } else {
+            self.bad = Some(peer);
+            if self.good == Some(peer) {
+                self.good = None;
+            }
+        }
+    }
 }
 
 fn connector(endpoint: &Endpoint, ca_pem: Option<&[u8]>) -> Option<TlsConnector> {
@@ -63,6 +102,7 @@ impl Dialer {
             secret: s.secret.clone(),
             plaintext: s.insecure_plaintext,
             role: "client",
+            recent: Default::default(),
         }
     }
 
@@ -81,6 +121,7 @@ impl Dialer {
             secret: s.secret.clone(),
             plaintext: false,
             role: "visitor",
+            recent: Default::default(),
         }
     }
 
@@ -89,16 +130,24 @@ impl Dialer {
     }
 
     pub async fn connect(&self) -> Result<Conn, DialError> {
+        self.connect_from().await.map(|(conn, _)| conn)
+    }
+
+    async fn connect_from(&self) -> Result<(Conn, Option<std::net::SocketAddr>), DialError> {
         let via = self
             .proxy
             .as_ref()
             .map(|p| format!(" via proxy {p:?}"))
             .unwrap_or_default();
-        let stream = dial_tcp(
+        let order = |addrs: &mut Vec<std::net::SocketAddr>| {
+            self.recent.lock().expect("recent lock").order(addrs);
+        };
+        let stream = dial_tcp_ordered(
             &self.endpoint.dial_address(),
             self.proxy.as_ref(),
             self.connect_timeout,
             &*self.resolver,
+            &order,
         )
         .await
         .map_err(|e| {
@@ -109,6 +158,19 @@ impl Dialer {
             ))
         })?;
         tune(&stream, &self.tcp);
+        let peer = self
+            .proxy
+            .is_none()
+            .then(|| stream.peer_addr().ok())
+            .flatten();
+        let upgraded = self.upgrade(stream).await;
+        if let (Err(_), Some(p)) = (&upgraded, peer) {
+            self.recent.lock().expect("recent lock").worked(p, false);
+        }
+        upgraded.map(|conn| (conn, peer))
+    }
+
+    async fn upgrade(&self, stream: tokio::net::TcpStream) -> Result<Conn, DialError> {
         let Endpoint::WebSocket { tls, host, .. } = &self.endpoint else {
             return Ok(Conn::from(stream));
         };
@@ -171,7 +233,7 @@ impl Dialer {
     }
 
     pub async fn open(&self, kind: ChannelKind, hello: Hello) -> Result<Channel, DialError> {
-        let conn = self.connect().await?;
+        let (conn, peer) = self.connect_from().await?;
         let preamble = Preamble {
             kind,
             cipher: self.cipher,
@@ -179,7 +241,12 @@ impl Dialer {
             name: self.name.clone(),
         };
         let fut = initiate(conn, &preamble, &self.secret, &hello);
-        match tokio::time::timeout(self.connect_timeout, fut).await {
+        let done = tokio::time::timeout(self.connect_timeout, fut).await;
+        if let Some(p) = peer {
+            let ok = matches!(done, Ok(Ok(_)));
+            self.recent.lock().expect("recent lock").worked(p, ok);
+        }
+        match done {
             Ok(Ok(ch)) => Ok(ch),
             Ok(Err(ClientHandshakeError::Rejected)) => Err(DialError::Rejected),
             Ok(Err(ClientHandshakeError::Io(e))) => Err(DialError::Lost(format!(
@@ -201,5 +268,32 @@ fn tls_reason(e: &std::io::Error, role: &str) -> String {
         format!("{text}; if the server uses a private CA, set \"ca\" in the {role} config")
     } else {
         text
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_failing_address_goes_last_and_a_working_one_first() {
+        let a = |s: &str| s.parse::<std::net::SocketAddr>().unwrap();
+        let (v6, v4, other) = (a("[fd00::1]:7835"), a("10.0.0.1:7835"), a("10.0.0.2:7835"));
+        let mut recent = Recent::default();
+        recent.worked(v6, false);
+        let mut list = vec![v6, v4, other];
+        recent.order(&mut list);
+        assert_eq!(list, vec![v4, other, v6]);
+        recent.worked(other, true);
+        let mut list = vec![v6, v4, other];
+        recent.order(&mut list);
+        assert_eq!(list, vec![other, v4, v6]);
+        recent.worked(v6, true);
+        let mut list = vec![v4, v6];
+        recent.order(&mut list);
+        assert_eq!(list, vec![v6, v4], "a recovered address is preferred again");
+        let mut alone = vec![v4];
+        Recent::default().order(&mut alone);
+        assert_eq!(alone, vec![v4]);
     }
 }
