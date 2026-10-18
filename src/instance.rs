@@ -382,7 +382,14 @@ fn planted(_entry: &Path) -> bool {
 }
 
 fn already_running(identity: &Identity, lock: &Path) -> Failure {
-    let holder = std::fs::read_to_string(lock.with_extension("info")).unwrap_or_default();
+    let holder = std::fs::File::open(lock.with_extension("info"))
+        .ok()
+        .and_then(|f| {
+            let mut text = String::new();
+            std::io::Read::read_to_string(&mut std::io::Read::take(f, 4096), &mut text).ok()?;
+            Some(text)
+        })
+        .unwrap_or_default();
     let mut holder = holder.trim().to_string();
     if let Identity::Server { config } = identity {
         holder = holder.replace(&format!(", config {}", config.display()), "");
@@ -521,7 +528,10 @@ fn trusted_note(path: &Path) -> Option<Running> {
         return None;
     }
     let mut text = String::new();
-    std::io::Read::read_to_string(&mut file, &mut text).ok()?;
+    std::io::Read::read_to_string(&mut std::io::Read::take(&mut file, 4097), &mut text).ok()?;
+    if text.len() > 4096 {
+        return None;
+    }
     let note = parse_note(&text)?;
     (trusted_owner(m.uid(), &note.config) && runs_as(note.pid, m.uid())).then_some(note)
 }
@@ -542,7 +552,16 @@ fn trusted_note(path: &Path) -> Option<Running> {
     if !std::fs::symlink_metadata(path).is_ok_and(|m| m.is_file() && m.len() <= 4096) {
         return None;
     }
-    let note = parse_note(&std::fs::read_to_string(path).ok()?)?;
+    let mut text = String::new();
+    std::io::Read::read_to_string(
+        &mut std::io::Read::take(std::fs::File::open(path).ok()?, 4097),
+        &mut text,
+    )
+    .ok()?;
+    if text.len() > 4096 {
+        return None;
+    }
+    let note = parse_note(&text)?;
     runs_as(note.pid, 0).then_some(note)
 }
 
