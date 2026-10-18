@@ -906,23 +906,13 @@ async fn making_a_service_private_closes_its_public_connections() {
         .visitors
         .insert("laptop".into(), visitor_auth(Secret::generate(), &[]));
     let t = tunnel_with(settings.clone(), vec![], |c| c, secret).await;
-    let mut open = open_echo(t.server.services["web"]).await;
+    let open = open_echo(t.server.services["web"]).await;
     let mut next = settings.clone();
     let web = next.services.get_mut("web").unwrap();
     web.bind = None;
     web.visitors = vec!["laptop".into()];
     t.server.reload(next).await;
-    let closed = tokio::time::timeout(Duration::from_secs(5), async {
-        let _ = open.write_all(b"ping").await;
-        let mut b = [0u8; 4];
-        matches!(open.read(&mut b).await, Ok(0) | Err(_))
-    })
-    .await;
-    assert_eq!(
-        closed,
-        Ok(true),
-        "a public connection survived the service going private"
-    );
+    assert_cut(open).await;
 }
 
 #[cfg(unix)]
