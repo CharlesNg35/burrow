@@ -89,6 +89,28 @@ fn grant(path: &Path, account: &str, rights: &str) -> Result<(), Failure> {
     icacls(path, &["/grant", &format!("{account}:{rights}")])
 }
 
+fn broad(account: &str) -> bool {
+    let name = account.trim().trim_start_matches('*').to_ascii_lowercase();
+    let name = name.rsplit('\\').next().unwrap_or(&name);
+    [
+        "everyone",
+        "users",
+        "authenticated users",
+        "guests",
+        "interactive",
+        "network",
+        "anonymous logon",
+        "s-1-1-0",
+        "s-1-5-2",
+        "s-1-5-4",
+        "s-1-5-7",
+        "s-1-5-11",
+        "s-1-5-32-545",
+        "s-1-5-32-546",
+    ]
+    .contains(&name)
+}
+
 fn grant_dirs(account: &str) -> Result<(), Failure> {
     let p = Platform::Windows;
     grant(&p.state_dir(), account, "(OI)(CI)RX")?;
@@ -199,7 +221,9 @@ impl Backend for WindowsService {
             icacls(&instances, &["/grant", &format!("{USERS}:(OI)(CI)M")])?;
         }
         for m in crate::service::all_manifests() {
-            grant_dirs(&m.account)?;
+            if !broad(&m.account) {
+                grant_dirs(&m.account)?;
+            }
         }
         Ok(())
     }
@@ -449,5 +473,40 @@ fn serve(name: &str, stop: tokio::sync::watch::Receiver<bool>) -> Result<u8, Fai
         "server" => crate::run::server_until(&m.config, logging, Some(hosted)),
         "visitor" => crate::run::visit_until(&m.config, logging, Some(hosted)),
         _ => crate::run::client_until(&m.config, logging, Some(hosted)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn broad_groups_named_in_a_record_get_no_access() {
+        for name in [
+            "Everyone",
+            "BUILTIN\\Users",
+            "*S-1-1-0",
+            "NT AUTHORITY\\Authenticated Users",
+        ] {
+            assert!(broad(name), "{name}");
+        }
+        for name in ["NT SERVICE\\burrow-home", "LocalService", ".\\svc-burrow"] {
+            assert!(!broad(name), "{name}");
+        }
+    }
+
+    #[test]
+    fn only_burrow_under_program_files_is_trusted() {
+        let pf = PathBuf::from(std::env::var_os("ProgramFiles").unwrap());
+        assert!(crate::service::system::trusted_binary(
+            &pf.join("Tools").join("burrow.exe")
+        ));
+        assert!(!crate::service::system::trusted_binary(
+            &pf.join("Tools").join("setup.exe")
+        ));
+        let windows = PathBuf::from(std::env::var_os("SystemRoot").unwrap());
+        assert!(!crate::service::system::trusted_binary(
+            &windows.join("Temp").join("burrow.exe")
+        ));
     }
 }

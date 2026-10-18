@@ -196,12 +196,14 @@ pub fn trusted_folder(_dir: &Path) -> bool {
 
 #[cfg(windows)]
 pub fn trusted_binary(path: &Path) -> bool {
-    let program_files = std::env::var_os("ProgramFiles").map(PathBuf::from);
-    let windir = std::env::var_os("SystemRoot").map(PathBuf::from);
-    [program_files, windir]
-        .into_iter()
-        .flatten()
-        .any(|root| path.starts_with(root))
+    let named_burrow = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .is_some_and(|n| n.eq_ignore_ascii_case("burrow.exe"));
+    named_burrow
+        && std::env::var_os("ProgramFiles")
+            .map(PathBuf::from)
+            .is_some_and(|root| path.starts_with(root))
 }
 
 pub fn canonical(p: &Path) -> std::io::Result<PathBuf> {

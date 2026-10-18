@@ -923,7 +923,8 @@ fn trustworthy(m: &Manifest, file: &Path) -> bool {
             .as_deref()
             .is_none_or(|e| in_dir(e, &p.config_dir()))
         && (m.log_file.as_os_str().is_empty() || m.log_file == p.log_file(m.short()))
-        && (m.binary == p.service_binary() || system::trusted_binary(&m.binary))
+        && (m.binary == p.service_binary()
+            || ((cfg!(not(windows)) || !m.copied_binary) && system::trusted_binary(&m.binary)))
 }
 
 fn read_manifest(path: &Path) -> Result<Manifest, String> {
