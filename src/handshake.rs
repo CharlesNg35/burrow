@@ -72,9 +72,12 @@ pub async fn initiate(
             "the connection closed before the server answered",
         )));
     }
-    let session = init
-        .finish(&msg2)
-        .map_err(|_| ClientHandshakeError::Rejected)?;
+    let session = init.finish(&msg2).map_err(|_| {
+        ClientHandshakeError::Io(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "the answer is not from a burrow server that knows this name",
+        ))
+    })?;
     let (sealer, opener) = session.split();
     let mut writer = RecordWriter::new(sealer);
     writer.send(&mut stream, &hello.encode()).await?;
@@ -210,6 +213,10 @@ mod tests {
         ));
         assert!(matches!(
             against(&[]).await,
+            Err(ClientHandshakeError::Io(_))
+        ));
+        assert!(matches!(
+            against(&[0x5a; MSG2_LEN]).await,
             Err(ClientHandshakeError::Io(_))
         ));
     }
