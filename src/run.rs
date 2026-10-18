@@ -142,6 +142,10 @@ fn runtime() -> Result<tokio::runtime::Runtime, Failure> {
 
 fn drive<T>(work: impl std::future::Future<Output = Result<T, Failure>>) -> Result<T, Failure> {
     let rt = runtime()?;
+    #[cfg(unix)]
+    rt.block_on(async {
+        let _ = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::hangup());
+    });
     let out = rt.block_on(work);
     rt.shutdown_timeout(std::time::Duration::from_secs(1));
     out

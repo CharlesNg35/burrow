@@ -753,3 +753,41 @@ fn a_failing_command_whose_stderr_went_away_exits_with_its_code() {
     let code = status.code();
     assert!(code.is_some_and(|c| c != 0 && c != 101), "{status:?}");
 }
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_sighup_as_soon_as_the_port_is_open_does_not_kill_the_server() {
+    use std::process::{Command, Stdio};
+    let dir = tempfile::tempdir().unwrap();
+    let locks = tempfile::tempdir().unwrap();
+    let listen = free_local();
+    let config = dir.path().join("server.yaml");
+    process::write(
+        &config,
+        &format!(
+            "listen: {listen}\nclients:\n  home: {{ secret: {} }}\nservices: {{}}\n",
+            Secret::generate().encode()
+        ),
+    );
+    let mut child = Command::new(env!("CARGO_BIN_EXE_burrow"))
+        .args(["server", "-c"])
+        .arg(&config)
+        .env("BURROW_INSTANCE_DIR", locks.path())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let pid = rustix::process::Pid::from_raw(child.id() as i32).unwrap();
+    let up = eventually_listening(listen).await;
+    for _ in 0..20 {
+        let _ = rustix::process::kill_process(pid, rustix::process::Signal::HUP);
+    }
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let alive = child.try_wait().unwrap().is_none();
+    let _ = child.kill();
+    let _ = child.wait();
+    assert!(
+        up && alive,
+        "a SIGHUP once the port is open killed the server"
+    );
+}
