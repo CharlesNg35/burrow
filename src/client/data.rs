@@ -411,6 +411,17 @@ async fn socket(
     }
     #[cfg(unix)]
     match tokio::net::UnixStream::connect(path).await {
+        Ok(target) if !bound_at(&target, path) => {
+            static MOVED: Throttle = Throttle::new();
+            if let Some(more) = MOVED.allow() {
+                warn!(
+                    "denied connection to {} for {}: the socket there was replaced while connecting{more}",
+                    connect.target,
+                    whom(connect)
+                );
+            }
+            reply(ch, Status::Denied).await;
+        }
         Ok(target) => {
             tokio::select! {
                 r = client_tcp(ch, target, settings.insecure_plaintext) => {
@@ -483,6 +494,22 @@ async fn lookup(
         Ok(Err(_)) => Err(std::io::Error::other("the lookup stopped")),
         Err(_) => Err(timed_out()),
     }
+}
+
+#[cfg(unix)]
+fn bound_at(stream: &tokio::net::UnixStream, path: &str) -> bool {
+    let Ok(peer) = stream.peer_addr() else {
+        return false;
+    };
+    let Some(bound) = peer.as_pathname() else {
+        return false;
+    };
+    let wanted = std::path::Path::new(path);
+    if bound.file_name() != wanted.file_name() {
+        return false;
+    }
+    let folder = |p: &std::path::Path| p.parent().and_then(|d| std::fs::canonicalize(d).ok());
+    !bound.is_absolute() || folder(bound) == folder(wanted)
 }
 
 #[cfg(unix)]
@@ -780,6 +807,31 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(addrs, vec!["127.0.0.1:22".parse::<SocketAddr>().unwrap()]);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_socket_swapped_for_a_link_elsewhere_is_noticed_after_connecting() {
+        let dir = tempfile::tempdir().unwrap();
+        let real = dir.path().join("real");
+        let other = dir.path().join("other");
+        std::fs::create_dir_all(&real).unwrap();
+        std::fs::create_dir_all(&other).unwrap();
+        let _a = tokio::net::UnixListener::bind(real.join("a.sock")).unwrap();
+        let _b = tokio::net::UnixListener::bind(other.join("a.sock")).unwrap();
+        let linked = dir.path().join("linked");
+        std::os::unix::fs::symlink(&real, &linked).unwrap();
+        let via = linked.join("a.sock");
+        let stream = tokio::net::UnixStream::connect(&via).await.unwrap();
+        assert!(bound_at(&stream, via.to_str().unwrap()));
+        let swapped = real.join("b.sock");
+        std::os::unix::fs::symlink(other.join("a.sock"), &swapped).unwrap();
+        let stream = tokio::net::UnixStream::connect(&swapped).await.unwrap();
+        assert!(!bound_at(&stream, swapped.to_str().unwrap()));
+        let same_name = dir.path().join("a.sock");
+        std::os::unix::fs::symlink(other.join("a.sock"), &same_name).unwrap();
+        let stream = tokio::net::UnixStream::connect(&same_name).await.unwrap();
+        assert!(!bound_at(&stream, same_name.to_str().unwrap()));
     }
 
     #[cfg(unix)]
