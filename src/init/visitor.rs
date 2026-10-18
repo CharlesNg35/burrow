@@ -106,10 +106,11 @@ fn update_visitor(
     prompt: &mut dyn Prompter,
     out: &mut dyn Write,
 ) -> Result<PathBuf, Failure> {
-    let path = match &opts.output {
+    let given = match &opts.output {
         Some(p) => p.clone(),
         None => crate::config::discover::discover(Path::new("."), Some(Role::Visitor))?,
     };
+    let path = std::fs::canonicalize(&given).unwrap_or(given);
     let format = Format::from_path(&path).ok_or_else(|| {
         Failure::usage(format!("cannot tell the format of {}", path.display()))
             .hint("visitor configs end in .yaml, .yml or .json")

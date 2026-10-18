@@ -383,3 +383,26 @@ async fn a_note_that_shrank_to_a_prefix_of_the_old_one_is_still_updated() {
         );
     }
 }
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_update_through_a_symlink_changes_the_real_file_and_keeps_the_link() {
+    let w = World::start(true).await;
+    std::fs::create_dir(w.path("real")).unwrap();
+    assert!(w.new_config("real/visitor.yaml").status.success());
+    std::os::unix::fs::symlink("real/visitor.yaml", w.path("visitor.yaml")).unwrap();
+    let mut next = w.settings.clone();
+    let target = echo_server().await;
+    next.services
+        .insert("web".into(), private_service(target, &["laptop"]));
+    w.server.reload(next).await;
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    let out = w.burrow(&["init", "visitor", "--update", "--yes"]);
+    assert!(out.status.success(), "{}", text(&out));
+    let link = std::fs::symlink_metadata(w.path("visitor.yaml")).unwrap();
+    assert!(
+        link.file_type().is_symlink(),
+        "the link was replaced by a file"
+    );
+    assert!(read(&w.path("real/visitor.yaml")).contains("service: web"));
+}
