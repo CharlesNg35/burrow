@@ -340,9 +340,9 @@ mod tests {
             "<string>--log-file</string>\n    <string>/var/log/burrow/home/home.log</string>"
         ));
         assert!(!p.contains("EnvironmentVariables"));
-        assert!(p.contains(
-            "<string>--env-file</string>\n    <string>/etc/burrow/home.env</string>"
-        ));
+        assert!(
+            p.contains("<string>--env-file</string>\n    <string>/etc/burrow/home.env</string>")
+        );
         assert!(p.contains("<string>/usr/local/bin/burrow</string>\n    <string>client</string>"));
         let visitor = Manifest {
             role: "visitor".into(),

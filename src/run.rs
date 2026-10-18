@@ -189,7 +189,10 @@ pub fn client(path: &Path, logging: Logging, env: Env) -> Result<u8, Failure> {
 
 pub fn visit(path: &Path, logging: Logging, pick: Pick, env: Env) -> Result<u8, Failure> {
     raise_open_files();
-    logged(&logging.clone(), run_visitor(path, logging, pick, with_env(env)))
+    logged(
+        &logging.clone(),
+        run_visitor(path, logging, pick, with_env(env)),
+    )
 }
 
 pub fn env_file(path: &Path) -> Result<Env, Failure> {

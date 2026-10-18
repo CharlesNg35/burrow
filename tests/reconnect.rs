@@ -294,7 +294,8 @@ async fn a_target_lookup_that_hangs_fails_within_the_connect_timeout() {
     let server = start_server(settings).await;
     let mut c = client_settings(server.addr, secret);
     c.connect_timeout = Duration::from_secs(1);
-    let mut cli = start_client_with(Client::new(c).with_resolver(Arc::new(Hanging))).await;
+    let mut cli =
+        start_client_with(Client::new(over_transport(c)).with_resolver(Arc::new(Hanging))).await;
     wait_state(&mut cli.state, State::Connected).await;
     let shared = server.shared.clone();
     wait_for(|| shared.idle_channels("home") >= 1).await;

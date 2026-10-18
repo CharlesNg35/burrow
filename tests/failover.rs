@@ -141,16 +141,29 @@ impl Farm {
     async fn connect_slow(&mut self, i: usize) {
         self.disconnect(i).await;
         let target = self.sites[i].target;
-        self.connect_using(i, "127.0.0.0/8", Arc::new(Slow(target)))
-            .await;
+        self.connect_with(i, "127.0.0.0/8", Arc::new(Slow(target)), |c| {
+            c.connect_timeout = Duration::from_secs(30)
+        })
+        .await;
     }
 
     async fn connect_using(&mut self, i: usize, allow: &str, resolver: Arc<dyn Resolver>) {
+        self.connect_with(i, allow, resolver, |_| {}).await;
+    }
+
+    async fn connect_with(
+        &mut self,
+        i: usize,
+        allow: &str,
+        resolver: Arc<dyn Resolver>,
+        tweak: impl FnOnce(&mut burrow::config::settings::ClientSettings),
+    ) {
         let site = &self.sites[i];
         let mut c = client_settings(self.server.addr, site.secret.clone());
         c.name = site.name.into();
         c.allow = AllowList::Rules(vec![allow.parse().unwrap()]);
         c.insecure_plaintext = self.plaintext;
+        tweak(&mut c);
         let client = Client::new(over_transport(c)).with_resolver(resolver);
         let mut running = start_client_with(client).await;
         wait_state(&mut running.state, State::Connected).await;
