@@ -412,6 +412,7 @@ pub struct InitArgs {
     #[arg(
         long,
         value_name = "VAR",
+        conflicts_with = "secret",
         help = "Write the secret as ${VAR} instead of a literal"
     )]
     pub env_secret: Option<String>,

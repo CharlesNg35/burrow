@@ -2051,3 +2051,21 @@ fn a_file_named_like_a_visitor_keeps_the_role_its_content_shows() {
     let visitor = format!("server: tunnel.example.com\nname: laptop\nsecret: {SECRET}\n");
     assert_eq!(role_of("visitor.yaml", &visitor).0, Some(Role::Visitor));
 }
+
+#[cfg(unix)]
+#[test]
+fn a_config_path_that_is_a_pipe_is_refused_instead_of_waited_on() {
+    let dir = tempfile::tempdir().unwrap();
+    let pipe = dir.path().join("server.yaml");
+    assert!(
+        std::process::Command::new("mkfifo")
+            .arg(&pipe)
+            .status()
+            .unwrap()
+            .success()
+    );
+    let Err(e) = burrow::config::load_file(&pipe, None, &env) else {
+        panic!("a pipe loaded as a config")
+    };
+    assert!(format!("{e:?}").contains("not a regular file"), "{e:?}");
+}

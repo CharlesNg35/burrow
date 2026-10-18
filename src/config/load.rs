@@ -124,6 +124,12 @@ pub fn load_file(
     env: &dyn EnvSource,
 ) -> Result<Outcome, LoadError> {
     let format = Format::from_path(path).ok_or(LoadError::UnknownExtension)?;
+    let meta = std::fs::metadata(path).map_err(LoadError::Read)?;
+    if !meta.is_file() && !meta.is_dir() {
+        return Err(LoadError::Read(std::io::Error::other(
+            "it is not a regular file",
+        )));
+    }
     let src = std::fs::read_to_string(path).map_err(LoadError::Read)?;
     let base = path
         .parent()
