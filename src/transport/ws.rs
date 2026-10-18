@@ -358,6 +358,11 @@ pub async fn accept(mut carrier: Carrier, path: &str) -> Result<WsConn, AcceptEr
             return Err(AcceptError::Io(io::ErrorKind::UnexpectedEof.into()));
         }
         head.extend_from_slice(&chunk[..n]);
+        let method = head.iter().take_while(|b| **b != b' ');
+        if method.clone().count() > 16 || !method.into_iter().all(u8::is_ascii_uppercase) {
+            refuse(&mut carrier, Refused::BadRequest).await;
+            return Err(AcceptError::Refused(Refused::BadRequest));
+        }
     }
     if let Err(r) = route(&head, path) {
         refuse(&mut carrier, r).await;

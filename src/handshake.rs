@@ -41,17 +41,22 @@ pub async fn initiate(
     stream.write_all(&first).await?;
     stream.flush().await?;
     let mut msg2 = [0u8; MSG2_LEN];
-    match stream.read_exact(&mut msg2).await {
-        Ok(_) => {}
-        Err(e)
-            if matches!(
-                e.kind(),
-                io::ErrorKind::UnexpectedEof | io::ErrorKind::ConnectionReset
-            ) =>
-        {
-            return Err(ClientHandshakeError::Rejected);
+    let mut filled = 0;
+    while filled < MSG2_LEN {
+        match stream.read(&mut msg2[filled..]).await {
+            Ok(0) => break,
+            Ok(n) => filled += n,
+            Err(e) if e.kind() == io::ErrorKind::ConnectionReset => break,
+            Err(e) => return Err(e.into()),
         }
-        Err(e) => return Err(e.into()),
+    }
+    if msg2[..filled].starts_with(b"HTTP/") {
+        return Err(ClientHandshakeError::Io(io::Error::other(
+            "the server answered with HTTP; if it listens for WebSocket clients there, use ws:// or wss:// in the server address",
+        )));
+    }
+    if filled < MSG2_LEN {
+        return Err(ClientHandshakeError::Rejected);
     }
     let session = init
         .finish(&msg2)

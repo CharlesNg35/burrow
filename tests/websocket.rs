@@ -623,3 +623,23 @@ async fn a_service_can_take_the_port_of_a_websocket_removed_in_the_same_reload()
     let _ = tokio::time::timeout(Duration::from_secs(3), conn.read_to_end(&mut got)).await;
     assert!(!got.starts_with(b"HTTP/"), "the websocket still answers");
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_tcp_client_at_the_websocket_port_is_told_to_use_a_websocket_url() {
+    if ws_mode() {
+        return;
+    }
+    use burrow::dialer::{DialError, Dialer};
+    use burrow::protocol::{ChannelKind, Hello};
+    let secret = Secret::generate();
+    let srv = start_server(ws_server(&secret, "/burrow", None)).await;
+    let ws = srv.ws_addr.unwrap();
+    let dialer = Dialer::visitor(&visitor_settings(ws, secret, vec![]));
+    let got = dialer
+        .open(ChannelKind::Visit, Hello::Visit { version: 1 })
+        .await;
+    let Err(DialError::Lost(why)) = got else {
+        panic!("expected a lost dial, got {:?}", got.err())
+    };
+    assert!(why.contains("ws://"), "{why}");
+}
