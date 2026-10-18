@@ -154,7 +154,7 @@ pub fn is_admin() -> bool {
 
 #[cfg(windows)]
 pub fn is_admin() -> bool {
-    run_ok("net", &["session"])
+    run_ok("net", &["session"]) || run_ok("fltmc", &[])
 }
 
 pub fn require_admin() -> Result<(), Failure> {
