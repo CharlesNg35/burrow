@@ -9,6 +9,7 @@ use crate::secret::Secret;
 use crate::transport::Conn;
 
 const MAX_SMALL_RECORD: usize = 256;
+pub const REFUSED: u8 = 0x00;
 pub const MAX_REQUEST_RECORD: usize = 512;
 
 pub struct Channel {
@@ -62,8 +63,14 @@ pub async fn initiate(
             "the server answered with HTTP; if it listens for WebSocket clients there, use ws:// or wss:// in the server address",
         )));
     }
-    if filled < MSG2_LEN {
+    if filled == 1 && msg2[0] == REFUSED {
         return Err(ClientHandshakeError::Rejected);
+    }
+    if filled < MSG2_LEN {
+        return Err(ClientHandshakeError::Io(io::Error::new(
+            io::ErrorKind::UnexpectedEof,
+            "the connection closed before the server answered",
+        )));
     }
     let session = init
         .finish(&msg2)
@@ -118,11 +125,17 @@ where
     let msg1: &[u8; MSG1_LEN] = msg1.try_into().expect("sliced to MSG1_LEN");
     let preamble = Preamble::from_parts(kind, flags, name)?;
     let candidates = secrets_for(preamble.kind, &preamble.name);
-    let responder = Responder::accept(preamble.cipher, &candidates, &preamble.prologue(), msg1)
-        .map_err(|_| AcceptError::Rejected)?;
-    let secret = candidates[responder.secret_index()].clone();
+    let accepted = Responder::accept(preamble.cipher, &candidates, &preamble.prologue(), msg1)
+        .and_then(|responder| {
+            let secret = candidates[responder.secret_index()].clone();
+            responder.reply().map(|reply| (secret, reply))
+        });
     drop(candidates);
-    let (session, msg2) = responder.reply().map_err(|_| AcceptError::Rejected)?;
+    let Ok((secret, (session, msg2))) = accepted else {
+        let _ = stream.write_all(&[REFUSED]).await;
+        let _ = stream.flush().await;
+        return Err(AcceptError::Rejected);
+    };
     stream.write_all(&msg2).await?;
     stream.flush().await?;
     let (sealer, opener) = session.split();
@@ -160,4 +173,44 @@ pub async fn read_small(
         .open_record(&body[..len], &mut plain)
         .ok_or(AcceptError::Rejected)?;
     Ok(plain[..n].to_vec())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn only_an_explicit_refusal_counts_as_rejected() {
+        use crate::config::model::Cipher;
+        async fn against(answer: &'static [u8]) -> Result<Channel, ClientHandshakeError> {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let addr = listener.local_addr().unwrap();
+            tokio::spawn(async move {
+                let (mut s, _) = listener.accept().await.unwrap();
+                let mut first = [0u8; 64];
+                let _ = s.read(&mut first).await;
+                let _ = s.write_all(answer).await;
+            });
+            let stream = tokio::net::TcpStream::connect(addr).await.unwrap();
+            let preamble = Preamble {
+                kind: ChannelKind::Control,
+                cipher: Cipher::Chachapoly,
+                plaintext: false,
+                name: "home".into(),
+            };
+            let hello = Hello::Control {
+                version: crate::protocol::VERSION,
+                instance: [0u8; 16],
+            };
+            initiate(stream.into(), &preamble, &Secret::generate(), &hello).await
+        }
+        assert!(matches!(
+            against(&[REFUSED]).await,
+            Err(ClientHandshakeError::Rejected)
+        ));
+        assert!(matches!(
+            against(&[]).await,
+            Err(ClientHandshakeError::Io(_))
+        ));
+    }
 }

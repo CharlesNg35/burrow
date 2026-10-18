@@ -49,11 +49,11 @@ async fn reply_len(addr: SocketAddr, bytes: &[u8]) -> (usize, Duration) {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn wrong_secret_gets_no_reply() {
+async fn wrong_secret_gets_only_a_refusal() {
     let srv = start_server(server_settings(vec![Secret::generate()])).await;
     let (_, bytes) = first_flight("home", &Secret::generate(), ChannelKind::Control);
     let (n, _) = reply_len(srv.addr, &bytes).await;
-    assert_eq!(n, 0, "server must close without sending anything");
+    assert_eq!(n, 1, "server must close after one refusal byte");
     assert!(srv.shared.session_names().is_empty());
 }
 
@@ -80,8 +80,8 @@ async fn unknown_name_looks_like_wrong_secret() {
         let (nb, tb) = reply_len(srv.addr, &b).await;
         assert_eq!(
             (na, nb),
-            (0, 0),
-            "identical response: connection closed without bytes"
+            (1, 1),
+            "identical response: one refusal byte, then the connection closes"
         );
         known.push(ta);
         unknown.push(tb);
@@ -142,7 +142,7 @@ async fn truncated_and_modified_handshakes_are_dropped() {
         let mut bad = good.clone();
         bad[i] ^= 0x01;
         let (n, _) = reply_len(srv.addr, &bad).await;
-        assert_eq!(n, 0, "flipping byte {i} must be rejected");
+        assert!(n <= 1, "flipping byte {i} must be rejected");
     }
     for junk in [
         &b"GET / HTTP/1.1\r\nHost: x\r\n\r\n"[..],

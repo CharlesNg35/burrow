@@ -50,7 +50,7 @@ The server reads exactly 7 bytes, validates them, then reads exactly `name_len +
 
 ### Server-side secret lookup (anti-enumeration)
 
-The server takes the secrets listed for `name` (up to 4 during rotation), under `clients` for control and data channels and under `visitors` for visit channels, and pads the list to exactly 4 with freshly generated random secrets. Unknown names get 4 random secrets. It tries all 4 as the responder PSK, always all 4, and keeps the first that decrypts msg1. If none does, it closes the TCP connection without sending a byte. An unknown name and a wrong secret produce the same bytes (none), the same close, and the same work, so names cannot be enumerated. `tests/security.rs` measures the medians (ratio about 1.08 on loopback).
+The server takes the secrets listed for `name` (up to 4 during rotation), under `clients` for control and data channels and under `visitors` for visit channels, and pads the list to exactly 4 with freshly generated random secrets. Unknown names get 4 random secrets. It tries all 4 as the responder PSK, always all 4, and keeps the first that decrypts msg1. If none does, it sends the single byte `0x00` and closes the connection. An unknown name and a wrong secret produce the same byte, the same close, and the same work, so names cannot be enumerated. A client counts only this byte as a refusal: a connection that closes before msg2 without it (a busy server, a timeout, a forwarder whose backend is down) is a lost connection and is retried. `tests/security.rs` measures the medians (ratio about 1.08 on loopback).
 
 ### Where each side is proven
 

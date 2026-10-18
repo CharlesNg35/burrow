@@ -221,7 +221,7 @@ impl Client {
                         let _ = self.state.send(State::Connecting);
                     }
                     let why = format!(
-                        "handshake rejected by {}: wrong secret or unknown client name \"{}\", or the server is busy or restarting (check both against the server config, or print a new client config on the server with: burrow client-config {} -o client.yaml)",
+                        "handshake rejected by {}: wrong secret or unknown client name \"{}\" (check both against the server config, or print a new client config on the server with: burrow client-config {} -o client.yaml)",
                         s.server, s.name, s.name
                     );
                     if confirmed && s.exit_on_rejected {

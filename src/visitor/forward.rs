@@ -94,7 +94,7 @@ pub(super) async fn accept(
 
 fn rejected(dialer: &Dialer) -> String {
     format!(
-        "the server {} closed the connection during the handshake: wrong secret or unknown visitor name \"{}\", or the server is busy (check the name and secret against the server config, or print a new visitor config on the server with: burrow visitor-config {} -o visitor.yaml)",
+        "the server {} refused the handshake: wrong secret or unknown visitor name \"{}\" (check the name and secret against the server config, or print a new visitor config on the server with: burrow visitor-config {} -o visitor.yaml)",
         dialer.server, dialer.name, dialer.name
     )
 }

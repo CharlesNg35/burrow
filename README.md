@@ -616,7 +616,7 @@ Run the commands from a terminal opened with "Run as administrator". The service
 
 - **Secrets must be random.** Anyone who records a handshake can try guesses offline, so a secret must be 256 random bits. burrow rejects anything that is not exactly 32 bytes, and anything that looks non-random. Generate secrets with `burrow gensecret`, and never use a password.
 - Each client and visitor has its own secret. To rotate, list the old and the new one (`secret: [old, new]`), switch the client, then remove the old one.
-- Unknown client or visitor names and wrong secrets get exactly the same response (the connection is closed with no data) after the same work, so names cannot be discovered.
+- Unknown client or visitor names and wrong secrets get exactly the same response (one refusal byte, then the connection closes) after the same work, so names cannot be discovered.
 - Forward secrecy comes from fresh X25519 keys per connection. The protocol and the exact point where each side is authenticated are described in [docs/protocol.md](docs/protocol.md).
 - The client only connects to addresses in `allow`, checked after DNS resolution, so even a compromised server, or a visitor with `reach`, cannot use it to reach other hosts.
 - A visitor reaches only the services that list it, and clients only with `reach`. A private service has no port on the server at all.
