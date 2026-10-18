@@ -909,6 +909,30 @@ fn visitor_config_lists_the_visitors_services() {
 }
 
 #[test]
+fn visitor_config_suggests_a_socks_target_inside_reach() {
+    let dir = tempfile::tempdir().unwrap();
+    for (reach, target) in [
+        ("[192.168.150.0/25]", "192.168.150.1:22"),
+        ("[\"10.0.0.7:8080-8090\"]", "10.0.0.7:8080"),
+        ("[\"127.0.0.0/8:5432\"]", "127.0.0.1:5432"),
+        ("any", "127.0.0.1:22"),
+    ] {
+        let path = visitors_server(
+            dir.path(),
+            &format!("  laptop:\n    secret: @SECRET@\n    reach:\n      home: {reach}\n"),
+            "  web: { client: home, bind: 7840, target: 3000 }\n",
+        );
+        let out =
+            burrow::init::visitor_config(None, &path, None, Format::Yaml, &ProcessEnv).unwrap();
+        assert!(
+            out.notes[0].contains(&format!("--target {target} ")),
+            "{reach}: {:?}",
+            out.notes
+        );
+    }
+}
+
+#[test]
 fn visitor_config_explains_what_is_missing() {
     let dir = tempfile::tempdir().unwrap();
     let path = visitors_server(

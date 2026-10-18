@@ -129,6 +129,18 @@ impl fmt::Display for Rule {
 }
 
 impl NetRule {
+    pub fn example(&self) -> SocketAddr {
+        let port = self.ports.map_or(22, |(lo, _)| lo);
+        let local = IpAddr::V4(std::net::Ipv4Addr::LOCALHOST);
+        let ip = match self.net.addr {
+            _ if self.net.contains(local) => local,
+            IpAddr::V4(ip) if self.net.prefix < 32 => IpAddr::V4((u32::from(ip) + 1).into()),
+            IpAddr::V6(ip) if self.net.prefix < 128 => IpAddr::V6((u128::from(ip) + 1).into()),
+            ip => ip,
+        };
+        SocketAddr::new(ip, port)
+    }
+
     pub fn matches(&self, target: SocketAddr) -> bool {
         self.net.contains(target.ip())
             && self

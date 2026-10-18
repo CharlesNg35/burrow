@@ -369,9 +369,16 @@ fn left_out(planned: &super::plan::Plan) -> Option<String> {
     })
 }
 
-pub fn socks_note(client: &str, local: u16) -> String {
+pub fn socks_note(client: &str, local: u16, reach: &[String]) -> String {
+    let target = reach
+        .iter()
+        .find_map(|r| match r.parse() {
+            Ok(crate::allowlist::Rule::Net(rule)) => Some(rule.example().to_string()),
+            _ => None,
+        })
+        .unwrap_or_else(|| "127.0.0.1:22".to_string());
     format!(
-        "127.0.0.1:{local} is a SOCKS5 proxy into client \"{client}\": point an app at it, or forward one target with: {} visit --client {client} --target 127.0.0.1:22 --local 2222",
+        "127.0.0.1:{local} is a SOCKS5 proxy into client \"{client}\": point an app at it, or forward one target with: {} visit --client {client} --target {target} --local 2222",
         crate::failure::command()
     )
 }
@@ -403,7 +410,12 @@ pub fn visitor_config(
     let secret_text = secret_text(VISITOR, server_config, &name, &auth.secrets);
     let planned = super::plan::plan(&grants, &std::collections::BTreeMap::new(), false);
     for (_, client, local) in &planned.socks {
-        notes.push(socks_note(client, *local));
+        let reach = grants
+            .clients
+            .iter()
+            .find(|c| &c.name == client)
+            .map_or(&[][..], |c| &c.reach[..]);
+        notes.push(socks_note(client, *local, reach));
     }
     if let Some(line) = left_out(&planned) {
         notes.push(line.trim_start().to_string());
