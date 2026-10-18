@@ -483,6 +483,9 @@ impl Server {
         }
         let mut tick = tokio::time::interval(Duration::from_secs(60));
         tick.tick().await;
+        let mut retry = tokio::time::interval(BIND_RETRY);
+        retry.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        retry.tick().await;
         loop {
             tokio::select! {
                 r = accept_tcp(&self.listener) => match r {
@@ -504,6 +507,7 @@ impl Server {
                     }
                 },
                 Some(next) = reload.recv() => self.apply(next).await,
+                _ = retry.tick() => self.bind_waiting().await,
                 _ = tick.tick() => {
                     let n = self.shared.rejected.swap(0, Ordering::Relaxed);
                     if n > 0 {
@@ -514,6 +518,21 @@ impl Server {
             }
         }
         self.shutdown().await;
+    }
+
+    async fn bind_waiting(&mut self) {
+        let settings = self.shared.settings();
+        for (name, svc) in &settings.services {
+            if svc.bind.is_none() || self.services.contains_key(name) {
+                continue;
+            }
+            if let Ok(bound) = bind_service(name, svc).await {
+                let t = spawn_service(&self.shared, name, svc, bound);
+                info!("service \"{name}\" could listen now");
+                log_service(name, svc, t.addr);
+                self.services.insert(name.clone(), t);
+            }
+        }
     }
 
     async fn shutdown(mut self) {
@@ -644,6 +663,7 @@ impl Server {
             .map(|(k, _)| k.clone())
             .collect();
         let mut released: Vec<(Protocol, SocketAddr, u16)> = Vec::new();
+        let mut unbound: Vec<String> = Vec::new();
         for name in moving {
             if let Some(t) = self.services.remove(&name) {
                 if let Some(b) = t.service.bind {
@@ -712,7 +732,10 @@ impl Server {
                     log_service(name, svc, t.addr);
                     self.services.insert(name.clone(), t);
                 }
-                Err(f) => error!("{}", f.message),
+                Err(f) => {
+                    error!("{}", f.message);
+                    unbound.push(format!("\"{name}\""));
+                }
             }
         }
 
@@ -774,11 +797,20 @@ impl Server {
         } else {
             format!("; changed: {}", names.join(", "))
         };
-        info!(
+        let summary = format!(
             "config reloaded ({c} {}, {v} {}{what})",
             crate::diagnostics::plural(c, "client"),
             crate::diagnostics::plural(v, "service")
         );
+        if unbound.is_empty() {
+            info!("{summary}");
+        } else {
+            warn!(
+                "{summary}, but service {} could not listen; trying again every {}s",
+                unbound.join(", "),
+                BIND_RETRY.as_secs()
+            );
+        }
     }
 }
 
@@ -943,6 +975,7 @@ async fn bind_ws_with_retry(
 }
 
 const FREED_TRIES: usize = 20;
+const BIND_RETRY: Duration = Duration::from_secs(10);
 
 async fn bind_with_retry(
     name: &str,

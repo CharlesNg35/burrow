@@ -859,3 +859,32 @@ async fn a_reload_with_ports_taken_by_other_programs_does_not_stall() {
     let data = pattern(1_000, 3);
     assert_eq!(roundtrip(t.server.services["web"], &data).await, data);
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_service_whose_port_was_busy_at_reload_listens_once_it_is_free() {
+    let echo = echo_server().await;
+    let t = tunnel(vec![("web", service(echo, Protocol::Tcp))]).await;
+    let busy = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = busy.local_addr().unwrap();
+    let mut next = server_settings(vec![t.secret.clone()]);
+    next.listen = Some(t.server.addr);
+    let mut web = service(echo, Protocol::Tcp);
+    web.bind = Some(t.server.services["web"]);
+    next.services.insert("web".into(), web);
+    let mut late = service(echo, Protocol::Tcp);
+    late.bind = Some(port);
+    next.services.insert("late".into(), late);
+    t.server.reload(next).await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert_eq!(roundtrip(t.server.services["web"], b"kept").await, b"kept");
+    drop(busy);
+    let mut up = false;
+    for _ in 0..30 {
+        if try_roundtrip(port, b"late").await.as_deref() == Some(&b"late"[..]) {
+            up = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+    assert!(up, "the service never listened after its port was freed");
+}
