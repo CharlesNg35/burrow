@@ -444,10 +444,15 @@ fn already_running(identity: &Identity, lock: &Path) -> Failure {
     } else {
         format!(" ({holder})")
     };
-    Failure::new(format!("{} is already running{who}", identity.describe())).hint(format!(
-        "stop the other instance first; if it runs as a service, find it with: {}",
-        crate::failure::cmd("service list")
-    ))
+    let hint = if crate::failure::SERVICES {
+        format!(
+            "stop the other instance first; if it runs as a service, find it with: {}",
+            crate::failure::cmd("service list")
+        )
+    } else {
+        "stop the other instance first".to_string()
+    };
+    Failure::new(format!("{} is already running{who}", identity.describe())).hint(hint)
 }
 
 fn held_elsewhere(dir: &Path, identity: &Identity) -> Option<Failure> {

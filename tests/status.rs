@@ -216,7 +216,12 @@ fn files_of_other_users_are_counted_and_point_to_sudo() {
     let o = status(&instances, &[]);
     assert!(!o.status.success());
     assert!(text(&o).contains("belong to another user"), "{}", text(&o));
-    assert!(text(&o).contains("sudo"), "{}", text(&o));
+    let admin = if cfg!(any(target_os = "linux", target_os = "macos")) {
+        "sudo"
+    } else {
+        "(as root)"
+    };
+    assert!(text(&o).contains(admin), "{}", text(&o));
     std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
 }
 

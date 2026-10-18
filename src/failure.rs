@@ -207,11 +207,15 @@ pub fn cmd(rest: &str) -> String {
     format!("{} {rest}", command())
 }
 
+pub const SERVICES: bool = cfg!(any(target_os = "linux", target_os = "macos", windows));
+
 pub fn admin(rest: &str) -> String {
     if cfg!(windows) {
         format!("{} {rest} (as administrator)", command())
-    } else {
+    } else if cfg!(any(target_os = "linux", target_os = "macos")) {
         format!("sudo {} {rest}", command())
+    } else {
+        format!("{} {rest} (as root)", command())
     }
 }
 

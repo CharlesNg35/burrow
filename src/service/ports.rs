@@ -48,7 +48,7 @@ pub(crate) fn inspect_hint(proto: Protocol, port: u16) -> String {
         format!("sudo ss {flag} 'sport = :{port}'")
     } else if cfg!(target_os = "freebsd") {
         let flag = if proto == Protocol::Udp { "udp" } else { "tcp" };
-        format!("sudo sockstat -46 -l -P {flag} -p {port}")
+        format!("sockstat -46 -l -P {flag} -p {port}")
     } else {
         let flag = if proto == Protocol::Udp { "UDP" } else { "TCP" };
         format!("sudo lsof -nP -i{flag}:{port}")

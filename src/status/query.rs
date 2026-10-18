@@ -313,11 +313,13 @@ fn none_running(pick: &Pick, hidden: usize) -> Failure {
             "{hidden} running server(s) belong to another user, such as a service; run: {}",
             crate::failure::admin("status")
         )
-    } else {
+    } else if crate::failure::SERVICES {
         format!(
             "burrow status shows servers; on a client or visitor, see {} and its logs",
             crate::failure::cmd("service status")
         )
+    } else {
+        "burrow status shows servers; a client or visitor reports in its own log".to_string()
     };
     Failure::new(what).hint(hint)
 }
