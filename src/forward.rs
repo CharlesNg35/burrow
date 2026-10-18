@@ -521,6 +521,9 @@ pub async fn pump_tcp<T: Split>(
                     }
                     up_done.store(true, Relaxed);
                     if down_done.load(Relaxed) {
+                        if plaintext {
+                            break Ok(());
+                        }
                         break tokio::time::timeout(CLOSE_TIMEOUT, &mut down)
                             .await
                             .unwrap_or(Ok(()));
@@ -710,6 +713,35 @@ mod tests {
                 .await
                 .is_ok(),
             "the pump ends once the server has reset the channel"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_plaintext_channel_ends_as_soon_as_both_sides_are_done() {
+        let (a, b) = tcp_pair().await;
+        let (ch, mut server) = channels(a, b);
+        let (target, mut app) = tcp_pair().await;
+        let pump = tokio::spawn(pump_tcp(ch, target, true));
+        server.stream.write_all(b"ping").await.unwrap();
+        server.stream.shutdown().await.unwrap();
+        let mut got = Vec::new();
+        app.read_to_end(&mut got).await.unwrap();
+        assert_eq!(got, b"ping");
+        app.write_all(b"pong").await.unwrap();
+        drop(app);
+        let mut reply = Vec::new();
+        server.stream.read_to_end(&mut reply).await.unwrap();
+        assert_eq!(reply, b"pong");
+        let started = std::time::Instant::now();
+        tokio::time::timeout(std::time::Duration::from_secs(5), pump)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert!(
+            started.elapsed() < std::time::Duration::from_millis(500),
+            "took {:?}",
+            started.elapsed()
         );
     }
 
