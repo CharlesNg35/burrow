@@ -15,7 +15,7 @@ impl Default for Throttle {
 
 impl Throttle {
     const EVERY: Duration = Duration::from_secs(10);
-    const LONGEST: Duration = Duration::from_secs(600);
+    const LONGEST: Duration = Duration::from_secs(60);
 
     pub const fn new() -> Self {
         Throttle {
@@ -25,7 +25,10 @@ impl Throttle {
     }
 
     pub fn allow(&self) -> Option<String> {
-        let now = Instant::now();
+        self.allow_at(Instant::now())
+    }
+
+    fn allow_at(&self, now: Instant) -> Option<String> {
         let mut state = self.state.lock().expect("throttle lock");
         let (last, every) = match *state {
             Some((last, every)) if now < last + every => {
@@ -57,44 +60,35 @@ fn shown(d: Duration) -> String {
 mod tests {
     use super::*;
 
-    fn rewind(t: &Throttle, by: Duration) {
-        let mut state = t.state.lock().unwrap();
-        let (last, every) = state.unwrap();
-        *state = Some((last - by, every));
-    }
-
     #[test]
     fn throttled_warnings_count_what_they_skip() {
         let t = Throttle::new();
-        assert_eq!(t.allow().as_deref(), Some(""));
+        let start = Instant::now();
+        assert_eq!(t.allow_at(start).as_deref(), Some(""));
         for _ in 0..5 {
-            assert_eq!(t.allow(), None);
+            assert_eq!(t.allow_at(start), None);
         }
-        rewind(&t, Duration::from_secs(10));
         assert_eq!(
-            t.allow().as_deref(),
+            t.allow_at(start + Duration::from_secs(30)).as_deref(),
             Some(" (5 more like this in the last 10s)")
         );
-        assert_eq!(t.allow(), None);
     }
 
     #[test]
-    fn a_warning_that_keeps_coming_back_is_logged_less_and_less_often() {
+    fn a_warning_that_keeps_coming_back_is_logged_once_a_minute() {
         let t = Throttle::new();
         let every = |t: &Throttle| t.state.lock().unwrap().unwrap().1;
-        t.allow();
+        let mut now = Instant::now();
+        t.allow_at(now);
         assert_eq!(every(&t), Duration::from_secs(10));
-        rewind(&t, Duration::from_secs(10));
-        t.allow();
+        now += Duration::from_secs(10);
+        t.allow_at(now);
         assert_eq!(every(&t), Duration::from_secs(60));
-        rewind(&t, Duration::from_secs(60));
-        t.allow();
-        assert_eq!(every(&t), Duration::from_secs(360));
-        rewind(&t, Duration::from_secs(360));
-        t.allow();
-        assert_eq!(every(&t), Duration::from_secs(600));
-        rewind(&t, Duration::from_secs(1300));
-        t.allow();
+        now += Duration::from_secs(60);
+        t.allow_at(now);
+        assert_eq!(every(&t), Duration::from_secs(60));
+        now += Duration::from_secs(200);
+        t.allow_at(now);
         assert_eq!(every(&t), Duration::from_secs(10));
     }
 }
