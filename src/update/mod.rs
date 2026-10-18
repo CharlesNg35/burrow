@@ -43,10 +43,12 @@ pub fn platform() -> Option<(&'static str, &'static str)> {
         "amd64"
     } else if cfg!(target_arch = "aarch64") {
         "arm64"
-    } else if cfg!(all(target_arch = "arm", target_feature = "v7")) {
-        "armv7"
     } else if cfg!(target_arch = "arm") {
-        "armv6"
+        if env!("BURROW_TARGET").starts_with("armv7") {
+            "armv7"
+        } else {
+            "armv6"
+        }
     } else if cfg!(target_arch = "riscv64") {
         "riscv64"
     } else {
@@ -494,6 +496,31 @@ mod tests {
             )
             .is_none()
         );
+    }
+
+    #[test]
+    fn each_release_build_updates_from_its_own_asset() {
+        let workflow = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/.github/workflows/release.yml"
+        ))
+        .unwrap();
+        let mut rows = 0;
+        for line in workflow.lines() {
+            let field = |key: &str| {
+                line.split(&format!("{key}: "))
+                    .nth(1)
+                    .and_then(|rest| rest.split([',', ' ']).next())
+            };
+            let (Some(asset), Some(target)) = (field("asset"), field("target")) else {
+                continue;
+            };
+            rows += 1;
+            if target == env!("BURROW_TARGET") {
+                assert_eq!(platform().map(|(name, _)| name), Some(asset));
+            }
+        }
+        assert_eq!(rows, 10);
     }
 
     #[test]
