@@ -742,21 +742,26 @@ impl Server {
             .values()
             .cloned()
             .collect();
+        let toggled = next.insecure_plaintext != current.insecure_plaintext;
         for s in sessions {
             let why = match next.clients.get(&s.name) {
-                None => Some("removed from the config"),
-                Some(c) if !c.secrets.contains(&s.secret) => Some("its secret was removed"),
+                None => Some(("was removed from the config", ByeReason::Removed)),
+                Some(c) if !c.secrets.contains(&s.secret) => {
+                    Some(("lost its secret", ByeReason::Removed))
+                }
+                Some(_) if toggled => Some((
+                    "has to reconnect, because insecure_plaintext changed",
+                    ByeReason::PlaintextMismatch,
+                )),
                 Some(_) => None,
             };
-            if let Some(why) = why {
+            if let Some((why, reason)) = why {
                 info!(
-                    "client \"{}\" {why}, disconnecting it and its open connections",
+                    "client \"{}\" {why}; disconnecting it and its open connections",
                     s.name
                 );
                 self.shared.metrics.client_left(&s.name);
-                let _ = s.control.try_send(ServerMsg::Bye {
-                    reason: ByeReason::Removed,
-                });
+                let _ = s.control.try_send(ServerMsg::Bye { reason });
                 s.close();
                 self.shared
                     .sessions

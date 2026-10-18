@@ -243,6 +243,7 @@ async fn authenticate(
         }
         (ChannelKind::Data, &Hello::Data { version, token }) if version == VERSION => {
             if acc.preamble.plaintext != settings.insecure_plaintext {
+                debug!(%peer, "data channel with another insecure_plaintext setting, closing");
                 return;
             }
             match shared.session(&acc.preamble.name) {

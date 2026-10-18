@@ -37,6 +37,7 @@ async fn eventually(addr: SocketAddr) -> bool {
 
 struct Live {
     server: RunningServer,
+    server_settings: burrow::config::settings::ServerSettings,
     client: RunningClient,
     reload: mpsc::Sender<ClientSettings>,
     settings: ClientSettings,
@@ -52,6 +53,7 @@ impl Live {
         server
             .services
             .insert("web".into(), service(echo, Protocol::Tcp));
+        let server_settings = server.clone();
         let server = start_server(server).await;
         let mut settings = over_transport(client_settings(server.addr, secret.clone()));
         settings.allow = AllowList::Rules(vec![allow.parse().unwrap()]);
@@ -63,6 +65,7 @@ impl Live {
         wait_for(|| shared.idle_channels("home") >= 1).await;
         Live {
             server,
+            server_settings,
             client,
             reload,
             settings,
@@ -558,4 +561,26 @@ async fn a_new_handshake_limit_is_used_after_a_reload() {
     let _third = TcpStream::connect(server.addr).await.unwrap();
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert_eq!(refused(), before, "the raised limit was not used");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn turning_plaintext_on_reconnects_clients_instead_of_breaking_them_silently() {
+    let mut t = Live::start("127.0.0.0/8").await;
+    let mut next = t.server_settings.clone();
+    next.insecure_plaintext = true;
+    t.server.reload(next).await;
+    let mut state = t.client.state.clone();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while *state.borrow_and_update() == State::Connected {
+            state.changed().await.unwrap();
+        }
+    })
+    .await
+    .expect("the client is disconnected");
+    t.change(|s| s.insecure_plaintext = true).await;
+    wait_state(&mut t.client.state, State::Connected).await;
+    assert!(
+        eventually(t.web()).await,
+        "no traffic after both sides changed"
+    );
 }
