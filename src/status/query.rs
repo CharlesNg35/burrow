@@ -237,15 +237,10 @@ fn wanted(pick: &Pick) -> Result<Option<PathBuf>, Failure> {
 
 pub fn scan(dir: &Path, wanted: Option<&Path>) -> Scan {
     let mut hidden = 0;
-    let Ok(listing) = std::fs::read_dir(dir) else {
-        return Scan {
-            found: Vec::new(),
-            hidden,
-        };
-    };
-    let mut paths: Vec<PathBuf> = listing
-        .flatten()
-        .map(|e| e.path())
+    let mut paths: Vec<PathBuf> = crate::instance::dirs_with(dir)
+        .iter()
+        .filter_map(|d| std::fs::read_dir(d).ok())
+        .flat_map(|listing| listing.flatten().map(|e| e.path()))
         .filter(|p| p.extension().is_some_and(|x| x == "status"))
         .collect();
     paths.sort();

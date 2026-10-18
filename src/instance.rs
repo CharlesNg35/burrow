@@ -129,13 +129,20 @@ fn stale_status(_path: &Path) -> bool {
     false
 }
 
-pub fn default_dir() -> PathBuf {
-    if let Some(dir) = std::env::var_os("BURROW_INSTANCE_DIR") {
-        return PathBuf::from(dir);
+pub fn dirs_with(dir: &Path) -> Vec<PathBuf> {
+    let mut dirs = vec![dir.to_path_buf()];
+    if std::env::var_os("BURROW_INSTANCE_DIR").is_none() && dir == default_dir() {
+        dirs.extend(
+            [service_dir(), Some(fallback_dir())]
+                .into_iter()
+                .flatten()
+                .filter(|d| d.is_dir() && d != dir),
+        );
     }
-    if let Some(dir) = service_dir().filter(|d| d.is_dir()) {
-        return dir;
-    }
+    dirs
+}
+
+fn fallback_dir() -> PathBuf {
     if cfg!(windows) {
         std::env::var_os("ProgramData")
             .map(PathBuf::from)
@@ -145,6 +152,16 @@ pub fn default_dir() -> PathBuf {
     } else {
         PathBuf::from("/tmp/burrow-instances")
     }
+}
+
+pub fn default_dir() -> PathBuf {
+    if let Some(dir) = std::env::var_os("BURROW_INSTANCE_DIR") {
+        return PathBuf::from(dir);
+    }
+    if let Some(dir) = service_dir().filter(|d| d.is_dir()) {
+        return dir;
+    }
+    fallback_dir()
 }
 
 pub fn write_private(path: &Path, text: &str) -> std::io::Result<()> {
@@ -256,7 +273,14 @@ fn prepare_dir(dir: &Path) -> std::io::Result<()> {
 
 pub fn acquire(identity: &Identity, config: &Path) -> Result<InstanceLock, Failure> {
     let dir = default_dir();
-    let taken = acquire_in(&dir, identity, config);
+    let elsewhere = dirs_with(&dir)
+        .iter()
+        .skip(1)
+        .find_map(|other| held_elsewhere(other, identity));
+    let taken = match elsewhere {
+        Some(f) => Err(f),
+        None => acquire_in(&dir, identity, config),
+    };
     #[cfg(windows)]
     if let Err(f) = &taken
         && AS_SERVICE.load(std::sync::atomic::Ordering::Relaxed)
@@ -311,26 +335,7 @@ pub fn acquire_in(dir: &Path, identity: &Identity, config: &Path) -> Result<Inst
                 noted: false,
             });
         }
-        Err(TryLockError::WouldBlock) => {
-            let holder = std::fs::read_to_string(path.with_extension("info")).unwrap_or_default();
-            let mut holder = holder.trim().to_string();
-            if let Identity::Server { config } = identity {
-                holder = holder.replace(&format!(", config {}", config.display()), "");
-            }
-            let who = if holder.is_empty() {
-                String::new()
-            } else {
-                format!(" ({holder})")
-            };
-            return Err(
-                Failure::new(format!("{} is already running{who}", identity.describe())).hint(
-                    format!(
-                        "stop the other instance first; if it runs as a service, find it with: {}",
-                        crate::failure::cmd("service list")
-                    ),
-                ),
-            );
-        }
+        Err(TryLockError::WouldBlock) => return Err(already_running(identity, &path)),
         Err(TryLockError::Error(e)) => {
             return Err(Failure::new(format!(
                 "cannot lock {}: {}",
@@ -374,6 +379,33 @@ fn planted(entry: &Path) -> bool {
 #[cfg(not(unix))]
 fn planted(_entry: &Path) -> bool {
     false
+}
+
+fn already_running(identity: &Identity, lock: &Path) -> Failure {
+    let holder = std::fs::read_to_string(lock.with_extension("info")).unwrap_or_default();
+    let mut holder = holder.trim().to_string();
+    if let Identity::Server { config } = identity {
+        holder = holder.replace(&format!(", config {}", config.display()), "");
+    }
+    let who = if holder.is_empty() {
+        String::new()
+    } else {
+        format!(" ({holder})")
+    };
+    Failure::new(format!("{} is already running{who}", identity.describe())).hint(format!(
+        "stop the other instance first; if it runs as a service, find it with: {}",
+        crate::failure::cmd("service list")
+    ))
+}
+
+fn held_elsewhere(dir: &Path, identity: &Identity) -> Option<Failure> {
+    let path = dir.join(format!("{}.lock", identity.key()));
+    let file = no_follow(OpenOptions::new().read(true))
+        .open(&path)
+        .and_then(single_file)
+        .ok()?;
+    let busy = matches!(file.try_lock(), Err(TryLockError::WouldBlock));
+    (busy && held_by_a_trusted_instance(&path)).then(|| already_running(identity, &path))
 }
 
 fn held_by_a_trusted_instance(lock: &Path) -> bool {
@@ -448,7 +480,10 @@ pub struct Running {
 }
 
 pub fn running() -> Vec<Running> {
-    running_in(&default_dir())
+    dirs_with(&default_dir())
+        .iter()
+        .flat_map(|d| running_in(d))
+        .collect()
 }
 
 pub fn running_in(dir: &Path) -> Vec<Running> {
@@ -678,6 +713,20 @@ mod tests {
         remove_unused(dir.path());
         assert!(fresh.exists());
         assert!(!old.exists());
+    }
+
+    #[test]
+    fn a_tunnel_locked_in_the_other_instance_folder_is_found() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = dir.path().join("server.yaml");
+        std::fs::write(&cfg, "x").unwrap();
+        let id = Identity::server(&cfg);
+        assert!(held_elsewhere(dir.path(), &id).is_none());
+        let lock = acquire_in(dir.path(), &id, &cfg).unwrap();
+        let found = held_elsewhere(dir.path(), &id).expect("the held lock is found");
+        assert!(found.message.contains("is already running"), "{}", found.message);
+        drop(lock);
+        assert!(held_elsewhere(dir.path(), &id).is_none());
     }
 
     #[test]
