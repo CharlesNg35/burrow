@@ -837,7 +837,10 @@ fn visitor_init_asks_for_what_is_missing_and_validates() {
         "{out}"
     );
     assert!(
-        out.contains(&format!("init visitor --update -o {}", path.display())),
+        out.contains(&format!(
+            "init visitor --update -o {}",
+            burrow::failure::path_arg(&path)
+        )),
         "{out}"
     );
     assert!(

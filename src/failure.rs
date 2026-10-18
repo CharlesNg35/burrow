@@ -134,9 +134,10 @@ fn command_for(arg0: Option<&std::ffi::OsStr>) -> String {
 
 pub fn arg(text: &str) -> String {
     let plain = !text.is_empty()
+        && !text.starts_with('~')
         && text
             .chars()
-            .all(|c| c.is_ascii_alphanumeric() || "/\\:._-+=@,%".contains(c));
+            .all(|c| c.is_ascii_alphanumeric() || "/\\:._-+=@,%~".contains(c));
     if plain {
         text.to_string()
     } else if cfg!(windows) {
@@ -189,6 +190,11 @@ mod command_tests {
             arg(r"C:\ProgramData\burrow\home.yaml"),
             r"C:\ProgramData\burrow\home.yaml"
         );
+        assert_eq!(
+            arg(r"C:\Users\RUNNER~1\AppData\x.yaml"),
+            r"C:\Users\RUNNER~1\AppData\x.yaml"
+        );
+        assert_ne!(arg("~/x.yaml"), "~/x.yaml");
         let spaced = arg("/tmp/my dir/server.yaml");
         let tricky = arg("it's $HOME");
         if cfg!(windows) {
