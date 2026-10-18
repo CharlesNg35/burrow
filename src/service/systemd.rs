@@ -115,7 +115,7 @@ impl Backend for Systemd {
         if let Some(env) = &m.env_file {
             s.push_str(&format!("EnvironmentFile={}\n", quote(env)));
         }
-        s.push_str("Restart=on-failure\nRestartSec=5\nRestartPreventExitStatus=2 3\nLimitNOFILE=1048576\nUMask=0077\n");
+        s.push_str("Restart=on-failure\nRestartSec=5\nRestartPreventExitStatus=2 3\nRestartForceExitStatus=SIGHUP\nLimitNOFILE=1048576\nUMask=0077\n");
         s.push_str(&format!(
             "ReadWritePaths={INSTANCE_DIR}\nLogsDirectory=burrow/{}\nLogsDirectoryMode=0750\n",
             m.short()

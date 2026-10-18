@@ -149,6 +149,14 @@ fn runtime() -> Result<tokio::runtime::Runtime, Failure> {
         .map_err(|e| Failure::new(format!("cannot start the async runtime: {e}")))
 }
 
+fn hold_hangup() {
+    #[cfg(unix)]
+    let _ = signal_hook::flag::register(
+        signal_hook::consts::SIGHUP,
+        Arc::new(std::sync::atomic::AtomicBool::new(false)),
+    );
+}
+
 fn drive<T>(work: impl std::future::Future<Output = Result<T, Failure>>) -> Result<T, Failure> {
     let rt = runtime()?;
     #[cfg(unix)]
@@ -288,6 +296,7 @@ fn split(hosted: Option<Hosted>) -> (Option<watch::Receiver<bool>>, Env) {
 }
 
 fn run_server(path: &Path, logging: Logging, hosted: Option<Hosted>) -> Result<u8, Failure> {
+    hold_hangup();
     let (stop, env) = split(hosted);
     let Loaded::Server(settings, _) = load(path, Role::Server, &env, &[])? else {
         return Err(Failure::new(format!(
@@ -316,6 +325,7 @@ fn run_server(path: &Path, logging: Logging, hosted: Option<Hosted>) -> Result<u
 }
 
 fn run_client(path: &Path, logging: Logging, hosted: Option<Hosted>) -> Result<u8, Failure> {
+    hold_hangup();
     let (stop, env) = split(hosted);
     let Loaded::Client(settings, _) = load(path, Role::Client, &env, &[])? else {
         return Err(Failure::new(format!(
@@ -355,6 +365,7 @@ fn run_visitor(
     pick: Pick,
     hosted: Option<Hosted>,
 ) -> Result<u8, Failure> {
+    hold_hangup();
     let (stop, env) = split(hosted);
     let quiet: &[&str] = match pick {
         Pick::Adhoc { .. } => &["no-forwards"],
