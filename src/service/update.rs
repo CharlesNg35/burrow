@@ -114,9 +114,10 @@ fn plan(
     force: bool,
     out: &mut dyn Write,
 ) -> Result<Vec<Swap>, Failure> {
+    let all = all_manifests();
     let targets = match name {
         Some(_) => vec![resolve(name)?],
-        None => all_manifests(),
+        None => all.clone(),
     };
     if targets.is_empty() {
         return Err(Failure::new("no burrow service is installed").hint(format!(
@@ -124,16 +125,30 @@ fn plan(
             crate::failure::admin("service install")
         )));
     }
+    group(&targets, &all, me, mine, force, out)
+}
+
+fn group(
+    targets: &[Manifest],
+    all: &[Manifest],
+    me: &Path,
+    mine: &str,
+    force: bool,
+    out: &mut dyn Write,
+) -> Result<Vec<Swap>, Failure> {
     let mut binaries: Vec<PathBuf> = targets.iter().map(|m| m.binary.clone()).collect();
     binaries.sort();
     binaries.dedup();
     let mut swaps = Vec::new();
     for binary in binaries {
-        let users: Vec<Manifest> = targets
+        let mut users: Vec<Manifest> = all
             .iter()
+            .chain(targets)
             .filter(|m| m.binary == binary)
             .cloned()
             .collect();
+        users.sort_by(|a, b| a.name.cmp(&b.name));
+        users.dedup_by(|a, b| a.name == b.name);
         let names = users
             .iter()
             .map(|m| m.name.as_str())
@@ -371,6 +386,29 @@ mod tests {
             files: vec![],
             version: "1.0.0".into(),
         }
+    }
+
+    #[test]
+    fn updating_one_service_also_restarts_the_others_that_share_its_binary() {
+        let shared = Path::new("/nonexistent/burrow");
+        let own = Path::new("/nonexistent/other/burrow");
+        let all = [
+            service("db", shared),
+            service("solo", own),
+            service("web", shared),
+        ];
+        let swaps = group(
+            &all[2..],
+            &all,
+            Path::new("/nonexistent/new"),
+            "9.9.9",
+            false,
+            &mut std::io::sink(),
+        )
+        .unwrap();
+        assert_eq!(swaps.len(), 1);
+        let names: Vec<&str> = swaps[0].users.iter().map(|m| m.name.as_str()).collect();
+        assert_eq!(names, ["db", "web"]);
     }
 
     fn setup(new: &[u8]) -> (tempfile::TempDir, PathBuf, PathBuf) {
