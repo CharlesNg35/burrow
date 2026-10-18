@@ -360,21 +360,23 @@ async fn lookup(
             .await
             .unwrap_or_else(|_| Err(timed_out()));
     }
-    let (count, max, whose) = match connect.service.is_empty() {
+    let (slots, max, whose) = match connect.service.is_empty() {
         true => (&VISITOR_LOOKUPS, MAX_LOOKUPS, "visitors"),
         false => (&SERVICE_LOOKUPS, MAX_SERVICE_LOOKUPS, "services"),
     };
-    let Some(held) = Lookup::start(count, max) else {
+    let started = tokio::time::Instant::now();
+    let Ok(Ok(held)) = tokio::time::timeout(settings.connect_timeout, slots.acquire()).await else {
         return Err(std::io::Error::other(format!(
             "{max} host name lookups for {whose} are still running"
         )));
     };
+    let left = settings.connect_timeout.saturating_sub(started.elapsed());
     let (resolver, target) = (resolver.clone(), connect.target.clone());
     let running = tokio::spawn(async move {
         let _held = held;
         resolver.resolve(&target).await
     });
-    match tokio::time::timeout(settings.connect_timeout, running).await {
+    match tokio::time::timeout(left, running).await {
         Ok(Ok(resolved)) => resolved,
         Ok(Err(_)) => Err(std::io::Error::other("the lookup stopped")),
         Err(_) => Err(timed_out()),
@@ -394,27 +396,9 @@ fn foreign_link_on(path: &std::path::Path) -> Option<std::path::PathBuf> {
 const MAX_LOOKUPS: usize = 256;
 const MAX_SERVICE_LOOKUPS: usize = 384;
 
-static VISITOR_LOOKUPS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-static SERVICE_LOOKUPS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-
-struct Lookup(&'static std::sync::atomic::AtomicUsize);
-
-impl Lookup {
-    fn start(count: &'static std::sync::atomic::AtomicUsize, max: usize) -> Option<Lookup> {
-        use std::sync::atomic::Ordering::AcqRel;
-        if count.fetch_add(1, AcqRel) >= max {
-            count.fetch_sub(1, AcqRel);
-            return None;
-        }
-        Some(Lookup(count))
-    }
-}
-
-impl Drop for Lookup {
-    fn drop(&mut self) {
-        self.0.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
-    }
-}
+static VISITOR_LOOKUPS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(MAX_LOOKUPS);
+static SERVICE_LOOKUPS: tokio::sync::Semaphore =
+    tokio::sync::Semaphore::const_new(MAX_SERVICE_LOOKUPS);
 
 fn whom(connect: &Connect) -> String {
     match connect.service.as_str() {
@@ -676,7 +660,7 @@ mod tests {
         let started = Instant::now();
         let refused = lookup(&settings, &resolver, &visit("hang.test:22")).await;
         assert!(refused.unwrap_err().to_string().contains("still running"));
-        assert!(started.elapsed() < Duration::from_millis(40));
+        assert!(started.elapsed() < Duration::from_millis(500));
         assert!(
             lookup(&settings, &resolver, &visit("127.0.0.1:22"))
                 .await
