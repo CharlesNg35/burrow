@@ -32,11 +32,18 @@ impl Slots {
     }
 
     async fn wait(&self, patience: Duration) -> Option<tokio::sync::OwnedSemaphorePermit> {
+        let acquire = self.free.clone().acquire_owned();
+        tokio::pin!(acquire);
+        let deadline = tokio::time::Instant::now() + patience * 4;
         loop {
             let seen = self.opened.load(std::sync::atomic::Ordering::Relaxed);
-            match tokio::time::timeout(patience, self.free.clone().acquire_owned()).await {
+            let window =
+                patience.min(deadline.saturating_duration_since(tokio::time::Instant::now()));
+            match tokio::time::timeout(window, &mut acquire).await {
                 Ok(permit) => return permit.ok(),
-                Err(_) if self.opened.load(std::sync::atomic::Ordering::Relaxed) != seen => {}
+                Err(_)
+                    if self.opened.load(std::sync::atomic::Ordering::Relaxed) != seen
+                        && tokio::time::Instant::now() < deadline => {}
                 Err(_) => return None,
             }
         }
@@ -346,6 +353,23 @@ mod tests {
         let held = slots.wait(Duration::from_millis(300)).await;
         assert!(held.is_some());
         assert!(slots.wait(Duration::from_millis(300)).await.is_none());
+    }
+
+    #[tokio::test]
+    async fn a_slot_wait_ends_even_while_other_dials_keep_succeeding() {
+        let slots = Arc::new(Slots::new(0));
+        let busy = slots.clone();
+        let progress = tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+                busy.opened
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            }
+        });
+        let started = std::time::Instant::now();
+        assert!(slots.wait(Duration::from_millis(200)).await.is_none());
+        assert!(started.elapsed() < Duration::from_millis(1500));
+        progress.abort();
     }
 
     #[tokio::test]
