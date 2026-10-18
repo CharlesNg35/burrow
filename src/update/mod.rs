@@ -288,6 +288,7 @@ pub fn run(opts: &Options, out: &mut dyn Write) -> Result<u8, Failure> {
         let installed = service::all_manifests();
         let behind: Vec<&Manifest> = installed
             .iter()
+            .filter(|_| theirs == ours)
             .filter(|m| m.copied_binary && m.binary != me)
             .filter(|m| service::binary_version(&m.binary) != mine)
             .collect();
