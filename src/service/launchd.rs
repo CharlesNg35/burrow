@@ -192,6 +192,20 @@ impl Backend for Launchd {
         if let Some(dir) = m.log_file.parent() {
             let owner = (m.account != "root").then_some(m.account.as_str());
             make_dir(dir, 0o750, owner)?;
+            if let Some(account) = owner {
+                let (uid, gid) = super::system::account_ids(account)?;
+                let mut kept = vec![m.log_file.clone()];
+                kept.extend((1..=crate::logfile::KEEP).map(|n| {
+                    let mut name = m.log_file.as_os_str().to_owned();
+                    name.push(format!(".{n}"));
+                    std::path::PathBuf::from(name)
+                }));
+                for f in kept.iter().filter(|f| f.exists()) {
+                    std::os::unix::fs::lchown(f, Some(uid), Some(gid)).map_err(|e| {
+                        Failure::new(format!("cannot give {} to {account}: {e}", f.display()))
+                    })?;
+                }
+            }
         }
         let _ = run("launchctl", &["bootout", &target(m)]);
         let path = plist_path(m);
