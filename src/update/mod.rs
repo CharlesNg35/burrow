@@ -235,9 +235,8 @@ pub fn run(opts: &Options, out: &mut dyn Write) -> Result<u8, Failure> {
                 .hint(format!("see the releases at {base}")));
         }
         Err(e) => {
-            return Err(Failure::new(format!("cannot check for a new version: {e}")).hint(
-                "check the internet connection; behind a proxy, set HTTPS_PROXY=http://host:port",
-            ));
+            return Err(Failure::new(format!("cannot check for a new version: {e}"))
+                .hint(proxy_hint(std::env::var_os("SUDO_USER").is_some())));
         }
     };
     let asset = find_asset(&sums, platform, ext).ok_or_else(|| {
@@ -364,9 +363,33 @@ fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
+fn proxy_hint(under_sudo: bool) -> String {
+    let how = if cfg!(windows) {
+        "set $env:HTTPS_PROXY = \"http://host:port\"".to_string()
+    } else if under_sudo {
+        format!(
+            "set HTTPS_PROXY=http://host:port, and keep it through sudo with: sudo --preserve-env=HTTPS_PROXY,NO_PROXY {} update",
+            crate::failure::command()
+        )
+    } else {
+        "set HTTPS_PROXY=http://host:port".to_string()
+    };
+    format!("check the internet connection; behind a proxy, {how}")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_proxy_hint_says_how_to_keep_the_variable_through_sudo() {
+        let plain = proxy_hint(false);
+        assert!(plain.contains("HTTPS_PROXY"), "{plain}");
+        assert!(!plain.contains("--preserve-env"), "{plain}");
+        if cfg!(unix) {
+            assert!(proxy_hint(true).contains("sudo --preserve-env=HTTPS_PROXY,NO_PROXY"));
+        }
+    }
 
     const SUMS: &str = "\
 1111111111111111111111111111111111111111111111111111111111111111  burrow-0.3.0-linux-amd64.tar.gz

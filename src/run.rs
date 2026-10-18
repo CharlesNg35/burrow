@@ -117,9 +117,8 @@ fn load(path: &Path, role: Role, env: &Env, quiet: &[&str]) -> Result<Loaded, Fa
                 crate::diagnostics::plural(outcome.report.error_count(), "error")
             ))
             .hint(format!(
-                "fix them, then check again with: {} validate -c {}",
-                crate::failure::command(),
-                path.display()
+                "fix them, then check again with: {}",
+                crate::failure::cmd(&format!("validate -c {}", crate::failure::path_arg(path)))
             )),
         ));
     }

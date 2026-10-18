@@ -95,7 +95,7 @@ fn read(path: &Path) -> Result<String, Failure> {
         if e.kind() == std::io::ErrorKind::PermissionDenied {
             failure.hint(format!(
                 "open it as an administrator: {}",
-                admin(&format!("edit {}", path.display()))
+                admin(&format!("edit {}", crate::failure::path_arg(path)))
             ))
         } else {
             failure
@@ -129,7 +129,7 @@ fn edit(
         return Err(
             Failure::new(format!("you cannot change {shown}")).hint(format!(
                 "open it as an administrator: {}",
-                admin(&format!("edit {shown}"))
+                admin(&format!("edit {}", crate::failure::path_arg(path)))
             )),
         );
     }
@@ -266,7 +266,10 @@ fn edit(
                     out,
                     format!(
                         "note: {service} runs its own copy of this file; to use the change: {}",
-                        admin(&format!("service install -c {shown}"))
+                        admin(&format!(
+                            "service install -c {}",
+                            crate::failure::path_arg(path)
+                        ))
                     ),
                 )?;
             }

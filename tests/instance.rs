@@ -199,3 +199,30 @@ fn validate_in_json_reports_an_unreadable_file_as_json() {
         assert!(message.contains(want), "{message}");
     }
 }
+
+#[cfg(unix)]
+#[test]
+fn hints_quote_a_config_path_with_a_space() {
+    use std::os::unix::fs::PermissionsExt;
+    let s = setup();
+    let dir = s.dir.path().join("my dir");
+    std::fs::create_dir(&dir).unwrap();
+    let path = dir.join("server.yaml");
+    std::fs::copy(s.dir.path().join("server.yaml"), &path).unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+    let out = burrow(&s)
+        .args(["validate", "-c"])
+        .arg(&path)
+        .stdout(Stdio::piped())
+        .output()
+        .unwrap();
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        text.contains(&format!("chmod 600 '{}'", path.display())),
+        "{text}"
+    );
+}

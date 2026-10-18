@@ -132,6 +132,34 @@ fn command_for(arg0: Option<&std::ffi::OsStr>) -> String {
     }
 }
 
+pub fn arg(text: &str) -> String {
+    let plain = !text.is_empty()
+        && text
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "/\\:._-+=@,%".contains(c));
+    if plain {
+        text.to_string()
+    } else if cfg!(windows) {
+        format!("\"{}\"", text.replace('"', "\"\""))
+    } else {
+        format!("'{}'", text.replace('\'', "'\\''"))
+    }
+}
+
+pub fn path_arg(path: &std::path::Path) -> String {
+    arg(&path.display().to_string())
+}
+
+pub fn addresses_cmd() -> &'static str {
+    if cfg!(windows) {
+        "ipconfig"
+    } else if cfg!(target_os = "macos") {
+        "ifconfig"
+    } else {
+        "ip addr"
+    }
+}
+
 pub fn command() -> &'static str {
     static NAME: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     NAME.get_or_init(|| command_for(std::env::args_os().next().as_deref()))
@@ -153,6 +181,23 @@ pub fn admin(rest: &str) -> String {
 mod command_tests {
     use super::*;
     use std::ffi::OsStr;
+
+    #[test]
+    fn arguments_are_quoted_only_when_a_shell_needs_it() {
+        assert_eq!(arg("/etc/burrow/home.yaml"), "/etc/burrow/home.yaml");
+        assert_eq!(
+            arg(r"C:\ProgramData\burrow\home.yaml"),
+            r"C:\ProgramData\burrow\home.yaml"
+        );
+        let spaced = arg("/tmp/my dir/server.yaml");
+        let tricky = arg("it's $HOME");
+        if cfg!(windows) {
+            assert_eq!(spaced, "\"/tmp/my dir/server.yaml\"");
+        } else {
+            assert_eq!(spaced, "'/tmp/my dir/server.yaml'");
+            assert_eq!(tricky, r"'it'\''s $HOME'");
+        }
+    }
 
     #[test]
     fn hints_use_the_command_the_user_typed() {

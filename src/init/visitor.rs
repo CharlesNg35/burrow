@@ -37,7 +37,7 @@ pub fn init_visitor(
     );
     let later = |why: &str| {
         let update = match &opts.output {
-            Some(p) => format!("init visitor --update -o {}", p.display()),
+            Some(p) => format!("init visitor --update -o {}", crate::failure::path_arg(p)),
             None => "init visitor --update".to_string(),
         };
         format!(
@@ -273,7 +273,7 @@ fn settings_of(
         ))
         .hint(format!(
             "see why with: {}",
-            crate::failure::cmd(&format!("validate -c {}", path.display()))
+            crate::failure::cmd(&format!("validate -c {}", crate::failure::path_arg(path)))
         ))),
     }
 }

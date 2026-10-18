@@ -353,7 +353,10 @@ pub fn bind_error(what: &str, proto: Protocol, addr: SocketAddr, e: &std::io::Er
         std::io::ErrorKind::AddrNotAvailable => Failure::new(format!(
             "cannot bind {what} on {addr}: address not available on this machine"
         ))
-        .hint("use 0.0.0.0 or an IP address assigned to this machine (see: ip addr)"),
+        .hint(format!(
+            "use 0.0.0.0 or an IP address assigned to this machine (see: {})",
+            crate::failure::addresses_cmd()
+        )),
         _ => Failure::new(format!(
             "cannot bind {what} on {addr}: {}",
             crate::failure::io_reason(e)

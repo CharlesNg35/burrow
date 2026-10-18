@@ -77,7 +77,7 @@ pub fn by_target(found: &[Found], target: &str) -> Result<Found, Failure> {
             ))
             .hint(format!(
                 "check it with: {}",
-                crate::failure::cmd(&format!("validate -c {target}"))
+                crate::failure::cmd(&format!("validate -c {}", crate::failure::arg(target)))
             ))
         })?;
         return Ok(Found {

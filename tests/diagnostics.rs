@@ -1953,6 +1953,10 @@ fn the_hint_for_an_unset_variable_fits_the_field_and_the_shell() {
     let (secret, target) = (help("S"), help("T"));
     assert!(secret.contains("gensecret"), "{secret}");
     assert!(!target.contains("gensecret"), "{target}");
-    let set = if cfg!(windows) { "$env:T = " } else { "export T=" };
+    let set = if cfg!(windows) {
+        "$env:T = "
+    } else {
+        "export T="
+    };
     assert!(target.contains(set), "{target}");
 }

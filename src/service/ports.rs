@@ -27,7 +27,10 @@ pub fn check_free(proto: Protocol, addr: SocketAddr, label: &str) -> Result<(), 
         Err(e) if e.kind() == std::io::ErrorKind::AddrNotAvailable => Err(Failure::new(format!(
             "{addr} ({label}) is not an address of this machine"
         ))
-        .hint("use 0.0.0.0, 127.0.0.1 or an IP shown by: ip addr")),
+        .hint(format!(
+            "use 0.0.0.0, 127.0.0.1 or an IP shown by: {}",
+            crate::failure::addresses_cmd()
+        ))),
         Err(_) => Ok(()),
     }
 }

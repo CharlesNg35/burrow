@@ -144,7 +144,10 @@ fn permission_warning(path: &Path) -> Option<Diagnostic> {
                 mode & 0o777
             ),
         )
-        .help(format!("restrict it with: chmod 600 {}", path.display()))
+        .help(format!(
+            "restrict it with: chmod 600 {}",
+            crate::failure::path_arg(path)
+        ))
     })
 }
 
@@ -329,7 +332,7 @@ pub fn load_str_in(
                 .without_snippet()
                 .help(format!(
                     "run it with: {}",
-                    crate::failure::cmd(&format!("{run} -c {name}"))
+                    crate::failure::cmd(&format!("{run} -c {}", crate::failure::arg(name)))
                 )),
             );
             return fail(report, Some(wanted));

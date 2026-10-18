@@ -312,7 +312,7 @@ fn check_config(path: &Path, env: &BTreeMap<String, String>) -> Result<Checked, 
         } else {
             format!(
                 "sudo drops environment variables; keep them with: sudo --preserve-env={list} {} (the values are saved for the service, readable by it only)",
-                crate::failure::cmd(&format!("service install -c {}", path.display()))
+                crate::failure::cmd(&format!("service install -c {}", crate::failure::path_arg(path)))
             )
         }));
     }
@@ -326,7 +326,7 @@ fn check_config(path: &Path, env: &BTreeMap<String, String>) -> Result<Checked, 
         return Err(
             Failure::new(format!("{} has errors, not installing", path.display())).hint(format!(
                 "fix them, then check with: {}",
-                crate::failure::cmd(&format!("validate -c {}", path.display()))
+                crate::failure::cmd(&format!("validate -c {}", crate::failure::path_arg(path)))
             )),
         );
     }
@@ -524,8 +524,8 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
                 file.display()
             ))
             .hint(format!(
-                "grant read access, for example: sudo setfacl -m u:{account}:r {} (and x on its folders), or pass --run-as with an account that can read it",
-                file.display()
+                "grant read access, for example: {}, or pass --run-as with an account that can read it",
+                grant_hint(&account, file)
             )));
         }
     }
@@ -647,6 +647,19 @@ impl Drop for StartAgain<'_> {
         if let Some(m) = self.manifest.take() {
             let _ = self.backend.start(m);
         }
+    }
+}
+
+fn grant_hint(account: &str, file: &Path) -> String {
+    let path = crate::failure::path_arg(file);
+    if cfg!(windows) {
+        format!("icacls {path} /grant \"{account}:R\"")
+    } else if cfg!(target_os = "macos") {
+        format!(
+            "sudo chmod +a \"{account} allow read\" {path} (and \"allow search\" on its folders)"
+        )
+    } else {
+        format!("sudo setfacl -m u:{account}:r {path} (and x on its folders)")
     }
 }
 
@@ -1041,7 +1054,10 @@ pub fn control_now(action: &str, name: Option<&str>, out: &mut dyn Write) -> Res
 }
 
 fn install_args(m: &Manifest) -> String {
-    let mut args = format!("service install -c {}", m.source_config.display());
+    let mut args = format!(
+        "service install -c {}",
+        crate::failure::path_arg(&m.source_config)
+    );
     if service_name(&m.source_config, None).ok().as_deref() != Some(m.name.as_str()) {
         args.push_str(&format!(" --name {}", m.name));
     }
