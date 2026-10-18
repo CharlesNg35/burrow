@@ -46,7 +46,14 @@ pub async fn initiate(
         match stream.read(&mut msg2[filled..]).await {
             Ok(0) => break,
             Ok(n) => filled += n,
-            Err(e) if e.kind() == io::ErrorKind::ConnectionReset => break,
+            Err(e)
+                if matches!(
+                    e.kind(),
+                    io::ErrorKind::ConnectionReset | io::ErrorKind::UnexpectedEof
+                ) =>
+            {
+                break;
+            }
             Err(e) => return Err(e.into()),
         }
     }

@@ -666,3 +666,24 @@ async fn clients_of_a_websocket_path_that_changed_are_sent_to_reconnect() {
         "the client stayed connected to a path that is gone"
     );
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_wss_client_with_a_wrong_secret_is_reported_as_rejected() {
+    logs();
+    let cert = self_signed();
+    let secret = Secret::generate();
+    let srv = start_server(ws_server(&secret, "/t", Some(&cert))).await;
+    let port = srv.ws_addr.unwrap().port();
+    let mut cli = start_client(ws_client(
+        &format!("wss://localhost:{port}/t"),
+        Secret::generate(),
+        Some(&cert),
+    ))
+    .await;
+    let rejected = tokio::time::timeout(
+        Duration::from_secs(10),
+        cli.state.wait_for(|s| *s == State::Rejected),
+    )
+    .await;
+    assert!(rejected.is_ok(), "a wrong secret over wss is not reported");
+}
