@@ -653,9 +653,11 @@ mod tests {
         let live = dir.path().join(format!("{}.status", std::process::id()));
         std::fs::write(&stale, "{}").unwrap();
         std::fs::write(&live, "{}").unwrap();
-        remove_unused(dir.path());
+        assert!(soon(|| {
+            remove_unused(dir.path());
+            !unused_lock.exists() && !unused_lock.with_extension("info").exists()
+        }));
         assert!(held.path().exists() && held.path().with_extension("info").exists());
-        assert!(!unused_lock.exists() && !unused_lock.with_extension("info").exists());
         assert!(!stale.exists() && live.exists());
         std::fs::remove_file(&live).unwrap();
         let held_path = held.path().to_path_buf();
