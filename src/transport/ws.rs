@@ -11,6 +11,7 @@ use tokio_websockets::{ClientBuilder, Limits, Message, ServerBuilder, WebSocketS
 use super::endpoint::{Endpoint, join_host_port};
 
 pub const MAX_REQUEST_HEAD: usize = 8 * 1024;
+const MAX_RESPONSE_HEAD: usize = 64 * 1024;
 const MAX_HEADERS: usize = 32;
 const WRITE_BATCH: usize = 128 * 1024;
 const MAX_MESSAGE: usize = WRITE_BATCH;
@@ -27,6 +28,8 @@ delegate_write!(Carrier, Plain, ClientTls, ServerTls);
 pub struct Rewind {
     prefix: Bytes,
     inner: Carrier,
+    written: u64,
+    read_cap: Option<usize>,
 }
 
 impl AsyncRead for Rewind {
@@ -42,7 +45,20 @@ impl AsyncRead for Rewind {
             me.prefix.advance(n);
             return Poll::Ready(Ok(()));
         }
-        Pin::new(&mut me.inner).poll_read(cx, buf)
+        let Some(left) = me.read_cap else {
+            return Pin::new(&mut me.inner).poll_read(cx, buf);
+        };
+        if left == 0 {
+            return Poll::Ready(Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "the WebSocket upgrade response is too large",
+            )));
+        }
+        let before = buf.filled().len();
+        ready!(Pin::new(&mut me.inner).poll_read(cx, buf))?;
+        let n = buf.filled().len() - before;
+        me.read_cap = Some(left.saturating_sub(n));
+        Poll::Ready(Ok(()))
     }
 }
 
@@ -52,7 +68,12 @@ impl AsyncWrite for Rewind {
         cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
-        Pin::new(&mut self.get_mut().inner).poll_write(cx, buf)
+        let me = self.get_mut();
+        let written = Pin::new(&mut me.inner).poll_write(cx, buf);
+        if let Poll::Ready(Ok(n)) = written {
+            me.written = me.written.wrapping_add(n as u64);
+        }
+        written
     }
 
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
@@ -71,6 +92,8 @@ pub struct WsConn {
     eof: bool,
     controls: u32,
     window: std::time::Instant,
+    stalled: u32,
+    written_at_ping: u64,
 }
 
 const MAX_CONTROLS: u32 = 100;
@@ -84,7 +107,8 @@ fn ws_err(e: tokio_websockets::Error) -> io::Error {
 }
 
 impl WsConn {
-    fn new(inner: WebSocketStream<Rewind>) -> Self {
+    fn new(mut inner: WebSocketStream<Rewind>) -> Self {
+        inner.get_mut().read_cap = None;
         WsConn {
             inner,
             read_buf: Bytes::new(),
@@ -92,6 +116,8 @@ impl WsConn {
             eof: false,
             controls: 0,
             window: std::time::Instant::now(),
+            stalled: 0,
+            written_at_ping: 0,
         }
     }
 
@@ -141,7 +167,22 @@ impl AsyncRead for WsConn {
             match ready!(Pin::new(&mut me.inner).poll_next(cx)) {
                 Some(Ok(msg)) if msg.is_binary() => me.read_buf = Bytes::from(msg.into_payload()),
                 Some(Ok(msg)) if msg.is_close() => me.eof = true,
-                Some(Ok(_)) => {
+                Some(Ok(msg)) => {
+                    if msg.is_ping() {
+                        let written = me.inner.get_ref().written;
+                        me.stalled = if written == me.written_at_ping {
+                            me.stalled + 1
+                        } else {
+                            0
+                        };
+                        me.written_at_ping = written;
+                    }
+                    if me.stalled > MAX_CONTROLS {
+                        return Poll::Ready(Err(io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            "WebSocket control frames keep arriving while the peer reads nothing",
+                        )));
+                    }
                     if me.window.elapsed() > CONTROL_WINDOW {
                         me.window = std::time::Instant::now();
                         me.controls = 0;
@@ -277,6 +318,8 @@ pub async fn accept(mut carrier: Carrier, path: &str) -> Result<WsConn, AcceptEr
     let stream = Rewind {
         prefix: head.freeze(),
         inner: carrier,
+        written: 0,
+        read_cap: None,
     };
     let (_, ws) = ServerBuilder::new()
         .limits(limits())
@@ -342,6 +385,8 @@ pub async fn connect(
     let stream = Rewind {
         prefix: Bytes::new(),
         inner: carrier,
+        written: 0,
+        read_cap: Some(MAX_RESPONSE_HEAD),
     };
     match builder.connect_on(stream).await {
         Ok((ws, _)) => Ok(WsConn::new(ws)),
@@ -408,6 +453,106 @@ mod tests {
         }
         let _ = ws.send(Message::binary(vec![7u8; 4])).await;
         server.await.unwrap()
+    }
+
+    async fn pinging_while_reading(read_every: Option<std::time::Duration>) -> bool {
+        use futures_util::{SinkExt, StreamExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (tcp, _) = listener.accept().await.unwrap();
+            let conn = accept(Carrier::Plain(tcp), "/burrow").await.unwrap();
+            let (mut rd, mut wr) = tokio::io::split(conn);
+            let writer = tokio::spawn(async move {
+                let chunk = vec![1u8; 64 * 1024];
+                while wr.write_all(&chunk).await.is_ok() && wr.flush().await.is_ok() {}
+            });
+            let mut buf = [0u8; 64];
+            let ended = tokio::time::timeout(std::time::Duration::from_secs(30), async {
+                loop {
+                    match rd.read(&mut buf).await {
+                        Ok(0) | Err(_) => return,
+                        Ok(_) => {}
+                    }
+                }
+            })
+            .await
+            .is_ok();
+            writer.abort();
+            ended
+        });
+        let tcp = TcpStream::connect(addr).await.unwrap();
+        let (ws, _) = ClientBuilder::new()
+            .uri(&format!("ws://{addr}/burrow"))
+            .unwrap()
+            .connect_on(tcp)
+            .await
+            .unwrap();
+        let mut ws = ws;
+        for _ in 0..(MAX_CONTROLS as usize + 30) {
+            if ws.send(Message::ping(vec![0u8; 125])).await.is_err() {
+                break;
+            }
+            let pause = std::time::Duration::from_millis(105);
+            match read_every {
+                None => tokio::time::sleep(pause).await,
+                Some(every) => {
+                    let _ = tokio::time::timeout(pause, async {
+                        while let Some(Ok(_)) = ws.next().await {
+                            tokio::time::sleep(every).await;
+                        }
+                    })
+                    .await;
+                }
+            }
+        }
+        if read_every.is_some() {
+            let cut = server.is_finished();
+            server.abort();
+            return cut;
+        }
+        server.await.unwrap()
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn pings_from_a_peer_that_reads_nothing_end_the_connection() {
+        assert!(pinging_while_reading(None).await);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn pings_from_a_slow_reader_do_not_end_the_connection() {
+        let slow = Some(std::time::Duration::from_millis(20));
+        assert!(!pinging_while_reading(slow).await);
+    }
+
+    #[tokio::test]
+    async fn an_endless_upgrade_response_is_refused() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let sent = tokio::spawn(async move {
+            let (mut tcp, _) = listener.accept().await.unwrap();
+            let mut req = [0u8; 4096];
+            let _ = tcp.read(&mut req).await;
+            let _ = tcp
+                .write_all(b"HTTP/1.1 101 Switching Protocols\r\nX: ")
+                .await;
+            let filler = vec![b'a'; 64 * 1024];
+            let mut total = 0usize;
+            while total < 64 << 20 && tcp.write_all(&filler).await.is_ok() {
+                total += filler.len();
+            }
+            total
+        });
+        let tcp = TcpStream::connect(addr).await.unwrap();
+        let endpoint = Endpoint::parse(&format!("ws://{addr}/burrow")).unwrap();
+        let got = tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            connect(Carrier::Plain(tcp), &endpoint, &[]),
+        )
+        .await
+        .expect("the upgrade gives up");
+        assert!(got.is_err());
+        assert!(sent.await.unwrap() < 16 << 20);
     }
 
     #[tokio::test]
