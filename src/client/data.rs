@@ -692,9 +692,12 @@ async fn udp(
         };
         seen.store(epoch.elapsed().as_millis() as u64, Ordering::Relaxed);
         if let Err(e) = sock.send(payload).await
-            && !matches!(
+            && matches!(
                 e.kind(),
-                std::io::ErrorKind::ConnectionRefused | std::io::ErrorKind::ConnectionReset
+                std::io::ErrorKind::NetworkUnreachable
+                    | std::io::ErrorKind::HostUnreachable
+                    | std::io::ErrorKind::AddrNotAvailable
+                    | std::io::ErrorKind::NotConnected
             )
         {
             let mut map = peers.lock().expect("peers lock");
