@@ -44,17 +44,22 @@ pub struct Dialer {
 #[derive(Default)]
 struct Recent {
     good: Option<std::net::SocketAddr>,
-    bad: Option<std::net::SocketAddr>,
+    bad: Vec<(std::net::SocketAddr, std::time::Instant)>,
 }
 
+const BAD_FOR: std::time::Duration = std::time::Duration::from_secs(300);
+const MAX_BAD: usize = 16;
+
 impl Recent {
-    fn order(&self, addrs: &mut Vec<std::net::SocketAddr>) {
-        if let Some(bad) = self.bad
-            && addrs.len() > 1
-            && let Some(i) = addrs.iter().position(|a| *a == bad)
-        {
-            let a = addrs.remove(i);
-            addrs.push(a);
+    fn order(&mut self, addrs: &mut Vec<std::net::SocketAddr>) {
+        self.bad.retain(|(_, at)| at.elapsed() < BAD_FOR);
+        if addrs.len() > 1 {
+            for (bad, _) in &self.bad {
+                if let Some(i) = addrs.iter().position(|a| a == bad) {
+                    let a = addrs.remove(i);
+                    addrs.push(a);
+                }
+            }
         }
         if let Some(good) = self.good
             && let Some(i) = addrs.iter().position(|a| *a == good)
@@ -65,17 +70,18 @@ impl Recent {
     }
 
     fn worked(&mut self, peer: std::net::SocketAddr, ok: bool) {
+        self.bad.retain(|(a, _)| *a != peer);
         if ok {
             self.good = Some(peer);
-            if self.bad == Some(peer) {
-                self.bad = None;
-            }
-        } else {
-            self.bad = Some(peer);
-            if self.good == Some(peer) {
-                self.good = None;
-            }
+            return;
         }
+        if self.good == Some(peer) {
+            self.good = None;
+        }
+        if self.bad.len() >= MAX_BAD {
+            self.bad.remove(0);
+        }
+        self.bad.push((peer, std::time::Instant::now()));
     }
 }
 
@@ -289,10 +295,18 @@ mod tests {
         let mut list = vec![v6, v4, other];
         recent.order(&mut list);
         assert_eq!(list, vec![v4, other, v6]);
+        recent.worked(v4, false);
+        let mut list = vec![v6, v4, other];
+        recent.order(&mut list);
+        assert_eq!(
+            list,
+            vec![other, v6, v4],
+            "every failing address waits behind the rest"
+        );
         recent.worked(other, true);
         let mut list = vec![v6, v4, other];
         recent.order(&mut list);
-        assert_eq!(list, vec![other, v4, v6]);
+        assert_eq!(list, vec![other, v6, v4]);
         recent.worked(v6, true);
         let mut list = vec![v4, v6];
         recent.order(&mut list);
