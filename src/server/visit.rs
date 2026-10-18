@@ -395,7 +395,18 @@ pub(super) async fn serve(
             result: Err(error),
         } => log_refusal(&label, &client, &grant.target, &error),
         Outcome::Refused { client, error } => {
-            log_refusal(&label, &client, &grant.target, &error);
+            match (&error, grant.only.is_some()) {
+                (ForwardError::Status(Status::Denied), true) => {
+                    static OUTSIDE: Throttle = Throttle::new();
+                    if let Some(more) = OUTSIDE.allow() {
+                        warn!(
+                            "{label}: client \"{client}\" refused {}: it is outside the reach of this visitor or the allow list of the client{more}",
+                            grant.target
+                        );
+                    }
+                }
+                _ => log_refusal(&label, &client, &grant.target, &error),
+            }
             let status = match error {
                 ForwardError::Status(st) => st,
                 ForwardError::Protocol | ForwardError::Io(_) => Status::Offline,
