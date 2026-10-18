@@ -210,25 +210,26 @@ pub fn parse(src: &str) -> Result<Node, Vec<ParseError>> {
                 },
                 _ => unreachable!("parser emits balanced events"),
             },
-            Event::Scalar(text, style, _, _) => scalar(&text, style, span),
+            Event::Scalar(text, style, _, _) => {
+                if let Some(Frame::Map(_, _, pending @ None)) = stack.last_mut() {
+                    *pending = Some((text.to_string(), span));
+                    continue;
+                }
+                scalar(&text, style, span)
+            }
         };
 
         match stack.last_mut() {
             None => root = Some(node),
             Some(Frame::Seq(items, _)) => items.push(node),
             Some(Frame::Map(entries, _, pending)) => match pending.take() {
-                None => match node.value {
-                    Value::Str(s) => *pending = Some((s, node.span)),
-                    Value::Int(i) => *pending = Some((i.to_string(), node.span)),
-                    Value::Bool(b) => *pending = Some((b.to_string(), node.span)),
-                    _ => {
-                        errors.push(ParseError {
-                            message: format!("mapping keys must be strings, found {}", node.kind()),
-                            span: node.span,
-                        });
-                        *pending = Some((String::new(), node.span));
-                    }
-                },
+                None => {
+                    errors.push(ParseError {
+                        message: format!("mapping keys must be strings, found {}", node.kind()),
+                        span: node.span,
+                    });
+                    *pending = Some((String::new(), node.span));
+                }
                 Some((key, key_span)) => {
                     if entries.iter().any(|e| e.key == key) {
                         errors.push(ParseError {
@@ -296,6 +297,17 @@ fn plain(text: &str) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn keys_are_kept_as_written() {
+        let n = parse("007: a\n7: b\nTrue: c\n1.50: d\n\"q\": e\n").unwrap();
+        let keys: Vec<&str> = match &n.value {
+            Value::Map(entries) => entries.iter().map(|e| e.key.as_str()).collect(),
+            _ => panic!(),
+        };
+        assert_eq!(keys, ["007", "7", "True", "1.50", "q"]);
+        assert!(parse("[a]: x\n").is_err());
+    }
 
     #[test]
     fn offsets_are_bytes_with_multibyte_text() {
