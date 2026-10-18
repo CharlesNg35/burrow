@@ -518,46 +518,13 @@ fn unknown_role() {
 }
 
 #[test]
-fn role_override_reports_fields_for_that_role() {
+fn role_override_on_a_config_of_another_role_says_so() {
     insta::assert_snapshot!(render("server.yaml", "server: a:1\nname: home\n", Some(Role::Server)), @r#"
-    error: the server needs "listen" (TCP), "websocket", or both
+    error: server.yaml is a client config, not a server config
       --> server.yaml
-       = help: add "listen: 0.0.0.0:7835" for TCP clients, or a websocket section for clients behind HTTP-only networks (see README)
+       = help: run it with: burrow client -c server.yaml
 
-    error: unknown field "server" in server config
-      --> server.yaml:1:1
-       |
-     1 | server: a:1
-       | ^^^^^^ unknown field
-       = help: valid fields: listen, public_address, websocket, clients, visitors, services, insecure_plaintext, heartbeat, limits, pool, tcp, udp, metrics
-
-    warning: no clients are defined, so nobody can connect
-      --> server.yaml:1:1
-       |
-     1 | server: a:1
-       | ^
-       = help: add one, for example:
-             clients:
-               home: { secret: SECRET }
-           with a SECRET from: burrow gensecret
-
-    warning: no services are defined, so nothing is exposed
-      --> server.yaml:1:1
-       |
-     1 | server: a:1
-       | ^
-       = help: add a service, for example:
-             services:
-               web: { client: NAME, bind: 0.0.0.0:7840, target: 127.0.0.1:80 }
-
-    error: unknown field "name" in server config
-      --> server.yaml:2:1
-       |
-     2 | name: home
-       | ^^^^ unknown field
-       = help: valid fields: listen, public_address, websocket, clients, visitors, services, insecure_plaintext, heartbeat, limits, pool, tcp, udp, metrics
-
-    server.yaml: 3 errors, 2 warnings
+    server.yaml: 1 error, 0 warnings
     "#);
 }
 
@@ -1782,8 +1749,73 @@ fn keepalive_longer_than_systems_accept_is_refused() {
     let too_long = load_str("client.yaml", &client(100_000), Format::Yaml, None, &env);
     assert!(too_long.report.has_errors());
     assert!(
-        too_long.report.diagnostics.iter().any(|d| d.message.contains("keepalive_secs")),
+        too_long
+            .report
+            .diagnostics
+            .iter()
+            .any(|d| d.message.contains("keepalive_secs")),
         "{:?}",
         too_long.report.diagnostics
     );
+}
+
+#[test]
+fn a_config_of_another_role_is_one_clear_error() {
+    let server =
+        server("  web:\n    client: home\n    bind: 0.0.0.0:4000\n    target: 127.0.0.1:3000\n");
+    for role in [Role::Client, Role::Visitor] {
+        let o = load_str("server.yaml", &server, Format::Yaml, Some(role), &env);
+        let errors: Vec<_> = o
+            .report
+            .diagnostics
+            .iter()
+            .filter(|d| d.is_error())
+            .collect();
+        assert_eq!(errors.len(), 1, "{errors:?}");
+        assert_eq!(errors[0].code, "wrong-role");
+        assert!(
+            errors[0].message.contains("is a server config, not a"),
+            "{}",
+            errors[0].message
+        );
+        assert!(
+            errors[0]
+                .help
+                .as_deref()
+                .unwrap()
+                .contains("server -c server.yaml")
+        );
+    }
+    let client =
+        format!("server: example.com\nname: home\nsecret: {SECRET}\nallow: [127.0.0.0/8]\n");
+    let o = load_str(
+        "client.yaml",
+        &client,
+        Format::Yaml,
+        Some(Role::Server),
+        &env,
+    );
+    assert!(o.report.diagnostics.iter().any(|d| d.code == "wrong-role"));
+    let o = load_str(
+        "visitor.yaml",
+        &client.replace("allow: [127.0.0.0/8]\n", ""),
+        Format::Yaml,
+        Some(Role::Visitor),
+        &env,
+    );
+    assert!(
+        !o.report.diagnostics.iter().any(|d| d.code == "wrong-role"),
+        "a visitor without forwards looks like a client and is not refused"
+    );
+    let visitor = format!(
+        "server: example.com\nname: laptop\nsecret: {SECRET}\nforwards:\n  db: {{ service: db, local: 5432 }}\n"
+    );
+    let o = load_str(
+        "visitor.yaml",
+        &visitor,
+        Format::Yaml,
+        Some(Role::Client),
+        &env,
+    );
+    assert!(o.report.diagnostics.iter().any(|d| d.code == "wrong-role"));
 }

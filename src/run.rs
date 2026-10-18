@@ -91,6 +91,18 @@ fn load(path: &Path, role: Role, env: &Env) -> Result<Loaded, Failure> {
         config_failure(Failure::new(m).hint(h))
     })?;
     let style = Style::detect(std::io::stderr().is_terminal());
+    if let Some(d) = outcome
+        .report
+        .diagnostics
+        .iter()
+        .find(|d| d.code == "wrong-role")
+    {
+        let f = Failure::usage(d.message.clone());
+        return Err(match &d.help {
+            Some(h) => f.hint(h.clone()),
+            None => f,
+        });
+    }
     if outcome.report.has_errors() {
         eprint!("{}", outcome.report.render_text(style));
         return Err(config_failure(

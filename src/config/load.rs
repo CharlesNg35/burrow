@@ -299,7 +299,39 @@ pub fn load_str_in(
     };
     report.masked = secret_spans(&root);
 
-    let role = match role.or_else(|| detect_role(&root)) {
+    let detected = detect_role(&root);
+    if let (Some(wanted), Some(found)) = (role, detected) {
+        let clear = match (wanted, found) {
+            (Role::Server, other) => other != Role::Server,
+            (_, Role::Server) => true,
+            (Role::Client, Role::Visitor) => true,
+            _ => false,
+        };
+        if clear {
+            let run = match found {
+                Role::Server => "server",
+                Role::Client => "client",
+                Role::Visitor => "visit",
+            };
+            report.push(
+                Diagnostic::error(
+                    "wrong-role",
+                    format!(
+                        "{name} is a {} config, not a {} config",
+                        found.as_str(),
+                        wanted.as_str()
+                    ),
+                )
+                .without_snippet()
+                .help(format!(
+                    "run it with: {}",
+                    crate::failure::cmd(&format!("{run} -c {name}"))
+                )),
+            );
+            return fail(report, Some(wanted));
+        }
+    }
+    let role = match role.or(detected) {
         Some(r) => r,
         None => {
             if matches!(root.value, Value::Map(_)) {
