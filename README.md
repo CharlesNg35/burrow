@@ -165,7 +165,7 @@ The client connects only to targets in `allow`, checked after DNS resolution. `b
 | `proxy`                                         | none             | `http://host:port` or `socks5://[user:pass@]host:port`                |
 | `insecure_plaintext`                            | `false`          | must match the server                                                 |
 | `reconnect.initial_delay_ms` / `max_delay_secs` | `250` / `30`     | exponential backoff with jitter                                       |
-| `reconnect.give_up_after_secs`                  | `0` (never)      | exit after the server was unreachable this long                       |
+| `reconnect.give_up_after_secs`                  | `0` (never)      | exit after this long without a working connection to the server       |
 | `reconnect.on_rejected`                         | `retry`          | or `exit` when the server keeps rejecting the name or secret for 15 s |
 | `headers`                                       | none             | extra HTTP headers for the WebSocket upgrade                          |
 | `ca`                                            | none             | extra CA certificate (PEM) to trust for `wss://`                      |

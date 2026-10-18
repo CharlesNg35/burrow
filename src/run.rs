@@ -323,8 +323,8 @@ fn run_client(path: &Path, logging: Logging, hosted: Option<Hosted>) -> Result<u
         ));
         match Client::new(*settings).with_reloads(reload_rx).run(stop).await {
             RunEnd::Stopped => Ok(0),
-            RunEnd::GaveUp(down) => Err(Failure::new(format!(
-                "gave up after the server was unreachable for {}",
+            RunEnd::GaveUp(down, why) => Err(Failure::new(format!(
+                "gave up after {} without a working connection to the server; last error: {why}",
                 crate::client::reconnect::human(down)
             ))
             .hint("raise or remove reconnect.give_up_after_secs to keep retrying")),

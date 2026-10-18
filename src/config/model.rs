@@ -551,7 +551,7 @@ pub struct Reconnect {
     #[schemars(range(min = 1, max = 3600))]
     pub max_delay_secs: u32,
     #[schemars(
-        description = "Stop retrying after the server has been unreachable this long; 0 retries forever"
+        description = "Stop retrying after this long without a working connection to the server; 0 retries forever"
     )]
     pub give_up_after_secs: u32,
     #[schemars(description = "What to do when the server rejects the secret or name")]

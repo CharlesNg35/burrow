@@ -72,7 +72,7 @@ pub struct Client {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RunEnd {
     Stopped,
-    GaveUp(Duration),
+    GaveUp(Duration, String),
     Rejected,
 }
 
@@ -265,12 +265,12 @@ impl Client {
                 let down = self.outage.lock().expect("outage lock").down_for(now);
                 if down >= limit {
                     error!(
-                        "giving up: {} has been unreachable for {} (reconnect.give_up_after_secs: {})",
+                        "giving up: no working connection to {} for {} (reconnect.give_up_after_secs: {}); last error: {why}",
                         s.server,
                         human(down),
                         limit.as_secs()
                     );
-                    break RunEnd::GaveUp(down);
+                    break RunEnd::GaveUp(down, why);
                 }
             }
             let sleep = tokio::time::sleep(delay);
