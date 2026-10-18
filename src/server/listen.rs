@@ -120,14 +120,19 @@ fn source_key(ip: IpAddr) -> Option<IpAddr> {
 
 type Sources = Arc<std::sync::Mutex<HashMap<IpAddr, usize>>>;
 
-fn source_slot(sources: &Sources, ip: IpAddr, total: usize) -> Result<Option<SourceSlot>, ()> {
+fn source_slot(
+    sources: &Sources,
+    ip: IpAddr,
+    total: usize,
+    pressed: bool,
+) -> Result<Option<SourceSlot>, ()> {
     let Some(key) = source_key(ip) else {
         return Ok(None);
     };
     let most = (total / 8).max(8);
     let mut held = sources.lock().expect("sources lock");
     let n = held.entry(key).or_insert(0);
-    if *n >= most {
+    if pressed && *n >= most {
         return Err(());
     }
     *n += 1;
@@ -140,7 +145,8 @@ fn source_slot(sources: &Sources, ip: IpAddr, total: usize) -> Result<Option<Sou
 pub fn try_permit(shared: &Arc<Shared>, peer: SocketAddr) -> Option<Permit> {
     let handshakes = shared.handshakes.read().expect("handshakes lock").clone();
     let total = shared.settings().max_handshakes;
-    let source = match source_slot(&shared.handshake_sources, peer.ip(), total) {
+    let pressed = handshakes.available_permits() < total / 2;
+    let source = match source_slot(&shared.handshake_sources, peer.ip(), total, pressed) {
         Ok(source) => source,
         Err(()) => {
             shared.rejected.fetch_add(1, Ordering::Relaxed);
@@ -346,23 +352,30 @@ mod tests {
     fn one_address_cannot_take_every_handshake_slot() {
         let sources = Sources::default();
         let ip: IpAddr = "203.0.113.7".parse().unwrap();
-        let held: Vec<_> = (0..32)
-            .map(|_| source_slot(&sources, ip, 256).unwrap())
+        let calm: Vec<_> = (0..64)
+            .map(|_| source_slot(&sources, ip, 256, false).unwrap())
             .collect();
-        assert!(source_slot(&sources, ip, 256).is_err());
-        assert!(source_slot(&sources, "203.0.113.8".parse().unwrap(), 256).is_ok());
+        assert!(
+            source_slot(&sources, ip, 256, true).is_err(),
+            "a busy server refuses an address over its share"
+        );
+        assert!(source_slot(&sources, "203.0.113.8".parse().unwrap(), 256, true).is_ok());
         let v6 = |s: &str| s.parse::<IpAddr>().unwrap();
         let same_net: Vec<_> = (0..32)
-            .map(|i| source_slot(&sources, v6(&format!("2001:db8::{i:x}")), 256).unwrap())
+            .map(|i| source_slot(&sources, v6(&format!("2001:db8::{i:x}")), 256, true).unwrap())
             .collect();
-        assert!(source_slot(&sources, v6("2001:db8::ffff:1"), 256).is_err());
-        assert!(source_slot(&sources, v6("::1"), 256).unwrap().is_none());
-        drop(held);
+        assert!(source_slot(&sources, v6("2001:db8::ffff:1"), 256, true).is_err());
+        assert!(
+            source_slot(&sources, v6("::1"), 256, true)
+                .unwrap()
+                .is_none()
+        );
+        drop(calm);
         drop(same_net);
         assert!(
             sources.lock().unwrap().is_empty(),
             "every slot is given back"
         );
-        assert!(source_slot(&sources, ip, 256).is_ok());
+        assert!(source_slot(&sources, ip, 256, true).is_ok());
     }
 }
