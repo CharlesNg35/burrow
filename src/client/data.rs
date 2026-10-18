@@ -47,15 +47,15 @@ impl Drop for RelayCleanup {
     }
 }
 
-async fn connected_socket(target: SocketAddr) -> Option<Arc<UdpSocket>> {
+async fn connected_socket(target: SocketAddr) -> std::io::Result<Arc<UdpSocket>> {
     let bind: SocketAddr = if target.is_ipv4() {
         (std::net::Ipv4Addr::UNSPECIFIED, 0).into()
     } else {
         (std::net::Ipv6Addr::UNSPECIFIED, 0).into()
     };
-    let sock = crate::transport::udp::bind_udp(bind).await.ok()?;
-    sock.connect(target).await.ok()?;
-    Some(Arc::new(sock))
+    let sock = crate::transport::udp::bind_udp(bind).await?;
+    sock.connect(target).await?;
+    Ok(Arc::new(sock))
 }
 
 thread_local! {
@@ -407,10 +407,26 @@ async fn udp(settings: Arc<ClientSettings>, ch: Channel, connect: Connect, addrs
             Some(p) => p,
             None => {
                 if peers.lock().expect("peers lock").len() >= MAX_PEERS {
+                    static FULL: Throttle = Throttle::new();
+                    if let Some(more) = FULL.allow() {
+                        warn!(
+                            "UDP to {target}: {MAX_PEERS} peers are open, so a datagram from a new one was dropped; a udp.session_timeout_secs shorter than the server's frees them sooner{more}"
+                        );
+                    }
                     continue;
                 }
-                let Some(sock) = connected_socket(target).await else {
-                    continue;
+                let sock = match connected_socket(target).await {
+                    Ok(sock) => sock,
+                    Err(e) => {
+                        static FAILED: Throttle = Throttle::new();
+                        if let Some(more) = FAILED.allow() {
+                            warn!(
+                                "UDP to {target}: cannot open a socket for a new peer ({}), so its datagram was dropped{more}",
+                                io_reason(&e)
+                            );
+                        }
+                        continue;
+                    }
                 };
                 let seen = Arc::new(AtomicU64::new(0));
                 let task = tokio::spawn(peer_replies(
