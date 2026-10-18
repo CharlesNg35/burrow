@@ -163,6 +163,23 @@ async fn a_reconnect_keeps_connections_that_are_open() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_narrower_allow_list_closes_only_the_connections_it_no_longer_permits() {
+    let mut t = Live::start("127.0.0.0/8").await;
+    let mut open = open_echo(t.web()).await;
+    t.change(|s| s.allow = AllowList::Rules(vec!["127.0.0.1/32".parse().unwrap()]))
+        .await;
+    let shared = t.server.shared.clone();
+    wait_for(|| shared.idle_channels("home") >= 1).await;
+    assert!(
+        echoes(&mut open).await,
+        "a connection still allowed was cut"
+    );
+    t.change(|s| s.allow = AllowList::Rules(vec!["10.0.0.0/8".parse().unwrap()]))
+        .await;
+    assert_cut(open).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn the_client_moves_to_another_server() {
     let mut t = Live::start("127.0.0.0/8").await;
     let echo = echo_server().await;

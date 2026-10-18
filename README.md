@@ -151,7 +151,7 @@ allow:
   - unix:/run/postgresql/* # Unix sockets: one path, or every socket in a folder
 ```
 
-The client connects only to targets in `allow`, checked after DNS resolution. `burrow client-config` writes this list from the server's services. Saving the file applies it, like on the server, and open connections keep running.
+The client connects only to targets in `allow`, checked after DNS resolution. `burrow client-config` writes this list from the server's services. Saving the file applies it, like on the server: open connections keep running unless their target is no longer allowed.
 
 <details>
 <summary><b>All client.yaml keys</b></summary>

@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 
 use tokio::net::UdpSocket;
 use tokio::sync::mpsc;
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 
 use crate::allowlist::AllowList;
 use crate::config::check::{parse_host_port, unix};
@@ -223,7 +223,7 @@ pub async fn serve(
     };
     let settings = live.settings();
     if let Some(path) = unix::path_of(&connect.target) {
-        socket(&settings, ch, &connect, path).await;
+        socket(&live, &settings, ch, &connect, path).await;
         return;
     }
     let addrs = match permitted(&settings, &resolver, &connect).await {
@@ -252,15 +252,51 @@ pub async fn serve(
                 }
             };
             tune(&target, &settings.tcp);
-            if let Err(e) = client_tcp(ch, target, settings.insecure_plaintext).await {
-                debug!("{}: connection ended: {e:?}", label(&connect));
+            let Ok(peer) = target.peer_addr() else {
+                return;
+            };
+            tokio::select! {
+                r = client_tcp(ch, target, settings.insecure_plaintext) => {
+                    if let Err(e) = r {
+                        debug!("{}: connection ended: {e:?}", label(&connect));
+                    }
+                }
+                _ = revoked(&live, |s| s.allow.permits(peer)) => {
+                    no_longer_allowed(&connect);
+                }
             }
         }
         Protocol::Udp => udp(live, resolver, ch, connect, addrs).await,
     }
 }
 
-async fn socket(settings: &ClientSettings, ch: Channel, connect: &Connect, path: &str) {
+async fn revoked(live: &super::Live, allowed: impl Fn(&ClientSettings) -> bool) {
+    let mut rx = live.0.subscribe();
+    loop {
+        if !allowed(&rx.borrow_and_update().settings) {
+            return;
+        }
+        if rx.changed().await.is_err() {
+            return std::future::pending().await;
+        }
+    }
+}
+
+fn no_longer_allowed(connect: &Connect) {
+    info!(
+        "{}: {} is no longer in the allow list, so its open connection was closed",
+        label(connect),
+        connect.target
+    );
+}
+
+async fn socket(
+    live: &super::Live,
+    settings: &ClientSettings,
+    ch: Channel,
+    connect: &Connect,
+    path: &str,
+) {
     if connect.protocol != Protocol::Tcp || unix::check_path(path).is_err() {
         reply(ch, Status::Invalid).await;
         return;
@@ -318,8 +354,15 @@ async fn socket(settings: &ClientSettings, ch: Channel, connect: &Connect, path:
     #[cfg(unix)]
     match tokio::net::UnixStream::connect(path).await {
         Ok(target) => {
-            if let Err(e) = client_tcp(ch, target, settings.insecure_plaintext).await {
-                debug!("{}: connection ended: {e:?}", label(connect));
+            tokio::select! {
+                r = client_tcp(ch, target, settings.insecure_plaintext) => {
+                    if let Err(e) = r {
+                        debug!("{}: connection ended: {e:?}", label(connect));
+                    }
+                }
+                _ = revoked(live, |s| s.allow.permits_socket(path)) => {
+                    no_longer_allowed(connect);
+                }
             }
         }
         Err(e) => {
@@ -337,6 +380,7 @@ async fn socket(settings: &ClientSettings, ch: Channel, connect: &Connect, path:
     }
     #[cfg(not(unix))]
     {
+        let _ = live;
         static UNSUPPORTED: Throttle = Throttle::new();
         if let Some(more) = UNSUPPORTED.allow() {
             warn!(
