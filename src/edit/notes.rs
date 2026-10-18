@@ -3,11 +3,19 @@ use crate::diagnostics::{Diagnostic, Severity};
 const MARK: &str = "# burrow edit:";
 
 pub fn annotate(text: &str, problems: &[Diagnostic]) -> String {
+    let errors: Vec<&Diagnostic> = problems
+        .iter()
+        .filter(|d| d.severity == Severity::Error)
+        .collect();
+    let header = 2 + errors
+        .iter()
+        .map(|d| 1 + usize::from(d.help.is_some()))
+        .sum::<usize>();
     let mut out = format!("{MARK} not saved, because of the problems below.\n");
-    for d in problems.iter().filter(|d| d.severity == Severity::Error) {
+    for d in errors {
         let at = d
             .span
-            .map(|s| format!("line {}: ", s.start.line))
+            .map(|s| format!("line {}: ", s.start.line + header))
             .unwrap_or_default();
         out.push_str(&format!("{MARK}   {at}{}\n", one_line(&d.message)));
         if let Some(help) = &d.help {
@@ -51,7 +59,19 @@ mod tests {
         );
         let noted = annotate(text, &checked.report.diagnostics);
         assert!(noted.starts_with(MARK));
-        assert!(noted.contains("line 2: "), "{noted}");
+        let line = noted
+            .lines()
+            .filter(|l| l.contains("nmae"))
+            .find_map(|l| {
+                l.split("line ")
+                    .nth(1)?
+                    .split(':')
+                    .next()?
+                    .parse::<usize>()
+                    .ok()
+            })
+            .unwrap();
+        assert_eq!(noted.lines().nth(line - 1), Some("nmae: home"), "{noted}");
         assert!(
             noted
                 .lines()
