@@ -92,6 +92,7 @@ impl<'a> Tries<'a> {
                 }
                 Err(status) => {
                     if self.way.several
+                        && status != crate::protocol::Status::Busy
                         && let Some(service) = self.way.service
                     {
                         self.shared.troubled(

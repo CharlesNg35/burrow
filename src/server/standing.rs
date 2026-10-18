@@ -138,6 +138,7 @@ fn trouble_of(error: &ForwardError) -> Option<(Trouble, &'static str)> {
         ForwardError::Status(Status::Denied | Status::Invalid) => Some((Trouble::Refused, "")),
         ForwardError::Status(Status::Unreachable) => Some((Trouble::Failed, "cannot connect")),
         ForwardError::Status(Status::Unresolved) => Some((Trouble::Failed, "cannot resolve it")),
+        ForwardError::Status(Status::Busy) => Some((Trouble::Failed, "too many connections open")),
         ForwardError::Io(e) if e.kind() == std::io::ErrorKind::TimedOut => {
             Some((Trouble::Failed, "no answer in time"))
         }
@@ -354,7 +355,11 @@ mod tests {
             Some(Trouble::Failed)
         );
         assert_eq!(kind(ForwardError::Protocol), None);
-        assert_eq!(kind(ForwardError::Status(Status::Busy)), None);
+        assert_eq!(
+            kind(ForwardError::Status(Status::Busy)),
+            Some(Trouble::Failed),
+            "a client at its connection limit is set aside like one that cannot connect"
+        );
         assert_eq!(
             kind(ForwardError::Io(std::io::ErrorKind::ConnectionReset.into())),
             None,
