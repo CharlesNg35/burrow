@@ -140,6 +140,13 @@ fn runtime() -> Result<tokio::runtime::Runtime, Failure> {
         .map_err(|e| Failure::new(format!("cannot start the async runtime: {e}")))
 }
 
+fn drive<T>(work: impl std::future::Future<Output = Result<T, Failure>>) -> Result<T, Failure> {
+    let rt = runtime()?;
+    let out = rt.block_on(work);
+    rt.shutdown_timeout(std::time::Duration::from_secs(1));
+    out
+}
+
 #[cfg(unix)]
 async fn terminate() {
     use tokio::signal::unix::{SignalKind, signal};
@@ -275,7 +282,7 @@ fn run_server(path: &Path, logging: Logging, hosted: Option<Hosted>) -> Result<u
     };
     let _instance = instance::acquire(&Identity::server(path), path)?;
     init_logging(&logging)?;
-    runtime()?.block_on(async move {
+    drive(async move {
         let server = Server::bind(*settings.clone()).await?;
         let shared = server.shared();
         let _status = crate::status::publish(path, Arc::new(move || shared.status()));
@@ -304,7 +311,7 @@ fn run_client(path: &Path, logging: Logging, hosted: Option<Hosted>) -> Result<u
     let identity = Identity::client(&settings.endpoint.to_string(), &settings.name);
     let lock = instance::acquire(&identity, path)?;
     init_logging(&logging)?;
-    runtime()?.block_on(async move {
+    drive(async move {
         let stop = stop_on_signal(stop);
         let (reload_tx, reload_rx) = mpsc::channel(4);
         tokio::spawn(crate::reload::follow(
@@ -347,7 +354,7 @@ fn run_visitor(
     let shown = path.display().to_string();
     crate::visitor::pick(&mut settings, pick.clone(), &shown)?;
     init_logging(&logging)?;
-    runtime()?.block_on(async move {
+    drive(async move {
         let (reload_tx, reload_rx) = mpsc::channel(4);
         tokio::spawn(crate::reload::follow(
             path.to_path_buf(),
@@ -380,4 +387,20 @@ fn same_tunnel_once(
         }
         Ok(next)
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_stop_does_not_wait_for_a_stuck_blocking_lookup() {
+        let started = std::time::Instant::now();
+        let out = drive(async {
+            tokio::task::spawn_blocking(|| std::thread::sleep(std::time::Duration::from_secs(20)));
+            Ok(7)
+        });
+        assert_eq!(out.unwrap(), 7);
+        assert!(started.elapsed() < std::time::Duration::from_secs(5));
+    }
 }
