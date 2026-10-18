@@ -81,7 +81,7 @@ pub async fn follow<S: Watched>(
     tx: mpsc::Sender<S>,
 ) {
     let (trig_tx, mut trig) = mpsc::channel::<&'static str>(16);
-    let mut watched = current.files(&path);
+    let mut watched = watched_dirs(&current.files(&path));
     let mut watcher = watch_files(&watched, trig_tx.clone());
     #[cfg(unix)]
     {
@@ -99,8 +99,15 @@ pub async fn follow<S: Watched>(
         });
     }
     let mut rejected = false;
+    let mut seen = fingerprint(&current.files(&path));
     while let Some(first) = trig.recv().await {
         tokio::time::sleep(Duration::from_millis(200)).await;
+        let dirs = watched_dirs(&current.files(&path));
+        if dirs != watched {
+            drop(watcher.take());
+            watcher = watch_files(&dirs, trig_tx.clone());
+            watched = dirs;
+        }
         let mut why = first;
         while let Ok(more) = trig.try_recv() {
             if more == "SIGHUP" {
@@ -108,6 +115,11 @@ pub async fn follow<S: Watched>(
             }
         }
         let asked = why == "SIGHUP";
+        let now = fingerprint(&current.files(&path));
+        if now == seen && !asked {
+            continue;
+        }
+        seen = now;
         let outcome = match load_file(&path, Some(S::ROLE), &env) {
             Ok(o) => o,
             Err(e) => {
@@ -154,11 +166,11 @@ pub async fn follow<S: Watched>(
             info!("reloading config ({why})");
         }
         current = next.clone();
-        let files = current.files(&path);
-        if files != watched {
+        let dirs = watched_dirs(&current.files(&path));
+        if dirs != watched {
             drop(watcher.take());
-            watcher = watch_files(&files, trig_tx.clone());
-            watched = files;
+            watcher = watch_files(&dirs, trig_tx.clone());
+            watched = dirs;
         }
         if tx.send(next).await.is_err() {
             return;
@@ -166,30 +178,56 @@ pub async fn follow<S: Watched>(
     }
 }
 
+fn fingerprint(files: &[PathBuf]) -> Vec<(PathBuf, Option<u64>)> {
+    use std::hash::{Hash, Hasher};
+    files
+        .iter()
+        .map(|f| {
+            let digest = std::fs::read(f).ok().map(|bytes| {
+                let mut h = std::collections::hash_map::DefaultHasher::new();
+                bytes.hash(&mut h);
+                h.finish()
+            });
+            (real(f), digest)
+        })
+        .collect()
+}
+
+fn dir_of(p: &Path) -> PathBuf {
+    p.parent()
+        .filter(|d| !d.as_os_str().is_empty())
+        .map_or_else(|| PathBuf::from("."), Path::to_path_buf)
+}
+
+fn real(p: &Path) -> PathBuf {
+    std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf())
+}
+
+fn watched_dirs(files: &[PathBuf]) -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    for file in files {
+        let mut p = file.clone();
+        for _ in 0..16 {
+            dirs.push(real(&dir_of(&p)));
+            match std::fs::read_link(&p) {
+                Ok(t) if t.is_absolute() => p = t,
+                Ok(t) => p = dir_of(&p).join(t),
+                Err(_) => break,
+            }
+        }
+        dirs.push(dir_of(&real(file)));
+    }
+    dirs.sort();
+    dirs.dedup();
+    dirs
+}
+
 fn watch_files(
-    files: &[PathBuf],
+    dirs: &[PathBuf],
     tx: mpsc::Sender<&'static str>,
 ) -> Option<notify::RecommendedWatcher> {
     use notify::{EventKind, RecursiveMode, Watcher};
-    let dir_of = |p: &Path| {
-        p.parent()
-            .filter(|d| !d.as_os_str().is_empty())
-            .map_or_else(|| PathBuf::from("."), Path::to_path_buf)
-    };
-    let real = |p: &Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
-    let (config, certs) = files.split_first()?;
-    let config_dir = real(&dir_of(config));
-    let config_name = config.file_name()?.to_os_string();
-    let mut cert_dirs: Vec<PathBuf> = certs
-        .iter()
-        .flat_map(|f| [real(&dir_of(f)), dir_of(&real(f))])
-        .collect();
-    cert_dirs.sort();
-    cert_dirs.dedup();
-    let mut dirs = cert_dirs.clone();
-    dirs.push(config_dir.clone());
-    dirs.sort();
-    dirs.dedup();
+    let relevant_dirs = dirs.to_vec();
     let mut watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
         let Ok(ev) = res else { return };
         if !matches!(
@@ -199,10 +237,9 @@ fn watch_files(
             return;
         }
         let relevant = ev.paths.iter().any(|p| {
-            let dir = p.parent().map(real);
-            dir.as_ref().is_some_and(|d| cert_dirs.contains(d))
-                || (dir.as_ref() == Some(&config_dir)
-                    && p.file_name() == Some(config_name.as_os_str()))
+            p.parent()
+                .map(real)
+                .is_some_and(|d| relevant_dirs.contains(&d))
         });
         if relevant {
             let _ = tx.try_send("file changed");
@@ -211,7 +248,7 @@ fn watch_files(
     .map_err(|e| warn!("cannot watch the config for changes ({e}); reload with SIGHUP instead"))
     .ok()?;
     for dir in dirs {
-        if let Err(e) = watcher.watch(&dir, RecursiveMode::NonRecursive) {
+        if let Err(e) = watcher.watch(dir, RecursiveMode::NonRecursive) {
             warn!(
                 "cannot watch {} for changes ({e}); reload with SIGHUP instead",
                 dir.display()

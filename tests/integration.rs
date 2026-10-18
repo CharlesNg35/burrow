@@ -920,3 +920,59 @@ async fn making_a_service_private_closes_its_public_connections() {
         "a public connection survived the service going private"
     );
 }
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_symlinked_config_is_followed_through_its_links() {
+    use burrow::config::settings::ServerSettings;
+    use std::os::unix::fs::symlink;
+    let dir = tempfile::tempdir().unwrap();
+    let secret = Secret::generate();
+    let config = |target: &str| {
+        format!(
+            "listen: 127.0.0.1:1\nclients:\n  home:\n    secret: {}\nservices:\n  web:\n    client: home\n    bind: 127.0.0.1:2\n    target: {target}\n",
+            secret.encode()
+        )
+    };
+    let version = |n: u32, target: &str| {
+        let v = dir.path().join(format!("..2026_{n}"));
+        std::fs::create_dir(&v).unwrap();
+        std::fs::write(v.join("server.yaml"), config(target)).unwrap();
+        v
+    };
+    let first = version(1, "127.0.0.1:3");
+    symlink(&first, dir.path().join("..data")).unwrap();
+    let path = dir.path().join("server.yaml");
+    symlink("..data/server.yaml", &path).unwrap();
+    let initial = match burrow::config::load_file(&path, None, &burrow::config::env::ProcessEnv)
+        .unwrap()
+        .loaded
+    {
+        Some(burrow::config::Loaded::Server(s, _)) => *s,
+        _ => panic!("valid config"),
+    };
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<ServerSettings>(4);
+    tokio::spawn(burrow::reload::follow(
+        path.clone(),
+        initial,
+        burrow::run::Env::default(),
+        burrow::reload::accept(),
+        tx,
+    ));
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let second = version(2, "127.0.0.1:4");
+    symlink(&second, dir.path().join("..data_tmp")).unwrap();
+    std::fs::rename(dir.path().join("..data_tmp"), dir.path().join("..data")).unwrap();
+    let next = tokio::time::timeout(Duration::from_secs(5), rx.recv())
+        .await
+        .expect("a ConfigMap-style swap is seen")
+        .unwrap();
+    assert_eq!(next.services["web"].target, "127.0.0.1:4");
+    let file = second.join("server.yaml");
+    std::fs::write(&file, config("127.0.0.1:5")).unwrap();
+    let next = tokio::time::timeout(Duration::from_secs(5), rx.recv())
+        .await
+        .expect("an edit of the file a link points to is seen")
+        .unwrap();
+    assert_eq!(next.services["web"].target, "127.0.0.1:5");
+}
