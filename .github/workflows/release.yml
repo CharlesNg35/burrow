@@ -71,7 +71,7 @@ jobs:
       - name: Build (zig cross-compile)
         if: matrix.zig
         env:
-          JEMALLOC_SYS_WITH_LG_PAGE: ${{ startsWith(matrix.target, 'aarch64-unknown-linux') && '16' || '' }}
+          AARCH64_UNKNOWN_LINUX_MUSL_JEMALLOC_SYS_WITH_LG_PAGE: "16"
         run: cargo zigbuild --locked --release --target ${{ matrix.target }}
       - name: Build (native)
         if: ${{ !matrix.zig }}
