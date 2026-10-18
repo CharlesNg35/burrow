@@ -612,3 +612,28 @@ async fn narrowing_reach_on_reload_closes_connections_it_no_longer_covers() {
     );
     assert!(refused(v.addr("echo")).await);
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_socks_forward_checks_its_client_without_a_target_under_narrowed_reach() {
+    let s = setup(|srv, _| {
+        srv.visitors.get_mut("laptop").unwrap().reach =
+            [("home".to_string(), narrowed(&["127.0.0.0/8:22"]))].into();
+    })
+    .await;
+    assert_eq!(s.ask(true, on_home(String::new())).await, Ok(Status::Ok));
+    assert_eq!(
+        s.ask(false, on_home(String::new())).await,
+        Ok(Status::Invalid)
+    );
+    assert_eq!(
+        s.ask(true, on_home("127.0.0.1:80".into())).await,
+        Ok(Status::Forbidden),
+        "an explicit target outside reach still fails its check"
+    );
+    let other = setup(|_, _| {}).await;
+    assert_eq!(
+        other.ask(true, on_home(String::new())).await,
+        Ok(Status::Forbidden),
+        "no reach for the client at all"
+    );
+}

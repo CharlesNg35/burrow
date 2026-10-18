@@ -90,10 +90,11 @@ impl Shared {
                         "visitor \"{visitor}\" may not reach client \"{client}\" directly; to allow it, add \"reach: {{ {client}: any }}\" to visitor \"{visitor}\""
                     )));
                 };
-                let valid = match crate::config::check::unix::path_of(target) {
-                    Some(path) => crate::config::check::unix::check_path(path).is_ok(),
-                    None => target.len() <= MAX_TARGET_LEN && parse_host_port(target).is_ok(),
-                };
+                let valid = target.is_empty()
+                    || match crate::config::check::unix::path_of(target) {
+                        Some(path) => crate::config::check::unix::check_path(path).is_ok(),
+                        None => target.len() <= MAX_TARGET_LEN && parse_host_port(target).is_ok(),
+                    };
                 if !valid {
                     return Err(Refusal {
                         status: Status::Invalid,
@@ -215,9 +216,17 @@ pub(super) async fn serve(
             return;
         }
     };
-    let Ok(request) = request else {
-        reply(channel, Status::Invalid).await;
-        return;
+    let request = match request {
+        Ok(r)
+            if r.check
+                || !matches!(&r.to, VisitTarget::Client { target, .. } if target.is_empty()) =>
+        {
+            r
+        }
+        _ => {
+            reply(channel, Status::Invalid).await;
+            return;
+        }
     };
     let grant = match shared.grant(&visitor, &secret, &request.to, peer.ip()) {
         Ok(g) => g,

@@ -157,7 +157,7 @@ Names follow the rules of section 3. The server reads the request, a record of a
 
 - the visitor still exists and still has the secret it authenticated with;
 - for kind 1, the service exists, is TCP, lists the visitor, admits the visitor's address in `allow_from`/`deny_from`, and `index` is inside its range (`4 invalid` otherwise);
-- for kind 2, the visitor has `reach` for the client, and the target is a valid `host:port` of at most 255 bytes, or `unix:/absolute/path`; if that `reach` has rules, an IP address or socket path target must match one of them.
+- for kind 2, the visitor has `reach` for the client, and the target is a valid `host:port` of at most 255 bytes, or `unix:/absolute/path`, or empty in a check, which asks only whether the visitor may reach that client (a SOCKS forward checks this way); if that `reach` has rules, an IP address or socket path target must match one of them.
 
 Unknown services and services that do not list the visitor get the same answer, `5 forbidden`, so names cannot be probed. Then the server checks that the client is connected (`6 offline`). With `check = 1` it answers `0 ok` at this point and closes: `burrow visit` uses this at startup to report problems before the first connection. Otherwise it checks the limits of the visitor, the service and the client (`7 busy`).
 

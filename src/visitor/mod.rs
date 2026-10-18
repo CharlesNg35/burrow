@@ -158,7 +158,7 @@ fn ends<'a>(
             let first = match &f.to {
                 VisitTarget::Client { client, .. } if f.socks => VisitTarget::Client {
                     client: client.clone(),
-                    target: "127.0.0.1:1".into(),
+                    target: String::new(),
                 },
                 to => to.clone(),
             };

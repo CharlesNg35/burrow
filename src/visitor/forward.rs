@@ -74,6 +74,11 @@ fn explain(status: Status, to: &VisitTarget, visitor: &str) -> String {
         (Status::Forbidden, VisitTarget::Service { name, .. }) => format!(
             "the server does not let visitor \"{visitor}\" use service \"{name}\": it does not exist, or does not list \"{visitor}\" in its \"visitors\""
         ),
+        (Status::Forbidden, VisitTarget::Client { client, target }) if !target.is_empty() => {
+            format!(
+                "the server does not let visitor \"{visitor}\" reach {target} on client \"{client}\": its \"reach\" for \"{client}\" in the server config must include it, for example {client}: any"
+            )
+        }
         (Status::Forbidden, VisitTarget::Client { client, .. }) => format!(
             "the server does not let visitor \"{visitor}\" reach client \"{client}\" directly: that needs \"reach: {{ {client}: any }}\" for \"{visitor}\" in the server config"
         ),
