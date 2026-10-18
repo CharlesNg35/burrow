@@ -21,6 +21,14 @@ pub struct Url {
 }
 
 impl Url {
+    fn is_loopback(&self) -> bool {
+        let host = self.host.trim_start_matches('[').trim_end_matches(']');
+        host.eq_ignore_ascii_case("localhost")
+            || host
+                .parse::<std::net::IpAddr>()
+                .is_ok_and(|ip| ip.is_loopback())
+    }
+
     pub fn parse(url: &str) -> Result<Url, String> {
         let (tls, rest) = if let Some(r) = url.strip_prefix("https://") {
             (true, r)
@@ -334,6 +342,11 @@ pub async fn get(
 ) -> Result<Fetched, String> {
     let mut url = Url::parse(url)?;
     for _ in 0..=MAX_REDIRECTS {
+        if !url.tls && !url.is_loopback() {
+            return Err(format!(
+                "{url} is plain http, where anyone on the way could swap the download; use https:// (http:// is accepted only for this machine)"
+            ));
+        }
         let proxy = proxy_from_env(&url, env)?;
         let (head, body) = fetch_once(&url, proxy.as_ref(), limit).await?;
         match head.code {
@@ -362,6 +375,30 @@ pub async fn get(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn plain_http_is_refused_except_for_this_machine() {
+        for local in [
+            "http://127.0.0.1:1/r",
+            "http://[::1]:1/r",
+            "http://localhost/r",
+        ] {
+            assert!(Url::parse(local).unwrap().is_loopback(), "{local}");
+        }
+        for remote in [
+            "http://10.0.0.1/r",
+            "http://mirror.example/r",
+            "https://[::1]/r",
+        ] {
+            let url = Url::parse(remote).unwrap();
+            assert!(url.tls || !url.is_loopback(), "{remote}");
+        }
+        let refused = get("http://mirror.example/releases", 1024, &|_| None)
+            .await
+            .err()
+            .unwrap();
+        assert!(refused.contains("use https://"), "{refused}");
+    }
 
     #[test]
     fn parses_urls() {

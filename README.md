@@ -586,7 +586,7 @@ Variables used as `${VAR}` in the config are saved for the service at install ti
 <summary><b>More about updating</b></summary>
 
 - The same version is left alone unless you add `--force`.
-- Downloads go through `HTTPS_PROXY` (or `ALL_PROXY`) when set, and `NO_PROXY` is respected. `BURROW_UPDATE_URL` points to a mirror with the same layout as the GitHub releases.
+- Downloads go through `HTTPS_PROXY` (or `ALL_PROXY`) when set, and `NO_PROXY` is respected. `BURROW_UPDATE_URL` points to a mirror with the same layout as the GitHub releases; it must use https:// unless it is on the same machine.
 - `sudo ./burrow service update` does the same with a binary you downloaded yourself. A binary installed by a package manager is upgraded there instead, and in a container you pull the new image.
 
 </details>
