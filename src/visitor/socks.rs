@@ -72,7 +72,11 @@ pub async fn request<S: AsyncRead + AsyncWrite + Unpin>(s: &mut S) -> io::Result
             s.read_exact(&mut len).await?;
             let mut name = vec![0u8; len[0] as usize];
             s.read_exact(&mut name).await?;
-            String::from_utf8(name).map_err(|_| bad("the host name is not text"))?
+            let name = String::from_utf8(name).map_err(|_| bad("the host name is not text"))?;
+            match name.parse::<Ipv6Addr>() {
+                Ok(ip) => format!("[{ip}]"),
+                Err(_) => name,
+            }
         }
         4 => {
             let mut ip = [0u8; 16];
@@ -121,6 +125,10 @@ mod tests {
         v6.extend_from_slice(&Ipv6Addr::LOCALHOST.octets());
         v6.extend_from_slice(&[0, 80]);
         assert_eq!(ask(&v6).await.0.unwrap(), "[::1]:80");
+        let mut v6_name = vec![5, 1, 0, 5, 1, 0, 3, 3];
+        v6_name.extend_from_slice(b"::1");
+        v6_name.extend_from_slice(&[0, 80]);
+        assert_eq!(ask(&v6_name).await.0.unwrap(), "[::1]:80");
     }
 
     #[tokio::test]
