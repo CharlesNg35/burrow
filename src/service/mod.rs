@@ -73,6 +73,16 @@ pub trait Backend {
     fn ensure_account(&self, account: &str) -> Result<bool, Failure>;
     fn remove_account(&self, account: &str) -> Result<(), Failure>;
     fn can_read(&self, account: &str, path: &Path) -> bool;
+    fn low_ports(&self, _m: &Manifest) -> bool {
+        true
+    }
+    fn cannot_use(&self, m: &Manifest, file: &Path) -> Option<String> {
+        if file.is_relative() {
+            return Some("a service needs an absolute path".into());
+        }
+        (!self.can_read(&m.account, file))
+            .then(|| format!("its account {} cannot read it", m.account))
+    }
     fn secure_file(&self, path: &Path, account: &str) -> Result<(), Failure>;
     fn prepare_dirs(&self, account: &str) -> Result<(), Failure>;
     fn write_env(&self, m: &Manifest, env: &BTreeMap<String, String>) -> Result<(), Failure>;
@@ -177,6 +187,105 @@ pub fn referenced_env(src: &str) -> Vec<String> {
     out
 }
 
+struct Uses {
+    listens: Vec<(Protocol, SocketAddr, String)>,
+    files: Vec<(String, PathBuf)>,
+}
+
+fn uses(loaded: &Loaded) -> Uses {
+    let mut files = Vec::new();
+    let mut listens = Vec::new();
+    match loaded {
+        Loaded::Server(s, cfg) => {
+            if let Some(l) = s.listen {
+                listens.push((Protocol::Tcp, l, "listen".into()));
+            }
+            if let Some(ws) = &s.websocket {
+                listens.push((Protocol::Tcp, ws.listen, "websocket.listen".into()));
+            }
+            if let Some(m) = s.metrics {
+                listens.push((Protocol::Tcp, m, "metrics.listen".into()));
+            }
+            for (name, svc) in &s.services {
+                for (_, bind) in svc.binds() {
+                    listens.push((svc.protocol, bind, format!("service \"{name}\"")));
+                }
+            }
+            if let Some(tls) = cfg.websocket.as_ref().and_then(|w| w.tls.as_ref()) {
+                files.push(("websocket.tls.cert".to_string(), PathBuf::from(&tls.cert)));
+                files.push(("websocket.tls.key".to_string(), PathBuf::from(&tls.key)));
+            }
+        }
+        Loaded::Client(_, cfg) => {
+            if let Some(ca) = &cfg.ca {
+                files.push(("ca".to_string(), PathBuf::from(ca)));
+            }
+        }
+        Loaded::Visitor(s, cfg) => {
+            if let Some(ca) = &cfg.ca {
+                files.push(("ca".to_string(), PathBuf::from(ca)));
+            }
+            for (name, f) in &s.forwards {
+                for (_, local) in f.listens() {
+                    listens.push((Protocol::Tcp, local, format!("forward \"{name}\"")));
+                }
+            }
+        }
+    }
+    Uses { listens, files }
+}
+
+pub fn misfits(name: &str, loaded: &Loaded) -> Vec<crate::diagnostics::Diagnostic> {
+    match (system::backend(), load_manifest(name)) {
+        (Ok(backend), Ok(m)) => misfits_of(&*backend, &m, loaded),
+        _ => Vec::new(),
+    }
+}
+
+fn misfits_of(
+    backend: &dyn Backend,
+    m: &Manifest,
+    loaded: &Loaded,
+) -> Vec<crate::diagnostics::Diagnostic> {
+    let name = &m.name;
+    let again = format!(
+        "make the change in {} and install it again: {}",
+        m.source_config.display(),
+        crate::failure::admin(&install_args(m))
+    );
+    let Uses { listens, files } = uses(loaded);
+    let mut out = Vec::new();
+    let low: Vec<String> = listens
+        .iter()
+        .filter(|(_, a, _)| a.port() < 1024)
+        .map(|(_, a, what)| format!("{what} on port {}", a.port()))
+        .collect();
+    if !low.is_empty() && !backend.low_ports(m) {
+        out.push(
+            crate::diagnostics::Diagnostic::error(
+                "service-unit",
+                format!(
+                    "{name} was installed without permission for ports below 1024, so {} would fail when it restarts",
+                    low.join(", ")
+                ),
+            )
+            .help(again.clone()),
+        );
+    }
+    for (field, file) in &files {
+        if let Some(why) = backend.cannot_use(m, file) {
+            out.push(
+                crate::diagnostics::Diagnostic::error(
+                    "service-unit",
+                    format!("{name} cannot use {field} ({}): {why}", file.display()),
+                )
+                .help(again.clone()),
+            );
+        }
+    }
+    out
+}
+
 struct Checked {
     role: Role,
     identity: Option<Identity>,
@@ -221,40 +330,19 @@ fn check_config(path: &Path, env: &BTreeMap<String, String>) -> Result<Checked, 
             )),
         );
     }
-    let mut files = Vec::new();
-    let mut listens = Vec::new();
-    let (role, identity) = match outcome.loaded {
-        Some(Loaded::Server(s, cfg)) => {
-            if let Some(l) = s.listen {
-                listens.push((Protocol::Tcp, l, "listen".into()));
-            }
-            if let Some(ws) = &s.websocket {
-                listens.push((Protocol::Tcp, ws.listen, "websocket.listen".into()));
-            }
-            if let Some(m) = s.metrics {
-                listens.push((Protocol::Tcp, m, "metrics.listen".into()));
-            }
-            for (name, svc) in &s.services {
-                for (_, bind) in svc.binds() {
-                    listens.push((svc.protocol, bind, format!("service \"{name}\"")));
-                }
-            }
-            if let Some(tls) = cfg.websocket.as_ref().and_then(|w| w.tls.as_ref()) {
-                files.push(("websocket.tls.cert".to_string(), PathBuf::from(&tls.cert)));
-                files.push(("websocket.tls.key".to_string(), PathBuf::from(&tls.key)));
-            }
-            (Role::Server, Some(Identity::server(path)))
-        }
-        Some(Loaded::Client(s, cfg)) => {
-            if let Some(ca) = &cfg.ca {
-                files.push(("ca".to_string(), PathBuf::from(ca)));
-            }
-            (
-                Role::Client,
-                Some(Identity::client(&s.endpoint.to_string(), &s.name)),
-            )
-        }
-        Some(Loaded::Visitor(s, cfg)) => {
+    let Some(loaded) = &outcome.loaded else {
+        return Err(Failure::new(format!(
+            "{} could not be loaded",
+            path.display()
+        )));
+    };
+    let (role, identity) = match loaded {
+        Loaded::Server(..) => (Role::Server, Some(Identity::server(path))),
+        Loaded::Client(s, _) => (
+            Role::Client,
+            Some(Identity::client(&s.endpoint.to_string(), &s.name)),
+        ),
+        Loaded::Visitor(s, _) => {
             if s.forwards.is_empty() {
                 return Err(Failure::usage(format!(
                     "{} has no forwards, so a service would have nothing to run",
@@ -262,23 +350,10 @@ fn check_config(path: &Path, env: &BTreeMap<String, String>) -> Result<Checked, 
                 ))
                 .hint("add one under \"forwards\", for example db: { service: db, local: 5432 }"));
             }
-            if let Some(ca) = &cfg.ca {
-                files.push(("ca".to_string(), PathBuf::from(ca)));
-            }
-            for (name, f) in &s.forwards {
-                for (_, local) in f.listens() {
-                    listens.push((Protocol::Tcp, local, format!("forward \"{name}\"")));
-                }
-            }
             (Role::Visitor, None)
         }
-        None => {
-            return Err(Failure::new(format!(
-                "{} could not be loaded",
-                path.display()
-            )));
-        }
     };
+    let Uses { listens, files } = uses(loaded);
     for (field, file) in &files {
         if file.is_relative() {
             return Err(Failure::usage(format!(
@@ -1098,6 +1173,89 @@ mod tests {
             files: Vec::new(),
             version: "0.1.0".into(),
         }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn an_edit_the_installed_unit_cannot_run_is_named_with_the_way_out() {
+        let secret = crate::secret::Secret::generate().encode();
+        let load = |text: String| {
+            let nothing = |_: &str| None;
+            let o = crate::config::load_str(
+                "c.yaml",
+                &text,
+                crate::config::Format::Yaml,
+                None,
+                &nothing,
+            );
+            let shown = o
+                .report
+                .render_text(crate::diagnostics::Style { color: false });
+            o.loaded.unwrap_or_else(|| panic!("{shown}"))
+        };
+        let server = |listen: &str| {
+            load(format!(
+                "listen: {listen}\nclients:\n  home: {{ secret: {secret} }}\nservices:\n  web: {{ client: home, bind: 8080, target: 80 }}\n"
+            ))
+        };
+        let m = Manifest {
+            name: "burrow-edge".into(),
+            source_config: PathBuf::from("/srv/edge.yaml"),
+            ..record(Platform::Linux)
+        };
+        let backend = systemd::Systemd;
+        assert!(misfits_of(&backend, &m, &server("7835")).is_empty());
+        let low = misfits_of(&backend, &m, &server("443"));
+        assert_eq!(low.len(), 1);
+        assert!(
+            low[0].message.contains("listen on port 443"),
+            "{}",
+            low[0].message
+        );
+        assert!(
+            low[0].help.as_deref().unwrap().contains("/srv/edge.yaml")
+                && low[0]
+                    .help
+                    .as_deref()
+                    .unwrap()
+                    .contains("service install -c /srv/edge.yaml"),
+            "{:?}",
+            low[0].help
+        );
+        let allowed = Manifest {
+            low_ports: true,
+            ..m.clone()
+        };
+        assert!(misfits_of(&backend, &allowed, &server("443")).is_empty());
+        let home = backend.cannot_use(&m, Path::new("/home/someone/ca.pem"));
+        assert!(home.unwrap().contains("home folder"));
+        assert!(
+            backend
+                .cannot_use(&m, Path::new("ca.pem"))
+                .unwrap()
+                .contains("absolute")
+        );
+        let as_root = Manifest {
+            files: vec![PathBuf::from("/home/someone/old.pem")],
+            account: "root".into(),
+            ..m.clone()
+        };
+        assert_eq!(
+            backend
+                .cannot_use(&as_root, Path::new("/home/someone/ca.pem"))
+                .map(|_| ()),
+            Some(())
+        );
+        assert_eq!(
+            backend.cannot_use(&as_root, Path::new("/etc/hostname")),
+            None
+        );
+        assert!(
+            backend
+                .cannot_use(&as_root, Path::new("/etc/burrow-no-such.pem"))
+                .unwrap()
+                .contains("cannot read it")
+        );
     }
 
     #[test]

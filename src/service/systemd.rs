@@ -164,6 +164,25 @@ impl Backend for Systemd {
         Ok(())
     }
 
+    fn low_ports(&self, m: &Manifest) -> bool {
+        m.low_ports || m.account == "root"
+    }
+
+    fn cannot_use(&self, m: &Manifest, file: &Path) -> Option<String> {
+        let homes = ["/home", "/root", "/run/user"];
+        if file.is_relative() {
+            Some("a service needs an absolute path".into())
+        } else if all_paths_under(&[file.to_path_buf()], &homes)
+            && !all_paths_under(&m.files, &homes)
+        {
+            Some("it is in a home folder, which the service was installed without access to".into())
+        } else if !self.can_read(&m.account, file) {
+            Some(format!("its account {} cannot read it", m.account))
+        } else {
+            None
+        }
+    }
+
     fn can_read(&self, account: &str, path: &Path) -> bool {
         if account == "root" {
             return path.exists();

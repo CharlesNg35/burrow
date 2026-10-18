@@ -221,6 +221,13 @@ for _ in $(seq 1 50); do sudo "$B" service logs burrow-e2e-client -n 20 | grep -
 sudo "$B" service logs burrow-e2e-client -n 20 | grep -q "config reloaded: nothing changed" || fail "the client did not reload: $(sudo "$B" service logs burrow-e2e-client -n 20)"
 [ -n "$before" ] && [ "$(pid_of burrow-e2e-client)" = "$before" ] || fail "reload restarted the client instead of reloading it"
 check "reload applies the config in place, without a restart"
+if [ "$(uname -s)" = Linux ]; then
+  out="$(sudo "$B" edit e2e-server --editor "sed -i s/127.0.0.1:27935/127.0.0.1:443/" </dev/null 2>&1)" && fail "edit saved a port the service cannot bind: $out"
+  echo "$out" | grep -q "without permission for ports below 1024" || fail "edit did not say why: $out"
+  echo "$out" | grep -q "service install -c" || fail "edit did not say how: $out"
+  sudo grep -q "127.0.0.1:27935" /etc/burrow/e2e-server.yaml || fail "edit changed the config anyway"
+  check "edit refuses a change the installed service could not run after a restart"
+fi
 interrupted install env E2E_SECRET="$SECRET" sudo --preserve-env=E2E_SECRET "$B" service install -c e2e-client.yaml
 [ "$(sudo stat -c %a "$JOBS" 2>/dev/null || sudo stat -f %Lp "$JOBS")" = 700 ] || fail "$JOBS is not private"
 sudo grep -rqs -- "$SECRET" /var/log/burrow "$JOBS" && fail "a log contains the client secret"

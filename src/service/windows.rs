@@ -142,6 +142,19 @@ impl Backend for WindowsService {
         Ok(())
     }
 
+    fn cannot_use(&self, m: &Manifest, file: &Path) -> Option<String> {
+        if file.is_relative() {
+            Some("a service needs an absolute path".into())
+        } else if !m.files.iter().any(|f| f == file) {
+            Some(format!(
+                "its account {} was given read access only to the files of the installed config",
+                m.account
+            ))
+        } else {
+            None
+        }
+    }
+
     fn can_read(&self, _account: &str, path: &Path) -> bool {
         path.exists()
     }

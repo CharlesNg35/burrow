@@ -175,7 +175,13 @@ fn edit(
             say(out, format!("edit cancelled; {shown} is unchanged"))?;
             return Ok(1);
         }
-        let checked = save::check(path, format, f.role, &text, &*env);
+        let mut checked = save::check(path, format, f.role, &text, &*env);
+        if let (Origin::Service { name, .. }, Some(loaded), false) =
+            (&f.origin, &checked.loaded, checked.report.has_errors())
+        {
+            let misfits = crate::service::misfits(name, loaded);
+            checked.report.diagnostics.extend(misfits);
+        }
         if checked.report.error_count() + checked.report.warning_count() > 0 {
             eprint!("{}", checked.report.render_text(style));
         }
