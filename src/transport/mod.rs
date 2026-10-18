@@ -123,6 +123,12 @@ impl Conn {
     pub fn supports_half_close(&self) -> bool {
         matches!(self, Conn::Tcp(_))
     }
+
+    pub fn reset_on_close(&self) {
+        if let Conn::Tcp(s) = self {
+            let _ = socket2::SockRef::from(s).set_linger(Some(std::time::Duration::ZERO));
+        }
+    }
 }
 
 impl From<TcpStream> for Conn {

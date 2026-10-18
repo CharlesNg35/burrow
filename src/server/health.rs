@@ -152,7 +152,7 @@ async fn probe(shared: &Shared, service: &str, client: &str, target: &str) -> Re
         _ => return Err("the client closed the check".into()),
     };
     if raw {
-        let _ = ch.stream.shutdown().await;
+        ch.stream.reset_on_close();
     } else {
         let _ = ch.writer.send(&mut ch.stream, &[]).await;
         let _ = ch.stream.flush().await;

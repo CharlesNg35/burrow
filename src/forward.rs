@@ -689,6 +689,23 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_plaintext_channel_reset_by_the_server_ends_the_target_connection() {
+        let (a, b) = tcp_pair().await;
+        let (ch, server) = channels(a, b);
+        let (target, _silent) = tcp_pair().await;
+        let pump = tokio::spawn(pump_tcp(ch, target, true));
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        server.stream.reset_on_close();
+        drop(server);
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_secs(5), pump)
+                .await
+                .is_ok(),
+            "the pump ends once the server has reset the channel"
+        );
+    }
+
+    #[tokio::test]
     async fn a_half_closed_channel_still_carries_the_target_reply() {
         let (a, b) = tcp_pair().await;
         let (ch, mut server) = channels(a, b);
