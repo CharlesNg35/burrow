@@ -1,4 +1,6 @@
 mod data;
+#[cfg(unix)]
+pub(crate) use data::fit_to_open_files;
 pub mod reconnect;
 pub mod reload;
 

@@ -225,17 +225,19 @@ fn raise_open_files() {
         use rustix::process::{Resource, Rlimit, getrlimit, setrlimit};
         let limit = getrlimit(Resource::Nofile);
         let most = limit.maximum.unwrap_or(1 << 20);
-        if limit.current.is_some_and(|c| c >= most) {
-            return;
-        }
-        for want in [most, most.min(10240)] {
-            let raised = Rlimit {
-                current: Some(want),
-                maximum: limit.maximum,
-            };
-            if setrlimit(Resource::Nofile, raised).is_ok() {
-                return;
+        if !limit.current.is_some_and(|c| c >= most) {
+            for want in [most, most.min(10240)] {
+                let raised = Rlimit {
+                    current: Some(want),
+                    maximum: limit.maximum,
+                };
+                if setrlimit(Resource::Nofile, raised).is_ok() {
+                    break;
+                }
             }
+        }
+        if let Some(now) = getrlimit(Resource::Nofile).current {
+            crate::client::fit_to_open_files(now);
         }
     }
 }

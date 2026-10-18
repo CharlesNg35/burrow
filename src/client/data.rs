@@ -40,25 +40,44 @@ static OPEN_CONNECTIONS: Slots = Slots::new(MAX_OPEN_CONNECTIONS);
 
 struct Slots {
     open: AtomicUsize,
-    max: usize,
+    max: AtomicUsize,
 }
 
 impl Slots {
     const fn new(max: usize) -> Slots {
         Slots {
             open: AtomicUsize::new(0),
-            max,
+            max: AtomicUsize::new(max),
         }
     }
 
     fn take(&'static self) -> Option<Slot> {
+        let max = self.most();
         self.open
             .try_update(Ordering::AcqRel, Ordering::Acquire, |n| {
-                (n < self.max).then_some(n + 1)
+                (n < max).then_some(n + 1)
             })
             .ok()
             .map(|_| Slot(self))
     }
+
+    fn most(&self) -> usize {
+        self.max.load(Ordering::Relaxed)
+    }
+}
+
+#[cfg(any(unix, test))]
+fn caps(open_files: u64) -> (usize, usize) {
+    let budget = usize::try_from(open_files.saturating_sub(512)).unwrap_or(usize::MAX);
+    let fit = |share: usize, cap: usize| (budget / 5).saturating_mul(share).clamp(64, cap);
+    (fit(2, MAX_OPEN_CONNECTIONS), fit(1, MAX_OPEN_PEERS))
+}
+
+#[cfg(unix)]
+pub(crate) fn fit_to_open_files(limit: u64) {
+    let (connections, peers) = caps(limit);
+    OPEN_CONNECTIONS.max.store(connections, Ordering::Relaxed);
+    OPEN_PEERS.max.store(peers, Ordering::Relaxed);
 }
 
 struct Slot(&'static Slots);
@@ -275,8 +294,9 @@ async fn connected(
         static FULL: Throttle = Throttle::new();
         if let Some(more) = FULL.allow() {
             warn!(
-                "{}: {MAX_OPEN_CONNECTIONS} connections are open through this client, so a new one was refused{more}",
-                label(&connect)
+                "{}: {} connections are open through this client, so a new one was refused{more}",
+                label(&connect),
+                OPEN_CONNECTIONS.most()
             );
         }
         reply(ch, Status::Busy).await;
@@ -676,7 +696,8 @@ async fn udp(
                     static ALL: Throttle = Throttle::new();
                     if let Some(more) = ALL.allow() {
                         warn!(
-                            "UDP to {target}: {MAX_OPEN_PEERS} peers are open across all UDP services, so a datagram from a new one was dropped{more}"
+                            "UDP to {target}: {} peers are open across all UDP services, so a datagram from a new one was dropped{more}",
+                            OPEN_PEERS.most()
                         );
                     }
                     continue;
@@ -749,6 +770,18 @@ async fn udp(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn connection_and_peer_caps_fit_the_open_file_limit() {
+        let (connections, peers) = caps(10240);
+        assert!(
+            connections * 2 + peers <= 10240 - 512,
+            "{connections} {peers}"
+        );
+        assert_eq!(caps(1 << 20), (MAX_OPEN_CONNECTIONS, MAX_OPEN_PEERS));
+        assert_eq!(caps(256), (64, 64));
+        assert_eq!(caps(u64::MAX), (MAX_OPEN_CONNECTIONS, MAX_OPEN_PEERS));
+    }
 
     #[test]
     fn udp_peers_across_all_services_share_one_limit() {
