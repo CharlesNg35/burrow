@@ -44,7 +44,7 @@ impl Identity {
 }
 
 pub struct InstanceLock {
-    _file: File,
+    _file: Option<File>,
     path: PathBuf,
 }
 
@@ -220,16 +220,24 @@ pub fn acquire(identity: &Identity, config: &Path) -> Result<InstanceLock, Failu
 }
 
 pub fn acquire_in(dir: &Path, identity: &Identity, config: &Path) -> Result<InstanceLock, Failure> {
-    prepare_dir(dir).map_err(|e| {
-        Failure::new(format!(
+    let path = dir.join(format!("{}.lock", identity.key()));
+    if let Err(e) = prepare_dir(dir) {
+        if planted(dir) {
+            return Ok(unlocked(dir, &path));
+        }
+        return Err(Failure::new(format!(
             "cannot create {}: {}",
             dir.display(),
             crate::failure::file_reason(&e)
         ))
-        .hint("burrow keeps a small lock file there so the same tunnel cannot run twice")
-    })?;
-    let path = dir.join(format!("{}.lock", identity.key()));
-    let (file, writable) = open_shared(&path).map_err(|e| open_failure(&path, &e))?;
+        .hint("burrow keeps a small lock file there so the same tunnel cannot run twice"));
+    }
+    let (file, writable) = match open_shared(&path) {
+        Ok(opened) => opened,
+        Err(_) if planted(&path) => return Ok(unlocked(&path, &path)),
+        Err(_) if planted(dir) => return Ok(unlocked(dir, &path)),
+        Err(e) => return Err(open_failure(&path, &e)),
+    };
     match file.try_lock() {
         Ok(()) => {}
         Err(TryLockError::WouldBlock) if !held_by_a_trusted_instance(&path) => {
@@ -237,7 +245,10 @@ pub fn acquire_in(dir: &Path, identity: &Identity, config: &Path) -> Result<Inst
                 "warning: {} is locked by a process burrow does not trust (another user's, or one that left no note); starting anyway",
                 path.display()
             );
-            return Ok(InstanceLock { _file: file, path });
+            return Ok(InstanceLock {
+                _file: Some(file),
+                path,
+            });
         }
         Err(TryLockError::WouldBlock) => {
             let holder = std::fs::read_to_string(path.with_extension("info")).unwrap_or_default();
@@ -275,7 +286,33 @@ pub fn acquire_in(dir: &Path, identity: &Identity, config: &Path) -> Result<Inst
     if writable {
         write_note(&path.with_extension("info"), &note);
     }
-    Ok(InstanceLock { _file: file, path })
+    Ok(InstanceLock {
+        _file: Some(file),
+        path,
+    })
+}
+
+fn unlocked(entry: &Path, path: &Path) -> InstanceLock {
+    eprintln!(
+        "warning: {} belongs to another user and cannot be used as a lock; starting without it",
+        entry.display()
+    );
+    InstanceLock {
+        _file: None,
+        path: path.to_path_buf(),
+    }
+}
+
+#[cfg(unix)]
+fn planted(entry: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    let me = rustix::process::geteuid().as_raw();
+    std::fs::symlink_metadata(entry).is_ok_and(|m| m.uid() != 0 && m.uid() != me)
+}
+
+#[cfg(not(unix))]
+fn planted(_entry: &Path) -> bool {
+    false
 }
 
 fn held_by_a_trusted_instance(lock: &Path) -> bool {
@@ -520,6 +557,17 @@ mod tests {
         assert_eq!(found[0].pid, std::process::id());
         assert!(found[0].config.ends_with("client.yaml"));
         drop(lock);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn only_entries_of_another_user_count_as_planted() {
+        let dir = tempfile::tempdir().unwrap();
+        let mine = dir.path().join("x.lock");
+        std::fs::write(&mine, "").unwrap();
+        assert!(!planted(&mine));
+        assert!(!planted(&dir.path().join("missing.lock")));
+        assert!(!planted(Path::new("/")));
     }
 
     #[test]
