@@ -219,8 +219,11 @@ fn watched_dirs(files: &[PathBuf]) -> Vec<PathBuf> {
         for _ in 0..16 {
             dirs.push(real(&dir_of(&p)));
             for linked in p.ancestors().skip(1) {
-                if std::fs::symlink_metadata(linked).is_ok_and(|m| m.file_type().is_symlink()) {
-                    dirs.push(real(&dir_of(linked)));
+                let holder = real(&dir_of(linked));
+                if holder.parent().is_some()
+                    && std::fs::symlink_metadata(linked).is_ok_and(|m| m.file_type().is_symlink())
+                {
+                    dirs.push(holder);
                 }
             }
             match std::fs::read_link(&p) {
@@ -271,4 +274,20 @@ fn watch_files(
         }
     }
     Some(watcher)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn links_at_the_top_of_the_disk_never_make_the_whole_disk_watched() {
+        let files = [
+            PathBuf::from("/etc/burrow/home.yaml"),
+            PathBuf::from("/tmp/burrow/home.yaml"),
+            PathBuf::from("/var/lib/burrow/home.yaml"),
+        ];
+        let dirs = watched_dirs(&files);
+        assert!(dirs.iter().all(|d| d.parent().is_some()), "{dirs:?}");
+    }
 }
