@@ -222,6 +222,7 @@ fn weak_and_duplicate_secrets() {
     "#);
 }
 
+#[cfg(unix)]
 #[test]
 fn unset_env() {
     insta::assert_snapshot!(render("server.yaml", "listen: 0.0.0.0:7835\nclients:\n  home:\n    secret: ${MISSING_SECRET}\nservices:\n  web:\n    client: home\n    bind: 8080\n    target: ${MISSING_TARGET}\n", None), @r#"
@@ -230,14 +231,14 @@ fn unset_env() {
        |
      4 |     secret: ${MISSING_SECRET}
        |             ^^^^^^^^^^^^^^^^^ referenced here
-       = help: set it before starting burrow, for example: export MISSING_SECRET="$(burrow gensecret)" (for a secret) or export MISSING_SECRET=value
+       = help: set it before starting burrow, for example: export MISSING_SECRET="$(burrow gensecret)"
 
     error: environment variable "MISSING_TARGET" is not set
       --> server.yaml:9:13
        |
      9 |     target: ${MISSING_TARGET}
        |             ^^^^^^^^^^^^^^^^^ referenced here
-       = help: set it before starting burrow, for example: export MISSING_TARGET="$(burrow gensecret)" (for a secret) or export MISSING_TARGET=value
+       = help: set it before starting burrow, for example: export MISSING_TARGET="..."
 
     server.yaml: 2 errors, 0 warnings
     "#);
@@ -1935,4 +1936,23 @@ fn variables_fill_number_and_boolean_fields() {
             .iter()
             .any(|d| d.code == "env-unset")
     );
+}
+
+#[test]
+fn the_hint_for_an_unset_variable_fits_the_field_and_the_shell() {
+    let src = "listen: 0.0.0.0:7835\nclients:\n  home:\n    secret: ${S}\nservices:\n  web:\n    client: home\n    bind: 8080\n    target: ${T}\n";
+    let o = load_str("server.yaml", src, Format::Yaml, None, &|_: &str| None);
+    let help = |var: &str| {
+        o.report
+            .diagnostics
+            .iter()
+            .find(|d| d.message.contains(&format!("\"{var}\"")))
+            .and_then(|d| d.help.clone())
+            .unwrap()
+    };
+    let (secret, target) = (help("S"), help("T"));
+    assert!(secret.contains("gensecret"), "{secret}");
+    assert!(!target.contains("gensecret"), "{target}");
+    let set = if cfg!(windows) { "$env:T = " } else { "export T=" };
+    assert!(target.contains(set), "{target}");
 }

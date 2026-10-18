@@ -20,12 +20,22 @@ impl<F: Fn(&str) -> Option<String>> EnvSource for F {
 }
 
 pub fn expand(node: &mut Node, src: &str, env: &dyn EnvSource, out: &mut Vec<Diagnostic>) {
+    expand_in(node, "", src, env, out);
+}
+
+fn expand_in(
+    node: &mut Node,
+    key: &str,
+    src: &str,
+    env: &dyn EnvSource,
+    out: &mut Vec<Diagnostic>,
+) {
     match &mut node.value {
         Value::Str(s) if s.contains('$') => {
             let span = node.span;
             let errors = out.len();
             let referenced = s.replace("$${", "").contains("${");
-            match expand_str(s, span, src, env, out) {
+            match expand_str(s, span, src, env, key == "secret", out) {
                 Some(v) => *s = v,
                 None if out.len() > errors => node.env = FromEnv::Unset,
                 None => {}
@@ -34,10 +44,12 @@ pub fn expand(node: &mut Node, src: &str, env: &dyn EnvSource, out: &mut Vec<Dia
                 node.env = FromEnv::Expanded;
             }
         }
-        Value::Seq(items) => items.iter_mut().for_each(|n| expand(n, src, env, out)),
+        Value::Seq(items) => items
+            .iter_mut()
+            .for_each(|n| expand_in(n, key, src, env, out)),
         Value::Map(entries) => entries
             .iter_mut()
-            .for_each(|e| expand(&mut e.value, src, env, out)),
+            .for_each(|e| expand_in(&mut e.value, &e.key, src, env, out)),
         _ => {}
     }
 }
@@ -47,6 +59,7 @@ fn expand_str(
     span: Span,
     src: &str,
     env: &dyn EnvSource,
+    secret: bool,
     out: &mut Vec<Diagnostic>,
 ) -> Option<String> {
     let mut result = String::with_capacity(s.len());
@@ -94,10 +107,7 @@ fn expand_str(
                             )
                             .at(sub_span(src, span, token))
                             .label("referenced here")
-                            .help(format!(
-                                "set it before starting burrow, for example: export {name}=\"$({})\" (for a secret) or export {name}=value",
-                                crate::failure::cmd("gensecret")
-                            )),
+                            .help(set_hint(name, secret)),
                         );
                         ok = false;
                     }
@@ -111,6 +121,20 @@ fn expand_str(
     }
     result.push_str(rest);
     ok.then_some(result)
+}
+
+fn set_hint(name: &str, secret: bool) -> String {
+    let value = match (secret, cfg!(windows)) {
+        (true, false) => format!("\"$({})\"", crate::failure::cmd("gensecret")),
+        (true, true) => format!("({})", crate::failure::cmd("gensecret")),
+        (false, _) => "\"...\"".to_string(),
+    };
+    let set = if cfg!(windows) {
+        format!("$env:{name} = {value}")
+    } else {
+        format!("export {name}={value}")
+    };
+    format!("set it before starting burrow, for example: {set}")
 }
 
 fn valid_name(name: &str) -> bool {
