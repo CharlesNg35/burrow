@@ -11,8 +11,23 @@ fn rotated(path: &Path, n: usize) -> PathBuf {
     PathBuf::from(name)
 }
 
+fn open(path: &Path) -> std::io::Result<File> {
+    let mut opts = std::fs::OpenOptions::new();
+    opts.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    }
+    let file = opts.open(path)?;
+    if !file.metadata()?.is_file() {
+        return Err(std::io::Error::other("not a regular file"));
+    }
+    Ok(file)
+}
+
 fn read_lines(path: &Path) -> Vec<String> {
-    File::open(path)
+    open(path)
         .map(|f| BufReader::new(f).lines().map_while(Result::ok).collect())
         .unwrap_or_default()
 }
@@ -40,7 +55,7 @@ pub fn show(
     retry: &str,
     out: &mut dyn Write,
 ) -> Result<(), Failure> {
-    match File::open(path) {
+    match open(path) {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             return Err(
                 Failure::new(format!("no log file yet at {}", path.display())).hint(format!(
@@ -70,21 +85,26 @@ pub fn show(
     if !follow {
         return Ok(());
     }
-    let mut file = File::open(path)
-        .map_err(|e| Failure::new(format!("cannot open {}: {e}", path.display())))?;
+    let mut file =
+        open(path).map_err(|e| Failure::new(format!("cannot open {}: {e}", path.display())))?;
     let mut pos = file.seek(SeekFrom::End(0)).unwrap_or(0);
     let mut buf = Vec::new();
     loop {
         std::thread::sleep(Duration::from_millis(300));
         let len = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
         if len < pos {
-            match File::open(path) {
-                Ok(f) => {
-                    file = f;
-                    pos = 0;
-                }
-                Err(_) => continue,
+            let Ok(next) = open(path) else {
+                continue;
+            };
+            buf.clear();
+            if file.seek(SeekFrom::Start(pos)).is_ok()
+                && file.read_to_end(&mut buf).is_ok()
+                && out.write_all(&buf).and_then(|_| out.flush()).is_err()
+            {
+                return Ok(());
             }
+            file = next;
+            pos = 0;
         }
         buf.clear();
         if file.seek(SeekFrom::Start(pos)).is_ok()
@@ -102,6 +122,26 @@ pub fn show(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn a_planted_link_or_pipe_is_not_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let secret = dir.path().join("secret");
+        std::fs::write(&secret, "private\n").unwrap();
+        let linked = dir.path().join("a.log");
+        std::os::unix::fs::symlink(&secret, &linked).unwrap();
+        assert!(last_lines(&linked, 10).is_empty());
+        let fifo = dir.path().join("b.log");
+        assert!(
+            std::process::Command::new("mkfifo")
+                .arg(&fifo)
+                .status()
+                .unwrap()
+                .success()
+        );
+        assert!(last_lines(&fifo, 10).is_empty());
+    }
 
     #[test]
     fn last_lines_span_rotated_files() {
