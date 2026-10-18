@@ -28,6 +28,13 @@ fn id_of(_meta: &std::fs::Metadata) -> Option<(u64, u64)> {
     None
 }
 
+fn reopen(path: &Path) -> io::Result<File> {
+    if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
+        std::fs::create_dir_all(dir)?;
+    }
+    open_log(path)
+}
+
 fn open_log(path: &Path) -> io::Result<File> {
     let mut opts = OpenOptions::new();
     opts.create(true).append(true);
@@ -86,7 +93,7 @@ impl RotatingFile {
             }
             let _ = std::fs::rename(&aside, self.rotated(1));
         }
-        state.file = open_log(&self.path)?;
+        state.file = reopen(&self.path)?;
         state.size = 0;
         state.rotate_at = self.max;
         state.id = state.file.metadata().ok().as_ref().and_then(id_of);
@@ -106,7 +113,7 @@ impl RotatingFile {
             return;
         }
         let _ = state.file.flush();
-        if let Ok(file) = open_log(&self.path) {
+        if let Ok(file) = reopen(&self.path) {
             let meta = file.metadata().ok();
             state.size = meta.as_ref().map_or(0, std::fs::Metadata::len);
             state.id = meta.as_ref().and_then(id_of);
@@ -127,7 +134,12 @@ impl Write for RotatingFile {
             && state.size > 0
             && self.rotate(&mut state).is_err()
         {
-            state.rotate_at = state.size + (self.max / 10).max(1);
+            if self.path.symlink_metadata().is_err() && state.file.set_len(0).is_ok() {
+                state.size = 0;
+                state.rotate_at = self.max;
+            } else {
+                state.rotate_at = state.size + (self.max / 10).max(1);
+            }
         }
         state.file.write_all(buf)?;
         state.size += buf.len() as u64;
@@ -218,6 +230,37 @@ mod tests {
         );
         let after: Vec<String> = (1..=KEEP).map(old).collect();
         assert_eq!(before, after, "old logs are not shifted");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_deleted_log_folder_comes_back_or_stays_bounded() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let logs = dir.path().join("logs");
+        let path = logs.join("burrow.log");
+        let mut log = RotatingFile::with_limit(&path, 1000).unwrap();
+        writeln!(log, "first").unwrap();
+        std::fs::remove_dir_all(&logs).unwrap();
+        std::thread::sleep(CHECK_EVERY + Duration::from_millis(100));
+        writeln!(log, "after the folder was removed").unwrap();
+        assert!(
+            std::fs::read_to_string(&path)
+                .unwrap()
+                .contains("after the folder")
+        );
+
+        std::fs::remove_dir_all(&logs).unwrap();
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o500)).unwrap();
+        let blocked = std::fs::create_dir(dir.path().join("probe")).is_err();
+        for i in 0..2000 {
+            writeln!(log, "line {i:05} padding padding padding").unwrap();
+        }
+        let held = log.state.lock().unwrap().file.metadata().unwrap().len();
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        if blocked {
+            assert!(held <= 2000, "a log nobody can see grew to {held} bytes");
+        }
     }
 
     #[cfg(unix)]
