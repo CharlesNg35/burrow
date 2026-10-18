@@ -30,21 +30,21 @@ impl Throttle {
 
     fn allow_at(&self, now: Instant) -> Option<String> {
         let mut state = self.state.lock().expect("throttle lock");
-        let (last, every) = match *state {
+        let (since, every) = match *state {
             Some((last, every)) if now < last + every => {
                 self.skipped.fetch_add(1, Ordering::Relaxed);
                 return None;
             }
             Some((last, every)) if now < last + every * 2 => {
-                (Some(every), (every * 6).min(Self::LONGEST))
+                (Some(now - last), (every * 6).min(Self::LONGEST))
             }
-            Some((_, every)) => (Some(every), Self::EVERY),
+            Some((last, _)) => (Some(now - last), Self::EVERY),
             None => (None, Self::EVERY),
         };
         *state = Some((now, every));
-        Some(match (self.skipped.swap(0, Ordering::Relaxed), last) {
+        Some(match (self.skipped.swap(0, Ordering::Relaxed), since) {
             (0, _) | (_, None) => String::new(),
-            (n, Some(window)) => format!(" ({n} more like this in the last {})", shown(window)),
+            (n, Some(since)) => format!(" ({n} more like this in the last {})", shown(since)),
         })
     }
 }
@@ -70,7 +70,7 @@ mod tests {
         }
         assert_eq!(
             t.allow_at(start + Duration::from_secs(30)).as_deref(),
-            Some(" (5 more like this in the last 10s)")
+            Some(" (5 more like this in the last 30s)")
         );
     }
 
