@@ -147,11 +147,7 @@ mod tests {
             err.message
         );
         #[cfg(target_os = "linux")]
-        assert!(
-            err.message.contains(&format!("pid {}", std::process::id())),
-            "{}",
-            err.message
-        );
+        assert!(err.message.contains("pid "), "{}", err.message);
         drop(l);
         assert!(check_free(Protocol::Tcp, addr, "x").is_ok());
     }

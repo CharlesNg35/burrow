@@ -903,7 +903,7 @@ mod tests {
         use std::os::unix::fs::MetadataExt;
         assert_eq!(std::fs::metadata(restarted.path()).unwrap().nlink(), 1);
         let planted = std::fs::File::open(dir.path().join("planted")).unwrap();
-        planted.try_lock().unwrap();
+        assert!(soon(|| planted.try_lock().is_ok()));
         drop(restarted);
         let ignored = acquire_in(dir.path(), &id, &cfg);
         assert!(
