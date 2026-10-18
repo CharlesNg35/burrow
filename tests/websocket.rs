@@ -557,3 +557,36 @@ async fn a_move_to_a_busy_port_keeps_the_listener_and_retries_on_the_next_reload
     )
     .await;
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn swapping_the_websocket_port_with_a_service_port_ends_with_both_listening() {
+    logs();
+    let secret = Secret::generate();
+    let mut s = ws_server(&secret, "/burrow", None);
+    let free = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let web_port = free.local_addr().unwrap();
+    drop(free);
+    let mut web = service("127.0.0.1:1".parse().unwrap(), Protocol::Tcp);
+    web.bind = Some(web_port);
+    s.services.insert("web".into(), web);
+    let srv = start_server(s.clone()).await;
+    let ws_port = srv.ws_addr.unwrap();
+    let mut swapped = s.clone();
+    swapped.websocket.as_mut().unwrap().listen = web_port;
+    swapped.services.get_mut("web").unwrap().bind = Some(ws_port);
+    srv.reload(swapped).await;
+    let mut both = false;
+    for _ in 0..50 {
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        if TcpStream::connect(ws_port).await.is_ok() && TcpStream::connect(web_port).await.is_ok() {
+            both = true;
+            break;
+        }
+    }
+    assert!(both, "after the swap one of the two ports stayed closed");
+    let _cli = connected(
+        &srv,
+        ws_client(&format!("ws://{web_port}/burrow"), secret, None),
+    )
+    .await;
+}

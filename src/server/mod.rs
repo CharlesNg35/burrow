@@ -243,6 +243,13 @@ pub struct Server {
     websocket: Option<WsTask>,
     services: HashMap<String, ServiceTask>,
     shutdown_tx: watch::Sender<bool>,
+    wanted: Wanted,
+}
+
+#[derive(Default)]
+struct Wanted {
+    websocket: Option<WebSocketSettings>,
+    metrics: Option<SocketAddr>,
 }
 
 struct MetricsTask {
@@ -435,6 +442,7 @@ impl Server {
             websocket,
             services,
             shutdown_tx,
+            wanted: Wanted::default(),
         })
     }
 
@@ -524,6 +532,7 @@ impl Server {
     }
 
     async fn bind_waiting(&mut self) {
+        self.move_waiting().await;
         let settings = self.shared.settings();
         for (name, svc) in &settings.services {
             if svc.bind.is_none() || self.services.contains_key(name) {
@@ -535,6 +544,43 @@ impl Server {
                 log_service(name, svc, t.addr);
                 self.services.insert(name.clone(), t);
             }
+        }
+    }
+
+    async fn move_waiting(&mut self) {
+        let settings = self.shared.settings();
+        let mut next = (*settings).clone();
+        if let Some(want) = self.wanted.websocket.clone()
+            && settings
+                .websocket
+                .as_ref()
+                .is_none_or(|w| w.listen != want.listen)
+            && let Ok(l) = WsListener::bind(&want)
+        {
+            self.stop_websocket().await;
+            let t = WsTask::start(&self.shared, l);
+            info!(
+                "websocket listener could listen now: {}",
+                t.listener.url_hint()
+            );
+            self.websocket = Some(t);
+            next.websocket = Some(want);
+        }
+        if let Some(want) = self.wanted.metrics
+            && settings.metrics != Some(want)
+            && let Ok(l) = bind_metrics(want)
+        {
+            if let Some(old) = self.metrics.take() {
+                old.task.abort();
+                let _ = old.task.await;
+            }
+            let m = MetricsTask::start(&self.shared, l);
+            info!("metrics could listen now: http://{}/metrics", m.addr);
+            self.metrics = Some(m);
+            next.metrics = Some(want);
+        }
+        if next.websocket != settings.websocket || next.metrics != settings.metrics {
+            *self.shared.settings.write().expect("settings lock") = Arc::new(next);
         }
     }
 
@@ -624,6 +670,10 @@ impl Server {
         }
         let mut next = next;
         next.listen = current.listen;
+        self.wanted = Wanted {
+            websocket: next.websocket.clone(),
+            metrics: next.metrics,
+        };
         let changed = fields::changed(&current, &next);
         for (name, _) in changed
             .iter()
