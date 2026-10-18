@@ -92,6 +92,18 @@ impl Spans {
         self.get(path).map_or(self.root, |(k, _)| k)
     }
 
+    pub fn children(&self, path: &[&str]) -> usize {
+        self.map
+            .keys()
+            .filter(|k| k.len() == path.len() + 1 && k.iter().zip(path).all(|(a, b)| a == b))
+            .count()
+    }
+
+    pub fn is_null(&self, path: &[&str]) -> bool {
+        let key: Vec<String> = path.iter().map(|s| s.to_string()).collect();
+        self.nulls.contains(&key)
+    }
+
     pub fn has(&self, path: &[&str]) -> bool {
         self.get(path).is_some()
     }

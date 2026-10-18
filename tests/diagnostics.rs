@@ -1960,3 +1960,23 @@ fn the_hint_for_an_unset_variable_fits_the_field_and_the_shell() {
     };
     assert!(target.contains(set), "{target}");
 }
+
+#[test]
+fn invalid_forwards_are_not_called_missing() {
+    let warned = |forwards: &str| {
+        let src = format!("server: example.com\nname: laptop\nsecret: {SECRET}\n{forwards}");
+        let o = load_str(
+            "visitor.yaml",
+            &src,
+            Format::Yaml,
+            Some(Role::Visitor),
+            &env,
+        );
+        o.report.diagnostics.iter().any(|d| d.code == "no-forwards")
+    };
+    assert!(warned(""));
+    assert!(warned("forwards: {}\n"));
+    assert!(!warned("forwards:\n  a: { service: db, local: 0 }\n"));
+    assert!(!warned("forwards:\n"));
+    assert!(!warned("forwards:\n  a: { service: db, local: 5432 }\n"));
+}

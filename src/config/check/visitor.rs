@@ -53,7 +53,8 @@ pub fn check_visitor(
             None
         }
     };
-    if cfg.forwards.is_empty() {
+    let written = spans.children(&["forwards"]) > 0 || spans.is_null(&["forwards"]);
+    if cfg.forwards.is_empty() && !written {
         let d = Diagnostic::warning("no-forwards", "no forwards are defined")
             .help(format!(
                 "add one, for example:\n         forwards:\n           db: {{ service: db, local: 5432 }}\n       or name the target when you run it: {}",
