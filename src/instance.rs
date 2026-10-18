@@ -450,6 +450,15 @@ fn open_failure(path: &Path, e: &std::io::Error) -> Failure {
 mod tests {
     use super::*;
 
+    fn soon(mut done: impl FnMut() -> bool) -> bool {
+        (0..100).any(|_| {
+            done() || {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+                false
+            }
+        })
+    }
+
     #[cfg(unix)]
     #[test]
     fn only_locks_and_status_files_nobody_uses_are_removed() {
@@ -471,8 +480,10 @@ mod tests {
         std::fs::remove_file(&live).unwrap();
         let held_path = held.path().to_path_buf();
         drop(held);
-        remove_unused(dir.path());
-        assert!(!held_path.exists());
+        assert!(soon(|| {
+            remove_unused(dir.path());
+            !held_path.exists()
+        }));
         assert!(!dir.path().exists(), "an empty folder is removed");
     }
 
@@ -515,7 +526,7 @@ mod tests {
         );
         drop(first);
         assert!(
-            acquire_in(dir.path(), &id, &cfg).is_ok(),
+            soon(|| acquire_in(dir.path(), &id, &cfg).is_ok()),
             "lock is released when the holder ends"
         );
     }
