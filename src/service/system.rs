@@ -305,6 +305,7 @@ pub fn write_file_mode(to: &Path, bytes: &[u8], mode: u32) -> Result<(), Failure
 
 fn replace(tmp: &Path, to: &Path) -> Result<(), Failure> {
     let mut tries = 0;
+    let mut moved_aside = None;
     loop {
         match std::fs::rename(tmp, to) {
             Ok(()) => return Ok(()),
@@ -324,10 +325,15 @@ fn replace(tmp: &Path, to: &Path) -> Result<(), Failure> {
                 tries += 1;
                 let aside = to.with_extension("old");
                 let _ = std::fs::remove_file(&aside);
-                let _ = std::fs::rename(to, &aside);
+                if std::fs::rename(to, &aside).is_ok() {
+                    moved_aside = Some(aside);
+                }
             }
             Err(e) => {
                 let _ = std::fs::remove_file(tmp);
+                if let Some(aside) = &moved_aside {
+                    let _ = std::fs::rename(aside, to);
+                }
                 return Err(Failure::new(format!(
                     "cannot replace {}: {e}",
                     to.display()
