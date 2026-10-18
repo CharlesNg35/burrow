@@ -103,6 +103,14 @@ impl Backend for Launchd {
         "launchd"
     }
 
+    fn low_ports(&self, m: &Manifest) -> bool {
+        m.account == "root"
+    }
+
+    fn wildcard_low_ports(&self) -> bool {
+        true
+    }
+
     fn render(&self, m: &Manifest) -> String {
         plist(m)
     }

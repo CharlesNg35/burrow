@@ -76,6 +76,9 @@ pub trait Backend {
     fn low_ports(&self, _m: &Manifest) -> bool {
         true
     }
+    fn wildcard_low_ports(&self) -> bool {
+        false
+    }
     fn hidden(&self, _file: &Path) -> Option<String> {
         None
     }
@@ -245,6 +248,10 @@ pub fn misfits(name: &str, loaded: &Loaded) -> Vec<crate::diagnostics::Diagnosti
     }
 }
 
+fn needs_low_ports(backend: &dyn Backend, addr: &SocketAddr) -> bool {
+    addr.port() < 1024 && !(backend.wildcard_low_ports() && addr.ip().is_unspecified())
+}
+
 fn misfits_of(
     backend: &dyn Backend,
     m: &Manifest,
@@ -260,7 +267,7 @@ fn misfits_of(
     let mut out = Vec::new();
     let low: Vec<String> = listens
         .iter()
-        .filter(|(_, a, _)| a.port() < 1024)
+        .filter(|(_, a, _)| needs_low_ports(backend, a))
         .map(|(_, a, what)| format!("{what} on port {}", a.port()))
         .collect();
     if !low.is_empty() && !backend.low_ports(m) {
@@ -445,6 +452,19 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
         files: checked.files.iter().map(|(_, p)| p.clone()).collect(),
         version: env!("CARGO_PKG_VERSION").to_string(),
     };
+    let low: Vec<String> = checked
+        .listens
+        .iter()
+        .filter(|(_, a, _)| needs_low_ports(&*backend, a))
+        .map(|(_, a, what)| format!("{what} on {a}"))
+        .collect();
+    if !low.is_empty() && !backend.low_ports(&manifest) {
+        return Err(Failure::new(format!(
+            "{} would need root to listen below port 1024 on that address",
+            low.join(", ")
+        ))
+        .hint("listen on all addresses (0.0.0.0) or on a port above 1023, or install with --run-as root"));
+    }
 
     if opts.print {
         say(
@@ -1545,6 +1565,26 @@ mod tests {
                 .unwrap()
                 .contains("exited with status 3")
         );
+    }
+
+    #[test]
+    fn low_ports_on_one_address_need_root_on_macos_only_away_from_the_wildcard() {
+        let at = |a: &str| a.parse::<SocketAddr>().unwrap();
+        let rec = Recorder(Default::default(), true);
+        assert!(needs_low_ports(&rec, &at("0.0.0.0:80")));
+        assert!(needs_low_ports(&rec, &at("127.0.0.1:80")));
+        assert!(!needs_low_ports(&rec, &at("127.0.0.1:8080")));
+        #[cfg(target_os = "macos")]
+        {
+            let mac = crate::service::launchd::Launchd;
+            assert!(!needs_low_ports(&mac, &at("0.0.0.0:80")));
+            assert!(needs_low_ports(&mac, &at("127.0.0.1:80")));
+            let m = Manifest {
+                account: "_burrow".into(),
+                ..record(Platform::MacOs)
+            };
+            assert!(!mac.low_ports(&m));
+        }
     }
 
     #[test]
