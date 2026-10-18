@@ -328,6 +328,9 @@ impl Visitor {
                 _ = stop.changed() => break,
             }
         }
+        for (_, l) in std::mem::take(&mut listening) {
+            l.close().await;
+        }
         if !open.is_empty() {
             info!("closing {} open connections", open.len());
         }

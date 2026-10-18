@@ -637,3 +637,17 @@ async fn a_socks_forward_checks_its_client_without_a_target_under_narrowed_reach
         "no reach for the client at all"
     );
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_stopped_visitor_no_longer_listens() {
+    let s = setup(|_, _| {}).await;
+    let v = s.visitor(vec![("db", VisitTarget::service("db"))]);
+    let addr = v.addr("db");
+    assert_eq!(roundtrip(addr, b"up").await, b"up");
+    v.stop.send(true).unwrap();
+    v.task.await.unwrap();
+    assert!(
+        tokio::net::TcpStream::connect(addr).await.is_err(),
+        "the port still accepts after the visitor stopped"
+    );
+}
