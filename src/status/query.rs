@@ -447,6 +447,10 @@ pub fn run_in(dir: &Path, opts: Options, out: &mut dyn Write) -> Result<u8, Fail
     let all = matches!(opts.pick, Pick::All);
     let first = scan(dir, wanted.as_deref());
     if first.found.is_empty() {
+        if opts.json && !first.silent.is_empty() {
+            write(out, &json(&first))?;
+            return Ok(1);
+        }
         return Err(none_answered(&first, &opts.pick));
     }
     let tty = std::io::stdout().is_terminal();

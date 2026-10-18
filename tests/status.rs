@@ -194,6 +194,16 @@ fn a_server_that_does_not_answer_is_named_rather_than_called_stopped() {
     let shown = text(&o);
     assert!(shown.contains("did not answer"), "{shown}");
     assert!(!shown.contains("no burrow server is running"), "{shown}");
+    let o = status(&instances, &["--json"]);
+    assert!(!o.status.success());
+    let list: serde_json::Value = serde_json::from_slice(&o.stdout).unwrap();
+    assert!(
+        list[0]["error"]
+            .as_str()
+            .unwrap()
+            .contains("did not answer"),
+        "{list}"
+    );
 }
 
 #[cfg(unix)]
