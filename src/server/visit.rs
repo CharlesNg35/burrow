@@ -146,7 +146,6 @@ async fn answer_grants(
     shared: &Shared,
     visitor: &str,
     secret: &Secret,
-    from: IpAddr,
     channel: crate::handshake::Channel,
 ) {
     let settings = shared.settings();
@@ -155,7 +154,7 @@ async fn answer_grants(
         .get(visitor)
         .is_some_and(|v| v.secrets.contains(secret));
     let grants = allowed
-        .then(|| crate::config::grants::for_visitor(&settings, visitor, Some(from)))
+        .then(|| crate::config::grants::for_visitor(&settings, visitor))
         .flatten();
     let Some(mut grants) = grants else {
         reply(channel, Status::Forbidden).await;
@@ -209,7 +208,7 @@ pub(super) async fn serve(
     drop(permit);
     let request = match first {
         Ok(Ok(b)) if b[..] == crate::protocol::GRANTS_REQUEST => {
-            answer_grants(&shared, &visitor, &secret, peer.ip(), channel).await;
+            answer_grants(&shared, &visitor, &secret, channel).await;
             return;
         }
         Ok(Ok(b)) => VisitRequest::decode(&b),

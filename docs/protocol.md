@@ -171,7 +171,7 @@ Instead of a VisitRequest, the visitor may send the single byte `0x21` to ask wh
 Grants = 0x22 services:u16 (name:str8 port:u16 ports:u16)* clients:u16 (name:str8 count:u8 reach:str8* known:u8 [count:u8 rule:str8*])*
 ```
 
-`services` are the TCP services that list the visitor and whose `allow_from`/`deny_from` admit its address, with the target's port (0 for a Unix socket) and the size of their range (at most 1000); `clients` are the clients in its `reach`, each with the visitor's rules for it (none for `any`) and, for `any` only, the Allow list of their current session when `known` is 1. If the answer does not fit in one record, the server leaves out the Allow lists, and answers `4 invalid` if it still does not fit. `burrow init visitor` uses it to write the forwards, and `--update` to refresh them.
+`services` are the TCP services that list the visitor, wherever it asks from (`allow_from`/`deny_from` apply when it connects), with the target's port (0 for a Unix socket) and the size of their range (at most 1000); `clients` are the clients in its `reach`, each with the visitor's rules for it (none for `any`) and, for `any` only, the Allow list of their current session when `known` is 1. If the answer does not fit in one record, the server leaves out the Allow lists, and answers `4 invalid` if it still does not fit. `burrow init visitor` uses it to write the forwards, and `--update` to refresh them.
 
 A visitor's SOCKS5 forward reads the target from the SOCKS request (CONNECT only, no authentication, IPv4, IPv6 or a host name) and sends it as kind 2. It answers the SOCKS client only after the server's Status, mapping refusals to SOCKS reply codes.
 

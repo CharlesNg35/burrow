@@ -393,7 +393,7 @@ pub fn visitor_config(
     let settings = load_server(server_config, env)?;
     let names: Vec<&str> = settings.visitors.keys().map(String::as_str).collect();
     let name = pick_name(VISITOR, name, &names, server_config, server)?;
-    let grants = crate::config::grants::for_visitor(&settings, &name, None)
+    let grants = crate::config::grants::for_visitor(&settings, &name)
         .expect("a picked visitor is in the config");
     if grants.services.is_empty() && grants.clients.is_empty() {
         return Err(Failure::new(format!(

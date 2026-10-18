@@ -167,6 +167,25 @@ async fn an_update_adds_and_removes_forwards_and_keeps_the_rest_of_the_file() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_update_from_outside_a_services_allow_from_keeps_its_forward() {
+    let w = World::start(true).await;
+    assert!(w.new_config("visitor.yaml").status.success());
+    let path = w.path("visitor.yaml");
+    let before = read(&path);
+    let mut next = w.settings.clone();
+    next.services.get_mut("db").unwrap().sources = burrow::allowlist::Sources {
+        allow: vec!["10.0.0.0/8".parse().unwrap()],
+        deny: vec![],
+    };
+    w.server.reload(next).await;
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    let out = w.burrow(&["init", "visitor", "--update", "--yes"]);
+    assert!(out.status.success(), "{}", text(&out));
+    assert!(!text(&out).contains("- db"), "{}", text(&out));
+    assert_eq!(read(&path), before);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_client_that_is_not_connected_is_marked_unknown() {
     let w = World::start(false).await;
     let out = w.new_config("visitor.yaml");
