@@ -129,6 +129,12 @@ impl Conn {
             let _ = socket2::SockRef::from(s).set_linger(Some(std::time::Duration::ZERO));
         }
     }
+
+    pub fn close_normally(&self) {
+        if let Conn::Tcp(s) = self {
+            let _ = socket2::SockRef::from(s).set_linger(None);
+        }
+    }
 }
 
 impl From<TcpStream> for Conn {

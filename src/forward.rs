@@ -386,6 +386,9 @@ pub async fn open_tcp(
     if let Err(e) = start(&mut stream, &mut writer, opening, early, plaintext).await {
         return Opened::Refused(ForwardError::Io(e));
     }
+    if plaintext {
+        stream.reset_on_close();
+    }
     let done = {
         let (mut cr, mut cw) = stream.split();
         let (vr, vw) = visitor.split();
@@ -426,6 +429,9 @@ pub async fn open_tcp(
             }
         }
     };
+    if plaintext && !matches!(done, Ok(Err(_))) {
+        stream.close_normally();
+    }
     close(&mut stream).await;
     match done {
         Ok(result) => Opened::Done(result),
@@ -475,6 +481,9 @@ pub async fn pump_tcp<T: Split>(
         mut reader,
     } = ch;
     let plaintext = plaintext && stream.supports_half_close();
+    if plaintext {
+        stream.reset_on_close();
+    }
     let done: io::Result<()> = {
         let (mut cr, mut cw) = stream.split();
         let (mut tr, mut tw) = target.halves();
@@ -533,6 +542,9 @@ pub async fn pump_tcp<T: Split>(
             }
         }
     };
+    if plaintext && done.is_ok() {
+        stream.close_normally();
+    }
     close(&mut stream).await;
     done?;
     Ok(())
@@ -559,6 +571,9 @@ pub async fn relay(
     let plaintext = opening.plaintext && cs.supports_half_close();
     if let Err(e) = start(&mut cs, &mut cwriter, opening, early, plaintext).await {
         return Opened::Refused(ForwardError::Io(e));
+    }
+    if plaintext {
+        cs.reset_on_close();
     }
     let done = {
         let (mut cr, mut cw) = cs.split();
@@ -621,6 +636,9 @@ pub async fn relay(
             }
         }
     };
+    if plaintext && !matches!(done, Ok(Err(_))) {
+        cs.close_normally();
+    }
     match done {
         Ok(result) => {
             tokio::join!(close(vs), close(&mut cs));
@@ -756,6 +774,100 @@ mod tests {
             "took {:?}",
             started.elapsed()
         );
+    }
+
+    async fn sees_reset(stream: &mut Conn) -> bool {
+        let mut buf = [0u8; 64];
+        let read = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                match stream.read(&mut buf).await {
+                    Ok(n) if n > 0 => continue,
+                    other => return other,
+                }
+            }
+        })
+        .await
+        .expect("the channel ends");
+        matches!(read, Err(e) if e.kind() == io::ErrorKind::ConnectionReset)
+    }
+
+    #[tokio::test]
+    async fn a_plaintext_channel_whose_target_resets_is_reset_for_the_server() {
+        let (a, b) = tcp_pair().await;
+        let (ch, mut server) = channels(a, b);
+        let (target, app) = tcp_pair().await;
+        let pump = tokio::spawn(pump_tcp(ch, target, true));
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        socket2::SockRef::from(&app)
+            .set_linger(Some(std::time::Duration::ZERO))
+            .unwrap();
+        drop(app);
+        assert!(sees_reset(&mut server.stream).await);
+        let _ = pump.await;
+    }
+
+    #[tokio::test]
+    async fn a_cancelled_plaintext_pump_resets_the_channel() {
+        let (a, b) = tcp_pair().await;
+        let (ch, mut server) = channels(a, b);
+        let (target, _silent) = tcp_pair().await;
+        let pump = tokio::spawn(pump_tcp(ch, target, true));
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        pump.abort();
+        assert!(sees_reset(&mut server.stream).await);
+    }
+
+    #[tokio::test]
+    async fn a_plaintext_channel_that_ends_cleanly_is_not_reset() {
+        let (a, b) = tcp_pair().await;
+        let (ch, mut server) = channels(a, b);
+        let (target, mut app) = tcp_pair().await;
+        let pump = tokio::spawn(pump_tcp(ch, target, true));
+        server.stream.shutdown().await.unwrap();
+        let mut got = Vec::new();
+        app.read_to_end(&mut got).await.unwrap();
+        app.write_all(b"pong").await.unwrap();
+        drop(app);
+        let mut reply = Vec::new();
+        server.stream.read_to_end(&mut reply).await.unwrap();
+        assert_eq!(reply, b"pong");
+        pump.await.unwrap().unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_cancelled_plaintext_connection_resets_the_client_channel() {
+        let (a, b) = tcp_pair().await;
+        let (ours, mut theirs) = channels(a, b);
+        let (mut visitor, _user) = tcp_pair().await;
+        let open = tokio::spawn(async move {
+            let mut early = Early::default();
+            early.last_try();
+            let opening = Opening {
+                first: b"connect",
+                prefix: &[],
+                plaintext: true,
+                reply_timeout: Duration::from_secs(5),
+            };
+            open_tcp(
+                ours,
+                &mut visitor,
+                &opening,
+                Meter::default(),
+                &mut early,
+                || {},
+            )
+            .await;
+        });
+        let first = theirs.reader.recv(&mut theirs.stream).await.unwrap();
+        assert_eq!(first, Some(&b"connect"[..]));
+        theirs
+            .writer
+            .send(&mut theirs.stream, &[Status::Ok as u8])
+            .await
+            .unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        open.abort();
+        assert!(sees_reset(&mut theirs.stream).await);
     }
 
     #[tokio::test]
