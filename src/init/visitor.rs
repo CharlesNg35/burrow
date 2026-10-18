@@ -63,7 +63,7 @@ pub fn init_visitor(
         }
         Err(n) => return Err(n.failure),
     };
-    let planned = super::plan::plan(&grants, &BTreeMap::new());
+    let planned = super::plan::plan(&grants, &BTreeMap::new(), true);
     let notes = allow_notes(&grants, &planned);
     write_new(
         &path,
@@ -124,7 +124,7 @@ fn update_visitor(
     })?;
     let settings = settings_of(&path, &text, format)?;
     let grants = super::fetch::grants(&settings).map_err(Failure::from)?;
-    let planned = super::plan::plan(&grants, &settings.forwards);
+    let planned = super::plan::plan(&grants, &settings.forwards, true);
     let notes = allow_notes(&grants, &planned);
     let stale: Map<String, Value> = match format {
         Format::Yaml => planned
@@ -401,7 +401,7 @@ pub fn visitor_config(
     let mut notes = Vec::new();
     let server = connect_address(VISITOR, &settings, server, server_config, &mut notes)?;
     let secret_text = secret_text(VISITOR, server_config, &name, &auth.secrets);
-    let planned = super::plan::plan(&grants, &std::collections::BTreeMap::new());
+    let planned = super::plan::plan(&grants, &std::collections::BTreeMap::new(), false);
     for (_, client, local) in &planned.socks {
         notes.push(socks_note(client, *local));
     }

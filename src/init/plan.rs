@@ -22,28 +22,42 @@ impl Plan {
     }
 }
 
-struct Ports(Vec<bool>);
+struct Ports {
+    held: Vec<bool>,
+    probed: Option<Vec<Option<bool>>>,
+}
 
 impl Ports {
-    fn new() -> Ports {
-        Ports(vec![false; 65536])
+    fn new(probe: bool) -> Ports {
+        Ports {
+            held: vec![false; 65536],
+            probed: probe.then(|| vec![None; 65536]),
+        }
     }
 
     fn hold(&mut self, first: u16, count: u16) {
         let first = usize::from(first);
-        let end = (first + usize::from(count)).min(self.0.len());
-        self.0[first..end].fill(true);
+        let end = (first + usize::from(count)).min(self.held.len());
+        self.held[first..end].fill(true);
+    }
+
+    fn open(&mut self, port: usize) -> bool {
+        let Some(probed) = &mut self.probed else {
+            return true;
+        };
+        *probed[port].get_or_insert_with(|| {
+            std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, port as u16)).is_ok()
+        })
     }
 
     fn free(&mut self, first: u16, count: u16) -> Option<u16> {
         let last = 65536 - u32::from(count);
-        let fits = |at: u32| {
-            let at = at as usize;
-            !self.0[at..at + usize::from(count)].contains(&true)
-        };
         let found = (u32::from(first)..=last)
             .chain(1024..u32::from(first).min(last + 1))
-            .find(|&at| fits(at))?;
+            .find(|&at| {
+                let range = at as usize..at as usize + usize::from(count);
+                !self.held[range.clone()].contains(&true) && range.into_iter().all(|p| self.open(p))
+            })?;
         let local = u16::try_from(found).ok()?;
         self.hold(local, count);
         Some(local)
@@ -114,9 +128,9 @@ fn unique(base: &str, taken: &Map<String, Value>, suffix: &str) -> String {
         .expect("an unused forward name")
 }
 
-pub fn plan(grants: &Grants, existing: &BTreeMap<String, Forward>) -> Plan {
+pub fn plan(grants: &Grants, existing: &BTreeMap<String, Forward>, probe: bool) -> Plan {
     let mut out = Plan::default();
-    let mut ports = Ports::new();
+    let mut ports = Ports::new(probe);
     for (name, f) in existing {
         if granted(f, grants) {
             ports.hold(f.local.port(), f.ports.max(1));
@@ -185,6 +199,10 @@ pub fn plan(grants: &Grants, existing: &BTreeMap<String, Forward>) -> Plan {
 mod tests {
     use super::*;
 
+    fn plan(grants: &Grants, existing: &BTreeMap<String, Forward>) -> Plan {
+        super::plan(grants, existing, false)
+    }
+
     #[test]
     fn a_forward_to_part_of_a_range_is_kept_and_client_ranges_stay_ranges() {
         let mut existing = BTreeMap::new();
@@ -237,6 +255,17 @@ mod tests {
                 })
                 .collect(),
         }
+    }
+
+    #[test]
+    fn a_local_port_already_in_use_is_skipped() {
+        let busy = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let port = busy.local_addr().unwrap().port();
+        let g = grants(&[("db", port, 1)], &[]);
+        let probed = super::plan(&g, &BTreeMap::new(), true);
+        assert_ne!(probed.forwards["db"]["local"], port);
+        let p = plan(&g, &BTreeMap::new());
+        assert_eq!(p.forwards["db"]["local"], port);
     }
 
     #[test]
