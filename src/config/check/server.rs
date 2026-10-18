@@ -174,6 +174,27 @@ pub fn check_server(
         }
     }
 
+    for name in clients.keys() {
+        let list = super::super::settings::services_for(&services, name);
+        let (count, size) = (
+            list.len(),
+            crate::protocol::ServerMsg::Services(list).encode().len(),
+        );
+        if size > crate::noise::MAX_PLAINTEXT {
+            out.push(
+                Diagnostic::error(
+                    "too-many-services",
+                    format!(
+                        "client \"{name}\" serves {count} services, too many to send it in one message ({size} bytes, the limit is {})",
+                        crate::noise::MAX_PLAINTEXT
+                    ),
+                )
+                .at(spans.key(&["clients", name]))
+                .help("spread the services over more clients, or use port ranges for services that differ only by port"),
+            );
+        }
+    }
+
     let metrics = cfg
         .metrics
         .as_ref()

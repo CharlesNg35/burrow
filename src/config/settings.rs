@@ -36,6 +36,29 @@ pub struct ServerSettings {
     pub metrics: Option<SocketAddr>,
 }
 
+impl ServerSettings {
+    pub fn services_for(&self, client: &str) -> Vec<crate::protocol::ServiceInfo> {
+        services_for(&self.services, client)
+    }
+}
+
+pub fn services_for(
+    services: &BTreeMap<String, Service>,
+    client: &str,
+) -> Vec<crate::protocol::ServiceInfo> {
+    services
+        .iter()
+        .filter(|(_, svc)| svc.clients.iter().any(|c| c == client))
+        .map(|(name, svc)| crate::protocol::ServiceInfo {
+            name: name.clone(),
+            protocol: svc.protocol,
+            bind_port: svc.bind.map_or(0, |b| b.port()),
+            target: svc.target.clone(),
+            ports: svc.ports,
+        })
+        .collect()
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClientAuth {
     pub secrets: Vec<Secret>,

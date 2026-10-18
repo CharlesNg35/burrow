@@ -69,7 +69,7 @@ pub(super) async fn control_session(shared: Arc<Shared>, acc: Accepted, peer: So
         token,
         heartbeat_secs: interval.as_secs().clamp(1, u16::MAX as u64) as u16,
     };
-    let services = ServerMsg::Services(Shared::services_for(&settings, &name));
+    let services = ServerMsg::Services(settings.services_for(&name));
     let mut stop = shared.shutdown.clone();
     let writer_session = session.clone();
     let writer_task = tokio::spawn(async move {

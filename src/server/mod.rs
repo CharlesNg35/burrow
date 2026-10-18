@@ -26,7 +26,7 @@ use crate::config::model::Protocol;
 use crate::config::settings::WebSocketSettings;
 use crate::config::settings::{ServerSettings, Service};
 use crate::failure::Failure;
-use crate::protocol::{ByeReason, ServerMsg, ServiceInfo};
+use crate::protocol::{ByeReason, ServerMsg};
 use crate::ratelimit::Limit;
 use listen::WsListener;
 pub use session::{ClientSession, PoolConfig, TakeError};
@@ -190,20 +190,6 @@ impl Shared {
                 .as_ref()
                 .map_or(Duration::from_secs(25), |w| w.keepalive),
         }
-    }
-
-    fn services_for(s: &ServerSettings, client: &str) -> Vec<ServiceInfo> {
-        s.services
-            .iter()
-            .filter(|(_, svc)| svc.clients.iter().any(|c| c == client))
-            .map(|(name, svc)| ServiceInfo {
-                name: name.clone(),
-                protocol: svc.protocol,
-                bind_port: svc.bind.map_or(0, |b| b.port()),
-                target: svc.target.clone(),
-                ports: svc.ports,
-            })
-            .collect()
     }
 
     fn track(self: &Arc<Self>) -> ActiveConn {
@@ -779,7 +765,7 @@ impl Server {
             s.reconfigure(&Shared::pool_config(&next));
             let _ = s
                 .control
-                .try_send(ServerMsg::Services(Shared::services_for(&next, &s.name)));
+                .try_send(ServerMsg::Services(next.services_for(&s.name)));
         }
         let (c, v) = (next.clients.len(), next.services.len());
         let names: Vec<&str> = changed.iter().map(|(name, _)| *name).collect();

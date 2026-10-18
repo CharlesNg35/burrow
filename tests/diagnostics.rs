@@ -1697,3 +1697,34 @@ fn socks_forwards() {
     visitor.yaml: 3 errors, 0 warnings
     "#);
 }
+
+#[test]
+fn a_client_with_more_services_than_fit_in_one_message_is_refused() {
+    let many = |n: usize| {
+        let services: String = (0..n)
+            .map(|i| {
+                format!(
+                    "  s{i}:\n    client: home\n    bind: {}\n    target: unix:/run/{}{i:04}.sock\n",
+                    10000 + i,
+                    "x".repeat(85)
+                )
+            })
+            .collect();
+        let o = load_str("server.yaml", &server(&services), Format::Yaml, None, &env);
+        o.report
+            .diagnostics
+            .iter()
+            .filter(|d| d.is_error())
+            .map(|d| (d.code, d.message.clone()))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(many(500), vec![]);
+    let refused = many(600);
+    assert_eq!(refused.len(), 1, "{refused:?}");
+    assert_eq!(refused[0].0, "too-many-services");
+    assert!(
+        refused[0].1.contains("client \"home\" serves 600 services"),
+        "{}",
+        refused[0].1
+    );
+}
