@@ -270,3 +270,40 @@ async fn idle_data_channels_end_with_their_session_even_when_no_close_arrives() 
         f.stuck_open.load(Ordering::SeqCst)
     );
 }
+
+struct Hanging;
+
+impl Resolver for Hanging {
+    fn resolve<'a>(&'a self, host_port: &'a str) -> Resolved<'a> {
+        Box::pin(async move {
+            if host_port.starts_with("hangs.test") {
+                std::future::pending::<()>().await;
+            }
+            resolve(host_port).await
+        })
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_target_lookup_that_hangs_fails_within_the_connect_timeout() {
+    let secret = Secret::generate();
+    let mut settings = server_settings(vec![secret.clone()]);
+    let mut svc = service("127.0.0.1:1".parse().unwrap(), Protocol::Tcp);
+    svc.target = "hangs.test:80".into();
+    settings.services.insert("web".into(), svc);
+    let server = start_server(settings).await;
+    let mut c = client_settings(server.addr, secret);
+    c.connect_timeout = Duration::from_secs(1);
+    let mut cli = start_client_with(Client::new(c).with_resolver(Arc::new(Hanging))).await;
+    wait_state(&mut cli.state, State::Connected).await;
+    let shared = server.shared.clone();
+    wait_for(|| shared.idle_channels("home") >= 1).await;
+    let started = std::time::Instant::now();
+    let got = try_roundtrip(server.services["web"], b"x").await;
+    assert_ne!(got.as_deref(), Some(&b"x"[..]));
+    assert!(
+        started.elapsed() < Duration::from_secs(2),
+        "the connection waited {:?} for a lookup",
+        started.elapsed()
+    );
+}

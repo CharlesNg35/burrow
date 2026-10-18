@@ -93,7 +93,8 @@ async fn peer_replies(
                         warn!(
                             "UDP reply of {} bytes from {} dropped: the tunnel carries at most {MAX_REPLY} bytes per datagram{more}",
                             datagram.len(),
-                            sock.peer_addr().map_or_else(|_| "the target".to_string(), |a| a.to_string())
+                            sock.peer_addr()
+                                .map_or_else(|_| "the target".to_string(), |a| a.to_string())
                         );
                     }
                     continue;
@@ -317,7 +318,13 @@ async fn permitted(
     if parse_host_port(&connect.target).is_err() {
         return Err(Status::Invalid);
     }
-    let resolved = match resolver.resolve(&connect.target).await {
+    let lookup = tokio::time::timeout(settings.connect_timeout, resolver.resolve(&connect.target));
+    let resolved = match lookup.await.unwrap_or_else(|_| {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::TimedOut,
+            "the lookup timed out",
+        ))
+    }) {
         Ok(a) => a,
         Err(e) => {
             static UNRESOLVED: Throttle = Throttle::new();
