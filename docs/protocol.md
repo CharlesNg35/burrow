@@ -118,7 +118,7 @@ While a channel is idle in the pool, the server watches it: any data or close fr
 When a connection arrives at a service, the server takes an idle channel and sends:
 
 ```
-Connect = 10 protocol:u8 service:str8 target:str8 only:u8 [count:u8 rule:str8*]      (protocol 0 tcp, 1 udp)
+Connect = 0x10 protocol:u8 service:str8 target:str8 only:u8 [count:u8 rule:str8*]      (protocol 0 tcp, 1 udp)
 ```
 
 The client resolves `target`, keeps only the addresses permitted by its allow list (checked after DNS, and only those addresses are dialed), connects, and replies with one record:
@@ -147,7 +147,7 @@ With `health_check`, the server also opens connections of its own: every interva
 After the hello, the visitor sends one request record without waiting for a reply:
 
 ```
-VisitRequest = 20 check:u8 kind:u8 ...
+VisitRequest = 0x20 check:u8 kind:u8 ...
   kind 1: service:str8 index:u16     a service that lists this visitor in "visitors";
                                      index picks a port of a port range, 0 for one port
   kind 2: client:str8 target:str8    any target on a client, if the visitor has reach for it
@@ -165,10 +165,10 @@ Otherwise the server takes a data channel of the client (for a service with seve
 
 On every config reload, the server checks the request again and closes the connection when it is no longer granted: the visitor, its secret, its place in `visitors` or its `reach` for the client is gone, the service no longer runs on that client, or a `reach` rule change no longer covers the target (for a host name target, any change of those rules, since only the client resolves it). A changed service target, like a widened `reach`, leaves open connections running.
 
-Instead of a VisitRequest, the visitor may send the single byte `21` to ask what it may use. The server checks the visitor and its secret against its current config, answers `5 forbidden` if they no longer match, and otherwise sends one record and closes:
+Instead of a VisitRequest, the visitor may send the single byte `0x21` to ask what it may use. The server checks the visitor and its secret against its current config, answers `5 forbidden` if they no longer match, and otherwise sends one record and closes:
 
 ```
-Grants = 22 services:u16 (name:str8 port:u16 ports:u16)* clients:u16 (name:str8 count:u8 reach:str8* known:u8 [count:u8 rule:str8*])*
+Grants = 0x22 services:u16 (name:str8 port:u16 ports:u16)* clients:u16 (name:str8 count:u8 reach:str8* known:u8 [count:u8 rule:str8*])*
 ```
 
 `services` are the TCP services that list the visitor and whose `allow_from`/`deny_from` admit its address, with the target's port (0 for a Unix socket) and the size of their range (at most 1000); `clients` are the clients in its `reach`, each with the visitor's rules for it (none for `any`) and, for `any` only, the Allow list of their current session when `known` is 1. If the answer does not fit in one record, the server leaves out the Allow lists, and answers `4 invalid` if it still does not fit. `burrow init visitor` uses it to write the forwards, and `--update` to refresh them.

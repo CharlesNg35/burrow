@@ -563,7 +563,7 @@ sudo burrow service restart                    # also: start, stop, reload, unin
 burrow service list
 ```
 
-On Linux and macOS, `install` copies the binary to `/usr/local/bin`, so after it `burrow` works from any folder, as in the commands above. On Windows, run them as `.\burrow.exe` from the download folder.
+On Linux and macOS, `install` copies the binary to `/usr/local/bin` (when only root can change that folder), so after it `burrow` works from any folder, as in the commands above. On Windows, run them as `.\burrow.exe` from the download folder.
 
 <details>
 <summary><b>What <code>install</code> does</b></summary>
@@ -608,7 +608,7 @@ The job is written to `/Library/LaunchDaemons/com.github.charlesng35.burrow-<nam
 <details>
 <summary><b>Windows</b></summary>
 
-Run the commands from a terminal opened with "Run as administrator". The service starts automatically after the network stack, and Windows restarts it 5 seconds after a failure. Set variables used by the config in the same terminal before installing, for example `$env:HOME_SECRET = "..."`. `reload` restarts the service on Windows; every role also applies its config on save.
+Run the commands from a terminal opened with "Run as administrator". The service starts automatically after the network stack, and Windows restarts it 5 seconds after a failure (30 seconds from the third failure in a day). Set variables used by the config in the same terminal before installing, for example `$env:HOME_SECRET = "..."`. `reload` restarts the service on Windows; every role also applies its config on save.
 
 </details>
 
@@ -677,7 +677,7 @@ One machine (i5-12600K, 10 vCPUs), everything on loopback, from `bench/run.sh`:
 | p99 latency under load        | **549 µs**             | 769 µs              | 678 µs             | 1057 µs     |
 | RSS with 10k idle connections | **220 MiB**            | 2784 MiB            | 796 MiB            | 719 MiB     |
 
-With `cipher: aes-gcm` burrow reaches 22.3 / 49.9 Gbit/s. Over WebSocket it does 11.8 / 31.1 Gbit/s with 391 MiB for 10k idle connections (chisel, also WebSocket: 6.0 / 5.6 Gbit/s, 719 MiB). Unencrypted, burrow moves 2x rathole's plain TCP throughput and opens 7% fewer connections per second (14.2k vs 15.3k).
+With `cipher: aes-gcm` burrow reaches 22.3 / 49.9 Gbit/s. Over WebSocket it does 11.8 / 31.1 Gbit/s with 391 MiB for 10k idle connections (chisel, also WebSocket: 6.0 / 5.6 Gbit/s, 719 MiB). Unencrypted, burrow moves 2.1x rathole's plain TCP throughput with one stream (1.3x with four) and opens 7% fewer connections per second (14.2k vs 15.3k).
 
 Full table, machine details and exact commands: [docs/benchmark.md](docs/benchmark.md). Reproduce with `bench/run.sh`.
 

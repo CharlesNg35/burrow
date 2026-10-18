@@ -51,7 +51,7 @@ With `insecure_plaintext: true` on both sides, the Noise handshake still runs (s
 
 Evidence from code: frp turns yamux on by default (`tcpMux: true`), and chisel multiplexes SSH channels on one WebSocket. Both put every visitor behind one TCP flow-control window. rathole, like burrow, uses one TCP connection per visitor.
 
-Evidence from measurement (docs/benchmark.md): frp is the cleanest experiment, because multiplexing can be switched off in the same code. Without tcpMux, frp's 4-stream throughput rises from 9.3 to 38.3 Gbit/s and its p99 echo latency under a 2 Gbit/s background load drops from 694 to 425 µs (head-of-line blocking gone), but new connections per second fall from 10.4k to 2.9k, because each visitor waits for a fresh TLS connection. A pre-opened pool keeps the first benefit without the second cost: burrow does 35.1 Gbit/s, a p99 of 498 µs under the same load, and 13.8k connections/s.
+Evidence from measurement (docs/benchmark.md): frp is the cleanest experiment, because multiplexing can be switched off in the same code. Without tcpMux, frp's 4-stream throughput rises from 8.8 to 36.0 Gbit/s and its p99 echo latency under a 2 Gbit/s background load drops from 678 to 383 µs (head-of-line blocking gone), but new connections per second fall from 10.0k to 2.9k, because each visitor waits for a fresh TLS connection. A pre-opened pool keeps the first benefit without the second cost: burrow does 33.4 Gbit/s, a p99 of 549 µs under the same load, and 13.5k connections/s.
 
 ## D11. Record size: full 64 KiB Noise records for bulk data
 
@@ -71,7 +71,7 @@ std and mio listen with a backlog of 128. A burst of 300 visitors overflowed it 
 
 ## D15. Deferred: pinned-key NK mode and WebSocket transport
 
-NK with a pinned server key plus an inner token would be a second authentication mode next to NNpsk0, which already authenticates both sides without extra key material. Not worth the extra security surface. A WebSocket-over-TLS transport needs rustls, webpki roots and tungstenite on the client, roughly doubling the dependency tree and the pre-auth parsing surface, for networks that only allow HTTPS. HTTP CONNECT and SOCKS5 proxy support already covers many restricted networks. Both stay out until there is a concrete need. The transport is isolated in `handshake.rs` and `transport.rs`, so either can be added later behind a config option.
+NK with a pinned server key plus an inner token would be a second authentication mode next to NNpsk0, which already authenticates both sides without extra key material. Not worth the extra security surface. A WebSocket-over-TLS transport needs rustls, webpki roots and tungstenite on the client, roughly doubling the dependency tree and the pre-auth parsing surface, for networks that only allow HTTPS. HTTP CONNECT and SOCKS5 proxy support already covers many restricted networks. Both stay out until there is a concrete need. The transport is isolated in `handshake.rs` and `src/transport/`, so either can be added later behind a config option. WebSocket was added later, see D17.
 
 ## D16. Leak hardening
 
@@ -88,7 +88,7 @@ Some servers can only be reached through an HTTP(S) reverse proxy or a CDN. For 
 - **Keepalive.** Proxies close idle WebSockets (nginx after 60 s by default, Cloudflare after 100 s), and some only count data frames. The server therefore sends an encrypted keepalive record on idle pooled channels every 25 s. A test with an idle-killing proxy fails without it.
 - **Crate: tokio-websockets 0.13** (strict RFC compliance, maintained, can use the `ring` backend burrow already ships), plus tokio-rustls, webpki-roots and httparse. The request head is parsed before the upgrade, so wrong paths are refused with 404 and nothing else is exposed.
 - **Optional own TLS** (`websocket.tls.cert`/`key`), for servers without a proxy. Clients trust the public roots plus an optional `ca` file.
-- **Cost, measured** (docs/benchmark.md, loopback): about 93% of the TCP throughput (11.9 vs 12.7 Gbit/s single stream), 12.3k vs 13.8k new connections per second, and 2x the idle memory at 10k connections (348 vs 176 MiB), from the library's per-connection frame buffers. That is still well below frp (784 MiB) and chisel (708 MiB), which also uses WebSocket.
+- **Cost, measured** (docs/benchmark.md, loopback): about 93% of the TCP throughput (11.75 vs 12.62 Gbit/s single stream), 12.0k vs 13.5k new connections per second, and about 1.8x the idle memory at 10k connections (391 vs 220 MiB), from the library's per-connection frame buffers. That is still well below frp (796 MiB) and chisel (719 MiB), which also uses WebSocket.
 
 ## D18. Reconnect: never give up by default
 
@@ -107,7 +107,7 @@ Hand-written unit files go stale, differ per OS, and leave the hard parts to the
 - **Copies, not references.** The config is copied to `/etc/burrow` and the binary to `/usr/local/bin`, because a service must not depend on, or run code from, a folder a normal user can write. A binary in a root-owned, non-writable folder (a package manager) is used where it is. When users other than root can write `/usr/local/bin` (Homebrew on Intel Macs), the service gets its own copy in a root-only folder instead.
 - **Checks before changes.** The config is validated, every listen port is test-bound and its owner is named, and the instance lock is tried before anything is written. A failed reinstall restarts the previous service.
 - **Own log files** with size-based rotation (10 MB, 5 files) rather than journald or the Windows event log, so `burrow service logs` works the same everywhere and a log cannot fill the disk. Startup failures are written there too, so a Windows service that has no console still says why it stopped.
-- **Updates:** `burrow service update` replaces the binary only when it is newer, keeps the previous one, restarts every affected service and rolls back if one does not come up. A self-download from GitHub releases is left for later.
+- **Updates:** `burrow service update` replaces the binary only when it is newer, keeps the previous one, restarts every affected service and rolls back if one does not come up. `burrow update` downloads a release itself (D29).
 - **Crates:** `windows-service` (Mullvad) for the Windows dispatcher and SCM; systemd and launchd are driven through `systemctl` and `launchctl`, which are their stable interfaces.
 
 ## D21. Ask only for what burrow cannot know, but write every field
@@ -121,7 +121,7 @@ Config files accept short forms (`listen: 7835`, `target: 3000`, `server: host`)
 Some services should not be public at all: a database, SSH, an admin page. frp (`stcp` with a visitor) and rathole leave this to a second tool or a firewall rule. burrow lets the server relay a visitor to a client without opening a port.
 
 - **The server's config still decides.** A service without `bind` is private, and lists its `visitors`. A visitor reaches only those services, so a leaked visitor secret exposes what was listed and nothing else.
-- **`reach: { CLIENT: any }` is the explicit opt-in** for `ssh -L`-style access, where the visitor picks the target. It is bounded by the client's `allow` list, which the client owner controls and which a compromised server cannot widen. `validate` warns about every `reach`, because `init client` writes a broad `allow: [127.0.0.0/8]`.
+- **`reach: { CLIENT: any }` is the explicit opt-in** for `ssh -L`-style access, where the visitor picks the target. It is bounded by the client's `allow` list, which the client owner controls and which a compromised server cannot widen. `validate` warns about every `reach: any`, because `init client` writes a broad `allow: [127.0.0.0/8]`.
 - **Visitors are not clients.** They have their own section, secrets and limits, they never expose anything, and their names are looked up only for visit channels, so a visitor secret cannot open a client session or the other way round. The same constant-work rejection hides which names exist.
 - **One channel per local connection**, with the same handshake as data channels. A visitor keeps no long-lived connection, so it has nothing to reconnect, and the server keeps no state for an idle visitor. The cost is one handshake per connection plus one round trip, because the visitor waits for the server's answer before sending data so that a refusal always carries its reason. The server also decrypts and re-encrypts every record between the two channels: on one loopback machine a visit carries 7.8 Gbit/s on one stream and 22.7 Gbit/s on four, against 12.9 and 35.0 for a public service.
 - **`local` defaults to `127.0.0.1`,** unlike `bind` on the server: anyone who can reach a forward uses the visitor's access, so sharing it with a network has to be written out, and `validate` warns about `0.0.0.0`.
