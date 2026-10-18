@@ -293,21 +293,21 @@ pub fn run(opts: &Options, out: &mut dyn Write) -> Result<u8, Failure> {
             .iter()
             .filter(|_| theirs == ours)
             .filter(|m| m.copied_binary && m.binary != me)
-            .filter(|m| service::binary_version(&m.binary) != mine)
+            .filter(|m| version_of(&service::binary_version(&m.binary)).is_ok_and(|v| v < ours))
             .collect();
         if behind.is_empty() {
             say(out, format!("{line}, nothing to do"))?;
         } else if service::is_admin() {
             say(
                 out,
-                format!("{line}; the installed services run another version"),
+                format!("{line}; the installed services run an older version"),
             )?;
             service::update_from(&me, mine, None, false, out)?;
         } else {
             say(
                 out,
                 format!(
-                    "{line}, but the installed services run {}; update them with: {}",
+                    "{line}, but the installed services run the older {}; update them with: {}",
                     service::binary_version(&behind[0].binary),
                     update_services_with(&me)
                 ),
