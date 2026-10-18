@@ -1,4 +1,5 @@
-use std::net::SocketAddr;
+use std::collections::HashMap;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, RwLock};
 use std::time::Instant;
@@ -83,10 +84,78 @@ impl WsListener {
     }
 }
 
-pub fn try_permit(shared: &Arc<Shared>, peer: SocketAddr) -> Option<OwnedSemaphorePermit> {
+pub struct Permit {
+    _slot: OwnedSemaphorePermit,
+    _source: Option<SourceSlot>,
+}
+
+struct SourceSlot {
+    sources: Sources,
+    key: IpAddr,
+}
+
+impl Drop for SourceSlot {
+    fn drop(&mut self) {
+        let mut sources = self.sources.lock().expect("sources lock");
+        if let Some(n) = sources.get_mut(&self.key) {
+            *n -= 1;
+            if *n == 0 {
+                sources.remove(&self.key);
+            }
+        }
+    }
+}
+
+fn source_key(ip: IpAddr) -> Option<IpAddr> {
+    let ip = ip.to_canonical();
+    if ip.is_loopback() {
+        return None;
+    }
+    Some(match ip {
+        IpAddr::V6(v6) => IpAddr::V6((v6.to_bits() >> 64 << 64).into()),
+        v4 => v4,
+    })
+}
+
+type Sources = Arc<std::sync::Mutex<HashMap<IpAddr, usize>>>;
+
+fn source_slot(sources: &Sources, ip: IpAddr, total: usize) -> Result<Option<SourceSlot>, ()> {
+    let Some(key) = source_key(ip) else {
+        return Ok(None);
+    };
+    let most = (total / 8).max(8);
+    let mut held = sources.lock().expect("sources lock");
+    let n = held.entry(key).or_insert(0);
+    if *n >= most {
+        return Err(());
+    }
+    *n += 1;
+    Ok(Some(SourceSlot {
+        sources: sources.clone(),
+        key,
+    }))
+}
+
+pub fn try_permit(shared: &Arc<Shared>, peer: SocketAddr) -> Option<Permit> {
     let handshakes = shared.handshakes.read().expect("handshakes lock").clone();
+    let total = shared.settings().max_handshakes;
+    let source = match source_slot(&shared.handshake_sources, peer.ip(), total) {
+        Ok(source) => source,
+        Err(()) => {
+            shared.rejected.fetch_add(1, Ordering::Relaxed);
+            shared
+                .metrics
+                .handshakes_refused
+                .fetch_add(1, Ordering::Relaxed);
+            debug!(%peer, "too many unauthenticated connections from this address, dropping");
+            return None;
+        }
+    };
     match handshakes.try_acquire_owned() {
-        Ok(p) => Some(p),
+        Ok(p) => Some(Permit {
+            _slot: p,
+            _source: source,
+        }),
         Err(_) => {
             shared.rejected.fetch_add(1, Ordering::Relaxed);
             shared
@@ -123,12 +192,7 @@ pub async fn ws_accept_loop(shared: Arc<Shared>, ws: Arc<WsListener>) {
     }
 }
 
-pub async fn handle_tcp(
-    shared: Arc<Shared>,
-    stream: TcpStream,
-    peer: SocketAddr,
-    permit: OwnedSemaphorePermit,
-) {
+pub async fn handle_tcp(shared: Arc<Shared>, stream: TcpStream, peer: SocketAddr, permit: Permit) {
     let settings = shared.settings();
     tune(&stream, &settings.tcp);
     authenticate(
@@ -146,7 +210,7 @@ async fn handle_ws(
     ws: Arc<WsRoute>,
     stream: TcpStream,
     peer: SocketAddr,
-    permit: OwnedSemaphorePermit,
+    permit: Permit,
 ) {
     let settings = shared.settings();
     tune(&stream, &settings.tcp);
@@ -200,7 +264,7 @@ async fn authenticate(
     shared: Arc<Shared>,
     conn: Conn,
     peer: SocketAddr,
-    permit: OwnedSemaphorePermit,
+    permit: Permit,
     deadline: Instant,
 ) {
     let settings = shared.settings();
@@ -261,5 +325,34 @@ async fn authenticate(
             debug!(%peer, "hello does not match the channel kind, closing")
         }
         _ => debug!(%peer, "unsupported protocol version"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn one_address_cannot_take_every_handshake_slot() {
+        let sources = Sources::default();
+        let ip: IpAddr = "203.0.113.7".parse().unwrap();
+        let held: Vec<_> = (0..32)
+            .map(|_| source_slot(&sources, ip, 256).unwrap())
+            .collect();
+        assert!(source_slot(&sources, ip, 256).is_err());
+        assert!(source_slot(&sources, "203.0.113.8".parse().unwrap(), 256).is_ok());
+        let v6 = |s: &str| s.parse::<IpAddr>().unwrap();
+        let same_net: Vec<_> = (0..32)
+            .map(|i| source_slot(&sources, v6(&format!("2001:db8::{i:x}")), 256).unwrap())
+            .collect();
+        assert!(source_slot(&sources, v6("2001:db8::ffff:1"), 256).is_err());
+        assert!(source_slot(&sources, v6("::1"), 256).unwrap().is_none());
+        drop(held);
+        drop(same_net);
+        assert!(
+            sources.lock().unwrap().is_empty(),
+            "every slot is given back"
+        );
+        assert!(source_slot(&sources, ip, 256).is_ok());
     }
 }

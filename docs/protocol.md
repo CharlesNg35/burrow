@@ -177,6 +177,6 @@ A visitor's SOCKS5 forward reads the target from the SOCKS request (CONNECT only
 
 ## 10. Limits enforced before authentication
 
-- at most `limits.max_handshakes` connections in steps 2–5 at once; extra connections are closed immediately;
+- at most `limits.max_handshakes` connections in steps 2–5 at once, and at most an eighth of them (at least 8) from one IPv4 address or IPv6 /64 other than loopback; extra connections are closed immediately;
 - the whole of steps 2–5 must finish within `limits.handshake_timeout_secs`;
 - every read before authentication has a fixed maximum size: on WebSocket, an 8 KiB request head and messages of at most 128 KiB; then 7, 64 + 48, 2 and 256 bytes, and 512 bytes for a visit request.
