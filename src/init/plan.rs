@@ -1,8 +1,10 @@
 use std::collections::BTreeMap;
 use std::net::{IpAddr, Ipv4Addr};
+use std::path::Path;
 
 use serde_json::{Map, Value, json};
 
+use crate::allowlist::Rule;
 use crate::config::settings::Forward;
 use crate::protocol::{Grants, VisitTarget};
 
@@ -115,7 +117,24 @@ fn granted(f: &Forward, grants: &Grants) -> bool {
             .services
             .iter()
             .any(|s| &s.name == name && f.ports.max(1) <= s.ports),
-        VisitTarget::Client { client, .. } => grants.clients.iter().any(|c| &c.name == client),
+        VisitTarget::Client { client, target } => grants.clients.iter().any(|c| {
+            &c.name == client
+                && (f.socks || c.reach.is_empty() || within(target, f.ports, &c.reach))
+        }),
+    }
+}
+
+fn within(target: &str, ports: u16, reach: &[String]) -> bool {
+    let rules = crate::allowlist::AllowList::from_rules(reach);
+    if let Some(path) = crate::config::check::unix::path_of(target) {
+        return rules.permits_socket(path);
+    }
+    match target.parse::<std::net::SocketAddr>() {
+        Ok(first) => {
+            let last = first.port().saturating_add(ports.max(1) - 1);
+            rules.permits(first) && rules.permits(std::net::SocketAddr::new(first.ip(), last))
+        }
+        Err(_) => true,
     }
 }
 
@@ -130,6 +149,20 @@ fn unique(base: &str, taken: &Map<String, Value>, suffix: &str) -> String {
         .chain((2..).map(|i| named(format!("{suffix}-{i}"))))
         .find(|k| !taken.contains_key(k.as_str()))
         .expect("an unused forward name")
+}
+
+fn only_sockets(reach: &[String]) -> Option<Vec<&str>> {
+    let rules: Vec<Rule> = reach.iter().filter_map(|r| r.parse().ok()).collect();
+    let sockets_only = !reach.is_empty()
+        && rules.len() == reach.len()
+        && rules.iter().all(|r| matches!(r, Rule::Socket(_)));
+    sockets_only.then(|| {
+        reach
+            .iter()
+            .filter_map(|r| r.trim().strip_prefix("unix:"))
+            .filter(|p| !p.ends_with("/*"))
+            .collect()
+    })
 }
 
 pub fn plan(grants: &Grants, existing: &BTreeMap<String, Forward>, probe: bool) -> Plan {
@@ -181,6 +214,34 @@ pub fn plan(grants: &Grants, existing: &BTreeMap<String, Forward>, probe: bool) 
             continue;
         }
         if kept.iter().any(|f| covers(f, &c.name, true)) {
+            continue;
+        }
+        if let Some(sockets) = only_sockets(&c.reach) {
+            for path in sockets {
+                let Some(local) = ports.free(10000, 1) else {
+                    out.unplaced.push(format!("{} ({path})", c.name));
+                    continue;
+                };
+                let stem: String = Path::new(path)
+                    .file_stem()
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_default()
+                    .chars()
+                    .map(|ch| {
+                        if ch.is_ascii_alphanumeric() || "-_".contains(ch) {
+                            ch
+                        } else {
+                            '-'
+                        }
+                    })
+                    .collect();
+                let key = unique(&format!("{}-{stem}", c.name), &out.forwards, "-socket");
+                out.forwards.insert(
+                    key.clone(),
+                    json!({ "client": c.name, "target": format!("unix:{path}"), "local": local }),
+                );
+                out.added.push(key);
+            }
             continue;
         }
         let Some(local) = ports.free(1080, 1) else {
@@ -259,6 +320,29 @@ mod tests {
                 })
                 .collect(),
         }
+    }
+
+    #[test]
+    fn a_kept_forward_outside_the_current_reach_is_removed() {
+        let mut g = grants(&[], &["home"]);
+        g.clients[0].reach = vec!["127.0.0.0/8:41900-41999".into()];
+        let client = |target: &str| {
+            Forward::single(
+                at(42222),
+                VisitTarget::Client {
+                    client: "home".into(),
+                    target: target.into(),
+                },
+            )
+        };
+        let mut existing = BTreeMap::new();
+        existing.insert("inside".to_string(), client("127.0.0.1:41950"));
+        existing.insert("outside".to_string(), client("127.0.0.1:41800"));
+        existing.insert("named".to_string(), client("db.lan:41800"));
+        existing.insert("socket".to_string(), client("unix:/run/x.sock"));
+        let p = plan(&g, &existing);
+        assert_eq!(p.removed, ["outside", "socket"]);
+        assert!(p.forwards.contains_key("inside") && p.forwards.contains_key("named"));
     }
 
     #[test]

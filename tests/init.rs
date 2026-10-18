@@ -933,6 +933,36 @@ fn visitor_config_suggests_a_socks_target_inside_reach() {
 }
 
 #[test]
+fn visitor_config_gives_socket_only_reach_a_forward_per_socket_instead_of_socks() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = visitors_server(
+        dir.path(),
+        "  laptop:\n    secret: @SECRET@\n    reach:\n      home: [\"unix:/run/docker.sock\", \"unix:/run/apps/*\"]\n",
+        "  web: { client: home, bind: 7840, target: 3000 }\n",
+    );
+    let out = burrow::init::visitor_config(None, &path, None, Format::Yaml, &ProcessEnv).unwrap();
+    assert!(!out.text.contains("socks"), "{}", out.text);
+    assert!(
+        out.text.contains(
+            "home-docker:\n    client: home\n    target: unix:/run/docker.sock\n    local: 10000"
+        ),
+        "{}",
+        out.text
+    );
+    assert!(
+        out.notes.iter().all(|n| !n.contains("SOCKS")),
+        "{:?}",
+        out.notes
+    );
+    let written = dir.path().join("visitor.yaml");
+    std::fs::write(&written, &out.text).unwrap();
+    let Loaded::Visitor(v, _) = load(&written) else {
+        panic!("not a visitor config")
+    };
+    assert_eq!(v.forwards.len(), 1);
+}
+
+#[test]
 fn visitor_config_explains_what_is_missing() {
     let dir = tempfile::tempdir().unwrap();
     let path = visitors_server(
