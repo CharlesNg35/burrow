@@ -69,7 +69,12 @@ pub struct WsConn {
     read_buf: Bytes,
     write_buf: Vec<u8>,
     eof: bool,
+    controls: u32,
+    window: std::time::Instant,
 }
+
+const MAX_CONTROLS: u32 = 100;
+const CONTROL_WINDOW: std::time::Duration = std::time::Duration::from_secs(10);
 
 fn ws_err(e: tokio_websockets::Error) -> io::Error {
     match e {
@@ -85,6 +90,8 @@ impl WsConn {
             read_buf: Bytes::new(),
             write_buf: Vec::new(),
             eof: false,
+            controls: 0,
+            window: std::time::Instant::now(),
         }
     }
 
@@ -134,7 +141,19 @@ impl AsyncRead for WsConn {
             match ready!(Pin::new(&mut me.inner).poll_next(cx)) {
                 Some(Ok(msg)) if msg.is_binary() => me.read_buf = Bytes::from(msg.into_payload()),
                 Some(Ok(msg)) if msg.is_close() => me.eof = true,
-                Some(Ok(_)) => continue,
+                Some(Ok(_)) => {
+                    if me.window.elapsed() > CONTROL_WINDOW {
+                        me.window = std::time::Instant::now();
+                        me.controls = 0;
+                    }
+                    me.controls += 1;
+                    if me.controls > MAX_CONTROLS {
+                        return Poll::Ready(Err(io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            "too many WebSocket control frames",
+                        )));
+                    }
+                }
                 Some(Err(e)) => return Poll::Ready(Err(ws_err(e))),
                 None => me.eof = true,
             }
@@ -363,6 +382,38 @@ mod tests {
     async fn messages_larger_than_a_write_batch_are_refused() {
         assert_eq!(send_message(WRITE_BATCH).await.unwrap(), WRITE_BATCH);
         assert!(send_message(WRITE_BATCH + 1).await.is_err());
+    }
+
+    async fn after_pings(pings: usize) -> io::Result<usize> {
+        use futures_util::SinkExt;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (tcp, _) = listener.accept().await.unwrap();
+            let mut conn = accept(Carrier::Plain(tcp), "/burrow").await.unwrap();
+            let mut got = [0u8; 4];
+            conn.read_exact(&mut got).await
+        });
+        let tcp = TcpStream::connect(addr).await.unwrap();
+        let (mut ws, _) = ClientBuilder::new()
+            .uri(&format!("ws://{addr}/burrow"))
+            .unwrap()
+            .connect_on(tcp)
+            .await
+            .unwrap();
+        for _ in 0..pings {
+            if ws.send(Message::ping(Vec::new())).await.is_err() {
+                break;
+            }
+        }
+        let _ = ws.send(Message::binary(vec![7u8; 4])).await;
+        server.await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_flood_of_control_frames_ends_the_connection() {
+        assert_eq!(after_pings(MAX_CONTROLS as usize).await.unwrap(), 4);
+        assert!(after_pings(MAX_CONTROLS as usize + 50).await.is_err());
     }
 
     fn req(path: &str, extra: &str) -> Vec<u8> {
