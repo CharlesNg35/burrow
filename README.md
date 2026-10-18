@@ -120,7 +120,7 @@ services:
 | `services.<name>.allow_from` / `deny_from` | everyone                            | source IPs or CIDRs that may or may not connect                |
 | `services.<name>.proxy_protocol`           | off                                 | `v1` or `v2`: send the real client address to the target       |
 | `services.<name>.bandwidth`                | unlimited                           | per direction, for example `40mbit` or `5MB`                   |
-| `services.<name>.max_connections`          | unlimited                           | concurrent connections for this service                        |
+| `services.<name>.max_connections`          | unlimited                           | concurrent connections for this TCP service                    |
 | `visitors.<name>.secret`                   | required                            | like a client secret; see below                                |
 | `visitors.<name>.reach`                    | none                                | `CLIENT: any`, or rules like `CLIENT: [192.168.1.0/24:22]`     |
 | `visitors.<name>.max_connections`          | unlimited                           | concurrent connections for this visitor                        |

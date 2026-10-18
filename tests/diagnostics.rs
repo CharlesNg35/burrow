@@ -2019,6 +2019,35 @@ fn an_unquoted_variable_in_a_flow_mapping_says_to_quote_it() {
 }
 
 #[test]
+fn a_connection_limit_on_a_udp_service_is_refused() {
+    let shown = render(
+        "server.yaml",
+        &server(
+            "  dns: { client: home, protocol: udp, bind: 5353, target: 53, max_connections: 10 }\n",
+        ),
+        None,
+    );
+    assert!(
+        shown.contains("max_connections only works for tcp services"),
+        "{shown}"
+    );
+    assert!(!shown.contains("valid server config"), "{shown}");
+}
+
+#[test]
+fn a_connection_limit_of_zero_is_refused() {
+    for src in [
+        server("  web: { client: home, bind: 4000, target: 3000, max_connections: 0 }\n"),
+        format!(
+            "listen: 0.0.0.0:7835\nclients:\n  home: {{ secret: {SECRET}, max_connections: 0 }}\nservices: {{}}\n"
+        ),
+    ] {
+        let shown = render("server.yaml", &src, None);
+        assert!(shown.contains("must be at least 1"), "{shown}");
+    }
+}
+
+#[test]
 fn a_handshake_limit_beyond_what_any_build_can_hold_is_refused() {
     let limit = |n: u64| {
         render(

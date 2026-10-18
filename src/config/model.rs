@@ -114,6 +114,7 @@ pub struct ClientEntry {
     pub secret: Secrets,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(description = "Maximum concurrent forwarded connections for this client")]
+    #[schemars(range(min = 1))]
     pub max_connections: Option<u32>,
 }
 
@@ -129,6 +130,7 @@ pub struct VisitorEntry {
     pub reach: BTreeMap<String, Reach>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(description = "Maximum concurrent connections for this visitor")]
+    #[schemars(range(min = 1))]
     pub max_connections: Option<u32>,
 }
 
@@ -198,6 +200,7 @@ pub struct ServiceEntry {
     pub protocol: Protocol,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(description = "Maximum concurrent connections for this service")]
+    #[schemars(range(min = 1))]
     pub max_connections: Option<u32>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[schemars(description = "Visitors that may reach this service with burrow visit")]

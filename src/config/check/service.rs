@@ -80,6 +80,17 @@ pub(super) fn check_service<'a>(
             out,
         );
     }
+    if svc.max_connections.is_some() {
+        tcp_only(
+            name,
+            svc,
+            "max_connections",
+            "max-connections-tcp-only",
+            "max_connections only works for tcp services; UDP peers are limited to 4096 per port",
+            spans,
+            out,
+        );
+    }
     let target = check_target(name, svc, spans, out);
     if let (Some((_, bind_ports)), Some((_, target_ports))) = (bind, &target)
         && bind_ports != *target_ports
