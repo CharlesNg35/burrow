@@ -231,7 +231,7 @@ pub fn write_private(path: &Path, text: &str) -> std::io::Result<()> {
 }
 
 #[cfg(windows)]
-fn restrict_on_windows(path: &Path) {
+pub(crate) fn restrict_on_windows(path: &Path) {
     let me = std::process::Command::new("whoami")
         .output()
         .ok()

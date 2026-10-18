@@ -188,6 +188,8 @@ pub fn write_new(path: &Path, contents: &str, force: bool) -> Result<(), Failure
                 Failure::new(format!("cannot set permissions on {}: {e}", path.display()))
             })?;
     }
+    #[cfg(windows)]
+    crate::instance::restrict_on_windows(path);
     file.write_all(contents.as_bytes())
         .map_err(|e| Failure::new(format!("cannot write {}: {e}", path.display())))
 }
