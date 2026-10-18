@@ -1363,21 +1363,27 @@ pub fn status(name: Option<&str>, out: &mut dyn Write) -> Result<u8, Failure> {
             say(out, format!("    {line}"))?;
         }
     }
-    if m.source_config != m.config && m.source_config.exists() {
-        let a = std::fs::read(&m.source_config).unwrap_or_default();
-        let b = std::fs::read(&m.config).unwrap_or_default();
-        if a != b {
-            say(
-                out,
-                format!(
-                    "  note:    {} differs from the installed copy; to use it, run: {}",
-                    m.source_config.display(),
-                    reinstall
-                ),
-            )?;
-        }
+    if m.source_config != m.config
+        && m.source_config.exists()
+        && differs(&m.source_config, &m.config)
+    {
+        say(
+            out,
+            format!(
+                "  note:    {} differs from the installed copy; to use it, run: {}",
+                m.source_config.display(),
+                reinstall
+            ),
+        )?;
     }
     Ok(u8::from(!st.running))
+}
+
+fn differs(source: &Path, installed: &Path) -> bool {
+    match (std::fs::read(source), std::fs::read(installed)) {
+        (Ok(a), Ok(b)) => a != b,
+        _ => false,
+    }
 }
 
 fn missing(p: &Path) -> &'static str {
@@ -1432,6 +1438,18 @@ pub fn run_service(name: &str) -> Result<u8, Failure> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_installed_config_that_cannot_be_read_is_not_called_different() {
+        let dir = tempfile::tempdir().unwrap();
+        let (source, installed) = (dir.path().join("a.yaml"), dir.path().join("b.yaml"));
+        std::fs::write(&source, "listen: 1\n").unwrap();
+        assert!(!differs(&source, &dir.path().join("unreadable.yaml")));
+        std::fs::write(&installed, "listen: 1\n").unwrap();
+        assert!(!differs(&source, &installed));
+        std::fs::write(&installed, "listen: 2\n").unwrap();
+        assert!(differs(&source, &installed));
+    }
 
     #[test]
     fn commands_that_interrupt_a_service_go_to_the_background() {
