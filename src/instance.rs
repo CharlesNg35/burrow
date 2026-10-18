@@ -377,13 +377,7 @@ fn planted(_entry: &Path) -> bool {
 }
 
 fn held_by_a_trusted_instance(lock: &Path) -> bool {
-    let info = lock.with_extension("info");
-    trusted_note(&info).is_some_and(|owner| {
-        std::fs::read_to_string(&info)
-            .ok()
-            .and_then(|text| parse_note(&text))
-            .is_some_and(|note| runs_as(note.pid, owner))
-    })
+    trusted_note(&lock.with_extension("info")).is_some()
 }
 
 fn no_follow(o: &mut OpenOptions) -> &mut OpenOptions {
@@ -465,11 +459,7 @@ pub fn running_in(dir: &Path) -> Vec<Running> {
         .flatten()
         .map(|e| e.path())
         .filter(|p| p.extension().is_some_and(|x| x == "info"))
-        .filter_map(|p| {
-            let owner = trusted_note(&p)?;
-            let r = parse_note(&std::fs::read_to_string(&p).ok()?)?;
-            runs_as(r.pid, owner).then_some(r)
-        })
+        .filter_map(|p| trusted_note(&p))
         .collect();
     found.sort_by(|a, b| a.config.cmp(&b.config));
     found
@@ -484,29 +474,34 @@ fn parse_note(text: &str) -> Option<Running> {
 }
 
 #[cfg(unix)]
-fn trusted_note(path: &Path) -> Option<u32> {
+fn trusted_note(path: &Path) -> Option<Running> {
     use std::os::unix::fs::MetadataExt;
     let m = std::fs::symlink_metadata(path).ok()?;
-    (m.is_file() && m.len() <= 4096 && m.mode() & 0o022 == 0 && trusted_owner(m.uid()))
-        .then_some(m.uid())
+    if !m.is_file() || m.len() > 4096 || m.mode() & 0o022 != 0 {
+        return None;
+    }
+    let note = parse_note(&std::fs::read_to_string(path).ok()?)?;
+    (trusted_owner(m.uid(), &note.config) && runs_as(note.pid, m.uid())).then_some(note)
 }
 
 #[cfg(unix)]
-fn trusted_owner(uid: u32) -> bool {
+fn trusted_owner(uid: u32, config: &Path) -> bool {
     let me = rustix::process::geteuid().as_raw();
     uid == 0
         || uid == me
         || crate::service::all_manifests().iter().any(|m| {
-            m.created_account
+            (m.created_account || crate::service::system::canonical_or_same(&m.config) == config)
                 && crate::service::system::account_ids(&m.account).is_ok_and(|(id, _)| id == uid)
         })
 }
 
 #[cfg(not(unix))]
-fn trusted_note(path: &Path) -> Option<u32> {
-    std::fs::symlink_metadata(path)
-        .is_ok_and(|m| m.is_file() && m.len() <= 4096)
-        .then_some(0)
+fn trusted_note(path: &Path) -> Option<Running> {
+    if !std::fs::symlink_metadata(path).is_ok_and(|m| m.is_file() && m.len() <= 4096) {
+        return None;
+    }
+    let note = parse_note(&std::fs::read_to_string(path).ok()?)?;
+    runs_as(note.pid, 0).then_some(note)
 }
 
 #[cfg(target_os = "linux")]
