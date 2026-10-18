@@ -99,7 +99,8 @@ pub async fn follow<S: Watched>(
         });
     }
     let mut rejected = false;
-    let mut seen = fingerprint(&current.files(&path));
+    let mut seen = Vec::new();
+    let _ = trig_tx.try_send("file changed");
     while let Some(first) = trig.recv().await {
         tokio::time::sleep(Duration::from_millis(200)).await;
         let dirs = watched_dirs(&current.files(&path));

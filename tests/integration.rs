@@ -1020,3 +1020,40 @@ async fn a_reloaded_udp_session_timeout_applies_to_running_relays() {
     }
     assert!(gone, "the shorter timeout did not expire the idle peer");
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_save_between_start_and_the_file_watch_is_not_missed() {
+    use burrow::config::settings::ServerSettings;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("server.yaml");
+    let secret = Secret::generate();
+    std::fs::write(
+        &path,
+        format!(
+            "listen: 127.0.0.1:1\nclients:\n  home:\n    secret: {}\nservices:\n  web:\n    client: home\n    bind: 127.0.0.1:2\n    target: 127.0.0.1:4\n",
+            secret.encode()
+        ),
+    )
+    .unwrap();
+    let mut started = match burrow::config::load_file(&path, None, &burrow::config::env::ProcessEnv)
+        .unwrap()
+        .loaded
+    {
+        Some(burrow::config::Loaded::Server(s, _)) => *s,
+        _ => panic!("valid config"),
+    };
+    started.services.get_mut("web").unwrap().target = "127.0.0.1:3".into();
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<ServerSettings>(4);
+    tokio::spawn(burrow::reload::follow(
+        path.clone(),
+        started,
+        burrow::run::Env::default(),
+        burrow::reload::accept(),
+        tx,
+    ));
+    let next = tokio::time::timeout(Duration::from_secs(3), rx.recv())
+        .await
+        .expect("the file on disk is applied without waiting for another change")
+        .unwrap();
+    assert_eq!(next.services["web"].target, "127.0.0.1:4");
+}
