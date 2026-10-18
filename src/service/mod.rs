@@ -546,8 +546,9 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
         && copy_binary
         && binary.exists()
         && !system::same_content(&current, &binary))
-    .then(|| binary.with_extension("previous"))
+    .then(|| binary.with_extension("reinstall"))
     .filter(|kept| system::copy_file(&binary, kept, true).is_ok());
+    let _leftover = Leftover(kept_binary.clone());
     if copy_binary && !system::same_content(&current, &binary) {
         #[cfg(unix)]
         if binary != platform.binary_path()
@@ -667,9 +668,6 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
                 ),
             )?;
         }
-    }
-    if let Some(kept) = &kept_binary {
-        let _ = std::fs::remove_file(kept);
     }
     if let Some(p) = &previous {
         release_previous(&*backend, p, &manifest, out)?;
@@ -861,6 +859,16 @@ fn grant_hint(account: &str, file: &Path) -> String {
         )
     } else {
         format!("sudo setfacl -m u:{account}:r {path} (and x on its folders)")
+    }
+}
+
+struct Leftover(Option<PathBuf>);
+
+impl Drop for Leftover {
+    fn drop(&mut self) {
+        if let Some(path) = self.0.take() {
+            let _ = std::fs::remove_file(path);
+        }
     }
 }
 
@@ -1059,9 +1067,9 @@ pub fn uninstall(name: Option<&str>, purge: bool, out: &mut dyn Write) -> Result
             Ok(()) => {
                 let _ = std::fs::remove_file(m.binary.with_extension("previous"));
                 let _ = std::fs::remove_file(m.binary.with_extension("old"));
-                if cfg!(windows)
-                    && let Some(dir) = m.binary.parent()
-                {
+                let _ = std::fs::remove_file(m.binary.with_extension("reinstall"));
+                let own_folder = cfg!(windows) || m.binary != Platform::current().binary_path();
+                if own_folder && let Some(dir) = m.binary.parent() {
                     let _ = std::fs::remove_dir(dir);
                 }
                 say(out, format!("removed {}", m.binary.display()))?;
