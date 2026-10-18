@@ -498,6 +498,12 @@ pub async fn pump_tcp<T: Split>(
             }
             down_done.store(true, Relaxed);
             if up_done.load(Relaxed) {
+                if !plaintext {
+                    let _ = tokio::time::timeout(CLOSE_TIMEOUT, async {
+                        while let Ok(Some(_)) = reader.recv(&mut cr).await {}
+                    })
+                    .await;
+                }
                 return Ok(());
             }
             if plaintext {
@@ -515,7 +521,9 @@ pub async fn pump_tcp<T: Split>(
                     }
                     up_done.store(true, Relaxed);
                     if down_done.load(Relaxed) {
-                        break Ok(());
+                        break tokio::time::timeout(CLOSE_TIMEOUT, &mut down)
+                            .await
+                            .unwrap_or(Ok(()));
                     }
                 }
                 r = &mut down => break r,
