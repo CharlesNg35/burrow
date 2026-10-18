@@ -34,6 +34,22 @@ impl Resolver for Local {
     }
 }
 
+struct OnceElsewhere(SocketAddr, std::sync::atomic::AtomicBool);
+
+impl Resolver for OnceElsewhere {
+    fn resolve<'a>(&'a self, host_port: &'a str) -> Resolved<'a> {
+        Box::pin(async move {
+            if host_port != TARGET {
+                return burrow::transport::resolve::resolve(host_port).await;
+            }
+            if self.1.swap(false, std::sync::atomic::Ordering::AcqRel) {
+                return Ok(vec![SocketAddr::new([10, 0, 0, 1].into(), self.0.port())]);
+            }
+            Ok(vec![self.0])
+        })
+    }
+}
+
 struct Slow(SocketAddr);
 
 impl Resolver for Slow {
@@ -340,6 +356,28 @@ async fn a_client_that_refuses_the_target_is_skipped_until_it_reconnects() {
         };
         assert_eq!(seen, want, "{mode:?}");
     }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_client_that_refused_once_is_still_tried_when_the_others_fail() {
+    let mut farm = Farm::start(web(Mode::Failover, None), |_| {}).await;
+    let addr = farm.server.services["web"];
+    farm.disconnect(0).await;
+    let target = farm.sites[0].target;
+    let flaky = Arc::new(OnceElsewhere(
+        target,
+        std::sync::atomic::AtomicBool::new(true),
+    ));
+    farm.connect_using(0, "127.0.0.0/8", flaky).await;
+    assert_eq!(served_by(addr).await, Some('B'), "the one refusal moves on");
+    assert_eq!(set_aside(&farm), vec![aside("a", true)]);
+    farm.stop_target(1).await;
+    assert_eq!(
+        served_by(addr).await,
+        Some('A'),
+        "a refusing client is still tried last, and serves once it can"
+    );
+    assert!(set_aside(&farm).iter().all(|s| s.client != "a"));
 }
 
 async fn echoed_through(addr: SocketAddr, data: Vec<u8>) -> Vec<u8> {

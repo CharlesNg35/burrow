@@ -79,10 +79,8 @@ impl Shared {
             let len = head.len();
             head.rotate_left(*turn % len);
         }
-        if clear.is_empty() && aside.is_empty() {
-            return refused;
-        }
         clear.extend(aside);
+        clear.extend(refused);
         clear
     }
 
