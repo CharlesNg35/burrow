@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use tracing::debug;
 
-use super::session::ActiveGuard;
+use super::CountGuard;
 use super::{ClientSession, Shared, take_channel};
 use crate::config::settings::ServerSettings;
 use crate::forward::{Early, ForwardError, Opened};
@@ -47,7 +47,7 @@ pub(super) struct Tries<'a> {
     clients: std::vec::IntoIter<Arc<ClientSession>>,
     early: Early,
     last: Outcome,
-    active: Option<ActiveGuard>,
+    active: Option<CountGuard>,
 }
 
 impl<'a> Tries<'a> {
@@ -80,7 +80,7 @@ impl<'a> Tries<'a> {
                 .get(client)
                 .and_then(|c| c.max_connections)
                 .unwrap_or(self.settings.max_connections_per_client);
-            let (active, before) = session.connection_guard();
+            let (active, before) = self.shared.client_opens(client);
             if before >= limit {
                 self.last = Outcome::Full(client.clone());
                 continue;

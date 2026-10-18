@@ -46,6 +46,13 @@ struct Live {
 
 impl Live {
     async fn start(allow: &str) -> Live {
+        Live::start_with(allow, |_| {}).await
+    }
+
+    async fn start_with(
+        allow: &str,
+        edit: impl FnOnce(&mut burrow::config::settings::ServerSettings),
+    ) -> Live {
         logs();
         let echo = echo_server().await;
         let secret = Secret::generate();
@@ -53,6 +60,7 @@ impl Live {
         server
             .services
             .insert("web".into(), service(echo, Protocol::Tcp));
+        edit(&mut server);
         let server_settings = server.clone();
         let server = start_server(server).await;
         let mut settings = over_transport(client_settings(server.addr, secret.clone()));
@@ -583,4 +591,34 @@ async fn turning_plaintext_on_reconnects_clients_instead_of_breaking_them_silent
         eventually(t.web()).await,
         "no traffic after both sides changed"
     );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_client_connection_limit_counts_connections_kept_over_a_reconnect() {
+    let mut t = Live::start_with("127.0.0.0/8", |s| {
+        s.clients.get_mut("home").unwrap().max_connections = Some(2);
+    })
+    .await;
+    let mut kept = vec![open_echo(t.web()).await, open_echo(t.web()).await];
+    t.change(|s| {
+        s.allow = AllowList::Rules(vec![
+            "127.0.0.0/8".parse().unwrap(),
+            "10.0.0.0/8".parse().unwrap(),
+        ])
+    })
+    .await;
+    let shared = t.server.shared.clone();
+    wait_for(|| shared.idle_channels("home") >= 1).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    for open in &mut kept {
+        assert!(echoes(open).await, "a reconnect must not cut what is open");
+    }
+    assert_ne!(
+        try_roundtrip(t.web(), b"third").await.as_deref(),
+        Some(&b"third"[..]),
+        "a third connection got through a limit of 2"
+    );
+    assert_eq!(t.server.shared.status().clients[0].open, 2);
+    drop(kept);
+    assert!(eventually(t.web()).await);
 }

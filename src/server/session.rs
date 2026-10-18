@@ -1,7 +1,5 @@
 use std::collections::VecDeque;
-use std::sync::Arc;
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use tokio::sync::{mpsc, oneshot, watch};
@@ -37,7 +35,6 @@ pub struct ClientSession {
     pub since: Instant,
     pub token: [u8; TOKEN_LEN],
     pub control: mpsc::Sender<ServerMsg>,
-    pub active: AtomicUsize,
     pub secret: Secret,
     pool: Mutex<Pool>,
     closed: watch::Sender<bool>,
@@ -69,7 +66,6 @@ impl ClientSession {
             since: now,
             token,
             control,
-            active: AtomicUsize::new(0),
             secret,
             closed: watch::Sender::new(false),
             allow: Mutex::new(None),
@@ -213,14 +209,6 @@ impl ClientSession {
         let mut rx = self.closed.subscribe();
         let _ = rx.wait_for(|c| *c).await;
     }
-
-    pub fn connection_guard(self: &Arc<Self>) -> (ActiveGuard, usize) {
-        let before = self.active.fetch_add(1, Ordering::AcqRel);
-        let guard = ActiveGuard {
-            session: self.clone(),
-        };
-        (guard, before)
-    }
 }
 
 struct Parked {
@@ -280,15 +268,5 @@ async fn park(
                 }
             }
         }
-    }
-}
-
-pub struct ActiveGuard {
-    session: Arc<ClientSession>,
-}
-
-impl Drop for ActiveGuard {
-    fn drop(&mut self) {
-        self.session.active.fetch_sub(1, Ordering::Relaxed);
     }
 }

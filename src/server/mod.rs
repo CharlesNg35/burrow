@@ -47,6 +47,7 @@ pub struct Shared {
     reloaded: watch::Sender<u64>,
     service_counts: Counts,
     visitor_counts: Counts,
+    client_counts: Counts,
     limits: Mutex<HashMap<String, Arc<Limit>>>,
     probes: Mutex<health::Probes>,
     standing: Mutex<standing::Standing>,
@@ -79,7 +80,7 @@ impl Counts {
     }
 }
 
-struct CountGuard(Arc<AtomicUsize>);
+pub(super) struct CountGuard(Arc<AtomicUsize>);
 
 impl Drop for CountGuard {
     fn drop(&mut self) {
@@ -88,6 +89,10 @@ impl Drop for CountGuard {
 }
 
 impl Shared {
+    pub(super) fn client_opens(&self, client: &str) -> (CountGuard, usize) {
+        self.client_counts.enter(client)
+    }
+
     pub(crate) fn allows(&self, client: &str, secret: &crate::secret::Secret) -> bool {
         self.settings()
             .clients
@@ -415,6 +420,7 @@ impl Server {
             reloaded: watch::Sender::new(0),
             service_counts: Counts::default(),
             visitor_counts: Counts::default(),
+            client_counts: Counts::default(),
             limits: Mutex::new(HashMap::new()),
             probes: Mutex::new(HashMap::new()),
             standing: Mutex::new(standing::Standing::default()),
