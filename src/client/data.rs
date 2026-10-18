@@ -301,7 +301,16 @@ pub async fn serve(
                 }
             }
         }
-        Protocol::Udp => udp(live, resolver, ch, connect, addrs).await,
+        Protocol::Udp => {
+            let (watched, permitted) = (live.clone(), addrs.clone());
+            let label = connect.clone();
+            tokio::select! {
+                _ = udp(live, resolver, ch, connect, addrs) => {}
+                _ = revoked(&watched, |s| permitted.iter().any(|a| s.allow.permits(*a))) => {
+                    no_longer_allowed(&label);
+                }
+            }
+        }
     }
 }
 
