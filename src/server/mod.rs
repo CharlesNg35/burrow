@@ -814,8 +814,10 @@ impl Server {
             match bind_with_retry(name, svc, tries).await {
                 Ok(bound) => {
                     let t = spawn_service(&self.shared, name, svc, bound);
-                    if !current.services.get(name).is_some_and(|c| c.bind.is_none()) {
-                        info!("service \"{name}\" added");
+                    match current.services.get(name) {
+                        None => info!("service \"{name}\" added"),
+                        Some(c) if c.bind.is_some() => info!("service \"{name}\" moved"),
+                        Some(_) => {}
                     }
                     log_service(name, svc, t.addr);
                     self.services.insert(name.clone(), t);

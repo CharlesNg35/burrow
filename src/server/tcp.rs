@@ -37,7 +37,6 @@ pub(super) async fn tcp_service(
         };
         let svc = config.borrow().clone();
         if !shared.source_allowed(&name, peer.ip()) {
-            shared.rejected.fetch_add(1, Ordering::Relaxed);
             shared.metrics.refuse(&name);
             debug!(%peer, "service \"{name}\": source address not allowed, closing");
             continue;
