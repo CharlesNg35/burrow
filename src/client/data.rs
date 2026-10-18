@@ -222,6 +222,22 @@ async fn socket(settings: &ClientSettings, ch: Channel, connect: &Connect, path:
         return;
     }
     #[cfg(unix)]
+    if tokio::fs::symlink_metadata(path)
+        .await
+        .is_ok_and(|m| m.file_type().is_symlink())
+    {
+        static LINKED: Throttle = Throttle::new();
+        if let Some(more) = LINKED.allow() {
+            warn!(
+                "denied connection to {} for {}: it is a symbolic link, which could lead anywhere; allow the socket it points to instead{more}",
+                connect.target,
+                whom(connect)
+            );
+        }
+        reply(ch, Status::Denied).await;
+        return;
+    }
+    #[cfg(unix)]
     match tokio::net::UnixStream::connect(path).await {
         Ok(target) => {
             if let Err(e) = client_tcp(ch, target, settings.insecure_plaintext).await {

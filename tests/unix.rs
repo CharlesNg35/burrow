@@ -96,6 +96,43 @@ async fn the_client_refuses_sockets_outside_its_allow_list() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_symbolic_link_in_an_allowed_folder_is_refused_but_a_linked_folder_works() {
+    let real = tempfile::tempdir().unwrap();
+    let path = socket_echo(real.path());
+    let allowed = tempfile::tempdir().unwrap();
+    let planted = allowed.path().join("x.sock");
+    std::os::unix::fs::symlink(&path, &planted).unwrap();
+    let linked = allowed.path().join("dir");
+    std::os::unix::fs::symlink(real.path(), &linked).unwrap();
+    let secret = Secret::generate();
+    let rules = vec![
+        format!("unix:{}/*", allowed.path().display()),
+        format!("unix:{}/*", linked.display()),
+    ];
+    let t = tunnel_with(
+        server_settings(vec![secret.clone()]),
+        vec![
+            ("planted", to_socket(&planted)),
+            ("linked", to_socket(&linked.join("echo.sock"))),
+        ],
+        move |mut c| {
+            c.allow = allow(&rules);
+            c
+        },
+        secret,
+    )
+    .await;
+    let data = pattern(1000, 6);
+    assert_ne!(
+        try_roundtrip(t.server.services["planted"], &data)
+            .await
+            .as_deref(),
+        Some(&data[..])
+    );
+    assert_eq!(roundtrip(t.server.services["linked"], &data).await, data);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_visitor_reaches_a_unix_socket_on_a_client() {
     let dir = tempfile::tempdir().unwrap();
     let path = socket_echo(dir.path());
