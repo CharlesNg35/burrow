@@ -365,6 +365,13 @@ async fn answer_raw<R: tokio::io::AsyncRead + Unpin + Send>(
     answer(client, &mut source, early, plaintext, timeout).await
 }
 
+fn ended_cleanly(done: &Result<Result<(), ForwardError>, Opened>) -> bool {
+    matches!(
+        done,
+        Ok(Ok(())) | Err(Opened::Refused(ForwardError::Status(_)))
+    )
+}
+
 fn refused(answer: Answer) -> Option<Opened> {
     match answer {
         Answer::Status(Status::Ok) => None,
@@ -388,11 +395,11 @@ pub async fn open_tcp(
         mut reader,
     } = ch;
     let plaintext = opening.plaintext && stream.supports_half_close();
-    if let Err(e) = start(&mut stream, &mut writer, opening, early, plaintext).await {
-        return Opened::Refused(ForwardError::Io(e));
-    }
     if plaintext {
         stream.reset_on_close();
+    }
+    if let Err(e) = start(&mut stream, &mut writer, opening, early, plaintext).await {
+        return Opened::Refused(ForwardError::Io(e));
     }
     let done = {
         let (mut cr, mut cw) = stream.split();
@@ -434,7 +441,7 @@ pub async fn open_tcp(
             }
         }
     };
-    if plaintext && !matches!(done, Ok(Err(_))) {
+    if plaintext && ended_cleanly(&done) {
         stream.close_normally();
     }
     close(&mut stream).await;
@@ -578,11 +585,11 @@ pub async fn relay(
         reader: mut creader,
     } = client;
     let plaintext = opening.plaintext && cs.supports_half_close();
-    if let Err(e) = start(&mut cs, &mut cwriter, opening, early, plaintext).await {
-        return Opened::Refused(ForwardError::Io(e));
-    }
     if plaintext {
         cs.reset_on_close();
+    }
+    if let Err(e) = start(&mut cs, &mut cwriter, opening, early, plaintext).await {
+        return Opened::Refused(ForwardError::Io(e));
     }
     let done = {
         let (mut cr, mut cw) = cs.split();
@@ -645,7 +652,7 @@ pub async fn relay(
             }
         }
     };
-    if plaintext && !matches!(done, Ok(Err(_))) {
+    if plaintext && ended_cleanly(&done) {
         cs.close_normally();
     }
     match done {
@@ -877,6 +884,72 @@ mod tests {
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
         open.abort();
         assert!(sees_reset(&mut theirs.stream).await);
+    }
+
+    async fn opening_plaintext(
+        ours: Channel,
+        mut visitor: TcpStream,
+    ) -> tokio::task::JoinHandle<Opened> {
+        tokio::spawn(async move {
+            let mut early = Early::default();
+            early.last_try();
+            let opening = Opening {
+                first: b"connect",
+                prefix: &[],
+                plaintext: true,
+                reply_timeout: Duration::from_secs(5),
+            };
+            open_tcp(
+                ours,
+                &mut visitor,
+                &opening,
+                Meter::default(),
+                &mut early,
+                || {},
+            )
+            .await
+        })
+    }
+
+    #[tokio::test]
+    async fn a_user_gone_before_the_client_answered_resets_the_plaintext_channel() {
+        let (a, b) = tcp_pair().await;
+        let (ours, mut theirs) = channels(a, b);
+        let (visitor, user) = tcp_pair().await;
+        let open = opening_plaintext(ours, visitor).await;
+        let first = theirs.reader.recv(&mut theirs.stream).await.unwrap();
+        assert_eq!(first, Some(&b"connect"[..]));
+        socket2::SockRef::from(&user)
+            .set_linger(Some(Duration::ZERO))
+            .unwrap();
+        drop(user);
+        let opened = open.await.unwrap();
+        assert!(matches!(opened, Opened::Gone(_)));
+        assert!(sees_reset(&mut theirs.stream).await);
+    }
+
+    #[tokio::test]
+    async fn a_plaintext_channel_the_client_refused_is_closed_normally() {
+        let (a, b) = tcp_pair().await;
+        let (ours, mut theirs) = channels(a, b);
+        let (visitor, _user) = tcp_pair().await;
+        let open = opening_plaintext(ours, visitor).await;
+        theirs.reader.recv(&mut theirs.stream).await.unwrap();
+        theirs
+            .writer
+            .send(&mut theirs.stream, &[Status::Unreachable as u8])
+            .await
+            .unwrap();
+        let opened = open.await.unwrap();
+        assert!(matches!(
+            opened,
+            Opened::Refused(ForwardError::Status(Status::Unreachable))
+        ));
+        let mut buf = [0u8; 16];
+        let end = tokio::time::timeout(Duration::from_secs(5), theirs.stream.read(&mut buf))
+            .await
+            .unwrap();
+        assert!(matches!(end, Ok(0)), "{end:?}");
     }
 
     #[tokio::test]
