@@ -976,3 +976,47 @@ async fn a_symlinked_config_is_followed_through_its_links() {
         .unwrap();
     assert_eq!(next.services["web"].target, "127.0.0.1:5");
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_reloaded_udp_session_timeout_applies_to_running_relays() {
+    let echo = udp_echo_server().await;
+    let secret = Secret::generate();
+    let mut settings = server_settings(vec![secret.clone()]);
+    settings.udp_session_timeout = Duration::from_secs(30);
+    let mut dns = service(echo, Protocol::Udp);
+    dns.bind = Some(
+        std::net::UdpSocket::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap(),
+    );
+    settings.services.insert("dns".into(), dns);
+    let t = tunnel_with(settings.clone(), vec![], |c| c, secret).await;
+    let target = t.server.services["dns"];
+    let s = udp_bind().await;
+    s.connect(target).await.unwrap();
+    let mut buf = [0u8; 16];
+    for _ in 0..50 {
+        s.send(b"hi").await.unwrap();
+        if tokio::time::timeout(Duration::from_millis(200), s.recv(&mut buf))
+            .await
+            .is_ok()
+        {
+            break;
+        }
+    }
+    let shared = t.server.shared.clone();
+    assert_eq!(shared.udp_peers(), 1);
+    let mut next = settings.clone();
+    next.udp_session_timeout = Duration::from_secs(1);
+    t.server.reload(next).await;
+    let mut gone = false;
+    for _ in 0..80 {
+        if shared.udp_peers() == 0 {
+            gone = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    assert!(gone, "the shorter timeout did not expire the idle peer");
+}

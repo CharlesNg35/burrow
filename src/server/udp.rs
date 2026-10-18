@@ -266,7 +266,6 @@ async fn relay(
     });
 
     let mut back = AbortOnDrop(back);
-    let timeout = shared.settings().udp_session_timeout;
     let mut gauge = PeerGauge {
         shared: shared.clone(),
         counted: 0,
@@ -340,7 +339,7 @@ async fn relay(
             _ = sweep.tick() => {
                 let count = {
                     let mut p = peers.lock().expect("peers lock");
-                    p.expire(timeout);
+                    p.expire(shared.settings().udp_session_timeout);
                     p.len()
                 };
                 gauge.set(count);
