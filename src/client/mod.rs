@@ -532,12 +532,21 @@ impl Client {
                 {
                     tokio::time::sleep(backoff.next_delay()).await;
                 }
+                Err(_) if *ended.borrow() => return,
                 Err(DialError::Lost(why) | DialError::Unreachable(why)) => {
-                    debug!("data channel: {why}");
+                    static FAILED: crate::throttle::Throttle = crate::throttle::Throttle::new();
+                    if let Some(more) = FAILED.allow() {
+                        warn!("cannot open a data channel for the server: {why}{more}");
+                    }
                     return;
                 }
                 Err(DialError::Rejected) => {
-                    debug!("data channel rejected");
+                    static REJECTED: crate::throttle::Throttle = crate::throttle::Throttle::new();
+                    if let Some(more) = REJECTED.allow() {
+                        warn!(
+                            "the server refused a data channel; connections through this client wait or fail until it reconnects{more}"
+                        );
+                    }
                     return;
                 }
             }

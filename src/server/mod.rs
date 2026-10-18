@@ -134,6 +134,24 @@ impl Shared {
         self.reloaded.subscribe()
     }
 
+    fn close_websocket_clients(&self) {
+        let moved: Vec<Arc<ClientSession>> = self
+            .sessions
+            .lock()
+            .expect("sessions lock")
+            .values()
+            .filter(|s| s.over_websocket)
+            .cloned()
+            .collect();
+        for s in moved {
+            info!(
+                "client \"{}\" came in over the websocket listener that changed; closing its connection so it connects again",
+                s.name
+            );
+            s.close();
+        }
+    }
+
     pub fn settings_snapshot(&self) -> ServerSettings {
         (*self.settings()).clone()
     }
@@ -569,6 +587,7 @@ impl Server {
             );
             self.websocket = Some(t);
             next.websocket = Some(want);
+            self.shared.close_websocket_clients();
         }
         if let Some(want) = self.wanted.metrics
             && settings.metrics != Some(want)
@@ -706,6 +725,9 @@ impl Server {
             if kept != next.websocket {
                 next.websocket = kept;
                 *self.shared.settings.write().expect("settings lock") = Arc::new(next.clone());
+            }
+            if where_of(current.websocket.as_ref()) != where_of(next.websocket.as_ref()) {
+                self.shared.close_websocket_clients();
             }
         }
         if next.metrics != current.metrics {
@@ -1043,6 +1065,10 @@ async fn bind_ws_with_retry(
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
     Err(last.expect("at least one attempt"))
+}
+
+fn where_of(ws: Option<&WebSocketSettings>) -> Option<(SocketAddr, &str)> {
+    ws.map(|w| (w.listen, w.path.as_str()))
 }
 
 const FREED_TRIES: usize = 20;

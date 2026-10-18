@@ -37,6 +37,7 @@ pub struct ClientSession {
     pub control: mpsc::Sender<ServerMsg>,
     pub secret: Secret,
     pub instance: [u8; TOKEN_LEN],
+    pub over_websocket: bool,
     pool: Mutex<Pool>,
     closed: watch::Sender<bool>,
     allow: Mutex<Option<Vec<String>>>,
@@ -70,6 +71,7 @@ impl ClientSession {
             control,
             secret,
             instance,
+            over_websocket: false,
             closed: watch::Sender::new(false),
             allow: Mutex::new(None),
             pool: Mutex::new(Pool {

@@ -24,6 +24,7 @@ pub(super) async fn control_session(
     let name = preamble.name.clone();
     let settings = shared.settings();
     let (stream, mut writer, mut reader) = (channel.stream, channel.writer, channel.reader);
+    let over_websocket = stream.is_websocket();
     let (mut rd, mut wr) = stream.into_split();
 
     if preamble.plaintext != settings.insecure_plaintext {
@@ -47,7 +48,7 @@ pub(super) async fn control_session(
     let mut token = [0u8; TOKEN_LEN];
     getrandom::fill(&mut token).expect("operating system random source is available");
     let (tx, mut rx) = mpsc::channel::<ServerMsg>(256);
-    let session = Arc::new(ClientSession::new(
+    let mut session = ClientSession::new(
         name.clone(),
         peer,
         token,
@@ -55,7 +56,9 @@ pub(super) async fn control_session(
         secret,
         instance,
         &Shared::pool_config(&settings),
-    ));
+    );
+    session.over_websocket = over_websocket;
+    let session = Arc::new(session);
     let taken = {
         let mut sessions = shared.sessions.lock().expect("sessions lock");
         if !shared.allows(&name, &session.secret) {

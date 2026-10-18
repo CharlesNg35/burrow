@@ -375,7 +375,7 @@ async fn keepalive_keeps_pooled_channels_alive_through_an_idle_timeout_proxy() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn path_change_swaps_the_route_without_dropping_clients() {
+async fn path_change_swaps_the_route_and_sends_old_path_clients_away() {
     let echo = echo_server().await;
     let secret = Secret::generate();
     let free = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
@@ -395,7 +395,7 @@ async fn path_change_swaps_the_route_without_dropping_clients() {
     s.services
         .insert("web".into(), service(echo, Protocol::Tcp));
     let srv = start_server(s.clone()).await;
-    let first = connected(
+    let mut first = connected(
         &srv,
         ws_client(&format!("ws://{port_addr}/one"), secret.clone(), None),
     )
@@ -405,24 +405,25 @@ async fn path_change_swaps_the_route_without_dropping_clients() {
     next.websocket.as_mut().unwrap().path = "/two".into();
     next.services.get_mut("web").unwrap().bind = Some(srv.services["web"]);
     srv.reload(next).await;
-    tokio::time::sleep(Duration::from_millis(300)).await;
-
-    assert_eq!(
-        *first.state.borrow(),
-        State::Connected,
-        "existing client stays connected"
-    );
-    assert_eq!(
-        roundtrip(srv.services["web"], b"same socket").await,
-        b"same socket"
-    );
+    let left = tokio::time::timeout(
+        Duration::from_secs(5),
+        first.state.wait_for(|s| *s != State::Connected),
+    )
+    .await;
+    assert!(left.is_ok(), "a client on the old path is sent away");
     let named = |name: &str, path: &str| {
         let mut c = ws_client(&format!("ws://{port_addr}{path}"), secret.clone(), None);
         c.name = name.into();
         c
     };
-    let mut second = start_client(named("office", "/two")).await;
+    let mut second = start_client(named("home", "/two")).await;
     wait_state(&mut second.state, State::Connected).await;
+    let shared = srv.shared.clone();
+    wait_for(|| shared.idle_channels("home") >= 1).await;
+    assert_eq!(
+        roundtrip(srv.services["web"], b"same socket").await,
+        b"same socket"
+    );
     let old_path = start_client(named("lab", "/one")).await;
     tokio::time::sleep(Duration::from_millis(600)).await;
     assert_eq!(
@@ -642,4 +643,26 @@ async fn a_tcp_client_at_the_websocket_port_is_told_to_use_a_websocket_url() {
         panic!("expected a lost dial, got {:?}", got.err())
     };
     assert!(why.contains("ws://"), "{why}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn clients_of_a_websocket_path_that_changed_are_sent_to_reconnect() {
+    let secret = Secret::generate();
+    let s = ws_server(&secret, "/one", None);
+    let srv = start_server(s.clone()).await;
+    let ws = srv.ws_addr.unwrap();
+    let mut cli = connected(&srv, ws_client(&format!("ws://{ws}/one"), secret, None)).await;
+    let mut next = s.clone();
+    next.websocket.as_mut().unwrap().listen = ws;
+    next.websocket.as_mut().unwrap().path = "/two".into();
+    srv.reload(next).await;
+    let left = tokio::time::timeout(
+        Duration::from_secs(5),
+        cli.state.wait_for(|s| *s != State::Connected),
+    )
+    .await;
+    assert!(
+        left.is_ok(),
+        "the client stayed connected to a path that is gone"
+    );
 }
