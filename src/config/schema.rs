@@ -491,6 +491,12 @@ fn type_help(types: &[&str], node: &Node) -> String {
         {
             format!("remove the quotes: {s}")
         }
+        (Value::Float(f), t) if t.contains(&"integer") && f.fract() == 0.0 && f.abs() < 9.0e15 => {
+            format!(
+                "write it without a decimal point or exponent: {}",
+                *f as i64
+            )
+        }
         (Value::Float(f), t) if t.contains(&"integer") && f.fract() == 0.0 => {
             "this number is far too large for the field".into()
         }

@@ -297,8 +297,14 @@ mod tests {
     #[test]
     fn a_mapped_ipv4_bind_is_the_same_address_as_plain_ipv4() {
         let at = |s: &str| s.parse::<SocketAddr>().unwrap();
-        assert!(binds_conflict(at("[::ffff:127.0.0.1]:4000"), at("127.0.0.1:4000")));
-        assert!(!binds_conflict(at("[::ffff:127.0.0.1]:4000"), at("127.0.0.2:4000")));
+        assert!(binds_conflict(
+            at("[::ffff:127.0.0.1]:4000"),
+            at("127.0.0.1:4000")
+        ));
+        assert!(!binds_conflict(
+            at("[::ffff:127.0.0.1]:4000"),
+            at("127.0.0.2:4000")
+        ));
     }
 
     #[test]
