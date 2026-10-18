@@ -25,6 +25,7 @@ pub struct Found {
 pub struct Scan {
     pub found: Vec<Found>,
     pub hidden: usize,
+    pub silent: Vec<(Entry, String)>,
 }
 
 const DEADLINE: Duration = Duration::from_secs(2);
@@ -268,16 +269,37 @@ pub fn scan(dir: &Path, wanted: Option<&Path>) -> Scan {
             .collect()
     });
     let mut found = Vec::new();
+    let mut silent = Vec::new();
     for ((path, entry), result) in entries.into_iter().zip(fetched) {
         match result {
             Ok(status) => found.push(Found { entry, status }),
             Err((Fetch::Gone, _)) => {
                 let _ = std::fs::remove_file(&path);
             }
-            Err((Fetch::Failed, _)) => {}
+            Err((Fetch::Failed, why)) => silent.push((entry, why)),
         }
     }
-    Scan { found, hidden }
+    Scan {
+        found,
+        hidden,
+        silent,
+    }
+}
+
+fn did_not_answer(entry: &Entry, why: &str) -> String {
+    format!(
+        "the burrow server with pid {} ({}) did not answer: {why}",
+        entry.pid,
+        clean(&entry.config.display().to_string())
+    )
+}
+
+fn none_answered(scan: &Scan, pick: &Pick) -> Failure {
+    match scan.silent.first() {
+        Some((entry, why)) => Failure::new(did_not_answer(entry, why))
+            .hint("it may be busy; try again in a moment, or look at its logs"),
+        None => none_running(pick, scan.hidden),
+    }
 }
 
 fn none_running(pick: &Pick, hidden: usize) -> Failure {
@@ -321,6 +343,9 @@ fn frame(scan: &Scan, paint: Paint, rates: Option<&HashMap<u32, Rates>>, all: bo
         }
         let r = rates.and_then(|r| r.get(&f.entry.pid));
         text.push_str(&render(&f.status, paint, r));
+    }
+    for (entry, why) in &scan.silent {
+        text.push_str(&format!("\n{}\n", did_not_answer(entry, why)));
     }
     if scan.hidden > 0 && all {
         text.push_str(&format!(
@@ -372,7 +397,7 @@ impl Follow<'_> {
     fn refresh(&mut self) -> bool {
         let next = scan(self.dir, self.wanted.as_deref());
         if next.found.is_empty() {
-            return false;
+            return !next.silent.is_empty();
         }
         let now = Instant::now();
         let secs = now.duration_since(self.taken).as_secs_f64();
@@ -406,7 +431,7 @@ pub fn run_in(dir: &Path, opts: Options, out: &mut dyn Write) -> Result<u8, Fail
     let all = matches!(opts.pick, Pick::All);
     let first = scan(dir, wanted.as_deref());
     if first.found.is_empty() {
-        return Err(none_running(&opts.pick, first.hidden));
+        return Err(none_answered(&first, &opts.pick));
     }
     let tty = std::io::stdout().is_terminal();
     let color = tty && crate::diagnostics::Style::detect(true).color;

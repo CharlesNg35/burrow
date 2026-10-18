@@ -172,6 +172,30 @@ fn a_stopped_server_leaves_nothing_to_show() {
     assert!(left.is_empty(), "the stale status file is removed");
 }
 
+#[test]
+fn a_server_that_does_not_answer_is_named_rather_than_called_stopped() {
+    let dir = tempfile::tempdir().unwrap();
+    let instances = dir.path().join("instances");
+    std::fs::create_dir_all(&instances).unwrap();
+    let silent = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let entry = serde_json::json!({
+        "config": dir.path().join("server.yaml"),
+        "pid": std::process::id(),
+        "port": silent.local_addr().unwrap().port(),
+        "token": "ab".repeat(24),
+    });
+    burrow::instance::write_private(
+        &instances.join(format!("{}.status", std::process::id())),
+        &entry.to_string(),
+    )
+    .unwrap();
+    let o = status(&instances, &[]);
+    assert!(!o.status.success());
+    let shown = text(&o);
+    assert!(shown.contains("did not answer"), "{shown}");
+    assert!(!shown.contains("no burrow server is running"), "{shown}");
+}
+
 #[cfg(unix)]
 #[test]
 fn files_of_other_users_are_counted_and_point_to_sudo() {
