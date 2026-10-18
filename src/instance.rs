@@ -354,43 +354,48 @@ pub fn acquire_in(dir: &Path, identity: &Identity, config: &Path) -> Result<Inst
         ))
         .hint("burrow keeps a small lock file there so the same tunnel cannot run twice"));
     }
-    let opened = match open_shared(&path) {
-        Err(_) if extra_links(&path) => match replace_linked(&path) {
-            Ok(Some(opened)) => Ok(opened),
-            Ok(None) => return Err(already_running(identity, &path)),
-            Err(e) => Err(e),
-        },
-        other => other,
-    };
-    let (file, writable) = match opened {
-        Ok(opened) => opened,
-        Err(_) if planted(&path) => return Ok(unlocked(&path, &path)),
-        Err(_) if planted(dir) => return Ok(unlocked(dir, &path)),
-        Err(e) => return Err(open_failure(&path, &e)),
-    };
-    match file.try_lock() {
-        Ok(()) => {}
-        Err(TryLockError::WouldBlock) if !held_by_a_trusted_instance(&path) => {
-            crate::say_errln!(
-                "warning: {} is locked by a process burrow does not trust (another user's, or one that left no note); starting anyway",
-                path.display()
-            );
-            return Ok(InstanceLock {
-                _file: Some(file),
-                path,
-                noted: false,
-                _fresh: None,
-            });
+    let mut attempts = 0;
+    let (file, writable) = loop {
+        attempts += 1;
+        let opened = match open_shared(&path) {
+            Err(_) if extra_links(&path) => match replace_linked(&path) {
+                Ok(Some(opened)) => Ok(opened),
+                Ok(None) => return Err(already_running(identity, &path)),
+                Err(e) => Err(e),
+            },
+            other => other,
+        };
+        let (file, writable) = match opened {
+            Ok(opened) => opened,
+            Err(_) if planted(&path) => return Ok(unlocked(&path, &path)),
+            Err(_) if planted(dir) => return Ok(unlocked(dir, &path)),
+            Err(e) => return Err(open_failure(&path, &e)),
+        };
+        match file.try_lock() {
+            Ok(()) if attempts < 5 && !names(&path, &file) => continue,
+            Ok(()) => break (file, writable),
+            Err(TryLockError::WouldBlock) if !held_by_a_trusted_instance(&path) => {
+                crate::say_errln!(
+                    "warning: {} is locked by a process burrow does not trust (another user's, or one that left no note); starting anyway",
+                    path.display()
+                );
+                return Ok(InstanceLock {
+                    _file: Some(file),
+                    path,
+                    noted: false,
+                    _fresh: None,
+                });
+            }
+            Err(TryLockError::WouldBlock) => return Err(already_running(identity, &path)),
+            Err(TryLockError::Error(e)) => {
+                return Err(Failure::new(format!(
+                    "cannot lock {}: {}",
+                    path.display(),
+                    crate::failure::file_reason(&e)
+                )));
+            }
         }
-        Err(TryLockError::WouldBlock) => return Err(already_running(identity, &path)),
-        Err(TryLockError::Error(e)) => {
-            return Err(Failure::new(format!(
-                "cannot lock {}: {}",
-                path.display(),
-                crate::failure::file_reason(&e)
-            )));
-        }
-    }
+    };
     let note = format!(
         "pid {}, config {}",
         std::process::id(),
@@ -516,8 +521,26 @@ fn replace_linked(path: &Path) -> std::io::Result<Option<(File, bool)>> {
         Err(TryLockError::WouldBlock) => {}
         Err(TryLockError::Error(e)) => return Err(e),
     }
-    std::fs::remove_file(path)?;
-    open_shared(path).map(Some)
+    if names(path, &old) {
+        std::fs::remove_file(path)?;
+    }
+    let opened = open_shared(path).map(Some);
+    drop(old);
+    opened
+}
+
+#[cfg(unix)]
+fn names(path: &Path, file: &File) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    match (std::fs::symlink_metadata(path), file.metadata()) {
+        (Ok(a), Ok(b)) => a.dev() == b.dev() && a.ino() == b.ino(),
+        _ => false,
+    }
+}
+
+#[cfg(not(unix))]
+fn names(_path: &Path, _file: &File) -> bool {
+    true
 }
 
 fn single_file(f: File) -> std::io::Result<File> {
@@ -825,6 +848,39 @@ mod tests {
             "{}",
             second.message
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn instances_racing_over_a_linked_lock_still_start_only_once() {
+        for _ in 0..40 {
+            let dir = tempfile::tempdir().unwrap();
+            let cfg = dir.path().join("client.yaml");
+            let id = Identity::client("example.com", "home");
+            drop(acquire_in(dir.path(), &id, &cfg).unwrap());
+            let lock = dir.path().join(format!("{}.lock", id.key()));
+            std::fs::hard_link(&lock, dir.path().join("planted")).unwrap();
+            let start = std::sync::Arc::new(std::sync::Barrier::new(4));
+            let racers: Vec<_> = (0..4)
+                .map(|_| {
+                    let (dir, cfg, id, start) = (
+                        dir.path().to_path_buf(),
+                        cfg.clone(),
+                        id.clone(),
+                        start.clone(),
+                    );
+                    std::thread::spawn(move || {
+                        start.wait();
+                        acquire_in(&dir, &id, &cfg).ok()
+                    })
+                })
+                .collect();
+            let held: Vec<_> = racers
+                .into_iter()
+                .filter_map(|r| r.join().unwrap())
+                .collect();
+            assert_eq!(held.len(), 1, "{} instances started", held.len());
+        }
     }
 
     #[cfg(unix)]
