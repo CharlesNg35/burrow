@@ -348,11 +348,14 @@ async fn connected(
             }
         }
         Protocol::Udp => {
-            let (watched, permitted) = (live.clone(), addrs.clone());
+            let resolved = Arc::new(Mutex::new((preferred(&addrs), Instant::now())));
+            let (watched, current) = (live.clone(), resolved.clone());
             let label = connect.clone();
             tokio::select! {
-                _ = udp(live, resolver, ch, connect, addrs) => {}
-                _ = revoked(&watched, |s| s.allow.permits(preferred(&permitted))) => {
+                _ = udp(live, resolver, ch, connect, resolved) => {}
+                _ = revoked(&watched, |s| {
+                    s.allow.permits(current.lock().expect("resolved lock").0)
+                }) => {
                     no_longer_allowed(&label);
                 }
             }
@@ -623,7 +626,7 @@ async fn udp(
     resolver: Arc<dyn Resolver>,
     ch: Channel,
     connect: Connect,
-    addrs: Vec<SocketAddr>,
+    resolved: Arc<Mutex<(SocketAddr, Instant)>>,
 ) {
     let Channel {
         stream,
@@ -631,7 +634,6 @@ async fn udp(
         mut reader,
     } = ch;
     let (mut rd, mut wr) = stream.into_split();
-    let resolved = Arc::new(Mutex::new((preferred(&addrs), Instant::now())));
     let resolving = Arc::new(std::sync::atomic::AtomicBool::new(false));
     if writer.send(&mut wr, &[Status::Ok as u8]).await.is_err() {
         return;
