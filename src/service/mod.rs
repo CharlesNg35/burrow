@@ -1132,8 +1132,11 @@ pub fn uninstall(name: Option<&str>, purge: bool, out: &mut dyn Write) -> Result
                 .log_file
                 .parent()
                 .filter(|d| !kept.is_empty() && *d != p_log_dir());
-            for f in kept.iter().map(PathBuf::as_path).chain(dir) {
-                let _ = std::os::unix::fs::lchown(f, Some(0), Some(0));
+            for f in kept.iter().map(PathBuf::as_path) {
+                let _ = system::give_plain_file(f, 0, 0);
+            }
+            if let Some(d) = dir {
+                let _ = std::os::unix::fs::lchown(d, Some(0), Some(0));
             }
         }
         match backend.remove_account(&m.account) {

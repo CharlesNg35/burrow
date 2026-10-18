@@ -402,6 +402,21 @@ pub fn write_private(path: &Path, text: &str) -> Result<(), Failure> {
 }
 
 #[cfg(unix)]
+pub fn give_plain_file(path: &Path, uid: u32, gid: u32) -> std::io::Result<bool> {
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(path)?;
+    let meta = file.metadata()?;
+    if !meta.is_file() || meta.nlink() != 1 {
+        return Ok(false);
+    }
+    std::os::unix::fs::fchown(&file, Some(uid), Some(gid))?;
+    Ok(true)
+}
+
+#[cfg(unix)]
 pub fn make_dir(path: &Path, mode: u32, owner: Option<&str>) -> Result<(), Failure> {
     use std::os::unix::fs::PermissionsExt;
     std::fs::create_dir_all(path)
@@ -424,6 +439,37 @@ pub fn all_paths_under(files: &[PathBuf], roots: &[&str]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn only_a_plain_file_with_one_link_changes_owner() {
+        use std::os::unix::fs::MetadataExt;
+        let dir = tempfile::tempdir().unwrap();
+        let plain = dir.path().join("a.log");
+        std::fs::write(&plain, "x").unwrap();
+        let (uid, gid) = {
+            let m = std::fs::metadata(&plain).unwrap();
+            (m.uid(), m.gid())
+        };
+        assert!(give_plain_file(&plain, uid, gid).unwrap());
+        let victim = dir.path().join("victim");
+        std::fs::write(&victim, "x").unwrap();
+        let linked = dir.path().join("b.log");
+        std::fs::hard_link(&victim, &linked).unwrap();
+        assert!(!give_plain_file(&linked, uid, gid).unwrap());
+        let symlink = dir.path().join("c.log");
+        std::os::unix::fs::symlink(&victim, &symlink).unwrap();
+        assert!(give_plain_file(&symlink, uid, gid).is_err());
+        let fifo = dir.path().join("d.log");
+        assert!(
+            std::process::Command::new("mkfifo")
+                .arg(&fifo)
+                .status()
+                .unwrap()
+                .success()
+        );
+        assert!(!give_plain_file(&fifo, uid, gid).unwrap());
+    }
 
     #[test]
     fn a_rewritten_file_is_replaced_whole_and_leaves_no_temp_file() {

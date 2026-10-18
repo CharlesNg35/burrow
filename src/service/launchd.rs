@@ -194,18 +194,40 @@ impl Backend for Launchd {
         if let Some(dir) = m.log_file.parent() {
             let owner = (m.account != "root").then_some(m.account.as_str());
             make_dir(dir, 0o750, owner)?;
-            if let Some(account) = owner {
-                let (uid, gid) = super::system::account_ids(account)?;
-                let mut kept = vec![m.log_file.clone()];
-                kept.extend((1..=crate::logfile::KEEP).map(|n| {
-                    let mut name = m.log_file.as_os_str().to_owned();
-                    name.push(format!(".{n}"));
-                    std::path::PathBuf::from(name)
-                }));
-                for f in kept.iter().filter(|f| f.exists()) {
-                    std::os::unix::fs::lchown(f, Some(uid), Some(gid)).map_err(|e| {
-                        Failure::new(format!("cannot give {} to {account}: {e}", f.display()))
-                    })?;
+            let (uid, gid) = match owner {
+                Some(account) => super::system::account_ids(account)?,
+                None => (0, 0),
+            };
+            if owner.is_none() {
+                std::os::unix::fs::lchown(dir, Some(0), Some(0)).map_err(|e| {
+                    Failure::new(format!("cannot give {} to root: {e}", dir.display()))
+                })?;
+            }
+            let mut kept = vec![m.log_file.clone()];
+            kept.extend((1..=crate::logfile::KEEP).map(|n| {
+                let mut name = m.log_file.as_os_str().to_owned();
+                name.push(format!(".{n}"));
+                std::path::PathBuf::from(name)
+            }));
+            for f in kept.iter().filter(|f| f.symlink_metadata().is_ok()) {
+                if f.symlink_metadata()
+                    .is_ok_and(|m| m.file_type().is_symlink())
+                {
+                    let _ = std::fs::remove_file(f);
+                    continue;
+                }
+                match super::system::give_plain_file(f, uid, gid) {
+                    Ok(true) => {}
+                    Ok(false) => {
+                        let _ = std::fs::remove_file(f);
+                    }
+                    Err(e) => {
+                        return Err(Failure::new(format!(
+                            "cannot give {} to {}: {e}",
+                            f.display(),
+                            m.account
+                        )));
+                    }
                 }
             }
         }
