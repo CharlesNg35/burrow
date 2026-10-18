@@ -10,6 +10,7 @@ use crate::config::settings::SocketTuning;
 pub const LISTEN_BACKLOG: u32 = 4096;
 
 pub fn bind_tcp(addr: SocketAddr) -> io::Result<TcpListener> {
+    shadowed(addr)?;
     let socket = if addr.is_ipv4() {
         TcpSocket::new_v4()?
     } else {
@@ -22,6 +23,40 @@ pub fn bind_tcp(addr: SocketAddr) -> io::Result<TcpListener> {
     }
     socket.bind(addr)?;
     socket.listen(LISTEN_BACKLOG)
+}
+
+#[cfg(target_os = "macos")]
+pub fn shadowed(addr: SocketAddr) -> io::Result<()> {
+    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+    if addr.port() == 0 {
+        return Ok(());
+    }
+    let others: &[IpAddr] = match (addr.ip().is_unspecified(), addr.is_ipv4()) {
+        (true, true) => &[IpAddr::V4(Ipv4Addr::LOCALHOST)],
+        (true, false) => &[
+            IpAddr::V4(Ipv4Addr::LOCALHOST),
+            IpAddr::V6(Ipv6Addr::LOCALHOST),
+        ],
+        (false, true) => &[IpAddr::V4(Ipv4Addr::UNSPECIFIED)],
+        (false, false) => &[IpAddr::V6(Ipv6Addr::UNSPECIFIED)],
+    };
+    for ip in others {
+        let probe = SocketAddr::new(*ip, addr.port());
+        let domain = socket2::Domain::for_address(probe);
+        let sock = socket2::Socket::new(domain, socket2::Type::STREAM, None)?;
+        sock.set_reuse_address(true)?;
+        if let Err(e) = sock.bind(&probe.into())
+            && e.kind() == io::ErrorKind::AddrInUse
+        {
+            return Err(e);
+        }
+    }
+    Ok(())
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn shadowed(_addr: SocketAddr) -> io::Result<()> {
+    Ok(())
 }
 
 pub fn tune(stream: &TcpStream, t: &SocketTuning) {
@@ -165,5 +200,19 @@ mod tests {
             Duration::from_secs(1)
         };
         assert!(start.elapsed() < bound, "took {:?}", start.elapsed());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_listener_cannot_shadow_another_on_the_same_port() {
+        let wide = bind_tcp("0.0.0.0:0".parse().unwrap()).unwrap();
+        let port = wide.local_addr().unwrap().port();
+        let narrow = bind_tcp(SocketAddr::from(([127, 0, 0, 1], port)));
+        assert_eq!(narrow.unwrap_err().kind(), io::ErrorKind::AddrInUse);
+        drop(wide);
+        let narrow = bind_tcp("127.0.0.1:0".parse().unwrap()).unwrap();
+        let port = narrow.local_addr().unwrap().port();
+        let wide = bind_tcp(SocketAddr::from(([0, 0, 0, 0], port)));
+        assert_eq!(wide.unwrap_err().kind(), io::ErrorKind::AddrInUse);
     }
 }

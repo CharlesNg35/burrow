@@ -46,7 +46,11 @@ impl Ports {
             return true;
         };
         *probed[port].get_or_insert_with(|| {
-            std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, port as u16)).is_ok()
+            crate::transport::udp::std_socket(
+                (Ipv4Addr::LOCALHOST, port as u16).into(),
+                socket2::Type::STREAM,
+            )
+            .is_ok()
         })
     }
 

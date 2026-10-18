@@ -10,6 +10,9 @@ pub fn std_socket(addr: SocketAddr, kind: socket2::Type) -> std::io::Result<sock
     } else {
         socket2::Domain::IPV6
     };
+    if kind == socket2::Type::STREAM {
+        super::tcp::shadowed(addr)?;
+    }
     let sock = socket2::Socket::new(domain, kind, None)?;
     if cfg!(not(windows)) && kind == socket2::Type::STREAM {
         sock.set_reuse_address(true)?;
