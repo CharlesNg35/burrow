@@ -154,6 +154,7 @@ pub(super) async fn control_session(
             r = tokio::time::timeout(timeout, reader.recv(&mut rd)) => match r {
                 Ok(Ok(Some(b))) => {
                     if let Ok(ClientMsg::Allow(rules)) = ClientMsg::decode(b) {
+                        note_refused_targets(&shared, &name, &rules);
                         session.set_allow(rules);
                     }
                     continue;
@@ -194,4 +195,44 @@ pub(super) async fn control_session(
 
 fn on_off(b: bool) -> &'static str {
     if b { "on" } else { "off" }
+}
+
+fn note_refused_targets(shared: &Shared, client: &str, rules: &[String]) {
+    use crate::allowlist::{AllowList, Rule};
+    let allow = if rules == ["any"] {
+        AllowList::All
+    } else {
+        let parsed: Option<Vec<Rule>> = rules.iter().map(|r| r.parse().ok()).collect();
+        let Some(parsed) = parsed else {
+            return;
+        };
+        AllowList::Rules(parsed)
+    };
+    let settings = shared.settings();
+    let refused: Vec<String> = settings
+        .services
+        .iter()
+        .filter(|(_, svc)| svc.clients.iter().any(|c| c == client))
+        .filter(|(_, svc)| {
+            let ends = [svc.target_at(0), svc.target_at(svc.ports.max(1) - 1)];
+            ends.iter()
+                .any(|t| match crate::config::check::unix::path_of(t) {
+                    Some(path) => !allow.permits_socket(path),
+                    None => t
+                        .parse::<SocketAddr>()
+                        .is_ok_and(|addr| !allow.permits(addr)),
+                })
+        })
+        .map(|(name, svc)| format!("\"{name}\" ({})", svc.target))
+        .collect();
+    if refused.is_empty() {
+        return;
+    }
+    static REFUSED: crate::throttle::Throttle = crate::throttle::Throttle::new();
+    if let Some(more) = REFUSED.allow() {
+        warn!(
+            "client \"{client}\" does not allow the target of service {}, so it will refuse those connections; add the target to \"allow\" in the config of client \"{client}\"{more}",
+            refused.join(", ")
+        );
+    }
 }

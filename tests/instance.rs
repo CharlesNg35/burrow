@@ -226,3 +226,56 @@ fn hints_quote_a_config_path_with_a_space() {
         "{text}"
     );
 }
+
+#[test]
+fn the_server_says_which_service_targets_a_client_does_not_allow() {
+    let s = setup();
+    let secret = burrow::secret::Secret::generate().encode();
+    let port = free_port();
+    std::fs::write(
+        s.dir.path().join("server.yaml"),
+        format!(
+            "listen: 127.0.0.1:{port}\nclients:\n  home:\n    secret: {secret}\nservices:\n  web:\n    client: home\n    bind: 127.0.0.1:{}\n    target: 127.0.0.1:3000\n  ssh:\n    client: home\n    bind: 127.0.0.1:{}\n    target: 127.0.0.1:22\n",
+            free_port(),
+            free_port()
+        ),
+    )
+    .unwrap();
+    std::fs::write(
+        s.dir.path().join("client.yaml"),
+        format!(
+            "server: 127.0.0.1:{port}\nname: home\nsecret: {secret}\nallow: [127.0.0.1/32:22]\n"
+        ),
+    )
+    .unwrap();
+    #[cfg(unix)]
+    for f in ["server.yaml", "client.yaml"] {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(s.dir.path().join(f), std::fs::Permissions::from_mode(0o600))
+            .unwrap();
+    }
+    let mut server = burrow(&s)
+        .args(["server", "-c", "server.yaml"])
+        .spawn()
+        .unwrap();
+    std::thread::sleep(Duration::from_millis(500));
+    let mut client = burrow(&s)
+        .args(["client", "-c", "client.yaml"])
+        .spawn()
+        .unwrap();
+    std::thread::sleep(Duration::from_millis(2500));
+    assert!(server.try_wait().unwrap().is_none(), "the server stopped");
+    let _ = client.kill();
+    let _ = client.wait();
+    let _ = server.kill();
+    let out = server.wait_with_output().unwrap();
+    let log = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        log.contains(
+            "client \"home\" does not allow the target of service \"web\" (127.0.0.1:3000)"
+        ),
+        "{log}"
+    );
+    let warned = log.lines().find(|l| l.contains("does not allow")).unwrap();
+    assert!(!warned.contains("\"ssh\""), "{warned}");
+}
