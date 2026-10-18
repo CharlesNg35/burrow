@@ -105,8 +105,8 @@ pub async fn follow<S: Watched>(
         tokio::time::sleep(Duration::from_millis(200)).await;
         let dirs = watched_dirs(&current.files(&path));
         if dirs != watched || KQUEUE {
-            drop(watcher.take());
-            watcher = watch_files(&dirs, &current.files(&path), trig_tx.clone());
+            let renewed = watch_files(&dirs, &current.files(&path), trig_tx.clone());
+            drop(std::mem::replace(&mut watcher, renewed));
             watched = dirs;
         }
         let mut why = first;
@@ -169,8 +169,8 @@ pub async fn follow<S: Watched>(
         current = next.clone();
         let dirs = watched_dirs(&current.files(&path));
         if dirs != watched || KQUEUE {
-            drop(watcher.take());
-            watcher = watch_files(&dirs, &current.files(&path), trig_tx.clone());
+            let renewed = watch_files(&dirs, &current.files(&path), trig_tx.clone());
+            drop(std::mem::replace(&mut watcher, renewed));
             watched = dirs;
         }
         if tx.send(next).await.is_err() {
