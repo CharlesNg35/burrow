@@ -697,7 +697,7 @@ impl Undo {
         let p = &self.manifest;
         let mut steps: Vec<Result<(), Failure>> = Vec::new();
         if let Some(bytes) = &self.config {
-            steps.push(system::write_file(&p.config, bytes));
+            steps.push(system::write_file_mode(&p.config, bytes, 0o600));
             steps.push(backend.secure_file(&p.config, &p.account));
         }
         if p.env_file.is_some() {

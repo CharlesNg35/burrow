@@ -205,12 +205,13 @@ impl Backend for Systemd {
     }
 
     fn prepare_dirs(&self, _account: &str) -> Result<(), Failure> {
-        for dir in ["/etc/burrow", "/var/lib/burrow/services"] {
-            std::fs::create_dir_all(dir)
-                .map_err(|e| Failure::new(format!("cannot create {dir}: {e}")))?;
+        for dir in ["/etc/burrow", "/var/lib/burrow", "/var/lib/burrow/services"] {
+            super::system::make_dir(Path::new(dir), 0o755, None)?;
         }
-        std::fs::write(TMPFILES, format!("d {INSTANCE_DIR} 1777 root root -\n"))
-            .map_err(|e| Failure::new(format!("cannot write {TMPFILES}: {e}")))?;
+        super::system::write_file(
+            Path::new(TMPFILES),
+            format!("d {INSTANCE_DIR} 1777 root root -\n").as_bytes(),
+        )?;
         run("systemd-tmpfiles", &["--create", TMPFILES])?;
         Ok(())
     }

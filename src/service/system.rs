@@ -242,6 +242,10 @@ pub fn copy_file(from: &Path, to: &Path, executable: bool) -> Result<(), Failure
 }
 
 pub fn write_file(to: &Path, bytes: &[u8]) -> Result<(), Failure> {
+    write_file_mode(to, bytes, 0o644)
+}
+
+pub fn write_file_mode(to: &Path, bytes: &[u8], mode: u32) -> Result<(), Failure> {
     use std::io::Write;
     if let Some(dir) = to.parent() {
         std::fs::create_dir_all(dir)
@@ -255,9 +259,16 @@ pub fn write_file(to: &Path, bytes: &[u8]) -> Result<(), Failure> {
         #[cfg(unix)]
         {
             use std::os::unix::fs::OpenOptionsExt;
-            opts.mode(0o644);
+            opts.mode(0o600);
         }
         let mut f = opts.open(&tmp)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            f.set_permissions(std::fs::Permissions::from_mode(mode))?;
+        }
+        #[cfg(not(unix))]
+        let _ = mode;
         f.write_all(bytes)?;
         f.sync_all()
     })();
@@ -369,7 +380,7 @@ pub fn write_private(path: &Path, text: &str) -> Result<(), Failure> {
         .map_err(|e| Failure::new(format!("cannot write {}: {e}", path.display())))
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(unix)]
 pub fn make_dir(path: &Path, mode: u32, owner: Option<&str>) -> Result<(), Failure> {
     use std::os::unix::fs::PermissionsExt;
     std::fs::create_dir_all(path)
@@ -401,6 +412,25 @@ mod tests {
         write_file(&path, b"{\"new\": true}").unwrap();
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "{\"new\": true}");
         assert!(!path.with_extension("burrow-new").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn shared_folders_and_files_get_their_mode_whatever_the_umask() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let shared = dir.path().join("etc");
+        std::fs::create_dir(&shared).unwrap();
+        std::fs::set_permissions(&shared, std::fs::Permissions::from_mode(0o750)).unwrap();
+        make_dir(&shared, 0o755, None).unwrap();
+        let mode = |p: &Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o7777;
+        assert_eq!(mode(&shared), 0o755);
+        let unit = shared.join("x.service");
+        write_file(&unit, b"[Unit]").unwrap();
+        assert_eq!(mode(&unit), 0o644);
+        let config = shared.join("x.yaml");
+        write_file_mode(&config, b"secret", 0o600).unwrap();
+        assert_eq!(mode(&config), 0o600);
     }
 
     #[test]
