@@ -261,13 +261,12 @@ async fn park(
     mut release: oneshot::Receiver<()>,
     interval: Duration,
 ) -> Option<Channel> {
-    let keepalive = ch.stream.is_websocket();
     let mut probe = [0u8; 1];
     loop {
         let event = tokio::select! {
             r = &mut release => ParkEvent::Release(r.is_ok()),
             _ = ch.stream.read(&mut probe) => ParkEvent::PeerActivity,
-            _ = tokio::time::sleep(interval), if keepalive => ParkEvent::Keepalive,
+            _ = tokio::time::sleep(interval) => ParkEvent::Keepalive,
         };
         match event {
             ParkEvent::Release(true) => return Some(ch),

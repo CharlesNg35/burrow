@@ -256,19 +256,12 @@ pub async fn serve(
     mut ended: tokio::sync::watch::Receiver<bool>,
     held: super::Waiting,
 ) -> bool {
-    let idle_limit = ch.stream.is_websocket().then_some(IDLE_CHANNEL_LIMIT);
     let first = loop {
-        let next = ch.reader.recv(&mut ch.stream);
-        let limited = async {
-            match idle_limit {
-                Some(limit) => tokio::time::timeout(limit, next).await.ok(),
-                None => Some(next.await),
-            }
-        };
+        let next = tokio::time::timeout(IDLE_CHANNEL_LIMIT, ch.reader.recv(&mut ch.stream));
         let rec = tokio::select! {
-            r = limited => match r {
-                Some(r) => r,
-                None => return false,
+            r = next => match r {
+                Ok(r) => r,
+                Err(_) => return false,
             },
             _ = ended.wait_for(|e| *e) => return false,
         };
