@@ -510,12 +510,19 @@ fn parse_note(text: &str) -> Option<Running> {
 
 #[cfg(unix)]
 fn trusted_note(path: &Path) -> Option<Running> {
-    use std::os::unix::fs::MetadataExt;
-    let m = std::fs::symlink_metadata(path).ok()?;
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+    let mut file = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(path)
+        .ok()?;
+    let m = file.metadata().ok()?;
     if !m.is_file() || m.len() > 4096 || m.mode() & 0o022 != 0 {
         return None;
     }
-    let note = parse_note(&std::fs::read_to_string(path).ok()?)?;
+    let mut text = String::new();
+    std::io::Read::read_to_string(&mut file, &mut text).ok()?;
+    let note = parse_note(&text)?;
     (trusted_owner(m.uid(), &note.config) && runs_as(note.pid, m.uid())).then_some(note)
 }
 
@@ -731,6 +738,23 @@ mod tests {
         );
         drop(lock);
         assert!(held_elsewhere(dir.path(), &id).is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_pipe_in_place_of_a_note_is_refused_without_blocking() {
+        let dir = tempfile::tempdir().unwrap();
+        let note = dir.path().join("x.info");
+        assert!(
+            std::process::Command::new("mkfifo")
+                .arg(&note)
+                .status()
+                .unwrap()
+                .success()
+        );
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || tx.send(trusted_note(&note).is_none()).unwrap());
+        assert_eq!(rx.recv_timeout(std::time::Duration::from_secs(5)), Ok(true));
     }
 
     #[test]
