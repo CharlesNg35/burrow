@@ -1086,3 +1086,79 @@ async fn a_udp_target_named_localhost_reaches_an_ipv4_only_listener() {
     }
     assert!(got, "no echo through a localhost UDP target");
 }
+
+async fn plaintext_tunnel(plaintext: bool, target: std::net::SocketAddr) -> Tunnel {
+    let secret = Secret::generate();
+    let mut s = server_settings(vec![secret.clone()]);
+    s.insecure_plaintext = plaintext;
+    tunnel_with(
+        s,
+        vec![("web", service(target, Protocol::Tcp))],
+        move |mut c| {
+            c.insecure_plaintext = plaintext;
+            c
+        },
+        secret,
+    )
+    .await
+}
+
+fn reset_on_drop(s: &TcpStream) {
+    socket2::SockRef::from(s)
+        .set_linger(Some(Duration::ZERO))
+        .unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_target_reset_mid_response_reaches_the_user_as_a_reset() {
+    for plaintext in [false, true] {
+        let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let target = l.local_addr().unwrap();
+        tokio::spawn(async move {
+            let (mut s, _) = l.accept().await.unwrap();
+            s.write_all(b"partial").await.unwrap();
+            tokio::time::sleep(Duration::from_millis(200)).await;
+            reset_on_drop(&s);
+        });
+        let t = plaintext_tunnel(plaintext, target).await;
+        let mut user = TcpStream::connect(t.server.services["web"]).await.unwrap();
+        let mut got = Vec::new();
+        let end = tokio::time::timeout(Duration::from_secs(5), user.read_to_end(&mut got))
+            .await
+            .unwrap();
+        assert_eq!(got, b"partial", "plaintext {plaintext}");
+        assert!(
+            matches!(&end, Err(e) if e.kind() == std::io::ErrorKind::ConnectionReset),
+            "plaintext {plaintext}: a cut-off response must not end like a complete one: {end:?}"
+        );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_user_reset_mid_upload_reaches_the_target_as_a_reset() {
+    for plaintext in [false, true] {
+        let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let target = l.local_addr().unwrap();
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        tokio::spawn(async move {
+            let (mut s, _) = l.accept().await.unwrap();
+            let mut got = Vec::new();
+            let end = tokio::time::timeout(Duration::from_secs(5), s.read_to_end(&mut got)).await;
+            let _ = tx.send((got, end.map(|r| r.map_err(|e| e.kind()))));
+        });
+        let t = plaintext_tunnel(plaintext, target).await;
+        let user = TcpStream::connect(t.server.services["web"]).await.unwrap();
+        let mut user = user;
+        user.write_all(b"partial").await.unwrap();
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        reset_on_drop(&user);
+        drop(user);
+        let (got, end) = rx.await.unwrap();
+        assert_eq!(got, b"partial", "plaintext {plaintext}");
+        assert_eq!(
+            end,
+            Ok(Err(std::io::ErrorKind::ConnectionReset)),
+            "plaintext {plaintext}: a cut-off upload must not end like a complete one"
+        );
+    }
+}

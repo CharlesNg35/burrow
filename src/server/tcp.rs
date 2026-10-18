@@ -147,6 +147,9 @@ async fn visit(
             break outcome;
         }
     };
+    if matches!(outcome, Outcome::Done { result: Err(_), .. }) {
+        let _ = socket2::SockRef::from(&visitor).set_linger(Some(Duration::ZERO));
+    }
     match outcome {
         Outcome::Done { result: Ok(()), .. } => {
             debug!(%peer, "service \"{name}\": connection closed")

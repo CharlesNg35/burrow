@@ -62,6 +62,7 @@ pub trait Split {
     where
         Self: 'a;
     fn halves(&mut self) -> (Self::Read<'_>, Self::Write<'_>);
+    fn reset_on_close(&self, _reset: bool) {}
 }
 
 impl Split for TcpStream {
@@ -69,6 +70,10 @@ impl Split for TcpStream {
     type Write<'a> = tokio::net::tcp::WriteHalf<'a>;
     fn halves(&mut self) -> (Self::Read<'_>, Self::Write<'_>) {
         self.split()
+    }
+    fn reset_on_close(&self, reset: bool) {
+        let linger = reset.then_some(Duration::ZERO);
+        let _ = socket2::SockRef::from(self).set_linger(linger);
     }
 }
 
@@ -484,6 +489,7 @@ pub async fn pump_tcp<T: Split>(
     if plaintext {
         stream.reset_on_close();
     }
+    target.reset_on_close(true);
     let done: io::Result<()> = {
         let (mut cr, mut cw) = stream.split();
         let (mut tr, mut tw) = target.halves();
@@ -542,8 +548,11 @@ pub async fn pump_tcp<T: Split>(
             }
         }
     };
-    if plaintext && done.is_ok() {
-        stream.close_normally();
+    if done.is_ok() {
+        target.reset_on_close(false);
+        if plaintext {
+            stream.close_normally();
+        }
     }
     close(&mut stream).await;
     done?;
