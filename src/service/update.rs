@@ -15,6 +15,21 @@ const SETTLE: Duration = if cfg!(test) {
     Duration::from_millis(2000)
 };
 
+fn steady(backend: &dyn Backend, running: &[&Manifest], failed: &mut Vec<String>) {
+    std::thread::sleep(SETTLE);
+    let first: Vec<Option<u32>> = running.iter().map(|m| backend.status(m).pid).collect();
+    for _ in 0..4 {
+        for (m, pid) in running.iter().zip(&first) {
+            let now = backend.status(m);
+            let restarted = pid.is_some() && now.pid != *pid;
+            if (!now.running || restarted) && !failed.contains(&m.name) {
+                failed.push(m.name.clone());
+            }
+        }
+        std::thread::sleep(SETTLE);
+    }
+}
+
 struct Swap {
     binary: PathBuf,
     users: Vec<Manifest>,
@@ -208,12 +223,7 @@ fn swap(
             failed.push(m.name.clone());
         }
     }
-    std::thread::sleep(SETTLE);
-    for m in &running {
-        if !backend.status(m).running && !failed.contains(&m.name) {
-            failed.push(m.name.clone());
-        }
-    }
+    steady(backend, &running, &mut failed);
     if !failed.is_empty() {
         let restored = had_old && system::copy_file(&previous, &binary, true).is_ok();
         if restored {
@@ -280,6 +290,8 @@ mod tests {
         running: RefCell<BTreeSet<String>>,
         stop_fails: BTreeSet<String>,
         broken: Vec<u8>,
+        flaky: Vec<u8>,
+        calls: RefCell<u32>,
     }
 
     impl Backend for Fake {
@@ -331,10 +343,13 @@ mod tests {
             Ok(())
         }
         fn status(&self, m: &Manifest) -> Status {
+            let mut calls = self.calls.borrow_mut();
+            *calls += 1;
+            let flaky = std::fs::read(&m.binary).unwrap() == self.flaky;
             Status {
                 installed: true,
                 running: self.running.borrow().contains(&m.name),
-                pid: None,
+                pid: Some(if flaky { *calls } else { 1 }),
                 detail: String::new(),
             }
         }
@@ -375,6 +390,8 @@ mod tests {
             running: RefCell::new(["a".to_string(), "b".to_string()].into()),
             stop_fails: ["b".to_string()].into(),
             broken: b"never".to_vec(),
+            flaky: b"never".to_vec(),
+            calls: RefCell::new(0),
         };
         let swap_one = Swap {
             binary: installed.clone(),
@@ -391,12 +408,34 @@ mod tests {
     }
 
     #[test]
+    fn a_binary_whose_service_keeps_restarting_is_rolled_back() {
+        let (_dir, installed, me) = setup(b"flaky");
+        let fake = Fake {
+            running: RefCell::new(["a".to_string()].into()),
+            stop_fails: BTreeSet::new(),
+            broken: b"never".to_vec(),
+            flaky: b"flaky".to_vec(),
+            calls: RefCell::new(0),
+        };
+        let swap_one = Swap {
+            binary: installed.clone(),
+            users: vec![service("a", &installed)],
+            installed: "1.0.0".into(),
+        };
+        let err = swap(&fake, swap_one, &me, "9.9.9", &mut Vec::new()).unwrap_err();
+        assert!(err.message.contains("restored 1.0.0"), "{}", err.message);
+        assert_eq!(std::fs::read(&installed).unwrap(), b"old");
+    }
+
+    #[test]
     fn a_binary_that_does_not_start_is_rolled_back_and_the_services_run_again() {
         let (_dir, installed, me) = setup(b"broken");
         let fake = Fake {
             running: RefCell::new(["a".to_string()].into()),
             stop_fails: BTreeSet::new(),
             broken: b"broken".to_vec(),
+            flaky: b"never".to_vec(),
+            calls: RefCell::new(0),
         };
         let swap_one = Swap {
             binary: installed.clone(),
