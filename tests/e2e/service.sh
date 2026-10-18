@@ -157,6 +157,8 @@ for _ in $(seq 1 50); do sudo "$B" service logs burrow-e2e-visitor -n 20 | grep 
 sudo "$B" service logs burrow-e2e-visitor -n 20 | grep -q "config reloaded: nothing changed" || fail "the visitor did not reload in place: $(sudo "$B" service logs burrow-e2e-visitor -n 20)"
 check "visitor service reaches the private service"
 sudo "$B" service list | grep -c "running" | grep -q 3 || fail "list does not show all three services"
+out="$(sudo "$B" status burrow-e2e-client 2>&1)" && fail "status of a client service succeeded: $out"
+echo "$out" | grep -q "is a client service, and burrow status shows servers only" || fail "status of a client service: $out"
 check "status and list"
 
 echo "== the same tunnel cannot also run by hand"
@@ -176,6 +178,15 @@ echo "== reinstall replaces the running service in place"
 out="$(sudo "$B" service install -c e2e-server.yaml 2>&1)" || fail "reinstall: $out"
 running burrow-e2e-server || fail "not running after reinstall"
 check "reinstall"
+cp e2e-client.yaml with-variables.yaml
+sed -i.bak "s|secret: \${E2E_SECRET}|secret: $SECRET|" e2e-client.yaml
+out="$(sudo "$B" service install -c e2e-client.yaml 2>&1)" || fail "reinstall without variables: $out"
+sudo test -e /etc/burrow/e2e-client.env && fail "a reinstall without variables kept the old env file with the secret"
+running burrow-e2e-client || fail "client not running after reinstall without variables"
+mv with-variables.yaml e2e-client.yaml
+out="$(E2E_SECRET="$SECRET" sudo --preserve-env=E2E_SECRET "$B" service install -c e2e-client.yaml 2>&1)" || fail "reinstall with variables: $out"
+running burrow-e2e-client || fail "client not running after reinstall with variables"
+check "a reinstall releases what the previous install used and the new one does not"
 
 echo "== update: same version is left alone, --force replaces and restarts"
 out="$(sudo "$B" service update 2>&1)" || fail "update: $out"

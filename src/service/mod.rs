@@ -578,6 +578,9 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
     }
     save_manifest(&manifest)?;
     fresh.account = None;
+    if let Some(p) = &previous {
+        release_previous(&*backend, p, &manifest, out)?;
+    }
     say(
         out,
         format!(
@@ -648,6 +651,74 @@ impl Drop for StartAgain<'_> {
             let _ = self.backend.start(m);
         }
     }
+}
+
+fn release_previous(
+    backend: &dyn Backend,
+    old: &Manifest,
+    new: &Manifest,
+    out: &mut dyn Write,
+) -> Result<(), Failure> {
+    let others: Vec<Manifest> = all_manifests()
+        .into_iter()
+        .filter(|m| m.name != new.name)
+        .collect();
+    if let Some(env) = &old.env_file
+        && new.env_file.as_ref() != Some(env)
+        && std::fs::remove_file(env).is_ok()
+    {
+        say(
+            out,
+            format!(
+                "removed {}, which the service no longer uses",
+                env.display()
+            ),
+        )?;
+    }
+    if old.copied_binary
+        && (old.binary != new.binary || !new.copied_binary)
+        && !others
+            .iter()
+            .any(|o| o.copied_binary && o.binary == old.binary)
+        && std::fs::remove_file(&old.binary).is_ok()
+    {
+        let _ = std::fs::remove_file(old.binary.with_extension("previous"));
+        say(
+            out,
+            format!(
+                "removed {}, which the service no longer uses",
+                old.binary.display()
+            ),
+        )?;
+    }
+    if old.created_account && old.account != new.account {
+        match others.iter().find(|o| o.account == old.account) {
+            Some(heir) if !heir.created_account => {
+                save_manifest(&Manifest {
+                    created_account: true,
+                    ..heir.clone()
+                })?;
+            }
+            Some(_) => {}
+            None => match backend.remove_account(&old.account) {
+                Ok(()) => say(
+                    out,
+                    format!(
+                        "removed service account {}, which nothing uses any more",
+                        old.account
+                    ),
+                )?,
+                Err(f) => say(
+                    out,
+                    format!(
+                        "note: could not remove the old account {}: {}",
+                        old.account, f.message
+                    ),
+                )?,
+            },
+        }
+    }
+    Ok(())
 }
 
 fn grant_hint(account: &str, file: &Path) -> String {
@@ -854,18 +925,34 @@ pub fn uninstall(name: Option<&str>, purge: bool, out: &mut dyn Write) -> Result
                 .cloned(),
         );
     }
-    if m.copied_binary
-        && !others.iter().any(|o| o.binary == m.binary)
-        && std::fs::remove_file(&m.binary).is_ok()
-    {
-        let _ = std::fs::remove_file(m.binary.with_extension("previous"));
-        let _ = std::fs::remove_file(m.binary.with_extension("old"));
-        if cfg!(windows)
-            && let Some(dir) = m.binary.parent()
-        {
-            let _ = std::fs::remove_dir(dir);
+    if m.copied_binary && !others.iter().any(|o| o.binary == m.binary) {
+        match std::fs::remove_file(&m.binary) {
+            Ok(()) => {
+                let _ = std::fs::remove_file(m.binary.with_extension("previous"));
+                let _ = std::fs::remove_file(m.binary.with_extension("old"));
+                if cfg!(windows)
+                    && let Some(dir) = m.binary.parent()
+                {
+                    let _ = std::fs::remove_dir(dir);
+                }
+                say(out, format!("removed {}", m.binary.display()))?;
+            }
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+                let later = match m.binary.parent().filter(|_| cfg!(windows)) {
+                    Some(dir) => format!("Remove-Item -Recurse {}", crate::failure::path_arg(dir)),
+                    None => format!("sudo rm {}", crate::failure::path_arg(&m.binary)),
+                };
+                say(
+                    out,
+                    format!(
+                        "note: cannot remove {} ({}); delete it after this command ends: {later}",
+                        m.binary.display(),
+                        crate::failure::file_reason(&e)
+                    ),
+                )?;
+            }
+            Err(_) => {}
         }
-        say(out, format!("removed {}", m.binary.display()))?;
     }
     let heir = others
         .iter()
