@@ -25,7 +25,13 @@ pub fn bind_tcp(addr: SocketAddr) -> io::Result<TcpListener> {
     socket.listen(LISTEN_BACKLOG)
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(
+    target_os = "macos",
+    target_os = "freebsd",
+    target_os = "openbsd",
+    target_os = "netbsd",
+    target_os = "dragonfly"
+))]
 pub fn shadowed(addr: SocketAddr) -> io::Result<()> {
     use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
     if addr.port() == 0 {
@@ -54,7 +60,13 @@ pub fn shadowed(addr: SocketAddr) -> io::Result<()> {
     Ok(())
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(
+    target_os = "macos",
+    target_os = "freebsd",
+    target_os = "openbsd",
+    target_os = "netbsd",
+    target_os = "dragonfly"
+)))]
 pub fn shadowed(_addr: SocketAddr) -> io::Result<()> {
     Ok(())
 }
