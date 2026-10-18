@@ -57,6 +57,7 @@ pub struct Client {
     outage: Arc<Mutex<Outage>>,
     reloads: Option<mpsc::Receiver<ClientSettings>>,
     instance: [u8; crate::protocol::TOKEN_LEN],
+    welcomed: Arc<Mutex<Option<Instant>>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -112,6 +113,7 @@ impl Client {
                 getrandom::fill(&mut id).expect("operating system random source is available");
                 id
             },
+            welcomed: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -162,7 +164,6 @@ impl Client {
         let mut backoff = Backoff::new(first.reconnect_initial, first.reconnect_max);
         let mut rejected: Option<(Instant, u32)> = None;
         let end = loop {
-            let started = Instant::now();
             let end = {
                 let session = self.session();
                 tokio::pin!(session);
@@ -179,7 +180,8 @@ impl Client {
                 }
             };
             let s = self.live.settings();
-            if started.elapsed() > STABLE_AFTER {
+            let welcomed = self.welcomed.lock().expect("welcomed lock").take();
+            if welcomed.is_some_and(|t| t.elapsed() > STABLE_AFTER) {
                 backoff.reset();
             }
             let delay = backoff.next_delay();
@@ -344,6 +346,7 @@ impl Client {
                     return SessionEnd::Lost(format!("server {} did not answer in time", s.server));
                 }
             };
+        *self.welcomed.lock().expect("welcomed lock") = Some(Instant::now());
         let _ = self.state.send(State::Connected);
         match self
             .outage
@@ -365,7 +368,8 @@ impl Client {
             return SessionEnd::Lost(format!("connection to {} lost", s.server));
         }
         let opening = Arc::new(Semaphore::new(MAX_OPENING));
-        let _ended = CloseOnDrop(opening.clone());
+        let (ended, session_ended) = watch::channel(false);
+        let _ended = CloseOnDrop(opening.clone(), ended);
         let timeout = heartbeat * 3;
         loop {
             let msg = match tokio::time::timeout(timeout, reader.recv(&mut rd)).await {
@@ -403,7 +407,7 @@ impl Client {
                 }
                 ServerMsg::OpenData { count } => {
                     for _ in 0..count {
-                        self.spawn_data(token, opening.clone());
+                        self.spawn_data(token, opening.clone(), session_ended.clone());
                     }
                 }
                 ServerMsg::Services(list) => self.report_services(&list),
@@ -444,7 +448,12 @@ impl Client {
         }
     }
 
-    fn spawn_data(&self, token: [u8; TOKEN_LEN], opening: Arc<Semaphore>) {
+    fn spawn_data(
+        &self,
+        token: [u8; TOKEN_LEN],
+        opening: Arc<Semaphore>,
+        ended: watch::Receiver<bool>,
+    ) {
         let me = Client {
             live: self.live.clone(),
             resolver: self.resolver.clone(),
@@ -453,17 +462,23 @@ impl Client {
             outage: self.outage.clone(),
             reloads: None,
             instance: self.instance,
+            welcomed: self.welcomed.clone(),
         };
         let mut halted = self.halt.subscribe();
         tokio::spawn(async move {
             tokio::select! {
-                _ = me.data_channel(token, opening) => {}
+                _ = me.data_channel(token, opening, ended) => {}
                 _ = halted.wait_for(|h| *h) => {}
             }
         });
     }
 
-    async fn data_channel(&self, token: [u8; TOKEN_LEN], opening: Arc<Semaphore>) {
+    async fn data_channel(
+        &self,
+        token: [u8; TOKEN_LEN],
+        opening: Arc<Semaphore>,
+        ended: watch::Receiver<bool>,
+    ) {
         let started = Instant::now();
         let mut backoff = Backoff::new(Duration::from_millis(100), Duration::from_secs(1));
         loop {
@@ -478,7 +493,7 @@ impl Client {
             drop(permit);
             match ch {
                 Ok(ch) => {
-                    data::serve(self.live.clone(), self.resolver.clone(), ch).await;
+                    data::serve(self.live.clone(), self.resolver.clone(), ch, ended).await;
                     return;
                 }
                 Err(DialError::Rejected | DialError::Lost(_))
@@ -499,11 +514,12 @@ impl Client {
     }
 }
 
-struct CloseOnDrop(Arc<Semaphore>);
+struct CloseOnDrop(Arc<Semaphore>, watch::Sender<bool>);
 
 impl Drop for CloseOnDrop {
     fn drop(&mut self) {
         self.0.close();
+        self.1.send_replace(true);
     }
 }
 

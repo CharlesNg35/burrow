@@ -140,16 +140,27 @@ pub fn precheck(settings: &ClientSettings, svc: &ServiceInfo) {
     }
 }
 
-pub async fn serve(live: super::Live, resolver: Arc<dyn Resolver>, mut ch: Channel) {
+pub async fn serve(
+    live: super::Live,
+    resolver: Arc<dyn Resolver>,
+    mut ch: Channel,
+    mut ended: tokio::sync::watch::Receiver<bool>,
+) {
     let idle_limit = ch.stream.is_websocket().then_some(IDLE_CHANNEL_LIMIT);
     let first = loop {
         let next = ch.reader.recv(&mut ch.stream);
-        let rec = match idle_limit {
-            Some(limit) => match tokio::time::timeout(limit, next).await {
-                Ok(r) => r,
-                Err(_) => return,
+        let limited = async {
+            match idle_limit {
+                Some(limit) => tokio::time::timeout(limit, next).await.ok(),
+                None => Some(next.await),
+            }
+        };
+        let rec = tokio::select! {
+            r = limited => match r {
+                Some(r) => r,
+                None => return,
             },
-            None => next.await,
+            _ = ended.wait_for(|e| *e) => return,
         };
         match rec {
             Ok(Some([KEEPALIVE_RECORD])) => continue,

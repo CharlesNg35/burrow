@@ -183,3 +183,90 @@ async fn a_second_machine_with_the_same_name_does_not_take_over() {
     t.client.stop.send(true).unwrap();
     wait_state(&mut copy.state, State::Connected).await;
 }
+
+struct Freezer {
+    addr: SocketAddr,
+    frozen: Arc<std::sync::atomic::AtomicBool>,
+    stuck_open: Arc<std::sync::atomic::AtomicUsize>,
+}
+
+async fn freezer(to: SocketAddr) -> Freezer {
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = l.local_addr().unwrap();
+    let frozen = Arc::new(AtomicBool::new(false));
+    let stuck_open = Arc::new(AtomicUsize::new(0));
+    let (f, open) = (frozen.clone(), stuck_open.clone());
+    tokio::spawn(async move {
+        loop {
+            let Ok((mut down, _)) = l.accept().await else {
+                return;
+            };
+            let (f, open) = (f.clone(), open.clone());
+            tokio::spawn(async move {
+                let Ok(mut up) = tokio::net::TcpStream::connect(to).await else {
+                    return;
+                };
+                let mut a = vec![0u8; 65536];
+                let mut b = vec![0u8; 65536];
+                loop {
+                    if f.load(Ordering::SeqCst) {
+                        drop(up);
+                        open.fetch_add(1, Ordering::SeqCst);
+                        while !matches!(down.read(&mut a).await, Ok(0) | Err(_)) {}
+                        open.fetch_sub(1, Ordering::SeqCst);
+                        return;
+                    }
+                    tokio::select! {
+                        r = down.read(&mut a) => match r {
+                            Ok(0) | Err(_) => return,
+                            Ok(n) => if up.write_all(&a[..n]).await.is_err() { return },
+                        },
+                        r = up.read(&mut b) => match r {
+                            Ok(0) | Err(_) => return,
+                            Ok(n) => if down.write_all(&b[..n]).await.is_err() { return },
+                        },
+                        _ = tokio::time::sleep(Duration::from_millis(50)) => {}
+                    }
+                }
+            });
+        }
+    });
+    Freezer {
+        addr,
+        frozen,
+        stuck_open,
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn idle_data_channels_end_with_their_session_even_when_no_close_arrives() {
+    use std::sync::atomic::Ordering;
+    if ws_mode() {
+        return;
+    }
+    let secret = Secret::generate();
+    let server = start_server(server_settings(vec![secret.clone()])).await;
+    let f = freezer(server.addr).await;
+    let mut cli = start_client(client_settings(f.addr, secret)).await;
+    wait_state(&mut cli.state, State::Connected).await;
+    let shared = server.shared.clone();
+    wait_for(|| shared.idle_channels("home") >= 2).await;
+    f.frozen.store(true, Ordering::SeqCst);
+    wait_state(&mut cli.state, State::Connecting).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let stuck = f.stuck_open.load(Ordering::SeqCst);
+    assert!(stuck >= 1, "nothing was frozen");
+    let closed = tokio::time::timeout(Duration::from_secs(5), async {
+        while f.stuck_open.load(Ordering::SeqCst) > 0 {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await;
+    assert!(
+        closed.is_ok(),
+        "{} idle data channels of the ended session stayed open",
+        f.stuck_open.load(Ordering::SeqCst)
+    );
+}

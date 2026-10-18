@@ -378,7 +378,12 @@ mod tests {
 
     #[test]
     fn socket_rules_with_a_stray_slash_are_refused() {
-        for bad in ["unix:/run/app/", "unix:/run/app/*/", "unix:/run/app//*", "unix:/run//x.sock"] {
+        for bad in [
+            "unix:/run/app/",
+            "unix:/run/app/*/",
+            "unix:/run/app//*",
+            "unix:/run//x.sock",
+        ] {
             assert!(bad.parse::<Rule>().is_err(), "{bad}");
         }
         for good in ["unix:/run/app/*", "unix:/run/app/x.sock"] {
