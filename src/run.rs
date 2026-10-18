@@ -46,14 +46,14 @@ pub fn init_logging(l: &Logging) -> Result<(), Failure> {
             }
         }
         (None, true) => builder
-            .with_writer(std::io::stderr)
+            .with_writer(|| crate::failure::QuietStderr)
             .json()
             .flatten_event(true)
             .try_init(),
         (None, false) => {
             let color = Style::detect(std::io::stderr().is_terminal()).color;
             builder
-                .with_writer(std::io::stderr)
+                .with_writer(|| crate::failure::QuietStderr)
                 .with_ansi(color)
                 .try_init()
         }
@@ -108,7 +108,7 @@ fn load(path: &Path, role: Role, env: &Env, quiet: &[&str]) -> Result<Loaded, Fa
         });
     }
     if outcome.report.has_errors() {
-        eprint!("{}", outcome.report.render_text(style));
+        crate::say_err!("{}", outcome.report.render_text(style));
         return Err(config_failure(
             Failure::new(format!(
                 "{} has {} {}, not starting",
@@ -122,7 +122,7 @@ fn load(path: &Path, role: Role, env: &Env, quiet: &[&str]) -> Result<Loaded, Fa
             )),
         ));
     }
-    eprint!("{}", startup_report(&outcome.report, style));
+    crate::say_err!("{}", startup_report(&outcome.report, style));
     outcome
         .loaded
         .ok_or_else(|| Failure::new(format!("{} could not be loaded", path.display())))

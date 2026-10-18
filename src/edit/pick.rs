@@ -122,7 +122,7 @@ pub fn ask(found: &[Found], prompt: &mut dyn Prompter) -> Result<Found, Failure>
     let text = table(found);
     let style = crate::diagnostics::Style::detect(std::io::stderr().is_terminal());
     let (head, rows) = text.split_once('\n').unwrap_or((&text, ""));
-    eprint!("{}\n{rows}", style.paint("1", head));
+    crate::say_err!("{}\n{rows}", style.paint("1", head));
     for _ in 0..3 {
         let answer = prompt.ask(&format!("open which one? [1-{}]", found.len()));
         let Some(answer) = answer else {
@@ -130,7 +130,7 @@ pub fn ask(found: &[Found], prompt: &mut dyn Prompter) -> Result<Found, Failure>
         };
         match answer.parse::<usize>() {
             Ok(n) if (1..=found.len()).contains(&n) => return Ok(found[n - 1].clone()),
-            _ => eprintln!("type a number from 1 to {}", found.len()),
+            _ => crate::say_errln!("type a number from 1 to {}", found.len()),
         }
     }
     Err(none())

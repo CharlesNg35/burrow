@@ -183,7 +183,7 @@ fn edit(
             checked.report.diagnostics.extend(misfits);
         }
         if checked.report.error_count() + checked.report.warning_count() > 0 {
-            eprint!("{}", checked.report.render_text(style));
+            crate::say_err!("{}", checked.report.render_text(style));
         }
         if !checked.report.has_errors() {
             break text;

@@ -132,7 +132,7 @@ pub async fn follow<S: Watched>(
         };
         let style = Style::detect(std::io::stderr().is_terminal());
         if outcome.report.has_errors() {
-            eprint!("{}", outcome.report.render_text(style));
+            crate::say_err!("{}", outcome.report.render_text(style));
             error!(
                 "reload ({why}) rejected: {} has {} {}; keeping the current config",
                 path.display(),
@@ -162,7 +162,7 @@ pub async fn follow<S: Watched>(
             }
             continue;
         }
-        eprint!("{}", startup_report(&outcome.report, style));
+        crate::say_err!("{}", startup_report(&outcome.report, style));
         if S::ROLE == Role::Server {
             info!("reloading config ({why})");
         }

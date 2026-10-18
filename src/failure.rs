@@ -1,6 +1,39 @@
 use std::fmt;
+use std::io::Write;
 
 use crate::diagnostics::Style;
+
+#[macro_export]
+macro_rules! say_err {
+    ($($arg:tt)*) => {
+        $crate::failure::to_stderr(&format!($($arg)*))
+    };
+}
+
+#[macro_export]
+macro_rules! say_errln {
+    ($($arg:tt)*) => {
+        $crate::failure::to_stderr(&format!("{}\n", format_args!($($arg)*)))
+    };
+}
+
+pub fn to_stderr(text: &str) {
+    let _ = std::io::stderr().lock().write_all(text.as_bytes());
+}
+
+pub struct QuietStderr;
+
+impl Write for QuietStderr {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let _ = std::io::stderr().lock().write_all(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        let _ = std::io::stderr().flush();
+        Ok(())
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Failure {

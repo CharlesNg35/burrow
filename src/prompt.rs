@@ -36,7 +36,7 @@ pub struct TtyPrompt;
 
 impl TtyPrompt {
     fn read(question: &str) -> Option<String> {
-        eprint!("{question} ");
+        crate::say_err!("{question} ");
         let _ = std::io::stderr().flush();
         let mut line = String::new();
         match std::io::stdin().read_line(&mut line) {
@@ -71,7 +71,7 @@ impl Prompter for TtyPrompt {
             if let Some(answer) = decide(line.as_deref(), default) {
                 return answer;
             }
-            eprintln!("type y or n");
+            crate::say_errln!("type y or n");
         }
         false
     }

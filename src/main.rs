@@ -34,7 +34,7 @@ fn main() -> ExitCode {
     match run(cli) {
         Ok(code) => ExitCode::from(code),
         Err(f) => {
-            eprintln!("{}", f.render(err_style));
+            burrow::say_errln!("{}", f.render(err_style));
             ExitCode::from(f.exit)
         }
     }
@@ -110,12 +110,12 @@ fn export(
     match &args.output {
         Some(out) => {
             burrow::init::write_new(out, &r.text, args.force)?;
-            eprintln!("wrote {}; copy it to the {role} machine", out.display());
+            burrow::say_errln!("wrote {}; copy it to the {role} machine", out.display());
         }
         None => print(&r.text)?,
     }
     for n in r.notes {
-        eprintln!(
+        burrow::say_errln!(
             "{} {n}",
             if err_style.color {
                 "\x1b[1;33mnote:\x1b[0m"
@@ -142,7 +142,7 @@ fn visit_pick(args: burrow::cli::VisitArgs) -> Result<burrow::visitor::Pick, Fai
     };
     if let Some((l, n)) = local.filter(|(l, _)| l.ip().is_unspecified()) {
         let ports = burrow::config::check::ports::show(l.port(), n);
-        eprintln!(
+        burrow::say_errln!(
             "warning: --local {} listens on all interfaces: other machines on your network get this visitor's access (use --local {ports} for this machine only)",
             burrow::config::check::ports::show_addr(l, n)
         );
@@ -167,7 +167,7 @@ fn visit_pick(args: burrow::cli::VisitArgs) -> Result<burrow::visitor::Pick, Fai
             }
         };
         if local.ip().is_unspecified() {
-            eprintln!(
+            burrow::say_errln!(
                 "warning: --socks {local} listens on all interfaces: other machines on your network get this visitor's access (use --socks {} for this machine only)",
                 local.port()
             );

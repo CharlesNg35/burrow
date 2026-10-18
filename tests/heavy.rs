@@ -1,3 +1,5 @@
+#![allow(clippy::disallowed_macros)]
+
 mod common;
 
 use std::net::SocketAddr;

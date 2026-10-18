@@ -1,0 +1,4 @@
+disallowed-macros = [
+    { path = "std::eprint", reason = "a closed stderr would abort burrow; use say_err!" },
+    { path = "std::eprintln", reason = "a closed stderr would abort burrow; use say_errln!" },
+]

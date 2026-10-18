@@ -1,3 +1,5 @@
+#![allow(clippy::disallowed_macros)]
+
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};

@@ -332,7 +332,7 @@ fn check_config(path: &Path, env: &BTreeMap<String, String>) -> Result<Checked, 
         Failure::usage(m).hint(h)
     })?;
     if outcome.report.has_errors() {
-        eprint!("{}", outcome.report.render_text(Style::detect(false)));
+        crate::say_err!("{}", outcome.report.render_text(Style::detect(false)));
         return Err(
             Failure::new(format!("{} has errors, not installing", path.display())).hint(format!(
                 "fix them, then check with: {}",

@@ -285,7 +285,7 @@ pub fn acquire(identity: &Identity, config: &Path) -> Result<InstanceLock, Failu
     if let Err(f) = &taken
         && AS_SERVICE.load(std::sync::atomic::Ordering::Relaxed)
     {
-        eprintln!("warning: {}; a service starts anyway", f.message);
+        crate::say_errln!("warning: {}; a service starts anyway", f.message);
         return Ok(InstanceLock {
             _file: None,
             path: dir.join(format!("{}.lock", identity.key())),
@@ -325,7 +325,7 @@ pub fn acquire_in(dir: &Path, identity: &Identity, config: &Path) -> Result<Inst
     match file.try_lock() {
         Ok(()) => {}
         Err(TryLockError::WouldBlock) if !held_by_a_trusted_instance(&path) => {
-            eprintln!(
+            crate::say_errln!(
                 "warning: {} is locked by a process burrow does not trust (another user's, or one that left no note); starting anyway",
                 path.display()
             );
@@ -358,7 +358,7 @@ pub fn acquire_in(dir: &Path, identity: &Identity, config: &Path) -> Result<Inst
 }
 
 fn unlocked(entry: &Path, path: &Path) -> InstanceLock {
-    eprintln!(
+    crate::say_errln!(
         "warning: {} belongs to another user and cannot be used as a lock; starting without it",
         entry.display()
     );
