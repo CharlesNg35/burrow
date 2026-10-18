@@ -46,6 +46,15 @@ impl Identity {
 pub struct InstanceLock {
     _file: Option<File>,
     path: PathBuf,
+    noted: bool,
+}
+
+impl Drop for InstanceLock {
+    fn drop(&mut self) {
+        if self.noted {
+            let _ = std::fs::remove_file(self.path.with_extension("info"));
+        }
+    }
 }
 
 impl InstanceLock {
@@ -244,6 +253,7 @@ pub fn acquire(identity: &Identity, config: &Path) -> Result<InstanceLock, Failu
         return Ok(InstanceLock {
             _file: None,
             path: dir.join(format!("{}.lock", identity.key())),
+            noted: false,
         });
     }
     taken
@@ -286,6 +296,7 @@ pub fn acquire_in(dir: &Path, identity: &Identity, config: &Path) -> Result<Inst
             return Ok(InstanceLock {
                 _file: Some(file),
                 path,
+                noted: false,
             });
         }
         Err(TryLockError::WouldBlock) => {
@@ -321,12 +332,11 @@ pub fn acquire_in(dir: &Path, identity: &Identity, config: &Path) -> Result<Inst
         std::process::id(),
         crate::service::system::canonical_or_same(config).display()
     );
-    if writable {
-        write_note(&path.with_extension("info"), &note);
-    }
+    let noted = writable && write_note(&path.with_extension("info"), &note);
     Ok(InstanceLock {
         _file: Some(file),
         path,
+        noted,
     })
 }
 
@@ -338,6 +348,7 @@ fn unlocked(entry: &Path, path: &Path) -> InstanceLock {
     InstanceLock {
         _file: None,
         path: path.to_path_buf(),
+        noted: false,
     }
 }
 
@@ -411,17 +422,17 @@ fn open_shared(path: &Path) -> std::io::Result<(File, bool)> {
     }
 }
 
-fn write_note(path: &Path, note: &str) {
+fn write_note(path: &Path, note: &str) -> bool {
     let Ok((mut f, true)) = open_shared(path) else {
-        return;
+        return false;
     };
-    let _ = f.set_len(0);
-    let _ = f.write_all(note.as_bytes());
+    let written = f.set_len(0).is_ok() && f.write_all(note.as_bytes()).is_ok();
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         let _ = f.set_permissions(std::fs::Permissions::from_mode(0o644));
     }
+    written
 }
 
 pub struct Running {
@@ -639,6 +650,19 @@ mod tests {
         assert!(!planted(&mine));
         assert!(!planted(&dir.path().join("missing.lock")));
         assert!(!planted(Path::new("/")));
+    }
+
+    #[test]
+    fn a_released_lock_takes_its_note_away() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = dir.path().join("server.yaml");
+        std::fs::write(&cfg, "x").unwrap();
+        let id = Identity::server(&cfg);
+        let lock = acquire_in(dir.path(), &id, &cfg).unwrap();
+        let note = lock.path().with_extension("info");
+        assert!(note.exists());
+        drop(lock);
+        assert!(!note.exists());
     }
 
     #[test]
