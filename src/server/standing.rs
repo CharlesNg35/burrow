@@ -204,7 +204,7 @@ impl Shared {
                 "service \"{service}\": client \"{client}\" rejected the target {target} as invalid; new connections use the other clients until it reconnects"
             ),
             Change::Refused => warn!(
-                "service \"{service}\": client \"{client}\" refused {target} because it is not in its allow list; new connections use the other clients until it reconnects (add it to \"allow\" in the config of client \"{client}\")"
+                "service \"{service}\": client \"{client}\" refused {target} by its allow list or a check there; new connections use the other clients until it reconnects (the log of client \"{client}\" names the reason)"
             ),
             Change::SetAside(wait) => warn!(
                 "service \"{service}\": client \"{client}\" did not get through to {target} ({why}); new connections try the other clients first for {}s",

@@ -194,7 +194,7 @@ pub(super) fn log_status(label: &str, client: &str, target: &str, st: Status) {
     };
     match st {
         Status::Denied => warn!(
-            "{label}: client \"{client}\" refused {target} because it is not in its allow list (add it to \"allow\" in the client config){more}"
+            "{label}: client \"{client}\" refused {target}: it is not in its allow list (add it to \"allow\" in the client config) or failed a check there, which the client's log names{more}"
         ),
         Status::Unreachable => warn!(
             "{label}: client \"{client}\" could not connect to {target} (is it running and reachable from the client?){more}"
