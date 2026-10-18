@@ -220,7 +220,21 @@ pub(super) async fn visit(
     let started = tokio::time::Instant::now();
     let mut backoff = Backoff::new(Duration::from_millis(100), Duration::from_secs(1));
     let answer = loop {
-        let permit = opening.clone().acquire_owned().await;
+        let waiting = OPEN_PATIENCE + settings.connect_timeout;
+        let Ok(permit) = tokio::time::timeout(waiting, opening.clone().acquire_owned()).await
+        else {
+            if socks {
+                let _ = socks::reply(&mut stream, Reply::NetworkUnreachable).await;
+            }
+            static BUSY: Throttle = Throttle::new();
+            if let Some(more) = BUSY.allow() {
+                warn!(
+                    "forward \"{name}\": closing a connection that waited {}s for the server{more}",
+                    waiting.as_secs()
+                );
+            }
+            return;
+        };
         let ch = dialer
             .open(ChannelKind::Visit, Hello::Visit { version: VERSION })
             .await;
@@ -282,5 +296,38 @@ pub(super) async fn visit(
             warn!("forward \"{name}\": the server sent an invalid reply")
         }
         Err(ForwardError::Io(e)) => debug!(%peer, "forward \"{name}\": connection ended: {e}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn a_connection_does_not_wait_forever_for_a_free_dial_slot() {
+        use tokio::io::AsyncReadExt;
+        let settings = Arc::new(super::super::tests::settings());
+        let dialer = Arc::new(Dialer::visitor(&settings));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let mut local = TcpStream::connect(listener.local_addr().unwrap())
+            .await
+            .unwrap();
+        let (stream, peer) = listener.accept().await.unwrap();
+        let conn = Incoming {
+            name: "db".into(),
+            to: VisitTarget::service("db"),
+            socks: false,
+            stream,
+            peer,
+        };
+        let full = Arc::new(Semaphore::new(0));
+        tokio::time::timeout(
+            OPEN_PATIENCE + settings.connect_timeout + Duration::from_secs(3),
+            visit(dialer, settings, full, conn),
+        )
+        .await
+        .expect("the connection gives up waiting");
+        let mut buf = [0u8; 1];
+        assert_eq!(local.read(&mut buf).await.unwrap(), 0);
     }
 }

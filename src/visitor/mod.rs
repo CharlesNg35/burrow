@@ -480,7 +480,7 @@ async fn next_reload(reloads: &mut Option<mpsc::Receiver<VisitorSettings>>) -> V
 mod tests {
     use super::*;
 
-    fn settings() -> VisitorSettings {
+    pub(super) fn settings() -> VisitorSettings {
         let forward = |port: u16, to: VisitTarget| {
             Forward::single(SocketAddr::from(([127, 0, 0, 1], port)), to)
         };
