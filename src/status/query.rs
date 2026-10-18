@@ -207,7 +207,20 @@ fn wanted(pick: &Pick) -> Result<Option<PathBuf>, Failure> {
     Ok(match pick {
         Pick::All => None,
         Pick::Config(p) => Some(canonical(p)),
-        Pick::Service(name) => Some(canonical(&crate::service::resolve(Some(name))?.config)),
+        Pick::Service(name) => {
+            let m = crate::service::resolve(Some(name))?;
+            if m.role != "server" {
+                return Err(Failure::usage(format!(
+                    "{} is a {} service, and burrow status shows servers only",
+                    m.name, m.role
+                ))
+                .hint(format!(
+                    "see it with: {}",
+                    crate::failure::admin(&format!("service status {}", m.name))
+                )));
+            }
+            Some(canonical(&m.config))
+        }
     })
 }
 
