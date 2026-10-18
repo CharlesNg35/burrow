@@ -131,7 +131,7 @@ echo "$out" | grep -q "belong to another user" || fail "unprivileged burrow stat
 check "burrow status reads the installed server"
 
 running burrow-e2e-server || fail "server not running"
-LOG="$(sudo "$B" service status burrow-e2e-server | awk '/logs:/ {print $2}')"
+LOG="$(sudo "$B" service status burrow-e2e-server | sed -n 's/^ *logs: *//p' | head -1)"
 sudo test -f "$LOG" || fail "no log file at $LOG"
 case "$(uname)" in
   Darwin) perms="$(sudo stat -f '%Lp %Su' "$LOG")" ;;
@@ -286,7 +286,7 @@ cp "$B" "$WORK/burrow"
 out="$(sudo env BURROW_UPDATE_URL="$MIRROR" "$WORK/burrow" update --force 2>&1)" || fail "update: $out"
 echo "$out"
 echo "$out" | grep -q "restarted burrow-e2e-client, burrow-e2e-server, burrow-e2e-visitor" || fail "update did not restart the services: $out"
-INSTALLED="$(sudo "$B" service status burrow-e2e-server | awk '/binary:/ {print $2}')"
+INSTALLED="$(sudo "$B" service status burrow-e2e-server | sed -n 's/^ *binary: *\(.*\) (.*/\1/p' | head -1)"
 sudo cmp -s "$INSTALLED" "$REL/download/v$V/$PKG/burrow" || fail "the services do not run the downloaded binary"
 cmp -s "$WORK/burrow" "$REL/download/v$V/$PKG/burrow" || fail "update did not replace its own binary"
 for _ in $(seq 1 100); do "$LOADGEN" latency --addr 127.0.0.1:27940 --count 10 >/dev/null 2>&1 && break; sleep 0.2; done
@@ -296,7 +296,7 @@ ls -a "$WORK" | grep -q burrow-update && fail "burrow update left its download f
 check "burrow update replaced the installed binary and restarted every service"
 
 echo "== a broken config is explained in status and logs"
-CFG="$(sudo "$B" service status burrow-e2e-client | awk '/config:/ {print $2}')"
+CFG="$(sudo "$B" service status burrow-e2e-client | sed -n 's/^ *config: *//p' | sed 's/  (missing!)$//' | head -1)"
 sudo cp "$CFG" "$WORK/good.yaml"
 echo "bogus_field: 1" | sudo tee -a "$CFG" >/dev/null
 sudo "$B" service restart burrow-e2e-client >/dev/null 2>&1 || true
