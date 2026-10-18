@@ -1202,7 +1202,7 @@ mod tests {
             "{udp}"
         );
         if !cfg!(windows) {
-            assert_ne!(hint, udp, "ss and lsof take a protocol flag");
+            assert_ne!(hint, udp, "ss, sockstat and lsof take a protocol flag");
         }
     }
 }

@@ -39,16 +39,19 @@ pub fn check_free(proto: Protocol, addr: SocketAddr, label: &str) -> Result<(), 
 pub(crate) fn inspect_hint(proto: Protocol, port: u16) -> String {
     if cfg!(windows) {
         format!("netstat -ano | findstr :{port}")
-    } else if cfg!(target_os = "macos") {
-        let flag = if proto == Protocol::Udp { "UDP" } else { "TCP" };
-        format!("sudo lsof -nP -i{flag}:{port}")
-    } else {
+    } else if cfg!(target_os = "linux") {
         let flag = if proto == Protocol::Udp {
             "-lunp"
         } else {
             "-ltnp"
         };
         format!("sudo ss {flag} 'sport = :{port}'")
+    } else if cfg!(target_os = "freebsd") {
+        let flag = if proto == Protocol::Udp { "udp" } else { "tcp" };
+        format!("sudo sockstat -46 -l -P {flag} -p {port}")
+    } else {
+        let flag = if proto == Protocol::Udp { "UDP" } else { "TCP" };
+        format!("sudo lsof -nP -i{flag}:{port}")
     }
 }
 
