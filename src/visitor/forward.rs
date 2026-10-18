@@ -91,6 +91,9 @@ fn explain(status: Status, to: &VisitTarget, visitor: &str) -> String {
         (Status::Busy, _) => {
             "the server is at a connection limit for this visitor, service or client".into()
         }
+        (Status::Denied, VisitTarget::Client { .. }) => format!(
+            "the client refused {goal}: it is not in the client's allow list, or not in the reach the server gives visitor \"{visitor}\""
+        ),
         (Status::Denied, _) => {
             format!("the client refused {goal}: its target is not in the client's allow list")
         }

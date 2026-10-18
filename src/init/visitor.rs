@@ -131,9 +131,10 @@ fn update_visitor(
             .iter()
             .filter(|(k, _)| !planned.added.contains(k))
             .filter(|(k, _)| {
-                notes
-                    .get(k.as_str())
-                    .is_some_and(|n| !text.contains(&format!("# {n}")))
+                notes.get(k.as_str()).is_some_and(|n| {
+                    let line = format!("# {n}");
+                    !text.lines().any(|l| l.trim() == line)
+                })
             })
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect(),

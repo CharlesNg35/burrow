@@ -42,7 +42,7 @@ pub fn apply(after: After, out: &mut dyn Write) -> Result<(), Failure> {
             say(
                 out,
                 format!(
-                    "the {} applies it by itself and keeps its current config if it finds a problem; open connections keep running",
+                    "the {} applies it by itself and keeps its current config if it finds a problem; open connections keep running unless the change takes away their access",
                     role.as_str()
                 ),
             )?;

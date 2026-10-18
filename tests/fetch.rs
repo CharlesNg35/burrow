@@ -356,3 +356,30 @@ async fn narrowed_reach_is_written_as_the_visitors_own_rules_and_hides_the_allow
     let again = w.burrow(&["init", "visitor", "--update", "--yes"]);
     assert!(text(&again).contains("is up to date"), "{}", text(&again));
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_note_that_shrank_to_a_prefix_of_the_old_one_is_still_updated() {
+    let w = World::start(true).await;
+    assert!(w.new_config("visitor.yaml").status.success());
+    let rules = |r: &str| {
+        let mut next = w.settings.clone();
+        next.visitors.get_mut("laptop").unwrap().reach = [(
+            "home".to_string(),
+            AllowList::Rules(vec![r.parse().unwrap()]),
+        )]
+        .into();
+        next
+    };
+    for r in ["127.0.0.0/8:2200-2210", "127.0.0.0/8:2200"] {
+        w.server.reload(rules(r)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        let out = w.burrow(&["init", "visitor", "--update", "--yes"]);
+        assert!(out.status.success(), "{}", text(&out));
+        let yaml = read(&w.path("visitor.yaml"));
+        assert!(
+            yaml.contains(&format!("  # client home lets you reach {r}\n  home:\n")),
+            "{r}: {}\n{yaml}",
+            text(&out)
+        );
+    }
+}
