@@ -133,6 +133,9 @@ pub async fn udp_service(
         let ch = match tokio::time::timeout(Duration::from_secs(10), session.take()).await {
             Ok(Ok(ch)) => ch,
             Ok(Err(TakeError::TooManyPending)) | Ok(Err(TakeError::Closed)) | Err(_) => {
+                if svc.clients.len() > 1 {
+                    shared.troubled(&name, &session, &target, &crate::forward::no_reply());
+                }
                 tokio::time::sleep(Duration::from_millis(500)).await;
                 continue;
             }
@@ -273,6 +276,7 @@ async fn relay(
     let mut buf = vec![0u8; 65536];
     let mut rec = Vec::with_capacity(65536);
     let mut stop = shared.shutdown.clone();
+    let stall = shared.settings().heartbeat_interval * 3;
     loop {
         tokio::select! {
             r = socket.recv_from(&mut buf) => {
@@ -310,8 +314,27 @@ async fn relay(
                     continue;
                 };
                 encode_datagram(id, &buf[..n], &mut rec);
-                if writer.send(&mut wr, &rec).await.is_err() {
-                    break Err(None);
+                let sent = tokio::select! {
+                    r = tokio::time::timeout(stall, writer.send(&mut wr, &rec)) => r,
+                    _ = session.closed() => break Err(None),
+                };
+                match sent {
+                    Ok(Ok(())) => {}
+                    Ok(Err(_)) => break Err(None),
+                    Err(_) => {
+                        static STALLED: crate::throttle::Throttle = crate::throttle::Throttle::new();
+                        if let Some(more) = STALLED.allow() {
+                            warn!(
+                                "service \"{name}\": client \"{}\" stopped reading its UDP relay for {}s; trying again{more}",
+                                session.name,
+                                stall.as_secs()
+                            );
+                        }
+                        if svc.clients.len() > 1 {
+                            shared.troubled(name, session, target, &crate::forward::no_reply());
+                        }
+                        break Err(None);
+                    }
                 }
             }
             _ = sweep.tick() => {

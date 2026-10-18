@@ -959,3 +959,160 @@ async fn a_reconnecting_client_with_a_dead_target_does_not_take_traffic_back() {
     );
     drop((a, b));
 }
+
+async fn deaf_client(
+    server: SocketAddr,
+    name: &str,
+    secret: Secret,
+    channels: usize,
+) -> JoinHandle<()> {
+    use burrow::protocol::{ChannelKind, ClientMsg, Hello, Preamble, ServerMsg, Status};
+    let pre = |kind| Preamble {
+        kind,
+        cipher: burrow::config::model::Cipher::Chachapoly,
+        plaintext: false,
+        name: name.to_string(),
+    };
+    let s = TcpStream::connect(server).await.unwrap();
+    let mut control = burrow::handshake::initiate(
+        s.into(),
+        &pre(ChannelKind::Control),
+        &secret,
+        &Hello::Control {
+            version: 1,
+            instance: [3; 16],
+        },
+    )
+    .await
+    .unwrap();
+    let token = loop {
+        let rec = control
+            .reader
+            .recv(&mut control.stream)
+            .await
+            .unwrap()
+            .unwrap();
+        if let Ok(ServerMsg::Welcome { token, .. }) = ServerMsg::decode(rec) {
+            break token;
+        }
+    };
+    let mut held = Vec::new();
+    for _ in 0..channels {
+        let s = TcpStream::connect(server).await.unwrap();
+        let ch = burrow::handshake::initiate(
+            s.into(),
+            &pre(ChannelKind::Data),
+            &secret,
+            &Hello::Data { version: 1, token },
+        )
+        .await
+        .unwrap();
+        held.push(tokio::spawn(async move {
+            let mut ch = ch;
+            if ch
+                .reader
+                .recv(&mut ch.stream)
+                .await
+                .ok()
+                .flatten()
+                .is_some()
+            {
+                let _ = ch.writer.send(&mut ch.stream, &[Status::Ok as u8]).await;
+            }
+            std::future::pending::<()>().await;
+            drop(ch);
+        }));
+    }
+    tokio::spawn(async move {
+        let _held = held;
+        while let Ok(Some(rec)) = control.reader.recv(&mut control.stream).await {
+            if matches!(ServerMsg::decode(rec), Ok(ServerMsg::Ping)) {
+                let pong = ClientMsg::Pong.encode();
+                if control
+                    .writer
+                    .send(&mut control.stream, &pong)
+                    .await
+                    .is_err()
+                {
+                    return;
+                }
+            }
+        }
+    })
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_udp_service_moves_away_from_a_client_that_stops_reading() {
+    if ws_mode() {
+        return;
+    }
+    let dns = Service {
+        clients: vec!["a".into(), "b".into()],
+        target: TARGET.into(),
+        ..service(tagged_udp_echo(b'A').await, Protocol::Udp)
+    };
+    let mut farm = Farm::start(dns, |_| {}).await;
+    farm.disconnect(0).await;
+    farm.disconnect(1).await;
+    farm.sites[1].target = tagged_udp_echo(b'B').await;
+    let _deaf = deaf_client(farm.server.addr, "a", farm.sites[0].secret.clone(), 4).await;
+    let shared = farm.server.shared.clone();
+    wait_for(|| shared.idle_channels("a") >= 1).await;
+    let web = farm.server.services["web"];
+    let flood = tokio::spawn(async move {
+        let s = udp_bind().await;
+        s.connect(web).await.unwrap();
+        let data = vec![7u8; 60_000];
+        let until = std::time::Instant::now() + Duration::from_secs(4);
+        while std::time::Instant::now() < until {
+            let _ = s.send(&data).await;
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+    });
+    farm.connect(1).await;
+    let s = udp_bind().await;
+    s.connect(web).await.unwrap();
+    let started = std::time::Instant::now();
+    let mut tag = None;
+    while started.elapsed() < Duration::from_secs(12) && tag != Some(b'B') {
+        tag = udp_tag(&s).await;
+    }
+    flood.abort();
+    assert_eq!(
+        tag,
+        Some(b'B'),
+        "the relay stayed on the client that stopped reading"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_udp_service_moves_away_from_a_client_that_gives_no_data_channel() {
+    if ws_mode() {
+        return;
+    }
+    let dns = Service {
+        clients: vec!["a".into(), "b".into()],
+        target: TARGET.into(),
+        ..service(tagged_udp_echo(b'A').await, Protocol::Udp)
+    };
+    let mut farm = Farm::start(dns, |_| {}).await;
+    farm.disconnect(0).await;
+    farm.disconnect(1).await;
+    farm.sites[1].target = tagged_udp_echo(b'B').await;
+    let _deaf = deaf_client(farm.server.addr, "a", farm.sites[0].secret.clone(), 0).await;
+    let shared = farm.server.shared.clone();
+    wait_for(|| shared.session_names().contains(&"a".to_string())).await;
+    farm.connect(1).await;
+    let s = udp_bind().await;
+    s.connect(farm.server.services["web"]).await.unwrap();
+    let started = std::time::Instant::now();
+    let mut tag = None;
+    while started.elapsed() < Duration::from_secs(20) && tag != Some(b'B') {
+        tag = udp_tag(&s).await;
+    }
+    assert_eq!(
+        tag,
+        Some(b'B'),
+        "the relay kept waiting for a data channel of client a"
+    );
+}
