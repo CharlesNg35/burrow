@@ -306,8 +306,7 @@ fn unlocked(entry: &Path, path: &Path) -> InstanceLock {
 #[cfg(unix)]
 fn planted(entry: &Path) -> bool {
     use std::os::unix::fs::MetadataExt;
-    let me = rustix::process::geteuid().as_raw();
-    std::fs::symlink_metadata(entry).is_ok_and(|m| m.uid() != 0 && m.uid() != me)
+    std::fs::symlink_metadata(entry).is_ok_and(|m| !trusted_owner(m.uid()))
 }
 
 #[cfg(not(unix))]
@@ -426,9 +425,18 @@ fn parse_note(text: &str) -> Option<Running> {
 fn trusted_note(path: &Path) -> Option<u32> {
     use std::os::unix::fs::MetadataExt;
     let m = std::fs::symlink_metadata(path).ok()?;
-    let me = rustix::process::geteuid().as_raw();
-    (m.is_file() && m.len() <= 4096 && m.mode() & 0o022 == 0 && (m.uid() == 0 || m.uid() == me))
+    (m.is_file() && m.len() <= 4096 && m.mode() & 0o022 == 0 && trusted_owner(m.uid()))
         .then_some(m.uid())
+}
+
+#[cfg(unix)]
+fn trusted_owner(uid: u32) -> bool {
+    let me = rustix::process::geteuid().as_raw();
+    uid == 0
+        || uid == me
+        || crate::service::all_manifests().iter().any(|m| {
+            crate::service::system::account_ids(&m.account).is_ok_and(|(id, _)| id == uid)
+        })
 }
 
 #[cfg(not(unix))]
