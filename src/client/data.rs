@@ -58,6 +58,8 @@ async fn connected_socket(target: SocketAddr) -> std::io::Result<Arc<UdpSocket>>
     Ok(Arc::new(sock))
 }
 
+const MAX_REPLY: usize = crate::noise::MAX_PLAINTEXT - 4;
+
 thread_local! {
     static RECEIVE: std::cell::RefCell<Vec<u8>> = std::cell::RefCell::new(vec![0u8; 65536]);
 }
@@ -85,6 +87,17 @@ async fn peer_replies(
                 let Some(datagram) = receive(&sock) else {
                     continue;
                 };
+                if datagram.len() > MAX_REPLY {
+                    static LARGE: Throttle = Throttle::new();
+                    if let Some(more) = LARGE.allow() {
+                        warn!(
+                            "UDP reply of {} bytes from {} dropped: the tunnel carries at most {MAX_REPLY} bytes per datagram{more}",
+                            datagram.len(),
+                            sock.peer_addr().map_or_else(|_| "the target".to_string(), |a| a.to_string())
+                        );
+                    }
+                    continue;
+                }
                 seen.store(epoch.elapsed().as_millis() as u64, Ordering::Relaxed);
                 if tx.send((id, datagram)).await.is_err() {
                     break;
