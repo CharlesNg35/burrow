@@ -134,12 +134,25 @@ pub fn write_private(path: &Path, text: &str) -> std::io::Result<()> {
     {
         use std::os::unix::fs::OpenOptionsExt;
         opts.mode(0o600).custom_flags(libc::O_NOFOLLOW);
+        opts.open(path)?.write_all(text.as_bytes())
     }
-    let mut f = opts.open(path)?;
-    f.write_all(text.as_bytes())?;
     #[cfg(windows)]
-    restrict_on_windows(path);
-    Ok(())
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        let draft = path.with_extension("new");
+        let _ = std::fs::remove_file(&draft);
+        let mut f = opts.share_mode(0).open(&draft)?;
+        restrict_on_windows(&draft);
+        let written = f.write_all(text.as_bytes());
+        drop(f);
+        written
+            .and_then(|()| std::fs::rename(&draft, path))
+            .inspect_err(|_| {
+                let _ = std::fs::remove_file(&draft);
+            })
+    }
+    #[cfg(not(any(unix, windows)))]
+    opts.open(path)?.write_all(text.as_bytes())
 }
 
 #[cfg(windows)]
@@ -514,7 +527,7 @@ fn runs_as(_pid: u32, _owner: u32) -> bool {
 }
 
 #[cfg(unix)]
-fn alive(pid: u32) -> bool {
+pub(crate) fn alive(pid: u32) -> bool {
     let Ok(pid) = i32::try_from(pid) else {
         return false;
     };
@@ -590,6 +603,31 @@ mod tests {
         assert_eq!(found[0].pid, std::process::id());
         assert!(found[0].config.ends_with("client.yaml"));
         drop(lock);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_private_file_is_locked_down_before_it_holds_anything() {
+        let dir = tempfile::tempdir().unwrap();
+        let shared = std::process::Command::new("icacls")
+            .arg(dir.path())
+            .args(["/grant", "*S-1-5-32-545:(OI)(CI)M"])
+            .output()
+            .unwrap();
+        assert!(shared.status.success());
+        let path = dir.path().join("1.status");
+        write_private(&path, "token").unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "token");
+        let acl = std::process::Command::new("icacls")
+            .arg(&path)
+            .output()
+            .unwrap();
+        let acl = String::from_utf8_lossy(&acl.stdout).to_string();
+        assert!(
+            !acl.contains("S-1-5-32-545") && !acl.contains("BUILTIN\\Users"),
+            "{acl}"
+        );
+        assert!(!path.with_extension("new").exists());
     }
 
     #[cfg(unix)]

@@ -148,7 +148,10 @@ fn alive(pid: u32) -> Option<bool> {
             .filter(|o| o.status.success())?;
         return Some(String::from_utf8_lossy(&out.stdout).contains(&format!("\"{pid}\"")));
     }
-    cfg!(target_os = "linux").then(|| Path::new(&format!("/proc/{pid}")).exists())
+    #[cfg(unix)]
+    return Some(crate::instance::alive(pid));
+    #[cfg(not(unix))]
+    None
 }
 
 fn read_entry(path: &Path) -> Seen {
@@ -466,5 +469,19 @@ pub fn run_in(dir: &Path, opts: Options, out: &mut dyn Write) -> Result<u8, Fail
             out,
             &format!("{}\n", show(&follow.last, follow.rates.as_ref())),
         )?;
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_finished_process_is_known_dead_on_every_unix() {
+        assert_eq!(alive(std::process::id()), Some(true));
+        let mut child = std::process::Command::new("true").spawn().unwrap();
+        let pid = child.id();
+        child.wait().unwrap();
+        assert_eq!(alive(pid), Some(false));
     }
 }
