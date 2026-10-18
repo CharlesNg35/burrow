@@ -166,6 +166,11 @@ pub fn parse_host_port(s: &str) -> Result<(String, u16), String> {
         let p = tail
             .strip_prefix(':')
             .ok_or_else(|| format!("\"{s}\" is missing a port"))?;
+        if h.parse::<std::net::Ipv6Addr>().is_err() {
+            return Err(format!(
+                "only an IPv6 address goes in brackets; write {h}:{p} instead of \"{s}\""
+            ));
+        }
         (h, p)
     } else {
         match s.rsplit_once(':') {
@@ -284,6 +289,8 @@ mod tests {
         assert!(parse_host_port("h:0").is_err());
         assert!(parse_host_port("h:99999").is_err());
         assert!(parse_host_port("bad host:1").is_err());
+        assert!(parse_host_port("[127.0.0.1]:80").is_err());
+        assert!(parse_host_port("[localhost]:80").is_err());
     }
 
     #[test]
