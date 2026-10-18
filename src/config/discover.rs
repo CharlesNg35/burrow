@@ -28,6 +28,10 @@ pub fn in_folder(dir: &Path) -> Vec<(PathBuf, Role)> {
 }
 
 pub fn discover(dir: &Path, role: Option<Role>) -> Result<PathBuf, Failure> {
+    discover_with(dir, role, "-c")
+}
+
+pub fn discover_with(dir: &Path, role: Option<Role>, flag: &str) -> Result<PathBuf, Failure> {
     let roles = match role {
         Some(r) => vec![r],
         None => vec![Role::Server, Role::Client, Role::Visitor],
@@ -53,13 +57,13 @@ pub fn discover(dir: &Path, role: Option<Role>) -> Result<PathBuf, Failure> {
             });
             let hint = match other {
                 Some((o, file)) => format!(
-                    "{file} here is a {} config, run it with: {cmd} {}; otherwise pass -c FILE, or create one with: {cmd} init {init}",
+                    "{file} here is a {} config, run it with: {cmd} {}; otherwise pass {flag} FILE, or create one with: {cmd} init {init}",
                     o.as_str(),
                     o.command(),
                     cmd = crate::failure::command()
                 ),
                 None => format!(
-                    "pass -c FILE, or create one with: {} init {init}",
+                    "pass {flag} FILE, or create one with: {} init {init}",
                     crate::failure::command()
                 ),
             };
@@ -71,7 +75,7 @@ pub fn discover(dir: &Path, role: Option<Role>) -> Result<PathBuf, Failure> {
             dir.display()
         ))
         .hint(format!(
-            "pass the one you mean, for example: -c {}",
+            "pass the one you mean, for example: {flag} {}",
             shown(&many[0])
         ))),
     }

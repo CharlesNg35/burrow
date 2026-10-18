@@ -108,7 +108,7 @@ fn update_visitor(
 ) -> Result<PathBuf, Failure> {
     let given = match &opts.output {
         Some(p) => p.clone(),
-        None => crate::config::discover::discover(Path::new("."), Some(Role::Visitor))?,
+        None => crate::config::discover::discover_with(Path::new("."), Some(Role::Visitor), "-o")?,
     };
     let path = crate::service::system::canonical_or_same(&given);
     let format = Format::from_path(&path).ok_or_else(|| {
