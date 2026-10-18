@@ -1156,3 +1156,52 @@ async fn a_udp_service_moves_away_from_a_client_that_gives_no_data_channel() {
         "the relay kept waiting for a data channel of client a"
     );
 }
+
+#[cfg(target_os = "linux")]
+fn sockets_to(port: u16) -> usize {
+    let ours: std::collections::HashSet<String> = std::fs::read_dir("/proc/self/fd")
+        .unwrap()
+        .filter_map(|e| std::fs::read_link(e.ok()?.path()).ok())
+        .filter_map(|l| {
+            let l = l.to_string_lossy().to_string();
+            Some(l.strip_prefix("socket:[")?.strip_suffix(']')?.to_string())
+        })
+        .collect();
+    ["/proc/self/net/tcp", "/proc/self/net/tcp6"]
+        .iter()
+        .filter_map(|p| std::fs::read_to_string(p).ok())
+        .flat_map(|t| t.lines().skip(1).map(str::to_string).collect::<Vec<_>>())
+        .filter(|line| {
+            let f: Vec<&str> = line.split_whitespace().collect();
+            let remote = f.get(2).and_then(|a| a.rsplit(':').next());
+            remote.and_then(|p| u16::from_str_radix(p, 16).ok()) == Some(port)
+                && f.get(9).is_some_and(|i| ours.contains(*i))
+        })
+        .count()
+}
+
+#[cfg(target_os = "linux")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_health_probe_given_up_in_plaintext_leaves_no_target_connection_behind() {
+    let mut farm = Farm::start(web(Mode::Failover, quick_health()), |s| {
+        s.insecure_plaintext = true
+    })
+    .await;
+    farm.stop_target(0).await;
+    let target = farm.sites[0].target;
+    let silent = TcpListener::bind(target).await.unwrap();
+    let held = tokio::spawn(async move {
+        let mut kept = Vec::new();
+        while let Ok((s, _)) = silent.accept().await {
+            kept.push(s);
+        }
+    });
+    farm.connect_slow(0).await;
+    tokio::time::sleep(Duration::from_secs(9)).await;
+    let left = sockets_to(target.port());
+    held.abort();
+    assert_eq!(
+        left, 0,
+        "the client still holds target connections for probes the server gave up"
+    );
+}

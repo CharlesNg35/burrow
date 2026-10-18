@@ -122,6 +122,11 @@ async fn probe(shared: &Shared, service: &str, client: &str, target: &str) -> Re
         .take()
         .await
         .map_err(|_| "the client has no free data channel".to_string())?;
+    let settings = shared.settings();
+    let raw = settings.insecure_plaintext && ch.stream.supports_half_close();
+    if raw {
+        ch.stream.reset_on_close();
+    }
     let connect = Connect {
         protocol: Protocol::Tcp,
         service: service.to_string(),
@@ -132,8 +137,6 @@ async fn probe(shared: &Shared, service: &str, client: &str, target: &str) -> Re
         .send(&mut ch.stream, &connect.encode())
         .await
         .map_err(|e| format!("cannot reach the client: {e}"))?;
-    let settings = shared.settings();
-    let raw = settings.insecure_plaintext && ch.stream.supports_half_close();
     if let Some(version) = settings
         .services
         .get(service)
@@ -151,9 +154,7 @@ async fn probe(shared: &Shared, service: &str, client: &str, target: &str) -> Re
         Ok(Some(b)) => Status::decode(b).map_err(|_| "invalid reply".to_string())?,
         _ => return Err("the client closed the check".into()),
     };
-    if raw {
-        ch.stream.reset_on_close();
-    } else {
+    if !raw {
         let _ = ch.writer.send(&mut ch.stream, &[]).await;
         let _ = ch.stream.flush().await;
         let _ = ch.stream.finish().await;
