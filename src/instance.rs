@@ -474,8 +474,19 @@ fn held_elsewhere(dir: &Path, identity: &Identity) -> Option<Failure> {
 }
 
 fn held_by_a_trusted_instance(lock: &Path) -> bool {
-    trusted_note(&lock.with_extension("info")).is_some()
+    let deadline = std::time::Instant::now() + NOTE_PATIENCE;
+    loop {
+        if trusted_note(&lock.with_extension("info")).is_some() {
+            return true;
+        }
+        if std::time::Instant::now() >= deadline {
+            return false;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    }
 }
+
+const NOTE_PATIENCE: std::time::Duration = std::time::Duration::from_secs(1);
 
 fn no_follow(o: &mut OpenOptions) -> &mut OpenOptions {
     #[cfg(unix)]
@@ -786,6 +797,34 @@ mod tests {
             !held_path.exists()
         }));
         assert!(!dir.path().exists(), "an empty folder is removed");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_second_start_waits_for_the_note_of_one_that_just_took_the_lock() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = dir.path().join("client.yaml");
+        let id = Identity::client("example.com", "home");
+        let lock = dir.path().join(format!("{}.lock", id.key()));
+        let (held, _) = open_shared(&lock).unwrap();
+        held.try_lock().unwrap();
+        let info = lock.with_extension("info");
+        let note = format!(
+            "pid {}, config {}",
+            std::process::id(),
+            crate::service::system::canonical_or_same(&cfg).display()
+        );
+        let writer = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            assert!(write_note(&info, &note));
+        });
+        let second = acquire_in(dir.path(), &id, &cfg).err().unwrap();
+        writer.join().unwrap();
+        assert!(
+            second.message.contains("already running"),
+            "{}",
+            second.message
+        );
     }
 
     #[cfg(unix)]
