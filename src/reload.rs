@@ -81,8 +81,8 @@ pub async fn follow<S: Watched>(
     tx: mpsc::Sender<S>,
 ) {
     let (trig_tx, mut trig) = mpsc::channel::<&'static str>(16);
-    let mut watched = watched_dirs(&current.files(&path));
-    let mut watcher = watch_files(&watched, &current.files(&path), trig_tx.clone());
+    let dirs = watched_dirs(&current.files(&path));
+    let mut watcher = watch_files(&dirs, &current.files(&path), trig_tx.clone());
     #[cfg(unix)]
     {
         let t = trig_tx.clone();
@@ -104,11 +104,8 @@ pub async fn follow<S: Watched>(
     while let Some(first) = trig.recv().await {
         tokio::time::sleep(Duration::from_millis(200)).await;
         let dirs = watched_dirs(&current.files(&path));
-        if dirs != watched || KQUEUE {
-            let renewed = watch_files(&dirs, &current.files(&path), trig_tx.clone());
-            drop(std::mem::replace(&mut watcher, renewed));
-            watched = dirs;
-        }
+        let renewed = watch_files(&dirs, &current.files(&path), trig_tx.clone());
+        drop(std::mem::replace(&mut watcher, renewed));
         let mut why = first;
         while let Ok(more) = trig.try_recv() {
             if more == "SIGHUP" {
@@ -168,11 +165,8 @@ pub async fn follow<S: Watched>(
         }
         current = next.clone();
         let dirs = watched_dirs(&current.files(&path));
-        if dirs != watched || KQUEUE {
-            let renewed = watch_files(&dirs, &current.files(&path), trig_tx.clone());
-            drop(std::mem::replace(&mut watcher, renewed));
-            watched = dirs;
-        }
+        let renewed = watch_files(&dirs, &current.files(&path), trig_tx.clone());
+        drop(std::mem::replace(&mut watcher, renewed));
         if tx.send(next).await.is_err() {
             return;
         }
@@ -239,13 +233,6 @@ fn watched_dirs(files: &[PathBuf]) -> Vec<PathBuf> {
     dirs
 }
 
-const KQUEUE: bool = cfg!(any(
-    target_os = "freebsd",
-    target_os = "openbsd",
-    target_os = "netbsd",
-    target_os = "dragonfly"
-));
-
 fn watch_files(
     dirs: &[PathBuf],
     files: &[PathBuf],
@@ -281,10 +268,8 @@ fn watch_files(
             );
         }
     }
-    if KQUEUE {
-        for file in files {
-            let _ = watcher.watch(file, RecursiveMode::NonRecursive);
-        }
+    for file in files {
+        let _ = watcher.watch(file, RecursiveMode::NonRecursive);
     }
     Some(watcher)
 }
