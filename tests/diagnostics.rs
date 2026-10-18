@@ -2009,6 +2009,13 @@ fn an_unquoted_variable_in_a_flow_mapping_says_to_quote_it() {
         None,
     );
     assert!(shown.contains("must be quoted, like \"${VAR}\""), "{shown}");
+    for unrelated in [
+        "listen: 7835\nclients:\n  home:\n    secret: \"${S}\" x\nservices: {}\n",
+        "server: h.example.com:${PORT}: x\nname: a\n",
+    ] {
+        let shown = render("server.yaml", unrelated, None);
+        assert!(!shown.contains("must be quoted"), "{shown}");
+    }
 }
 
 #[test]

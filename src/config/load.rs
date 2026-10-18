@@ -288,6 +288,13 @@ pub fn load_str(
     load_str_in(Path::new("."), name, src, format, role, env)
 }
 
+fn unquoted_variable_in_flow(line: &str) -> bool {
+    let unquoted = line
+        .match_indices("${")
+        .any(|(i, _)| !line[..i].ends_with(['"', '\'']));
+    unquoted && line.replace("${", "").contains(['{', '['])
+}
+
 pub fn load_str_in(
     base_dir: &Path,
     name: &str,
@@ -323,7 +330,7 @@ pub fn load_str_in(
                     .lines()
                     .nth(e.span.start.line.saturating_sub(1))
                     .unwrap_or("");
-                let help = if line.contains("${") && line.contains('{') {
+                let help = if unquoted_variable_in_flow(line) {
                     "a ${VAR} inside { ... } must be quoted, like \"${VAR}\""
                 } else {
                     "check the indentation and the \"key: value\" structure around this line"
