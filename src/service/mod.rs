@@ -429,7 +429,11 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
         .map_err(|e| Failure::new(format!("cannot locate the burrow binary: {e}")))?;
     let current = system::canonical(&current).unwrap_or(current);
     let home = platform.service_binary();
-    let (binary, copy_binary) = if current == home || current == system::canonical_or_same(&home) {
+    let home_via_links = home
+        .parent()
+        .zip(home.file_name())
+        .map(|(dir, file)| system::canonical_or_same(dir).join(file));
+    let (binary, copy_binary) = if current == home || Some(&current) == home_via_links.as_ref() {
         (home.clone(), true)
     } else if system::trusted_binary(&current) {
         (current.clone(), false)
