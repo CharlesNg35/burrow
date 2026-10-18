@@ -132,10 +132,17 @@ impl<'a> Tries<'a> {
                     self.clients = Vec::new().into_iter();
                 }
                 debug!(peer = %way.peer, "{}: client \"{client}\" did not take the connection: {error:?}", way.label);
-                self.last = Outcome::Refused {
-                    client: client.clone(),
-                    error,
+                let refusal = |e: &ForwardError| {
+                    matches!(e, ForwardError::Status(Status::Denied | Status::Invalid))
                 };
+                let earlier_says_more = refusal(&error)
+                    && matches!(&self.last, Outcome::Refused { error: earlier, .. } if !refusal(earlier));
+                if !earlier_says_more {
+                    self.last = Outcome::Refused {
+                        client: client.clone(),
+                        error,
+                    };
+                }
                 None
             }
             Opened::Gone(e) => Some(Outcome::Gone(e)),
