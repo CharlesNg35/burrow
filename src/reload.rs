@@ -218,6 +218,11 @@ fn watched_dirs(files: &[PathBuf]) -> Vec<PathBuf> {
         let mut p = file.clone();
         for _ in 0..16 {
             dirs.push(real(&dir_of(&p)));
+            for linked in p.ancestors().skip(1) {
+                if std::fs::symlink_metadata(linked).is_ok_and(|m| m.file_type().is_symlink()) {
+                    dirs.push(real(&dir_of(linked)));
+                }
+            }
             match std::fs::read_link(&p) {
                 Ok(t) if t.is_absolute() => p = t,
                 Ok(t) => p = dir_of(&p).join(t),

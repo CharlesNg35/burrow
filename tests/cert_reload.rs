@@ -308,3 +308,34 @@ async fn a_renewed_certificate_is_used_without_a_restart() {
     }
     panic!("the renewed certificate was not picked up");
 }
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn switching_a_release_folder_symlink_reloads_the_config_inside_it() {
+    use std::os::unix::fs::symlink;
+    common::logs();
+    let dir = tempfile::tempdir().unwrap();
+    let port = free_port();
+    let mut certs = Vec::new();
+    for rel in ["rel1", "rel2"] {
+        let folder = dir.path().join(rel);
+        let (cert, key) = self_signed();
+        pair(&folder, &cert, &key);
+        write_config(
+            &folder.join("server.yaml"),
+            port,
+            &folder.join("tls.crt"),
+            &folder.join("tls.key"),
+        );
+        certs.push(cert);
+    }
+    symlink("rel1", dir.path().join("current")).unwrap();
+    let addr = serve(&dir.path().join("current/server.yaml")).await;
+    assert!(trusts(addr, &certs[0]).await);
+    symlink("rel2", dir.path().join("current.new")).unwrap();
+    std::fs::rename(dir.path().join("current.new"), dir.path().join("current")).unwrap();
+    assert!(
+        eventually_trusts(addr, &certs[1]).await,
+        "switching the release folder did not reload"
+    );
+}
