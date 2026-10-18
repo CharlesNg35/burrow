@@ -20,7 +20,7 @@ Every channel, control or data, does its own full Noise handshake.
 The byte stream below can be carried in two ways. Both carry exactly the same bytes.
 
 - **TCP** (`listen`): the stream is the TCP connection.
-- **WebSocket** (`websocket`, opt-in): the client sends an HTTP/1.1 `GET <path>` upgrade request (RFC 6455), optionally over TLS (`wss://`), with any extra `headers` from its config. Before upgrading, the server reads at most 8 KiB of request head and answers `404` for any other path, `426` for a non-upgrade request on the path, and `400` or `431` for malformed or oversized heads. After the upgrade, the stream is the concatenation of the payloads of binary messages, in order. The sender batches records into messages of up to 128 KiB, and larger messages are rejected. Text, ping and pong messages carry no stream data, more than 100 of them within 10 s end the connection, and a close message ends the stream. Authentication is still the Noise handshake below: the URL, path and headers are not secrets.
+- **WebSocket** (`websocket`, opt-in): the client sends an HTTP/1.1 `GET <path>` upgrade request (RFC 6455), optionally over TLS (`wss://`), with any extra `headers` from its config. Before upgrading, the server reads at most 8 KiB of request head and answers `404` for any other path, `426` for a non-upgrade request on the path, and `400` or `431` for malformed or oversized heads. After the upgrade, the stream is the concatenation of the payloads of binary messages, in order. The sender batches records into messages of up to 128 KiB, and larger messages are rejected. Text, ping and pong messages carry no stream data, more than 100 of them within 10 s end the connection, as do more than 100 pings in a row while the peer reads none of the pongs, and a close message ends the stream. Authentication is still the Noise handshake below: the URL, path and headers are not secrets.
 
 On a WebSocket carrier, data channels always use encrypted records, even with `insecure_plaintext`, because WebSocket has no half-close for the raw-stream mode in section 8.
 
@@ -37,7 +37,7 @@ The WebSocket upgrade and the Noise handshake share one `limits.handshake_timeou
 | name     | n    | client name, or visitor name for kind 3, `[A-Za-z0-9._-]`                         |
 | msg1     | 48   | Noise message 1                                                                   |
 
-The server reads exactly 7 bytes, validates them, then reads exactly `name_len + 48` bytes into a fixed stack buffer. Nothing the peer sends before authentication controls an allocation size.
+The server reads exactly 7 bytes, validates them, then reads exactly `name_len + 48` bytes into a fixed stack buffer. Nothing the peer sends before authentication controls an allocation size, except that over WebSocket the message carrying these bytes is buffered up to its 128 KiB limit.
 
 ## 4. Noise handshake
 
@@ -103,7 +103,7 @@ Client → server:
 
 A client sends Allow once after Welcome; the server keeps it for the session and shows it only to visitors with `reach` for that client (see section 9).
 
-`str8` = `len:u8 bytes`. Unknown ids, truncated bodies and trailing bytes are errors.
+`str8` = `len:u8 bytes`. Unknown ids, truncated bodies and trailing bytes are errors for the client; the server ignores a client message it cannot decode, which still counts as a sign of life.
 
 Heartbeat: the server sends Ping every `heartbeat.interval_secs`, and the client answers Pong. Each side drops the channel after 3 intervals without receiving anything. The client learns the interval from Welcome, so the two sides cannot disagree.
 
@@ -179,4 +179,4 @@ A visitor's SOCKS5 forward reads the target from the SOCKS request (CONNECT only
 
 - at most `limits.max_handshakes` connections in steps 2–5 at once; extra connections are closed immediately;
 - the whole of steps 2–5 must finish within `limits.handshake_timeout_secs`;
-- every read before authentication has a fixed maximum size: on WebSocket, an 8 KiB request head; then 7, 64 + 48, 2 and 256 bytes, and 512 bytes for a visit request.
+- every read before authentication has a fixed maximum size: on WebSocket, an 8 KiB request head and messages of at most 128 KiB; then 7, 64 + 48, 2 and 256 bytes, and 512 bytes for a visit request.
