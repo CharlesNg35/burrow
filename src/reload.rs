@@ -1,5 +1,7 @@
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use tokio::sync::mpsc;
@@ -81,9 +83,23 @@ pub async fn follow<S: Watched>(
     tx: mpsc::Sender<S>,
 ) {
     let (trig_tx, mut trig) = mpsc::channel::<&'static str>(16);
-    let mut watched = Vec::new();
-    let mut watcher = None;
-    renew(&mut watcher, &mut watched, &current.files(&path), &trig_tx);
+    let mut watch = Watch {
+        watcher: None,
+        watched: Vec::new(),
+        stale: Arc::new(AtomicBool::new(false)),
+    };
+    renew(&mut watch, &current.files(&path), &trig_tx, false);
+    let t = trig_tx.clone();
+    tokio::spawn(async move {
+        let mut every = tokio::time::interval(RECHECK);
+        every.tick().await;
+        loop {
+            every.tick().await;
+            if let Err(mpsc::error::TrySendError::Closed(_)) = t.try_send("file changed") {
+                return;
+            }
+        }
+    });
     #[cfg(unix)]
     {
         let t = trig_tx.clone();
@@ -104,7 +120,6 @@ pub async fn follow<S: Watched>(
     let _ = trig_tx.try_send("file changed");
     while let Some(first) = trig.recv().await {
         tokio::time::sleep(Duration::from_millis(200)).await;
-        renew(&mut watcher, &mut watched, &current.files(&path), &trig_tx);
         let mut why = first;
         while let Ok(more) = trig.try_recv() {
             if more == "SIGHUP" {
@@ -112,6 +127,7 @@ pub async fn follow<S: Watched>(
             }
         }
         let asked = why == "SIGHUP";
+        renew(&mut watch, &current.files(&path), &trig_tx, asked);
         let now = fingerprint(&current.files(&path));
         if now == seen && !asked {
             continue;
@@ -163,7 +179,7 @@ pub async fn follow<S: Watched>(
             info!("reloading config ({why})");
         }
         current = next.clone();
-        renew(&mut watcher, &mut watched, &current.files(&path), &trig_tx);
+        renew(&mut watch, &current.files(&path), &trig_tx, false);
         if tx.send(next).await.is_err() {
             return;
         }
@@ -237,23 +253,47 @@ const KQUEUE: bool = cfg!(any(
     target_os = "dragonfly"
 ));
 
-fn renew(
-    watcher: &mut Option<notify::RecommendedWatcher>,
-    watched: &mut Vec<PathBuf>,
-    files: &[PathBuf],
-    tx: &mpsc::Sender<&'static str>,
-) {
+const RECHECK: Duration = Duration::from_secs(30);
+
+type Identity = Option<(u64, u64)>;
+
+fn identity(path: &Path) -> Identity {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        std::fs::metadata(path).ok().map(|m| (m.dev(), m.ino()))
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+        None
+    }
+}
+
+struct Watch {
+    watcher: Option<notify::RecommendedWatcher>,
+    watched: Vec<(PathBuf, Identity)>,
+    stale: Arc<AtomicBool>,
+}
+
+fn renew(watch: &mut Watch, files: &[PathBuf], tx: &mpsc::Sender<&'static str>, force: bool) {
     let dirs = watched_dirs(files);
-    let wanted: Vec<PathBuf> = dirs.iter().chain(files).cloned().collect();
-    if wanted == *watched && !KQUEUE {
+    let wanted: Vec<(PathBuf, Identity)> = dirs
+        .iter()
+        .chain(files)
+        .map(|p| (p.clone(), identity(p)))
+        .collect();
+    let stale = watch.stale.load(Ordering::Acquire);
+    if wanted == watch.watched && !KQUEUE && !force && !stale {
         return;
     }
-    match watch_files(&dirs, files, tx.clone()) {
+    match watch_files(&dirs, files, tx.clone(), watch.stale.clone()) {
         Some((fresh, true)) => {
-            *watcher = Some(fresh);
-            *watched = wanted;
+            watch.watcher = Some(fresh);
+            watch.watched = wanted;
+            watch.stale.store(false, Ordering::Release);
         }
-        Some((partial, false)) if watcher.is_none() => *watcher = Some(partial),
+        Some((partial, false)) if watch.watcher.is_none() => watch.watcher = Some(partial),
         _ => {}
     }
 }
@@ -262,6 +302,7 @@ fn watch_files(
     dirs: &[PathBuf],
     files: &[PathBuf],
     tx: mpsc::Sender<&'static str>,
+    stale: Arc<AtomicBool>,
 ) -> Option<(notify::RecommendedWatcher, bool)> {
     use notify::{EventKind, RecursiveMode, Watcher};
     let relevant_dirs = dirs.to_vec();
@@ -272,6 +313,11 @@ fn watch_files(
             EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_)
         ) {
             return;
+        }
+        if matches!(ev.kind, EventKind::Remove(_))
+            && ev.paths.iter().any(|p| relevant_dirs.contains(p))
+        {
+            stale.store(true, Ordering::Release);
         }
         let relevant = ev.paths.iter().any(|p| {
             p.parent()
@@ -305,18 +351,48 @@ fn watch_files(
 mod tests {
     use super::*;
 
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_config_folder_replaced_at_the_same_path_is_watched_again() {
+        let parent = tempfile::tempdir().unwrap();
+        let folder = parent.path().join("cfg");
+        let config = folder.join("server.yaml");
+        std::fs::create_dir(&folder).unwrap();
+        std::fs::write(&config, "a").unwrap();
+        let (tx, mut rx) = mpsc::channel(16);
+        let mut watch = Watch {
+            watcher: None,
+            watched: Vec::new(),
+            stale: Arc::new(AtomicBool::new(false)),
+        };
+        renew(&mut watch, std::slice::from_ref(&config), &tx, false);
+        std::fs::remove_dir_all(&folder).unwrap();
+        std::fs::create_dir(&folder).unwrap();
+        std::fs::write(&config, "b").unwrap();
+        renew(&mut watch, std::slice::from_ref(&config), &tx, false);
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        while rx.try_recv().is_ok() {}
+        std::fs::write(&config, "c").unwrap();
+        let seen = tokio::time::timeout(Duration::from_secs(5), rx.recv()).await;
+        assert!(matches!(seen, Ok(Some(_))), "the replaced folder is not watched");
+    }
+
     #[tokio::test]
     async fn a_failed_renewal_keeps_the_watcher_that_works() {
         let dir = tempfile::tempdir().unwrap();
         let config = dir.path().join("server.yaml");
         std::fs::write(&config, "a").unwrap();
         let (tx, mut rx) = mpsc::channel(16);
-        let (mut watcher, mut watched) = (None, Vec::new());
-        renew(&mut watcher, &mut watched, std::slice::from_ref(&config), &tx);
-        let kept = watched.clone();
+        let mut watch = Watch {
+            watcher: None,
+            watched: Vec::new(),
+            stale: Arc::new(AtomicBool::new(false)),
+        };
+        renew(&mut watch, std::slice::from_ref(&config), &tx, false);
+        let kept = watch.watched.clone();
         let gone = dir.path().join("missing").join("server.yaml");
-        renew(&mut watcher, &mut watched, &[gone], &tx);
-        assert_eq!(watched, kept);
+        renew(&mut watch, &[gone], &tx, false);
+        assert_eq!(watch.watched, kept);
         tokio::time::sleep(Duration::from_millis(300)).await;
         while rx.try_recv().is_ok() {}
         std::fs::write(&config, "b").unwrap();
