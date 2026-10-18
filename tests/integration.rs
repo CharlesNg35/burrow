@@ -1057,3 +1057,38 @@ async fn a_save_between_start_and_the_file_watch_is_not_missed() {
         .unwrap();
     assert_eq!(next.services["web"].target, "127.0.0.1:4");
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_udp_target_named_localhost_reaches_an_ipv4_only_listener() {
+    let echo = udp_echo_server().await;
+    let mut svc = service(echo, Protocol::Udp);
+    svc.target = format!("localhost:{}", echo.port());
+    let secret = Secret::generate();
+    let t = tunnel_with(
+        server_settings(vec![secret.clone()]),
+        vec![("dns", svc)],
+        |mut c| {
+            c.allow = burrow::allowlist::AllowList::Rules(vec![
+                "[::1/128]".parse().unwrap(),
+                "127.0.0.0/8".parse().unwrap(),
+            ]);
+            c
+        },
+        secret,
+    )
+    .await;
+    let s = udp_bind().await;
+    s.connect(t.server.services["dns"]).await.unwrap();
+    let mut buf = [0u8; 64];
+    let mut got = false;
+    for _ in 0..30 {
+        s.send(b"ping").await.unwrap();
+        if let Ok(Ok(n)) = tokio::time::timeout(Duration::from_millis(200), s.recv(&mut buf)).await
+            && &buf[..n] == b"ping"
+        {
+            got = true;
+            break;
+        }
+    }
+    assert!(got, "no echo through a localhost UDP target");
+}

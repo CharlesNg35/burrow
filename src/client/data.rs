@@ -67,21 +67,47 @@ thread_local! {
 fn receive(sock: &UdpSocket) -> Option<Vec<u8>> {
     RECEIVE.with(|buf| {
         let mut buf = buf.borrow_mut();
-        sock.try_recv(&mut buf).ok().map(|n| buf[..n].to_vec())
+        match sock.try_recv(&mut buf) {
+            Ok(n) => Some(buf[..n].to_vec()),
+            Err(e) => {
+                if e.kind() == std::io::ErrorKind::ConnectionRefused {
+                    static REFUSED: Throttle = Throttle::new();
+                    if let Some(more) = REFUSED.allow() {
+                        warn!(
+                            "UDP target {} refused a datagram; is anything listening there?{more}",
+                            sock.peer_addr()
+                                .map_or_else(|_| "?".to_string(), |a| a.to_string())
+                        );
+                    }
+                }
+                None
+            }
+        }
     })
 }
+
+fn preferred(addrs: &[SocketAddr]) -> SocketAddr {
+    addrs
+        .iter()
+        .copied()
+        .find(SocketAddr::is_ipv4)
+        .unwrap_or(addrs[0])
+}
+
+const RESOLVE_AGAIN: Duration = Duration::from_secs(30);
 
 async fn peer_replies(
     id: u32,
     sock: Arc<UdpSocket>,
     seen: Arc<AtomicU64>,
     epoch: Instant,
-    timeout: Duration,
+    live: super::Live,
     tx: mpsc::Sender<(u32, Vec<u8>)>,
     peers: Arc<Mutex<HashMap<u32, Peer>>>,
 ) {
-    let check = timeout.min(Duration::from_secs(5));
     loop {
+        let timeout = live.settings().udp_session_timeout;
+        let check = timeout.min(Duration::from_secs(5));
         match tokio::time::timeout(check, sock.readable()).await {
             Ok(Ok(())) => {
                 let Some(datagram) = receive(&sock) else {
@@ -230,7 +256,7 @@ pub async fn serve(
                 debug!("{}: connection ended: {e:?}", label(&connect));
             }
         }
-        Protocol::Udp => udp(settings, ch, connect, addrs).await,
+        Protocol::Udp => udp(live, resolver, ch, connect, addrs).await,
     }
 }
 
@@ -474,14 +500,21 @@ fn label(connect: &Connect) -> String {
     }
 }
 
-async fn udp(settings: Arc<ClientSettings>, ch: Channel, connect: Connect, addrs: Vec<SocketAddr>) {
+async fn udp(
+    live: super::Live,
+    resolver: Arc<dyn Resolver>,
+    ch: Channel,
+    connect: Connect,
+    addrs: Vec<SocketAddr>,
+) {
     let Channel {
         stream,
         mut writer,
         mut reader,
     } = ch;
     let (mut rd, mut wr) = stream.into_split();
-    let target = addrs[0];
+    let resolved = Arc::new(Mutex::new((preferred(&addrs), Instant::now())));
+    let resolving = Arc::new(std::sync::atomic::AtomicBool::new(false));
     if writer.send(&mut wr, &[Status::Ok as u8]).await.is_err() {
         return;
     }
@@ -495,7 +528,6 @@ async fn udp(settings: Arc<ClientSettings>, ch: Channel, connect: Connect, addrs
             }
         }
     });
-    let timeout = settings.udp_session_timeout;
     let epoch = Instant::now();
     let peers: Arc<Mutex<HashMap<u32, Peer>>> = Arc::new(Mutex::new(HashMap::new()));
     let _cleanup = RelayCleanup {
@@ -518,6 +550,21 @@ async fn udp(settings: Arc<ClientSettings>, ch: Channel, connect: Connect, addrs
         let (sock, seen) = match existing {
             Some(p) => p,
             None => {
+                let (target, at) = *resolved.lock().expect("resolved lock");
+                if at.elapsed() >= RESOLVE_AGAIN && !resolving.swap(true, Ordering::AcqRel) {
+                    let (live, resolver, connect) =
+                        (live.clone(), resolver.clone(), connect.clone());
+                    let (resolved, resolving) = (resolved.clone(), resolving.clone());
+                    tokio::spawn(async move {
+                        let found = permitted(&live.settings(), &resolver, &connect).await;
+                        let mut current = resolved.lock().expect("resolved lock");
+                        *current = match found {
+                            Ok(addrs) => (preferred(&addrs), Instant::now()),
+                            Err(_) => (current.0, Instant::now()),
+                        };
+                        resolving.store(false, Ordering::Release);
+                    });
+                }
                 if peers.lock().expect("peers lock").len() >= MAX_PEERS {
                     static FULL: Throttle = Throttle::new();
                     if let Some(more) = FULL.allow() {
@@ -546,7 +593,7 @@ async fn udp(settings: Arc<ClientSettings>, ch: Channel, connect: Connect, addrs
                     sock.clone(),
                     seen.clone(),
                     epoch,
-                    timeout,
+                    live.clone(),
                     tx.clone(),
                     peers.clone(),
                 ));
