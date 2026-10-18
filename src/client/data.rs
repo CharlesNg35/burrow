@@ -272,6 +272,20 @@ async fn socket(settings: &ClientSettings, ch: Channel, connect: &Connect, path:
         return;
     }
     #[cfg(unix)]
+    if let Some(link) = foreign_link_on(std::path::Path::new(path)) {
+        static FOREIGN: Throttle = Throttle::new();
+        if let Some(more) = FOREIGN.allow() {
+            warn!(
+                "denied connection to {} for {}: the folder {} on its path is a symbolic link owned by another user{more}",
+                connect.target,
+                whom(connect),
+                link.display()
+            );
+        }
+        reply(ch, Status::Denied).await;
+        return;
+    }
+    #[cfg(unix)]
     match tokio::net::UnixStream::connect(path).await {
         Ok(target) => {
             if let Err(e) = client_tcp(ch, target, settings.insecure_plaintext).await {
@@ -332,6 +346,16 @@ async fn lookup(
         Ok(Err(_)) => Err(std::io::Error::other("the lookup stopped")),
         Err(_) => Err(timed_out()),
     }
+}
+
+#[cfg(unix)]
+fn foreign_link_on(path: &std::path::Path) -> Option<std::path::PathBuf> {
+    use std::os::unix::fs::MetadataExt;
+    let me = rustix::process::geteuid().as_raw();
+    path.ancestors().skip(1).find_map(|folder| {
+        let m = std::fs::symlink_metadata(folder).ok()?;
+        (m.file_type().is_symlink() && m.uid() != 0 && m.uid() != me).then(|| folder.to_path_buf())
+    })
 }
 
 const MAX_LOOKUPS: usize = 256;
@@ -558,6 +582,25 @@ mod tests {
             service: String::new(),
             target: target.into(),
             only: None,
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn only_folder_links_of_other_users_are_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let real = dir.path().join("real");
+        std::fs::create_dir(&real).unwrap();
+        let linked = dir.path().join("linked");
+        std::os::unix::fs::symlink(&real, &linked).unwrap();
+        assert_eq!(foreign_link_on(&linked.join("app.sock")), None);
+        assert_eq!(
+            foreign_link_on(std::path::Path::new("/var/run/x.sock")),
+            None
+        );
+        if let Some(foreign) = std::env::var_os("BURROW_TEST_FOREIGN_LINK") {
+            let foreign = std::path::PathBuf::from(foreign);
+            assert_eq!(foreign_link_on(&foreign.join("docker.sock")), Some(foreign));
         }
     }
 
