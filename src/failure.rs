@@ -158,10 +158,10 @@ pub fn path_arg(path: &std::path::Path) -> String {
 pub fn addresses_cmd() -> &'static str {
     if cfg!(windows) {
         "ipconfig"
-    } else if cfg!(target_os = "macos") {
-        "ifconfig"
-    } else {
+    } else if cfg!(target_os = "linux") {
         "ip addr"
+    } else {
+        "ifconfig"
     }
 }
 
