@@ -646,7 +646,7 @@ services:
     command: ["server", "-c", "/etc/burrow/server.yaml"]
     user: "${UID:-1000}:${GID:-1000}"
     volumes:
-      - ./burrow:/etc/burrow:ro
+      - ./server:/etc/burrow:ro
     ports:
       - "7835:7835"
       - "7840:7840"
@@ -659,7 +659,7 @@ services:
     environment:
       HOME_SECRET: ${HOME_SECRET:-}
     volumes:
-      - ./burrow:/etc/burrow:ro
+      - ./client:/etc/burrow:ro
     network_mode: host
     restart: unless-stopped
 ```
