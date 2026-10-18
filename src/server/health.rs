@@ -126,6 +126,7 @@ async fn probe(shared: &Shared, service: &str, client: &str, target: &str) -> Re
         protocol: Protocol::Tcp,
         service: service.to_string(),
         target: target.to_string(),
+        only: None,
     };
     ch.writer
         .send(&mut ch.stream, &connect.encode())

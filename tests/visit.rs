@@ -152,7 +152,8 @@ async fn a_public_service_can_list_visitors_too() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn reach_lets_a_visitor_pick_the_target() {
     let s = setup(|srv, _| {
-        srv.visitors.get_mut("laptop").unwrap().reach = ["home".to_string()].into();
+        srv.visitors.get_mut("laptop").unwrap().reach =
+            [("home".to_string(), burrow::allowlist::AllowList::All)].into();
     })
     .await;
     let v = s.visitor(vec![("echo", s.reach())]);
@@ -222,7 +223,8 @@ async fn wrong_secrets_and_client_secrets_are_rejected() {
 async fn the_client_allow_list_still_decides() {
     let s = setup_with(
         |srv, _| {
-            srv.visitors.get_mut("laptop").unwrap().reach = ["home".to_string()].into();
+            srv.visitors.get_mut("laptop").unwrap().reach =
+                [("home".to_string(), burrow::allowlist::AllowList::All)].into();
         },
         |mut c| {
             c.allow = AllowList::Rules(vec!["127.0.0.1/32:1".parse::<Rule>().unwrap()]);
@@ -294,7 +296,8 @@ async fn connection_limits_apply_to_visitors() {
 
 async fn closed_after_reload(change: impl FnOnce(&mut ServerSettings)) {
     let s = setup(|srv, _| {
-        srv.visitors.get_mut("laptop").unwrap().reach = ["home".to_string()].into();
+        srv.visitors.get_mut("laptop").unwrap().reach =
+            [("home".to_string(), burrow::allowlist::AllowList::All)].into();
     })
     .await;
     let v = s.visitor(vec![
@@ -338,7 +341,8 @@ async fn reload_closes_revoked_visits() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn reload_closes_each_revoked_permission() {
     let s = setup(|srv, _| {
-        srv.visitors.get_mut("laptop").unwrap().reach = ["home".to_string()].into();
+        srv.visitors.get_mut("laptop").unwrap().reach =
+            [("home".to_string(), burrow::allowlist::AllowList::All)].into();
     })
     .await;
     let v = s.visitor(vec![
@@ -403,7 +407,8 @@ async fn visits_work_with_insecure_plaintext() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn invalid_requests_are_answered_and_closed() {
     let s = setup(|srv, _| {
-        srv.visitors.get_mut("laptop").unwrap().reach = ["home".to_string()].into();
+        srv.visitors.get_mut("laptop").unwrap().reach =
+            [("home".to_string(), burrow::allowlist::AllowList::All)].into();
     })
     .await;
     assert_eq!(
@@ -530,4 +535,80 @@ async fn a_client_that_leaves_mid_setup_is_reported_offline() {
         ask(srv.addr, visitor_secret, false, to).await,
         Ok(Status::Offline)
     );
+}
+
+fn narrowed(rules: &[&str]) -> AllowList {
+    AllowList::Rules(rules.iter().map(|r| r.parse::<Rule>().unwrap()).collect())
+}
+
+fn on_home(target: String) -> VisitTarget {
+    VisitTarget::Client {
+        client: "home".into(),
+        target,
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn narrowed_reach_admits_its_targets_and_refuses_the_rest() {
+    let s = setup(|srv, _| {
+        srv.visitors.get_mut("laptop").unwrap().reach =
+            [("home".to_string(), narrowed(&["127.0.0.0/8"]))].into();
+    })
+    .await;
+    let port = s.echo.port();
+    assert_eq!(s.ask(false, s.reach()).await, Ok(Status::Ok));
+    assert_eq!(
+        s.ask(false, on_home("10.1.2.3:22".into())).await,
+        Ok(Status::Forbidden),
+        "the server refuses an address outside reach without asking the client"
+    );
+    assert_eq!(
+        s.ask(false, on_home(format!("localhost:{port}"))).await,
+        Ok(Status::Ok)
+    );
+    let v = s.visitor(vec![("byname", on_home(format!("localhost:{port}")))]);
+    let data = pattern(50_000, 4);
+    assert_eq!(roundtrip(v.addr("byname"), &data).await, data);
+
+    let far = setup(|srv, _| {
+        srv.visitors.get_mut("laptop").unwrap().reach =
+            [("home".to_string(), narrowed(&["10.0.0.0/8"]))].into();
+    })
+    .await;
+    let port = far.echo.port();
+    assert_eq!(far.ask(false, far.reach()).await, Ok(Status::Forbidden));
+    assert_eq!(
+        far.ask(false, on_home(format!("localhost:{port}"))).await,
+        Ok(Status::Denied),
+        "the client refuses a name that resolves outside reach"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn narrowing_reach_on_reload_closes_connections_it_no_longer_covers() {
+    let mut settings = None;
+    let s = setup(|srv, _| {
+        srv.visitors.get_mut("laptop").unwrap().reach =
+            [("home".to_string(), AllowList::All)].into();
+        settings = Some(srv.clone());
+    })
+    .await;
+    let mut next = settings.unwrap();
+    let v = s.visitor(vec![("echo", s.reach())]);
+    let mut open = open_echo(v.addr("echo")).await;
+    next.visitors.get_mut("laptop").unwrap().reach =
+        [("home".to_string(), narrowed(&["10.0.0.0/8"]))].into();
+    s.tunnel.server.reload(next).await;
+    let mut buf = [0u8; 4];
+    let closed = tokio::time::timeout(Duration::from_secs(5), async {
+        let _ = open.write_all(b"ping").await;
+        matches!(open.read(&mut buf).await, Ok(0) | Err(_))
+    })
+    .await;
+    assert_eq!(
+        closed,
+        Ok(true),
+        "the open connection outside the new reach stayed open"
+    );
+    assert!(refused(v.addr("echo")).await);
 }

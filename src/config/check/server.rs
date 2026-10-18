@@ -14,6 +14,7 @@ use super::{
     MAX_SECRETS_PER_CLIENT, Spans, binds_conflict, name_error, parse_bind, parse_local,
     secret_error, tuning, valid_name,
 };
+use crate::allowlist::AllowList;
 use crate::diagnostics::Diagnostic;
 use crate::secret::Secret;
 use crate::suggest::{closest, quoted_list};
@@ -116,7 +117,17 @@ pub fn check_server(
             out.push(name_error("visitor", name, spans.key(&["visitors", name])));
         }
         let secrets = check_secrets("visitor", name, &entry.secret, spans, &mut seen, out);
-        for client in entry.reach.keys().filter(|c| cfg.clients.contains_key(*c)) {
+        let mut reach = BTreeMap::new();
+        for (client, given) in &entry.reach {
+            if let Some(rules) = check_reach(name, client, given, spans, out) {
+                reach.insert(client.clone(), rules);
+            }
+        }
+        for client in reach
+            .iter()
+            .filter(|(c, r)| cfg.clients.contains_key(*c) && **r == AllowList::All)
+            .map(|(c, _)| c)
+        {
             out.push(
                 Diagnostic::warning(
                     "reach-any",
@@ -148,7 +159,7 @@ pub fn check_server(
             name.clone(),
             VisitorAuth {
                 secrets,
-                reach: entry.reach.keys().cloned().collect(),
+                reach,
                 max_connections: entry.max_connections.map(|m| m as usize),
             },
         );
@@ -565,4 +576,93 @@ pub fn check_refs(root: &Node, out: &mut Vec<Diagnostic>) {
             }
         }
     }
+}
+
+fn check_reach(
+    visitor: &str,
+    client: &str,
+    given: &crate::config::model::Reach,
+    spans: &Spans,
+    out: &mut Vec<Diagnostic>,
+) -> Option<AllowList> {
+    let entries = given.entries();
+    let many = matches!(given, crate::config::model::Reach::Many(_));
+    let at = |i: usize| {
+        let path = ["visitors", visitor, "reach", client];
+        if many {
+            spans.value(&[&path[..], &[i.to_string().as_str()]].concat())
+        } else {
+            spans.value(&path)
+        }
+    };
+    if let [one] = entries
+        && !many
+        && one.trim() == "any"
+    {
+        return Some(AllowList::All);
+    }
+    if let [one] = entries
+        && !many
+        && one.chars().all(|c| c.is_ascii_alphabetic())
+    {
+        out.push(
+            Diagnostic::error(
+                "invalid-reach",
+                format!("invalid reach \"{one}\" for client \"{client}\""),
+            )
+            .at(at(0))
+            .label("expected any or IP ranges")
+            .help(format!(
+                "write {client}: any for any target its allow list permits, or narrow it with ranges, for example {client}: [192.168.1.0/24]"
+            )),
+        );
+        return None;
+    }
+    if entries.is_empty() {
+        out.push(
+            Diagnostic::error(
+                "invalid-reach",
+                format!("reach for client \"{client}\" of visitor \"{visitor}\" is an empty list, which lets it reach nothing"),
+            )
+            .at(spans.value(&["visitors", visitor, "reach", client]))
+            .help(format!("remove \"{client}\" from reach, or list what it may reach, for example {client}: [192.168.1.0/24]")),
+        );
+        return None;
+    }
+    if entries.len() > crate::protocol::MAX_ALLOW_RULES {
+        out.push(
+            Diagnostic::error(
+                "invalid-reach",
+                format!(
+                    "reach for client \"{client}\" of visitor \"{visitor}\" has {} rules, the limit is {}",
+                    entries.len(),
+                    crate::protocol::MAX_ALLOW_RULES
+                ),
+            )
+            .at(spans.value(&["visitors", visitor, "reach", client]))
+            .help("combine them into wider ranges, for example 10.0.0.0/8 instead of each /24"),
+        );
+        return None;
+    }
+    let mut rules = Vec::new();
+    let mut ok = true;
+    for (i, entry) in entries.iter().enumerate() {
+        if entry.trim() == "any" {
+            out.push(
+                Diagnostic::error(
+                    "invalid-reach",
+                    "\"any\" cannot be combined with other rules",
+                )
+                .at(at(i))
+                .help(format!("write {client}: any alone, or list only rules")),
+            );
+            ok = false;
+            continue;
+        }
+        match super::client::parse_rule(entry, "reach", at(i), out) {
+            Some(r) => rules.push(r),
+            None => ok = false,
+        }
+    }
+    ok.then_some(AllowList::Rules(rules))
 }

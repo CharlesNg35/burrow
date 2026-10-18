@@ -83,6 +83,7 @@ async fn visit(
         protocol: Protocol::Tcp,
         service: name.clone(),
         target: target.clone(),
+        only: None,
     }
     .encode();
     let prefix = match (svc.proxy_protocol, visitor.local_addr()) {

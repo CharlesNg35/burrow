@@ -417,6 +417,7 @@ pub struct Connect {
     pub protocol: Protocol,
     pub service: String,
     pub target: String,
+    pub only: Option<Vec<String>>,
 }
 
 impl Connect {
@@ -424,6 +425,13 @@ impl Connect {
         let mut v = vec![0x10, proto_byte(self.protocol)];
         put_str(&mut v, &self.service);
         put_str(&mut v, &self.target);
+        match &self.only {
+            None => v.push(0),
+            Some(rules) => {
+                v.push(1);
+                put_strings(&mut v, rules);
+            }
+        }
         v
     }
 
@@ -436,6 +444,11 @@ impl Connect {
             protocol: proto_from(r.u8()?)?,
             service: r.short_str()?,
             target: r.short_str()?,
+            only: match r.u8()? {
+                0 => None,
+                1 => Some(r.strings()?),
+                x => return Err(DecodeError::UnknownType(x)),
+            },
         };
         r.end()?;
         Ok(c)
@@ -543,6 +556,7 @@ pub struct GrantedService {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GrantedClient {
     pub name: String,
+    pub reach: Vec<String>,
     pub allow: Option<Vec<String>>,
 }
 
@@ -575,6 +589,7 @@ impl Grants {
         v.extend_from_slice(&count(self.clients.len())?.to_be_bytes());
         for c in &self.clients {
             put_short(&mut v, &c.name)?;
+            put_strings(&mut v, &c.reach);
             match &c.allow {
                 None => v.push(0),
                 Some(rules) => {
@@ -608,12 +623,13 @@ impl Grants {
         let clients = (0..r.u16()?)
             .map(|_| {
                 let name = r.name()?;
+                let reach = r.strings()?;
                 let allow = match r.u8()? {
                     0 => None,
                     1 => Some(r.strings()?),
                     x => return Err(DecodeError::UnknownType(x)),
                 };
-                Ok(GrantedClient { name, allow })
+                Ok(GrantedClient { name, reach, allow })
             })
             .collect::<Result<Vec<_>, DecodeError>>()?;
         r.end()?;
@@ -730,6 +746,7 @@ mod tests {
         let clients: Vec<GrantedClient> = (0..60)
             .map(|i| GrantedClient {
                 name: format!("client-{i}"),
+                reach: vec![],
                 allow: Some(vec![rule.clone(); MAX_ALLOW_RULES]),
             })
             .collect();
@@ -771,10 +788,12 @@ mod tests {
             clients: vec![
                 GrantedClient {
                     name: "home".into(),
+                    reach: vec![],
                     allow: Some(vec!["127.0.0.0/8".into()]),
                 },
                 GrantedClient {
                     name: "office".into(),
+                    reach: vec!["10.0.0.0/8".into()],
                     allow: None,
                 },
             ],
@@ -782,7 +801,9 @@ mod tests {
         let bytes = grants.encode().unwrap();
         assert_eq!(
             bytes,
-            unhex("22000102646215380001000204686f6d6501010b3132372e302e302e302f38066f666669636500")
+            unhex(
+                "22000102646215380001000204686f6d650001010b3132372e302e302e302f38066f6666696365010a31302e302e302e302f3800"
+            )
         );
         assert_eq!(Grants::decode(&bytes).unwrap(), grants);
         let mut trailing = bytes.clone();
@@ -922,8 +943,9 @@ mod tests {
             protocol: Protocol::Udp,
             service: "dns".into(),
             target: "192.168.1.1:53".into(),
+            only: None,
         };
-        let wire = unhex("100103646e730e3139322e3136382e312e313a3533");
+        let wire = unhex("100103646e730e3139322e3136382e312e313a353300");
         assert_eq!(connect.encode(), wire);
         assert_eq!(Connect::decode(&wire).unwrap(), connect);
         for (status, byte) in [
@@ -1039,8 +1061,19 @@ mod tests {
             protocol: Protocol::Tcp,
             service: "web".into(),
             target: "db.lan:5432".into(),
+            only: Some(vec!["192.168.150.0/25".into(), "unix:/run/app.sock".into()]),
         };
         assert_eq!(Connect::decode(&c.encode()).unwrap(), c);
+        let none = Connect {
+            only: None,
+            ..c.clone()
+        };
+        assert_eq!(Connect::decode(&none.encode()).unwrap(), none);
+        let empty = Connect {
+            only: Some(vec![]),
+            ..c.clone()
+        };
+        assert_eq!(Connect::decode(&empty.encode()).unwrap().only, Some(vec![]));
         let h = Hello::Data {
             version: 1,
             token: [3; 16],

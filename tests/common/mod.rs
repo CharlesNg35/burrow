@@ -398,7 +398,10 @@ pub fn pattern(len: usize, seed: u64) -> Vec<u8> {
 pub fn visitor_auth(secret: Secret, reach: &[&str]) -> VisitorAuth {
     VisitorAuth {
         secrets: vec![secret],
-        reach: reach.iter().map(|c| c.to_string()).collect(),
+        reach: reach
+            .iter()
+            .map(|c| (c.to_string(), burrow::allowlist::AllowList::All))
+            .collect(),
         max_connections: None,
     }
 }

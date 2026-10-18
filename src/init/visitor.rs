@@ -173,7 +173,7 @@ fn update_visitor(
         }
     }));
     changes.push_str(&listing(&stale, &notes, |_| {
-        ("~ ", "  (what it allows changed)")
+        ("~ ", "  (what it can reach changed)")
     }));
     if let Some(line) = left_out(&planned) {
         changes.push_str(&format!("{line}\n"));
@@ -284,14 +284,11 @@ fn allow_notes(
 ) -> BTreeMap<String, String> {
     planned
         .allows
-        .iter()
-        .filter_map(|(key, allow)| {
+        .keys()
+        .filter_map(|key| {
             let client = planned.forwards.get(key)?.get("client")?.as_str()?;
-            grants
-                .clients
-                .iter()
-                .any(|c| c.name == client)
-                .then(|| (key.clone(), super::splice::allow_note(client, allow)))
+            let granted = grants.clients.iter().find(|c| c.name == client)?;
+            Some((key.clone(), super::splice::reach_note(granted)))
         })
         .collect()
 }

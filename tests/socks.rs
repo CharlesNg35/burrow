@@ -90,12 +90,21 @@ struct Proxy {
 }
 
 async fn proxy(reach: &[&str], allow: Vec<&str>) -> Proxy {
+    proxy_with(reach, allow, |_| {}).await
+}
+
+async fn proxy_with(
+    reach: &[&str],
+    allow: Vec<&str>,
+    edit: impl FnOnce(&mut burrow::config::settings::ServerSettings),
+) -> Proxy {
     let secret = Secret::generate();
     let visitor_secret = Secret::generate();
     let mut server = server_settings(vec![secret.clone()]);
     server
         .visitors
         .insert("laptop".into(), visitor_auth(visitor_secret.clone(), reach));
+    edit(&mut server);
     let rules: Vec<Rule> = allow.iter().map(|r| r.parse().unwrap()).collect();
     let tunnel = tunnel_with(
         server,
@@ -348,4 +357,37 @@ async fn refusals_come_back_as_socks_reply_codes() {
     let no_reach = proxy(&[], vec!["127.0.0.0/8"]).await;
     let (code, _) = socks_connect(no_reach.addr, "127.0.0.1", echo.port()).await;
     assert_eq!(code, 2, "the visitor has no reach to this client");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn narrowed_reach_is_checked_after_the_client_resolves_a_name() {
+    let echo = echo_server().await;
+    let narrowed = |rules: &'static [&'static str]| {
+        move |s: &mut burrow::config::settings::ServerSettings| {
+            s.visitors.get_mut("laptop").unwrap().reach = [(
+                "home".to_string(),
+                AllowList::Rules(rules.iter().map(|r| r.parse().unwrap()).collect()),
+            )]
+            .into();
+        }
+    };
+    let inside = proxy_with(
+        &["home"],
+        vec!["127.0.0.0/8", "::1/128"],
+        narrowed(&["127.0.0.0/8"]),
+    )
+    .await;
+    let (code, s) = socks_connect(inside.addr, "localhost", echo.port()).await;
+    assert_eq!(code, 0);
+    echoes(s, &pattern(10_000, 3)).await;
+    let outside = proxy_with(
+        &["home"],
+        vec!["127.0.0.0/8", "::1/128"],
+        narrowed(&["10.0.0.0/8"]),
+    )
+    .await;
+    let (code, _) = socks_connect(outside.addr, "localhost", echo.port()).await;
+    assert_ne!(code, 0, "a name that resolves outside reach got through");
+    let (code, _) = socks_connect(outside.addr, "127.0.0.1", echo.port()).await;
+    assert_ne!(code, 0, "an address outside reach got through");
 }

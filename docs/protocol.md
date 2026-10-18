@@ -118,13 +118,13 @@ While a channel is idle in the pool, the server watches it: any data or close fr
 When a connection arrives at a service, the server takes an idle channel and sends:
 
 ```
-Connect = 10 protocol:u8 service:str8 target:str8      (protocol 0 tcp, 1 udp)
+Connect = 10 protocol:u8 service:str8 target:str8 only:u8 [count:u8 rule:str8*]      (protocol 0 tcp, 1 udp)
 ```
 
 The client resolves `target`, keeps only the addresses permitted by its allow list (checked after DNS, and only those addresses are dialed), connects, and replies with one record:
 
 ```
-Status = 0 ok | 1 denied by allow list | 2 unreachable | 3 unresolved | 4 invalid
+Status = 0 ok | 1 denied by allow list or reach rules | 2 unreachable | 3 unresolved | 4 invalid
          | 5 forbidden | 6 offline | 7 busy      (5-7 only from the server to a visitor)
 ```
 
@@ -157,21 +157,21 @@ Names follow the rules of section 3. The server reads the request, a record of a
 
 - the visitor still exists and still has the secret it authenticated with;
 - for kind 1, the service exists, is TCP, lists the visitor, admits the visitor's address in `allow_from`/`deny_from`, and `index` is inside its range (`4 invalid` otherwise);
-- for kind 2, the visitor has `reach` for the client, and the target is a valid `host:port` of at most 255 bytes, or `unix:/absolute/path`.
+- for kind 2, the visitor has `reach` for the client, and the target is a valid `host:port` of at most 255 bytes, or `unix:/absolute/path`; if that `reach` has rules, an IP address or socket path target must match one of them.
 
 Unknown services and services that do not list the visitor get the same answer, `5 forbidden`, so names cannot be probed. Then the server checks that the client is connected (`6 offline`). With `check = 1` it answers `0 ok` at this point and closes: `burrow visit` uses this at startup to report problems before the first connection. Otherwise it checks the limits of the visitor, the service and the client (`7 busy`).
 
-Otherwise the server takes a data channel of the client (for a service with several clients, the one chosen as for public connections) and sends it a Connect (section 8) with the service name, or an empty name for kind 2, and the target. The client applies its allow list as for any other connection and replies with Status, which the server passes on to the visitor. The visitor waits for this Status before sending data, so a refusal always arrives with its reason. From then on, the server decrypts each record from one channel and encrypts it for the other, both ways, until each side has sent its end-of-stream record. With `insecure_plaintext`, only the leg between server and client is raw; the visit channel is always encrypted.
+Otherwise the server takes a data channel of the client (for a service with several clients, the one chosen as for public connections) and sends it a Connect (section 8) with the service name, or an empty name for kind 2, and the target. For kind 2 with `reach` rules, `only` is 1 and the rules follow; the client then connects only to addresses, after resolving a name on its own network, that the rules match, and denies the connection when none do or a rule cannot be read. The client applies its allow list as for any other connection and replies with Status, which the server passes on to the visitor. The visitor waits for this Status before sending data, so a refusal always arrives with its reason. From then on, the server decrypts each record from one channel and encrypts it for the other, both ways, until each side has sent its end-of-stream record. With `insecure_plaintext`, only the leg between server and client is raw; the visit channel is always encrypted.
 
 On every config reload, the server checks the request again; if the answer changed (the visitor, its secret, its place in `visitors`, its `reach`, or the service's client or target), the connection is closed.
 
 Instead of a VisitRequest, the visitor may send the single byte `21` to ask what it may use. The server checks the visitor and its secret against its current config, answers `5 forbidden` if they no longer match, and otherwise sends one record and closes:
 
 ```
-Grants = 22 services:u16 (name:str8 port:u16 ports:u16)* clients:u16 (name:str8 known:u8 [count:u8 rule:str8*])*
+Grants = 22 services:u16 (name:str8 port:u16 ports:u16)* clients:u16 (name:str8 count:u8 reach:str8* known:u8 [count:u8 rule:str8*])*
 ```
 
-`services` are the TCP services that list the visitor and whose `allow_from`/`deny_from` admit its address, with the target's port (0 for a Unix socket) and the size of their range (at most 1000); `clients` are the clients in its `reach`, with the Allow list of their current session when `known` is 1. If the answer does not fit in one record, the server leaves out the Allow lists, and answers `4 invalid` if it still does not fit. `burrow init visitor` uses it to write the forwards, and `--update` to refresh them.
+`services` are the TCP services that list the visitor and whose `allow_from`/`deny_from` admit its address, with the target's port (0 for a Unix socket) and the size of their range (at most 1000); `clients` are the clients in its `reach`, each with the visitor's rules for it (none for `any`) and, for `any` only, the Allow list of their current session when `known` is 1. If the answer does not fit in one record, the server leaves out the Allow lists, and answers `4 invalid` if it still does not fit. `burrow init visitor` uses it to write the forwards, and `--update` to refresh them.
 
 A visitor's SOCKS5 forward reads the target from the SOCKS request (CONNECT only, no authentication, IPv4, IPv6 or a host name) and sends it as kind 2. It answers the SOCKS client only after the server's Status, mapping refusals to SOCKS reply codes.
 

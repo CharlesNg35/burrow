@@ -1032,7 +1032,7 @@ fn private_services_and_visitors() {
     assert_eq!(s.services["db"].bind, None);
     assert_eq!(s.services["db"].visitors, ["laptop"]);
     assert_eq!(s.services["web"].visitors, ["laptop"]);
-    assert!(s.visitors["laptop"].reach.contains("home"));
+    assert!(s.visitors["laptop"].reach.contains_key("home"));
 }
 
 #[test]
@@ -1217,8 +1217,8 @@ fn reach_mistakes_are_explained() {
       --> server.yaml:8:20
        |
      8 |     reach: { home: all }
-       |                    ^^^ expected any
-       = help: the only value is any: home: any
+       |                    ^^^ expected any or IP ranges
+       = help: write home: any for any target its allow list permits, or narrow it with ranges, for example home: [192.168.1.0/24]
 
     error: service "db" has no "bind" and no "visitors", so nobody can reach it
       --> server.yaml:10:3
@@ -1726,5 +1726,46 @@ fn a_client_with_more_services_than_fit_in_one_message_is_refused() {
         refused[0].1.contains("client \"home\" serves 600 services"),
         "{}",
         refused[0].1
+    );
+}
+
+#[test]
+fn reach_takes_any_or_rules_and_warns_only_for_any() {
+    let codes = |reach: &str| {
+        let src = visitors_server(
+            &format!("  laptop:\n    secret: ${{HOME_SECRET}}\n    reach: {reach}\n"),
+            "  db: { client: home, target: 5432, visitors: [laptop] }\n",
+        );
+        let o = load_str("server.yaml", &src, Format::Yaml, None, &env);
+        let found: Vec<(&str, bool)> = o
+            .report
+            .diagnostics
+            .iter()
+            .filter(|d| d.code.contains("reach") || d.code.starts_with("invalid"))
+            .map(|d| (d.code, d.is_error()))
+            .collect();
+        (found, o.loaded.is_some())
+    };
+    assert_eq!(codes("{ home: any }"), (vec![("reach-any", false)], true));
+    assert_eq!(codes("{ home: 192.168.150.0/25 }"), (vec![], true));
+    assert_eq!(
+        codes("{ home: [10.0.0.0/8:22, 192.168.1.0/24:8000-8100, unix:/run/app.sock] }"),
+        (vec![], true)
+    );
+    assert_eq!(
+        codes("{ home: [any, 10.0.0.0/8] }"),
+        (vec![("invalid-reach", true)], false)
+    );
+    assert_eq!(
+        codes("{ home: [] }"),
+        (vec![("invalid-reach", true)], false)
+    );
+    assert_eq!(
+        codes("{ home: [nas.lan] }"),
+        (vec![("invalid-cidr", true)], false)
+    );
+    assert_eq!(
+        codes("{ home: [unix:run] }"),
+        (vec![("invalid-socket", true)], false)
     );
 }

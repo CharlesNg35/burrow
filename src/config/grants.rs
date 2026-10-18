@@ -23,8 +23,9 @@ pub fn for_visitor(
     let clients = auth
         .reach
         .iter()
-        .map(|name| GrantedClient {
+        .map(|(name, rules)| GrantedClient {
             name: name.clone(),
+            reach: rules.rules().unwrap_or_default(),
             allow: None,
         })
         .collect();

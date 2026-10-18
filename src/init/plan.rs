@@ -232,6 +232,7 @@ mod tests {
                 .iter()
                 .map(|c| GrantedClient {
                     name: c.to_string(),
+                    reach: vec![],
                     allow: Some(vec!["127.0.0.0/8".into()]),
                 })
                 .collect(),

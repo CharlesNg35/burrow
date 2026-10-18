@@ -310,7 +310,7 @@ async fn an_update_refreshes_what_a_client_allows_once_it_is_known() {
     assert!(out.status.success(), "{}", text(&out));
     assert!(text(&out).contains("~ home"), "{}", text(&out));
     assert!(
-        text(&out).contains("(what it allows changed)"),
+        text(&out).contains("(what it can reach changed)"),
         "{}",
         text(&out)
     );
@@ -320,6 +320,39 @@ async fn an_update_refreshes_what_a_client_allows_once_it_is_known() {
         "{yaml}"
     );
     assert!(!yaml.contains("offline"), "{yaml}");
+    let again = w.burrow(&["init", "visitor", "--update", "--yes"]);
+    assert!(text(&again).contains("is up to date"), "{}", text(&again));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn narrowed_reach_is_written_as_the_visitors_own_rules_and_hides_the_allow_list() {
+    let w = World::start(true).await;
+    assert!(w.new_config("visitor.yaml").status.success());
+    let mut next = w.settings.clone();
+    next.visitors.get_mut("laptop").unwrap().reach = [(
+        "home".to_string(),
+        AllowList::Rules(vec![
+            "127.0.0.0/8:22".parse().unwrap(),
+            "unix:/run/app.sock".parse().unwrap(),
+        ]),
+    )]
+    .into();
+    w.server.reload(next).await;
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    let out = w.burrow(&["init", "visitor", "--update", "--yes"]);
+    assert!(out.status.success(), "{}", text(&out));
+    assert!(text(&out).contains("~ home"), "{}", text(&out));
+    let yaml = read(&w.path("visitor.yaml"));
+    assert!(
+        yaml.contains(
+            "  # client home lets you reach 127.0.0.0/8:22, unix:/run/app.sock\n  home:\n"
+        ),
+        "{yaml}"
+    );
+    assert!(
+        !yaml.contains("192.168.50.0/23"),
+        "the client's allow list leaked: {yaml}"
+    );
     let again = w.burrow(&["init", "visitor", "--update", "--yes"]);
     assert!(text(&again).contains("is up to date"), "{}", text(&again));
 }

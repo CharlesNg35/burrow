@@ -21,9 +21,23 @@ pub fn allow_note(client: &str, allow: &Option<Vec<String>>) -> String {
     clean(&note)
 }
 
+pub fn reach_note(client: &crate::protocol::GrantedClient) -> String {
+    if client.reach.is_empty() {
+        return allow_note(&client.name, &client.allow);
+    }
+    clean(&format!(
+        "client {} lets you reach {}",
+        client.name,
+        client.reach.join(", ")
+    ))
+}
+
 fn is_note(line: &str) -> bool {
     let line = line.trim();
-    line.starts_with("# client ") && (line.contains(" allows ") || line.contains(" is offline"))
+    line.starts_with("# client ")
+        && (line.contains(" allows ")
+            || line.contains(" is offline")
+            || line.contains(" lets you reach "))
 }
 
 fn entry_yaml(key: &str, value: &Value, note: Option<&String>, indent: &str) -> String {

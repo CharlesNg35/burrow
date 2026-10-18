@@ -195,6 +195,7 @@ async fn relay(
         protocol: Protocol::Udp,
         service: name.to_string(),
         target: target.to_string(),
+        only: None,
     };
     writer
         .send(&mut wr, &connect.encode())

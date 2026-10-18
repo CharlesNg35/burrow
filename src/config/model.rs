@@ -126,7 +126,7 @@ pub struct VisitorEntry {
     pub secret: Secrets,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     #[schemars(
-        description = "Clients this visitor may reach at any target their allow list permits, for example home: any"
+        description = "Clients this visitor may reach directly, with the targets it may pick there: any (whatever the client's allow list permits), or rules in allow-list syntax that narrow it, for example home: any, office: 192.168.150.0/25 or lab: [10.0.0.0/8:22, unix:/run/app.sock]"
     )]
     pub reach: BTreeMap<String, Reach>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -134,10 +134,20 @@ pub struct VisitorEntry {
     pub max_connections: Option<u32>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "lowercase")]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged)]
 pub enum Reach {
-    Any,
+    One(String),
+    Many(Vec<String>),
+}
+
+impl Reach {
+    pub fn entries(&self) -> &[String] {
+        match self {
+            Reach::One(s) => std::slice::from_ref(s),
+            Reach::Many(v) => v,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]

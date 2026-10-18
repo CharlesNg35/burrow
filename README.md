@@ -121,7 +121,7 @@ services:
 | `services.<name>.bandwidth`                | unlimited                           | per direction, for example `40mbit` or `5MB`                   |
 | `services.<name>.max_connections`          | unlimited                           | concurrent connections for this service                        |
 | `visitors.<name>.secret`                   | required                            | like a client secret; see below                                |
-| `visitors.<name>.reach`                    | none                                | `CLIENT: any`: may pick any target that client allows          |
+| `visitors.<name>.reach`                    | none                                | `CLIENT: any`, or rules like `CLIENT: [192.168.1.0/24:22]`     |
 | `visitors.<name>.max_connections`          | unlimited                           | concurrent connections for this visitor                        |
 | `metrics.listen`                           | off                                 | address for `/metrics`, see [Monitoring](#monitoring)          |
 | `insecure_plaintext`                       | `false`                             | do not encrypt forwarded TCP data (authentication still runs)  |
@@ -265,6 +265,7 @@ visitors:
     secret: ${LAPTOP_SECRET}
     reach:
       home: any # any target that client home allows
+      office: [192.168.150.0/25, 10.0.0.5/32:22] # only these, in allow-list syntax
 ```
 
 ```sh
@@ -282,7 +283,8 @@ curl --socks5-hostname 127.0.0.1:1080 http://nas.local:5000   # or: ssh -o Proxy
 
 In `visitor.yaml`: `home: { client: home, socks: true, local: 1080 }`. Ranges work as on the server: `game: { service: game, local: 40000-40010 }`.
 
-- The client's `allow` list still has the final say: `reach` grants only what it permits, so keep it narrow (`validate` reminds you).
+- The client's `allow` list still has the final say: `reach` grants only what it permits, so keep it narrow (`validate` reminds you about `any`).
+- With rules, a host name is checked after the client resolves it on its own network, so SOCKS apps that send names work too.
 - Removing a visitor, its secret, or its access and reloading the server closes its open connections.
 - Visitors are TCP only.
 

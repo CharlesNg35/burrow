@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::net::SocketAddr;
 use std::time::Duration;
 
@@ -68,7 +68,7 @@ pub struct ClientAuth {
 #[derive(Debug, Clone, PartialEq)]
 pub struct VisitorAuth {
     pub secrets: Vec<Secret>,
-    pub reach: BTreeSet<String>,
+    pub reach: BTreeMap<String, AllowList>,
     pub max_connections: Option<usize>,
 }
 

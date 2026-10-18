@@ -67,40 +67,8 @@ pub fn check_client(
 
     let mut rules = Vec::new();
     for (i, entry) in cfg.allow.iter().enumerate() {
-        match entry.parse::<Rule>() {
-            Ok(r) => rules.push(r),
-            Err(e) if entry.trim().starts_with(unix::PREFIX) => {
-                out.push(
-                    Diagnostic::error(
-                        "invalid-socket",
-                        format!("invalid allow entry: {}", e.describe()),
-                    )
-                    .at(spans.value(&["allow", &i.to_string()]))
-                    .label("not a valid socket rule")
-                    .help("use unix:/absolute/path.sock for one socket, or unix:/folder/* for the sockets in a folder"),
-                );
-            }
-            Err(e) => {
-                let idx = i.to_string();
-                let help = if entry.parse::<IpAddr>().is_err()
-                    && !entry.contains('/')
-                    && entry.chars().any(|c| c.is_ascii_alphabetic())
-                    && !entry.contains("::")
-                {
-                    "allow entries are IP ranges, not host names; resolve the host and add its address, for example 192.168.1.10/32".to_string()
-                } else {
-                    "use a CIDR like 192.168.1.0/24, optionally with a port (192.168.1.0/24:22) or a range (:8000-8100)".to_string()
-                };
-                out.push(
-                    Diagnostic::error(
-                        "invalid-cidr",
-                        format!("invalid allow entry: {}", e.describe()),
-                    )
-                    .at(spans.value(&["allow", &idx]))
-                    .label("not a valid CIDR")
-                    .help(help),
-                );
-            }
+        if let Some(r) = parse_rule(entry, "allow", spans.value(&["allow", &i.to_string()]), out) {
+            rules.push(r);
         }
     }
     if cfg.allow_all {
@@ -183,4 +151,43 @@ pub fn check_client(
         tcp: tuning(&cfg.tcp),
         udp_session_timeout: Duration::from_secs(cfg.udp.session_timeout_secs.into()),
     })
+}
+
+pub(super) fn parse_rule(
+    entry: &str,
+    field: &str,
+    at: crate::config::tree::Span,
+    out: &mut Vec<Diagnostic>,
+) -> Option<Rule> {
+    let e = match entry.parse::<Rule>() {
+        Ok(r) => return Some(r),
+        Err(e) => e,
+    };
+    out.push(if entry.trim().starts_with(unix::PREFIX) {
+        Diagnostic::error(
+            "invalid-socket",
+            format!("invalid {field} entry: {}", e.describe()),
+        )
+        .at(at)
+        .label("not a valid socket rule")
+        .help("use unix:/absolute/path.sock for one socket, or unix:/folder/* for the sockets in a folder")
+    } else {
+        let help = if entry.parse::<IpAddr>().is_err()
+            && !entry.contains('/')
+            && entry.chars().any(|c| c.is_ascii_alphabetic())
+            && !entry.contains("::")
+        {
+            format!("{field} entries are IP ranges, not host names; resolve the host and add its address, for example 192.168.1.10/32")
+        } else {
+            "use a CIDR like 192.168.1.0/24, optionally with a port (192.168.1.0/24:22) or a range (:8000-8100)".to_string()
+        };
+        Diagnostic::error(
+            "invalid-cidr",
+            format!("invalid {field} entry: {}", e.describe()),
+        )
+        .at(at)
+        .label("not a valid CIDR")
+        .help(help)
+    });
+    None
 }

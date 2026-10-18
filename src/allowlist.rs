@@ -334,6 +334,18 @@ impl AllowList {
         }
     }
 
+    pub fn rules(&self) -> Option<Vec<String>> {
+        match self {
+            AllowList::All => None,
+            AllowList::Rules(rules) => Some(rules.iter().map(Rule::to_string).collect()),
+        }
+    }
+
+    pub fn from_rules(given: &[String]) -> AllowList {
+        let parsed: Option<Vec<Rule>> = given.iter().map(|r| r.parse().ok()).collect();
+        AllowList::Rules(parsed.unwrap_or_default())
+    }
+
     pub fn permits_socket(&self, path: &str) -> bool {
         match self {
             AllowList::All => crate::config::check::unix::check_path(path).is_ok(),
@@ -359,6 +371,25 @@ impl AllowList {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rules_travel_as_text_and_a_bad_one_allows_nothing() {
+        let given = [
+            "192.168.150.0/25",
+            "10.0.0.0/8:22",
+            "10.1.0.0/16:8000-8100",
+            "[fd00::/8]:443",
+            "unix:/run/app.sock",
+            "unix:/run/apps/*",
+        ];
+        let list = AllowList::Rules(given.iter().map(|r| r.parse().unwrap()).collect());
+        let text = list.rules().unwrap();
+        assert_eq!(AllowList::from_rules(&text), list);
+        let bad = AllowList::from_rules(&["10.0.0.0/8".into(), "nonsense".into()]);
+        assert!(!bad.permits("10.1.2.3:22".parse().unwrap()));
+        assert!(!AllowList::from_rules(&[]).permits("10.1.2.3:22".parse().unwrap()));
+        assert_eq!(AllowList::All.rules(), None);
+    }
 
     #[test]
     fn a_long_allow_list_says_how_many_more_it_has() {

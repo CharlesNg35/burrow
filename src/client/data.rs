@@ -208,6 +208,13 @@ async fn socket(settings: &ClientSettings, ch: Channel, connect: &Connect, path:
         reply(ch, Status::Invalid).await;
         return;
     }
+    if let Some(only) = connect.only.as_deref()
+        && !AllowList::from_rules(only).permits_socket(path)
+    {
+        outside_reach(connect);
+        reply(ch, Status::Denied).await;
+        return;
+    }
     if !settings.allow.permits_socket(path) {
         static DENIED: Throttle = Throttle::new();
         if let Some(more) = DENIED.allow() {
@@ -305,6 +312,17 @@ async fn permitted(
             });
         }
     };
+    let reach = connect.only.as_deref().map(AllowList::from_rules);
+    let reachable: Vec<SocketAddr> = resolved
+        .iter()
+        .copied()
+        .filter(|a| reach.as_ref().is_none_or(|r| r.permits(*a)))
+        .collect();
+    if reachable.is_empty() {
+        outside_reach(connect);
+        return Err(Status::Denied);
+    }
+    let resolved = reachable;
     let allowed: Vec<SocketAddr> = resolved
         .iter()
         .copied()
@@ -324,6 +342,17 @@ async fn permitted(
         return Err(Status::Denied);
     }
     Ok(allowed)
+}
+
+fn outside_reach(connect: &Connect) {
+    static OUTSIDE: Throttle = Throttle::new();
+    if let Some(more) = OUTSIDE.allow() {
+        warn!(
+            "denied connection to {} for a visitor: the server limits what it may reach to {}{more}",
+            connect.target,
+            connect.only.as_deref().unwrap_or_default().join(", ")
+        );
+    }
 }
 
 fn label(connect: &Connect) -> String {

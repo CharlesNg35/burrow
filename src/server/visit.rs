@@ -23,6 +23,7 @@ pub(super) struct Grant {
     pub clients: Vec<String>,
     pub target: String,
     pub service: Option<String>,
+    pub only: Option<Vec<String>>,
 }
 
 pub(super) struct Refusal {
@@ -80,14 +81,15 @@ impl Shared {
                     clients: svc.clients.clone(),
                     target: svc.target_at(*index),
                     service: Some(name.clone()),
+                    only: None,
                 })
             }
             VisitTarget::Client { client, target } => {
-                if !auth.reach.contains(client) {
+                let Some(rules) = auth.reach.get(client) else {
                     return Err(forbidden(format!(
                         "visitor \"{visitor}\" may not reach client \"{client}\" directly; to allow it, add \"reach: {{ {client}: any }}\" to visitor \"{visitor}\""
                     )));
-                }
+                };
                 let valid = match crate::config::check::unix::path_of(target) {
                     Some(path) => crate::config::check::unix::check_path(path).is_ok(),
                     None => target.len() <= MAX_TARGET_LEN && parse_host_port(target).is_ok(),
@@ -98,10 +100,23 @@ impl Shared {
                         why: format!("visitor \"{visitor}\" asked for an invalid target"),
                     });
                 }
+                let outside = match crate::config::check::unix::path_of(target) {
+                    Some(path) => !rules.permits_socket(path),
+                    None => target
+                        .parse::<SocketAddr>()
+                        .is_ok_and(|addr| !rules.permits(addr)),
+                };
+                if outside {
+                    return Err(forbidden(format!(
+                        "visitor \"{visitor}\" asked for {target} on client \"{client}\", which its reach does not include ({})",
+                        rules.rules().unwrap_or_default().join(", ")
+                    )));
+                }
                 Ok(Grant {
                     clients: vec![client.clone()],
                     target: target.clone(),
                     service: None,
+                    only: rules.rules(),
                 })
             }
         }
@@ -119,6 +134,7 @@ impl Shared {
         self.grant(visitor, secret, to, from).is_ok_and(|g| {
             g.target == grant.target
                 && g.service == grant.service
+                && g.only == grant.only
                 && g.clients.iter().any(|c| c == client)
         })
     }
@@ -144,7 +160,9 @@ async fn answer_grants(
         return;
     };
     for c in &mut grants.clients {
-        c.allow = shared.session(&c.name).and_then(|s| s.allow());
+        if c.reach.is_empty() {
+            c.allow = shared.session(&c.name).and_then(|s| s.allow());
+        }
     }
     let Ok(bytes) = grants.encode() else {
         warn!(
@@ -291,6 +309,7 @@ pub(super) async fn serve(
         protocol: Protocol::Tcp,
         service: grant.service.clone().unwrap_or_default(),
         target: grant.target.clone(),
+        only: grant.only.clone(),
     }
     .encode();
     let prefix = match (
