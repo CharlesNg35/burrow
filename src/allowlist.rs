@@ -280,12 +280,8 @@ impl Sources {
 fn split_ports(s: &str) -> (&str, Option<&str>) {
     if let Some(rest) = s.strip_prefix('[') {
         return match rest.split_once(']') {
-            Some((net, tail)) => (
-                net,
-                tail.strip_prefix(':')
-                    .or(Some(tail))
-                    .filter(|t| !t.is_empty()),
-            ),
+            Some((net, "")) => (net, None),
+            Some((net, tail)) => (net, Some(tail.strip_prefix(':').unwrap_or(tail))),
             None => (s, None),
         };
     }
@@ -461,6 +457,10 @@ mod tests {
         );
         assert_eq!(rule("::ffff:10.0.0.0/104").to_string(), "10.0.0.0/8");
         assert!("::ffff:10.0.0.0/64".parse::<Rule>().is_err());
+        assert_eq!(rule("[::1]").to_string(), "::1/128");
+        for empty in ["[::1]:", "[::ffff:10.0.0.1]:", "10.0.0.1:", "[::1]x"] {
+            assert!(empty.parse::<Rule>().is_err(), "{empty}");
+        }
     }
 
     #[test]
