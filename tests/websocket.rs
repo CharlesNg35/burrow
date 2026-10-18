@@ -409,8 +409,9 @@ async fn path_change_swaps_the_route_and_sends_old_path_clients_away() {
         Duration::from_secs(5),
         first.state.wait_for(|s| *s != State::Connected),
     )
-    .await;
-    assert!(left.is_ok(), "a client on the old path is sent away");
+    .await
+    .is_ok_and(|r| r.is_ok());
+    assert!(left, "a client on the old path is sent away");
     let named = |name: &str, path: &str| {
         let mut c = ws_client(&format!("ws://{port_addr}{path}"), secret.clone(), None);
         c.name = name.into();
@@ -660,11 +661,9 @@ async fn clients_of_a_websocket_path_that_changed_are_sent_to_reconnect() {
         Duration::from_secs(5),
         cli.state.wait_for(|s| *s != State::Connected),
     )
-    .await;
-    assert!(
-        left.is_ok(),
-        "the client stayed connected to a path that is gone"
-    );
+    .await
+    .is_ok_and(|r| r.is_ok());
+    assert!(left, "the client stayed connected to a path that is gone");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -684,6 +683,7 @@ async fn a_wss_client_with_a_wrong_secret_is_reported_as_rejected() {
         Duration::from_secs(10),
         cli.state.wait_for(|s| *s == State::Rejected),
     )
-    .await;
-    assert!(rejected.is_ok(), "a wrong secret over wss is not reported");
+    .await
+    .is_ok_and(|r| r.is_ok());
+    assert!(rejected, "a wrong secret over wss is not reported");
 }
