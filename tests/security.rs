@@ -427,3 +427,57 @@ async fn a_secret_removed_during_a_handshake_does_not_open_a_session() {
     let mut cli = start_client(client_settings(srv.addr, new)).await;
     wait_state(&mut cli.state, State::Connected).await;
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_server_cannot_make_a_client_open_unbounded_data_channels() {
+    use burrow::protocol::ServerMsg;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    if ws_mode() {
+        return;
+    }
+    let secret = Secret::generate();
+    let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = l.local_addr().unwrap();
+    let opened = Arc::new(AtomicUsize::new(0));
+    let (count, known) = (opened.clone(), secret.clone());
+    tokio::spawn(async move {
+        loop {
+            let Ok((s, _)) = l.accept().await else {
+                return;
+            };
+            let (count, known) = (count.clone(), known.clone());
+            tokio::spawn(async move {
+                let Ok(acc) = burrow::handshake::accept(s.into(), |_, _| vec![known]).await else {
+                    return;
+                };
+                let mut ch = acc.channel;
+                match acc.hello {
+                    Hello::Control { .. } => {
+                        let welcome = ServerMsg::Welcome {
+                            token: [1; 16],
+                            heartbeat_secs: 30,
+                        };
+                        let _ = ch.writer.send(&mut ch.stream, &welcome.encode()).await;
+                        for _ in 0..20 {
+                            let more = ServerMsg::OpenData { count: u16::MAX };
+                            let _ = ch.writer.send(&mut ch.stream, &more.encode()).await;
+                        }
+                        while let Ok(Some(_)) = ch.reader.recv(&mut ch.stream).await {}
+                    }
+                    _ => {
+                        count.fetch_add(1, Ordering::SeqCst);
+                        let _ = ch.reader.recv(&mut ch.stream).await;
+                    }
+                }
+            });
+        }
+    });
+    let mut cli = start_client(client_settings(addr, secret)).await;
+    wait_state(&mut cli.state, State::Connected).await;
+    tokio::time::sleep(Duration::from_secs(6)).await;
+    let n = opened.load(Ordering::SeqCst);
+    assert!(n > 0, "no data channel was opened at all");
+    assert!(n <= 4096, "the client opened {n} data channels");
+    assert_eq!(*cli.state.borrow(), State::Connected);
+}

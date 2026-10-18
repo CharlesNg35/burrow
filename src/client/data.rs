@@ -159,6 +159,7 @@ pub async fn serve(
     resolver: Arc<dyn Resolver>,
     mut ch: Channel,
     mut ended: tokio::sync::watch::Receiver<bool>,
+    held: super::Waiting,
 ) {
     let idle_limit = ch.stream.is_websocket().then_some(IDLE_CHANNEL_LIMIT);
     let first = loop {
@@ -182,6 +183,7 @@ pub async fn serve(
             _ => return,
         }
     };
+    drop(held);
     let connect = match first {
         Ok(c) => c,
         Err(_) => {

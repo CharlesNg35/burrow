@@ -21,6 +21,15 @@ use reconnect::{Backoff, Outage, Report, human};
 const STABLE_AFTER: Duration = Duration::from_secs(10);
 const REJECT_CONFIRM_ATTEMPTS: u32 = 3;
 const MAX_OPENING: usize = 32;
+const MAX_WAITING: usize = 4096;
+
+pub(crate) struct Waiting(Arc<std::sync::atomic::AtomicUsize>);
+
+impl Drop for Waiting {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
+    }
+}
 const DATA_PATIENCE: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -375,6 +384,7 @@ impl Client {
             return SessionEnd::Lost(format!("connection to {} lost", s.server));
         }
         let opening = Arc::new(Semaphore::new(MAX_OPENING));
+        let waiting = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let (ended, session_ended) = watch::channel(false);
         let _ended = CloseOnDrop(opening.clone(), ended);
         let timeout = heartbeat * 3;
@@ -413,8 +423,20 @@ impl Client {
                     }
                 }
                 ServerMsg::OpenData { count } => {
-                    for _ in 0..count {
-                        self.spawn_data(token, opening.clone(), session_ended.clone());
+                    let now = waiting.load(std::sync::atomic::Ordering::Acquire);
+                    let room = MAX_WAITING.saturating_sub(now);
+                    for _ in 0..usize::from(count).min(room) {
+                        waiting.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+                        let held = Waiting(waiting.clone());
+                        self.spawn_data(token, opening.clone(), session_ended.clone(), held);
+                    }
+                    if usize::from(count) > room {
+                        static MANY: crate::throttle::Throttle = crate::throttle::Throttle::new();
+                        if let Some(more) = MANY.allow() {
+                            warn!(
+                                "the server asked for {count} more data channels while {now} are waiting; opening at most {MAX_WAITING}{more}"
+                            );
+                        }
                     }
                 }
                 ServerMsg::Services(list) => self.report_services(&list),
@@ -460,6 +482,7 @@ impl Client {
         token: [u8; TOKEN_LEN],
         opening: Arc<Semaphore>,
         ended: watch::Receiver<bool>,
+        held: Waiting,
     ) {
         let me = Client {
             live: self.live.clone(),
@@ -474,7 +497,7 @@ impl Client {
         let mut halted = self.halt.subscribe();
         tokio::spawn(async move {
             tokio::select! {
-                _ = me.data_channel(token, opening, ended) => {}
+                _ = me.data_channel(token, opening, ended, held) => {}
                 _ = halted.wait_for(|h| *h) => {}
             }
         });
@@ -485,6 +508,7 @@ impl Client {
         token: [u8; TOKEN_LEN],
         opening: Arc<Semaphore>,
         ended: watch::Receiver<bool>,
+        held: Waiting,
     ) {
         let started = Instant::now();
         let mut backoff = Backoff::new(Duration::from_millis(100), Duration::from_secs(1));
@@ -500,7 +524,7 @@ impl Client {
             drop(permit);
             match ch {
                 Ok(ch) => {
-                    data::serve(self.live.clone(), self.resolver.clone(), ch, ended).await;
+                    data::serve(self.live.clone(), self.resolver.clone(), ch, ended, held).await;
                     return;
                 }
                 Err(DialError::Rejected | DialError::Lost(_))
