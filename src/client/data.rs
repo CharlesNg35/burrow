@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -29,6 +29,41 @@ struct Peer {
     sock: Arc<UdpSocket>,
     seen: Arc<AtomicU64>,
     task: tokio::task::AbortHandle,
+    _slot: PeerSlot,
+}
+
+const MAX_OPEN_PEERS: usize = 8192;
+static OPEN_PEERS: PeerSlots = PeerSlots::new(MAX_OPEN_PEERS);
+
+struct PeerSlots {
+    open: AtomicUsize,
+    max: usize,
+}
+
+impl PeerSlots {
+    const fn new(max: usize) -> PeerSlots {
+        PeerSlots {
+            open: AtomicUsize::new(0),
+            max,
+        }
+    }
+
+    fn take(&'static self) -> Option<PeerSlot> {
+        self.open
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |n| {
+                (n < self.max).then_some(n + 1)
+            })
+            .ok()
+            .map(|_| PeerSlot(self))
+    }
+}
+
+struct PeerSlot(&'static PeerSlots);
+
+impl Drop for PeerSlot {
+    fn drop(&mut self) {
+        self.0.open.fetch_sub(1, Ordering::AcqRel);
+    }
 }
 
 struct RelayCleanup {
@@ -602,6 +637,15 @@ async fn udp(
                     }
                     continue;
                 }
+                let Some(slot) = OPEN_PEERS.take() else {
+                    static ALL: Throttle = Throttle::new();
+                    if let Some(more) = ALL.allow() {
+                        warn!(
+                            "UDP to {target}: {MAX_OPEN_PEERS} peers are open across all UDP services, so a datagram from a new one was dropped{more}"
+                        );
+                    }
+                    continue;
+                };
                 let sock = match connected_socket(target).await {
                     Ok(sock) => sock,
                     Err(e) => {
@@ -631,6 +675,7 @@ async fn udp(
                         sock: sock.clone(),
                         seen: seen.clone(),
                         task: task.abort_handle(),
+                        _slot: slot,
                     },
                 );
                 (sock, seen)
@@ -666,6 +711,16 @@ async fn udp(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn udp_peers_across_all_services_share_one_limit() {
+        let slots: &'static PeerSlots = Box::leak(Box::new(PeerSlots::new(2)));
+        let first = slots.take().unwrap();
+        let _second = slots.take().unwrap();
+        assert!(slots.take().is_none());
+        drop(first);
+        assert!(slots.take().is_some());
+    }
     use crate::transport::resolve::Resolved;
 
     struct Hanging;
