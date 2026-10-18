@@ -15,7 +15,7 @@ pub enum Identity {
 impl Identity {
     pub fn server(config: &Path) -> Identity {
         Identity::Server {
-            config: std::fs::canonicalize(config).unwrap_or_else(|_| config.to_path_buf()),
+            config: crate::service::system::canonical_or_same(config),
         }
     }
 
@@ -270,9 +270,7 @@ pub fn acquire_in(dir: &Path, identity: &Identity, config: &Path) -> Result<Inst
     let note = format!(
         "pid {}, config {}",
         std::process::id(),
-        std::fs::canonicalize(config)
-            .unwrap_or_else(|_| config.to_path_buf())
-            .display()
+        crate::service::system::canonical_or_same(config).display()
     );
     if writable {
         write_note(&path.with_extension("info"), &note);

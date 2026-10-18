@@ -291,7 +291,7 @@ impl Backend for Launchd {
         let detail = match code.as_str() {
             "3" => {
                 format!(
-                    "the config has errors (exit 3); fix it, then: {}",
+                    "the config has errors or cannot be read (exit 3); fix it, then: {}",
                     crate::failure::admin(&format!("service start {}", m.name))
                 )
             }

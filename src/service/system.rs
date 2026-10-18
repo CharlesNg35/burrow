@@ -191,6 +191,10 @@ pub fn canonical(p: &Path) -> std::io::Result<PathBuf> {
     Ok(c)
 }
 
+pub fn canonical_or_same(p: &Path) -> PathBuf {
+    canonical(p).unwrap_or_else(|_| p.to_path_buf())
+}
+
 pub fn same_content(a: &Path, b: &Path) -> bool {
     let len = |p: &Path| std::fs::metadata(p).map(|m| m.len()).ok();
     len(a).is_some() && len(a) == len(b) && std::fs::read(a).ok() == std::fs::read(b).ok()

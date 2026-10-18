@@ -67,7 +67,7 @@ fn listed(found: &[Found]) -> String {
 pub fn by_target(found: &[Found], target: &str) -> Result<Found, Failure> {
     let path = Path::new(target);
     if path.is_file() {
-        let real = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+        let real = crate::service::system::canonical_or_same(path);
         if let Some(f) = found.iter().find(|f| f.path == real) {
             return Ok(f.clone());
         }

@@ -208,7 +208,7 @@ fn valid_token(t: &str) -> bool {
 }
 
 fn canonical(p: &Path) -> PathBuf {
-    std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf())
+    crate::service::system::canonical_or_same(p)
 }
 
 fn wanted(pick: &Pick) -> Result<Option<PathBuf>, Failure> {

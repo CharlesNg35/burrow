@@ -10,7 +10,7 @@ pub enum Source {
 }
 
 fn canonical(path: &Path) -> PathBuf {
-    std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+    crate::service::system::canonical_or_same(path)
 }
 
 pub fn follow(source: &Path, installed: &Path, before: &str, text: &str) -> Source {

@@ -194,6 +194,14 @@ fn fingerprint(files: &[PathBuf]) -> Vec<(PathBuf, Option<u64>)> {
         .collect()
 }
 
+fn by_hand() -> &'static str {
+    if cfg!(windows) {
+        "apply changes with: burrow service reload, or by restarting it"
+    } else {
+        "apply changes with SIGHUP or: burrow service reload"
+    }
+}
+
 fn dir_of(p: &Path) -> PathBuf {
     p.parent()
         .filter(|d| !d.as_os_str().is_empty())
@@ -246,13 +254,14 @@ fn watch_files(
             let _ = tx.try_send("file changed");
         }
     })
-    .map_err(|e| warn!("cannot watch the config for changes ({e}); reload with SIGHUP instead"))
+    .map_err(|e| warn!("cannot watch the config for changes ({e}); {}", by_hand()))
     .ok()?;
     for dir in dirs {
         if let Err(e) = watcher.watch(dir, RecursiveMode::NonRecursive) {
             warn!(
-                "cannot watch {} for changes ({e}); reload with SIGHUP instead",
-                dir.display()
+                "cannot watch {} for changes ({e}); {}",
+                dir.display(),
+                by_hand()
             );
         }
     }

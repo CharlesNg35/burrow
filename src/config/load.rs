@@ -86,7 +86,17 @@ impl LoadError {
             ),
             LoadError::Read(e) if e.kind() == std::io::ErrorKind::PermissionDenied => (
                 format!("cannot read {}: permission denied", path.display()),
-                "run as the file's owner, or check its permissions with: ls -l".into(),
+                if cfg!(windows) {
+                    format!(
+                        "run as an administrator, or check its permissions with: icacls {}",
+                        crate::failure::path_arg(path)
+                    )
+                } else {
+                    format!(
+                        "run as the file's owner, or check its permissions with: ls -l {}",
+                        crate::failure::path_arg(path)
+                    )
+                },
             ),
             LoadError::Read(e) if e.kind() == std::io::ErrorKind::InvalidData => (
                 format!("{} is not valid UTF-8 text", path.display()),

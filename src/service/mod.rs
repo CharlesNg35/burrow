@@ -1,7 +1,7 @@
 mod background;
 mod logview;
 pub(crate) mod ports;
-mod system;
+pub(crate) mod system;
 mod update;
 
 #[cfg(target_os = "macos")]
@@ -1085,9 +1085,8 @@ pub fn uninstall(name: Option<&str>, purge: bool, out: &mut dyn Write) -> Result
         if purge {
             dirs.extend([p.log_dir(), p.config_dir()]);
         }
-        if let Some(dir) = crate::instance::service_dir() {
-            crate::instance::remove_unused(&dir);
-        }
+        let locks = crate::instance::service_dir().unwrap_or_else(crate::instance::default_dir);
+        crate::instance::remove_unused(&locks);
         for dir in dirs {
             let _ = std::fs::remove_dir(dir);
         }
@@ -1207,7 +1206,14 @@ pub fn control_now(action: &str, name: Option<&str>, out: &mut dyn Write) -> Res
         "reload" => backend.reload(&m)?,
         _ => unreachable!("known actions"),
     }
-    let st = backend.status(&m);
+    let mut st = backend.status(&m);
+    for _ in 0..15 {
+        if st.running || action == "stop" {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        st = backend.status(&m);
+    }
     say(
         out,
         format!(

@@ -283,6 +283,13 @@ impl Backend for WindowsService {
 
     fn start(&self, m: &Manifest) -> Result<(), Failure> {
         let service = open(m)?;
+        grant(&m.config, &m.account, "R")?;
+        if let Some(env) = &m.env_file {
+            grant(env, &m.account, "R")?;
+        }
+        for f in &m.files {
+            grant(f, &m.account, "R")?;
+        }
         if service
             .query_status()
             .is_ok_and(|s| s.current_state == ServiceState::Running)
@@ -349,7 +356,7 @@ impl Backend for WindowsService {
         let detail = match st.exit_code {
             ServiceExitCode::ServiceSpecific(3) => {
                 format!(
-                    "the config has errors (exit 3); fix it, then: {}",
+                    "the config has errors or cannot be read (exit 3); fix it, then: {}",
                     crate::failure::admin(&format!("service start {}", m.name))
                 )
             }

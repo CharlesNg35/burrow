@@ -107,6 +107,7 @@ fn on_path(exe: &std::path::Path) -> bool {
     };
     std::env::var_os("PATH").is_some_and(|path| {
         std::env::split_paths(&path)
+            .filter(|dir| !cfg!(windows) || dir.is_absolute())
             .any(|dir| std::fs::canonicalize(dir.join(name)).is_ok_and(|p| p == me))
     })
 }

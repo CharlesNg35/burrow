@@ -84,7 +84,7 @@ pub fn publish_in(
     let port = listener.local_addr().ok()?.port();
     let token = token();
     let entry = Entry {
-        config: std::fs::canonicalize(config).unwrap_or_else(|_| config.to_path_buf()),
+        config: crate::service::system::canonical_or_same(config),
         pid: std::process::id(),
         port,
         token: token.clone(),
