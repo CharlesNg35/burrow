@@ -500,6 +500,10 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
     }
 
     let created = backend.ensure_account(&account)?;
+    let mut fresh = FreshAccount {
+        backend: &*backend,
+        account: created.then_some(account.as_str()),
+    };
     if created {
         say(
             out,
@@ -573,6 +577,7 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
         again.manifest = None;
     }
     save_manifest(&manifest)?;
+    fresh.account = None;
     say(
         out,
         format!(
@@ -641,6 +646,19 @@ impl Drop for StartAgain<'_> {
     fn drop(&mut self) {
         if let Some(m) = self.manifest.take() {
             let _ = self.backend.start(m);
+        }
+    }
+}
+
+struct FreshAccount<'a> {
+    backend: &'a dyn Backend,
+    account: Option<&'a str>,
+}
+
+impl Drop for FreshAccount<'_> {
+    fn drop(&mut self) {
+        if let Some(account) = self.account.take() {
+            let _ = self.backend.remove_account(account);
         }
     }
 }
