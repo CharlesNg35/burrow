@@ -216,6 +216,10 @@ impl ClientSession {
         p.waiters.clear();
     }
 
+    pub fn is_closed(&self) -> bool {
+        *self.closed.borrow()
+    }
+
     pub async fn closed(&self) {
         let mut rx = self.closed.subscribe();
         let _ = rx.wait_for(|c| *c).await;

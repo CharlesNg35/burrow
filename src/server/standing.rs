@@ -186,6 +186,9 @@ impl Shared {
         let Some((trouble, why)) = trouble_of(error) else {
             return;
         };
+        if session.is_closed() {
+            return;
+        }
         let client = &session.name;
         let change = self.standing.lock().expect("standing lock").troubled(
             service,
@@ -203,7 +206,7 @@ impl Shared {
                 "service \"{service}\": client \"{client}\" refused {target} because it is not in its allow list; new connections use the other clients until it reconnects (add it to \"allow\" in the config of client \"{client}\")"
             ),
             Change::SetAside(wait) => warn!(
-                "service \"{service}\": client \"{client}\" could not reach {target} ({why}); new connections try the other clients first for {}s",
+                "service \"{service}\": client \"{client}\" did not get through to {target} ({why}); new connections try the other clients first for {}s",
                 wait.as_secs()
             ),
             Change::Nothing | Change::Recovered => {}
