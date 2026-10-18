@@ -60,9 +60,11 @@ pub(super) async fn control_session(
         let mut sessions = shared.sessions.lock().expect("sessions lock");
         if !shared.allows(&name, &session.secret) {
             Err(None)
+        } else if shared.settings().insecure_plaintext != preamble.plaintext {
+            Err(Some(None))
         } else {
             match sessions.get(&name) {
-                Some(other) if other.instance != instance => Err(Some(other.peer)),
+                Some(other) if other.instance != instance => Err(Some(Some(other.peer))),
                 _ => Ok(sessions.insert(name.clone(), session.clone())),
             }
         }
@@ -84,7 +86,22 @@ pub(super) async fn control_session(
                 .await;
             return;
         }
-        Err(Some(other)) => {
+        Err(Some(None)) => {
+            info!(
+                "client \"{name}\" from {peer} refused: insecure_plaintext changed while it connected"
+            );
+            let _ = writer
+                .send(
+                    &mut wr,
+                    &ServerMsg::Bye {
+                        reason: ByeReason::PlaintextMismatch,
+                    }
+                    .encode(),
+                )
+                .await;
+            return;
+        }
+        Err(Some(Some(other))) => {
             static TWICE: crate::throttle::Throttle = crate::throttle::Throttle::new();
             if let Some(more) = TWICE.allow() {
                 warn!(

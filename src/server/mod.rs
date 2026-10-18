@@ -651,6 +651,11 @@ impl Server {
                             .filter(|w| conflicts(w.listen))
                             .map(|_| "websocket.listen".to_string())
                     })
+                    .or_else(|| {
+                        next.metrics
+                            .filter(|m| conflicts(*m))
+                            .map(|_| "metrics.listen".to_string())
+                    })
                     .map(|what| (what, kept))
             });
             if let Some((what, kept)) = clash {
@@ -919,8 +924,8 @@ impl Server {
                 }
             }
             (None, _) => {
-                if let Some(old) = self.websocket.take() {
-                    old.task.abort();
+                if self.websocket.is_some() {
+                    self.stop_websocket().await;
                     info!("websocket listener stopped");
                 }
                 None

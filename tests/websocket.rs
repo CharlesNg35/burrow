@@ -590,3 +590,33 @@ async fn swapping_the_websocket_port_with_a_service_port_ends_with_both_listenin
     )
     .await;
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_service_can_take_the_port_of_a_websocket_removed_in_the_same_reload() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    logs();
+    let secret = Secret::generate();
+    let mut s = server_settings(vec![secret.clone()]);
+    let free = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = free.local_addr().unwrap();
+    drop(free);
+    s.websocket = ws_server(&secret, "/burrow", None).websocket;
+    s.websocket.as_mut().unwrap().listen = port;
+    let srv = start_server(s.clone()).await;
+    let mut next = s.clone();
+    next.websocket = None;
+    let mut web = service("127.0.0.1:1".parse().unwrap(), Protocol::Tcp);
+    web.bind = Some(port);
+    next.services.insert("web".into(), web);
+    srv.reload(next).await;
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    let mut conn = TcpStream::connect(port)
+        .await
+        .expect("the service listens on the freed port");
+    let _ = conn
+        .write_all(b"GET /burrow HTTP/1.1\r\nHost: x\r\n\r\n")
+        .await;
+    let mut got = Vec::new();
+    let _ = tokio::time::timeout(Duration::from_secs(3), conn.read_to_end(&mut got)).await;
+    assert!(!got.starts_with(b"HTTP/"), "the websocket still answers");
+}

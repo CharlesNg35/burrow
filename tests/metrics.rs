@@ -440,3 +440,24 @@ async fn each_udp_peer_counts_as_one_connection() {
     assert_eq!(dns.total, 3);
     assert_eq!(t.server.shared.status().udp_peers, 3);
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_reload_that_moves_metrics_onto_the_kept_listen_port_is_rejected() {
+    let secret = Secret::generate();
+    let mut settings = server_settings(vec![secret.clone()]);
+    let (held, kept) = refusing();
+    drop(held);
+    settings.listen = Some(kept);
+    let t = tunnel_with(settings.clone(), vec![], |c| c, secret).await;
+    let (held, other) = refusing();
+    drop(held);
+    let mut next = settings.clone();
+    next.listen = Some(other);
+    next.metrics = Some(kept);
+    next.max_handshakes = settings.max_handshakes + 1;
+    t.server.reload(next).await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let now = t.server.shared.settings_snapshot();
+    assert_eq!(now.max_handshakes, settings.max_handshakes);
+    assert_eq!(now.metrics, None);
+}
