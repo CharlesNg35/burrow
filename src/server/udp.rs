@@ -200,9 +200,24 @@ async fn relay(
         .send(&mut wr, &connect.encode())
         .await
         .map_err(|_| None)?;
-    let status = match reader.recv(&mut rd).await {
-        Ok(Some(b)) => Status::decode(b).map_err(|_| None)?,
-        _ => return Err(None),
+    let wait = shared.settings().heartbeat_interval * 3;
+    let status = match tokio::time::timeout(wait, reader.recv(&mut rd)).await {
+        Ok(Ok(Some(b))) => Status::decode(b).map_err(|_| None)?,
+        Ok(_) => return Err(None),
+        Err(_) => {
+            static SILENT: crate::throttle::Throttle = crate::throttle::Throttle::new();
+            if let Some(more) = SILENT.allow() {
+                warn!(
+                    "service \"{name}\": client \"{}\" did not answer the UDP relay within {}s; trying again{more}",
+                    session.name,
+                    wait.as_secs()
+                );
+            }
+            if svc.clients.len() > 1 {
+                shared.troubled(name, session, target, &crate::forward::no_reply());
+            }
+            return Err(None);
+        }
     };
     if status != Status::Ok {
         return Err(Some(status));

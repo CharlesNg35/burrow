@@ -677,6 +677,33 @@ async fn udp_tag(sock: &tokio::net::UdpSocket) -> Option<u8> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_udp_service_moves_away_from_a_client_that_does_not_answer() {
+    let dns = Service {
+        clients: vec!["a".into(), "b".into()],
+        target: TARGET.into(),
+        ..service(tagged_udp_echo(b'A').await, Protocol::Udp)
+    };
+    let mut farm = Farm::start(dns, |_| {}).await;
+    for (i, tag) in [(0, b'A'), (1, b'B')] {
+        farm.disconnect(i).await;
+        farm.sites[i].target = tagged_udp_echo(tag).await;
+        farm.connect(i).await;
+    }
+    let s = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    s.connect(farm.server.services["web"]).await.unwrap();
+    assert_eq!(udp_tag(&s).await, Some(b'A'));
+    farm.connect_slow(0).await;
+    let started = std::time::Instant::now();
+    let mut tag = None;
+    while started.elapsed() < Duration::from_millis(4500) && tag != Some(b'B') {
+        tag = udp_tag(&s).await;
+    }
+    assert_eq!(tag, Some(b'B'), "the relay waited on the silent client");
+    let shared = farm.server.shared.clone();
+    wait_for(|| shared.status().services[0].set_aside == vec![aside("a", false)]).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn udp_failover_returns_to_the_first_client() {
     logs();
     let (ea, eb) = (tagged_udp_echo(b'A').await, tagged_udp_echo(b'B').await);

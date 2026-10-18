@@ -441,7 +441,7 @@ pub async fn client_tcp<T: Split>(
     pump_tcp(ch, target, plaintext).await
 }
 
-fn no_reply() -> ForwardError {
+pub(crate) fn no_reply() -> ForwardError {
     ForwardError::Io(io::Error::new(
         io::ErrorKind::TimedOut,
         "the client did not answer in time",
