@@ -168,10 +168,19 @@ impl Backend for Systemd {
         m.low_ports || m.account == "root"
     }
 
+    fn hidden(&self, file: &Path) -> Option<String> {
+        ["/tmp", "/var/tmp"]
+            .iter()
+            .find(|d| file.starts_with(d))
+            .map(|d| format!("{d} is private to the service, so it cannot see this file"))
+    }
+
     fn cannot_use(&self, m: &Manifest, file: &Path) -> Option<String> {
         let homes = ["/home", "/root", "/run/user"];
         if file.is_relative() {
             Some("a service needs an absolute path".into())
+        } else if let Some(why) = self.hidden(file) {
+            Some(why)
         } else if all_paths_under(&[file.to_path_buf()], &homes)
             && !all_paths_under(&m.files, &homes)
         {

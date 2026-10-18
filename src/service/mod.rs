@@ -76,6 +76,9 @@ pub trait Backend {
     fn low_ports(&self, _m: &Manifest) -> bool {
         true
     }
+    fn hidden(&self, _file: &Path) -> Option<String> {
+        None
+    }
     fn cannot_use(&self, m: &Manifest, file: &Path) -> Option<String> {
         if file.is_relative() {
             return Some("a service needs an absolute path".into());
@@ -518,6 +521,13 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
         ..manifest
     };
     for (field, file) in &checked.files {
+        if let Some(why) = backend.hidden(file) {
+            return Err(Failure::new(format!(
+                "the service cannot use {field} ({}): {why}",
+                file.display()
+            ))
+            .hint("move the file, for example to /etc/burrow, and point the config at it"));
+        }
         if !backend.can_read(&account, file) {
             return Err(Failure::new(format!(
                 "the service account {account} cannot read {field} ({})",
@@ -1354,6 +1364,13 @@ mod tests {
                 .cannot_use(&m, Path::new("ca.pem"))
                 .unwrap()
                 .contains("absolute")
+        );
+        let private = backend.cannot_use(&m, Path::new("/tmp/ca.pem"));
+        assert!(private.unwrap().contains("private"));
+        assert!(
+            backend
+                .cannot_use(&m, Path::new("/var/tmp/x/ca.pem"))
+                .is_some()
         );
         let as_root = Manifest {
             files: vec![PathBuf::from("/home/someone/old.pem")],

@@ -104,7 +104,7 @@ if [ "$(uname -s)" = Linux ] && command -v openssl >/dev/null && ! id burrow >/d
   openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -keyout "$WORK/ca.key" -out "$WORK/ca.pem" -days 1 -subj /CN=e2e >/dev/null 2>&1
   { cat e2e-client.yaml; echo "ca: $WORK/ca.pem"; } > e2e-ca.yaml
   if out="$(E2E_SECRET="$SECRET" sudo --preserve-env=E2E_SECRET "$B" service install -c e2e-ca.yaml 2>&1)"; then fail "install succeeded with a CA the account cannot read"; fi
-  echo "$out" | grep -q "cannot read ca" || fail "unexpected message: $out"
+  echo "$out" | grep -q -E "cannot (read|use) ca" || fail "unexpected message: $out"
   id burrow >/dev/null 2>&1 && fail "the failed install left the burrow account behind"
   sudo "$B" service list | grep -q burrow-e2e-ca && fail "the failed install left a service behind"
   rm -f e2e-ca.yaml
