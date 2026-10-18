@@ -106,11 +106,15 @@ async fn peer_replies(
             }
             Ok(Err(_)) => continue,
             Err(_) => {
+                let mut map = peers.lock().expect("peers lock");
                 let idle = epoch
                     .elapsed()
                     .saturating_sub(Duration::from_millis(seen.load(Ordering::Relaxed)));
                 if idle >= timeout {
-                    break;
+                    if map.get(&id).is_some_and(|p| Arc::ptr_eq(&p.sock, &sock)) {
+                        map.remove(&id);
+                    }
+                    return;
                 }
             }
         }
@@ -325,15 +329,18 @@ async fn lookup(
     connect: &Connect,
 ) -> std::io::Result<Vec<SocketAddr>> {
     let timed_out = || std::io::Error::new(std::io::ErrorKind::TimedOut, "the lookup timed out");
-    let by_name = connect.service.is_empty() && connect.target.parse::<SocketAddr>().is_err();
-    if !by_name {
+    if connect.target.parse::<SocketAddr>().is_ok() {
         return tokio::time::timeout(settings.connect_timeout, resolver.resolve(&connect.target))
             .await
             .unwrap_or_else(|_| Err(timed_out()));
     }
-    let Some(held) = Lookup::start() else {
+    let (count, max, whose) = match connect.service.is_empty() {
+        true => (&VISITOR_LOOKUPS, MAX_LOOKUPS, "visitors"),
+        false => (&SERVICE_LOOKUPS, MAX_SERVICE_LOOKUPS, "services"),
+    };
+    let Some(held) = Lookup::start(count, max) else {
         return Err(std::io::Error::other(format!(
-            "{MAX_LOOKUPS} host name lookups for visitors are still running"
+            "{max} host name lookups for {whose} are still running"
         )));
     };
     let (resolver, target) = (resolver.clone(), connect.target.clone());
@@ -359,25 +366,27 @@ fn foreign_link_on(path: &std::path::Path) -> Option<std::path::PathBuf> {
 }
 
 const MAX_LOOKUPS: usize = 256;
+const MAX_SERVICE_LOOKUPS: usize = 384;
 
-static LOOKUPS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+static VISITOR_LOOKUPS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+static SERVICE_LOOKUPS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
-struct Lookup;
+struct Lookup(&'static std::sync::atomic::AtomicUsize);
 
 impl Lookup {
-    fn start() -> Option<Lookup> {
+    fn start(count: &'static std::sync::atomic::AtomicUsize, max: usize) -> Option<Lookup> {
         use std::sync::atomic::Ordering::AcqRel;
-        if LOOKUPS.fetch_add(1, AcqRel) >= MAX_LOOKUPS {
-            LOOKUPS.fetch_sub(1, AcqRel);
+        if count.fetch_add(1, AcqRel) >= max {
+            count.fetch_sub(1, AcqRel);
             return None;
         }
-        Some(Lookup)
+        Some(Lookup(count))
     }
 }
 
 impl Drop for Lookup {
     fn drop(&mut self) {
-        LOOKUPS.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
+        self.0.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
     }
 }
 
@@ -501,11 +510,11 @@ async fn udp(settings: Arc<ClientSettings>, ch: Channel, connect: Connect, addrs
         let Ok((id, payload)) = decode_datagram(rec) else {
             break;
         };
-        let existing = peers
-            .lock()
-            .expect("peers lock")
-            .get(&id)
-            .map(|p| (p.sock.clone(), p.seen.clone()));
+        let existing = peers.lock().expect("peers lock").get(&id).map(|p| {
+            p.seen
+                .store(epoch.elapsed().as_millis() as u64, Ordering::Relaxed);
+            (p.sock.clone(), p.seen.clone())
+        });
         let (sock, seen) = match existing {
             Some(p) => p,
             None => {
@@ -629,5 +638,18 @@ mod tests {
         let mut service = visit("localhost:22");
         service.service = "ssh".into();
         assert!(lookup(&settings, &resolver, &service).await.is_ok());
+        let mut hanging = visit("hang.test:22");
+        hanging.service = "ssh".into();
+        let mut stuck = tokio::task::JoinSet::new();
+        for _ in 0..MAX_SERVICE_LOOKUPS {
+            let (settings, resolver, hanging) =
+                (settings.clone(), resolver.clone(), hanging.clone());
+            stuck.spawn(async move { lookup(&settings, &resolver, &hanging).await });
+        }
+        while let Some(r) = stuck.join_next().await {
+            assert_eq!(r.unwrap().unwrap_err().kind(), std::io::ErrorKind::TimedOut);
+        }
+        let refused = lookup(&settings, &resolver, &hanging).await;
+        assert!(refused.unwrap_err().to_string().contains("for services"));
     }
 }
