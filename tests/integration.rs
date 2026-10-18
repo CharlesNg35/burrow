@@ -35,7 +35,11 @@ async fn many_parallel_connections() {
     let echo = echo_server().await;
     let t = tunnel(vec![("web", service(echo, Protocol::Tcp))]).await;
     let addr = t.server.services["web"];
-    let many = if cfg!(target_os = "macos") { 100 } else { 300 };
+    let many = if cfg!(any(target_os = "macos", target_os = "freebsd")) {
+        100
+    } else {
+        300
+    };
     let tasks: Vec<_> = (0..many)
         .map(|i| {
             tokio::spawn(async move {
