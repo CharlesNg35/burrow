@@ -113,10 +113,13 @@ pub fn proxy_from_env(
     } else {
         &["HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy"]
     };
-    match pick(names) {
-        Some(v) => ProxyConfig::parse(v.trim())
+    let found = names
+        .iter()
+        .find_map(|n| get(n).filter(|v| !v.trim().is_empty()).map(|v| (*n, v)));
+    match found {
+        Some((name, v)) => ProxyConfig::parse(v.trim())
             .map(Some)
-            .map_err(|e| format!("invalid proxy {}: {e}", v.trim())),
+            .map_err(|e| format!("{name} is not a valid proxy: {e}")),
         None => Ok(None),
     }
 }
@@ -425,6 +428,12 @@ mod tests {
         let other: &[(&str, &str)] = &[("HTTPS_PROXY", "http://p:1"), ("NO_PROXY", "hub.com")];
         assert!(proxy_from_env(&https, env(other)).unwrap().is_some());
         assert!(proxy_from_env(&https, env(&[("HTTPS_PROXY", "nope")])).is_err());
+        let leaked = proxy_from_env(&https, env(&[("HTTPS_PROXY", "https://bob:S3cret@p:3128")]))
+            .unwrap_err();
+        assert!(
+            leaked.contains("HTTPS_PROXY") && !leaked.contains("S3cret"),
+            "{leaked}"
+        );
     }
 
     #[test]
