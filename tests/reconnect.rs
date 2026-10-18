@@ -112,7 +112,7 @@ async fn gives_up_only_when_configured() {
         .unwrap()
         .unwrap();
     assert!(
-        matches!(&end, RunEnd::GaveUp(d, why) if *d >= Duration::from_secs(1) && why.contains("refused")),
+        matches!(&end, RunEnd::GaveUp(d, why) if *d >= Duration::from_secs(1) && why.contains(&addr.to_string())),
         "{end:?}"
     );
 }
