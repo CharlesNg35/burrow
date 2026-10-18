@@ -64,9 +64,10 @@ async fn client_follows_the_server_to_a_new_address() {
     tokio::time::sleep(Duration::from_millis(500)).await;
 
     let mut moved = settings.clone();
-    moved.listen = Some("127.0.0.2:0".parse().unwrap());
+    let elsewhere = SocketAddr::new(other_loopback(), 0);
+    moved.listen = Some(elsewhere);
     for svc in moved.services.values_mut() {
-        svc.bind = Some("127.0.0.2:0".parse().unwrap());
+        svc.bind = Some(elsewhere);
     }
     let new = start_server(moved).await;
     *dns.addr.lock().unwrap() = new.addr;

@@ -97,7 +97,7 @@ async fn udp_datagrams_over_the_rate_are_dropped() {
         },
     )])
     .await;
-    let s = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let s = udp_bind().await;
     s.connect(t.server.services["dns"]).await.unwrap();
     let mut buf = [0u8; 2048];
     for _ in 0..50 {
@@ -125,7 +125,7 @@ async fn udp_datagrams_over_the_rate_are_dropped() {
 }
 
 async fn udp_socket_to(target: SocketAddr) -> UdpSocket {
-    let s = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let s = udp_bind().await;
     s.connect(target).await.unwrap();
     let mut buf = [0u8; 64];
     for _ in 0..50 {

@@ -15,7 +15,7 @@ use burrow::secret::Secret;
 use burrow::transport::resolve::{Resolved, Resolver};
 use common::*;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpStream, UdpSocket};
+use tokio::net::{TcpListener, TcpStream};
 use tokio::task::JoinHandle;
 
 const TARGET: &str = "app.test:80";
@@ -446,7 +446,7 @@ async fn a_udp_service_moves_away_from_a_refusing_client() {
         farm.sites[i].target = tagged_udp_echo(tag).await;
         farm.connect(i).await;
     }
-    let s = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let s = udp_bind().await;
     s.connect(farm.server.services["web"]).await.unwrap();
     assert_eq!(udp_tag(&s).await, Some(b'A'));
     farm.connect_refusing(0).await;
@@ -500,7 +500,7 @@ async fn a_udp_service_uses_whichever_client_is_connected() {
     };
     let mut farm = Farm::start(dns, |_| {}).await;
     farm.disconnect(0).await;
-    let s = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let s = udp_bind().await;
     s.connect(farm.server.services["web"]).await.unwrap();
     let mut buf = [0u8; 64];
     for _ in 0..50 {
@@ -631,7 +631,7 @@ impl burrow::transport::resolve::Resolver for Fixed {
 }
 
 async fn tagged_udp_echo(tag: u8) -> SocketAddr {
-    let s = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let s = udp_bind().await;
     let addr = s.local_addr().unwrap();
     tokio::spawn(async move {
         let mut buf = vec![0u8; 2048];
@@ -689,7 +689,7 @@ async fn a_udp_service_moves_away_from_a_client_that_does_not_answer() {
         farm.sites[i].target = tagged_udp_echo(tag).await;
         farm.connect(i).await;
     }
-    let s = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let s = udp_bind().await;
     s.connect(farm.server.services["web"]).await.unwrap();
     assert_eq!(udp_tag(&s).await, Some(b'A'));
     farm.connect_slow(0).await;
@@ -727,7 +727,7 @@ async fn udp_failover_returns_to_the_first_client() {
     settings.services.insert("dns".into(), dns);
     let server = start_server(settings).await;
     let b = named_client(server.addr, "b", sb.clone(), eb).await;
-    let sock = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let sock = udp_bind().await;
     sock.connect(server.services["dns"]).await.unwrap();
     let mut first = None;
     for _ in 0..20 {

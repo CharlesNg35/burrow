@@ -410,7 +410,7 @@ async fn each_udp_peer_counts_as_one_connection() {
     let target = t.server.services["dns"];
     let mut buf = vec![0u8; 65536];
     for peer in 0..3 {
-        let s = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let s = udp_bind().await;
         s.connect(target).await.unwrap();
         for round in 0..5 {
             let msg = format!("peer {peer} round {round}");

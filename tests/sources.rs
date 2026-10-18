@@ -9,7 +9,6 @@ use burrow::protocol::VisitTarget;
 use burrow::secret::Secret;
 use common::*;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::UdpSocket;
 
 fn nets(list: &[&str]) -> Vec<Cidr> {
     list.iter().map(|s| s.parse().unwrap()).collect()
@@ -130,7 +129,7 @@ async fn visitors_of_a_private_service_are_filtered_by_source_too() {
 }
 
 async fn udp_echoes(target: std::net::SocketAddr) -> bool {
-    let s = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let s = udp_bind().await;
     s.connect(target).await.unwrap();
     let mut buf = [0u8; 64];
     for _ in 0..15 {
@@ -280,7 +279,7 @@ async fn reload_stops_udp_peers_no_longer_allowed_and_readmits_them() {
     let settings = server_settings(vec![secret.clone()]);
     let dns = service(echo, Protocol::Udp);
     let t = tunnel_with(settings.clone(), vec![("dns", dns.clone())], |c| c, secret).await;
-    let s = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let s = udp_bind().await;
     s.connect(t.server.services["dns"]).await.unwrap();
     assert!(still_echoes(&s).await);
     let mut next = settings;

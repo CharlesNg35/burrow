@@ -374,7 +374,7 @@ async fn churn_returns_internal_state_to_baseline() {
         }
         let mut buf = vec![0u8; 2048];
         for _ in 0..200 {
-            let s = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+            let s = udp_bind().await;
             s.connect(dns).await.unwrap();
             for _ in 0..20 {
                 s.send(b"q").await.unwrap();

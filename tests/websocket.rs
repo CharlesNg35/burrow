@@ -10,7 +10,7 @@ use burrow::config::settings::{ClientSettings, ServerSettings, TlsMaterial, WebS
 use burrow::secret::Secret;
 use burrow::transport::endpoint::Endpoint;
 use common::*;
-use tokio::net::{TcpListener, TcpStream, UdpSocket};
+use tokio::net::{TcpListener, TcpStream};
 
 struct Cert {
     cert_pem: String,
@@ -90,7 +90,7 @@ async fn websocket_only_server_forwards_tcp_and_udp() {
         t.await.unwrap();
     }
 
-    let sock = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let sock = udp_bind().await;
     sock.connect(srv.services["dns"]).await.unwrap();
     let mut buf = [0u8; 64];
     let mut ok = false;

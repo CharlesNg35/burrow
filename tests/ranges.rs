@@ -83,7 +83,7 @@ async fn tcp_lands_on(addr: SocketAddr) -> Option<u16> {
 }
 
 async fn udp_lands_on(addr: SocketAddr) -> Option<u16> {
-    let s = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let s = udp_bind().await;
     s.connect(addr).await.unwrap();
     let mut buf = [0u8; 64];
     for _ in 0..30 {

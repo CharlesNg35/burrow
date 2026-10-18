@@ -125,6 +125,7 @@ fn as_websocket(mut settings: ServerSettings) -> ServerSettings {
 }
 
 pub async fn start_server(settings: ServerSettings) -> RunningServer {
+    more_files();
     let settings = as_websocket(settings);
     let settings_ws = settings.websocket.clone();
     let names: Vec<String> = settings.services.keys().cloned().collect();
@@ -202,6 +203,7 @@ pub async fn start_client(settings: ClientSettings) -> RunningClient {
 }
 
 pub async fn start_client_with(client: Client) -> RunningClient {
+    more_files();
     let state = client.state();
     let (stop, stop_rx) = watch::channel(false);
     let task = tokio::spawn(client.run(stop_rx));
@@ -243,8 +245,40 @@ pub async fn echo_server() -> SocketAddr {
     addr
 }
 
-pub async fn udp_echo_server() -> SocketAddr {
+pub async fn udp_bind() -> UdpSocket {
     let s = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let sock = socket2::SockRef::from(&s);
+    let _ = sock.set_send_buffer_size(1 << 20);
+    let _ = sock.set_recv_buffer_size(1 << 20);
+    s
+}
+
+pub fn other_loopback() -> std::net::IpAddr {
+    let second: std::net::IpAddr = "127.0.0.2".parse().unwrap();
+    match std::net::TcpListener::bind((second, 0)) {
+        Ok(_) => second,
+        Err(_) => "::1".parse().unwrap(),
+    }
+}
+
+pub fn more_files() {
+    #[cfg(unix)]
+    {
+        static ONCE: std::sync::Once = std::sync::Once::new();
+        ONCE.call_once(|| {
+            use rustix::process::{Resource, getrlimit, setrlimit};
+            let mut limit = getrlimit(Resource::Nofile);
+            let want = limit.maximum.map_or(65536, |m| m.min(65536));
+            if limit.current.is_some_and(|c| c < want) {
+                limit.current = Some(want);
+                let _ = setrlimit(Resource::Nofile, limit);
+            }
+        });
+    }
+}
+
+pub async fn udp_echo_server() -> SocketAddr {
+    let s = udp_bind().await;
     let addr = s.local_addr().unwrap();
     tokio::spawn(async move {
         let mut buf = vec![0u8; 65536];
@@ -342,6 +376,10 @@ pub fn refusing() -> (tokio::net::TcpSocket, SocketAddr) {
     let socket = tokio::net::TcpSocket::new_v4().unwrap();
     socket.bind("127.0.0.1:0".parse().unwrap()).unwrap();
     let addr = socket.local_addr().unwrap();
+    if cfg!(target_os = "macos") {
+        drop(socket);
+        return (tokio::net::TcpSocket::new_v4().unwrap(), addr);
+    }
     (socket, addr)
 }
 

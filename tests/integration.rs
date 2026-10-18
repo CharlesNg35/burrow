@@ -9,7 +9,7 @@ use burrow::proxy::ProxyConfig;
 use burrow::secret::Secret;
 use common::*;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpStream, UdpSocket};
+use tokio::net::{TcpListener, TcpStream};
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn tcp_echo_through_tunnel() {
@@ -35,7 +35,8 @@ async fn many_parallel_connections() {
     let echo = echo_server().await;
     let t = tunnel(vec![("web", service(echo, Protocol::Tcp))]).await;
     let addr = t.server.services["web"];
-    let tasks: Vec<_> = (0..300)
+    let many = if cfg!(target_os = "macos") { 100 } else { 300 };
+    let tasks: Vec<_> = (0..many)
         .map(|i| {
             tokio::spawn(async move {
                 let data = pattern(1000 + i * 37, i as u64);
@@ -241,7 +242,7 @@ async fn udp_forwarding_round_trips() {
     let target = t.server.services["dns"];
     let mut sockets = Vec::new();
     for _ in 0..3 {
-        let s = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let s = udp_bind().await;
         s.connect(target).await.unwrap();
         sockets.push(s);
     }
@@ -447,7 +448,7 @@ async fn removed_client_is_disconnected() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn udp_one_way_traffic_keeps_replies_flowing_past_the_timeout() {
-    let target = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let target = udp_bind().await;
     let echo = target.local_addr().unwrap();
     tokio::spawn(async move {
         let mut buf = [0u8; 64];
@@ -472,7 +473,7 @@ async fn udp_one_way_traffic_keeps_replies_flowing_past_the_timeout() {
         secret,
     )
     .await;
-    let sock = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let sock = udp_bind().await;
     sock.connect(t.server.services["dns"]).await.unwrap();
     let mut buf = [0u8; 64];
     let start = std::time::Instant::now();
@@ -495,7 +496,7 @@ async fn udp_one_way_traffic_keeps_replies_flowing_past_the_timeout() {
 async fn stopping_the_client_closes_its_data_channels() {
     let echo = udp_echo_server().await;
     let t = tunnel(vec![("dns", service(echo, Protocol::Udp))]).await;
-    let sock = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let sock = udp_bind().await;
     sock.connect(t.server.services["dns"]).await.unwrap();
     let mut buf = [0u8; 64];
     let mut ok = false;
