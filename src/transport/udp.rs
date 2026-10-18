@@ -32,6 +32,9 @@ pub async fn bind_udp(addr: SocketAddr) -> std::io::Result<UdpSocket> {
     if s.send_buffer_size().is_ok_and(|n| n < ROOM) {
         let _ = s.set_send_buffer_size(ROOM);
     }
+    if s.recv_buffer_size().is_ok_and(|n| n < 2 * ROOM) {
+        let _ = s.set_recv_buffer_size(2 * ROOM);
+    }
     Ok(sock)
 }
 
