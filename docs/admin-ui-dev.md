@@ -19,12 +19,24 @@ cargo run -- admin -c dev/visitor.yaml --ui-dir crates/burrow-admin-ui/dist
 
 `burrow admin` opens the browser. After a rebuild, refresh the page. `--ui-dir` serves the files from that folder instead of the embedded copy and works only in debug builds. The configs in `dev/` hold public secrets: never use them on a real server.
 
-Tests:
+After a UI change, run the browser flows:
+
+```bash
+cargo xtask e2e                       # every flow; or cargo xtask e2e e3 for the flows whose name matches e3
+cargo xtask e2e --update-baselines    # records the visual baselines, in their own commit
+```
+
+`cargo xtask e2e` builds the release UI, then runs `tests/admin_e2e.rs` with the `admin-test-hooks` feature, one Chrome at a time, against real burrow processes, and prints the path of the contact sheet: screenshots of every step, light and dark, in `tmp/admin-ui-shots/index.html` (`BURROW_E2E_SHOTS` changes the folder). A full run clears the old screenshots and writes its start time at the top of the sheet.
+
+The flows use Chrome for Testing at the exact version in `tests/admin_e2e/baselines/chrome-version.txt`, which `cargo xtask tools` downloads into `.tools/` and checks against the sha256 pinned in `xtask/src/tools.rs` (x86_64 Linux). No setting is needed. `BURROW_E2E_CHROME` points at another Chrome and `BURROW_E2E_SYSTEM_CHROME=1` uses the installed Google Chrome or Chromium. The visual baselines in `tests/admin_e2e/baselines/` are compared only when that Chrome has the same major version as `chrome-version.txt`; a different major fails with "run cargo xtask tools to get the pinned Chrome", and `BURROW_E2E_SKIP_BASELINES=1` skips the comparison on purpose. To move to a newer Chrome, change the version and sha256 in `xtask/src/tools.rs` and `chrome-version.txt` together and re-record the baselines.
+
+The browser flows do not run in CI. Before every tag, run `cargo xtask e2e` once on a machine with the pinned Chrome and keep the run green.
+
+Other tests:
 
 ```bash
 cargo test -p burrow-admin-logic -p burrow-ui-kit -p burrow-admin-ui     # logic without a browser
 cargo xtask ui --release && cargo xtask size --budget                    # the release build and its size gate
-cargo test --features admin-test-hooks --test admin_e2e -- --test-threads=1
 ```
 
-The last line drives headless Google Chrome against real burrow processes. It skips with a message when Chrome is missing (`BURROW_E2E_CHROME` sets its path). Screenshots of every step and a contact sheet go to `tmp/admin-ui-shots/` (`BURROW_E2E_SHOTS` changes the folder). Visual baselines live in `tests/admin_e2e/baselines/`; update them on purpose, in their own commit, with `BURROW_E2E_UPDATE_BASELINES=1`.
+On Linux and macOS, `make help` lists the same commands with the memory limits used here (`make e2e FLOW=e3`, `make test JOBS=8`).
