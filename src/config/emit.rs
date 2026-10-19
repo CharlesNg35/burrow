@@ -58,7 +58,7 @@ fn yaml(value: &Value, indent: usize, out: &mut String) {
     }
 }
 
-fn inline(v: &Value) -> String {
+pub(crate) fn inline(v: &Value) -> String {
     match v {
         Value::Null => "null".into(),
         Value::Bool(b) => b.to_string(),
@@ -70,7 +70,7 @@ fn inline(v: &Value) -> String {
     }
 }
 
-fn scalar_str(s: &str) -> String {
+pub(crate) fn scalar_str(s: &str) -> String {
     let plain_ok = !s.is_empty()
         && s.chars()
             .next()

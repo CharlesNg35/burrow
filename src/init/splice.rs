@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use serde_json::{Map, Value, json};
 
 use crate::config::emit::render;
+use crate::config::patch::{end_of, lead, line_start, own_lines, previous_line, trailing_comment};
 use crate::config::{Format, tree};
 
 fn clean(s: &str) -> String {
@@ -85,59 +86,10 @@ pub fn forwards_yaml(forwards: &Map<String, Value>, notes: &BTreeMap<String, Str
     out
 }
 
-fn line_start(text: &str, at: usize) -> usize {
-    text[..at].rfind('\n').map_or(0, |i| i + 1)
-}
-
-fn line_end(text: &str, at: usize) -> usize {
-    if at == 0 || text[..at].ends_with('\n') {
-        return at;
-    }
-    text[at..].find('\n').map_or(text.len(), |i| at + i + 1)
-}
-
-fn own_lines(block: &str, indent: usize) -> usize {
-    let mut keep = block.len();
-    for line in block.split_inclusive('\n').rev() {
-        let body = line.trim_start();
-        let comment = body.starts_with('#') && line.len() - body.len() <= indent;
-        if line.trim_end().is_empty() || comment {
-            keep -= line.len();
-        } else {
-            break;
-        }
-    }
-    keep
-}
-
-fn end_of(src: &str, start: usize, node_end: usize, indent: usize) -> usize {
-    let end = line_end(src, node_end.max(start));
-    start + own_lines(&src[start..end], indent)
-}
-
 pub struct Edit<'a> {
     pub removed: &'a [String],
     pub added: &'a Map<String, Value>,
     pub notes: &'a BTreeMap<String, String>,
-}
-
-fn previous_line(src: &str, at: usize) -> Option<(usize, &str)> {
-    if at == 0 {
-        return None;
-    }
-    let start = line_start(src, at - 1);
-    Some((start, &src[start..at]))
-}
-
-fn lead(src: &str, start: usize, indent: &str) -> usize {
-    let mut at = start;
-    while let Some((before, line)) = previous_line(src, at) {
-        match line.strip_prefix(indent) {
-            Some(rest) if rest.starts_with('#') => at = before,
-            _ => break,
-        }
-    }
-    at
 }
 
 fn edit_block(
@@ -201,32 +153,6 @@ fn edit_block(
         changes.push((after, after, format!("{lead}{added}")));
     }
     changes
-}
-
-fn comment_at(line: &str) -> Option<usize> {
-    let mut quote = None;
-    let mut before = ' ';
-    for (i, c) in line.char_indices() {
-        match (quote, c) {
-            (None, '#') if before.is_whitespace() => return Some(i),
-            (None, '"' | '\'') => quote = Some(c),
-            (Some(q), c) if c == q => quote = None,
-            _ => {}
-        }
-        before = c;
-    }
-    None
-}
-
-fn trailing_comment(block: &str) -> Option<&str> {
-    block
-        .lines()
-        .rev()
-        .find(|line| {
-            let content = comment_at(line).map_or(*line, |at| &line[..at]);
-            !content.trim().is_empty()
-        })
-        .and_then(|line| comment_at(line).map(|at| line[at..].trim_end()))
 }
 
 fn rebuild(src: &str, entries: &[tree::Entry], edit: &Edit) -> String {
