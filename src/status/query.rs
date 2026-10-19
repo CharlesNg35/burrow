@@ -240,6 +240,7 @@ pub fn scan(dir: &Path, wanted: Option<&Path>) -> Scan {
     let mut hidden = 0;
     let mut paths: Vec<PathBuf> = crate::instance::dirs_with(dir)
         .iter()
+        .filter(|d| crate::instance::safe_dir(d))
         .filter_map(|d| std::fs::read_dir(d).ok())
         .flat_map(|listing| listing.flatten().map(|e| e.path()))
         .filter(|p| p.extension().is_some_and(|x| x == "status"))

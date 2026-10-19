@@ -122,6 +122,9 @@ fn left_behind(draft: &Path) -> bool {
 }
 
 pub fn remove_unused(dir: &Path) {
+    if !safe_dir(dir) {
+        return;
+    }
     let Ok(listing) = std::fs::read_dir(dir) else {
         return;
     };
@@ -292,7 +295,38 @@ pub fn private_dir(dir: &Path) -> std::io::Result<()> {
 }
 
 pub fn prepare(dir: &Path) -> std::io::Result<()> {
-    prepare_dir(dir)
+    prepare_dir(dir)?;
+    if !safe_dir(dir) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "it is a link or folder another user controls",
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+pub fn safe_dir(dir: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    let me = rustix::process::geteuid().as_raw();
+    let trusted = |uid: u32| uid == 0 || uid == me;
+    let Ok(link) = std::fs::symlink_metadata(dir) else {
+        return true;
+    };
+    if link.file_type().is_symlink() && !trusted(link.uid()) {
+        return false;
+    }
+    let Ok(target) = std::fs::metadata(dir) else {
+        return false;
+    };
+    let sticky = target.mode() & 0o1000 != 0;
+    let open_to_all = target.mode() & 0o002 != 0;
+    target.is_dir() && (sticky || (!open_to_all && trusted(target.uid())))
+}
+
+#[cfg(not(unix))]
+pub fn safe_dir(_dir: &Path) -> bool {
+    true
 }
 
 fn prepare_dir(dir: &Path) -> std::io::Result<()> {
@@ -343,6 +377,9 @@ pub fn running_as_service() {
 
 pub fn acquire_in(dir: &Path, identity: &Identity, config: &Path) -> Result<InstanceLock, Failure> {
     let path = dir.join(format!("{}.lock", identity.key()));
+    if dir.exists() && !safe_dir(dir) {
+        return Ok(unlocked(dir, &path));
+    }
     if let Err(e) = prepare_dir(dir) {
         if planted(dir) {
             return Ok(unlocked(dir, &path));
@@ -1102,6 +1139,24 @@ mod tests {
         );
         assert!(same.is_err(), "host names compare case-insensitively");
         drop((a, b, c));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_folder_everyone_can_write_without_the_sticky_bit_gets_no_lock() {
+        use std::os::unix::fs::PermissionsExt;
+        let base = tempfile::tempdir().unwrap();
+        let dir = base.path().join("instances");
+        std::fs::create_dir(&dir).unwrap();
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o777)).unwrap();
+        let config = base.path().join("server.yaml");
+        std::fs::write(&config, "").unwrap();
+        let lock = acquire_in(&dir, &Identity::server(&config), &config).unwrap();
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 0);
+        drop(lock);
+        assert!(!safe_dir(&dir));
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o1777)).unwrap();
+        assert!(safe_dir(&dir));
     }
 
     #[cfg(unix)]
