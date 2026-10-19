@@ -534,3 +534,138 @@ fn a_closed_pipe_ends_status_follow_quietly() {
     assert!(status.success(), "{status:?} {err}");
     assert!(err.is_empty(), "{err}");
 }
+
+#[test]
+fn status_json_keeps_its_exact_shape() {
+    use burrow::metrics::{ClientStatus, HealthStatus, ServiceStatus, SetAside, VisitorStatus};
+    let s = Status {
+        version: "0.1.0".into(),
+        uptime_secs: 86400,
+        listening: vec!["0.0.0.0:7835".into()],
+        handshakes_refused: 3,
+        udp_peers: 2,
+        clients: vec![
+            ClientStatus {
+                name: "home".into(),
+                connected: true,
+                connected_secs: Some(60),
+                from: Some("198.51.100.4:5000".into()),
+                open: 2,
+                idle_channels: 4,
+                left_secs_ago: None,
+            },
+            ClientStatus {
+                name: "office".into(),
+                connected: false,
+                connected_secs: None,
+                from: None,
+                open: 0,
+                idle_channels: 0,
+                left_secs_ago: Some(120),
+            },
+        ],
+        services: vec![ServiceStatus {
+            name: "web".into(),
+            protocol: "tcp".into(),
+            bind: Some("0.0.0.0:7840".into()),
+            target: "127.0.0.1:3000".into(),
+            clients: vec!["home".into(), "office".into()],
+            mode: Some("failover".into()),
+            bandwidth: Some(5000000),
+            visitors: vec!["laptop".into()],
+            proxy_protocol: Some("v1".into()),
+            filtered: true,
+            open: 1,
+            total: 9,
+            refused: 1,
+            bytes_in: 100,
+            bytes_out: 200,
+            health: vec![HealthStatus {
+                client: "home".into(),
+                up: true,
+            }],
+            set_aside: vec![SetAside {
+                client: "office".into(),
+                refused: true,
+            }],
+        }],
+        visitors: vec![VisitorStatus {
+            name: "laptop".into(),
+            open: 1,
+            total: 5,
+        }],
+    };
+    let golden = r#"{
+  "version": "0.1.0",
+  "uptime_secs": 86400,
+  "listening": [
+    "0.0.0.0:7835"
+  ],
+  "handshakes_refused": 3,
+  "udp_peers": 2,
+  "clients": [
+    {
+      "name": "home",
+      "connected": true,
+      "connected_secs": 60,
+      "from": "198.51.100.4:5000",
+      "open": 2,
+      "idle_channels": 4,
+      "left_secs_ago": null
+    },
+    {
+      "name": "office",
+      "connected": false,
+      "connected_secs": null,
+      "from": null,
+      "open": 0,
+      "idle_channels": 0,
+      "left_secs_ago": 120
+    }
+  ],
+  "services": [
+    {
+      "name": "web",
+      "protocol": "tcp",
+      "bind": "0.0.0.0:7840",
+      "target": "127.0.0.1:3000",
+      "clients": [
+        "home",
+        "office"
+      ],
+      "mode": "failover",
+      "bandwidth": 5000000,
+      "visitors": [
+        "laptop"
+      ],
+      "proxy_protocol": "v1",
+      "filtered": true,
+      "open": 1,
+      "total": 9,
+      "refused": 1,
+      "bytes_in": 100,
+      "bytes_out": 200,
+      "health": [
+        {
+          "client": "home",
+          "up": true
+        }
+      ],
+      "set_aside": [
+        {
+          "client": "office",
+          "refused": true
+        }
+      ]
+    }
+  ],
+  "visitors": [
+    {
+      "name": "laptop",
+      "open": 1,
+      "total": 5
+    }
+  ]
+}"#;
+    assert_eq!(serde_json::to_string_pretty(&s).unwrap(), golden);
+}
