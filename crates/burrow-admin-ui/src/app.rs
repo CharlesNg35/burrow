@@ -6,6 +6,7 @@ use wasm_bindgen::prelude::Closure;
 
 use crate::api;
 use crate::format;
+use crate::review::{ConflictDialog, OutcomeBanner, PendingBar, ReviewDrawer};
 use crate::route::{self, Link, Route};
 use crate::screens;
 use crate::store::{Conn, Store, store};
@@ -46,6 +47,16 @@ pub fn App() -> impl IntoView {
     });
     window().set_onhashchange(Some(on_hash.as_ref().unchecked_ref()));
     on_hash.forget();
+    let on_leave = Closure::<dyn FnMut(web_sys::BeforeUnloadEvent)>::new(
+        move |ev: web_sys::BeforeUnloadEvent| {
+            if s.edit.dirty() {
+                ev.prevent_default();
+                ev.set_return_value("You have changes that are not applied.");
+            }
+        },
+    );
+    window().set_onbeforeunload(Some(on_leave.as_ref().unchecked_ref()));
+    on_leave.forget();
     api::connect(s);
     view! {
         <a class="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50 focus:bg-surface focus:p-2" href="#main">"Skip to content"</a>
@@ -56,6 +67,8 @@ pub fn App() -> impl IntoView {
                 <Body/>
             </main>
         </div>
+        <ReviewDrawer/>
+        <ConflictDialog/>
     }
 }
 
@@ -130,6 +143,7 @@ fn TopBar() -> impl IntoView {
                 <span class="hidden truncate text-sm text-text-muted lg:inline" data-testid="server-line">{server}</span>
             </div>
             <div class="flex items-center gap-3">
+                <PendingBar/>
                 {pill}
                 <span class="hidden font-mono text-sm text-text-muted md:inline" data-testid="you">{you}</span>
                 <button
@@ -217,9 +231,13 @@ fn SideNav() -> impl IntoView {
 #[component]
 fn Body() -> impl IntoView {
     let s = store();
+    let conn = Memo::new(move |_| s.conn.get());
+    let loaded =
+        Memo::new(move |_| s.state.with(Option::is_some) && s.schema.with(Option::is_some));
+    let route = Memo::new(move |_| s.route.get());
     move || {
-        let conn = s.conn.get();
-        let loaded = s.state.with(Option::is_some) && s.schema.with(Option::is_some);
+        let conn = conn.get();
+        let loaded = loaded.get();
         match conn {
             Conn::NoToken => view! {
                 <EmptyState
@@ -261,7 +279,7 @@ fn Body() -> impl IntoView {
             .into_any(),
             _ => view! {
                 <Banners/>
-                {move || screens::screen(s.route.get())}
+                {move || screens::screen(route.get())}
             }
             .into_any(),
         }
@@ -366,6 +384,7 @@ fn Banners() -> impl IntoView {
     };
     view! {
         <div class="mb-2">
+            <OutcomeBanner/>
             {closed}
             {broken}
             {changed}

@@ -3,6 +3,7 @@
 pub mod changeset;
 pub mod check;
 pub mod fallback;
+pub mod input;
 pub mod rates;
 pub mod relations;
 pub mod tree;

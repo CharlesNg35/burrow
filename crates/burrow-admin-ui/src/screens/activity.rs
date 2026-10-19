@@ -100,6 +100,9 @@ fn Entry(entry: AuditEntry) -> impl IntoView {
         .map(|c| view! { <li>{c.summary.clone()}</li> })
         .collect_view();
     let can_diff = entry.details_kept;
+    let s = crate::store::store();
+    let can_revert = entry.revertible && s.can_write();
+    let to = entry.base.clone();
     view! {
         <li class="py-3" data-rev=entry.rev.clone() data-testid="activity-entry">
             <div class="flex flex-wrap items-center gap-3">
@@ -109,7 +112,7 @@ fn Entry(entry: AuditEntry) -> impl IntoView {
                 <span class="font-mono text-xs text-text-muted">{entry.rev.clone()}</span>
             </div>
             <ul class="my-2 list-disc pl-5 text-sm">{changes}</ul>
-            <div class="mb-2">
+            <div class="mb-2 flex gap-2">
                 <Button
                     label=Signal::derive(move || if open.get() { "Hide diff".to_string() } else { "View diff".to_string() })
                     small=true
@@ -118,6 +121,14 @@ fn Entry(entry: AuditEntry) -> impl IntoView {
                     testid="view-diff"
                     on_click=load
                 />
+                {can_revert.then(|| view! {
+                    <Button
+                        label="Revert to before this change"
+                        small=true
+                        testid="revert"
+                        on_click=move |_| s.edit.open_revert(s, to.clone())
+                    />
+                })}
             </div>
             <Show when=move || open.get()>
                 {move || match diff.get() {

@@ -1,26 +1,15 @@
 mod about;
-mod activity;
+pub mod activity;
+pub mod create;
 mod entity;
 mod overview;
 mod settings;
 
-use std::sync::Arc;
-
 use burrow_ui_kit::{EmptyState, button_class};
 use leptos::prelude::*;
 
-use crate::form::Ctx;
 use crate::route::{Link, Route};
-use crate::store::{Store, store};
-
-pub fn ctx(s: Store) -> Option<Ctx> {
-    let schema = s.schema.get()?;
-    let doc = s.state.with(|st| st.as_ref().map(|st| st.values.clone()))?;
-    Some(Ctx {
-        schema: Arc::clone(&schema),
-        doc,
-    })
-}
+use crate::store::store;
 
 pub fn screen(route: Route) -> AnyView {
     let _ = store();

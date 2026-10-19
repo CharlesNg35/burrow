@@ -267,8 +267,11 @@ pub fn load_state(store: Store) {
     request(msg::req::STATE, json!({}), move |r| {
         match r.map(serde_json::from_value::<State>) {
             Ok(Ok(s)) => {
+                store.edit.sync_base(&s.values, &s.rev);
                 store.state.set(Some(Arc::new(s)));
-                store.conn.set(Conn::Open);
+                if store.conn.get_untracked() != Conn::Open {
+                    store.conn.set(Conn::Open);
+                }
             }
             Ok(Err(e)) => store.error.set(Some(format!("unreadable state: {e}"))),
             Err(e) => store.error.set(Some(e.message)),

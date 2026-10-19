@@ -4,14 +4,18 @@ use burrow_admin_logic::fallback::{Render, for_node, needs_newer_ui};
 use burrow_admin_logic::relations::field_state;
 use burrow_admin_logic::tree::{fields, inner};
 use burrow_admin_proto::Path;
+use burrow_admin_proto::diag::Severity;
 use burrow_admin_proto::schema::{Applies, DurationUnit, Editable, Field, Node, Schema, SemType};
 use burrow_admin_proto::serde_json::{self, Value};
 use burrow_admin_proto::value::{SecretSrc, as_env, as_secret};
 use burrow_syntax::duration::{TimeUnit, human};
-use burrow_ui_kit::{Badge, Chip, FieldRow, FieldState, Tone, chip_class};
+use burrow_ui_kit::{Badge, Chip, FieldRow, FieldState, Toggle, Tone, button_class, chip_class};
 use leptos::prelude::*;
 
+use crate::domain::{self, FieldCtx};
+use crate::edit::diags_at;
 use crate::route::{Link, Route};
+use crate::store::store;
 
 const MAX_TEXT: usize = 4096;
 
@@ -21,14 +25,21 @@ pub struct Ctx {
     pub doc: Value,
 }
 
-fn join(p: &[String]) -> String {
+pub fn join(p: &[String]) -> String {
     p.join("/")
 }
 
-fn push(p: &[String], k: &str) -> Path {
+pub fn push(p: &[String], k: &str) -> Path {
     let mut out = p.to_vec();
     out.push(k.to_string());
     out
+}
+
+pub fn field_id(path: &[String]) -> String {
+    format!(
+        "f-{}",
+        join(path).replace(|c: char| !c.is_ascii_alphanumeric(), "-")
+    )
 }
 
 fn cap(s: String) -> String {
@@ -67,24 +78,24 @@ fn locked(n: &Node) -> Option<String> {
     }
 }
 
-pub fn object_view(
-    node: &Node,
-    value: Option<&Value>,
-    path: Path,
-    spath: Path,
-    entity: Path,
-    ctx: &Ctx,
-) -> AnyView {
-    object_view_skipping(node, value, path, spath, entity, ctx, &[])
+pub fn ctx_now() -> Option<Ctx> {
+    let s = store();
+    let schema = s.schema.get_untracked()?;
+    Some(Ctx {
+        schema,
+        doc: s.edit.doc(),
+    })
+}
+
+pub fn object_view(node: &Node, path: Path, spath: Path, entity: Path) -> AnyView {
+    object_view_skipping(node, path, spath, entity, &[])
 }
 
 pub fn object_view_skipping(
     node: &Node,
-    value: Option<&Value>,
     path: Path,
     spath: Path,
     entity: Path,
-    ctx: &Ctx,
     skip: &[&str],
 ) -> AnyView {
     let node = inner(node);
@@ -109,20 +120,18 @@ pub fn object_view_skipping(
                 .iter()
                 .filter(|f| f.node.group == key)
                 .map(|f| {
-                    let v = value.and_then(|v| v.get(&f.key));
                     row(
-                        f,
-                        v,
+                        (*f).clone(),
                         push(&path, &f.key),
                         push(&spath, &f.key),
-                        &entity,
-                        ctx,
+                        entity.clone(),
                     )
                 })
                 .collect();
             (!rows.is_empty()).then(|| {
-                let title =
-                    (!label.is_empty()).then(|| view! { <h3 class="mt-2 mb-1 text-sm font-semibold tracking-wide text-text-muted uppercase">{label}</h3> });
+                let title = (!label.is_empty()).then(|| {
+                    view! { <h3 class="mt-2 mb-1 text-sm font-semibold tracking-wide text-text-muted uppercase">{label}</h3> }
+                });
                 view! {
                     <section class="mb-4 divide-y divide-border" data-group=key>
                         {title}
@@ -135,62 +144,231 @@ pub fn object_view_skipping(
     view! { <div class="max-w-5xl">{sections}</div> }.into_any()
 }
 
-fn row(f: &Field, v: Option<&Value>, path: Path, spath: Path, entity: &Path, ctx: &Ctx) -> AnyView {
-    let st = field_state(&f.node, &ctx.schema.root, &ctx.doc, entity);
-    if !st.visible {
+fn row(f: Field, path: Path, spath: Path, entity: Path) -> AnyView {
+    let s = store();
+    let e = s.edit;
+    let Some(schema) = s.schema.get_untracked() else {
         return ().into_any();
-    }
-    let n = inner(&f.node);
+    };
+    let node = f.node.clone();
+    let st = {
+        let node = node.clone();
+        let entity = entity.clone();
+        let schema = schema.clone();
+        Memo::new(move |_| {
+            e.draft
+                .with(|d| field_state(&node, &schema.root, d.draft(), &entity))
+        })
+    };
+    let writable = s.can_write_now() && node.editable.is_yes();
+    let n = inner(&node).clone();
     if let SemType::Object(_) = n.sem
-        && !needs_newer_ui(n)
+        && !needs_newer_ui(&n)
     {
-        let set = v.is_some_and(|v| !v.is_null());
-        let label = f.node.label.clone();
-        let body = if set || !matches!(f.node.sem, SemType::Optional(_)) {
-            let child_entity = if entity.is_empty() {
-                Vec::new()
-            } else {
-                entity.clone()
-            };
-            object_view(n, v, path.clone(), spath.clone(), child_entity, ctx)
-        } else {
-            view! { <p class="text-text-muted" data-testid="not-set">{f.node.none_label.clone().unwrap_or_else(|| "Not set".into())}</p> }.into_any()
+        let optional = matches!(node.sem, SemType::Optional(_));
+        let label = node.label.clone();
+        let help = node.help.clone();
+        let p2 = path.clone();
+        let is_set = Memo::new(move |_| e.value(&p2).is_some_and(|v| !v.is_null()));
+        let (p3, tid) = (path.clone(), field_id(&path));
+        let toggle = move || {
+            (optional && writable).then(|| {
+            let p3 = p3.clone();
+            let id = tid.clone();
+            view! {
+                <Toggle
+                    id=id
+                    checked=is_set
+                    label=Signal::derive(move || if is_set.get() { "In use".to_string() } else { "Not set".to_string() })
+                    on_change=move |on: bool| {
+                        e.set(&p3, on.then(|| Value::Object(Default::default())));
+                    }
+                />
+            }
+        })
         };
-        return view! {
-            <fieldset class="my-2 rounded-card border border-border p-3" data-path=join(&path) data-schema=join(&spath)>
-                <legend class="px-1 font-medium">{label}</legend>
-                <p class="mb-2 text-sm text-text-muted">{f.node.help.clone()}</p>
-                {body}
-            </fieldset>
-        }
+        let none_label = node.none_label.clone().unwrap_or_else(|| "Not set".into());
+        let (p4, sp4, en4) = (path.clone(), spath.clone(), entity.clone());
+        let body = move || {
+            if is_set.get() || !optional {
+                object_view(&n, p4.clone(), sp4.clone(), en4.clone())
+            } else {
+                view! { <p class="text-text-muted" data-testid="not-set">{none_label.clone()}</p> }
+                    .into_any()
+            }
+        };
+        let visible = Memo::new(move |_| st.with(|s| s.visible));
+        let (jp, js) = (join(&path), join(&spath));
+        return (move || {
+            visible.get().then(|| {
+                let (toggle, body) = (toggle.clone(), body.clone());
+                view! {
+                    <fieldset class="my-2 rounded-card border border-border p-3" data-path=jp.clone() data-schema=js.clone()>
+                        <legend class="px-1 font-medium">{label.clone()}</legend>
+                        <p class="mb-2 text-sm text-text-muted">{help.clone()}</p>
+                        {toggle}
+                        {body}
+                    </fieldset>
+                }
+            })
+        })
         .into_any();
     }
-    let mut badges: Vec<(String, &'static str)> = applies_badge(&f.node).into_iter().collect();
-    if v.and_then(as_env).is_some() {
+    let mut badges: Vec<(String, &'static str)> = applies_badge(&node).into_iter().collect();
+    if e.peek(&path).as_ref().and_then(as_env).is_some() {
         badges.push(("From environment".into(), "info"));
     }
-    let state = FieldState {
-        disabled_reason: (!st.enabled).then(|| st.disabled_reason.clone()).flatten(),
-        warning: st.warnings.first().cloned(),
-        locked_reason: locked(&f.node),
-        ..FieldState::default()
+    let touched = RwSignal::new(false);
+    let id = field_id(&path);
+    let msg_id = format!("{id}-msg");
+    let state = {
+        let path = path.clone();
+        let node = node.clone();
+        Signal::derive(move || {
+            let s = st.get();
+            let server = e.plan.with(|p| {
+                diags_at(p.as_deref(), &path)
+                    .into_iter()
+                    .map(|d| (d.severity, d.message.clone()))
+                    .collect::<Vec<_>>()
+            });
+            let server_error = server
+                .iter()
+                .find(|(sev, _)| *sev == Severity::Error)
+                .map(|(_, m)| m.clone());
+            let server_warning = server
+                .iter()
+                .find(|(sev, _)| *sev == Severity::Warning)
+                .map(|(_, m)| m.clone());
+            let related = e.related.with(|r| r.get(&path).cloned());
+            let local = touched
+                .get()
+                .then(|| e.local.with(|l| l.get(&path).cloned()))
+                .flatten()
+                .or(related);
+            FieldState {
+                error: local.or(server_error),
+                warning: server_warning.or(s.warnings.first().cloned()),
+                info: None,
+                disabled_reason: (!s.enabled).then(|| s.disabled_reason.clone()).flatten(),
+                locked_reason: locked(&node),
+                modified: e.draft.with(|d| d.modified(&path)),
+            }
+        })
     };
-    let id = format!("f-{}", join(&path).replace(['/', ' ', '.'], "-"));
-    let shown = value_view(&f.node, v, st.default_from.as_ref(), ctx);
-    view! {
-        <FieldRow
-            id=id.clone()
-            label=f.node.label.clone()
-            help=f.node.help.clone()
-            path=join(&path)
-            schema_path=join(&spath)
-            badges=badges
-            state=Signal::stored(state)
-        >
-            <div class="min-h-6" id=id>{shown}</div>
-        </FieldRow>
-    }
+    let body = {
+        let (path, spath, entity, node) =
+            (path.clone(), spath.clone(), entity.clone(), node.clone());
+        let id = id.clone();
+        let msg_id = msg_id.clone();
+        move || {
+            let enabled = st.with(|s| s.enabled);
+            if writable && enabled {
+                let fc = FieldCtx {
+                    node: node.clone(),
+                    path: path.clone(),
+                    spath: spath.clone(),
+                    entity: entity.clone(),
+                    id: id.clone(),
+                    msg_id: msg_id.clone(),
+                    touched,
+                    inherited: st.with_untracked(|s| s.default_from.clone()),
+                };
+                view! {
+                    <div class="flex flex-wrap items-start gap-2" data-editor="">
+                        <div class="min-w-0 flex-1">{domain::editor(fc)}</div>
+                        {reset_button(path.clone())}
+                    </div>
+                }
+                .into_any()
+            } else {
+                let node = node.clone();
+                let path = path.clone();
+                let inherited = st.with_untracked(|s| s.default_from.clone());
+                view! {
+                    <div class="min-h-6" id=id.clone()>
+                        {move || {
+                            let v = e.value(&path);
+                            match ctx_now() {
+                                Some(c) => value_view(&node, v.as_ref(), inherited.as_ref(), &c),
+                                None => ().into_any(),
+                            }
+                        }}
+                    </div>
+                }
+                .into_any()
+            }
+        }
+    };
+    let label = node.label.clone();
+    let help = node.help.clone();
+    let visible = Memo::new(move |_| st.with(|s| s.visible));
+    let (jp, js) = (join(&path), join(&spath));
+    (move || {
+        visible.get().then(|| {
+            let body = body.clone();
+            view! {
+                <FieldRow
+                    id=id.clone()
+                    label=label.clone()
+                    help=help.clone()
+                    path=jp.clone()
+                    schema_path=js.clone()
+                    badges=badges.clone()
+                    state=state
+                >
+                    {body}
+                </FieldRow>
+            }
+        })
+    })
     .into_any()
+}
+
+fn reset_button(path: Path) -> impl IntoView {
+    let e = store().edit;
+    let modified = {
+        let path = path.clone();
+        Memo::new(move |_| e.draft.with(|d| d.modified(&path)))
+    };
+    move || {
+        let path = path.clone();
+        modified.get().then(|| {
+            view! {
+                <button
+                    type="button"
+                    class=button_class("ghost", true)
+                    title="Undo the change of this field"
+                    data-testid="reset-field"
+                    on:click=move |_| {
+                        let base = e
+                            .draft
+                            .with_untracked(|d| burrow_admin_logic::changeset::get(d.base(), &path).cloned());
+                        e.local_error(&path, None);
+                        e.set(&path, base);
+                    }
+                >
+                    "Undo"
+                </button>
+            }
+        })
+    }
+}
+
+pub fn object_static(node: &Node, v: &Value, ctx: &Ctx) -> AnyView {
+    let rows = fields(inner(node))
+        .iter()
+        .filter_map(|f| {
+            let x = v.get(&f.key)?;
+            Some(view! {
+                <tr>
+                    <th scope="row">{f.node.label.clone()}</th>
+                    <td>{value_view(&f.node, Some(x), None, ctx)}</td>
+                </tr>
+            })
+        })
+        .collect_view();
+    view! { <table class="text-sm [&_td]:py-1 [&_td]:pl-3 [&_th]:py-1 [&_th]:text-left [&_th]:font-normal"><tbody>{rows}</tbody></table> }.into_any()
 }
 
 fn raw_view(v: Option<&Value>) -> AnyView {
@@ -441,7 +619,7 @@ fn sem_view(sem: &SemType, node: &Node, v: &Value, ctx: &Ctx) -> AnyView {
             }
         }
         SemType::Optional(o) => value_view(&o.inner, Some(v), None, ctx),
-        SemType::Object(_) => object_view(node, Some(v), Vec::new(), Vec::new(), Vec::new(), ctx),
+        SemType::Object(_) => object_static(node, v, ctx),
         SemType::Unknown(_) => mono(v),
     }
 }

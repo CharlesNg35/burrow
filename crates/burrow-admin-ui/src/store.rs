@@ -6,6 +6,7 @@ use burrow_admin_proto::schema::Schema;
 use burrow_admin_proto::status::Status;
 use leptos::prelude::*;
 
+use crate::edit::Edit;
 use crate::route::Route;
 
 pub const SPARK_POINTS: usize = 600;
@@ -50,6 +51,7 @@ pub struct Store {
     pub changed: RwSignal<Option<ConfigEvent>>,
     pub route: RwSignal<Route>,
     pub error: RwSignal<Option<String>>,
+    pub edit: Edit,
 }
 
 impl Store {
@@ -68,6 +70,7 @@ impl Store {
             changed: RwSignal::new(None),
             route: RwSignal::new(route),
             error: RwSignal::new(None),
+            edit: Edit::new(),
         }
     }
 
@@ -85,6 +88,10 @@ impl Store {
         self.status_at.set(now_ms);
     }
 
+    pub fn can_write_now(&self) -> bool {
+        untrack(|| self.can_write())
+    }
+
     pub fn can_write(&self) -> bool {
         self.welcome.with(|w| {
             w.as_ref()
@@ -97,4 +104,8 @@ impl Store {
 
 pub fn store() -> Store {
     expect_context::<Store>()
+}
+
+pub fn try_store() -> Option<Store> {
+    use_context::<Store>()
 }

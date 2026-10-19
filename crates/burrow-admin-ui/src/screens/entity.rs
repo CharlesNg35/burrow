@@ -4,14 +4,14 @@ use burrow_admin_proto::schema::Entity;
 use burrow_admin_proto::serde_json::Value;
 use burrow_admin_proto::value::as_secret;
 use burrow_ui_kit::{
-    Badge, Card, EmptyState, Fact, Facts, PageHeader, StatusDot, Table, Tone, button_class,
+    Badge, Button, Card, EmptyState, Fact, Facts, PageHeader, StatusDot, Table, Tone, button_class,
 };
 use leptos::prelude::*;
 
 use crate::form::{object_view, plain};
 use crate::format;
 use crate::route::{Link, Route};
-use crate::screens::ctx;
+use crate::screens::create::{NewEntity, RenameEntity, singular};
 use crate::store::store;
 
 fn entity(section: &str) -> Entity {
@@ -65,16 +65,37 @@ pub fn List(section: String) -> impl IntoView {
     let (title, subtitle, empty) = titles(&section);
     let sec = section.clone();
     let body = move || {
-        let values = s.state.with(|st| {
-            st.as_ref()
-                .map(|st| st.values.clone())
-                .unwrap_or(Value::Null)
-        });
+        let values = s.edit.draft.with(|d| d.draft().clone());
+        let base = s
+            .edit
+            .draft
+            .with(|d| d.base().get(&sec).cloned().unwrap_or(Value::Null));
         let items = values
             .get(&sec)
             .and_then(Value::as_object)
             .cloned()
             .unwrap_or_default();
+        let removed: Vec<String> = base
+            .as_object()
+            .map(|m| {
+                m.keys()
+                    .filter(|k| !items.contains_key(*k))
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default();
+        let pending = {
+            let base = base.clone();
+            move |name: &str| -> Option<&'static str> {
+                if base.get(name).is_none() {
+                    Some("new")
+                } else if removed.iter().any(|r| r == name) {
+                    Some("removed")
+                } else {
+                    None
+                }
+            }
+        };
         if items.is_empty() {
             return view! { <EmptyState title=empty message="Nothing is configured here yet." testid="list-empty"/> }.into_any();
         }
@@ -87,6 +108,7 @@ pub fn List(section: String) -> impl IntoView {
                     .iter()
                     .map(|(name, v)| {
                         let label = name.clone();
+                        let mark = pending(name);
                         let st = status.as_ref().and_then(|st| st.clients.iter().find(|c| &c.name == name)).cloned();
                         let on = st.as_ref().is_some_and(|c| c.connected);
                         let used = values
@@ -96,7 +118,7 @@ pub fn List(section: String) -> impl IntoView {
                             .unwrap_or(0);
                         view! {
                             <tr data-row=name.clone()>
-                                <th scope="row"><Link to=Route::Detail("clients".into(), name.clone()) class="font-mono text-sm">{label}</Link></th>
+                                <th scope="row"><Link to=Route::Detail("clients".into(), name.clone()) class="font-mono text-sm">{label}</Link>{mark.map(|m| view! { <span class="ml-2 text-xs text-accent" data-pending=m>{m}</span> })}</th>
                                 <td><StatusDot on=on text=if on { "online" } else { "offline" }/></td>
                                 <td class="font-mono text-sm">{st.as_ref().and_then(|c| c.from.clone()).unwrap_or_default()}</td>
                                 <td class="tabular-nums">{st.as_ref().map(|c| format::count(c.open)).unwrap_or_default()}</td>
@@ -114,6 +136,7 @@ pub fn List(section: String) -> impl IntoView {
                     .iter()
                     .map(|(name, v)| {
                         let label = name.clone();
+                        let mark = pending(name);
                         let st = status.as_ref().and_then(|st| st.visitors.iter().find(|c| &c.name == name)).cloned();
                         let admin = v.get("admin").map(plain).unwrap_or_default();
                         let allowed = values
@@ -127,7 +150,7 @@ pub fn List(section: String) -> impl IntoView {
                             .unwrap_or(0);
                         view! {
                             <tr data-row=name.clone()>
-                                <th scope="row"><Link to=Route::Detail("visitors".into(), name.clone()) class="font-mono text-sm">{label}</Link></th>
+                                <th scope="row"><Link to=Route::Detail("visitors".into(), name.clone()) class="font-mono text-sm">{label}</Link>{mark.map(|m| view! { <span class="ml-2 text-xs text-accent" data-pending=m>{m}</span> })}</th>
                                 <td>{(!admin.is_empty()).then(|| view! { <Badge text=admin.clone() tone=Tone::Accent/> })}</td>
                                 <td class="tabular-nums">{st.as_ref().map(|c| format::count(c.open)).unwrap_or_default()}</td>
                                 <td class="tabular-nums">{st.as_ref().map(|c| format::count(c.total)).unwrap_or_default()}</td>
@@ -144,6 +167,7 @@ pub fn List(section: String) -> impl IntoView {
                     .iter()
                     .map(|(name, v)| {
                         let label = name.clone();
+                        let mark = pending(name);
                         let st = status.as_ref().and_then(|st| st.services.iter().find(|c| &c.name == name)).cloned();
                         let r = rates.service(name);
                         let protocol = v.get("protocol").map(plain).unwrap_or_else(|| "tcp".into());
@@ -156,7 +180,7 @@ pub fn List(section: String) -> impl IntoView {
                             .collect_view();
                         view! {
                             <tr data-row=name.clone()>
-                                <th scope="row"><Link to=Route::Detail("services".into(), name.clone()) class="font-mono text-sm">{label}</Link></th>
+                                <th scope="row"><Link to=Route::Detail("services".into(), name.clone()) class="font-mono text-sm">{label}</Link>{mark.map(|m| view! { <span class="ml-2 text-xs text-accent" data-pending=m>{m}</span> })}</th>
                                 <td><Badge text=protocol/></td>
                                 <td class="font-mono text-sm">{v.get("bind").map(plain).unwrap_or_else(|| "Private".into())}</td>
                                 <td class="font-mono text-sm">{v.get("target").map(plain).unwrap_or_default()}</td>
@@ -171,13 +195,56 @@ pub fn List(section: String) -> impl IntoView {
                     .collect(),
             ),
         };
+        let gone = base
+            .as_object()
+            .map(|m| {
+                m.keys()
+                    .filter(|k| !items.contains_key(*k))
+                    .cloned()
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        let gone_rows = gone
+            .into_iter()
+            .map(|n| {
+                let label = n.clone();
+                let restore = vec![sec.clone(), n.clone()];
+                view! {
+                    <tr data-row=n.clone() data-pending="removed">
+                        <th scope="row"><span class="font-mono text-sm line-through">{label}</span></th>
+                        <td colspan="20">
+                            <span class="text-sm text-danger">"Removed in your changes. "</span>
+                            <button
+                                type="button"
+                                class=button_class("ghost", true)
+                                on:click=move |_| {
+                                    let v = s.edit.draft.with_untracked(|d| burrow_admin_logic::changeset::get(d.base(), &restore).cloned());
+                                    s.edit.set(&restore, v);
+                                }
+                            >
+                                "Undo"
+                            </button>
+                        </td>
+                    </tr>
+                }
+            })
+            .collect_view();
+        let _ = &pending;
         view! {
-            <Table head=head testid="entity-list">{rows}</Table>
+            <Table head=head testid="entity-list">{rows}{gone_rows}</Table>
         }
         .into_any()
     };
+    let adding = RwSignal::new(false);
+    let what = singular(&section);
+    let can = s.can_write_now();
     view! {
-        <PageHeader title=title subtitle=subtitle/>
+        <PageHeader title=title subtitle=subtitle>
+            {can.then(|| view! {
+                <Button label=format!("New {what}") variant="primary" testid="new" on_click=move |_| adding.set(true)/>
+            })}
+        </PageHeader>
+        <NewEntity section=section.clone() open=adding/>
         <Card>{body}</Card>
     }
 }
@@ -188,10 +255,17 @@ pub fn Detail(section: String, name: String) -> impl IntoView {
     let (plural, _, _) = titles(&section);
     let sec = section.clone();
     let nm = name.clone();
+    let exists = {
+        let path = vec![section.clone(), name.clone()];
+        Memo::new(move |_| {
+            s.edit
+                .draft
+                .with(|d| burrow_admin_logic::changeset::get(d.draft(), &path).is_some())
+        })
+    };
     let body = move || {
-        let c = ctx(s)?;
-        let exists = c.doc.get(&sec).and_then(|m| m.get(&nm)).cloned();
-        let Some(value) = exists else {
+        let schema = s.schema.get()?;
+        if !exists.get() {
             let back = Route::List(sec.clone());
             return Some(
                 view! {
@@ -203,10 +277,16 @@ pub fn Detail(section: String, name: String) -> impl IntoView {
             );
         };
         let path = vec![sec.clone(), nm.clone()];
-        let node = c.schema.root.at(&path)?.clone();
+        let node = schema.root.at(&path)?.clone();
         let spath = vec![sec.clone(), "*".to_string()];
-        let settings = object_view(&node, Some(&value), path.clone(), spath, path.clone(), &c);
-        let related = related(&c, &sec, &nm);
+        let settings = object_view(&node, path.clone(), spath, path.clone());
+        let (sec2, nm2) = (sec.clone(), nm.clone());
+        let related = move || {
+            crate::form::ctx_now().map(|c| {
+                s.edit.draft.track();
+                related(&c, &sec2, &nm2)
+            })
+        };
         let live = live(&sec, &nm);
         Some(
             view! {
@@ -218,6 +298,9 @@ pub fn Detail(section: String, name: String) -> impl IntoView {
         )
     };
     let crumb = Route::List(section.clone());
+    let renaming = RwSignal::new(false);
+    let (sec_r, name_r, sec_d, name_d) =
+        (section.clone(), name.clone(), section.clone(), name.clone());
     let kind = match entity(&section) {
         Entity::Client => "Client",
         Entity::Visitor => "Visitor",
@@ -229,8 +312,27 @@ pub fn Detail(section: String, name: String) -> impl IntoView {
             <span aria-hidden="true">" / "</span>
             <span class="font-mono text-sm">{name.clone()}</span>
         </nav>
-        <PageHeader title=name.clone() subtitle=kind/>
-        <div data-testid="detail" data-entity=section.clone() data-name=name.clone()>{body}</div>
+        <PageHeader title=name.clone() subtitle=kind>
+            {(s.can_write_now()).then(|| {
+                let path = vec![section.clone(), name.clone()];
+                let back = Route::List(section.clone());
+                let what = singular(&section);
+                view! {
+                    <Button label="Rename…" testid="rename-open" on_click=move |_| renaming.set(true)/>
+                    <Button
+                        label=format!("Delete {what}")
+                        variant="danger"
+                        testid="delete"
+                        on_click=move |_| {
+                            s.edit.set(&path, None);
+                            crate::route::go(back.clone());
+                        }
+                    />
+                }
+            })}
+        </PageHeader>
+        <RenameEntity section=sec_r name=name_r open=renaming/>
+        <div data-testid="detail" data-entity=sec_d data-name=name_d>{body}</div>
     }
 }
 
