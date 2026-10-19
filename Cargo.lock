@@ -2064,10 +2064,8 @@ version = "0.1.0"
 dependencies = [
  "blake2",
  "flate2",
- "proc-macro2",
  "serde_json",
  "sha2",
- "syn 2.0.119",
 ]
 
 [[package]]
