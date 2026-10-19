@@ -148,6 +148,8 @@ pub struct Field {
 pub struct Group {
     pub key: String,
     pub label: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub sub: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]

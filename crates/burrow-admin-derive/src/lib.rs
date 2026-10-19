@@ -422,9 +422,10 @@ fn expand_struct(input: &DeriveInput, s: &syn::DataStruct, errors: &mut Errors) 
     if let Some(l) = str_of(&container, "label", errors) {
         container_meta.push(quote!(n.label = #l.into();));
     }
-    let group_items = groups
-        .iter()
-        .map(|(k, l)| quote!(#p::Group { key: #k.into(), label: #l.into() }));
+    let group_items = groups.iter().map(|(k, l)| {
+        let (label, sub) = l.split_once(" | ").unwrap_or((l.as_str(), ""));
+        quote!(#p::Group { key: #k.into(), label: #label.into(), sub: #sub.into() })
+    });
     let check_fn = format_ident!("__admin_checks_{}", name);
     let tcp_only_const = if tcp_only.is_empty() {
         quote!()

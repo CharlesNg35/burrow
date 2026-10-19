@@ -193,7 +193,11 @@ pub struct ClientEntry {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, AdminSchema)]
 #[serde(deny_unknown_fields)]
-#[admin(entity = visitor, label = "Visitor", groups(access = "Access", admin = "Administration", traffic = "Traffic"))]
+#[admin(entity = visitor, label = "Visitor", groups(
+    admin = "Admin access | May this visitor run burrow admin against this server?",
+    access = "Access | Private services and direct reach.",
+    traffic = "Traffic | Limits for this visitor."
+))]
 pub struct VisitorEntry {
     #[schemars(description = "256-bit secret (base64 or hex), or a list of them during rotation")]
     #[admin(label = "Secrets")]
@@ -317,10 +321,10 @@ impl Secrets {
     tcp_only(mode, health_check, max_connections, visitors, proxy_protocol),
     label = "Service",
     groups(
-        who = "Where it runs",
-        exposure = "Exposure",
-        access = "Access",
-        traffic = "Traffic"
+        who = "Where it runs | Clients that reach the target.",
+        exposure = "Exposure | What opens on the server, and where it leads.",
+        access = "Access | Who may connect.",
+        traffic = "Traffic | Limits and what the target sees."
     )
 )]
 pub struct ServiceEntry {
@@ -399,11 +403,11 @@ pub struct ServiceEntry {
     #[schemars(
         description = "Only these source IPs or CIDRs may connect, for example [203.0.113.0/24]; everyone when empty"
     )]
-    #[admin(ty = list(cidr), label = "Only from", group = access, empty_label = "Everyone may connect")]
+    #[admin(ty = list(cidr), group = access, empty_label = "Empty means everyone may connect")]
     pub allow_from: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[schemars(description = "Source IPs or CIDRs that may never connect")]
-    #[admin(ty = list(cidr), label = "Never from", group = access, empty_label = "Nobody is blocked", advanced)]
+    #[admin(ty = list(cidr), group = access, empty_label = "No addresses denied", advanced)]
     pub deny_from: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(

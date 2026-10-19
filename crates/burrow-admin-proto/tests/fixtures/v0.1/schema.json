@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:b4280bc29a071af6",
+  "hash": "b2s:2f036bbd4c579d5c",
   "root": {
     "label": "Server",
     "sem": {
@@ -373,16 +373,19 @@
                 },
                 "groups": [
                   {
-                    "key": "access",
-                    "label": "Access"
+                    "key": "admin",
+                    "label": "Admin access",
+                    "sub": "May this visitor run burrow admin against this server?"
                   },
                   {
-                    "key": "admin",
-                    "label": "Administration"
+                    "key": "access",
+                    "label": "Access",
+                    "sub": "Private services and direct reach."
                   },
                   {
                     "key": "traffic",
-                    "label": "Traffic"
+                    "label": "Traffic",
+                    "sub": "Limits for this visitor."
                   }
                 ],
                 "entity": "visitor"
@@ -740,7 +743,7 @@
                     {
                       "key": "allow_from",
                       "node": {
-                        "label": "Only from",
+                        "label": "Allow from",
                         "help": "Only these source IPs or CIDRs may connect, for example [203.0.113.0/24]; everyone when empty",
                         "sem": {
                           "t": "list",
@@ -751,13 +754,13 @@
                           }
                         },
                         "group": "access",
-                        "empty_label": "Everyone may connect"
+                        "empty_label": "Empty means everyone may connect"
                       }
                     },
                     {
                       "key": "deny_from",
                       "node": {
-                        "label": "Never from",
+                        "label": "Deny from",
                         "help": "Source IPs or CIDRs that may never connect",
                         "sem": {
                           "t": "list",
@@ -769,7 +772,7 @@
                         },
                         "group": "access",
                         "advanced": true,
-                        "empty_label": "Nobody is blocked"
+                        "empty_label": "No addresses denied"
                       }
                     },
                     {
@@ -834,19 +837,23 @@
                 "groups": [
                   {
                     "key": "who",
-                    "label": "Where it runs"
+                    "label": "Where it runs",
+                    "sub": "Clients that reach the target."
                   },
                   {
                     "key": "exposure",
-                    "label": "Exposure"
+                    "label": "Exposure",
+                    "sub": "What opens on the server, and where it leads."
                   },
                   {
                     "key": "access",
-                    "label": "Access"
+                    "label": "Access",
+                    "sub": "Who may connect."
                   },
                   {
                     "key": "traffic",
-                    "label": "Traffic"
+                    "label": "Traffic",
+                    "sub": "Limits and what the target sees."
                   }
                 ],
                 "entity": "service"
