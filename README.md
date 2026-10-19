@@ -125,6 +125,8 @@ services:
 | `visitors.<name>.secret`                   | required                            | like a client secret; see below                                |
 | `visitors.<name>.reach`                    | none                                | `CLIENT: any`, or rules like `CLIENT: [192.168.1.0/24:22]`     |
 | `visitors.<name>.max_connections`          | unlimited                           | concurrent connections for this visitor                        |
+| `visitors.<name>.admin`                    | none                                | `read` or `write`: may use `burrow admin`, see below           |
+| `visitors.<name>.admin_from`               | any address                         | source IPs or CIDRs that admin access is limited to            |
 | `metrics.listen`                           | off                                 | address for `/metrics`, see [Monitoring](#monitoring)          |
 | `insecure_plaintext`                       | `false`                             | do not encrypt forwarded TCP data (authentication still runs)  |
 | `heartbeat.interval_secs`                  | `10`                                | ping interval; peers time out after 3 missed intervals         |
@@ -560,8 +562,8 @@ The server then serves Prometheus metrics at `/metrics`. Keep `listen` on `127.0
 visitors:
   ops-laptop:
     secret: ${OPS_SECRET}
-    admin: write                    # read | write
-    admin_from: [203.0.113.0/24]    # optional: admin only from these addresses
+    admin: write # read | write
+    admin_from: [203.0.113.0/24] # optional: admin only from these addresses
 ```
 
 ```sh

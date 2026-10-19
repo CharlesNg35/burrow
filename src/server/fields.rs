@@ -146,6 +146,8 @@ mod tests {
                             secrets: vec![crate::secret::Secret::generate()],
                             reach: Default::default(),
                             max_connections: None,
+                            admin: None,
+                            admin_from: Vec::new(),
                         },
                     );
                 }),
@@ -218,10 +220,29 @@ mod tests {
                 Box::new(|s| s.metrics = Some("127.0.0.1:9100".parse().unwrap())),
             ),
         ];
+        let schema = crate::config::admin_schema::server_schema();
+        let mut covered = Vec::new();
         for (name, how, edit) in edits {
             let mut new = old.clone();
             edit(&mut new);
             assert_eq!(changed(&old, &new), vec![(name, how)], "{name}");
+            let path: Vec<String> = name.split('.').map(str::to_string).collect();
+            let declared = (1..=path.len())
+                .filter_map(|n| schema.root.at(&path[..n]).and_then(|node| node.applies))
+                .next_back();
+            let want = match how {
+                Applied::Live => burrow_admin_proto::schema::Applies::Live,
+                Applied::Reload => burrow_admin_proto::schema::Applies::Reload,
+                Applied::Restart => burrow_admin_proto::schema::Applies::Restart,
+            };
+            assert_eq!(declared, Some(want), "#[admin(applies)] of {name}");
+            covered.push(path[0].clone());
+        }
+        let burrow_admin_proto::schema::SemType::Object(top) = &schema.root.sem else {
+            panic!("the server config is an object")
+        };
+        for f in &top.fields {
+            assert!(covered.contains(&f.key), "{} has no apply test", f.key);
         }
     }
 }

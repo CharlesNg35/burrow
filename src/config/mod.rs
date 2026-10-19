@@ -1,4 +1,5 @@
 pub mod address;
+pub mod admin_schema;
 pub mod check;
 pub mod discover;
 pub mod emit;

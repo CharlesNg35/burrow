@@ -2,8 +2,8 @@ use std::collections::BTreeMap;
 use std::net::SocketAddr;
 use std::time::Duration;
 
-use super::model::{Cipher, Mode, Protocol};
-use crate::allowlist::{AllowList, Sources};
+use super::model::{AdminLevel, Cipher, Mode, Protocol};
+use crate::allowlist::{AllowList, Cidr, Sources};
 use crate::protocol::VisitTarget;
 use crate::proxy::ProxyConfig;
 use crate::secret::Secret;
@@ -70,6 +70,15 @@ pub struct VisitorAuth {
     pub secrets: Vec<Secret>,
     pub reach: BTreeMap<String, AllowList>,
     pub max_connections: Option<usize>,
+    pub admin: Option<AdminLevel>,
+    pub admin_from: Vec<Cidr>,
+}
+
+impl VisitorAuth {
+    pub fn admits_admin(&self, from: std::net::IpAddr) -> bool {
+        self.admin.is_some()
+            && (self.admin_from.is_empty() || self.admin_from.iter().any(|c| c.contains(from)))
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

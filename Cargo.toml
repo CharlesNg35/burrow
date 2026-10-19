@@ -11,9 +11,16 @@ categories = ["command-line-utilities", "network-programming"]
 publish = false
 
 [workspace]
-members = [".", "crates/burrow-syntax"]
+members = [
+    ".",
+    "crates/burrow-syntax",
+    "crates/burrow-admin-proto",
+    "crates/burrow-admin-derive",
+]
 
 [dependencies]
+burrow-admin-derive = { path = "crates/burrow-admin-derive" }
+burrow-admin-proto = { path = "crates/burrow-admin-proto" }
 burrow-syntax = { path = "crates/burrow-syntax" }
 base64 = "0.23.1"
 blake2 = "0.10.6"

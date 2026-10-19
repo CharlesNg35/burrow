@@ -204,6 +204,8 @@ version = "0.1.0"
 dependencies = [
  "base64 0.23.1",
  "blake2",
+ "burrow-admin-derive",
+ "burrow-admin-proto",
  "burrow-syntax",
  "bytes",
  "clap",
@@ -238,6 +240,23 @@ dependencies = [
  "webpki-roots",
  "windows-service",
  "zeroize",
+]
+
+[[package]]
+name = "burrow-admin-derive"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
+name = "burrow-admin-proto"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
