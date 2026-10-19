@@ -17,6 +17,7 @@ RUN set -eux; \
     rustup target add x86_64-unknown-linux-musl aarch64-unknown-linux-musl; \
     cargo install --locked cargo-zigbuild@0.23.4
 WORKDIR /src
+ENV BURROW_ADMIN_UI_REQUIRE=1
 COPY . .
 ARG TARGETARCH
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \

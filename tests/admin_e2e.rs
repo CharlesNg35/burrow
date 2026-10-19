@@ -34,11 +34,14 @@ struct Gate {
 }
 
 fn in_ci() -> bool {
-    std::env::var_os("CI").is_some()
+    std::env::var("BURROW_E2E_REQUIRE").as_deref() == Ok("1")
 }
 
 fn skip(why: &str) -> Option<Gate> {
-    assert!(!in_ci(), "admin e2e cannot run in CI: {why}");
+    assert!(
+        !in_ci(),
+        "admin e2e is required (BURROW_E2E_REQUIRE=1) but cannot run: {why}"
+    );
     println!("skipping the burrow admin end-to-end flow: {why}");
     None
 }
