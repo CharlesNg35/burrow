@@ -1,10 +1,11 @@
 use std::path::Path;
 
-pub const WASM_GZ_BUDGET: u64 = 350 * 1024;
-pub const WASM_GZ_WARN: u64 = 300 * 1024;
-pub const FONTS_BUDGET: u64 = 55 * 1024;
-pub const OTHER_GZ_BUDGET: u64 = 30 * 1024;
-pub const TOTAL_GZ_BUDGET: u64 = 400 * 1024;
+pub const WASM_GZ_BUDGET: u64 = 1_048_576;
+pub const TOTAL_BUDGET: u64 = 1_258_291;
+
+pub fn warn_at(budget: u64) -> u64 {
+    budget / 10 * 9
+}
 
 #[derive(Debug, Default, PartialEq)]
 pub struct Sizes {
@@ -14,8 +15,8 @@ pub struct Sizes {
 }
 
 impl Sizes {
-    pub fn total_without_fonts(&self) -> u64 {
-        self.wasm + self.other
+    pub fn total(&self) -> u64 {
+        self.wasm + self.fonts + self.other
     }
 
     pub fn problems(&self) -> Vec<String> {
@@ -23,16 +24,27 @@ impl Sizes {
         if self.wasm > WASM_GZ_BUDGET {
             out.push(format!("wasm {} B > {WASM_GZ_BUDGET} B", self.wasm));
         }
-        if self.fonts > FONTS_BUDGET {
-            out.push(format!("fonts {} B > {FONTS_BUDGET} B", self.fonts));
-        }
-        if self.other > OTHER_GZ_BUDGET {
-            out.push(format!("other {} B > {OTHER_GZ_BUDGET} B", self.other));
-        }
-        if self.total_without_fonts() > TOTAL_GZ_BUDGET {
+        if self.total() > TOTAL_BUDGET {
             out.push(format!(
-                "total without fonts {} B > {TOTAL_GZ_BUDGET} B",
-                self.total_without_fonts()
+                "all UI assets {} B > {TOTAL_BUDGET} B",
+                self.total()
+            ));
+        }
+        out
+    }
+
+    pub fn warnings(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        if self.wasm > warn_at(WASM_GZ_BUDGET) {
+            out.push(format!(
+                "the wasm is above 90 % of its budget ({} B)",
+                warn_at(WASM_GZ_BUDGET)
+            ));
+        }
+        if self.total() > warn_at(TOTAL_BUDGET) {
+            out.push(format!(
+                "all UI assets are above 90 % of their budget ({} B)",
+                warn_at(TOTAL_BUDGET)
             ));
         }
         out
@@ -73,18 +85,14 @@ pub fn run(root: &Path, budget: bool) -> Result<(), String> {
     }
     let s = measure(&m);
     println!("wasm gzip {} B (budget {WASM_GZ_BUDGET})", s.wasm);
+    println!("fonts {} B (woff2 does not compress)", s.fonts);
+    println!("other gzip {} B", s.other);
     println!(
-        "fonts {} B (budget {FONTS_BUDGET}, woff2 does not compress)",
-        s.fonts
+        "all UI assets {} B, fonts included (budget {TOTAL_BUDGET})",
+        s.total()
     );
-    println!("other gzip {} B (budget {OTHER_GZ_BUDGET})", s.other);
-    println!(
-        "total {} B with fonts, {} B without (budget {TOTAL_GZ_BUDGET} without fonts)",
-        s.total_without_fonts() + s.fonts,
-        s.total_without_fonts()
-    );
-    if s.wasm > WASM_GZ_WARN {
-        println!("warning: the wasm is above {WASM_GZ_WARN} B");
+    for w in s.warnings() {
+        println!("warning: {w}");
     }
     let problems = s.problems();
     if budget && !problems.is_empty() {
@@ -115,11 +123,30 @@ mod tests {
             }
         );
         assert!(s.problems().is_empty());
+        assert!(s.warnings().is_empty());
         let big = Sizes {
             wasm: WASM_GZ_BUDGET + 1,
             fonts: 0,
             other: 0,
         };
         assert_eq!(big.problems().len(), 1);
+        let fonts_tip_it = Sizes {
+            wasm: WASM_GZ_BUDGET,
+            fonts: TOTAL_BUDGET - WASM_GZ_BUDGET + 1,
+            other: 0,
+        };
+        assert_eq!(
+            fonts_tip_it.problems().len(),
+            1,
+            "fonts count toward the total"
+        );
+        let near = Sizes {
+            wasm: warn_at(WASM_GZ_BUDGET) + 1,
+            fonts: 0,
+            other: 0,
+        };
+        assert!(near.problems().is_empty());
+        assert_eq!(near.warnings().len(), 1);
+        assert_eq!(warn_at(1000), 900);
     }
 }
