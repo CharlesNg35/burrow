@@ -179,4 +179,49 @@ A visitor's SOCKS5 forward reads the target from the SOCKS request (CONNECT only
 
 - at most `limits.max_handshakes` connections in steps 2–5 at once; once fewer than half of them are free, also at most an eighth (at least 8) from one IPv4 address or IPv6 /64 other than loopback; extra connections are closed immediately;
 - the whole of steps 2–5 must finish within `limits.handshake_timeout_secs`;
-- every read before authentication has a fixed maximum size: on WebSocket, an 8 KiB request head and messages of at most 128 KiB; then 7, 64 + 48, 2 and 256 bytes, and 512 bytes for a visit request.
+- every read before authentication has a fixed maximum size: on WebSocket, an 8 KiB request head and messages of at most 128 KiB; then 7, 64 + 48, 2 and 256 bytes, and 512 bytes for a visit request;
+- an admin channel (section 11) is read under the same deadline and slot as a visit request; after it is accepted it holds one of at most 8 admin sessions per server and 2 per visitor instead (`7 busy` otherwise).
+
+## 11. Admin channels
+
+A visitor whose server config entry has `admin: read` or `admin: write` may open an admin channel. It is a visit channel (preamble kind 3, `Hello::Visit` version 1, the visitor's secret) whose first request record is:
+
+```
+AdminOpen     = 0x23 min:u8 max:u8 client:str8 features:u16 (feature:str8)*
+AdminAccepted = 0x24 version:u8
+```
+
+`min` and `max` are the admin protocol versions the caller speaks (1..1 for burrow v0.1.0), `client` names the program for the audit (`burrow-admin-ui/0.1.0`), and `features` lists optional capabilities of the caller. The server checks the visitor and its secret, then its `admin` level and `admin_from` against the peer address, and answers `5 forbidden` on any mismatch, the same answer as every other refused visit. Over the session caps of section 10 it answers `7 busy`. It picks the highest common version; if there is none it sends `4 invalid` followed by one record with a text that names its range, and closes. Otherwise it sends AdminAccepted. A server built without the admin feature answers `4 invalid`, like any undecodable request.
+
+From then on both sides send admin records:
+
+```
+admin record = flags:u8 chunk
+  flags bit 0  MORE: the next record continues this message
+  flags bit 7  PING: keepalive, the chunk is empty and the record is ignored
+  other bits   reserved, 0; the receiver closes on any of them
+```
+
+A message is the concatenation of its chunks: one UTF-8 JSON object of at most 4 MiB; a sender never interleaves two messages. The server sends a PING after 25 s without traffic, and either side closes after 90 s of silence. An end-of-stream (the record layer's end, section 5) closes the session.
+
+Messages share one envelope:
+
+```
+request  {"id": u32, "t": "<request>", "body": {...}}                 caller → server
+reply    {"re": u32, "ok": true, "body": {...}}                        exactly one per request
+         {"re": u32, "ok": false, "err": {"code", "message", "body"}}
+event    {"ev": "<event>", "body": {...}}                              server → caller, no id
+```
+
+Requests: `welcome` (always first; returns the server version, the negotiated protocol, who the caller is, the feature list, limits and the schema hash), `schema`, `state`, `subscribe`, `validate`, `apply`, `generate_secret`, `connect_info`, `suggest`, `history`, `revert` and `ping`. `validate`, `apply`, `generate_secret` and `revert` need `admin: write`. Events: `status` (the same snapshot as `burrow status --json`, at the subscribed interval, skipped rather than queued when the caller is slow), `config` (the file changed: by an admin, by hand, or a reload was rejected), `revoked` (the caller lost its admin right, its secret, its visitor or its source; end-of-stream follows) and `bye` (the server stops).
+
+Error codes are a closed list for version 1: `unknown-request`, `bad-request`, `forbidden`, `conflict`, `invalid`, `locked-out`, `not-writable`, `busy`, `too-large`, `reload-failed`, `internal`. A caller treats unknown codes as generic errors.
+
+Config values travel as the raw tree of the file, not the typed model, so short forms stay as written. A secret becomes `{"$secret": {"fp": "ab12cd34", "src": "literal"}}` (or `"src": {"env": "VAR"}`), and any other value with `${...}` becomes `{"$env": {"raw": "${VAR}", "vars": ["VAR"]}}`. Secrets never leave the server, except a secret the server generated for an `apply`, which that one reply carries once. Changes are a list of operations on paths (`set`, `remove`, `add`, `rename`, `secret_add`, `secret_remove`, `replace_document`, `set_text`) against a revision, the BLAKE2s-64 hash of the exact file bytes; the server patches the file text keeping comments, checks the result exactly like `burrow validate`, and answers `conflict` when the file changed since that revision.
+
+Compatibility rules:
+
+1. The protocol version changes only on a breaking change of the envelope, the framing or the meaning of existing requests; every addition is a new feature string in `welcome`, and a caller uses a request only when its feature is listed.
+2. The server keeps the previous protocol version for at least two minor releases after a change.
+3. Unknown JSON fields are ignored, missing optional fields take their defaults, and unknown enum values decode as unknown.
+4. The config schema has its own `schema_version` (1); new semantic types come with a `fallback` list of older types, so an older caller renders them with a less specialized input and the server still validates them.
