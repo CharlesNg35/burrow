@@ -29,7 +29,8 @@ pub struct ServerConfig {
         label = "Listen address",
         group = listener,
         applies = restart,
-        none_label = "No TCP listener"
+        none_label = "No TCP listener",
+        locked
     )]
     pub listen: Option<Bind>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -51,7 +52,8 @@ pub struct ServerConfig {
         label = "WebSocket listener",
         group = websocket,
         applies = reload,
-        none_label = "Off"
+        none_label = "Off",
+        locked
     )]
     pub websocket: Option<WebSocketConfig>,
     #[serde(default)]
@@ -74,7 +76,8 @@ pub struct ServerConfig {
         label = "Disable encryption of forwarded data",
         group = security,
         applies = live,
-        danger_when_set
+        danger_when_set,
+        locked
     )]
     pub insecure_plaintext: bool,
     #[serde(default, skip_serializing_if = "is_default")]
@@ -564,7 +567,8 @@ pub struct Heartbeat {
     #[schemars(range(min = 1, max = 3600))]
     #[admin(
         label = "Interval",
-        help = "How often the server and each client check that the other is still there"
+        help = "How often the server and each client check that the other is still there",
+        locked
     )]
     pub interval_secs: u32,
 }
@@ -583,12 +587,13 @@ pub struct Limits {
     #[admin(
         label = "Handshake timeout",
         help = "Time a new connection has to authenticate",
-        applies = live
+        applies = live,
+        locked
     )]
     pub handshake_timeout_secs: u32,
     #[schemars(description = "Concurrent connections that have not finished authenticating")]
     #[schemars(range(min = 1, max = 1000000))]
-    #[admin(ty = integer(unit = "connections"), applies = reload)]
+    #[admin(ty = integer(unit = "connections"), applies = reload, locked)]
     pub max_handshakes: u32,
     #[schemars(range(min = 1))]
     #[admin(

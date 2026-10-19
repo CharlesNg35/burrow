@@ -443,3 +443,59 @@ fn typed_confirm(c: &mut Ctx) -> Flow<'_> {
 fn removing_a_busy_service_shows_its_impact_and_needs_its_name_typed() {
     run("typed-confirm", Options::default(), false, typed_confirm);
 }
+
+fn locked_fields(c: &mut Ctx) -> Flow<'_> {
+    Box::pin(async move {
+        open(c, "ops").await;
+        c.ui.nav("/settings").await;
+        c.ui.wait_for("[data-schema=listen]", SECS).await;
+        for field in [
+            "listen",
+            "insecure_plaintext",
+            "heartbeat/interval_secs",
+            "limits/handshake_timeout_secs",
+            "limits/max_handshakes",
+        ] {
+            let row = format!("[data-schema='{field}']");
+            assert_eq!(
+                c.ui.count(&format!("{row} [data-editor]")).await,
+                0,
+                "{field} has no edit control"
+            );
+            assert_eq!(
+                c.ui.count(&format!("{row} input, {row} select")).await,
+                0,
+                "{field} has no input"
+            );
+            c.ui.wait_text(
+                &row,
+                "Change this in server.yaml on the server, then restart",
+                SECS,
+            )
+            .await;
+        }
+        assert_eq!(
+            c.ui.count("[data-schema=websocket] input").await,
+            0,
+            "the websocket block has no controls"
+        );
+        c.ui.wait_for("[data-schema=websocket] [data-testid=locked-hint]", SECS)
+            .await;
+        assert!(
+            c.ui.count("[data-schema=public_address] input").await > 0,
+            "unlocked fields stay editable"
+        );
+        assert!(
+            c.ui.count("[data-schema='limits/max_pending'] input").await > 0,
+            "the rest of limits stays editable"
+        );
+        c.ui.shot("locked-fields-are-read-only").await;
+        assert_eq!(c.ui.count("[data-testid=pending-bar]").await, 0);
+        c.ui.assert_no_errors();
+    })
+}
+
+#[test]
+fn locked_server_fields_are_read_only() {
+    run("locked-fields", Options::default(), false, locked_fields);
+}

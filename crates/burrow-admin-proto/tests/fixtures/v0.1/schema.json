@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:5f9fa504663a0a5d",
+  "hash": "b2s:b4280bc29a071af6",
   "root": {
     "label": "Server",
     "sem": {
@@ -23,6 +23,7 @@
             },
             "applies": "restart",
             "group": "listener",
+            "locked": true,
             "none_label": "No TCP listener"
           }
         },
@@ -146,6 +147,7 @@
             },
             "applies": "reload",
             "group": "websocket",
+            "locked": true,
             "none_label": "Off"
           }
         },
@@ -865,7 +867,8 @@
             "default": false,
             "applies": "live",
             "group": "security",
-            "danger_when_set": true
+            "danger_when_set": true,
+            "locked": true
           }
         },
         {
@@ -886,7 +889,8 @@
                       "min": 1,
                       "max": 3600
                     },
-                    "default": 10
+                    "default": 10,
+                    "locked": true
                   }
                 }
               ]
@@ -914,7 +918,8 @@
                       "max": 120
                     },
                     "default": 5,
-                    "applies": "live"
+                    "applies": "live",
+                    "locked": true
                   }
                 },
                 {
@@ -929,7 +934,8 @@
                       "unit": "connections"
                     },
                     "default": 256,
-                    "applies": "reload"
+                    "applies": "reload",
+                    "locked": true
                   }
                 },
                 {

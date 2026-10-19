@@ -175,6 +175,7 @@ const FIELD_KEYS: &[&str] = &[
     "group",
     "advanced",
     "danger_when_set",
+    "locked",
     "none_label",
     "empty_label",
     "applies",
@@ -314,6 +315,9 @@ fn expand_struct(input: &DeriveInput, s: &syn::DataStruct, errors: &mut Errors) 
         }
         if has_flag(&terms, "advanced") {
             meta.push(quote!(n.advanced = true;));
+        }
+        if has_flag(&terms, "locked") {
+            meta.push(quote!(n.locked = true;));
         }
         if has_flag(&terms, "danger_when_set") {
             meta.push(quote!(n.danger_when_set = true;));

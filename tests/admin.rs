@@ -384,6 +384,37 @@ async fn a_hand_edit_in_between_is_a_conflict() {
 }
 
 #[tokio::test]
+async fn a_crafted_change_of_a_locked_field_is_refused_and_nothing_is_written() {
+    let w = world().await;
+    let mut a = connect(&w, "ops", &w.ops, 1, 1).await.unwrap();
+    let before = std::fs::read_to_string(&w.path).unwrap();
+    for ops in [
+        json!([{"op": "set", "path": ["listen"], "value": 7999}]),
+        json!([{"op": "set", "path": ["insecure_plaintext"], "value": true}]),
+        json!([{"op": "add", "path": ["websocket"], "value": {"listen": 7998}}]),
+    ] {
+        let e = a.plan(ops.clone()).await.unwrap_err();
+        assert_eq!(e.code, ErrorCode::LockedField, "{ops}");
+        let rev = a.state().await["rev"].clone();
+        let e = a
+            .call(
+                "apply",
+                json!({"base": rev, "ops": ops, "plan": "b2s:0", "confirm": []}),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(e.code, ErrorCode::LockedField);
+    }
+    assert_eq!(std::fs::read_to_string(&w.path).unwrap(), before);
+    let schema = a.call("schema", json!({})).await.unwrap();
+    assert_eq!(
+        schema["schema"]["root"]["sem"]["fields"][0]["node"]["locked"],
+        true
+    );
+    let _ = w.stop.send(true);
+}
+
+#[tokio::test]
 async fn the_guard_refuses_every_lockout() {
     let w = world().await;
     let mut a = connect(&w, "ops", &w.ops, 1, 1).await.unwrap();

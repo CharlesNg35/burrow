@@ -18,6 +18,7 @@ use crate::route::{Link, Route};
 use crate::store::store;
 
 const MAX_TEXT: usize = 4096;
+pub const LOCKED_HINT: &str = "Change this in server.yaml on the server, then restart";
 
 #[derive(Clone)]
 pub struct Ctx {
@@ -160,7 +161,8 @@ fn row(f: Field, path: Path, spath: Path, entity: Path) -> AnyView {
                 .with(|d| field_state(&node, &schema.root, d.draft(), &entity))
         })
     };
-    let writable = s.can_write_now() && node.editable.is_yes();
+    let lock = schema.locked_paths().iter().any(|l| spath.starts_with(l));
+    let writable = s.can_write_now() && node.editable.is_yes() && !lock;
     let n = inner(&node).clone();
     if let SemType::Object(_) = n.sem
         && !needs_newer_ui(&n)
@@ -206,6 +208,12 @@ fn row(f: Field, path: Path, spath: Path, entity: Path) -> AnyView {
                     <fieldset class="my-2 rounded-card border border-border p-3" data-path=jp.clone() data-schema=js.clone()>
                         <legend class="px-1 font-medium">{label.clone()}</legend>
                         <p class="mb-2 text-sm text-text-muted">{help.clone()}</p>
+                        {lock.then(|| view! {
+                            <p class="mb-2 flex items-center gap-1 text-sm text-text-muted" data-testid="locked-hint">
+                                <burrow_ui_kit::Icon name="lock"/>
+                                {LOCKED_HINT}
+                            </p>
+                        })}
                         {toggle}
                         {body}
                     </fieldset>
@@ -249,9 +257,13 @@ fn row(f: Field, path: Path, spath: Path, entity: Path) -> AnyView {
             FieldState {
                 error: local.or(server_error),
                 warning: server_warning.or(s.warnings.first().cloned()),
-                info: None,
+                info: lock.then(|| LOCKED_HINT.to_string()),
                 disabled_reason: (!s.enabled).then(|| s.disabled_reason.clone()).flatten(),
-                locked_reason: locked(&node),
+                locked_reason: if lock {
+                    Some(LOCKED_HINT.to_string())
+                } else {
+                    locked(&node)
+                },
                 modified: e.draft.with(|d| d.modified(&path)),
             }
         })

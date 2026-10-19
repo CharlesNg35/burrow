@@ -14,6 +14,38 @@ pub struct Schema {
     pub entities: Vec<EntityInfo>,
 }
 
+impl Schema {
+    pub fn locked_paths(&self) -> Vec<Path> {
+        fn walk(n: &Node, at: &mut Path, out: &mut Vec<Path>) {
+            if n.locked {
+                out.push(at.clone());
+                return;
+            }
+            let fields = match &n.sem {
+                SemType::Object(o) => &o.fields,
+                SemType::Optional(o) => {
+                    return walk(&o.inner, at, out);
+                }
+                _ => return,
+            };
+            for f in fields {
+                at.push(f.key.clone());
+                walk(&f.node, at, out);
+                at.pop();
+            }
+        }
+        let mut out = Vec::new();
+        walk(&self.root, &mut Vec::new(), &mut out);
+        out
+    }
+
+    pub fn locked_at(&self, path: &[String]) -> Option<Path> {
+        self.locked_paths()
+            .into_iter()
+            .find(|l| path.starts_with(l) || (l.starts_with(path) && !path.is_empty()))
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EntityInfo {
     pub entity: Entity,
@@ -46,6 +78,8 @@ pub struct Node {
     pub advanced: bool,
     #[serde(default, skip_serializing_if = "is_false")]
     pub danger_when_set: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub locked: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub none_label: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

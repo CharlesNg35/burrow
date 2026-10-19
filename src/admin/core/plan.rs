@@ -174,10 +174,35 @@ pub fn compute(
             )
         })?
         .to_json();
+    if let Some(locked) = ops_list
+        .iter()
+        .filter_map(|o| o.path())
+        .find_map(|p| core.schema.locked_at(p))
+    {
+        return Err(ApiError::new(
+            ErrorCode::LockedField,
+            format!(
+                "{} is locked: change it in server.yaml on the server, then restart",
+                locked.join(".")
+            ),
+        )
+        .with(serde_json::json!({ "path": locked })));
+    }
     let applied = ops::apply(&raw, ops_list, &Cx { core, session: s })
         .map_err(|e| ApiError::new(ErrorCode::BadRequest, e.0))?;
+    let mut kept = Vec::new();
     let (new_text, reformat) = match &applied.document {
-        Some(doc) => (doc.clone(), None),
+        Some(doc) => {
+            let (target, notes) = keep_locked(&core.schema, &raw, &applied.target);
+            kept = notes;
+            if kept.is_empty() {
+                (doc.clone(), None)
+            } else {
+                let p = patch::patch(doc, core.store.format(), &target, &[])
+                    .map_err(|e| ApiError::new(ErrorCode::Internal, e.to_string()))?;
+                (p.text, None)
+            }
+        }
         None => {
             let p = patch::patch(
                 &old_text,
@@ -232,6 +257,7 @@ pub fn compute(
             &restart,
         );
     }
+    impacts.extend(kept);
     let fresh_pairs: Vec<(String, String)> = applied
         .fresh
         .iter()
@@ -274,6 +300,71 @@ pub fn compute(
         new_text,
         fresh: applied.fresh,
     })
+}
+
+fn put(root: &mut Value, path: &[String], v: Option<Value>) -> bool {
+    let Some((last, parents)) = path.split_last() else {
+        return false;
+    };
+    let mut cur = root;
+    for k in parents {
+        let Some(m) = cur.as_object_mut() else {
+            return false;
+        };
+        cur = m
+            .entry(k.clone())
+            .or_insert_with(|| Value::Object(Default::default()));
+    }
+    let Some(m) = cur.as_object_mut() else {
+        return false;
+    };
+    match v {
+        Some(v) => {
+            m.insert(last.clone(), v);
+        }
+        None => {
+            m.remove(last);
+        }
+    }
+    true
+}
+
+fn shown(v: Option<&Value>) -> String {
+    match v {
+        None | Some(Value::Null) => "not set".into(),
+        Some(Value::String(s)) => s.clone(),
+        Some(other) => other.to_string(),
+    }
+}
+
+pub fn keep_locked(
+    schema: &burrow_admin_proto::schema::Schema,
+    current: &Value,
+    target: &Value,
+) -> (Value, Vec<burrow_admin_proto::plan::Impact>) {
+    let mut out = target.clone();
+    let mut notes = Vec::new();
+    for path in schema.locked_paths() {
+        let now = burrow_admin_proto::value::get(current, &path).cloned();
+        let then = burrow_admin_proto::value::get(target, &path).cloned();
+        if now == then {
+            continue;
+        }
+        if !put(&mut out, &path, now.clone()) {
+            continue;
+        }
+        notes.push(burrow_admin_proto::plan::Impact {
+            level: burrow_admin_proto::plan::Level::Info,
+            code: "locked-kept".into(),
+            message: format!(
+                "{} kept at {} (locked)",
+                path.join("."),
+                shown(now.as_ref())
+            ),
+            confirm: None,
+        });
+    }
+    (out, notes)
 }
 
 pub struct Begun {
