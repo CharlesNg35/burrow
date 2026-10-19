@@ -12,6 +12,8 @@ cargo-fuzz = true
 [dependencies]
 libfuzzer-sys = "0.4"
 burrow = { path = ".." }
+burrow-syntax = { path = "../crates/burrow-syntax" }
+serde_json = { version = "1", features = ["preserve_order"] }
 tokio = { version = "1", features = ["rt", "io-util"] }
 
 [[bin]]
@@ -38,6 +40,20 @@ bench = false
 [[bin]]
 name = "update"
 path = "fuzz_targets/update.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "patch"
+path = "fuzz_targets/patch.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "syntax_parsers"
+path = "fuzz_targets/syntax_parsers.rs"
 test = false
 doc = false
 bench = false

@@ -125,12 +125,31 @@ pub fn write_back(path: &Path, before: &str, text: &str) -> Result<(), Refused> 
 
 #[cfg(not(unix))]
 fn replace(path: &Path, text: &str) -> std::io::Result<()> {
+    let real = std::fs::canonicalize(path)?;
+    let (Some(folder), Some(name)) = (real.parent(), real.file_name()) else {
+        return Err(std::io::ErrorKind::InvalidInput.into());
+    };
+    let spare = folder.join(format!(
+        ".{}.burrow-edit-{}",
+        name.to_string_lossy(),
+        std::process::id()
+    ));
+    let _ = std::fs::remove_file(&spare);
+    let mut copy = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&spare)?;
+    copy.write_all(text.as_bytes())?;
+    copy.sync_all()?;
+    drop(copy);
     let mut f = std::fs::OpenOptions::new()
         .write(true)
         .truncate(true)
-        .open(path)?;
+        .open(&real)?;
     f.write_all(text.as_bytes())?;
-    f.sync_all()
+    f.sync_all()?;
+    drop(f);
+    std::fs::remove_file(&spare)
 }
 
 #[cfg(test)]

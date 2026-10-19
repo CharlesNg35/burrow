@@ -1225,6 +1225,54 @@ fn the_socks_forward_never_replaces_a_service_forward() {
 }
 
 #[test]
+fn printed_client_and_visitor_configs_stay_byte_identical() {
+    let dir = tempfile::tempdir().unwrap();
+    let server = dir.path().join("server.yaml");
+    std::fs::write(
+        &server,
+        "listen: 7835\npublic_address: tunnel.example.com\nclients:\n  home:\n    secret: [AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=, \"${HOME_SECRET}\"]\n  office:\n    secret: ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8=\n  lab:\n    secret: QEFCQ0RFRkdISUpLTE1OT1BRUlNUVVZXWFlaW1xdXl8=\nvisitors:\n  laptop:\n    secret: YGFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6e3x9fn8=\n    reach:\n      lab: [10.0.0.0/8, 192.168.1.0/24:22]\n  phone:\n    secret: \"${PHONE_SECRET}\"\nservices:\n  web: { client: home, bind: 7840, target: 3000 }\n  db:\n    clients: [home, office]\n    target: 10.0.0.5:5432\n    visitors: [laptop, phone]\n  app:\n    client: office\n    target: localhost:8080-8082\n    bind: 7850-7852\n  sock:\n    client: lab\n    target: unix:/run/app.sock\n    visitors: [laptop]\n  named:\n    client: lab\n    target: printer.lan:631\n    visitors: [phone]\n",
+    )
+    .unwrap();
+    let env = |name: &str| match name {
+        "HOME_SECRET" => Some("oKGio6SlpqeoqaqrrK2ur7CxsrO0tba3uLm6u7y9vr8=".to_string()),
+        "PHONE_SECRET" => Some("gIGCg4SFhoeIiYqLjI2Oj5CRkpOUlZaXmJmam5ydnp8=".to_string()),
+        _ => None,
+    };
+    let mut out = String::new();
+    for format in [Format::Yaml, Format::Json] {
+        for name in ["home", "office", "lab"] {
+            for server_arg in [None, Some("ws://tunnel.example.com/burrow")] {
+                let r = client_config(Some(name), &server, server_arg, format, &env);
+                out.push_str(&format!("=== client {name} {format:?} {server_arg:?}\n"));
+                match r {
+                    Ok(o) => {
+                        out.push_str(&format!("{}--- notes\n{}\n", o.text, o.notes.join("\n")))
+                    }
+                    Err(e) => out.push_str(&format!("error: {e:?}\n")),
+                }
+            }
+        }
+        for name in ["laptop", "phone"] {
+            let r = burrow::init::visitor_config(Some(name), &server, None, format, &env);
+            out.push_str(&format!("=== visitor {name} {format:?}\n"));
+            match r {
+                Ok(o) => out.push_str(&format!("{}--- notes\n{}\n", o.text, o.notes.join("\n"))),
+                Err(e) => out.push_str(&format!("error: {e:?}\n")),
+            }
+        }
+    }
+    let out = out.replace(&dir.path().display().to_string(), "DIR");
+    let golden = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/printed_configs.txt");
+    if std::env::var("BURROW_UPDATE_FIXTURES").as_deref() == Ok("1") {
+        std::fs::create_dir_all(golden.parent().unwrap()).unwrap();
+        std::fs::write(&golden, &out).unwrap();
+    }
+    let want = std::fs::read_to_string(&golden)
+        .expect("the golden file; record it once with BURROW_UPDATE_FIXTURES=1");
+    assert_eq!(out, want, "client-config or visitor-config output changed");
+}
+
+#[test]
 fn a_long_client_name_still_gives_a_valid_visitor_config() {
     let dir = tempfile::tempdir().unwrap();
     let long = "c".repeat(64);

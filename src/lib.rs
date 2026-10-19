@@ -1,5 +1,7 @@
 #![forbid(unsafe_code)]
 
+extern crate self as burrow;
+
 #[cfg(all(
     target_env = "musl",
     any(
@@ -15,6 +17,11 @@ static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 #[global_allocator]
 static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
+#[cfg(all(feature = "admin-test-hooks", not(debug_assertions)))]
+compile_error!("admin-test-hooks is for end-to-end tests only and never goes into a release build");
+
+pub mod admin;
+pub mod admin_local;
 pub mod allowlist;
 pub mod cli;
 pub mod client;

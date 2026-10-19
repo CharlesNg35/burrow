@@ -1,4 +1,4 @@
-mod access;
+pub(crate) mod access;
 mod apply;
 mod draft;
 mod editor;

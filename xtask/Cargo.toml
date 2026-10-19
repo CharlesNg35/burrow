@@ -1,0 +1,11 @@
+[package]
+name = "xtask"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+blake2 = "0.10.6"
+flate2 = "1.1.10"
+serde_json = { version = "1.0.154", features = ["preserve_order"] }
+sha2 = "0.10.9"

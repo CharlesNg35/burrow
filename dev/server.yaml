@@ -1,0 +1,69 @@
+# server.yaml
+# Development only: a local server for working on burrow admin (docs/admin-ui-dev.md).
+# The secrets below are public. Never use them on a real server.
+listen: 127.0.0.1:17835
+public_address: 127.0.0.1:17835
+
+websocket:
+  listen: 127.0.0.1:17836
+  keepalive_secs: 25
+
+clients:
+  home:
+    secret: c7ee8aec090e9a756521b0db6ba70ae9eaa4ab7a2e3eb7f5f2fc8fc9c6a03440 # DEV ONLY
+  office:
+    secret: 649588f0686a7360e9bac7a8115bd905d6f4eff098f9011c8e1dea75ff3024f4 # DEV ONLY
+    max_connections: 100
+
+visitors:
+  dev:
+    secret: 7035710bec63371747d66ff51dcb039b43aafc5a34c8ed57ffc2e6f2c3a39162 # DEV ONLY
+    admin: write
+    admin_from: [127.0.0.1/32]
+  viewer:
+    secret: 435d9f5efbd5c40a16362eacd5f9e5643e00a6ce9e626f51cf05d54fc869b856 # DEV ONLY
+    admin: read
+  laptop:
+    secret: c4afbe9a03ca4582b83eabd8b170ea06e400fd06224b7a57212bba84ec49fd6d # DEV ONLY
+    reach:
+      home: [10.0.0.0/8]
+    max_connections: 20
+
+services:
+  web:
+    client: home
+    bind: 127.0.0.1:17840
+    target: 3000
+    allow_from: [127.0.0.1/32]
+    bandwidth: 40mbit
+  app:
+    clients: [home, office]
+    mode: balance
+    health_check: true
+    bind: 127.0.0.1:17850-17852
+    target: 127.0.0.1:8080-8082
+    max_connections: 50
+    proxy_protocol: v2
+    deny_from: [10.9.0.0/16]
+  ssh:
+    client: home
+    target: 22
+    visitors: [laptop, dev]
+  dns:
+    client: office
+    protocol: udp
+    bind: 127.0.0.1:17853
+    target: 53
+
+heartbeat:
+  interval_secs: 10
+limits:
+  max_handshakes: 256
+pool:
+  min_idle: 4
+tcp:
+  nodelay: true
+udp:
+  session_timeout_secs: 60
+metrics:
+  listen: 127.0.0.1:17899

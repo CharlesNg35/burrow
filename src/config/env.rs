@@ -19,6 +19,10 @@ impl<F: Fn(&str) -> Option<String>> EnvSource for F {
     }
 }
 
+pub fn expand_value(s: &str, env: &dyn EnvSource) -> Option<String> {
+    expand_str(s, Span::default(), "", env, false, &mut Vec::new())
+}
+
 pub fn expand(node: &mut Node, src: &str, env: &dyn EnvSource, out: &mut Vec<Diagnostic>) {
     expand_in(node, "", src, env, out);
 }

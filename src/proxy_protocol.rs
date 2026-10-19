@@ -5,10 +5,23 @@ use serde::{Deserialize, Serialize};
 
 pub const V2_SIGNATURE: [u8; 12] = *b"\r\n\r\n\0\r\nQUIT\n";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+    crate::config::admin_schema::AdminSchema,
+)]
 #[serde(rename_all = "lowercase")]
 pub enum Version {
+    #[admin(label = "v1 (text)")]
     V1,
+    #[admin(label = "v2 (binary)")]
     V2,
 }
 

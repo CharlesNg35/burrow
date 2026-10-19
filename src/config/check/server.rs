@@ -143,7 +143,12 @@ pub fn check_server(
             );
         }
         let listed = cfg.services.values().any(|s| s.visitors.contains(name));
-        if !listed && entry.reach.is_empty() && !spans.has(&["visitors", name, "reach"]) {
+        let admin_from = check_admin(name, entry, listed, spans, out);
+        if !listed
+            && entry.admin.is_none()
+            && entry.reach.is_empty()
+            && !spans.has(&["visitors", name, "reach"])
+        {
             out.push(
                 Diagnostic::warning(
                     "unused-visitor",
@@ -161,6 +166,8 @@ pub fn check_server(
                 secrets,
                 reach,
                 max_connections: entry.max_connections.map(|m| m as usize),
+                admin: entry.admin,
+                admin_from,
             },
         );
     }
@@ -272,6 +279,61 @@ pub fn check_server(
         udp_session_timeout: Duration::from_secs(cfg.udp.session_timeout_secs.into()),
         metrics,
     })
+}
+
+fn check_admin(
+    name: &str,
+    entry: &super::super::model::VisitorEntry,
+    listed: bool,
+    spans: &Spans,
+    out: &mut Vec<Diagnostic>,
+) -> Vec<crate::allowlist::Cidr> {
+    let mut nets = Vec::new();
+    for (i, text) in entry.admin_from.iter().enumerate() {
+        match text.parse::<crate::allowlist::Cidr>() {
+            Ok(net) => nets.push(net),
+            Err(e) => out.push(
+                Diagnostic::error(
+                    "invalid-source",
+                    format!(
+                        "invalid admin_from entry for visitor \"{name}\": {}",
+                        e.describe()
+                    ),
+                )
+                .at(spans.value(&["visitors", name, "admin_from", &i.to_string()]))
+                .label("expected an IP or CIDR")
+                .help(
+                    "use an IP like 203.0.113.7 or a network like 203.0.113.0/24 or 2001:db8::/32",
+                ),
+            ),
+        }
+    }
+    if entry.admin.is_none() && !entry.admin_from.is_empty() {
+        out.push(
+            Diagnostic::warning(
+                "unused-admin-from",
+                format!(
+                    "visitor \"{name}\" has admin_from but no admin access, so it has no effect"
+                ),
+            )
+            .at(spans.key(&["visitors", name, "admin_from"]))
+            .help("add \"admin: read\" or \"admin: write\", or remove admin_from"),
+        );
+    }
+    if entry.admin.is_some() && (listed || !entry.reach.is_empty()) {
+        out.push(
+            Diagnostic::warning(
+                "admin-shared",
+                format!(
+                    "visitor \"{name}\" has admin access and also reaches services or clients, so one leaked secret gives both"
+                ),
+            )
+            .at(spans.key(&["visitors", name, "admin"]))
+            .label("admin access here")
+            .help("use a dedicated visitor for burrow admin, and another one for burrow visit"),
+        );
+    }
+    nets
 }
 
 fn check_metrics(

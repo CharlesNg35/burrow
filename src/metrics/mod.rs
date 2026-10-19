@@ -7,8 +7,6 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Instant, SystemTime};
 
-use serde::{Deserialize, Serialize};
-
 pub use counted::Counted;
 pub use render::prometheus;
 pub use serve::{Handler, Snapshot, serve, serve_with};
@@ -97,72 +95,6 @@ impl Metrics {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Status {
-    pub version: String,
-    pub uptime_secs: u64,
-    #[serde(default)]
-    pub listening: Vec<String>,
-    pub handshakes_refused: u64,
-    pub udp_peers: u64,
-    pub clients: Vec<ClientStatus>,
-    pub services: Vec<ServiceStatus>,
-    pub visitors: Vec<VisitorStatus>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ClientStatus {
-    pub name: String,
-    pub connected: bool,
-    pub connected_secs: Option<u64>,
-    pub from: Option<String>,
-    pub open: u64,
-    pub idle_channels: u64,
-    pub left_secs_ago: Option<u64>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ServiceStatus {
-    pub name: String,
-    pub protocol: String,
-    pub bind: Option<String>,
-    pub target: String,
-    pub clients: Vec<String>,
-    #[serde(default)]
-    pub mode: Option<String>,
-    #[serde(default)]
-    pub bandwidth: Option<u64>,
-    #[serde(default)]
-    pub visitors: Vec<String>,
-    #[serde(default)]
-    pub proxy_protocol: Option<String>,
-    #[serde(default)]
-    pub filtered: bool,
-    pub open: u64,
-    pub total: u64,
-    pub refused: u64,
-    pub bytes_in: u64,
-    pub bytes_out: u64,
-    pub health: Vec<HealthStatus>,
-    #[serde(default)]
-    pub set_aside: Vec<SetAside>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SetAside {
-    pub client: String,
-    pub refused: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct HealthStatus {
-    pub client: String,
-    pub up: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct VisitorStatus {
-    pub name: String,
-    pub open: u64,
-    pub total: u64,
-}
+pub use burrow_admin_proto::status::{
+    ClientStatus, HealthStatus, ServiceStatus, SetAside, Status, VisitorStatus,
+};

@@ -359,6 +359,7 @@ mod tests {
             low_ports: false,
             files: vec![],
             version: "0.1.0".into(),
+            writable_dir: None,
         };
         let p = plist(&Manifest {
             env_file: Some("/etc/burrow/home.env".into()),

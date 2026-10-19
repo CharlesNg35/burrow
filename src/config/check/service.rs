@@ -58,39 +58,6 @@ pub(super) fn check_service<'a>(
             .help("add \"bind: 7840\" to expose it publicly, or \"visitors: [NAME]\" for visitors using burrow visit"),
         );
     }
-    if !svc.visitors.is_empty() {
-        tcp_only(
-            name,
-            svc,
-            "visitors",
-            "visitors-tcp-only",
-            "visitors can only reach tcp services",
-            spans,
-            out,
-        );
-    }
-    if svc.proxy_protocol.is_some() {
-        tcp_only(
-            name,
-            svc,
-            "proxy_protocol",
-            "proxy-protocol-tcp-only",
-            "proxy_protocol only works for tcp services",
-            spans,
-            out,
-        );
-    }
-    if svc.max_connections.is_some() {
-        tcp_only(
-            name,
-            svc,
-            "max_connections",
-            "max-connections-tcp-only",
-            "max_connections only works for tcp services; UDP peers are limited to 4096 per port",
-            spans,
-            out,
-        );
-    }
     let target = check_target(name, svc, spans, out);
     if let (Some((_, bind_ports)), Some((_, target_ports))) = (bind, &target)
         && bind_ports != *target_ports
@@ -139,27 +106,39 @@ pub(super) fn check_service<'a>(
     };
     let clients = check_clients(name, svc, spans, out);
     let health = health(svc);
-    if svc.mode == Mode::Balance && clients.len() > 1 {
-        tcp_only(
-            name,
-            svc,
-            "mode",
-            "balance-tcp-only",
-            "mode balance only works for tcp services",
-            spans,
-            out,
-        );
-    }
-    if health.is_some() {
-        tcp_only(
-            name,
-            svc,
-            "health_check",
-            "health-check-tcp-only",
-            "health_check only works for tcp services",
-            spans,
-            out,
-        );
+    for field in ServiceEntry::TCP_ONLY {
+        let generic = format!("{field} only works for tcp services");
+        let (set, code, why) = match *field {
+            "visitors" => (
+                !svc.visitors.is_empty(),
+                "visitors-tcp-only",
+                "visitors can only reach tcp services",
+            ),
+            "proxy_protocol" => (
+                svc.proxy_protocol.is_some(),
+                "proxy-protocol-tcp-only",
+                "proxy_protocol only works for tcp services",
+            ),
+            "max_connections" => (
+                svc.max_connections.is_some(),
+                "max-connections-tcp-only",
+                "max_connections only works for tcp services; UDP peers are limited to 4096 per port",
+            ),
+            "mode" => (
+                svc.mode == Mode::Balance && clients.len() > 1,
+                "balance-tcp-only",
+                "mode balance only works for tcp services",
+            ),
+            "health_check" => (
+                health.is_some(),
+                "health-check-tcp-only",
+                "health_check only works for tcp services",
+            ),
+            other => (is_set(svc, other), "tcp-only", generic.as_str()),
+        };
+        if set {
+            tcp_only(name, svc, field, code, why, spans, out);
+        }
     }
     let (target, ports) = target?;
     if svc.bind.is_some() && bind.is_none() {
@@ -237,6 +216,18 @@ fn health(svc: &ServiceEntry) -> Option<Health> {
         timeout: Duration::from_secs(tuned.timeout_secs.into()),
         failures: tuned.failures.max(1),
     })
+}
+
+fn is_set(svc: &ServiceEntry, field: &str) -> bool {
+    serde_json::to_value(svc)
+        .ok()
+        .and_then(|v| v.get(field).cloned())
+        .is_some_and(|v| match v {
+            serde_json::Value::Null | serde_json::Value::Bool(false) => false,
+            serde_json::Value::Array(a) => !a.is_empty(),
+            serde_json::Value::Object(o) => !o.is_empty(),
+            _ => true,
+        })
 }
 
 fn tcp_only(

@@ -441,6 +441,8 @@ pub fn visitor_auth(secret: Secret, reach: &[&str]) -> VisitorAuth {
             .map(|c| (c.to_string(), burrow::allowlist::AllowList::All))
             .collect(),
         max_connections: None,
+        admin: None,
+        admin_from: Vec::new(),
     }
 }
 

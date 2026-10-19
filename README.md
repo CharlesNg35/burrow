@@ -35,6 +35,7 @@ user ──> server:7840 ══ Noise-encrypted TCP or WebSocket ══ client (
 - [Private services and visitors](#private-services-and-visitors)
 - [Servers reachable only through HTTP(S)](#servers-reachable-only-through-https)
 - [Monitoring](#monitoring)
+- [Administration (burrow admin)](#administration-burrow-admin)
 - [Running as a service](#running-as-a-service)
 - [Security notes](#security-notes)
 - [Docker](#docker)
@@ -124,6 +125,8 @@ services:
 | `visitors.<name>.secret`                   | required                            | like a client secret; see below                                |
 | `visitors.<name>.reach`                    | none                                | `CLIENT: any`, or rules like `CLIENT: [192.168.1.0/24:22]`     |
 | `visitors.<name>.max_connections`          | unlimited                           | concurrent connections for this visitor                        |
+| `visitors.<name>.admin`                    | none                                | `read` or `write`: may use `burrow admin`, see below           |
+| `visitors.<name>.admin_from`               | any address                         | source IPs or CIDRs that admin access is limited to            |
 | `metrics.listen`                           | off                                 | address for `/metrics`, see [Monitoring](#monitoring)          |
 | `insecure_plaintext`                       | `false`                             | do not encrypt forwarded TCP data (authentication still runs)  |
 | `heartbeat.interval_secs`                  | `10`                                | ping interval; peers time out after 3 missed intervals         |
@@ -550,6 +553,20 @@ The server then serves Prometheus metrics at `/metrics`. Keep `listen` on `127.0
 
 </details>
 
+## Administration (burrow admin)
+
+`burrow admin` is a local web UI for a running server. It connects as a visitor with admin rights, so the server opens no new port:
+
+```yaml
+# server.yaml
+visitors:
+  ops-laptop:
+    secret: ${OPS_SECRET}
+    admin: write # read | write
+```
+
+Run `burrow admin -c ops-laptop.yaml`. Options, `admin_from`, installed servers, history and security: [docs/admin.md](docs/admin.md).
+
 ## Running as a service
 
 `burrow service` installs a server, client or visitor into the system service manager (systemd on Linux, launchd on macOS, the Service Control Manager on Windows), so it starts at boot and restarts after a failure. It needs administrator rights.
@@ -569,7 +586,7 @@ On Linux and macOS, `install` copies the binary to `/usr/local/bin` (when only r
 <summary><b>What <code>install</code> does</b></summary>
 
 - Checks the config first, and checks that every port it listens on is free. If another program holds a port, it names it (`tcp port 7840 (service "web") is already in use by nginx (pid 812)`) and changes nothing.
-- Copies the config to `/etc/burrow/` (`%ProgramData%\burrow\` on Windows), readable only by the service. Edit that copy, or use `burrow edit`: the service applies it on save, and `edit` refuses a change the service could not run after a restart, such as a port below 1024 it was not installed for. `status` tells you when the file you installed from has changed since.
+- Copies the config to `/etc/burrow/` (`%ProgramData%\burrow\` on Windows), readable only by the service. Edit that copy, or use `burrow edit`: the service applies it on save, and `edit` refuses a change the service could not run after a restart, such as a port below 1024 it was not installed for. `status` tells you when the file you installed from has changed since. A server with an admin visitor (or installed with `--admin-writable`) gets its own folder, `/etc/burrow/<name>/server.yaml`, that only its account may change, so `burrow admin` can edit it; every other service keeps a config it cannot change.
 - Copies the binary to `/usr/local/bin/burrow` (`%ProgramFiles%\burrow\` on Windows), unless it already lives in a root-owned folder such as one managed by a package manager. If other users can write `/usr/local/bin`, the service gets its own copy in a root-only folder. A service never runs a binary from a user's home folder.
 - Runs the service as a dedicated account without login or home: `burrow` on Linux, `_burrow` on macOS, the virtual account `NT SERVICE\burrow-<name>` on Windows. `--run-as` picks another one. Ports below 1024 get only `CAP_NET_BIND_SERVICE` on Linux.
 - Writes logs to `/var/log/burrow/<name>/<name>.log` (`%ProgramData%\burrow\logs\<name>.log` on Windows), rotated at 10 MB with 5 old files kept, so a log never fills the disk.
@@ -690,6 +707,8 @@ cd fuzz && cargo +nightly fuzz run config            # also: handshake, frames
 tests/e2e/proxies.sh                                  # wss:// through real nginx and Caddy containers (needs docker)
 BURROW_TEST_TRANSPORT=ws cargo test --test integration   # run the integration suite over WebSocket
 ```
+
+`make help` lists the common commands (GNU make on Linux and macOS; on Windows use cargo and `cargo xtask` directly).
 
 Design notes: [docs/research.md](docs/research.md), [docs/decisions.md](docs/decisions.md).
 

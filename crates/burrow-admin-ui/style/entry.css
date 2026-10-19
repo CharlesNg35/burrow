@@ -1,0 +1,71 @@
+@import "tailwindcss";
+@source "../src";
+@source "../../burrow-ui-kit/src";
+@custom-variant dark {
+  &:where(.dark, .dark *) {
+    @slot;
+  }
+  @media (prefers-color-scheme: dark) {
+    &:where(:root:not(.light), :root:not(.light) *) {
+      @slot;
+    }
+  }
+}
+
+@font-face { font-family: "Geist"; src: url("/fonts/geist-latin-wght.woff2") format("woff2"); font-weight: 100 900; font-display: swap; }
+@font-face { font-family: "Geist Mono"; src: url("/fonts/geist-mono-latin-wght.woff2") format("woff2"); font-weight: 100 900; font-display: swap; }
+
+@theme {
+  --color-bg: #F3F4F6; --color-surface: #FFFFFF; --color-surface-2: #F7F8FA; --color-surface-3: #ECEEF1; --color-input: #FFFFFF;
+  --color-border: #DCDFE4; --color-border-strong: #8D949E; --color-rowline: #EDEFF2;
+  --color-text: #16181B; --color-text-muted: #5E6570; --color-text-faint: #68707A;
+  --color-accent: #2F76C4; --color-accent-ink: #2766A8; --color-accent-weak: rgb(47 118 196 / 0.09); --color-accent-line: rgb(47 118 196 / 0.45); --color-on-accent: #FFFFFF;
+  --color-success: #107E4D; --color-success-weak: rgb(16 126 77 / 0.10); --color-warning: #9C6110; --color-warning-weak: rgb(214 140 30 / 0.13);
+  --color-danger: #CC2D34; --color-danger-weak: rgb(204 45 52 / 0.09); --color-info: #2F76C4; --color-udp: #7A3FC4; --color-udp-weak: rgb(122 63 196 / 0.09);
+  --color-co-warning: #7A4F0E; --color-co-danger: #9B1C21; --color-co-success: #0D6B40; --color-co-info: #2766A8;
+  --color-hdr: #FFFFFF; --color-hdr-line: #DCDFE4; --color-hdr-raised: #F3F4F6; --color-hdr-raised-2: #E8EAEE; --color-hdr-text: #2B2F35; --color-hdr-muted: #6B727C; --color-hdr-on: #16181B; --color-tab-on: #FFFFFF;
+  --color-code: #16191D; --color-code-text: #D9DEE5; --color-diff-add: rgb(18 140 85 / 0.09); --color-diff-del: rgb(210 52 59 / 0.08);
+  --color-tip: #16181B; --color-tip-text: #F3F4F6; --color-scrim: rgb(22 26 32 / 0.42); --color-logo-from: #5A9BE0; --color-logo-to: #2E6FB8; --color-hop: #F8F9FB; --color-danger-ink: #FFFFFF; --color-warning-ink: #FFFFFF;
+  --font-sans: "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --text-2xs: 10.5px; --text-xs: 11.5px; --text-sm: 12.5px; --text-base: 14.5px; --text-md: 15px; --text-lg: 17px; --text-xl: 22px; --text-2xl: 26px;
+  --radius-xs: 4px; --radius-sm: 6px; --radius-input: 7px; --radius-md: 8px; --radius-hop: 11px; --radius-card: 12px; --radius-dialog: 14px;
+  --spacing: 4px;
+  --shadow-sm: 0 1px 2px rgb(22 28 38 / .08); --shadow-overlay: 0 14px 36px rgb(22 28 38 / .14), 0 2px 6px rgb(22 28 38 / .06);
+}
+
+@layer base {
+  :root.dark {
+    --color-bg: #111315; --color-surface: #16181B; --color-surface-2: #1E2125; --color-surface-3: #252930; --color-input: #0E1012;
+    --color-border: #2A2E34; --color-border-strong: #6A717B; --color-rowline: rgb(255 255 255 / 0.04);
+    --color-text: #E6E8EB; --color-text-muted: #8B9199; --color-text-faint: #828992;
+    --color-accent: #7DBDF5; --color-accent-ink: #A9D3FA; --color-accent-weak: rgb(125 189 245 / 0.13); --color-accent-line: rgb(125 189 245 / 0.45); --color-on-accent: #071522;
+    --color-success: #3DD68C; --color-success-weak: rgb(61 214 140 / 0.12); --color-warning: #F5B547; --color-warning-weak: rgb(245 181 71 / 0.12);
+    --color-danger: #FF6369; --color-danger-weak: rgb(255 99 105 / 0.12); --color-info: #7DBDF5; --color-udp: #D7B4FF; --color-udp-weak: rgb(184 132 255 / 0.12);
+    --color-co-warning: #F7CF84; --color-co-danger: #FFB0B3; --color-co-success: #97EBC1; --color-co-info: #A9D3FA;
+    --color-hdr: #0B0C0E; --color-hdr-line: #000000; --color-hdr-raised: #1A1D21; --color-hdr-raised-2: #24282E; --color-hdr-text: #C9CED6; --color-hdr-muted: #7C838D; --color-hdr-on: #FFFFFF; --color-tab-on: #2A2E34;
+    --color-code: #0B0C0E; --color-code-text: #D3D8DF; --color-diff-add: rgb(61 214 140 / 0.10); --color-diff-del: rgb(255 99 105 / 0.11);
+    --color-tip: #E6E8EB; --color-tip-text: #111315; --color-scrim: rgb(5 6 8 / 0.62); --color-logo-from: #8CC6F7; --color-logo-to: #4E8FD6; --color-hop: #1E2125; --color-danger-ink: #1A0507; --color-warning-ink: #1B1203;
+    --shadow-sm: 0 1px 2px rgb(0 0 0 / .4); --shadow-overlay: 0 16px 40px rgb(0 0 0 / .55), 0 2px 8px rgb(0 0 0 / .4);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not(.light) {
+      --color-bg: #111315; --color-surface: #16181B; --color-surface-2: #1E2125; --color-surface-3: #252930; --color-input: #0E1012;
+      --color-border: #2A2E34; --color-border-strong: #6A717B; --color-rowline: rgb(255 255 255 / 0.04);
+      --color-text: #E6E8EB; --color-text-muted: #8B9199; --color-text-faint: #828992;
+      --color-accent: #7DBDF5; --color-accent-ink: #A9D3FA; --color-accent-weak: rgb(125 189 245 / 0.13); --color-accent-line: rgb(125 189 245 / 0.45); --color-on-accent: #071522;
+      --color-success: #3DD68C; --color-success-weak: rgb(61 214 140 / 0.12); --color-warning: #F5B547; --color-warning-weak: rgb(245 181 71 / 0.12);
+      --color-danger: #FF6369; --color-danger-weak: rgb(255 99 105 / 0.12); --color-info: #7DBDF5; --color-udp: #D7B4FF; --color-udp-weak: rgb(184 132 255 / 0.12);
+      --color-co-warning: #F7CF84; --color-co-danger: #FFB0B3; --color-co-success: #97EBC1; --color-co-info: #A9D3FA;
+      --color-hdr: #0B0C0E; --color-hdr-line: #000000; --color-hdr-raised: #1A1D21; --color-hdr-raised-2: #24282E; --color-hdr-text: #C9CED6; --color-hdr-muted: #7C838D; --color-hdr-on: #FFFFFF; --color-tab-on: #2A2E34;
+      --color-code: #0B0C0E; --color-code-text: #D3D8DF; --color-diff-add: rgb(61 214 140 / 0.10); --color-diff-del: rgb(255 99 105 / 0.11);
+      --color-tip: #E6E8EB; --color-tip-text: #111315; --color-scrim: rgb(5 6 8 / 0.62); --color-logo-from: #8CC6F7; --color-logo-to: #4E8FD6; --color-hop: #1E2125; --color-danger-ink: #1A0507; --color-warning-ink: #1B1203;
+      --shadow-sm: 0 1px 2px rgb(0 0 0 / .4); --shadow-overlay: 0 16px 40px rgb(0 0 0 / .55), 0 2px 8px rgb(0 0 0 / .4);
+    }
+  }
+  html { color-scheme: light dark; }
+  body { @apply bg-bg text-text font-sans text-base leading-[1.45]; }
+  code, kbd, samp, pre, .font-mono { font-size: 0.93em; }
+  :focus-visible { @apply outline-2 outline-offset-2 outline-accent; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+}

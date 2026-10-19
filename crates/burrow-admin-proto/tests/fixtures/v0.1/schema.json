@@ -1,0 +1,1188 @@
+{
+  "schema_version": 1,
+  "hash": "b2s:2f036bbd4c579d5c",
+  "root": {
+    "label": "Server",
+    "sem": {
+      "t": "object",
+      "fields": [
+        {
+          "key": "listen",
+          "node": {
+            "label": "Listen address",
+            "help": "Where the server waits for clients: ip:port like 0.0.0.0:7835, or a port alone for 0.0.0.0 (all IPv4 addresses)",
+            "sem": {
+              "t": "optional",
+              "inner": {
+                "sem": {
+                  "t": "ip_port",
+                  "ranges": false,
+                  "default_ip": "0.0.0.0"
+                }
+              }
+            },
+            "applies": "restart",
+            "group": "listener",
+            "locked": true,
+            "none_label": "No TCP listener"
+          }
+        },
+        {
+          "key": "public_address",
+          "node": {
+            "label": "Public address",
+            "help": "How clients reach this server: a host name or IP (the port comes from listen), host:port, or a wss:// URL; client-config writes it into client configs",
+            "sem": {
+              "t": "optional",
+              "inner": {
+                "sem": {
+                  "t": "server_address"
+                }
+              }
+            },
+            "applies": "live",
+            "group": "listener",
+            "none_label": "Not set"
+          }
+        },
+        {
+          "key": "websocket",
+          "node": {
+            "label": "WebSocket listener",
+            "help": "Accept clients over WebSocket, for servers reachable only through HTTP(S)",
+            "sem": {
+              "t": "optional",
+              "inner": {
+                "label": "WebSocket",
+                "sem": {
+                  "t": "object",
+                  "fields": [
+                    {
+                      "key": "listen",
+                      "node": {
+                        "label": "Listen address",
+                        "help": "Address to accept WebSocket connections on, for example 127.0.0.1:7836 behind a proxy; a port alone means 0.0.0.0",
+                        "sem": {
+                          "t": "ip_port",
+                          "ranges": false,
+                          "default_ip": "0.0.0.0"
+                        },
+                        "required": true
+                      }
+                    },
+                    {
+                      "key": "path",
+                      "node": {
+                        "label": "Path",
+                        "help": "URL path clients connect to",
+                        "sem": {
+                          "t": "url_path"
+                        },
+                        "default": "/burrow"
+                      }
+                    },
+                    {
+                      "key": "tls",
+                      "node": {
+                        "label": "TLS",
+                        "help": "Serve wss:// directly with these PEM files instead of behind a TLS proxy",
+                        "sem": {
+                          "t": "optional",
+                          "inner": {
+                            "label": "TLS files",
+                            "sem": {
+                              "t": "object",
+                              "fields": [
+                                {
+                                  "key": "cert",
+                                  "node": {
+                                    "label": "Certificate file",
+                                    "help": "Certificate chain PEM file, relative to the config file",
+                                    "sem": {
+                                      "t": "path",
+                                      "must_exist": true,
+                                      "relative_to": "config"
+                                    },
+                                    "required": true
+                                  }
+                                },
+                                {
+                                  "key": "key",
+                                  "node": {
+                                    "label": "Private key file",
+                                    "help": "Private key PEM file, relative to the config file",
+                                    "sem": {
+                                      "t": "path",
+                                      "must_exist": true,
+                                      "relative_to": "config"
+                                    },
+                                    "required": true
+                                  }
+                                }
+                              ]
+                            }
+                          }
+                        },
+                        "none_label": "Behind a TLS proxy (plain ws://)"
+                      }
+                    },
+                    {
+                      "key": "keepalive_secs",
+                      "node": {
+                        "label": "Keepalive",
+                        "help": "Seconds between keepalives on idle pooled channels, below your proxy's idle timeout",
+                        "sem": {
+                          "t": "duration",
+                          "unit": "secs",
+                          "min": 5,
+                          "max": 30
+                        },
+                        "default": 25,
+                        "advanced": true
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "applies": "reload",
+            "group": "websocket",
+            "locked": true,
+            "none_label": "Off"
+          }
+        },
+        {
+          "key": "clients",
+          "node": {
+            "label": "Clients",
+            "help": "Clients allowed to connect, keyed by client name",
+            "sem": {
+              "t": "map",
+              "key": {
+                "sem": {
+                  "t": "name",
+                  "entity": "client",
+                  "max_len": 64
+                }
+              },
+              "value": {
+                "label": "Client",
+                "sem": {
+                  "t": "object",
+                  "fields": [
+                    {
+                      "key": "secret",
+                      "node": {
+                        "label": "Secrets",
+                        "help": "256-bit secret (base64 or hex), or a list of them during rotation",
+                        "sem": {
+                          "t": "secret_ref",
+                          "max": 4
+                        },
+                        "required": true
+                      }
+                    },
+                    {
+                      "key": "max_connections",
+                      "node": {
+                        "label": "Max connections",
+                        "help": "Maximum concurrent forwarded connections for this client",
+                        "sem": {
+                          "t": "optional",
+                          "inner": {
+                            "sem": {
+                              "t": "integer",
+                              "min": 1,
+                              "unit": "connections"
+                            }
+                          }
+                        },
+                        "advanced": true,
+                        "none_label": "Server default",
+                        "relations": [
+                          {
+                            "r": "default_from",
+                            "path": "/limits/max_connections_per_client"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                },
+                "entity": "client"
+              }
+            },
+            "applies": "reload",
+            "group": "entities"
+          }
+        },
+        {
+          "key": "visitors",
+          "node": {
+            "label": "Visitors",
+            "help": "Visitors allowed to reach private services with burrow visit, keyed by visitor name",
+            "sem": {
+              "t": "map",
+              "key": {
+                "sem": {
+                  "t": "name",
+                  "entity": "visitor",
+                  "max_len": 64
+                }
+              },
+              "value": {
+                "label": "Visitor",
+                "sem": {
+                  "t": "object",
+                  "fields": [
+                    {
+                      "key": "secret",
+                      "node": {
+                        "label": "Secrets",
+                        "help": "256-bit secret (base64 or hex), or a list of them during rotation",
+                        "sem": {
+                          "t": "secret_ref",
+                          "max": 4
+                        },
+                        "required": true
+                      }
+                    },
+                    {
+                      "key": "reach",
+                      "node": {
+                        "label": "Direct access to clients",
+                        "help": "Clients this visitor may reach directly, with the targets it may pick there: any (whatever the client's allow list permits), or rules in allow-list syntax that narrow it, for example home: any, office: 192.168.150.0/25 or lab: [10.0.0.0/8:22, unix:/run/app.sock]",
+                        "sem": {
+                          "t": "ref_map",
+                          "entity": "client",
+                          "value": {
+                            "sem": {
+                              "t": "union",
+                              "branches": [
+                                {
+                                  "sem": {
+                                    "t": "enum",
+                                    "options": [
+                                      {
+                                        "value": "any",
+                                        "label": "any"
+                                      }
+                                    ]
+                                  }
+                                },
+                                {
+                                  "sem": {
+                                    "t": "cidr_rule"
+                                  }
+                                },
+                                {
+                                  "sem": {
+                                    "t": "list",
+                                    "item": {
+                                      "sem": {
+                                        "t": "cidr_rule"
+                                      }
+                                    }
+                                  }
+                                }
+                              ]
+                            }
+                          }
+                        },
+                        "group": "access",
+                        "empty_label": "No direct access"
+                      }
+                    },
+                    {
+                      "key": "max_connections",
+                      "node": {
+                        "label": "Max connections",
+                        "help": "Maximum concurrent connections for this visitor",
+                        "sem": {
+                          "t": "optional",
+                          "inner": {
+                            "sem": {
+                              "t": "integer",
+                              "min": 1,
+                              "unit": "connections"
+                            }
+                          }
+                        },
+                        "group": "traffic",
+                        "advanced": true,
+                        "none_label": "Unlimited"
+                      }
+                    },
+                    {
+                      "key": "admin",
+                      "node": {
+                        "label": "Admin access",
+                        "help": "Let this visitor administer the server with burrow admin: read shows the dashboard and the config, write may also change it",
+                        "sem": {
+                          "t": "optional",
+                          "inner": {
+                            "sem": {
+                              "t": "enum",
+                              "options": [
+                                {
+                                  "value": "read",
+                                  "label": "Read",
+                                  "help": "Dashboard, config with secrets as fingerprints, history"
+                                },
+                                {
+                                  "value": "write",
+                                  "label": "Write",
+                                  "help": "Everything read gives, and changing the config",
+                                  "danger": true
+                                }
+                              ]
+                            }
+                          }
+                        },
+                        "group": "admin",
+                        "danger_when_set": true,
+                        "none_label": "None"
+                      }
+                    },
+                    {
+                      "key": "admin_from",
+                      "node": {
+                        "label": "Admin only from",
+                        "help": "Admin access only from these source IPs or CIDRs, for example [203.0.113.0/24]; any address when empty",
+                        "sem": {
+                          "t": "list",
+                          "item": {
+                            "sem": {
+                              "t": "cidr"
+                            }
+                          }
+                        },
+                        "group": "admin",
+                        "empty_label": "Any address",
+                        "relations": [
+                          {
+                            "r": "visible_if",
+                            "cond": {
+                              "set": "admin"
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                },
+                "groups": [
+                  {
+                    "key": "admin",
+                    "label": "Admin access",
+                    "sub": "May this visitor run burrow admin against this server?"
+                  },
+                  {
+                    "key": "access",
+                    "label": "Access",
+                    "sub": "Private services and direct reach."
+                  },
+                  {
+                    "key": "traffic",
+                    "label": "Traffic",
+                    "sub": "Limits for this visitor."
+                  }
+                ],
+                "entity": "visitor"
+              }
+            },
+            "applies": "reload",
+            "group": "entities"
+          }
+        },
+        {
+          "key": "services",
+          "node": {
+            "label": "Services",
+            "help": "Exposed services, keyed by service name",
+            "sem": {
+              "t": "map",
+              "key": {
+                "sem": {
+                  "t": "name",
+                  "entity": "service",
+                  "max_len": 64
+                }
+              },
+              "value": {
+                "label": "Service",
+                "sem": {
+                  "t": "object",
+                  "fields": [
+                    {
+                      "key": "client",
+                      "node": {
+                        "label": "Client",
+                        "help": "Name of the client that reaches the target",
+                        "sem": {
+                          "t": "optional",
+                          "inner": {
+                            "sem": {
+                              "t": "ref",
+                              "entity": "client"
+                            }
+                          }
+                        },
+                        "group": "who",
+                        "none_label": "None",
+                        "relations": [
+                          {
+                            "r": "one_of",
+                            "group": "who"
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "key": "clients",
+                      "node": {
+                        "label": "Clients",
+                        "help": "Several clients that can each reach the target, instead of client; see mode",
+                        "sem": {
+                          "t": "ref_list",
+                          "entity": "client",
+                          "ordered": true,
+                          "unique": true
+                        },
+                        "group": "who",
+                        "relations": [
+                          {
+                            "r": "one_of",
+                            "group": "who"
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "key": "mode",
+                      "node": {
+                        "label": "Mode",
+                        "help": "With several clients: failover uses the first one that is up, balance spreads new connections over all of them",
+                        "sem": {
+                          "t": "enum",
+                          "options": [
+                            {
+                              "value": "failover",
+                              "label": "Failover",
+                              "help": "Use the first client that is up"
+                            },
+                            {
+                              "value": "balance",
+                              "label": "Balance",
+                              "help": "Spread new connections over all clients"
+                            }
+                          ]
+                        },
+                        "default": "failover",
+                        "group": "who",
+                        "relations": [
+                          {
+                            "r": "visible_if",
+                            "cond": {
+                              "len_ge": [
+                                "clients",
+                                2
+                              ]
+                            }
+                          },
+                          {
+                            "r": "enabled_if",
+                            "cond": {
+                              "eq": [
+                                "protocol",
+                                "tcp"
+                              ]
+                            },
+                            "reason": "UDP services do not support this"
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "key": "health_check",
+                      "node": {
+                        "label": "Health check",
+                        "help": "Check that each client can reach the target, and send connections only to those that can: true, or a map with interval_secs, timeout_secs and failures",
+                        "sem": {
+                          "t": "optional",
+                          "inner": {
+                            "sem": {
+                              "t": "union",
+                              "branches": [
+                                {
+                                  "sem": {
+                                    "t": "bool"
+                                  }
+                                },
+                                {
+                                  "label": "Health check settings",
+                                  "sem": {
+                                    "t": "object",
+                                    "fields": [
+                                      {
+                                        "key": "interval_secs",
+                                        "node": {
+                                          "label": "Interval",
+                                          "help": "Seconds between checks of each client",
+                                          "sem": {
+                                            "t": "duration",
+                                            "unit": "secs",
+                                            "min": 1,
+                                            "max": 3600
+                                          },
+                                          "default": 10
+                                        }
+                                      },
+                                      {
+                                        "key": "timeout_secs",
+                                        "node": {
+                                          "label": "Timeout",
+                                          "help": "Seconds a check may take",
+                                          "sem": {
+                                            "t": "duration",
+                                            "unit": "secs",
+                                            "min": 1,
+                                            "max": 60
+                                          },
+                                          "default": 3
+                                        }
+                                      },
+                                      {
+                                        "key": "failures",
+                                        "node": {
+                                          "label": "Failures before down",
+                                          "help": "Failed checks in a row before a client counts as down",
+                                          "sem": {
+                                            "t": "integer",
+                                            "min": 1,
+                                            "max": 100,
+                                            "unit": "checks"
+                                          },
+                                          "default": 2
+                                        }
+                                      }
+                                    ]
+                                  }
+                                }
+                              ]
+                            }
+                          }
+                        },
+                        "group": "who",
+                        "advanced": true,
+                        "none_label": "Off",
+                        "relations": [
+                          {
+                            "r": "enabled_if",
+                            "cond": {
+                              "eq": [
+                                "protocol",
+                                "tcp"
+                              ]
+                            },
+                            "reason": "UDP services do not support this"
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "key": "bind",
+                      "node": {
+                        "label": "Public address",
+                        "help": "Public address on the server: a port, or ip:port; leave it out for a private service that only visitors reach",
+                        "sem": {
+                          "t": "optional",
+                          "inner": {
+                            "sem": {
+                              "t": "ip_port",
+                              "ranges": true,
+                              "max_range": 1000,
+                              "default_ip": "0.0.0.0"
+                            }
+                          }
+                        },
+                        "group": "exposure",
+                        "none_label": "Private: no public port",
+                        "relations": [
+                          {
+                            "r": "cross",
+                            "paths": [
+                              "target",
+                              "protocol"
+                            ]
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "key": "target",
+                      "node": {
+                        "label": "Target on the client",
+                        "help": "host:port as seen from the client, or a port alone for 127.0.0.1 on the client",
+                        "sem": {
+                          "t": "target",
+                          "ranges": true,
+                          "unix": true
+                        },
+                        "required": true,
+                        "group": "exposure",
+                        "relations": [
+                          {
+                            "r": "same_len",
+                            "path": "bind"
+                          },
+                          {
+                            "r": "cross",
+                            "paths": [
+                              "bind",
+                              "protocol"
+                            ]
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "key": "protocol",
+                      "node": {
+                        "label": "Protocol",
+                        "sem": {
+                          "t": "enum",
+                          "options": [
+                            {
+                              "value": "tcp",
+                              "label": "TCP"
+                            },
+                            {
+                              "value": "udp",
+                              "label": "UDP"
+                            }
+                          ]
+                        },
+                        "default": "tcp",
+                        "group": "exposure"
+                      }
+                    },
+                    {
+                      "key": "max_connections",
+                      "node": {
+                        "label": "Max connections",
+                        "help": "Maximum concurrent connections for this service",
+                        "sem": {
+                          "t": "optional",
+                          "inner": {
+                            "sem": {
+                              "t": "integer",
+                              "min": 1,
+                              "unit": "connections"
+                            }
+                          }
+                        },
+                        "group": "traffic",
+                        "none_label": "Unlimited",
+                        "relations": [
+                          {
+                            "r": "enabled_if",
+                            "cond": {
+                              "eq": [
+                                "protocol",
+                                "tcp"
+                              ]
+                            },
+                            "reason": "UDP services do not support this"
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "key": "visitors",
+                      "node": {
+                        "label": "Visitors",
+                        "help": "Visitors that may reach this service with burrow visit",
+                        "sem": {
+                          "t": "ref_list",
+                          "entity": "visitor",
+                          "ordered": false,
+                          "unique": true
+                        },
+                        "group": "access",
+                        "empty_label": "No visitors",
+                        "relations": [
+                          {
+                            "r": "inverse",
+                            "entity": "visitor",
+                            "field": "visitors",
+                            "label": "Services it may use"
+                          },
+                          {
+                            "r": "options_filter",
+                            "cond": {
+                              "eq": [
+                                "protocol",
+                                "tcp"
+                              ]
+                            }
+                          },
+                          {
+                            "r": "enabled_if",
+                            "cond": {
+                              "eq": [
+                                "protocol",
+                                "tcp"
+                              ]
+                            },
+                            "reason": "UDP services do not support this"
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "key": "allow_from",
+                      "node": {
+                        "label": "Allow from",
+                        "help": "Only these source IPs or CIDRs may connect, for example [203.0.113.0/24]; everyone when empty",
+                        "sem": {
+                          "t": "list",
+                          "item": {
+                            "sem": {
+                              "t": "cidr"
+                            }
+                          }
+                        },
+                        "group": "access",
+                        "empty_label": "Empty means everyone may connect"
+                      }
+                    },
+                    {
+                      "key": "deny_from",
+                      "node": {
+                        "label": "Deny from",
+                        "help": "Source IPs or CIDRs that may never connect",
+                        "sem": {
+                          "t": "list",
+                          "item": {
+                            "sem": {
+                              "t": "cidr"
+                            }
+                          }
+                        },
+                        "group": "access",
+                        "advanced": true,
+                        "empty_label": "No addresses denied"
+                      }
+                    },
+                    {
+                      "key": "proxy_protocol",
+                      "node": {
+                        "label": "PROXY protocol",
+                        "help": "Send the real source address to the target with the PROXY protocol, v1 (text) or v2 (binary); only for targets that expect it",
+                        "sem": {
+                          "t": "optional",
+                          "inner": {
+                            "sem": {
+                              "t": "enum",
+                              "options": [
+                                {
+                                  "value": "v1",
+                                  "label": "v1 (text)"
+                                },
+                                {
+                                  "value": "v2",
+                                  "label": "v2 (binary)"
+                                }
+                              ]
+                            }
+                          }
+                        },
+                        "group": "traffic",
+                        "advanced": true,
+                        "none_label": "Off",
+                        "relations": [
+                          {
+                            "r": "enabled_if",
+                            "cond": {
+                              "eq": [
+                                "protocol",
+                                "tcp"
+                              ]
+                            },
+                            "reason": "UDP services do not support this"
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "key": "bandwidth",
+                      "node": {
+                        "label": "Speed limit",
+                        "help": "Speed limit for each direction, shared by all connections of this service, for example 40mbit or 5MB (per second)",
+                        "sem": {
+                          "t": "optional",
+                          "inner": {
+                            "sem": {
+                              "t": "rate"
+                            }
+                          }
+                        },
+                        "group": "traffic",
+                        "none_label": "Unlimited"
+                      }
+                    }
+                  ]
+                },
+                "groups": [
+                  {
+                    "key": "who",
+                    "label": "Where it runs",
+                    "sub": "Clients that reach the target."
+                  },
+                  {
+                    "key": "exposure",
+                    "label": "Exposure",
+                    "sub": "What opens on the server, and where it leads."
+                  },
+                  {
+                    "key": "access",
+                    "label": "Access",
+                    "sub": "Who may connect."
+                  },
+                  {
+                    "key": "traffic",
+                    "label": "Traffic",
+                    "sub": "Limits and what the target sees."
+                  }
+                ],
+                "entity": "service"
+              }
+            },
+            "applies": "reload",
+            "group": "entities"
+          }
+        },
+        {
+          "key": "insecure_plaintext",
+          "node": {
+            "label": "Disable encryption of forwarded data",
+            "help": "Disable encryption of forwarded data (authentication still runs)",
+            "sem": {
+              "t": "bool"
+            },
+            "default": false,
+            "applies": "live",
+            "group": "security",
+            "danger_when_set": true,
+            "locked": true
+          }
+        },
+        {
+          "key": "heartbeat",
+          "node": {
+            "label": "Heartbeat",
+            "sem": {
+              "t": "object",
+              "fields": [
+                {
+                  "key": "interval_secs",
+                  "node": {
+                    "label": "Interval",
+                    "help": "How often the server and each client check that the other is still there",
+                    "sem": {
+                      "t": "duration",
+                      "unit": "secs",
+                      "min": 1,
+                      "max": 3600
+                    },
+                    "default": 10,
+                    "locked": true
+                  }
+                }
+              ]
+            },
+            "applies": "live",
+            "group": "network"
+          }
+        },
+        {
+          "key": "limits",
+          "node": {
+            "label": "Limits",
+            "sem": {
+              "t": "object",
+              "fields": [
+                {
+                  "key": "handshake_timeout_secs",
+                  "node": {
+                    "label": "Handshake timeout",
+                    "help": "Time a new connection has to authenticate",
+                    "sem": {
+                      "t": "duration",
+                      "unit": "secs",
+                      "min": 1,
+                      "max": 120
+                    },
+                    "default": 5,
+                    "applies": "live",
+                    "locked": true
+                  }
+                },
+                {
+                  "key": "max_handshakes",
+                  "node": {
+                    "label": "Max handshakes",
+                    "help": "Concurrent connections that have not finished authenticating",
+                    "sem": {
+                      "t": "integer",
+                      "min": 1,
+                      "max": 1000000,
+                      "unit": "connections"
+                    },
+                    "default": 256,
+                    "applies": "reload",
+                    "locked": true
+                  }
+                },
+                {
+                  "key": "max_connections_per_client",
+                  "node": {
+                    "label": "Max connections per client",
+                    "help": "Concurrent forwarded connections of one client, unless the client sets its own",
+                    "sem": {
+                      "t": "integer",
+                      "min": 1,
+                      "unit": "connections"
+                    },
+                    "default": 8192,
+                    "applies": "live"
+                  }
+                },
+                {
+                  "key": "max_pending",
+                  "node": {
+                    "label": "Max waiting connections",
+                    "help": "Connections waiting for a data channel, per client",
+                    "sem": {
+                      "t": "integer",
+                      "min": 1,
+                      "unit": "connections"
+                    },
+                    "default": 512,
+                    "applies": "reload"
+                  }
+                }
+              ]
+            },
+            "group": "limits"
+          }
+        },
+        {
+          "key": "pool",
+          "node": {
+            "label": "Pool of idle channels",
+            "sem": {
+              "t": "object",
+              "fields": [
+                {
+                  "key": "min_idle",
+                  "node": {
+                    "label": "Idle channels kept ready",
+                    "help": "Data channels each client keeps open in advance, so a new connection starts without a round trip",
+                    "sem": {
+                      "t": "integer",
+                      "max": 1024,
+                      "unit": "channels"
+                    },
+                    "default": 4
+                  }
+                },
+                {
+                  "key": "max_idle",
+                  "node": {
+                    "label": "Max idle channels",
+                    "sem": {
+                      "t": "integer",
+                      "min": 1,
+                      "max": 4096,
+                      "unit": "channels"
+                    },
+                    "default": 64
+                  }
+                }
+              ]
+            },
+            "applies": "reload",
+            "group": "network"
+          }
+        },
+        {
+          "key": "tcp",
+          "node": {
+            "label": "TCP",
+            "sem": {
+              "t": "object",
+              "fields": [
+                {
+                  "key": "nodelay",
+                  "node": {
+                    "label": "No delay",
+                    "help": "Send small writes at once instead of batching them (TCP_NODELAY)",
+                    "sem": {
+                      "t": "bool"
+                    },
+                    "default": true
+                  }
+                },
+                {
+                  "key": "keepalive_secs",
+                  "node": {
+                    "label": "Keepalive",
+                    "help": "TCP keepalive idle time, 0 disables",
+                    "sem": {
+                      "t": "duration",
+                      "unit": "secs",
+                      "max": 32767
+                    },
+                    "default": 30
+                  }
+                }
+              ]
+            },
+            "applies": "live",
+            "group": "network"
+          }
+        },
+        {
+          "key": "udp",
+          "node": {
+            "label": "UDP",
+            "sem": {
+              "t": "object",
+              "fields": [
+                {
+                  "key": "session_timeout_secs",
+                  "node": {
+                    "label": "Session timeout",
+                    "help": "A UDP peer that sends nothing for this long is forgotten",
+                    "sem": {
+                      "t": "duration",
+                      "unit": "secs",
+                      "min": 1
+                    },
+                    "default": 60
+                  }
+                }
+              ]
+            },
+            "applies": "live",
+            "group": "network"
+          }
+        },
+        {
+          "key": "metrics",
+          "node": {
+            "label": "Metrics endpoint",
+            "help": "Serve Prometheus metrics at /metrics; off unless set",
+            "sem": {
+              "t": "optional",
+              "inner": {
+                "label": "Metrics",
+                "sem": {
+                  "t": "object",
+                  "fields": [
+                    {
+                      "key": "listen",
+                      "node": {
+                        "label": "Listen address",
+                        "help": "Address for the metrics endpoint, for example 127.0.0.1:9100; a port alone means 127.0.0.1",
+                        "sem": {
+                          "t": "ip_port",
+                          "ranges": false,
+                          "default_ip": "127.0.0.1"
+                        },
+                        "required": true
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "applies": "reload",
+            "group": "monitoring",
+            "none_label": "Off"
+          }
+        }
+      ]
+    },
+    "groups": [
+      {
+        "key": "listener",
+        "label": "Listener"
+      },
+      {
+        "key": "websocket",
+        "label": "WebSocket"
+      },
+      {
+        "key": "entities",
+        "label": "Clients, visitors and services"
+      },
+      {
+        "key": "limits",
+        "label": "Limits"
+      },
+      {
+        "key": "network",
+        "label": "Network"
+      },
+      {
+        "key": "monitoring",
+        "label": "Monitoring"
+      },
+      {
+        "key": "security",
+        "label": "Security"
+      }
+    ]
+  },
+  "entities": [
+    {
+      "entity": "client",
+      "path": [
+        "clients"
+      ],
+      "label": "Client",
+      "plural": "Clients",
+      "facets": [
+        "online",
+        "from",
+        "secret_fp"
+      ]
+    },
+    {
+      "entity": "visitor",
+      "path": [
+        "visitors"
+      ],
+      "label": "Visitor",
+      "plural": "Visitors",
+      "facets": [
+        "open"
+      ]
+    },
+    {
+      "entity": "service",
+      "path": [
+        "services"
+      ],
+      "label": "Service",
+      "plural": "Services",
+      "facets": [
+        "protocol",
+        "public"
+      ]
+    }
+  ]
+}

@@ -6,10 +6,10 @@ mod server;
 mod splice;
 mod visitor;
 
-pub use client::{client_config, client_value, init_client};
+pub use client::{client_config, client_document, client_value, init_client};
 pub use export::ConfigOutput;
 pub use server::{init_server, server_value};
-pub use visitor::{init_visitor, visitor_config};
+pub use visitor::{init_visitor, reaches_something, visitor_config, visitor_document};
 
 use std::io::Write;
 use std::path::{Path, PathBuf};

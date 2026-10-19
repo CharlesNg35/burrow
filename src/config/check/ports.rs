@@ -1,120 +1,20 @@
-use std::net::{IpAddr, SocketAddr};
+use std::net::SocketAddr;
 
 use super::super::model::Bind;
-use super::binds_conflict;
 
-pub const MAX_RANGE: u16 = 1000;
-
-pub fn parse_range(s: &str) -> Result<(u16, u16), String> {
-    let s = s.trim();
-    let port = |p: &str| {
-        p.trim()
-            .parse::<u16>()
-            .ok()
-            .filter(|p| *p > 0)
-            .ok_or_else(|| format!("\"{p}\" is not a valid port (1-65535)"))
-    };
-    let (first, last) = match s.split_once('-') {
-        Some((a, b)) => (port(a)?, port(b)?),
-        None => {
-            let p = port(s)?;
-            (p, p)
-        }
-    };
-    if last < first {
-        return Err(format!("the range {s} ends before it starts"));
-    }
-    let count = last - first + 1;
-    if count > MAX_RANGE {
-        return Err(format!(
-            "the range {s} has {count} ports, the limit is {MAX_RANGE}"
-        ));
-    }
-    Ok((first, count))
-}
-
-pub fn show(first: u16, count: u16) -> String {
-    match count {
-        0 | 1 => first.to_string(),
-        n => format!("{first}-{}", first.saturating_add(n - 1)),
-    }
-}
-
-pub fn show_addr(addr: SocketAddr, count: u16) -> String {
-    match addr.ip() {
-        IpAddr::V6(ip) => format!("[{ip}]:{}", show(addr.port(), count)),
-        IpAddr::V4(ip) => format!("{ip}:{}", show(addr.port(), count)),
-    }
-}
+pub use burrow_syntax::ports::{
+    MAX_RANGE, parse_range, port_at, ranges_conflict, show, show_addr, split_target,
+};
 
 pub fn parse_ranged(
     bind: &Bind,
     default_ip: [u8; 4],
     what: &str,
 ) -> Result<(SocketAddr, u16), String> {
-    let text = match bind {
-        Bind::Port(0) => return Err("port 0 is not allowed".into()),
-        Bind::Port(p) => return Ok((SocketAddr::from((default_ip, *p)), 1)),
-        Bind::Addr(s) => s.trim(),
-    };
-    if text.chars().all(|c| c.is_ascii_digit() || c == '-') {
-        let (first, count) = parse_range(text)?;
-        return Ok((SocketAddr::from((default_ip, first)), count));
-    }
-    let (host, ports) = match text.rsplit_once(':') {
-        Some((h, p)) if !p.contains(']') => (h, p),
-        _ => return Err(format!("\"{text}\" is not a valid {what} address")),
-    };
-    let invalid = || format!("\"{text}\" is not a valid {what} address");
-    let ip: IpAddr = match host.strip_prefix('[') {
-        Some(inner) => inner
-            .strip_suffix(']')
-            .and_then(|v6| v6.parse::<std::net::Ipv6Addr>().ok())
-            .map(IpAddr::V6)
-            .ok_or_else(invalid)?,
-        None => host
-            .parse::<std::net::Ipv4Addr>()
-            .map(IpAddr::V4)
-            .map_err(|_| invalid())?,
-    };
-    let (first, count) = parse_range(ports)?;
-    Ok((SocketAddr::new(ip, first), count))
-}
-
-pub fn split_target(target: &str) -> Result<(String, u16), String> {
-    let Some((host, ports)) = target.rsplit_once(':') else {
-        return Ok((target.to_string(), 1));
-    };
-    if !ports.contains('-') {
-        return Ok((target.to_string(), 1));
-    }
-    let (first, count) = parse_range(ports)?;
-    Ok((format!("{host}:{first}"), count))
-}
-
-pub fn ranges_conflict(a: SocketAddr, an: u16, b: SocketAddr, bn: u16) -> bool {
-    let (a0, a1) = (
-        u32::from(a.port()),
-        u32::from(a.port()) + u32::from(an.max(1)) - 1,
-    );
-    let (b0, b1) = (
-        u32::from(b.port()),
-        u32::from(b.port()) + u32::from(bn.max(1)) - 1,
-    );
-    let overlap = a0.max(b0);
-    a0 <= b1 && b0 <= a1 && {
-        let port = u16::try_from(overlap).unwrap_or(u16::MAX);
-        binds_conflict(SocketAddr::new(a.ip(), port), SocketAddr::new(b.ip(), port))
-    }
-}
-
-pub fn port_at(base: &str, index: u16) -> String {
-    match base.rsplit_once(':') {
-        Some((host, port)) if index > 0 => match port.parse::<u16>() {
-            Ok(p) => format!("{host}:{}", p.saturating_add(index)),
-            Err(_) => base.to_string(),
-        },
-        _ => base.to_string(),
+    match bind {
+        Bind::Port(0) => Err("port 0 is not allowed".into()),
+        Bind::Port(p) => Ok((SocketAddr::from((default_ip, *p)), 1)),
+        Bind::Addr(s) => burrow_syntax::ports::parse_ranged_text(s, default_ip, what),
     }
 }
 

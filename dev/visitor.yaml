@@ -1,0 +1,8 @@
+# visitor.yaml
+# Development only: the admin visitor "dev" of dev/server.yaml (docs/admin-ui-dev.md).
+# The secret below is public. Never use it on a real server.
+server: 127.0.0.1:17835
+name: dev
+secret: 7035710bec63371747d66ff51dcb039b43aafc5a34c8ed57ffc2e6f2c3a39162 # DEV ONLY
+forwards:
+  ssh: { service: ssh, local: 17922 }

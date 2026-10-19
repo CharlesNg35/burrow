@@ -140,6 +140,17 @@ fn mask_secret_tokens(line: &mut [char]) {
     }
 }
 
+pub fn mask_text(text: &str) -> String {
+    text.split('\n')
+        .map(|line| {
+            let mut chars: Vec<char> = line.chars().collect();
+            mask_secret_tokens(&mut chars);
+            chars.into_iter().collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 impl Report {
     pub fn new(file: impl Into<String>, source: impl Into<String>) -> Self {
         Report {

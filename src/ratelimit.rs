@@ -12,61 +12,7 @@ use tokio::time::Sleep;
 const MIN_BURST: f64 = 16.0 * 1024.0;
 const MIN_CHUNK: f64 = 1400.0;
 
-pub fn parse_rate(text: &str) -> Result<u64, String> {
-    let trimmed = text.trim();
-    let trimmed = trimmed.strip_suffix("/s").unwrap_or(trimmed);
-    let t = match trimmed.strip_suffix("Bps") {
-        Some(prefix) => format!("{}b", prefix.to_ascii_lowercase()),
-        None => {
-            let lower = trimmed.to_ascii_lowercase();
-            match lower.strip_suffix("bps") {
-                Some(prefix) => format!("{prefix}bit"),
-                None => lower,
-            }
-        }
-    };
-    let split = t
-        .find(|c: char| !(c.is_ascii_digit() || c == '.'))
-        .unwrap_or(t.len());
-    let (number, unit) = t.split_at(split);
-    let value: f64 = number
-        .parse()
-        .ok()
-        .filter(|v: &f64| v.is_finite() && *v > 0.0)
-        .ok_or_else(|| format!("\"{text}\" does not start with a positive number"))?;
-    let bytes = match unit.trim() {
-        "bit" => value / 8.0,
-        "kbit" => value * 1e3 / 8.0,
-        "mbit" => value * 1e6 / 8.0,
-        "gbit" => value * 1e9 / 8.0,
-        "b" => value,
-        "kb" => value * 1e3,
-        "mb" => value * 1e6,
-        "gb" => value * 1e9,
-        other => {
-            return Err(format!("\"{other}\" is not a rate unit"));
-        }
-    };
-    if bytes < 1000.0 {
-        return Err(format!("{text} is below the minimum of 1kb (8kbit)"));
-    }
-    Ok(bytes as u64)
-}
-
-pub fn describe(bytes_per_sec: u64) -> String {
-    let bits = bytes_per_sec as f64 * 8.0;
-    for (unit, size) in [("gbit", 1e9), ("mbit", 1e6), ("kbit", 1e3)] {
-        if bits >= size {
-            let v = bits / size;
-            return if (v - v.round()).abs() < 0.05 {
-                format!("{}{unit}", v.round())
-            } else {
-                format!("{v:.1}{unit}")
-            };
-        }
-    }
-    format!("{bits}bit")
-}
+pub use burrow_syntax::rate::{describe, parse_rate};
 
 fn burst_of(rate: f64) -> f64 {
     (rate / 10.0).max(MIN_BURST)

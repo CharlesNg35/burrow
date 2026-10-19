@@ -24,7 +24,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - run: cargo fmt --all --check
-      - run: cargo clippy --locked --all-targets -- -D warnings
+      - run: cargo clippy --locked --workspace --all-targets -- -D warnings
+      - run: cargo clippy --locked --all-targets --features admin-test-hooks -- -D warnings
+      - run: cargo xtask arch-check
 
   test:
     runs-on: ubuntu-latest
@@ -35,7 +37,7 @@ jobs:
       - name: Integration tests over WebSocket
         env:
           BURROW_TEST_TRANSPORT: ws
-        run: cargo test --locked --test integration --test reconnect --test visit --test ranges --test failover --test socks --test proxy_protocol --test sources
+        run: cargo test --locked --test integration --test reconnect --test visit --test ranges --test failover --test socks --test proxy_protocol --test sources --test admin
       - name: Install and run as a systemd service
         env:
           BURROW_E2E_PROFILE: dev
@@ -64,6 +66,41 @@ jobs:
         shell: pwsh
         run: ./tests/e2e/service.ps1
 
+  ui:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: rustup target add wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: wasm32
+      - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
+        with:
+          tool: cargo-binstall
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .tools
+          key: ui-tools-${{ hashFiles('xtask/src/tools.rs', 'Cargo.lock') }}
+      - run: cargo xtask tools --no-chrome
+      - run: cargo clippy --locked -p burrow-admin-ui -p burrow-ui-kit --target wasm32-unknown-unknown -- -D warnings
+      - run: cargo test --locked -p burrow-admin-logic -p burrow-admin-proto -p burrow-syntax -p burrow-ui-kit -p burrow-admin-ui
+      - run: cargo xtask ui --release
+      - run: cargo xtask size --budget
+      - name: The built UI is embedded
+        env:
+          BURROW_ADMIN_UI_REQUIRE: "1"
+        run: |
+          cargo build --locked
+          info=$(./target/debug/burrow admin --ui-info)
+          echo "$info"
+          manifest=$(sed -n 's/^manifest //p' <<<"$info")
+          [ "$manifest" != "placeholder" ] && [ -n "$manifest" ]
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: admin-ui-dist
+          path: crates/burrow-admin-ui/dist
+          if-no-files-found: error
+
   supply-chain:
     runs-on: ubuntu-latest
     steps:
@@ -81,7 +118,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [handshake, frames, config, update]
+        target: [handshake, frames, config, update, patch, syntax_parsers]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install nightly

@@ -8,4 +8,6 @@
 /fuzz/corpus
 /fuzz/Cargo.lock
 *.pending-snap
+/.tools
+/crates/burrow-admin-ui/dist
 /tmp

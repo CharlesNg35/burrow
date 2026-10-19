@@ -44,6 +44,8 @@ pub struct Manifest {
     #[serde(default)]
     pub files: Vec<PathBuf>,
     pub version: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub writable_dir: Option<PathBuf>,
 }
 
 impl Manifest {
@@ -90,6 +92,17 @@ pub trait Backend {
             .then(|| format!("its account {} cannot read it", m.account))
     }
     fn secure_file(&self, path: &Path, account: &str) -> Result<(), Failure>;
+    fn writable_folder(&self, dir: &Path, config: &Path, account: &str) -> Result<(), Failure> {
+        let _ = config;
+        #[cfg(unix)]
+        return system::make_dir(dir, 0o700, Some(account));
+        #[cfg(not(unix))]
+        {
+            let _ = account;
+            std::fs::create_dir_all(dir)
+                .map_err(|e| Failure::new(format!("cannot create {}: {e}", dir.display())))
+        }
+    }
     fn prepare_dirs(&self, account: &str) -> Result<(), Failure>;
     fn write_env(&self, m: &Manifest, env: &BTreeMap<String, String>) -> Result<(), Failure>;
     fn read_env(&self, _m: &Manifest) -> BTreeMap<String, String> {
@@ -110,6 +123,7 @@ pub struct InstallOptions {
     pub start: bool,
     pub print: bool,
     pub worker: Option<PathBuf>,
+    pub admin_writable: bool,
 }
 
 fn say(out: &mut dyn Write, line: impl AsRef<str>) -> Result<(), Failure> {
@@ -264,6 +278,7 @@ fn misfits_of(
         crate::failure::admin(&install_args(m))
     );
     let Uses { listens, files } = uses(loaded);
+    let admins = admin_visitors(loaded);
     let mut out = Vec::new();
     let low: Vec<String> = listens
         .iter()
@@ -277,6 +292,19 @@ fn misfits_of(
                 format!(
                     "{name} was installed without permission for ports below 1024, so {} would fail when it restarts",
                     low.join(", ")
+                ),
+            )
+            .help(again.clone()),
+        );
+    }
+    if m.writable_dir.is_none()
+        && let Some(first) = admins.first()
+    {
+        out.push(
+            crate::diagnostics::Diagnostic::warning(
+                "service-admin-read-only",
+                format!(
+                    "visitor {first} has admin access, but {name} was installed without permission to change its config, so burrow admin is read-only"
                 ),
             )
             .help(again.clone()),
@@ -296,11 +324,24 @@ fn misfits_of(
     out
 }
 
+fn admin_visitors(loaded: &Loaded) -> Vec<String> {
+    match loaded {
+        Loaded::Server(s, _) => s
+            .visitors
+            .iter()
+            .filter(|(_, v)| v.admin.is_some())
+            .map(|(n, _)| n.clone())
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
 struct Checked {
     role: Role,
     identity: Option<Identity>,
     listens: Vec<(Protocol, SocketAddr, String)>,
     files: Vec<(String, PathBuf)>,
+    admins: Vec<String>,
 }
 
 fn check_config(path: &Path, env: &BTreeMap<String, String>) -> Result<Checked, Failure> {
@@ -364,6 +405,7 @@ fn check_config(path: &Path, env: &BTreeMap<String, String>) -> Result<Checked, 
         }
     };
     let Uses { listens, files } = uses(loaded);
+    let admins = admin_visitors(loaded);
     for (field, file) in &files {
         if file.is_relative() {
             return Err(Failure::usage(format!(
@@ -378,6 +420,7 @@ fn check_config(path: &Path, env: &BTreeMap<String, String>) -> Result<Checked, 
         identity,
         listens,
         files,
+        admins,
     })
 }
 
@@ -423,7 +466,13 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
         .and_then(|e| e.to_str())
         .unwrap_or("yaml");
     let short = name.strip_prefix("burrow-").unwrap_or(&name).to_string();
-    let config = platform.config_dir().join(format!("{short}.{ext}"));
+    let writable_dir = (checked.role == Role::Server
+        && (opts.admin_writable || !checked.admins.is_empty()))
+    .then(|| platform.config_dir().join(&short));
+    let config = match &writable_dir {
+        Some(dir) => dir.join(format!("server.{ext}")),
+        None => platform.config_dir().join(format!("{short}.{ext}")),
+    };
     let env_file = (!env.is_empty()).then(|| platform.config_dir().join(format!("{short}.env")));
     let current = std::env::current_exe()
         .map_err(|e| Failure::new(format!("cannot locate the burrow binary: {e}")))?;
@@ -455,6 +504,7 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
         low_ports,
         files: checked.files.iter().map(|(_, p)| p.clone()).collect(),
         version: env!("CARGO_PKG_VERSION").to_string(),
+        writable_dir: writable_dir.clone(),
     };
     let low: Vec<String> = checked
         .listens
@@ -502,6 +552,9 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
         }
         if !opts.start {
             args.push("--no-start".into());
+        }
+        if opts.admin_writable {
+            args.push("--admin-writable".into());
         }
         return background::Run::new("install")?.start(
             &format!("reinstalling {name}"),
@@ -621,6 +674,9 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
         env: backend.read_env(p),
         binary: kept_binary.clone().map(|kept| (kept, binary.clone())),
     });
+    if let Some(dir) = &writable_dir {
+        backend.writable_folder(dir, &config, &account)?;
+    }
     if source != config {
         system::copy_file(&source, &config, false)?;
         say(
@@ -629,6 +685,21 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
         )?;
     }
     backend.secure_file(&config, &account)?;
+    if let Some(dir) = &writable_dir {
+        backend.writable_folder(dir, &config, &account)?;
+        let why = match checked.admins.as_slice() {
+            [] => "--admin-writable was given".to_string(),
+            [one] => format!("visitor {one} has admin access"),
+            many => format!("visitors {} have admin access", many.join(", ")),
+        };
+        say(
+            out,
+            format!(
+                "the service may change its config in {} because {why} (burrow admin)",
+                dir.display()
+            ),
+        )?;
+    }
     if let Some(f) = &env_file {
         backend.write_env(&manifest, &env)?;
         say(
@@ -919,9 +990,14 @@ pub fn manifest_path(name: &str) -> PathBuf {
 fn trustworthy(m: &Manifest, file: &Path) -> bool {
     let p = Platform::current();
     let in_dir = |path: &Path, dir: &Path| path.parent() == Some(dir);
+    let own_dir = p.config_dir().join(m.short());
+    let config_ok = match &m.writable_dir {
+        None => in_dir(&m.config, &p.config_dir()),
+        Some(dir) => *dir == own_dir && in_dir(&m.config, dir),
+    };
     file.file_stem().is_some_and(|s| *s == *m.name)
         && (m.name == "burrow" || m.name.starts_with("burrow-"))
-        && in_dir(&m.config, &p.config_dir())
+        && config_ok
         && m.env_file
             .as_deref()
             .is_none_or(|e| in_dir(e, &p.config_dir()))
@@ -1002,6 +1078,13 @@ pub fn services_hidden() -> bool {
     dir.exists() && std::fs::read_dir(&dir).is_err()
 }
 
+pub fn saved_env(name: &str) -> BTreeMap<String, String> {
+    match (system::backend(), load_manifest(name)) {
+        (Ok(b), Ok(m)) => b.read_env(&m),
+        _ => BTreeMap::new(),
+    }
+}
+
 pub fn all_manifests() -> Vec<Manifest> {
     let Ok(dir) = std::fs::read_dir(Platform::current().state_dir()) else {
         return Vec::new();
@@ -1070,6 +1153,14 @@ pub fn uninstall(name: Option<&str>, purge: bool, out: &mut dyn Write) -> Result
             if std::fs::remove_file(f).is_ok() {
                 say(out, format!("removed {}", f.display()))?;
             }
+        }
+        if let Some(dir) = &m.writable_dir
+            && std::fs::remove_dir_all(dir).is_ok()
+        {
+            say(
+                out,
+                format!("removed {} and the versions kept in it", dir.display()),
+            )?;
         }
         if logs
             .iter()
@@ -1325,6 +1416,9 @@ fn install_args(m: &Manifest) -> String {
     );
     if service_name(&m.source_config, None).ok().as_deref() != Some(m.name.as_str()) {
         args.push_str(&format!(" --name {}", m.name));
+    }
+    if m.writable_dir.is_some() {
+        args.push_str(" --admin-writable");
     }
     args
 }
@@ -1657,6 +1751,7 @@ mod tests {
             low_ports: false,
             files: Vec::new(),
             version: "0.1.0".into(),
+            writable_dir: None,
         }
     }
 
@@ -1748,6 +1843,74 @@ mod tests {
                 .unwrap()
                 .contains("cannot read it")
         );
+    }
+
+    #[test]
+    fn a_writable_config_is_trusted_only_in_its_own_folder() {
+        let p = Platform::current();
+        let file = manifest_path("burrow-server");
+        let own = p.config_dir().join("server");
+        let writable = Manifest {
+            config: own.join("server.yaml"),
+            writable_dir: Some(own.clone()),
+            ..record(p)
+        };
+        assert!(trustworthy(&writable, &file));
+        let elsewhere = std::env::temp_dir().join("server");
+        let planted = [
+            Manifest {
+                config: elsewhere.join("server.yaml"),
+                writable_dir: Some(elsewhere.clone()),
+                ..record(p)
+            },
+            Manifest {
+                config: p.config_dir().join("other").join("server.yaml"),
+                writable_dir: Some(p.config_dir().join("other")),
+                ..record(p)
+            },
+            Manifest {
+                config: own.join("server.yaml"),
+                writable_dir: None,
+                ..record(p)
+            },
+        ];
+        for m in planted {
+            assert!(!trustworthy(&m, &file), "{m:?}");
+        }
+        let manifest = serde_json::to_string(&record(p)).unwrap();
+        assert!(
+            !manifest.contains("writable_dir"),
+            "old manifests stay as they were"
+        );
+        assert!(install_args(&writable).ends_with(" --admin-writable"));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn an_admin_visitor_on_a_read_only_install_is_named() {
+        let secret = |_| crate::secret::Secret::generate().encode();
+        let text = format!(
+            "listen: 7835\nclients:\n  home: {{ secret: {} }}\nvisitors:\n  ops: {{ secret: {}, admin: write }}\nservices:\n  web: {{ client: home, bind: 8080, target: 80 }}\n",
+            secret(0),
+            secret(1)
+        );
+        let nothing = |_: &str| None;
+        let loaded =
+            crate::config::load_str("c.yaml", &text, crate::config::Format::Yaml, None, &nothing)
+                .loaded
+                .unwrap();
+        let backend = systemd::Systemd;
+        let m = record(Platform::Linux);
+        let found = misfits_of(&backend, &m, &loaded);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].code, "service-admin-read-only");
+        assert!(!found[0].is_error());
+        assert!(found[0].message.contains("visitor ops has admin access"));
+        let writable = Manifest {
+            writable_dir: Some(PathBuf::from("/etc/burrow/server")),
+            ..m
+        };
+        assert!(misfits_of(&backend, &writable, &loaded).is_empty());
     }
 
     #[test]

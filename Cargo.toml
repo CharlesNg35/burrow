@@ -10,7 +10,22 @@ keywords = ["tunnel", "nat", "reverse-proxy", "noise"]
 categories = ["command-line-utilities", "network-programming"]
 publish = false
 
+[workspace]
+members = [
+    ".",
+    "crates/burrow-syntax",
+    "crates/burrow-admin-logic",
+    "crates/burrow-admin-proto",
+    "crates/burrow-admin-derive",
+    "crates/burrow-ui-kit",
+    "crates/burrow-admin-ui",
+    "xtask",
+]
+
 [dependencies]
+burrow-admin-derive = { path = "crates/burrow-admin-derive" }
+burrow-admin-proto = { path = "crates/burrow-admin-proto" }
+burrow-syntax = { path = "crates/burrow-syntax" }
 base64 = "0.23.1"
 blake2 = "0.10.6"
 bytes = "1.12.1"
@@ -53,15 +68,30 @@ tikv-jemallocator = "0.6"
 mimalloc = { version = "0.1", default-features = false }
 
 [dev-dependencies]
+chromiumoxide = { version = "=0.9.1", default-features = false }
+image = { version = "0.25.10", default-features = false, features = ["png"] }
 insta = "1.49.0"
 rcgen = { version = "0.14.10", default-features = false, features = ["ring", "pem", "crypto"] }
 tempfile = "3.27.0"
 
+[build-dependencies]
+blake2 = "0.10.6"
+serde_json = "1.0.154"
+
 [features]
 default = ["ring"]
 ring = ["snow/ring-accelerated"]
+admin-test-hooks = []
 
 [profile.release]
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[profile.wasm-release]
+inherits = "release"
+opt-level = "z"
 lto = "fat"
 codegen-units = 1
 panic = "abort"
