@@ -2,6 +2,8 @@
 mod checks;
 #[path = "admin_e2e/edits.rs"]
 mod edits;
+#[path = "admin_e2e/secrets.rs"]
+mod secrets;
 #[path = "admin_e2e/sheet.rs"]
 mod sheet;
 #[path = "admin_e2e/ui.rs"]

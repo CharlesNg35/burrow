@@ -195,6 +195,16 @@ impl Ui {
         .unwrap_or_default()
     }
 
+    pub async fn attr_of(&self, css: &str, name: &str) -> String {
+        self.wait_for(css, Duration::from_secs(10)).await;
+        self.eval::<String>(&format!(
+            "(() => {{ const e = document.querySelector({}); return e ? (e.getAttribute({}) || '') : ''; }})()",
+            js_str(css),
+            js_str(name)
+        ))
+        .await
+    }
+
     pub async fn all_attrs(&self, css: &str, name: &str) -> Vec<String> {
         self.eval::<Vec<String>>(&format!(
             "Array.from(document.querySelectorAll({})).map(e => e.getAttribute({}) || '')",

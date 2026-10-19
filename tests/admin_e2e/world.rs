@@ -91,7 +91,7 @@ impl World {
         let yaml = format!(
             "# server.yaml for the burrow admin end-to-end tests\n\
              # comments here must survive every change made through the admin UI\n\
-             listen: 127.0.0.1:{listen}\n\n\
+             listen: 127.0.0.1:{listen}\npublic_address: 127.0.0.1:{listen}\n\n\
              clients:\n  # the home box\n  home:\n    secret: {home}\n  office:\n    secret: {office}\n    max_connections: 100\n\n\
              visitors:\n  ops:\n    secret: {ops} # the admin\n    admin: write\n    admin_from: [127.0.0.1/32]\n  viewer:\n    secret: {viewer}\n    admin: read\n  laptop:\n    secret: {laptop}\n    reach:\n      home: [127.0.0.1/32]\n  plain:\n    secret: {plain}\n  boss:\n    secret: {boss}\n    admin: write\n\n\
              services:\n  web: {{ client: home, bind: 127.0.0.1:{web}, target: {echo} }} # keep this comment\n  ssh:\n    client: home\n    target: 22\n    visitors: [laptop]\n{extra}",
