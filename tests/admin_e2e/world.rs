@@ -80,9 +80,17 @@ impl World {
             ports: BTreeMap::new(),
             secrets: BTreeMap::new(),
         };
-        for k in ["listen", "web", "echo", "forward", "game"] {
-            w.ports.insert(k, free_port());
+        let held: Vec<std::net::TcpListener> = (0..5)
+            .map(|_| std::net::TcpListener::bind("127.0.0.1:0").expect("a free port"))
+            .collect();
+        for (k, l) in ["listen", "web", "echo", "forward", "game"]
+            .into_iter()
+            .zip(&held)
+        {
+            w.ports
+                .insert(k, l.local_addr().expect("a local address").port());
         }
+        drop(held);
         for n in ["home", "office", "ops", "viewer", "laptop", "plain", "boss"] {
             w.secrets.insert(n, secret());
         }
