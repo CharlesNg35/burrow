@@ -102,6 +102,9 @@ pub fn write_back(path: &Path, before: &str, text: &str) -> Result<(), Refused> 
 fn open_folder(folder: &Path) -> std::io::Result<rustix::fd::OwnedFd> {
     use rustix::fs::{Mode, OFlags};
     let flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC;
+    if !rustix::process::geteuid().is_root() {
+        return Ok(rustix::fs::open(folder, flags, Mode::empty())?);
+    }
     let mut dir = rustix::fs::openat(rustix::fs::CWD, "/", flags, Mode::empty())?;
     for part in folder.components() {
         if let std::path::Component::Normal(part) = part {
@@ -146,6 +149,25 @@ mod tests {
         assert!(open_folder(&real).is_ok());
         let through = std::fs::canonicalize(base.path()).unwrap().join("link");
         assert!(open_folder(&through).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_config_under_a_folder_that_can_only_be_traversed_is_saved() {
+        use std::os::unix::fs::PermissionsExt;
+        if rustix::process::geteuid().is_root() {
+            return;
+        }
+        let base = tempfile::tempdir().unwrap();
+        let inner = base.path().join("inner");
+        std::fs::create_dir(&inner).unwrap();
+        let path = inner.join("client.yaml");
+        std::fs::write(&path, "name: home\n").unwrap();
+        std::fs::set_permissions(base.path(), std::fs::Permissions::from_mode(0o311)).unwrap();
+        let saved = write_back(&path, "name: home\n", "name: office\n");
+        std::fs::set_permissions(base.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        assert!(saved.is_ok(), "{saved:?}");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "name: office\n");
     }
 
     #[cfg(unix)]
