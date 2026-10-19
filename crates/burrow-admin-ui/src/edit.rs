@@ -184,6 +184,11 @@ impl Edit {
         self.changed();
     }
 
+    pub fn remove_secret(&self, path: &[String], fp: &str) {
+        self.draft.update(|d| d.remove_secret(path, fp));
+        self.changed();
+    }
+
     pub fn rename(&self, path: &[String], to: &str) -> bool {
         let mut ok = false;
         self.draft.update(|d| ok = d.rename(path, to));

@@ -9,6 +9,7 @@ mod format;
 mod review;
 mod route;
 mod screens;
+mod secrets;
 mod store;
 
 fn main() {

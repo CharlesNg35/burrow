@@ -47,6 +47,7 @@ pub fn Dialog(
     #[prop(into)] open: RwSignal<bool>,
     #[prop(into)] title: Signal<String>,
     #[prop(optional)] testid: &'static str,
+    #[prop(default = true)] dismissable: bool,
     children: ChildrenFn,
 ) -> impl IntoView {
     view! {
@@ -59,7 +60,7 @@ pub fn Dialog(
                 aria-label=move || title.get()
                 data-testid=(!testid.is_empty()).then_some(testid)
                 on:keydown=move |e| {
-                    if e.key() == "Escape" {
+                    if dismissable && e.key() == "Escape" {
                         open.set(false);
                     }
                 }

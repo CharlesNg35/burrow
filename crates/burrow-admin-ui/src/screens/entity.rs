@@ -299,6 +299,14 @@ pub fn Detail(section: String, name: String) -> impl IntoView {
     };
     let crumb = Route::List(section.clone());
     let renaming = RwSignal::new(false);
+    if section == "clients"
+        && let Ok(h) = set_interval_with_handle(
+            move || crate::api::load_state(s),
+            std::time::Duration::from_secs(5),
+        )
+    {
+        on_cleanup(move || h.clear());
+    }
     let (sec_r, name_r, sec_d, name_d) =
         (section.clone(), name.clone(), section.clone(), name.clone());
     let kind = match entity(&section) {
@@ -313,6 +321,7 @@ pub fn Detail(section: String, name: String) -> impl IntoView {
             <span class="font-mono text-sm">{name.clone()}</span>
         </nav>
         <PageHeader title=name.clone() subtitle=kind>
+            {(section != "services").then(|| view! { <crate::secrets::ConnectButton section=section.clone() name=name.clone()/> })}
             {(s.can_write_now()).then(|| {
                 let path = vec![section.clone(), name.clone()];
                 let back = Route::List(section.clone());

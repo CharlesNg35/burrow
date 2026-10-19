@@ -69,6 +69,7 @@ pub fn App() -> impl IntoView {
         </div>
         <ReviewDrawer/>
         <ConflictDialog/>
+        <crate::secrets::ShownOnce/>
     }
 }
 

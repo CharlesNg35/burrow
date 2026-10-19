@@ -183,16 +183,14 @@ fn event(store: Store, ev: &str, body: Value) {
                 ATTEMPT.with(|a| *a.borrow_mut() = 0);
                 start(store);
             }
-            "refused" => store.conn.set(Conn::Refused {
-                reason: str_of(&body, "reason"),
-                message: str_of(&body, "message"),
-            }),
-            _ => store.conn.set(Conn::Closed {
-                message: match str_of(&body, "message") {
-                    m if m.is_empty() => "The server closed the admin session.".into(),
-                    m => m,
-                },
-            }),
+            "refused" => {
+                let reason = str_of(&body, "reason");
+                let message = str_of(&body, "message");
+                store
+                    .conn
+                    .set(after_refusal(&store.conn.get_untracked(), reason, message));
+            }
+            _ => lost(store),
         },
         msg::ev::STATUS => {
             if let Ok(s) = serde_json::from_value::<Status>(body) {
@@ -217,10 +215,27 @@ fn event(store: Store, ev: &str, body: Value) {
                 .unwrap_or_default();
             store.conn.set(Conn::Revoked { reason });
         }
-        msg::ev::BYE => store.conn.set(Conn::Closed {
-            message: "The server ended the admin session.".into(),
-        }),
+        msg::ev::BYE => lost(store),
         _ => {}
+    }
+}
+
+fn lost(store: Store) {
+    if store.conn.with_untracked(Conn::is_final) {
+        return;
+    }
+    let attempt = ATTEMPT.with(|a| *a.borrow());
+    store.conn.set(Conn::Reconnecting {
+        attempt: attempt + 1,
+    });
+}
+
+pub fn after_refusal(now: &Conn, reason: String, message: String) -> Conn {
+    match now {
+        Conn::Revoked { .. } => now.clone(),
+        Conn::Reconnecting { .. } if reason == "unreachable" || reason == "busy" => now.clone(),
+        Conn::Reconnecting { .. } if reason == "forbidden" => Conn::Revoked { reason: message },
+        _ => Conn::Refused { reason, message },
     }
 }
 
@@ -287,4 +302,27 @@ pub fn load_history(store: Store) {
             store.history.set(Some(Vec::<AuditEntry>::new()));
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn refusals_while_reconnecting_keep_trying_or_mean_revoked() {
+        let r = Conn::Reconnecting { attempt: 2 };
+        assert_eq!(after_refusal(&r, "unreachable".into(), "x".into()), r);
+        assert!(
+            matches!(after_refusal(&r, "forbidden".into(), "gone".into()), Conn::Revoked { reason } if reason == "gone")
+        );
+        let revoked = Conn::Revoked { reason: "x".into() };
+        assert_eq!(
+            after_refusal(&revoked, "forbidden".into(), "y".into()),
+            revoked
+        );
+        assert!(matches!(
+            after_refusal(&Conn::Connecting, "forbidden".into(), "y".into()),
+            Conn::Refused { .. }
+        ));
+    }
 }

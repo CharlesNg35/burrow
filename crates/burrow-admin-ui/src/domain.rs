@@ -10,7 +10,7 @@ use burrow_syntax::rate::RateUnit;
 use burrow_ui_kit::{ChipInput, Segmented, Select, TextArea, TextInput, Toggle, button_class};
 use leptos::prelude::*;
 
-use crate::form::{ctx_now, object_view, push, value_view};
+use crate::form::{object_view, push};
 use crate::store::store;
 
 #[derive(Clone)]
@@ -93,7 +93,7 @@ fn by_sem(fc: FieldCtx, sem: &SemType) -> AnyView {
         SemType::List(l) => list_editor(fc, (*l.item).clone()),
         SemType::RefMap(m) => map_editor(fc, Some(m.entity.clone()), (*m.value).clone()),
         SemType::Map(m) => map_editor(fc, None, (*m.value).clone()),
-        SemType::SecretRef(_) => read_only(fc),
+        SemType::SecretRef(c) => crate::secrets::secret_list(fc.path.clone(), fc.id.clone(), c.max),
         SemType::Union(u) => union_editor(fc, u.clone()),
         SemType::Optional(o) => {
             let inner_node = (*o.inner).clone();
@@ -113,21 +113,6 @@ fn by_sem(fc: FieldCtx, sem: &SemType) -> AnyView {
         }
         SemType::Unknown(_) => text_editor(fc, None),
     }
-}
-
-fn read_only(fc: FieldCtx) -> AnyView {
-    let e = store().edit;
-    let node = fc.node.clone();
-    let path = fc.path.clone();
-    view! {
-        <div id=fc.id.clone()>
-            {move || match ctx_now() {
-                Some(c) => value_view(&node, e.value(&path).as_ref(), None, &c),
-                None => ().into_any(),
-            }}
-        </div>
-    }
-    .into_any()
 }
 
 fn placeholder(fc: &FieldCtx) -> String {

@@ -23,6 +23,13 @@ pub enum Conn {
 }
 
 impl Conn {
+    pub fn is_final(&self) -> bool {
+        matches!(
+            self,
+            Conn::Revoked { .. } | Conn::Refused { .. } | Conn::NoToken
+        )
+    }
+
     pub fn label(&self) -> &'static str {
         match self {
             Conn::NoToken => "Not signed in",
