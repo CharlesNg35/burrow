@@ -2,9 +2,9 @@ use burrow::config::admin_schema::AdminSchema;
 
 #[derive(AdminSchema)]
 pub enum Mode {
-    #[admin(label = "Failover")]
+    #[admin]
     Failover,
-    #[admin(label = "Balance")]
+    #[admin]
     Balance,
     Random,
 }

@@ -4,19 +4,17 @@ use std::process::Command;
 const FAIL: &[(&str, &[&str])] = &[
     (
         "missing_field_attr",
-        &[
-            "field `max_visitors` of `Limits` needs `#[admin(...)]`: describe it (`ty = ...`) or `#[admin(skip = \"why\")]`",
-        ],
+        &["field `max_visitors` of `Limits` needs `#[admin]`, or `#[admin(skip = \"why\")]`"],
     ),
     (
         "missing_variant_attr",
-        &["variant `Random` of `Mode` needs #[admin(label = \"...\")]"],
+        &["variant `Random` of `Mode` needs #[admin]"],
     ),
     (
-        "missing_label",
+        "redundant_label",
         &[
-            "field `max_visitors` of `Limits` needs a label: #[admin(label = \"...\")]",
-            "variant `Balance` of `Mode` needs a label",
+            "redundant label: \"Max visitors\" is already derived from the name",
+            "redundant label: \"v1\" is already derived from the name",
         ],
     ),
     (

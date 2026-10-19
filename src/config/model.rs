@@ -40,7 +40,7 @@ pub struct ServerConfig {
     )]
     #[admin(
         ty = server_address,
-        label = "Public address",
+
         group = listener,
         order = 20,
         applies = live,
@@ -61,17 +61,17 @@ pub struct ServerConfig {
     pub websocket: Option<WebSocketConfig>,
     #[serde(default)]
     #[schemars(description = "Clients allowed to connect, keyed by client name")]
-    #[admin(ty = map(client), label = "Clients", group = entities, order = 40, applies = reload)]
+    #[admin(ty = map(client), group = entities, order = 40, applies = reload)]
     pub clients: BTreeMap<String, ClientEntry>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     #[schemars(
         description = "Visitors allowed to reach private services with burrow visit, keyed by visitor name"
     )]
-    #[admin(ty = map(visitor), label = "Visitors", group = entities, order = 41, applies = reload)]
+    #[admin(ty = map(visitor), group = entities, order = 41, applies = reload)]
     pub visitors: BTreeMap<String, VisitorEntry>,
     #[serde(default)]
     #[schemars(description = "Exposed services, keyed by service name")]
-    #[admin(ty = map(service), label = "Services", group = entities, order = 42, applies = reload)]
+    #[admin(ty = map(service), group = entities, order = 42, applies = reload)]
     pub services: BTreeMap<String, ServiceEntry>,
     #[serde(default, skip_serializing_if = "is_false")]
     #[schemars(description = "Disable encryption of forwarded data (authentication still runs)")]
@@ -84,10 +84,10 @@ pub struct ServerConfig {
     )]
     pub insecure_plaintext: bool,
     #[serde(default, skip_serializing_if = "is_default")]
-    #[admin(label = "Heartbeat", group = network, order = 60, applies = live)]
+    #[admin(group = network, order = 60, applies = live)]
     pub heartbeat: Heartbeat,
     #[serde(default, skip_serializing_if = "is_default")]
-    #[admin(label = "Limits", group = limits, order = 50)]
+    #[admin(group = limits, order = 50)]
     pub limits: Limits,
     #[serde(default, skip_serializing_if = "is_default")]
     #[admin(label = "Pool of idle channels", group = network, order = 61, applies = reload)]
@@ -132,7 +132,7 @@ pub struct WebSocketConfig {
     pub listen: Bind,
     #[serde(default = "default_ws_path")]
     #[schemars(description = "URL path clients connect to")]
-    #[admin(ty = url_path, label = "Path", order = 20)]
+    #[admin(ty = url_path, order = 20)]
     pub path: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
@@ -192,7 +192,7 @@ pub struct ClientEntry {
     #[schemars(range(min = 1))]
     #[admin(
         ty = integer(unit = "connections"),
-        label = "Max connections",
+
         none_label = "Server default",
         default_from("/limits/max_connections_per_client"),
         advanced
@@ -224,7 +224,7 @@ pub struct VisitorEntry {
     #[schemars(range(min = 1))]
     #[admin(
         ty = integer(unit = "connections"),
-        label = "Max connections",
+
         group = traffic,
         none_label = "Unlimited",
         advanced
@@ -338,26 +338,26 @@ impl Secrets {
 pub struct ServiceEntry {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(description = "Name of the client that reaches the target")]
-    #[admin(ty = ref_(client), label = "Client", group = who, order = 10, one_of = "who", none_label = "None")]
+    #[admin(ty = ref_(client), group = who, order = 10, one_of = "who", none_label = "None")]
     pub client: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[schemars(
         description = "Several clients that can each reach the target, instead of client; see mode"
     )]
-    #[admin(ty = ref_list(client, ordered), label = "Clients", group = who, order = 11, one_of = "who")]
+    #[admin(ty = ref_list(client, ordered), group = who, order = 11, one_of = "who")]
     pub clients: Vec<String>,
     #[serde(default, skip_serializing_if = "is_default")]
     #[schemars(
         description = "With several clients: failover uses the first one that is up, balance spreads new connections over all of them"
     )]
-    #[admin(label = "Mode", group = who, order = 12, visible_if(len_ge(clients, 2)), tcp_only)]
+    #[admin(group = who, order = 12, visible_if(len_ge(clients, 2)), tcp_only)]
     pub mode: Mode,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
         description = "Check that each client can reach the target, and send connections only to those that can: true, or a map with interval_secs, timeout_secs and failures"
     )]
     #[admin(
-        label = "Health check",
+
         group = who,
         order = 13,
         none_label = "Off",
@@ -391,14 +391,14 @@ pub struct ServiceEntry {
     )]
     pub target: Target,
     #[serde(default, skip_serializing_if = "is_default")]
-    #[admin(label = "Protocol", group = exposure, order = 22)]
+    #[admin(group = exposure, order = 22)]
     pub protocol: Protocol,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(description = "Maximum concurrent connections for this service")]
     #[schemars(range(min = 1))]
     #[admin(
         ty = integer(unit = "connections"),
-        label = "Max connections",
+
         group = traffic,
         order = 40,
         none_label = "Unlimited",
@@ -409,7 +409,7 @@ pub struct ServiceEntry {
     #[schemars(description = "Visitors that may reach this service with burrow visit")]
     #[admin(
         ty = ref_list(visitor),
-        label = "Visitors",
+
         group = access,
         order = 30,
         tcp_only,
@@ -477,7 +477,7 @@ pub enum Mode {
 pub enum HealthCheckSetting {
     #[admin(label = "On with defaults")]
     On(bool),
-    #[admin(label = "Tuned")]
+    #[admin]
     Tuned(HealthCheck),
 }
 
@@ -513,7 +513,7 @@ impl Default for HealthCheck {
 #[serde(untagged)]
 #[admin(semantic = ip_port)]
 pub enum Bind {
-    #[admin(label = "Port")]
+    #[admin]
     Port(#[schemars(range(min = 1))] u16),
     #[admin(label = "Text")]
     Addr(String),
@@ -532,7 +532,7 @@ impl std::fmt::Display for Bind {
 #[serde(untagged)]
 #[admin(semantic = target)]
 pub enum Target {
-    #[admin(label = "Port")]
+    #[admin]
     Port(#[schemars(range(min = 1))] u16),
     #[admin(label = "Text")]
     Addr(String),
@@ -618,12 +618,12 @@ pub struct Limits {
     pub handshake_timeout_secs: u32,
     #[schemars(description = "Concurrent connections that have not finished authenticating")]
     #[schemars(range(min = 1, max = 1000000))]
-    #[admin(ty = integer(unit = "connections"), label = "Max handshakes", applies = reload)]
+    #[admin(ty = integer(unit = "connections"), applies = reload)]
     pub max_handshakes: u32,
     #[schemars(range(min = 1))]
     #[admin(
         ty = integer(unit = "connections"),
-        label = "Max connections per client",
+
         help = "Concurrent forwarded connections of one client, unless the client sets its own",
         applies = live
     )]

@@ -129,6 +129,17 @@ fn skip_reason(terms: &[Term], errors: &mut Errors) -> Option<String> {
     }
 }
 
+fn redundant(terms: &[Term], label: &str, derived: &str, errors: &mut Errors) {
+    if let Some(t) = assigned(terms, "label")
+        && label == derived
+    {
+        errors.push(
+            t.span(),
+            format!("redundant label: \"{derived}\" is already derived from the name; remove `label = ...`"),
+        );
+    }
+}
+
 pub(crate) fn humanize(name: &str) -> String {
     let words = name.replace('_', " ");
     let mut c = words.chars();
@@ -235,7 +246,7 @@ fn expand_struct(input: &DeriveInput, s: &syn::DataStruct, errors: &mut Errors) 
             errors.push(
                 f.span(),
                 format!(
-                    "field `{ident}` of `{name}` needs `#[admin(...)]`: describe it (`ty = ...`) or `#[admin(skip = \"why\")]`"
+                    "field `{ident}` of `{name}` needs `#[admin]`, or `#[admin(skip = \"why\")]` if the admin UI must not edit it"
                 ),
             );
             continue;
@@ -260,15 +271,7 @@ fn expand_struct(input: &DeriveInput, s: &syn::DataStruct, errors: &mut Errors) 
             });
             continue;
         }
-        if given_label.is_none() {
-            errors.push(
-                f.span(),
-                format!(
-                    "field `{ident}` of `{name}` needs a label: #[admin(label = \"...\")], the text the admin UI shows"
-                ),
-            );
-            continue;
-        }
+        redundant(&terms, &label, &humanize(wire), errors);
         let optional = sem::strip(&f.ty, "Option");
         let inner_ty = optional.unwrap_or(&f.ty);
         let range = (schemars.min, schemars.max);
@@ -445,7 +448,7 @@ fn expand_enum(input: &DeriveInput, e: &syn::DataEnum, errors: &mut Errors) -> T
                 None => {
                     errors.push(
                         v.span(),
-                        format!("variant `{vident}` of `{name}` needs #[admin(label = \"...\")]"),
+                        format!("variant `{vident}` of `{name}` needs #[admin]"),
                     );
                     continue;
                 }
@@ -455,16 +458,9 @@ fn expand_enum(input: &DeriveInput, e: &syn::DataEnum, errors: &mut Errors) -> T
         let wire = serde_attrs::field(&v.attrs).rename.unwrap_or_else(|| {
             serde_attrs::rename_variant(&vident.to_string(), serde_c.rename_all.as_deref())
         });
-        let given_label = str_of(&terms, "label", errors);
-        if given_label.is_none() && skipped.is_none() {
-            errors.push(
-                v.span(),
-                format!(
-                    "variant `{vident}` of `{name}` needs a label: #[admin(label = \"...\")], the text the admin UI shows"
-                ),
-            );
-        }
-        let label = given_label.unwrap_or_else(|| wire.clone());
+        let derived = wire.replace(['_', '-'], " ");
+        let label = str_of(&terms, "label", errors).unwrap_or_else(|| derived.clone());
+        redundant(&terms, &label, &derived, errors);
         let help = str_of(&terms, "help", errors).unwrap_or_default();
         let danger = has_flag(&terms, "danger");
         let form = label.clone();

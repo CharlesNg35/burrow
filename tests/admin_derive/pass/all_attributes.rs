@@ -34,45 +34,45 @@ pub enum Toggle {
 #[serde(default)]
 #[admin(entity = service, label = "Thing", groups(main = "Main", more = "More"))]
 pub struct Thing {
-    #[admin(label = "Text", ty = text(max_len = 10, pattern_hint = "abc"), group = main, order = 1)]
+    #[admin(ty = text(max_len = 10, pattern_hint = "abc"), group = main, order = 1)]
     pub text: String,
-    #[admin(label = "Count", ty = integer(unit = "things"), advanced, readonly = "fixed")]
+    #[admin(ty = integer(unit = "things"), advanced, readonly = "fixed")]
     pub count: u32,
-    #[admin(label = "On", danger_when_set, applies = live)]
+    #[admin(danger_when_set, applies = live)]
     pub on: bool,
-    #[admin(label = "Ip", ty = ip)]
+    #[admin(ty = ip)]
     pub ip: String,
-    #[admin(label = "Port", ty = port, applies = restart)]
+    #[admin(ty = port, applies = restart)]
     pub port: u16,
-    #[admin(label = "Range", ty = port_range(max = 10))]
+    #[admin(ty = port_range(max = 10))]
     pub range: String,
-    #[admin(label = "Host", ty = host)]
+    #[admin(ty = host)]
     pub host: String,
-    #[admin(label = "Address", ty = server_address, group = more)]
+    #[admin(ty = server_address, group = more)]
     pub address: String,
-    #[admin(label = "Cidr", ty = cidr)]
+    #[admin(ty = cidr)]
     pub cidr: String,
-    #[admin(label = "Rule", ty = cidr_rule)]
+    #[admin(ty = cidr_rule)]
     pub rule: String,
-    #[admin(label = "Size", ty = size(unit = "bytes"))]
+    #[admin(ty = size(unit = "bytes"))]
     pub size: u64,
-    #[admin(label = "Rate", ty = rate, applies = reload)]
+    #[admin(ty = rate, applies = reload)]
     pub rate: String,
-    #[admin(label = "Client", ty = ref_(client), one_of = "who")]
+    #[admin(ty = ref_(client), one_of = "who")]
     pub client: String,
-    #[admin(label = "Clients", ty = ref_list(client, ordered, max = 3), one_of = "who", visible_if(all(set(client), not(eq(on, true)))))]
+    #[admin(ty = ref_list(client, ordered, max = 3), one_of = "who", visible_if(all(set(client), not(eq(on, true)))))]
     pub clients: Vec<String>,
-    #[admin(label = "Name", ty = name(visitor), enabled_if(any(ne(port, 1), len_ge(clients, 2)), "why"))]
+    #[admin(ty = name(visitor), enabled_if(any(ne(port, 1), len_ge(clients, 2)), "why"))]
     pub name: String,
-    #[admin(label = "Path", ty = path(must_exist, relative_to = "config"), default_from("/limits/x"))]
+    #[admin(ty = path(must_exist, relative_to = "config"), default_from("/limits/x"))]
     pub path: String,
-    #[admin(label = "Url", ty = url_path, warn_if(eq(text, "x"), "careful"))]
+    #[admin(ty = url_path, warn_if(eq(text, "x"), "careful"))]
     pub url: String,
-    #[admin(label = "List", ty = list(cidr), empty_label = "Nobody", cross(cidr, rule), same_len(range))]
+    #[admin(ty = list(cidr), empty_label = "Nobody", cross(cidr, rule), same_len(range))]
     pub list: Vec<String>,
-    #[admin(label = "Speed", ty = enum_, options_filter(eq(protocol, "tcp")), inverse(entity = visitor, label = "Back"))]
+    #[admin(ty = enum_, options_filter(eq(protocol, "tcp")), inverse(entity = visitor, label = "Back"))]
     pub speed: Speed,
-    #[admin(label = "Letter", ty = enum_values("a", "b"))]
+    #[admin(ty = enum_values("a", "b"))]
     pub letter: String,
     #[admin(skip = "managed elsewhere")]
     pub hidden: String,
@@ -86,23 +86,23 @@ pub struct Holder {
     pub inferred: Option<Inner>,
     #[admin(label = "Inferred enum")]
     pub speed: Speed,
-    #[admin(label = "Bind", ty = ip_port(ranges, max_range = 10, default_ip = "127.0.0.1"), none_label = "Off")]
+    #[admin(ty = ip_port(ranges, max_range = 10, default_ip = "127.0.0.1"), none_label = "Off")]
     pub bind: Option<Bind>,
-    #[admin(label = "Target", ty = target(ranges, unix))]
+    #[admin(ty = target(ranges, unix))]
     pub target: Target,
-    #[admin(label = "Secret", ty = secret_ref(max = 2))]
+    #[admin(ty = secret_ref(max = 2))]
     pub secret: Secrets,
-    #[admin(label = "Reach", ty = ref_map(client))]
+    #[admin(ty = ref_map(client))]
     pub reach: BTreeMap<String, Reach>,
-    #[admin(label = "Reach2", ty = ref_map(client, value = list(cidr_rule)))]
+    #[admin(ty = ref_map(client, value = list(cidr_rule)))]
     pub reach2: BTreeMap<String, Vec<String>>,
-    #[admin(label = "Things", ty = map(service))]
+    #[admin(ty = map(service))]
     pub things: BTreeMap<String, Thing>,
-    #[admin(label = "Toggle", ty = union_)]
+    #[admin(ty = union_)]
     pub toggle: Option<Toggle>,
-    #[admin(label = "Inner", ty = object)]
+    #[admin(ty = object)]
     pub inner: Inner,
-    #[admin(label = "Every", ty = duration(secs))]
+    #[admin(ty = duration(secs))]
     pub every: u64,
 }
 
