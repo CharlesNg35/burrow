@@ -100,7 +100,7 @@ fn body_text_meets_aa_on_every_surface_in_both_themes() {
 #[test]
 fn the_dark_theme_is_the_same_for_the_class_and_the_system_setting() {
     let by_class = tokens(&block(CSS, ":root.dark"));
-    let by_system = tokens(&block(CSS, ":root:not(.light)"));
+    let by_system = tokens(&block(CSS, ":root:not(.light) {"));
     assert_eq!(by_class, by_system);
 }
 

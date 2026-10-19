@@ -1,7 +1,16 @@
 @import "tailwindcss";
 @source "../src";
 @source "../../burrow-ui-kit/src";
-@custom-variant dark (&:where(.dark, .dark *));
+@custom-variant dark {
+  &:where(.dark, .dark *) {
+    @slot;
+  }
+  @media (prefers-color-scheme: dark) {
+    &:where(:root:not(.light), :root:not(.light) *) {
+      @slot;
+    }
+  }
+}
 
 @font-face { font-family: "Geist"; src: url("/fonts/geist-latin-wght.woff2") format("woff2"); font-weight: 100 900; font-display: swap; }
 @font-face { font-family: "Geist Mono"; src: url("/fonts/geist-mono-latin-wght.woff2") format("woff2"); font-weight: 100 900; font-display: swap; }
