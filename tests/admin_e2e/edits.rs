@@ -432,8 +432,7 @@ fn lockout(c: &mut Ctx) -> Flow<'_> {
         let url = c.world.open_admin("viewer");
         c.ui.goto("about:blank").await;
         c.ui.goto(&url).await;
-        c.ui.wait_text("[data-testid=conn-pill]", "Read-only", SECS)
-            .await;
+        c.ui.wait_for("[data-testid=read-only-tag]", SECS).await;
         c.ui.nav("/services/web?tab=settings").await;
         c.ui.wait_for("[data-testid=detail]", SECS).await;
         assert!(

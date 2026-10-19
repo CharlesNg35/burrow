@@ -685,20 +685,178 @@ fn the_page_needs_the_link_from_the_terminal() {
     run("no-token", Options::default(), false, no_token);
 }
 
+async fn header_items(c: &Ctx) -> Vec<String> {
+    c.ui.eval(
+        "Array.from(document.querySelector('[data-testid=header-right]').children).filter(e => { const r = e.getBoundingClientRect(); return r.width > 2 && r.height > 2; }).map(e => e.getAttribute('data-testid') || e.querySelector('[data-testid]')?.getAttribute('data-testid') || e.tagName)",
+    )
+    .await
+}
+
+async fn theme_now(c: &Ctx) -> (String, String) {
+    let t =
+        c.ui.attr_of("[data-testid=theme-toggle]", "data-theme")
+            .await;
+    let class: String = c.ui.eval("document.documentElement.className").await;
+    (t, class)
+}
+
+fn calm_header(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
+    Box::pin(async move {
+        let url = c.world.open_admin("ops");
+        c.ui.goto(&url).await;
+        c.ui.wait_text("[data-testid=conn-pill]", "Connected to", SECS)
+            .await;
+        let items = header_items(c).await;
+        assert_eq!(
+            items,
+            ["search-open", "theme-toggle", "avatar"],
+            "the normal header has search, theme and the avatar only"
+        );
+        c.ui.shot("normal").await;
+
+        assert_eq!(theme_now(c).await.0, "system");
+        c.ui.click("[data-testid=theme-toggle]").await;
+        let (t, class) = theme_now(c).await;
+        assert!(t == "light" && class.contains("light"), "{t} {class}");
+        c.ui.click("[data-testid=theme-toggle]").await;
+        let (t, class) = theme_now(c).await;
+        assert!(t == "dark" && class.contains("dark"), "{t} {class}");
+        let bare = url.split('#').next().unwrap_or_default().to_string();
+        c.ui.goto(&bare).await;
+        c.ui.wait_text("[data-testid=conn-pill]", "Connected to", SECS)
+            .await;
+        let (t, class) = theme_now(c).await;
+        assert!(
+            t == "dark" && class.contains("dark"),
+            "the theme survives a reload: {t} {class}"
+        );
+        c.ui.shot("dark-after-reload").await;
+        c.ui.click("[data-testid=theme-toggle]").await;
+        let (t, class) = theme_now(c).await;
+        assert!(
+            t == "system" && !class.contains("dark") && !class.contains("light"),
+            "{t} {class}"
+        );
+
+        c.ui.click("[data-testid=avatar]").await;
+        c.ui.wait_text("[data-testid=avatar-who]", "ops · admin write", SECS)
+            .await;
+        c.ui.wait_text("[data-testid=avatar-conn]", "Connected to", SECS)
+            .await;
+        c.ui.wait_for("[data-testid=avatar-about]", SECS).await;
+        c.ui.shot("avatar-menu").await;
+        c.ui.click("[data-testid=avatar]").await;
+
+        c.ui.nav("/services/web").await;
+        edit_mode(c).await;
+        c.ui.fill("#f-services-web-target", "4321").await;
+        wait_checked(c).await;
+        c.ui.wait_for("[data-testid=review-open]", SECS).await;
+        assert_eq!(
+            header_items(c).await,
+            ["search-open", "theme-toggle", "review-open", "avatar"],
+            "Review joins the header only with pending changes"
+        );
+
+        c.world.stop("server");
+        c.ui.wait_text(
+            "[data-testid=conn-pill]",
+            "Reconnecting in",
+            Duration::from_secs(15),
+        )
+        .await;
+        assert_eq!(
+            header_items(c).await,
+            [
+                "search-open",
+                "theme-toggle",
+                "conn-pill",
+                "review-open",
+                "avatar"
+            ],
+            "the reconnecting text shows only while reconnecting"
+        );
+        c.ui.click("[data-testid=conn-pill]").await;
+        c.ui.wait_for("[data-testid=retry-now]", SECS).await;
+        c.ui.shot("reconnecting").await;
+        c.world
+            .start("server", &["server", "-c", "server.yaml"], &[]);
+        c.ui.wait_text(
+            "[data-testid=conn-pill]",
+            "Connected to",
+            Duration::from_secs(30),
+        )
+        .await;
+        assert_eq!(
+            header_items(c).await,
+            ["search-open", "theme-toggle", "review-open", "avatar"],
+            "the reconnecting text goes away once connected"
+        );
+        c.ui.take_errors();
+    })
+}
+
+#[test]
+fn the_header_is_calm_in_every_state() {
+    run("header", Options::default(), false, calm_header);
+}
+
 fn read_only(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
     Box::pin(async move {
         open(c, "viewer").await;
-        c.ui.wait_text("[data-testid=conn-pill]", "Read-only", SECS)
-            .await;
-        c.ui.wait_text("[data-testid=banner-read-only]", "has read admin", SECS)
+        c.ui.wait_text("[data-testid=conn-pill]", "Connected", SECS)
             .await;
         c.ui.wait_text("[data-testid=you-level]", "viewer (read)", SECS)
             .await;
         c.ui.wait_for("[data-testid=read-only-tag]", SECS).await;
+        assert_eq!(
+            c.ui.count("[data-testid=banners] [data-testid^=banner]")
+                .await,
+            0,
+            "read-only shows no banner"
+        );
+        assert_eq!(
+            header_items(c).await,
+            ["search-open", "theme-toggle", "read-only-tag", "avatar"],
+            "the read-only tag takes the Review button's place"
+        );
+        c.ui.click("[data-testid=read-only-tag]").await;
+        c.ui.wait_text("[data-testid=read-only-why]", "has read admin", SECS)
+            .await;
         c.ui.shot("read-only-overview").await;
+        c.ui.click("[data-testid=read-only-tag]").await;
+        c.ui.wait_gone("[data-testid=read-only-why]", SECS).await;
         c.ui.nav("/settings").await;
         c.ui.shot("read-only-settings").await;
         ax_clean(c, "read-only").await;
+
+        #[cfg(unix)]
+        {
+            let file = c.world.file("server.yaml");
+            let mut perms = std::fs::metadata(&file).expect("server.yaml").permissions();
+            std::os::unix::fs::PermissionsExt::set_mode(&mut perms, 0o444);
+            std::fs::set_permissions(&file, perms.clone()).expect("make server.yaml read-only");
+            let url = c.world.open_admin("ops");
+            c.ui.goto("about:blank").await;
+            c.ui.goto(&url).await;
+            c.ui.wait_for("[data-testid=read-only-tag]", SECS).await;
+            c.ui.wait_text("[data-testid=conn-pill]", "Connected", SECS)
+                .await;
+            assert_eq!(
+                c.ui.count("[data-testid=banners] [data-testid^=banner]")
+                    .await,
+                0,
+                "a config the server cannot write shows no banner"
+            );
+            c.ui.click("[data-testid=read-only-tag]").await;
+            c.ui.wait_text("[data-testid=read-only-why]", "cannot write", SECS)
+                .await;
+            c.ui.wait_text("[data-testid=read-only-why]", "write access to", SECS)
+                .await;
+            c.ui.shot("not-writable-reason").await;
+            std::os::unix::fs::PermissionsExt::set_mode(&mut perms, 0o600);
+            std::fs::set_permissions(&file, perms).expect("make server.yaml writable again");
+        }
         c.ui.assert_no_errors();
     })
 }

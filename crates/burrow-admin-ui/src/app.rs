@@ -259,16 +259,32 @@ fn Header() -> impl IntoView {
         }
     });
     let read_only = Memo::new(move |_| s.conn.get() == Conn::Open && !s.can_write());
+    let why_open = RwSignal::new(false);
+    let retry_open = RwSignal::new(false);
     let conn_state = move || {
         let conn = s.conn.get();
         match conn {
             Conn::Reconnecting { .. } => {
                 let left = ((s.retry_at.get() - s.now.get()) / 1000.0).ceil().max(0.0) as u64;
-                view! { <span class="flex items-center gap-1.5 text-sm text-warning" data-testid="conn-pill"><Icon name="refresh"/>{format!("Reconnecting in {left} s")}</span> }.into_any()
+                view! {
+                    <span class="relative">
+                        <button type="button" class="flex cursor-pointer items-center gap-1.5 text-[12.5px] text-warning" aria-haspopup="true" aria-expanded=move || retry_open.get().to_string() data-testid="conn-pill" on:click=move |_| retry_open.update(|o| *o = !*o)>
+                            <Icon name="refresh"/>
+                            {format!("Reconnecting in {left} s")}
+                        </button>
+                        <Show when=move || retry_open.get()>
+                            <div class="absolute top-8 right-0 z-40 w-56 rounded-[10px] border border-border-strong bg-surface p-3 text-sm text-text shadow-overlay dark:bg-surface-2" data-testid="retry-popover">
+                                <p class="mb-2 text-text-muted">"The connection to burrow admin dropped. It retries on its own."</p>
+                                <Button label="Retry now" small=true testid="retry-now" on_click=move |_| { retry_open.set(false); api::reconnect(s); }/>
+                            </div>
+                        </Show>
+                    </span>
+                }
+                .into_any()
             }
-            Conn::Open => view! { <span class="flex items-center gap-1.5 text-sm text-hdr-text" data-testid="conn-pill"><span class="size-[7px] rounded-full bg-success"></span><span class="max-sm:sr-only">{if read_only.get() { "Read-only" } else { "Connected" }}</span></span> }.into_any(),
-            Conn::Connecting => view! { <span class="text-sm text-hdr-muted" data-testid="conn-pill">"Connecting"</span> }.into_any(),
-            other => view! { <span class="flex items-center gap-1.5 text-sm text-danger" data-testid="conn-pill"><Icon name="wifi-off"/>{other.label()}</span> }.into_any(),
+            Conn::Open => view! { <span class="sr-only" data-testid="conn-pill">{move || format!("Connected to {}", host_line(s))}</span> }.into_any(),
+            Conn::Connecting => view! { <span class="text-[12.5px] text-hdr-muted" data-testid="conn-pill">"Connecting"</span> }.into_any(),
+            other => view! { <span class="flex items-center gap-1.5 text-[12.5px] text-danger" data-testid="conn-pill"><Icon name="wifi-off"/>{other.label()}</span> }.into_any(),
         }
     };
     let dot = move || match s.conn.get() {
@@ -276,6 +292,16 @@ fn Header() -> impl IntoView {
         Conn::Open => "bg-success",
         Conn::Reconnecting { .. } | Conn::Connecting => "bg-warning",
         _ => "bg-danger",
+    };
+    let conn_line = move || match s.conn.get() {
+        Conn::Open => format!("Connected to {}", host_line(s)),
+        Conn::Reconnecting { .. } => format!("Reconnecting to {}", host_line(s)),
+        other => other.label().to_string(),
+    };
+    let next_theme = move || match theme.get().as_str() {
+        "" => ("System", "Light", "light"),
+        "light" => ("Light", "Dark", "dark"),
+        _ => ("Dark", "System", ""),
     };
     let you = Memo::new(move |_| {
         s.welcome.with(|w| {
@@ -358,14 +384,49 @@ fn Header() -> impl IntoView {
             <nav aria-label="Sections" class="flex gap-0.5 rounded-[11px] border border-hdr-line bg-hdr-raised p-[3px] max-xl:col-span-2 max-xl:row-start-2 max-xl:mb-3 max-xl:justify-self-center max-sm:mb-2 max-sm:max-w-full max-sm:justify-self-stretch max-sm:overflow-x-auto max-sm:rounded-none max-sm:border-0 max-sm:bg-transparent max-sm:p-0 max-sm:[scrollbar-width:none] dark:border-hdr-raised-2">
                 {nav}
             </nav>
-            <div class="flex items-center justify-end gap-3">
-                <button type="button" class="flex size-8 cursor-pointer items-center justify-center rounded-md border border-hdr-line bg-hdr-raised text-hdr-text max-sm:hidden dark:border-hdr-raised-2" aria-label="Search (/)" data-testid="search-open" on:click=move |_| s.search_open.set(true)>
+            <div class="flex items-center justify-end gap-3" data-testid="header-right">
+                <button type="button" class="flex size-8 cursor-pointer items-center justify-center rounded-lg text-hdr-text outline-none hover:bg-hdr-raised focus-visible:bg-hdr-raised max-sm:hidden" aria-label="Search (/)" title="Search (/)" data-testid="search-open" on:click=move |_| s.search_open.set(true)>
                     <Icon name="search"/>
+                </button>
+                <button
+                    type="button"
+                    class="flex size-8 cursor-pointer items-center justify-center rounded-lg text-hdr-text outline-none hover:bg-hdr-raised focus-visible:bg-hdr-raised max-[1199px]:hidden"
+                    aria-label=move || { let (now, next, _) = next_theme(); format!("Theme: {now}. Switch to {next}") }
+                    title=move || { let (now, next, _) = next_theme(); format!("Theme: {now}. Switch to {next}") }
+                    data-testid="theme-toggle"
+                    data-theme=move || if theme.get().is_empty() { "system".to_string() } else { theme.get() }
+                    on:click=move |_| { let (_, _, t) = next_theme(); set_theme(t); }
+                >
+                    {move || match theme.get().as_str() {
+                        "light" => view! { <Icon name="sun"/> }.into_any(),
+                        "dark" => view! { <Icon name="moon"/> }.into_any(),
+                        _ => view! { <Icon name="monitor"/> }.into_any(),
+                    }}
                 </button>
                 {conn_state}
                 {move || {
                     if read_only.get() {
-                        view! { <span class="inline-flex h-6 items-center gap-1 rounded-[5px] border border-border bg-surface-3 px-2 text-xs font-semibold text-text-muted" data-testid="read-only-tag"><Icon name="eye" small=true/>"read-only"</span> }.into_any()
+                        view! {
+                            <span class="relative">
+                                <button type="button" class="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border border-hdr-line bg-hdr-raised px-2.5 text-[12.5px] font-semibold text-hdr-text dark:border-hdr-raised-2" aria-haspopup="true" aria-expanded=move || why_open.get().to_string() data-testid="read-only-tag" on:click=move |_| why_open.update(|o| *o = !*o)>
+                                    <Icon name="eye" small=true/>
+                                    "Read-only"
+                                </button>
+                                <Show when=move || why_open.get()>
+                                    <div class="absolute top-8 right-0 z-40 w-80 rounded-[10px] border border-border-strong bg-surface p-3 text-sm text-text shadow-overlay dark:bg-surface-2" role="dialog" aria-label="Why this is read-only" data-testid="read-only-why">
+                                        {move || {
+                                            let (title, hint) = read_only_reason(s);
+                                            view! {
+                                                <p class="mb-1.5 flex items-center gap-2 font-semibold"><Icon name="eye" small=true/>"Read-only"</p>
+                                                <p class="text-text-muted">{title}</p>
+                                                {(!hint.is_empty()).then(|| view! { <p class="mt-1 font-mono text-xs break-all text-text-muted">{hint}</p> })}
+                                            }
+                                        }}
+                                    </div>
+                                </Show>
+                            </span>
+                        }
+                        .into_any()
                     } else if pending.get() > 0 {
                         view! {
                             <Link to=Route::Review class="inline-flex h-8 items-center gap-1.5 rounded-md bg-accent px-3 text-sm font-semibold text-on-accent no-underline hover:brightness-110" testid="review-open" state=check_state>
@@ -380,28 +441,42 @@ fn Header() -> impl IntoView {
                     }
                 }}
                 <div class="relative flex items-center gap-2 max-sm:hidden">
-                    <button type="button" class="relative flex size-[30px] cursor-pointer items-center justify-center rounded-full bg-hdr-raised-2 text-xs font-bold text-hdr-on" aria-label=move || format!("Account {}", you.get().map(|y| y.0).unwrap_or_default()) aria-haspopup="true" aria-expanded=move || avatar_open.get().to_string() data-testid="avatar" on:click=move |_| avatar_open.update(|o| *o = !*o)>
+                    <button type="button" class="relative flex size-[30px] cursor-pointer items-center justify-center rounded-full bg-hdr-raised-2 text-xs font-bold text-hdr-on" aria-label=move || format!("Account {}", you.get().map(|y| y.0).unwrap_or_default()) title=conn_line aria-haspopup="true" aria-expanded=move || avatar_open.get().to_string() data-testid="avatar" on:click=move |_| avatar_open.update(|o| *o = !*o)>
                         {move || you.get().map(|y| initials(&y.0)).unwrap_or_default()}
                         <span class=move || format!("absolute -right-0.5 -bottom-0.5 size-2.5 rounded-full ring-2 ring-hdr {}", dot())></span>
                     </button>
-                    <span class="hidden flex-col leading-tight 2xl:flex" data-testid="you">
-                        <span class="text-sm font-semibold text-hdr-on">{move || you.get().map(|y| y.0).unwrap_or_default()}</span>
-                        <span class="text-[11px] text-hdr-muted">{move || you.get().map(|y| format!("admin · {}", y.1)).unwrap_or_default()}</span>
-                    </span>
                     <span class="sr-only" data-testid="you-level">{move || you.get().map(|y| format!("{} ({})", y.0, y.1)).unwrap_or_default()}</span>
                     <Show when=move || avatar_open.get()>
-                        <div class="absolute top-10 right-0 z-40 w-60 rounded-[10px] border border-border-strong bg-surface p-1 text-text shadow-overlay dark:bg-surface-2" data-testid="avatar-menu">
-                            <div class="px-2 pt-1 pb-1.5 text-2xs font-bold tracking-[0.08em] text-text-faint uppercase">"Theme"</div>
-                            {[("", "System"), ("light", "Light"), ("dark", "Dark")]
-                                .into_iter()
-                                .map(|(t, l)| view! {
-                                    <button type="button" class="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-surface-3" data-theme-choice=if t.is_empty() { "system" } else { t } on:click=move |_| { set_theme(t); avatar_open.set(false); }>
-                                        <span class="w-4">{move || (theme.get() == t).then(|| view! { <Icon name="check" small=true/> })}</span>
-                                        {l}
-                                    </button>
-                                })
-                                .collect_view()}
-                            <div class="mt-1 border-t border-border pt-1">
+                        <div class="absolute top-10 right-0 z-40 w-64 rounded-[10px] border border-border-strong bg-surface p-1 text-text shadow-overlay dark:bg-surface-2" data-testid="avatar-menu">
+                            <div class="px-2.5 pt-2 pb-2 text-sm" data-testid="avatar-who">
+                                <span class="font-semibold">{move || you.get().map(|y| y.0).unwrap_or_default()}</span>
+                                <span class="text-text-muted">{move || you.get().map(|y| format!(" · admin {}", y.1)).unwrap_or_default()}</span>
+                            </div>
+                            <div class="flex items-center gap-2 border-t border-border px-2.5 py-2 text-sm" data-testid="avatar-conn">
+                                <span class=move || format!("size-2 shrink-0 rounded-full {}", dot())></span>
+                                <span class="truncate">{conn_line}</span>
+                            </div>
+                            <div class="flex items-center gap-2 border-t border-border px-2 py-2">
+                                <span class="text-sm">"Theme"</span>
+                                <span class="ml-auto flex rounded-md bg-surface-3 p-0.5" role="group" aria-label="Theme">
+                                    {[("", "System", "monitor"), ("light", "Light", "sun"), ("dark", "Dark", "moon")]
+                                        .into_iter()
+                                        .map(|(t, l, icon)| view! {
+                                            <button
+                                                type="button"
+                                                class=move || format!("flex cursor-pointer items-center gap-1 rounded-[5px] px-2 py-1 text-xs {}", if theme.get() == t { "bg-surface font-semibold text-text shadow-sm dark:bg-surface-2" } else { "text-text-muted" })
+                                                aria-pressed=move || (theme.get() == t).to_string()
+                                                data-theme-choice=if t.is_empty() { "system" } else { t }
+                                                on:click=move |_| { set_theme(t); avatar_open.set(false); }
+                                            >
+                                                <Icon name=icon small=true/>
+                                                {l}
+                                            </button>
+                                        })
+                                        .collect_view()}
+                                </span>
+                            </div>
+                            <div class="border-t border-border pt-1">
                                 <button type="button" class="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-surface-3" data-testid="copy-diagnostics" on:click=move |_| {
                                     copy_text(&diagnostics(s));
                                     avatar_open.set(false);
@@ -410,6 +485,10 @@ fn Header() -> impl IntoView {
                                     <Icon name="copy" small=true/>
                                     "Copy diagnostics"
                                 </button>
+                                <Link to=Route::About class="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-text no-underline hover:bg-surface-3" testid="avatar-about">
+                                    <Icon name="about" small=true/>
+                                    "About"
+                                </Link>
                             </div>
                         </div>
                     </Show>
@@ -468,6 +547,30 @@ fn Body() -> impl IntoView {
             .into_any(),
         }
     }
+}
+
+pub fn read_only_reason(s: Store) -> (String, String) {
+    let level = s
+        .welcome
+        .with(|w| w.as_ref().map(|w| (w.you.level, w.you.visitor.clone())));
+    if let Some((Level::Read, who)) = level {
+        return (
+            format!("{who} has read admin: you can see everything, a write admin makes changes."),
+            String::new(),
+        );
+    }
+    s.state
+        .with(|st| {
+            st.as_ref()
+                .and_then(|st| st.file.why_not.as_ref())
+                .map(|w| (w.message.clone(), w.hint.clone()))
+        })
+        .unwrap_or_else(|| {
+            (
+                "The server cannot change its config file.".into(),
+                String::new(),
+            )
+        })
 }
 
 #[component]
@@ -541,45 +644,10 @@ fn Banners() -> impl IntoView {
             }
         })
     };
-    let read_only = move || {
-        let w = s.welcome.get()?;
-        let st = s.state.get()?;
-        if w.you.level == Level::Read {
-            let who = w.you.visitor.clone();
-            let req = format!(
-                "Please give visitor {who} write admin: set admin: write for visitors.{who} in server.yaml on the server."
-            );
-            return Some(view! {
-                <Banner tone=Tone::Info title="Read-only." message=format!("{who} has read admin: you can see everything, a write admin makes changes.") testid="banner-read-only">
-                    <Button label="Copy request for a write admin" small=true on_click=move |_| {
-                        copy_text(&req);
-                        s.toast(Tone::Success, "Copied", None);
-                    }/>
-                </Banner>
-            }.into_any());
-        }
-        if !st.file.writable {
-            let (msg, hint) = st
-                .file
-                .why_not
-                .as_ref()
-                .map(|w| (w.message.clone(), w.hint.clone()))
-                .unwrap_or_default();
-            return Some(view! { <Banner tone=Tone::Info title=format!("Read-only: {msg}") message=hint testid="banner-read-only"/> }.into_any());
-        }
-        None
-    };
-    let restart = move || {
-        s.state.get().filter(|st| !st.runtime.restart_pending.is_empty()).map(|st| {
-            view! { <Banner tone=Tone::Info title="Restart needed for:" message=st.runtime.restart_pending.join(", ") testid="banner-restart"/> }
-        })
-    };
     view! {
         <div data-testid="banners">
             {broken}
             {changed}
-            {read_only}
-            {restart}
             {reconnecting}
             {closed}
         </div>
