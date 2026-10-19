@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+mod addr;
 mod api;
 mod app;
 #[cfg(test)]

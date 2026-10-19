@@ -19,7 +19,7 @@ pub fn ToastHost(
 ) -> impl IntoView {
     view! {
         <div
-            class="fixed right-4 bottom-4 z-50 flex w-[min(380px,calc(100vw-32px))] flex-col gap-2 [body:has([data-sticky-bar])_&]:bottom-[88px]"
+            class="fixed right-4 bottom-4 z-50 flex w-[min(380px,calc(100vw-32px))] flex-col gap-2 [body:has([data-sticky-bar])_&]:top-20 [body:has([data-sticky-bar])_&]:bottom-auto"
             aria-live="polite"
             data-testid="toasts"
             on:mouseenter=move |_| on_hover.run(true)

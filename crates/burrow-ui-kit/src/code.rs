@@ -31,6 +31,34 @@ pub fn download_text(name: &str, text: &str) {
     let _ = web_sys::Url::revoke_object_url(&url);
 }
 
+fn code_line(line: &str) -> AnyView {
+    let t = line.trim_start();
+    if t.starts_with('#') {
+        return view! { <span class="text-code-text/45">{line.to_string()}</span> }.into_any();
+    }
+    if let Some(rest) = line.strip_prefix("$ ") {
+        return view! { <span><span class="text-code-text/45">"$ "</span>{rest.to_string()}</span> }.into_any();
+    }
+    let indent = line.len() - t.len();
+    let (dash, body) = match t.strip_prefix("- ") {
+        Some(b) => ("- ", b),
+        None => ("", t),
+    };
+    if let Some((k, v)) = body.split_once(':')
+        && !k.is_empty()
+        && k.chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+        && (v.is_empty() || v.starts_with(' '))
+    {
+        let pad = " ".repeat(indent);
+        return view! {
+            <span>{pad}{dash}<span class="text-[#8cc4f5]">{k.to_string()}</span>":"<span class="text-[#b5e3a8]">{v.to_string()}</span></span>
+        }
+        .into_any();
+    }
+    view! { <span>{line.to_string()}</span> }.into_any()
+}
+
 #[component]
 pub fn CodeBlock(
     #[prop(into)] text: Signal<String>,
@@ -39,14 +67,13 @@ pub fn CodeBlock(
 ) -> impl IntoView {
     let copied = RwSignal::new(false);
     let name = file_name.clone();
-    let dl = "inline-flex h-[26px] cursor-pointer items-center gap-1.5 rounded-input px-2 text-xs font-semibold text-code-text/80 hover:bg-white/10 hover:text-code-text";
+    let btn = "inline-flex h-[24px] cursor-pointer items-center gap-1.5 rounded-sm border border-white/15 bg-white/5 px-2 text-xs font-semibold text-code-text/85 hover:bg-white/10 hover:text-code-text";
     view! {
-        <div class="overflow-hidden rounded-[10px] bg-code text-code-text" data-testid=(!testid.is_empty()).then_some(testid)>
-            <div class="flex items-center gap-2 border-b border-white/10 px-3 py-1.5">
-                <span class="flex-1 font-mono text-xs text-code-text/70">{file_name.clone().unwrap_or_default()}</span>
+        <div class="relative overflow-hidden rounded-[10px] bg-code text-code-text" data-testid=(!testid.is_empty()).then_some(testid)>
+            <div class="absolute top-2.5 right-2.5 flex gap-1.5">
                 <button
                     type="button"
-                    class=dl
+                    class=btn
                     on:click=move |_| {
                         copy_text(&text.get_untracked());
                         copied.set(true);
@@ -55,18 +82,25 @@ pub fn CodeBlock(
                     <Icon name="copy" small=true/>
                     {move || if copied.get() { "Copied" } else { "Copy" }}
                 </button>
-                {name
-                    .map(|n| {
-                        let n2 = n.clone();
-                        view! {
-                            <button type="button" class=dl on:click=move |_| download_text(&n2, &text.get_untracked())>
-                                <Icon name="download" small=true/>
-                                {format!("Download {n}")}
-                            </button>
-                        }
-                    })}
+                {name.map(|n| {
+                    view! {
+                        <button type="button" class=btn aria-label=format!("Download {n}") on:click=move |_| download_text(&n, &text.get_untracked())>
+                            <Icon name="download" small=true/>
+                            "Download"
+                        </button>
+                    }
+                })}
             </div>
-            <pre class="overflow-x-auto p-3.5 font-mono text-[12.5px] leading-[1.7] whitespace-pre">{move || text.get()}</pre>
+            <pre class="overflow-x-auto px-4 py-3.5 pr-44 font-mono text-[12.5px] leading-[1.7] whitespace-pre">
+                {move || {
+                    let t = text.get();
+                    let n = t.lines().count();
+                    t.lines()
+                        .enumerate()
+                        .map(|(i, l)| view! { {code_line(l)}{(i + 1 < n).then_some("\n")} })
+                        .collect_view()
+                }}
+            </pre>
         </div>
     }
 }

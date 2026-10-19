@@ -62,18 +62,28 @@ pub fn bytes(n: u64) -> String {
     }
 }
 
-pub fn when(unix: u64) -> String {
+pub fn relative(unix: u64) -> String {
     let d = js_sys::Date::new(&wasm_bindgen::JsValue::from_f64(unix as f64 * 1000.0));
-    let p = |n: u32| format!("{n:02}");
-    format!(
-        "{}-{}-{} {}:{}:{}",
-        d.get_full_year(),
-        p(d.get_month() + 1),
-        p(d.get_date()),
-        p(d.get_hours()),
-        p(d.get_minutes()),
-        p(d.get_seconds())
-    )
+    let now = js_sys::Date::new_0();
+    let day = |x: &js_sys::Date| (x.get_full_year(), x.get_month(), x.get_date());
+    let yesterday = js_sys::Date::new(&wasm_bindgen::JsValue::from_f64(
+        now.get_time() - 86_400_000.0,
+    ));
+    let hm = format!("{:02}:{:02}", d.get_hours(), d.get_minutes());
+    if day(&d) == day(&now) {
+        format!("today {hm}")
+    } else if day(&d) == day(&yesterday) {
+        format!("yday {hm}")
+    } else {
+        let months = [
+            "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+        ];
+        format!(
+            "{} {:02} {hm}",
+            months[d.get_month() as usize % 12],
+            d.get_date()
+        )
+    }
 }
 
 pub fn clock(ms: f64) -> String {

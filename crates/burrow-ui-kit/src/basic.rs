@@ -101,6 +101,7 @@ pub fn button_class(variant: &str, small: bool) -> String {
         "ghost" => {
             "border-transparent bg-transparent text-text-muted hover:bg-surface-3 hover:text-text"
         }
+        "ghost-danger" => "border-transparent bg-transparent text-danger hover:bg-danger-weak",
         _ => "border-border-strong bg-surface text-text hover:bg-surface-3 dark:bg-surface-2",
     };
     let size = if small {
@@ -364,7 +365,23 @@ pub fn Table(
                     <tr>
                         {head
                             .into_iter()
-                            .map(|h| view! { <th scope="col" class="border-b border-border px-4 py-[9px] text-[11px] font-bold tracking-[0.07em] text-text-faint uppercase">{h}</th> })
+                            .map(|h| {
+                                let right = h.starts_with('>');
+                                let shrink = h.starts_with('_');
+                                let text = h.trim_start_matches(['>', '_']);
+                                view! {
+                                    <th
+                                        scope="col"
+                                        class=format!(
+                                            "border-b border-border px-4 py-[9px] text-[11px] font-bold tracking-[0.07em] whitespace-nowrap text-text-faint uppercase {}{}",
+                                            if right { "text-right" } else { "text-left" },
+                                            if shrink { " w-px" } else { "" }
+                                        )
+                                    >
+                                        {text}
+                                    </th>
+                                }
+                            })
                             .collect_view()}
                     </tr>
                 </thead>

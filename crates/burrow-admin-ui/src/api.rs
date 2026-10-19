@@ -203,8 +203,16 @@ fn event(store: Store, ev: &str, body: Value) {
             if let Ok(c) = serde_json::from_value::<ConfigEvent>(body) {
                 let ours = store
                     .state
-                    .with_untracked(|s| s.as_ref().is_some_and(|s| s.rev == c.rev));
+                    .with_untracked(|s| s.as_ref().is_some_and(|s| s.rev == c.rev))
+                    || store.edit.outcome.with_untracked(
+                        |o| matches!(o, Some(crate::edit::Outcome::Applied(a)) if a.rev == c.rev),
+                    )
+                    || store.edit.applying.get_untracked();
                 if !ours {
+                    let old = store
+                        .state
+                        .with_untracked(|s| s.as_ref().map(|s| s.rev.clone()).unwrap_or_default());
+                    store.changed_from.set((old, js_sys::Date::now()));
                     store.changed.set(Some(c));
                     load_state(store);
                     load_history(store);

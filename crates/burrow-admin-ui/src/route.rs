@@ -3,8 +3,9 @@ use wasm_bindgen::JsValue;
 
 use crate::store::store;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum Route {
+    #[default]
     Overview,
     List(String),
     Detail(String, String),

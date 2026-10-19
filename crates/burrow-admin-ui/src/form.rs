@@ -1,15 +1,13 @@
-use std::sync::Arc;
-
 use burrow_admin_logic::fallback::{Render, for_node, needs_newer_ui};
 use burrow_admin_logic::relations::field_state;
 use burrow_admin_logic::tree::{fields, inner};
 use burrow_admin_proto::Path;
 use burrow_admin_proto::diag::Severity;
-use burrow_admin_proto::schema::{Applies, DurationUnit, Editable, Field, Node, Schema, SemType};
+use burrow_admin_proto::schema::{Applies, DurationUnit, Editable, Field, Node, SemType};
 use burrow_admin_proto::serde_json::{self, Value};
 use burrow_admin_proto::value::{SecretSrc, as_env, as_secret};
 use burrow_syntax::duration::{TimeUnit, human};
-use burrow_ui_kit::{Badge, Chip, FieldRow, FieldState, Toggle, Tone, button_class, chip_class};
+use burrow_ui_kit::{Badge, Chip, FieldRow, FieldState, Toggle, Tone, chip_class};
 use leptos::prelude::*;
 
 use crate::domain::{self, FieldCtx};
@@ -22,7 +20,6 @@ pub const LOCKED_HINT: &str = "Change this in server.yaml on the server, then re
 
 #[derive(Clone)]
 pub struct Ctx {
-    pub schema: Arc<Schema>,
     pub doc: Value,
 }
 
@@ -72,11 +69,8 @@ fn locked(n: &Node) -> Option<String> {
 
 pub fn ctx_now() -> Option<Ctx> {
     let s = store();
-    let schema = s.schema.get_untracked()?;
-    Some(Ctx {
-        schema,
-        doc: s.edit.doc(),
-    })
+    s.schema.get_untracked()?;
+    Some(Ctx { doc: s.edit.doc() })
 }
 
 #[derive(Clone, Copy)]
@@ -134,35 +128,57 @@ pub fn object_view_skipping(
 ) -> AnyView {
     let node = inner(node);
     let table = use_context::<ShowKeys>().is_some_and(|k| k.0);
-    let mut groups: Vec<(String, String)> = node
+    let mut groups: Vec<(String, String, String)> = node
         .groups
         .iter()
-        .map(|g| (g.key.clone(), g.label.clone()))
+        .map(|g| (g.key.clone(), g.label.clone(), g.sub.clone()))
         .collect();
+    let service = spath.len() == 2 && spath[0] == "services";
+    let hidden: &[&str] = if service { &["client"] } else { &[] };
     let all: Vec<&Field> = fields(node)
         .iter()
-        .filter(|f| !skip.contains(&f.key.as_str()))
+        .filter(|f| !skip.contains(&f.key.as_str()) && !hidden.contains(&f.key.as_str()))
         .collect();
     for f in &all {
-        if !groups.iter().any(|(k, _)| *k == f.node.group) {
-            groups.insert(0, (f.node.group.clone(), String::new()));
+        if !groups.iter().any(|(k, _, _)| *k == f.node.group) {
+            groups.insert(0, (f.node.group.clone(), String::new(), String::new()));
         }
     }
+    let public = service.then(|| {
+        let bind = push(&path, "bind");
+        RwSignal::new(store().edit.peek(&bind).is_some_and(|v| !v.is_null()))
+    });
     let sections = groups
         .into_iter()
-        .filter_map(|(key, label)| {
-            let rows: Vec<AnyView> = all
-                .iter()
-                .filter(|f| f.node.group == key)
-                .map(|f| {
-                    row(
-                        (*f).clone(),
-                        push(&path, &f.key),
-                        push(&spath, &f.key),
-                        entity.clone(),
-                    )
-                })
-                .collect();
+        .filter_map(|(key, label, sub)| {
+            let mut mine: Vec<&Field> = all.iter().copied().filter(|f| f.node.group == key).collect();
+            if let Some(order) = layout_order(&spath, &key) {
+                mine.sort_by_key(|f| order.iter().position(|k| *k == f.key).unwrap_or(order.len()));
+            }
+            let mut rows: Vec<AnyView> = Vec::new();
+            for f in mine {
+                if f.key == "clients" && service {
+                    let sp = join(&push(&spath, "client"));
+                    rows.push(view! { <span hidden data-schema=sp data-merged-into="clients"></span> }.into_any());
+                }
+                if f.key == "protocol"
+                    && let Some(public) = public
+                {
+                    rows.push(visibility_row(push(&path, "bind"), public));
+                }
+                let (fp, fs) = (push(&path, &f.key), push(&spath, &f.key));
+                match (f.key.as_str(), public) {
+                    ("bind", Some(public)) => {
+                        let (f, entity) = ((*f).clone(), entity.clone());
+                        rows.push((move || public.get().then(|| row(f.clone(), fp.clone(), fs.clone(), entity.clone()))).into_any());
+                    }
+                    ("health_check", Some(_)) => {
+                        rows.push(row((*f).clone(), fp.clone(), fs.clone(), entity.clone()));
+                        rows.push(domain::health_box(f.node.clone(), fp, fs, entity.clone()));
+                    }
+                    _ => rows.push(row((*f).clone(), fp, fs, entity.clone())),
+                }
+            }
             (!rows.is_empty()).then(|| {
                 let n = rows.len();
                 if table && path.is_empty() {
@@ -183,8 +199,9 @@ pub fn object_view_skipping(
                 }
                 let title = (!label.is_empty()).then(|| {
                     view! {
-                        <div class="mb-4 border-b border-border pb-2.5 md:col-span-2">
+                        <div class="flex items-baseline gap-2.5 border-b border-border pb-2.5 md:col-span-2">
                             <h3 class="text-[14px] font-bold">{label}</h3>
+                            {(!sub.is_empty()).then(|| view! { <span class="text-[12.5px] text-text-muted">{sub.clone()}</span> })}
                         </div>
                     }
                 });
@@ -199,6 +216,384 @@ pub fn object_view_skipping(
         })
         .collect_view();
     view! { <div class="max-w-[1120px]">{sections}</div> }.into_any()
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct SettingsCard {
+    pub key: String,
+    pub title: String,
+    pub fields: Vec<Field>,
+    pub object: bool,
+}
+
+fn is_object(f: &Field) -> bool {
+    let n = inner(&f.node);
+    matches!(n.sem, SemType::Object(_)) && !needs_newer_ui(n)
+}
+
+pub fn card_fields(c: &SettingsCard) -> Vec<(Path, Field)> {
+    if c.object {
+        let Some(f) = c.fields.first() else {
+            return Vec::new();
+        };
+        fields(&f.node)
+            .iter()
+            .map(|g| (vec![f.key.clone(), g.key.clone()], g.clone()))
+            .collect()
+    } else {
+        c.fields
+            .iter()
+            .map(|f| (vec![f.key.clone()], f.clone()))
+            .collect()
+    }
+}
+
+fn danger_in(n: &Node) -> bool {
+    n.danger_when_set || fields(n).iter().any(|f| danger_in(&f.node))
+}
+
+pub fn settings_cards(node: &Node, skip: &[&str]) -> Vec<SettingsCard> {
+    let node = inner(node);
+    let mut groups: Vec<(String, String)> = node
+        .groups
+        .iter()
+        .map(|g| (g.key.clone(), g.label.clone()))
+        .collect();
+    let all: Vec<&Field> = fields(node)
+        .iter()
+        .filter(|f| !skip.contains(&f.key.as_str()))
+        .collect();
+    for f in &all {
+        if !groups.iter().any(|(k, _)| *k == f.node.group) {
+            groups.insert(0, (f.node.group.clone(), String::new()));
+        }
+    }
+    let mut out = Vec::new();
+    for (key, label) in groups {
+        let mine: Vec<&Field> = all
+            .iter()
+            .copied()
+            .filter(|f| f.node.group == key)
+            .collect();
+        let label = if label.is_empty() {
+            "General".to_string()
+        } else {
+            label
+        };
+        if let [one] = mine.as_slice()
+            && is_object(one)
+        {
+            out.push(SettingsCard {
+                key,
+                title: label,
+                fields: vec![(*one).clone()],
+                object: true,
+            });
+            continue;
+        }
+        let scalars: Vec<Field> = mine
+            .iter()
+            .filter(|f| !is_object(f))
+            .map(|f| (*f).clone())
+            .collect();
+        if !scalars.is_empty() {
+            out.push(SettingsCard {
+                key: key.clone(),
+                title: label.clone(),
+                fields: scalars,
+                object: false,
+            });
+        }
+        for f in mine.into_iter().filter(|f| is_object(f)) {
+            out.push(SettingsCard {
+                key: format!("{key}.{}", f.key),
+                title: f.node.label.clone(),
+                fields: vec![f.clone()],
+                object: true,
+            });
+        }
+    }
+    out
+}
+
+pub fn settings_card(c: &SettingsCard) -> AnyView {
+    let n = card_fields(c).len();
+    let danger = c.fields.iter().any(|f| danger_in(&f.node));
+    let border = if danger {
+        "border-danger/45"
+    } else {
+        "border-border"
+    };
+    let head = |title: String, right: AnyView| {
+        view! {
+            <div class="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3">
+                <h3 class="text-[14px] font-bold">{title}</h3>
+                <span class="ml-auto"></span>
+                {right}
+                <span class="text-xs text-text-muted">{format!("{n} field{}", if n == 1 { "" } else { "s" })}</span>
+            </div>
+        }
+    };
+    if !c.object {
+        let rows = c
+            .fields
+            .iter()
+            .map(|f| {
+                row(
+                    f.clone(),
+                    vec![f.key.clone()],
+                    vec![f.key.clone()],
+                    Vec::new(),
+                )
+            })
+            .collect_view();
+        return view! {
+            <section class=format!("mb-4 scroll-mt-20 rounded-card border bg-surface {border}") data-card=c.key.clone() data-group=c.key.clone()>
+                {head(c.title.clone(), ().into_any())}
+                <div class="divide-y divide-rowline px-4">{rows}</div>
+            </section>
+        }
+        .into_any();
+    }
+    let Some(f) = c.fields.first().cloned() else {
+        return ().into_any();
+    };
+    let s = store();
+    let e = s.edit;
+    let path: Path = vec![f.key.clone()];
+    let lock = s
+        .schema
+        .get_untracked()
+        .is_some_and(|sc| sc.locked_paths().iter().any(|l| path.starts_with(l)));
+    let can = s.can_write_now() && f.node.editable.is_yes() && !lock;
+    let editing = editing_now();
+    let optional = matches!(f.node.sem, SemType::Optional(_));
+    let inner_node = inner(&f.node).clone();
+    let p2 = path.clone();
+    let is_set = Memo::new(move |_| e.value(&p2).is_some_and(|v| !v.is_null()));
+    let (p3, tid) = (path.clone(), field_id(&path));
+    let toggle = move || {
+        (optional && can && editing.try_get().unwrap_or(false)).then(|| {
+            let p3 = p3.clone();
+            let id = tid.clone();
+            view! {
+                <Toggle
+                    id=id
+                    checked=is_set
+                    label=Signal::derive(move || if is_set.get() { "In use".to_string() } else { "Not set".to_string() })
+                    on_change=move |on: bool| {
+                        e.set(&p3, on.then(|| Value::Object(Default::default())));
+                    }
+                />
+            }
+        })
+    };
+    let right = view! {
+        <span class="contents">
+            {lock.then(|| view! {
+                <span class="flex items-center gap-1.5 text-xs text-text-muted" data-testid="locked-hint">
+                    <burrow_ui_kit::Icon name="lock" small=true/>
+                    {LOCKED_HINT}
+                </span>
+            })}
+            {toggle}
+        </span>
+    }
+    .into_any();
+    let none_label = f
+        .node
+        .none_label
+        .clone()
+        .unwrap_or_else(|| "Not set".into());
+    let help = f.node.help.clone();
+    let p4 = path.clone();
+    let body = move || {
+        if is_set.get() || !optional {
+            object_view(&inner_node, p4.clone(), p4.clone(), Vec::new())
+        } else {
+            view! {
+                <div class="py-3">
+                    <p class="text-sm" data-testid="not-set">{none_label.clone()}</p>
+                    <p class="mt-1 text-xs text-text-muted">{help.clone()}</p>
+                </div>
+            }
+            .into_any()
+        }
+    };
+    let (jp, js) = (join(&path), join(&path));
+    view! {
+        <section class=format!("mb-4 scroll-mt-20 rounded-card border bg-surface {border}") data-card=c.key.clone() data-group=c.key.clone() data-path=jp data-schema=js>
+            {head(c.title.clone(), right)}
+            <div class="px-4">{body}</div>
+        </section>
+    }
+    .into_any()
+}
+
+pub fn facts(node: &Node, path: Path, spath: Path, skip: &[&str]) -> AnyView {
+    let e = store().edit;
+    let node = inner(node);
+    let service = spath.len() == 2 && spath[0] == "services";
+    let mut keys: Vec<&Field> = fields(node)
+        .iter()
+        .filter(|f| !skip.contains(&f.key.as_str()))
+        .filter(|f| !matches!(inner(&f.node).sem, SemType::SecretRef(_)))
+        .filter(|f| !(service && f.key == "client"))
+        .collect();
+    let groups: Vec<String> = node.groups.iter().map(|g| g.key.clone()).collect();
+    keys.sort_by_key(|f| {
+        let g = groups
+            .iter()
+            .position(|k| *k == f.node.group)
+            .unwrap_or(usize::MAX);
+        let o = layout_order(&spath, &f.node.group)
+            .and_then(|o| o.iter().position(|k| *k == f.key))
+            .unwrap_or(99);
+        (g, o)
+    });
+    let schema = store().schema.get_untracked();
+    let rows = keys
+        .into_iter()
+        .map(|f| {
+            let fpath = push(&path, &f.key);
+            let fnode = f.node.clone();
+            let label = f.node.label.clone();
+            let key = f.key.clone();
+            let visible = {
+                let (node, schema, entity) = (f.node.clone(), schema.clone(), path.clone());
+                Memo::new(move |_| match &schema {
+                    Some(sc) => e.draft.with(|d| field_state(&node, &sc.root, d.draft(), &entity).visible),
+                    None => true,
+                })
+            };
+            view! {
+                <div class="grid grid-cols-[170px_minmax(0,1fr)] items-center gap-4 border-b border-rowline py-2.5 text-[13.5px] last:border-b-0" class:hidden=move || !visible.get() data-fact=key>
+                    <span class="text-text-muted">{label}</span>
+                    <span class="min-w-0">
+                        {move || {
+                            let v = e.value(&fpath).or_else(|| {
+                                (fpath.len() == 3 && fpath[0] == "services" && fpath[2] == "clients")
+                                    .then(|| e.value(&[fpath[0].clone(), fpath[1].clone(), "client".into()]))
+                                    .flatten()
+                                    .map(|c| Value::Array(vec![c]))
+                            });
+                            if let Some(t) = fact_text(&fnode, v.as_ref()) {
+                                return view! { <span>{t}</span> }.into_any();
+                            }
+                            match ctx_now() {
+                                Some(c) => value_view(&fnode, v.as_ref(), None, &c),
+                                None => ().into_any(),
+                            }
+                        }}
+                    </span>
+                </div>
+            }
+        })
+        .collect_view();
+    view! { <div class="px-4 py-1" data-testid="facts">{rows}</div> }.into_any()
+}
+
+fn fact_text(node: &Node, v: Option<&Value>) -> Option<String> {
+    let n = inner(node);
+    let shown = v.filter(|v| !v.is_null()).or(node.default.as_ref());
+    match &n.sem {
+        SemType::Ref(_) | SemType::RefList(_) => Some(match shown {
+            Some(Value::Array(a)) => a.iter().map(plain).collect::<Vec<_>>().join(", "),
+            Some(x) => plain(x),
+            None => node.none_label.clone().unwrap_or_else(|| "none".into()),
+        }),
+        SemType::Enum(c) => Some(match shown {
+            Some(x) => {
+                let raw = plain(x);
+                c.options
+                    .iter()
+                    .find(|o| o.value == raw)
+                    .map(|o| o.label.clone())
+                    .unwrap_or(raw)
+            }
+            None => node.none_label.clone().unwrap_or_else(|| "not set".into()),
+        }),
+        SemType::Integer(c) => Some(match shown {
+            Some(x) => format!(
+                "{}{}",
+                plain(x),
+                c.unit.as_ref().map(|u| format!(" {u}")).unwrap_or_default()
+            ),
+            None => node
+                .none_label
+                .clone()
+                .unwrap_or_else(|| "unlimited".into())
+                .to_lowercase(),
+        }),
+        _ => None,
+    }
+}
+
+fn layout_order(spath: &[String], group: &str) -> Option<&'static [&'static str]> {
+    match (spath.first().map(String::as_str), spath.len(), group) {
+        (Some("services"), 2, "who") => Some(&["clients", "mode", "health_check"]),
+        (Some("services"), 2, "exposure") => Some(&["protocol", "bind", "target"]),
+        (Some("services"), 2, "access") => Some(&["visitors", "deny_from", "allow_from"]),
+        (Some("services"), 2, "traffic") => {
+            Some(&["bandwidth", "max_connections", "proxy_protocol"])
+        }
+        (Some("visitors"), 2, "admin") => Some(&["admin", "admin_from"]),
+        _ => None,
+    }
+}
+
+fn visibility_row(bind: Path, public: RwSignal<bool>) -> AnyView {
+    let e = store().edit;
+    let editing = editing_now();
+    let can = store().can_write_now();
+    let kept: StoredValue<Option<Value>> = StoredValue::new(e.peek(&bind));
+    let id = format!("{}-visibility", field_id(&bind));
+    let control = {
+        let bind = bind.clone();
+        let id = id.clone();
+        move || {
+            let bind = bind.clone();
+            let on = Signal::derive(move || {
+                if public.get() {
+                    "public".to_string()
+                } else {
+                    "private".to_string()
+                }
+            });
+            if !(can && editing.try_get().unwrap_or(false)) {
+                return view! { <div class="flex min-h-[38px] items-center text-[13px]">{move || if public.get() { "Public port" } else { "Private" }}</div> }.into_any();
+            }
+            view! {
+                <div id=id.clone()>
+                    <burrow_ui_kit::Segmented
+                        name=id.clone()
+                        label="Visibility"
+                        options=vec![("public".to_string(), "Public port".to_string(), false), ("private".to_string(), "Private".to_string(), false)]
+                        value=on
+                        on_change=Callback::new(move |v: String| {
+                            if v == "public" {
+                                public.set(true);
+                                if let Some(old) = kept.get_value() {
+                                    e.set(&bind, Some(old));
+                                }
+                            } else {
+                                kept.set_value(e.peek(&bind));
+                                public.set(false);
+                                e.set(&bind, None);
+                            }
+                        })
+                    />
+                </div>
+            }
+            .into_any()
+        }
+    };
+    view! {
+        <FieldRow id=id.clone() label="Visibility" path=format!("{}-visibility", join(&bind)) schema_path="services/*/visibility">
+            {control}
+        </FieldRow>
+    }
+    .into_any()
 }
 
 fn locked_box(node: Node, path: Path, id: String) -> AnyView {
@@ -220,7 +615,7 @@ fn locked_box(node: Node, path: Path, id: String) -> AnyView {
     .into_any()
 }
 
-fn locked_text(node: &Node, v: &Value) -> String {
+pub fn locked_text(node: &Node, v: &Value) -> String {
     match (&inner(node).sem, v) {
         (SemType::Bool, Value::Bool(b)) => {
             if *b {
@@ -385,7 +780,8 @@ fn row(f: Field, path: Path, spath: Path, entity: Path) -> AnyView {
             if lock {
                 return locked_box(node.clone(), path.clone(), id.clone());
             }
-            if can && enabled && editing.try_get().unwrap_or(false) {
+            let look_only = !s.can_write_now() && node.editable.is_yes() && !lock;
+            if (can || look_only) && enabled && editing.try_get().unwrap_or(false) {
                 let fc = FieldCtx {
                     node: node.clone(),
                     path: path.clone(),
@@ -396,6 +792,14 @@ fn row(f: Field, path: Path, spath: Path, entity: Path) -> AnyView {
                     touched,
                     inherited: st.with_untracked(|s| s.default_from.clone()),
                 };
+                if look_only {
+                    return view! {
+                        <div class="pointer-events-none flex flex-wrap items-start gap-2 opacity-55" data-editor="" data-read-only="" inert>
+                            <div class="min-w-0 flex-1">{domain::editor(fc)}</div>
+                        </div>
+                    }
+                    .into_any();
+                }
                 view! {
                     <div class="flex flex-wrap items-start gap-2" data-editor="">
                         <div class="min-w-0 flex-1">{domain::editor(fc)}</div>
@@ -410,7 +814,12 @@ fn row(f: Field, path: Path, spath: Path, entity: Path) -> AnyView {
                 view! {
                     <div class="flex min-h-[38px] items-center text-[13px]" id=id.clone()>
                         {move || {
-                            let v = e.value(&path);
+                            let v = e.value(&path).or_else(|| {
+                                (path.len() == 3 && path[0] == "services" && path[2] == "clients")
+                                    .then(|| e.value(&[path[0].clone(), path[1].clone(), "client".into()]))
+                                    .flatten()
+                                    .map(|c| Value::Array(vec![c]))
+                            });
                             match ctx_now() {
                                 Some(c) => value_view(&node, v.as_ref(), inherited.as_ref(), &c),
                                 None => ().into_any(),
@@ -435,7 +844,16 @@ fn row(f: Field, path: Path, spath: Path, entity: Path) -> AnyView {
     } else {
         String::new()
     };
-    let wide = is_wide(&node);
+    let wide = match (
+        spath.first().map(String::as_str),
+        spath.len(),
+        f.key.as_str(),
+    ) {
+        (Some("services"), 3, "visitors" | "deny_from") => false,
+        (Some("services"), 3, "bandwidth") => true,
+        (Some("visitors"), 3, "admin" | "admin_from" | "reach") => true,
+        _ => is_wide(&node),
+    };
     let visible = Memo::new(move |_| st.with(|s| s.visible));
     let (jp, js) = (join(&path), join(&spath));
     (move || {
@@ -475,8 +893,9 @@ fn reset_button(path: Path) -> impl IntoView {
             view! {
                 <button
                     type="button"
-                    class=button_class("ghost", true)
-                    title="Undo the change of this field"
+                    class="absolute top-0 right-0 flex h-6 cursor-pointer items-center gap-1 rounded-sm px-1.5 text-xs font-semibold text-text-muted hover:bg-surface-3 hover:text-text"
+                    title="Reset field"
+                    aria-label="Reset field"
                     data-testid="reset-field"
                     on:click=move |_| {
                         let base = e
@@ -486,7 +905,8 @@ fn reset_button(path: Path) -> impl IntoView {
                         e.set(&path, base);
                     }
                 >
-                    "Undo"
+                    <burrow_ui_kit::Icon name="revert" small=true/>
+                    "Reset"
                 </button>
             }
         })

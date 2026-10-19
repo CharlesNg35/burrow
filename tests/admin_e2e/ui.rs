@@ -18,9 +18,30 @@ use serde_json::Value;
 
 use crate::sheet::Flow;
 
+pub fn pinned_version() -> String {
+    std::fs::read_to_string(crate::checks::baselines_dir().join("chrome-version.txt"))
+        .unwrap_or_default()
+        .trim()
+        .to_string()
+}
+
+pub fn pinned_chrome() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join(".tools")
+        .join(format!("chrome-{}", pinned_version()))
+        .join("chrome-linux64/chrome")
+}
+
 pub fn chrome() -> Option<PathBuf> {
     if let Some(p) = std::env::var_os("BURROW_E2E_CHROME") {
         return Some(PathBuf::from(p));
+    }
+    let pinned = pinned_chrome();
+    if pinned.exists() {
+        return Some(pinned);
+    }
+    if std::env::var("BURROW_E2E_SYSTEM_CHROME").as_deref() != Ok("1") {
+        return None;
     }
     [
         "/usr/bin/google-chrome",
@@ -39,6 +60,8 @@ pub struct Ui {
     pub page: Page,
     pub errors: Arc<Mutex<Vec<String>>>,
     pub flow: Flow,
+    is_dark: std::sync::atomic::AtomicBool,
+    size: Mutex<(i64, i64)>,
     _tasks: Vec<tokio::task::JoinHandle<()>>,
 }
 
@@ -140,6 +163,8 @@ impl Ui {
             page,
             errors,
             flow,
+            is_dark: std::sync::atomic::AtomicBool::new(false),
+            size: Mutex::new((1440, 900)),
             _tasks: tasks,
         }
     }
@@ -268,8 +293,13 @@ impl Ui {
 
     pub async fn click(&self, css: &str) {
         self.wait_for(css, Duration::from_secs(10)).await;
+        let _: bool = self
+            .eval(&format!(
+                "(() => {{ const e = document.querySelector({}); if (e) e.scrollIntoView({{ block: 'center', inline: 'center' }}); return true; }})()",
+                js_str(css)
+            ))
+            .await;
         let el = self.page.find_element(css).await.expect("element");
-        el.scroll_into_view().await.expect("scroll");
         el.click().await.expect("click");
     }
 
@@ -340,6 +370,7 @@ impl Ui {
     }
 
     pub async fn viewport(&self, w: i64, h: i64) {
+        *self.size.lock().expect("lock") = (w, h);
         self.page
             .execute(SetDeviceMetricsOverrideParams::new(w, h, 1.0, w < 600))
             .await
@@ -348,6 +379,11 @@ impl Ui {
     }
 
     pub async fn dark(&self, on: bool) {
+        self.is_dark.store(on, std::sync::atomic::Ordering::Relaxed);
+        self.scheme(on).await;
+    }
+
+    async fn scheme(&self, on: bool) {
         self.page
             .emulate_media_features(vec![MediaFeature::new(
                 "prefers-color-scheme",
@@ -359,7 +395,8 @@ impl Ui {
     }
 
     pub async fn png(&self) -> Vec<u8> {
-        self.page
+        let png = self
+            .page
             .screenshot(
                 ScreenshotParams::builder()
                     .format(CaptureScreenshotFormat::Png)
@@ -367,12 +404,26 @@ impl Ui {
                     .build(),
             )
             .await
-            .expect("screenshot")
+            .expect("screenshot");
+        let (w, h) = *self.size.lock().expect("lock");
+        self.page
+            .execute(SetDeviceMetricsOverrideParams::new(w, h, 1.0, w < 600))
+            .await
+            .expect("viewport");
+        png
     }
 
     pub async fn shot(&mut self, step: &str) {
         let png = self.png().await;
         self.flow.save(step, &png);
+        let dark = self.is_dark.load(std::sync::atomic::Ordering::Relaxed);
+        self.scheme(!dark).await;
+        let other = self.png().await;
+        self.scheme(dark).await;
+        self.flow.save(
+            &format!("{step}-{}", if dark { "light" } else { "dark" }),
+            &other,
+        );
     }
 
     pub fn take_errors(&self) -> Vec<String> {

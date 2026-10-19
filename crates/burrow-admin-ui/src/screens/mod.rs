@@ -1,7 +1,7 @@
 mod about;
 pub mod activity;
 pub mod create;
-mod entity;
+pub mod entity;
 pub mod flow;
 mod overview;
 pub mod paths;
@@ -43,7 +43,7 @@ pub fn wide() -> bool {
         >= 1024.0
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct Row {
     pub key: String,
     pub to: Route,
@@ -57,6 +57,9 @@ pub struct Row {
     pub pending: Option<&'static str>,
     pub filters: Vec<&'static str>,
     pub actions: Vec<&'static str>,
+    pub line3: String,
+    pub aside: String,
+    pub title_tag: Option<(String, Tone)>,
 }
 
 impl Row {
@@ -93,20 +96,31 @@ pub fn ListCard(row: Row, selected: bool) -> impl IntoView {
                 {row.dot.map(|t| view! { <span class=format!("absolute -right-0.5 -bottom-0.5 size-2.5 rounded-full ring-2 ring-surface {}", t.dot()) aria-hidden="true"></span> })}
             </span>
             <span class="min-w-0">
-                <Link to=row.to.clone() class="block truncate font-semibold text-text no-underline after:absolute after:inset-0 after:rounded-[11px]" testid="list-row" current=Signal::stored(selected)>
-                    {row.title.clone()}
-                </Link>
-                <span class="block truncate text-sm text-text-muted">{row.line2.clone()}</span>
-                {(!row.tags.is_empty() || row.pending.is_some()).then(|| view! {
-                    <span class="mt-1.5 flex flex-wrap gap-1.5">
+                <span class="flex min-w-0 items-center gap-1.5">
+                    <Link to=row.to.clone() class="truncate font-semibold text-text no-underline after:absolute after:inset-0 after:rounded-[11px]" testid="list-row" current=Signal::stored(selected)>
+                        {row.title.clone()}
+                    </Link>
+                    {row.title_tag.clone().map(|(t, tone)| view! { <span class=tag_class(tone)>{t}</span> })}
+                </span>
+                {(!row.line2.is_empty()).then(|| view! { <span class="block truncate text-sm text-text-muted">{row.line2.clone()}</span> })}
+                {(!row.line3.is_empty()).then(|| view! { <span class="mt-0.5 block truncate text-sm text-text-muted">{row.line3.clone()}</span> })}
+                {(!row.tags.is_empty() || row.pending.is_some() || !row.aside.is_empty()).then(|| view! {
+                    <span class="mt-1.5 flex flex-wrap items-center gap-1.5">
                         {row.pending.map(|p| view! { <span class=tag_class(Tone::Accent) data-pending=p>{p}</span> })}
                         {row.tags.iter().map(|(t, tone)| view! { <span class=tag_class(*tone)>{t.clone()}</span> }).collect_view()}
+                        {(!row.aside.is_empty()).then(|| view! { <span class="text-sm text-text-muted">{row.aside.clone()}</span> })}
                     </span>
                 })}
                 {(!row.actions.is_empty()).then(|| view! {
-                    <span class="relative z-10 mt-1.5 flex justify-end gap-3 text-xs">
-                        {row.actions.iter().map(|a| view! {
-                            <button type="button" class="cursor-pointer font-semibold text-accent-ink hover:underline" data-action=a.to_lowercase() data-key=key.clone()>{*a}</button>
+                    <span class="relative z-10 mt-1.5 flex gap-3 text-xs">
+                        {row.actions.iter().map(|a| {
+                            let icon = if *a == "Revert" { "revert" } else { "eye" };
+                            view! {
+                                <button type="button" class="inline-flex cursor-pointer items-center gap-1 font-semibold text-text-muted hover:text-accent-ink" data-action=a.to_lowercase() data-key=key.clone()>
+                                    <Icon name=icon small=true/>
+                                    {*a}
+                                </button>
+                            }
                         }).collect_view()}
                     </span>
                 })}
@@ -130,9 +144,12 @@ pub fn ListPane(
     #[prop(optional, into)] empty: Option<(String, String)>,
     #[prop(optional, into)] on_action: Option<Callback<(String, String)>>,
     #[prop(optional)] testid: &'static str,
+    #[prop(optional)] no_counts: bool,
+    #[prop(optional)] new_disabled: bool,
+    #[prop(optional)] default_filter: Option<&'static str>,
 ) -> impl IntoView {
     let q = RwSignal::new(String::new());
-    let filter = RwSignal::new("all");
+    let filter = RwSignal::new(default_filter.unwrap_or("all"));
     let visible = Memo::new(move |_| {
         let needle = q.get().to_lowercase();
         let f = filter.get();
@@ -156,7 +173,15 @@ pub fn ListPane(
     };
     let new_button = on_new.zip(new_label).map(|(cb, label)| {
         view! {
-            <button type="button" class="ml-auto flex size-[30px] cursor-pointer items-center justify-center rounded-md bg-accent text-on-accent hover:brightness-110" aria-label=label data-testid="new" on:click=move |_| cb.run(())>
+            <button
+                type="button"
+                class="ml-auto flex size-[30px] cursor-pointer items-center justify-center rounded-md bg-accent text-on-accent hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-55"
+                aria-label=label
+                disabled=new_disabled
+                title=new_disabled.then_some("Adding needs write admin.")
+                data-testid="new"
+                on:click=move |_| cb.run(())
+            >
                 <Icon name="plus"/>
             </button>
         }
@@ -177,12 +202,39 @@ pub fn ListPane(
                     {label}
                     {move || {
                         let n = rows.with(|r| r.iter().filter(|x| key == "all" || x.filters.contains(&key)).count());
-                        (n > 0 && key != "tcp" && key != "udp").then(|| format!(" {n}"))
+                        (!no_counts && n > 0 && key != "tcp" && key != "udp").then(|| format!(" {n}"))
                     }}
                 </button>
             }
         })
         .collect_view();
+    let list_ref: NodeRef<leptos::html::Div> = NodeRef::new();
+    Effect::new(move |_| {
+        selected.track();
+        visible.track();
+        request_animation_frame(move || {
+            use wasm_bindgen::JsCast;
+            let Some(list) = list_ref.try_get_untracked().flatten() else {
+                return;
+            };
+            let list: web_sys::HtmlElement = list.into();
+            let Some(el) = list
+                .query_selector("[data-selected=true]")
+                .ok()
+                .flatten()
+                .and_then(|e| e.dyn_into::<web_sys::HtmlElement>().ok())
+            else {
+                return;
+            };
+            let (top, h) = (el.offset_top(), el.offset_height());
+            let (st, ch) = (list.scroll_top(), list.client_height());
+            if top < st {
+                list.set_scroll_top((top - 8).max(0));
+            } else if top + h > st + ch {
+                list.set_scroll_top(top + h - ch + 8);
+            }
+        });
+    });
     let body = move || {
         let list = visible.get();
         if list.is_empty() {
@@ -222,11 +274,11 @@ pub fn ListPane(
     };
     view! {
         <aside
-            class=move || format!("border-r border-border bg-surface pb-4 lg:min-h-[calc(100vh-64px)]{}", if selected.get().is_some() { " max-lg:hidden" } else { "" })
+            class=move || format!("flex flex-col border-r border-border bg-surface lg:sticky lg:top-[var(--hdr-h,64px)] lg:h-[calc(100vh-var(--hdr-h,64px))]{}", if selected.get().is_some() { " max-lg:hidden" } else { "" })
             aria-label=title.clone()
             data-testid=(!testid.is_empty()).then_some(testid)
         >
-            <div class="border-b border-border px-4 pt-4 pb-2.5">
+            <div class="shrink-0 border-b border-border px-4 pt-4 pb-2.5" data-testid="list-head">
                 <div class="mb-2.5 flex items-center gap-2">
                     <h2 class="text-md font-bold">{title.clone()}</h2>
                     <span class="text-sm text-text-muted" data-testid="list-count">{move || count.get()}</span>
@@ -249,7 +301,8 @@ pub fn ListPane(
             </div>
             <div
                 tabindex="0"
-                class="pt-1 outline-none"
+                class="relative min-h-0 flex-1 overflow-y-auto overscroll-contain pt-1 pb-4 outline-none [scrollbar-width:thin]"
+                node_ref=list_ref
                 data-testid="list"
                 on:click=move |e| {
                     use wasm_bindgen::JsCast;
@@ -300,7 +353,7 @@ pub fn DetailPane(
     view! {
         <section id="detail" tabindex="-1" class="min-w-0 bg-bg px-[34px] pt-7 pb-12 outline-none max-sm:px-4" data-testid="detail-pane">
             {back.map(|b| view! {
-                <div class="mb-3 lg:hidden">
+                <div class="mb-3 max-sm:hidden lg:hidden">
                     <Link to=b class=button_class("ghost", true)>
                         <Icon name="chevron-left" small=true/>
                         "Back"
@@ -314,7 +367,7 @@ pub fn DetailPane(
 
 pub fn master_detail(list: AnyView, detail: AnyView) -> AnyView {
     view! {
-        <div class="grid min-h-[calc(100vh-64px)] lg:grid-cols-[380px_minmax(0,1fr)]">
+        <div class="grid min-h-[calc(100vh-var(--hdr-h,64px))] items-start lg:grid-cols-[380px_minmax(0,1fr)]">
             {list}
             {detail}
         </div>
@@ -324,29 +377,48 @@ pub fn master_detail(list: AnyView, detail: AnyView) -> AnyView {
 
 pub fn no_token() -> impl IntoView {
     let port = window().location().port().unwrap_or_default();
+    let step = |n: &'static str, text: &'static str| {
+        view! {
+            <li class="flex items-center gap-3 border-b border-border py-2.5 text-sm last:border-b-0">
+                <span class="flex size-5 shrink-0 items-center justify-center rounded-[5px] bg-accent-weak text-[11px] font-semibold text-accent-ink">{n}</span>
+                <span>{text}</span>
+            </li>
+        }
+    };
     view! {
-        <div class="flex min-h-screen items-center justify-center bg-bg p-6" data-testid="no-token">
-            <div class="grid w-full max-w-[860px] gap-8 rounded-[16px] border border-border bg-surface p-8 md:grid-cols-2">
-                <div>
-                    <div class="mb-6 flex items-center gap-2.5">
-                        <span class="flex size-[30px] items-center justify-center rounded-md bg-gradient-to-b from-logo-from to-logo-to text-white" aria-hidden="true"><Icon name="logo" large=true/></span>
-                        <span class="font-semibold">"burrow admin"</span>
+        <div class="flex min-h-screen flex-col bg-bg p-6" data-testid="no-token">
+            <div class="flex flex-1 items-center justify-center">
+                <div class="grid w-full max-w-[1000px] overflow-hidden rounded-[16px] border border-border bg-surface shadow-[0_12px_40px_rgba(15,23,42,0.10)] md:grid-cols-[416px_minmax(0,1fr)]">
+                    <div class="p-9">
+                        <div class="mb-7 flex items-center gap-2.5">
+                            <span class="flex size-[30px] items-center justify-center rounded-md bg-gradient-to-b from-logo-from to-logo-to text-white" aria-hidden="true"><Icon name="logo" large=true/></span>
+                            <span class="font-semibold">"burrow admin"</span>
+                        </div>
+                        <h1 class="mb-3 text-xl font-bold tracking-tight">"Open the link from your terminal"</h1>
+                        <p class="mb-5 text-sm leading-relaxed text-text-muted">"This page needs the link that "<code class="font-mono text-[13px]">"burrow admin"</code>" printed when it started. The link keeps other programs on this machine out of your admin session."</p>
+                        <ol>
+                            {step("1", "Find the terminal where burrow admin runs.")}
+                            {step("2", "Open the link it printed while it runs.")}
+                            {step("3", "No link? Run it again with --print-url.")}
+                        </ol>
                     </div>
-                    <h1 class="mb-2 text-xl font-bold">"Open the link from your terminal"</h1>
-                    <p class="mb-4 text-sm text-text-muted">"This page needs the one-time link that burrow admin printed. The link keeps other programs on this machine from using your admin session."</p>
-                    <ol class="list-decimal space-y-1.5 pl-5 text-sm">
-                        <li>"Go back to the terminal where you ran burrow admin."</li>
-                        <li>"Open the link it shows, or run it again with --print-url."</li>
-                        <li>"Keep the terminal open while you use this page."</li>
-                    </ol>
+                    <div class="flex flex-col justify-center bg-code p-6 font-mono text-xs leading-relaxed text-code-text">
+                        <div class="mb-4 flex items-center gap-1.5" aria-hidden="true">
+                            <span class="size-2 rounded-full bg-[#ef4444]"></span>
+                            <span class="size-2 rounded-full bg-[#f59e0b]"></span>
+                            <span class="size-2 rounded-full bg-[#22c55e]"></span>
+                            <span class="ml-3 font-sans text-code-text/55">"terminal"</span>
+                        </div>
+                        <pre class="overflow-x-auto whitespace-pre-wrap break-all">
+                            <span class="text-code-text/55">"$ "</span>"burrow admin -c visitor.yaml --print-url\n"
+                            <span class="text-code-text/55">{format!("burrow admin for … listens on http://127.0.0.1:{port}\nopen: ")}</span>
+                            <span class="text-[#7cb7ff] underline">{format!("http://127.0.0.1:{port}/#token=…")}</span>
+                            <span class="text-code-text/55">"\nstop it with Ctrl-C"</span>
+                        </pre>
+                    </div>
                 </div>
-                <pre class="overflow-x-auto rounded-[10px] bg-code p-4 font-mono text-xs leading-relaxed text-code-text">
-                    "$ burrow admin --print-url\nburrow admin for your server listens on\n"
-                    <span class="text-accent">{format!("http://127.0.0.1:{port}/#token=…")}</span>
-                    "\nstop it with Ctrl-C"
-                </pre>
-                <p class="text-xs text-text-muted md:col-span-2">{format!("Served by burrow admin on 127.0.0.1:{port} · nothing was sent to the server.")}</p>
             </div>
+            <p class="pt-6 text-center text-xs text-text-faint">{format!("Served by burrow admin on 127.0.0.1:{port} · nothing was sent to the server")}</p>
         </div>
     }
 }

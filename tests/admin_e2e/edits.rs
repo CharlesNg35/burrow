@@ -45,9 +45,15 @@ fn add_service(c: &mut Ctx) -> Flow<'_> {
         c.ui.wait_for("[data-testid=save-bar]", SECS).await;
         c.ui.shot("new-service-form").await;
 
-        c.ui.select("#f-services-game-client", UNSET).await;
-        c.ui.click("[data-schema='services/*/clients'] [data-option=home] input")
+        assert_eq!(
+            c.ui.count("[data-schema='services/*/client'][data-path]")
+                .await,
+            0,
+            "client and clients are one picker"
+        );
+        c.ui.wait_for("[data-schema='services/*/clients'] [data-chip=home]", SECS)
             .await;
+        c.ui.click("#f-services-game-clients").await;
         assert_eq!(
             c.ui.count("[data-schema='services/*/mode']").await,
             0,
@@ -57,6 +63,16 @@ fn add_service(c: &mut Ctx) -> Flow<'_> {
             .await;
         c.ui.wait_for("[data-schema='services/*/mode']", SECS).await;
         c.ui.shot("two-clients-show-mode").await;
+        assert_eq!(
+            c.ui.count("#f-services-game-bind").await,
+            0,
+            "a new service starts private"
+        );
+        click_js(
+            c,
+            "[data-schema='services/*/visibility'] input[value=public]",
+        )
+        .await;
 
         c.ui.fill(
             "#f-services-game-bind",
@@ -66,6 +82,22 @@ fn add_service(c: &mut Ctx) -> Flow<'_> {
         c.ui.fill(
             "#f-services-game-target",
             &format!("127.0.0.1:{}-{}", echo, echo + 1),
+        )
+        .await;
+        c.ui.wait_text(
+            "[data-schema='services/*/bind'] [data-testid=port-count]",
+            "3 ports",
+            SECS,
+        )
+        .await;
+        let host: String =
+            c.ui.eval("document.getElementById('f-services-game-bind-host').value")
+                .await;
+        assert_eq!(host, "127.0.0.1", "a pasted address fills the address part");
+        c.ui.wait_text(
+            "[data-schema='services/*/bind'] [data-testid=stored-as]",
+            &format!("127.0.0.1:{}-{}", public, public + 2),
+            SECS,
         )
         .await;
         c.ui.wait_text(
@@ -112,6 +144,14 @@ fn add_service(c: &mut Ctx) -> Flow<'_> {
             "comments survive:\n{text}"
         );
         assert!(text.contains("game:"), "{text}");
+        assert!(
+            text.contains(&format!("bind: 127.0.0.1:{}-{}", public, public + 2)),
+            "{text}"
+        );
+        assert!(
+            text.contains(&format!("target: 127.0.0.1:{}-{}", echo, echo + 2)),
+            "{text}"
+        );
         c.ui.shot("service-live").await;
 
         c.ui.nav("/services/web").await;
@@ -158,6 +198,162 @@ fn e3_e4_add_a_service_with_ranges_and_see_server_errors_inline() {
         false,
         add_service,
     );
+}
+
+async fn row_error(c: &Ctx, schema: &str) -> String {
+    let css = format!("[data-schema='{schema}'] [aria-live] p");
+    c.ui.wait_for(&css, SECS).await;
+    c.ui.text(&css).await
+}
+
+async fn row_clean(c: &Ctx, schema: &str) {
+    c.ui.wait_gone(&format!("[data-schema='{schema}'] [aria-live] p"), SECS)
+        .await;
+}
+
+async fn focus(c: &Ctx, id: &str) {
+    let ok: bool = c
+        .ui
+        .eval(&format!(
+            "(() => {{ const e = document.getElementById({id:?}); if (!e) return false; e.focus(); return true; }})()"
+        ))
+        .await;
+    assert!(ok, "no #{id}");
+}
+
+async fn click_js(c: &Ctx, css: &str) {
+    let ok: bool = c
+        .ui
+        .eval(&format!(
+            "(() => {{ const e = document.querySelector({css:?}); if (!e) return false; e.click(); return true; }})()"
+        ))
+        .await;
+    assert!(ok, "nothing matches {css}");
+}
+
+fn editors(c: &mut Ctx) -> Flow<'_> {
+    Box::pin(async move {
+        let public = free_range(2);
+        open(c, "ops").await;
+        c.ui.nav("/services/web").await;
+        edit_mode(c).await;
+
+        let bind = "services/*/bind";
+        c.ui.fill("#f-services-web-bind", "70000").await;
+        let err = row_error(c, bind).await;
+        assert!(!err.is_empty(), "port 70000 is refused inline");
+        c.ui.shot("bind-port-out-of-range").await;
+        c.ui.fill("#f-services-web-bind", &format!("127.0.0.1:{public}"))
+            .await;
+        row_clean(c, bind).await;
+        c.ui.wait_text(
+            "[data-schema='services/*/bind'] [data-testid=port-count]",
+            "1 port",
+            SECS,
+        )
+        .await;
+        c.ui.select("#f-services-web-bind-host", "\u{1}specific")
+            .await;
+        c.ui.fill("#f-services-web-bind-host-ip", "999.1.1.1").await;
+        let err = row_error(c, bind).await;
+        assert!(!err.is_empty(), "a bad IP is refused inline");
+        c.ui.shot("bind-bad-ip").await;
+        c.ui.select("#f-services-web-bind-host", "127.0.0.1").await;
+        row_clean(c, bind).await;
+
+        let target = "services/*/target";
+        click_js(c, "[data-schema='services/*/target'] input[value=unix]").await;
+        c.ui.fill("#f-services-web-target", "/tmp/burrow-e2e.sock")
+            .await;
+        c.ui.wait_text(
+            "[data-schema='services/*/target'] [data-testid=stored-as]",
+            "unix:/tmp/burrow-e2e.sock",
+            SECS,
+        )
+        .await;
+        c.ui.shot("target-unix-socket").await;
+        click_js(c, "[data-schema='services/*/target'] input[value=network]").await;
+        c.ui.fill("#f-services-web-target-host", "127.0.0.1").await;
+        c.ui.fill("#f-services-web-target", "abc").await;
+        let err = row_error(c, target).await;
+        assert!(!err.is_empty(), "a bad target port is refused inline");
+        c.ui.fill("#f-services-web-target", &c.world.ports["echo"].to_string())
+            .await;
+        row_clean(c, target).await;
+
+        click_js(
+            c,
+            "[data-schema='services/*/health_check'] input[value=custom]",
+        )
+        .await;
+        c.ui.wait_for("[data-testid=custom-box]", SECS).await;
+        c.ui.fill("#f-services-web-health-check-interval-secs", "0")
+            .await;
+        let err = row_error(c, "services/*/health_check/interval_secs").await;
+        assert!(!err.is_empty(), "an interval of 0 is refused inline");
+        c.ui.shot("health-check-custom-invalid").await;
+        c.ui.fill("#f-services-web-health-check-interval-secs", "5")
+            .await;
+        row_clean(c, "services/*/health_check/interval_secs").await;
+        c.ui.shot("health-check-custom").await;
+
+        let client = "[data-schema='services/*/clients']";
+        c.ui.click(&format!("{client} [data-remove]")).await;
+        c.ui.wait_for("[data-testid=form-problems]", SECS).await;
+        c.ui.shot("no-client-is-a-problem").await;
+        c.ui.fill("#f-services-web-clients", "off").await;
+        focus(c, "f-services-web-clients").await;
+        assert_eq!(
+            c.ui.count(&format!("{client} [data-option]")).await,
+            1,
+            "typing filters the clients"
+        );
+        c.ui.shot("picker-filtered").await;
+        c.ui.fill("#f-services-web-clients", "ho").await;
+        focus(c, "f-services-web-clients").await;
+        c.ui.press("#f-services-web-clients", "Enter").await;
+        c.ui.wait_for(&format!("{client} [data-chip=home]"), SECS)
+            .await;
+        wait_checked(c).await;
+        c.ui.click("[data-testid=save]").await;
+        open_review(c, "review-of-the-editors").await;
+        applied(c, "editors-applied").await;
+        let text = c.world.config();
+        assert!(
+            text.contains(&format!("bind: 127.0.0.1:{public}")),
+            "{text}"
+        );
+        assert!(text.contains("interval_secs: 5"), "{text}");
+
+        c.ui.nav("/settings").await;
+        c.ui.wait_for("[data-server-address]", SECS).await;
+        click_js(c, "[data-server-address] input[value=host]").await;
+        c.ui.fill("#f-public-address", "bad host").await;
+        let err = row_error(c, "public_address").await;
+        assert!(!err.is_empty(), "a host with a space is refused inline");
+        c.ui.shot("server-address-invalid").await;
+        click_js(c, "[data-server-address] input[value=wss]").await;
+        c.ui.fill("#f-public-address", "tunnel.example.net/burrow")
+            .await;
+        row_clean(c, "public_address").await;
+        c.ui.shot("server-address-wss").await;
+        click_js(c, "[data-server-address] input[value=host]").await;
+        c.ui.fill("#f-public-address", "tunnel.example.net").await;
+        row_clean(c, "public_address").await;
+        open_review(c, "review-of-the-server-address").await;
+        applied(c, "server-address-applied").await;
+        let text = c.world.config();
+        assert!(
+            text.contains("public_address: tunnel.example.net"),
+            "{text}"
+        );
+        c.ui.assert_no_errors();
+    })
+}
+
+#[test]
+fn the_address_health_check_and_picker_editors_check_input_and_write_yaml() {
+    run("editors", Options::default(), false, editors);
 }
 
 fn conflict(c: &mut Ctx) -> Flow<'_> {
@@ -240,11 +436,21 @@ fn lockout(c: &mut Ctx) -> Flow<'_> {
             .await;
         c.ui.nav("/services/web?tab=settings").await;
         c.ui.wait_for("[data-testid=detail]", SECS).await;
-        assert_eq!(
-            c.ui.count("[data-editor]").await,
-            0,
-            "no editors for read access"
+        assert!(
+            c.ui.count("[data-editor]").await > 0,
+            "read access sees the controls in their read-only look"
         );
+        assert_eq!(
+            c.ui.count("[data-editor]:not([inert])").await,
+            0,
+            "every control is inert for read access"
+        );
+        c.ui.wait_text(
+            "[data-testid=save-bar]",
+            "Read-only: changes need write admin",
+            SECS,
+        )
+        .await;
         assert!(
             !c.ui.enabled("[data-testid=edit]").await,
             "Edit is disabled for read access"
@@ -252,7 +458,10 @@ fn lockout(c: &mut Ctx) -> Flow<'_> {
         c.ui.click("[data-testid=more]").await;
         assert_eq!(c.ui.count("[data-testid=delete]").await, 0);
         c.ui.nav("/services").await;
-        assert_eq!(c.ui.count("[data-testid=new]").await, 0);
+        assert!(
+            !c.ui.enabled("[data-testid=new]").await,
+            "+ is disabled for read access"
+        );
         c.ui.shot("viewer-cannot-edit").await;
         c.ui.take_errors();
     })
@@ -318,12 +527,11 @@ fn revert(c: &mut Ctx) -> Flow<'_> {
         applied(c, "changed").await;
         let rev = activity_rev(c, 0).await;
         c.ui.shot("activity-with-the-change").await;
-        c.ui.click(&format!("[data-row='{rev}'] [data-action=view]"))
+        c.ui.click(&format!("[data-row='{rev}'] [data-testid=list-row]"))
             .await;
         c.ui.wait_for("[data-testid=activity-diff]", SECS).await;
         c.ui.shot("diff-of-a-version").await;
-        c.ui.click(&format!("[data-row='{rev}'] [data-action=revert]"))
-            .await;
+        c.ui.click("[data-testid=revert]").await;
         c.ui.wait_for("[data-testid=review]", SECS).await;
         c.ui.shot("review-of-the-revert").await;
         applied(c, "reverted").await;
@@ -364,8 +572,9 @@ fn revert_refused(c: &mut Ctx) -> Flow<'_> {
         c.ui.wait_text("[data-testid=conn-pill]", "Connected", SECS)
             .await;
         let rev = activity_rev(c, 0).await;
-        c.ui.click(&format!("[data-row='{rev}'] [data-action=revert]"))
+        c.ui.click(&format!("[data-row='{rev}'] [data-testid=list-row]"))
             .await;
+        c.ui.click("[data-testid=revert]").await;
         refused(c, "self-demoted", "revert-refused-by-the-guard").await;
         c.ui.take_errors();
     })
@@ -386,13 +595,15 @@ fn revert_conflict(c: &mut Ctx) -> Flow<'_> {
         open_review(c, "a-change").await;
         applied(c, "changed").await;
         let rev = activity_rev(c, 0).await;
-        c.ui.click(&format!("[data-row='{rev}'] [data-action=revert]"))
+        c.ui.click(&format!("[data-row='{rev}'] [data-testid=list-row]"))
             .await;
+        c.ui.click("[data-testid=revert]").await;
         c.ui.wait_for("[data-testid=apply]:not([disabled])", SECS)
             .await;
         c.ui.shot("revert-reviewed").await;
         c.world
             .hand_edit(|t| t.replace("target: 4002", "target: 4003"));
+        c.ui.wait_for("[data-testid=banner-changed]", SECS).await;
         c.ui.click("[data-testid=apply]").await;
         c.ui.wait_for("[data-testid=conflict]", SECS).await;
         c.ui.shot("revert-against-a-changed-file").await;

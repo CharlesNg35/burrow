@@ -1,8 +1,6 @@
 use burrow_admin_logic::changeset::{get, ops_between};
-use burrow_admin_logic::rates::{human_bits, human_bytes};
-use burrow_admin_logic::tree::{entity_of, referrers};
+use burrow_admin_logic::rates::human_bits;
 use burrow_admin_proto::Path;
-use burrow_admin_proto::schema::Entity;
 use burrow_admin_proto::serde_json::Value;
 use burrow_admin_proto::value::as_secret;
 use burrow_ui_kit::{
@@ -20,14 +18,6 @@ use crate::screens::paths::{self, Problems, clients_of, online};
 use crate::screens::{DetailPane, ListPane, Row, master_detail, wide};
 use crate::store::store;
 
-fn entity(section: &str) -> Entity {
-    match section {
-        "clients" => Entity::Client,
-        "visitors" => Entity::Visitor,
-        _ => Entity::Service,
-    }
-}
-
 fn plural(section: &str) -> &'static str {
     match section {
         "clients" => "Clients",
@@ -44,7 +34,7 @@ fn secrets(v: &Value) -> usize {
     }
 }
 
-fn rows_for(section: &str) -> Vec<Row> {
+pub fn rows_for(section: &str) -> Vec<Row> {
     let s = store();
     let (draft, base) = s.edit.draft.with(|d| (d.draft().clone(), d.base().clone()));
     let status = s.status.get();
@@ -80,45 +70,50 @@ fn rows_for(section: &str) -> Vec<Row> {
                             .collect()
                     })
                     .unwrap_or_default();
-                let since = c
+                let uptime = status.as_ref().map(|s| s.uptime_secs).unwrap_or(0);
+                let serves = if served.is_empty() {
+                    "no services".to_string()
+                } else {
+                    served.join(", ")
+                };
+                let host = c
                     .as_ref()
-                    .map(|c| match (c.connected_secs, c.left_secs_ago) {
-                        (Some(x), _) => format!("for {}", format::span(x)),
-                        (None, left) => {
-                            format::left(left, status.as_ref().map(|s| s.uptime_secs).unwrap_or(0))
-                        }
-                    });
+                    .and_then(|c| c.from.clone())
+                    .map(|f| f.rsplit_once(':').map(|(h, _)| h.to_string()).unwrap_or(f))
+                    .unwrap_or_default();
+                let left = c.as_ref().and_then(|c| c.left_secs_ago);
                 Row {
                     key: name.clone(),
                     to,
                     icon: "monitor",
                     dot: Some(if on { Tone::Success } else { Tone::Neutral }),
                     title: name.clone(),
-                    meta: c
-                        .as_ref()
-                        .map(|c| format!("{} open", c.open))
-                        .unwrap_or_default(),
+                    meta: match (&c, on) {
+                        (Some(c), true) => format!("{} open", c.open),
+                        (Some(_), false) => {
+                            left.map(format::ago).unwrap_or_else(|| "not seen".into())
+                        }
+                        (None, _) => String::new(),
+                    },
                     line2: if on {
                         format!(
-                            "{} · {}",
-                            c.as_ref().and_then(|c| c.from.clone()).unwrap_or_default(),
-                            since.unwrap_or_default()
+                            "{host} · for {} · {serves}",
+                            format::span(c.as_ref().and_then(|c| c.connected_secs).unwrap_or(0))
                         )
+                    } else if pending.is_some() {
+                        "Draft · not applied yet".into()
                     } else {
-                        since.unwrap_or_else(|| "offline".into())
+                        format!("offline · {serves}")
                     },
-                    tags: if !on && status.is_some() {
-                        vec![(
-                            format::away_badge(c.as_ref().and_then(|c| c.left_secs_ago))
-                                .to_string(),
-                            Tone::Neutral,
-                        )]
+                    line3: if on {
+                        format!(
+                            "{} idle channels",
+                            c.as_ref().map(|c| c.idle_channels).unwrap_or(0)
+                        )
+                    } else if status.is_some() && pending.is_none() {
+                        format::left(left, uptime)
                     } else {
-                        served
-                            .iter()
-                            .take(3)
-                            .map(|n| (n.clone(), Tone::Neutral))
-                            .collect()
+                        String::new()
                     },
                     group: if on {
                         "Online".into()
@@ -127,7 +122,7 @@ fn rows_for(section: &str) -> Vec<Row> {
                     },
                     pending,
                     filters: vec![if on { "online" } else { "offline" }],
-                    actions: Vec::new(),
+                    ..Row::default()
                 }
             }
             "visitors" => {
@@ -137,20 +132,6 @@ fn rows_for(section: &str) -> Vec<Row> {
                     .cloned();
                 let open = st.as_ref().map(|x| x.open).unwrap_or(0);
                 let admin = v.get("admin").map(plain);
-                let mut tags = Vec::new();
-                if open > 0 {
-                    tags.push(("active".to_string(), Tone::Success));
-                }
-                if let Some(a) = &admin {
-                    tags.push((
-                        format!("admin · {a}"),
-                        if a == "write" {
-                            Tone::Danger
-                        } else {
-                            Tone::Accent
-                        },
-                    ));
-                }
                 let mut filters = vec![];
                 if admin.is_some() {
                     filters.push("admins");
@@ -158,29 +139,70 @@ fn rows_for(section: &str) -> Vec<Row> {
                 if open > 0 {
                     filters.push("active");
                 }
+                let may: Vec<String> = draft
+                    .get("services")
+                    .and_then(Value::as_object)
+                    .map(|m| {
+                        m.iter()
+                            .filter(|(_, x)| {
+                                x.get("visitors")
+                                    .and_then(Value::as_array)
+                                    .is_some_and(|a| {
+                                        a.iter().any(|y| y.as_str() == Some(name.as_str()))
+                                    })
+                            })
+                            .map(|(n, _)| n.clone())
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let reach: Vec<String> = v
+                    .get("reach")
+                    .and_then(Value::as_object)
+                    .map(|m| m.keys().cloned().collect())
+                    .unwrap_or_default();
+                let mut line2 = if may.is_empty() {
+                    "no services".to_string()
+                } else {
+                    may.join(", ")
+                };
+                if !reach.is_empty() {
+                    line2.push_str(&format!(" · reach: {}", reach.join(", ")));
+                }
                 Row {
                     key: name.clone(),
                     to,
-                    icon: if admin.is_some() { "shield" } else { "person" },
+                    icon: "person",
                     dot: None,
                     title: name.clone(),
+                    title_tag: admin.map(|a| {
+                        (
+                            a.clone(),
+                            if a == "write" {
+                                Tone::Danger
+                            } else {
+                                Tone::Accent
+                            },
+                        )
+                    }),
                     meta: format!("{open} open"),
-                    line2: format!(
-                        "{} · {} total",
-                        admin
-                            .map(|a| format!("admin · {a}"))
-                            .unwrap_or_else(|| "visitor".into()),
-                        st.as_ref().map(|x| x.total).unwrap_or(0)
+                    line2,
+                    tags: if open > 0 {
+                        vec![("active".to_string(), Tone::Success)]
+                    } else {
+                        Vec::new()
+                    },
+                    aside: format!(
+                        "{} total",
+                        format::count(st.as_ref().map(|x| x.total).unwrap_or(0))
                     ),
-                    tags,
                     group: if open > 0 {
                         "Active".into()
                     } else {
-                        "Not active".into()
+                        "Idle".into()
                     },
                     pending,
                     filters,
-                    actions: Vec::new(),
+                    ..Row::default()
                 }
             }
             _ => {
@@ -206,13 +228,14 @@ fn rows_for(section: &str) -> Vec<Row> {
                     },
                 )];
                 if up == 0 && status.is_some() {
-                    tags.push(("Down".into(), Tone::Danger));
+                    tags.push(("✕ Down".into(), Tone::Danger));
                 } else if let Some((u, n)) = health_up.filter(|(u, n)| *n > 0 && u < n) {
-                    tags.push((format!("{u} of {n} up"), Tone::Warning));
+                    tags.push((format!("⚠ {u} of {n} up"), Tone::Warning));
                 }
-                if let Some(x) = &st {
-                    tags.push((format!("{} total", format::count(x.total)), Tone::Neutral));
-                }
+                let aside = st
+                    .as_ref()
+                    .map(|x| format!("{} total", format::count(x.total)))
+                    .unwrap_or_default();
                 let r = rates.service(name);
                 let _ = r;
                 Row {
@@ -242,6 +265,7 @@ fn rows_for(section: &str) -> Vec<Row> {
                         plain(v.get("target").unwrap_or(&Value::Null))
                     ),
                     tags,
+                    aside,
                     group: if problem {
                         "Problems".into()
                     } else {
@@ -253,6 +277,7 @@ fn rows_for(section: &str) -> Vec<Row> {
                         if protocol == "udp" { "udp" } else { "tcp" },
                     ],
                     actions: Vec::new(),
+                    ..Row::default()
                 }
             }
         };
@@ -273,6 +298,7 @@ fn rows_for(section: &str) -> Vec<Row> {
             pending: None,
             filters: Vec::new(),
             actions: Vec::new(),
+            ..Row::default()
         });
     }
     out
@@ -290,20 +316,19 @@ pub fn Entities(section: String, selected: Option<String>) -> impl IntoView {
         route::replace(first.to);
     }
     let adding = RwSignal::new(false);
+    {
+        let sec = section.clone();
+        Effect::new(move |_| {
+            if s.creating.get().as_deref() == Some(sec.as_str()) {
+                s.creating.set(None);
+                adding.set(true);
+            }
+        });
+    }
     let what = singular(&section);
-    let sec2 = section.clone();
     let count = Signal::derive(move || {
-        let r = rows.get();
-        let live: Vec<&Row> = r.iter().filter(|x| x.icon != "trash").collect();
-        if sec2 == "clients" {
-            format!(
-                "{}/{}",
-                live.iter().filter(|x| x.group == "Online").count(),
-                live.len()
-            )
-        } else {
-            live.len().to_string()
-        }
+        rows.with(|r| r.iter().filter(|x| x.icon != "trash").count())
+            .to_string()
     });
     let (filters, groups): (Vec<(&'static str, String)>, Vec<&'static str>) = match section.as_str()
     {
@@ -321,7 +346,7 @@ pub fn Entities(section: String, selected: Option<String>) -> impl IntoView {
                 ("admins", "Admins".into()),
                 ("active", "Active".into()),
             ],
-            vec!["Active", "Not active"],
+            vec!["Active", "Idle"],
         ),
         _ => (
             vec![
@@ -334,64 +359,88 @@ pub fn Entities(section: String, selected: Option<String>) -> impl IntoView {
             vec!["Problems", "Healthy"],
         ),
     };
+    let draft_name = RwSignal::new(String::new());
+    let shown_rows = {
+        let what = what.to_string();
+        Signal::derive(move || {
+            let mut r = rows.get();
+            if adding.get() {
+                let n = draft_name.get();
+                r.insert(
+                    0,
+                    Row {
+                        key: "__new".into(),
+                        to: route::current(),
+                        icon: if what == "client" {
+                            "monitor"
+                        } else if what == "visitor" {
+                            "person"
+                        } else {
+                            "services"
+                        },
+                        dot: Some(Tone::Accent),
+                        title: if n.is_empty() {
+                            format!("new {what}")
+                        } else {
+                            n
+                        },
+                        meta: "new".into(),
+                        line2: "Draft · not applied yet".into(),
+                        ..Row::default()
+                    },
+                );
+            }
+            r
+        })
+    };
     let sel = selected.clone();
+    let selected_sig = Signal::derive(move || {
+        if adding.get() {
+            Some("__new".to_string())
+        } else {
+            sel.clone()
+        }
+    });
+    let can = s.can_write_now();
     let list = view! {
         <ListPane
             title=plural(&section)
             count=count
             new_label=format!("New {what}")
             on_new=Callback::new(move |_| adding.set(true))
+            new_disabled=!can
             search_label=format!("Search {}", section)
             filters=filters
             groups=groups
-            rows=rows
-            selected=Signal::stored(sel)
+            rows=shown_rows
+            selected=selected_sig
             empty=(format!("No {} yet", section), format!("Add the first {what} with the + button."))
             testid="entity-list"
         />
     }
     .into_any();
-    let list = if s.can_write_now() {
-        list
-    } else {
-        let sel = selected.clone();
-        view! {
-            <ListPane
-                title=plural(&section)
-                count=count
-                search_label=format!("Search {}", section)
-                filters=match section.as_str() {
-                    "clients" => vec![("all", "All".into()), ("online", "Online".into()), ("offline", "Offline".into())],
-                    "visitors" => vec![("all", "All".into()), ("admins", "Admins".into()), ("active", "Active".into())],
-                    _ => vec![("all", "All".into()), ("public", "Public".into()), ("private", "Private".into()), ("tcp", "TCP".into()), ("udp", "UDP".into())],
-                }
-                groups=match section.as_str() {
-                    "clients" => vec!["Online", "Offline"],
-                    "visitors" => vec!["Active", "Not active"],
-                    _ => vec!["Problems", "Healthy"],
-                }
-                rows=rows
-                selected=Signal::stored(sel)
-                testid="entity-list"
-            />
-        }
-        .into_any()
-    };
     let pick = format!("Pick one of the {} on the left", section);
     let sec_new = section.clone();
-    let detail = match selected {
-        Some(name) => view! { <Detail section=section.clone() name=name/> }.into_any(),
-        None => view! {
-            <DetailPane>
-                <EmptyState icon="services" title=pick message="Or add a new one."/>
-            </DetailPane>
-        }
-        .into_any(),
-    };
-    view! {
-        <NewEntity section=sec_new open=adding/>
-        {master_detail(list, detail)}
+    let sel_name = selected.clone();
+    let detail = view! {
+        {move || {
+            let (sec, pick) = (sec_new.clone(), pick.clone());
+            if adding.get() {
+                return view! { <DetailPane><NewEntity section=sec open=adding draft_name=draft_name/></DetailPane> }.into_any();
+            }
+            match sel_name.clone() {
+                Some(name) => view! { <Detail section=sec name=name/> }.into_any(),
+                None => view! {
+                    <DetailPane>
+                        <EmptyState icon="services" title=pick message="Or add a new one."/>
+                    </DetailPane>
+                }
+                .into_any(),
+            }
+        }}
     }
+    .into_any();
+    master_detail(list, detail)
 }
 
 fn problems_for(path: &Path) -> Problems {
@@ -459,10 +508,18 @@ fn Detail(section: String, name: String) -> impl IntoView {
     };
     let fresh = e
         .draft
-        .with_untracked(|d| get(d.base(), &path).is_none() && get(d.draft(), &path).is_some());
+        .with_untracked(|d| get(d.base(), &path).is_none() && get(d.draft(), &path).is_some())
+        && crate::secrets::revealed_for(&section, &name).is_none();
     let editing = RwSignal::new(fresh && s.can_write_now());
+    Effect::new(move |_| {
+        let on = editing.get();
+        let _ = s.editing.try_set(on);
+    });
+    on_cleanup(move || {
+        let _ = s.editing.try_set(false);
+    });
     let snapshot: RwSignal<Option<Value>> = RwSignal::new(None);
-    let mode = EditMode(editing.into());
+    let read_only = !s.can_write_now();
     let tab: RwSignal<&'static str> = RwSignal::new(match route::query("tab").as_deref() {
         Some("settings") => "settings",
         Some("access") => "access",
@@ -470,14 +527,28 @@ fn Detail(section: String, name: String) -> impl IntoView {
         Some("services") => "services",
         Some("connect") => "connect",
         _ if fresh => "settings",
+        _ if crate::secrets::revealed_for(&section, &name).is_some() => "connect",
         _ => "overview",
     });
+    {
+        let (sec, nm) = (section.clone(), name.clone());
+        Effect::new(move |was: Option<bool>| {
+            let now = crate::secrets::revealed_for(&sec, &nm).is_some();
+            if now && was == Some(false) {
+                tab.set("connect");
+            }
+            now
+        });
+    }
     Effect::new(move |first: Option<()>| {
         let t = tab.get();
         if first.is_some() {
             route::set_query("tab", t);
         }
     });
+    let mode = EditMode(Signal::derive(move || {
+        editing.get() || (read_only && matches!(tab.get(), "settings" | "access"))
+    }));
     let renaming = RwSignal::new(false);
     let menu = RwSignal::new(false);
     let what = singular(&section);
@@ -569,7 +640,18 @@ fn Detail(section: String, name: String) -> impl IntoView {
                     .unwrap_or_default();
                 paths::client(&nm, &doc, status.as_deref(), &listen)
             }
-            "visitors" => paths::visitor(&nm, &doc, status.as_deref()),
+            "visitors" => {
+                let me = s.welcome.with(|w| {
+                    w.as_ref()
+                        .map(|w| (w.you.visitor.clone(), w.you.from.clone()))
+                });
+                paths::visitor(
+                    &nm,
+                    &doc,
+                    status.as_deref(),
+                    me.as_ref().map(|(a, b)| (a.as_str(), b.as_str())),
+                )
+            }
             _ => {
                 let svc = get(&doc, &[sec.clone(), nm.clone()])
                     .cloned()
@@ -598,15 +680,16 @@ fn Detail(section: String, name: String) -> impl IntoView {
                         .as_ref()
                         .and_then(|x| x.clients.iter().find(|c| c.name == nm))
                         .cloned();
+                    let up = st.as_ref().map(|s| s.uptime_secs).unwrap_or(0);
                     format!(
-                        "{edit}{}",
+                        "{edit}Client · {}",
                         match c {
                             Some(c) if c.connected => format!(
-                                "online from {} · {} open",
+                                "connected from {} for {}",
                                 c.from.unwrap_or_default(),
-                                c.open
+                                format::span(c.connected_secs.unwrap_or(0))
                             ),
-                            Some(_) => "offline".into(),
+                            Some(c) => format!("offline · {}", format::left(c.left_secs_ago, up)),
                             None => "status not known yet".into(),
                         }
                     )
@@ -616,10 +699,21 @@ fn Detail(section: String, name: String) -> impl IntoView {
                         .as_ref()
                         .and_then(|x| x.visitors.iter().find(|c| c.name == nm))
                         .cloned();
+                    let open = v.as_ref().map(|v| v.open).unwrap_or(0);
+                    let fp = doc
+                        .get("visitors")
+                        .and_then(|m| m.get(&nm))
+                        .and_then(|x| x.get("secret"))
+                        .and_then(|x| match x {
+                            Value::Array(a) => a.first().cloned(),
+                            other => Some(other.clone()),
+                        })
+                        .and_then(|x| as_secret(&x).and_then(|s| s.fp.clone()));
                     format!(
-                        "{edit}{} open · {} total",
-                        v.as_ref().map(|v| v.open).unwrap_or(0),
-                        v.as_ref().map(|v| v.total).unwrap_or(0)
+                        "{edit}Visitor · {} · {open} open · {} total{}",
+                        if open > 0 { "active" } else { "idle" },
+                        format::count(v.as_ref().map(|v| v.total).unwrap_or(0)),
+                        fp.map(|f| format!(" · secret {f}")).unwrap_or_default()
                     )
                 }
                 _ => {
@@ -658,8 +752,8 @@ fn Detail(section: String, name: String) -> impl IntoView {
     };
     let protocol_tag = {
         let (sec, nm) = (section.clone(), name.clone());
-        move || {
-            (sec == "services").then(|| {
+        move || match sec.as_str() {
+            "services" => {
                 let p = e
                     .doc()
                     .get("services")
@@ -668,8 +762,28 @@ fn Detail(section: String, name: String) -> impl IntoView {
                     .map(plain)
                     .unwrap_or_else(|| "tcp".into());
                 let tone = if p == "udp" { Tone::Udp } else { Tone::Accent };
-                view! { <span class=tag_class(tone)>{p.to_uppercase()}</span> }
-            })
+                view! { <span class=tag_class(tone)>{p.to_uppercase()}</span> }.into_any()
+            }
+            "visitors" => {
+                let admin = e
+                    .doc()
+                    .get("visitors")
+                    .and_then(|m| m.get(&nm))
+                    .and_then(|v| v.get("admin"))
+                    .map(plain);
+                let me = s
+                    .welcome
+                    .with(|w| w.as_ref().is_some_and(|w| w.you.visitor == nm));
+                view! {
+                        {admin.map(|a| {
+                            let tone = if a == "write" { Tone::Danger } else { Tone::Accent };
+                            view! { <span class=tag_class(tone)><Icon name=if a == "write" { "shield" } else { "eye" } small=true/>{format!("admin · {a}")}</span> }
+                        })}
+                        {me.then(|| view! { <span class=tag_class(Tone::Neutral) data-testid="you-tag">"you"</span> })}
+                    }
+                    .into_any()
+            }
+            _ => ().into_any(),
         }
     };
     let tabs: Vec<(&'static str, String)> = match section.as_str() {
@@ -693,6 +807,61 @@ fn Detail(section: String, name: String) -> impl IntoView {
             ("access", "Access".into()),
         ],
     };
+    let tab_counts = {
+        let (sec, nm, keys) = (
+            section.clone(),
+            name.clone(),
+            tabs.iter().map(|(k, _)| *k).collect::<Vec<_>>(),
+        );
+        Signal::derive(move || {
+            let doc = e.doc();
+            let me = doc
+                .get(&sec)
+                .and_then(|m| m.get(&nm))
+                .cloned()
+                .unwrap_or(Value::Null);
+            let list = |v: Option<&Value>| match v {
+                Some(Value::Array(a)) => a.len(),
+                Some(Value::Object(m)) => m.len(),
+                Some(Value::Null) | None => 0,
+                Some(_) => 1,
+            };
+            let served = doc
+                .get("services")
+                .and_then(Value::as_object)
+                .map(|m| m.values().filter(|v| clients_of(v).contains(&nm)).count())
+                .unwrap_or(0);
+            let may = doc
+                .get("services")
+                .and_then(Value::as_object)
+                .map(|m| {
+                    m.values()
+                        .filter(|v| {
+                            v.get("visitors")
+                                .and_then(Value::as_array)
+                                .is_some_and(|a| a.iter().any(|y| y.as_str() == Some(nm.as_str())))
+                        })
+                        .count()
+                })
+                .unwrap_or(0);
+            keys.iter()
+                .map(|k| {
+                    let n = match (sec.as_str(), *k) {
+                        (_, "secrets") => secrets(&me),
+                        ("clients", "services") => served,
+                        ("visitors", "access") => may + list(me.get("reach")),
+                        ("services", "access") => {
+                            list(me.get("visitors"))
+                                + list(me.get("allow_from"))
+                                + list(me.get("deny_from"))
+                        }
+                        _ => 0,
+                    };
+                    if n > 0 { n.to_string() } else { String::new() }
+                })
+                .collect()
+        })
+    };
     let can = s.can_write_now();
     let head_actions = {
         let start_edit = start_edit.clone();
@@ -701,16 +870,23 @@ fn Detail(section: String, name: String) -> impl IntoView {
             if editing.get() {
                 return view! { <span class=tag_class(Tone::Accent) data-testid="editing-tag"><Icon name="edit" small=true/>"Editing"</span> }.into_any();
             }
+            if crate::secrets::revealed_for(&sec, &nm).is_some() {
+                return view! { <span class=tag_class(Tone::Success) data-testid="applied-tag"><Icon name="check" small=true/>"Applied"</span> }.into_any();
+            }
             let start_edit = start_edit.clone();
             let (path, sec, nm) = (path.clone(), sec.clone(), nm.clone());
             let back = Route::List(sec.clone());
+            let connect = (sec == "clients").then(|| view! {
+                <Button label="Connect" icon="terminal" variant="secondary" testid="connect-head" on_click=move |_| tab.set("connect")/>
+            });
             view! {
+                {connect}
                 <Button
                     label="Edit"
                     icon="edit"
                     testid="edit"
                     disabled=!can
-                    reason=if can { String::new() } else { "Editing needs write admin.".to_string() }
+                    reason=if can { String::new() } else { format!("Editing needs write admin. {} has read.", s.welcome.with_untracked(|w| w.as_ref().map(|w| w.you.visitor.clone()).unwrap_or_default())) }
                     on_click=move |_| start_edit()
                 />
                 <div class="relative">
@@ -744,6 +920,10 @@ fn Detail(section: String, name: String) -> impl IntoView {
             .into_any()
         }
     };
+    let edit_cb = {
+        let start_edit = start_edit.clone();
+        Callback::new(move |_: ()| start_edit())
+    };
     let body = {
         let (sec, nm, path) = (section.clone(), name.clone(), path.clone());
         move || {
@@ -766,23 +946,56 @@ fn Detail(section: String, name: String) -> impl IntoView {
             let tab_body = move || {
                 let t = tab.get();
                 match (sec2.as_str(), t) {
-                    (_, "overview") => { let summary = object_view(&node, path2.clone(), spath.clone(), path2.clone()); view! {
-                        {overview(&sec2, &nm2, false)}
-                        <Card title="Settings" testid="settings-summary">
-                            {summary}
-                        </Card>
+                    ("visitors", "overview") => visitor_panels(&nm2).into_any(),
+                    ("clients", "overview") => {
+                        let secrets = crate::secrets::secret_list(
+                            vec![sec2.clone(), nm2.clone(), "secret".into()],
+                            "overview-secrets".into(),
+                            4,
+                        );
+                        let card = settings_card(
+                            &node,
+                            path2.clone(),
+                            spath.clone(),
+                            &["secret"],
+                            edit_cb,
+                        );
+                        view! { {secrets} {served(&nm2)} {card} }.into_any()
                     }
-                    .into_any() }
+                    (_, "overview") => {
+                        let card = settings_card(&node, path2.clone(), spath.clone(), &[], edit_cb);
+                        view! { {overview(&sec2, &nm2, false)} {card} }.into_any()
+                    }
                     ("clients", "secrets") | ("visitors", "secrets") => {
                         let p = vec![sec2.clone(), nm2.clone(), "secret".into()];
                         crate::secrets::secret_list(p, "secrets".into(), 4)
                     }
                     ("clients", "services") => served(&nm2).into_any(),
-                    (_, "connect") => view! { <crate::secrets::ConnectPanel section=sec2.clone() name=nm2.clone()/> }.into_any(),
+                    (_, "connect") => {
+                        if crate::secrets::revealed_for(&sec2, &nm2).is_some() {
+                            view! { <crate::secrets::ShownOnce section=sec2.clone() name=nm2.clone()/> }.into_any()
+                        } else {
+                            view! { <crate::secrets::ConnectPanel section=sec2.clone() name=nm2.clone()/> }.into_any()
+                        }
+                    }
                     (_, "access") => {
-                        let keep: &[&str] = if sec2 == "visitors" { &["reach", "max_connections", "admin", "admin_from"] } else { &["visitors", "allow_from", "deny_from"] };
-                        let skip: Vec<&str> = burrow_admin_logic::tree::fields(&node).iter().map(|f| f.key.as_str()).filter(|k| !keep.contains(k)).collect();
-                        crate::form::object_view_skipping(&node, path2.clone(), spath.clone(), path2.clone(), &skip)
+                        let keep: &[&str] = if sec2 == "visitors" {
+                            &["reach", "max_connections", "admin", "admin_from"]
+                        } else {
+                            &["visitors", "allow_from", "deny_from"]
+                        };
+                        let skip: Vec<&str> = burrow_admin_logic::tree::fields(&node)
+                            .iter()
+                            .map(|f| f.key.as_str())
+                            .filter(|k| !keep.contains(k))
+                            .collect();
+                        crate::form::object_view_skipping(
+                            &node,
+                            path2.clone(),
+                            spath.clone(),
+                            path2.clone(),
+                            &skip,
+                        )
                     }
                     _ => object_view(&node, path2.clone(), spath.clone(), path2.clone()),
                 }
@@ -790,8 +1003,8 @@ fn Detail(section: String, name: String) -> impl IntoView {
             let nm_p = nm.clone();
             Some(view! {
                 <PathDiagram data=path_data testid="path"/>
-                {overview(&sec, &nm, true)}
-                <Tabs tabs=tabs.clone() active=tab/>
+                <div class:max-sm:hidden=move || editing.get()>{overview(&sec, &nm, true)}</div>
+                <Tabs tabs=tabs.clone() active=tab counts=tab_counts/>
                 <div data-testid="detail-settings">
                     {move || (editing.get() && !problems.get().is_empty()).then(|| {
                         let p = problems.get();
@@ -805,7 +1018,6 @@ fn Detail(section: String, name: String) -> impl IntoView {
                     })}
                     {tab_body}
                 </div>
-                {related(&sec, &nm)}
             }
             .into_any())
         }
@@ -813,6 +1025,19 @@ fn Detail(section: String, name: String) -> impl IntoView {
     let save_bar = {
         let discard = discard.clone();
         move || {
+            if read_only && matches!(tab.get(), "settings" | "access") {
+                return Some(view! {
+                    <div class="sticky bottom-4 z-20 mt-6 flex items-center gap-3 rounded-card border border-border bg-surface px-4 py-3 shadow-overlay" data-testid="save-bar" data-sticky-bar="">
+                        <span class="flex items-center gap-1.5 text-sm text-text-muted"><Icon name="lock" small=true/>"Read-only: changes need write admin."</span>
+                        <span class="ml-auto"></span>
+                        <button type="button" class=button_class("primary", false) disabled=true data-testid="save">
+                            <Icon name="lock" small=true/>
+                            "Save to changes"
+                        </button>
+                    </div>
+                }
+                .into_any());
+            }
             editing.get().then(|| {
                 let discard = discard.clone();
                 let p = problems.get();
@@ -829,6 +1054,16 @@ fn Detail(section: String, name: String) -> impl IntoView {
                         <Button label="Save to changes" variant="primary" testid="save" disabled=bad reason=if bad { "Fix the problems first".to_string() } else { String::new() } on_click=move |_| save()/>
                     </div>
                 }
+                .into_any()
+            })
+        }
+    };
+    let title_dot = {
+        let (sec, nm) = (section.clone(), name.clone());
+        move || {
+            (sec == "clients").then(|| {
+                let on = s.status.with(|st| st.as_ref().and_then(|st| st.clients.iter().find(|c| c.name == nm)).is_some_and(|c| c.connected));
+                view! { <span class=format!("size-2.5 shrink-0 rounded-full {}", if on { "bg-success" } else { "bg-transparent ring-[1.5px] ring-text-faint ring-inset" }) aria-label=if on { "online" } else { "offline" }></span> }
             })
         }
     };
@@ -838,15 +1073,15 @@ fn Detail(section: String, name: String) -> impl IntoView {
     view! {
         <Provider value=mode>
         <DetailPane back=crumb.clone()>
-            <nav class="mb-1.5 flex gap-1.5 text-sm text-text-muted" aria-label="Breadcrumb">
+            <nav class="mb-1.5 flex gap-1.5 text-sm text-text-muted" class:max-sm:hidden=move || editing.get() aria-label="Breadcrumb">
                 <Link to=crumb class="text-text-muted no-underline hover:text-text">{plural_s}</Link>
                 <span aria-hidden="true">"/"</span>
                 <span class="font-semibold text-text">{name.clone()}</span>
                 {move || editing.get().then(|| view! { <span aria-hidden="true">"/"</span><span class="font-semibold text-text">"Edit"</span> })}
             </nav>
-            <header class="mb-[22px] flex items-start gap-3.5">
+            <header class="mb-[22px] flex items-start gap-3.5" class:max-sm:hidden=move || editing.get()>
                 <div class="min-w-0 flex-1">
-                    <h1 class="flex items-center gap-2.5 text-[25px] font-bold tracking-[-0.015em]">{name.clone()}{protocol_tag}</h1>
+                    <h1 class="flex items-center gap-2.5 text-[25px] font-bold tracking-[-0.015em]">{title_dot}{name.clone()}{protocol_tag}</h1>
                     <p class="mt-1 text-base text-text-muted" data-testid="summary">{summary}</p>
                 </div>
                 <div class="flex items-center gap-2">{head_actions}</div>
@@ -859,6 +1094,32 @@ fn Detail(section: String, name: String) -> impl IntoView {
     }
 }
 
+fn pool_range(doc: &Value) -> String {
+    let p = doc.get("pool");
+    let min = p
+        .and_then(|p| p.get("min_idle"))
+        .and_then(Value::as_u64)
+        .unwrap_or(4);
+    let max = p
+        .and_then(|p| p.get("max_idle"))
+        .and_then(Value::as_u64)
+        .unwrap_or(64);
+    format!("pool {min}–{max}")
+}
+
+fn since_date(secs: u64) -> String {
+    let at = js_sys::Date::now() - secs as f64 * 1000.0;
+    let d = js_sys::Date::new(&wasm_bindgen::JsValue::from_f64(at));
+    let months = [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ];
+    format!(
+        "since {} {:02}",
+        months[d.get_month() as usize % 12],
+        d.get_date()
+    )
+}
+
 fn overview(section: &str, name: &str, stats: bool) -> impl IntoView {
     let s = store();
     let (section, name) = (section.to_string(), name.to_string());
@@ -868,6 +1129,9 @@ fn overview(section: &str, name: &str, stats: bool) -> impl IntoView {
         let doc = s.edit.doc();
         match section.as_str() {
             "clients" => {
+                if !stats {
+                    return ().into_any();
+                }
                 let c = st
                     .as_ref()
                     .and_then(|x| x.clients.iter().find(|c| c.name == name))
@@ -877,49 +1141,57 @@ fn overview(section: &str, name: &str, stats: bool) -> impl IntoView {
                     .and_then(|m| m.get(&name))
                     .map(secrets)
                     .unwrap_or(0);
-                if !stats {
-                    return view! { <div class="mb-4">{served(&name)}</div> }.into_any();
-                }
+                let max = doc
+                    .get("clients")
+                    .and_then(|m| m.get(&name))
+                    .and_then(|v| v.get("max_connections"))
+                    .and_then(Value::as_u64)
+                    .or_else(|| {
+                        doc.get("limits")
+                            .and_then(|l| l.get("max_connections_per_client"))
+                            .and_then(Value::as_u64)
+                    })
+                    .unwrap_or(8192);
+                let connected = c.as_ref().and_then(|c| c.connected_secs);
                 view! {
                     <Stats testid="live">
-                        <Stat label="Open" value=c.as_ref().map(|c| format::count(c.open)).unwrap_or_default()/>
-                        <Stat label="Idle channels" value=c.as_ref().map(|c| c.idle_channels.to_string()).unwrap_or_default()/>
-                        <Stat label="Since" value=c.as_ref().map(|c| match (c.connected_secs, c.left_secs_ago) {
-                            (Some(x), _) => format::span(x),
-                            (None, Some(a)) => format!("left {}", format::ago(a)),
-                            _ => "—".into(),
-                        }).unwrap_or_default() detail=c.as_ref().and_then(|c| c.from.clone()).unwrap_or_default()/>
-                        <Stat label="Secrets" value=n.to_string()/>
+                        <Stat label="Open" value=c.as_ref().map(|c| format::count(c.open)).unwrap_or_else(|| "0".into()) detail=format!("max {}", format::count(max))/>
+                        <Stat label="Idle channels" value=c.as_ref().map(|c| c.idle_channels.to_string()).unwrap_or_else(|| "0".into()) detail=pool_range(&doc)/>
+                        <Stat
+                            label="Connected"
+                            value=connected.map(format::span).unwrap_or_else(|| "—".into())
+                            detail=connected.map(since_date).unwrap_or_else(|| c.as_ref().map(|c| format::left(c.left_secs_ago, st.as_ref().map(|s| s.uptime_secs).unwrap_or(0))).unwrap_or_default())
+                        />
+                        <Stat label="Secrets" value=n.to_string() unit="/ 4" detail={ if n > 1 { "rotation in progress" } else { "" } }/>
                     </Stats>
                 }
                 .into_any()
             }
-            "visitors" => {
-                let v = st
-                    .as_ref()
-                    .and_then(|x| x.visitors.iter().find(|c| c.name == name))
-                    .cloned();
-                if !stats {
-                    return ().into_any();
-                }
-                view! {
-                    <Stats testid="live">
-                        <Stat label="Open visits" value=v.as_ref().map(|v| format::count(v.open)).unwrap_or_default()/>
-                        <Stat label="Total visits" value=v.as_ref().map(|v| format::count(v.total)).unwrap_or_default()/>
-                        <Stat label="Admin" value=doc.get("visitors").and_then(|m| m.get(&name)).and_then(|v| v.get("admin")).map(plain).unwrap_or_else(|| "none".into())/>
-                        <Stat label="Secrets" value=doc.get("visitors").and_then(|m| m.get(&name)).map(secrets).unwrap_or(0).to_string()/>
-                    </Stats>
-                }
-                .into_any()
-            }
+            "visitors" => ().into_any(),
             _ => {
                 let x = st
                     .as_ref()
                     .and_then(|x| x.services.iter().find(|c| c.name == name))
                     .cloned();
-                let r = s.rates.get().service(&name);
-                let (i, iu) = human_bits(r.bytes_in);
-                let (o, ou) = human_bits(r.bytes_out);
+                if stats {
+                    let r = s.rates.get().service(&name);
+                    let (i, iu) = human_bits(r.bytes_in);
+                    let (o, ou) = human_bits(r.bytes_out);
+                    let limit = doc
+                        .get("services")
+                        .and_then(|m| m.get(&name))
+                        .and_then(|v| v.get("bandwidth"))
+                        .map(|b| format!("limit {}", plain(b)));
+                    return view! {
+                        <Stats testid="live">
+                            <Stat label="Open" value=x.as_ref().map(|x| format::count(x.open)).unwrap_or_else(|| "0".into()) detail=x.as_ref().map(|x| format!("{} total", format::count(x.total))).unwrap_or_default()/>
+                            <Stat label="In" value=i unit=iu detail=limit.clone().unwrap_or_else(|| x.as_ref().map(|x| format::bytes(x.bytes_in)).unwrap_or_default())/>
+                            <Stat label="Out" value=o unit=ou detail=limit.unwrap_or_else(|| x.as_ref().map(|x| format::bytes(x.bytes_out)).unwrap_or_default())/>
+                            <Stat label="Refused by filters" value=x.as_ref().map(|x| format::count(x.refused)).unwrap_or_else(|| "0".into()) detail="allow_from / deny_from"/>
+                        </Stats>
+                    }
+                    .into_any();
+                }
                 let svc = doc
                     .get("services")
                     .and_then(|m| m.get(&name))
@@ -938,7 +1210,7 @@ fn overview(section: &str, name: &str, stats: bool) -> impl IntoView {
                         view! {
                             <tr data-row=c.clone()>
                                 <th scope="row"><StatusDot on=on text=label/></th>
-                                <td class="font-mono text-text-muted">{cs.and_then(|y| y.from).unwrap_or_else(|| "offline".into())}</td>
+                                <td class="font-mono text-[13px] text-text-muted">{cs.and_then(|y| y.from).unwrap_or_else(|| "offline".into())}</td>
                                 <td>{match h {
                                     Some(true) => view! { <span class=tag_class(Tone::Success)>"up"</span> }.into_any(),
                                     Some(false) => view! { <span class=tag_class(Tone::Danger)>"down"</span> }.into_any(),
@@ -949,26 +1221,17 @@ fn overview(section: &str, name: &str, stats: bool) -> impl IntoView {
                         }
                     })
                     .collect_view();
-                if stats {
-                    return view! {
-                        <Stats testid="live">
-                            <Stat label="Open" value=x.as_ref().map(|x| format::count(x.open)).unwrap_or_else(|| "0".into()) detail=x.as_ref().map(|x| format!("{} total", format::count(x.total))).unwrap_or_default()/>
-                            <Stat label="In" value=i unit=iu detail=x.as_ref().map(|x| format::bytes(x.bytes_in)).unwrap_or_default()/>
-                            <Stat label="Out" value=o unit=ou detail=x.as_ref().map(|x| format::bytes(x.bytes_out)).unwrap_or_default()/>
-                            <Stat label="Refused by filters" value=x.as_ref().map(|x| format::count(x.refused)).unwrap_or_else(|| "0".into()) detail="allow_from / deny_from"/>
-                        </Stats>
+                let mode = match (
+                    clients_of(&svc).len() > 1,
+                    svc.get("mode").map(plain).as_deref(),
+                ) {
+                    (true, Some("balance")) => {
+                        "balance · new connections spread over healthy clients".to_string()
                     }
-                    .into_any();
-                }
-                let mode = if clients_of(&svc).len() > 1 {
-                    format!(
-                        "{} · new connections go to healthy clients",
-                        svc.get("mode")
-                            .map(plain)
-                            .unwrap_or_else(|| "failover".into())
-                    )
-                } else {
-                    String::new()
+                    (true, _) => {
+                        "failover · the first healthy client takes new connections".to_string()
+                    }
+                    _ => String::new(),
                 };
                 view! {
                     <div class="mb-4">
@@ -980,6 +1243,158 @@ fn overview(section: &str, name: &str, stats: bool) -> impl IntoView {
                 .into_any()
             }
         }
+    }
+}
+
+fn settings_card(
+    node: &burrow_admin_proto::schema::Node,
+    path: Path,
+    spath: Path,
+    skip: &[&str],
+    on_edit: Callback<()>,
+) -> AnyView {
+    let facts = crate::form::facts(node, path, spath, skip);
+    let can = store().can_write_now();
+    view! {
+        <section class="mb-4 rounded-card border border-border bg-surface" data-testid="settings-summary">
+            <div class="flex min-h-12 items-center gap-3 border-b border-border px-4 py-3">
+                <h2 class="text-[13.5px] font-bold">"Settings"</h2>
+                {can.then(|| view! {
+                    <button type="button" class="ml-auto cursor-pointer text-[13px] font-semibold text-accent-ink hover:underline" data-testid="settings-edit" on:click=move |_| on_edit.run(())>"Edit"</button>
+                })}
+            </div>
+            {facts}
+        </section>
+    }
+    .into_any()
+}
+
+fn visitor_panels(name: &str) -> impl IntoView {
+    let s = store();
+    let name = name.to_string();
+    move || {
+        let doc = s.edit.doc();
+        let st = s.status.get();
+        let v = doc
+            .get("visitors")
+            .and_then(|m| m.get(&name))
+            .cloned()
+            .unwrap_or(Value::Null);
+        let level = v.get("admin").map(plain);
+        let from: Vec<String> = v
+            .get("admin_from")
+            .and_then(Value::as_array)
+            .map(|a| a.iter().map(plain).collect())
+            .unwrap_or_default();
+        let may: Vec<(String, Option<bool>)> = doc
+            .get("services")
+            .and_then(Value::as_object)
+            .map(|m| {
+                m.iter()
+                    .filter(|(_, x)| {
+                        x.get("visitors")
+                            .and_then(Value::as_array)
+                            .is_some_and(|a| a.iter().any(|y| y.as_str() == Some(name.as_str())))
+                    })
+                    .map(|(n, x)| {
+                        let up = st.as_ref().map(|st| {
+                            clients_of(x)
+                                .iter()
+                                .any(|c| st.clients.iter().any(|y| &y.name == c && y.connected))
+                        });
+                        (n.clone(), up)
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let reach: Vec<(String, Value)> = v
+            .get("reach")
+            .and_then(Value::as_object)
+            .map(|m| m.iter().map(|(k, x)| (k.clone(), x.clone())).collect())
+            .unwrap_or_default();
+        let level_view = match level.as_deref() {
+            Some("write") => view! { <span class=tag_class(Tone::Danger)>"write"</span><span class="ml-2">"may change the whole server config"</span> }.into_any(),
+            Some("read") => view! { <span class=tag_class(Tone::Accent)>"read"</span><span class="ml-2">"may see everything, with secrets as fingerprints"</span> }.into_any(),
+            _ => view! { <span class="text-text-muted">"none: no admin access"</span> }.into_any(),
+        };
+        let from_view = if from.is_empty() {
+            view! { <span class="text-text-muted">"any address"</span> }.into_any()
+        } else {
+            from.into_iter()
+                .map(|c| {
+                    let size = crate::domain::cidr_size(&c);
+                    view! { <span class="mr-1.5 inline-flex h-[26px] items-center gap-1.5 rounded-sm bg-surface-3 px-2 font-mono text-[12.5px] font-semibold ring-1 ring-border ring-inset">{c}<span class="font-sans text-[11px] font-normal text-text-muted">{size}</span></span> }
+                })
+                .collect_view()
+                .into_any()
+        };
+        let chips = if may.is_empty() {
+            view! { <p class="px-4 py-3 text-sm text-text-muted">"No private services name this visitor."</p> }.into_any()
+        } else {
+            view! {
+                <div class="flex flex-wrap gap-2 px-4 py-3">
+                    {may.into_iter().map(|(n, up)| {
+                        let dot = match up {
+                            Some(true) => "bg-success",
+                            Some(false) => "bg-transparent ring-[1.5px] ring-text-faint ring-inset",
+                            None => "bg-text-faint",
+                        };
+                        view! {
+                            <Link to=Route::Detail("services".into(), n.clone()) class="inline-flex h-[26px] items-center gap-1.5 rounded-sm bg-surface-3 px-2 text-[12.5px] font-semibold text-text no-underline ring-1 ring-border ring-inset">
+                                <span class=format!("size-2 rounded-full {dot}") aria-hidden="true"></span>
+                                {n.clone()}
+                            </Link>
+                        }
+                    }).collect_view()}
+                </div>
+            }
+            .into_any()
+        };
+        let direct = (!reach.is_empty()).then(|| {
+            let rows = reach
+                .into_iter()
+                .map(|(c, rules)| {
+                    let on = st.as_ref().is_some_and(|st| st.clients.iter().any(|y| y.name == c && y.connected));
+                    let rules_view = match &rules {
+                        Value::Array(a) => a
+                            .iter()
+                            .map(|r| view! { <span class="mr-1.5 inline-flex h-[26px] items-center rounded-sm bg-surface-3 px-2 font-mono text-[12.5px] font-semibold ring-1 ring-border ring-inset">{plain(r)}</span> })
+                            .collect_view()
+                            .into_any(),
+                        other => view! { <span class=tag_class(Tone::Warning)>{format!("{} target", plain(other))}</span> }.into_any(),
+                    };
+                    let label = c.clone();
+                    view! {
+                        <tr data-row=c.clone()>
+                            <th scope="row"><StatusDot on=on text=label/></th>
+                            <td>{rules_view}</td>
+                        </tr>
+                    }
+                })
+                .collect_view();
+            view! {
+                <div class="mb-4">
+                    <Card title="Direct access" flush=true testid="direct-access" head=std::sync::Arc::new(|| view! { <span>"reach"</span> }.into_any()) as ChildrenFn>
+                        <Table head=vec!["Client", "Rules"]>{rows}</Table>
+                    </Card>
+                </div>
+            }
+        });
+        view! {
+            <section class="mb-4 rounded-card border border-border bg-surface" data-testid="admin-access">
+                <div class="border-b border-border px-4 py-3"><h2 class="text-[13.5px] font-bold">"Admin access"</h2></div>
+                <div class="px-4 py-1">
+                    <div class="grid grid-cols-[170px_minmax(0,1fr)] items-center gap-4 border-b border-rowline py-2.5 text-[13.5px]"><span class="text-text-muted">"Level"</span><span>{level_view}</span></div>
+                    <div class="grid grid-cols-[170px_minmax(0,1fr)] items-center gap-4 py-2.5 text-[13.5px]"><span class="text-text-muted">"Admin from"</span><span>{from_view}</span></div>
+                </div>
+            </section>
+            <section class="mb-4 rounded-card border border-border bg-surface" data-testid="may-use">
+                <div class="border-b border-border px-4 py-3"><h2 class="text-[13.5px] font-bold">"Services it may use"</h2></div>
+                {chips}
+            </section>
+            {direct}
+        }
+        .into_any()
     }
 }
 
@@ -1000,66 +1415,42 @@ fn served(name: &str) -> impl IntoView {
             })
             .unwrap_or_default();
         if rows.is_empty() {
-            return view! { <EmptyState title="Serves no services" message="Pick this client in a service to publish one of its ports."/> }.into_any();
+            return view! { <div class="mb-4"><EmptyState title="Serves no services" message="Pick this client in a service to publish one of its ports."/></div> }.into_any();
         }
-        let rates = s.rates.get();
         view! {
-            <Card flush=true testid="served">
-                <Table head=vec!["Service", "Public", "Target", "Open", "In"]>
-                    {rows.into_iter().map(|(n, v)| {
-                        let x = st.as_ref().and_then(|x| x.services.iter().find(|c| c.name == n)).cloned();
-                        let label = n.clone();
-                        view! {
-                            <tr>
-                                <th scope="row"><Link to=Route::Detail("services".into(), n.clone()) class="font-semibold text-text no-underline hover:underline">{label}</Link></th>
-                                <td class="font-mono">{v.get("bind").map(plain).unwrap_or_else(|| "private".into())}</td>
-                                <td class="font-mono text-text-muted">{v.get("target").map(plain).unwrap_or_default()}</td>
-                                <td class="text-right tabular-nums">{x.map(|x| x.open).unwrap_or(0)}</td>
-                                <td class="text-right tabular-nums">{human_bytes(rates.service(&n).bytes_in)}</td>
-                            </tr>
-                        }
-                    }).collect_view()}
-                </Table>
-            </Card>
+            <div class="mb-4">
+                <Card title="Services it serves" flush=true testid="served">
+                    <Table head=vec!["Service", "_", "Public", "Target", ">Open", "_Health"]>
+                        {rows.into_iter().map(|(n, v)| {
+                            let x = st.as_ref().and_then(|x| x.services.iter().find(|c| c.name == n)).cloned();
+                            let protocol = v.get("protocol").map(plain).unwrap_or_else(|| "tcp".into());
+                            let up = st.as_ref().map(|st| clients_of(&v).iter().filter(|c| st.clients.iter().any(|y| &y.name == *c && y.connected)).count());
+                            let failing = x.as_ref().map(|x| x.health.iter().filter(|h| !h.up).count()).unwrap_or(0);
+                            let health = match up {
+                                None => view! { <span class="text-text-faint">"—"</span> }.into_any(),
+                                Some(0) => view! { <span class=tag_class(Tone::Danger)><Icon name="x" small=true/>"Down"</span> }.into_any(),
+                                Some(_) if failing > 0 => view! { <span class=tag_class(Tone::Warning)><Icon name="alert" small=true/>{format!("{failing} failing")}</span> }.into_any(),
+                                Some(_) => view! { <span class=tag_class(Tone::Success)><Icon name="check" small=true/>"Healthy"</span> }.into_any(),
+                            };
+                            let label = n.clone();
+                            view! {
+                                <tr data-row=n.clone()>
+                                    <th scope="row"><Link to=Route::Detail("services".into(), n.clone()) class="font-semibold text-text no-underline hover:underline">{label}</Link></th>
+                                    <td><span class=tag_class(if protocol == "udp" { Tone::Udp } else { Tone::Accent })>{protocol.to_uppercase()}</span></td>
+                                    <td>{match v.get("bind").filter(|b| !b.is_null()) {
+                                        Some(b) => view! { <span class="font-mono text-[13px]">{plain(b)}</span> }.into_any(),
+                                        None => view! { <span class="font-mono text-[13px] text-text-faint">"private"</span> }.into_any(),
+                                    }}</td>
+                                    <td class="font-mono text-[13px] text-text-muted">{format!("→ {}", v.get("target").map(plain).unwrap_or_default())}</td>
+                                    <td class="text-right tabular-nums">{x.map(|x| x.open).unwrap_or(0)}</td>
+                                    <td>{health}</td>
+                                </tr>
+                            }
+                        }).collect_view()}
+                    </Table>
+                </Card>
+            </div>
         }
         .into_any()
-    }
-}
-
-fn related(section: &str, name: &str) -> impl IntoView {
-    let s = store();
-    let (section, name) = (section.to_string(), name.to_string());
-    move || {
-        s.edit.draft.track();
-        let c = crate::form::ctx_now()?;
-        let refs = referrers(&c.schema, &c.doc, &entity(&section), &name);
-        let title = match section.as_str() {
-            "clients" => "Used by",
-            "visitors" => "Services it may use",
-            _ => "Referred to by",
-        };
-        let items = refs
-            .into_iter()
-            .filter_map(|(owner, field)| {
-                let (info, n) = entity_of(&c.schema, &owner)?;
-                let sec = info.path.first()?.clone();
-                let label = format!("{} {n}", info.label.to_lowercase());
-                Some(view! {
-                    <li class="flex items-center gap-2">
-                        <Link to=Route::Detail(sec, n.clone()) class="font-semibold text-text no-underline hover:underline">{label}</Link>
-                        <span class="font-mono text-xs text-text-faint">{field}</span>
-                    </li>
-                })
-            })
-            .collect::<Vec<_>>();
-        (!items.is_empty()).then(|| {
-            view! {
-                <div class="mt-6">
-                    <Card title=title testid="detail-related">
-                        <ul class="space-y-1.5">{items}</ul>
-                    </Card>
-                </div>
-            }
-        })
     }
 }

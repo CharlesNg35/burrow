@@ -211,6 +211,13 @@ fn rotation(c: &mut Ctx) -> Flow<'_> {
         c.world.wait_client("home", true);
         assert!(c.world.client_online("home"), "home stays online");
         c.ui.shot("old-secret-removed").await;
+        let text = c.world.config();
+        assert!(
+            text.contains("# the home box")
+                && text.contains("# keep this comment")
+                && text.contains("# the admin"),
+            "removing a secret keeps the comments:\n{text}"
+        );
         c.ui.assert_no_errors();
     })
 }

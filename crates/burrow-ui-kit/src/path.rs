@@ -138,6 +138,48 @@ fn edge_view(e: Edge) -> impl IntoView {
     }
 }
 
+fn compact_view(i: usize, h: Hop, next: Option<Edge>) -> impl IntoView {
+    let tone = match h.state {
+        HopState::Bad | HopState::Removed => Tone::Danger,
+        HopState::Warn => Tone::Warning,
+        _ => h.dot.unwrap_or(Tone::Success),
+    };
+    let line = next.map(|e| match e.state {
+        EdgeState::Live => "border-l-2 border-accent-line",
+        EdgeState::Dead => "border-l-2 border-dashed border-text-faint",
+        EdgeState::Error | EdgeState::Removed => "border-l-2 border-dashed border-danger",
+        EdgeState::Added => "border-l-2 border-dashed border-success",
+    });
+    let sub = [h.value.clone(), h.unit.clone()]
+        .into_iter()
+        .filter(|x| !x.is_empty())
+        .collect::<Vec<_>>()
+        .join(" · ");
+    let head = {
+        let mut c = h.head.chars();
+        c.next()
+            .map(|f| {
+                f.to_uppercase()
+                    .chain(c.flat_map(char::to_lowercase))
+                    .collect::<String>()
+            })
+            .unwrap_or_default()
+    };
+    view! {
+        <li class=format!("relative pl-6 {}", if line.is_some() { "pb-3.5" } else { "" }) data-compact-hop=i>
+            <span class=format!("absolute top-[5px] left-0 size-2.5 rounded-full {}", tone.dot()) aria-hidden="true"></span>
+            {line.map(|l| view! { <span class=format!("absolute top-[19px] bottom-0 left-[4px] {l}") aria-hidden="true"></span> })}
+            <div class="flex flex-wrap items-center gap-2 text-sm font-semibold">
+                {head}
+                {h.badge.clone().map(|(text, tone)| view! {
+                    <span class=format!("inline-flex h-[19px] items-center rounded-full px-[7px] text-2xs font-bold whitespace-nowrap {}", badge_class(tone))>{text}</span>
+                })}
+            </div>
+            <div class=format!("truncate text-xs text-text-muted{}", if h.state == HopState::Removed { " line-through" } else { "" })>{sub}</div>
+        </li>
+    }
+}
+
 #[component]
 pub fn PathDiagram(
     #[prop(into)] data: Signal<PathData>,
@@ -145,26 +187,42 @@ pub fn PathDiagram(
 ) -> impl IntoView {
     view! {
         <div
-            class="mb-[22px] flex items-stretch overflow-hidden rounded-[14px] border border-border bg-surface px-5 pt-6 pb-5 max-sm:flex-col max-sm:gap-2"
             role="group"
             aria-label=move || data.get().summary
             data-testid=(!testid.is_empty()).then_some(testid)
         >
-            {move || {
-                let d = data.get();
-                let mut edges = d.edges.into_iter();
-                d.hops
-                    .into_iter()
-                    .enumerate()
-                    .map(|(i, h)| {
-                        let edge = (i > 0).then(|| edges.next().unwrap_or_default());
-                        view! {
-                            {edge.map(edge_view)}
-                            {hop_view(h)}
-                        }
-                    })
-                    .collect_view()
-            }}
+            <div class="mb-[22px] flex items-stretch overflow-hidden rounded-[14px] border border-border bg-surface px-5 pt-6 pb-5 max-sm:hidden">
+                {move || {
+                    let d = data.get();
+                    let mut edges = d.edges.into_iter();
+                    d.hops
+                        .into_iter()
+                        .enumerate()
+                        .map(|(i, h)| {
+                            let edge = (i > 0).then(|| edges.next().unwrap_or_default());
+                            view! {
+                                {edge.map(edge_view)}
+                                {hop_view(h)}
+                            }
+                        })
+                        .collect_view()
+                }}
+            </div>
+            <ol class="mb-4 rounded-[14px] border border-border bg-surface p-4 sm:hidden">
+                {move || {
+                    let d = data.get();
+                    let n = d.hops.len();
+                    let edges = d.edges;
+                    d.hops
+                        .into_iter()
+                        .enumerate()
+                        .map(|(i, h)| {
+                            let next = (i + 1 < n).then(|| edges.get(i).cloned().unwrap_or_default());
+                            compact_view(i, h, next)
+                        })
+                        .collect_view()
+                }}
+            </ol>
         </div>
     }
 }

@@ -16,23 +16,36 @@ pub enum Baseline {
 const CHANNEL_TOLERANCE: u8 = 24;
 const MAX_RATIO: f64 = 0.005;
 
-pub fn compare(name: &str, png: &[u8], chrome_major: &str) -> Baseline {
+fn major(v: &str) -> &str {
+    v.split('.').next().unwrap_or(v)
+}
+
+pub fn compare(name: &str, png: &[u8], chrome_version: &str) -> Baseline {
     let dir = baselines_dir();
     let file = dir.join(format!("{name}.png"));
     let stamp = dir.join("chrome-version.txt");
     if std::env::var("BURROW_E2E_UPDATE_BASELINES").as_deref() == Ok("1") {
         std::fs::create_dir_all(&dir).expect("a baselines folder");
         std::fs::write(&file, png).expect("write a baseline");
-        std::fs::write(&stamp, format!("{chrome_major}\n")).expect("write the Chrome stamp");
+        let recorded = std::fs::read_to_string(&stamp).unwrap_or_default();
+        assert_eq!(
+            major(recorded.trim()),
+            major(chrome_version),
+            "baselines are recorded with the pinned Chrome {}; pin the new version in xtask/src/tools.rs and chrome-version.txt first",
+            recorded.trim()
+        );
         return Baseline::Written;
     }
-    let recorded = std::fs::read_to_string(&stamp).unwrap_or_default();
-    if recorded.trim() != chrome_major {
-        return Baseline::Skipped(format!(
-            "baselines were recorded with Chrome {}, this is Chrome {chrome_major}",
-            recorded.trim()
-        ));
+    if std::env::var("BURROW_E2E_SKIP_BASELINES").as_deref() == Ok("1") {
+        return Baseline::Skipped("BURROW_E2E_SKIP_BASELINES=1".into());
     }
+    let recorded = std::fs::read_to_string(&stamp).unwrap_or_default();
+    assert_eq!(
+        major(recorded.trim()),
+        major(chrome_version),
+        "baselines were recorded with Chrome {}, this is Chrome {chrome_version}: run cargo xtask tools to get the pinned Chrome (BURROW_E2E_SKIP_BASELINES=1 skips the comparison)",
+        recorded.trim()
+    );
     let Ok(old) = std::fs::read(&file) else {
         return Baseline::Skipped(format!("no baseline {}", file.display()));
     };

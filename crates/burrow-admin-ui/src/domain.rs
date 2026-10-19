@@ -25,12 +25,12 @@ pub struct FieldCtx {
     pub inherited: Option<Value>,
 }
 
-fn names_of(entity: &Entity) -> Vec<String> {
+pub fn names_of(entity: &Entity) -> Vec<String> {
     let doc = store().edit.doc();
     names(&doc, &[entity.section().to_string()])
 }
 
-fn set_checked(fc: &FieldCtx, node: &Node, v: Option<Value>) {
+pub fn set_checked(fc: &FieldCtx, node: &Node, v: Option<Value>) {
     let e = store().edit;
     let problem = match &v {
         None if node.required && node.default.is_none() => {
@@ -60,26 +60,45 @@ pub fn editor(fc: FieldCtx) -> AnyView {
     match for_node(&node, current.as_ref()) {
         Render::Raw => yaml_editor(fc),
         Render::ServerChecked => text_editor(fc, None),
-        Render::Known(sem) | Render::Fallback(sem) => {
+        Render::Known(sem) => {
             let sem = sem.clone();
             by_sem(fc, &sem)
+        }
+        Render::Fallback(sem) => {
+            let sem = sem.clone();
+            view! { <div data-render="fallback">{by_sem(fc, &sem)}</div> }.into_any()
         }
     }
 }
 
 fn by_sem(fc: FieldCtx, sem: &SemType) -> AnyView {
     match sem {
+        SemType::IpPort(c) => crate::addr::addr_editor(
+            fc,
+            crate::addr::Kind::Bind {
+                ranges: c.ranges,
+                max: c.max_range,
+                default_ip: c.default_ip.clone().unwrap_or_else(|| "0.0.0.0".into()),
+            },
+        ),
+        SemType::PortRange(c) => {
+            crate::addr::addr_editor(fc, crate::addr::Kind::Range { max: c.max })
+        }
+        SemType::Target(c) => crate::addr::addr_editor(
+            fc,
+            crate::addr::Kind::Target {
+                ranges: c.ranges,
+                unix: c.unix,
+            },
+        ),
+        SemType::ServerAddress => crate::addr::server_editor(fc),
         SemType::Text(_)
         | SemType::Host
-        | SemType::ServerAddress
         | SemType::Path(_)
         | SemType::UrlPath
         | SemType::Name(_)
         | SemType::Ip(_)
         | SemType::Port
-        | SemType::IpPort(_)
-        | SemType::PortRange(_)
-        | SemType::Target(_)
         | SemType::Cidr
         | SemType::CidrRule
         | SemType::Integer(_)
@@ -88,8 +107,8 @@ fn by_sem(fc: FieldCtx, sem: &SemType) -> AnyView {
         SemType::Enum(c) => enum_editor(fc, c.clone()),
         SemType::Duration(c) => duration_editor(fc, time_unit(c.unit), c.max),
         SemType::Rate => rate_editor(fc),
-        SemType::Ref(r) => ref_editor(fc, r.entity.clone()),
-        SemType::RefList(r) => ref_list_editor(fc, r.entity.clone()),
+        SemType::Ref(r) => crate::addr::picker(fc, r.entity.clone(), false),
+        SemType::RefList(r) => crate::addr::picker(fc, r.entity.clone(), true),
         SemType::List(l) => list_editor(fc, (*l.item).clone()),
         SemType::RefMap(m) => map_editor(fc, Some(m.entity.clone()), (*m.value).clone()),
         SemType::Map(m) => map_editor(fc, None, (*m.value).clone()),
@@ -100,6 +119,13 @@ fn by_sem(fc: FieldCtx, sem: &SemType) -> AnyView {
             let fc2 = FieldCtx {
                 node: Node {
                     required: false,
+                    none_label: inner_node.none_label.clone().or(fc.node.none_label.clone()),
+                    default: inner_node.default.clone().or(fc.node.default.clone()),
+                    label: if inner_node.label.is_empty() {
+                        fc.node.label.clone()
+                    } else {
+                        inner_node.label.clone()
+                    },
                     ..inner_node.clone()
                 },
                 ..fc
@@ -167,20 +193,27 @@ fn text_editor(fc: FieldCtx, sem: Option<SemType>) -> AnyView {
         for_node(&fc.node, None),
         Render::ServerChecked | Render::Fallback(_)
     );
+    let width = if numeric {
+        "w-[240px] max-w-full"
+    } else {
+        "min-w-0 flex-1"
+    };
     view! {
         <div class="flex items-center gap-2">
-            <TextInput
-                id=fc.id.clone()
-                value=value
-                on_input=on_input
-                on_blur=move |_| { let _ = touched.try_set(true); }
-                placeholder=placeholder(&fc)
-                invalid=invalid
-                described_by=fc.msg_id.clone()
-                numeric=numeric
-                mono=mono
-            />
-            {unit.map(|u| view! { <span class="text-sm text-text-muted">{u}</span> })}
+            <div class=width>
+                <TextInput
+                    id=fc.id.clone()
+                    value=value
+                    on_input=on_input
+                    on_blur=move |_| { let _ = touched.try_set(true); }
+                    placeholder=placeholder(&fc)
+                    invalid=invalid
+                    described_by=fc.msg_id.clone()
+                    numeric=numeric
+                    mono=mono
+                    suffix=unit.unwrap_or_default()
+                />
+            </div>
             {server_checked.then(|| view! { <span class="text-xs whitespace-nowrap text-info" data-render="server-checked">"Checked by the server"</span> })}
         </div>
     }
@@ -263,18 +296,36 @@ fn enum_editor(fc: FieldCtx, c: EnumC) -> AnyView {
                 .clone()
                 .unwrap_or_else(|| "Not set".into())
         });
+    let default_raw = fc.node.default.as_ref().map(|d| to_text(Some(d)));
+    let merge_default = optional
+        && default_raw
+            .as_ref()
+            .is_some_and(|d| c.options.iter().any(|o| &o.value == d));
+    let shown_default = default_raw.clone();
     let value = Signal::derive(move || {
         e.value(&path)
             .map(|v| to_text(Some(&v)))
-            .unwrap_or_else(|| UNSET.to_string())
+            .unwrap_or_else(|| {
+                if merge_default {
+                    shown_default.clone().unwrap_or_default()
+                } else {
+                    UNSET.to_string()
+                }
+            })
     });
     let p2 = fc.path.clone();
     let set = move |v: String| {
         e.local_error(&p2, None);
-        e.set(&p2, (v != UNSET).then(|| Value::String(v)));
+        let clear = v == UNSET
+            || (merge_default
+                && Some(&v) == default_raw.as_ref()
+                && e.draft.with_untracked(|d| {
+                    burrow_admin_logic::changeset::get(d.base(), &p2).is_none()
+                }));
+        e.set(&p2, (!clear).then(|| Value::String(v)));
     };
     let mut options: Vec<(String, String, bool)> = Vec::new();
-    if optional {
+    if optional && !merge_default {
         options.push((UNSET.to_string(), default_label, false));
     }
     options.extend(
@@ -353,7 +404,7 @@ fn duration_editor(fc: FieldCtx, stored: TimeUnit, max: Option<u64>) -> AnyView 
     };
     view! {
         <div class="flex flex-wrap items-center gap-2">
-            <div class="w-32">
+            <div class="w-[120px]">
                 <TextInput
                     id=fc.id.clone()
                     value=number
@@ -368,7 +419,7 @@ fn duration_editor(fc: FieldCtx, stored: TimeUnit, max: Option<u64>) -> AnyView 
                     on_blur=move |_| { let _ = touched.try_set(true); }
                 />
             </div>
-            <div class="w-36">
+            <div class="w-28">
                 <Select
                     id=format!("{}-unit", fc.id)
                     label=format!("{} unit", fc.node.label)
@@ -506,97 +557,6 @@ fn facet(entity: &Entity, name: &str) -> String {
         }
         _ => name.to_string(),
     }
-}
-
-fn ref_editor(fc: FieldCtx, entity: Entity) -> AnyView {
-    let e = store().edit;
-    let path = fc.path.clone();
-    let optional = !fc.node.required;
-    let ent = entity.clone();
-    let options = Signal::derive(move || {
-        let mut o: Vec<(String, String)> = Vec::new();
-        if optional {
-            o.push((UNSET.to_string(), "Not set".to_string()));
-        }
-        o.extend(
-            names_of(&ent)
-                .into_iter()
-                .map(|n| (n.clone(), facet(&ent, &n))),
-        );
-        o
-    });
-    let value = Signal::derive(move || {
-        e.value(&path)
-            .map(|v| to_text(Some(&v)))
-            .unwrap_or_else(|| UNSET.to_string())
-    });
-    let node = fc.node.clone();
-    let fc2 = fc.clone();
-    view! {
-        <Select
-            id=fc.id.clone()
-            options=options
-            value=value
-            on_change=move |v: String| set_checked(&fc2, &node, (v != UNSET).then(|| Value::String(v)))
-        />
-    }
-    .into_any()
-}
-
-fn ref_list_editor(fc: FieldCtx, entity: Entity) -> AnyView {
-    let e = store().edit;
-    let path = fc.path.clone();
-    let current = Signal::derive(move || match e.value(&path) {
-        Some(Value::Array(a)) => a
-            .iter()
-            .filter_map(|x| x.as_str().map(str::to_string))
-            .collect(),
-        Some(Value::String(s)) => vec![s],
-        _ => Vec::<String>::new(),
-    });
-    let ent = entity.clone();
-    let node = fc.node.clone();
-    let fc2 = fc.clone();
-    view! {
-        <div class="flex flex-wrap gap-2" role="group" aria-label=fc.node.label.clone() id=fc.id.clone()>
-            {move || {
-                names_of(&ent)
-                    .into_iter()
-                    .map(|n| {
-                        let on = current.with(|c| c.contains(&n));
-                        let label = facet(&ent, &n);
-                        let n2 = n.clone();
-                        let node = node.clone();
-                        let fc3 = fc2.clone();
-                        view! {
-                            <label class="inline-flex cursor-pointer items-center gap-1.5 rounded-input border border-border px-2 py-1 text-sm" data-option=n.clone()>
-                                <input
-                                    type="checkbox"
-                                    class="accent-accent"
-                                    prop:checked=on
-                                    on:change:target=move |ev| {
-                                        let mut list = current.get_untracked();
-                                        if ev.target().checked() {
-                                            if !list.contains(&n2) {
-                                                list.push(n2.clone());
-                                            }
-                                        } else {
-                                            list.retain(|x| x != &n2);
-                                        }
-                                        let v = (!list.is_empty())
-                                            .then(|| Value::Array(list.into_iter().map(Value::String).collect()));
-                                        set_checked(&fc3, &node, v);
-                                    }
-                                />
-                                {label}
-                            </label>
-                        }
-                    })
-                    .collect_view()
-            }}
-        </div>
-    }
-    .into_any()
 }
 
 fn list_editor(fc: FieldCtx, item: Node) -> AnyView {
@@ -805,8 +765,9 @@ fn union_editor(fc: FieldCtx, u: UnionC) -> AnyView {
     let Some(obj) = object_branch.filter(|_| bool_branch) else {
         return text_editor(fc, None);
     };
+    let split = fc.spath.len() == 3 && fc.spath[0] == "services" && fc.spath[2] == "health_check";
     let path = fc.path.clone();
-    let mode = Signal::derive(move || match e.value(&path) {
+    let mode = Memo::new(move |_| match e.value(&path) {
         None | Some(Value::Bool(false)) => "off".to_string(),
         Some(Value::Bool(true)) => "on".to_string(),
         Some(_) => "custom".to_string(),
@@ -814,7 +775,7 @@ fn union_editor(fc: FieldCtx, u: UnionC) -> AnyView {
     let p2 = fc.path.clone();
     let options = vec![
         ("off".to_string(), "Off".to_string(), false),
-        ("on".to_string(), "On, with defaults".to_string(), false),
+        ("on".to_string(), "On".to_string(), false),
         ("custom".to_string(), "Custom".to_string(), false),
     ];
     let custom = {
@@ -840,8 +801,53 @@ fn union_editor(fc: FieldCtx, u: UnionC) -> AnyView {
                     e.set(&p2, v);
                 }
             />
-            <div class="mt-2">{custom}</div>
+            {(!split).then(|| view! {
+                {move || (mode.get() == "custom").then(|| view! {
+                    <div class="mt-3 rounded-[10px] border border-border bg-surface px-3.5 py-3 md:[&_section]:grid-cols-3 dark:bg-surface-2" data-testid="custom-box">
+                        {custom.clone()}
+                    </div>
+                })}
+            })}
         </div>
     }
+    .into_any()
+}
+
+pub fn health_box(node: Node, path: Path, spath: Path, entity: Path) -> AnyView {
+    let e = store().edit;
+    let Some(obj) = (match &inner(&node).sem {
+        SemType::Union(u) => u
+            .branches
+            .iter()
+            .find(|b| matches!(inner(b).sem, SemType::Object(_)))
+            .cloned(),
+        _ => None,
+    }) else {
+        return ().into_any();
+    };
+    let p = path.clone();
+    let custom = Memo::new(move |_| e.value(&p).is_some_and(|v| v.is_object()));
+    let p2 = path.clone();
+    let summary = move || {
+        let v = e.value(&p2).unwrap_or(Value::Null);
+        let num = |k: &str, d: u64| v.get(k).and_then(Value::as_u64).unwrap_or(d);
+        format!(
+            "= every {} s, {} s to answer, down after {} failures in a row.",
+            num("interval_secs", 10),
+            num("timeout_secs", 3),
+            num("failures", 2)
+        )
+    };
+    (move || {
+        custom.get().then(|| {
+            let summary = summary.clone();
+            view! {
+                <div class="rounded-[10px] border border-border bg-surface px-3.5 py-3 md:col-span-2 md:[&_section]:grid-cols-3 md:[&_section]:gap-x-4 dark:bg-surface-2" data-testid="custom-box">
+                    {object_view(&obj, path.clone(), spath.clone(), entity.clone())}
+                    <p class="text-xs text-text-muted">{summary}</p>
+                </div>
+            }
+        })
+    })
     .into_any()
 }

@@ -357,8 +357,8 @@ fn Traffic() -> impl IntoView {
                 <h2 class="text-[13.5px] font-bold">"Traffic"</h2>
                 <span class="text-xs text-text-muted">"live · recorded while this page is open"</span>
                 <span class="ml-auto"></span>
-                <div class="w-44">
-                    <Select id="traffic-service" label="Service" options=options value=service on_change=Callback::new(move |v: String| service.set(v))/>
+                <div class="w-36">
+                    <Select id="traffic-service" small=true label="Service" options=options value=service on_change=Callback::new(move |v: String| service.set(v))/>
                 </div>
                 <Segmented
                     name="traffic-window"
@@ -456,8 +456,8 @@ fn Section(
     more: Route,
     icon: bool,
     testid: &'static str,
-    grow: &'static str,
-    empty: (&'static str, &'static str, &'static str),
+    #[prop(into)] grow: Signal<String>,
+    empty: (&'static str, Signal<String>, Signal<String>),
 ) -> impl IntoView {
     let list: NodeRef<html::Ul> = NodeRef::new();
     let hidden = RwSignal::new(0usize);
@@ -484,7 +484,7 @@ fn Section(
     let narrow_more = move || total().saturating_sub(5);
     let more2 = more.clone();
     view! {
-        <div class=format!("flex min-h-0 flex-col {grow}") data-testid=testid>
+        <div class=move || format!("flex min-h-0 flex-col {}", grow.get()) data-testid=testid>
             <div class="flex shrink-0 items-center gap-2 border-b border-border px-4 py-3">
                 <h2 class="text-[13.5px] font-bold">{title}</h2>
                 <span class=move || tag_class(tone.get()) data-testid="count">{total}</span>
@@ -500,7 +500,11 @@ fn Section(
                 {move || if total() == 0 {
                     view! {
                         <div class="flex h-full items-center justify-center py-6">
-                            <EmptyState icon=empty.0 title=empty.1 message=empty.2/>
+                            <div class="flex flex-col items-center gap-1.5 px-4 text-center">
+                                <span class="text-success"><Icon name=empty.0 large=true/></span>
+                                <span class="text-sm font-semibold">{move || empty.1.get()}</span>
+                                <span class="text-[12.5px] text-text-muted">{move || empty.2.get()}</span>
+                            </div>
                         </div>
                     }.into_any()
                 } else {
@@ -579,41 +583,29 @@ fn Attention() -> impl IntoView {
     };
     let n_clients = move || names(&s.running(), "clients").len();
     let away_title: &'static str = "Clients away";
-    let away_view = move || {
-        let n = n_clients();
-        let has = away_items.with(|a| !a.is_empty());
-        let grow = if away_items.with(Vec::len) >= 2 {
-            "shrink-[2] grow basis-auto min-[1200px]:min-h-[156px]"
+    let away_grow = Signal::derive(move || {
+        if away_items.with(Vec::len) >= 2 {
+            "shrink-[2] grow basis-auto min-[1200px]:min-h-[156px]".to_string()
         } else {
-            "shrink-0 grow basis-auto"
-        };
-        if has || n == 0 {
-            view! {
-                <Section
-                    title=away_title
-                    items=away_items
-                    tone=Signal::stored(Tone::Neutral)
-                    more=Route::List("clients".into())
-                    icon=false
-                    testid="away"
-                    grow=grow
-                    empty=("monitor", "No clients yet", "")
-                />
-            }
-            .into_any()
-        } else {
-            view! {
-                <div class="flex shrink-0 items-center gap-3 border-t border-border px-4 py-4" data-testid="away">
-                    <span class="text-success"><Icon name="monitor"/></span>
-                    <span>
-                        <span class="block text-sm font-semibold">{format!("All {n} clients online")}</span>
-                        <span class="block text-[12.5px] text-text-muted">{longest}</span>
-                    </span>
-                </div>
-            }
-            .into_any()
+            "shrink-0 grow basis-auto".to_string()
         }
-    };
+    });
+    let away_tone = Signal::derive(move || {
+        if away_items.with(Vec::is_empty) {
+            Tone::Success
+        } else {
+            Tone::Warning
+        }
+    });
+    let away_title_empty = Signal::derive(move || {
+        let n = n_clients();
+        if n == 0 {
+            "No clients yet".to_string()
+        } else {
+            format!("All {n} clients online")
+        }
+    });
+    let away_msg = Signal::derive(move || longest().unwrap_or_default());
     view! {
         <section class="relative rounded-card border border-border bg-surface min-[1200px]:col-span-4" data-testid="attention-card">
             <div class="flex flex-col overflow-hidden rounded-card min-[1200px]:absolute min-[1200px]:inset-0 [&>[data-testid=away]]:border-t [&>[data-testid=away]]:border-border">
@@ -624,13 +616,31 @@ fn Attention() -> impl IntoView {
                     more=Route::List("services".into())
                     icon=true
                     testid="attention"
-                    grow="grow shrink basis-auto"
-                    empty=("check", "Nothing needs attention", "Every service has a client online and every check passes.")
+                    grow="grow shrink basis-auto".to_string()
+                    empty=("check", Signal::stored("Nothing needs attention".to_string()), Signal::stored("Every service has a client online and every check passes.".to_string()))
                 />
-                {away_view}
+                <Section
+                    title=away_title
+                    items=away_items
+                    tone=away_tone
+                    more=Route::List("clients".into())
+                    icon=false
+                    testid="away"
+                    grow=away_grow
+                    empty=("monitor", away_title_empty, away_msg)
+                />
             </div>
             <p class="sr-only" aria-live="polite">{move || announce.get()}</p>
         </section>
+    }
+}
+
+fn mobile_cards(section: &'static str) -> impl IntoView {
+    let rows = crate::screens::entity::rows_for(section);
+    view! {
+        <div class="pt-2 pb-1 sm:hidden" data-testid=format!("mobile-{section}")>
+            {rows.into_iter().map(|r| view! { <crate::screens::ListCard row=r selected=false/> }).collect_view()}
+        </div>
     }
 }
 
@@ -775,7 +785,7 @@ pub fn Overview() -> impl IntoView {
                 }
             })
             .collect_view();
-        view! { <Table head=vec!["Service", "", "Public", "Target", "Open", "In", "Health"] testid="overview-services">{rows}</Table> }.into_any()
+        view! { <div class="max-sm:hidden"><Table head=vec!["Service", "_", "Public", "Target", ">Open", ">In", "_Health"] testid="overview-services">{rows}</Table></div> {mobile_cards("services")} }.into_any()
     };
     let clients_table = move || {
         let v = values.get();
@@ -815,7 +825,7 @@ pub fn Overview() -> impl IntoView {
                 }
             })
             .collect_view();
-        view! { <Table head=vec!["Client", "From", "Open", "Idle channels", "Since", "Serves"] testid="overview-clients">{rows}</Table> }.into_any()
+        view! { <div class="max-sm:hidden"><Table head=vec!["Client", "From", ">Open", ">Idle channels", "Since", "Serves"] testid="overview-clients">{rows}</Table></div> {mobile_cards("clients")} }.into_any()
     };
     let visitors_table = move || {
         let v = values.get();
@@ -850,7 +860,7 @@ pub fn Overview() -> impl IntoView {
                 }
             })
             .collect_view();
-        view! { <Table head=vec!["Visitor", "Admin", "Services it may use", "Open", "Total"] testid="overview-visitors">{rows}</Table> }.into_any()
+        view! { <div class="max-sm:hidden"><Table head=vec!["Visitor", "Admin", "Services it may use", ">Open", ">Total"] testid="overview-visitors">{rows}</Table></div> {mobile_cards("visitors")} }.into_any()
     };
     let kpi_link = "rounded-card no-underline text-text hover:[&>div]:border-border-strong";
     view! {
@@ -873,7 +883,7 @@ pub fn Overview() -> impl IntoView {
                         icon="monitor"
                         value=Signal::derive(move || clients_now.get().0.to_string())
                         unit=Signal::derive(move || format!("/ {}", clients_now.get().1))
-                        detail=Signal::derive(move || { let (u, n) = clients_now.get(); if u == n { "all online".to_string() } else { format!("{} away", n - u) } })
+                        detail=Signal::derive(move || { let (u, n) = clients_now.get(); if u == n { "all connected".to_string() } else { format!("{} away", n - u) } })
                         testid="kpi-clients"
                     />
                 </Link>
@@ -884,12 +894,16 @@ pub fn Overview() -> impl IntoView {
                         value=Signal::derive(move || { let (n, bad) = down.get(); let b: std::collections::BTreeSet<_> = bad.into_iter().collect(); (n - b.len().min(n)).to_string() })
                         unit=Signal::derive(move || format!("/ {}", down.get().0))
                         detail=Signal::derive(move || {
-                            let (_, bad) = down.get();
-                            let b: std::collections::BTreeSet<_> = bad.into_iter().collect();
-                            match b.len() {
-                                0 => "all healthy".to_string(),
-                                1 => format!("{} needs attention", b.into_iter().next().unwrap_or_default()),
-                                n => format!("{n} need attention"),
+                            let v = values.get();
+                            let items = attention(&v, None, s.status.get().as_deref());
+                            let down: Vec<String> = items.iter().filter_map(|i| i.key.strip_prefix("down:").map(str::to_string)).collect();
+                            let degraded = items.iter().filter(|i| i.key.starts_with("health:")).count();
+                            match (down.len(), degraded) {
+                                (0, 0) => "all up".to_string(),
+                                (1, 0) => format!("{} is down", down[0]),
+                                (0, g) => format!("{g} degraded"),
+                                (d, 0) => format!("{d} down"),
+                                (d, g) => format!("{d} down · {g} degraded"),
                             }
                         })
                         testid="kpi-services"

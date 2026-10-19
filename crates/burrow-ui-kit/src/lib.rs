@@ -2,6 +2,7 @@
 
 mod basic;
 mod code;
+mod combo;
 mod feedback;
 mod field;
 mod icon;
@@ -16,6 +17,7 @@ pub use basic::{
     PillTabs, SpinDot, Stat, Stats, StatusDot, Table, Tabs, Tone, button_class, chip_class,
 };
 pub use code::{CodeBlock, DiffLine, DiffView, copy_text, download_text};
+pub use combo::{ComboOption, Combobox, filter_options};
 pub use feedback::{Banner, Callout, EmptyState, Skeleton, Spinner};
 pub use field::{FieldRow, FieldState, tag_class};
 pub use icon::{Icon, path as icon_path};

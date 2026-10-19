@@ -51,6 +51,7 @@ pub struct Edit {
     pub applying: RwSignal<bool>,
     pub outcome: RwSignal<Option<Outcome>>,
     pub reset_on_load: RwSignal<bool>,
+    pub auto_apply: RwSignal<bool>,
     seq: StoredValue<u64>,
 }
 
@@ -132,6 +133,7 @@ impl Edit {
             applying: RwSignal::new(false),
             outcome: RwSignal::new(None),
             reset_on_load: RwSignal::new(false),
+            auto_apply: RwSignal::new(false),
             seq: StoredValue::new(0),
         }
     }

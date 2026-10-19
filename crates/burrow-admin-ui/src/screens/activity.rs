@@ -1,7 +1,9 @@
 use burrow_admin_proto::msg::{self, AuditEntry, HistoryReply};
 use burrow_admin_proto::plan::Diff;
 use burrow_admin_proto::serde_json::{self, json};
-use burrow_ui_kit::{Button, Callout, DiffLine, DiffView, EmptyState, Skeleton, Stat, Stats, Tone};
+use burrow_ui_kit::{
+    Button, Callout, DiffLine, DiffView, EmptyState, Skeleton, Stat, Stats, Tone, tag_class,
+};
 use leptos::prelude::*;
 
 use crate::api;
@@ -55,52 +57,49 @@ fn who(e: &AuditEntry) -> String {
     }
 }
 
-fn day(unix: u64) -> String {
-    format::when(unix)
-        .split(' ')
-        .next()
-        .unwrap_or_default()
-        .to_string()
+fn hand(e: &AuditEntry) -> bool {
+    e.visitor.is_empty() || e.visitor == "file"
 }
 
 fn rows_of(entries: &[AuditEntry], can_write: bool) -> Vec<Row> {
     entries
         .iter()
-        .map(|e| {
-            let ok = e.result == "applied" || e.result == "ok";
+        .enumerate()
+        .map(|(i, e)| {
             let mut actions = vec!["View"];
             if e.revertible && can_write {
                 actions.push("Revert");
             }
+            let tone = if hand(e) {
+                Tone::Warning
+            } else {
+                match e.changes.first().map(|c| c.kind) {
+                    Some(burrow_admin_proto::plan::ChangeKind::Add) => Tone::Success,
+                    Some(burrow_admin_proto::plan::ChangeKind::Remove) => Tone::Danger,
+                    None => Tone::Neutral,
+                    _ => Tone::Accent,
+                }
+            };
             Row {
                 key: e.rev.clone(),
                 to: Route::Activity(Some(e.rev.clone())),
-                icon: if e.visitor.is_empty() || e.visitor == "file" {
-                    "edit"
-                } else {
-                    "person"
-                },
-                dot: Some(if ok { Tone::Success } else { Tone::Warning }),
-                title: format!("rev {} · {}", short_rev(&e.rev), who(e)),
-                meta: format::when(e.at)
-                    .split(' ')
-                    .nth(1)
-                    .unwrap_or_default()
-                    .to_string(),
-                line2: e
+                icon: "history",
+                dot: Some(tone),
+                title: e
                     .changes
                     .first()
                     .map(|c| c.summary.clone())
-                    .unwrap_or_else(|| e.result.clone()),
-                tags: if ok {
-                    Vec::new()
+                    .unwrap_or_else(|| format!("No change ({})", e.result)),
+                meta: short_rev(&e.rev),
+                line2: format!("{} · {}", format::relative(e.at), who(e)),
+                tags: if i == 0 {
+                    vec![("current".to_string(), Tone::Success)]
                 } else {
-                    vec![(e.result.clone(), Tone::Warning)]
+                    Vec::new()
                 },
-                group: day(e.at),
-                pending: None,
-                filters: Vec::new(),
-                actions,
+                filters: vec![if hand(e) { "hand" } else { "admins" }],
+                actions: if i == 0 { Vec::new() } else { actions },
+                ..Row::default()
             }
         })
         .collect()
@@ -140,32 +139,53 @@ fn Version(entry: AuditEntry, newer: Vec<AuditEntry>) -> impl IntoView {
     } else {
         format!(" from {}", entry.from)
     };
-    let changes = entry
+    let first = entry
         .changes
-        .iter()
-        .map(|c| view! { <li>{c.summary.clone()}</li> })
-        .collect_view();
+        .first()
+        .map(|c| c.summary.clone())
+        .unwrap_or_else(|| "No change".into());
+    let first_path = entry
+        .changes
+        .first()
+        .map(|c| c.path.join("."))
+        .unwrap_or_default();
+    let n = entry.changes.len();
+    let written = if hand(&entry) {
+        "written directly to server.yaml".to_string()
+    } else {
+        format!("by {}{from}", who(&entry))
+    };
     let newer_list = newer
         .into_iter()
         .map(|n| {
-            let label = format!("rev {} · {}", short_rev(&n.rev), who(&n));
+            let rev = short_rev(&n.rev);
             view! {
-                <li class="flex gap-3 text-sm">
-                    <Link to=Route::Activity(Some(n.rev.clone())) class="font-semibold text-text no-underline hover:underline">{label}</Link>
-                    <span class="text-text-muted">{n.changes.first().map(|c| c.summary.clone()).unwrap_or_default()}</span>
+                <li class="grid grid-cols-[70px_minmax(0,1fr)_auto] items-center gap-4 border-b border-rowline py-2.5 text-[13.5px] last:border-b-0">
+                    <Link to=Route::Activity(Some(n.rev.clone())) class="font-mono text-[13px] text-text-muted no-underline hover:underline">{rev}</Link>
+                    <span class="truncate">{n.changes.first().map(|c| c.summary.clone()).unwrap_or_default()}</span>
+                    <span class="text-text-muted">{format!("{} · {}", who(&n), format::relative(n.at))}</span>
                 </li>
             }
         })
         .collect::<Vec<_>>();
     let base_short = short_rev(&entry.base);
     let plan_note = format!(
-        "It builds a plan from rev {base_short}, then goes through validation, the lockout guard, the impact summary and your confirmation."
+        "It builds a plan from rev {base_short}, then goes through validation, the lockout guard, the impact summary and your confirmation, like any edit. The review then shows the impact summary from the server."
     );
+    let label = "mb-2 text-[11px] font-bold tracking-[0.07em] text-text-faint uppercase";
     view! {
+        <nav class="mb-1.5 flex gap-1.5 text-sm text-text-muted" aria-label="Breadcrumb">
+            <Link to=Route::Activity(None) class="text-text-muted no-underline hover:text-text">"Activity"</Link>
+            <span aria-hidden="true">"/"</span>
+            <span class="font-semibold text-text">{format!("rev {}", short_rev(&entry.rev))}</span>
+        </nav>
         <header class="mb-[22px] flex flex-wrap items-start gap-3.5">
             <div class="min-w-0 flex-1">
-                <h1 class="text-[25px] font-bold tracking-[-0.015em]">{format!("rev {} · {}", short_rev(&entry.rev), who(&entry))}</h1>
-                <p class="mt-1 text-base text-text-muted">{format!("{}{from} · {}", format::when(entry.at), entry.result)}</p>
+                <h1 class="flex items-center gap-2.5 text-[25px] font-bold tracking-[-0.015em]">
+                    {format!("rev {}", short_rev(&entry.rev))}
+                    <span class=tag_class(if hand(&entry) { Tone::Warning } else { Tone::Accent })>{if hand(&entry) { "hand edit".to_string() } else { who(&entry) }}</span>
+                </h1>
+                <p class="mt-1 text-base text-text-muted">{format!("{first} · {} · {written}", format::relative(entry.at))}</p>
             </div>
             {can_revert.then(|| view! {
                 <Button label="Revert to before this change" variant="tinted" icon="revert" testid="revert" on_click=move |_| {
@@ -175,12 +195,12 @@ fn Version(entry: AuditEntry, newer: Vec<AuditEntry>) -> impl IntoView {
             })}
         </header>
         <Stats testid="version-stats">
-            <Stat label="When" value=format::when(entry.at)/>
-            <Stat label="Author" value=who(&entry) detail=entry.from.clone()/>
-            <Stat label="Changed fields" value=entry.changes.len().to_string()/>
-            <Stat label="Revision" value=short_rev(&entry.rev) detail=format!("from {base_short}")/>
+            <Stat label="Rev" value=short_rev(&entry.rev) detail="this version"/>
+            <Stat label="Base" value=base_short.clone() detail="the version it replaced"/>
+            <Stat label="Author" value=who(&entry) detail=if hand(&entry) { "no admin session".to_string() } else { entry.from.clone() }/>
+            <Stat label="Changed" value=n.to_string() unit={ if n == 1 { "field" } else { "fields" } } detail=first_path/>
         </Stats>
-        <ul class="mb-4 list-disc pl-5 text-sm" data-testid="version-changes">{changes}</ul>
+        <h3 class=label>"Diff of this change"</h3>
         <div class="mb-6 overflow-hidden rounded-card border border-border bg-surface">
             {move || match diff.get() {
                 None => view! { <div class="p-4"><Skeleton lines=3/></div> }.into_any(),
@@ -189,13 +209,13 @@ fn Version(entry: AuditEntry, newer: Vec<AuditEntry>) -> impl IntoView {
             }}
         </div>
         <div class="mb-6">
-            <Callout tone=Tone::Info title="A revert is an ordinary change">
+            <Callout tone=Tone::Info title="A revert is an ordinary change.">
                 <p>{plan_note}</p>
             </Callout>
         </div>
         {(!newer_list.is_empty()).then(|| view! {
-            <h3 class="mb-2 text-[14px] font-bold">"Changes since then"</h3>
-            <ul class="space-y-1.5" data-testid="since">{newer_list}</ul>
+            <h3 class=label>"Changes since then"</h3>
+            <ul data-testid="since">{newer_list}</ul>
         })}
     }
 }
@@ -215,7 +235,10 @@ pub fn Activity(selected: Option<String>) -> impl IntoView {
     {
         route::replace(first.to.clone());
     }
-    let count = Signal::derive(move || rows.with(Vec::len).to_string());
+    let count = Signal::derive(move || {
+        let n = rows.with(Vec::len);
+        format!("{n} version{}", if n == 1 { "" } else { "s" })
+    });
     let on_action = Callback::new(move |(rev, action): (String, String)| {
         let entry = s.history.with_untracked(|h| {
             h.as_ref()
@@ -234,13 +257,14 @@ pub fn Activity(selected: Option<String>) -> impl IntoView {
         <ListPane
             title="Activity"
             count=count
-            search_label="Search versions"
-            filters=Vec::new()
+            search_label="Search history"
+            filters=vec![("all", "All".into()), ("admins", "Admins".into()), ("hand", "Hand edits".into())]
             groups=Vec::new()
             rows=rows
             selected=Signal::stored(sel)
             empty=("No changes yet".to_string(), "Changes made through burrow admin and hand edits of server.yaml show up here.".to_string())
             on_action=on_action
+            no_counts=true
             testid="activity"
         />
     }

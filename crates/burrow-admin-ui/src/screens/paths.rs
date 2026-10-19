@@ -281,57 +281,82 @@ pub fn service(
 pub fn client(name: &str, doc: &Value, status: Option<&Status>, listen: &str) -> PathData {
     let c = status.and_then(|s| s.clients.iter().find(|c| c.name == name));
     let on = c.is_some_and(|c| c.connected);
-    let served: Vec<(String, u64)> = doc
+    let served: Vec<(String, String)> = doc
         .get("services")
         .and_then(Value::as_object)
         .map(|m| {
             m.iter()
                 .filter(|(_, v)| clients_of(v).iter().any(|x| x == name))
-                .map(|(n, _)| {
-                    let open = status
-                        .and_then(|s| s.services.iter().find(|x| &x.name == n))
-                        .map(|x| x.open)
-                        .unwrap_or(0);
-                    (n.clone(), open)
+                .map(|(n, v)| {
+                    let at = v.get("bind").filter(|b| !b.is_null()).map(|b| {
+                        let t = plain(b);
+                        match t.rsplit_once(':') {
+                            Some((_, p)) => format!(":{p}"),
+                            None => format!(":{t}"),
+                        }
+                    });
+                    (n.clone(), at.unwrap_or_else(|| "private".into()))
                 })
                 .collect()
         })
         .unwrap_or_default();
     let open: u64 = c.map(|c| c.open).unwrap_or(0);
+    let short = match listen.rsplit_once(':') {
+        Some((_, p)) => format!(":{p}"),
+        None => listen.to_string(),
+    };
+    let first = served.first().cloned();
     PathData {
         hops: vec![
             Hop {
-                icon: "box",
-                head: "Server".into(),
-                value: listen.to_string(),
-                mono: true,
-                dot: Some(Tone::Success),
-                unit: "listener".into(),
-                ..Hop::default()
-            },
-            Hop {
                 icon: "monitor",
                 head: "Client".into(),
-                value: c.and_then(|c| c.from.clone()).unwrap_or_else(|| {
-                    if on {
-                        name.to_string()
-                    } else {
-                        "offline".into()
-                    }
-                }),
-                mono: on,
+                value: name.to_string(),
+                mono: true,
                 dot: Some(if on { Tone::Success } else { Tone::Neutral }),
-                unit: name.to_string(),
+                unit: c
+                    .and_then(|c| c.from.clone())
+                    .map(|f| f.rsplit_once(':').map(|(h, _)| h.to_string()).unwrap_or(f))
+                    .unwrap_or_else(|| {
+                        if on {
+                            String::new()
+                        } else {
+                            "not connected".into()
+                        }
+                    }),
                 state: HopState::Current,
                 badge: None,
             },
             Hop {
+                icon: "box",
+                head: "Server".into(),
+                value: short,
+                mono: true,
+                dot: Some(Tone::Success),
+                unit: "this server".into(),
+                ..Hop::default()
+            },
+            Hop {
                 icon: "services",
                 head: "Services".into(),
-                value: format!("{} served", served.len()),
+                value: first
+                    .as_ref()
+                    .map(|(n, at)| format!("{n} {at}"))
+                    .unwrap_or_else(|| "none".into()),
+                mono: true,
+                dot: first
+                    .as_ref()
+                    .map(|_| if on { Tone::Success } else { Tone::Warning }),
                 unit: served
                     .iter()
-                    .map(|s| s.0.clone())
+                    .skip(1)
+                    .map(|(n, at)| {
+                        if at == "private" {
+                            format!("{n} · private")
+                        } else {
+                            n.clone()
+                        }
+                    })
                     .collect::<Vec<_>>()
                     .join(", "),
                 ..Hop::default()
@@ -340,19 +365,28 @@ pub fn client(name: &str, doc: &Value, status: Option<&Status>, listen: &str) ->
         edges: vec![
             Edge {
                 above: if on {
-                    "connected".into()
+                    "tunnel".into()
                 } else {
-                    "away".into()
+                    "not connected".into()
                 },
                 below: c
-                    .map(|c| format!("{} idle channels", c.idle_channels))
+                    .filter(|_| on)
+                    .map(|c| format!("{} idle · {} open", c.idle_channels, open))
                     .unwrap_or_default(),
                 state: if on { EdgeState::Live } else { EdgeState::Dead },
             },
             Edge {
-                above: format!("{open} open"),
-                below: String::new(),
-                state: if on { EdgeState::Live } else { EdgeState::Dead },
+                above: "serves".into(),
+                below: format!(
+                    "{} service{}",
+                    served.len(),
+                    if served.len() == 1 { "" } else { "s" }
+                ),
+                state: if on && !served.is_empty() {
+                    EdgeState::Live
+                } else {
+                    EdgeState::Dead
+                },
             },
         ],
         summary: format!(
@@ -363,10 +397,16 @@ pub fn client(name: &str, doc: &Value, status: Option<&Status>, listen: &str) ->
     }
 }
 
-pub fn visitor(name: &str, doc: &Value, status: Option<&Status>) -> PathData {
+pub fn visitor(
+    name: &str,
+    doc: &Value,
+    status: Option<&Status>,
+    me: Option<(&str, &str)>,
+) -> PathData {
     let v = status.and_then(|s| s.visitors.iter().find(|v| v.name == name));
     let open = v.map(|v| v.open).unwrap_or(0);
-    let services: Vec<String> = doc
+    let entry = doc.get("visitors").and_then(|m| m.get(name));
+    let services: Vec<(String, bool)> = doc
         .get("services")
         .and_then(Value::as_object)
         .map(|m| {
@@ -376,51 +416,89 @@ pub fn visitor(name: &str, doc: &Value, status: Option<&Status>) -> PathData {
                         .and_then(Value::as_array)
                         .is_some_and(|a| a.iter().any(|x| x.as_str() == Some(name)))
                 })
-                .map(|(n, _)| n.clone())
+                .map(|(n, s)| {
+                    (
+                        n.clone(),
+                        status.is_none_or(|st| clients_of(s).iter().any(|c| online(Some(st), c))),
+                    )
+                })
                 .collect()
         })
         .unwrap_or_default();
-    let admin = doc
-        .get("visitors")
-        .and_then(|m| m.get(name))
-        .and_then(|x| x.get("admin"))
-        .map(plain);
+    let down = services.iter().filter(|(_, up)| !up).count();
+    let admin_from: Vec<String> = entry
+        .and_then(|x| x.get("admin_from"))
+        .and_then(Value::as_array)
+        .map(|a| a.iter().map(plain).collect())
+        .unwrap_or_default();
+    let this_session = me.is_some_and(|(n, _)| n == name);
     PathData {
         hops: vec![
             Hop {
-                icon: if admin.is_some() { "shield" } else { "person" },
+                icon: "person",
                 head: "Visitor".into(),
                 value: name.to_string(),
-                dot: Some(if open > 0 {
-                    Tone::Success
+                mono: true,
+                unit: if this_session {
+                    format!("this session · {open} open")
+                } else if open > 0 {
+                    format!("active · {open} open")
                 } else {
-                    Tone::Neutral
-                }),
-                unit: admin
-                    .map(|a| format!("admin · {a}"))
-                    .unwrap_or_else(|| "visitor".into()),
+                    "idle".into()
+                },
                 state: HopState::Current,
                 ..Hop::default()
             },
             Hop {
                 icon: "box",
                 head: "Server".into(),
-                value: "burrow".into(),
-                unit: "checks access".into(),
+                value: "this server".into(),
+                dot: Some(Tone::Success),
+                unit: match entry.and_then(|x| x.get("admin")).map(plain) {
+                    Some(_) if !admin_from.is_empty() => {
+                        format!("admin from {}", admin_from.join(", "))
+                    }
+                    Some(_) => "admin from any address".into(),
+                    None => "checks access".into(),
+                },
                 ..Hop::default()
             },
             Hop {
                 icon: "services",
                 head: "Services".into(),
-                value: format!("{} it may use", services.len()),
-                unit: services.join(", "),
-                ..Hop::default()
+                value: if services.is_empty() {
+                    "none".into()
+                } else {
+                    services
+                        .iter()
+                        .map(|(n, _)| n.as_str())
+                        .collect::<Vec<_>>()
+                        .join(" · ")
+                },
+                dot: (!services.is_empty()).then_some(if down > 0 {
+                    Tone::Warning
+                } else {
+                    Tone::Success
+                }),
+                unit: services
+                    .iter()
+                    .filter(|(_, up)| !up)
+                    .map(|(n, _)| format!("{n} down"))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                state: if down > 0 {
+                    HopState::Warn
+                } else {
+                    HopState::Normal
+                },
+                badge: (down > 0).then(|| (format!("{down} down"), Tone::Danger)),
+                mono: false,
             },
         ],
         edges: vec![
             Edge {
-                above: format!("{open} open"),
-                below: String::new(),
+                above: "burrow visit".into(),
+                below: format!("{open} open"),
                 state: if open > 0 {
                     EdgeState::Live
                 } else {
@@ -428,8 +506,12 @@ pub fn visitor(name: &str, doc: &Value, status: Option<&Status>) -> PathData {
                 },
             },
             Edge {
-                above: String::new(),
-                below: String::new(),
+                above: "may use".into(),
+                below: format!(
+                    "{} service{}",
+                    services.len(),
+                    if services.len() == 1 { "" } else { "s" }
+                ),
                 state: if services.is_empty() {
                     EdgeState::Dead
                 } else {

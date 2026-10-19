@@ -29,7 +29,7 @@ const SECS: Duration = Duration::from_secs(10);
 
 struct Gate {
     chrome: PathBuf,
-    chrome_major: String,
+    chrome_version: String,
     hooks: bool,
 }
 
@@ -47,9 +47,6 @@ fn skip(why: &str) -> Option<Gate> {
 }
 
 fn gate() -> Option<Gate> {
-    let Some(chrome) = ui::chrome() else {
-        return skip("no Chrome found; set BURROW_E2E_CHROME to its path");
-    };
     let info = Command::new(BIN)
         .args(["admin", "--ui-info"])
         .output()
@@ -58,20 +55,26 @@ fn gate() -> Option<Gate> {
     if info.contains("placeholder") {
         return skip("this burrow has no admin UI built in; run cargo xtask ui first");
     }
+    let Some(chrome) = ui::chrome() else {
+        panic!(
+            "Chrome for Testing {} is missing at {}: run cargo xtask tools to get the pinned Chrome (BURROW_E2E_CHROME or BURROW_E2E_SYSTEM_CHROME=1 use another one)",
+            ui::pinned_version(),
+            ui::pinned_chrome().display()
+        );
+    };
     let version = Command::new(&chrome)
         .arg("--version")
         .output()
         .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
         .unwrap_or_default();
-    let chrome_major = version
+    let chrome_version = version
         .split_whitespace()
         .find(|w| w.chars().next().is_some_and(|c| c.is_ascii_digit()))
-        .and_then(|v| v.split('.').next())
         .unwrap_or("unknown")
         .to_string();
     Some(Gate {
         chrome,
-        chrome_major,
+        chrome_version,
         hooks: info.contains("test_hooks: true"),
     })
 }
@@ -104,7 +107,7 @@ impl Drop for Slot {
 pub struct Ctx {
     ui: Ui,
     world: World,
-    gate_major: String,
+    chrome_version: String,
 }
 
 type Body = for<'a> fn(&'a mut Ctx) -> Pin<Box<dyn Future<Output = ()> + 'a>>;
@@ -132,7 +135,7 @@ fn run(flow: &str, opts: Options, needs_hooks: bool, body: Body) {
         let mut ctx = Ctx {
             ui,
             world,
-            gate_major: g.chrome_major.clone(),
+            chrome_version: g.chrome_version.clone(),
         };
         let result = std::panic::AssertUnwindSafe(body(&mut ctx))
             .catch_unwind()
@@ -230,7 +233,7 @@ async fn baseline(c: &mut Ctx, name: &str) {
         .ui
         .eval("(() => { for (const e of document.querySelectorAll('[style]')) e.style.visibility = ''; return true; })()")
         .await;
-    match compare(name, &png, &c.gate_major) {
+    match compare(name, &png, &c.chrome_version) {
         Baseline::Same | Baseline::Written => {}
         Baseline::Skipped(why) => println!("baseline {name}: {why}"),
         Baseline::Differs { ratio, diff } => {
@@ -259,7 +262,7 @@ fn dashboard(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
         c.world.start_client("office");
         c.ui.wait_text(
             "[data-testid=kpi-clients]",
-            "all online",
+            "all connected",
             Duration::from_secs(5),
         )
         .await;
@@ -371,6 +374,15 @@ fn many_issues(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
             .await;
         assert_eq!(first, "danger", "danger rows come first");
         c.ui.shot("many-issues-scroll-inside-the-card").await;
+        c.ui.click("[data-testid=flow-open]").await;
+        c.ui.wait_for("[data-testid=flow]", SECS).await;
+        let _: bool = c
+            .ui
+            .eval("(() => { document.querySelector('[data-testid=flow] input[value=problems]').click(); return true; })()")
+            .await;
+        c.ui.shot("flow-problems").await;
+        c.ui.press("[data-testid=flow]", "Escape").await;
+        c.ui.wait_gone("[data-testid=flow]", SECS).await;
         let _: bool = c
             .ui
             .eval("(() => { document.querySelector('[data-testid=attention] ul').scrollTop = 120; return true; })()")
@@ -412,6 +424,97 @@ fn many_issues_scroll_inside_a_card_as_tall_as_traffic() {
     run("many-issues", opts, false, many_issues);
 }
 
+fn list_scrolls(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
+    Box::pin(async move {
+        open(c, "ops").await;
+        c.ui.nav("/services/web?tab=settings").await;
+        c.ui.wait_for("[data-testid=entity-list] [data-row=svc29]", SECS)
+            .await;
+        tokio::time::sleep(Duration::from_millis(400)).await;
+        let geo: Vec<f64> = c
+            .ui
+            .eval("(() => { const a = document.querySelector('[data-testid=entity-list]').getBoundingClientRect(); const h = document.querySelector('[data-testid=header]').getBoundingClientRect(); return [a.top, a.height, h.height, window.innerHeight]; })()")
+            .await;
+        assert!(
+            (geo[0] - geo[2]).abs() < 1.5,
+            "the list pane starts under the header: {geo:?}"
+        );
+        assert!(
+            (geo[1] - (geo[3] - geo[2])).abs() < 1.5,
+            "the list pane is the viewport minus the header: {geo:?}"
+        );
+        let head_before: f64 = c
+            .ui
+            .eval("document.querySelector('[data-testid=list-head]').getBoundingClientRect().top")
+            .await;
+        let rows_scrolled: f64 = c
+            .ui
+            .eval("(() => { const l = document.querySelector('[data-testid=entity-list] [data-testid=list]'); l.scrollTop = 300; return l.scrollTop; })()")
+            .await;
+        assert!(rows_scrolled > 0.0, "the rows scroll inside the pane");
+        let head_after: f64 = c
+            .ui
+            .eval("document.querySelector('[data-testid=list-head]').getBoundingClientRect().top")
+            .await;
+        assert!(
+            (head_before - head_after).abs() < 0.5,
+            "scrolling the rows leaves the head in place"
+        );
+        c.ui.shot("rows-scrolled-head-fixed").await;
+        let page: Vec<f64> = c
+            .ui
+            .eval("(() => { window.scrollTo(0, 600); const top = document.querySelector('[data-testid=entity-list]').getBoundingClientRect().top; return [document.scrollingElement.scrollTop, top]; })()")
+            .await;
+        assert!(page[0] > 100.0, "the detail scrolls the document: {page:?}");
+        assert!(
+            (page[1] - geo[0]).abs() < 1.5,
+            "the list pane stays put while the page scrolls: {page:?}"
+        );
+        let inner: usize = c
+            .ui
+            .eval("[...document.querySelectorAll('#detail, #detail *')].filter(e => { const o = getComputedStyle(e).overflowY; return (o === 'auto' || o === 'scroll') && e.scrollHeight > e.clientHeight + 1; }).length")
+            .await;
+        assert_eq!(inner, 0, "the detail has no scroll container of its own");
+        c.ui.shot("detail-scrolls-with-the-page").await;
+        let _: bool =
+            c.ui.eval("(() => { window.scrollTo(0, 0); return true; })()")
+                .await;
+        c.ui.nav("/services/svc29").await;
+        tokio::time::sleep(Duration::from_millis(400)).await;
+        let visible: bool = c
+            .ui
+            .eval("(() => { const l = document.querySelector('[data-testid=entity-list] [data-testid=list]').getBoundingClientRect(); const r = document.querySelector('[data-row=svc29]').getBoundingClientRect(); return r.top >= l.top - 1 && r.bottom <= l.bottom + 1; })()")
+            .await;
+        assert!(visible, "the selected row scrolls into view");
+        c.ui.viewport(390, 844).await;
+        c.ui.nav("/services").await;
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        let stacked: f64 = c
+            .ui
+            .eval("(() => { window.scrollTo(0, 400); return document.scrollingElement.scrollTop; })()")
+            .await;
+        assert!(stacked > 0.0, "on a phone the list scrolls with the page");
+        c.ui.viewport(1440, 900).await;
+        c.ui.assert_no_errors();
+    })
+}
+
+#[test]
+fn the_list_pane_stays_put_while_the_detail_scrolls() {
+    let mut extra = String::new();
+    for i in 0..30 {
+        extra.push_str(&format!(
+            "  svc{i:02}:\n    client: home\n    target: {}\n    visitors: [laptop]\n",
+            9200 + i
+        ));
+    }
+    let opts = Options {
+        extra_services: extra,
+        ..Options::default()
+    };
+    run("list-scrolls", opts, false, list_scrolls);
+}
+
 const MAIN_SCREENS: &[(&str, &str)] = &[
     ("/", "overview"),
     ("/services", "services"),
@@ -435,6 +538,39 @@ fn screens(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
             ax_clean(c, name).await;
             baseline(c, &format!("{name}-desktop")).await;
         }
+        let mut links: Vec<String> = Vec::new();
+        for (path, _) in MAIN_SCREENS {
+            c.ui.nav(path).await;
+            c.ui.wait_gone("[aria-busy=true]", SECS).await;
+            let found: Vec<String> = c
+                .ui
+                .eval("[...document.querySelectorAll('a[href]')].map(a => a.getAttribute('href'))")
+                .await;
+            for l in found {
+                if !links.contains(&l) {
+                    links.push(l);
+                }
+            }
+        }
+        assert!(links.len() > 10, "links found: {links:?}");
+        for l in &links {
+            assert!(
+                l.starts_with('/') || l.starts_with('#'),
+                "every link stays inside burrow admin: {l}"
+            );
+            if l.starts_with('#') {
+                continue;
+            }
+            c.ui.nav(l).await;
+            c.ui.wait_gone("[aria-busy=true]", SECS).await;
+            assert_eq!(
+                c.ui.count("[data-testid=not-found], [data-testid=detail-missing]")
+                    .await,
+                0,
+                "{l} opens a real page"
+            );
+        }
+        c.ui.assert_no_errors();
         c.ui.nav("/activity").await;
         c.ui.wait_for("[data-testid=activity-empty]", SECS).await;
         c.ui.shot("activity-empty-state").await;
@@ -478,7 +614,24 @@ fn screens(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
                 .await;
             assert!(!overflow, "{name} scrolls sideways at 390 px");
         }
+        c.ui.nav("/services/web").await;
+        c.ui.click("[data-testid=edit]").await;
+        c.ui.wait_for("[data-testid=save-bar]", SECS).await;
+        c.ui.shot("service-form-narrow").await;
+        c.ui.click("[data-testid=discard-edit]").await;
+        c.ui.viewport(1100, 900).await;
+        c.ui.nav("/").await;
+        c.ui.shot("overview-1100").await;
+        c.ui.viewport(1920, 1080).await;
+        c.ui.shot("overview-1920").await;
         c.ui.viewport(1440, 900).await;
+        c.ui.click("[data-testid=search-open]").await;
+        c.ui.wait_for("[data-testid=search]", SECS).await;
+        c.ui.fill("[data-testid=search] input", "we").await;
+        c.ui.wait_text("[data-testid=search]", "web", SECS).await;
+        c.ui.shot("search-open").await;
+        c.ui.press("[data-testid=search]", "Escape").await;
+        c.ui.wait_gone("[data-testid=search]", SECS).await;
 
         let here: String = c.ui.eval("location.origin + '/'").await;
         c.ui.goto(&here).await;
@@ -606,11 +759,8 @@ fn schema_walk(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
             .await;
             seen.extend(c.ui.all_attrs("[data-schema]", "data-schema").await);
             unset.extend(
-                c.ui.all_attrs(
-                    "fieldset[data-schema]:has([data-testid=not-set])",
-                    "data-schema",
-                )
-                .await,
+                c.ui.all_attrs("[data-schema]:has([data-testid=not-set])", "data-schema")
+                    .await,
             );
         }
         let missing: Vec<&String> = wanted

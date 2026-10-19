@@ -31,6 +31,7 @@ pub fn TextInput(
     #[prop(optional, into)] prefix: Option<String>,
     #[prop(optional, into)] suffix: Option<String>,
 ) -> impl IntoView {
+    let suffix = suffix.filter(|x| !x.is_empty());
     let pad = format!(
         "{}{}",
         if prefix.is_some() { " pl-6" } else { "" },
@@ -95,12 +96,16 @@ pub fn Select(
     #[prop(optional, into)] label: Option<String>,
     #[prop(optional, into)] invalid: Signal<bool>,
     #[prop(optional, into)] disabled: Signal<bool>,
+    #[prop(optional)] small: bool,
 ) -> impl IntoView {
     view! {
         <div class="relative min-w-0">
             <select
                 id=id
-                class=move || format!("{} appearance-none pr-8", field_class(invalid.get(), false))
+                class=move || {
+                    let base = format!("{} appearance-none pr-8", field_class(invalid.get(), false));
+                    if small { base.replace("h-[38px]", "h-7").replace("text-[13px]", "text-xs") } else { base }
+                }
                 aria-label=label
                 aria-invalid=move || invalid.get().then_some("true")
                 disabled=move || disabled.get()
