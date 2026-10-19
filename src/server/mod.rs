@@ -743,28 +743,7 @@ impl Server {
     async fn apply(&mut self, next: ServerSettings) {
         let current = self.shared.settings();
         if next.listen != current.listen {
-            let clash = current.listen.and_then(|kept| {
-                let conflicts = |a| crate::config::check::binds_conflict(kept, a);
-                next.services
-                    .iter()
-                    .find(|(_, s)| {
-                        s.protocol == Protocol::Tcp
-                            && s.binds().into_iter().any(|(_, a)| conflicts(a))
-                    })
-                    .map(|(n, _)| format!("service \"{n}\""))
-                    .or_else(|| {
-                        next.websocket
-                            .as_ref()
-                            .filter(|w| conflicts(w.listen))
-                            .map(|_| "websocket.listen".to_string())
-                    })
-                    .or_else(|| {
-                        next.metrics
-                            .filter(|m| conflicts(*m))
-                            .map(|_| "metrics.listen".to_string())
-                    })
-                    .map(|what| (what, kept))
-            });
+            let clash = current.listen_clash(&next).map(|c| (c.what, c.kept));
             if let Some((what, kept)) = clash {
                 let why = format!(
                     "{what} uses {kept}, which this server keeps listening on until it restarts"

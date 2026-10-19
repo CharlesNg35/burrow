@@ -36,9 +36,42 @@ pub struct ServerSettings {
     pub metrics: Option<SocketAddr>,
 }
 
+pub struct ListenClash {
+    pub path: Vec<String>,
+    pub what: String,
+    pub kept: SocketAddr,
+}
+
 impl ServerSettings {
     pub fn services_for(&self, client: &str) -> Vec<crate::protocol::ServiceInfo> {
         services_for(&self.services, client)
+    }
+
+    pub fn listen_clash(&self, next: &ServerSettings) -> Option<ListenClash> {
+        let kept = self.listen.filter(|_| next.listen != self.listen)?;
+        let conflicts = |a| crate::config::check::binds_conflict(kept, a);
+        let clash = |path: &[&str], what: String| ListenClash {
+            path: path.iter().map(|s| s.to_string()).collect(),
+            what,
+            kept,
+        };
+        next.services
+            .iter()
+            .find(|(_, s)| {
+                s.protocol == Protocol::Tcp && s.binds().into_iter().any(|(_, a)| conflicts(a))
+            })
+            .map(|(n, _)| clash(&["services", n, "bind"], format!("service \"{n}\"")))
+            .or_else(|| {
+                next.websocket
+                    .as_ref()
+                    .filter(|w| conflicts(w.listen))
+                    .map(|_| clash(&["websocket", "listen"], "websocket.listen".into()))
+            })
+            .or_else(|| {
+                next.metrics
+                    .filter(|m| conflicts(*m))
+                    .map(|_| clash(&["metrics", "listen"], "metrics.listen".into()))
+            })
     }
 }
 
@@ -264,5 +297,58 @@ impl std::fmt::Debug for WebSocketSettings {
                 &self.tls.as_ref().map(|t| (&t.cert_path, &t.key_path)),
             )
             .finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::{Format, Loaded, Role, load_str};
+
+    fn settings(text: &str) -> ServerSettings {
+        let secret = crate::secret::Secret::generate().encode();
+        let text = text.replace("SECRET", &secret);
+        let nothing = |_: &str| None;
+        match load_str("s.yaml", &text, Format::Yaml, Some(Role::Server), &nothing).loaded {
+            Some(Loaded::Server(s, _)) => *s,
+            _ => panic!("loads: {text}"),
+        }
+    }
+
+    #[test]
+    fn a_new_listener_on_the_kept_listen_address_is_a_clash() {
+        let base = "listen: 7835\nclients:\n  home: { secret: SECRET }\nservices:\n  web: { client: home, bind: 7840, target: 80 }\n";
+        let old = settings(base);
+        assert!(
+            old.listen_clash(&old).is_none(),
+            "an unchanged listen never clashes"
+        );
+        let moved = settings(&base.replace("listen: 7835", "listen: 7836"));
+        assert!(old.listen_clash(&moved).is_none());
+        let service = settings(
+            &base
+                .replace("listen: 7835", "listen: 7836")
+                .replace("bind: 7840", "bind: 7835"),
+        );
+        let c = old.listen_clash(&service).unwrap();
+        assert_eq!(c.path, ["services", "web", "bind"]);
+        assert_eq!(c.what, "service \"web\"");
+        assert_eq!(c.kept.port(), 7835);
+        let ws =
+            settings(&base.replace("listen: 7835", "listen: 7836\nwebsocket: { listen: 7835 }"));
+        assert_eq!(old.listen_clash(&ws).unwrap().what, "websocket.listen");
+        let metrics = settings(&base.replace(
+            "listen: 7835",
+            "listen: 7836\nmetrics: { listen: 0.0.0.0:7835 }",
+        ));
+        assert_eq!(old.listen_clash(&metrics).unwrap().what, "metrics.listen");
+        let udp = settings(&base.replace("listen: 7835", "listen: 7836").replace(
+            "bind: 7840, target: 80",
+            "bind: 7835, target: 80, protocol: udp",
+        ));
+        assert!(
+            old.listen_clash(&udp).is_none(),
+            "a UDP port does not clash with a TCP listener"
+        );
     }
 }

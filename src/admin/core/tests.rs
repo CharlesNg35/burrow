@@ -451,6 +451,33 @@ fn a_revert_is_an_ordinary_plan() {
 }
 
 #[test]
+fn a_reload_that_would_clash_with_the_kept_listener_is_predicted() {
+    let w = world();
+    let core = core_for(&w.text);
+    let s = session(&w, Level::Write);
+    let base = text::rev(&w.text);
+    let ops = [
+        Op::Set {
+            path: p(&["listen"]),
+            value: json!(7836),
+        },
+        Op::Set {
+            path: p(&["services", "web", "bind"]),
+            value: json!(7835),
+        },
+    ];
+    let c = plan::compute(&core, &s, &base, &ops).unwrap();
+    assert!(!c.plan.valid, "{:?}", c.plan.diags);
+    let d = c
+        .plan
+        .diags
+        .iter()
+        .find(|d| d.code == "listen-clash")
+        .unwrap();
+    assert_eq!(d.path.as_deref().unwrap(), p(&["services", "web", "bind"]));
+}
+
+#[test]
 fn set_text_is_parsed_by_the_server() {
     let w = world();
     let core = core_for(&w.text);

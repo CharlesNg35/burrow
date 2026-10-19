@@ -191,7 +191,7 @@ pub fn compute(
     };
     let checked = check_text(core, &new_text);
     let running = core.live.settings();
-    let (mut refusals, mut impacts) = (Vec::new(), Vec::new());
+    let (mut refusals, mut impacts, mut clash) = (Vec::new(), Vec::new(), Vec::new());
     if let Some(next) = &checked.settings {
         let who = guard::Who {
             visitor: &s.visitor,
@@ -200,6 +200,24 @@ pub fn compute(
             via_websocket: s.via_websocket,
         };
         refusals = guard::refusals(&who, &running, next);
+        if let Some(c) = running.listen_clash(next) {
+            clash.push(Diag {
+                severity: burrow_admin_proto::diag::Severity::Error,
+                code: "listen-clash".into(),
+                message: format!(
+                    "{} uses {}, which this server keeps listening on until it restarts",
+                    c.what, c.kept
+                ),
+                path: Some(c.path),
+                also: vec![vec!["listen".to_string()]],
+                label: None,
+                help: Some(
+                    "restart the server after changing listen, then use the old address".into(),
+                ),
+                line: None,
+                col: None,
+            });
+        }
         let how = applies(core, &raw, &applied.target);
         let restart: Vec<String> = how
             .iter()
@@ -237,8 +255,8 @@ pub fn compute(
         plan: hash,
         base: base.to_string(),
         result_rev: text::rev(&new_text),
-        valid: checked.valid,
-        diags: checked.diags,
+        valid: checked.valid && clash.is_empty(),
+        diags: checked.diags.into_iter().chain(clash).collect(),
         changes,
         diff,
         impacts,
