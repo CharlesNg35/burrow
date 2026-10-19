@@ -246,9 +246,9 @@ impl Report {
         while !self.source.is_char_boundary(at) {
             at -= 1;
         }
-        let start = self.source[..at].rfind('\n').map_or(0, |i| i + 1);
+        let start = self.source[..at].rfind(['\n', '\r']).map_or(0, |i| i + 1);
         let end = self.source[start..]
-            .find('\n')
+            .find(['\n', '\r'])
             .map_or(self.source.len(), |i| start + i);
         let mut line: Vec<char> = self.source[start..end]
             .trim_end_matches('\r')

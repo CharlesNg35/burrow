@@ -120,7 +120,11 @@ struct Lines<'a> {
 impl<'a> Lines<'a> {
     fn new(src: &'a str) -> Self {
         let mut starts = vec![0];
-        starts.extend(src.match_indices('\n').map(|(i, _)| i + 1));
+        starts.extend(
+            src.char_indices()
+                .filter(|&(i, c)| c == '\n' || (c == '\r' && !src[i + 1..].starts_with('\n')))
+                .map(|(i, _)| i + 1),
+        );
         Lines { src, starts }
     }
 

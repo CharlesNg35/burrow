@@ -2136,3 +2136,12 @@ fn a_config_path_that_is_a_pipe_is_refused_instead_of_waited_on() {
     };
     assert!(format!("{e:?}").contains("not a regular file"), "{e:?}");
 }
+
+#[test]
+fn a_config_with_old_mac_line_endings_keeps_its_secrets_hidden() {
+    let src =
+        server("  web:\n    client: home\n    bnd: 0.0.0.0:4000\n    target: 127.0.0.1:3000\n")
+            .replace('\n', "\r");
+    let text = render("server.yaml", &src, None);
+    assert!(text.contains("unknown field \"bnd\""), "{text}");
+}
