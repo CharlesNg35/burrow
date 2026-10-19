@@ -1,0 +1,11 @@
+[package]
+name = "burrow-admin-logic"
+version = "0.1.0"
+edition = "2024"
+description = "Admin UI logic without a DOM: drafts, operations, relations, local checks"
+license = "MIT"
+publish = false
+
+[dependencies]
+burrow-admin-proto = { path = "../burrow-admin-proto" }
+burrow-syntax = { path = "../burrow-syntax" }

@@ -14,6 +14,7 @@ publish = false
 members = [
     ".",
     "crates/burrow-syntax",
+    "crates/burrow-admin-logic",
     "crates/burrow-admin-proto",
     "crates/burrow-admin-derive",
     "xtask",

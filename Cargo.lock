@@ -252,6 +252,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "burrow-admin-logic"
+version = "0.1.0"
+dependencies = [
+ "burrow-admin-proto",
+ "burrow-syntax",
+]
+
+[[package]]
 name = "burrow-admin-proto"
 version = "0.1.0"
 dependencies = [
