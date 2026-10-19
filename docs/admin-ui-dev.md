@@ -1,12 +1,14 @@
 # Working on the burrow admin UI
 
+Using burrow admin: [admin.md](admin.md).
+
 The UI is Rust compiled to WebAssembly (`crates/burrow-admin-ui`, Leptos), styled with Tailwind CSS v4 utility classes. No Node.js is needed.
 
 One-time setup:
 
 ```bash
 rustup target add wasm32-unknown-unknown
-cargo xtask tools        # pinned wasm-bindgen, wasm-opt and the Tailwind standalone binary, into .tools/
+cargo xtask tools        # pinned wasm-bindgen, wasm-opt, the Tailwind standalone binary and Chrome for Testing, into .tools/
 ```
 
 The loop, in three terminals:
