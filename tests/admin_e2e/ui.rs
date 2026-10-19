@@ -263,6 +263,57 @@ impl Ui {
         el.click().await.expect("click");
     }
 
+    pub async fn fill(&self, css: &str, text: &str) {
+        self.wait_for(css, Duration::from_secs(10)).await;
+        let _: bool = self
+            .eval(&format!(
+                "(() => {{ const e = document.querySelector({}); e.focus(); e.value = ''; e.dispatchEvent(new Event('input', {{ bubbles: true }})); return true; }})()",
+                js_str(css)
+            ))
+            .await;
+        let el = self.page.find_element(css).await.expect("element");
+        el.type_str(text).await.expect("type");
+        let _: bool = self
+            .eval(&format!(
+                "(() => {{ const e = document.querySelector({}); if (e) e.blur(); return true; }})()",
+                js_str(css)
+            ))
+            .await;
+    }
+
+    pub async fn select(&self, css: &str, value: &str) {
+        self.wait_for(css, Duration::from_secs(10)).await;
+        let ok: bool = self
+            .eval(&format!(
+                "(() => {{ const e = document.querySelector({}); const o = Array.from(e.options).find(o => o.value === {v}); if (!o) return false; e.value = {v}; e.dispatchEvent(new Event('change', {{ bubbles: true }})); return true; }})()",
+                js_str(css),
+                v = js_str(value)
+            ))
+            .await;
+        assert!(ok, "{css} has no option {value:?}");
+    }
+
+    pub async fn choose(&self, id: &str, value: &str) {
+        self.wait_for(&format!("#{id}"), Duration::from_secs(10))
+            .await;
+        let ok: bool = self
+            .eval(&format!(
+                "(() => {{ const e = document.getElementById({i}); if (e.tagName === 'SELECT') {{ const o = Array.from(e.options).find(o => o.value === {v}); if (!o) return false; e.value = {v}; e.dispatchEvent(new Event('change', {{ bubbles: true }})); return true; }} const r = Array.from(e.querySelectorAll('input[type=radio]')).find(r => r.value === {v}); if (!r) return false; r.click(); return true; }})()",
+                i = js_str(id),
+                v = js_str(value)
+            ))
+            .await;
+        assert!(ok, "#{id} has no choice {value:?}");
+    }
+
+    pub async fn enabled(&self, css: &str) -> bool {
+        self.eval::<bool>(&format!(
+            "(() => {{ const e = document.querySelector({}); return !!e && !e.disabled; }})()",
+            js_str(css)
+        ))
+        .await
+    }
+
     pub async fn press(&self, css: &str, key: &str) {
         let el = self.page.find_element(css).await.expect("element");
         el.press_key(key).await.expect("key");

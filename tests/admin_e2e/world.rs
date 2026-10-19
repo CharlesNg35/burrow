@@ -13,7 +13,23 @@ pub fn free_port() -> u16 {
         .expect("a free port")
 }
 
-fn secret() -> String {
+pub fn free_range(n: u16) -> u16 {
+    for _ in 0..200 {
+        let first = free_port();
+        if first > 65535 - n {
+            continue;
+        }
+        let all: Vec<_> = (first..first + n)
+            .map(|p| std::net::TcpListener::bind(("127.0.0.1", p)))
+            .collect();
+        if all.iter().all(Result::is_ok) {
+            return first;
+        }
+    }
+    panic!("no {n} free ports in a row")
+}
+
+pub fn secret() -> String {
     let out = Command::new(BIN)
         .arg("gensecret")
         .output()
@@ -67,7 +83,7 @@ impl World {
         for k in ["listen", "web", "echo", "forward", "game"] {
             w.ports.insert(k, free_port());
         }
-        for n in ["home", "office", "ops", "viewer", "laptop", "plain"] {
+        for n in ["home", "office", "ops", "viewer", "laptop", "plain", "boss"] {
             w.secrets.insert(n, secret());
         }
         let p = &w.ports;
@@ -77,7 +93,7 @@ impl World {
              # comments here must survive every change made through the admin UI\n\
              listen: 127.0.0.1:{listen}\n\n\
              clients:\n  # the home box\n  home:\n    secret: {home}\n  office:\n    secret: {office}\n    max_connections: 100\n\n\
-             visitors:\n  ops:\n    secret: {ops} # the admin\n    admin: write\n    admin_from: [127.0.0.1/32]\n  viewer:\n    secret: {viewer}\n    admin: read\n  laptop:\n    secret: {laptop}\n    reach:\n      home: [127.0.0.1/32]\n  plain:\n    secret: {plain}\n\n\
+             visitors:\n  ops:\n    secret: {ops} # the admin\n    admin: write\n    admin_from: [127.0.0.1/32]\n  viewer:\n    secret: {viewer}\n    admin: read\n  laptop:\n    secret: {laptop}\n    reach:\n      home: [127.0.0.1/32]\n  plain:\n    secret: {plain}\n  boss:\n    secret: {boss}\n    admin: write\n\n\
              services:\n  web: {{ client: home, bind: 127.0.0.1:{web}, target: {echo} }} # keep this comment\n  ssh:\n    client: home\n    target: 22\n    visitors: [laptop]\n{extra}",
             listen = p["listen"],
             web = p["web"],
@@ -88,6 +104,7 @@ impl World {
             viewer = s["viewer"],
             laptop = s["laptop"],
             plain = s["plain"],
+            boss = s["boss"],
             extra = opts.extra_services,
         );
         w.write("server.yaml", &yaml);
@@ -253,6 +270,17 @@ impl World {
         out.push_str("===== server.yaml =====\n");
         out.push_str(&fs::read_to_string(self.file("server.yaml")).unwrap_or_default());
         out
+    }
+
+    pub fn config(&self) -> String {
+        fs::read_to_string(self.file("server.yaml")).expect("server.yaml")
+    }
+
+    pub fn hand_edit(&self, f: impl FnOnce(&str) -> String) {
+        let next = f(&self.config());
+        let tmp = self.file("server.yaml.tmp");
+        fs::write(&tmp, next).expect("write the hand edit");
+        fs::rename(&tmp, self.file("server.yaml")).expect("replace server.yaml");
     }
 
     pub fn path(&self) -> &Path {

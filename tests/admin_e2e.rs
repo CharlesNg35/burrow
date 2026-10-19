@@ -1,5 +1,7 @@
 #[path = "admin_e2e/checks.rs"]
 mod checks;
+#[path = "admin_e2e/edits.rs"]
+mod edits;
 #[path = "admin_e2e/sheet.rs"]
 mod sheet;
 #[path = "admin_e2e/ui.rs"]
@@ -261,7 +263,7 @@ fn e1_dashboard_shows_live_status_and_traffic() {
 
 fn fallback(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
     Box::pin(async move {
-        open(c, "ops").await;
+        open(c, "viewer").await;
         c.ui.shot("overview-against-a-newer-server").await;
         c.ui.nav("/services/capped").await;
         let bw = "[data-schema='services/*/bandwidth']";
