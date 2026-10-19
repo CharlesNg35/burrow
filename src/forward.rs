@@ -54,11 +54,80 @@ impl<'a> Meter<'a> {
     }
 }
 
+pub trait Linger {
+    fn close_normally(&self) {}
+}
+
+impl<T: Linger + ?Sized> Linger for &mut T {
+    fn close_normally(&self) {
+        (**self).close_normally();
+    }
+}
+
+impl Linger for crate::transport::WriteHalf<'_> {
+    fn close_normally(&self) {
+        if let crate::transport::WriteHalf::Tcp(w) = self {
+            let _ = socket2::SockRef::from(w.as_ref()).set_linger(None);
+        }
+    }
+}
+
+impl Linger for tokio::net::tcp::WriteHalf<'_> {
+    fn close_normally(&self) {
+        let _ = socket2::SockRef::from(self.as_ref()).set_linger(None);
+    }
+}
+
+#[cfg(unix)]
+impl Linger for tokio::net::unix::WriteHalf<'_> {}
+
+struct Graceful<W> {
+    inner: W,
+    restored: bool,
+}
+
+impl<W> Graceful<W> {
+    fn new(inner: W) -> Self {
+        Graceful {
+            inner,
+            restored: false,
+        }
+    }
+}
+
+impl<W: tokio::io::AsyncWrite + Linger + Unpin> tokio::io::AsyncWrite for Graceful<W> {
+    fn poll_write(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<io::Result<usize>> {
+        std::pin::Pin::new(&mut self.inner).poll_write(cx, buf)
+    }
+
+    fn poll_flush(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<io::Result<()>> {
+        std::pin::Pin::new(&mut self.inner).poll_flush(cx)
+    }
+
+    fn poll_shutdown(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<io::Result<()>> {
+        if !self.restored {
+            self.inner.close_normally();
+            self.restored = true;
+        }
+        std::pin::Pin::new(&mut self.inner).poll_shutdown(cx)
+    }
+}
+
 pub trait Split {
     type Read<'a>: tokio::io::AsyncRead + Unpin + Send
     where
         Self: 'a;
-    type Write<'a>: tokio::io::AsyncWrite + Unpin + Send
+    type Write<'a>: tokio::io::AsyncWrite + Linger + Unpin + Send
     where
         Self: 'a;
     fn halves(&mut self) -> (Self::Read<'_>, Self::Write<'_>);
@@ -260,6 +329,9 @@ async fn start(
         early.bytes = Vec::new();
     }
     if early.ended {
+        if plaintext {
+            stream.close_normally();
+        }
         end_early(stream, writer, plaintext).await?;
     }
     Ok(())
@@ -422,7 +494,7 @@ pub async fn open_tcp(
                 let up = async {
                     match (ended, plaintext) {
                         (true, _) => Ok(()),
-                        (false, true) => raw_pump(&mut vr, &mut cw).await,
+                        (false, true) => raw_pump(&mut vr, &mut Graceful::new(&mut cw)).await,
                         (false, false) => seal_pump(&mut vr, &mut cw, &mut writer, CHUNK).await,
                     }
                 };
@@ -502,7 +574,7 @@ pub async fn pump_tcp<T: Split>(
         let (mut tr, mut tw) = target.halves();
         let up = async {
             if plaintext {
-                raw_pump(&mut tr, &mut cw).await
+                raw_pump(&mut tr, &mut Graceful::new(&mut cw)).await
             } else {
                 seal_pump(&mut tr, &mut cw, &mut writer, CHUNK).await
             }
@@ -511,6 +583,7 @@ pub async fn pump_tcp<T: Split>(
         let up_done = std::sync::atomic::AtomicBool::new(false);
         let down_done = std::sync::atomic::AtomicBool::new(false);
         let down = async {
+            let mut tw = Graceful::new(&mut tw);
             if plaintext {
                 let rest = reader.take_buffered();
                 tw.write_all(&rest).await?;
@@ -616,7 +689,7 @@ pub async fn relay(
                 early.accepted();
                 let ended = early.ended;
                 let raw = |bytes| if plaintext { bytes } else { None };
-                let mut cw = Counted::new(cw, raw(inbound));
+                let mut cw = Counted::new(Graceful::new(cw), raw(inbound));
                 let sealed = |bytes| if plaintext { None } else { bytes };
                 let up = async {
                     match (ended, plaintext) {
