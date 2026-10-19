@@ -399,4 +399,30 @@ mod tests {
             );
         }
     }
+
+    fn server_manifest() -> Manifest {
+        Manifest {
+            name: "burrow-home".into(),
+            role: "server".into(),
+            config: "/etc/burrow/home.yaml".into(),
+            source_config: "/home/me/home.yaml".into(),
+            env_file: Some("/etc/burrow/home.env".into()),
+            log_file: "/var/log/burrow/home/home.log".into(),
+            binary: "/usr/local/bin/burrow".into(),
+            copied_binary: true,
+            account: "burrow-home".into(),
+            created_account: true,
+            low_ports: false,
+            files: vec![],
+            version: "0.1.0".into(),
+        }
+    }
+
+    #[test]
+    fn the_server_unit_is_unchanged_byte_for_byte() {
+        let unit = Systemd.render(&server_manifest());
+        assert_eq!(unit, GOLDEN_UNIT);
+    }
+
+    const GOLDEN_UNIT: &str = "[Unit]\nDescription=burrow server \"home\"\nDocumentation=https://github.com/charlesng35/burrow\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nUser=burrow-home\nExecStart=/usr/local/bin/burrow server -c /etc/burrow/home.yaml --log-file /var/log/burrow/home/home.log\nExecReload=/bin/kill -HUP $MAINPID\nEnvironmentFile=/etc/burrow/home.env\nRestart=on-failure\nRestartSec=5\nRestartPreventExitStatus=2 3\nRestartForceExitStatus=SIGHUP\nLimitNOFILE=1048576\nUMask=0077\nReadWritePaths=/run/burrow-instances\nLogsDirectory=burrow/home\nLogsDirectoryMode=0750\nNoNewPrivileges=yes\nProtectSystem=strict\nProtectHome=yes\nPrivateTmp=yes\nPrivateDevices=yes\nDevicePolicy=closed\nPrivateUsers=yes\nProtectClock=yes\nProtectHostname=yes\nProtectKernelTunables=yes\nProtectKernelModules=yes\nProtectKernelLogs=yes\nProtectControlGroups=yes\nProtectProc=invisible\nProcSubset=pid\nRestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK\nRestrictNamespaces=yes\nRestrictRealtime=yes\nRestrictSUIDSGID=yes\nLockPersonality=yes\nMemoryDenyWriteExecute=yes\nRemoveIPC=yes\nSystemCallArchitectures=native\nSystemCallFilter=@system-service\nSystemCallFilter=~@privileged @resources\nSystemCallErrorNumber=EPERM\nCapabilityBoundingSet=\nAmbientCapabilities=\n\n[Install]\nWantedBy=multi-user.target\n";
 }
