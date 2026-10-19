@@ -15,6 +15,7 @@ use crate::dialer::admin::{AdminOpenError, AdminRefusal};
 use burrow_admin_proto::frame::{AdminOpen, MAX_MESSAGE};
 
 pub const AUTH_WAIT: Duration = Duration::from_secs(5);
+pub const CLOSE_WAIT: Duration = Duration::from_secs(1);
 const SERVER_PING: Duration = Duration::from_secs(25);
 
 pub struct Rewind {
@@ -131,13 +132,16 @@ pub async fn serve(
         _ => false,
     };
     if !authed {
-        let _ = ws
-            .send(Message::close(
-                Some(CloseCode::POLICY_VIOLATION),
-                "unauthorized",
-            ))
-            .await;
-        let _ = ws.close().await;
+        let _ = tokio::time::timeout(CLOSE_WAIT, async {
+            let _ = ws
+                .send(Message::close(
+                    Some(CloseCode::POLICY_VIOLATION),
+                    "unauthorized",
+                ))
+                .await;
+            let _ = ws.close().await;
+        })
+        .await;
         return;
     }
     let (mut rx, mut tx, _) = match dialer.open_admin(&open_message()).await {

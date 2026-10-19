@@ -606,6 +606,40 @@ async fn the_local_page_is_only_served_to_this_machine() {
 }
 
 #[tokio::test]
+async fn a_socket_without_the_token_is_dropped_even_if_it_ignores_the_close() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let w = world().await;
+    let l = local(&w, "ops", &w.ops).await;
+    let mut s = tokio::net::TcpStream::connect(("127.0.0.1", l.port))
+        .await
+        .unwrap();
+    let head = format!(
+        "GET /api HTTP/1.1\r\nHost: 127.0.0.1:{p}\r\nOrigin: http://127.0.0.1:{p}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n",
+        p = l.port
+    );
+    s.write_all(head.as_bytes()).await.unwrap();
+    let started = std::time::Instant::now();
+    let mut buf = vec![0u8; 4096];
+    let ended = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            match s.read(&mut buf).await {
+                Ok(0) | Err(_) => break,
+                Ok(_) => {}
+            }
+        }
+    })
+    .await;
+    assert!(ended.is_ok(), "the bridge kept a silent socket open");
+    assert!(
+        started.elapsed() < Duration::from_secs(8),
+        "dropped about 5 s after the upgrade, took {:?}",
+        started.elapsed()
+    );
+    let _ = l.stop.send(true);
+    let _ = w.stop.send(true);
+}
+
+#[tokio::test]
 async fn the_websocket_needs_the_token_first() {
     let w = world().await;
     let l = local(&w, "ops", &w.ops).await;
