@@ -2,7 +2,7 @@ use burrow::config::admin_schema::AdminSchema;
 
 #[derive(AdminSchema)]
 pub struct Service {
-    #[admin(ty = rate)]
+    #[admin(label = "Speed limit", ty = rate)]
     pub bandwidth: Option<u32>,
 }
 

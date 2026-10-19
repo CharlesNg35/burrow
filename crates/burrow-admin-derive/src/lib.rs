@@ -243,7 +243,8 @@ fn expand_struct(input: &DeriveInput, s: &syn::DataStruct, errors: &mut Errors) 
         check_keys(&terms, FIELD_KEYS, errors);
         let serde_f = serde_attrs::field(&f.attrs);
         let schemars = serde_attrs::schemars(&f.attrs);
-        let label = str_of(&terms, "label", errors).unwrap_or_else(|| humanize(wire));
+        let given_label = str_of(&terms, "label", errors);
+        let label = given_label.clone().unwrap_or_else(|| humanize(wire));
         let help = str_of(&terms, "help", errors)
             .or(schemars.description.clone())
             .unwrap_or_default();
@@ -259,17 +260,22 @@ fn expand_struct(input: &DeriveInput, s: &syn::DataStruct, errors: &mut Errors) 
             });
             continue;
         }
-        let Some(ty_term) = assigned(&terms, "ty") else {
+        if given_label.is_none() {
             errors.push(
                 f.span(),
-                format!("field `{ident}` of `{name}` needs `ty = ...` in #[admin(...)], or `skip = \"why\"`"),
+                format!(
+                    "field `{ident}` of `{name}` needs a label: #[admin(label = \"...\")], the text the admin UI shows"
+                ),
             );
             continue;
-        };
+        }
         let optional = sem::strip(&f.ty, "Option");
         let inner_ty = optional.unwrap_or(&f.ty);
         let range = (schemars.min, schemars.max);
-        let built = sem::build(ty_term, Some(inner_ty), range, errors);
+        let built = match assigned(&terms, "ty") {
+            Some(ty_term) => sem::build(ty_term, Some(inner_ty), range, errors),
+            None => sem::infer(inner_ty, range, ident, errors),
+        };
         checks.extend(built.checks);
         let base = built.node;
         let mut meta = Vec::new();
@@ -417,7 +423,7 @@ fn expand_struct(input: &DeriveInput, s: &syn::DataStruct, errors: &mut Errors) 
     }
 }
 
-const VARIANT_KEYS: &[&str] = &["label", "help", "danger", "form"];
+const VARIANT_KEYS: &[&str] = &["label", "help", "danger"];
 
 fn expand_enum(input: &DeriveInput, e: &syn::DataEnum, errors: &mut Errors) -> TokenStream {
     let name = &input.ident;
@@ -449,10 +455,19 @@ fn expand_enum(input: &DeriveInput, e: &syn::DataEnum, errors: &mut Errors) -> T
         let wire = serde_attrs::field(&v.attrs).rename.unwrap_or_else(|| {
             serde_attrs::rename_variant(&vident.to_string(), serde_c.rename_all.as_deref())
         });
-        let label = str_of(&terms, "label", errors).unwrap_or_else(|| wire.clone());
+        let given_label = str_of(&terms, "label", errors);
+        if given_label.is_none() && skipped.is_none() {
+            errors.push(
+                v.span(),
+                format!(
+                    "variant `{vident}` of `{name}` needs a label: #[admin(label = \"...\")], the text the admin UI shows"
+                ),
+            );
+        }
+        let label = given_label.unwrap_or_else(|| wire.clone());
         let help = str_of(&terms, "help", errors).unwrap_or_default();
         let danger = has_flag(&terms, "danger");
-        let form = str_of(&terms, "form", errors).unwrap_or_else(|| wire.clone());
+        let form = label.clone();
         let pat = match &v.fields {
             Fields::Unit => quote!(#name::#vident),
             Fields::Unnamed(_) => quote!(#name::#vident(..)),

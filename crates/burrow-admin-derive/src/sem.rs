@@ -518,3 +518,51 @@ pub fn relations(
     }
     out
 }
+
+fn last_ident(ty: &syn::Type) -> Option<String> {
+    match ty {
+        syn::Type::Path(tp) => tp.path.segments.last().map(|s| s.ident.to_string()),
+        _ => None,
+    }
+}
+
+pub fn infer(
+    ty: &syn::Type,
+    range: (Option<i64>, Option<i64>),
+    field: &syn::Ident,
+    errors: &mut Errors,
+) -> Built {
+    let p = crate::p();
+    let span = field.span();
+    let (mn, mx) = (opt_int(range.0), opt_int(range.1));
+    let node = match last_ident(ty).as_deref() {
+        Some("bool") => quote!(#p::Node::new(#p::SemType::Bool)),
+        Some("u8" | "u16" | "u32" | "u64" | "usize" | "i32" | "i64") => quote!(#p::Node::new(
+            #p::SemType::Integer(#p::IntegerC { min: #mn, max: #mx, unit: ::core::option::Option::None })
+        )),
+        Some("String") => {
+            quote!(#p::Node::new(#p::SemType::Text(::core::default::Default::default())))
+        }
+        Some("Vec" | "BTreeMap" | "HashMap") => {
+            errors.push(
+                span,
+                format!("the semantic type of `{field}` cannot be inferred from a collection; add #[admin(ty = list(...))] or #[admin(ty = map(entity))]"),
+            );
+            quote!(#p::Node::default())
+        }
+        Some(_) => quote!(<#ty as #p::AdminSchema>::node()),
+        None => {
+            errors.push(
+                span,
+                format!(
+                    "the semantic type of `{field}` cannot be inferred; add #[admin(ty = ...)]"
+                ),
+            );
+            quote!(#p::Node::default())
+        }
+    };
+    Built {
+        node,
+        checks: Vec::new(),
+    }
+}

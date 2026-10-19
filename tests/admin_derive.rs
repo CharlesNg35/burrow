@@ -13,6 +13,13 @@ const FAIL: &[(&str, &[&str])] = &[
         &["variant `Random` of `Mode` needs #[admin(label = \"...\")]"],
     ),
     (
+        "missing_label",
+        &[
+            "field `max_visitors` of `Limits` needs a label: #[admin(label = \"...\")]",
+            "variant `Balance` of `Mode` needs a label",
+        ],
+    ),
+    (
         "skip_without_reason",
         &["`skip` needs a reason: #[admin(skip = \"why\")]"],
     ),

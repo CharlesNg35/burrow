@@ -2,9 +2,9 @@ use burrow::config::admin_schema::AdminSchema;
 
 #[derive(AdminSchema)]
 pub struct Service {
-    #[admin(ty = bool, lable = "Typo")]
+    #[admin(label = "On", lable = "Typo")]
     pub on: bool,
-    #[admin(ty = colour)]
+    #[admin(label = "Shade", ty = colour)]
     pub shade: String,
 }
 

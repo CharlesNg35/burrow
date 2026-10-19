@@ -52,7 +52,6 @@ pub struct ServerConfig {
         description = "Accept clients over WebSocket, for servers reachable only through HTTP(S)"
     )]
     #[admin(
-        ty = object,
         label = "WebSocket listener",
         group = websocket,
         order = 30,
@@ -77,7 +76,6 @@ pub struct ServerConfig {
     #[serde(default, skip_serializing_if = "is_false")]
     #[schemars(description = "Disable encryption of forwarded data (authentication still runs)")]
     #[admin(
-        ty = bool,
         label = "Disable encryption of forwarded data",
         group = security,
         order = 90,
@@ -86,24 +84,23 @@ pub struct ServerConfig {
     )]
     pub insecure_plaintext: bool,
     #[serde(default, skip_serializing_if = "is_default")]
-    #[admin(ty = object, label = "Heartbeat", group = network, order = 60, applies = live)]
+    #[admin(label = "Heartbeat", group = network, order = 60, applies = live)]
     pub heartbeat: Heartbeat,
     #[serde(default, skip_serializing_if = "is_default")]
-    #[admin(ty = object, label = "Limits", group = limits, order = 50)]
+    #[admin(label = "Limits", group = limits, order = 50)]
     pub limits: Limits,
     #[serde(default, skip_serializing_if = "is_default")]
-    #[admin(ty = object, label = "Pool of idle channels", group = network, order = 61, applies = reload)]
+    #[admin(label = "Pool of idle channels", group = network, order = 61, applies = reload)]
     pub pool: Pool,
     #[serde(default, skip_serializing_if = "is_default")]
-    #[admin(ty = object, label = "TCP", group = network, order = 62, applies = live)]
+    #[admin(label = "TCP", group = network, order = 62, applies = live)]
     pub tcp: TcpOptions,
     #[serde(default, skip_serializing_if = "is_default")]
-    #[admin(ty = object, label = "UDP", group = network, order = 63, applies = live)]
+    #[admin(label = "UDP", group = network, order = 63, applies = live)]
     pub udp: UdpOptions,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(description = "Serve Prometheus metrics at /metrics; off unless set")]
     #[admin(
-        ty = object,
         label = "Metrics endpoint",
         group = monitoring,
         order = 70,
@@ -141,7 +138,11 @@ pub struct WebSocketConfig {
     #[schemars(
         description = "Serve wss:// directly with these PEM files instead of behind a TLS proxy"
     )]
-    #[admin(ty = object, label = "TLS", order = 30, none_label = "Behind a TLS proxy (plain ws://)")]
+    #[admin(
+        label = "TLS",
+        order = 30,
+        none_label = "Behind a TLS proxy (plain ws://)"
+    )]
     pub tls: Option<TlsFiles>,
     #[serde(
         default = "default_ws_keepalive",
@@ -184,7 +185,7 @@ pub struct TlsFiles {
 #[admin(entity = client, label = "Client")]
 pub struct ClientEntry {
     #[schemars(description = "256-bit secret (base64 or hex), or a list of them during rotation")]
-    #[admin(ty = secret_ref(max = 4), label = "Secrets")]
+    #[admin(label = "Secrets")]
     pub secret: Secrets,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(description = "Maximum concurrent forwarded connections for this client")]
@@ -204,7 +205,7 @@ pub struct ClientEntry {
 #[admin(entity = visitor, label = "Visitor", groups(access = "Access", admin = "Administration", traffic = "Traffic"))]
 pub struct VisitorEntry {
     #[schemars(description = "256-bit secret (base64 or hex), or a list of them during rotation")]
-    #[admin(ty = secret_ref(max = 4), label = "Secrets")]
+    #[admin(label = "Secrets")]
     pub secret: Secrets,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     #[schemars(
@@ -234,7 +235,6 @@ pub struct VisitorEntry {
         description = "Let this visitor administer the server with burrow admin: read shows the dashboard and the config, write may also change it"
     )]
     #[admin(
-        ty = enum_,
         label = "Admin access",
         group = admin,
         order = 40,
@@ -289,9 +289,9 @@ pub enum AdminLevel {
 #[serde(untagged)]
 #[admin(semantic = union(enum_values("any"), cidr_rule, list(cidr_rule)))]
 pub enum Reach {
-    #[admin(form = "any or one rule")]
+    #[admin(label = "Any or one rule")]
     One(String),
-    #[admin(form = "rules")]
+    #[admin(label = "Rules")]
     Many(Vec<String>),
 }
 
@@ -308,9 +308,9 @@ impl Reach {
 #[serde(untagged)]
 #[admin(semantic = secret_ref(max = 4))]
 pub enum Secrets {
-    #[admin(form = "one secret")]
+    #[admin(label = "One secret")]
     One(String),
-    #[admin(form = "several secrets during rotation")]
+    #[admin(label = "Several secrets during rotation")]
     Many(Vec<String>),
 }
 
@@ -350,14 +350,13 @@ pub struct ServiceEntry {
     #[schemars(
         description = "With several clients: failover uses the first one that is up, balance spreads new connections over all of them"
     )]
-    #[admin(ty = enum_, label = "Mode", group = who, order = 12, visible_if(len_ge(clients, 2)), tcp_only)]
+    #[admin(label = "Mode", group = who, order = 12, visible_if(len_ge(clients, 2)), tcp_only)]
     pub mode: Mode,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
         description = "Check that each client can reach the target, and send connections only to those that can: true, or a map with interval_secs, timeout_secs and failures"
     )]
     #[admin(
-        ty = union_,
         label = "Health check",
         group = who,
         order = 13,
@@ -392,7 +391,7 @@ pub struct ServiceEntry {
     )]
     pub target: Target,
     #[serde(default, skip_serializing_if = "is_default")]
-    #[admin(ty = enum_, label = "Protocol", group = exposure, order = 22)]
+    #[admin(label = "Protocol", group = exposure, order = 22)]
     pub protocol: Protocol,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(description = "Maximum concurrent connections for this service")]
@@ -434,7 +433,6 @@ pub struct ServiceEntry {
         description = "Send the real source address to the target with the PROXY protocol, v1 (text) or v2 (binary); only for targets that expect it"
     )]
     #[admin(
-        ty = enum_,
         label = "PROXY protocol",
         group = traffic,
         order = 42,
@@ -477,9 +475,9 @@ pub enum Mode {
 #[serde(untagged)]
 #[admin(semantic = union(bool, object(HealthCheck)))]
 pub enum HealthCheckSetting {
-    #[admin(form = "on with defaults")]
+    #[admin(label = "On with defaults")]
     On(bool),
-    #[admin(form = "tuned")]
+    #[admin(label = "Tuned")]
     Tuned(HealthCheck),
 }
 
@@ -515,9 +513,9 @@ impl Default for HealthCheck {
 #[serde(untagged)]
 #[admin(semantic = ip_port)]
 pub enum Bind {
-    #[admin(form = "port")]
+    #[admin(label = "Port")]
     Port(#[schemars(range(min = 1))] u16),
-    #[admin(form = "text")]
+    #[admin(label = "Text")]
     Addr(String),
 }
 
@@ -534,9 +532,9 @@ impl std::fmt::Display for Bind {
 #[serde(untagged)]
 #[admin(semantic = target)]
 pub enum Target {
-    #[admin(form = "port")]
+    #[admin(label = "Port")]
     Port(#[schemars(range(min = 1))] u16),
-    #[admin(form = "text")]
+    #[admin(label = "Text")]
     Addr(String),
 }
 
@@ -677,7 +675,6 @@ impl Default for Pool {
 #[admin(label = "TCP options")]
 pub struct TcpOptions {
     #[admin(
-        ty = bool,
         label = "No delay",
         help = "Send small writes at once instead of batching them (TCP_NODELAY)"
     )]

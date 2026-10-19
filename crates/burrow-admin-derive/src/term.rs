@@ -134,6 +134,9 @@ pub fn parse(e: &Expr) -> syn::Result<Term> {
 }
 
 pub fn parse_attr(attr: &syn::Attribute) -> syn::Result<Vec<Term>> {
+    if matches!(attr.meta, syn::Meta::Path(_)) {
+        return Ok(Vec::new());
+    }
     let list = attr.meta.require_list()?;
     let exprs = list
         .parse_args_with(syn::punctuated::Punctuated::<Expr, syn::Token![,]>::parse_terminated)?;
