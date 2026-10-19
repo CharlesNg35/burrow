@@ -319,7 +319,7 @@ fn identity(path: &Path) -> Identity {
 #[derive(Default)]
 struct Watch {
     watcher: Option<notify::RecommendedWatcher>,
-    watched: Vec<(PathBuf, Identity)>,
+    tried: Vec<(PathBuf, Identity)>,
     stale: Arc<AtomicBool>,
     failing: Vec<PathBuf>,
     broken: bool,
@@ -383,7 +383,14 @@ fn renew(watch: &mut Watch, files: &[PathBuf], tx: &mpsc::Sender<&'static str>, 
         .map(|p| (p.clone(), identity(p)))
         .collect();
     let stale = watch.stale.load(Ordering::Acquire);
-    if wanted == watch.watched && !(KQUEUE && event) && !stale {
+    if wanted == watch.tried && !(KQUEUE && event) && !stale {
+        return;
+    }
+    if std::thread::Builder::new()
+        .spawn(|| {})
+        .map(std::thread::JoinHandle::join)
+        .is_err()
+    {
         return;
     }
     let (fresh, failed) = match watch_files(&dirs, files, tx.clone(), watch.stale.clone()) {
@@ -396,6 +403,8 @@ fn renew(watch: &mut Watch, files: &[PathBuf], tx: &mpsc::Sender<&'static str>, 
         }
     };
     watch.broken = false;
+    watch.tried = wanted;
+    watch.stale.store(false, Ordering::Release);
     for (dir, e) in &failed {
         if !watch.failing.contains(dir) {
             warn!(
@@ -406,11 +415,7 @@ fn renew(watch: &mut Watch, files: &[PathBuf], tx: &mpsc::Sender<&'static str>, 
         }
     }
     watch.failing = failed.into_iter().map(|(dir, _)| dir).collect();
-    if watch.failing.is_empty() {
-        watch.watcher = Some(fresh);
-        watch.watched = wanted;
-        watch.stale.store(false, Ordering::Release);
-    } else if watch.watcher.is_none() {
+    if watch.failing.is_empty() || watch.watcher.is_none() {
         watch.watcher = Some(fresh);
     }
 }
@@ -494,10 +499,8 @@ mod tests {
         let (tx, mut rx) = mpsc::channel(16);
         let mut watch = Watch::default();
         renew(&mut watch, std::slice::from_ref(&config), &tx, false);
-        let kept = watch.watched.clone();
         let gone = dir.path().join("missing").join("server.yaml");
         renew(&mut watch, &[gone], &tx, false);
-        assert_eq!(watch.watched, kept);
         tokio::time::sleep(Duration::from_millis(300)).await;
         while rx.try_recv().is_ok() {}
         std::fs::write(&config, "b").unwrap();
