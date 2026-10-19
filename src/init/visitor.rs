@@ -393,9 +393,7 @@ pub fn visitor_config(
     let settings = load_server(server_config, env)?;
     let names: Vec<&str> = settings.visitors.keys().map(String::as_str).collect();
     let name = pick_name(VISITOR, name, &names, server_config, server)?;
-    let grants = crate::config::grants::for_visitor(&settings, &name)
-        .expect("a picked visitor is in the config");
-    if grants.services.is_empty() && grants.clients.is_empty() {
+    if !reaches_something(&settings, &name) {
         return Err(Failure::new(format!(
             "visitor \"{name}\" cannot reach anything in {}",
             server_config.display()
@@ -408,6 +406,28 @@ pub fn visitor_config(
     let mut notes = Vec::new();
     let server = connect_address(VISITOR, &settings, server, server_config, &mut notes)?;
     let secret_text = secret_text(VISITOR, server_config, &name, &auth.secrets);
+    let value = visitor_document(&settings, &name, &server, &secret_text, &mut notes);
+    Ok(ConfigOutput {
+        text: render(&value, format),
+        notes,
+    })
+}
+
+pub fn reaches_something(settings: &crate::config::settings::ServerSettings, name: &str) -> bool {
+    crate::config::grants::for_visitor(settings, name)
+        .is_some_and(|g| !g.services.is_empty() || !g.clients.is_empty())
+}
+
+pub fn visitor_document(
+    settings: &crate::config::settings::ServerSettings,
+    name: &str,
+    server: &str,
+    secret_text: &str,
+    notes: &mut Vec<String>,
+) -> Value {
+    let Some(grants) = crate::config::grants::for_visitor(settings, name) else {
+        return json!({ "server": server, "name": name, "secret": secret_text });
+    };
     let planned = super::plan::plan(&grants, &std::collections::BTreeMap::new(), false);
     for (_, client, local) in &planned.socks {
         let reach = grants
@@ -421,14 +441,10 @@ pub fn visitor_config(
         notes.push(line.trim_start().to_string());
     }
     let forwards = planned.forwards;
-    let value = json!({
+    json!({
         "server": server,
         "name": name,
         "secret": secret_text,
         "forwards": Value::Object(forwards),
-    });
-    Ok(ConfigOutput {
-        text: render(&value, format),
-        notes,
     })
 }

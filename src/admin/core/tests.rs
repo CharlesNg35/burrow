@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use burrow_admin_proto::msg::{Apply, ErrorCode, HistoryRequest, Level};
+use burrow_admin_proto::msg::{Apply, ConnectInfo, ErrorCode, HistoryRequest, Level};
 use burrow_admin_proto::ops::Op;
 use serde_json::json;
 
@@ -379,6 +379,104 @@ fn secrets_are_revealed_once_and_destructive_changes_need_confirmation() {
             .unwrap()
             .contains(&applied.secrets[0].value)
     );
+}
+
+#[test]
+fn a_new_client_comes_with_ready_snippets_and_later_only_with_a_placeholder() {
+    let w = world();
+    let core = core_for(&w.text.replace(
+        "listen: 7835 # tcp\n",
+        "listen: 7835 # tcp\npublic_address: tunnel.example.com\n",
+    ));
+    let s = session(&w, Level::Write);
+    let g = core.generate_secret(&s).unwrap();
+    let applied = apply_now(
+        &core,
+        &s,
+        &[
+            Op::Add {
+                path: p(&["clients", "office"]),
+                value: json!({}),
+            },
+            Op::SecretAdd {
+                path: p(&["clients", "office", "secret"]),
+                handle: g.handle.clone(),
+            },
+            Op::Add {
+                path: p(&["services", "db"]),
+                value: json!({"client": "office", "target": "10.0.0.5:5432", "bind": 7841}),
+            },
+        ],
+        &[],
+    )
+    .unwrap();
+    let value = applied.secrets[0].value.clone();
+    assert_eq!(applied.snippets.len(), 1);
+    let sn = &applied.snippets[0];
+    assert_eq!((sn.kind.as_str(), sn.name.as_str()), ("client", "office"));
+    assert!(sn.server_known);
+    assert_eq!(sn.server, "tunnel.example.com:7835");
+    assert!(sn.with_secret);
+    assert_eq!(sn.secret_fp.as_deref(), Some(g.fp.as_str()));
+    assert_eq!(
+        sn.config,
+        format!(
+            "server: tunnel.example.com:7835\nname: office\nsecret: {value}\nallow:\n  - 10.0.0.5/32:5432\n"
+        )
+    );
+    assert!(
+        sn.env_config.contains("secret: \"${OFFICE_SECRET}\""),
+        "{}",
+        sn.env_config
+    );
+    assert!(!sn.env_config.contains(&value));
+    assert!(sn.commands.iter().any(|c| c.os == "linux"
+        && c.line == "burrow init client --server tunnel.example.com:7835 --name office"));
+    assert!(
+        sn.commands
+            .iter()
+            .any(|c| c.os == "windows" && c.line == "burrow service install -c client.yaml")
+    );
+
+    let later = snippets::connect_info(
+        &core,
+        &s,
+        &ConnectInfo {
+            kind: "client".into(),
+            name: "office".into(),
+            address: None,
+        },
+    )
+    .unwrap();
+    assert!(!later.with_secret);
+    assert!(
+        !later.config.contains(&value),
+        "a later look never shows the secret"
+    );
+    assert!(later.config.contains("${OFFICE_SECRET}"));
+    let unknown = snippets::connect_info(
+        &core,
+        &s,
+        &ConnectInfo {
+            kind: "visitor".into(),
+            name: "nobody".into(),
+            address: Some("other.example".into()),
+        },
+    );
+    assert!(unknown.is_err());
+    let none = core_for(&w.text);
+    let placeholder = snippets::connect_info(
+        &none,
+        &s,
+        &ConnectInfo {
+            kind: "client".into(),
+            name: "home".into(),
+            address: None,
+        },
+    )
+    .unwrap();
+    assert!(!placeholder.server_known);
+    assert!(placeholder.config.contains("server: SERVER_ADDRESS"));
 }
 
 #[test]

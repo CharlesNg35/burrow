@@ -59,7 +59,20 @@ pub fn client_config(
     let server = connect_address(CLIENT, &settings, server, server_config, &mut notes)?;
     let server = server.as_str();
     let secret_text = secret_text(CLIENT, server_config, name, &settings.clients[name].secrets);
+    let value = client_document(&settings, name, server, &secret_text, &mut notes);
+    Ok(ConfigOutput {
+        text: render(&value, format),
+        notes,
+    })
+}
 
+pub fn client_document(
+    settings: &crate::config::settings::ServerSettings,
+    name: &str,
+    server: &str,
+    secret_text: &str,
+    notes: &mut Vec<String>,
+) -> Value {
     let mut allow = Vec::new();
     let served = settings
         .services
@@ -102,12 +115,9 @@ pub fn client_config(
     if allow.is_empty() {
         notes.push("no IP targets found for this client; edit \"allow\" before starting it".into());
     }
-    let mut value = client_value(server, name, &secret_text, &allow);
+    let mut value = client_value(server, name, secret_text, &allow);
     if settings.insecure_plaintext {
         value["insecure_plaintext"] = Value::Bool(true);
     }
-    Ok(ConfigOutput {
-        text: render(&value, format),
-        notes,
-    })
+    value
 }

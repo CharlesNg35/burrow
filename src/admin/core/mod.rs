@@ -144,6 +144,7 @@ pub fn features() -> Vec<String> {
         STATUS_STREAM,
         CONFIG_EVENTS,
         SECRET_GENERATE,
+        CONNECT_SNIPPETS,
         SUGGEST_FREE_PORT,
         HISTORY,
         REVERT,
