@@ -429,7 +429,7 @@ fn Header() -> impl IntoView {
                         .into_any()
                     } else if pending.get() > 0 {
                         view! {
-                            <Link to=Route::Review class="inline-flex h-8 items-center gap-1.5 rounded-md bg-accent px-3 text-sm font-semibold text-on-accent no-underline hover:brightness-110" testid="review-open" state=check_state>
+                            <Link to=Route::Review class="inline-flex h-8 items-center gap-1.5 rounded-md bg-accent px-3 text-sm font-semibold text-on-accent no-underline hover:brightness-95 dark:hover:brightness-110" testid="review-open" state=check_state>
                                 <Icon name="diff"/>
                                 <span class="max-sm:sr-only">"Review"</span>
                                 <span class="rounded-sm bg-white/25 px-1.5 text-[11.5px] dark:bg-black/18" data-testid="review-count">{pending.get()}</span>

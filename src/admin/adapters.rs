@@ -111,14 +111,11 @@ impl FileStore {
             .map(|e| e.to_string_lossy().into_owned())
             .unwrap_or_else(|| "yaml".into());
         let hex = rev.trim_start_matches("b2s:");
-        if self.files().iter().any(|(v, _)| v.rev == rev) {
-            return Ok(());
-        }
+        let files = self.files();
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_nanos());
-        let newest = self
-            .files()
+        let newest = files
             .first()
             .and_then(|(_, p)| {
                 p.file_name()?
@@ -130,6 +127,12 @@ impl FileStore {
             })
             .unwrap_or(0);
         let file = dir.join(format!("{}-{hex}.{ext}", nanos.max(newest + 1)));
+        if let Some(pos) = files.iter().position(|(v, _)| v.rev == rev) {
+            if pos > 0 {
+                std::fs::rename(&files[pos].1, &file)?;
+            }
+            return Ok(());
+        }
         crate::instance::write_private(&file, body)?;
         #[cfg(unix)]
         if rustix::process::geteuid().is_root()
@@ -238,19 +241,18 @@ impl Store for FileStore {
                 crate::failure::file_reason(&e)
             ));
             let mut m = self.memory.lock().expect("memory lock");
-            if !m.iter().any(|(v, _)| v.rev == rev) {
-                m.insert(
-                    0,
-                    (
-                        Version {
-                            rev: rev.to_string(),
-                            at: text::now_unix(),
-                        },
-                        body.to_string(),
-                    ),
-                );
-                m.truncate(KEEP);
-            }
+            m.retain(|(v, _)| v.rev != rev);
+            m.insert(
+                0,
+                (
+                    Version {
+                        rev: rev.to_string(),
+                        at: text::now_unix(),
+                    },
+                    body.to_string(),
+                ),
+            );
+            m.truncate(KEEP);
         }
     }
 
@@ -499,6 +501,28 @@ pub async fn serve(shared: Arc<Shared>, mut channel: Channel, first: &[u8], open
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_version_kept_again_counts_as_new_and_is_not_pruned() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("server.yaml");
+        std::fs::write(&path, "listen: 1\n").unwrap();
+        let store = FileStore::new(&path);
+        let base = "listen: 1\n".to_string();
+        let base_rev = text::rev(&base);
+        for i in 0..(KEEP * 2) {
+            store.keep(&base_rev, &base);
+            let body = format!("listen: {}\n", 100 + i);
+            store.keep(&text::rev(&body), &body);
+        }
+        assert_eq!(
+            store.version(&base_rev).as_deref(),
+            Some(base.as_str()),
+            "the version an apply and revert cycle returns to stays in the history"
+        );
+        assert_eq!(store.versions().len(), KEEP);
+        assert_eq!(store.versions()[1].rev, base_rev);
+    }
 
     #[test]
     fn the_history_keeps_twenty_private_versions() {

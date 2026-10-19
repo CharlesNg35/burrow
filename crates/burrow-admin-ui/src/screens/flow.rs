@@ -686,7 +686,7 @@ pub fn FlowModal() -> impl IntoView {
                 <div node_ref=wrap class="relative min-h-0 flex-1 overflow-auto overscroll-contain px-[22px] pt-4 pb-1.5">
                     {svg}
                     {move || hover.get().map(|(t, x, y)| view! {
-                        <div class="pointer-events-none absolute z-10 rounded-[6px] bg-tip px-2 py-1 text-xs whitespace-nowrap text-white" style=format!("left:{x:.0}px;top:{y:.0}px")>{t}</div>
+                        <div class="pointer-events-none absolute z-10 rounded-[6px] bg-tip px-2 py-1 text-xs whitespace-nowrap text-white" style:left=format!("{x:.0}px") style:top=format!("{y:.0}px")>{t}</div>
                     })}
                     <ul class="sr-only" aria-label="Open from the flow chart">{links}</ul>
                 </div>

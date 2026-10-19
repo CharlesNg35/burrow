@@ -175,7 +175,7 @@ pub fn ListPane(
         view! {
             <button
                 type="button"
-                class="ml-auto flex size-[30px] cursor-pointer items-center justify-center rounded-md bg-accent text-on-accent hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-55"
+                class="ml-auto flex size-[30px] cursor-pointer items-center justify-center rounded-md bg-accent text-on-accent hover:brightness-95 dark:hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-55"
                 aria-label=label
                 disabled=new_disabled
                 title=new_disabled.then_some("Adding needs write admin.")

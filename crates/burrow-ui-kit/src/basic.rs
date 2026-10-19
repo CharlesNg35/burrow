@@ -94,8 +94,12 @@ pub const LABEL: &str = "text-2xs font-bold uppercase tracking-[0.08em] text-tex
 
 pub fn button_class(variant: &str, small: bool) -> String {
     let look = match variant {
-        "primary" => "border-accent bg-accent text-on-accent hover:brightness-110",
-        "danger" => "border-danger bg-danger text-danger-ink hover:brightness-110",
+        "primary" => {
+            "border-accent bg-accent text-on-accent hover:brightness-95 dark:hover:brightness-110"
+        }
+        "danger" => {
+            "border-danger bg-danger text-danger-ink hover:brightness-95 dark:hover:brightness-110"
+        }
         "danger-pending" => "border-danger/45 bg-transparent text-danger",
         "tinted" => "border-accent-line bg-accent-weak text-accent-ink hover:brightness-105",
         "ghost" => {

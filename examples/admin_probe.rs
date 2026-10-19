@@ -57,7 +57,7 @@ impl Probe {
 async fn run(args: Vec<String>) -> Result<(), String> {
     let [config, action, rest @ ..] = args.as_slice() else {
         return Err(
-            "usage: admin_probe VISITOR_CONFIG state | apply OPS_JSON [CONFIRM...] | soak COUNT"
+            "usage: admin_probe VISITOR_CONFIG state | apply OPS_JSON [CONFIRM...] | soak COUNT [FIRST]"
                 .into(),
         );
     };
@@ -87,12 +87,16 @@ async fn run(args: Vec<String>) -> Result<(), String> {
             let ops: Value = serde_json::from_str(ops).map_err(|e| e.to_string())?;
             println!("{}", p.apply(ops, confirm).await?);
         }
-        ("soak", [count]) => {
+        ("soak", [count, first @ ..]) if first.len() <= 1 => {
             let count: u32 = count.parse().map_err(|_| "COUNT must be a number")?;
+            let first: u32 = match first {
+                [f] => f.parse().map_err(|_| "FIRST must be a number")?,
+                _ => 0,
+            };
             for i in 0..count {
                 let applied = p
                     .apply(
-                        json!([{"op": "set", "path": ["limits", "max_pending"], "value": 600 + (i % 2)}]),
+                        json!([{"op": "set", "path": ["limits", "max_pending"], "value": 600 + first + i}]),
                         &[],
                     )
                     .await?;

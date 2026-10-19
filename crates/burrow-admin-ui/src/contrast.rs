@@ -65,36 +65,120 @@ const TEXT: &[(&str, &str)] = &[
     ("text", "bg"),
     ("text", "surface"),
     ("text", "surface-2"),
+    ("text", "surface-3"),
     ("text-muted", "bg"),
     ("text-muted", "surface"),
     ("text-muted", "surface-2"),
+    ("text-muted", "surface-3"),
+    ("text-faint", "bg"),
+    ("text-faint", "surface"),
+    ("text-faint", "surface-2"),
     ("accent-ink", "bg"),
     ("accent-ink", "surface"),
+    ("accent-ink", "surface-2"),
+    ("accent-ink", "accent-weak"),
+    ("on-accent", "accent"),
+    ("on-accent", "accent:hover"),
+    ("success", "bg"),
+    ("success", "surface"),
+    ("success", "surface-2"),
+    ("warning", "bg"),
+    ("warning", "surface"),
+    ("warning", "surface-2"),
+    ("danger", "bg"),
+    ("danger", "surface"),
+    ("danger", "surface-2"),
+    ("danger", "danger-weak"),
+    ("danger-ink", "danger"),
+    ("danger-ink", "danger:hover"),
+    ("warning-ink", "warning"),
+    ("co-warning", "warning-weak"),
+    ("co-danger", "danger-weak"),
+    ("co-success", "success-weak"),
+    ("co-info", "accent-weak"),
     ("code-text", "code"),
     ("hdr-text", "hdr"),
+    ("hdr-text", "hdr-raised"),
     ("hdr-muted", "hdr"),
     ("hdr-on", "hdr"),
+    ("hdr-on", "tab-on"),
     ("tip-text", "tip"),
 ];
 
-#[test]
-fn body_text_meets_aa_on_every_surface_in_both_themes() {
+const UI: &[(&str, &str)] = &[
+    ("border-strong", "surface"),
+    ("border-strong", "input"),
+    ("accent", "surface"),
+    ("accent", "bg"),
+];
+
+fn rgba(v: &str) -> Option<([f64; 3], f64)> {
+    if let Some(c) = hex(v) {
+        return Some((c, 1.0));
+    }
+    let inner = v.strip_prefix("rgb(")?.strip_suffix(')')?;
+    let (rgb, alpha) = inner.split_once('/')?;
+    let p: Vec<f64> = rgb
+        .split_whitespace()
+        .filter_map(|x| x.parse().ok())
+        .collect();
+    let a: f64 = alpha.trim().parse().ok()?;
+    (p.len() == 3).then_some(([p[0], p[1], p[2]], a))
+}
+
+fn color(t: &BTreeMap<String, String>, name: &str, mode: &str) -> [f64; 3] {
+    let (token, hover) = match name.split_once(':') {
+        Some((n, _)) => (n, true),
+        None => (name, false),
+    };
+    let under = rgba(&t["surface"]).expect("surface is a color").0;
+    let (c, a) = t
+        .get(token)
+        .and_then(|v| rgba(v))
+        .unwrap_or_else(|| panic!("{mode}: {token} is not a color token"));
+    let mut out = [0.0; 3];
+    for i in 0..3 {
+        out[i] = c[i] * a + under[i] * (1.0 - a);
+    }
+    if hover {
+        let k = if mode == "light" { 0.95 } else { 1.1 };
+        for v in &mut out {
+            *v = (*v * k).round().min(255.0);
+        }
+    }
+    out
+}
+
+fn failures(pairs: &[(&str, &str)], need: f64) -> Vec<String> {
     let mut bad = Vec::new();
     for (mode, t) in modes() {
-        for (fg, bg) in TEXT {
-            let (Some(f), Some(b)) = (
-                t.get(*fg).and_then(|v| hex(v)),
-                t.get(*bg).and_then(|v| hex(v)),
-            ) else {
-                panic!("{mode}: {fg} or {bg} is not a #rrggbb token");
-            };
-            let r = ratio(f, b);
-            if r < 4.5 {
+        for (fg, bg) in pairs {
+            let r = ratio(color(&t, fg, mode), color(&t, bg, mode));
+            if r < need {
                 bad.push(format!("{mode}: {fg} on {bg} is {r:.2}:1"));
             }
         }
     }
+    bad
+}
+
+#[test]
+fn every_text_pair_meets_aa_in_both_themes() {
+    let bad = failures(TEXT, 4.5);
     assert!(bad.is_empty(), "below 4.5:1: {bad:#?}");
+}
+
+#[test]
+fn borders_and_the_accent_meet_three_to_one_in_both_themes() {
+    let bad = failures(UI, 3.0);
+    assert!(bad.is_empty(), "below 3:1: {bad:#?}");
+}
+
+#[test]
+fn hover_darkens_solid_buttons_in_light_and_brightens_them_in_dark() {
+    let kit = include_str!("../../burrow-ui-kit/src/basic.rs");
+    assert!(!kit.contains(" hover:brightness-110"));
+    assert!(kit.contains("hover:brightness-95 dark:hover:brightness-110"));
 }
 
 #[test]
