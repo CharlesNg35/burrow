@@ -336,28 +336,25 @@ pub fn ConfirmInput(
     #[prop(into)] token: String,
     #[prop(into)] value: Signal<String>,
     #[prop(into)] on_input: Callback<String>,
-    #[prop(optional, into)] message: String,
 ) -> impl IntoView {
     let id = format!(
         "confirm-{}",
         token.replace(|c: char| !c.is_ascii_alphanumeric(), "-")
     );
     let label = format!("Type {token} to confirm");
-    let t = token.clone();
     view! {
-        <div class="rounded-[10px] border border-danger/45 bg-danger-weak p-3.5 text-[13px] text-co-danger">
-            {(!message.is_empty()).then(|| view! { <p class="mb-1 flex items-center gap-2 font-semibold"><Icon name="alert"/>{message}</p> })}
-            <label class="mb-2 block text-text" for=id.clone()>
+        <div class="mt-3 text-[13px]">
+            <label class="mb-1.5 block text-text" for=id.clone()>
                 "Type "
                 <strong class="font-mono">{token.clone()}</strong>
-                " to apply."
+                " to confirm."
             </label>
             <input
                 id=id
                 type="text"
                 autocomplete="off"
                 spellcheck="false"
-                class=move || field_class(!value.get().is_empty() && value.get().trim() != t, true)
+                class=field_class(false, true)
                 aria-label=label
                 data-confirm=token.clone()
                 prop:value=move || value.get()

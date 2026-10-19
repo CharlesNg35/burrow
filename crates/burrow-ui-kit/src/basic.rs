@@ -96,7 +96,7 @@ pub fn button_class(variant: &str, small: bool) -> String {
     let look = match variant {
         "primary" => "border-accent bg-accent text-on-accent hover:brightness-110",
         "danger" => "border-danger bg-danger text-danger-ink hover:brightness-110",
-        "danger-pending" => "border-danger/40 bg-danger-weak text-danger",
+        "danger-pending" => "border-danger/45 bg-transparent text-danger",
         "tinted" => "border-accent-line bg-accent-weak text-accent-ink hover:brightness-105",
         "ghost" => {
             "border-transparent bg-transparent text-text-muted hover:bg-surface-3 hover:text-text"
@@ -130,7 +130,7 @@ pub fn Button(
     view! {
         <button
             type="button"
-            class=button_class(variant, small)
+            class=move || button_class(if variant == "danger" && disabled.get() { "danger-pending" } else { variant }, small)
             disabled=move || disabled.get() || busy.get()
             title=move || Some(reason.get()).filter(|r| !r.is_empty())
             aria-busy=move || busy.get().then_some("true")

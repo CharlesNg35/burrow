@@ -118,6 +118,27 @@ fn serde_json_map() -> burrow_admin_proto::serde_json::Map<String, Value> {
     burrow_admin_proto::serde_json::Map::new()
 }
 
+pub fn destructive_summary(impacts: &[burrow_admin_proto::plan::Impact]) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    for i in impacts.iter().filter(|i| i.confirm.is_some()) {
+        let mut clauses = i.message.split("; ");
+        let first = clauses.next().unwrap_or_default().to_string();
+        let rest: Vec<String> = clauses.map(str::to_string).collect();
+        if rest.is_empty() {
+            parts.push(first);
+        } else {
+            parts.extend(rest);
+        }
+    }
+    parts.dedup();
+    let text = parts.join("; ");
+    let mut c = text.chars();
+    match c.next() {
+        Some(f) => format!("{}{}.", f.to_uppercase(), c.as_str()),
+        None => String::new(),
+    }
+}
+
 fn session_ip(from: &str) -> String {
     let host = match from.rsplit_once(':') {
         Some((h, p)) if p.chars().all(|c| c.is_ascii_digit()) && !h.is_empty() => h,
@@ -367,13 +388,14 @@ fn detail(plan: std::sync::Arc<Plan>, revert: bool) -> AnyView {
     let confirms = plan
         .impacts
         .iter()
-        .filter_map(|i| i.confirm.clone().map(|t| (t, i.message.clone())))
-        .map(|(token, message)| {
+        .filter_map(|i| i.confirm.clone())
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .map(|token| {
             let (t2, t3) = (token.clone(), token.clone());
             view! {
                 <ConfirmInput
                     token=token
-                    message=message
                     value=Signal::derive(move || e.confirms.with(|c| c.get(&t2).cloned().unwrap_or_default()))
                     on_input=move |v: String| e.confirms.update(|c| { c.insert(t3.clone(), v); })
                 />
@@ -414,19 +436,7 @@ fn detail(plan: std::sync::Arc<Plan>, revert: bool) -> AnyView {
         "needs a restart"
     };
     let warnings = plan.diags.len() - errors;
-    let destructive_text = plan
-        .impacts
-        .iter()
-        .filter(|i| i.confirm.is_some())
-        .map(|i| {
-            i.message
-                .split(" · ")
-                .next()
-                .unwrap_or_default()
-                .to_lowercase()
-        })
-        .collect::<Vec<_>>()
-        .join(" and ");
+    let destructive_text = destructive_summary(&plan.impacts);
     let label = "mb-2 text-[11px] font-bold tracking-[0.07em] text-text-faint uppercase";
     view! {
         <div data-testid="review" data-valid=plan.valid.to_string()>
@@ -503,9 +513,10 @@ fn detail(plan: std::sync::Arc<Plan>, revert: bool) -> AnyView {
                 }}
             </section>
             {destructive.then(|| view! {
-                <div class="mb-6 rounded-card border border-danger/45 bg-danger-weak p-4 text-co-danger" data-testid="confirms">
-                    <p class="mb-2 flex items-center gap-2 font-semibold"><Icon name="alert"/>{format!("Destructive: {destructive_text}.")}</p>
-                    <div class="space-y-3">{confirms}</div>
+                <div class="mb-6 rounded-[10px] border border-l-[3px] border-border border-l-danger bg-danger-weak/50 p-3.5 dark:bg-surface" data-testid="confirms">
+                    <p class="flex items-center gap-2 text-sm font-semibold text-danger"><Icon name="alert"/>"Destructive change"</p>
+                    <p class="mt-1 text-sm text-text-muted" data-testid="destructive-summary">{destructive_text.clone()}</p>
+                    {confirms}
                 </div>
             })}
             <div class="sticky bottom-4 z-20 flex flex-wrap items-center gap-3 rounded-card border border-border bg-surface px-4 py-3 shadow-overlay max-lg:[&>button]:flex-1 [&>button]:whitespace-nowrap" data-sticky-bar="">
