@@ -212,6 +212,11 @@ async fn recording_target() -> (SocketAddr, Arc<Mutex<Vec<Vec<u8>>>>) {
                 }
                 first.truncate(got);
                 log.lock().unwrap().push(first);
+                let mut rest = [0u8; 4096];
+                let _ = tokio::time::timeout(Duration::from_secs(2), async {
+                    while matches!(s.read(&mut rest).await, Ok(n) if n > 0) {}
+                })
+                .await;
             });
         }
     });
