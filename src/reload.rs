@@ -77,10 +77,39 @@ pub fn accept<S: 'static>() -> Check<S> {
 
 pub async fn follow<S: Watched>(
     path: PathBuf,
+    current: S,
+    env: Env,
+    check: Check<S>,
+    tx: mpsc::Sender<S>,
+) {
+    follow_nudged(path, current, env, check, tx, None).await;
+}
+
+pub struct Nudge {
+    pub reply: tokio::sync::oneshot::Sender<ReloadOutcome>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReloadOutcome {
+    Sent,
+    Unchanged,
+    Rejected(String),
+}
+
+async fn next_nudge(nudges: &mut Option<mpsc::Receiver<Nudge>>) -> Option<Nudge> {
+    match nudges.as_mut() {
+        Some(rx) => rx.recv().await,
+        None => std::future::pending().await,
+    }
+}
+
+pub async fn follow_nudged<S: Watched>(
+    path: PathBuf,
     mut current: S,
     env: Env,
     mut check: Check<S>,
     tx: mpsc::Sender<S>,
+    mut nudges: Option<mpsc::Receiver<Nudge>>,
 ) {
     let (trig_tx, mut trig) = mpsc::channel::<&'static str>(16);
     let worker = Worker::start();
@@ -118,116 +147,148 @@ pub async fn follow<S: Watched>(
     let mut rejected: Option<String> = None;
     let mut seen = Vec::new();
     let _ = trig_tx.try_send("file changed");
-    while let Some(first) = trig.recv().await {
-        tokio::time::sleep(Duration::from_millis(200)).await;
-        let mut asked = first == "SIGHUP";
+    let mut waiting: Vec<tokio::sync::oneshot::Sender<ReloadOutcome>> = Vec::new();
+    loop {
+        let first = tokio::select! {
+            t = trig.recv() => match t {
+                Some(t) => t,
+                None => return,
+            },
+            Some(n) = next_nudge(&mut nudges) => {
+                waiting.push(n.reply);
+                "admin"
+            }
+        };
+        if first != "admin" {
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+        let mut asked = first == "SIGHUP" || first == "admin";
         let mut event = first == "file changed";
         while let Ok(more) = trig.try_recv() {
             asked |= more == "SIGHUP";
             event |= more == "file changed";
         }
-        let why = if asked { "SIGHUP" } else { "file changed" };
-        let files = current.files(&path);
-        let triggers = trig_tx.clone();
-        let Some((back, now)) = worker
-            .run(move || {
-                let mut watch = watch;
-                renew(&mut watch, &files, &triggers, event);
-                let now = fingerprint(&files);
-                (watch, now)
-            })
-            .await
-        else {
-            return;
-        };
-        watch = back;
-        if now == seen && !asked {
-            continue;
+        if let Some(rx) = nudges.as_mut() {
+            while let Ok(n) = rx.try_recv() {
+                waiting.push(n.reply);
+                asked = true;
+            }
         }
-        seen = now;
-        let (file, vars) = (path.clone(), env.clone());
-        let Some(loaded) = worker
-            .run(move || load_file(&file, Some(S::ROLE), &vars))
-            .await
-        else {
-            return;
-        };
-        let outcome = match loaded {
-            Ok(o) => o,
-            Err(e) => {
-                let (m, h) = e.describe(&path);
-                let text = format!("{m} ({h})");
-                if asked || rejected.as_ref() != Some(&text) {
+        let outcome = 'step: {
+            let why = if first == "admin" {
+                "burrow admin"
+            } else if asked {
+                "SIGHUP"
+            } else {
+                "file changed"
+            };
+            let files = current.files(&path);
+            let triggers = trig_tx.clone();
+            let Some((back, now)) = worker
+                .run(move || {
+                    let mut watch = watch;
+                    renew(&mut watch, &files, &triggers, event);
+                    let now = fingerprint(&files);
+                    (watch, now)
+                })
+                .await
+            else {
+                return;
+            };
+            watch = back;
+            if now == seen && !asked {
+                break 'step Some(ReloadOutcome::Unchanged);
+            }
+            seen = now;
+            let (file, vars) = (path.clone(), env.clone());
+            let Some(loaded) = worker
+                .run(move || load_file(&file, Some(S::ROLE), &vars))
+                .await
+            else {
+                return;
+            };
+            let outcome = match loaded {
+                Ok(o) => o,
+                Err(e) => {
+                    let (m, h) = e.describe(&path);
+                    let text = format!("{m} ({h})");
+                    if asked || rejected.as_ref() != Some(&text) {
+                        error!("reload ({why}) rejected: {text}; keeping the current config");
+                    }
+                    rejected = Some(text.clone());
+                    seen = Vec::new();
+                    break 'step Some(ReloadOutcome::Rejected(text));
+                }
+            };
+            let style = Style::detect(std::io::stderr().is_terminal());
+            if outcome.report.has_errors() {
+                let text = format!(
+                    "{} has {} {}",
+                    path.display(),
+                    outcome.report.error_count(),
+                    crate::diagnostics::plural(outcome.report.error_count(), "error")
+                );
+                let report = outcome.report.render_text(style);
+                if asked || rejected.as_ref() != Some(&report) {
+                    crate::say_err!("{report}");
                     error!("reload ({why}) rejected: {text}; keeping the current config");
                 }
-                rejected = Some(text);
+                rejected = Some(report);
                 seen = Vec::new();
-                continue;
+                break 'step Some(ReloadOutcome::Rejected(text));
             }
-        };
-        let style = Style::detect(std::io::stderr().is_terminal());
-        if outcome.report.has_errors() {
-            let text = format!(
-                "{} has {} {}",
-                path.display(),
-                outcome.report.error_count(),
-                crate::diagnostics::plural(outcome.report.error_count(), "error")
-            );
-            let report = outcome.report.render_text(style);
-            if asked || rejected.as_ref() != Some(&report) {
-                crate::say_err!("{report}");
-                error!("reload ({why}) rejected: {text}; keeping the current config");
-            }
-            rejected = Some(report);
-            seen = Vec::new();
-            continue;
-        }
-        let Some(next) = outcome.loaded.and_then(S::from_loaded) else {
-            continue;
-        };
-        let Some((back, checked)) = worker
-            .run(move || {
-                let mut check = check;
-                let checked = check(next);
-                (check, checked)
-            })
-            .await
-        else {
-            return;
-        };
-        check = back;
-        let next = match checked {
-            Ok(n) => n,
-            Err(m) => {
-                if asked || rejected.as_ref() != Some(&m) {
-                    error!("reload ({why}) rejected: {m}; keeping the current config");
+            let Some(next) = outcome.loaded.and_then(S::from_loaded) else {
+                break 'step None;
+            };
+            let Some((back, checked)) = worker
+                .run(move || {
+                    let mut check = check;
+                    let checked = check(next);
+                    (check, checked)
+                })
+                .await
+            else {
+                return;
+            };
+            check = back;
+            let next = match checked {
+                Ok(n) => n,
+                Err(m) => {
+                    if asked || rejected.as_ref() != Some(&m) {
+                        error!("reload ({why}) rejected: {m}; keeping the current config");
+                    }
+                    rejected = Some(m.clone());
+                    seen = Vec::new();
+                    break 'step Some(ReloadOutcome::Rejected(m));
                 }
-                rejected = Some(m);
-                seen = Vec::new();
-                continue;
+            };
+            let was_rejected = rejected.take().is_some();
+            if next == current && !asked {
+                if was_rejected {
+                    info!("config is valid again and matches the running config");
+                } else {
+                    debug!("config file changed but settings are the same");
+                }
+                break 'step Some(ReloadOutcome::Unchanged);
             }
-        };
-        let was_rejected = rejected.take().is_some();
-        if next == current && !asked {
-            if was_rejected {
-                info!("config is valid again and matches the running config");
-            } else {
-                debug!("config file changed but settings are the same");
+            crate::say_err!("{}", startup_report(&outcome.report, style));
+            if S::ROLE == Role::Server {
+                info!("reloading config ({why})");
             }
-            continue;
-        }
-        crate::say_err!("{}", startup_report(&outcome.report, style));
-        if S::ROLE == Role::Server {
-            info!("reloading config ({why})");
-        }
-        current = next.clone();
-        let Some(back) = renewed(&worker, watch, current.files(&path), &trig_tx, false).await
-        else {
-            return;
+            current = next.clone();
+            let Some(back) = renewed(&worker, watch, current.files(&path), &trig_tx, false).await
+            else {
+                return;
+            };
+            watch = back;
+            if tx.send(next).await.is_err() {
+                return;
+            }
+            Some(ReloadOutcome::Sent)
         };
-        watch = back;
-        if tx.send(next).await.is_err() {
-            return;
+        let outcome = outcome.unwrap_or(ReloadOutcome::Unchanged);
+        for r in waiting.drain(..) {
+            let _ = r.send(outcome.clone());
         }
     }
 }

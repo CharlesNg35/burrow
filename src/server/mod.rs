@@ -46,6 +46,7 @@ pub struct Shared {
     handshake_sources: Arc<Mutex<HashMap<std::net::IpAddr, usize>>>,
     shutdown: watch::Receiver<bool>,
     reloaded: watch::Sender<u64>,
+    applied: watch::Sender<ApplyReport>,
     service_counts: Counts,
     visitor_counts: Counts,
     client_counts: Counts,
@@ -54,6 +55,14 @@ pub struct Shared {
     standing: Mutex<standing::Standing>,
     turns: Mutex<HashMap<String, usize>>,
     pub(crate) metrics: crate::metrics::Metrics,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ApplyReport {
+    pub seq: u64,
+    pub rejected: Option<String>,
+    pub unbound: Vec<String>,
+    pub restart: Vec<&'static str>,
 }
 
 #[derive(Default)]
@@ -133,6 +142,26 @@ impl Shared {
 
     pub(crate) fn reloads(&self) -> watch::Receiver<u64> {
         self.reloaded.subscribe()
+    }
+
+    pub fn applies(&self) -> watch::Receiver<ApplyReport> {
+        self.applied.subscribe()
+    }
+
+    fn report_apply(
+        &self,
+        rejected: Option<String>,
+        unbound: Vec<String>,
+        restart: Vec<&'static str>,
+    ) {
+        self.applied.send_modify(|r| {
+            *r = ApplyReport {
+                seq: r.seq + 1,
+                rejected,
+                unbound,
+                restart,
+            }
+        });
     }
 
     fn close_websocket_clients(&self) {
@@ -446,6 +475,7 @@ impl Server {
             handshake_sources: Arc::default(),
             shutdown,
             reloaded: watch::Sender::new(0),
+            applied: watch::Sender::new(ApplyReport::default()),
             service_counts: Counts::default(),
             visitor_counts: Counts::default(),
             client_counts: Counts::default(),
@@ -695,9 +725,11 @@ impl Server {
                     .map(|what| (what, kept))
             });
             if let Some((what, kept)) = clash {
-                error!(
-                    "reload rejected: {what} uses {kept}, which this server keeps listening on until it restarts; keeping the current config"
+                let why = format!(
+                    "{what} uses {kept}, which this server keeps listening on until it restarts"
                 );
+                error!("reload rejected: {why}; keeping the current config");
+                self.shared.report_apply(Some(why), Vec::new(), Vec::new());
                 return;
             }
             let show =
@@ -913,6 +945,12 @@ impl Server {
             crate::diagnostics::plural(c, "client"),
             crate::diagnostics::plural(v, "service")
         );
+        let restart: Vec<&'static str> = changed
+            .iter()
+            .filter(|(_, how)| *how == fields::Applied::Restart)
+            .map(|(name, _)| *name)
+            .collect();
+        self.shared.report_apply(None, unbound.clone(), restart);
         if unbound.is_empty() {
             info!("{summary}");
         } else {
