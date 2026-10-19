@@ -82,6 +82,26 @@ fn icacls(path: &Path, args: &[&str]) -> Result<(), Failure> {
     run("icacls", &all).map(drop)
 }
 
+const TRUSTED_OWNERS: [&str; 3] = [
+    "S-1-5-32-544",
+    "S-1-5-18",
+    "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464",
+];
+
+fn owner_sid(path: &Path) -> Option<String> {
+    let script = format!(
+        "(Get-Acl -LiteralPath '{}').GetOwner([System.Security.Principal.SecurityIdentifier]).Value",
+        path.display().to_string().replace('\'', "''")
+    );
+    let out = run(
+        "powershell",
+        &["-NoProfile", "-NonInteractive", "-Command", &script],
+    )
+    .ok()?;
+    let sid = out.trim();
+    sid.starts_with("S-1-").then(|| sid.to_string())
+}
+
 fn is_link(path: &Path) -> bool {
     use std::os::windows::fs::MetadataExt;
     const REPARSE_POINT: u32 = 0x400;
@@ -205,6 +225,16 @@ impl Backend for WindowsService {
         let instances = crate::instance::default_dir();
         let inner = [p.state_dir(), p.log_dir(), instances.clone(), p.jobs_dir()];
         for dir in std::iter::once(&root).chain(&inner) {
+            if dir.exists()
+                && let Some(owner) = owner_sid(dir)
+                && !TRUSTED_OWNERS.contains(&owner.as_str())
+            {
+                return Err(Failure::new(format!(
+                    "{} already exists and belongs to {owner}, not to administrators",
+                    dir.display()
+                ))
+                .hint("another user may have created it to take over the service; delete it and run the command again"));
+            }
             std::fs::create_dir_all(dir)
                 .map_err(|e| Failure::new(format!("cannot create {}: {e}", dir.display())))?;
             if is_link(dir) {
@@ -228,6 +258,7 @@ impl Backend for WindowsService {
             ],
         )?;
         for dir in inner.iter().filter(|d| d.starts_with(&root)) {
+            icacls(dir, &["/setowner", ADMINS, "/C", "/Q"])?;
             icacls(dir, &["/reset"])?;
         }
         if instances.starts_with(&root) {
