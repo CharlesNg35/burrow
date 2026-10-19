@@ -41,7 +41,7 @@ jobs:
       - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
         with:
           tool: cargo-binstall
-      - run: cargo xtask tools
+      - run: cargo xtask tools --no-chrome
       - run: cargo xtask ui --release
       - run: cargo xtask size --budget
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

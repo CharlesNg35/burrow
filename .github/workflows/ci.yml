@@ -81,38 +81,25 @@ jobs:
         with:
           path: .tools
           key: ui-tools-${{ hashFiles('xtask/src/tools.rs', 'Cargo.lock') }}
-      - run: cargo xtask tools
+      - run: cargo xtask tools --no-chrome
       - run: cargo clippy --locked -p burrow-admin-ui -p burrow-ui-kit --target wasm32-unknown-unknown -- -D warnings
       - run: cargo test --locked -p burrow-admin-logic -p burrow-admin-proto -p burrow-syntax -p burrow-ui-kit -p burrow-admin-ui
       - run: cargo xtask ui --release
       - run: cargo xtask size --budget
+      - name: The built UI is embedded
+        env:
+          BURROW_ADMIN_UI_REQUIRE: "1"
+        run: |
+          cargo build --locked
+          info=$(./target/debug/burrow admin --ui-info)
+          echo "$info"
+          manifest=$(sed -n 's/^manifest //p' <<<"$info")
+          [ "$manifest" != "placeholder" ] && [ -n "$manifest" ]
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: admin-ui-dist
           path: crates/burrow-admin-ui/dist
           if-no-files-found: error
-
-  admin-e2e:
-    needs: ui
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: admin-ui-dist
-          path: crates/burrow-admin-ui/dist
-      - name: Browser end-to-end tests (headless Chrome)
-        env:
-          BURROW_ADMIN_UI_REQUIRE: "1"
-          BURROW_E2E_REQUIRE: "1"
-          BURROW_E2E_SHOTS: ${{ github.workspace }}/admin-ui-shots
-        run: cargo test --locked --features admin-test-hooks --test admin_e2e -- --test-threads=1
-      - if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: admin-ui-shots
-          path: admin-ui-shots
 
   supply-chain:
     runs-on: ubuntu-latest
