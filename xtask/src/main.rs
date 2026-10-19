@@ -2,6 +2,7 @@
 #![allow(clippy::disallowed_macros)]
 
 mod arch;
+mod e2e;
 mod size;
 mod tools;
 mod ui;
@@ -19,11 +20,12 @@ fn main() -> ExitCode {
     let root = root();
     let result = match args.first().map(String::as_str) {
         Some("arch-check") => arch::run(&root),
-        Some("tools") => tools::run(&root).map(|_| ()),
+        Some("tools") => tools::main(&root, &args[1..]),
         Some("ui") => ui::main(&root, &args[1..]),
+        Some("e2e") => e2e::main(&root, &args[1..]),
         Some("size") => size::run(&root, args.iter().any(|a| a == "--budget")),
         _ => Err(
-            "usage: cargo xtask <arch-check | tools | ui [--release | --watch] | size [--budget]>"
+            "usage: cargo xtask <arch-check | tools [--no-chrome] | ui [--release | --watch] | size [--budget] | e2e [flow-filter] [--update-baselines]>"
                 .to_string(),
         ),
     };

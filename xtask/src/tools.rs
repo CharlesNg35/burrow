@@ -30,6 +30,9 @@ const TAILWIND_SHA256: &[(&str, &str)] = &[
     ),
 ];
 
+pub const CHROME: &str = "133.0.6943.126";
+const CHROME_SHA256: &str = "8c8636046677b30799659a41b2df651eee94c19757763c6af667a89cac22b7ca";
+
 pub struct Tools {
     pub wasm_opt: PathBuf,
     pub tailwind: PathBuf,
@@ -173,6 +176,48 @@ fn wasm_bindgen(root: &Path, dir: &Path) -> Result<PathBuf, String> {
     Ok(bin)
 }
 
+pub fn chrome(root: &Path) -> Result<PathBuf, String> {
+    let home = root.join(".tools").join(format!("chrome-{CHROME}"));
+    let bin = home.join("chrome-linux64/chrome");
+    if bin.exists() {
+        return Ok(bin);
+    }
+    if !cfg!(all(target_os = "linux", target_arch = "x86_64")) {
+        return Err(format!(
+            "cargo xtask tools pins Chrome for Testing {CHROME} for x86_64 Linux only; set BURROW_E2E_CHROME to a Chrome {} build",
+            CHROME.split('.').next().unwrap_or(CHROME)
+        ));
+    }
+    std::fs::create_dir_all(&home).map_err(|e| format!("{}: {e}", home.display()))?;
+    let url = format!(
+        "https://storage.googleapis.com/chrome-for-testing-public/{CHROME}/linux64/chrome-linux64.zip"
+    );
+    let zip = home.join("chrome-linux64.zip");
+    fetch(&url, &zip, CHROME_SHA256)?;
+    let status = Command::new("unzip")
+        .args(["-q", "-o"])
+        .arg(&zip)
+        .arg("-d")
+        .arg(&home)
+        .status()
+        .map_err(|e| format!("unzip: {e}"))?;
+    let _ = std::fs::remove_file(&zip);
+    if !status.success() || !bin.exists() {
+        return Err("unpacking Chrome for Testing failed".into());
+    }
+    Ok(bin)
+}
+
+pub fn main(root: &Path, args: &[String]) -> Result<(), String> {
+    run(root)?;
+    if args.iter().any(|a| a == "--no-chrome") {
+        return Ok(());
+    }
+    let bin = chrome(root)?;
+    println!("Chrome for Testing {CHROME}: {}", bin.display());
+    Ok(())
+}
+
 pub fn run(root: &Path) -> Result<Tools, String> {
     let dir = root.join(".tools");
     std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
@@ -198,6 +243,18 @@ mod tests {
         if let Some(a) = tailwind_asset() {
             assert!(TAILWIND_SHA256.iter().any(|(n, _)| *n == a));
         }
+    }
+
+    #[test]
+    fn the_baselines_name_the_pinned_chrome() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("root");
+        let stamp =
+            std::fs::read_to_string(root.join("tests/admin_e2e/baselines/chrome-version.txt"))
+                .expect("chrome-version.txt");
+        assert_eq!(stamp.trim(), CHROME);
+        assert_eq!(CHROME_SHA256.len(), 64);
     }
 
     #[test]
