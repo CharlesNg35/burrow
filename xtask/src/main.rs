@@ -4,6 +4,7 @@
 mod arch;
 mod size;
 mod tools;
+mod ui;
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -19,8 +20,12 @@ fn main() -> ExitCode {
     let result = match args.first().map(String::as_str) {
         Some("arch-check") => arch::run(&root),
         Some("tools") => tools::run(&root).map(|_| ()),
+        Some("ui") => ui::main(&root, &args[1..]),
         Some("size") => size::run(&root, args.iter().any(|a| a == "--budget")),
-        _ => Err("usage: cargo xtask <arch-check | tools | size [--budget]>".to_string()),
+        _ => Err(
+            "usage: cargo xtask <arch-check | tools | ui [--release | --watch] | size [--budget]>"
+                .to_string(),
+        ),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,

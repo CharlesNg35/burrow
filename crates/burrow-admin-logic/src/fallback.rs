@@ -42,12 +42,11 @@ pub fn render_value<'a>(sem: &'a SemType, v: Option<&Value>) -> Render<'a> {
             .iter()
             .find(|f| !matches!(f, SemType::Unknown(_)) && fits(f, v))
             .map(Render::Fallback)
-            .unwrap_or_else(|| {
-                if sem.is_scalar() && v.is_none_or(|v| !v.is_object() && !v.is_array()) {
-                    Render::ServerChecked
-                } else {
-                    Render::Raw
-                }
+            .unwrap_or_else(|| match v.filter(|v| !v.is_null()) {
+                None if u.fallback.is_empty() => Render::Raw,
+                Some(v) if v.is_object() || v.is_array() => Render::Raw,
+                _ if sem.is_scalar() => Render::ServerChecked,
+                _ => Render::Raw,
             }),
         known => Render::Known(known),
     }
@@ -117,6 +116,13 @@ mod tests {
         let nested = unknown(json!({"t": "matrix", "fallback": [{"t": "future_kind"}]}));
         assert_eq!(render_value(&nested, Some(&json!([1, 2]))), Render::Raw);
         assert!(!Render::Raw.local_checks());
+        assert_eq!(
+            render_value(&sem, None),
+            Render::Raw,
+            "nothing tells its shape"
+        );
+        let scalarish = unknown(json!({"t": "geo", "fallback": [{"t": "future_kind"}]}));
+        assert_eq!(render_value(&scalarish, None), Render::ServerChecked);
     }
 
     #[test]

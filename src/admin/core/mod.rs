@@ -175,7 +175,7 @@ impl Core {
             store,
             live,
             env,
-            schema: crate::config::admin_schema::server_schema(),
+            schema: crate::admin::hooks::schema(crate::config::admin_schema::server_schema()),
             audit: Mutex::new(audit),
             last_good: Mutex::new(None),
             started: Instant::now(),

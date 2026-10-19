@@ -10,6 +10,4 @@
 *.pending-snap
 /.tools
 /crates/burrow-admin-ui/dist
-/tests/e2e/admin/node_modules
-/tests/e2e/admin/test-results
-/tests/e2e/admin/playwright-report
+/tmp

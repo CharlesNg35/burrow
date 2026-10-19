@@ -1,0 +1,19 @@
+[package]
+name = "burrow-admin-ui"
+version = "0.1.0"
+edition = "2024"
+description = "The burrow admin web UI (WebAssembly)"
+license = "MIT"
+publish = false
+
+[dependencies]
+burrow-admin-logic = { path = "../burrow-admin-logic" }
+burrow-admin-proto = { path = "../burrow-admin-proto" }
+burrow-syntax = { path = "../burrow-syntax" }
+burrow-ui-kit = { path = "../burrow-ui-kit" }
+console_error_panic_hook = "0.1.7"
+js-sys = "0.3"
+leptos = { version = "=0.8.22", features = ["csr"] }
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+web-sys = { version = "0.3", features = ["BinaryType", "CloseEvent", "Document", "Event", "History", "HtmlElement", "Location", "MessageEvent", "PopStateEvent", "Storage", "WebSocket", "Window"] }

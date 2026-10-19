@@ -17,6 +17,8 @@ members = [
     "crates/burrow-admin-logic",
     "crates/burrow-admin-proto",
     "crates/burrow-admin-derive",
+    "crates/burrow-ui-kit",
+    "crates/burrow-admin-ui",
     "xtask",
 ]
 
@@ -66,6 +68,8 @@ tikv-jemallocator = "0.6"
 mimalloc = { version = "0.1", default-features = false }
 
 [dev-dependencies]
+chromiumoxide = { version = "=0.9.1", default-features = false }
+image = { version = "0.25.10", default-features = false, features = ["png"] }
 insta = "1.49.0"
 rcgen = { version = "0.14.10", default-features = false, features = ["ring", "pem", "crypto"] }
 tempfile = "3.27.0"
@@ -80,6 +84,14 @@ ring = ["snow/ring-accelerated"]
 admin-test-hooks = []
 
 [profile.release]
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[profile.wasm-release]
+inherits = "release"
+opt-level = "z"
 lto = "fat"
 codegen-units = 1
 panic = "abort"

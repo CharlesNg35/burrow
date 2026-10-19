@@ -1,0 +1,35 @@
+@import "tailwindcss";
+@source "../src";
+@source "../../burrow-ui-kit/src";
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --color-bg: #F7F8FA; --color-surface: #FFFFFF; --color-surface-2: #F1F3F6; --color-border: #D7DCE3;
+  --color-text: #14181F; --color-text-muted: #5A6472; --color-accent: #1F6FEB; --color-accent-weak: #E8F0FE;
+  --color-success: #1A7F37; --color-warning: #9A6700; --color-danger: #CF222E; --color-info: #0969DA;
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --text-xs: 12px; --text-sm: 13px; --text-base: 14px; --text-md: 16px; --text-lg: 20px; --text-xl: 24px; --text-2xl: 32px;
+  --radius-input: 6px; --radius-card: 10px;
+  --spacing: 4px;
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.06); --shadow-overlay: 0 8px 28px rgb(0 0 0 / 0.18);
+}
+
+@layer base {
+  :root.dark {
+    --color-bg: #0F1216; --color-surface: #161A20; --color-surface-2: #1D222A; --color-border: #2C333D;
+    --color-text: #E6E9EE; --color-text-muted: #9AA4B2; --color-accent: #4C8DFF; --color-accent-weak: #1A2840;
+    --color-success: #3FB950; --color-warning: #D29922; --color-danger: #F85149; --color-info: #58A6FF;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not(.light) {
+      --color-bg: #0F1216; --color-surface: #161A20; --color-surface-2: #1D222A; --color-border: #2C333D;
+      --color-text: #E6E9EE; --color-text-muted: #9AA4B2; --color-accent: #4C8DFF; --color-accent-weak: #1A2840;
+      --color-success: #3FB950; --color-warning: #D29922; --color-danger: #F85149; --color-info: #58A6FF;
+    }
+  }
+  html { color-scheme: light dark; }
+  body { @apply bg-bg text-text font-sans text-base leading-[1.45]; }
+  :focus-visible { @apply outline-2 outline-offset-2 outline-accent; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+}

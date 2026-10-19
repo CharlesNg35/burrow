@@ -219,7 +219,7 @@ pub fn build(
         }
         "object" => {
             let explicit = Term::positional(args).first().and_then(|a| match a {
-                Term::Type(t, _) => Some(t.clone()),
+                Term::Type(t, _) => Some((**t).clone()),
                 _ => None,
             });
             match explicit.as_ref().or(ty) {

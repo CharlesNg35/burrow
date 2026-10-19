@@ -9,7 +9,7 @@ pub enum Term {
     Assign(String, Box<Term>, Span),
     Str(String, Span),
     Int(i64, Span),
-    Type(syn::Type, Span),
+    Type(Box<syn::Type>, Span),
 }
 
 impl Term {
@@ -99,7 +99,7 @@ pub fn parse(e: &Expr) -> syn::Result<Term> {
             let name = ident_of(e).ok_or_else(|| syn::Error::new(span, "expected a name"))?;
             if name.contains("::") || name.chars().next().is_some_and(char::is_uppercase) {
                 let ty: syn::Type = syn::parse_str(&name)?;
-                return Ok(Term::Type(ty, span));
+                return Ok(Term::Type(Box::new(ty), span));
             }
             Ok(Term::Word(name, span))
         }
