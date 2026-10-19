@@ -113,7 +113,7 @@ pub async fn follow<S: Watched>(
             }
         });
     }
-    let mut rejected = false;
+    let mut rejected: Option<String> = None;
     let mut seen = Vec::new();
     let _ = trig_tx.try_send("file changed");
     while let Some(first) = trig.recv().await {
@@ -152,21 +152,30 @@ pub async fn follow<S: Watched>(
             Ok(o) => o,
             Err(e) => {
                 let (m, h) = e.describe(&path);
-                error!("reload ({why}) rejected: {m} ({h}); keeping the current config");
-                rejected = true;
+                let text = format!("{m} ({h})");
+                if asked || rejected.as_ref() != Some(&text) {
+                    error!("reload ({why}) rejected: {text}; keeping the current config");
+                }
+                rejected = Some(text);
+                seen = Vec::new();
                 continue;
             }
         };
         let style = Style::detect(std::io::stderr().is_terminal());
         if outcome.report.has_errors() {
-            crate::say_err!("{}", outcome.report.render_text(style));
-            error!(
-                "reload ({why}) rejected: {} has {} {}; keeping the current config",
+            let text = format!(
+                "{} has {} {}",
                 path.display(),
                 outcome.report.error_count(),
                 crate::diagnostics::plural(outcome.report.error_count(), "error")
             );
-            rejected = true;
+            let report = outcome.report.render_text(style);
+            if asked || rejected.as_ref() != Some(&report) {
+                crate::say_err!("{report}");
+                error!("reload ({why}) rejected: {text}; keeping the current config");
+            }
+            rejected = Some(report);
+            seen = Vec::new();
             continue;
         }
         let Some(next) = outcome.loaded.and_then(S::from_loaded) else {
@@ -175,12 +184,15 @@ pub async fn follow<S: Watched>(
         let next = match check(next) {
             Ok(n) => n,
             Err(m) => {
-                error!("reload ({why}) rejected: {m}; keeping the current config");
-                rejected = true;
+                if asked || rejected.as_ref() != Some(&m) {
+                    error!("reload ({why}) rejected: {m}; keeping the current config");
+                }
+                rejected = Some(m);
+                seen = Vec::new();
                 continue;
             }
         };
-        let was_rejected = std::mem::take(&mut rejected);
+        let was_rejected = rejected.take().is_some();
         if next == current && !asked {
             if was_rejected {
                 info!("config is valid again and matches the running config");
