@@ -1,14 +1,14 @@
 use burrow_admin_proto::msg::{self, AuditEntry, HistoryReply};
 use burrow_admin_proto::plan::Diff;
 use burrow_admin_proto::serde_json::{self, json};
-use burrow_ui_kit::{
-    Badge, Button, Card, DiffLine, DiffView, EmptyState, PageHeader, Skeleton, Tone,
-};
+use burrow_ui_kit::{Button, Callout, DiffLine, DiffView, EmptyState, Skeleton, Stat, Stats, Tone};
 use leptos::prelude::*;
 
 use crate::api;
 use crate::format;
-use crate::store::store;
+use crate::route::{self, Link, Route};
+use crate::screens::{DetailPane, ListPane, Row, master_detail, wide};
+use crate::store::{short_rev, store};
 
 pub fn diff_lines(d: &Diff) -> Vec<DiffLine> {
     let mut out = Vec::new();
@@ -47,23 +47,73 @@ pub fn diff_lines(d: &Diff) -> Vec<DiffLine> {
     out
 }
 
+fn who(e: &AuditEntry) -> String {
+    if e.visitor.is_empty() || e.visitor == "file" {
+        "hand edit".to_string()
+    } else {
+        e.visitor.clone()
+    }
+}
+
+fn day(unix: u64) -> String {
+    format::when(unix)
+        .split(' ')
+        .next()
+        .unwrap_or_default()
+        .to_string()
+}
+
+fn rows_of(entries: &[AuditEntry], can_write: bool) -> Vec<Row> {
+    entries
+        .iter()
+        .map(|e| {
+            let ok = e.result == "applied" || e.result == "ok";
+            let mut actions = vec!["View"];
+            if e.revertible && can_write {
+                actions.push("Revert");
+            }
+            Row {
+                key: e.rev.clone(),
+                to: Route::Activity(Some(e.rev.clone())),
+                icon: if e.visitor.is_empty() || e.visitor == "file" {
+                    "edit"
+                } else {
+                    "person"
+                },
+                dot: Some(if ok { Tone::Success } else { Tone::Warning }),
+                title: format!("rev {} · {}", short_rev(&e.rev), who(e)),
+                meta: format::when(e.at)
+                    .split(' ')
+                    .nth(1)
+                    .unwrap_or_default()
+                    .to_string(),
+                line2: e
+                    .changes
+                    .first()
+                    .map(|c| c.summary.clone())
+                    .unwrap_or_else(|| e.result.clone()),
+                tags: if ok {
+                    Vec::new()
+                } else {
+                    vec![(e.result.clone(), Tone::Warning)]
+                },
+                group: day(e.at),
+                pending: None,
+                filters: Vec::new(),
+                actions,
+            }
+        })
+        .collect()
+}
+
 #[component]
-fn Entry(entry: AuditEntry) -> impl IntoView {
-    let open = RwSignal::new(false);
+fn Version(entry: AuditEntry, newer: Vec<AuditEntry>) -> impl IntoView {
+    let s = store();
     let diff: RwSignal<Option<Result<Vec<DiffLine>, String>>> = RwSignal::new(None);
-    let rev = entry.rev.clone();
-    let load = move |_| {
-        if open.get_untracked() {
-            open.set(false);
-            return;
-        }
-        open.set(true);
-        if diff.get_untracked().is_some() {
-            return;
-        }
+    if entry.details_kept {
         api::request(
             msg::req::HISTORY,
-            json!({ "limit": 1, "diff": rev.clone() }),
+            json!({ "limit": 1, "diff": entry.rev.clone() }),
             move |r| {
                 let lines = r
                     .map_err(|e| e.message)
@@ -75,94 +125,144 @@ fn Entry(entry: AuditEntry) -> impl IntoView {
                             "The details of this change are no longer kept.".to_string()
                         })
                     });
-                diff.set(Some(lines));
+                let _ = diff.try_set(Some(lines));
             },
         );
-    };
-    let who = if entry.visitor.is_empty() || entry.visitor == "file" {
-        "a hand edit".to_string()
     } else {
-        format!("visitor {}", entry.visitor)
-    };
+        diff.set(Some(Err(
+            "The details of this change are no longer kept.".into()
+        )));
+    }
+    let can_revert = entry.revertible && s.can_write_now();
+    let to = entry.base.clone();
     let from = if entry.from.is_empty() {
         String::new()
     } else {
         format!(" from {}", entry.from)
-    };
-    let tone = if entry.result == "applied" || entry.result == "ok" {
-        Tone::Success
-    } else {
-        Tone::Warning
     };
     let changes = entry
         .changes
         .iter()
         .map(|c| view! { <li>{c.summary.clone()}</li> })
         .collect_view();
-    let can_diff = entry.details_kept;
-    let s = crate::store::store();
-    let can_revert = entry.revertible && s.can_write();
-    let to = entry.base.clone();
+    let newer_list = newer
+        .into_iter()
+        .map(|n| {
+            let label = format!("rev {} · {}", short_rev(&n.rev), who(&n));
+            view! {
+                <li class="flex gap-3 text-sm">
+                    <Link to=Route::Activity(Some(n.rev.clone())) class="font-semibold text-text no-underline hover:underline">{label}</Link>
+                    <span class="text-text-muted">{n.changes.first().map(|c| c.summary.clone()).unwrap_or_default()}</span>
+                </li>
+            }
+        })
+        .collect::<Vec<_>>();
+    let base_short = short_rev(&entry.base);
+    let plan_note = format!(
+        "It builds a plan from rev {base_short}, then goes through validation, the lockout guard, the impact summary and your confirmation."
+    );
     view! {
-        <li class="py-3" data-rev=entry.rev.clone() data-testid="activity-entry">
-            <div class="flex flex-wrap items-center gap-3">
-                <span class="text-sm text-text-muted tabular-nums">{format::when(entry.at)}</span>
-                <span class="flex-1">{format!("{who}{from}")}</span>
-                <Badge text=entry.result.clone() tone=tone/>
-                <span class="font-mono text-xs text-text-muted">{entry.rev.clone()}</span>
+        <header class="mb-[22px] flex flex-wrap items-start gap-3.5">
+            <div class="min-w-0 flex-1">
+                <h1 class="text-[25px] font-bold tracking-[-0.015em]">{format!("rev {} · {}", short_rev(&entry.rev), who(&entry))}</h1>
+                <p class="mt-1 text-base text-text-muted">{format!("{}{from} · {}", format::when(entry.at), entry.result)}</p>
             </div>
-            <ul class="my-2 list-disc pl-5 text-sm">{changes}</ul>
-            <div class="mb-2 flex gap-2">
-                <Button
-                    label=Signal::derive(move || if open.get() { "Hide diff".to_string() } else { "View diff".to_string() })
-                    small=true
-                    disabled=!can_diff
-                    reason=if can_diff { String::new() } else { "The details of this change are no longer kept".to_string() }
-                    testid="view-diff"
-                    on_click=load
-                />
-                {can_revert.then(|| view! {
-                    <Button
-                        label="Revert to before this change"
-                        small=true
-                        testid="revert"
-                        on_click=move |_| s.edit.open_revert(s, to.clone())
-                    />
-                })}
-            </div>
-            <Show when=move || open.get()>
-                {move || match diff.get() {
-                    None => view! { <Skeleton lines=3/> }.into_any(),
-                    Some(Ok(lines)) => view! { <DiffView lines=lines testid="activity-diff"/> }.into_any(),
-                    Some(Err(e)) => view! { <p class="text-text-muted">{e}</p> }.into_any(),
-                }}
-            </Show>
-        </li>
+            {can_revert.then(|| view! {
+                <Button label="Revert to before this change" variant="tinted" icon="revert" testid="revert" on_click=move |_| {
+                    s.edit.open_revert(s, to.clone());
+                    route::go(Route::Review);
+                }/>
+            })}
+        </header>
+        <Stats testid="version-stats">
+            <Stat label="When" value=format::when(entry.at)/>
+            <Stat label="Author" value=who(&entry) detail=entry.from.clone()/>
+            <Stat label="Changed fields" value=entry.changes.len().to_string()/>
+            <Stat label="Revision" value=short_rev(&entry.rev) detail=format!("from {base_short}")/>
+        </Stats>
+        <ul class="mb-4 list-disc pl-5 text-sm" data-testid="version-changes">{changes}</ul>
+        <div class="mb-6 overflow-hidden rounded-card border border-border bg-surface">
+            {move || match diff.get() {
+                None => view! { <div class="p-4"><Skeleton lines=3/></div> }.into_any(),
+                Some(Ok(lines)) => view! { <DiffView lines=lines testid="activity-diff"/> }.into_any(),
+                Some(Err(e)) => view! { <p class="px-4 py-3 text-text-muted">{e}</p> }.into_any(),
+            }}
+        </div>
+        <div class="mb-6">
+            <Callout tone=Tone::Info title="A revert is an ordinary change">
+                <p>{plan_note}</p>
+            </Callout>
+        </div>
+        {(!newer_list.is_empty()).then(|| view! {
+            <h3 class="mb-2 text-[14px] font-bold">"Changes since then"</h3>
+            <ul class="space-y-1.5" data-testid="since">{newer_list}</ul>
+        })}
     }
 }
 
 #[component]
-pub fn Activity() -> impl IntoView {
+pub fn Activity(selected: Option<String>) -> impl IntoView {
     let s = store();
+    let rows = Memo::new(move |_| {
+        s.history
+            .get()
+            .map(|h| rows_of(&h, s.can_write()))
+            .unwrap_or_default()
+    });
+    if selected.is_none()
+        && wide()
+        && let Some(first) = rows.get_untracked().first()
+    {
+        route::replace(first.to.clone());
+    }
+    let count = Signal::derive(move || rows.with(Vec::len).to_string());
+    let on_action = Callback::new(move |(rev, action): (String, String)| {
+        let entry = s.history.with_untracked(|h| {
+            h.as_ref()
+                .and_then(|h| h.iter().find(|e| e.rev == rev).cloned())
+        });
+        match (action.as_str(), entry) {
+            ("revert", Some(e)) => {
+                s.edit.open_revert(s, e.base.clone());
+                route::go(Route::Review);
+            }
+            _ => route::go(Route::Activity(Some(rev))),
+        }
+    });
+    let sel = selected.clone();
+    let list = view! {
+        <ListPane
+            title="Activity"
+            count=count
+            search_label="Search versions"
+            filters=Vec::new()
+            groups=Vec::new()
+            rows=rows
+            selected=Signal::stored(sel)
+            empty=("No changes yet".to_string(), "Changes made through burrow admin and hand edits of server.yaml show up here.".to_string())
+            on_action=on_action
+            testid="activity"
+        />
+    }
+    .into_any();
     let body = move || {
         match s.history.get() {
         None => view! { <Skeleton lines=4/> }.into_any(),
-        Some(entries) if entries.is_empty() => view! {
+        Some(h) if h.is_empty() => view! {
             <EmptyState title="No changes yet" message="Changes made through burrow admin and hand edits of server.yaml show up here." testid="activity-empty"/>
         }
         .into_any(),
-        Some(entries) => view! {
-            <ul class="divide-y divide-border" data-testid="activity">
-                {entries.into_iter().map(|e| view! { <Entry entry=e/> }).collect_view()}
-            </ul>
+        Some(h) => {
+            let at = selected.as_ref().and_then(|r| h.iter().position(|e| &e.rev == r));
+            match at {
+                Some(i) => view! { <Version entry=h[i].clone() newer=h[..i].to_vec()/> }.into_any(),
+                None => view! { <EmptyState icon="history" title="Pick a version on the left" message="Each one shows what changed and can be reverted."/> }.into_any(),
+            }
         }
-        .into_any(),
     }
     };
-    view! {
-        <PageHeader title="Activity" subtitle="The last changes to server.yaml, newest first"/>
-        <Card>{body}</Card>
-    }
+    let detail = view! { <DetailPane back=Route::Activity(None)>{body}</DetailPane> }.into_any();
+    master_detail(list, detail)
 }
 
 #[cfg(test)]

@@ -180,6 +180,37 @@ async fn open(c: &mut Ctx, visitor: &str) {
     );
 }
 
+pub async fn wait_checked(c: &Ctx) {
+    c.ui.wait_for("[data-testid=review-open]", SECS).await;
+    c.ui.wait_for("[data-testid=review-open]:not([data-state=checking])", SECS)
+        .await;
+}
+
+pub async fn edit_mode(c: &Ctx) {
+    if c.ui.count("[data-testid=save-bar]").await == 0 {
+        c.ui.click("[data-testid=edit]").await;
+    }
+    c.ui.wait_for("[data-testid=save-bar]", SECS).await;
+}
+
+pub async fn open_review(c: &mut Ctx, step: &str) {
+    c.ui.click("[data-testid=review-open]").await;
+    c.ui.wait_for("[data-testid=review]", SECS).await;
+    c.ui.shot(step).await;
+}
+
+pub async fn applied(c: &mut Ctx, step: &str) {
+    c.ui.click("[data-testid=apply]").await;
+    c.ui.wait_text(
+        "[data-testid=toasts]",
+        "Applied rev",
+        Duration::from_secs(20),
+    )
+    .await;
+    c.ui.wait_gone("[data-testid=review]", SECS).await;
+    c.ui.shot(step).await;
+}
+
 async fn ax_clean(c: &Ctx, screen: &str) {
     let tree = c.ui.ax_tree().await;
     let problems = ax_problems(&tree);
@@ -219,25 +250,32 @@ fn dashboard(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
     Box::pin(async move {
         let echo = echo_server(c.world.ports["echo"]).await;
         open(c, "ops").await;
-        c.ui.wait_text("[data-testid=kpi-clients]", "1 / 2", SECS)
+        c.ui.wait_text("[data-testid=kpi-clients]", "1 away", SECS)
             .await;
         c.ui.wait_text("[data-testid=conn-pill]", "Connected", SECS)
             .await;
         c.ui.shot("connected-one-client-online").await;
 
         c.world.start_client("office");
-        c.ui.wait_text("[data-testid=kpi-clients]", "2 / 2", Duration::from_secs(5))
-            .await;
         c.ui.wait_text(
-            "[data-testid=overview-clients] tr[data-row=office]",
-            "online",
+            "[data-testid=kpi-clients]",
+            "all online",
+            Duration::from_secs(5),
+        )
+        .await;
+        c.ui.click("[data-testid=overview-tabs] [data-tab=clients]")
+            .await;
+        c.ui.wait_for(
+            "[data-testid=overview-clients] tr[data-row=office][data-online=true]",
             SECS,
         )
         .await;
         c.ui.shot("office-online-without-reload").await;
+        c.ui.click("[data-testid=overview-tabs] [data-tab=services]")
+            .await;
 
         let rate = "[data-testid=overview-services] tr[data-row=web] [data-cell=rate]";
-        c.ui.wait_text(rate, "↓ 0 B/s ↑ 0 B/s", SECS).await;
+        c.ui.wait_text(rate, "0 bit/s", SECS).await;
         c.ui.shot("before-traffic").await;
         let port = c.world.ports["web"];
         let pump = tokio::spawn(async move {
@@ -248,10 +286,16 @@ fn dashboard(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
                 tokio::time::sleep(Duration::from_millis(100)).await;
             }
         });
-        c.ui.wait_not_text(rate, "↓ 0 B/s ↑ 0 B/s", SECS).await;
-        c.ui.wait_not_text("[data-testid=kpi-traffic]", "↓ 0 B/s ↑ 0 B/s", SECS)
+        c.ui.wait_not_text(rate, "0 bit/s", SECS).await;
+        c.ui.wait_for("[data-testid=traffic-chart] path.stroke-accent", SECS)
             .await;
         c.ui.shot("traffic-moves-the-rates").await;
+        c.ui.click("[data-testid=flow-open]").await;
+        c.ui.wait_for("[data-testid=flow] [data-node='port:web']", SECS)
+            .await;
+        c.ui.shot("flow-chart").await;
+        c.ui.press("[data-testid=flow]", "Escape").await;
+        c.ui.wait_gone("[data-testid=flow]", SECS).await;
         c.ui.nav("/services/web").await;
         c.ui.wait_for("[data-testid=live]", SECS).await;
         c.ui.shot("service-live-during-traffic").await;
@@ -270,7 +314,7 @@ fn fallback(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
     Box::pin(async move {
         open(c, "viewer").await;
         c.ui.shot("overview-against-a-newer-server").await;
-        c.ui.nav("/services/capped").await;
+        c.ui.nav("/services/capped?tab=settings").await;
         let bw = "[data-schema='services/*/bandwidth']";
         let text = c.ui.wait_text(bw, "40mbit", SECS).await;
         assert!(text.contains("Checked by the server"), "{text}");
@@ -296,6 +340,76 @@ fn e8_a_newer_server_field_renders_through_its_fallback() {
         ..Options::default()
     };
     run("e8-fallback", opts, true, fallback);
+}
+
+fn many_issues(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
+    Box::pin(async move {
+        open(c, "ops").await;
+        c.ui.wait_for("[data-testid=attention] li:nth-child(14)", SECS)
+            .await;
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        let heights: Vec<f64> = c
+            .ui
+            .eval("[document.querySelector('[data-testid=traffic]').getBoundingClientRect().height, document.querySelector('[data-testid=attention-card]').getBoundingClientRect().height]")
+            .await;
+        assert!(
+            (heights[0] - heights[1]).abs() < 1.0,
+            "the attention card is exactly as tall as the traffic card: {heights:?}"
+        );
+        let scrolls: bool = c
+            .ui
+            .eval("(() => { const l = document.querySelector('[data-testid=attention] ul'); return l.scrollHeight > l.clientHeight + 1; })()")
+            .await;
+        assert!(scrolls, "the attention rows scroll inside the card");
+        let more =
+            c.ui.wait_text("[data-testid=attention] [data-testid=more]", "more", SECS)
+                .await;
+        assert!(more.starts_with('+'), "{more}");
+        let first: String = c
+            .ui
+            .eval("document.querySelector('[data-testid=attention] li').getAttribute('data-tone')")
+            .await;
+        assert_eq!(first, "danger", "danger rows come first");
+        c.ui.shot("many-issues-scroll-inside-the-card").await;
+        let _: bool = c
+            .ui
+            .eval("(() => { document.querySelector('[data-testid=attention] ul').scrollTop = 120; return true; })()")
+            .await;
+        tokio::time::sleep(Duration::from_millis(2500)).await;
+        let kept: f64 =
+            c.ui.eval("document.querySelector('[data-testid=attention] ul').scrollTop")
+                .await;
+        assert!(
+            kept >= 119.0,
+            "live updates keep the scroll position: {kept}"
+        );
+        c.ui.viewport(1100, 900).await;
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        let rows: usize = c
+            .ui
+            .eval("[...document.querySelectorAll('[data-testid=attention] li')].filter(e => e.offsetParent !== null).length")
+            .await;
+        assert_eq!(rows, 5, "below 1200 px at most five rows show");
+        c.ui.shot("many-issues-below-1200").await;
+        c.ui.viewport(1440, 900).await;
+        c.ui.assert_no_errors();
+    })
+}
+
+#[test]
+fn many_issues_scroll_inside_a_card_as_tall_as_traffic() {
+    let mut extra = String::new();
+    for i in 0..14 {
+        extra.push_str(&format!(
+            "  down{i:02}:\n    client: office\n    target: {}\n    visitors: [laptop]\n",
+            9100 + i
+        ));
+    }
+    let opts = Options {
+        extra_services: extra,
+        ..Options::default()
+    };
+    run("many-issues", opts, false, many_issues);
 }
 
 const MAIN_SCREENS: &[(&str, &str)] = &[
@@ -337,12 +451,8 @@ fn screens(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
             c.ui.wait_gone("[aria-busy=true]", SECS).await;
             c.ui.shot(&format!("{name}-dark")).await;
         }
-        c.ui.click("[data-testid=theme-toggle]").await;
-        c.ui.wait_text("[data-testid=theme-toggle]", "dark", SECS)
-            .await;
-        c.ui.click("[data-testid=theme-toggle]").await;
-        c.ui.wait_text("[data-testid=theme-toggle]", "light", SECS)
-            .await;
+        c.ui.click("[data-testid=avatar]").await;
+        c.ui.click("[data-theme-choice=light]").await;
         let html_class: String = c.ui.eval("document.documentElement.className").await;
         assert!(
             html_class.contains("light"),
@@ -350,7 +460,8 @@ fn screens(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
         );
         c.ui.nav("/").await;
         c.ui.shot("manual-light-theme-over-dark-system").await;
-        c.ui.click("[data-testid=theme-toggle]").await;
+        c.ui.click("[data-testid=avatar]").await;
+        c.ui.click("[data-theme-choice=system]").await;
         c.ui.dark(false).await;
 
         c.ui.viewport(390, 844).await;
@@ -426,10 +537,11 @@ fn read_only(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
         open(c, "viewer").await;
         c.ui.wait_text("[data-testid=conn-pill]", "Read-only", SECS)
             .await;
-        c.ui.wait_text("[data-testid=banner-read-only]", "read access", SECS)
+        c.ui.wait_text("[data-testid=banner-read-only]", "has read admin", SECS)
             .await;
-        c.ui.wait_text("[data-testid=you]", "viewer (read)", SECS)
+        c.ui.wait_text("[data-testid=you-level]", "viewer (read)", SECS)
             .await;
+        c.ui.wait_for("[data-testid=read-only-tag]", SECS).await;
         c.ui.shot("read-only-overview").await;
         c.ui.nav("/settings").await;
         c.ui.shot("read-only-settings").await;
@@ -476,18 +588,20 @@ fn schema_walk(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
         let mut unset: Vec<String> = Vec::new();
         for path in [
             "/settings",
-            "/clients/office",
-            "/visitors/ops",
-            "/visitors/laptop",
-            "/services/web",
-            "/services/game",
-            "/services/dns",
+            "/clients/office?tab=settings",
+            "/visitors/ops?tab=settings",
+            "/visitors/laptop?tab=settings",
+            "/services/web?tab=settings",
+            "/services/game?tab=settings",
+            "/services/dns?tab=settings",
         ] {
             c.ui.nav(path).await;
             c.ui.wait_for("[data-schema]", SECS).await;
             c.ui.shot(&format!(
                 "walk-{}",
-                path.trim_start_matches('/').replace('/', "-")
+                path.trim_start_matches('/')
+                    .trim_end_matches("?tab=settings")
+                    .replace('/', "-")
             ))
             .await;
             seen.extend(c.ui.all_attrs("[data-schema]", "data-schema").await);

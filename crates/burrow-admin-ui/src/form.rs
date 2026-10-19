@@ -62,15 +62,6 @@ pub fn plain(v: &Value) -> String {
     })
 }
 
-fn applies_badge(n: &Node) -> Option<(String, &'static str)> {
-    match n.applies {
-        Some(Applies::Live) => Some(("Applies live".into(), "success")),
-        Some(Applies::Reload) => Some(("On reload".into(), "info")),
-        Some(Applies::Restart) => Some(("After restart".into(), "warning")),
-        Some(Applies::Unknown) | None => None,
-    }
-}
-
 fn locked(n: &Node) -> Option<String> {
     match &n.editable {
         Editable::Yes => None,
@@ -88,6 +79,48 @@ pub fn ctx_now() -> Option<Ctx> {
     })
 }
 
+#[derive(Clone, Copy)]
+pub struct EditMode(pub Signal<bool>);
+
+#[derive(Clone, Copy)]
+pub struct ShowKeys(pub bool);
+
+fn editing_now() -> Signal<bool> {
+    use_context::<EditMode>()
+        .map(|m| m.0)
+        .unwrap_or(Signal::stored(true))
+}
+
+fn tcp_only(n: &Node) -> bool {
+    n.relations.iter().any(|r| match r {
+        burrow_admin_proto::schema::Relation::EnabledIf { reason, .. } => reason.contains("UDP"),
+        _ => false,
+    })
+}
+
+fn is_wide(n: &Node) -> bool {
+    match &inner(n).sem {
+        SemType::RefList(_)
+        | SemType::List(_)
+        | SemType::RefMap(_)
+        | SemType::Map(_)
+        | SemType::Union(_)
+        | SemType::SecretRef(_) => true,
+        SemType::IpPort(c) => c.ranges,
+        SemType::Target(c) => c.ranges,
+        _ => false,
+    }
+}
+
+fn applies_tag(n: &Node) -> Option<(String, Tone)> {
+    match n.applies {
+        Some(Applies::Live) => Some(("live".into(), Tone::Success)),
+        Some(Applies::Reload) => Some(("on reload".into(), Tone::Accent)),
+        Some(Applies::Restart) => Some(("after restart".into(), Tone::Warning)),
+        Some(Applies::Unknown) | None => None,
+    }
+}
+
 pub fn object_view(node: &Node, path: Path, spath: Path, entity: Path) -> AnyView {
     object_view_skipping(node, path, spath, entity, &[])
 }
@@ -100,6 +133,7 @@ pub fn object_view_skipping(
     skip: &[&str],
 ) -> AnyView {
     let node = inner(node);
+    let table = use_context::<ShowKeys>().is_some_and(|k| k.0);
     let mut groups: Vec<(String, String)> = node
         .groups
         .iter()
@@ -130,19 +164,77 @@ pub fn object_view_skipping(
                 })
                 .collect();
             (!rows.is_empty()).then(|| {
+                let n = rows.len();
+                if table && path.is_empty() {
+                    let label = if label.is_empty() { "General".to_string() } else { label.clone() };
+                    return view! {
+                        <section class="mb-4 scroll-mt-20 rounded-card border border-border bg-surface" data-group=key>
+                            <div class="flex items-center border-b border-border px-4 py-3">
+                                <h3 class="text-[14px] font-bold">{label}</h3>
+                                <span class="ml-auto text-xs text-text-muted">{format!("{n} field{}", if n == 1 { "" } else { "s" })}</span>
+                            </div>
+                            <div class="divide-y divide-rowline px-4">{rows}</div>
+                        </section>
+                    }
+                    .into_any();
+                }
+                if table {
+                    return view! { <div class="divide-y divide-rowline" data-group=key>{rows}</div> }.into_any();
+                }
                 let title = (!label.is_empty()).then(|| {
-                    view! { <h3 class="mt-2 mb-1 text-sm font-semibold tracking-wide text-text-muted uppercase">{label}</h3> }
+                    view! {
+                        <div class="mb-4 border-b border-border pb-2.5 md:col-span-2">
+                            <h3 class="text-[14px] font-bold">{label}</h3>
+                        </div>
+                    }
                 });
                 view! {
-                    <section class="mb-4 divide-y divide-border" data-group=key>
+                    <section class="mb-[26px] grid grid-cols-1 gap-x-6 gap-y-[22px] md:grid-cols-2" data-group=key>
                         {title}
                         {rows}
                     </section>
                 }
+                .into_any()
             })
         })
         .collect_view();
-    view! { <div class="max-w-5xl">{sections}</div> }.into_any()
+    view! { <div class="max-w-[1120px]">{sections}</div> }.into_any()
+}
+
+fn locked_box(node: Node, path: Path, id: String) -> AnyView {
+    let e = store().edit;
+    view! {
+        <div class="group relative flex h-[38px] items-center rounded-input border border-border bg-surface-2 px-2.5 font-mono text-[13px] dark:bg-surface-3" id=id data-locked="">
+            <span class="flex-1 truncate select-all">
+                {move || {
+                    let v = e.value(&path);
+                    match v.or_else(|| node.default.clone()) {
+                        Some(v) => locked_text(&node, &v),
+                        None => node.none_label.clone().unwrap_or_else(|| "not set".into()),
+                    }
+                }}
+            </span>
+            <span class="text-text-muted"><burrow_ui_kit::Icon name="lock"/></span>
+        </div>
+    }
+    .into_any()
+}
+
+fn locked_text(node: &Node, v: &Value) -> String {
+    match (&inner(node).sem, v) {
+        (SemType::Bool, Value::Bool(b)) => {
+            if *b {
+                "on".into()
+            } else {
+                "off".into()
+            }
+        }
+        (SemType::Duration(c), Value::Number(n)) => n
+            .as_u64()
+            .map(|n| human(n, burrow_admin_logic::input::time_unit(c.unit)))
+            .unwrap_or_else(|| plain(v)),
+        _ => plain(v),
+    }
 }
 
 fn row(f: Field, path: Path, spath: Path, entity: Path) -> AnyView {
@@ -162,7 +254,9 @@ fn row(f: Field, path: Path, spath: Path, entity: Path) -> AnyView {
         })
     };
     let lock = schema.locked_paths().iter().any(|l| spath.starts_with(l));
-    let writable = s.can_write_now() && node.editable.is_yes() && !lock;
+    let can = s.can_write_now() && node.editable.is_yes() && !lock;
+    let editing = editing_now();
+    let show_keys = use_context::<ShowKeys>().map(|k| k.0).unwrap_or(false);
     let n = inner(&node).clone();
     if let SemType::Object(_) = n.sem
         && !needs_newer_ui(&n)
@@ -174,20 +268,20 @@ fn row(f: Field, path: Path, spath: Path, entity: Path) -> AnyView {
         let is_set = Memo::new(move |_| e.value(&p2).is_some_and(|v| !v.is_null()));
         let (p3, tid) = (path.clone(), field_id(&path));
         let toggle = move || {
-            (optional && writable).then(|| {
-            let p3 = p3.clone();
-            let id = tid.clone();
-            view! {
-                <Toggle
-                    id=id
-                    checked=is_set
-                    label=Signal::derive(move || if is_set.get() { "In use".to_string() } else { "Not set".to_string() })
-                    on_change=move |on: bool| {
-                        e.set(&p3, on.then(|| Value::Object(Default::default())));
-                    }
-                />
-            }
-        })
+            (optional && can && editing.try_get().unwrap_or(false)).then(|| {
+                let p3 = p3.clone();
+                let id = tid.clone();
+                view! {
+                    <Toggle
+                        id=id
+                        checked=is_set
+                        label=Signal::derive(move || if is_set.get() { "In use".to_string() } else { "Not set".to_string() })
+                        on_change=move |on: bool| {
+                            e.set(&p3, on.then(|| Value::Object(Default::default())));
+                        }
+                    />
+                }
+            })
         };
         let none_label = node.none_label.clone().unwrap_or_else(|| "Not set".into());
         let (p4, sp4, en4) = (path.clone(), spath.clone(), entity.clone());
@@ -195,7 +289,7 @@ fn row(f: Field, path: Path, spath: Path, entity: Path) -> AnyView {
             if is_set.get() || !optional {
                 object_view(&n, p4.clone(), sp4.clone(), en4.clone())
             } else {
-                view! { <p class="text-text-muted" data-testid="not-set">{none_label.clone()}</p> }
+                view! { <p class="text-sm text-text-muted" data-testid="not-set">{none_label.clone()}</p> }
                     .into_any()
             }
         };
@@ -205,16 +299,18 @@ fn row(f: Field, path: Path, spath: Path, entity: Path) -> AnyView {
             visible.get().then(|| {
                 let (toggle, body) = (toggle.clone(), body.clone());
                 view! {
-                    <fieldset class="my-2 rounded-card border border-border p-3" data-path=jp.clone() data-schema=js.clone()>
-                        <legend class="px-1 font-medium">{label.clone()}</legend>
-                        <p class="mb-2 text-sm text-text-muted">{help.clone()}</p>
-                        {lock.then(|| view! {
-                            <p class="mb-2 flex items-center gap-1 text-sm text-text-muted" data-testid="locked-hint">
-                                <burrow_ui_kit::Icon name="lock"/>
-                                {LOCKED_HINT}
-                            </p>
-                        })}
-                        {toggle}
+                    <fieldset class="rounded-[10px] border border-border bg-surface px-3.5 py-3 md:col-span-2 dark:bg-surface-2" data-path=jp.clone() data-schema=js.clone()>
+                        <legend class="px-1 text-sm font-semibold">{label.clone()}</legend>
+                        <div class="mb-3 flex flex-wrap items-center gap-3">
+                            <p class="flex-1 text-xs text-text-muted">{help.clone()}</p>
+                            {lock.then(|| view! {
+                                <p class="flex items-center gap-1.5 text-xs text-text-muted" data-testid="locked-hint">
+                                    <burrow_ui_kit::Icon name="lock" small=true/>
+                                    {LOCKED_HINT}
+                                </p>
+                            })}
+                            {toggle}
+                        </div>
                         {body}
                     </fieldset>
                 }
@@ -222,9 +318,20 @@ fn row(f: Field, path: Path, spath: Path, entity: Path) -> AnyView {
         })
         .into_any();
     }
-    let mut badges: Vec<(String, &'static str)> = applies_badge(&node).into_iter().collect();
+    let mut badges: Vec<(String, Tone)> = Vec::new();
+    if tcp_only(&node) {
+        badges.push(("TCP ONLY".into(), Tone::Warning));
+    }
+    let mut aside: Vec<(String, Tone)> = Vec::new();
+    if !lock {
+        if show_keys {
+            aside.extend(applies_tag(&node));
+        } else {
+            badges.extend(applies_tag(&node));
+        }
+    }
     if e.peek(&path).as_ref().and_then(as_env).is_some() {
-        badges.push(("From environment".into(), "info"));
+        badges.push(("from environment".into(), Tone::Info));
     }
     let touched = RwSignal::new(false);
     let id = field_id(&path);
@@ -257,7 +364,7 @@ fn row(f: Field, path: Path, spath: Path, entity: Path) -> AnyView {
             FieldState {
                 error: local.or(server_error),
                 warning: server_warning.or(s.warnings.first().cloned()),
-                info: lock.then(|| LOCKED_HINT.to_string()),
+                info: None,
                 disabled_reason: (!s.enabled).then(|| s.disabled_reason.clone()).flatten(),
                 locked_reason: if lock {
                     Some(LOCKED_HINT.to_string())
@@ -275,7 +382,10 @@ fn row(f: Field, path: Path, spath: Path, entity: Path) -> AnyView {
         let msg_id = msg_id.clone();
         move || {
             let enabled = st.with(|s| s.enabled);
-            if writable && enabled {
+            if lock {
+                return locked_box(node.clone(), path.clone(), id.clone());
+            }
+            if can && enabled && editing.try_get().unwrap_or(false) {
                 let fc = FieldCtx {
                     node: node.clone(),
                     path: path.clone(),
@@ -298,7 +408,7 @@ fn row(f: Field, path: Path, spath: Path, entity: Path) -> AnyView {
                 let path = path.clone();
                 let inherited = st.with_untracked(|s| s.default_from.clone());
                 view! {
-                    <div class="min-h-6" id=id.clone()>
+                    <div class="flex min-h-[38px] items-center text-[13px]" id=id.clone()>
                         {move || {
                             let v = e.value(&path);
                             match ctx_now() {
@@ -313,7 +423,19 @@ fn row(f: Field, path: Path, spath: Path, entity: Path) -> AnyView {
         }
     };
     let label = node.label.clone();
-    let help = node.help.clone();
+    let help = if lock {
+        format!("{LOCKED_HINT}.")
+    } else {
+        node.help.clone()
+    };
+    let key_hint = if show_keys {
+        spath.join(".")
+    } else if matches!(inner(&node).sem, SemType::List(_)) {
+        f.key.clone()
+    } else {
+        String::new()
+    };
+    let wide = is_wide(&node);
     let visible = Memo::new(move |_| st.with(|s| s.visible));
     let (jp, js) = (join(&path), join(&spath));
     (move || {
@@ -326,7 +448,11 @@ fn row(f: Field, path: Path, spath: Path, entity: Path) -> AnyView {
                     help=help.clone()
                     path=jp.clone()
                     schema_path=js.clone()
+                    key_hint=key_hint.clone()
                     badges=badges.clone()
+                    aside=aside.clone()
+                    table=show_keys
+                    wide=wide
                     state=state
                 >
                     {body}

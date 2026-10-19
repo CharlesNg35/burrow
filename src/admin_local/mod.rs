@@ -118,6 +118,8 @@ fn from_disk(dir: &std::path::Path, path: &str) -> Option<(Vec<u8>, &'static str
         Some("wasm") => "application/wasm",
         Some("css") => "text/css",
         Some("svg") => "image/svg+xml",
+        Some("woff2") => "font/woff2",
+        Some("txt") => "text/plain; charset=utf-8",
         _ => "application/octet-stream",
     };
     std::fs::read(dir.join(name)).ok().map(|b| (b, mime))

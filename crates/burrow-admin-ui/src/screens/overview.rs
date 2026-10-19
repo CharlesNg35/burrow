@@ -1,42 +1,661 @@
-use burrow_admin_logic::rates::human_bytes;
-use burrow_admin_proto::diag::Severity;
-use burrow_admin_proto::serde_json::Value;
-use burrow_ui_kit::{Card, EmptyState, Kpi, PageHeader, Sparkline, StatusDot, Table, Tone};
-use leptos::prelude::*;
+use std::collections::VecDeque;
 
+use burrow_admin_logic::rates::{axis_max, human_bits, mbit};
+use burrow_admin_proto::diag::Severity;
+use burrow_admin_proto::msg::State;
+use burrow_admin_proto::serde_json::Value;
+use burrow_admin_proto::status::Status;
+use burrow_ui_kit::{
+    ChartData, EmptyState, Icon, Kbd, Kpi, LineChart, PillTabs, Segmented, Select, StatusDot,
+    Table, Tone, button_class, tag_class,
+};
+use leptos::html;
+use leptos::prelude::*;
+use wasm_bindgen::JsCast;
+
+use crate::form::plain;
 use crate::format;
-use crate::route::{Link, Route};
+use crate::route::{self, Link, Route};
+use crate::screens::paths::clients_of;
 use crate::store::store;
 
-fn keys(v: &Value, section: &str) -> Vec<String> {
+#[derive(Debug, Clone, PartialEq)]
+pub struct Item {
+    pub key: String,
+    pub tone: Tone,
+    pub title: String,
+    pub detail: String,
+    pub to: Option<Route>,
+}
+
+fn rank(t: Tone) -> u8 {
+    match t {
+        Tone::Danger => 0,
+        Tone::Warning => 1,
+        _ => 2,
+    }
+}
+
+fn names(v: &Value, section: &str) -> Vec<String> {
     v.get(section)
         .and_then(Value::as_object)
         .map(|m| m.keys().cloned().collect())
         .unwrap_or_default()
 }
 
-fn service_clients(svc: &Value) -> Vec<String> {
-    match (svc.get("client"), svc.get("clients")) {
-        (Some(Value::String(c)), _) => vec![c.clone()],
-        (_, Some(Value::Array(a))) => a
+fn link_of(path: &[String]) -> Option<Route> {
+    match path {
+        [s, n, ..] if crate::route::SECTIONS.contains(&s.as_str()) => {
+            Some(Route::Detail(s.clone(), n.clone()))
+        }
+        [_, ..] => Some(Route::Settings),
+        [] => None,
+    }
+}
+
+pub fn attention(values: &Value, state: Option<&State>, status: Option<&Status>) -> Vec<Item> {
+    let mut out = Vec::new();
+    if let Some(st) = state {
+        if !st.running.ok {
+            out.push(Item {
+                key: "running".into(),
+                tone: Tone::Danger,
+                title: "The config file has errors".into(),
+                detail: "The server keeps running the last good version until the file is fixed."
+                    .into(),
+                to: Some(Route::About),
+            });
+        }
+        for p in &st.runtime.restart_pending {
+            out.push(Item {
+                key: format!("restart:{p}"),
+                tone: Tone::Info,
+                title: format!("Restart needed for {p}"),
+                detail:
+                    "Applied to the file; the running server keeps the old value until it restarts."
+                        .into(),
+                to: Some(Route::Settings),
+            });
+        }
+        for d in st.diags.iter().filter(|d| d.severity == Severity::Warning) {
+            out.push(Item {
+                key: format!(
+                    "diag:{}:{}",
+                    d.code,
+                    d.path.as_ref().map(|p| p.join(".")).unwrap_or_default()
+                ),
+                tone: Tone::Warning,
+                title: d.message.clone(),
+                detail: d
+                    .help
+                    .clone()
+                    .map(|h| format!("{} · {h}", d.code))
+                    .unwrap_or_else(|| d.code.clone()),
+                to: d.path.as_deref().and_then(link_of),
+            });
+        }
+    }
+    if let Some(status) = status {
+        let online = |c: &str| {
+            status
+                .clients
+                .iter()
+                .find(|x| x.name == c)
+                .is_some_and(|x| x.connected)
+        };
+        if let Some(services) = values.get("services").and_then(Value::as_object) {
+            for (name, svc) in services {
+                let cs = clients_of(svc);
+                let up: Vec<&String> = cs.iter().filter(|c| online(c)).collect();
+                let st = status.services.iter().find(|x| &x.name == name);
+                let to = Some(Route::Detail("services".into(), name.clone()));
+                if up.is_empty() {
+                    let detail = match cs.as_slice() {
+                        [] => "It has no client.".to_string(),
+                        [c] => match status
+                            .clients
+                            .iter()
+                            .find(|x| &x.name == c)
+                            .and_then(|x| x.left_secs_ago)
+                        {
+                            Some(a) => {
+                                format!("Its only client {c} is offline since {}.", format::span(a))
+                            }
+                            None => format!("Its only client {c} is offline."),
+                        },
+                        many => format!("None of its {} clients is online.", many.len()),
+                    };
+                    out.push(Item {
+                        key: format!("down:{name}"),
+                        tone: Tone::Danger,
+                        title: format!("Service {name} is down"),
+                        detail,
+                        to,
+                    });
+                    continue;
+                }
+                let failing: Vec<&str> = st
+                    .map(|x| {
+                        x.health
+                            .iter()
+                            .filter(|h| !h.up)
+                            .map(|h| h.client.as_str())
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                if !failing.is_empty() {
+                    out.push(Item {
+                        key: format!("health:{name}"),
+                        tone: Tone::Warning,
+                        title: format!("Service {name}: health check failing"),
+                        detail: format!("Failing on {}.", failing.join(", ")),
+                        to,
+                    });
+                } else if up.len() < cs.len() {
+                    out.push(Item {
+                        key: format!("partial:{name}"),
+                        tone: Tone::Warning,
+                        title: format!(
+                            "Service {name} runs on {} of {} clients",
+                            up.len(),
+                            cs.len()
+                        ),
+                        detail: format!(
+                            "Offline: {}.",
+                            cs.iter()
+                                .filter(|c| !online(c))
+                                .cloned()
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        ),
+                        to,
+                    });
+                }
+            }
+        }
+    }
+    out.sort_by_key(|i| rank(i.tone));
+    out
+}
+
+pub fn away(values: &Value, status: Option<&Status>) -> Vec<Item> {
+    let Some(status) = status else {
+        return Vec::new();
+    };
+    names(values, "clients")
+        .into_iter()
+        .filter_map(|c| {
+            let st = status.clients.iter().find(|x| x.name == c);
+            if st.is_some_and(|x| x.connected) {
+                return None;
+            }
+            let serves: Vec<String> = values
+                .get("services")
+                .and_then(Value::as_object)
+                .map(|m| {
+                    m.iter()
+                        .filter(|(_, v)| clients_of(v).contains(&c))
+                        .map(|(n, _)| n.clone())
+                        .collect()
+                })
+                .unwrap_or_default();
+            let when = format::left(st.and_then(|x| x.left_secs_ago), status.uptime_secs);
+            Some(Item {
+                key: format!("away:{c}"),
+                tone: Tone::Neutral,
+                title: c.clone(),
+                detail: format!(
+                    "{} · {when}",
+                    if serves.is_empty() {
+                        "no services".to_string()
+                    } else {
+                        format!("serves {}", serves.join(", "))
+                    }
+                ),
+                to: Some(Route::Detail("clients".into(), c)),
+            })
+        })
+        .collect()
+}
+
+pub fn x_ticks(window: usize) -> Vec<String> {
+    match window {
+        60 => vec![
+            "−60 s".into(),
+            "−45 s".into(),
+            "−30 s".into(),
+            "−15 s".into(),
+            "now".into(),
+        ],
+        300 => vec![
+            "−5 min".into(),
+            "−4 min".into(),
+            "−3 min".into(),
+            "−2 min".into(),
+            "−1 min".into(),
+            "now".into(),
+        ],
+        _ => vec![
+            "−15 min".into(),
+            "−10 min".into(),
+            "−5 min".into(),
+            "now".into(),
+        ],
+    }
+}
+
+fn tick(v: f64) -> String {
+    if v >= 10.0 || v == 0.0 {
+        format!("{v:.0}")
+    } else if v >= 1.0 {
+        format!("{v:.1}")
+    } else {
+        let s = format!("{v:.3}");
+        s.trim_end_matches('0').to_string()
+    }
+}
+
+pub fn chart(a: &[Option<f64>], b: &[Option<f64>], window: usize) -> ChartData {
+    let take = |s: &[Option<f64>]| -> Vec<Option<f64>> {
+        s[s.len().saturating_sub(window)..]
             .iter()
-            .filter_map(|x| x.as_str().map(str::to_string))
-            .collect(),
-        (_, Some(Value::String(c))) => vec![c.clone()],
-        _ => Vec::new(),
+            .map(|v| v.map(mbit))
+            .collect()
+    };
+    let (a, b) = (take(a), take(b));
+    let top = a
+        .iter()
+        .chain(b.iter())
+        .flatten()
+        .copied()
+        .fold(0.0_f64, f64::max);
+    let max = if top > 0.0 { axis_max(top) } else { 20.0 };
+    let samples = a.iter().filter(|v| v.is_some()).count();
+    let empty_note = (a.len() * 2 < window).then(|| {
+        format!(
+            "Recording since you opened this page · {} s so far",
+            a.len()
+        )
+    });
+    ChartData {
+        a: if samples < 2 { Vec::new() } else { a },
+        b: if samples < 2 { Vec::new() } else { b },
+        slots: window,
+        max,
+        y_ticks: (0..5).map(|i| tick(max * i as f64 / 4.0)).collect(),
+        x_ticks: x_ticks(window),
+        empty_note,
     }
 }
 
 #[component]
-pub fn Overview() -> impl IntoView {
+fn Traffic() -> impl IntoView {
     let s = store();
-    let values = move || {
-        s.state.with(|st| {
-            st.as_ref()
-                .map(|st| st.values.clone())
-                .unwrap_or(Value::Null)
+    let service = RwSignal::new(String::new());
+    let window = RwSignal::new(900usize);
+    let series = Memo::new(move |_| {
+        let svc = service.get();
+        s.recorder.with(|r| {
+            r.series((!svc.is_empty()).then_some(svc.as_str()))
+                .map(|(a, b)| {
+                    (
+                        a.points().collect::<Vec<_>>(),
+                        b.points().collect::<Vec<_>>(),
+                    )
+                })
+                .unwrap_or_default()
+        })
+    });
+    let data = Signal::derive(move || series.with(|(a, b)| chart(a, b, window.get())));
+    let options = Signal::derive(move || {
+        let mut o = vec![(String::new(), "All services".to_string())];
+        s.status.with(|st| {
+            if let Some(st) = st {
+                o.extend(st.services.iter().map(|x| (x.name.clone(), x.name.clone())));
+            }
+        });
+        o
+    });
+    let now = move |out: bool| {
+        let svc = service.get();
+        let r = s.rates.get();
+        let rate = if svc.is_empty() {
+            r.total
+        } else {
+            r.service(&svc)
+        };
+        human_bits(if out { rate.bytes_out } else { rate.bytes_in })
+    };
+    let recorded = move || series.with(|(a, _)| a.len());
+    let note = move || {
+        let n = recorded();
+        let w = window.get();
+        if n >= w {
+            format!(
+                "{} recorded · 1 sample per second",
+                if w == 60 {
+                    "1 min".to_string()
+                } else {
+                    format!("{} min", w / 60)
+                }
+            )
+        } else {
+            format!("{n} s recorded · fills in as samples arrive")
+        }
+    };
+    let label = Signal::derive(move || {
+        let (i, iu) = now(false);
+        let (o, ou) = now(true);
+        format!(
+            "Traffic over the last {} minutes; now {i} {iu} in and {o} {ou} out",
+            window.get() / 60
+        )
+    });
+    view! {
+        <section class="flex flex-col rounded-card border border-border bg-surface min-[1200px]:col-span-8" data-testid="traffic">
+            <div class="flex flex-wrap items-center gap-3 px-4 pt-3.5">
+                <h2 class="text-[13.5px] font-bold">"Traffic"</h2>
+                <span class="text-xs text-text-muted">"live · recorded while this page is open"</span>
+                <span class="ml-auto"></span>
+                <div class="w-44">
+                    <Select id="traffic-service" label="Service" options=options value=service on_change=Callback::new(move |v: String| service.set(v))/>
+                </div>
+                <Segmented
+                    name="traffic-window"
+                    label="Window"
+                    options=vec![("60".to_string(), "1m".to_string(), false), ("300".to_string(), "5m".to_string(), false), ("900".to_string(), "15m".to_string(), false)]
+                    value=Signal::derive(move || window.get().to_string())
+                    on_change=Callback::new(move |v: String| window.set(v.parse().unwrap_or(900)))
+                />
+            </div>
+            <div class="flex flex-wrap items-end gap-6 px-4 pt-3">
+                <div data-testid="traffic-in">
+                    <div class="flex items-center gap-1.5 text-xs text-text-muted"><span class="h-0.5 w-3.5 rounded bg-accent"></span>"In"</div>
+                    <div class="text-2xl font-bold tabular-nums">{move || now(false).0}<small class="ml-1 text-[13px] font-medium text-text-muted">{move || now(false).1}</small></div>
+                </div>
+                <div data-testid="traffic-out">
+                    <div class="flex items-center gap-1.5 text-xs text-text-muted"><span class="h-0.5 w-3.5 rounded bg-udp"></span>"Out"</div>
+                    <div class="text-2xl font-bold tabular-nums">{move || now(true).0}<small class="ml-1 text-[13px] font-medium text-text-muted">{move || now(true).1}</small></div>
+                </div>
+                <div class="ml-auto text-right text-[11.5px] text-text-muted" data-testid="traffic-note">
+                    <div>{note}</div>
+                    <div>{move || format!("{} · Mbit/s", if service.get().is_empty() { "all services".to_string() } else { service.get() })}</div>
+                </div>
+            </div>
+            <div class="flex h-[240px] px-4 pt-3">
+                <LineChart data=data label=label testid="traffic-chart"/>
+            </div>
+            <p class="mt-auto flex items-center gap-1.5 border-t border-border px-4 py-2.5 text-xs text-text-muted">
+                <Icon name="info" small=true/>
+                "Recorded by your browser from the live status (1 s), kept in memory for 15 min. The server keeps no history; reloading the page starts over."
+            </p>
+        </section>
+    }
+}
+
+fn row_view(i: Item, index: usize, icon: bool) -> impl IntoView {
+    let tone = i.tone;
+    let glyph = match tone {
+        Tone::Danger => "alert-circle",
+        Tone::Warning => "alert",
+        Tone::Info => "info",
+        _ => "monitor",
+    };
+    let inner = view! {
+        <span class=format!("mt-0.5 shrink-0 {}", tone.text())>
+            {if icon { view! { <Icon name=glyph/> }.into_any() } else { view! { <span class="mt-1 block size-2 rounded-full bg-text-faint" aria-hidden="true"></span> }.into_any() }}
+        </span>
+        <span class="min-w-0">
+            <span class="block text-sm font-semibold">{i.title.clone()}</span>
+            <span class="block text-[12.5px] text-text-muted">{i.detail.clone()}</span>
+        </span>
+    };
+    let class = "flex gap-2.5 px-4 py-[11px] text-text no-underline hover:bg-surface-2 dark:hover:bg-surface-3/50";
+    let li = format!(
+        "border-b border-rowline last:border-b-0{}",
+        if index >= 5 {
+            " max-[1199px]:hidden"
+        } else {
+            ""
+        }
+    );
+    view! {
+        <li class=li data-item=i.key.clone() data-tone=tone.name()>
+            {match i.to {
+                Some(to) => view! { <Link to=to class=class>{inner}</Link> }.into_any(),
+                None => view! { <div class=class>{inner}</div> }.into_any(),
+            }}
+        </li>
+    }
+}
+
+fn numbered(items: Vec<Item>) -> Vec<(usize, Item)> {
+    items.into_iter().enumerate().collect()
+}
+
+fn hidden_below(list: &web_sys::HtmlElement) -> usize {
+    let bottom = list.scroll_top() + list.client_height();
+    let Ok(items) = list.query_selector_all("li") else {
+        return 0;
+    };
+    (0..items.length())
+        .filter_map(|i| {
+            items
+                .get(i)
+                .and_then(|n| n.dyn_into::<web_sys::HtmlElement>().ok())
+        })
+        .filter(|el| el.offset_height() > 0 && el.offset_top() + el.offset_height() > bottom + 2)
+        .count()
+}
+
+#[component]
+fn Section(
+    title: &'static str,
+    #[prop(into)] items: Signal<Vec<Item>>,
+    tone: Signal<Tone>,
+    more: Route,
+    icon: bool,
+    testid: &'static str,
+    grow: &'static str,
+    empty: (&'static str, &'static str, &'static str),
+) -> impl IntoView {
+    let list: NodeRef<html::Ul> = NodeRef::new();
+    let hidden = RwSignal::new(0usize);
+    let measure = move || {
+        if let Some(el) = list.try_get_untracked().flatten() {
+            let el: web_sys::HtmlElement = el.into();
+            let n = if el.client_height() > 0 && el.scroll_height() > el.client_height() {
+                hidden_below(&el)
+            } else {
+                0
+            };
+            if hidden.try_get_untracked().is_some_and(|h| h != n) {
+                let _ = hidden.try_set(n);
+            }
+        }
+    };
+    Effect::new(move |_| {
+        items.track();
+        request_animation_frame(measure);
+    });
+    let resize = window_event_listener(leptos::ev::resize, move |_| measure());
+    on_cleanup(move || resize.remove());
+    let total = move || items.with(Vec::len);
+    let narrow_more = move || total().saturating_sub(5);
+    let more2 = more.clone();
+    view! {
+        <div class=format!("flex min-h-0 flex-col {grow}") data-testid=testid>
+            <div class="flex shrink-0 items-center gap-2 border-b border-border px-4 py-3">
+                <h2 class="text-[13.5px] font-bold">{title}</h2>
+                <span class=move || tag_class(tone.get()) data-testid="count">{total}</span>
+                <span class="ml-auto"></span>
+                {move || (hidden.get() > 0).then(|| view! {
+                    <Link to=more.clone() class="rounded-full border border-border px-2 py-0.5 text-xs font-semibold text-accent-ink no-underline hover:border-accent-line max-[1199px]:hidden" testid="more">{format!("+{} more", hidden.get())}</Link>
+                })}
+                {move || (narrow_more() > 0).then(|| view! {
+                    <Link to=more2.clone() class="rounded-full border border-border px-2 py-0.5 text-xs font-semibold text-accent-ink no-underline hover:border-accent-line min-[1200px]:hidden">{format!("+{} more", narrow_more())}</Link>
+                })}
+            </div>
+            <div class="relative min-h-0 flex-1">
+                {move || if total() == 0 {
+                    view! {
+                        <div class="flex h-full items-center justify-center py-6">
+                            <EmptyState icon=empty.0 title=empty.1 message=empty.2/>
+                        </div>
+                    }.into_any()
+                } else {
+                    ().into_any()
+                }}
+                <ul
+                    node_ref=list
+                    class="h-full overflow-y-auto overscroll-contain [scrollbar-width:thin]"
+                    on:scroll=move |_| measure()
+                >
+                    <For
+                        each=move || numbered(items.get())
+                        key=|(i, x)| format!("{i}|{}|{}|{}", x.key, x.title, x.detail)
+                        children=move |(i, x)| row_view(x, i, icon)
+                    />
+                </ul>
+                <div class=move || format!("pointer-events-none absolute inset-x-0 bottom-0 h-6 bg-gradient-to-t from-surface to-transparent max-[1199px]:hidden{}", if hidden.get() > 0 { "" } else { " hidden" })></div>
+            </div>
+        </div>
+    }
+}
+
+#[component]
+fn Attention() -> impl IntoView {
+    let s = store();
+    let items = Memo::new(move |_| {
+        let v = s.running();
+        let st = s.state.get();
+        let status = s.status.get();
+        attention(&v, st.as_deref(), status.as_deref())
+    });
+    let away_items = Memo::new(move |_| {
+        let v = s.running();
+        away(&v, s.status.get().as_deref())
+    });
+    let seen: StoredValue<Vec<String>> = StoredValue::new(Vec::new());
+    let announce = RwSignal::new(String::new());
+    Effect::new(move |_| {
+        let now: Vec<Item> = items
+            .get()
+            .into_iter()
+            .filter(|i| i.tone == Tone::Danger)
+            .collect();
+        let before = seen.get_value();
+        let fresh: Vec<String> = now
+            .iter()
+            .filter(|i| !before.contains(&i.key))
+            .map(|i| i.title.clone())
+            .collect();
+        if !fresh.is_empty() && !before.is_empty() {
+            announce.set(fresh.join(". "));
+        }
+        seen.set_value(
+            now.into_iter()
+                .map(|i| i.key)
+                .chain(std::iter::once(String::new()))
+                .collect(),
+        );
+    });
+    let longest = move || {
+        s.status.with(|st| {
+            st.as_ref().and_then(|st| {
+                st.clients
+                    .iter()
+                    .filter(|c| c.connected)
+                    .max_by_key(|c| c.connected_secs.unwrap_or(0))
+                    .map(|c| {
+                        format!(
+                            "Longest connected: {}, {}.",
+                            c.name,
+                            format::span(c.connected_secs.unwrap_or(0))
+                        )
+                    })
+            })
         })
     };
+    let n_clients = move || names(&s.running(), "clients").len();
+    let away_title: &'static str = "Clients away";
+    let away_view = move || {
+        let n = n_clients();
+        let has = away_items.with(|a| !a.is_empty());
+        let grow = if away_items.with(Vec::len) >= 2 {
+            "shrink-[2] grow basis-auto min-[1200px]:min-h-[156px]"
+        } else {
+            "shrink-0 grow basis-auto"
+        };
+        if has || n == 0 {
+            view! {
+                <Section
+                    title=away_title
+                    items=away_items
+                    tone=Signal::stored(Tone::Neutral)
+                    more=Route::List("clients".into())
+                    icon=false
+                    testid="away"
+                    grow=grow
+                    empty=("monitor", "No clients yet", "")
+                />
+            }
+            .into_any()
+        } else {
+            view! {
+                <div class="flex shrink-0 items-center gap-3 border-t border-border px-4 py-4" data-testid="away">
+                    <span class="text-success"><Icon name="monitor"/></span>
+                    <span>
+                        <span class="block text-sm font-semibold">{format!("All {n} clients online")}</span>
+                        <span class="block text-[12.5px] text-text-muted">{longest}</span>
+                    </span>
+                </div>
+            }
+            .into_any()
+        }
+    };
+    view! {
+        <section class="relative rounded-card border border-border bg-surface min-[1200px]:col-span-4" data-testid="attention-card">
+            <div class="flex flex-col overflow-hidden rounded-card min-[1200px]:absolute min-[1200px]:inset-0 [&>[data-testid=away]]:border-t [&>[data-testid=away]]:border-border">
+                <Section
+                    title="Needs attention"
+                    items=items
+                    tone=Signal::derive(move || if items.with(Vec::is_empty) { Tone::Success } else { Tone::Warning })
+                    more=Route::List("services".into())
+                    icon=true
+                    testid="attention"
+                    grow="grow shrink basis-auto"
+                    empty=("check", "Nothing needs attention", "Every service has a client online and every check passes.")
+                />
+                {away_view}
+            </div>
+            <p class="sr-only" aria-live="polite">{move || announce.get()}</p>
+        </section>
+    }
+}
+
+#[derive(Clone, Copy, PartialEq)]
+struct Refused(f64, u64);
+
+#[component]
+pub fn Overview() -> impl IntoView {
+    let s = store();
+    let refused_log: RwSignal<VecDeque<Refused>> = RwSignal::new(VecDeque::new());
+    Effect::new(move |_| {
+        let at = s.status_at.get();
+        let n = s
+            .status
+            .with(|st| st.as_ref().map(|st| st.handshakes_refused));
+        if let Some(n) = n {
+            refused_log.update(|l| {
+                l.push_back(Refused(at, n));
+                while l.front().is_some_and(|r| at - r.0 > 60_000.0) {
+                    l.pop_front();
+                }
+            });
+        }
+    });
+    let values = Memo::new(move |_| s.running());
     let online = move |name: &str| {
         s.status.with(|st| {
             st.as_ref()
@@ -44,212 +663,394 @@ pub fn Overview() -> impl IntoView {
                 .is_some_and(|c| c.connected)
         })
     };
-    let clients_kpi = Signal::derive(move || {
-        let names = keys(&values(), "clients");
-        let up = names.iter().filter(|n| online(n)).count();
-        format!("{up} / {}", names.len())
+    let clients_now = Signal::derive(move || {
+        let n = names(&values.get(), "clients");
+        let up = n.iter().filter(|c| online(c)).count();
+        (up, n.len())
     });
-    let clients_tone = Signal::derive(move || {
-        let names = keys(&values(), "clients");
-        if names.iter().all(|n| online(n)) {
-            Tone::Success
-        } else {
-            Tone::Warning
+    let down = Signal::derive(move || {
+        let v = values.get();
+        let st = s.status.get();
+        let svcs = names(&v, "services");
+        let bad: Vec<String> = attention(&v, None, st.as_deref())
+            .into_iter()
+            .filter(|i| i.key.starts_with("down:") || i.key.starts_with("health:"))
+            .filter_map(|i| i.key.split_once(':').map(|(_, n)| n.to_string()))
+            .collect();
+        (svcs.len(), bad)
+    });
+    let sub = move || {
+        let st = s.status.get();
+        let w = s.welcome.get();
+        let mut parts: Vec<String> = Vec::new();
+        if let Some(w) = &w {
+            parts.push(format!("v{}", w.server.version));
         }
-    });
-    let services_kpi = Signal::derive(move || keys(&values(), "services").len().to_string());
-    let public = Signal::derive(move || {
-        let v = values();
-        let n = v
-            .get("services")
-            .and_then(Value::as_object)
-            .map(|m| m.values().filter(|x| x.get("bind").is_some()).count())
-            .unwrap_or(0);
-        format!("{n} public")
-    });
-    let open = Signal::derive(move || {
-        s.status.with(|st| {
-            format::count(
-                st.as_ref()
-                    .map(|st| st.services.iter().map(|x| x.open).sum())
-                    .unwrap_or(0),
-            )
-        })
-    });
-    let total = Signal::derive(move || {
-        s.status.with(|st| {
-            let t: u64 = st
-                .as_ref()
-                .map(|st| st.services.iter().map(|x| x.total).sum())
-                .unwrap_or(0);
-            format!("{} since start", format::count(t))
-        })
-    });
-    let traffic = Signal::derive(move || {
-        let r = s.rates.get();
-        format!(
-            "↓ {}  ↑ {}",
-            human_bytes(r.total.bytes_in),
-            human_bytes(r.total.bytes_out)
-        )
-    });
-    let refused = Signal::derive(move || {
-        s.status
-            .with(|st| format::count(st.as_ref().map(|st| st.handshakes_refused).unwrap_or(0)))
-    });
-    let spark_in = Signal::derive(move || s.traffic_in.with(|h| h.points().collect::<Vec<_>>()));
-    let spark_out = Signal::derive(move || s.traffic_out.with(|h| h.points().collect::<Vec<_>>()));
-    let attention = move || {
-        let v = values();
-        let mut items: Vec<(Tone, String)> = Vec::new();
-        if let Some(st) = s.state.get() {
-            if !st.running.ok {
-                items.push((
-                    Tone::Danger,
-                    "The config file has errors; the previous version is running".into(),
-                ));
-            }
-            for p in &st.runtime.restart_pending {
-                items.push((Tone::Warning, format!("{p} changes after a restart")));
-            }
-            for d in st.diags.iter().filter(|d| d.severity == Severity::Warning) {
-                items.push((Tone::Warning, d.message.clone()));
-            }
-        }
-        if s.status.with(Option::is_some) {
-            let services = v
-                .get("services")
-                .and_then(Value::as_object)
-                .cloned()
-                .unwrap_or_default();
-            let mut offline_used: Vec<String> = Vec::new();
-            for (name, svc) in &services {
-                let cs = service_clients(svc);
-                if !cs.is_empty() && cs.iter().all(|c| !online(c)) {
-                    items.push((Tone::Danger, format!("Service {name} has no client online")));
-                }
-                for c in cs {
-                    if !online(&c) && !offline_used.contains(&c) {
-                        offline_used.push(c);
-                    }
-                }
-            }
-            for c in offline_used {
-                items.push((
-                    Tone::Warning,
-                    format!("Client {c} is offline and serves services"),
+        if let Some(st) = &st {
+            parts.push(format!("up {}", format::span(st.uptime_secs)));
+            if !st.listening.is_empty() {
+                parts.push(format!(
+                    "listening on {}",
+                    st.listening
+                        .iter()
+                        .map(|l| format::listen_addr(l))
+                        .collect::<Vec<_>>()
+                        .join(" and ")
                 ));
             }
         }
-        if items.is_empty() {
-            view! { <p class="text-text-muted" data-testid="attention-empty">"Nothing needs attention."</p> }.into_any()
-        } else {
-            view! {
-                <ul class="space-y-2" data-testid="attention">
-                    {items
-                        .into_iter()
-                        .map(|(tone, text)| view! { <li class=format!("rounded-input border border-l-4 px-3 py-2 text-sm {} {}", tone.soft(), tone.bar()) data-tone=tone.name()>{text}</li> })
-                        .collect_view()}
-                </ul>
-            }
-            .into_any()
+        let rev = s.short_rev();
+        if !rev.is_empty() {
+            parts.push(format!("rev {rev}"));
         }
+        parts.join(" · ")
+    };
+    let tab = RwSignal::new(match route::query("tab").as_deref() {
+        Some("clients") => "clients",
+        Some("visitors") => "visitors",
+        _ => "services",
+    });
+    let counts = Signal::derive(move || {
+        let v = values.get();
+        let (up, n) = clients_now.get();
+        let vis = names(&v, "visitors").len();
+        let active = s.status.with(|st| {
+            st.as_ref()
+                .map(|st| st.visitors.iter().filter(|x| x.open > 0).count())
+                .unwrap_or(0)
+        });
+        vec![
+            names(&v, "services").len().to_string(),
+            format!("{up}/{n}"),
+            format!("{active}/{vis}"),
+        ]
+    });
+    let rate = move |name: &str| {
+        let (v, u) = human_bits(s.rates.with(|r| r.service(name).bytes_in));
+        format!("{v} {u}")
     };
     let services_table = move || {
-        let v = values();
-        let services = v
+        let v = values.get();
+        let st = s.status.get();
+        let m = v
             .get("services")
             .and_then(Value::as_object)
             .cloned()
             .unwrap_or_default();
-        if services.is_empty() {
+        if m.is_empty() {
             return view! { <EmptyState title="No services yet" message="Services publish a port of a client on this server." testid="services-empty"/> }.into_any();
         }
-        let rates = s.rates.get();
-        let status = s.status.get();
-        let rows = services
+        let rows = m
             .iter()
             .map(|(name, svc)| {
-                let st = status.as_ref().and_then(|st| st.services.iter().find(|x| &x.name == name)).cloned();
-                let r = rates.service(name);
+                let x = st.as_ref().and_then(|st| st.services.iter().find(|y| &y.name == name)).cloned();
+                let protocol = svc.get("protocol").map(plain).unwrap_or_else(|| "tcp".into());
+                let cs = clients_of(svc);
+                let up = cs.iter().filter(|c| online(c)).count();
+                let failing = x.as_ref().map(|x| x.health.iter().filter(|h| !h.up).count()).unwrap_or(0);
+                let health = if st.is_none() {
+                    view! { <span class="text-text-faint">"—"</span> }.into_any()
+                } else if up == 0 {
+                    view! { <span class=tag_class(Tone::Danger)><Icon name="x" small=true/>"Down"</span> }.into_any()
+                } else if failing > 0 {
+                    let checked = x.as_ref().map(|x| x.health.len()).unwrap_or(0);
+                    view! { <span class=tag_class(Tone::Warning)><Icon name="alert" small=true/>{format!("{} of {checked} up", checked - failing)}</span> }.into_any()
+                } else {
+                    view! { <span class=tag_class(Tone::Success)><Icon name="check" small=true/>"Healthy"</span> }.into_any()
+                };
                 let label = name.clone();
-                let public = svc.get("bind").map(crate::form::plain).unwrap_or_else(|| "Private".into());
-                let clients = service_clients(svc)
-                    .into_iter()
-                    .map(|c| {
-                        let on = online(&c);
-                        view! { <StatusDot on=on text=c/> }
-                    })
-                    .collect_view();
                 view! {
                     <tr data-row=name.clone()>
-                        <th scope="row"><Link to=Route::Detail("services".into(), name.clone()) class="font-mono text-sm">{label}</Link></th>
-                        <td class="font-mono text-sm">{public}</td>
-                        <td><span class="flex flex-wrap gap-x-3">{clients}</span></td>
-                        <td class="tabular-nums" data-cell="open">{st.as_ref().map(|x| format::count(x.open)).unwrap_or_default()}</td>
-                        <td class="tabular-nums" data-cell="rate">{format!("↓ {} ↑ {}", human_bytes(r.bytes_in), human_bytes(r.bytes_out))}</td>
+                        <th scope="row"><Link to=Route::Detail("services".into(), name.clone()) class="text-text no-underline hover:underline">{label}</Link></th>
+                        <td><span class=tag_class(if protocol == "udp" { Tone::Udp } else { Tone::Accent })>{protocol.to_uppercase()}</span></td>
+                        <td>{match svc.get("bind").filter(|b| !b.is_null()) {
+                            Some(b) => view! { <span class="font-mono text-[13px]">{plain(b)}</span> }.into_any(),
+                            None => view! { <span class="text-text-faint">"private"</span> }.into_any(),
+                        }}</td>
+                        <td class="font-mono text-[13px] text-text-muted">{svc.get("target").map(plain).unwrap_or_default()}</td>
+                        <td class="text-right tabular-nums" data-cell="open">{x.as_ref().map(|x| format::count(x.open)).unwrap_or_default()}</td>
+                        <td class="text-right tabular-nums" data-cell="rate">{rate(name)}</td>
+                        <td>{health}</td>
                     </tr>
                 }
             })
             .collect_view();
-        view! {
-            <Table head=vec!["Service", "Public", "Clients", "Open", "Traffic"] testid="overview-services">{rows}</Table>
-        }
-        .into_any()
+        view! { <Table head=vec!["Service", "", "Public", "Target", "Open", "In", "Health"] testid="overview-services">{rows}</Table> }.into_any()
     };
     let clients_table = move || {
-        let names = keys(&values(), "clients");
-        if names.is_empty() {
+        let v = values.get();
+        let n = names(&v, "clients");
+        if n.is_empty() {
             return view! { <EmptyState title="No clients yet" message="A client is a machine that connects out to this server." testid="clients-empty"/> }.into_any();
         }
-        let status = s.status.get();
-        let rows = names
+        let st = s.status.get();
+        let rows = n
             .into_iter()
             .map(|name| {
-                let st = status.as_ref().and_then(|st| st.clients.iter().find(|c| c.name == name)).cloned();
-                let on = st.as_ref().is_some_and(|c| c.connected);
-                let label = name.clone();
-                let from = st.as_ref().and_then(|c| c.from.clone()).unwrap_or_default();
-                let since = st
+                let c = st.as_ref().and_then(|st| st.clients.iter().find(|c| c.name == name)).cloned();
+                let on = c.as_ref().is_some_and(|c| c.connected);
+                let since = c
                     .as_ref()
                     .and_then(|c| match (c.connected_secs, c.left_secs_ago) {
-                        (Some(s), _) => Some(format!("for {}", format::span(s))),
+                        (Some(x), _) => Some(format!("for {}", format::span(x))),
                         (None, Some(a)) => Some(format!("left {}", format::ago(a))),
                         _ => None,
                     })
-                    .unwrap_or_else(|| "never connected".into());
+                    .unwrap_or_else(|| format::left(None, st.as_ref().map(|s| s.uptime_secs).unwrap_or(0)));
+                let serves: Vec<String> = v
+                    .get("services")
+                    .and_then(Value::as_object)
+                    .map(|m| m.iter().filter(|(_, x)| clients_of(x).contains(&name)).map(|(k, _)| k.clone()).collect())
+                    .unwrap_or_default();
+                let label = name.clone();
                 view! {
-                    <tr data-row=name.clone()>
-                        <th scope="row"><Link to=Route::Detail("clients".into(), name.clone()) class="font-mono text-sm">{label}</Link></th>
-                        <td><StatusDot on=on text=if on { "online" } else { "offline" }/></td>
-                        <td class="font-mono text-sm">{from}</td>
+                    <tr data-row=name.clone() data-online=on.to_string()>
+                        <th scope="row"><Link to=Route::Detail("clients".into(), name.clone()) class="text-text no-underline hover:underline"><StatusDot on=on text=label/></Link></th>
+                        <td class="font-mono text-[13px]">{c.as_ref().and_then(|c| c.from.clone()).unwrap_or_default()}</td>
+                        <td class="text-right tabular-nums">{c.as_ref().map(|c| c.open).unwrap_or(0)}</td>
+                        <td class="text-right tabular-nums">{c.as_ref().map(|c| c.idle_channels).unwrap_or(0)}</td>
                         <td>{since}</td>
+                        <td class="text-text-muted">{serves.join(", ")}</td>
                     </tr>
                 }
             })
             .collect_view();
-        view! {
-            <Table head=vec!["Client", "State", "From", "Since"] testid="overview-clients">{rows}</Table>
-        }
-        .into_any()
+        view! { <Table head=vec!["Client", "From", "Open", "Idle channels", "Since", "Serves"] testid="overview-clients">{rows}</Table> }.into_any()
     };
+    let visitors_table = move || {
+        let v = values.get();
+        let n = names(&v, "visitors");
+        if n.is_empty() {
+            return view! { <EmptyState title="No visitors yet" message="A visitor reaches private services with burrow visit." testid="visitors-empty"/> }.into_any();
+        }
+        let st = s.status.get();
+        let rows = n
+            .into_iter()
+            .map(|name| {
+                let x = st.as_ref().and_then(|st| st.visitors.iter().find(|c| c.name == name)).cloned();
+                let open = x.as_ref().map(|x| x.open).unwrap_or(0);
+                let admin = v.get("visitors").and_then(|m| m.get(&name)).and_then(|x| x.get("admin")).map(plain);
+                let may: Vec<String> = v
+                    .get("services")
+                    .and_then(Value::as_object)
+                    .map(|m| m.iter().filter(|(_, s)| s.get("visitors").and_then(Value::as_array).is_some_and(|a| a.iter().any(|y| y.as_str() == Some(name.as_str())))).map(|(k, _)| k.clone()).collect())
+                    .unwrap_or_default();
+                let label = name.clone();
+                view! {
+                    <tr data-row=name.clone()>
+                        <th scope="row">
+                            <Link to=Route::Detail("visitors".into(), name.clone()) class="text-text no-underline hover:underline">{label}</Link>
+                            {(open > 0).then(|| view! { <span class=format!("ml-2 {}", tag_class(Tone::Success))>"active"</span> })}
+                        </th>
+                        <td>{admin.map(|a| view! { <span class=tag_class(if a == "write" { Tone::Danger } else { Tone::Accent })>{format!("admin · {a}")}</span> })}</td>
+                        <td class="text-text-muted">{may.join(", ")}</td>
+                        <td class="text-right tabular-nums">{open}</td>
+                        <td class="text-right tabular-nums">{x.as_ref().map(|x| format::count(x.total)).unwrap_or_default()}</td>
+                    </tr>
+                }
+            })
+            .collect_view();
+        view! { <Table head=vec!["Visitor", "Admin", "Services it may use", "Open", "Total"] testid="overview-visitors">{rows}</Table> }.into_any()
+    };
+    let kpi_link = "rounded-card no-underline text-text hover:[&>div]:border-border-strong";
     view! {
-        <PageHeader title="Overview" subtitle="Live state of the server, updated every second"/>
-        <div class="mb-4 grid grid-cols-[repeat(auto-fill,minmax(10rem,1fr))] gap-3">
-            <Kpi label="Clients online" value=clients_kpi tone=clients_tone testid="kpi-clients"/>
-            <Kpi label="Services" value=services_kpi detail=public testid="kpi-services"/>
-            <Kpi label="Open connections" value=open detail=total testid="kpi-open"/>
-            <Kpi label="Traffic" value=traffic detail="per second, all services" testid="kpi-traffic"/>
-            <Kpi label="Refused handshakes" value=refused detail="since start" testid="kpi-refused"/>
+        <div class="px-8 pt-7 pb-12 max-sm:px-4" data-testid="overview">
+            <header class="mb-[22px] flex flex-wrap items-start gap-3">
+                <div class="min-w-0 flex-1">
+                    <h1 class="text-2xl font-bold tracking-[-0.015em]">{move || s.server_name()}</h1>
+                    <p class="mt-1 text-sm text-text-muted" data-testid="overview-sub">{sub}</p>
+                </div>
+                <button type="button" class=button_class("secondary", false) data-testid="flow-open" on:click=move |_| s.flow_open.set(true)>
+                    <Icon name="network"/>
+                    "Flow chart"
+                    <Kbd text="F"/>
+                </button>
+            </header>
+            <div class="grid grid-cols-2 gap-4 md:grid-cols-6 xl:grid-cols-12">
+                <Link to=Route::List("clients".into()) class=format!("md:col-span-2 {kpi_link}") testid="kpi-clients-link">
+                    <Kpi
+                        label="Clients online"
+                        icon="monitor"
+                        value=Signal::derive(move || clients_now.get().0.to_string())
+                        unit=Signal::derive(move || format!("/ {}", clients_now.get().1))
+                        detail=Signal::derive(move || { let (u, n) = clients_now.get(); if u == n { "all online".to_string() } else { format!("{} away", n - u) } })
+                        testid="kpi-clients"
+                    />
+                </Link>
+                <Link to=Route::List("services".into()) class=format!("md:col-span-2 {kpi_link}") testid="kpi-services-link">
+                    <Kpi
+                        label="Services healthy"
+                        icon="services"
+                        value=Signal::derive(move || { let (n, bad) = down.get(); let b: std::collections::BTreeSet<_> = bad.into_iter().collect(); (n - b.len().min(n)).to_string() })
+                        unit=Signal::derive(move || format!("/ {}", down.get().0))
+                        detail=Signal::derive(move || {
+                            let (_, bad) = down.get();
+                            let b: std::collections::BTreeSet<_> = bad.into_iter().collect();
+                            match b.len() {
+                                0 => "all healthy".to_string(),
+                                1 => format!("{} needs attention", b.into_iter().next().unwrap_or_default()),
+                                n => format!("{n} need attention"),
+                            }
+                        })
+                        testid="kpi-services"
+                    />
+                </Link>
+                <div class="md:col-span-2">
+                    <Kpi
+                        label="Open connections"
+                        icon="network"
+                        value=Signal::derive(move || s.status.with(|st| format::count(st.as_ref().map(|st| st.services.iter().map(|x| x.open).sum()).unwrap_or(0))))
+                        detail=Signal::derive(move || s.status.with(|st| format!("{} since start", format::count(st.as_ref().map(|st| st.services.iter().map(|x| x.total).sum()).unwrap_or(0)))))
+                        testid="kpi-open"
+                    />
+                </div>
+                <div class="md:col-span-2">
+                    <Kpi
+                        label="Traffic now"
+                        icon="activity"
+                        value=Signal::derive(move || human_bits(s.rates.with(|r| r.total.bytes_in)).0)
+                        unit=Signal::derive(move || human_bits(s.rates.with(|r| r.total.bytes_in)).1.to_string())
+                        detail=Signal::derive(move || { let (o, u) = human_bits(s.rates.with(|r| r.total.bytes_out)); format!("in · {o} {u} out") })
+                        testid="kpi-traffic"
+                    />
+                </div>
+                <div class="md:col-span-2">
+                    <Kpi
+                        label="Visitors active"
+                        icon="person"
+                        value=Signal::derive(move || {
+                            let active = s.status.with(|st| st.as_ref().map(|st| st.visitors.iter().filter(|v| v.open > 0).count()).unwrap_or(0));
+                            active.to_string()
+                        })
+                        unit=Signal::derive(move || format!("/ {}", names(&values.get(), "visitors").len()))
+                        detail="with open connections"
+                        testid="kpi-visitors"
+                    />
+                </div>
+                <div class="md:col-span-2">
+                    <Kpi
+                        label="Refused handshakes"
+                        icon="shield"
+                        value=Signal::derive(move || refused_log.with(|l| match (l.front(), l.back()) {
+                            (Some(a), Some(b)) => b.1.saturating_sub(a.1).to_string(),
+                            _ => "0".into(),
+                        }))
+                        unit="/min"
+                        detail=Signal::derive(move || s.status.with(|st| format!("{} since start", format::count(st.as_ref().map(|st| st.handshakes_refused).unwrap_or(0)))))
+                        testid="kpi-refused"
+                    />
+                </div>
+                <div class="col-span-2 grid gap-4 md:col-span-6 xl:col-span-12 min-[1200px]:grid-cols-12" data-testid="overview-row3">
+                    <Traffic/>
+                    <Attention/>
+                </div>
+                <section class="col-span-2 rounded-card border border-border bg-surface md:col-span-6 xl:col-span-12" data-testid="overview-tabs">
+                    <div class="flex flex-wrap items-center gap-3 border-b border-border px-3 py-2.5">
+                        <PillTabs
+                            tabs=vec![("services", "Services".into()), ("clients", "Clients".into()), ("visitors", "Visitors".into())]
+                            active=tab
+                            counts=counts
+                            on_change=Callback::new(move |t: &'static str| {
+                                tab.set(t);
+                                route::set_query("tab", t);
+                            })
+                        />
+                        <span class="ml-auto text-xs text-text-muted">
+                            "current rates · "
+                            {move || {
+                                let t = tab.get();
+                                view! { <Link to=Route::List(t.to_string()) class="font-semibold text-accent-ink no-underline hover:underline">{format!("Open {t} →")}</Link> }
+                            }}
+                        </span>
+                    </div>
+                    <div role="tabpanel">
+                        {move || match tab.get() {
+                            "clients" => clients_table().into_any(),
+                            "visitors" => visitors_table().into_any(),
+                            _ => services_table().into_any(),
+                        }}
+                    </div>
+                </section>
+            </div>
         </div>
-        <div class="grid items-start gap-4 lg:grid-cols-2">
-            <Card title="Throughput" testid="card-throughput">
-                <Sparkline points=spark_in second=spark_out label="Traffic in and out over the last 10 minutes" testid="spark"/>
-                <p class="mt-1 flex gap-4 text-xs"><span class="text-accent">"in"</span><span class="text-success">"out"</span></p>
-            </Card>
-            <Card title="Needs attention" testid="card-attention">{attention}</Card>
-        </div>
-        <Card title="Services">{services_table}</Card>
-        <Card title="Clients">{clients_table}</Card>
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use burrow_admin_proto::serde_json::json;
+    use burrow_admin_proto::status::ClientStatus;
+
+    fn status(online: &[&str], offline: &[&str]) -> Status {
+        let mut st: Status = burrow_admin_proto::serde_json::from_value(json!({
+            "version": "0.1.0", "uptime_secs": 10, "listening": [], "handshakes_refused": 0, "udp_peers": 0,
+            "clients": [], "services": [], "visitors": []
+        }))
+        .unwrap();
+        for (n, on) in online
+            .iter()
+            .map(|n| (n, true))
+            .chain(offline.iter().map(|n| (n, false)))
+        {
+            st.clients.push(ClientStatus {
+                name: n.to_string(),
+                connected: on,
+                connected_secs: on.then_some(60),
+                from: None,
+                open: 0,
+                idle_channels: 0,
+                left_secs_ago: (!on).then_some(172_800),
+            });
+        }
+        st
+    }
+
+    #[test]
+    fn needs_attention_puts_down_services_first_and_lists_away_clients() {
+        let v = json!({
+            "clients": {"a": {}, "b": {}, "c": {}},
+            "services": {
+                "aa-partial": {"clients": ["a", "b"], "target": "x:1"},
+                "zz-down": {"client": "b", "target": "x:2"},
+                "ok": {"client": "a", "target": "x:3"}
+            }
+        });
+        let st = status(&["a"], &["b", "c"]);
+        let items = attention(&v, None, Some(&st));
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].title, "Service zz-down is down");
+        assert_eq!(items[0].detail, "Its only client b is offline since 2d 0h.");
+        assert_eq!(items[1].tone, Tone::Warning);
+        let a = away(&v, Some(&st));
+        assert_eq!(
+            a.iter().map(|i| i.title.as_str()).collect::<Vec<_>>(),
+            ["b", "c"]
+        );
+        assert!(
+            a[0].detail
+                .starts_with("serves aa-partial, zz-down · left ")
+        );
+        assert!(a[1].detail.starts_with("no services · "));
+        assert!(attention(&v, None, None).is_empty());
+    }
+
+    #[test]
+    fn the_chart_scales_to_mbit_and_keeps_gaps() {
+        let mb = 1_000_000.0 / 8.0;
+        let a = vec![Some(10.0 * mb), None, Some(50.0 * mb)];
+        let b = vec![Some(1.0 * mb), None, Some(2.0 * mb)];
+        let d = chart(&a, &b, 60);
+        assert_eq!(d.max, 60.0);
+        assert_eq!(d.a[1], None);
+        assert!((d.a[2].unwrap() - 50.0).abs() < 1e-9);
+        assert_eq!(d.y_ticks, ["0", "15", "30", "45", "60"]);
+        assert_eq!(d.x_ticks.last().map(String::as_str), Some("now"));
+        assert!(d.empty_note.unwrap().contains("3 s so far"));
+        assert!(chart(&a[..1], &b[..1], 900).a.is_empty());
+        let full: Vec<Option<f64>> = vec![Some(mb); 1000];
+        let d = chart(&full, &full, 900);
+        assert_eq!(d.a.len(), 900);
+        assert!(d.empty_note.is_none());
     }
 }

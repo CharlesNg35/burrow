@@ -58,6 +58,8 @@ fn mime(name: &str) -> &'static str {
         Some("js") => "text/javascript; charset=utf-8",
         Some("css") => "text/css; charset=utf-8",
         Some("html") => "text/html; charset=utf-8",
+        Some("woff2") => "font/woff2",
+        Some("txt") => "text/plain; charset=utf-8",
         _ => "application/octet-stream",
     }
 }
@@ -195,7 +197,38 @@ pub fn build(root: &Path, tools: &Tools, release: bool) -> Result<PathBuf, Strin
     let js_bytes = read(&work.join("app.js"))?;
     let js_name = hashed("app.js", &js_bytes, release);
     write(&dist, &js_name, &js_bytes)?;
-    let css_bytes = read(&css_tmp)?;
+    let mut css_text = String::from_utf8(read(&css_tmp)?).map_err(|e| e.to_string())?;
+    let mut extra = Vec::new();
+    let fonts = ui.join("assets/fonts");
+    let mut font_files: Vec<_> = std::fs::read_dir(&fonts)
+        .map_err(|e| format!("{}: {e}", fonts.display()))?
+        .flatten()
+        .map(|e| e.path())
+        .collect();
+    font_files.sort();
+    for p in font_files {
+        let name = p
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or_default()
+            .to_string();
+        let bytes = read(&p)?;
+        let out = if name.ends_with(".woff2") {
+            let h = hashed(&name, &bytes, release);
+            css_text = css_text.replace(&format!("/fonts/{name}"), &format!("/{h}"));
+            h
+        } else if name.starts_with("LICENSE") {
+            "fonts-license.txt".to_string()
+        } else {
+            continue;
+        };
+        write(&dist, &out, &bytes)?;
+        extra.push(out);
+    }
+    if css_text.contains("/fonts/") {
+        return Err("app.css refers to a font that is not in assets/fonts".into());
+    }
+    let css_bytes = css_text.into_bytes();
     let css_name = hashed("app.css", &css_bytes, release);
     write(&dist, &css_name, &css_bytes)?;
     let boot = format!(
@@ -211,7 +244,7 @@ pub fn build(root: &Path, tools: &Tools, release: bool) -> Result<PathBuf, Strin
     );
     write(&dist, "index.html", index.as_bytes())?;
 
-    let files = [
+    let mut files = vec![
         File {
             path: "/index.html".into(),
             file: "index.html".into(),
@@ -238,10 +271,19 @@ pub fn build(root: &Path, tools: &Tools, release: bool) -> Result<PathBuf, Strin
             mime: mime(&css_name),
         },
     ];
+    for name in &extra {
+        files.push(File {
+            path: format!("/{name}"),
+            file: name.clone(),
+            mime: mime(name),
+        });
+    }
     let mut listed = Vec::new();
     for f in &files {
         let bytes = read(&dist.join(&f.file))?;
-        let gz_size = if release {
+        let gz_size = if f.file.ends_with(".woff2") {
+            bytes.len() as u64
+        } else if release {
             gzip(&dist, &f.file)?;
             std::fs::metadata(dist.join(format!("{}.gz", f.file)))
                 .map(|m| m.len())

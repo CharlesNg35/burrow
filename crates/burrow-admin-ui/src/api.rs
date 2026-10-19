@@ -128,6 +128,7 @@ fn closed(store: Store, e: &CloseEvent) {
     });
     store.conn.set(Conn::Reconnecting { attempt });
     let delay = (1000 * u64::from(attempt.min(5))) as u32;
+    store.retry_at.set(now_ms() + f64::from(delay));
     set_timeout(
         move || connect(store),
         std::time::Duration::from_millis(u64::from(delay)),
@@ -181,6 +182,7 @@ fn event(store: Store, ev: &str, body: Value) {
         "bridge" => match str_of(&body, "state").as_str() {
             "open" => {
                 ATTEMPT.with(|a| *a.borrow_mut() = 0);
+                store.server_addr.set(str_of(&body, "server"));
                 start(store);
             }
             "refused" => {

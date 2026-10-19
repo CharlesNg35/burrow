@@ -16,6 +16,25 @@ pub fn ago(secs: u64) -> String {
     }
 }
 
+pub fn left(left_secs_ago: Option<u64>, uptime: u64) -> String {
+    match left_secs_ago {
+        Some(a) => format!("left {}", ago(a)),
+        None => format!("not seen since server start ({})", span(uptime)),
+    }
+}
+
+pub fn away_badge(left_secs_ago: Option<u64>) -> &'static str {
+    if left_secs_ago.is_some() {
+        "away"
+    } else {
+        "not seen"
+    }
+}
+
+pub fn listen_addr(label: &str) -> String {
+    label.rsplit(' ').next().unwrap_or(label).to_string()
+}
+
 pub fn count(n: u64) -> String {
     let s = n.to_string();
     let mut out = String::new();
@@ -54,5 +73,18 @@ pub fn when(unix: u64) -> String {
         p(d.get_hours()),
         p(d.get_minutes()),
         p(d.get_seconds())
+    )
+}
+
+pub fn clock(ms: f64) -> String {
+    if ms <= 0.0 {
+        return "--:--:--".into();
+    }
+    let d = js_sys::Date::new(&wasm_bindgen::JsValue::from_f64(ms));
+    format!(
+        "{:02}:{:02}:{:02}",
+        d.get_hours(),
+        d.get_minutes(),
+        d.get_seconds()
     )
 }

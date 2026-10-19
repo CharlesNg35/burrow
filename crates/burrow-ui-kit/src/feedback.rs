@@ -3,12 +3,12 @@ use leptos::prelude::*;
 use crate::basic::{SpinDot, Tone};
 use crate::icon::Icon;
 
-fn icon_for(tone: Tone) -> &'static str {
+fn banner_tone(tone: Tone) -> &'static str {
     match tone {
-        Tone::Danger => "alert",
-        Tone::Warning => "warning",
-        Tone::Success => "check",
-        Tone::Info | Tone::Accent | Tone::Neutral => "info",
+        Tone::Danger => "border-danger/30 bg-danger-weak text-co-danger",
+        Tone::Warning => "border-warning/30 bg-warning-weak text-co-warning",
+        Tone::Success => "border-success/30 bg-success-weak text-co-success",
+        _ => "border-accent/30 bg-accent-weak text-co-info",
     }
 }
 
@@ -27,17 +27,15 @@ pub fn Banner(
     };
     view! {
         <div
-            class=format!("mb-3 flex items-start gap-3 rounded-card border p-3 {}", tone.soft())
+            class=format!("flex flex-wrap items-center gap-x-3 gap-y-1 border-b px-5 py-[9px] text-[13px] {}", banner_tone(tone))
             role=role
             data-tone=tone.name()
             data-testid=(!testid.is_empty()).then_some(testid)
         >
-            <Icon name=icon_for(tone)/>
-            <div class="flex-1 text-text">
-                <strong class="block">{move || title.get()}</strong>
-                <span class="text-sm">{move || message.get()}</span>
-            </div>
-            <div class="flex gap-2">{children.map(|c| c())}</div>
+            <Icon name=tone.icon()/>
+            <strong class="font-semibold">{move || title.get()}</strong>
+            <span>{move || message.get()}</span>
+            <div class="ml-auto flex gap-2">{children.map(|c| c())}</div>
         </div>
     }
 }
@@ -51,15 +49,15 @@ pub fn Callout(
 ) -> impl IntoView {
     view! {
         <div
-            class=format!("mb-3 rounded-card border border-l-4 p-3 {} {}", tone.soft(), tone.bar())
+            class=format!("rounded-[10px] border px-3.5 py-3 text-[13px] {}", banner_tone(tone))
             data-tone=tone.name()
             data-testid=(!testid.is_empty()).then_some(testid)
         >
             <div class="mb-1 flex items-center gap-2 font-semibold">
-                <Icon name=icon_for(tone)/>
+                <Icon name=tone.icon()/>
                 {title}
             </div>
-            <div class="text-text">{children()}</div>
+            <div>{children()}</div>
         </div>
     }
 }
@@ -68,16 +66,15 @@ pub fn Callout(
 pub fn EmptyState(
     #[prop(into)] title: String,
     #[prop(optional, into)] message: String,
+    #[prop(optional)] icon: &'static str,
     #[prop(optional)] testid: &'static str,
     #[prop(optional)] children: Option<Children>,
 ) -> impl IntoView {
     view! {
-        <div
-            class="rounded-card border border-dashed border-border px-6 py-10 text-center"
-            data-testid=(!testid.is_empty()).then_some(testid)
-        >
+        <div class="px-6 py-10 text-center" data-testid=(!testid.is_empty()).then_some(testid)>
+            {(!icon.is_empty()).then(|| view! { <div class="mb-2 flex justify-center text-text-faint"><Icon name=icon large=true/></div> })}
             <div class="text-md font-semibold">{title}</div>
-            <p class="mx-auto mt-1 mb-4 max-w-prose text-text-muted">{message}</p>
+            <p class="mx-auto mt-1 mb-4 max-w-prose text-sm text-text-muted">{message}</p>
             {children.map(|c| c())}
         </div>
     }
@@ -86,9 +83,9 @@ pub fn EmptyState(
 #[component]
 pub fn Skeleton(#[prop(optional)] lines: usize) -> impl IntoView {
     view! {
-        <div class="space-y-3" aria-busy="true" aria-label="Loading">
+        <div class="space-y-3 p-4" aria-busy="true" aria-label="Loading">
             {(0..lines.max(1))
-                .map(|_| view! { <div class="h-4 animate-pulse rounded bg-surface-2"></div> })
+                .map(|_| view! { <div class="h-4 animate-pulse rounded bg-surface-3"></div> })
                 .collect_view()}
         </div>
     }

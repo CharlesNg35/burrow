@@ -1,7 +1,6 @@
 use leptos::prelude::*;
 use wasm_bindgen::JsCast;
 
-use crate::basic::button_class;
 use crate::icon::Icon;
 
 pub fn copy_text(text: &str) {
@@ -40,37 +39,34 @@ pub fn CodeBlock(
 ) -> impl IntoView {
     let copied = RwSignal::new(false);
     let name = file_name.clone();
+    let dl = "inline-flex h-[26px] cursor-pointer items-center gap-1.5 rounded-input px-2 text-xs font-semibold text-code-text/80 hover:bg-white/10 hover:text-code-text";
     view! {
-        <div class="overflow-hidden rounded-card border border-border" data-testid=(!testid.is_empty()).then_some(testid)>
-            <div class="flex items-center gap-2 border-b border-border bg-surface-2 px-3 py-1.5">
-                <span class="flex-1 font-mono text-sm">{file_name.clone().unwrap_or_default()}</span>
+        <div class="overflow-hidden rounded-[10px] bg-code text-code-text" data-testid=(!testid.is_empty()).then_some(testid)>
+            <div class="flex items-center gap-2 border-b border-white/10 px-3 py-1.5">
+                <span class="flex-1 font-mono text-xs text-code-text/70">{file_name.clone().unwrap_or_default()}</span>
                 <button
                     type="button"
-                    class=button_class("ghost", true)
+                    class=dl
                     on:click=move |_| {
                         copy_text(&text.get_untracked());
                         copied.set(true);
                     }
                 >
-                    <Icon name="copy"/>
+                    <Icon name="copy" small=true/>
                     {move || if copied.get() { "Copied" } else { "Copy" }}
                 </button>
                 {name
                     .map(|n| {
                         let n2 = n.clone();
                         view! {
-                            <button
-                                type="button"
-                                class=button_class("ghost", true)
-                                on:click=move |_| download_text(&n2, &text.get_untracked())
-                            >
-                                <Icon name="download"/>
+                            <button type="button" class=dl on:click=move |_| download_text(&n2, &text.get_untracked())>
+                                <Icon name="download" small=true/>
                                 {format!("Download {n}")}
                             </button>
                         }
                     })}
             </div>
-            <pre class="overflow-x-auto p-3 font-mono text-sm whitespace-pre">{move || text.get()}</pre>
+            <pre class="overflow-x-auto p-3.5 font-mono text-[12.5px] leading-[1.7] whitespace-pre">{move || text.get()}</pre>
         </div>
     }
 }
@@ -83,36 +79,102 @@ pub struct DiffLine {
     pub text: String,
 }
 
+fn row_class(kind: char) -> &'static str {
+    match kind {
+        '+' => "bg-diff-add",
+        '-' => "bg-diff-del",
+        '@' => "bg-accent-weak text-accent-ink",
+        _ => "",
+    }
+}
+
+fn sign(kind: char) -> (&'static str, &'static str) {
+    match kind {
+        '+' => ("+", "text-success"),
+        '-' => ("−", "text-danger"),
+        _ => ("", ""),
+    }
+}
+
 #[component]
 pub fn DiffView(
     #[prop(into)] lines: Signal<Vec<DiffLine>>,
+    #[prop(optional, into)] split: Signal<bool>,
     #[prop(optional)] testid: &'static str,
 ) -> impl IntoView {
-    view! {
-        <div class="overflow-x-auto rounded-card border border-border font-mono text-sm" role="table" data-testid=(!testid.is_empty()).then_some(testid)>
-            {move || {
-                lines
-                    .get()
-                    .into_iter()
-                    .map(|l| {
-                        let class = match l.kind {
-                            '+' => "grid grid-cols-[3rem_3rem_1.5rem_1fr] bg-success/10",
-                            '-' => "grid grid-cols-[3rem_3rem_1.5rem_1fr] bg-danger/10",
-                            '@' => "grid grid-cols-[3rem_3rem_1.5rem_1fr] bg-surface-2 text-text-muted",
-                            _ => "grid grid-cols-[3rem_3rem_1.5rem_1fr]",
-                        };
-                        let num = |n: Option<u32>| n.map(|n| n.to_string()).unwrap_or_default();
+    let unified = move || {
+        lines
+            .get()
+            .into_iter()
+            .map(|l| {
+                let num = |n: Option<u32>| n.map(|n| n.to_string()).unwrap_or_default();
+                let (s, sc) = sign(l.kind);
+                view! {
+                    <div class=format!("grid grid-cols-[38px_38px_18px_1fr] {}", row_class(l.kind)) role="row">
+                        <span class="pr-2 text-right text-text-faint select-none" role="cell">{num(l.old)}</span>
+                        <span class="pr-2 text-right text-text-faint select-none" role="cell">{num(l.new)}</span>
+                        <span class=format!("text-center select-none {sc}") role="cell">{s}</span>
+                        <span class="pr-3 whitespace-pre" role="cell">{l.text}</span>
+                    </div>
+                }
+            })
+            .collect_view()
+    };
+    let side = move || {
+        let all = lines.get();
+        let mut rows: Vec<(Option<DiffLine>, Option<DiffLine>)> = Vec::new();
+        let mut dels: Vec<DiffLine> = Vec::new();
+        let mut adds: Vec<DiffLine> = Vec::new();
+        let flush = |rows: &mut Vec<(Option<DiffLine>, Option<DiffLine>)>,
+                     dels: &mut Vec<DiffLine>,
+                     adds: &mut Vec<DiffLine>| {
+            let n = dels.len().max(adds.len());
+            let (d, a) = (std::mem::take(dels), std::mem::take(adds));
+            let mut d = d.into_iter();
+            let mut a = a.into_iter();
+            for _ in 0..n {
+                rows.push((d.next(), a.next()));
+            }
+        };
+        for l in all {
+            match l.kind {
+                '-' => dels.push(l),
+                '+' => adds.push(l),
+                _ => {
+                    flush(&mut rows, &mut dels, &mut adds);
+                    rows.push((Some(l.clone()), Some(l)));
+                }
+            }
+        }
+        flush(&mut rows, &mut dels, &mut adds);
+        rows.into_iter()
+            .map(|(a, b)| {
+                let half = |l: Option<DiffLine>, old: bool| match l {
+                    Some(l) => {
+                        let n = if old { l.old } else { l.new };
+                        let (s, sc) = sign(l.kind);
                         view! {
-                            <div class=class role="row">
-                                <span class="pr-2 text-right text-text-muted select-none" role="cell">{num(l.old)}</span>
-                                <span class="pr-2 text-right text-text-muted select-none" role="cell">{num(l.new)}</span>
-                                <span class="text-center select-none" role="cell">{l.kind.to_string()}</span>
-                                <span class="whitespace-pre" role="cell">{l.text}</span>
+                            <div class=format!("grid grid-cols-[38px_18px_1fr] {}", row_class(l.kind))>
+                                <span class="pr-2 text-right text-text-faint select-none">{n.map(|n| n.to_string()).unwrap_or_default()}</span>
+                                <span class=format!("text-center select-none {sc}")>{s}</span>
+                                <span class="pr-3 whitespace-pre">{l.text}</span>
                             </div>
                         }
-                    })
-                    .collect_view()
-            }}
+                        .into_any()
+                    }
+                    None => view! { <div></div> }.into_any(),
+                };
+                view! { <div class="grid grid-cols-2 divide-x divide-border" role="row">{half(a, true)}{half(b, false)}</div> }
+            })
+            .collect_view()
+    };
+    view! {
+        <div
+            class="overflow-x-auto rounded-card border border-border bg-surface font-mono text-[12.5px] leading-[1.8]"
+            role="table"
+            data-testid=(!testid.is_empty()).then_some(testid)
+        >
+            {move || if split.get() { side().into_any() } else { unified().into_any() }}
         </div>
     }
 }

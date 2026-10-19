@@ -129,6 +129,13 @@ fn diff(base: &Value, draft: &Value, path: &[String], out: &mut Vec<Op>, tail: &
     }
 }
 
+pub fn ops_between(base: &Value, draft: &Value) -> Vec<Op> {
+    let (mut main, mut tail) = (Vec::new(), Vec::new());
+    diff(base, draft, &[], &mut main, &mut tail);
+    main.extend(tail);
+    main
+}
+
 pub fn get<'a>(root: &'a Value, path: &[String]) -> Option<&'a Value> {
     value::get(root, path)
 }
@@ -665,5 +672,14 @@ mod tests {
             );
             assert_eq!(ops.is_empty(), &base == c.draft(), "case {case}");
         }
+    }
+
+    #[test]
+    fn ops_between_counts_field_changes() {
+        let a = json!({"bind": 1, "target": 2, "allow_from": ["x"]});
+        let b = json!({"bind": 1, "target": 3, "allow_from": ["x", "y"], "mode": "balance"});
+        let ops = ops_between(&a, &b);
+        assert_eq!(ops.len(), 3, "{ops:?}");
+        assert!(ops_between(&a, &a).is_empty());
     }
 }

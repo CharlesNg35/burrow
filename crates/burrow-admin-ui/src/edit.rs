@@ -144,6 +144,13 @@ impl Edit {
         self.texts.with(|t| self.draft.with(|d| ops_of(d, t)))
     }
 
+    pub fn review_count(&self) -> usize {
+        match self.review_plan() {
+            Some(p) => p.changes.len().max(1),
+            None => self.pending(),
+        }
+    }
+
     pub fn pending(&self) -> usize {
         self.draft.with(Changeset::changed_entities) + self.texts.with(BTreeMap::len)
     }
@@ -295,15 +302,6 @@ impl Edit {
         let n = self.seq.get_value() + 1;
         self.seq.set_value(n);
         self.validate(n);
-    }
-
-    pub fn local_errors(&self) -> usize {
-        self.local.with(BTreeMap::len) + self.related.with(BTreeMap::len)
-    }
-
-    pub fn server_errors(&self) -> usize {
-        self.plan
-            .with(|p| p.as_ref().map(|p| p.errors()).unwrap_or(0))
     }
 
     pub fn open_review(&self) {

@@ -2,6 +2,8 @@
 
 mod api;
 mod app;
+#[cfg(test)]
+mod contrast;
 mod domain;
 mod edit;
 mod form;

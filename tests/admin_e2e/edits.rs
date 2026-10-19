@@ -3,30 +3,17 @@ use std::pin::Pin;
 use std::time::Duration;
 
 use super::world::{Options, free_range};
-use super::{Ctx, SECS, echo_server, open, round_trip, run};
+use super::{
+    Ctx, SECS, applied, echo_server, edit_mode, open, open_review, round_trip, run, wait_checked,
+};
 
 type Flow<'a> = Pin<Box<dyn Future<Output = ()> + 'a>>;
 
 const UNSET: &str = "\u{1}unset";
 
-async fn wait_checked(c: &Ctx) {
-    c.ui.wait_for("[data-testid=pending-bar]", SECS).await;
-    c.ui.wait_not_text("[data-testid=pending-bar]", "checking", SECS)
-        .await;
-}
-
-async fn review(c: &mut Ctx, step: &str) {
-    c.ui.click("[data-testid=review-open]").await;
-    c.ui.wait_for("[data-testid=review]", SECS).await;
-    c.ui.shot(step).await;
-}
-
-async fn apply(c: &mut Ctx, step: &str) {
-    c.ui.click("[data-testid=apply]").await;
-    c.ui.wait_for("[data-testid=outcome-applied]", Duration::from_secs(20))
-        .await;
-    c.ui.wait_gone("[data-testid=pending-bar]", SECS).await;
-    c.ui.shot(step).await;
+async fn discard_from_review(c: &mut Ctx) {
+    c.ui.click("[data-testid=discard]").await;
+    c.ui.wait_gone("[data-testid=review-open]", SECS).await;
 }
 
 fn add_service(c: &mut Ctx) -> Flow<'_> {
@@ -51,9 +38,11 @@ fn add_service(c: &mut Ctx) -> Flow<'_> {
         );
         c.ui.shot("invalid-name").await;
         c.ui.fill("#new-name", "game").await;
+        c.ui.wait_for("[data-testid=name-available]", SECS).await;
         c.ui.click("[data-testid=create]").await;
         c.ui.wait_for("[data-testid=detail][data-name=game]", SECS)
             .await;
+        c.ui.wait_for("[data-testid=save-bar]", SECS).await;
         c.ui.shot("new-service-form").await;
 
         c.ui.select("#f-services-game-client", UNSET).await;
@@ -85,9 +74,10 @@ fn add_service(c: &mut Ctx) -> Flow<'_> {
             SECS,
         )
         .await;
+        c.ui.wait_for("[data-testid=form-problems]", SECS).await;
         assert!(
-            !c.ui.enabled("[data-testid=review-open]").await,
-            "a local error blocks the review"
+            !c.ui.enabled("[data-testid=save]").await,
+            "a local error blocks saving the edit"
         );
         c.ui.shot("range-size-mismatch").await;
         c.ui.fill(
@@ -99,12 +89,17 @@ fn add_service(c: &mut Ctx) -> Flow<'_> {
         let target = c.ui.text("[data-schema='services/*/target']").await;
         assert!(!target.contains("ports here"), "{target}");
         c.ui.shot("ranges-match").await;
+        c.ui.click("[data-testid=save]").await;
+        c.ui.wait_gone("[data-testid=save-bar]", SECS).await;
+        c.ui.wait_text("[data-testid=toasts]", "Added to changes", SECS)
+            .await;
 
-        review(c, "review-new-service").await;
-        let changes = c.ui.text("[data-testid=review-changes]").await;
+        open_review(c, "review-new-service").await;
+        let changes = c.ui.text("[data-testid=review-list]").await;
         assert!(changes.contains("game"), "{changes}");
         assert_eq!(c.ui.count("[data-testid=review-diff]").await, 1);
-        apply(c, "applied").await;
+        c.ui.wait_for("[data-review-path=game]", SECS).await;
+        applied(c, "applied").await;
         for i in 0..3 {
             round_trip(public + i, 4096)
                 .await
@@ -119,6 +114,9 @@ fn add_service(c: &mut Ctx) -> Flow<'_> {
         assert!(text.contains("game:"), "{text}");
         c.ui.shot("service-live").await;
 
+        c.ui.nav("/services/web").await;
+        c.ui.nav("/services/game").await;
+        edit_mode(c).await;
         c.ui.fill(
             "#f-services-game-bind",
             &format!("127.0.0.1:{}", c.world.ports["web"]),
@@ -131,16 +129,16 @@ fn add_service(c: &mut Ctx) -> Flow<'_> {
             SECS,
         )
         .await;
-        assert!(
-            !c.ui.enabled("[data-testid=review-open]").await,
-            "a server error blocks the review"
-        );
-        c.ui.wait_text("[data-testid=pending-bar]", "error", SECS)
+        c.ui.wait_for("[data-testid=review-open][data-state=errors]", SECS)
             .await;
+        assert!(
+            !c.ui.enabled("[data-testid=save]").await,
+            "a server error blocks saving"
+        );
         c.ui.shot("server-says-duplicate-bind").await;
         c.ui.click("[data-schema='services/*/bind'] [data-testid=reset-field]")
             .await;
-        c.ui.wait_gone("[data-testid=pending-bar]", SECS).await;
+        c.ui.wait_gone("[data-testid=review-open]", SECS).await;
         c.ui.shot("undo-clears-the-error").await;
         for e in echoes {
             e.abort();
@@ -166,6 +164,7 @@ fn conflict(c: &mut Ctx) -> Flow<'_> {
     Box::pin(async move {
         open(c, "ops").await;
         c.ui.nav("/services/web").await;
+        edit_mode(c).await;
         c.ui.fill("#f-services-web-target", "4000").await;
         wait_checked(c).await;
         c.ui.shot("editing-web-target").await;
@@ -184,8 +183,8 @@ fn conflict(c: &mut Ctx) -> Flow<'_> {
         c.ui.wait_gone("[data-testid=conflict]", SECS).await;
         wait_checked(c).await;
         c.ui.shot("draft-kept-on-the-new-version").await;
-        review(c, "review-after-recheck").await;
-        apply(c, "applied-on-the-new-version").await;
+        open_review(c, "review-after-recheck").await;
+        applied(c, "applied-on-the-new-version").await;
         let text = c.world.config();
         assert!(text.contains("lab:"), "the hand edit stays:\n{text}");
         assert!(text.contains("target: 4000"), "my change is in:\n{text}");
@@ -198,37 +197,40 @@ fn e5_a_hand_edit_during_editing_is_a_conflict_and_the_draft_is_kept() {
     run("e5-conflict", Options::default(), false, conflict);
 }
 
+async fn refused(c: &mut Ctx, code: &str, step: &str) {
+    c.ui.wait_for(&format!("[data-refusal={code}]"), SECS).await;
+    assert!(
+        !c.ui.enabled("[data-testid=apply]").await,
+        "no Apply for a lockout"
+    );
+    c.ui.wait_text("[data-testid=apply]", "Apply refused", SECS)
+        .await;
+    c.ui.shot(step).await;
+}
+
 fn lockout(c: &mut Ctx) -> Flow<'_> {
     Box::pin(async move {
         let before = c.world.config();
         open(c, "ops").await;
         c.ui.nav("/visitors/ops").await;
         c.ui.shot("ops-visitor").await;
+        edit_mode(c).await;
         c.ui.choose("f-visitors-ops-admin", UNSET).await;
         wait_checked(c).await;
-        review(c, "removing-my-admin-right").await;
-        c.ui.wait_for("[data-refusal=self-demoted]", SECS).await;
-        assert_eq!(
-            c.ui.count("[data-testid=apply]").await,
-            0,
-            "no Apply for a lockout"
-        );
-        c.ui.shot("refused-self-demoted").await;
-        c.ui.click("[data-testid=review-drawer] button[aria-label=Close]")
-            .await;
-        c.ui.click("[data-testid=discard]").await;
-        c.ui.wait_gone("[data-testid=pending-bar]", SECS).await;
+        open_review(c, "removing-my-admin-right").await;
+        refused(c, "self-demoted", "refused-self-demoted").await;
+        c.ui.wait_for("[data-testid=fix-undo]", SECS).await;
+        discard_from_review(c).await;
 
+        c.ui.nav("/visitors/laptop").await;
+        c.ui.nav("/visitors/ops").await;
+        c.ui.click("[data-testid=more]").await;
         c.ui.click("[data-testid=delete]").await;
         wait_checked(c).await;
         c.ui.shot("ops-deleted-in-draft").await;
-        review(c, "deleting-myself").await;
-        c.ui.wait_for("[data-refusal=self-removed]", SECS).await;
-        assert_eq!(c.ui.count("[data-testid=apply]").await, 0);
-        c.ui.shot("refused-self-removed").await;
-        c.ui.click("[data-testid=review-drawer] button[aria-label=Close]")
-            .await;
-        c.ui.click("[data-testid=discard]").await;
+        open_review(c, "deleting-myself").await;
+        refused(c, "self-removed", "refused-self-removed").await;
+        discard_from_review(c).await;
         assert_eq!(c.world.config(), before, "server.yaml is unchanged");
 
         let url = c.world.open_admin("viewer");
@@ -236,13 +238,18 @@ fn lockout(c: &mut Ctx) -> Flow<'_> {
         c.ui.goto(&url).await;
         c.ui.wait_text("[data-testid=conn-pill]", "Read-only", SECS)
             .await;
-        c.ui.nav("/services/web").await;
+        c.ui.nav("/services/web?tab=settings").await;
         c.ui.wait_for("[data-testid=detail]", SECS).await;
         assert_eq!(
             c.ui.count("[data-editor]").await,
             0,
             "no editors for read access"
         );
+        assert!(
+            !c.ui.enabled("[data-testid=edit]").await,
+            "Edit is disabled for read access"
+        );
+        c.ui.click("[data-testid=more]").await;
         assert_eq!(c.ui.count("[data-testid=delete]").await, 0);
         c.ui.nav("/services").await;
         assert_eq!(c.ui.count("[data-testid=new]").await, 0);
@@ -260,6 +267,7 @@ fn fallback_edit(c: &mut Ctx) -> Flow<'_> {
     Box::pin(async move {
         open(c, "ops").await;
         c.ui.nav("/services/capped").await;
+        edit_mode(c).await;
         let row = "[data-schema='services/*/bandwidth']";
         c.ui.wait_text(row, "Checked by the server", SECS).await;
         c.ui.fill("#f-services-capped-bandwidth", "abc").await;
@@ -269,8 +277,8 @@ fn fallback_edit(c: &mut Ctx) -> Flow<'_> {
         c.ui.shot("server-rejects-abc").await;
         c.ui.fill("#f-services-capped-bandwidth", "50mbit").await;
         wait_checked(c).await;
-        review(c, "review-50mbit").await;
-        apply(c, "applied-50mbit").await;
+        open_review(c, "review-50mbit").await;
+        applied(c, "applied-50mbit").await;
         assert!(c.world.config().contains("bandwidth: 50mbit"));
         c.ui.assert_no_errors();
     })
@@ -288,9 +296,10 @@ fn e8_a_field_of_a_newer_type_is_edited_as_text_and_checked_by_the_server() {
 
 async fn activity_rev(c: &Ctx, index: usize) -> String {
     c.ui.nav("/activity").await;
-    c.ui.wait_for("[data-testid=activity-entry]", SECS).await;
+    c.ui.wait_for("[data-testid=activity] [data-row]", SECS)
+        .await;
     let revs =
-        c.ui.all_attrs("[data-testid=activity-entry]", "data-rev")
+        c.ui.all_attrs("[data-testid=activity] [data-row]", "data-row")
             .await;
     revs.get(index)
         .cloned()
@@ -302,21 +311,22 @@ fn revert(c: &mut Ctx) -> Flow<'_> {
         let original = c.world.config();
         open(c, "ops").await;
         c.ui.nav("/services/web").await;
+        edit_mode(c).await;
         c.ui.fill("#f-services-web-target", "4001").await;
         wait_checked(c).await;
-        review(c, "change-to-revert").await;
-        apply(c, "changed").await;
+        open_review(c, "change-to-revert").await;
+        applied(c, "changed").await;
         let rev = activity_rev(c, 0).await;
         c.ui.shot("activity-with-the-change").await;
-        c.ui.click(&format!("[data-rev='{rev}'] [data-testid=view-diff]"))
+        c.ui.click(&format!("[data-row='{rev}'] [data-action=view]"))
             .await;
         c.ui.wait_for("[data-testid=activity-diff]", SECS).await;
         c.ui.shot("diff-of-a-version").await;
-        c.ui.click(&format!("[data-rev='{rev}'] [data-testid=revert]"))
+        c.ui.click(&format!("[data-row='{rev}'] [data-action=revert]"))
             .await;
         c.ui.wait_for("[data-testid=review]", SECS).await;
         c.ui.shot("review-of-the-revert").await;
-        apply(c, "reverted").await;
+        applied(c, "reverted").await;
         assert_eq!(
             c.world.config(),
             original,
@@ -335,14 +345,18 @@ fn revert_refused(c: &mut Ctx) -> Flow<'_> {
     Box::pin(async move {
         open(c, "boss").await;
         c.ui.nav("/visitors/ops").await;
+        edit_mode(c).await;
         c.ui.choose("f-visitors-ops-admin", "read").await;
         wait_checked(c).await;
-        review(c, "boss-demotes-ops").await;
-        apply(c, "ops-is-read-only").await;
+        open_review(c, "boss-demotes-ops").await;
+        applied(c, "ops-is-read-only").await;
+        c.ui.nav("/visitors/laptop").await;
+        c.ui.nav("/visitors/ops").await;
+        edit_mode(c).await;
         c.ui.choose("f-visitors-ops-admin", "write").await;
         wait_checked(c).await;
-        review(c, "boss-promotes-ops").await;
-        apply(c, "ops-can-write-again").await;
+        open_review(c, "boss-promotes-ops").await;
+        applied(c, "ops-can-write-again").await;
 
         let url = c.world.open_admin("ops");
         c.ui.goto("about:blank").await;
@@ -350,11 +364,9 @@ fn revert_refused(c: &mut Ctx) -> Flow<'_> {
         c.ui.wait_text("[data-testid=conn-pill]", "Connected", SECS)
             .await;
         let rev = activity_rev(c, 0).await;
-        c.ui.click(&format!("[data-rev='{rev}'] [data-testid=revert]"))
+        c.ui.click(&format!("[data-row='{rev}'] [data-action=revert]"))
             .await;
-        c.ui.wait_for("[data-refusal=self-demoted]", SECS).await;
-        assert_eq!(c.ui.count("[data-testid=apply]").await, 0);
-        c.ui.shot("revert-refused-by-the-guard").await;
+        refused(c, "self-demoted", "revert-refused-by-the-guard").await;
         c.ui.take_errors();
     })
 }
@@ -368,14 +380,16 @@ fn revert_conflict(c: &mut Ctx) -> Flow<'_> {
     Box::pin(async move {
         open(c, "ops").await;
         c.ui.nav("/services/web").await;
+        edit_mode(c).await;
         c.ui.fill("#f-services-web-target", "4002").await;
         wait_checked(c).await;
-        review(c, "a-change").await;
-        apply(c, "changed").await;
+        open_review(c, "a-change").await;
+        applied(c, "changed").await;
         let rev = activity_rev(c, 0).await;
-        c.ui.click(&format!("[data-rev='{rev}'] [data-testid=revert]"))
+        c.ui.click(&format!("[data-row='{rev}'] [data-action=revert]"))
             .await;
-        c.ui.wait_for("[data-testid=apply]", SECS).await;
+        c.ui.wait_for("[data-testid=apply]:not([disabled])", SECS)
+            .await;
         c.ui.shot("revert-reviewed").await;
         c.world
             .hand_edit(|t| t.replace("target: 4002", "target: 4003"));
@@ -383,7 +397,8 @@ fn revert_conflict(c: &mut Ctx) -> Flow<'_> {
         c.ui.wait_for("[data-testid=conflict]", SECS).await;
         c.ui.shot("revert-against-a-changed-file").await;
         c.ui.click("[data-testid=conflict-recheck]").await;
-        c.ui.wait_for("[data-testid=apply]", SECS).await;
+        c.ui.wait_for("[data-testid=apply]:not([disabled])", SECS)
+            .await;
         c.ui.shot("revert-reviewed-again-on-the-new-version").await;
         assert!(
             c.world.config().contains("target: 4003"),
@@ -412,15 +427,18 @@ fn typed_confirm(c: &mut Ctx) -> Flow<'_> {
             .expect("connect");
         open(c, "ops").await;
         c.ui.nav("/services/web").await;
-        c.ui.wait_not_text("[data-testid=live] [data-cell=open]", "0", SECS)
+        c.ui.wait_not_text("[data-testid=live] [data-stat=open]", "0", SECS)
             .await;
         c.ui.shot("web-with-an-open-connection").await;
+        c.ui.click("[data-testid=more]").await;
         c.ui.click("[data-testid=delete]").await;
         wait_checked(c).await;
-        review(c, "impact-of-removing-web").await;
+        open_review(c, "impact-of-removing-web").await;
         let impacts = c.ui.text("[data-testid=review]").await;
         assert!(impacts.contains("open connection"), "{impacts}");
-        c.ui.wait_for("[data-impact][data-level=danger] [data-confirm=web]", SECS)
+        c.ui.wait_for("[data-impact][data-level=danger]", SECS)
+            .await;
+        c.ui.wait_for("[data-testid=confirms] [data-confirm=web]", SECS)
             .await;
         assert!(
             !c.ui.enabled("[data-testid=apply]").await,
@@ -431,7 +449,7 @@ fn typed_confirm(c: &mut Ctx) -> Flow<'_> {
         c.ui.shot("typed-confirmation-incomplete").await;
         c.ui.fill("[data-confirm=web]", "web").await;
         c.ui.shot("typed-confirmation-done").await;
-        apply(c, "web-removed").await;
+        applied(c, "web-removed").await;
         assert!(!c.world.config().contains("  web:"));
         drop(held);
         echo.abort();
@@ -490,7 +508,7 @@ fn locked_fields(c: &mut Ctx) -> Flow<'_> {
             "the rest of limits stays editable"
         );
         c.ui.shot("locked-fields-are-read-only").await;
-        assert_eq!(c.ui.count("[data-testid=pending-bar]").await, 0);
+        assert_eq!(c.ui.count("[data-testid=review-open]").await, 0);
         c.ui.assert_no_errors();
     })
 }

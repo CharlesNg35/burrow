@@ -310,8 +310,7 @@ pub fn ShownOnce() -> impl IntoView {
 }
 
 #[component]
-pub fn ConnectButton(section: String, name: String) -> impl IntoView {
-    let open = RwSignal::new(false);
+pub fn ConnectPanel(section: String, name: String) -> impl IntoView {
     let data: RwSignal<Option<Result<Snippets, String>>> = RwSignal::new(None);
     let address = RwSignal::new(String::new());
     let kind = if section == "clients" {
@@ -319,20 +318,17 @@ pub fn ConnectButton(section: String, name: String) -> impl IntoView {
     } else {
         "visitor"
     };
-    let fetch = {
-        let name = name.clone();
-        move |addr: Option<String>| {
-            data.set(None);
-            let body = json!({ "kind": kind, "name": name, "address": addr });
-            api::request(msg::req::CONNECT_INFO, body, move |r| {
-                data.set(Some(r.map_err(|e| e.message).and_then(|v| {
-                    serde_json::from_value::<Snippets>(v).map_err(|e| e.to_string())
-                })));
-            });
-        }
+    let fetch = move |name: String, addr: Option<String>| {
+        data.set(None);
+        let body = json!({ "kind": kind, "name": name, "address": addr });
+        api::request(msg::req::CONNECT_INFO, body, move |r| {
+            let _ = data.try_set(Some(r.map_err(|e| e.message).and_then(|v| {
+                serde_json::from_value::<Snippets>(v).map_err(|e| e.to_string())
+            })));
+        });
     };
-    let f2 = fetch.clone();
-    let f3 = StoredValue::new(fetch.clone());
+    fetch(name.clone(), None);
+    let n2 = StoredValue::new(name.clone());
     let body = move || match data.get() {
         None => view! { <p class="text-text-muted">"Loading…"</p> }.into_any(),
         Some(Err(e)) => view! { <p class="text-danger">{e}</p> }.into_any(),
@@ -344,7 +340,7 @@ pub fn ConnectButton(section: String, name: String) -> impl IntoView {
                             <label class="text-sm" for="connect-address">"How do machines reach this server?"</label>
                             <TextInput id="connect-address" value=address on_input=move |t: String| address.set(t) placeholder="myserver.example.com" mono=true/>
                         </div>
-                        <Button label="Use it" small=true on_click=move |_| f3.with_value(|f| f(Some(address.get_untracked())))/>
+                        <Button label="Use it" small=true on_click=move |_| fetch(n2.get_value(), Some(address.get_untracked()))/>
                     </div>
                 }
             });
@@ -358,18 +354,7 @@ pub fn ConnectButton(section: String, name: String) -> impl IntoView {
             .into_any()
         }
     };
-    view! {
-        <Button label="Connect…" testid="connect-open" on_click=move |_| {
-            open.set(true);
-            f2(None);
-        }/>
-        <Dialog open=open title=format!("Connect {kind} {name}") testid="connect">
-            {body}
-            <div class="mt-3 flex justify-end">
-                <Button label="Close" on_click=move |_| open.set(false)/>
-            </div>
-        </Dialog>
-    }
+    view! { <div data-testid="connect">{body}</div> }
 }
 
 #[cfg(test)]

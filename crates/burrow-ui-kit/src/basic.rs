@@ -1,5 +1,7 @@
 use leptos::prelude::*;
 
+use crate::icon::Icon;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Tone {
     #[default]
@@ -9,6 +11,7 @@ pub enum Tone {
     Warning,
     Danger,
     Info,
+    Udp,
 }
 
 impl Tone {
@@ -20,67 +23,93 @@ impl Tone {
             Tone::Warning => "warning",
             Tone::Danger => "danger",
             Tone::Info => "info",
+            Tone::Udp => "udp",
+        }
+    }
+
+    pub fn tag(self) -> &'static str {
+        match self {
+            Tone::Neutral => "border border-border bg-surface-3 text-text-muted",
+            Tone::Accent | Tone::Info => "bg-accent-weak text-accent-ink",
+            Tone::Success => "bg-success-weak text-success",
+            Tone::Warning => "bg-warning-weak text-warning",
+            Tone::Danger => "bg-danger-weak text-danger",
+            Tone::Udp => "bg-udp-weak text-udp",
         }
     }
 
     pub fn soft(self) -> &'static str {
         match self {
-            Tone::Neutral => "bg-surface-2 text-text border-border",
-            Tone::Accent => "bg-accent-weak text-accent border-accent/40",
-            Tone::Success => "bg-success/10 text-success border-success/40",
-            Tone::Warning => "bg-warning/10 text-warning border-warning/40",
-            Tone::Danger => "bg-danger/10 text-danger border-danger/40",
-            Tone::Info => "bg-info/10 text-info border-info/40",
+            Tone::Neutral => "border-border bg-surface-2 text-text",
+            Tone::Accent | Tone::Info => "border-accent/40 bg-accent-weak text-co-info",
+            Tone::Success => "border-success/40 bg-success-weak text-co-success",
+            Tone::Warning => "border-warning/40 bg-warning-weak text-co-warning",
+            Tone::Danger => "border-danger/40 bg-danger-weak text-co-danger",
+            Tone::Udp => "border-udp/40 bg-udp-weak text-udp",
         }
     }
 
     pub fn text(self) -> &'static str {
         match self {
-            Tone::Neutral => "text-text",
-            Tone::Accent => "text-accent",
+            Tone::Neutral => "text-text-muted",
+            Tone::Accent | Tone::Info => "text-accent-ink",
             Tone::Success => "text-success",
             Tone::Warning => "text-warning",
             Tone::Danger => "text-danger",
-            Tone::Info => "text-info",
+            Tone::Udp => "text-udp",
         }
     }
 
-    pub fn bar(self) -> &'static str {
+    pub fn dot(self) -> &'static str {
         match self {
-            Tone::Neutral => "border-l-border",
-            Tone::Accent => "border-l-accent",
-            Tone::Success => "border-l-success",
-            Tone::Warning => "border-l-warning",
-            Tone::Danger => "border-l-danger",
-            Tone::Info => "border-l-info",
+            Tone::Success => "bg-success ring-3 ring-success-weak",
+            Tone::Warning => "bg-warning ring-3 ring-warning-weak",
+            Tone::Danger => "bg-danger ring-3 ring-danger-weak",
+            Tone::Accent | Tone::Info => "bg-accent ring-3 ring-accent-weak",
+            Tone::Neutral | Tone::Udp => "bg-transparent ring-[1.5px] ring-text-faint ring-inset",
+        }
+    }
+
+    pub fn icon(self) -> &'static str {
+        match self {
+            Tone::Danger => "alert-circle",
+            Tone::Warning => "alert",
+            Tone::Success => "check",
+            _ => "info",
         }
     }
 }
 
 pub fn chip_class(tone: Tone, mono: bool) -> String {
     format!(
-        "inline-flex items-center gap-1 rounded-input border px-2 py-0.5 text-xs no-underline hover:underline {}{}",
-        tone.soft(),
+        "inline-flex items-center gap-1 rounded-sm px-2 py-0.5 text-sm font-semibold no-underline hover:underline {}{}",
+        tone.tag(),
         if mono { " font-mono" } else { "" }
     )
 }
 
-pub const LINK: &str = "text-accent underline-offset-2 hover:underline";
+pub const LINK: &str = "text-accent-ink underline-offset-2 hover:underline";
+pub const MONO: &str = "font-mono";
+pub const LABEL: &str = "text-2xs font-bold uppercase tracking-[0.08em] text-text-faint";
 
 pub fn button_class(variant: &str, small: bool) -> String {
     let look = match variant {
-        "primary" => "bg-accent text-white border-accent hover:brightness-110",
-        "danger" => "bg-danger text-white border-danger hover:brightness-110",
-        "ghost" => "bg-transparent text-text border-transparent hover:bg-surface-2",
-        _ => "bg-surface text-text border-border hover:bg-surface-2",
+        "primary" => "border-accent bg-accent text-on-accent hover:brightness-110",
+        "danger" => "border-danger bg-danger text-danger-ink hover:brightness-110",
+        "danger-pending" => "border-danger/40 bg-danger-weak text-danger",
+        "tinted" => "border-accent-line bg-accent-weak text-accent-ink hover:brightness-105",
+        "ghost" => {
+            "border-transparent bg-transparent text-text-muted hover:bg-surface-3 hover:text-text"
+        }
+        _ => "border-border-strong bg-surface text-text hover:bg-surface-3 dark:bg-surface-2",
     };
     let size = if small {
-        "h-7 px-2.5 text-sm"
+        "h-[26px] px-[9px] text-xs"
     } else {
-        "h-9 px-3.5 text-base"
+        "h-9 px-3 text-sm"
     };
     format!(
-        "inline-flex items-center justify-center gap-1.5 rounded-input border font-medium whitespace-nowrap cursor-pointer no-underline transition-colors disabled:cursor-not-allowed disabled:opacity-55 {look} {size}"
+        "inline-flex items-center justify-center gap-1.5 rounded-input border font-semibold whitespace-nowrap cursor-pointer no-underline transition-colors disabled:cursor-not-allowed disabled:opacity-55 {look} {size}"
     )
 }
 
@@ -89,6 +118,8 @@ pub fn Button(
     #[prop(into)] label: Signal<String>,
     #[prop(optional)] variant: &'static str,
     #[prop(optional)] small: bool,
+    #[prop(optional)] icon: &'static str,
+    #[prop(optional)] kbd: &'static str,
     #[prop(optional, into)] disabled: Signal<bool>,
     #[prop(optional, into)] reason: Signal<String>,
     #[prop(optional, into)] busy: Signal<bool>,
@@ -100,13 +131,15 @@ pub fn Button(
             type="button"
             class=button_class(variant, small)
             disabled=move || disabled.get() || busy.get()
-            title=move || reason.get()
+            title=move || Some(reason.get()).filter(|r| !r.is_empty())
             aria-busy=move || busy.get().then_some("true")
             data-testid=(!testid.is_empty()).then_some(testid)
             on:click=move |_| on_click.run(())
         >
             {move || busy.get().then(|| view! { <SpinDot/> })}
+            {(!icon.is_empty()).then(|| view! { <Icon name=icon/> })}
             <span>{move || label.get()}</span>
+            {(!kbd.is_empty()).then(|| view! { <Kbd text=kbd/> })}
         </button>
     }
 }
@@ -125,14 +158,21 @@ pub fn SpinDot() -> impl IntoView {
 pub fn Badge(
     #[prop(into)] text: Signal<String>,
     #[prop(optional)] tone: Tone,
+    #[prop(optional)] icon: &'static str,
+    #[prop(optional)] mono: bool,
     #[prop(optional, into)] title: Option<String>,
 ) -> impl IntoView {
     view! {
         <span
-            class=format!("inline-flex items-center rounded-full border px-2 py-px text-xs font-medium whitespace-nowrap {}", tone.soft())
+            class=format!(
+                "inline-flex h-5 items-center gap-1 rounded-[5px] px-[7px] text-[11px] font-semibold whitespace-nowrap {}{}",
+                tone.tag(),
+                if mono { " font-mono" } else { "" }
+            )
             title=title
             data-tone=tone.name()
         >
+            {(!icon.is_empty()).then(|| view! { <Icon name=icon small=true/> })}
             {move || text.get()}
         </span>
     }
@@ -151,19 +191,18 @@ pub fn Chip(
 pub fn StatusDot(
     #[prop(into)] on: Signal<bool>,
     #[prop(into)] text: Signal<String>,
+    #[prop(optional, into)] tone: Option<Signal<Tone>>,
 ) -> impl IntoView {
+    let tone = move || {
+        tone.map(|t| t.get()).unwrap_or(if on.get() {
+            Tone::Success
+        } else {
+            Tone::Neutral
+        })
+    };
     view! {
-        <span class="inline-flex items-center gap-1.5 text-sm whitespace-nowrap" data-on=move || on.get().to_string()>
-            <span
-                class=move || {
-                    if on.get() {
-                        "size-2 rounded-full bg-success"
-                    } else {
-                        "size-2 rounded-full border border-text-muted bg-transparent"
-                    }
-                }
-                aria-hidden="true"
-            ></span>
+        <span class="inline-flex items-center gap-2 text-sm whitespace-nowrap" data-on=move || on.get().to_string()>
+            <span class=move || format!("size-2 shrink-0 rounded-full {}", tone().dot()) aria-hidden="true"></span>
             <span>{move || text.get()}</span>
         </span>
     }
@@ -173,17 +212,26 @@ pub fn StatusDot(
 pub fn Kpi(
     #[prop(into)] label: String,
     #[prop(into)] value: Signal<String>,
+    #[prop(optional, into)] unit: Signal<String>,
     #[prop(optional, into)] detail: Signal<String>,
+    #[prop(optional)] icon: &'static str,
     #[prop(optional, into)] tone: Signal<Tone>,
     #[prop(optional)] testid: &'static str,
 ) -> impl IntoView {
     view! {
         <div
-            class=move || format!("rounded-card border border-border border-l-4 bg-surface p-4 shadow-card {}", tone.get().bar())
+            class="rounded-card border border-border bg-surface px-[18px] py-4"
             data-testid=(!testid.is_empty()).then_some(testid)
+            data-tone=move || tone.get().name()
         >
-            <div class="text-sm text-text-muted">{label}</div>
-            <div class="mt-1 text-lg font-semibold tabular-nums">{move || value.get()}</div>
+            <div class="flex items-center gap-1.5 text-xs text-text-muted">
+                {(!icon.is_empty()).then(|| view! { <Icon name=icon small=true/> })}
+                {label}
+            </div>
+            <div class="mt-1.5 text-[26px] leading-tight font-bold tabular-nums">
+                {move || value.get()}
+                <small class="ml-1 text-[13px] font-medium text-text-muted">{move || unit.get()}</small>
+            </div>
             <div class="mt-0.5 text-xs text-text-muted">{move || detail.get()}</div>
         </div>
     }
@@ -192,17 +240,30 @@ pub fn Kpi(
 #[component]
 pub fn Card(
     #[prop(optional, into)] title: Option<String>,
+    #[prop(optional, into)] sub: Option<String>,
     #[prop(optional)] testid: &'static str,
+    #[prop(optional, into)] class: String,
+    #[prop(optional)] flush: bool,
+    #[prop(optional)] head: Option<ChildrenFn>,
     children: Children,
 ) -> impl IntoView {
-    let head = title.map(|t| view! { <h2 class="mb-3 text-md font-semibold">{t}</h2> });
+    let has_head = title.is_some() || head.is_some();
+    let top = has_head.then(|| {
+        view! {
+            <div class="flex min-h-12 items-center gap-3 border-b border-border px-4 py-3">
+                <h2 class="text-[13.5px] font-bold">{title.clone()}</h2>
+                {sub.clone().map(|s| view! { <span class="text-xs text-text-muted">{s}</span> })}
+                <div class="ml-auto flex items-center gap-2 text-xs text-text-muted">{head.as_ref().map(|h| h())}</div>
+            </div>
+        }
+    });
     view! {
         <section
-            class="mb-4 rounded-card border border-border bg-surface p-4 shadow-card"
+            class=format!("rounded-card border border-border bg-surface {class}")
             data-testid=(!testid.is_empty()).then_some(testid)
         >
-            {head}
-            {children()}
+            {top}
+            <div class=if flush { "" } else { "p-4" }>{children()}</div>
         </section>
     }
 }
@@ -214,12 +275,12 @@ pub fn PageHeader(
     #[prop(optional)] children: Option<Children>,
 ) -> impl IntoView {
     view! {
-        <header class="mb-4 flex flex-wrap items-end justify-between gap-3">
-            <div>
-                <h1 class="text-xl font-semibold">{move || title.get()}</h1>
-                <p class="text-sm text-text-muted">{move || subtitle.get()}</p>
+        <header class="mb-[22px] flex flex-wrap items-start justify-between gap-3">
+            <div class="min-w-0">
+                <h1 class="text-2xl font-bold tracking-[-0.015em]">{move || title.get()}</h1>
+                <p class="mt-1 text-sm text-text-muted">{move || subtitle.get()}</p>
             </div>
-            <div class="flex gap-2">{children.map(|c| c())}</div>
+            <div class="flex items-center gap-2">{children.map(|c| c())}</div>
         </header>
     }
 }
@@ -228,22 +289,57 @@ pub fn PageHeader(
 pub fn Tabs(
     tabs: Vec<(&'static str, String)>,
     #[prop(into)] active: RwSignal<&'static str>,
+    #[prop(optional)] counts: Option<Signal<Vec<String>>>,
 ) -> impl IntoView {
     view! {
         <div class="mb-4 flex gap-1 border-b border-border" role="tablist">
             {tabs
                 .into_iter()
-                .map(|(key, label)| {
+                .enumerate()
+                .map(|(i, (key, label))| {
                     view! {
                         <button
                             type="button"
                             role="tab"
-                            class="-mb-px border-b-2 border-transparent px-3 py-2 text-sm aria-selected:border-accent aria-selected:font-semibold"
+                            class="-mb-px flex items-center gap-1 border-b-2 border-transparent px-3 py-2.5 text-[13px] font-semibold text-text-muted hover:text-text aria-selected:border-accent aria-selected:text-text"
                             aria-selected=move || (active.get() == key).to_string()
                             data-tab=key
                             on:click=move |_| active.set(key)
                         >
                             {label}
+                            {counts.map(|c| view! { <span class="text-[11px] text-text-faint">{move || c.get().get(i).cloned().unwrap_or_default()}</span> })}
+                        </button>
+                    }
+                })
+                .collect_view()}
+        </div>
+    }
+}
+
+#[component]
+pub fn PillTabs(
+    tabs: Vec<(&'static str, String)>,
+    #[prop(into)] active: Signal<&'static str>,
+    #[prop(into)] on_change: Callback<&'static str>,
+    #[prop(optional)] counts: Option<Signal<Vec<String>>>,
+) -> impl IntoView {
+    view! {
+        <div class="flex gap-1" role="tablist">
+            {tabs
+                .into_iter()
+                .enumerate()
+                .map(|(i, (key, label))| {
+                    view! {
+                        <button
+                            type="button"
+                            role="tab"
+                            class="flex h-[30px] items-center gap-1.5 rounded-md px-3 text-[13px] font-semibold text-text-muted aria-selected:bg-surface aria-selected:text-text aria-selected:shadow-sm aria-selected:ring-1 aria-selected:ring-border aria-selected:ring-inset dark:aria-selected:bg-surface-3"
+                            aria-selected=move || (active.get() == key).to_string()
+                            data-tab=key
+                            on:click=move |_| on_change.run(key)
+                        >
+                            {label}
+                            {counts.map(|c| view! { <span class="text-[11px] text-text-faint">{move || c.get().get(i).cloned().unwrap_or_default()}</span> })}
                         </button>
                     }
                 })
@@ -261,11 +357,16 @@ pub fn Table(
     view! {
         <div class="overflow-x-auto">
             <table
-                class="w-full border-collapse text-left text-base [&_td]:h-9 [&_td]:border-t [&_td]:border-border [&_td]:px-3 [&_th]:px-3 [&_tbody_th]:h-9 [&_tbody_th]:border-t [&_tbody_th]:border-border [&_tbody_th]:font-normal [&_tbody_tr:hover]:bg-surface-2"
+                class="w-full border-collapse text-left text-base [&_td]:h-[46px] [&_td]:border-b [&_td]:border-rowline [&_td]:px-4 [&_td]:whitespace-nowrap [&_tbody_th]:h-[46px] [&_tbody_th]:border-b [&_tbody_th]:border-rowline [&_tbody_th]:px-4 [&_tbody_th]:font-semibold [&_tbody_tr:last-child>*]:border-b-0 [&_tbody_tr:hover]:bg-surface-2 dark:[&_tbody_tr:hover]:bg-surface-3/50"
                 data-testid=(!testid.is_empty()).then_some(testid)
             >
-                <thead class="bg-surface-2 text-sm text-text-muted">
-                    <tr>{head.into_iter().map(|h| view! { <th scope="col" class="h-8 font-medium">{h}</th> }).collect_view()}</tr>
+                <thead>
+                    <tr>
+                        {head
+                            .into_iter()
+                            .map(|h| view! { <th scope="col" class="border-b border-border px-4 py-[9px] text-[11px] font-bold tracking-[0.07em] text-text-faint uppercase">{h}</th> })
+                            .collect_view()}
+                    </tr>
                 </thead>
                 <tbody>{children()}</tbody>
             </table>
@@ -277,7 +378,7 @@ pub fn Table(
 pub fn Facts(#[prop(optional)] testid: &'static str, children: Children) -> impl IntoView {
     view! {
         <dl
-            class="grid grid-cols-[repeat(auto-fill,minmax(12rem,1fr))] gap-x-6 gap-y-3 [&_dt]:text-sm [&_dt]:text-text-muted [&_dd]:mt-0.5 [&_dd]:break-words"
+            class="grid grid-cols-[repeat(auto-fill,minmax(12rem,1fr))] gap-x-6 gap-y-3 [&_dt]:text-xs [&_dt]:text-text-muted [&_dd]:mt-0.5 [&_dd]:break-words"
             data-testid=(!testid.is_empty()).then_some(testid)
         >
             {children()}
@@ -294,7 +395,39 @@ pub fn Fact(
     view! {
         <div>
             <dt>{label}</dt>
-            <dd class=if mono { "font-mono text-sm" } else { "tabular-nums" }>{children()}</dd>
+            <dd class=if mono { "font-mono" } else { "tabular-nums" }>{children()}</dd>
+        </div>
+    }
+}
+
+#[component]
+pub fn Stats(#[prop(optional)] testid: &'static str, children: Children) -> impl IntoView {
+    view! {
+        <div
+            class="mb-[22px] grid grid-cols-2 overflow-hidden rounded-card border border-border bg-surface md:grid-cols-4 [&>*]:border-border [&>*]:px-4 [&>*]:py-3.5 [&>*:not(:last-child)]:border-r"
+            data-testid=(!testid.is_empty()).then_some(testid)
+        >
+            {children()}
+        </div>
+    }
+}
+
+#[component]
+pub fn Stat(
+    #[prop(into)] label: String,
+    #[prop(into)] value: Signal<String>,
+    #[prop(optional, into)] unit: Signal<String>,
+    #[prop(optional, into)] detail: Signal<String>,
+) -> impl IntoView {
+    let key = label.to_lowercase();
+    view! {
+        <div>
+            <div class="text-xs text-text-muted">{label}</div>
+            <div class="mt-1 text-xl font-bold tabular-nums" data-stat=key>
+                {move || value.get()}
+                <small class="ml-1 text-xs font-medium text-text-muted">{move || unit.get()}</small>
+            </div>
+            <div class="text-xs text-text-muted">{move || detail.get()}</div>
         </div>
     }
 }
@@ -306,10 +439,10 @@ pub fn Muted(#[prop(optional)] testid: &'static str, children: Children) -> impl
 
 #[component]
 pub fn Mono(children: Children) -> impl IntoView {
-    view! { <span class="font-mono text-sm">{children()}</span> }
+    view! { <span class="font-mono">{children()}</span> }
 }
 
 #[component]
 pub fn Kbd(#[prop(into)] text: String) -> impl IntoView {
-    view! { <kbd class="rounded border border-border bg-surface-2 px-1 font-mono text-xs">{text}</kbd> }
+    view! { <kbd class="rounded-xs border border-border-strong px-1 font-mono text-2xs leading-4 text-text-muted">{text}</kbd> }
 }

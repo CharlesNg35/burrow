@@ -390,7 +390,9 @@ fn duration_editor(fc: FieldCtx, stored: TimeUnit, max: Option<u64>) -> AnyView 
 
 fn rate_editor(fc: FieldCtx) -> AnyView {
     let e = store().edit;
-    let (n0, u0) = rate_parts(e.peek(&fc.path).as_ref());
+    let start = e.peek(&fc.path);
+    let limited = RwSignal::new(start.as_ref().is_some_and(|v| !v.is_null()));
+    let (n0, u0) = rate_parts(start.as_ref());
     let number = RwSignal::new(n0);
     let unit = RwSignal::new(u0);
     let node = fc.node.clone();
@@ -403,6 +405,7 @@ fn rate_editor(fc: FieldCtx) -> AnyView {
         )
     };
     let c2 = commit.clone();
+    let c3 = commit.clone();
     let options: Vec<(String, String)> = RateUnit::ALL
         .iter()
         .map(|u| (u.suffix().to_string(), u.label().to_string()))
@@ -411,47 +414,80 @@ fn rate_editor(fc: FieldCtx) -> AnyView {
     let equivalent = move || {
         e.value(&p2)
             .and_then(|v| v.as_str().map(str::to_string))
-            .and_then(|t| burrow_syntax::rate::parse_rate(&t).ok())
-            .map(|b| format!("= {}", burrow_syntax::rate::equivalent(b)))
-            .unwrap_or_else(|| "Unlimited when empty".into())
+            .and_then(|t| {
+                burrow_syntax::rate::parse_rate(&t)
+                    .ok()
+                    .map(|b| format!("≈ {} · stored as {t}", burrow_syntax::rate::equivalent(b)))
+            })
+            .unwrap_or_default()
     };
     let touched = fc.touched;
     let invalid = {
         let path = fc.path.clone();
         Signal::derive(move || touched.get() && e.local.with(|l| l.contains_key(&path)))
     };
+    let fc3 = fc.clone();
+    let node3 = fc.node.clone();
+    let id = fc.id.clone();
+    let msg_id = fc.msg_id.clone();
+    let label = fc.node.label.clone();
     view! {
         <div class="flex flex-wrap items-center gap-2">
-            <div class="w-32">
-                <TextInput
-                    id=fc.id.clone()
-                    value=number
-                    numeric=true
-                    invalid=invalid
-                    described_by=fc.msg_id.clone()
-                    placeholder="Unlimited"
-                    on_input=move |t: String| {
-                        number.set(t);
-                        commit();
-                    }
-                    on_blur=move |_| { let _ = touched.try_set(true); }
-                />
-            </div>
-            <div class="w-32">
-                <Select
-                    id=format!("{}-unit", fc.id)
-                    label=format!("{} unit", fc.node.label)
-                    options=options
-                    value=Signal::derive(move || unit.get().suffix().to_string())
-                    on_change=move |u: String| {
-                        if let Some(x) = RateUnit::from_suffix(&u) {
-                            unit.set(x);
-                            c2();
+            <Segmented
+                name=format!("{}-mode", fc.id)
+                label=format!("{} mode", fc.node.label)
+                options=vec![("unlimited".to_string(), "Unlimited".to_string(), false), ("limit".to_string(), "Limit".to_string(), false)]
+                value=Signal::derive(move || if limited.get() { "limit".to_string() } else { "unlimited".to_string() })
+                on_change=Callback::new(move |v: String| {
+                    let on = v == "limit";
+                    limited.set(on);
+                    if on {
+                        if number.get_untracked().trim().is_empty() {
+                            number.set("10".into());
                         }
+                        c3();
+                    } else {
+                        set_checked(&fc3, &node3, None);
                     }
-                />
-            </div>
-            <span class="text-sm text-text-muted">{equivalent}</span>
+                })
+            />
+            <Show when=move || limited.get()>
+                <div class="w-[100px]">
+                    <TextInput
+                        id=id.clone()
+                        value=number
+                        numeric=true
+                        invalid=invalid
+                        described_by=msg_id.clone()
+                        on_input={
+                            let commit = commit.clone();
+                            move |t: String| {
+                                number.set(t);
+                                commit();
+                            }
+                        }
+                        on_blur=move |_| { let _ = touched.try_set(true); }
+                    />
+                </div>
+                <div class="w-32">
+                    <Select
+                        id=format!("{}-unit", id)
+                        label=format!("{label} unit")
+                        options=options.clone()
+                        value=Signal::derive(move || unit.get().suffix().to_string())
+                        on_change={
+                            let c2 = c2.clone();
+                            move |u: String| {
+                                if let Some(x) = RateUnit::from_suffix(&u) {
+                                    unit.set(x);
+                                    c2();
+                                }
+                            }
+                        }
+                    />
+                </div>
+                <span class="font-mono text-xs text-text-muted">{equivalent.clone()}</span>
+            </Show>
         </div>
     }
     .into_any()
@@ -595,18 +631,33 @@ fn list_editor(fc: FieldCtx, item: Node) -> AnyView {
             store().edit.local_error(&fc2.path, bad);
         }
     };
-    let my_ip = store()
-        .welcome
-        .with_untracked(|w| w.as_ref().map(|w| w.you.from.clone()))
-        .and_then(|from| {
-            from.parse::<std::net::SocketAddr>()
-                .ok()
-                .map(|a| a.ip().to_string())
-                .or(Some(from))
-        })
-        .filter(|ip| !ip.is_empty())
-        .filter(|_| matches!(item.sem, SemType::Cidr | SemType::CidrRule))
-        .map(|ip| (format!("Add my IP ({ip})"), ip));
+    let cidr = matches!(item.sem, SemType::Cidr | SemType::CidrRule);
+    let meta = Callback::new(move |t: String| if cidr { cidr_size(&t) } else { String::new() });
+    let note = {
+        let path = fc.path.clone();
+        move || {
+            let last = path.last().map(String::as_str);
+            if last != Some("admin_from") {
+                return None;
+            }
+            let mut level_path = path.clone();
+            level_path.pop();
+            level_path.push("admin".into());
+            let write = e
+                .value(&level_path)
+                .is_some_and(|v| v.as_str() == Some("write"));
+            let empty = e
+                .value(&path)
+                .and_then(|v| v.as_array().map(Vec::is_empty))
+                .unwrap_or(true);
+            (write && empty).then(|| view! {
+                <p class="mt-1.5 flex items-center gap-1.5 text-xs text-info" data-testid="admin-from-note">
+                    <burrow_ui_kit::Icon name="info" small=true/>
+                    "A write admin without admin_from may administer from any address. Consider limiting it."
+                </p>
+            })
+        }
+    };
     view! {
         <ChipInput
             id=fc.id.clone()
@@ -615,10 +666,34 @@ fn list_editor(fc: FieldCtx, item: Node) -> AnyView {
             check=check_one
             placeholder="Type and press Enter; paste a list"
             empty_label=fc.node.empty_label.clone().unwrap_or_default()
-            extra=my_ip
+            meta=meta
         />
+        {note}
     }
     .into_any()
+}
+
+pub fn cidr_size(text: &str) -> String {
+    let (addr, bits) = match text.split_once('/') {
+        Some((a, b)) => (a, b.parse::<u32>().ok()),
+        None => (text, None),
+    };
+    let v6 = addr.contains(':');
+    let max = if v6 { 128 } else { 32 };
+    match bits {
+        None if addr.parse::<std::net::IpAddr>().is_ok() => "single address".into(),
+        Some(b) if b == max => "single address".into(),
+        Some(b) if b < max && !v6 => {
+            let n = 1u64 << (max - b);
+            if n >= 1_000_000 {
+                format!("{:.1} M addresses", n as f64 / 1_000_000.0)
+            } else {
+                format!("{n} addresses")
+            }
+        }
+        Some(b) if b < max => format!("/{b} network"),
+        _ => String::new(),
+    }
 }
 
 fn map_editor(fc: FieldCtx, entity: Option<Entity>, value_node: Node) -> AnyView {

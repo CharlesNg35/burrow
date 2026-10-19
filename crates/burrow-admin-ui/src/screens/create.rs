@@ -1,6 +1,6 @@
 use burrow_admin_proto::msg::{self, GeneratedSecret};
 use burrow_admin_proto::serde_json::{self, Value, json};
-use burrow_syntax::name::{check_name, suggest};
+use burrow_syntax::name::check_name;
 use burrow_ui_kit::{Button, Dialog, TextInput};
 use leptos::prelude::*;
 
@@ -65,11 +65,6 @@ pub fn create(section: &str, name: &str) {
 #[component]
 pub fn NewEntity(section: String, open: RwSignal<bool>) -> impl IntoView {
     let what = singular(&section);
-    let base = match what {
-        "client" => "home",
-        "visitor" => "laptop",
-        _ => "web",
-    };
     let name = RwSignal::new(String::new());
     let sec = section.clone();
     let problem = Signal::derive(move || {
@@ -79,12 +74,6 @@ pub fn NewEntity(section: String, open: RwSignal<bool>) -> impl IntoView {
         } else {
             name_problem(&n, &sec, None)
         }
-    });
-    let sec2 = section.clone();
-    let hint = Signal::derive(move || {
-        let t = taken(&sec2);
-        let refs: Vec<&str> = t.iter().map(String::as_str).collect();
-        format!("for example {}", suggest(base, &refs))
     });
     let sec3 = StoredValue::new(section.clone());
     let create_now = Callback::new(move |_: ()| {
@@ -97,7 +86,6 @@ pub fn NewEntity(section: String, open: RwSignal<bool>) -> impl IntoView {
         name.set(String::new());
         create(&sec, &n);
     });
-    let hint_now = StoredValue::new(hint.get_untracked());
     view! {
         <Dialog open=open title=format!("New {what}") testid="new-entity">
             <label class="mb-1 block font-medium" for="new-name">"Name"</label>
@@ -105,13 +93,15 @@ pub fn NewEntity(section: String, open: RwSignal<bool>) -> impl IntoView {
                 id="new-name"
                 value=name
                 on_input=move |t: String| name.set(t)
-                placeholder=hint_now.get_value()
                 invalid=Signal::derive(move || problem.get().is_some())
                 described_by="new-name-msg"
                 mono=true
             />
             <p id="new-name-msg" class="mt-1 min-h-5 text-sm text-danger">{move || problem.get()}</p>
-            <p class="mb-3 text-sm text-text-muted">{move || hint.get()}</p>
+            <p class="mb-3 text-sm text-text-muted">
+                {move || (!name.get().is_empty() && problem.get().is_none()).then(|| view! { <span class="mr-2 font-semibold text-success" data-testid="name-available">"✓ available"</span> })}
+                "Letters, digits, - and _; at most 64 characters."
+            </p>
             <div class="flex justify-end gap-2" on:keydown=move |e| if e.key() == "Enter" { create_now.run(()) }>
                 <Button label="Cancel" on_click=move |_| open.set(false)/>
                 <Button
