@@ -719,6 +719,8 @@ tests/e2e/proxies.sh                                  # wss:// through real ngin
 BURROW_TEST_TRANSPORT=ws cargo test --test integration   # run the integration suite over WebSocket
 ```
 
+`make help` lists the common commands (GNU make on Linux and macOS; on Windows use cargo and `cargo xtask` directly).
+
 Design notes: [docs/research.md](docs/research.md), [docs/decisions.md](docs/decisions.md).
 
 ## License
