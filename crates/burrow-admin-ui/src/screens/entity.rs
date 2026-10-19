@@ -551,6 +551,7 @@ fn Detail(section: String, name: String) -> impl IntoView {
     }));
     let renaming = RwSignal::new(false);
     let menu = RwSignal::new(false);
+    crate::app::popover(menu, "entity-more", "entity-more-menu");
     let what = singular(&section);
     if section == "clients"
         && let Ok(h) = set_interval_with_handle(
@@ -890,14 +891,14 @@ fn Detail(section: String, name: String) -> impl IntoView {
                     on_click=move |_| start_edit()
                 />
                 <div class="relative">
-                    <button type="button" class=button_class("secondary", false) aria-label="More actions" aria-haspopup="true" aria-expanded=move || menu.get().to_string() data-testid="more" on:click=move |_| menu.update(|m| *m = !*m)>
+                    <button type="button" class=button_class("secondary", false) aria-label="More actions" aria-haspopup="true" aria-expanded=move || menu.get().to_string() aria-controls="entity-more-menu" id="entity-more" data-testid="more" on:click=move |_| menu.update(|m| *m = !*m)>
                         <Icon name="more"/>
                     </button>
                     <Show when=move || menu.get()>
                         {
                             let (path, nm, back, sec) = (path.clone(), nm.clone(), back.clone(), sec.clone());
                             view! {
-                                <div class="absolute top-10 right-0 z-30 w-48 rounded-[10px] border border-border-strong bg-surface p-1 shadow-overlay dark:bg-surface-2" on:click=move |_| menu.set(false)>
+                                <div class="absolute top-10 right-0 z-30 w-48 rounded-[10px] border border-border-strong bg-surface p-1 shadow-overlay outline-none dark:bg-surface-2" id="entity-more-menu" tabindex="-1" data-testid="more-menu" on:click=move |_| menu.set(false)>
                                     {can.then(|| view! { <button type="button" class="block w-full cursor-pointer rounded-md px-2 py-1.5 text-left text-sm hover:bg-surface-3" data-testid="rename-open" on:click=move |_| renaming.set(true)>"Rename…"</button> })}
                                     {can.then(|| {
                                         let (path, back) = (path.clone(), back.clone());

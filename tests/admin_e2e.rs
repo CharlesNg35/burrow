@@ -704,6 +704,50 @@ async fn header_items(c: &Ctx) -> Vec<String> {
     .await
 }
 
+pub async fn popover_behaves(c: &Ctx, trigger: &str, panel: &str) {
+    let t = format!("#{trigger}");
+    let p = format!("#{panel}");
+    c.ui.click(&t).await;
+    c.ui.wait_for(&p, SECS).await;
+    assert_eq!(c.ui.attr_of(&t, "aria-expanded").await, "true", "{trigger}");
+    assert_eq!(c.ui.attr_of(&t, "aria-controls").await, panel, "{trigger}");
+    let started = std::time::Instant::now();
+    loop {
+        let inside: bool = c
+            .ui
+            .eval(&format!(
+                "(() => {{ const p = document.getElementById('{panel}'); return !!p && p.contains(document.activeElement); }})()"
+            ))
+            .await;
+        if inside {
+            break;
+        }
+        assert!(started.elapsed() < SECS, "focus moves into {panel}");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let _: bool = c
+        .ui
+        .eval("(() => { document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); return true; })()")
+        .await;
+    c.ui.wait_gone(&p, SECS).await;
+    let back: String =
+        c.ui.eval("document.activeElement ? document.activeElement.id : ''")
+            .await;
+    assert_eq!(back, trigger, "Escape returns focus to the trigger");
+    assert_eq!(
+        c.ui.attr_of(&t, "aria-expanded").await,
+        "false",
+        "{trigger}"
+    );
+    c.ui.click(&t).await;
+    c.ui.wait_for(&p, SECS).await;
+    let _: bool = c
+        .ui
+        .eval("(() => { document.querySelector('main, #detail, body').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })); return true; })()")
+        .await;
+    c.ui.wait_gone(&p, SECS).await;
+}
+
 async fn theme_now(c: &Ctx) -> (String, String) {
     let t =
         c.ui.attr_of("[data-testid=theme-toggle]", "data-theme")
@@ -750,6 +794,8 @@ fn calm_header(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
             "{t} {class}"
         );
 
+        popover_behaves(c, "avatar", "avatar-menu").await;
+        popover_behaves(c, "server-switcher", "server-menu").await;
         c.ui.click("[data-testid=avatar]").await;
         c.ui.wait_text("[data-testid=avatar-who]", "ops · admin write", SECS)
             .await;
@@ -760,6 +806,8 @@ fn calm_header(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
         c.ui.click("[data-testid=avatar]").await;
 
         c.ui.nav("/services/web").await;
+        c.ui.wait_for("#entity-more", SECS).await;
+        popover_behaves(c, "entity-more", "entity-more-menu").await;
         edit_mode(c).await;
         c.ui.fill("#f-services-web-target", "4321").await;
         wait_checked(c).await;
@@ -788,6 +836,7 @@ fn calm_header(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
             ],
             "the reconnecting text shows only while reconnecting"
         );
+        popover_behaves(c, "conn-pill", "retry-popover").await;
         c.ui.click("[data-testid=conn-pill]").await;
         c.ui.wait_for("[data-testid=retry-now]", SECS).await;
         c.ui.shot("reconnecting").await;
@@ -832,6 +881,7 @@ fn read_only(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
             ["search-open", "theme-toggle", "read-only-tag", "avatar"],
             "the read-only tag takes the Review button's place"
         );
+        popover_behaves(c, "read-only-tag", "read-only-why").await;
         c.ui.click("[data-testid=read-only-tag]").await;
         c.ui.wait_text("[data-testid=read-only-why]", "has read admin", SECS)
             .await;

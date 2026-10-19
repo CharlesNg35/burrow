@@ -261,6 +261,10 @@ fn Header() -> impl IntoView {
     let read_only = Memo::new(move |_| s.conn.get() == Conn::Open && !s.can_write());
     let why_open = RwSignal::new(false);
     let retry_open = RwSignal::new(false);
+    popover(menu_open, "server-switcher", "server-menu");
+    popover(avatar_open, "avatar", "avatar-menu");
+    popover(why_open, "read-only-tag", "read-only-why");
+    popover(retry_open, "conn-pill", "retry-popover");
     let conn_state = move || {
         let conn = s.conn.get();
         match conn {
@@ -268,12 +272,12 @@ fn Header() -> impl IntoView {
                 let left = ((s.retry_at.get() - s.now.get()) / 1000.0).ceil().max(0.0) as u64;
                 view! {
                     <span class="relative">
-                        <button type="button" class="flex cursor-pointer items-center gap-1.5 text-[12.5px] text-warning" aria-haspopup="true" aria-expanded=move || retry_open.get().to_string() data-testid="conn-pill" on:click=move |_| retry_open.update(|o| *o = !*o)>
+                        <button type="button" class="flex cursor-pointer items-center gap-1.5 text-[12.5px] text-warning" aria-haspopup="true" aria-expanded=move || retry_open.get().to_string() aria-controls="retry-popover" id="conn-pill" data-testid="conn-pill" on:click=move |_| retry_open.update(|o| *o = !*o)>
                             <Icon name="refresh"/>
                             {format!("Reconnecting in {left} s")}
                         </button>
                         <Show when=move || retry_open.get()>
-                            <div class="absolute top-8 right-0 z-40 w-56 rounded-[10px] border border-border-strong bg-surface p-3 text-sm text-text shadow-overlay dark:bg-surface-2" data-testid="retry-popover">
+                            <div class="absolute top-8 right-0 z-40 w-56 rounded-[10px] border border-border-strong bg-surface p-3 text-sm text-text shadow-overlay outline-none dark:bg-surface-2" id="retry-popover" tabindex="-1" role="dialog" aria-label="Connection" data-testid="retry-popover">
                                 <p class="mb-2 text-text-muted">"The connection to burrow admin dropped. It retries on its own."</p>
                                 <Button label="Retry now" small=true testid="retry-now" on_click=move |_| { retry_open.set(false); api::reconnect(s); }/>
                             </div>
@@ -354,7 +358,7 @@ fn Header() -> impl IntoView {
             }}
             <div class=move || format!("relative flex min-w-0 items-center gap-2.5{}", if matches!(s.route.get(), Route::Detail(..)) { " max-sm:hidden" } else { "" })>
                 <span class="flex size-[30px] shrink-0 items-center justify-center rounded-md bg-gradient-to-b from-logo-from to-logo-to text-white" aria-hidden="true"><Icon name="logo" large=true/></span>
-                <button type="button" class="flex min-w-0 cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 hover:bg-hdr-raised" aria-haspopup="true" aria-expanded=move || menu_open.get().to_string() data-testid="server-switcher" on:click=move |_| menu_open.update(|o| *o = !*o)>
+                <button type="button" class="flex min-w-0 cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 hover:bg-hdr-raised" aria-haspopup="true" aria-expanded=move || menu_open.get().to_string() aria-controls="server-menu" id="server-switcher" data-testid="server-switcher" on:click=move |_| menu_open.update(|o| *o = !*o)>
                     <span class="flex min-w-0 flex-col text-left">
                         <span class="truncate font-semibold text-hdr-on" data-testid="server-line">{move || s.server_name()}</span>
                         <span class="truncate text-[11px] text-hdr-muted sm:hidden">{move || {
@@ -373,7 +377,7 @@ fn Header() -> impl IntoView {
                     <Icon name="chevron-down" small=true/>
                 </button>
                 <Show when=move || menu_open.get()>
-                    <div class="absolute top-11 left-10 z-40 w-80 rounded-[10px] border border-border-strong bg-surface p-1 text-text shadow-overlay dark:bg-surface-2" data-testid="server-menu" on:click=move |_| menu_open.set(false)>
+                    <div class="absolute top-11 left-10 z-40 w-80 rounded-[10px] border border-border-strong bg-surface p-1 text-text shadow-overlay outline-none dark:bg-surface-2" id="server-menu" tabindex="-1" data-testid="server-menu" on:click=move |_| menu_open.set(false)>
                         {facts}
                         <div class="border-t border-border p-1">
                             <Link to=Route::About class="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm no-underline hover:bg-surface-3">"About this server"</Link>
@@ -408,12 +412,12 @@ fn Header() -> impl IntoView {
                     if read_only.get() {
                         view! {
                             <span class="relative">
-                                <button type="button" class="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border border-hdr-line bg-hdr-raised px-2.5 text-[12.5px] font-semibold text-hdr-text dark:border-hdr-raised-2" aria-haspopup="true" aria-expanded=move || why_open.get().to_string() data-testid="read-only-tag" on:click=move |_| why_open.update(|o| *o = !*o)>
+                                <button type="button" class="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border border-hdr-line bg-hdr-raised px-2.5 text-[12.5px] font-semibold text-hdr-text dark:border-hdr-raised-2" aria-haspopup="true" aria-expanded=move || why_open.get().to_string() aria-controls="read-only-why" id="read-only-tag" data-testid="read-only-tag" on:click=move |_| why_open.update(|o| *o = !*o)>
                                     <Icon name="eye" small=true/>
                                     "Read-only"
                                 </button>
                                 <Show when=move || why_open.get()>
-                                    <div class="absolute top-8 right-0 z-40 w-80 rounded-[10px] border border-border-strong bg-surface p-3 text-sm text-text shadow-overlay dark:bg-surface-2" role="dialog" aria-label="Why this is read-only" data-testid="read-only-why">
+                                    <div class="absolute top-8 right-0 z-40 w-80 rounded-[10px] border border-border-strong bg-surface p-3 text-sm text-text shadow-overlay outline-none dark:bg-surface-2" id="read-only-why" tabindex="-1" role="dialog" aria-label="Why this is read-only" data-testid="read-only-why">
                                         {move || {
                                             let (title, hint) = read_only_reason(s);
                                             view! {
@@ -441,13 +445,13 @@ fn Header() -> impl IntoView {
                     }
                 }}
                 <div class="relative flex items-center gap-2 max-sm:hidden">
-                    <button type="button" class="relative flex size-[30px] cursor-pointer items-center justify-center rounded-full bg-hdr-raised-2 text-xs font-bold text-hdr-on" aria-label=move || format!("Account {}", you.get().map(|y| y.0).unwrap_or_default()) title=conn_line aria-haspopup="true" aria-expanded=move || avatar_open.get().to_string() data-testid="avatar" on:click=move |_| avatar_open.update(|o| *o = !*o)>
+                    <button type="button" class="relative flex size-[30px] cursor-pointer items-center justify-center rounded-full bg-hdr-raised-2 text-xs font-bold text-hdr-on" aria-label=move || format!("Account {}", you.get().map(|y| y.0).unwrap_or_default()) title=conn_line aria-haspopup="true" aria-expanded=move || avatar_open.get().to_string() aria-controls="avatar-menu" id="avatar" data-testid="avatar" on:click=move |_| avatar_open.update(|o| *o = !*o)>
                         {move || you.get().map(|y| initials(&y.0)).unwrap_or_default()}
                         <span class=move || format!("absolute -right-0.5 -bottom-0.5 size-2.5 rounded-full ring-2 ring-hdr {}", dot())></span>
                     </button>
                     <span class="sr-only" data-testid="you-level">{move || you.get().map(|y| format!("{} ({})", y.0, y.1)).unwrap_or_default()}</span>
                     <Show when=move || avatar_open.get()>
-                        <div class="absolute top-10 right-0 z-40 w-64 rounded-[10px] border border-border-strong bg-surface p-1 text-text shadow-overlay dark:bg-surface-2" data-testid="avatar-menu">
+                        <div class="absolute top-10 right-0 z-40 w-64 rounded-[10px] border border-border-strong bg-surface p-1 text-text shadow-overlay outline-none dark:bg-surface-2" id="avatar-menu" tabindex="-1" data-testid="avatar-menu">
                             <div class="px-2.5 pt-2 pb-2 text-sm" data-testid="avatar-who">
                                 <span class="font-semibold">{move || you.get().map(|y| y.0).unwrap_or_default()}</span>
                                 <span class="text-text-muted">{move || you.get().map(|y| format!(" · admin {}", y.1)).unwrap_or_default()}</span>
@@ -547,6 +551,61 @@ fn Body() -> impl IntoView {
             .into_any(),
         }
     }
+}
+
+fn html_by_id(id: &str) -> Option<web_sys::HtmlElement> {
+    document()
+        .get_element_by_id(id)
+        .and_then(|e| e.dyn_into::<web_sys::HtmlElement>().ok())
+}
+
+pub fn popover(open: RwSignal<bool>, trigger: &'static str, panel: &'static str) {
+    Effect::new(move |was: Option<bool>| {
+        let now = open.get();
+        if now && was != Some(true) {
+            set_timeout(
+                move || {
+                    if let Some(el) = html_by_id(panel) {
+                        burrow_ui_kit::focus_first(&el);
+                        let inside = document()
+                            .active_element()
+                            .is_some_and(|a| el.contains(Some(a.unchecked_ref())));
+                        if !inside {
+                            let _ = el.focus();
+                        }
+                    }
+                },
+                std::time::Duration::ZERO,
+            );
+        }
+        now
+    });
+    let key = window_event_listener(leptos::ev::keydown, move |e| {
+        if e.key() == "Escape" && open.get_untracked() {
+            open.set(false);
+            if let Some(t) = html_by_id(trigger) {
+                let _ = t.focus();
+            }
+        }
+    });
+    let down = window_event_listener(leptos::ev::pointerdown, move |e| {
+        if !open.get_untracked() {
+            return;
+        }
+        let target = e.target().and_then(|t| t.dyn_into::<web_sys::Node>().ok());
+        let inside = |id: &str| {
+            document()
+                .get_element_by_id(id)
+                .is_some_and(|el| el.contains(target.as_ref()))
+        };
+        if !inside(panel) && !inside(trigger) {
+            open.set(false);
+        }
+    });
+    on_cleanup(move || {
+        key.remove();
+        down.remove();
+    });
 }
 
 pub fn read_only_reason(s: Store) -> (String, String) {
