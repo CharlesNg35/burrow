@@ -336,14 +336,23 @@ pub fn safe_dir(_dir: &Path) -> bool {
 }
 
 fn prepare_dir(dir: &Path) -> std::io::Result<()> {
-    if dir.is_dir() {
-        return Ok(());
+    if let Some(parent) = dir.parent().filter(|p| !p.as_os_str().is_empty()) {
+        std::fs::create_dir_all(parent)?;
     }
-    std::fs::create_dir_all(dir)?;
+    match std::fs::create_dir(dir) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => return Ok(()),
+        Err(e) => return Err(e),
+    }
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o1777))?;
+        use rustix::fs::{Mode, OFlags};
+        let made = rustix::fs::open(
+            dir,
+            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+            Mode::empty(),
+        )?;
+        rustix::fs::fchmod(&made, Mode::from_bits_truncate(0o1777))?;
     }
     Ok(())
 }
@@ -383,10 +392,11 @@ pub fn running_as_service() {
 
 pub fn acquire_in(dir: &Path, identity: &Identity, config: &Path) -> Result<InstanceLock, Failure> {
     let path = dir.join(format!("{}.lock", identity.key()));
-    if dir.exists() && !safe_dir(dir) {
+    let prepared = prepare_dir(dir);
+    if prepared.is_ok() && !safe_dir(dir) {
         return Ok(unlocked(dir, &path));
     }
-    if let Err(e) = prepare_dir(dir) {
+    if let Err(e) = prepared {
         if planted(dir) {
             return Ok(unlocked(dir, &path));
         }
