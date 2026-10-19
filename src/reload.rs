@@ -83,8 +83,10 @@ pub async fn follow<S: Watched>(
     tx: mpsc::Sender<S>,
 ) {
     let (trig_tx, mut trig) = mpsc::channel::<&'static str>(16);
+    let worker = Worker::start();
     let watch = Watch::default();
-    let Some(mut watch) = renewed(watch, current.files(&path), &trig_tx, false).await else {
+    let Some(mut watch) = renewed(&worker, watch, current.files(&path), &trig_tx, false).await
+    else {
         return;
     };
     let t = trig_tx.clone();
@@ -93,7 +95,7 @@ pub async fn follow<S: Watched>(
         every.tick().await;
         loop {
             every.tick().await;
-            if let Err(mpsc::error::TrySendError::Closed(_)) = t.try_send("file changed") {
+            if let Err(mpsc::error::TrySendError::Closed(_)) = t.try_send("recheck") {
                 return;
             }
         }
@@ -118,22 +120,23 @@ pub async fn follow<S: Watched>(
     let _ = trig_tx.try_send("file changed");
     while let Some(first) = trig.recv().await {
         tokio::time::sleep(Duration::from_millis(200)).await;
-        let mut why = first;
+        let mut asked = first == "SIGHUP";
+        let mut event = first == "file changed";
         while let Ok(more) = trig.try_recv() {
-            if more == "SIGHUP" {
-                why = more;
-            }
+            asked |= more == "SIGHUP";
+            event |= more == "file changed";
         }
-        let asked = why == "SIGHUP";
+        let why = if asked { "SIGHUP" } else { "file changed" };
         let files = current.files(&path);
         let triggers = trig_tx.clone();
-        let Ok((back, now)) = tokio::task::spawn_blocking(move || {
-            let mut watch = watch;
-            renew(&mut watch, &files, &triggers, asked);
-            let now = fingerprint(&files);
-            (watch, now)
-        })
-        .await
+        let Some((back, now)) = worker
+            .run(move || {
+                let mut watch = watch;
+                renew(&mut watch, &files, &triggers, event);
+                let now = fingerprint(&files);
+                (watch, now)
+            })
+            .await
         else {
             return;
         };
@@ -143,8 +146,9 @@ pub async fn follow<S: Watched>(
         }
         seen = now;
         let (file, vars) = (path.clone(), env.clone());
-        let Ok(loaded) =
-            tokio::task::spawn_blocking(move || load_file(&file, Some(S::ROLE), &vars)).await
+        let Some(loaded) = worker
+            .run(move || load_file(&file, Some(S::ROLE), &vars))
+            .await
         else {
             return;
         };
@@ -181,7 +185,18 @@ pub async fn follow<S: Watched>(
         let Some(next) = outcome.loaded.and_then(S::from_loaded) else {
             continue;
         };
-        let next = match check(next) {
+        let Some((back, checked)) = worker
+            .run(move || {
+                let mut check = check;
+                let checked = check(next);
+                (check, checked)
+            })
+            .await
+        else {
+            return;
+        };
+        check = back;
+        let next = match checked {
             Ok(n) => n,
             Err(m) => {
                 if asked || rejected.as_ref() != Some(&m) {
@@ -206,7 +221,8 @@ pub async fn follow<S: Watched>(
             info!("reloading config ({why})");
         }
         current = next.clone();
-        let Some(back) = renewed(watch, current.files(&path), &trig_tx, false).await else {
+        let Some(back) = renewed(&worker, watch, current.files(&path), &trig_tx, false).await
+        else {
             return;
         };
         watch = back;
@@ -309,22 +325,57 @@ struct Watch {
     broken: bool,
 }
 
+struct Worker(Option<std::sync::mpsc::Sender<Box<dyn FnOnce() + Send>>>);
+
+impl Worker {
+    fn start() -> Worker {
+        let (jobs, queue) = std::sync::mpsc::channel::<Box<dyn FnOnce() + Send>>();
+        let started = std::thread::Builder::new()
+            .name("burrow-reload".into())
+            .spawn(move || {
+                while let Ok(job) = queue.recv() {
+                    job();
+                }
+            });
+        match started {
+            Ok(_) => Worker(Some(jobs)),
+            Err(e) => {
+                warn!("cannot start the reload thread ({e}); files are read on the async workers");
+                Worker(None)
+            }
+        }
+    }
+
+    async fn run<T: Send + 'static>(&self, job: impl FnOnce() -> T + Send + 'static) -> Option<T> {
+        let Some(jobs) = &self.0 else {
+            return Some(job());
+        };
+        let (done, result) = tokio::sync::oneshot::channel();
+        jobs.send(Box::new(move || {
+            let _ = done.send(job());
+        }))
+        .ok()?;
+        result.await.ok()
+    }
+}
+
 async fn renewed(
+    worker: &Worker,
     mut watch: Watch,
     files: Vec<PathBuf>,
     tx: &mpsc::Sender<&'static str>,
-    force: bool,
+    event: bool,
 ) -> Option<Watch> {
     let tx = tx.clone();
-    tokio::task::spawn_blocking(move || {
-        renew(&mut watch, &files, &tx, force);
-        watch
-    })
-    .await
-    .ok()
+    worker
+        .run(move || {
+            renew(&mut watch, &files, &tx, event);
+            watch
+        })
+        .await
 }
 
-fn renew(watch: &mut Watch, files: &[PathBuf], tx: &mpsc::Sender<&'static str>, force: bool) {
+fn renew(watch: &mut Watch, files: &[PathBuf], tx: &mpsc::Sender<&'static str>, event: bool) {
     let dirs = watched_dirs(files);
     let wanted: Vec<(PathBuf, Identity)> = dirs
         .iter()
@@ -332,7 +383,7 @@ fn renew(watch: &mut Watch, files: &[PathBuf], tx: &mpsc::Sender<&'static str>, 
         .map(|p| (p.clone(), identity(p)))
         .collect();
     let stale = watch.stale.load(Ordering::Acquire);
-    if wanted == watch.watched && !KQUEUE && !force && !stale {
+    if wanted == watch.watched && !(KQUEUE && event) && !stale {
         return;
     }
     let (fresh, failed) = match watch_files(&dirs, files, tx.clone(), watch.stale.clone()) {
