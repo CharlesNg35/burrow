@@ -153,7 +153,8 @@ pub async fn serve(
             return;
         }
     };
-    if ws.send(bridge_event("open", "", "")).await.is_err() {
+    let open = serde_json::json!({"ev": "bridge", "body": {"state": "open", "reason": "", "message": "", "server": server}});
+    if ws.send(Message::text(open.to_string())).await.is_err() {
         tx.close().await;
         return;
     }

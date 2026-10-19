@@ -189,11 +189,7 @@ impl Core {
 
     pub fn welcome(&self, s: &Session) -> Welcome {
         let settings = self.live.settings();
-        let name_hint = settings
-            .public_address
-            .clone()
-            .or_else(|| std::env::var("HOSTNAME").ok())
-            .unwrap_or_default();
+        let name_hint = settings.public_address.clone().unwrap_or_default();
         Welcome {
             server: ServerInfo {
                 version: env!("CARGO_PKG_VERSION").into(),

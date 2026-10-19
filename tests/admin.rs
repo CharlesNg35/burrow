@@ -202,6 +202,10 @@ async fn an_admin_gets_welcome_schema_state_and_live_status() {
     assert_eq!(welcome["you"]["visitor"], "ops");
     assert_eq!(welcome["you"]["level"], "write");
     assert_eq!(welcome["protocol"], 1);
+    assert_eq!(
+        welcome["server"]["name_hint"], "",
+        "without public_address there is no name hint, never the host name"
+    );
     assert!(
         welcome["features"]
             .as_array()
@@ -693,6 +697,12 @@ async fn the_websocket_needs_the_token_first() {
     let open = ws_text(&mut right).await.unwrap();
     assert_eq!(open["ev"], "bridge");
     assert_eq!(open["body"]["state"], "open");
+    assert!(
+        open["body"]["server"]
+            .as_str()
+            .is_some_and(|s| !s.is_empty()),
+        "the open event names the server from the visitor config: {open}"
+    );
     ws_send(&mut right, json!({"id": 1, "t": "welcome", "body": {}})).await;
     let welcome = ws_text(&mut right).await.unwrap();
     assert_eq!(welcome["re"], 1);
