@@ -323,11 +323,15 @@ pub struct Suggestions {
 pub struct HistoryRequest {
     #[serde(default)]
     pub limit: Option<u32>,
+    #[serde(default)]
+    pub diff: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct HistoryReply {
     pub entries: Vec<AuditEntry>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diff: Option<crate::plan::Diff>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]

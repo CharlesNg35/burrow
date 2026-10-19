@@ -47,6 +47,8 @@ pub struct Shared {
     shutdown: watch::Receiver<bool>,
     reloaded: watch::Sender<u64>,
     applied: watch::Sender<ApplyReport>,
+    #[cfg(feature = "admin")]
+    admin: std::sync::OnceLock<Arc<crate::admin::Hub>>,
     service_counts: Counts,
     visitor_counts: Counts,
     client_counts: Counts,
@@ -146,6 +148,43 @@ impl Shared {
 
     pub fn applies(&self) -> watch::Receiver<ApplyReport> {
         self.applied.subscribe()
+    }
+
+    #[cfg(feature = "admin")]
+    pub(crate) fn current_settings(&self) -> Arc<ServerSettings> {
+        self.settings()
+    }
+
+    #[cfg(feature = "admin")]
+    pub(crate) fn shutdown_signal(&self) -> watch::Receiver<bool> {
+        self.shutdown.clone()
+    }
+
+    #[cfg(feature = "admin")]
+    pub(crate) fn client_sessions(&self) -> Vec<(String, String, String, Option<Vec<String>>)> {
+        self.sessions
+            .lock()
+            .expect("sessions lock")
+            .values()
+            .map(|s| {
+                (
+                    s.name.clone(),
+                    s.secret.fingerprint(),
+                    s.peer.to_string(),
+                    s.allow(),
+                )
+            })
+            .collect()
+    }
+
+    #[cfg(feature = "admin")]
+    pub fn set_admin(&self, hub: Arc<crate::admin::Hub>) {
+        let _ = self.admin.set(hub);
+    }
+
+    #[cfg(feature = "admin")]
+    pub(crate) fn admin(&self) -> Option<Arc<crate::admin::Hub>> {
+        self.admin.get().cloned()
     }
 
     fn report_apply(
@@ -476,6 +515,8 @@ impl Server {
             shutdown,
             reloaded: watch::Sender::new(0),
             applied: watch::Sender::new(ApplyReport::default()),
+            #[cfg(feature = "admin")]
+            admin: std::sync::OnceLock::new(),
             service_counts: Counts::default(),
             visitor_counts: Counts::default(),
             client_counts: Counts::default(),

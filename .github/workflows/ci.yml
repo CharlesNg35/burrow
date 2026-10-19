@@ -35,7 +35,7 @@ jobs:
       - name: Integration tests over WebSocket
         env:
           BURROW_TEST_TRANSPORT: ws
-        run: cargo test --locked --test integration --test reconnect --test visit --test ranges --test failover --test socks --test proxy_protocol --test sources
+        run: cargo test --locked --test integration --test reconnect --test visit --test ranges --test failover --test socks --test proxy_protocol --test sources --test admin
       - name: Install and run as a systemd service
         env:
           BURROW_E2E_PROFILE: dev
@@ -81,7 +81,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [handshake, frames, config, update]
+        target: [handshake, frames, config, update, patch, syntax_parsers]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install nightly

@@ -70,8 +70,10 @@ rcgen = { version = "0.14.10", default-features = false, features = ["ring", "pe
 tempfile = "3.27.0"
 
 [features]
-default = ["ring"]
+default = ["ring", "admin", "admin-ui"]
 ring = ["snow/ring-accelerated"]
+admin = []
+admin-ui = []
 
 [profile.release]
 lto = "fat"

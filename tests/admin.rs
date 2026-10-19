@@ -1,0 +1,473 @@
+mod common;
+
+use std::net::SocketAddr;
+use std::path::PathBuf;
+use std::time::Duration;
+
+use burrow::config::{Loaded, Role, load_file};
+use burrow::dialer::Dialer;
+use burrow::dialer::admin::{AdminOpenError, AdminRefusal, AdminRx, AdminTx};
+use burrow::secret::Secret;
+use burrow::server::Server;
+use burrow_admin_proto::frame::AdminOpen;
+use burrow_admin_proto::msg::{ErrorBody, ErrorCode, Incoming};
+use serde_json::{Value, json};
+use tokio::sync::{mpsc, watch};
+
+struct World {
+    _dir: tempfile::TempDir,
+    path: PathBuf,
+    addr: SocketAddr,
+    home: Secret,
+    ops: Secret,
+    viewer: Secret,
+    plain: Secret,
+    stop: watch::Sender<bool>,
+}
+
+fn free_port() -> u16 {
+    std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port()
+}
+
+fn listener_line() -> String {
+    if common::ws_mode() {
+        format!(
+            "websocket:\n  listen: 127.0.0.1:{}\n  path: /burrow\n",
+            free_port()
+        )
+    } else {
+        format!("listen: 127.0.0.1:{} # tcp\n", free_port())
+    }
+}
+
+async fn world() -> World {
+    common::more_files();
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("server.yaml");
+    let (home, ops, viewer, plain) = (
+        Secret::generate(),
+        Secret::generate(),
+        Secret::generate(),
+        Secret::generate(),
+    );
+    let text = format!(
+        "# admin test server\n{}\nclients:\n  # the home box\n  home:\n    secret: {}\n\nvisitors:\n  ops:\n    secret: {}\n    admin: write\n  viewer:\n    secret: {}\n    admin: read\n  plain:\n    secret: {}\n    reach: {{ home: any }}\n\nservices:\n  web: {{ client: home, bind: 127.0.0.1:{}, target: 3000 }} # keep\n",
+        listener_line(),
+        home.encode(),
+        ops.encode(),
+        viewer.encode(),
+        plain.encode(),
+        free_port()
+    );
+    burrow::instance::write_private(&path, &text).unwrap();
+    let env = burrow::run::Env::default();
+    let outcome = load_file(&path, Some(Role::Server), &env).unwrap();
+    let report = outcome
+        .report
+        .render_text(burrow::diagnostics::Style { color: false });
+    let Loaded::Server(settings, _) = outcome.loaded.unwrap_or_else(|| panic!("{report}")) else {
+        panic!("server config")
+    };
+    let server = Server::bind(*settings.clone()).await.unwrap();
+    let addr = server.local_addr().or(server.websocket_addr()).unwrap();
+    let shared = server.shared();
+    let (hub, nudges) = burrow::admin::adapters::hub(&shared, &path, env.clone());
+    shared.set_admin(hub);
+    let (reload_tx, reload_rx) = mpsc::channel(4);
+    tokio::spawn(burrow::reload::follow_nudged(
+        path.clone(),
+        *settings,
+        env,
+        burrow::reload::accept(),
+        reload_tx,
+        Some(nudges),
+    ));
+    let (stop, stop_rx) = watch::channel(false);
+    tokio::spawn(server.run(reload_rx, stop_rx));
+    World {
+        _dir: dir,
+        path,
+        addr,
+        home,
+        ops,
+        viewer,
+        plain,
+        stop,
+    }
+}
+
+struct Admin {
+    rx: AdminRx,
+    tx: AdminTx,
+    next: u32,
+    events: Vec<(String, Value)>,
+}
+
+fn open_msg(min: u8, max: u8) -> AdminOpen {
+    AdminOpen {
+        min,
+        max,
+        client: "tests/admin".into(),
+        features: Vec::new(),
+    }
+}
+
+async fn connect(
+    w: &World,
+    name: &str,
+    secret: &Secret,
+    min: u8,
+    max: u8,
+) -> Result<Admin, AdminOpenError> {
+    let mut s = common::visitor_settings(w.addr, secret.clone(), Vec::new());
+    s.name = name.to_string();
+    let (rx, tx, _) = Dialer::visitor(&s).open_admin(&open_msg(min, max)).await?;
+    Ok(Admin {
+        rx,
+        tx,
+        next: 0,
+        events: Vec::new(),
+    })
+}
+
+impl Admin {
+    async fn send_raw(&mut self, t: &str, body: Value) -> u32 {
+        self.next += 1;
+        let msg = json!({"id": self.next, "t": t, "body": body});
+        self.tx.send(msg.to_string().as_bytes()).await.unwrap();
+        self.next
+    }
+
+    async fn incoming(&mut self) -> Option<Incoming> {
+        let m = tokio::time::timeout(Duration::from_secs(20), self.rx.recv())
+            .await
+            .expect("an answer in time")
+            .ok()??;
+        Some(Incoming::parse(std::str::from_utf8(&m).unwrap()).expect("a valid envelope"))
+    }
+
+    async fn call(&mut self, t: &str, body: Value) -> Result<Value, ErrorBody> {
+        let id = self.send_raw(t, body).await;
+        loop {
+            match self.incoming().await.expect("the session stays open") {
+                Incoming::Reply { re, result } if re == id => return result,
+                Incoming::Reply { .. } => {}
+                Incoming::Event { ev, body } => self.events.push((ev, body)),
+            }
+        }
+    }
+
+    async fn event(&mut self, name: &str) -> Value {
+        if let Some(i) = self.events.iter().position(|(e, _)| e == name) {
+            return self.events.remove(i).1;
+        }
+        loop {
+            match self.incoming().await.expect("the session stays open") {
+                Incoming::Event { ev, body } if ev == name => return body,
+                Incoming::Event { ev, body } => self.events.push((ev, body)),
+                Incoming::Reply { .. } => {}
+            }
+        }
+    }
+
+    async fn state(&mut self) -> Value {
+        self.call("state", json!({})).await.unwrap()
+    }
+
+    async fn plan(&mut self, ops: Value) -> Result<Value, ErrorBody> {
+        let rev = self.state().await["rev"].clone();
+        self.call("validate", json!({"base": rev, "ops": ops}))
+            .await
+    }
+
+    async fn apply(&mut self, ops: Value, confirm: &[&str]) -> Result<Value, ErrorBody> {
+        let plan = self.plan(ops.clone()).await?;
+        self.call(
+            "apply",
+            json!({"base": plan["base"], "ops": ops, "plan": plan["plan"], "confirm": confirm}),
+        )
+        .await
+    }
+}
+
+#[tokio::test]
+async fn an_admin_gets_welcome_schema_state_and_live_status() {
+    let w = world().await;
+    let mut a = connect(&w, "ops", &w.ops, 1, 1).await.unwrap();
+    let welcome = a.call("welcome", json!({})).await.unwrap();
+    assert_eq!(welcome["you"]["visitor"], "ops");
+    assert_eq!(welcome["you"]["level"], "write");
+    assert_eq!(welcome["protocol"], 1);
+    assert!(
+        welcome["features"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("history"))
+    );
+    let schema = a.call("schema", json!({"have": ""})).await.unwrap();
+    assert_eq!(schema["hash"], welcome["schema_hash"]);
+    assert_eq!(schema["schema"]["schema_version"], 1);
+    let same = a
+        .call("schema", json!({"have": welcome["schema_hash"]}))
+        .await
+        .unwrap();
+    assert_eq!(same["unchanged"], true);
+    let state = a.state().await;
+    assert!(state["rev"].as_str().unwrap().starts_with("b2s:"));
+    assert_eq!(
+        state["values"]["visitors"]["ops"]["secret"]["$secret"]["fp"],
+        w.ops.fingerprint()
+    );
+    assert!(!state.to_string().contains(&w.ops.encode()));
+    assert!(state["file"]["writable"].as_bool().unwrap());
+    a.call("subscribe", json!({"status_ms": 500}))
+        .await
+        .unwrap();
+    let first = a.event("status").await;
+    let second = a.event("status").await;
+    assert_eq!(first["clients"][0]["name"], "home");
+    assert!(second["uptime_secs"].is_u64());
+    let unknown = a.call("teleport", json!({})).await.unwrap_err();
+    assert_eq!(unknown.code, ErrorCode::UnknownRequest);
+    let _ = w.stop.send(true);
+}
+
+#[tokio::test]
+async fn only_admin_visitors_get_in_and_sessions_are_capped() {
+    let w = world().await;
+    let refused = connect(&w, "plain", &w.plain, 1, 1).await.err().unwrap();
+    assert!(
+        matches!(refused, AdminOpenError::Refused(AdminRefusal::Forbidden)),
+        "{refused:?}"
+    );
+    let wrong = connect(&w, "ops", &w.plain, 1, 1).await.err().unwrap();
+    assert!(matches!(wrong, AdminOpenError::Dial(_)), "{wrong:?}");
+    let old = connect(&w, "ops", &w.ops, 2, 3).await.err().unwrap();
+    match old {
+        AdminOpenError::Refused(AdminRefusal::Explained(t)) => {
+            assert!(t.contains("versions 1 to 1"), "{t}")
+        }
+        other => panic!("{other:?}"),
+    }
+    let a = connect(&w, "viewer", &w.viewer, 1, 1).await.unwrap();
+    let b = connect(&w, "viewer", &w.viewer, 1, 1).await.unwrap();
+    let busy = connect(&w, "viewer", &w.viewer, 1, 1).await.err().unwrap();
+    assert!(
+        matches!(busy, AdminOpenError::Refused(AdminRefusal::Busy)),
+        "{busy:?}"
+    );
+    drop((a, b));
+    let _ = w.stop.send(true);
+}
+
+#[tokio::test]
+async fn read_access_cannot_change_anything() {
+    let w = world().await;
+    let mut v = connect(&w, "viewer", &w.viewer, 1, 1).await.unwrap();
+    let state = v.state().await;
+    assert_eq!(state["file"]["writable"], false);
+    assert_eq!(state["file"]["why_not"]["code"], "read-level");
+    let e = v.plan(json!([])).await.unwrap_err();
+    assert_eq!(e.code, ErrorCode::Forbidden);
+    let e = v.call("generate_secret", json!({})).await.unwrap_err();
+    assert_eq!(e.code, ErrorCode::Forbidden);
+    let _ = w.stop.send(true);
+}
+
+#[tokio::test]
+async fn validation_errors_name_their_fields() {
+    let w = world().await;
+    let mut a = connect(&w, "ops", &w.ops, 1, 1).await.unwrap();
+    let state = a.state().await;
+    let bind = state["values"]["services"]["web"]["bind"].clone();
+    let plan = a
+        .plan(json!([{"op": "add", "path": ["services", "api"], "value": {"client": "home", "bind": bind, "target": 3001}}]))
+        .await
+        .unwrap();
+    assert_eq!(plan["valid"], false);
+    let d = plan["diags"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|d| d["code"] == "duplicate-bind")
+        .expect("duplicate-bind")
+        .clone();
+    let mut paths = vec![d["path"].clone()];
+    paths.extend(d["also"].as_array().unwrap().iter().cloned());
+    assert!(paths.contains(&json!(["services", "api", "bind"])), "{d}");
+    assert!(paths.contains(&json!(["services", "web", "bind"])), "{d}");
+    let _ = w.stop.send(true);
+}
+
+#[tokio::test]
+async fn an_applied_change_keeps_comments_reloads_and_serves() {
+    let w = world().await;
+    let echo = common::echo_server().await;
+    let mut client = common::client_settings(w.addr, w.home.clone());
+    client.allow = burrow::allowlist::AllowList::Rules(vec!["127.0.0.0/8".parse().unwrap()]);
+    let mut running = common::start_client(client).await;
+    common::wait_state(&mut running.state, burrow::client::State::Connected).await;
+    let before = std::fs::read_to_string(&w.path).unwrap();
+    let port = free_port();
+    let mut a = connect(&w, "ops", &w.ops, 1, 1).await.unwrap();
+    let applied = a
+        .apply(
+            json!([{"op": "add", "path": ["services", "echo"], "value": {"client": "home", "bind": format!("127.0.0.1:{port}"), "target": echo.to_string()}}]),
+            &[],
+        )
+        .await
+        .unwrap();
+    assert!(applied["rev"].as_str().unwrap().starts_with("b2s:"));
+    let after = std::fs::read_to_string(&w.path).unwrap();
+    assert!(
+        after.starts_with(&before),
+        "the old text stays byte for byte:\n{after}"
+    );
+    assert!(after.contains("# the home box") && after.contains("} # keep"));
+    let addr: SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
+    let mut ok = false;
+    for _ in 0..100 {
+        if common::try_roundtrip(addr, b"hello").await.as_deref() == Some(b"hello".as_slice()) {
+            ok = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    assert!(ok, "the new service serves through the tunnel");
+    let history = a.call("history", json!({})).await.unwrap();
+    assert_eq!(history["entries"][0]["visitor"], "ops");
+    assert!(
+        history["entries"][0]["changes"][0]["summary"]
+            .as_str()
+            .unwrap()
+            .contains("echo")
+    );
+    let _ = running.stop.send(true);
+    let _ = w.stop.send(true);
+}
+
+#[tokio::test]
+async fn a_hand_edit_in_between_is_a_conflict() {
+    let w = world().await;
+    let mut a = connect(&w, "ops", &w.ops, 1, 1).await.unwrap();
+    let ops = json!([{"op": "set", "path": ["services", "web", "target"], "value": 3002}]);
+    let plan = a.plan(ops.clone()).await.unwrap();
+    let text = std::fs::read_to_string(&w.path).unwrap();
+    let other = Secret::generate();
+    let edited = text.replace(
+        "\nvisitors:",
+        &format!("  office:\n    secret: {}\n\nvisitors:", other.encode()),
+    );
+    std::fs::write(&w.path, &edited).unwrap();
+    let e = a
+        .call(
+            "apply",
+            json!({"base": plan["base"], "ops": ops, "plan": plan["plan"], "confirm": []}),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, ErrorCode::Conflict);
+    assert_ne!(e.body["current"], plan["base"]);
+    assert_eq!(
+        std::fs::read_to_string(&w.path).unwrap(),
+        edited,
+        "nothing is written on a conflict"
+    );
+    a.apply(ops, &[]).await.unwrap();
+    let last = std::fs::read_to_string(&w.path).unwrap();
+    assert!(last.contains("office:") && last.contains("target: 3002"));
+    let _ = w.stop.send(true);
+}
+
+#[tokio::test]
+async fn the_guard_refuses_every_lockout() {
+    let w = world().await;
+    let mut a = connect(&w, "ops", &w.ops, 1, 1).await.unwrap();
+    let before = std::fs::read_to_string(&w.path).unwrap();
+    let cases = [
+        (
+            json!([{"op": "remove", "path": ["visitors", "ops", "admin"]}]),
+            "self-demoted",
+        ),
+        (
+            json!([{"op": "remove", "path": ["visitors", "ops"]}]),
+            "self-removed",
+        ),
+        (
+            json!([{"op": "set", "path": ["visitors", "ops", "admin_from"], "value": ["10.0.0.0/8"]}]),
+            "self-source",
+        ),
+        (
+            json!([{"op": "set", "path": ["visitors", "ops", "admin"], "value": "read"}]),
+            "self-demoted",
+        ),
+    ];
+    for (ops, code) in cases {
+        let plan = a.plan(ops.clone()).await.unwrap();
+        assert!(
+            plan["refusals"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|r| r["code"] == code),
+            "{code}: {plan}"
+        );
+        let e = a
+            .call(
+                "apply",
+                json!({"base": plan["base"], "ops": ops, "plan": plan["plan"], "confirm": ["ops"]}),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(e.code, ErrorCode::LockedOut, "{code}");
+    }
+    assert_eq!(std::fs::read_to_string(&w.path).unwrap(), before);
+    let _ = w.stop.send(true);
+}
+
+#[tokio::test]
+async fn losing_admin_rights_ends_the_session() {
+    let w = world().await;
+    let mut v = connect(&w, "viewer", &w.viewer, 1, 1).await.unwrap();
+    v.call("subscribe", json!({"config": true})).await.unwrap();
+    let text = std::fs::read_to_string(&w.path).unwrap();
+    std::fs::write(&w.path, text.replace("    admin: read\n", "")).unwrap();
+    let body = v.event("revoked").await;
+    assert_eq!(body["reason"], "admin removed");
+    let closed = tokio::time::timeout(Duration::from_secs(5), v.rx.recv())
+        .await
+        .unwrap();
+    assert!(matches!(closed, Ok(None) | Err(_)));
+    let _ = w.stop.send(true);
+}
+
+#[tokio::test]
+async fn an_oversized_message_closes_the_session() {
+    let w = world().await;
+    let mut a = connect(&w, "ops", &w.ops, 1, 1).await.unwrap();
+    a.call("ping", json!({})).await.unwrap();
+    let big = vec![b'x'; 4 * 1024 * 1024 + 1];
+    assert!(
+        a.tx.send(&big).await.is_err(),
+        "the client refuses to send it"
+    );
+    let chunk = vec![b'x'; burrow_admin_proto::frame::MAX_CHUNK];
+    let mut sent = 0;
+    while sent <= 4 * 1024 * 1024 {
+        let mut rec = vec![burrow_admin_proto::frame::FLAG_MORE];
+        rec.extend_from_slice(&chunk);
+        if a.tx.send_record(&rec).await.is_err() {
+            break;
+        }
+        sent += chunk.len();
+    }
+    let end = tokio::time::timeout(Duration::from_secs(5), a.rx.recv())
+        .await
+        .unwrap();
+    assert!(matches!(end, Ok(None) | Err(_)), "{end:?}");
+    let _ = w.stop.send(true);
+}

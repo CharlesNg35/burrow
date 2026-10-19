@@ -17,6 +17,8 @@ static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 #[global_allocator]
 static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
+#[cfg(feature = "admin")]
+pub mod admin;
 pub mod allowlist;
 pub mod cli;
 pub mod client;

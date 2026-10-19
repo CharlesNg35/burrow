@@ -309,15 +309,24 @@ fn run_server(path: &Path, logging: Logging, hosted: Option<Hosted>) -> Result<u
     drive(async move {
         let server = Server::bind(*settings.clone()).await?;
         let shared = server.shared();
+        #[cfg(feature = "admin")]
+        let nudges = {
+            let (hub, nudges) = crate::admin::adapters::hub(&shared, path, env.clone());
+            shared.set_admin(hub);
+            Some(nudges)
+        };
+        #[cfg(not(feature = "admin"))]
+        let nudges = None;
         let _status = crate::status::publish(path, Arc::new(move || shared.status()));
         let stop = stop_on_signal(stop);
         let (reload_tx, reload_rx) = mpsc::channel(4);
-        tokio::spawn(crate::reload::follow(
+        tokio::spawn(crate::reload::follow_nudged(
             path.to_path_buf(),
             *settings,
             env,
             crate::reload::accept(),
             reload_tx,
+            nudges,
         ));
         server.run(reload_rx, stop).await;
         Ok(0)
