@@ -16,7 +16,7 @@ pub enum Speed {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, AdminSchema)]
 #[admin(label = "Inner")]
 pub struct Inner {
-    #[admin(ty = duration(ms), label = "Delay")]
+    #[admin(label = "Delay")]
     pub delay_ms: u32,
 }
 
@@ -34,7 +34,7 @@ pub enum Toggle {
 #[serde(default)]
 #[admin(entity = service, label = "Thing", groups(main = "Main", more = "More"))]
 pub struct Thing {
-    #[admin(ty = text(max_len = 10, pattern_hint = "abc"), group = main, order = 1)]
+    #[admin(ty = text(max_len = 10, pattern_hint = "abc"), group = main)]
     pub text: String,
     #[admin(ty = integer(unit = "things"), advanced, readonly = "fixed")]
     pub count: u32,
@@ -70,7 +70,7 @@ pub struct Thing {
     pub url: String,
     #[admin(ty = list(cidr), empty_label = "Nobody", cross(cidr, rule), same_len(range))]
     pub list: Vec<String>,
-    #[admin(ty = enum_, options_filter(eq(protocol, "tcp")), inverse(entity = visitor, label = "Back"))]
+    #[admin(options_filter(eq(protocol, "tcp")), inverse(entity = visitor, label = "Back"))]
     pub speed: Speed,
     #[admin(ty = enum_values("a", "b"))]
     pub letter: String,
@@ -98,12 +98,21 @@ pub struct Holder {
     pub reach2: BTreeMap<String, Vec<String>>,
     #[admin(ty = map(service))]
     pub things: BTreeMap<String, Thing>,
-    #[admin(ty = union_)]
+    #[admin]
     pub toggle: Option<Toggle>,
-    #[admin(ty = object)]
+    #[admin]
     pub inner: Inner,
     #[admin(ty = duration(secs))]
     pub every: u64,
+}
+
+#[derive(serde::Serialize, AdminSchema)]
+#[admin(tcp_only(visitors))]
+pub struct Svc {
+    #[admin]
+    pub protocol: Speed,
+    #[admin(ty = ref_list(visitor))]
+    pub visitors: Vec<String>,
 }
 
 #[derive(AdminSchema)]
@@ -118,4 +127,7 @@ fn main() {
     let t = <Thing as AdminSchema>::node();
     assert_eq!(t.groups.len(), 2);
     let _ = <Elsewhere as AdminSchema>::node();
+    assert_eq!(Svc::TCP_ONLY, ["visitors"]);
+    let svc = <Svc as AdminSchema>::node();
+    assert_eq!(svc.field("visitors").unwrap().node.relations.len(), 1);
 }

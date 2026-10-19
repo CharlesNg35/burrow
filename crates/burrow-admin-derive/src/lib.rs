@@ -166,14 +166,13 @@ fn expand(input: &DeriveInput) -> syn::Result<TokenStream> {
     Ok(out)
 }
 
-const STRUCT_KEYS: &[&str] = &["entity", "label", "plural", "groups", "skip"];
+const STRUCT_KEYS: &[&str] = &["entity", "label", "plural", "groups", "skip", "tcp_only"];
 const FIELD_KEYS: &[&str] = &[
     "ty",
     "skip",
     "label",
     "help",
     "group",
-    "order",
     "advanced",
     "danger_when_set",
     "none_label",
@@ -182,7 +181,6 @@ const FIELD_KEYS: &[&str] = &[
     "one_of",
     "visible_if",
     "enabled_if",
-    "tcp_only",
     "options_filter",
     "inverse",
     "default_from",
@@ -238,6 +236,22 @@ fn expand_struct(input: &DeriveInput, s: &syn::DataStruct, errors: &mut Errors) 
             }
         }
     }
+    let mut tcp_only: Vec<String> = Vec::new();
+    if let Some(t) = find(&container, "tcp_only") {
+        if !field_names.iter().any(|f| f == "protocol") {
+            errors.push(
+                t.span(),
+                format!("`tcp_only` needs a `protocol` field in `{name}`"),
+            );
+        }
+        for a in t.args() {
+            match a.as_word() {
+                Some(w) if field_names.iter().any(|f| f == w) => tcp_only.push(w.to_string()),
+                Some(w) => errors.push(a.span(), format!("`{w}` is not a field of `{name}`")),
+                None => errors.push(a.span(), "tcp_only(field, ...) takes field names"),
+            }
+        }
+    }
     let mut pushes = Vec::new();
     let mut checks = Vec::new();
     for (f, wire) in fields.named.iter().zip(&field_names) {
@@ -275,9 +289,13 @@ fn expand_struct(input: &DeriveInput, s: &syn::DataStruct, errors: &mut Errors) 
         let optional = sem::strip(&f.ty, "Option");
         let inner_ty = optional.unwrap_or(&f.ty);
         let range = (schemars.min, schemars.max);
+        let duration = sem::duration_unit(wire, inner_ty);
         let built = match assigned(&terms, "ty") {
-            Some(ty_term) => sem::build(ty_term, Some(inner_ty), range, errors),
-            None => sem::infer(inner_ty, range, ident, errors),
+            Some(ty_term) => {
+                sem::reject_redundant(ident, ty_term, inner_ty, duration, &mut checks, errors);
+                sem::build(ty_term, Some(inner_ty), range, errors)
+            }
+            None => sem::infer(inner_ty, range, duration, ident, errors),
         };
         checks.extend(built.checks);
         let base = built.node;
@@ -292,15 +310,6 @@ fn expand_struct(input: &DeriveInput, s: &syn::DataStruct, errors: &mut Errors) 
                     format!("group `{w}` is not declared in #[admin(groups(...))] of `{name}`"),
                 ),
                 None => errors.push(g.span(), "group = name"),
-            }
-        }
-        if let Some(o) = assigned(&terms, "order") {
-            match o.as_int() {
-                Some(i) => {
-                    let i = i as i32;
-                    meta.push(quote!(n.order = #i;));
-                }
-                None => errors.push(o.span(), "order = number"),
             }
         }
         if has_flag(&terms, "advanced") {
@@ -327,7 +336,13 @@ fn expand_struct(input: &DeriveInput, s: &syn::DataStruct, errors: &mut Errors) 
                 _ => errors.push(a.span(), "applies = live | reload | restart"),
             }
         }
-        let relations = sem::relations(&terms, &field_names, name, wire, errors);
+        let mut relations = sem::relations(&terms, &field_names, name, wire, errors);
+        if tcp_only.iter().any(|t| t == wire) {
+            relations.push(quote!(#p::Relation::EnabledIf {
+                cond: #p::Cond::Eq("protocol".into(), #p::json!("tcp")),
+                reason: "UDP services do not support this".into(),
+            }));
+        }
         if !relations.is_empty() {
             meta.push(quote!(n.relations = ::std::vec![#(#relations),*];));
         }
@@ -407,7 +422,23 @@ fn expand_struct(input: &DeriveInput, s: &syn::DataStruct, errors: &mut Errors) 
         .iter()
         .map(|(k, l)| quote!(#p::Group { key: #k.into(), label: #l.into() }));
     let check_fn = format_ident!("__admin_checks_{}", name);
+    let tcp_only_const = if tcp_only.is_empty() {
+        quote!()
+    } else {
+        quote! {
+            impl #name {
+                pub const TCP_ONLY: &'static [&'static str] = &[#(#tcp_only),*];
+            }
+        }
+    };
     quote! {
+        #tcp_only_const
+        impl #p::DefaultSem for #name {
+            const SEM: &'static str = "object";
+            fn default_node() -> #p::Node {
+                <#name as #p::AdminSchema>::node()
+            }
+        }
         impl #p::AdminSchema for #name {
             fn node() -> #p::Node {
                 let mut fields: ::std::vec::Vec<#p::Field> = ::std::vec::Vec::new();
@@ -508,10 +539,17 @@ fn expand_enum(input: &DeriveInput, e: &syn::DataEnum, errors: &mut Errors) -> T
         let built = sem::build(sem_term, None, (None, None), errors);
         let node = built.node;
         let marker = quote_spanned!(sem_term.span()=> #p::sem::#marker);
+        let tag = sem::tag_of(sem_term);
         return quote! {
             impl #p::AdminSchema for #name {
                 fn node() -> #p::Node {
                     #node
+                }
+            }
+            impl #p::DefaultSem for #name {
+                const SEM: &'static str = #tag;
+                fn default_node() -> #p::Node {
+                    <#name as #p::AdminSchema>::node()
                 }
             }
             impl #p::Carrier<#marker> for #name {}
@@ -542,5 +580,11 @@ fn expand_enum(input: &DeriveInput, e: &syn::DataEnum, errors: &mut Errors) -> T
             }
         }
         impl #p::Carrier<#p::sem::Enum> for #name {}
+        impl #p::DefaultSem for #name {
+            const SEM: &'static str = "enum";
+            fn default_node() -> #p::Node {
+                <#name as #p::AdminSchema>::node()
+            }
+        }
     }
 }

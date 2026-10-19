@@ -18,6 +18,16 @@ const FAIL: &[(&str, &[&str])] = &[
         ],
     ),
     (
+        "redundant_ty",
+        &[
+            "redundant ty on `max_visitors`: its Rust type already gives the semantic type `integer`",
+        ],
+    ),
+    (
+        "redundant_duration",
+        &["redundant ty: the `_secs` or `_ms` name already makes this a duration"],
+    ),
+    (
         "skip_without_reason",
         &["`skip` needs a reason: #[admin(skip = \"why\")]"],
     ),

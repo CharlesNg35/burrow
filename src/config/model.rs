@@ -26,10 +26,8 @@ pub struct ServerConfig {
         description = "Where the server waits for clients: ip:port like 0.0.0.0:7835, or a port alone for 0.0.0.0 (all IPv4 addresses)"
     )]
     #[admin(
-        ty = ip_port,
         label = "Listen address",
         group = listener,
-        order = 10,
         applies = restart,
         none_label = "No TCP listener"
     )]
@@ -40,9 +38,7 @@ pub struct ServerConfig {
     )]
     #[admin(
         ty = server_address,
-
         group = listener,
-        order = 20,
         applies = live,
         none_label = "Not set"
     )]
@@ -54,56 +50,53 @@ pub struct ServerConfig {
     #[admin(
         label = "WebSocket listener",
         group = websocket,
-        order = 30,
         applies = reload,
         none_label = "Off"
     )]
     pub websocket: Option<WebSocketConfig>,
     #[serde(default)]
     #[schemars(description = "Clients allowed to connect, keyed by client name")]
-    #[admin(ty = map(client), group = entities, order = 40, applies = reload)]
+    #[admin(ty = map(client), group = entities, applies = reload)]
     pub clients: BTreeMap<String, ClientEntry>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     #[schemars(
         description = "Visitors allowed to reach private services with burrow visit, keyed by visitor name"
     )]
-    #[admin(ty = map(visitor), group = entities, order = 41, applies = reload)]
+    #[admin(ty = map(visitor), group = entities, applies = reload)]
     pub visitors: BTreeMap<String, VisitorEntry>,
     #[serde(default)]
     #[schemars(description = "Exposed services, keyed by service name")]
-    #[admin(ty = map(service), group = entities, order = 42, applies = reload)]
+    #[admin(ty = map(service), group = entities, applies = reload)]
     pub services: BTreeMap<String, ServiceEntry>,
     #[serde(default, skip_serializing_if = "is_false")]
     #[schemars(description = "Disable encryption of forwarded data (authentication still runs)")]
     #[admin(
         label = "Disable encryption of forwarded data",
         group = security,
-        order = 90,
         applies = live,
         danger_when_set
     )]
     pub insecure_plaintext: bool,
     #[serde(default, skip_serializing_if = "is_default")]
-    #[admin(group = network, order = 60, applies = live)]
+    #[admin(group = network, applies = live)]
     pub heartbeat: Heartbeat,
     #[serde(default, skip_serializing_if = "is_default")]
-    #[admin(group = limits, order = 50)]
+    #[admin(group = limits)]
     pub limits: Limits,
     #[serde(default, skip_serializing_if = "is_default")]
-    #[admin(label = "Pool of idle channels", group = network, order = 61, applies = reload)]
+    #[admin(label = "Pool of idle channels", group = network, applies = reload)]
     pub pool: Pool,
     #[serde(default, skip_serializing_if = "is_default")]
-    #[admin(label = "TCP", group = network, order = 62, applies = live)]
+    #[admin(label = "TCP", group = network, applies = live)]
     pub tcp: TcpOptions,
     #[serde(default, skip_serializing_if = "is_default")]
-    #[admin(label = "UDP", group = network, order = 63, applies = live)]
+    #[admin(label = "UDP", group = network, applies = live)]
     pub udp: UdpOptions,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(description = "Serve Prometheus metrics at /metrics; off unless set")]
     #[admin(
         label = "Metrics endpoint",
         group = monitoring,
-        order = 70,
         applies = reload,
         none_label = "Off"
     )]
@@ -128,21 +121,17 @@ pub struct WebSocketConfig {
     #[schemars(
         description = "Address to accept WebSocket connections on, for example 127.0.0.1:7836 behind a proxy; a port alone means 0.0.0.0"
     )]
-    #[admin(ty = ip_port, label = "Listen address", order = 10)]
+    #[admin(label = "Listen address")]
     pub listen: Bind,
     #[serde(default = "default_ws_path")]
     #[schemars(description = "URL path clients connect to")]
-    #[admin(ty = url_path, order = 20)]
+    #[admin(ty = url_path)]
     pub path: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
         description = "Serve wss:// directly with these PEM files instead of behind a TLS proxy"
     )]
-    #[admin(
-        label = "TLS",
-        order = 30,
-        none_label = "Behind a TLS proxy (plain ws://)"
-    )]
+    #[admin(label = "TLS", none_label = "Behind a TLS proxy (plain ws://)")]
     pub tls: Option<TlsFiles>,
     #[serde(
         default = "default_ws_keepalive",
@@ -152,7 +141,7 @@ pub struct WebSocketConfig {
         description = "Seconds between keepalives on idle pooled channels, below your proxy's idle timeout"
     )]
     #[schemars(range(min = 5, max = 30))]
-    #[admin(ty = duration(secs), label = "Keepalive", order = 40, advanced)]
+    #[admin(label = "Keepalive", advanced)]
     pub keepalive_secs: u32,
 }
 
@@ -192,7 +181,6 @@ pub struct ClientEntry {
     #[schemars(range(min = 1))]
     #[admin(
         ty = integer(unit = "connections"),
-
         none_label = "Server default",
         default_from("/limits/max_connections_per_client"),
         advanced
@@ -215,7 +203,6 @@ pub struct VisitorEntry {
         ty = ref_map(client),
         label = "Direct access to clients",
         group = access,
-        order = 20,
         empty_label = "No direct access"
     )]
     pub reach: BTreeMap<String, Reach>,
@@ -224,7 +211,6 @@ pub struct VisitorEntry {
     #[schemars(range(min = 1))]
     #[admin(
         ty = integer(unit = "connections"),
-
         group = traffic,
         none_label = "Unlimited",
         advanced
@@ -237,7 +223,6 @@ pub struct VisitorEntry {
     #[admin(
         label = "Admin access",
         group = admin,
-        order = 40,
         none_label = "None",
         danger_when_set
     )]
@@ -250,7 +235,6 @@ pub struct VisitorEntry {
         ty = list(cidr),
         label = "Admin only from",
         group = admin,
-        order = 41,
         visible_if(set(admin)),
         empty_label = "Any address"
     )]
@@ -327,6 +311,7 @@ impl Secrets {
 #[serde(deny_unknown_fields)]
 #[admin(
     entity = service,
+    tcp_only(mode, health_check, max_connections, visitors, proxy_protocol),
     label = "Service",
     groups(
         who = "Where it runs",
@@ -338,30 +323,27 @@ impl Secrets {
 pub struct ServiceEntry {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(description = "Name of the client that reaches the target")]
-    #[admin(ty = ref_(client), group = who, order = 10, one_of = "who", none_label = "None")]
+    #[admin(ty = ref_(client), group = who, one_of = "who", none_label = "None")]
     pub client: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[schemars(
         description = "Several clients that can each reach the target, instead of client; see mode"
     )]
-    #[admin(ty = ref_list(client, ordered), group = who, order = 11, one_of = "who")]
+    #[admin(ty = ref_list(client, ordered), group = who, one_of = "who")]
     pub clients: Vec<String>,
     #[serde(default, skip_serializing_if = "is_default")]
     #[schemars(
         description = "With several clients: failover uses the first one that is up, balance spreads new connections over all of them"
     )]
-    #[admin(group = who, order = 12, visible_if(len_ge(clients, 2)), tcp_only)]
+    #[admin(group = who, visible_if(len_ge(clients, 2)))]
     pub mode: Mode,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
         description = "Check that each client can reach the target, and send connections only to those that can: true, or a map with interval_secs, timeout_secs and failures"
     )]
     #[admin(
-
         group = who,
-        order = 13,
         none_label = "Off",
-        tcp_only,
         advanced
     )]
     pub health_check: Option<HealthCheckSetting>,
@@ -373,7 +355,6 @@ pub struct ServiceEntry {
         ty = ip_port(ranges, max_range = 1000),
         label = "Public address",
         group = exposure,
-        order = 20,
         none_label = "Private: no public port",
         cross(target, protocol)
     )]
@@ -385,34 +366,27 @@ pub struct ServiceEntry {
         ty = target(ranges, unix),
         label = "Target on the client",
         group = exposure,
-        order = 21,
         same_len(bind),
         cross(bind, protocol)
     )]
     pub target: Target,
     #[serde(default, skip_serializing_if = "is_default")]
-    #[admin(group = exposure, order = 22)]
+    #[admin(group = exposure)]
     pub protocol: Protocol,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(description = "Maximum concurrent connections for this service")]
     #[schemars(range(min = 1))]
     #[admin(
         ty = integer(unit = "connections"),
-
         group = traffic,
-        order = 40,
-        none_label = "Unlimited",
-        tcp_only
+        none_label = "Unlimited"
     )]
     pub max_connections: Option<u32>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[schemars(description = "Visitors that may reach this service with burrow visit")]
     #[admin(
         ty = ref_list(visitor),
-
         group = access,
-        order = 30,
-        tcp_only,
         empty_label = "No visitors",
         inverse(entity = visitor, label = "Services it may use"),
         options_filter(eq(protocol, "tcp"))
@@ -422,11 +396,11 @@ pub struct ServiceEntry {
     #[schemars(
         description = "Only these source IPs or CIDRs may connect, for example [203.0.113.0/24]; everyone when empty"
     )]
-    #[admin(ty = list(cidr), label = "Only from", group = access, order = 31, empty_label = "Everyone may connect")]
+    #[admin(ty = list(cidr), label = "Only from", group = access, empty_label = "Everyone may connect")]
     pub allow_from: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[schemars(description = "Source IPs or CIDRs that may never connect")]
-    #[admin(ty = list(cidr), label = "Never from", group = access, order = 32, empty_label = "Nobody is blocked", advanced)]
+    #[admin(ty = list(cidr), label = "Never from", group = access, empty_label = "Nobody is blocked", advanced)]
     pub deny_from: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
@@ -435,9 +409,7 @@ pub struct ServiceEntry {
     #[admin(
         label = "PROXY protocol",
         group = traffic,
-        order = 42,
         none_label = "Off",
-        tcp_only,
         advanced
     )]
     pub proxy_protocol: Option<crate::proxy_protocol::Version>,
@@ -445,7 +417,7 @@ pub struct ServiceEntry {
     #[schemars(
         description = "Speed limit for each direction, shared by all connections of this service, for example 40mbit or 5MB (per second)"
     )]
-    #[admin(ty = rate, label = "Speed limit", group = traffic, order = 41, none_label = "Unlimited")]
+    #[admin(ty = rate, label = "Speed limit", group = traffic, none_label = "Unlimited")]
     pub bandwidth: Option<String>,
 }
 
@@ -487,11 +459,11 @@ pub enum HealthCheckSetting {
 pub struct HealthCheck {
     #[schemars(description = "Seconds between checks of each client")]
     #[schemars(range(min = 1, max = 3600))]
-    #[admin(ty = duration(secs), label = "Interval")]
+    #[admin(label = "Interval")]
     pub interval_secs: u32,
     #[schemars(description = "Seconds a check may take")]
     #[schemars(range(min = 1, max = 60))]
-    #[admin(ty = duration(secs), label = "Timeout")]
+    #[admin(label = "Timeout")]
     pub timeout_secs: u32,
     #[schemars(description = "Failed checks in a row before a client counts as down")]
     #[schemars(range(min = 1, max = 100))]
@@ -591,7 +563,6 @@ impl Protocol {
 pub struct Heartbeat {
     #[schemars(range(min = 1, max = 3600))]
     #[admin(
-        ty = duration(secs),
         label = "Interval",
         help = "How often the server and each client check that the other is still there"
     )]
@@ -610,7 +581,6 @@ impl Default for Heartbeat {
 pub struct Limits {
     #[schemars(range(min = 1, max = 120))]
     #[admin(
-        ty = duration(secs),
         label = "Handshake timeout",
         help = "Time a new connection has to authenticate",
         applies = live
@@ -623,7 +593,6 @@ pub struct Limits {
     #[schemars(range(min = 1))]
     #[admin(
         ty = integer(unit = "connections"),
-
         help = "Concurrent forwarded connections of one client, unless the client sets its own",
         applies = live
     )]
@@ -683,7 +652,7 @@ pub struct TcpOptions {
         description = "TCP keepalive idle time, 0 disables",
         range(max = 32767)
     )]
-    #[admin(ty = duration(secs), label = "Keepalive")]
+    #[admin(label = "Keepalive")]
     pub keepalive_secs: u32,
 }
 
@@ -702,7 +671,6 @@ impl Default for TcpOptions {
 pub struct UdpOptions {
     #[schemars(range(min = 1))]
     #[admin(
-        ty = duration(secs),
         label = "Session timeout",
         help = "A UDP peer that sends nothing for this long is forgotten"
     )]

@@ -458,18 +458,6 @@ pub fn relations(
                 }
                 _ => errors.push(t.span(), "enabled_if(condition, \"reason\")"),
             },
-            Some("tcp_only") => {
-                if !fields.iter().any(|f| f == "protocol") {
-                    errors.push(
-                        t.span(),
-                        format!("`tcp_only` needs a `protocol` field in `{owner}`"),
-                    );
-                }
-                out.push(quote!(#p::Relation::EnabledIf {
-                    cond: #p::Cond::Eq("protocol".into(), #p::json!("tcp")),
-                    reason: "UDP services do not support this".into(),
-                }));
-            }
             Some("options_filter") => match args.first() {
                 Some(c) => {
                     let c = cond(c, &[String::from("protocol")], owner, errors);
@@ -526,23 +514,85 @@ fn last_ident(ty: &syn::Type) -> Option<String> {
     }
 }
 
+pub fn duration_unit(wire: &str, ty: &syn::Type) -> Option<&'static str> {
+    let int = matches!(
+        last_ident(ty).as_deref(),
+        Some("u16" | "u32" | "u64" | "usize")
+    );
+    match () {
+        _ if int && wire.ends_with("_secs") => Some("secs"),
+        _ if int && wire.ends_with("_ms") => Some("ms"),
+        _ => None,
+    }
+}
+
+pub fn tag_of(t: &Term) -> String {
+    match t.name() {
+        Some("enum_" | "enum_values") => "enum".into(),
+        Some("union" | "union_") => "union".into(),
+        Some("ref_") => "ref".into(),
+        Some(n) => n.to_string(),
+        None => String::new(),
+    }
+}
+
+pub fn reject_redundant(
+    field: &syn::Ident,
+    t: &Term,
+    ty: &syn::Type,
+    duration: Option<&'static str>,
+    checks: &mut Vec<TokenStream>,
+    errors: &mut Errors,
+) {
+    let p = crate::p();
+    if let (Some(unit), Some("duration")) = (duration, t.name()) {
+        let positional = Term::positional(t.args());
+        let only_unit = t.args().len() <= 1
+            && positional
+                .first()
+                .and_then(|a| a.as_word())
+                .is_none_or(|u| u == unit);
+        if only_unit {
+            errors.push(
+                t.span(),
+                "redundant ty: the `_secs` or `_ms` name already makes this a duration; remove `ty = ...`",
+            );
+        }
+        return;
+    }
+    if !matches!(t, Term::Word(..)) {
+        return;
+    }
+    let tag = tag_of(t);
+    let span = t.span();
+    let message = format!(
+        "redundant ty on `{field}`: its Rust type already gives the semantic type `{tag}`; remove `ty = ...`"
+    );
+    checks.push(quote_spanned!(span=> const _: () = #p::not_redundant(<#ty as #p::DefaultSem>::SEM, #tag, #message);));
+}
+
 pub fn infer(
     ty: &syn::Type,
     range: (Option<i64>, Option<i64>),
+    duration: Option<&'static str>,
     field: &syn::Ident,
     errors: &mut Errors,
 ) -> Built {
     let p = crate::p();
     let span = field.span();
     let (mn, mx) = (opt_int(range.0), opt_int(range.1));
+    if let Some(unit) = duration {
+        let unit = if unit == "ms" {
+            quote!(#p::DurationUnit::Ms)
+        } else {
+            quote!(#p::DurationUnit::Secs)
+        };
+        return Built {
+            node: quote!(#p::Node::new(#p::SemType::Duration(#p::DurationC { unit: #unit, min: #mn, max: #mx }))),
+            checks: Vec::new(),
+        };
+    }
     let node = match last_ident(ty).as_deref() {
-        Some("bool") => quote!(#p::Node::new(#p::SemType::Bool)),
-        Some("u8" | "u16" | "u32" | "u64" | "usize" | "i32" | "i64") => quote!(#p::Node::new(
-            #p::SemType::Integer(#p::IntegerC { min: #mn, max: #mx, unit: ::core::option::Option::None })
-        )),
-        Some("String") => {
-            quote!(#p::Node::new(#p::SemType::Text(::core::default::Default::default())))
-        }
         Some("Vec" | "BTreeMap" | "HashMap") => {
             errors.push(
                 span,
@@ -550,7 +600,11 @@ pub fn infer(
             );
             quote!(#p::Node::default())
         }
-        Some(_) => quote!(<#ty as #p::AdminSchema>::node()),
+        Some(_) => quote!({
+            let mut n = <#ty as #p::DefaultSem>::default_node();
+            #p::apply_range(&mut n, #mn, #mx);
+            n
+        }),
         None => {
             errors.push(
                 span,

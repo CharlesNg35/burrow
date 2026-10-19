@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:5b65f76ca667022f",
+  "hash": "b2s:5f9fa504663a0a5d",
   "root": {
     "label": "Server",
     "sem": {
@@ -23,7 +23,6 @@
             },
             "applies": "restart",
             "group": "listener",
-            "order": 10,
             "none_label": "No TCP listener"
           }
         },
@@ -42,7 +41,6 @@
             },
             "applies": "live",
             "group": "listener",
-            "order": 20,
             "none_label": "Not set"
           }
         },
@@ -68,8 +66,7 @@
                           "ranges": false,
                           "default_ip": "0.0.0.0"
                         },
-                        "required": true,
-                        "order": 10
+                        "required": true
                       }
                     },
                     {
@@ -80,8 +77,7 @@
                         "sem": {
                           "t": "url_path"
                         },
-                        "default": "/burrow",
-                        "order": 20
+                        "default": "/burrow"
                       }
                     },
                     {
@@ -126,7 +122,6 @@
                             }
                           }
                         },
-                        "order": 30,
                         "none_label": "Behind a TLS proxy (plain ws://)"
                       }
                     },
@@ -142,7 +137,6 @@
                           "max": 30
                         },
                         "default": 25,
-                        "order": 40,
                         "advanced": true
                       }
                     }
@@ -152,7 +146,6 @@
             },
             "applies": "reload",
             "group": "websocket",
-            "order": 30,
             "none_label": "Off"
           }
         },
@@ -218,8 +211,7 @@
               }
             },
             "applies": "reload",
-            "group": "entities",
-            "order": 40
+            "group": "entities"
           }
         },
         {
@@ -296,7 +288,6 @@
                           }
                         },
                         "group": "access",
-                        "order": 20,
                         "empty_label": "No direct access"
                       }
                     },
@@ -347,7 +338,6 @@
                           }
                         },
                         "group": "admin",
-                        "order": 40,
                         "danger_when_set": true,
                         "none_label": "None"
                       }
@@ -366,7 +356,6 @@
                           }
                         },
                         "group": "admin",
-                        "order": 41,
                         "empty_label": "Any address",
                         "relations": [
                           {
@@ -398,8 +387,7 @@
               }
             },
             "applies": "reload",
-            "group": "entities",
-            "order": 41
+            "group": "entities"
           }
         },
         {
@@ -436,7 +424,6 @@
                           }
                         },
                         "group": "who",
-                        "order": 10,
                         "none_label": "None",
                         "relations": [
                           {
@@ -458,7 +445,6 @@
                           "unique": true
                         },
                         "group": "who",
-                        "order": 11,
                         "relations": [
                           {
                             "r": "one_of",
@@ -489,7 +475,6 @@
                         },
                         "default": "failover",
                         "group": "who",
-                        "order": 12,
                         "relations": [
                           {
                             "r": "visible_if",
@@ -584,7 +569,6 @@
                           }
                         },
                         "group": "who",
-                        "order": 13,
                         "advanced": true,
                         "none_label": "Off",
                         "relations": [
@@ -618,7 +602,6 @@
                           }
                         },
                         "group": "exposure",
-                        "order": 20,
                         "none_label": "Private: no public port",
                         "relations": [
                           {
@@ -643,7 +626,6 @@
                         },
                         "required": true,
                         "group": "exposure",
-                        "order": 21,
                         "relations": [
                           {
                             "r": "same_len",
@@ -677,8 +659,7 @@
                           ]
                         },
                         "default": "tcp",
-                        "group": "exposure",
-                        "order": 22
+                        "group": "exposure"
                       }
                     },
                     {
@@ -697,7 +678,6 @@
                           }
                         },
                         "group": "traffic",
-                        "order": 40,
                         "none_label": "Unlimited",
                         "relations": [
                           {
@@ -725,19 +705,8 @@
                           "unique": true
                         },
                         "group": "access",
-                        "order": 30,
                         "empty_label": "No visitors",
                         "relations": [
-                          {
-                            "r": "enabled_if",
-                            "cond": {
-                              "eq": [
-                                "protocol",
-                                "tcp"
-                              ]
-                            },
-                            "reason": "UDP services do not support this"
-                          },
                           {
                             "r": "inverse",
                             "entity": "visitor",
@@ -752,6 +721,16 @@
                                 "tcp"
                               ]
                             }
+                          },
+                          {
+                            "r": "enabled_if",
+                            "cond": {
+                              "eq": [
+                                "protocol",
+                                "tcp"
+                              ]
+                            },
+                            "reason": "UDP services do not support this"
                           }
                         ]
                       }
@@ -770,7 +749,6 @@
                           }
                         },
                         "group": "access",
-                        "order": 31,
                         "empty_label": "Everyone may connect"
                       }
                     },
@@ -788,7 +766,6 @@
                           }
                         },
                         "group": "access",
-                        "order": 32,
                         "advanced": true,
                         "empty_label": "Nobody is blocked"
                       }
@@ -817,7 +794,6 @@
                           }
                         },
                         "group": "traffic",
-                        "order": 42,
                         "advanced": true,
                         "none_label": "Off",
                         "relations": [
@@ -848,7 +824,6 @@
                           }
                         },
                         "group": "traffic",
-                        "order": 41,
                         "none_label": "Unlimited"
                       }
                     }
@@ -876,8 +851,7 @@
               }
             },
             "applies": "reload",
-            "group": "entities",
-            "order": 42
+            "group": "entities"
           }
         },
         {
@@ -891,7 +865,6 @@
             "default": false,
             "applies": "live",
             "group": "security",
-            "order": 90,
             "danger_when_set": true
           }
         },
@@ -919,8 +892,7 @@
               ]
             },
             "applies": "live",
-            "group": "network",
-            "order": 60
+            "group": "network"
           }
         },
         {
@@ -990,8 +962,7 @@
                 }
               ]
             },
-            "group": "limits",
-            "order": 50
+            "group": "limits"
           }
         },
         {
@@ -1030,8 +1001,7 @@
               ]
             },
             "applies": "reload",
-            "group": "network",
-            "order": 61
+            "group": "network"
           }
         },
         {
@@ -1068,8 +1038,7 @@
               ]
             },
             "applies": "live",
-            "group": "network",
-            "order": 62
+            "group": "network"
           }
         },
         {
@@ -1095,8 +1064,7 @@
               ]
             },
             "applies": "live",
-            "group": "network",
-            "order": 63
+            "group": "network"
           }
         },
         {
@@ -1130,7 +1098,6 @@
             },
             "applies": "reload",
             "group": "monitoring",
-            "order": 70,
             "none_label": "Off"
           }
         }

@@ -42,8 +42,6 @@ pub struct Node {
     pub applies: Option<Applies>,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub group: String,
-    #[serde(default, skip_serializing_if = "is_zero")]
-    pub order: i32,
     #[serde(default, skip_serializing_if = "is_false")]
     pub advanced: bool,
     #[serde(default, skip_serializing_if = "is_false")]
@@ -72,10 +70,6 @@ fn is_one(v: &u8) -> bool {
 
 fn is_false(v: &bool) -> bool {
     !v
-}
-
-fn is_zero(v: &i32) -> bool {
-    *v == 0
 }
 
 impl Node {
