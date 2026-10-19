@@ -35,44 +35,89 @@ impl From<std::io::Error> for Refused {
     }
 }
 
+#[cfg(unix)]
+pub fn write_back(path: &Path, before: &str, text: &str) -> Result<(), Refused> {
+    use rustix::fs::{AtFlags, FileType, Mode, OFlags};
+    use std::io::Read;
+    let real = std::fs::canonicalize(path)?;
+    let (Some(folder), Some(name)) = (real.parent(), real.file_name()) else {
+        return Err(Refused::Io(std::io::ErrorKind::InvalidInput.into()));
+    };
+    let dir = open_folder(folder)?;
+    let stat =
+        rustix::fs::statat(&dir, name, AtFlags::SYMLINK_NOFOLLOW).map_err(std::io::Error::from)?;
+    if FileType::from_raw_mode(stat.st_mode) != FileType::RegularFile {
+        return Err(Refused::Io(std::io::Error::other(
+            "the config is no longer a regular file",
+        )));
+    }
+    let mut now = String::new();
+    std::fs::File::from(
+        rustix::fs::openat(
+            &dir,
+            name,
+            OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+            Mode::empty(),
+        )
+        .map_err(std::io::Error::from)?,
+    )
+    .read_to_string(&mut now)?;
+    if now != before {
+        return Err(Refused::Changed);
+    }
+    let mode = stat.st_mode as u32 & 0o777;
+    let next = format!(
+        ".{}.burrow-edit-{}",
+        name.to_string_lossy(),
+        std::process::id()
+    );
+    let _ = rustix::fs::unlinkat(&dir, next.as_str(), AtFlags::empty());
+    let written = (|| -> std::io::Result<()> {
+        let mut f = std::fs::File::from(rustix::fs::openat(
+            &dir,
+            next.as_str(),
+            OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+            Mode::from_bits_truncate(mode as _),
+        )?);
+        f.write_all(text.as_bytes())?;
+        f.sync_all()?;
+        rustix::fs::fchmod(&f, Mode::from_bits_truncate(mode as _))?;
+        let mine = (
+            rustix::process::geteuid().as_raw(),
+            rustix::process::getegid().as_raw(),
+        );
+        if (stat.st_uid, stat.st_gid) != mine {
+            std::os::unix::fs::fchown(&f, Some(stat.st_uid), Some(stat.st_gid))?;
+        }
+        rustix::fs::renameat(&dir, next.as_str(), &dir, name)?;
+        Ok(())
+    })();
+    if written.is_err() {
+        let _ = rustix::fs::unlinkat(&dir, next.as_str(), AtFlags::empty());
+    }
+    Ok(written?)
+}
+
+#[cfg(unix)]
+fn open_folder(folder: &Path) -> std::io::Result<rustix::fd::OwnedFd> {
+    use rustix::fs::{Mode, OFlags};
+    let flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC;
+    let mut dir = rustix::fs::openat(rustix::fs::CWD, "/", flags, Mode::empty())?;
+    for part in folder.components() {
+        if let std::path::Component::Normal(part) = part {
+            dir = rustix::fs::openat(&dir, part, flags, Mode::empty())?;
+        }
+    }
+    Ok(dir)
+}
+
+#[cfg(not(unix))]
 pub fn write_back(path: &Path, before: &str, text: &str) -> Result<(), Refused> {
     if std::fs::read_to_string(path)? != before {
         return Err(Refused::Changed);
     }
     replace(path, text)?;
     Ok(())
-}
-
-#[cfg(unix)]
-fn replace(path: &Path, text: &str) -> std::io::Result<()> {
-    use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
-    let meta = std::fs::metadata(path)?;
-    let name = path.file_name().unwrap_or_default().to_string_lossy();
-    let next = path.with_file_name(format!(".{name}.burrow-edit-{}", std::process::id()));
-    let _ = std::fs::remove_file(&next);
-    let written = (|| {
-        let mut f = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(meta.mode() & 0o7777)
-            .custom_flags(libc::O_NOFOLLOW)
-            .open(&next)?;
-        f.write_all(text.as_bytes())?;
-        f.sync_all()?;
-        f.set_permissions(std::fs::Permissions::from_mode(meta.mode() & 0o7777))?;
-        let mine = (
-            rustix::process::geteuid().as_raw(),
-            rustix::process::getegid().as_raw(),
-        );
-        if (meta.uid(), meta.gid()) != mine {
-            std::os::unix::fs::fchown(&f, Some(meta.uid()), Some(meta.gid()))?;
-        }
-        std::fs::rename(&next, path)
-    })();
-    if written.is_err() {
-        let _ = std::fs::remove_file(&next);
-    }
-    written
 }
 
 #[cfg(not(unix))]
@@ -88,6 +133,42 @@ fn replace(path: &Path, text: &str) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn a_folder_reached_through_a_link_is_not_opened_for_writing() {
+        let base = tempfile::tempdir().unwrap();
+        let real = base.path().join("real");
+        std::fs::create_dir(&real).unwrap();
+        let link = base.path().join("link");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let real = std::fs::canonicalize(&real).unwrap();
+        assert!(open_folder(&real).is_ok());
+        let through = std::fs::canonicalize(base.path()).unwrap().join("link");
+        assert!(open_folder(&through).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_linked_config_keeps_its_link_and_loses_setuid_bits() {
+        use std::os::unix::fs::PermissionsExt;
+        let base = tempfile::tempdir().unwrap();
+        let target = base.path().join("client.yaml");
+        std::fs::write(&target, "name: home\n").unwrap();
+        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o4640)).unwrap();
+        let link = base.path().join("current.yaml");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        write_back(&link, "name: home\n", "name: office\n").unwrap();
+        assert!(
+            std::fs::symlink_metadata(&link)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "name: office\n");
+        let mode = std::fs::metadata(&target).unwrap().permissions().mode();
+        assert_eq!(mode & 0o7777, 0o640);
+    }
 
     #[test]
     fn the_file_is_replaced_with_its_permissions_and_only_if_unchanged() {
