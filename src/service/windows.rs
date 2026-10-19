@@ -82,6 +82,36 @@ fn icacls(path: &Path, args: &[&str]) -> Result<(), Failure> {
     run("icacls", &all).map(drop)
 }
 
+fn is_link(path: &Path) -> bool {
+    use std::os::windows::fs::MetadataExt;
+    const REPARSE_POINT: u32 = 0x400;
+    std::fs::symlink_metadata(path).is_ok_and(|m| m.file_attributes() & REPARSE_POINT != 0)
+}
+
+fn plain_tree(root: &Path) -> Vec<std::path::PathBuf> {
+    const MOST: usize = 10_000;
+    let mut found = Vec::new();
+    let mut folders = vec![root.to_path_buf()];
+    while let Some(folder) = folders.pop() {
+        let Ok(listing) = std::fs::read_dir(&folder) else {
+            continue;
+        };
+        for item in listing.flatten().map(|e| e.path()) {
+            if found.len() >= MOST {
+                return found;
+            }
+            if is_link(&item) {
+                continue;
+            }
+            if item.is_dir() {
+                folders.push(item.clone());
+            }
+            found.push(item);
+        }
+    }
+    found
+}
+
 fn grant(path: &Path, account: &str, rights: &str) -> Result<(), Failure> {
     if system_account(account) || !path.exists() {
         return Ok(());
@@ -201,8 +231,18 @@ impl Backend for WindowsService {
         for dir in std::iter::once(&root).chain(&inner) {
             std::fs::create_dir_all(dir)
                 .map_err(|e| Failure::new(format!("cannot create {}: {e}", dir.display())))?;
+            if is_link(dir) {
+                return Err(Failure::new(format!(
+                    "{} is a link or junction, not a folder",
+                    dir.display()
+                ))
+                .hint("remove it and run the command again; burrow only changes permissions on its own folders"));
+            }
         }
-        icacls(&root, &["/setowner", ADMINS, "/T", "/C", "/Q"])?;
+        icacls(&root, &["/setowner", ADMINS, "/C", "/Q"])?;
+        for item in plain_tree(&root) {
+            let _ = icacls(&item, &["/setowner", ADMINS, "/C", "/Q"]);
+        }
         icacls(&root, &["/reset"])?;
         icacls(
             &root,
@@ -215,10 +255,11 @@ impl Backend for WindowsService {
             ],
         )?;
         for dir in inner.iter().filter(|d| d.starts_with(&root)) {
-            if *dir == instances {
-                icacls(dir, &["/reset"])?;
-            } else {
-                icacls(dir, &["/reset", "/T", "/C", "/Q"])?;
+            icacls(dir, &["/reset"])?;
+            if *dir != instances {
+                for item in plain_tree(dir) {
+                    let _ = icacls(&item, &["/reset", "/C", "/Q"]);
+                }
             }
         }
         if instances.starts_with(&root) {
