@@ -88,30 +88,6 @@ fn is_link(path: &Path) -> bool {
     std::fs::symlink_metadata(path).is_ok_and(|m| m.file_attributes() & REPARSE_POINT != 0)
 }
 
-fn plain_tree(root: &Path) -> Vec<std::path::PathBuf> {
-    const MOST: usize = 10_000;
-    let mut found = Vec::new();
-    let mut folders = vec![root.to_path_buf()];
-    while let Some(folder) = folders.pop() {
-        let Ok(listing) = std::fs::read_dir(&folder) else {
-            continue;
-        };
-        for item in listing.flatten().map(|e| e.path()) {
-            if found.len() >= MOST {
-                return found;
-            }
-            if is_link(&item) {
-                continue;
-            }
-            if item.is_dir() {
-                folders.push(item.clone());
-            }
-            found.push(item);
-        }
-    }
-    found
-}
-
 fn grant(path: &Path, account: &str, rights: &str) -> Result<(), Failure> {
     if system_account(account) || !path.exists() {
         return Ok(());
@@ -240,9 +216,6 @@ impl Backend for WindowsService {
             }
         }
         icacls(&root, &["/setowner", ADMINS, "/C", "/Q"])?;
-        for item in plain_tree(&root) {
-            let _ = icacls(&item, &["/setowner", ADMINS, "/C", "/Q"]);
-        }
         icacls(&root, &["/reset"])?;
         icacls(
             &root,
@@ -256,11 +229,6 @@ impl Backend for WindowsService {
         )?;
         for dir in inner.iter().filter(|d| d.starts_with(&root)) {
             icacls(dir, &["/reset"])?;
-            if *dir != instances {
-                for item in plain_tree(dir) {
-                    let _ = icacls(&item, &["/reset", "/C", "/Q"]);
-                }
-            }
         }
         if instances.starts_with(&root) {
             icacls(&instances, &["/grant", &format!("{USERS}:(OI)(CI)M")])?;
