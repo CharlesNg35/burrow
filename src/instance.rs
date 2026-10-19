@@ -321,7 +321,13 @@ pub fn safe_dir(dir: &Path) -> bool {
     };
     let sticky = target.mode() & 0o1000 != 0;
     let open_to_all = target.mode() & 0o002 != 0;
-    target.is_dir() && (sticky || (!open_to_all && trusted(target.uid())))
+    let owned = trusted(target.uid());
+    target.is_dir()
+        && if sticky {
+            owned || me != 0
+        } else {
+            owned && !open_to_all
+        }
 }
 
 #[cfg(not(unix))]
