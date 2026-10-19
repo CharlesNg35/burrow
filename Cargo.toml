@@ -16,6 +16,7 @@ members = [
     "crates/burrow-syntax",
     "crates/burrow-admin-proto",
     "crates/burrow-admin-derive",
+    "xtask",
 ]
 
 [dependencies]
