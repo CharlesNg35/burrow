@@ -42,13 +42,13 @@ impl Endpoint {
                 ));
             }
         };
+        if rest.contains('@') {
+            return Err("user names and passwords are not allowed in the server URL".into());
+        }
         let (authority, path) = match rest.find('/') {
             Some(i) => (&rest[..i], &rest[i..]),
             None => (rest, "/"),
         };
-        if authority.contains('@') {
-            return Err("user names and passwords are not allowed in the server URL".into());
-        }
         if !valid_path(path) {
             return Err(format!(
                 "path \"{path}\" must use letters, digits and - . _ ~ / only"
