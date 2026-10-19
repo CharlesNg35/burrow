@@ -45,7 +45,7 @@ The server sends its heartbeat interval in the welcome message. The client times
 
 ## D9. Insecure plaintext still authenticates
 
-With `insecure_plaintext: true` on both sides, the Noise handshake still runs (so the secret is never exposed and auth stays strong), but data channels copy raw bytes after Connect and Status. The flag is part of the authenticated prologue, and a mismatch is refused after authentication with `Bye` reason plaintext mismatch.
+With `insecure_plaintext: true` on both sides, the Noise handshake still runs (so the secret is never exposed and auth stays strong), but data channels copy raw bytes after Connect and Status. The flag is part of the authenticated prologue, and a mismatch is refused after authentication with `Bye` reason plaintext mismatch. Raw bytes carry the end of each direction as a TCP FIN, so when a target closes first the client sends the first FIN on the data channel and holds its TIME_WAIT, unlike encrypted channels, where the server closes first. A client that sustains several hundred such connections per second can run out of local ports; use encrypted mode there, or allow reuse with `net.ipv4.tcp_tw_reuse=1` on Linux.
 
 ## D10. Data plane: data-channel pool, not a multiplexed connection
 
