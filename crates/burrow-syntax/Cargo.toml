@@ -1,0 +1,9 @@
+[package]
+name = "burrow-syntax"
+version = "0.1.0"
+edition = "2024"
+description = "Value grammar of burrow configs, shared by the server and the admin UI"
+license = "MIT"
+publish = false
+
+[dependencies]

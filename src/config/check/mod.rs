@@ -21,22 +21,10 @@ use crate::diagnostics::Diagnostic;
 use crate::secret::SecretError;
 
 pub const MAX_SECRETS_PER_CLIENT: usize = 4;
-pub const MAX_NAME_LEN: usize = 64;
-
-const SENSITIVE_PORTS: &[(u16, &str)] = &[
-    (22, "SSH"),
-    (23, "telnet"),
-    (445, "SMB"),
-    (2375, "Docker API"),
-    (3306, "MySQL"),
-    (3389, "RDP"),
-    (5432, "PostgreSQL"),
-    (5900, "VNC"),
-    (6379, "Redis"),
-    (9200, "Elasticsearch"),
-    (11211, "memcached"),
-    (27017, "MongoDB"),
-];
+pub use burrow_syntax::hostport::{MAX_TARGET_LEN, parse_host_port};
+pub use burrow_syntax::name::{MAX_NAME_LEN, valid_name};
+use burrow_syntax::ports::SENSITIVE_PORTS;
+pub(crate) use burrow_syntax::ports::binds_conflict;
 
 pub struct Spans {
     map: HashMap<Vec<String>, (Span, Span)>,
@@ -166,60 +154,6 @@ pub fn secret_spans(root: &Node) -> Vec<Span> {
     out
 }
 
-pub const MAX_TARGET_LEN: usize = 255;
-
-pub fn parse_host_port(s: &str) -> Result<(String, u16), String> {
-    let (host, port) = if let Some(rest) = s.strip_prefix('[') {
-        let (h, tail) = rest
-            .split_once(']')
-            .ok_or_else(|| format!("\"{s}\" has an unclosed \"[\""))?;
-        let p = tail
-            .strip_prefix(':')
-            .ok_or_else(|| format!("\"{s}\" is missing a port"))?;
-        if h.parse::<std::net::Ipv6Addr>().is_err() {
-            return Err(format!(
-                "only an IPv6 address goes in brackets; write {h}:{p} instead of \"{s}\""
-            ));
-        }
-        (h, p)
-    } else {
-        match s.rsplit_once(':') {
-            Some((h, _)) if h.contains(':') => {
-                return Err(format!(
-                    "\"{s}\" looks like an IPv6 address; write it in brackets, like [::1]:22"
-                ));
-            }
-            Some((h, p)) => (h, p),
-            None => return Err(format!("\"{s}\" is missing a port")),
-        }
-    };
-    if host.is_empty() {
-        return Err(format!("\"{s}\" is missing a host"));
-    }
-    if host.len() > 253
-        || !host
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | ':'))
-    {
-        return Err(format!("\"{host}\" is not a valid host name or IP address"));
-    }
-    let port: u16 = port
-        .parse()
-        .map_err(|_| format!("\"{port}\" is not a valid port (1-65535)"))?;
-    if port == 0 {
-        return Err("port 0 is not allowed".into());
-    }
-    Ok((host.to_string(), port))
-}
-
-pub fn valid_name(name: &str) -> bool {
-    !name.is_empty()
-        && name.len() <= MAX_NAME_LEN
-        && name
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
-}
-
 fn name_error(kind: &str, name: &str, span: Span) -> Diagnostic {
     Diagnostic::error("invalid-name", format!("invalid {kind} name \"{name}\""))
         .at(span)
@@ -251,14 +185,6 @@ fn tuning(t: &TcpOptions) -> SocketTuning {
         nodelay: t.nodelay,
         keepalive: (t.keepalive_secs > 0).then(|| Duration::from_secs(t.keepalive_secs.into())),
     }
-}
-
-pub(crate) fn binds_conflict(a: SocketAddr, b: SocketAddr) -> bool {
-    let canonical = |x: SocketAddr| SocketAddr::new(x.ip().to_canonical(), x.port());
-    let (a, b) = (canonical(a), canonical(b));
-    let covers =
-        |x: SocketAddr, y: SocketAddr| x.ip().is_unspecified() && (x.is_ipv6() || y.is_ipv4());
-    a.port() == b.port() && (a.ip() == b.ip() || covers(a, b) || covers(b, a))
 }
 
 fn parse_bind(bind: &Bind) -> Result<SocketAddr, String> {

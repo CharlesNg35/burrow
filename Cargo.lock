@@ -204,6 +204,7 @@ version = "0.1.0"
 dependencies = [
  "base64 0.23.1",
  "blake2",
+ "burrow-syntax",
  "bytes",
  "clap",
  "clap_complete",
@@ -238,6 +239,10 @@ dependencies = [
  "windows-service",
  "zeroize",
 ]
+
+[[package]]
+name = "burrow-syntax"
+version = "0.1.0"
 
 [[package]]
 name = "bytes"
