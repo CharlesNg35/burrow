@@ -588,7 +588,7 @@ fn diff_value(
         let end = if is_flow(src, old) {
             flow_end(src, old.span.start.offset)
         } else {
-            old.span.end.offset.max(entry.key_span.end.offset)
+            content_end(old).max(entry.key_span.end.offset)
         };
         let line = line_end(src, end);
         if after_colon() > line {
@@ -621,13 +621,12 @@ fn diff_value(
             }
             let last = &old_items[old_items.len() - 1];
             let end = end_of(src, first, last.span.end.offset, item_indent.len());
-            let mut comments = Vec::new();
+            let mut lines = Vec::new();
             for it in old_items {
                 let ls = line_start(src, it.span.start.offset);
-                let le = line_end(src, it.span.end.offset);
-                let line = src[ls..le].trim_end_matches('\n');
-                let c = comment_at(line).map(|at| line[at..].to_string());
-                comments.push((it.to_json(), c));
+                let le = line_end(src, content_end(it));
+                let own = src[ls..le].starts_with(&format!("{item_indent}-"));
+                lines.push((it.to_json(), own.then(|| src[ls..le].to_string())));
             }
             let mut text = String::new();
             for v in items {
@@ -635,16 +634,24 @@ fn diff_value(
                     edits.give_up(path, "a list of mappings");
                     return;
                 }
-                text.push_str(item_indent);
-                text.push_str("- ");
-                text.push_str(&flow_text(v));
-                if let Some(pos) = comments.iter().position(|(old, _)| old == v)
-                    && let Some(c) = comments.remove(pos).1
+                match lines
+                    .iter()
+                    .position(|(old, line)| old == v && line.is_some())
                 {
-                    text.push(' ');
-                    text.push_str(&c);
+                    Some(pos) => {
+                        let line = lines.remove(pos).1.unwrap_or_default();
+                        text.push_str(&line);
+                        if !line.ends_with('\n') {
+                            text.push('\n');
+                        }
+                    }
+                    None => {
+                        text.push_str(item_indent);
+                        text.push_str("- ");
+                        text.push_str(&flow_text(v));
+                        text.push('\n');
+                    }
                 }
-                text.push('\n');
             }
             edits.push(first, end, text);
         }
@@ -687,6 +694,13 @@ fn diff_value(
                 edits.give_up(path, "a list of mappings");
                 return;
             }
+            if is_flow(src, old)
+                && let tree::Value::Seq(old_items) = &old.value
+                && let Some(text) = flow_subset(src, old, old_items, a, end)
+            {
+                edits.push(old.span.start.offset, end, text);
+                return;
+            }
             let flow = flow_text(want);
             let single = old.span.start.line == old.span.end.line || scalar_old;
             if single && key_indent + entry.key.len() + 2 + flow.len() <= 100 {
@@ -713,7 +727,7 @@ fn diff_value(
         }
         scalar => {
             if block_map || block_seq {
-                let end = end_of(src, key_line, old.span.end.offset, key_indent);
+                let end = end_of(src, key_line, content_end(old), key_indent);
                 let text = format!(
                     "{}: {}\n",
                     &src[key_line..entry.key_span.end.offset],
@@ -736,6 +750,58 @@ fn diff_value(
             let (from, with) = inline_from(src, entry, scalar_text(src, old, scalar));
             edits.push(from, end, with);
         }
+    }
+}
+
+fn flow_subset(
+    src: &str,
+    old: &Node,
+    old_items: &[Node],
+    want: &[Value],
+    end: usize,
+) -> Option<String> {
+    let first = old_items.first()?;
+    let last = old_items.last()?;
+    let sep = match old_items.get(1) {
+        Some(second) => src.get(first.span.end.offset..second.span.start.offset)?,
+        None => ", ",
+    };
+    if sep.contains('#') || !src.get(old.span.start.offset..)?.starts_with('[') {
+        return None;
+    }
+    let open = src.get(old.span.start.offset + 1..first.span.start.offset)?;
+    let close = src.get(last.span.end.offset..end.checked_sub(1)?)?;
+    let mut pool: Vec<(Value, &str)> = old_items
+        .iter()
+        .map(|it| {
+            Some((
+                it.to_json(),
+                src.get(it.span.start.offset..it.span.end.offset)?,
+            ))
+        })
+        .collect::<Option<_>>()?;
+    let mut kept = Vec::new();
+    for v in want {
+        let at = pool.iter().position(|(j, _)| j == v)?;
+        kept.push(pool.remove(at).1);
+    }
+    Some(format!("[{open}{}{close}]", kept.join(sep)))
+}
+
+fn content_end(node: &Node) -> usize {
+    match &node.value {
+        tree::Value::Seq(items) => items.last().map_or(node.span.end.offset, content_end),
+        tree::Value::Map(entries) => entries.last().map_or(node.span.end.offset, |e| {
+            if matches!(e.value.value, tree::Value::Null) {
+                e.key_span
+                    .end
+                    .offset
+                    .max(e.value.span.end.offset.min(e.key_span.end.offset + 1))
+            } else {
+                content_end(&e.value)
+            }
+        }),
+        _ => node.span.end.offset,
     }
 }
 

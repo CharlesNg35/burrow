@@ -224,7 +224,7 @@ fn mutate(v: &mut Value, r: &mut Rng, depth: usize) {
         return;
     };
     let keys: Vec<String> = map.keys().cloned().collect();
-    match r.below(5) {
+    match r.below(6) {
         0 if !keys.is_empty() && map.len() > 1 => {
             map.remove(&keys[r.below(keys.len())]);
         }
@@ -239,6 +239,21 @@ fn mutate(v: &mut Value, r: &mut Rng, depth: usize) {
                 map.insert(k.clone(), random_value(r));
             }
         }
+        3 if !keys.is_empty() => {
+            let k = &keys[r.below(keys.len())];
+            match map.get_mut(k).unwrap() {
+                Value::Array(a) if a.len() > 1 => {
+                    let at = r.below(a.len());
+                    a.remove(at);
+                    if a.len() == 1 && r.below(2) == 0 {
+                        let only = a.remove(0);
+                        map.insert(k.clone(), only);
+                    }
+                }
+                inner @ Value::Object(_) => mutate(inner, r, depth + 1),
+                _ => {}
+            }
+        }
         _ if !keys.is_empty() => {
             let k = &keys[r.below(keys.len())];
             if map[k].is_object() {
@@ -246,6 +261,77 @@ fn mutate(v: &mut Value, r: &mut Rng, depth: usize) {
             }
         }
         _ => {}
+    }
+}
+
+fn list_doc(r: &mut Rng) -> (String, Vec<(String, bool, Vec<String>)>) {
+    let mut text = String::from("# head\n");
+    let mut lists = Vec::new();
+    for i in 0..1 + r.below(4) {
+        let key = format!("l{i}");
+        let n = 2 + r.below(4);
+        let items: Vec<String> = (0..n).map(|j| format!("v{i}x{j}")).collect();
+        let flow = r.below(2) == 0;
+        text.push_str(&format!("# about {key}\n"));
+        if flow {
+            text.push_str(&format!("{key}: [{}] # flow {i}\n", items.join(", ")));
+        } else {
+            text.push_str(&format!("{key}:\n"));
+            for (j, it) in items.iter().enumerate() {
+                if j.is_multiple_of(2) {
+                    text.push_str(&format!("  - {it} # c{j}\n"));
+                } else {
+                    text.push_str(&format!("  - {it}\n"));
+                }
+            }
+        }
+        text.push_str(&format!("s{i}: {} # scalar\n", r.below(100)));
+        lists.push((key, flow, items));
+    }
+    text.push_str("# tail\n");
+    (text, lists)
+}
+
+#[test]
+fn removing_one_list_item_changes_nothing_else() {
+    let mut r = Rng(0x2545_f491_4f6c_dd1d);
+    for case in 0..2000 {
+        let (text, lists) = list_doc(&mut r);
+        let (key, flow, items) = &lists[r.below(lists.len())];
+        let gone = r.below(items.len());
+        let mut target = tree::parse(&text).unwrap().to_json();
+        let kept: Vec<String> = items
+            .iter()
+            .enumerate()
+            .filter(|(j, _)| *j != gone)
+            .map(|(_, v)| v.clone())
+            .collect();
+        target[key] = json!(kept);
+        let out = patch(&text, Format::Yaml, &target, &[]).unwrap();
+        assert!(
+            out.reformat.is_none(),
+            "case {case}: {:?}\n{text}",
+            out.reformat
+        );
+        assert_eq!(
+            tree::parse(&out.text).unwrap().to_json(),
+            target,
+            "case {case}"
+        );
+        let expected = if *flow {
+            text.replace(
+                &format!("[{}]", items.join(", ")),
+                &format!("[{}]", kept.join(", ")),
+            )
+        } else {
+            let comment = if gone.is_multiple_of(2) {
+                format!(" # c{gone}")
+            } else {
+                String::new()
+            };
+            text.replace(&format!("  - {}{comment}\n", items[gone]), "")
+        };
+        assert_eq!(out.text, expected, "case {case}");
     }
 }
 
@@ -379,6 +465,36 @@ fn a_layout_that_cannot_be_edited_in_place_is_reformatted_openly() {
     let r = out.reformat.expect("the rewrite is reported");
     assert_eq!(r.scope, ["a"]);
     assert!(out.text.ends_with("b: 1 # keep\n"), "{}", out.text);
+}
+
+#[test]
+fn removing_one_secret_from_a_block_list_touches_only_that_list() {
+    let a = "q3J0bH9mZ2V0c2VjcmV0dmFsdWVvbmVvbmVvbmVvbmU=";
+    let b = "Ym9vYmFyYmF6cXV4c2VjcmV0dmFsdWV0d290d290d28=";
+    let c = "c2Vjb25kc2VjcmV0dmFsdWV0aHJlZXRocmVldGhyZWU=";
+    let head = "# keep me\nclients:\n  # the home box\n  home:\n";
+    let tail = "  office:\n    secret: x # note\n";
+    let text = format!("{head}    secret:\n      - {a}\n      - {b}\n{tail}");
+    let out = yaml(&text, |v| v["clients"]["home"]["secret"] = json!(b));
+    assert!(out.reformat.is_none(), "{:?}\n{}", out.reformat, out.text);
+    assert_eq!(out.text, format!("{head}    secret: {b}\n{tail}"));
+
+    let text =
+        format!("{head}    secret:\n      - {a} # old\n      - {b} # new\n      - {c}\n{tail}");
+    let out = yaml(&text, |v| v["clients"]["home"]["secret"] = json!([a, c]));
+    assert!(out.reformat.is_none(), "{:?}\n{}", out.reformat, out.text);
+    assert_eq!(
+        out.text,
+        format!("{head}    secret:\n      - {a} # old\n      - {c}\n{tail}")
+    );
+
+    let text = format!("{head}    secret: [{a}, {b}, {c}] # three\n{tail}");
+    let out = yaml(&text, |v| v["clients"]["home"]["secret"] = json!([a, c]));
+    assert!(out.reformat.is_none(), "{:?}\n{}", out.reformat, out.text);
+    assert_eq!(
+        out.text,
+        format!("{head}    secret: [{a}, {c}] # three\n{tail}")
+    );
 }
 
 #[test]

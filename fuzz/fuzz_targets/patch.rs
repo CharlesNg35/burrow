@@ -16,7 +16,7 @@ fn mutate(v: &mut Value, ops: &[u8]) {
             .get(n as usize % keys.len().max(1))
             .cloned()
             .unwrap_or_else(|| format!("k{n}"));
-        match what % 5 {
+        match what % 7 {
             0 => {
                 map.shift_remove(&key);
             }
@@ -29,8 +29,24 @@ fn mutate(v: &mut Value, ops: &[u8]) {
             3 => {
                 map.insert(key, json!([n, format!("x{n}")]));
             }
-            _ => {
+            4 => {
                 map.insert(key, json!({ "a": n, "b": [format!("${{V{n}}}")] }));
+            }
+            5 => {
+                if let Some(Value::Array(a)) = map.get_mut(&key)
+                    && !a.is_empty()
+                {
+                    let at = n as usize % a.len();
+                    a.remove(at);
+                }
+            }
+            _ => {
+                if let Some(Value::Array(a)) = map.get_mut(&key)
+                    && a.len() == 2
+                {
+                    let only = a.remove(n as usize % 2);
+                    map.insert(key, only);
+                }
             }
         }
     }
