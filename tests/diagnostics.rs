@@ -2145,3 +2145,33 @@ fn a_config_with_old_mac_line_endings_keeps_its_secrets_hidden() {
     let text = render("server.yaml", &src, None);
     assert!(text.contains("unknown field \"bnd\""), "{text}");
 }
+
+#[test]
+fn secrets_in_the_wrong_shape_or_under_a_wrong_key_stay_hidden() {
+    let shapes = [
+        format!("clients:\n  home: {SECRET}\n"),
+        format!("clients:\n  - name: home\n    secret: {SECRET}\n"),
+        format!("visitors:\n  lap: {SECRET}\n"),
+        format!("clients:\n  home:\n    key: {SECRET}\n"),
+        format!("clients:\n  home:\n    psk: {SECRET}\n"),
+        format!("clients:\n  home:\n    client_secret: {SECRET}\n"),
+        format!("clients:\n  home:\n    secret: {SECRET}\n    password: {SECRET2}\n"),
+    ];
+    for src in shapes {
+        render("server.yaml", &format!("listen: 0.0.0.0:7835\n{src}"), None);
+    }
+    for src in [
+        format!(
+            "server: example.com:7835\nname: home\nsecret: {SECRET}\nheaders:\n  - \"Authorization: Bearer {SECRET2}\"\n"
+        ),
+        format!(
+            "server: example.com:7835\nname: home\nsecret: {SECRET}\nheaders: \"Authorization: Bearer {SECRET2}\"\n"
+        ),
+        format!("server: example.com:7835\nname: home\ntoken: {SECRET}\n"),
+        format!(
+            "server: wss://alice:Zq9/{SECRET2}@example.com/burrow\nname: home\nsecret: {SECRET}\n"
+        ),
+    ] {
+        render("client.yaml", &src, None);
+    }
+}

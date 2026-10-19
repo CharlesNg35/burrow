@@ -124,8 +124,12 @@ pub fn secret_spans(root: &Node) -> Vec<Span> {
             _ => out.push(n.span),
         }
     }
-    let secretish =
-        |key: &str| key == "secret" || crate::suggest::closest(key, ["secret"]).is_some();
+    let secretish = |key: &str| {
+        let key = key.to_ascii_lowercase();
+        key.contains("secret")
+            || ["key", "psk", "token", "password", "pass", "passwd"].contains(&key.as_str())
+            || crate::suggest::closest(&key, ["secret"]).is_some()
+    };
     if let Value::Map(top) = &root.value {
         let credentials = |e: &&crate::config::tree::Entry| {
             e.key == "server" && matches!(&e.value.value, Value::Str(s) if s.contains('@'))
@@ -137,20 +141,26 @@ pub fn secret_spans(root: &Node) -> Vec<Span> {
             collect(&e.value, &mut out);
         }
     }
-    if let Some(Value::Map(headers)) = root.get("headers").map(|h| &h.value) {
-        for h in headers {
-            collect(&h.value, &mut out);
-        }
+    match root.get("headers") {
+        Some(Node {
+            value: Value::Map(headers),
+            ..
+        }) => headers.iter().for_each(|h| collect(&h.value, &mut out)),
+        Some(other) => collect(other, &mut out),
+        None => {}
     }
+    let fields = |n: &Node, out: &mut Vec<Span>| match &n.value {
+        Value::Map(fields) => fields
+            .iter()
+            .filter(|f| secretish(&f.key))
+            .for_each(|f| collect(&f.value, out)),
+        _ => collect(n, out),
+    };
     for section in ["clients", "visitors"] {
-        if let Some(Value::Map(sections)) = root.get(section).map(|c| &c.value) {
-            for c in sections {
-                if let Value::Map(fields) = &c.value.value {
-                    for f in fields.iter().filter(|f| secretish(&f.key)) {
-                        collect(&f.value, &mut out);
-                    }
-                }
-            }
+        match root.get(section).map(|c| &c.value) {
+            Some(Value::Map(sections)) => sections.iter().for_each(|c| fields(&c.value, &mut out)),
+            Some(Value::Seq(items)) => items.iter().for_each(|c| fields(c, &mut out)),
+            _ => {}
         }
     }
     out

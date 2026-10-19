@@ -122,6 +122,24 @@ fn mask_long_tokens(line: &mut [char]) {
     }
 }
 
+fn mask_secret_tokens(line: &mut [char]) {
+    let mut i = 0;
+    while i < line.len() {
+        if !token_char(line[i]) {
+            i += 1;
+            continue;
+        }
+        let start = i;
+        while i < line.len() && token_char(line[i]) {
+            i += 1;
+        }
+        let token: String = line[start..i].iter().collect();
+        if crate::secret::Secret::parse(&token).is_ok() {
+            line[start..i].iter_mut().for_each(|c| *c = '*');
+        }
+    }
+}
+
 impl Report {
     pub fn new(file: impl Into<String>, source: impl Into<String>) -> Self {
         Report {
@@ -276,6 +294,7 @@ impl Report {
         if self.mask_tokens {
             mask_long_tokens(&mut line);
         }
+        mask_secret_tokens(&mut line);
         Some(line.into_iter().collect())
     }
 
