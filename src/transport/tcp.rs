@@ -91,14 +91,7 @@ pub fn gone_before_accept(e: &io::Error) -> bool {
     use io::ErrorKind as K;
     matches!(
         e.kind(),
-        K::ConnectionAborted
-            | K::ConnectionReset
-            | K::ConnectionRefused
-            | K::Interrupted
-            | K::TimedOut
-            | K::HostUnreachable
-            | K::NetworkUnreachable
-            | K::NetworkDown
+        K::ConnectionAborted | K::ConnectionReset | K::ConnectionRefused | K::Interrupted
     )
 }
 
