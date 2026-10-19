@@ -104,6 +104,15 @@ fn owner_and_me(path: &Path) -> Option<(String, String)> {
         .then(|| (owner.to_string(), me.to_string()))
 }
 
+fn holds_only_hand_run_folders(root: &Path) -> bool {
+    std::fs::read_dir(root).is_ok_and(|entries| {
+        entries.flatten().all(|e| {
+            e.file_type().is_ok_and(|t| t.is_dir())
+                && matches!(e.file_name().to_str(), Some("instances" | "jobs"))
+        })
+    })
+}
+
 fn is_link(path: &Path) -> bool {
     use std::os::windows::fs::MetadataExt;
     const REPARSE_POINT: u32 = 0x400;
@@ -227,7 +236,9 @@ impl Backend for WindowsService {
         let instances = crate::instance::default_dir();
         let inner = [p.state_dir(), p.log_dir(), instances.clone(), p.jobs_dir()];
         for dir in std::iter::once(&root).chain(&inner) {
-            if dir.exists()
+            if *dir != instances
+                && dir.exists()
+                && !(*dir == root && holds_only_hand_run_folders(&root))
                 && let Some((owner, me)) = owner_and_me(dir)
                 && owner != me
                 && !TRUSTED_OWNERS.contains(&owner.as_str())
