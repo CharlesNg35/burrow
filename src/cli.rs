@@ -73,6 +73,10 @@ pub enum Command {
     #[command(about = "Check a config file and report every problem")]
     Validate(ValidateArgs),
     #[command(
+        about = "Open the admin UI of a server in your browser, as a visitor with admin access"
+    )]
+    Admin(AdminArgs),
+    #[command(
         about = "Show the running burrow servers on this machine: clients, services, visitors and traffic"
     )]
     Status(StatusArgs),
@@ -287,6 +291,70 @@ pub struct RunArgs {
     pub config: Option<PathBuf>,
     #[arg(long, hide = true, value_name = "FILE")]
     pub env_file: Option<PathBuf>,
+}
+
+#[derive(Debug, Args)]
+pub struct AdminArgs {
+    #[arg(
+        short,
+        long,
+        help = "Visitor config file; ./visitor.yaml, or the one installed visitor service, when omitted"
+    )]
+    pub config: Option<PathBuf>,
+    #[arg(
+        long,
+        value_name = "NAME",
+        conflicts_with = "config",
+        help = "Use the config of this installed visitor service"
+    )]
+    pub service: Option<String>,
+    #[arg(
+        long,
+        default_value_t = 0,
+        help = "Local port on 127.0.0.1 for the UI; 0 picks a free one"
+    )]
+    pub port: u16,
+    #[arg(long, help = "Do not open the browser")]
+    pub no_open: bool,
+    #[arg(long, help = "Print the link with its one-time token")]
+    pub print_url: bool,
+    #[arg(
+        long,
+        value_name = "FILE",
+        help = "Write the link with its token to FILE, readable by you only"
+    )]
+    pub url_file: Option<PathBuf>,
+    #[arg(
+        long,
+        value_name = "DURATION",
+        default_value = "30m",
+        value_parser = parse_duration,
+        help = "Stop after this long without a browser connected, like 90s, 30m or 2h"
+    )]
+    pub idle_exit: std::time::Duration,
+    #[arg(long, help = "Print the version and size of the built-in UI, and exit")]
+    pub ui_info: bool,
+    #[arg(long, value_name = "DIR", hide = true)]
+    pub ui_dir: Option<PathBuf>,
+}
+
+pub fn parse_duration(text: &str) -> Result<std::time::Duration, String> {
+    let t = text.trim();
+    let split = t.find(|c: char| !c.is_ascii_digit()).unwrap_or(t.len());
+    let (n, unit) = t.split_at(split);
+    let n: u64 = n
+        .parse()
+        .map_err(|_| format!("\"{text}\" is not a duration like 90s, 30m or 2h"))?;
+    let secs = match unit {
+        "" | "s" => n,
+        "m" => n.saturating_mul(60),
+        "h" => n.saturating_mul(3600),
+        _ => return Err(format!("\"{text}\" is not a duration like 90s, 30m or 2h")),
+    };
+    if secs == 0 {
+        return Err("the duration must be more than 0".into());
+    }
+    Ok(std::time::Duration::from_secs(secs))
 }
 
 #[derive(Debug, Args)]

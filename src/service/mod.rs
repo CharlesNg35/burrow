@@ -1078,6 +1078,13 @@ pub fn services_hidden() -> bool {
     dir.exists() && std::fs::read_dir(&dir).is_err()
 }
 
+pub fn saved_env(name: &str) -> BTreeMap<String, String> {
+    match (system::backend(), load_manifest(name)) {
+        (Ok(b), Ok(m)) => b.read_env(&m),
+        _ => BTreeMap::new(),
+    }
+}
+
 pub fn all_manifests() -> Vec<Manifest> {
     let Ok(dir) = std::fs::read_dir(Platform::current().state_dir()) else {
         return Vec::new();

@@ -69,6 +69,10 @@ insta = "1.49.0"
 rcgen = { version = "0.14.10", default-features = false, features = ["ring", "pem", "crypto"] }
 tempfile = "3.27.0"
 
+[build-dependencies]
+blake2 = "0.10.6"
+serde_json = "1.0.154"
+
 [features]
 default = ["ring", "admin", "admin-ui"]
 ring = ["snow/ring-accelerated"]
@@ -95,3 +99,7 @@ crc32fast.opt-level = 3
 [[bench]]
 name = "cipher"
 harness = false
+
+[[test]]
+name = "admin"
+required-features = ["admin", "admin-ui"]

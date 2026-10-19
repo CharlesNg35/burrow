@@ -497,6 +497,10 @@ fn run(cli: Cli) -> Result<u8, Failure> {
             err_style,
         ),
         Command::Service { action } => service(action, logging),
+        #[cfg(feature = "admin-ui")]
+        Command::Admin(args) => admin(args),
+        #[cfg(not(feature = "admin-ui"))]
+        Command::Admin(_) => Err(Failure::new("this burrow was built without burrow admin")),
         Command::Server(args) => {
             let env = run_env(args.env_file.as_deref())?;
             burrow::run::server(&config_path(args.config, Some(Role::Server))?, logging, env)
@@ -511,6 +515,68 @@ fn run(cli: Cli) -> Result<u8, Failure> {
             burrow::run::visit(&path, logging, visit_pick(args)?, env)
         }
     }
+}
+
+#[cfg(feature = "admin-ui")]
+fn admin(args: burrow::cli::AdminArgs) -> Result<u8, Failure> {
+    use burrow::admin_local::find::{Found, Installed, choose, unreadable};
+    if args.ui_info {
+        print!("{}", burrow::admin_local::assets::info());
+        return Ok(0);
+    }
+    let here = burrow::config::discover::in_folder(std::path::Path::new("."))
+        .into_iter()
+        .filter(|(_, r)| *r == Role::Visitor)
+        .map(|(p, _)| p)
+        .next();
+    let services: Vec<Installed> =
+        if args.config.is_none() && (here.is_none() || args.service.is_some()) {
+            burrow::service::all_manifests()
+                .into_iter()
+                .filter(|m| m.role == "visitor")
+                .map(|m| Installed {
+                    name: m.name,
+                    config: m.config,
+                    env_file: m.env_file,
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+    let found = choose(args.config, here, &services, args.service.as_deref())?;
+    let (path, env) = match found {
+        Found::File(p) => (p, burrow::run::Env::default()),
+        Found::Service(s) => {
+            let readable = |p: &std::path::Path| {
+                std::fs::File::open(p)
+                    .map(drop)
+                    .map_err(|e| unreadable(p, &e))
+            };
+            readable(&s.config)?;
+            let env = match &s.env_file {
+                Some(f) => {
+                    readable(f)?;
+                    burrow::service::saved_env(&s.name)
+                }
+                None => Default::default(),
+            };
+            println!(
+                "using the installed visitor service {} ({})",
+                s.name,
+                s.config.display()
+            );
+            (s.config, burrow::run::Env::with(env))
+        }
+    };
+    let opts = burrow::admin_local::Options {
+        port: args.port,
+        open: !args.no_open,
+        print_url: args.print_url,
+        url_file: args.url_file,
+        idle_exit: args.idle_exit,
+        ui_dir: args.ui_dir,
+    };
+    burrow::run::admin(&path, env, opts)
 }
 
 fn run_env(file: Option<&std::path::Path>) -> Result<burrow::run::Env, Failure> {

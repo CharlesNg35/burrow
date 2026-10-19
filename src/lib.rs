@@ -19,6 +19,8 @@ static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 #[cfg(feature = "admin")]
 pub mod admin;
+#[cfg(feature = "admin-ui")]
+pub mod admin_local;
 pub mod allowlist;
 pub mod cli;
 pub mod client;

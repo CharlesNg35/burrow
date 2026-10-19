@@ -471,3 +471,223 @@ async fn an_oversized_message_closes_the_session() {
     assert!(matches!(end, Ok(None) | Err(_)), "{end:?}");
     let _ = w.stop.send(true);
 }
+
+struct Local {
+    port: u16,
+    token: String,
+    stop: watch::Sender<bool>,
+    task: tokio::task::JoinHandle<Result<(), burrow::failure::Failure>>,
+}
+
+async fn local(w: &World, name: &str, secret: &Secret) -> Local {
+    let mut s = common::visitor_settings(w.addr, secret.clone(), Vec::new());
+    s.name = name.to_string();
+    let listener = burrow::admin_local::bind(0).await.unwrap();
+    let opts = burrow::admin_local::Options {
+        port: 0,
+        open: false,
+        print_url: false,
+        url_file: None,
+        idle_exit: Duration::from_secs(600),
+        ui_dir: None,
+    };
+    let (stop, stop_rx) = watch::channel(false);
+    let (url_tx, url_rx) = tokio::sync::oneshot::channel();
+    let task = tokio::spawn(async move {
+        let mut url_tx = Some(url_tx);
+        burrow::admin_local::serve(listener, &s, &opts, stop_rx, |r| {
+            if let Some(tx) = url_tx.take() {
+                let _ = tx.send(r.url.clone());
+            }
+        })
+        .await
+    });
+    let url = url_rx.await.unwrap();
+    let port: u16 = url
+        .trim_start_matches("http://127.0.0.1:")
+        .split('/')
+        .next()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let token = url.split("#token=").nth(1).unwrap().to_string();
+    Local {
+        port,
+        token,
+        stop,
+        task,
+    }
+}
+
+async fn http_get(port: u16, head: &str) -> String {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let mut s = tokio::net::TcpStream::connect(("127.0.0.1", port))
+        .await
+        .unwrap();
+    s.write_all(head.as_bytes()).await.unwrap();
+    let mut out = Vec::new();
+    let _ = tokio::time::timeout(Duration::from_secs(5), s.read_to_end(&mut out)).await;
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+type Ws =
+    tokio_websockets::WebSocketStream<tokio_websockets::MaybeTlsStream<tokio::net::TcpStream>>;
+
+async fn ws(port: u16, origin: &str) -> Result<Ws, String> {
+    let b = tokio_websockets::ClientBuilder::new()
+        .uri(&format!("ws://127.0.0.1:{port}/api"))
+        .unwrap()
+        .add_header(
+            http::header::ORIGIN,
+            http::HeaderValue::from_str(origin).unwrap(),
+        )
+        .unwrap();
+    b.connect().await.map(|(w, _)| w).map_err(|e| e.to_string())
+}
+
+async fn ws_text(w: &mut Ws) -> Option<Value> {
+    use futures_util::StreamExt;
+    loop {
+        let m = tokio::time::timeout(Duration::from_secs(10), w.next())
+            .await
+            .ok()??
+            .ok()?;
+        if m.is_close() {
+            return None;
+        }
+        if let Some(t) = m.as_text() {
+            return serde_json::from_str(t).ok();
+        }
+    }
+}
+
+async fn ws_send(w: &mut Ws, v: Value) {
+    use futures_util::SinkExt;
+    w.send(tokio_websockets::Message::text(v.to_string()))
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn the_local_page_is_only_served_to_this_machine() {
+    let w = world().await;
+    let l = local(&w, "ops", &w.ops).await;
+    let ok = http_get(
+        l.port,
+        &format!("GET / HTTP/1.1\r\nHost: 127.0.0.1:{}\r\n\r\n", l.port),
+    )
+    .await;
+    assert!(ok.starts_with("HTTP/1.1 200"), "{ok}");
+    assert!(ok.contains("Content-Security-Policy: default-src 'none'"));
+    assert!(ok.contains("Cache-Control: no-store"));
+    assert!(!ok.to_ascii_lowercase().contains("set-cookie"));
+    assert!(!ok.to_ascii_lowercase().contains("access-control-allow"));
+    let evil = http_get(l.port, "GET / HTTP/1.1\r\nHost: evil.example\r\n\r\n").await;
+    assert!(evil.starts_with("HTTP/1.1 403"), "{evil}");
+    let rebind = http_get(
+        l.port,
+        &format!("GET / HTTP/1.1\r\nHost: evil.example:{}\r\n\r\n", l.port),
+    )
+    .await;
+    assert!(rebind.starts_with("HTTP/1.1 403"), "{rebind}");
+    let cross = http_get(
+        l.port,
+        &format!(
+            "GET / HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nSec-Fetch-Site: cross-site\r\n\r\n",
+            l.port
+        ),
+    )
+    .await;
+    assert!(cross.starts_with("HTTP/1.1 403"), "{cross}");
+    let bad_origin = ws(l.port, "http://evil.example").await;
+    assert!(bad_origin.is_err());
+    let _ = l.stop.send(true);
+    let _ = w.stop.send(true);
+}
+
+#[tokio::test]
+async fn the_websocket_needs_the_token_first() {
+    let w = world().await;
+    let l = local(&w, "ops", &w.ops).await;
+    let origin = format!("http://127.0.0.1:{}", l.port);
+    let started = std::time::Instant::now();
+    let mut silent = ws(l.port, &origin).await.unwrap();
+    assert!(
+        ws_text(&mut silent).await.is_none(),
+        "no token, no messages"
+    );
+    assert!(
+        started.elapsed() < Duration::from_secs(7),
+        "closed within about 5 s"
+    );
+    let mut wrong = ws(l.port, &origin).await.unwrap();
+    ws_send(&mut wrong, json!({"auth": "0".repeat(64)})).await;
+    assert!(ws_text(&mut wrong).await.is_none());
+    let mut right = ws(l.port, &origin).await.unwrap();
+    ws_send(&mut right, json!({"auth": l.token})).await;
+    let open = ws_text(&mut right).await.unwrap();
+    assert_eq!(open["ev"], "bridge");
+    assert_eq!(open["body"]["state"], "open");
+    ws_send(&mut right, json!({"id": 1, "t": "welcome", "body": {}})).await;
+    let welcome = ws_text(&mut right).await.unwrap();
+    assert_eq!(welcome["re"], 1);
+    assert_eq!(welcome["body"]["you"]["visitor"], "ops");
+    let big = "x".repeat(150 * 1024);
+    ws_send(
+        &mut right,
+        json!({"id": 2, "t": "ping", "body": {"pad": big}}),
+    )
+    .await;
+    let pong = ws_text(&mut right).await.unwrap();
+    assert_eq!(
+        pong["re"], 2,
+        "a message larger than one record crosses the bridge"
+    );
+    let _ = w.stop.send(true);
+    let mut closed = None;
+    for _ in 0..10 {
+        match ws_text(&mut right).await {
+            Some(v) if v["ev"] == "bridge" => {
+                closed = Some(v);
+                break;
+            }
+            Some(_) => {}
+            None => break,
+        }
+    }
+    let closed = closed.expect("the bridge says the server side ended");
+    assert_eq!(closed["body"]["state"], "server-closed");
+    let _ = l.stop.send(true);
+    let _ = l.task.await;
+}
+
+#[tokio::test]
+async fn a_visitor_without_admin_rights_is_told_before_anything_opens() {
+    let w = world().await;
+    let mut s = common::visitor_settings(w.addr, w.plain.clone(), Vec::new());
+    s.name = "plain".into();
+    let e = burrow::admin_local::check_access(&s).await.unwrap_err();
+    assert_eq!(
+        e.message,
+        format!("visitor \"plain\" has no admin rights on {}", s.server)
+    );
+    assert_eq!(
+        e.hint.as_deref(),
+        Some(
+            "add \"admin: write\" (or \"admin: read\") to visitors.plain in server.yaml on the server"
+        )
+    );
+    assert_eq!(e.exit, 1);
+    let mut s = common::visitor_settings(w.addr, w.viewer.clone(), Vec::new());
+    s.name = "viewer".into();
+    burrow::admin_local::check_access(&s).await.unwrap();
+    let l = local(&w, "plain", &w.plain).await;
+    let origin = format!("http://127.0.0.1:{}", l.port);
+    let mut tab = ws(l.port, &origin).await.unwrap();
+    ws_send(&mut tab, json!({"auth": l.token})).await;
+    let refused = ws_text(&mut tab).await.unwrap();
+    assert_eq!(refused["body"]["state"], "refused");
+    assert_eq!(refused["body"]["reason"], "forbidden");
+    let _ = l.stop.send(true);
+    let _ = w.stop.send(true);
+}

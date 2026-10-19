@@ -568,7 +568,10 @@ visitors:
 
 ```sh
 burrow admin -c ops-laptop.yaml     # opens the browser on http://127.0.0.1:<random port>
+burrow admin --no-open --print-url  # ./visitor.yaml, or the one installed visitor service
 ```
+
+Without `-c`, it uses `./visitor.yaml`, or else the installed visitor service (`--service NAME` picks one of several). A visitor without admin rights gets an error in the terminal and no browser opens. It stops after 30 minutes without a browser tab (`--idle-exit`).
 
 - Use a dedicated visitor for admin; `validate` warns when it also reaches services.
 - The UI listens on `127.0.0.1` only and needs a one-time token that is never on the command line. For a remote machine, use `ssh -L`.
