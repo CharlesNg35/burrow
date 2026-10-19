@@ -139,7 +139,7 @@ fn check_sem(sem: &SemType, v: &Value) -> Result<(), String> {
             }
         }
         SemType::Host => hostport::check_host(&want_text(v)?),
-        SemType::ServerAddress => hostport::parse_host_port(&want_text(v)?).map(|_| ()),
+        SemType::ServerAddress => server_address(&want_text(v)?),
         SemType::Cidr => rule::parse_cidr_loose(&want_text(v)?)
             .map(|_| ())
             .map_err(|e| e.describe()),
@@ -256,6 +256,23 @@ pub fn refs_exist(node: &Node, v: &Value, names: &[String]) -> Result<(), String
     }
 }
 
+fn server_address(t: &str) -> Result<(), String> {
+    let hostport = match t.strip_prefix("wss://").or_else(|| t.strip_prefix("ws://")) {
+        Some(rest) => rest.split('/').next().unwrap_or_default(),
+        None if t.contains("://") => {
+            return Err(format!(
+                "\"{t}\" must be a host, host:port, or a ws:// or wss:// URL"
+            ));
+        }
+        None => t,
+    };
+    if hostport.starts_with('[') || hostport.matches(':').count() == 1 {
+        hostport::parse_host_port(hostport).map(|_| ())
+    } else {
+        hostport::check_host(hostport)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -297,6 +314,24 @@ mod tests {
         bad(bind.clone(), json!("localhost:99999"));
         let single = SemType::IpPort(IpPortC::default());
         bad(single, json!("7840-7841"));
+    }
+
+    #[test]
+    fn server_addresses_take_a_host_host_port_or_a_websocket_url() {
+        for v in [
+            "tunnel.example.net",
+            "tunnel.example.net:7835",
+            "203.0.113.7",
+            "wss://tunnel.example.net/burrow",
+            "ws://10.0.0.1:8080/b",
+            "[2001:db8::1]:443",
+        ] {
+            ok(SemType::ServerAddress, json!(v));
+        }
+        bad(SemType::ServerAddress, json!("bad host"));
+        bad(SemType::ServerAddress, json!("x:99999"));
+        bad(SemType::ServerAddress, json!("wss://"));
+        bad(SemType::ServerAddress, json!("https://x"));
     }
 
     #[test]

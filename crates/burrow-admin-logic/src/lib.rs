@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+pub mod addr;
 pub mod changeset;
 pub mod check;
 pub mod fallback;
