@@ -78,7 +78,10 @@ jobs:
         run: cargo build --locked --release --target ${{ matrix.target }}
       - name: Run the built binary
         if: matrix.runs
-        run: ./target/${{ matrix.target }}/release/burrow version
+        shell: bash
+        run: |
+          ./target/${{ matrix.target }}/release/burrow version
+          ./target/${{ matrix.target }}/release/burrow admin --ui-info | grep -qx 'test_hooks: false'
       - name: Package
         shell: bash
         run: |

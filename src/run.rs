@@ -203,7 +203,6 @@ fn stop_on_signal(external: Option<watch::Receiver<bool>>) -> watch::Receiver<bo
     rx
 }
 
-#[cfg(feature = "admin-ui")]
 pub fn admin(path: &Path, env: Env, opts: crate::admin_local::Options) -> Result<u8, Failure> {
     let loaded = load(path, Role::Visitor, &env, &[])?;
     let Loaded::Visitor(settings, _) = loaded else {
@@ -354,14 +353,11 @@ fn run_server(path: &Path, logging: Logging, hosted: Option<Hosted>) -> Result<u
     drive(async move {
         let server = Server::bind(*settings.clone()).await?;
         let shared = server.shared();
-        #[cfg(feature = "admin")]
         let nudges = {
             let (hub, nudges) = crate::admin::adapters::hub(&shared, path, env.clone());
             shared.set_admin(hub);
             Some(nudges)
         };
-        #[cfg(not(feature = "admin"))]
-        let nudges = None;
         let _status = crate::status::publish(path, Arc::new(move || shared.status()));
         let stop = stop_on_signal(stop);
         let (reload_tx, reload_rx) = mpsc::channel(4);

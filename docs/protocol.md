@@ -191,7 +191,7 @@ AdminOpen     = 0x23 min:u8 max:u8 client:str8 features:u16 (feature:str8)*
 AdminAccepted = 0x24 version:u8
 ```
 
-`min` and `max` are the admin protocol versions the caller speaks (1..1 for burrow v0.1.0), `client` names the program for the audit (`burrow-admin-ui/0.1.0`), and `features` lists optional capabilities of the caller. The server checks the visitor and its secret, then its `admin` level and `admin_from` against the peer address, and answers `5 forbidden` on any mismatch, the same answer as every other refused visit. Over the session caps of section 10 it answers `7 busy`. It picks the highest common version; if there is none it sends `4 invalid` followed by one record with a text that names its range, and closes. Otherwise it sends AdminAccepted. A server built without the admin feature answers `4 invalid`, like any undecodable request.
+`min` and `max` are the admin protocol versions the caller speaks (1..1 for burrow v0.1.0), `client` names the program for the audit (`burrow-admin-ui/0.1.0`), and `features` lists optional capabilities of the caller. The server checks the visitor and its secret, then its `admin` level and `admin_from` against the peer address, and answers `5 forbidden` on any mismatch, the same answer as every other refused visit. Over the session caps of section 10 it answers `7 busy`. It picks the highest common version; if there is none it sends `4 invalid` followed by one record with a text that names its range, and closes. Otherwise it sends AdminAccepted.
 
 From then on both sides send admin records:
 

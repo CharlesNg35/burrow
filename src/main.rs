@@ -497,10 +497,7 @@ fn run(cli: Cli) -> Result<u8, Failure> {
             err_style,
         ),
         Command::Service { action } => service(action, logging),
-        #[cfg(feature = "admin-ui")]
         Command::Admin(args) => admin(args),
-        #[cfg(not(feature = "admin-ui"))]
-        Command::Admin(_) => Err(Failure::new("this burrow was built without burrow admin")),
         Command::Server(args) => {
             let env = run_env(args.env_file.as_deref())?;
             burrow::run::server(&config_path(args.config, Some(Role::Server))?, logging, env)
@@ -517,7 +514,6 @@ fn run(cli: Cli) -> Result<u8, Failure> {
     }
 }
 
-#[cfg(feature = "admin-ui")]
 fn admin(args: burrow::cli::AdminArgs) -> Result<u8, Failure> {
     use burrow::admin_local::find::{Found, Installed, choose, unreadable};
     if args.ui_info {

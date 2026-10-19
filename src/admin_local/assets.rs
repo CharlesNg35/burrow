@@ -42,6 +42,10 @@ pub fn info() -> String {
         ));
     }
     out.push_str(&format!("total {total} bytes embedded\n"));
+    out.push_str(&format!(
+        "test_hooks: {}\n",
+        cfg!(feature = "admin-test-hooks")
+    ));
     out
 }
 

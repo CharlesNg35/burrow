@@ -210,7 +210,6 @@ pub(super) async fn serve(
             answer_grants(&shared, &visitor, &secret, channel).await;
             return;
         }
-        #[cfg(feature = "admin")]
         Ok(Ok(b)) if burrow_admin_proto::frame::AdminOpen::is_admin_open(&b) => {
             let opened = crate::admin::Opened {
                 visitor,

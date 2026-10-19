@@ -7,9 +7,7 @@ fn main() {
         std::env::var("TARGET").unwrap_or_default()
     );
     println!("cargo::rustc-check-cfg=cfg(admin_ui_placeholder)");
-    if std::env::var_os("CARGO_FEATURE_ADMIN_UI").is_some() {
-        assets();
-    }
+    assets();
 }
 
 fn hex(bytes: &[u8]) -> String {
