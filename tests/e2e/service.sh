@@ -3,10 +3,11 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 PROFILE="${BURROW_E2E_PROFILE:-release}"
-cargo build --profile "$PROFILE" --manifest-path "$ROOT/Cargo.toml" --bin burrow --example loadgen -q
+cargo build --profile "$PROFILE" --manifest-path "$ROOT/Cargo.toml" --bin burrow --example loadgen --example admin_probe -q
 OUT="$ROOT/target/$([ "$PROFILE" = dev ] && echo debug || echo "$PROFILE")"
 B="$OUT/burrow"
 LOADGEN="$OUT/examples/loadgen"
+PROBE="$OUT/examples/admin_probe"
 case "$(uname)" in
   Darwin) STATE="/Library/Application Support/burrow/services" ;;
   *) STATE=/var/lib/burrow ;;
@@ -17,6 +18,7 @@ PIDS=()
 cleanup() {
   set +e
   sudo "$B" service uninstall burrow-e2e-visitor --purge >/dev/null 2>&1
+  sudo "$B" service uninstall burrow-e2e-admin --purge >/dev/null 2>&1
   sudo "$B" service uninstall burrow-e2e-client --purge >/dev/null 2>&1
   sudo "$B" service uninstall burrow-e2e-server --purge >/dev/null 2>&1
   for p in "${PIDS[@]}"; do kill "$p" 2>/dev/null; done
@@ -308,6 +310,56 @@ sudo cp "$WORK/good.yaml" "$CFG"
 sudo "$B" service start burrow-e2e-client >/dev/null
 running burrow-e2e-client || fail "not running after fixing the config"
 check "broken config reported, fixed config runs again"
+
+echo "== a server with an admin visitor may change its own config, under the sandbox"
+OPS="$("$B" gensecret)"
+"$B" init server -o e2e-admin.yaml >/dev/null
+sed -i.bak 's/0.0.0.0:7835/127.0.0.1:27936/; s/0.0.0.0:7840/127.0.0.1:27946/' e2e-admin.yaml
+printf 'visitors:\n  ops:\n    secret: %s\n    admin: write\n' "$OPS" >> e2e-admin.yaml
+chmod 600 e2e-admin.yaml
+printf 'server: 127.0.0.1:27936\nname: ops\nsecret: %s\nforwards: {}\n' "$OPS" > e2e-ops.yaml
+chmod 600 e2e-ops.yaml
+out="$(sudo "$B" service install -c e2e-admin.yaml 2>&1)" || fail "admin server install: $out"
+echo "$out" | grep -q "may change its config in /etc/burrow/e2e-admin because visitor ops has admin access" || fail "install does not say the config is writable: $out"
+running burrow-e2e-admin || fail "admin server not running"
+if [ "$(uname -s)" = Linux ]; then
+  sudo grep -q "^ReadWritePaths=/etc/burrow/e2e-admin$" /etc/systemd/system/burrow-e2e-admin.service || fail "the unit does not let the server write its config folder"
+  ACCOUNT="$(sudo stat -c '%U' /etc/burrow/e2e-admin/server.yaml)"
+  [ "$ACCOUNT" != root ] || fail "the installed config belongs to root"
+  [ "$(sudo stat -c '%a %U' /etc/burrow/e2e-admin)" = "700 $ACCOUNT" ] || fail "the config folder is not private to the service account $ACCOUNT: $(sudo stat -c '%a %U' /etc/burrow/e2e-admin)"
+fi
+for _ in $(seq 1 50); do "$PROBE" e2e-ops.yaml state >/dev/null 2>&1 && break; sleep 0.2; done
+state="$("$PROBE" e2e-ops.yaml state 2>&1)" || fail "admin state: $state"
+echo "$state" | grep -q '"writable":true' || fail "the installed server says it cannot write its config: $state"
+out="$("$PROBE" e2e-ops.yaml apply '[{"op":"add","path":["services","added"],"value":{"client":"home","bind":"127.0.0.1:27947","target":9}}]' 2>&1)" || fail "admin apply: $out"
+for _ in $(seq 1 50); do sudo "$B" status burrow-e2e-admin 2>/dev/null | grep -q "added" && break; sleep 0.2; done
+sudo "$B" status burrow-e2e-admin | grep -Eq "added +tcp +127.0.0.1:27947" || fail "the installed server did not reload the admin change: $(sudo "$B" status burrow-e2e-admin 2>&1)"
+sudo grep -q "added:" /etc/burrow/e2e-admin/server.yaml || fail "the change is not in the installed config"
+[ "$(sudo ls /etc/burrow/e2e-admin/.server.yaml.history | wc -l)" -ge 1 ] || fail "no earlier version was kept"
+sudo "$B" service logs burrow-e2e-admin -n 30 | grep -q "config changed by admin" || fail "the change is not in the service log"
+check "the sandboxed server applied a change made through the admin channel"
+if [ "$(uname -s)" = Linux ]; then
+  cat > "$WORK/add-admin.py" <<'PY'
+import sys
+secret, path = sys.argv[1], sys.argv[2]
+text = open(path).read().replace("visitors:\n", "visitors:\n  watcher:\n    secret: %s\n    admin: read\n" % secret, 1)
+open(path, "w").write(text)
+PY
+  WATCH="$("$B" gensecret)"
+  out="$(sudo "$B" edit e2e-server --editor "python3 $WORK/add-admin.py $WATCH" </dev/null 2>&1)" || true
+  sudo grep -q "watcher:" /etc/burrow/e2e-server.yaml || fail "could not add an admin visitor by hand: $out"
+  echo "$out" | grep -q "installed without permission to change its config" || fail "edit does not warn that admin will be read-only: $out"
+  printf 'server: 127.0.0.1:27935\nname: watcher\nsecret: %s\nforwards: {}\n' "$WATCH" > e2e-watcher.yaml
+  chmod 600 e2e-watcher.yaml
+  for _ in $(seq 1 50); do "$PROBE" e2e-watcher.yaml state >/dev/null 2>&1 && break; sleep 0.2; done
+  state="$("$PROBE" e2e-watcher.yaml state 2>&1)" || fail "read-only admin state: $state"
+  echo "$state" | grep -q '"writable":false' || fail "a server that cannot write its config claims it can: $state"
+  echo "$state" | grep -q '"code":"read-only-fs"' || fail "the read-only reason is not the sandbox: $state"
+  check "a server installed without admin says honestly that its config is read-only"
+fi
+sudo "$B" service uninstall burrow-e2e-admin --purge >/dev/null || fail "admin server uninstall"
+[ -e /etc/burrow/e2e-admin ] && fail "/etc/burrow/e2e-admin still exists"
+check "uninstall --purge removes the config folder and its versions"
 
 echo "== uninstall removes everything it created"
 sudo "$B" service uninstall burrow-e2e-server --purge
