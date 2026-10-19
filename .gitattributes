@@ -1,0 +1,6 @@
+tests/fixtures/** text eol=lf
+crates/burrow-admin-proto/tests/fixtures/** text eol=lf
+tests/admin_e2e/baselines/*.txt text eol=lf
+*.png binary
+*.woff2 binary
+*.sh text eol=lf
