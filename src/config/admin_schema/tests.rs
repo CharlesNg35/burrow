@@ -385,7 +385,9 @@ fn schema_matches_the_frozen_fixture() {
         std::fs::create_dir_all(fixture.parent().unwrap()).unwrap();
         std::fs::write(&fixture, &text).unwrap();
     }
-    let frozen = std::fs::read_to_string(&fixture).unwrap_or_default();
+    let frozen = std::fs::read_to_string(&fixture)
+        .unwrap_or_default()
+        .replace("\r\n", "\n");
     assert!(
         frozen == text,
         "the admin schema changed; review the change, then run with BURROW_UPDATE_FIXTURES=1 to record it in {}",
