@@ -267,6 +267,7 @@ fn service(action: ServiceAction, logging: burrow::run::Logging) -> Result<u8, F
                 start: !a.no_start,
                 print: a.print,
                 worker: a.worker,
+                admin_writable: a.admin_writable,
             };
             match &opts.worker {
                 Some(log) => Ok(service::as_worker(log, |out| service::install(&opts, out))),

@@ -391,6 +391,7 @@ mod tests {
             low_ports: false,
             files: vec![],
             version: "1.0.0".into(),
+            writable_dir: None,
         }
     }
 

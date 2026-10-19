@@ -218,7 +218,7 @@ impl Store for FileStore {
                         )
                     },
                     hint: if installed || ro {
-                        "let the installed server write its config with: sudo burrow service update --admin-writable".into()
+                        "install the service again so it may change its config: sudo burrow service install --admin-writable -c SERVER_CONFIG (this is the default when a visitor has admin access)".into()
                     } else {
                         format!(
                             "give the account the server runs as write access to {}",

@@ -230,6 +230,32 @@ impl Backend for WindowsService {
         )
     }
 
+    fn writable_folder(&self, dir: &Path, config: &Path, account: &str) -> Result<(), Failure> {
+        std::fs::create_dir_all(dir)
+            .map_err(|e| Failure::new(format!("cannot create {}: {e}", dir.display())))?;
+        if is_link(dir) {
+            return Err(Failure::new(format!(
+                "{} is a link or junction, not a folder",
+                dir.display()
+            )));
+        }
+        icacls(dir, &["/setowner", ADMINS, "/C", "/Q"])?;
+        icacls(
+            dir,
+            &[
+                "/inheritance:r",
+                "/grant:r",
+                &format!("{SYSTEM}:(OI)(CI)F"),
+                &format!("{ADMINS}:(OI)(CI)F"),
+                &format!("{account}:(OI)(CI)M"),
+            ],
+        )?;
+        if config.exists() {
+            grant(config, account, "M")?;
+        }
+        Ok(())
+    }
+
     fn prepare_dirs(&self, _account: &str) -> Result<(), Failure> {
         let p = Platform::Windows;
         let root = p.config_dir();

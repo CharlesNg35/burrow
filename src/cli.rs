@@ -163,6 +163,11 @@ pub struct ServiceInstallArgs {
     pub print: bool,
     #[arg(long, hide = true)]
     pub worker: Option<PathBuf>,
+    #[arg(
+        long,
+        help = "Let a server service change its own config, for burrow admin; on by default when a visitor has admin access"
+    )]
+    pub admin_writable: bool,
 }
 
 #[derive(Debug, Args)]
