@@ -1,0 +1,146 @@
+=== client home Yaml None
+server: tunnel.example.com:7835
+name: home
+secret: "${HOME_SECRET}"
+allow:
+  - 10.0.0.5/32:5432
+  - 127.0.0.1/32:3000
+--- notes
+
+=== client home Yaml Some("ws://tunnel.example.com/burrow")
+error: Failure { message: "invalid --server: the server has no websocket section", hint: Some("use the host name, or add a websocket section to the server config"), exit: 2 }
+=== client office Yaml None
+server: tunnel.example.com:7835
+name: office
+secret: ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8=
+allow:
+  - 127.0.0.1/32:8080-8082
+  - "[::1/128]:8080-8082"
+  - 10.0.0.5/32:5432
+--- notes
+
+=== client office Yaml Some("ws://tunnel.example.com/burrow")
+error: Failure { message: "invalid --server: the server has no websocket section", hint: Some("use the host name, or add a websocket section to the server config"), exit: 2 }
+=== client lab Yaml None
+server: tunnel.example.com:7835
+name: lab
+secret: QEFCQ0RFRkdISUpLTE1OT1BRUlNUVVZXWFlaW1xdXl8=
+allow:
+  - unix:/run/app.sock
+--- notes
+service "named" targets host name printer.lan; add its IP address to "allow" on the client
+=== client lab Yaml Some("ws://tunnel.example.com/burrow")
+error: Failure { message: "invalid --server: the server has no websocket section", hint: Some("use the host name, or add a websocket section to the server config"), exit: 2 }
+=== visitor laptop Yaml
+server: tunnel.example.com:7835
+name: laptop
+secret: YGFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6e3x9fn8=
+forwards:
+  db:
+    service: db
+    local: 5432
+  sock:
+    service: sock
+    local: 10000
+  lab:
+    client: lab
+    socks: true
+    local: 1080
+--- notes
+127.0.0.1:1080 is a SOCKS5 proxy into client "lab": point an app at it, or forward one target with: burrow visit --client lab --target 10.0.0.1:22 --local 2222
+=== visitor phone Yaml
+server: tunnel.example.com:7835
+name: phone
+secret: "${PHONE_SECRET}"
+forwards:
+  db:
+    service: db
+    local: 5432
+  named:
+    service: named
+    local: 10631
+--- notes
+
+=== client home Json None
+{
+  "server": "tunnel.example.com:7835",
+  "name": "home",
+  "secret": "${HOME_SECRET}",
+  "allow": [
+    "10.0.0.5/32:5432",
+    "127.0.0.1/32:3000"
+  ]
+}
+--- notes
+
+=== client home Json Some("ws://tunnel.example.com/burrow")
+error: Failure { message: "invalid --server: the server has no websocket section", hint: Some("use the host name, or add a websocket section to the server config"), exit: 2 }
+=== client office Json None
+{
+  "server": "tunnel.example.com:7835",
+  "name": "office",
+  "secret": "ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8=",
+  "allow": [
+    "127.0.0.1/32:8080-8082",
+    "[::1/128]:8080-8082",
+    "10.0.0.5/32:5432"
+  ]
+}
+--- notes
+
+=== client office Json Some("ws://tunnel.example.com/burrow")
+error: Failure { message: "invalid --server: the server has no websocket section", hint: Some("use the host name, or add a websocket section to the server config"), exit: 2 }
+=== client lab Json None
+{
+  "server": "tunnel.example.com:7835",
+  "name": "lab",
+  "secret": "QEFCQ0RFRkdISUpLTE1OT1BRUlNUVVZXWFlaW1xdXl8=",
+  "allow": [
+    "unix:/run/app.sock"
+  ]
+}
+--- notes
+service "named" targets host name printer.lan; add its IP address to "allow" on the client
+=== client lab Json Some("ws://tunnel.example.com/burrow")
+error: Failure { message: "invalid --server: the server has no websocket section", hint: Some("use the host name, or add a websocket section to the server config"), exit: 2 }
+=== visitor laptop Json
+{
+  "server": "tunnel.example.com:7835",
+  "name": "laptop",
+  "secret": "YGFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6e3x9fn8=",
+  "forwards": {
+    "db": {
+      "service": "db",
+      "local": 5432
+    },
+    "sock": {
+      "service": "sock",
+      "local": 10000
+    },
+    "lab": {
+      "client": "lab",
+      "socks": true,
+      "local": 1080
+    }
+  }
+}
+--- notes
+127.0.0.1:1080 is a SOCKS5 proxy into client "lab": point an app at it, or forward one target with: burrow visit --client lab --target 10.0.0.1:22 --local 2222
+=== visitor phone Json
+{
+  "server": "tunnel.example.com:7835",
+  "name": "phone",
+  "secret": "${PHONE_SECRET}",
+  "forwards": {
+    "db": {
+      "service": "db",
+      "local": 5432
+    },
+    "named": {
+      "service": "named",
+      "local": 10631
+    }
+  }
+}
+--- notes
+
