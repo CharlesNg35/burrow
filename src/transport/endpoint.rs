@@ -24,6 +24,11 @@ impl Endpoint {
             return Err("the address is empty".into());
         }
         let Some((scheme, rest)) = s.split_once("://") else {
+            if s.contains('@') {
+                return Err(
+                    "user names and passwords are not allowed in the server address".into(),
+                );
+            }
             let host_port = with_default_port(s, DEFAULT_PORT);
             parse_host_port(&host_port)?;
             return Ok(Endpoint::Tcp { host_port });
@@ -148,6 +153,12 @@ pub fn valid_path(path: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_password_in_a_tcp_address_never_appears_in_the_error() {
+        let e = Endpoint::parse("admin:hunter2PASSW@h.example:7835").unwrap_err();
+        assert!(!e.contains("hunter2"), "{e}");
+    }
 
     #[test]
     fn only_paths_an_http_request_can_carry_are_valid() {
