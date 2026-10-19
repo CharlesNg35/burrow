@@ -1236,8 +1236,11 @@ async fn a_steady_udp_sender_follows_its_target_to_a_new_address() {
     let server = start_server(settings).await;
     let moved = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let c = client_settings(server.addr, secret);
-    let client = burrow::client::Client::new(over_transport(c))
-        .with_resolver(Arc::new(Moving(ea, eb, moved.clone())));
+    let client = burrow::client::Client::new(over_transport(c)).with_resolver(Arc::new(Moving(
+        ea,
+        eb,
+        moved.clone(),
+    )));
     let mut running = start_client_with(client).await;
     wait_state(&mut running.state, burrow::client::State::Connected).await;
     let sock = udp_bind().await;
@@ -1271,7 +1274,11 @@ impl burrow::transport::resolve::Resolver for Rotating {
             if !host_port.starts_with("app.test:") {
                 return burrow::transport::resolve::resolve(host_port).await;
             }
-            if self.2.fetch_add(1, std::sync::atomic::Ordering::Relaxed).is_multiple_of(2) {
+            if self
+                .2
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+                .is_multiple_of(2)
+            {
                 Ok(vec![self.0, self.1])
             } else {
                 Ok(vec![self.1, self.0])
@@ -1292,9 +1299,11 @@ async fn a_steady_udp_sender_stays_put_while_round_robin_dns_rotates() {
     settings.services.insert("app".into(), app);
     let server = start_server(settings).await;
     let c = client_settings(server.addr, secret);
-    let client = burrow::client::Client::new(over_transport(c)).with_resolver(Arc::new(
-        Rotating(ea, eb, std::sync::atomic::AtomicUsize::new(0)),
-    ));
+    let client = burrow::client::Client::new(over_transport(c)).with_resolver(Arc::new(Rotating(
+        ea,
+        eb,
+        std::sync::atomic::AtomicUsize::new(0),
+    )));
     let mut running = start_client_with(client).await;
     wait_state(&mut running.state, burrow::client::State::Connected).await;
     let sock = udp_bind().await;
@@ -1306,7 +1315,11 @@ async fn a_steady_udp_sender_stays_put_while_round_robin_dns_rotates() {
             tags.insert(t);
         }
     }
-    assert_eq!(tags.len(), 1, "a steady sender moved between addresses: {tags:?}");
+    assert_eq!(
+        tags.len(),
+        1,
+        "a steady sender moved between addresses: {tags:?}"
+    );
 }
 
 struct Phased(SocketAddr, SocketAddr, Arc<std::sync::atomic::AtomicUsize>);
@@ -1348,9 +1361,15 @@ async fn a_udp_relay_returns_to_ipv4_after_one_ipv6_only_answer() {
     let server = start_server(settings).await;
     let phase = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let mut c = client_settings(server.addr, secret);
-    c.allow = AllowList::Rules(vec!["127.0.0.0/8".parse().unwrap(), "::1/128".parse().unwrap()]);
-    let client = burrow::client::Client::new(over_transport(c))
-        .with_resolver(Arc::new(Phased(ea, eb, phase.clone())));
+    c.allow = AllowList::Rules(vec![
+        "127.0.0.0/8".parse().unwrap(),
+        "::1/128".parse().unwrap(),
+    ]);
+    let client = burrow::client::Client::new(over_transport(c)).with_resolver(Arc::new(Phased(
+        ea,
+        eb,
+        phase.clone(),
+    )));
     let mut running = start_client_with(client).await;
     wait_state(&mut running.state, burrow::client::State::Connected).await;
     let sock = udp_bind().await;
@@ -1368,11 +1387,19 @@ async fn a_udp_relay_returns_to_ipv4_after_one_ipv6_only_answer() {
     while started.elapsed() < Duration::from_secs(45) && now != Some(b'B') {
         now = udp_tag(&sock).await.or(now);
     }
-    assert_eq!(now, Some(b'B'), "the relay did not follow the IPv6-only answer");
+    assert_eq!(
+        now,
+        Some(b'B'),
+        "the relay did not follow the IPv6-only answer"
+    );
     phase.store(2, std::sync::atomic::Ordering::Relaxed);
     let started = std::time::Instant::now();
     while started.elapsed() < Duration::from_secs(45) && now != Some(b'A') {
         now = udp_tag(&sock).await.or(now);
     }
-    assert_eq!(now, Some(b'A'), "the relay stayed on IPv6 once IPv4 was listed again");
+    assert_eq!(
+        now,
+        Some(b'A'),
+        "the relay stayed on IPv6 once IPv4 was listed again"
+    );
 }

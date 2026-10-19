@@ -488,7 +488,10 @@ mod tests {
         while rx.try_recv().is_ok() {}
         std::fs::write(&config, "c").unwrap();
         let seen = tokio::time::timeout(Duration::from_secs(5), rx.recv()).await;
-        assert!(matches!(seen, Ok(Some(_))), "the replaced folder is not watched");
+        assert!(
+            matches!(seen, Ok(Some(_))),
+            "the replaced folder is not watched"
+        );
     }
 
     #[tokio::test]
@@ -505,7 +508,10 @@ mod tests {
         while rx.try_recv().is_ok() {}
         std::fs::write(&config, "b").unwrap();
         let seen = tokio::time::timeout(Duration::from_secs(5), rx.recv()).await;
-        assert!(matches!(seen, Ok(Some(_))), "the working watcher was dropped");
+        assert!(
+            matches!(seen, Ok(Some(_))),
+            "the working watcher was dropped"
+        );
     }
 
     #[test]
