@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU8, Ordering};
@@ -88,9 +89,9 @@ const TRUSTED_OWNERS: [&str; 3] = [
     "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464",
 ];
 
-fn owner_sid(path: &Path) -> Option<String> {
+fn owner_and_me(path: &Path) -> Option<(String, String)> {
     let script = format!(
-        "(Get-Acl -LiteralPath '{}').GetOwner([System.Security.Principal.SecurityIdentifier]).Value",
+        "'{{0}} {{1}}' -f (Get-Acl -LiteralPath '{}').GetOwner([System.Security.Principal.SecurityIdentifier]).Value, [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value",
         path.display().to_string().replace('\'', "''")
     );
     let out = run(
@@ -98,8 +99,9 @@ fn owner_sid(path: &Path) -> Option<String> {
         &["-NoProfile", "-NonInteractive", "-Command", &script],
     )
     .ok()?;
-    let sid = out.trim();
-    sid.starts_with("S-1-").then(|| sid.to_string())
+    let (owner, me) = out.trim().split_once(' ')?;
+    (owner.starts_with("S-1-") && me.starts_with("S-1-"))
+        .then(|| (owner.to_string(), me.to_string()))
 }
 
 fn is_link(path: &Path) -> bool {
@@ -226,7 +228,8 @@ impl Backend for WindowsService {
         let inner = [p.state_dir(), p.log_dir(), instances.clone(), p.jobs_dir()];
         for dir in std::iter::once(&root).chain(&inner) {
             if dir.exists()
-                && let Some(owner) = owner_sid(dir)
+                && let Some((owner, me)) = owner_and_me(dir)
+                && owner != me
                 && !TRUSTED_OWNERS.contains(&owner.as_str())
             {
                 return Err(Failure::new(format!(
@@ -280,13 +283,23 @@ impl Backend for WindowsService {
         let Some(path) = &m.env_file else {
             return Ok(());
         };
-        let _ = std::fs::remove_file(path);
-        std::fs::write(path, "")
+        match std::fs::remove_file(path) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+                return Err(Failure::new(format!("cannot replace {}: {e}", path.display()))
+                    .hint("another program may hold it open; delete the file and run the command again"));
+            }
+            _ => {}
+        }
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(path)
             .map_err(|e| Failure::new(format!("cannot write {}: {e}", path.display())))?;
         self.secure_file(path, &m.account)?;
-        std::fs::write(
-            path,
-            serde_json::to_string_pretty(env).expect("env serializes"),
+        file.write_all(
+            serde_json::to_string_pretty(env)
+                .expect("env serializes")
+                .as_bytes(),
         )
         .map_err(|e| Failure::new(format!("cannot write {}: {e}", path.display())))
     }
