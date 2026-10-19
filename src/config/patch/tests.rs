@@ -297,3 +297,123 @@ fn random_edits_always_give_exactly_the_wanted_values() {
         "only {in_place} of {cases} edits were made in place"
     );
 }
+
+#[test]
+fn cr_only_files_keep_their_line_ends() {
+    let text = FILE.replace('\n', "\r");
+    let out = yaml(&text, |v| v["services"]["web"]["bind"] = json!(7841));
+    assert_eq!(out.text, text.replace("bind: 7840", "bind: 7841"));
+    let out = yaml(&text, |v| {
+        v["services"]["db"] = json!({"client": "home", "target": 5432})
+    });
+    assert!(!out.text.contains('\n'), "{:?}", out.text);
+    assert!(
+        out.text
+            .contains("\r  db:\r    client: home\r    target: 5432\r")
+    );
+}
+
+#[test]
+fn variables_stay_variables() {
+    let out = yaml(FILE, |v| {
+        v["clients"]["office"]["secret"] = json!("${OFFICE_SECRET}");
+        v["listen"] = json!("${PORT}");
+    });
+    assert!(
+        out.text.contains("listen: \"${PORT}\" # all interfaces"),
+        "{}",
+        out.text
+    );
+    assert!(out.text.contains("    secret: ${HOME_SECRET}\n"));
+    assert!(
+        out.text
+            .contains("office: { secret: \"${OFFICE_SECRET}\" }"),
+        "{}",
+        out.text
+    );
+}
+
+#[test]
+fn json_files_take_every_kind_of_edit() {
+    let text = "{\r\n  \"listen\": 7835,\r\n  \"clients\": {\r\n    \"home\": { \"secret\": \"a\" }\r\n  },\r\n  \"services\": {}\r\n}\r\n";
+    let target = json!({
+        "listen": 7836,
+        "clients": {"house": {"secret": ["a", "b"]}},
+        "services": {"web": {"client": "house", "target": 3000}}
+    });
+    let out = patch(text, Format::Json, &target, &[]).unwrap();
+    assert_eq!(serde_json::from_str::<Value>(&out.text).unwrap(), target);
+    assert!(
+        out.text.contains("\r\n  \"listen\": 7836,\r\n"),
+        "{:?}",
+        out.text
+    );
+    assert!(!out.text.replace("\r\n", "").contains('\n'));
+    let bom = format!("\u{feff}{}", text.replace("\r\n", "\n"));
+    let out = patch(&bom, Format::Json, &target, &[]).unwrap();
+    assert!(out.text.starts_with('\u{feff}'));
+    assert!(patch("{ nope", Format::Json, &target, &[]).is_err());
+}
+
+#[test]
+fn a_multi_line_flow_value_is_rewritten_as_a_block_and_nothing_else_moves() {
+    let text = "a: {\n  b: 1,\n  c: [1,\n    2]\n}\nd: 1\n";
+    let mut target = tree::parse(text).unwrap().to_json();
+    target["a"]["c"] = json!([1, 2, 3]);
+    let out = patch(text, Format::Yaml, &target, &[]).unwrap();
+    assert_eq!(tree::parse(&out.text).unwrap().to_json(), target);
+    assert_eq!(
+        out.text,
+        "a:\n  b: 1\n  c:\n    - 1\n    - 2\n    - 3\nd: 1\n"
+    );
+    assert!(patch("a: [1\n", Format::Yaml, &target, &[]).is_err());
+}
+
+#[test]
+fn a_layout_that_cannot_be_edited_in_place_is_reformatted_openly() {
+    let text = "a:\n  - x: 1 # one\n    y: 2\nb: 1 # keep\n";
+    let mut target = tree::parse(text).unwrap().to_json();
+    target["a"][0]["x"] = json!(3);
+    let out = patch(text, Format::Yaml, &target, &[]).unwrap();
+    assert_eq!(tree::parse(&out.text).unwrap().to_json(), target);
+    let r = out.reformat.expect("the rewrite is reported");
+    assert_eq!(r.scope, ["a"]);
+    assert!(out.text.ends_with("b: 1 # keep\n"), "{}", out.text);
+}
+
+#[test]
+fn explicit_and_odd_keys_never_panic() {
+    for text in [
+        "?\r\n55[[::",
+        "? a\n: 1\nb: 2\n",
+        "? [x]\n: 1\n",
+        "a:\n  ? b\n  : 1\n",
+        "::\r\u{feff}:",
+        ":\n-\rL:\n\n-::\n-\r :\n",
+        ":\t\u{feff}##\r\n#\r\n#\n#\r\n##k71:{:\n/:\r\ro:",
+    ] {
+        let Ok(root) = tree::parse(&split_text(text).2) else {
+            continue;
+        };
+        let original = root.to_json();
+        let Some(keys) = original
+            .as_object()
+            .map(|m| m.keys().cloned().collect::<Vec<_>>())
+        else {
+            continue;
+        };
+        for k in keys {
+            for v in [json!("v"), json!([1, "x"]), json!({"a": 1}), json!(4)] {
+                let mut target = original.clone();
+                target[&k] = v.clone();
+                target["k4"] = v;
+                if let Ok(out) = patch(text, Format::Yaml, &target, &[]) {
+                    assert_eq!(
+                        tree::parse(&split_text(&out.text).2).unwrap().to_json(),
+                        target
+                    );
+                }
+            }
+        }
+    }
+}

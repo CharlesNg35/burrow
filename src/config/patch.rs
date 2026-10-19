@@ -141,22 +141,26 @@ impl Edits {
     }
 }
 
-pub fn split_text(text: &str) -> (&'static str, bool, String) {
+pub fn split_text(text: &str) -> (&'static str, &'static str, String) {
     let (bom, body) = match text.strip_prefix('\u{feff}') {
         Some(rest) => ("\u{feff}", rest),
         None => ("", text),
     };
-    let crlf = body.contains("\r\n");
-    let src = if crlf {
-        body.replace("\r\n", "\n")
-    } else {
-        body.to_string()
-    };
-    (bom, crlf, src)
+    if body.contains("\r\n") {
+        return (bom, "\r\n", body.replace("\r\n", "\n"));
+    }
+    if body.contains('\r') {
+        return (bom, "\r", body.replace('\r', "\n"));
+    }
+    (bom, "\n", body.to_string())
 }
 
-fn join_text(bom: &str, crlf: bool, out: String) -> String {
-    let out = if crlf { out.replace('\n', "\r\n") } else { out };
+fn join_text(bom: &str, eol: &str, out: String) -> String {
+    let out = if eol == "\n" {
+        out
+    } else {
+        out.replace('\n', eol)
+    };
     format!("{bom}{out}")
 }
 
@@ -168,7 +172,16 @@ pub fn patch(
 ) -> Result<Patched, PatchError> {
     match format {
         Format::Json => patch_json(text, target),
-        Format::Yaml => patch_yaml(text, target, renames),
+        Format::Yaml => {
+            let out = patch_yaml(text, target, renames)?;
+            let back = tree::parse(&split_text(&out.text).2).map(|n| n.to_json());
+            if back.as_ref() != Ok(target) {
+                return Err(PatchError::Verify(
+                    "the written file would not read back as the wanted values".into(),
+                ));
+            }
+            Ok(out)
+        }
     }
 }
 
@@ -183,7 +196,7 @@ fn json_indent(src: &str) -> usize {
 }
 
 fn patch_json(text: &str, target: &Value) -> Result<Patched, PatchError> {
-    let (bom, crlf, src) = split_text(text);
+    let (bom, eol, src) = split_text(text);
     let old: Value = serde_json::from_str(&src).map_err(|e| PatchError::Parse(e.to_string()))?;
     if &old == target {
         return Ok(Patched {
@@ -207,13 +220,13 @@ fn patch_json(text: &str, target: &Value) -> Result<Patched, PatchError> {
         ));
     }
     Ok(Patched {
-        text: join_text(bom, crlf, out),
+        text: join_text(bom, eol, out),
         reformat: None,
     })
 }
 
 fn patch_yaml(text: &str, target: &Value, renames: &[Rename]) -> Result<Patched, PatchError> {
-    let (bom, crlf, src) = split_text(text);
+    let (bom, eol, src) = split_text(text);
     let mut root = tree::parse(&src)
         .map_err(|e| PatchError::Parse(e.first().map(|e| e.message.clone()).unwrap_or_default()))?;
     if &root.to_json() == target && renames.is_empty() {
@@ -244,7 +257,7 @@ fn patch_yaml(text: &str, target: &Value, renames: &[Rename]) -> Result<Patched,
     };
     if let Some(out) = attempt {
         return Ok(Patched {
-            text: join_text(bom, crlf, out),
+            text: join_text(bom, eol, out),
             reformat: None,
         });
     }
@@ -266,7 +279,7 @@ fn patch_yaml(text: &str, target: &Value, renames: &[Rename]) -> Result<Patched,
         && verify(&out, target)
     {
         return Ok(Patched {
-            text: join_text(bom, crlf, out),
+            text: join_text(bom, eol, out),
             reformat: Some(Reformat { scope, reason }),
         });
     }
@@ -277,7 +290,7 @@ fn patch_yaml(text: &str, target: &Value, renames: &[Rename]) -> Result<Patched,
         ));
     }
     Ok(Patched {
-        text: join_text(bom, crlf, out),
+        text: join_text(bom, eol, out),
         reformat: Some(Reformat {
             scope: Vec::new(),
             reason,
@@ -413,7 +426,8 @@ fn entry_bounds(src: &str, entries: &[tree::Entry], indent: &str) -> Vec<(usize,
         .map(|i| {
             let end = match starts.get(i + 1) {
                 Some(&next) => {
-                    starts[i] + own_lines(&src[starts[i]..lead(src, next, indent)], indent.len())
+                    let to = lead(src, next, indent).max(starts[i]);
+                    starts[i] + own_lines(&src[starts[i]..to], indent.len())
                 }
                 None => end_of(
                     src,
@@ -453,6 +467,14 @@ fn diff_map(
     let indent = &src[first..entries[0].key_span.start.offset];
     if indent.chars().any(|c| c != ' ') {
         edits.give_up(path, "the keys do not start their lines");
+        return;
+    }
+    let increasing = entries.windows(2).all(|w| {
+        line_start(src, w[0].key_span.start.offset) < line_start(src, w[1].key_span.start.offset)
+            && w[0].value.span.end.offset <= w[1].key_span.start.offset
+    });
+    if !increasing {
+        edits.give_up(path, "several keys share a line");
         return;
     }
     let bounds = entry_bounds(src, entries, indent);
@@ -550,6 +572,14 @@ fn diff_value(
     let block_seq =
         matches!(&old.value, tree::Value::Seq(s) if !s.is_empty()) && !is_flow(src, old);
     let scalar_old = !matches!(old.value, tree::Value::Map(_) | tree::Value::Seq(_));
+    let key_end = entry.key_span.end.offset.min(src.len());
+    let colon_here = src[key_end..line_end(src, key_end).max(key_end)]
+        .trim_start_matches([' ', '"', '\''])
+        .starts_with(':');
+    if !colon_here || old.span.start.offset < key_end && !matches!(old.value, tree::Value::Null) {
+        edits.give_up(path, "a key written in an unusual way");
+        return;
+    }
     let after_colon = || {
         let from = entry.key_span.end.offset;
         from + src[from..].find(':').unwrap_or(0) + 1
@@ -561,6 +591,10 @@ fn diff_value(
             old.span.end.offset.max(entry.key_span.end.offset)
         };
         let line = line_end(src, end);
+        if after_colon() > line {
+            edits.give_up(path, "a key written in an unusual way");
+            return None;
+        }
         let own = src[after_colon()..line].trim_end_matches('\n');
         if own.contains('\n') && scalar_old {
             edits.give_up(path, "a multi-line scalar");
@@ -577,9 +611,11 @@ fn diff_value(
                 return;
             };
             let first = line_start(src, old_items[0].span.start.offset);
-            let dash = src[first..].find('-').map_or(0, |i| first + i);
-            let item_indent = &src[first..dash];
-            if item_indent.chars().any(|c| c != ' ') {
+            let dash = src[first..].find('-').map(|i| first + i);
+            let item_indent = dash.and_then(|d| src.get(first..d)).unwrap_or("-");
+            if item_indent.chars().any(|c| c != ' ')
+                || dash.is_none_or(|d| d > old_items[0].span.start.offset)
+            {
                 edits.give_up(path, "the list items do not start their lines");
                 return;
             }
