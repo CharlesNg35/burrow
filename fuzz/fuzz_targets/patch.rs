@@ -69,7 +69,9 @@ fuzz_target!(|data: &[u8]| {
         mutate(&mut target, ops);
         if let Ok(out) = patch(text, format, &target, &[]) {
             let back = match format {
-                Format::Yaml => tree::parse(&split_text(&out.text).2).ok().map(|n| n.to_json()),
+                Format::Yaml => tree::parse(&split_text(&out.text).2)
+                    .ok()
+                    .map(|n| n.to_json()),
                 Format::Json => serde_json::from_str::<Value>(&split_text(&out.text).2).ok(),
             };
             assert_eq!(back.as_ref(), Some(&target), "{}", out.text);

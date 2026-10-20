@@ -10,7 +10,8 @@ fuzz_target!(|data: &[u8]| {
     let _ = burrow::transport::ws::route(data, "/burrow");
     if let Ok(text) = std::str::from_utf8(data) {
         if let Ok(e) = burrow::transport::endpoint::Endpoint::parse(text) {
-            let _ = burrow::transport::endpoint::Endpoint::parse(&e.to_string()).expect("display round-trips");
+            let _ = burrow::transport::endpoint::Endpoint::parse(&e.to_string())
+                .expect("display round-trips");
         }
     }
     let secret = Secret::from_bytes([7u8; 32]);
@@ -21,7 +22,12 @@ fuzz_target!(|data: &[u8]| {
             if rest.len() >= len + MSG1_LEN {
                 if let Ok(p) = Preamble::from_parts(kind, flags, &rest[..len]) {
                     let msg1: [u8; MSG1_LEN] = rest[len..len + MSG1_LEN].try_into().unwrap();
-                    let _ = Responder::accept(p.cipher, std::slice::from_ref(&secret), &p.prologue(), &msg1);
+                    let _ = Responder::accept(
+                        p.cipher,
+                        std::slice::from_ref(&secret),
+                        &p.prologue(),
+                        &msg1,
+                    );
                 }
             }
         }
