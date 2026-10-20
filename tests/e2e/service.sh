@@ -61,7 +61,7 @@ esac
 SOCK="$SOCK_DIR/echo.sock"
 printf '  sock:\n    client: home\n    bind: 127.0.0.1:27941\n    target: unix:%s\n' "$SOCK" >> e2e-server.yaml
 printf '  db:\n    client: home\n    target: 127.0.0.1:19100\n    visitors: [laptop]\nvisitors:\n  laptop:\n    secret: %s\nmetrics:\n  listen: 127.0.0.1:27961\n' "$("$B" gensecret)" >> e2e-server.yaml
-sudo mkdir -p "$SOCK_DIR"
+sudo mkdir -p -m 755 "$SOCK_DIR"
 sudo python3 -c '
 import os, socket, sys, threading
 path = sys.argv[1]
