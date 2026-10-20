@@ -98,7 +98,7 @@ Clients retry forever with jittered backoff (250 ms up to 30 s, reset after 10 s
 
 ## D19. Default ports 7835-7840
 
-2333 is rathole's default, and 8080, 8081 and 8443 are among the most used ports on any host. burrow uses its own block, none of which is in the services database: 7835 for TCP clients, 7836 for WebSocket behind a proxy (bound to 127.0.0.1), 7837 for WebSocket with its own TLS, and 7840 for the example service written by `init`.
+2333 is rathole's default, and 8080, 8081 and 8443 are among the most used ports on any host. burrow uses its own block, none of which is in the services database: 7835 for TCP clients, 7836 for WebSocket behind a proxy (bound to 127.0.0.1), 7837 for WebSocket with its own TLS, 7839 for the local `burrow admin` UI, and 7840 for the example service written by `init`.
 
 ## D20. `burrow service` instead of shipped unit files
 
@@ -186,7 +186,7 @@ An admin change is a list of operations on paths, never text. The server applies
 
 ## D36. Local UI security: loopback, fragment token, no cookies, Host/Origin checks
 
-`burrow admin` listens on `127.0.0.1` with a random port and never on another address; remote use goes through `ssh -L`. A 256-bit token is required as the first WebSocket message; it reaches the browser in the URL fragment of a 0600 launch file in the private instance folder, so it is never on a command line, in a request or a Referer, and the page removes it from the address bar. There are no cookies, which are not isolated by port, and no CORS headers. Every request must name the local host and port in `Host` (against DNS rebinding), the WebSocket upgrade must come from exactly that `Origin`, and `Sec-Fetch-Site`, when sent, must be `same-origin` or `none`. Pages carry a strict CSP without inline scripts, and server-provided text is only ever inserted as text. The bridge in `burrow admin` passes admin messages through without reading them, so it does not have to change when the protocol grows.
+`burrow admin` listens on `127.0.0.1:7839`, or on a free port with a note when 7839 is taken (`--port N` is strict, `--port 0` always picks a free one), and never on another address. Every file of the UI is served with `Cache-Control: no-store`, so a process that held the port while burrow admin was off cannot leave its scripts in the browser cache; remote use goes through `ssh -L`. A 256-bit token is required as the first WebSocket message; it reaches the browser in the URL fragment of a 0600 launch file in the private instance folder, so it is never on a command line, in a request or a Referer, and the page removes it from the address bar. There are no cookies, which are not isolated by port, and no CORS headers. Every request must name the local host and port in `Host` (against DNS rebinding), the WebSocket upgrade must come from exactly that `Origin`, and `Sec-Fetch-Site`, when sent, must be `same-origin` or `none`. Pages carry a strict CSP without inline scripts, and server-provided text is only ever inserted as text. The bridge in `burrow admin` passes admin messages through without reading them, so it does not have to change when the protocol grows.
 
 ## D37. Leptos CSR, own design system, built once and embedded
 
