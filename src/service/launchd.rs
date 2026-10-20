@@ -6,8 +6,6 @@ use super::system::{make_dir, private_file, run, run_ok, write_private};
 use super::{Backend, Manifest, Platform, Status};
 use crate::failure::Failure;
 
-pub const INSTANCE_DIR: &str = "/Library/Application Support/burrow/instances";
-
 pub struct Launchd;
 
 fn label(m: &Manifest) -> String {
@@ -168,11 +166,10 @@ impl Backend for Launchd {
     }
 
     fn prepare_dirs(&self, _account: &str) -> Result<(), Failure> {
-        let p = Platform::MacOs;
-        make_dir(&p.config_dir(), 0o755, None)?;
-        make_dir(&p.state_dir(), 0o755, None)?;
-        make_dir(Path::new(INSTANCE_DIR), 0o1777, None)?;
-        make_dir(&p.log_dir(), 0o755, None)
+        for (dir, mode) in Platform::MacOs.launchd_folders() {
+            make_dir(&dir, mode, None)?;
+        }
+        Ok(())
     }
 
     fn read_env(&self, m: &Manifest) -> BTreeMap<String, String> {

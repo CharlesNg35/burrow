@@ -56,6 +56,18 @@ impl Platform {
         }
     }
 
+    pub fn launchd_folders(self) -> Vec<(PathBuf, u32)> {
+        let state = self.state_dir();
+        let base = state.parent().map(Path::to_path_buf).unwrap_or_default();
+        vec![
+            (self.config_dir(), 0o755),
+            (base.clone(), 0o755),
+            (state, 0o755),
+            (base.join("instances"), 0o1777),
+            (self.log_dir(), 0o755),
+        ]
+    }
+
     pub fn log_dir(self) -> PathBuf {
         match self {
             Platform::Windows => Self::program_data().join("burrow").join("logs"),
@@ -622,6 +634,62 @@ pub fn all_paths_under(files: &[PathBuf], roots: &[&str]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    pub(crate) fn under_umask_077(test: &str, body: impl FnOnce()) {
+        if std::env::var("BURROW_UMASK_TEST").as_deref() == Ok(test) {
+            rustix::process::umask(rustix::fs::Mode::from_raw_mode(0o077));
+            body();
+            return;
+        }
+        let out = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", test, "--nocapture", "--test-threads=1"])
+            .env("BURROW_UMASK_TEST", test)
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "{test} under umask 077: {}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert!(
+            String::from_utf8_lossy(&out.stdout).contains("1 passed"),
+            "{test} did not run in the child"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn macos_service_folders_stay_reachable_under_a_strict_umask() {
+        under_umask_077(
+            "service::system::tests::macos_service_folders_stay_reachable_under_a_strict_umask",
+            || {
+                use std::os::unix::fs::PermissionsExt;
+                let dir = tempfile::tempdir().unwrap();
+                let root = dir.path();
+                let at = |p: &Path| root.join(p.strip_prefix("/").unwrap());
+                let support = at(Path::new("/Library/Application Support"));
+                std::fs::create_dir_all(&support).unwrap();
+                for d in [root.join("Library"), support] {
+                    std::fs::set_permissions(&d, std::fs::Permissions::from_mode(0o755)).unwrap();
+                }
+                let mode = |p: &Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o7777;
+                let p = Platform::MacOs;
+                assert!(p.launchd_folders().iter().any(|(d, m)| {
+                    d == Path::new("/Library/Application Support/burrow/instances") && *m == 0o1777
+                }));
+                crate::instance::private_dir(&at(&p.jobs_dir())).unwrap();
+                for (d, m) in p.launchd_folders() {
+                    make_dir(&at(&d), m, None).unwrap();
+                }
+                let base = at(&p.state_dir()).parent().unwrap().to_path_buf();
+                assert_eq!(mode(&base), 0o755, "the shared burrow folder");
+                assert_eq!(mode(&at(&p.jobs_dir())), 0o700, "jobs stay private");
+                assert_eq!(mode(&base.join("instances")), 0o1777);
+            },
+        );
+    }
 
     #[test]
     fn service_changes_take_turns() {
