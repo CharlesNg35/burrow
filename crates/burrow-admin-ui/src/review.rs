@@ -1,7 +1,8 @@
 use burrow_admin_logic::changeset::get;
-use burrow_admin_logic::grant::{IN_THE_FILE, is_grant_code};
+use burrow_admin_logic::grant::IN_THE_FILE;
 use burrow_admin_proto::plan::{ChangeKind, Diff, Level, Plan, Refusal};
 use burrow_admin_proto::serde_json::Value;
+use burrow_syntax::grant::is_grant_code;
 use burrow_ui_kit::{
     Button, Callout, ConfirmInput, Dialog, DiffView, Edge, EdgeState, EmptyState, Hop, HopState,
     Icon, PathData, PathDiagram, Segmented, Skeleton, Tone, button_class, tag_class,

@@ -3,6 +3,7 @@
 pub mod cidr;
 pub mod duration;
 pub mod endpoint;
+pub mod grant;
 pub mod hostport;
 pub mod ip;
 pub mod name;

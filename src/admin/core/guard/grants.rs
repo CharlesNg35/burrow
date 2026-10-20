@@ -1,27 +1,27 @@
-use burrow_admin_logic::grant::{Grant, Power, grants};
-use burrow_admin_proto::msg::Level;
 use burrow_admin_proto::plan::Refusal;
+use burrow_syntax::grant::{Grant, Power, grants};
 
 use super::{Change, refusal};
+use crate::config::model::AdminLevel;
 use crate::config::settings::VisitorAuth;
 use crate::secret::Secret;
 
-fn power(v: &VisitorAuth) -> Power<&Secret> {
+fn power(v: &VisitorAuth) -> Power<AdminLevel, &Secret> {
     Power {
-        level: v.admin.map(Level::from),
+        level: v.admin,
         secrets: v.secrets.iter().collect(),
         from: v.admin_from.clone(),
     }
 }
 
-fn level(l: Level) -> &'static str {
+fn level(l: AdminLevel) -> &'static str {
     match l {
-        Level::Read => "read",
-        Level::Write => "write",
+        AdminLevel::Read => "read",
+        AdminLevel::Write => "write",
     }
 }
 
-fn what(name: &str, renamed_from: Option<&str>, g: &Grant<&Secret>) -> String {
+fn what(name: &str, renamed_from: Option<&str>, g: &Grant<AdminLevel, &Secret>) -> String {
     match (g, renamed_from) {
         (Grant::Admin(_), Some(old)) => format!(
             "an admin visitor is renamed only in the config file: visitor \"{old}\" would become \"{name}\""
