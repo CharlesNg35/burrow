@@ -383,6 +383,20 @@ running burrow-e2e-admin || fail "reinstalled admin server not running"
 left="$(sudo find /etc/burrow/e2e-admin -uid 0)"
 [ -z "$left" ] || fail "the reinstalled service account does not own its kept versions: $left"
 check "a reinstall gives the kept versions to the new service account"
+cp e2e-admin.yaml e2e-admin.writable
+sed -i.bak '/^visitors:/,$d' e2e-admin.yaml
+out="$(sudo "$B" service install -c e2e-admin.yaml 2>&1)" || fail "read-only reinstall of the admin server: $out"
+echo "$out" | grep -q '"/etc/burrow/e2e-admin"' || fail "the reinstall does not name the folder it no longer uses: $out"
+left="$(sudo find /etc/burrow/e2e-admin ! -uid 0)"
+[ -z "$left" ] || fail "a reinstall without admin left the old config folder with the service account: $left"
+check "a reinstall that turns admin writes off gives the old config folder and its versions to root"
+cp e2e-admin.writable e2e-admin.yaml
+out="$(sudo "$B" service install -c e2e-admin.yaml 2>&1)" || fail "writable reinstall of the admin server: $out"
+running burrow-e2e-admin || fail "admin server not running after turning admin writes on again"
+echo "$out" | grep -q '"/etc/burrow/e2e-admin.yaml"' || fail "the reinstall does not name the config it no longer uses: $out"
+[ "$(sudo stat -c '%u' /etc/burrow/e2e-admin.yaml 2>/dev/null || sudo stat -f '%u' /etc/burrow/e2e-admin.yaml)" = 0 ] || fail "the config no longer used is not given to root"
+sudo rm -f /etc/burrow/e2e-admin.yaml
+check "a reinstall that turns admin writes on gives the config it no longer uses to root"
 sudo "$B" service uninstall burrow-e2e-admin --purge >/dev/null || fail "admin server uninstall"
 [ -e /etc/burrow/e2e-admin ] && fail "/etc/burrow/e2e-admin still exists"
 check "uninstall --purge removes the config folder and its versions"

@@ -922,6 +922,39 @@ fn release_previous(
             ),
         )?;
     }
+    if let Some(dir) = &old.writable_dir
+        && new.writable_dir.as_ref() != Some(dir)
+        && writable_leftovers(dir, &old.config).is_some()
+    {
+        #[cfg(unix)]
+        {
+            let _ = system::give_plain_file(&old.config, 0, 0);
+            give_history(dir, &old.config, 0, 0);
+        }
+        say(
+            out,
+            format!(
+                "note: {} still holds the config and the versions burrow admin kept, secrets included; the service no longer uses it, so delete it with: {}",
+                dir.display(),
+                delete_hint(&[], Some(dir))
+            ),
+        )?;
+    }
+    if old.writable_dir.is_none()
+        && old.config != new.config
+        && std::fs::symlink_metadata(&old.config).is_ok_and(|m| m.file_type().is_file())
+    {
+        #[cfg(unix)]
+        let _ = system::give_plain_file(&old.config, 0, 0);
+        say(
+            out,
+            format!(
+                "note: {} holds the config the service used before, secrets included; the service no longer uses it, so delete it with: {}",
+                old.config.display(),
+                delete_hint(std::slice::from_ref(&old.config), None)
+            ),
+        )?;
+    }
     if old.copied_binary
         && (old.binary != new.binary || !new.copied_binary)
         && !others
