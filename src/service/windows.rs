@@ -240,6 +240,9 @@ impl Backend for WindowsService {
             )));
         }
         icacls(dir, &["/setowner", ADMINS, "/C", "/Q"])?;
+        // The service account gets Modify in install, once the service
+        // exists: before that its NT SERVICE name maps to no SID.
+        let _ = (config, account);
         icacls(
             dir,
             &[
@@ -247,13 +250,8 @@ impl Backend for WindowsService {
                 "/grant:r",
                 &format!("{SYSTEM}:(OI)(CI)F"),
                 &format!("{ADMINS}:(OI)(CI)F"),
-                &format!("{account}:(OI)(CI)M"),
             ],
-        )?;
-        if config.exists() {
-            grant(config, account, "M")?;
-        }
-        Ok(())
+        )
     }
 
     fn prepare_dirs(&self, _account: &str) -> Result<(), Failure> {
@@ -389,6 +387,10 @@ impl Backend for WindowsService {
         grant_dirs(&m.account)?;
         for f in &m.files {
             grant(f, &m.account, "R")?;
+        }
+        if let Some(dir) = &m.writable_dir {
+            grant(dir, &m.account, "(OI)(CI)M")?;
+            grant(&m.config, &m.account, "M")?;
         }
         Ok(())
     }

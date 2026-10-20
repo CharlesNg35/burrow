@@ -1,11 +1,12 @@
 $ErrorActionPreference = "Stop"
 $Root = Resolve-Path "$PSScriptRoot/../.."
 $BuildProfile = if ($env:BURROW_E2E_PROFILE) { $env:BURROW_E2E_PROFILE } else { "release" }
-cargo build --profile $BuildProfile --manifest-path "$Root/Cargo.toml" --bin burrow --example loadgen -q
+cargo build --profile $BuildProfile --manifest-path "$Root/Cargo.toml" --bin burrow --example loadgen --example admin_probe -q
 if ($LASTEXITCODE -ne 0) { throw "build failed" }
 $Out = Join-Path $Root "target/$(if ($BuildProfile -eq 'dev') { 'debug' } else { $BuildProfile })"
 $B = Join-Path $Out "burrow.exe"
 $Loadgen = Join-Path $Out "examples/loadgen.exe"
+$Probe = Join-Path $Out "examples/admin_probe.exe"
 $Work = Join-Path ([IO.Path]::GetTempPath()) ("burrow-e2e-" + [guid]::NewGuid())
 New-Item -ItemType Directory $Work | Out-Null
 $Echo = $null
@@ -214,6 +215,31 @@ try {
   if (-not (Running burrow-e2e-client)) { Fail "not running after start" }
   Check "stop and start"
 
+  Write-Host "== a server with an admin visitor may change its own config"
+  $Ops = (& $B gensecret).Trim()
+  & $B init server -o e2e-admin.yaml | Out-Null
+  (Get-Content e2e-admin.yaml) -replace '0.0.0.0:7835','127.0.0.1:27936' -replace '0.0.0.0:7840','127.0.0.1:27946' | Set-Content e2e-admin.yaml
+  Add-Content e2e-admin.yaml "visitors:`n  ops:`n    secret: $Ops`n    admin: write"
+  Set-Content e2e-ops.yaml "server: 127.0.0.1:27936`nname: ops`nsecret: $Ops`nforwards: {}"
+  $out = Burrow service install -c e2e-admin.yaml
+  Write-Host $out
+  if ($out -notmatch "may change its config in .*e2e-admin because visitor ops has admin access") { Fail "admin server install: $out" }
+  if (-not (Running burrow-e2e-admin)) { Fail "admin server not running" }
+  $AdminDir = "$env:ProgramData\burrow\e2e-admin"
+  if ((icacls $AdminDir | Out-String) -notmatch "NT SERVICE\\burrow-e2e-admin:\(OI\)\(CI\)\(M\)") { Fail "the service account may not change its config folder: $(icacls $AdminDir | Out-String)" }
+  for ($i = 0; $i -lt 50; $i++) { & $Probe e2e-ops.yaml state *> $null; if ($LASTEXITCODE -eq 0) { break }; Start-Sleep -Milliseconds 200 }
+  $state = & $Probe e2e-ops.yaml state 2>&1 | Out-String
+  if ($state -notmatch '"writable":true') { Fail "the installed server says it cannot write its config: $state" }
+  $out = & $Probe e2e-ops.yaml apply '[{"op":"add","path":["services","added"],"value":{"client":"home","bind":"127.0.0.1:27947","target":9}}]' 2>&1 | Out-String
+  if ($LASTEXITCODE -ne 0) { Fail "admin apply: $out" }
+  if ((Get-Content "$AdminDir\server.yaml" -Raw) -notmatch "added:") { Fail "the change is not in the installed config" }
+  $out = Burrow service install -c e2e-admin.yaml
+  if ($out -notmatch "kept the config changed by burrow admin as a history version") { Fail "reinstall over an admin change: $out" }
+  if (-not (Running burrow-e2e-admin)) { Fail "admin server not running after the reinstall" }
+  Burrow service uninstall burrow-e2e-admin --purge | Write-Host
+  if (Test-Path $AdminDir) { Fail "$AdminDir still exists" }
+  Check "a first install of an admin-writable server works and the service changes its own config"
+
   Write-Host "== uninstall removes everything it created"
   Burrow service uninstall burrow-e2e-visitor --purge | Write-Host
   Burrow service uninstall burrow-e2e-client --purge | Write-Host
@@ -244,6 +270,7 @@ finally {
   & $B service uninstall burrow-e2e-visitor --purge *> $null
   & $B service uninstall burrow-e2e-client --purge *> $null
   & $B service uninstall burrow-e2e-server --purge *> $null
+  & $B service uninstall burrow-e2e-admin --purge *> $null
   if ($Echo) { Stop-Process -Id $Echo.Id -Force -ErrorAction SilentlyContinue }
   Set-Location $Root
   Remove-Item -Recurse -Force $Work -ErrorAction SilentlyContinue
