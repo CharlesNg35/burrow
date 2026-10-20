@@ -213,7 +213,11 @@ pub fn admin(path: &Path, env: Env, opts: crate::admin_local::Options) -> Result
     };
     drive(async move {
         crate::admin_local::check_access(&settings).await?;
-        let listener = crate::admin_local::bind(opts.port).await?;
+        let (listener, note) =
+            crate::admin_local::listen(opts.port, crate::admin_local::DEFAULT_ADMIN_PORT).await?;
+        if let Some(note) = note {
+            crate::say_errln!("{note}");
+        }
         let stop = stop_on_signal(None);
         let dir = crate::instance::default_dir();
         let mut launch = None;

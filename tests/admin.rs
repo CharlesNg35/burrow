@@ -707,6 +707,8 @@ async fn burrow_admin_stops_at_once_when_it_cannot_write_the_url_file() {
             .args([
                 "--no-open",
                 "--print-url",
+                "--port",
+                "0",
                 "--idle-exit",
                 "60s",
                 "--url-file",
@@ -727,6 +729,131 @@ async fn burrow_admin_stops_at_once_when_it_cannot_write_the_url_file() {
     let _ = w.stop.send(true);
 }
 
+struct AdminRun {
+    child: std::process::Child,
+    lines: std::sync::mpsc::Receiver<String>,
+}
+
+impl AdminRun {
+    fn start(config: &std::path::Path, port: Option<&str>) -> AdminRun {
+        use std::io::BufRead;
+        let mut cmd = std::process::Command::new(env!("CARGO_BIN_EXE_burrow"));
+        cmd.arg("admin").arg("-c").arg(config).args([
+            "--no-open",
+            "--print-url",
+            "--idle-exit",
+            "30s",
+        ]);
+        if let Some(p) = port {
+            cmd.args(["--port", p]);
+        }
+        let mut child = cmd
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        let (tx, lines) = std::sync::mpsc::channel();
+        for out in [
+            Box::new(child.stdout.take().unwrap()) as Box<dyn std::io::Read + Send>,
+            Box::new(child.stderr.take().unwrap()),
+        ] {
+            let tx = tx.clone();
+            std::thread::spawn(move || {
+                for l in std::io::BufReader::new(out).lines().map_while(Result::ok) {
+                    let _ = tx.send(l);
+                }
+            });
+        }
+        AdminRun { child, lines }
+    }
+
+    fn until(&self, what: impl Fn(&str) -> bool) -> Vec<String> {
+        let mut seen = Vec::new();
+        let deadline = std::time::Instant::now() + Duration::from_secs(20);
+        while let Some(left) = deadline.checked_duration_since(std::time::Instant::now()) {
+            match self.lines.recv_timeout(left) {
+                Ok(l) => {
+                    let done = what(&l);
+                    seen.push(l);
+                    if done {
+                        return seen;
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+        panic!("burrow admin did not print what was expected: {seen:?}")
+    }
+}
+
+impl Drop for AdminRun {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+#[tokio::test]
+async fn burrow_admin_listens_on_7839_unless_it_is_taken_or_a_port_is_given() {
+    if std::net::TcpListener::bind("127.0.0.1:7839").is_err() {
+        println!("skipped: 127.0.0.1:7839 is in use on this machine");
+        return;
+    }
+    let w = world().await;
+    let dir = tempfile::tempdir().unwrap();
+    let server = if common::ws_mode() {
+        format!("ws://{}/burrow", w.addr)
+    } else {
+        w.addr.to_string()
+    };
+    let config = dir.path().join("visitor.yaml");
+    burrow::instance::write_private(
+        &config,
+        &format!("server: {server}\nname: ops\nsecret: {}\n", w.ops.encode()),
+    )
+    .unwrap();
+    let config2 = config.clone();
+    let seen = tokio::task::spawn_blocking(move || {
+        let first = AdminRun::start(&config2, None);
+        let seen = first.until(|l| l.contains("token="));
+        drop(first);
+        seen
+    })
+    .await
+    .unwrap();
+    assert!(
+        seen.iter().any(|l| l.contains("http://127.0.0.1:7839/")),
+        "{seen:?}"
+    );
+    let config2 = config.clone();
+    tokio::task::spawn_blocking(move || {
+        let held = std::net::TcpListener::bind("127.0.0.1:7839").unwrap();
+        let fallback = AdminRun::start(&config2, None);
+        let seen = fallback.until(|l| l.contains("token="));
+        assert!(
+            seen.iter().any(|l| l.contains("port 7839 is in use")),
+            "{seen:?}"
+        );
+        assert!(
+            !seen.iter().any(|l| l.contains("127.0.0.1:7839/")),
+            "{seen:?}"
+        );
+        drop(fallback);
+        let mut strict = AdminRun::start(&config2, Some("7839"));
+        let seen = strict.until(|l| l.contains("cannot listen on 127.0.0.1:7839"));
+        assert!(!seen.iter().any(|l| l.contains("token=")), "{seen:?}");
+        let status = strict.child.wait().unwrap();
+        assert_eq!(status.code(), Some(1));
+        let random = AdminRun::start(&config2, Some("0"));
+        let seen = random.until(|l| l.contains("token="));
+        assert!(!seen.iter().any(|l| l.contains(":7839/")), "{seen:?}");
+        drop(held);
+    })
+    .await
+    .unwrap();
+    let _ = w.stop.send(true);
+}
+
 struct Local {
     port: u16,
     token: String,
@@ -739,7 +866,7 @@ async fn local(w: &World, name: &str, secret: &Secret) -> Local {
     s.name = name.to_string();
     let listener = burrow::admin_local::bind(0).await.unwrap();
     let opts = burrow::admin_local::Options {
-        port: 0,
+        port: Some(0),
         open: false,
         print_url: false,
         url_file: None,

@@ -280,6 +280,8 @@ impl World {
                 "-c",
                 &file,
                 "--no-open",
+                "--port",
+                "0",
                 "--url-file",
                 &url_arg,
                 "--idle-exit",

@@ -242,7 +242,7 @@ async fn local(server: SocketAddr, secret: &Secret) -> Local {
     s.name = "ops".into();
     let listener = burrow::admin_local::bind(0).await.unwrap();
     let opts = burrow::admin_local::Options {
-        port: 0,
+        port: Some(0),
         open: false,
         print_url: false,
         url_file: None,

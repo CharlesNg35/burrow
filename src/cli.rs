@@ -310,10 +310,9 @@ pub struct AdminArgs {
     pub service: Option<String>,
     #[arg(
         long,
-        default_value_t = 0,
-        help = "Local port on 127.0.0.1 for the UI; 0 picks a free one"
+        help = "Local port on 127.0.0.1 for the UI; 7839 when free, otherwise any free port; 0 always picks a free one"
     )]
-    pub port: u16,
+    pub port: Option<u16>,
     #[arg(long, help = "Do not open the browser")]
     pub no_open: bool,
     #[arg(long, help = "Print the link with its one-time token")]

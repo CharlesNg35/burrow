@@ -1076,7 +1076,15 @@ fn a_visitor_without_admin_rights_is_refused_in_the_terminal() {
     });
     let file = w.visitor_file("plain");
     let out = Command::new(BIN)
-        .args(["admin", "-c", &file, "--no-open", "--print-url"])
+        .args([
+            "admin",
+            "-c",
+            &file,
+            "--no-open",
+            "--print-url",
+            "--port",
+            "0",
+        ])
         .current_dir(w.path())
         .env("BURROW_INSTANCE_DIR", w.file("inst-admin"))
         .output()

@@ -29,7 +29,7 @@ const WRITE_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Debug, Clone)]
 pub struct Options {
-    pub port: u16,
+    pub port: Option<u16>,
     pub open: bool,
     pub print_url: bool,
     pub url_file: Option<PathBuf>,
@@ -199,6 +199,28 @@ async fn connection(mut stream: TcpStream, shared: Arc<Shared>) {
 pub struct Running {
     pub addr: SocketAddr,
     pub url: String,
+}
+
+pub const DEFAULT_ADMIN_PORT: u16 = 7839;
+
+pub async fn listen(
+    port: Option<u16>,
+    default: u16,
+) -> Result<(TcpListener, Option<String>), Failure> {
+    if let Some(p) = port {
+        return Ok((bind(p).await?, None));
+    }
+    if let Ok(l) = bind(default).await {
+        return Ok((l, None));
+    }
+    let l = bind(0).await?;
+    let note = l.local_addr().ok().map(|a| {
+        format!(
+            "port {default} is in use; the UI is on 127.0.0.1:{}",
+            a.port()
+        )
+    });
+    Ok((l, note))
 }
 
 pub async fn bind(port: u16) -> Result<TcpListener, Failure> {
