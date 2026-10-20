@@ -15,8 +15,6 @@ use crate::handshake::Channel;
 use crate::reload::{Nudge, ReloadOutcome};
 use crate::server::ApplyReport;
 
-const KEEPALIVE: Duration = Duration::from_secs(25);
-const SILENCE: Duration = Duration::from_secs(90);
 const IDLE: Duration = Duration::from_secs(30 * 60);
 const RELOAD_WAIT: Duration = Duration::from_secs(15);
 const FILE_CHECK: Duration = Duration::from_secs(3);
@@ -160,10 +158,11 @@ async fn writer_task(
     mut rx: mpsc::Receiver<Out>,
     mut writer: crate::record::RecordWriter,
     mut wr: crate::transport::OwnedWriteHalf,
+    ping: Duration,
 ) {
     use tokio::io::AsyncWriteExt;
     loop {
-        let next = tokio::time::timeout(KEEPALIVE, rx.recv()).await;
+        let next = tokio::time::timeout(ping, rx.recv()).await;
         let records = match next {
             Err(_) => vec![frame::ping().to_vec()],
             Ok(Some(Out::Message(m))) => match frame::chunks(&m) {
@@ -205,7 +204,8 @@ pub async fn run(
     } = channel;
     let (mut rd, wr) = stream.into_split();
     let (tx, rx) = mpsc::channel::<Out>(64);
-    let writer = tokio::spawn(writer_task(rx, writer, wr));
+    let (ping, silence) = super::keepalive();
+    let writer = tokio::spawn(writer_task(rx, writer, wr, ping));
     let visitor = session.visitor.clone();
     let cx = Arc::new(Ctx {
         hub: hub.clone(),
@@ -225,6 +225,7 @@ pub async fn run(
     let mut file_check = tokio::time::interval(FILE_CHECK);
     file_check.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     let mut last_request = tokio::time::Instant::now();
+    let mut heard = tokio::time::Instant::now();
     let send = |v: Value| {
         let tx = tx.clone();
         async move { tx.send(Out::Message(encode(&v))).await.is_ok() }
@@ -232,12 +233,12 @@ pub async fn run(
     let end = loop {
         let idle_left = IDLE.saturating_sub(last_request.elapsed());
         tokio::select! {
-            record = tokio::time::timeout(SILENCE, reader.recv(&mut rd)) => {
+            record = reader.recv(&mut rd) => {
                 let record = match record {
-                    Err(_) => break "silent for 90 s",
-                    Ok(Err(_)) | Ok(Ok(None)) => break "closed",
-                    Ok(Ok(Some(r))) => r.to_vec(),
+                    Err(_) | Ok(None) => break "closed",
+                    Ok(Some(r)) => r.to_vec(),
                 };
+                heard = tokio::time::Instant::now();
                 if record.is_empty() {
                     break "closed";
                 }
@@ -329,6 +330,9 @@ pub async fn run(
             _ = shutdown.changed() => {
                 let _ = send(msg::event(msg::ev::BYE, serde_json::json!({}))).await;
                 break "server stopping";
+            }
+            _ = tokio::time::sleep_until(heard + silence) => {
+                break "silent for 90 s";
             }
             _ = tokio::time::sleep(idle_left), if status_every.is_none() && jobs.is_empty() => {
                 break "idle for 30 min";

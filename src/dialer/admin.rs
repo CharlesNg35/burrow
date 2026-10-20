@@ -37,25 +37,39 @@ pub struct AdminTx {
     wr: OwnedWriteHalf,
 }
 
+/// What one record from the server brought.
+pub enum Heard {
+    Message(Vec<u8>),
+    /// A ping or a part of a longer message.
+    Record,
+}
+
 impl AdminRx {
     pub async fn recv(&mut self) -> std::io::Result<Option<Vec<u8>>> {
         loop {
-            let Some(rec) = self.reader.recv(&mut self.rd).await? else {
-                return Ok(None);
-            };
-            if rec.is_empty() {
-                return Ok(None);
+            match self.recv_record().await? {
+                Some(Heard::Message(m)) => return Ok(Some(m)),
+                Some(Heard::Record) => continue,
+                None => return Ok(None),
             }
-            match self.assembler.push(rec) {
-                Ok(Frame::Message(m)) => return Ok(Some(m)),
-                Ok(_) => continue,
-                Err(e) => {
-                    return Err(std::io::Error::new(
-                        std::io::ErrorKind::InvalidData,
-                        e.to_string(),
-                    ));
-                }
-            }
+        }
+    }
+
+    /// The next record, so a caller can tell a live server from a silent one.
+    pub async fn recv_record(&mut self) -> std::io::Result<Option<Heard>> {
+        let Some(rec) = self.reader.recv(&mut self.rd).await? else {
+            return Ok(None);
+        };
+        if rec.is_empty() {
+            return Ok(None);
+        }
+        match self.assembler.push(rec) {
+            Ok(Frame::Message(m)) => Ok(Some(Heard::Message(m))),
+            Ok(_) => Ok(Some(Heard::Record)),
+            Err(e) => Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                e.to_string(),
+            )),
         }
     }
 }

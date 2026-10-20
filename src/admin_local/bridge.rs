@@ -11,12 +11,11 @@ use tokio_websockets::{CloseCode, Limits, Message, ServerBuilder};
 
 use super::token::Token;
 use crate::dialer::Dialer;
-use crate::dialer::admin::{AdminOpenError, AdminRefusal};
+use crate::dialer::admin::{AdminOpenError, AdminRefusal, Heard};
 use burrow_admin_proto::frame::{AdminOpen, MAX_MESSAGE};
 
 pub const AUTH_WAIT: Duration = Duration::from_secs(5);
 pub const CLOSE_WAIT: Duration = Duration::from_secs(1);
-const SERVER_PING: Duration = Duration::from_secs(25);
 
 pub struct Rewind {
     prefix: Bytes,
@@ -158,17 +157,18 @@ pub async fn serve(
         tx.close().await;
         return;
     }
+    let (ping, silence) = crate::admin::transport::keepalive();
+    // The server only hears this side through pings while the page is
+    // quiet, so they go out on their own clock, whatever else is sent.
+    let mut pings = tokio::time::interval_at(tokio::time::Instant::now() + ping, ping);
+    pings.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    let mut heard = tokio::time::Instant::now();
     let why = loop {
         tokio::select! {
-            from_browser = tokio::time::timeout(SERVER_PING, ws.next()) => match from_browser {
-                Err(_) => {
-                    if tx.ping().await.is_err() {
-                        break "the server connection broke";
-                    }
-                }
-                Ok(None) | Ok(Some(Err(_))) => break "the browser closed",
-                Ok(Some(Ok(m))) if m.is_close() => break "the browser closed",
-                Ok(Some(Ok(m))) => {
+            from_browser = ws.next() => match from_browser {
+                None | Some(Err(_)) => break "the browser closed",
+                Some(Ok(m)) if m.is_close() => break "the browser closed",
+                Some(Ok(m)) => {
                     let Some(text) = m.as_text() else {
                         continue;
                     };
@@ -180,18 +180,30 @@ pub async fn serve(
                     }
                 }
             },
-            from_server = rx.recv() => match from_server {
-                Ok(Some(m)) => {
-                    let Ok(text) = String::from_utf8(m) else {
-                        break "the server sent text that is not UTF-8";
-                    };
-                    if ws.send(Message::text(text)).await.is_err() {
-                        break "the browser went away";
-                    }
+            _ = pings.tick() => {
+                if tx.ping().await.is_err() {
+                    break "the server connection broke";
                 }
-                Ok(None) => break "the server closed the admin session",
-                Err(_) => break "the server connection broke",
-            },
+            }
+            from_server = rx.recv_record() => {
+                heard = tokio::time::Instant::now();
+                match from_server {
+                    Ok(Some(Heard::Message(m))) => {
+                        let Ok(text) = String::from_utf8(m) else {
+                            break "the server sent text that is not UTF-8";
+                        };
+                        if ws.send(Message::text(text)).await.is_err() {
+                            break "the browser went away";
+                        }
+                    }
+                    Ok(Some(Heard::Record)) => {}
+                    Ok(None) => break "the server closed the admin session",
+                    Err(_) => break "the server connection broke",
+                }
+            }
+            _ = tokio::time::sleep_until(heard + silence) => {
+                break "the server sent nothing for 90 s";
+            }
         }
     };
     let _ = ws.send(bridge_event("server-closed", why, why)).await;
