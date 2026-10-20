@@ -171,14 +171,8 @@ async fn printed_client_config_connects_to_generated_server() {
     )
     .unwrap();
 
-    let free = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    let port = free.local_addr().unwrap().port();
-    let svc_port = std::net::TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port();
-    drop(free);
+    let port = common::free_port();
+    let svc_port = common::free_port();
     let echo = echo_server().await;
     let text = std::fs::read_to_string(&server_path)
         .unwrap()
@@ -1026,11 +1020,7 @@ fn visitor_config_keeps_an_env_secret() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn printed_visitor_config_reaches_the_private_service() {
     let dir = tempfile::tempdir().unwrap();
-    let port = std::net::TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port();
+    let port = common::free_port();
     let echo = echo_server().await;
     let path = visitors_server(
         dir.path(),

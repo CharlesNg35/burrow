@@ -25,13 +25,7 @@ struct World {
     stop: watch::Sender<bool>,
 }
 
-fn free_port() -> u16 {
-    std::net::TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port()
-}
+use common::free_port;
 
 fn listener_line() -> String {
     if common::ws_mode() {

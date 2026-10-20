@@ -1,3 +1,5 @@
+mod common;
+
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
@@ -17,13 +19,7 @@ impl Drop for Running {
     }
 }
 
-fn free_port() -> u16 {
-    std::net::TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port()
-}
+use common::free_port;
 
 fn server_config(dir: &Path, file: &str) -> PathBuf {
     let config = dir.join(file);

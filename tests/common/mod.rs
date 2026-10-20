@@ -1,6 +1,10 @@
 #![allow(dead_code)]
 
+pub mod ports;
 pub mod socks;
+
+#[allow(unused_imports)]
+pub use ports::{free_port, free_range};
 
 use std::collections::BTreeMap;
 use std::net::SocketAddr;

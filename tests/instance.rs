@@ -1,13 +1,9 @@
+mod common;
+
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
-fn free_port() -> u16 {
-    std::net::TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port()
-}
+use common::free_port;
 
 struct Setup {
     dir: tempfile::TempDir,

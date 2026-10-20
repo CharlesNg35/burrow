@@ -1,7 +1,6 @@
 mod common;
 
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
 use burrow::config::model::Protocol;
@@ -12,22 +11,7 @@ use common::*;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream, UdpSocket};
 
-fn free_range(count: u16) -> u16 {
-    static NEXT: AtomicU32 = AtomicU32::new(0);
-    let seed = std::process::id().wrapping_mul(2_654_435_761);
-    for _ in 0..200 {
-        let n = NEXT.fetch_add(u32::from(count) + 1, Ordering::Relaxed);
-        let base = 20000 + (seed.wrapping_add(n) % 40000) as u16;
-        let all_free = (0..count).all(|i| {
-            let addr = SocketAddr::from(([127, 0, 0, 1], base + i));
-            std::net::TcpListener::bind(addr).is_ok() && std::net::UdpSocket::bind(addr).is_ok()
-        });
-        if all_free {
-            return base;
-        }
-    }
-    panic!("no free range of {count} ports");
-}
+use common::free_range;
 
 async fn tagged_tcp_targets(count: u16) -> u16 {
     let base = free_range(count);
