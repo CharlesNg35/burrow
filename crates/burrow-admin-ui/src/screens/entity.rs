@@ -900,7 +900,21 @@ fn Detail(section: String, name: String) -> impl IntoView {
                             let (path, nm, back, sec) = (path.clone(), nm.clone(), back.clone(), sec.clone());
                             view! {
                                 <div class="absolute top-10 right-0 z-30 w-48 rounded-[10px] border border-border-strong bg-surface p-1 shadow-overlay outline-none dark:bg-surface-2" id="entity-more-menu" tabindex="-1" data-testid="more-menu" on:click=move |_| menu.set(false)>
-                                    {can.then(|| view! { <button type="button" class="block w-full cursor-pointer rounded-md px-2 py-1.5 text-left text-sm hover:bg-surface-3" data-testid="rename-open" on:click=move |_| renaming.set(true)>"Rename…"</button> })}
+                                    {can.then(|| {
+                                        let path = path.clone();
+                                        let blocked = Memo::new(move |_| e.draft.with(|d| burrow_admin_logic::changeset::get(d.draft(), &path).is_some_and(|v| burrow_admin_logic::grant::would_grant(None, v))));
+                                        view! {
+                                            <button
+                                                type="button"
+                                                class=move || if blocked.get() { "block w-full cursor-not-allowed rounded-md px-2 py-1.5 text-left text-sm opacity-55" } else { "block w-full cursor-pointer rounded-md px-2 py-1.5 text-left text-sm hover:bg-surface-3" }
+                                                data-testid="rename-open"
+                                                disabled=move || blocked.get()
+                                                title=move || if blocked.get() { burrow_admin_logic::grant::IN_THE_FILE } else { "" }
+                                                on:click=move |_| renaming.set(true)
+                                            >"Rename…"</button>
+                                            {move || blocked.get().then(|| view! { <div class="px-2 pb-1">{crate::grants::in_the_file()}</div> })}
+                                        }
+                                    })}
                                     {can.then(|| {
                                         let (path, back) = (path.clone(), back.clone());
                                         view! { <button type="button" class="block w-full cursor-pointer rounded-md px-2 py-1.5 text-left text-sm text-danger hover:bg-surface-3" data-testid="delete" on:click=move |_| {

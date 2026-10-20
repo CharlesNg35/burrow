@@ -728,6 +728,26 @@ fn grant_lock(c: &mut Ctx) -> Flow<'_> {
             "an admin gets a new secret only in the file"
         );
         c.ui.shot("admin-secret-locked").await;
+        c.ui.click("[data-testid=more]").await;
+        c.ui.wait_for("[data-testid=more-menu] [data-testid=grant-lock]", SECS)
+            .await;
+        assert!(
+            !c.ui.enabled("[data-testid=rename-open]").await,
+            "an admin visitor is renamed only in the file"
+        );
+        c.ui.shot("admin-rename-locked").await;
+        c.ui.click("[data-testid=more]").await;
+        c.ui.nav("/visitors/plain").await;
+        c.ui.click("[data-testid=more]").await;
+        c.ui.wait_for("[data-testid=more-menu] [data-testid=rename-open]", SECS)
+            .await;
+        assert!(c.ui.enabled("[data-testid=rename-open]").await);
+        assert_eq!(
+            c.ui.count("[data-testid=more-menu] [data-testid=grant-lock]")
+                .await,
+            0
+        );
+        c.ui.click("[data-testid=more]").await;
 
         c.ui.nav("/visitors/ops").await;
         edit_mode(c).await;
