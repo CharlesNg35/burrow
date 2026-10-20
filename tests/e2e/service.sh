@@ -19,6 +19,8 @@ cleanup() {
   set +e
   sudo "$B" service uninstall burrow-e2e-visitor --purge >/dev/null 2>&1
   sudo "$B" service uninstall burrow-e2e-admin --purge >/dev/null 2>&1
+  sudo "$B" service uninstall burrow-e2e-inplace --purge >/dev/null 2>&1
+  sudo rm -rf /etc/burrow/e2e-inplace /etc/burrow/e2e-inplace.yaml.bak
   sudo "$B" service uninstall burrow-e2e-client --purge >/dev/null 2>&1
   sudo "$B" service uninstall burrow-e2e-server --purge >/dev/null 2>&1
   for p in "${PIDS[@]}"; do kill "$p" 2>/dev/null; done
@@ -367,6 +369,25 @@ PY
   echo "$state" | grep -q '"code":"read-only-fs"' || fail "the read-only reason is not the sandbox: $state"
   check "a server installed without admin says honestly that its config is read-only"
 fi
+
+echo "== a config installed in place from /etc/burrow is never called deletable"
+INPLACE=/etc/burrow/e2e-inplace.yaml
+"$B" init server -o e2e-inplace.yaml >/dev/null
+sed -i.bak 's/0.0.0.0:7835/127.0.0.1:27937/; s/0.0.0.0:7840/127.0.0.1:27948/' e2e-inplace.yaml
+sudo cp e2e-inplace.yaml "$INPLACE"
+sudo chmod 600 "$INPLACE"
+out="$(sudo "$B" service install -c "$INPLACE" 2>&1)" || fail "in-place install: $out"
+printf 'visitors:\n  ops:\n    secret: %s\n    admin: write\n' "$OPS" | sudo tee -a "$INPLACE" >/dev/null
+out="$(sudo "$B" service install -c "$INPLACE" 2>&1)" || fail "in-place reinstall with admin writes: $out"
+echo "$out" | grep -q "delete it with: sudo rm \"$INPLACE\"" && fail "the reinstall says to delete the source config: $out"
+sudo test -f "$INPLACE" || fail "the source config is gone"
+sudo sed -i.bak '/^visitors:/,$d' "$INPLACE"
+out="$(sudo "$B" service install -c "$INPLACE" 2>&1)" || fail "in-place reinstall without admin writes: $out"
+running burrow-e2e-inplace || fail "the in-place server does not run after switching admin writes off"
+out="$(sudo "$B" service install -c "$INPLACE" 2>&1)" || fail "a further in-place reinstall: $out"
+sudo "$B" service uninstall burrow-e2e-inplace --purge >/dev/null || fail "in-place uninstall"
+sudo rm -rf /etc/burrow/e2e-inplace "$INPLACE.bak"
+check "an in-place install switches admin writes on and off without being told to delete its source"
 
 echo "== uninstall removes everything it created"
 sudo "$B" service uninstall burrow-e2e-server --purge
