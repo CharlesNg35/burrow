@@ -27,6 +27,7 @@ jobs:
       - run: cargo clippy --locked --workspace --all-targets -- -D warnings
       - run: cargo clippy --locked --all-targets --features admin-test-hooks -- -D warnings
       - run: cargo xtask arch-check
+      - run: cargo test --locked -p xtask
 
   test:
     runs-on: ubuntu-latest
