@@ -389,6 +389,27 @@ sudo "$B" service uninstall burrow-e2e-inplace --purge >/dev/null || fail "in-pl
 sudo rm -rf /etc/burrow/e2e-inplace "$INPLACE.bak"
 check "an in-place install switches admin writes on and off without being told to delete its source"
 
+if [ "$(uname -s)" = Linux ]; then
+  echo "== a server run as root keeps its admin history under the systemd filter"
+  "$B" init server -o e2e-rootadmin.yaml >/dev/null
+  sed -i.bak 's/0.0.0.0:7835/127.0.0.1:27938/; s/0.0.0.0:7840/127.0.0.1:27949/' e2e-rootadmin.yaml
+  printf 'visitors:\n  ops:\n    secret: %s\n    admin: write\n' "$OPS" >> e2e-rootadmin.yaml
+  chmod 600 e2e-rootadmin.yaml
+  printf 'server: 127.0.0.1:27938\nname: ops\nsecret: %s\nforwards: {}\n' "$OPS" > e2e-rootops.yaml
+  chmod 600 e2e-rootops.yaml
+  out="$(sudo "$B" service install -c e2e-rootadmin.yaml --run-as root 2>&1)" || fail "root admin server install: $out"
+  running burrow-e2e-rootadmin || fail "root admin server not running"
+  for _ in $(seq 1 50); do "$PROBE" e2e-rootops.yaml state >/dev/null 2>&1 && break; sleep 0.2; done
+  out="$("$PROBE" e2e-rootops.yaml apply '[{"op":"add","path":["services","added"],"value":{"client":"home","bind":"127.0.0.1:27939","target":9}}]' 2>&1)" || fail "root admin apply: $out"
+  for _ in $(seq 1 50); do sudo sh -c 'ls /etc/burrow/e2e-rootadmin/.server.yaml.history/* >/dev/null 2>&1' && break; sleep 0.2; done
+  [ "$(sudo ls /etc/burrow/e2e-rootadmin/.server.yaml.history | wc -l)" -ge 1 ] || fail "a root server kept no version on disk"
+  state="$("$PROBE" e2e-rootops.yaml state 2>&1)" || fail "root admin state: $state"
+  echo "$state" | grep -q '"why_not_history":"' && fail "a root server says it cannot keep its history: $state"
+  sudo "$B" service uninstall burrow-e2e-rootadmin --purge >/dev/null || fail "root admin server uninstall"
+  [ -e /etc/burrow/e2e-rootadmin ] && fail "/etc/burrow/e2e-rootadmin still exists"
+  check "a root server keeps its admin history on disk"
+fi
+
 echo "== uninstall removes everything it created"
 sudo "$B" service uninstall burrow-e2e-server --purge
 sudo "$B" service uninstall burrow-e2e-client --purge

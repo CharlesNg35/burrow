@@ -93,8 +93,22 @@ impl FileStore {
 
     #[cfg(unix)]
     fn write_history(&self, rev: &str, body: &str) -> std::io::Result<()> {
-        use rustix::fs::{AtFlags, Mode, OFlags};
         use std::os::unix::fs::MetadataExt;
+        let owner = std::fs::symlink_metadata(&self.path)
+            .ok()
+            .filter(|_| rustix::process::geteuid().is_root())
+            .map(|cfg| (cfg.uid(), cfg.gid()));
+        self.write_history_for(rev, body, owner)
+    }
+
+    #[cfg(unix)]
+    fn write_history_for(
+        &self,
+        rev: &str,
+        body: &str,
+        owner: Option<(u32, u32)>,
+    ) -> std::io::Result<()> {
+        use rustix::fs::{AtFlags, Mode, OFlags};
         let dir = self.dir();
         if let Err(e) = std::fs::create_dir(&dir)
             && e.kind() != std::io::ErrorKind::AlreadyExists
@@ -108,12 +122,8 @@ impl FileStore {
         )
         .map_err(|_| std::io::Error::other("the history path is not a folder"))?;
         rustix::fs::fchmod(&fd, Mode::from_bits_truncate(0o700))?;
-        let owner = std::fs::symlink_metadata(&self.path)
-            .ok()
-            .filter(|_| rustix::process::geteuid().is_root())
-            .map(|cfg| (cfg.uid(), cfg.gid()));
-        if let Some((uid, gid)) = owner {
-            std::os::unix::fs::fchown(&fd, Some(uid), Some(gid))?;
+        if let Some(owner) = owner {
+            hand_over(&fd, owner)?;
         }
         let list = |fd: &rustix::fd::OwnedFd| -> std::io::Result<Vec<(u128, Version, String)>> {
             let mut out = Vec::new();
@@ -146,8 +156,8 @@ impl FileStore {
             )?);
             file.write_all(body.as_bytes())?;
             file.sync_all()?;
-            if let Some((uid, gid)) = owner {
-                let _ = std::os::unix::fs::fchown(&file, Some(uid), Some(gid));
+            if let Some(owner) = owner {
+                let _ = hand_over(&file, owner);
             }
             rustix::fs::renameat(&fd, draft.as_str(), &fd, name.as_str())?;
             Ok(())
@@ -399,6 +409,17 @@ impl Live for ServerLive {
     }
 }
 
+#[cfg(unix)]
+fn hand_over(fd: impl std::os::fd::AsFd, (uid, gid): (u32, u32)) -> std::io::Result<()> {
+    let now = rustix::fs::fstat(&fd)?;
+    if (now.st_uid, now.st_gid) == (uid, gid) {
+        return Ok(());
+    }
+    #[cfg(test)]
+    tests::CHOWNS.with(|c| c.set(c.get() + 1));
+    std::os::unix::fs::fchown(fd, Some(uid), Some(gid))
+}
+
 pub fn hub(
     shared: &Arc<Shared>,
     path: &Path,
@@ -564,6 +585,37 @@ pub async fn serve(shared: Arc<Shared>, mut channel: Channel, first: &[u8], open
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    thread_local! {
+        pub(super) static CHOWNS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn root_hands_the_history_over_only_when_its_owner_differs() {
+        use std::os::unix::fs::MetadataExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("server.yaml");
+        std::fs::write(&path, "listen: 1\n").unwrap();
+        let mine = std::fs::metadata(&path)
+            .map(|m| (m.uid(), m.gid()))
+            .unwrap();
+        let store = FileStore::new(&path);
+        let body = "listen: 2\n";
+        CHOWNS.with(|c| c.set(0));
+        store
+            .write_history_for(&text::rev(body), body, Some(mine))
+            .unwrap();
+        assert_eq!(CHOWNS.with(|c| c.get()), 0, "nothing to hand over");
+        assert_eq!(store.versions().len(), 1);
+        let theirs = (mine.0.wrapping_add(1), mine.1);
+        let _ = store.write_history_for(&text::rev("listen: 3\n"), "listen: 3\n", Some(theirs));
+        assert!(
+            CHOWNS.with(|c| c.get()) > 0,
+            "a folder of another owner is handed over"
+        );
+    }
 
     #[tokio::test]
     async fn a_refusal_to_a_websocket_peer_that_never_closes_gives_up() {
