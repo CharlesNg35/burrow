@@ -445,13 +445,14 @@ impl Access for SettingsAccess {
 
 async fn answer(ch: &mut Channel, records: &[&[u8]]) {
     use tokio::io::AsyncWriteExt;
-    for r in records {
-        if ch.writer.send(&mut ch.stream, r).await.is_err() {
-            return;
+    let sent = async {
+        for r in records {
+            ch.writer.send(&mut ch.stream, r).await?;
         }
-    }
-    let _ = ch.writer.send(&mut ch.stream, &[]).await;
-    let _ = ch.stream.shutdown().await;
+        ch.writer.send(&mut ch.stream, &[]).await?;
+        ch.stream.shutdown().await
+    };
+    let _ = tokio::time::timeout(crate::forward::ANSWER_TIMEOUT, sent).await;
 }
 
 pub async fn serve(shared: Arc<Shared>, mut channel: Channel, first: &[u8], opened: Opened) {
@@ -563,6 +564,18 @@ pub async fn serve(shared: Arc<Shared>, mut channel: Channel, first: &[u8], open
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn a_refusal_to_a_websocket_peer_that_never_closes_gives_up() {
+        let (ours, _held) = crate::transport::testing::held_websocket().await;
+        let mut ch = crate::transport::testing::sealed(ours);
+        tokio::time::timeout(
+            crate::forward::ANSWER_TIMEOUT + std::time::Duration::from_secs(3),
+            answer(&mut ch, &[&[Answer::Forbidden as u8]]),
+        )
+        .await
+        .expect("the refusal gives up on a peer that holds the socket");
+    }
 
     #[test]
     fn a_version_kept_again_counts_as_new_and_is_not_pruned() {

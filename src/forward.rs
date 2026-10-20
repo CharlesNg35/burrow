@@ -22,7 +22,7 @@ const KEEP_EARLY: usize = 64 * 1024;
 const EARLY_READ: usize = SMALL;
 
 const CLOSE_TIMEOUT: Duration = Duration::from_secs(2);
-const ANSWER_TIMEOUT: Duration = Duration::from_secs(10);
+pub(crate) const ANSWER_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Clone, Copy, Default)]
 pub struct Meter<'a> {

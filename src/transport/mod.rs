@@ -173,3 +173,51 @@ impl From<ws::WsConn> for Conn {
         Conn::Ws(Box::new(s))
     }
 }
+
+#[cfg(test)]
+pub(crate) mod testing {
+    pub(crate) async fn held_websocket() -> (crate::transport::Conn, crate::transport::Conn) {
+        use crate::transport::endpoint::Endpoint;
+        use crate::transport::ws::{Carrier, accept, connect};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let endpoint = Endpoint::WebSocket {
+            tls: false,
+            host: "127.0.0.1".into(),
+            port,
+            path: "/burrow".into(),
+        };
+        let dial = async {
+            let tcp = tokio::net::TcpStream::connect(("127.0.0.1", port))
+                .await
+                .unwrap();
+            connect(Carrier::Plain(tcp), &endpoint, &[]).await.unwrap()
+        };
+        let take = async {
+            let (tcp, _) = listener.accept().await.unwrap();
+            accept(Carrier::Plain(tcp), "/burrow").await.unwrap()
+        };
+        let (ours, theirs) = tokio::join!(take, dial);
+        (ours.into(), theirs.into())
+    }
+
+    pub(crate) fn sealed(stream: crate::transport::Conn) -> crate::handshake::Channel {
+        use crate::noise::{Initiator, Responder};
+        let s = crate::secret::Secret::generate();
+        let (_, m1) = Initiator::start(crate::config::model::Cipher::Chachapoly, &s, b"t");
+        let r = Responder::accept(
+            crate::config::model::Cipher::Chachapoly,
+            std::slice::from_ref(&s),
+            b"t",
+            &m1,
+        )
+        .unwrap();
+        let (session, _) = r.reply().unwrap();
+        let (sealer, opener) = session.split();
+        crate::handshake::Channel {
+            stream,
+            writer: crate::record::RecordWriter::new(sealer),
+            reader: crate::record::RecordReader::new(opener),
+        }
+    }
+}
