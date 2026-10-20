@@ -94,8 +94,6 @@ fn owner_and_me(path: &Path) -> Option<(String, String)> {
         "'{{0}} {{1}}' -f (Get-Acl -LiteralPath '{}').GetOwner([System.Security.Principal.SecurityIdentifier]).Value, [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value",
         path.display().to_string().replace('\'', "''")
     );
-    // Windows PowerShell by its full path, without the PSModulePath that
-    // PowerShell 7 exports: with it, Get-Acl cannot load its module.
     let exe = std::env::var_os("SystemRoot")
         .map_or_else(|| PathBuf::from(r"C:\Windows"), PathBuf::from)
         .join(r"System32\WindowsPowerShell\v1.0\powershell.exe");
@@ -239,7 +237,7 @@ impl Backend for WindowsService {
         )
     }
 
-    fn writable_folder(&self, dir: &Path, config: &Path, account: &str) -> Result<(), Failure> {
+    fn writable_folder(&self, dir: &Path, _config: &Path, _account: &str) -> Result<(), Failure> {
         std::fs::create_dir_all(dir)
             .map_err(|e| Failure::new(format!("cannot create {}: {e}", dir.display())))?;
         if is_link(dir) {
@@ -249,9 +247,6 @@ impl Backend for WindowsService {
             )));
         }
         icacls(dir, &["/setowner", ADMINS, "/C", "/Q"])?;
-        // The service account gets Modify in install, once the service
-        // exists: before that its NT SERVICE name maps to no SID.
-        let _ = (config, account);
         icacls(
             dir,
             &[

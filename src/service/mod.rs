@@ -96,8 +96,6 @@ pub trait Backend {
         #[cfg(unix)]
         {
             system::make_dir(dir, 0o700, Some(account))?;
-            // Versions kept from an earlier install, given to root when that
-            // install's account was removed, belong to this account again.
             if let Ok((uid, gid)) = system::account_ids(account) {
                 give_history(dir, config, uid, gid);
             }
@@ -1149,9 +1147,6 @@ fn admin_history(config: &Path) -> PathBuf {
     crate::admin::adapters::history_dir_of(config)
 }
 
-/// The plain files of the admin history in a writable config folder, when
-/// that folder is a real folder: they hold every earlier config, secrets
-/// included, so uninstall gives them back to root with the folder.
 fn writable_leftovers(dir: &Path, config: &Path) -> Option<Vec<PathBuf>> {
     let real_dir = |p: &Path| std::fs::symlink_metadata(p).is_ok_and(|m| m.is_dir());
     if !real_dir(dir) {
@@ -1173,8 +1168,6 @@ fn writable_leftovers(dir: &Path, config: &Path) -> Option<Vec<PathBuf>> {
     Some(files)
 }
 
-/// Gives the writable config folder, its history folder and the plain
-/// files in it to another owner, never following a link.
 #[cfg(unix)]
 fn give_history(dir: &Path, config: &Path, uid: u32, gid: u32) {
     let Some(files) = writable_leftovers(dir, config) else {
@@ -1574,9 +1567,6 @@ fn source_note(m: &Manifest, reinstall: &str) -> Option<String> {
     })
 }
 
-/// Keeps an installed config that burrow admin changed as a history version
-/// before a reinstall replaces it with the source, so the change can be
-/// reverted from burrow admin; true when it was kept.
 fn keep_admin_copy(source: &Path, config: &Path) -> Result<bool, Failure> {
     use crate::admin::core::ports::Store;
     let (Ok(src), Ok(installed)) = (std::fs::read(source), std::fs::read_to_string(config)) else {

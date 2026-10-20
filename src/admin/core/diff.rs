@@ -14,16 +14,12 @@ fn script(a: &[&str], b: &[&str]) -> Vec<Step> {
     search(a, b).0
 }
 
-/// The edit script, and how many trace entries the search kept.
 fn search(a: &[&str], b: &[&str]) -> (Vec<Step>, usize) {
     let (n, m) = (a.len() as isize, b.len() as isize);
     let max = (n + m) as usize;
     let limit = max.min(MAX_EDITS);
     let off = max as isize + 1;
     let mut v = vec![0isize; 2 * max + 3];
-    // Round d only reads diagonals -(d+1), -(d-1), ..., d+1 when it walks
-    // back, so only those d+2 values are kept: the trace grows with the
-    // number of edits, never with the length of the files.
     let mut trace: Vec<Vec<u32>> = Vec::new();
     let mut found = false;
     'outer: for d in 0..=limit as isize {
@@ -198,8 +194,6 @@ mod tests {
         assert_eq!(all.hunks[0].new_lines, 2);
     }
 
-    /// The search as it was before its trace was made compact, to check
-    /// that the scripts stay the same.
     fn reference(a: &[&str], b: &[&str]) -> (Vec<Step>, usize) {
         let (n, m) = (a.len() as isize, b.len() as isize);
         let max = (n + m) as usize;

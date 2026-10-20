@@ -1,7 +1,3 @@
-//! Admin session keepalive, with the timers shortened for the whole process:
-//! a ping every second and 4 s of silence. Kept apart from tests/admin.rs so
-//! the short limit cannot end the sessions of the tests there.
-
 mod common;
 
 use std::net::SocketAddr;
@@ -86,8 +82,6 @@ async fn world() -> World {
     }
 }
 
-/// A TCP relay to the server that can stop passing bytes, like a path
-/// whose NAT dropped the flow or a peer that was suspended.
 async fn relay(to: SocketAddr) -> (SocketAddr, Arc<AtomicBool>) {
     let frozen = Arc::new(AtomicBool::new(false));
     let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -215,8 +209,6 @@ async fn local(server: SocketAddr, secret: &Secret) -> Local {
 type Ws =
     tokio_websockets::WebSocketStream<tokio_websockets::MaybeTlsStream<tokio::net::TcpStream>>;
 
-/// A browser page on the dashboard: signed in and subscribed, then it only
-/// listens.
 async fn dashboard(l: &Local) -> Ws {
     let origin = format!("http://127.0.0.1:{}", l.port);
     let (mut ws, _) = tokio_websockets::ClientBuilder::new()

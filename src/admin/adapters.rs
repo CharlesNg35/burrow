@@ -30,7 +30,6 @@ pub struct FileStore {
     problem: Mutex<Option<String>>,
 }
 
-/// The folder beside a config where burrow admin keeps its earlier versions.
 pub fn history_dir_of(config: &Path) -> PathBuf {
     let name = config
         .file_name()

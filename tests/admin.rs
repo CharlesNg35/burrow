@@ -381,8 +381,6 @@ async fn a_hand_edit_in_between_is_a_conflict() {
         edited,
         "nothing is written on a conflict"
     );
-    // The hand edit reloads on its own; a retry planned before that reload
-    // lands is rightly a conflict too, so wait until it runs.
     let started = std::time::Instant::now();
     loop {
         let st = a.state().await;

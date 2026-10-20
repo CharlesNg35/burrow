@@ -48,8 +48,6 @@ pub fn from_tar_gz(data: &[u8], want: &str) -> Result<Vec<u8>, String> {
     Err(format!("the archive does not contain {want}"))
 }
 
-// Offsets come from the archive, so every sum is checked: on a 32-bit
-// target a u32 offset plus a length can pass usize::MAX.
 fn u16_at(d: &[u8], at: usize) -> Option<usize> {
     d.get(at..at.checked_add(2)?)
         .map(|b| u16::from_le_bytes([b[0], b[1]]) as usize)

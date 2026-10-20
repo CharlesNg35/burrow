@@ -37,10 +37,8 @@ pub struct AdminTx {
     wr: OwnedWriteHalf,
 }
 
-/// What one record from the server brought.
 pub enum Heard {
     Message(Vec<u8>),
-    /// A ping or a part of a longer message.
     Record,
 }
 
@@ -55,7 +53,6 @@ impl AdminRx {
         }
     }
 
-    /// The next record, so a caller can tell a live server from a silent one.
     pub async fn recv_record(&mut self) -> std::io::Result<Option<Heard>> {
         let Some(rec) = self.reader.recv(&mut self.rd).await? else {
             return Ok(None);

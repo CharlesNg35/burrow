@@ -158,8 +158,6 @@ pub async fn serve(
         return;
     }
     let (ping, silence) = crate::admin::transport::keepalive();
-    // The server only hears this side through pings while the page is
-    // quiet, so they go out on their own clock, whatever else is sent.
     let mut pings = tokio::time::interval_at(tokio::time::Instant::now() + ping, ping);
     pings.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     let mut heard = tokio::time::Instant::now();

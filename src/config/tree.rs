@@ -143,8 +143,6 @@ impl<'a> Lines<'a> {
     }
 }
 
-/// Real configs nest about 6 levels; the limit keeps every recursion over
-/// the tree, and its drop, far from the stack's end.
 pub const MAX_DEPTH: usize = 64;
 
 enum Frame {

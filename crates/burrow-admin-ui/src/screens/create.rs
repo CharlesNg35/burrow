@@ -189,8 +189,6 @@ pub fn NewEntity(
             return;
         }
         let m = max.get_untracked().trim().parse::<u64>().ok();
-        // Applying at once is only for the new entry itself: edits that
-        // were already pending still need their review.
         let clean = !untrack(|| e.dirty());
         create_with(&sec, &n, secret.get_untracked(), m, &links.get_untracked());
         open.set(false);

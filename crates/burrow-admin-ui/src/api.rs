@@ -22,8 +22,6 @@ type Reply = Result<Value, ErrorBody>;
 
 struct Client {
     ws: WebSocket,
-    /// The bridge said its server session is open; requests before that, or
-    /// after the server went away, could never be answered.
     ready: bool,
     next: u32,
     pending: HashMap<u32, Box<dyn FnOnce(Reply)>>,
@@ -178,8 +176,6 @@ pub fn request(t: &str, body: Value, done: impl FnOnce(Reply) + 'static) {
     });
     if let Some(f) = done {
         leptos::logging::warn!("burrow admin: request {t} not sent, no connection");
-        // Answered on the next turn, so the caller finishes its own updates
-        // first, as it would for a reply from the server.
         set_timeout(
             move || {
                 f(Err(ErrorBody {
