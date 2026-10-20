@@ -149,7 +149,15 @@ mod tests {
         #[cfg(target_os = "linux")]
         assert!(err.message.contains("pid "), "{}", err.message);
         drop(l);
-        assert!(check_free(Protocol::Tcp, addr, "x").is_ok());
+        let started = std::time::Instant::now();
+        while check_free(Protocol::Tcp, addr, "x").is_err() {
+            assert!(
+                started.elapsed() < std::time::Duration::from_secs(5),
+                "port {} stays busy after its listener closed",
+                addr.port()
+            );
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
     }
 
     #[test]
