@@ -601,6 +601,61 @@ async fn an_apply_runs_to_its_end_when_its_session_closes_at_once() {
 }
 
 #[tokio::test]
+async fn an_apply_waiting_for_the_lock_is_refused_once_its_session_lost_write_access() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let release = Arc::new(AtomicBool::new(false));
+    let gate = release.clone();
+    let w = world_checked(Box::new(
+        move |mut next: burrow::config::settings::ServerSettings| {
+            if next.services.contains_key("slow") {
+                let started = std::time::Instant::now();
+                while !gate.load(Ordering::SeqCst) && started.elapsed() < Duration::from_secs(20) {
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                return Err("the test refuses the slow service".into());
+            }
+            if gate.load(Ordering::SeqCst)
+                && let Some(ops) = next.visitors.get_mut("ops")
+            {
+                ops.admin = Some(burrow::config::model::AdminLevel::Read);
+            }
+            Ok(next)
+        },
+    ))
+    .await;
+    let mut b = connect(&w, "ops", &w.ops, 1, 1).await.unwrap();
+    let late = json!([{"op": "set", "path": ["services", "web", "target"], "value": 3009}]);
+    let late_plan = b.plan(late.clone()).await.unwrap();
+    let mut a = connect(&w, "ops", &w.ops, 1, 1).await.unwrap();
+    let first = json!([{"op": "add", "path": ["services", "slow"], "value": {"client": "home", "bind": format!("127.0.0.1:{}", free_port()), "target": 3005}}]);
+    let first_plan = a.plan(first.clone()).await.unwrap();
+    a.send_raw(
+        "apply",
+        json!({"base": first_plan["base"], "ops": first, "plan": first_plan["plan"], "confirm": []}),
+    )
+    .await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    b.send_raw(
+        "apply",
+        json!({"base": late_plan["base"], "ops": late, "plan": late_plan["plan"], "confirm": []}),
+    )
+    .await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    release.store(true, Ordering::SeqCst);
+    wait_for_entry(&w, "rejected, restored").await;
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    let text = std::fs::read_to_string(&w.path).unwrap();
+    assert!(!text.contains("slow:"), "{text}");
+    assert!(
+        !text.contains("target: 3009"),
+        "an apply of a session that lost write access was written:\n{text}"
+    );
+    drop((a, b));
+    let _ = w.stop.send(true);
+}
+
+#[tokio::test]
 async fn an_oversized_message_closes_the_session() {
     let w = world().await;
     let mut a = connect(&w, "ops", &w.ops, 1, 1).await.unwrap();

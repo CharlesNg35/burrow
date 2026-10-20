@@ -31,6 +31,7 @@ struct Ctx {
     hub: Arc<Hub>,
     session: Arc<Session>,
     applies: watch::Receiver<ApplyReport>,
+    access: Arc<dyn Access>,
 }
 
 fn encode(v: &Value) -> Vec<u8> {
@@ -56,6 +57,12 @@ async fn apply(cx: &Ctx, body: Value) -> Result<Value, ApiError> {
         ));
     };
     let _lock = cx.hub.plan_lock().await;
+    if let Some(why) = cx.access.revoked() {
+        return Err(ApiError::new(
+            ErrorCode::Forbidden,
+            format!("this session lost its admin rights ({why}), so nothing was written"),
+        ));
+    }
     let mut applies = cx.applies.clone();
     let seq = applies.borrow_and_update().seq;
     let (core_, session) = (cx.hub.core.clone(), cx.session.clone());
@@ -206,10 +213,12 @@ pub async fn run(
     let (ping, silence) = super::keepalive();
     let writer = tokio::spawn(writer_task(rx, writer, wr, ping));
     let visitor = session.visitor.clone();
+    let access: Arc<dyn Access> = Arc::from(access);
     let cx = Arc::new(Ctx {
         hub: hub.clone(),
         session: Arc::new(session),
         applies,
+        access: access.clone(),
     });
     let mut assembler = Assembler::new();
     let mut jobs: JoinSet<Value> = JoinSet::new();
