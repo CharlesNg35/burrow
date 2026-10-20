@@ -22,6 +22,9 @@ type Reply = Result<Value, ErrorBody>;
 
 struct Client {
     ws: WebSocket,
+    /// The bridge said its server session is open; requests before that, or
+    /// after the server went away, could never be answered.
+    ready: bool,
     next: u32,
     pending: HashMap<u32, Box<dyn FnOnce(Reply)>>,
     _handlers: Vec<Box<dyn std::any::Any>>,
@@ -80,9 +83,11 @@ pub fn connect(store: Store) {
     ws.set_onopen(Some(on_open.as_ref().unchecked_ref()));
     ws.set_onmessage(Some(on_message.as_ref().unchecked_ref()));
     ws.set_onclose(Some(on_close.as_ref().unchecked_ref()));
+    fail_pending();
     CLIENT.with(|c| {
         *c.borrow_mut() = Some(Client {
             ws,
+            ready: false,
             next: 1,
             pending: HashMap::new(),
             _handlers: vec![Box::new(on_open), Box::new(on_message), Box::new(on_close)],
@@ -90,11 +95,22 @@ pub fn connect(store: Store) {
     });
 }
 
+fn set_ready(ready: bool) {
+    CLIENT.with(|c| {
+        if let Some(c) = c.borrow_mut().as_mut() {
+            c.ready = ready;
+        }
+    });
+}
+
 fn fail_pending() {
     let pending: Vec<Box<dyn FnOnce(Reply)>> = CLIENT.with(|c| {
         c.borrow_mut()
             .as_mut()
-            .map(|c| c.pending.drain().map(|(_, f)| f).collect())
+            .map(|c| {
+                c.ready = false;
+                c.pending.drain().map(|(_, f)| f).collect()
+            })
             .unwrap_or_default()
     });
     for f in pending {
@@ -142,18 +158,39 @@ pub fn reconnect(store: Store) {
 }
 
 pub fn request(t: &str, body: Value, done: impl FnOnce(Reply) + 'static) {
-    let sent = CLIENT.with(|c| {
+    let mut done: Option<Box<dyn FnOnce(Reply)>> = Some(Box::new(done));
+    CLIENT.with(|c| {
         let mut c = c.borrow_mut();
-        let c = c.as_mut()?;
+        let Some(c) = c
+            .as_mut()
+            .filter(|c| c.ready && c.ws.ready_state() == WebSocket::OPEN)
+        else {
+            return;
+        };
         let id = c.next;
         c.next = c.next.wrapping_add(1).max(1);
         let text = json!({ "id": id, "t": t, "body": body }).to_string();
-        c.ws.send_with_str(&text).ok()?;
-        c.pending.insert(id, Box::new(done));
-        Some(())
+        if c.ws.send_with_str(&text).is_ok()
+            && let Some(f) = done.take()
+        {
+            c.pending.insert(id, f);
+        }
     });
-    if sent.is_none() {
+    if let Some(f) = done {
         leptos::logging::warn!("burrow admin: request {t} not sent, no connection");
+        // Answered on the next turn, so the caller finishes its own updates
+        // first, as it would for a reply from the server.
+        set_timeout(
+            move || {
+                f(Err(ErrorBody {
+                    code: ErrorCode::Unknown,
+                    message: "not connected to the server; try again once the connection is back"
+                        .into(),
+                    body: Value::Null,
+                }))
+            },
+            std::time::Duration::ZERO,
+        );
     }
 }
 
@@ -182,6 +219,7 @@ fn event(store: Store, ev: &str, body: Value) {
         "bridge" => match str_of(&body, "state").as_str() {
             "open" => {
                 ATTEMPT.with(|a| *a.borrow_mut() = 0);
+                set_ready(true);
                 store.server_addr.set(str_of(&body, "server"));
                 start(store);
             }
@@ -231,6 +269,7 @@ fn event(store: Store, ev: &str, body: Value) {
 }
 
 fn lost(store: Store) {
+    fail_pending();
     if store.conn.with_untracked(Conn::is_final) {
         return;
     }

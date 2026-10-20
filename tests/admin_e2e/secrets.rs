@@ -285,3 +285,60 @@ fn e9_revoked_access_is_shown_and_a_restart_keeps_the_draft() {
         revoke_and_reconnect,
     );
 }
+
+fn request_while_reconnecting(c: &mut Ctx) -> Flow<'_> {
+    Box::pin(async move {
+        open(c, "ops").await;
+        c.ui.nav("/services/web").await;
+        super::edit_mode(c).await;
+        c.ui.fill("#f-services-web-target", "4100").await;
+        wait_checked(c).await;
+        c.ui.click("[data-testid=review-open]").await;
+        c.ui.wait_for("[data-testid=apply]:not([disabled])", SECS)
+            .await;
+        c.world.stop("server");
+        c.ui.wait_text(
+            "[data-testid=conn-pill]",
+            "Reconnecting",
+            Duration::from_secs(15),
+        )
+        .await;
+        c.ui.click("[data-testid=apply]").await;
+        c.ui.shot("apply-while-reconnecting").await;
+        c.world
+            .start("server", &["server", "-c", "server.yaml"], &[]);
+        c.ui.wait_text(
+            "[data-testid=conn-pill]",
+            "Connected",
+            Duration::from_secs(30),
+        )
+        .await;
+        c.ui.wait_gone("[data-testid=apply][aria-busy=true]", SECS)
+            .await;
+        let lab = super::world::secret();
+        c.world.hand_edit(|t| {
+            t.replacen(
+                "clients:\n",
+                &format!("clients:\n  lab:\n    secret: {lab}\n"),
+                1,
+            )
+        });
+        c.ui.wait_for(
+            "[data-testid=banner-changed], [data-testid=conflict]",
+            Duration::from_secs(15),
+        )
+        .await;
+        c.ui.shot("later-change-noticed").await;
+        c.ui.take_errors();
+    })
+}
+
+#[test]
+fn e9b_a_change_sent_while_reconnecting_fails_and_later_changes_still_show() {
+    run(
+        "e9b-request-while-reconnecting",
+        Options::default(),
+        false,
+        request_while_reconnecting,
+    );
+}
