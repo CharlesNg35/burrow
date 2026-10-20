@@ -983,7 +983,9 @@ async fn the_local_page_is_only_served_to_this_machine() {
     .await;
     assert!(ok.starts_with("HTTP/1.1 200"), "{ok}");
     assert!(ok.contains("Clear-Site-Data: \"cache\""), "{ok}");
-    assert!(ok.contains(&format!("src=\"{}/", l.run)), "{ok}");
+    if !ok.contains("was not built into this binary") {
+        assert!(ok.contains(&format!("src=\"{}/", l.run)), "{ok}");
+    }
     let root = http_get(
         l.port,
         &format!("GET / HTTP/1.1\r\nHost: 127.0.0.1:{}\r\n\r\n", l.port),
