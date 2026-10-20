@@ -1,5 +1,5 @@
 use crate::config::check::MAX_NAME_LEN;
-use crate::config::model::{Cipher, Protocol};
+use burrow_config::{Cipher, Protocol};
 
 pub const MAGIC: [u8; 4] = *b"BRW1";
 pub const VERSION: u8 = 1;

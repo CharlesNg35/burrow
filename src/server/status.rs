@@ -85,8 +85,8 @@ impl Shared {
                     clients: svc.clients.clone(),
                     mode: (svc.clients.len() > 1).then(|| {
                         match svc.mode {
-                            crate::config::model::Mode::Failover => "failover",
-                            crate::config::model::Mode::Balance => "balance",
+                            burrow_config::Mode::Failover => "failover",
+                            burrow_config::Mode::Balance => "balance",
                         }
                         .to_string()
                     }),
@@ -94,8 +94,8 @@ impl Shared {
                     visitors: svc.visitors.clone(),
                     proxy_protocol: svc.proxy_protocol.map(|v| {
                         match v {
-                            crate::proxy_protocol::Version::V1 => "v1",
-                            crate::proxy_protocol::Version::V2 => "v2",
+                            burrow_config::ProxyVersion::V1 => "v1",
+                            burrow_config::ProxyVersion::V2 => "v2",
                         }
                         .to_string()
                     }),

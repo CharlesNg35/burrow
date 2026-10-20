@@ -1,8 +1,8 @@
 use super::Shared;
 use super::standing::Seen;
 use super::via::Via;
-use crate::config::model::Mode;
 use crate::config::settings::Service;
+use burrow_config::Mode;
 
 impl Shared {
     pub(crate) fn route(&self, service: &str, svc: &Service, target: &str) -> Vec<Via> {
@@ -66,7 +66,7 @@ impl Shared {
         client: &str,
         from: std::net::IpAddr,
         index: u16,
-        public: Option<(crate::config::model::Protocol, std::net::SocketAddr)>,
+        public: Option<(burrow_config::Protocol, std::net::SocketAddr)>,
     ) -> Result<(), String> {
         let settings = self.settings();
         let Some(s) = settings.services.get(service) else {

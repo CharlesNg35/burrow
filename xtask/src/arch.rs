@@ -6,6 +6,23 @@ const CRATE_DEPS: &[(&str, &[&str], &[&str])] = &[
     ("burrow-admin-proto", &["serde", "serde_json"], &[]),
     ("burrow-admin-derive", &["proc-macro2", "quote", "syn"], &[]),
     (
+        "burrow-config",
+        &[
+            "serde",
+            "burrow-admin-proto",
+            "burrow-admin-derive",
+            "burrow-syntax",
+            "schemars",
+        ],
+        &[
+            "burrow",
+            "tokio",
+            "burrow-ui-kit",
+            "burrow-admin-logic",
+            "burrow-admin-ui",
+        ],
+    ),
+    (
         "burrow-admin-logic",
         &["burrow-admin-proto", "burrow-syntax"],
         &[],
@@ -124,5 +141,19 @@ mod tests {
             1
         );
         assert_eq!(dep_problems("burrow", &["burrow-admin-ui"]).len(), 1);
+        assert!(
+            dep_problems(
+                "burrow-config",
+                &[
+                    "serde",
+                    "burrow-admin-proto",
+                    "burrow-admin-derive",
+                    "schemars"
+                ]
+            )
+            .is_empty()
+        );
+        assert_eq!(dep_problems("burrow-config", &["serde", "tokio"]).len(), 1);
+        assert_eq!(dep_problems("burrow-config", &["burrow"]).len(), 1);
     }
 }

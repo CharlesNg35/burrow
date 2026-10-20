@@ -1,6 +1,6 @@
 #![no_main]
 
-use burrow::config::model::Cipher;
+use burrow_config::Cipher;
 use burrow::noise::{Initiator, Responder};
 use burrow::protocol::{
     ClientMsg, Connect, Hello, ServerMsg, Status, VisitRequest, decode_datagram,

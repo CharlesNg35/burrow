@@ -6,10 +6,10 @@ use std::net::SocketAddr;
 use std::time::{Duration, Instant};
 
 use burrow::client::State;
-use burrow::config::model::{Cipher, Protocol};
 use burrow::noise::{Initiator, MSG2_LEN};
 use burrow::protocol::{ChannelKind, Hello, Preamble};
 use burrow::secret::Secret;
+use burrow_config::{Cipher, Protocol};
 use common::*;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;

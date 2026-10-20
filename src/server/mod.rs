@@ -24,12 +24,12 @@ use tokio::sync::{Notify, Semaphore, mpsc, watch};
 use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
 
-use crate::config::model::Protocol;
 use crate::config::settings::WebSocketSettings;
 use crate::config::settings::{ServerSettings, Service};
 use crate::failure::Failure;
 use crate::protocol::{ByeReason, ServerMsg};
 use crate::ratelimit::Limit;
+use burrow_config::Protocol;
 use listen::WsListener;
 pub use session::{ClientSession, PoolConfig, TakeError};
 
@@ -1210,8 +1210,8 @@ fn log_service(name: &str, svc: &Service, addr: Option<SocketAddr>) {
                 .collect::<Vec<_>>()
                 .join(", "),
             match svc.mode {
-                crate::config::model::Mode::Failover => "failover",
-                crate::config::model::Mode::Balance => "balance",
+                burrow_config::Mode::Failover => "failover",
+                burrow_config::Mode::Balance => "balance",
             }
         ),
     };

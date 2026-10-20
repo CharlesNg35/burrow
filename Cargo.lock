@@ -313,9 +313,9 @@ version = "0.1.0"
 dependencies = [
  "base64 0.23.1",
  "blake2",
- "burrow-admin-derive",
  "burrow-admin-logic",
  "burrow-admin-proto",
+ "burrow-config",
  "burrow-syntax",
  "bytes",
  "chromiumoxide",
@@ -393,6 +393,16 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
+]
+
+[[package]]
+name = "burrow-config"
+version = "0.1.0"
+dependencies = [
+ "burrow-admin-derive",
+ "burrow-admin-proto",
+ "schemars",
+ "serde",
 ]
 
 [[package]]

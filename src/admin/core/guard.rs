@@ -8,11 +8,11 @@ use burrow_admin_proto::plan::{Impact, Level, Refusal};
 
 use super::ports::LiveSession;
 use crate::config::SELF;
-use crate::config::model::AdminLevel;
 use crate::config::patch::Rename;
 use crate::config::settings::{ServerSettings, Service};
 use crate::metrics::Status;
 use crate::secret::Secret;
+use burrow_config::AdminLevel;
 
 pub struct Who<'a> {
     pub visitor: &'a str,

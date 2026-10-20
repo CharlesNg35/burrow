@@ -1,6 +1,6 @@
 #![no_main]
 
-use burrow::config::model::Cipher;
+use burrow_config::Cipher;
 use burrow::noise::{Initiator, MSG1_LEN, MSG2_LEN, Responder};
 use burrow::protocol::{PREAMBLE_FIXED, Preamble};
 use burrow::secret::Secret;

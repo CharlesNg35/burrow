@@ -6,7 +6,6 @@ pub mod emit;
 pub mod env;
 pub mod grants;
 pub mod load;
-pub mod model;
 pub mod patch;
 pub mod schema;
 pub mod settings;

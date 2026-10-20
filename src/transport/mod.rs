@@ -203,9 +203,9 @@ pub(crate) mod testing {
     pub(crate) fn sealed(stream: crate::transport::Conn) -> crate::handshake::Channel {
         use crate::noise::{Initiator, Responder};
         let s = crate::secret::Secret::generate();
-        let (_, m1) = Initiator::start(crate::config::model::Cipher::Chachapoly, &s, b"t");
+        let (_, m1) = Initiator::start(burrow_config::Cipher::Chachapoly, &s, b"t");
         let r = Responder::accept(
-            crate::config::model::Cipher::Chachapoly,
+            burrow_config::Cipher::Chachapoly,
             std::slice::from_ref(&s),
             b"t",
             &m1,

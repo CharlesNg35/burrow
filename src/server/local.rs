@@ -6,11 +6,11 @@ use tokio::sync::watch;
 
 use crate::allowlist::Gate;
 use crate::client::data::{Dialing, Dials, Rules, serve_local};
-use crate::config::model::Protocol;
 use crate::config::settings::ServerSettings;
 use crate::handshake::Channel;
 use crate::protocol::TOKEN_LEN;
 use crate::transport::resolve::Resolver;
+use burrow_config::Protocol;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -93,8 +93,8 @@ fn fresh_token() -> [u8; TOKEN_LEN] {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::model::Protocol;
     use crate::protocol::{Connect, Status};
+    use burrow_config::Protocol;
 
     fn settings(allow: &[&str]) -> ServerSettings {
         let yaml = format!(

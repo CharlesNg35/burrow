@@ -9,12 +9,12 @@ use tracing::{debug, info, warn};
 
 use super::Shared;
 use super::route::{Outcome, Tries, Way};
-use crate::config::model::Protocol;
 use crate::config::settings::Service;
 use crate::forward::{ForwardError, Meter, Opened, Opening, open_tcp};
 use crate::protocol::{Connect, Status};
 use crate::proxy_protocol::header;
 use crate::transport::tcp::tune;
+use burrow_config::Protocol;
 
 pub(super) async fn tcp_service(
     shared: Arc<Shared>,

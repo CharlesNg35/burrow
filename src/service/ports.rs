@@ -1,7 +1,7 @@
 use std::net::SocketAddr;
 
-use crate::config::model::Protocol;
 use crate::failure::Failure;
+use burrow_config::Protocol;
 
 pub fn check_free(proto: Protocol, addr: SocketAddr, label: &str) -> Result<(), Failure> {
     let kind = match proto {

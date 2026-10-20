@@ -12,7 +12,6 @@ use std::time::Duration;
 
 use burrow::allowlist::{AllowList, Rule};
 use burrow::client::{Client, State};
-use burrow::config::model::{Cipher, Protocol};
 use burrow::config::settings::{
     ClientAuth, ClientSettings, Forward, ServerSettings, Service, SocketTuning, VisitorAuth,
     VisitorSettings,
@@ -20,6 +19,7 @@ use burrow::config::settings::{
 use burrow::protocol::VisitTarget;
 use burrow::secret::Secret;
 use burrow::server::Server;
+use burrow_config::{Cipher, Protocol};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UdpSocket;
 use tokio::sync::{mpsc, watch};

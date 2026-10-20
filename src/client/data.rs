@@ -10,7 +10,6 @@ use tracing::{debug, info, warn};
 
 use crate::allowlist::{AllowList, Gate, Refusal};
 use crate::config::check::{parse_host_port, unix};
-use crate::config::model::Protocol;
 use crate::config::settings::{ClientSettings, SocketTuning};
 use crate::failure::io_reason;
 use crate::forward::{client_tcp, refuse};
@@ -21,6 +20,7 @@ use crate::protocol::{
 use crate::throttle::Throttle;
 use crate::transport::resolve::Resolver;
 use crate::transport::tcp::{connect_any, tune};
+use burrow_config::Protocol;
 
 #[derive(Clone, PartialEq)]
 pub(crate) struct Dialing {

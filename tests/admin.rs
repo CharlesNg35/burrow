@@ -621,7 +621,7 @@ async fn a_queued_apply_of_a_revoked_session_writes_nothing() {
             if gate.load(Ordering::SeqCst)
                 && let Some(ops) = next.visitors.get_mut("ops")
             {
-                ops.admin = Some(burrow::config::model::AdminLevel::Read);
+                ops.admin = Some(burrow_config::AdminLevel::Read);
             }
             Ok(next)
         },

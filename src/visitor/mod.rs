@@ -10,13 +10,13 @@ use tokio::task::JoinSet;
 use tracing::{error, info};
 
 use crate::config::check::ports::show_addr;
-use crate::config::model::Protocol;
 use crate::config::settings::{Forward, VisitorSettings};
 use crate::dialer::Dialer;
 use crate::failure::Failure;
 use crate::protocol::VisitTarget;
 use crate::transport::resolve::Resolver;
 use crate::transport::tcp::bind_tcp;
+use burrow_config::Protocol;
 
 const MAX_OPENING: usize = 32;
 
@@ -492,7 +492,7 @@ mod tests {
             ca_file: None,
             name: "laptop".into(),
             secret: crate::secret::Secret::generate(),
-            cipher: crate::config::model::Cipher::Chachapoly,
+            cipher: burrow_config::Cipher::Chachapoly,
             proxy: None,
             connect_timeout: std::time::Duration::from_secs(1),
             tcp: crate::config::settings::SocketTuning {

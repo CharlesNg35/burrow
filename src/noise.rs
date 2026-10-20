@@ -4,8 +4,8 @@ use snow::params::NoiseParams;
 use snow::{Builder, HandshakeState, StatelessTransportState};
 
 use crate::config::check::MAX_SECRETS_PER_CLIENT;
-use crate::config::model::Cipher;
 use crate::secret::Secret;
+use burrow_config::Cipher;
 
 pub const TAG_LEN: usize = 16;
 pub const MAX_RECORD: usize = 65535;

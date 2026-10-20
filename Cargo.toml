@@ -14,6 +14,7 @@ publish = false
 members = [
     ".",
     "crates/burrow-syntax",
+    "crates/burrow-config",
     "crates/burrow-admin-logic",
     "crates/burrow-admin-proto",
     "crates/burrow-admin-derive",
@@ -23,8 +24,8 @@ members = [
 ]
 
 [dependencies]
-burrow-admin-derive = { path = "crates/burrow-admin-derive" }
 burrow-admin-proto = { path = "crates/burrow-admin-proto" }
+burrow-config = { path = "crates/burrow-config", features = ["json-schema"] }
 burrow-syntax = { path = "crates/burrow-syntax" }
 base64 = "0.23.1"
 blake2 = "0.10.6"

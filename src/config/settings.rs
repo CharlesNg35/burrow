@@ -2,11 +2,11 @@ use std::collections::BTreeMap;
 use std::net::SocketAddr;
 use std::time::Duration;
 
-use super::model::{AdminLevel, Cipher, Mode, Protocol};
 use crate::allowlist::{AllowList, Cidr, Sources};
 use crate::protocol::VisitTarget;
 use crate::proxy::ProxyConfig;
 use crate::secret::Secret;
+use burrow_config::{AdminLevel, Cipher, Mode, Protocol};
 use burrow_syntax::endpoint::Endpoint;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -141,7 +141,7 @@ pub struct Service {
     pub max_connections: Option<usize>,
     pub visitors: Vec<String>,
     pub sources: Sources,
-    pub proxy_protocol: Option<crate::proxy_protocol::Version>,
+    pub proxy_protocol: Option<burrow_config::ProxyVersion>,
     pub bandwidth: Option<u64>,
 }
 

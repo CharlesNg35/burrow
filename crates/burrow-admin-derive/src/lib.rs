@@ -11,7 +11,7 @@ use syn::{Data, DeriveInput, Fields};
 
 use term::Term;
 
-#[proc_macro_derive(AdminSchema, attributes(admin))]
+#[proc_macro_derive(AdminSchema, attributes(admin, schemars))]
 pub fn derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input = syn::parse_macro_input!(input as DeriveInput);
     match expand(&input) {
@@ -193,7 +193,7 @@ const FIELD_KEYS: &[&str] = &[
 ];
 
 fn p() -> TokenStream {
-    quote!(::burrow::config::admin_schema::__private)
+    quote!(::burrow_config::admin_schema::__private)
 }
 
 fn expand_struct(input: &DeriveInput, s: &syn::DataStruct, errors: &mut Errors) -> TokenStream {

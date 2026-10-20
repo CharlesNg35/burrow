@@ -381,9 +381,9 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::model::Cipher;
     use crate::noise::{Initiator, Responder};
     use crate::secret::Secret;
+    use burrow_config::Cipher;
 
     fn pair() -> ((RecordWriter, RecordReader), (RecordWriter, RecordReader)) {
         let s = Secret::generate();

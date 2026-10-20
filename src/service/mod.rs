@@ -18,11 +18,11 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::config::model::Protocol;
 use crate::config::{Loaded, Role, load_file};
 use crate::diagnostics::Style;
 use crate::failure::Failure;
 use crate::instance::Identity;
+use burrow_config::Protocol;
 
 pub use system::{Platform, binary_version, copy_file, is_admin};
 pub use update::{update, update_from, worker as update_worker};

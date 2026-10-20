@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
-use burrow::config::admin_schema::AdminSchema;
-use burrow::config::model::{Bind, Reach, Secrets, Target};
+use burrow_config::admin_schema::AdminSchema;
+use burrow_config::{Bind, Reach, Secrets, Target};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, serde::Serialize, serde::Deserialize, AdminSchema)]
 #[serde(rename_all = "kebab-case")]

@@ -3,9 +3,9 @@ use burrow_syntax::grant::{Grant, Power, grants};
 use serde_json::Value;
 
 use super::{Base, Change, refusal};
-use crate::config::model::AdminLevel;
 use crate::config::settings::{ServerSettings, VisitorAuth};
 use crate::secret::Secret;
+use burrow_config::AdminLevel;
 
 fn power(v: &VisitorAuth) -> Power<AdminLevel, &Secret> {
     Power {

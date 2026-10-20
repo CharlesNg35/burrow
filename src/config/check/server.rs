@@ -4,7 +4,6 @@ use std::path::Path;
 use std::time::Duration;
 
 use super::super::SELF;
-use super::super::model::{Bind, Protocol, Secrets, ServerConfig, WebSocketConfig};
 use super::super::settings::{
     ClientAuth, ServerSettings, TlsMaterial, VisitorAuth, WebSocketSettings,
 };
@@ -19,6 +18,7 @@ use crate::allowlist::AllowList;
 use crate::diagnostics::Diagnostic;
 use crate::secret::Secret;
 use crate::suggest::{closest, quoted_list};
+use burrow_config::{Bind, Protocol, Secrets, ServerConfig, WebSocketConfig};
 
 pub fn check_server(
     cfg: &ServerConfig,
@@ -305,7 +305,7 @@ pub fn check_server(
 
 fn check_admin(
     name: &str,
-    entry: &super::super::model::VisitorEntry,
+    entry: &burrow_config::VisitorEntry,
     listed: bool,
     spans: &Spans,
     out: &mut Vec<Diagnostic>,
@@ -687,12 +687,12 @@ pub fn check_refs(root: &Node, out: &mut Vec<Diagnostic>) {
 fn check_reach(
     visitor: &str,
     client: &str,
-    given: &crate::config::model::Reach,
+    given: &burrow_config::Reach,
     spans: &Spans,
     out: &mut Vec<Diagnostic>,
 ) -> Option<AllowList> {
     let entries = given.entries();
-    let many = matches!(given, crate::config::model::Reach::Many(_));
+    let many = matches!(given, burrow_config::Reach::Many(_));
     let at = |i: usize| {
         let path = ["visitors", visitor, "reach", client];
         if many {

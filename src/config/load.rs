@@ -2,11 +2,11 @@ use std::path::Path;
 
 use super::check::{Spans, check_client, check_refs, check_server, check_visitor, secret_spans};
 use super::env::{EnvSource, expand};
-use super::model::{ClientConfig, ServerConfig, VisitorConfig};
 use super::schema::Checker;
 use super::settings::{ClientSettings, ServerSettings, VisitorSettings};
 use super::tree::{self, Node, Pos, Span, Value};
 use crate::diagnostics::{Diagnostic, Report};
+use burrow_config::{ClientConfig, ServerConfig, VisitorConfig};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Role {

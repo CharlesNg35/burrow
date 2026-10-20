@@ -1,7 +1,6 @@
 use std::net::SocketAddr;
 use std::time::Duration;
 
-use super::super::model::{HealthCheck, HealthCheckSetting, Mode, Protocol, ServiceEntry};
 use super::super::settings::{Health, Service};
 use super::ports::{parse_ranged, ranges_conflict, show_addr, split_target};
 use super::{
@@ -9,6 +8,7 @@ use super::{
 };
 use crate::allowlist::{Cidr, Sources};
 use crate::diagnostics::Diagnostic;
+use burrow_config::{HealthCheck, HealthCheckSetting, Mode, Protocol, ServiceEntry};
 
 pub(super) struct Taken<'a> {
     pub listen: Option<SocketAddr>,

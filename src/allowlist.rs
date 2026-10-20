@@ -3,7 +3,7 @@ use std::net::{IpAddr, SocketAddr};
 pub use burrow_syntax::cidr::Cidr;
 use burrow_syntax::cidr::canonical;
 
-use crate::config::model::Protocol;
+use burrow_config::Protocol;
 pub use burrow_syntax::rule::{NetRule, Rule, RuleError, SocketRule};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]

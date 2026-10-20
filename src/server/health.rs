@@ -6,9 +6,9 @@ use tokio::io::AsyncWriteExt;
 use tracing::{info, warn};
 
 use super::Shared;
-use crate::config::model::Protocol;
 use crate::config::settings::Health;
 use crate::protocol::{Connect, Status};
+use burrow_config::Protocol;
 
 const TICK: Duration = Duration::from_millis(250);
 

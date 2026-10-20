@@ -33,7 +33,7 @@ const FAIL: &[(&str, &[&str])] = &[
     ),
     (
         "wrong_carrier",
-        &["`u32` cannot carry the semantic type", "sem::Rate"],
+        &["`u32` cannot carry the semantic type `Rate`"],
     ),
     (
         "relation_missing_field",
@@ -72,11 +72,11 @@ fn scratch() -> PathBuf {
         }
     }
     let manifest = format!(
-        "[package]\nname = \"admin-derive-cases\"\nversion = \"0.0.0\"\nedition = \"2024\"\npublish = false\n\n[workspace]\n\n[dependencies]\nburrow = {{ path = {:?}, default-features = false }}\nserde = {{ version = \"1\", features = [\"derive\"] }}\n",
+        "[package]\nname = \"admin-derive-cases\"\nversion = \"0.0.0\"\nedition = \"2024\"\npublish = false\n\n[workspace]\n\n[dependencies]\nburrow-config = {{ path = {:?} }}\nserde = {{ version = \"1\", features = [\"derive\"] }}\n",
         root.display().to_string()
     );
     std::fs::write(dir.join("Cargo.toml"), manifest).unwrap();
-    let lock = root.join("Cargo.lock");
+    let lock = root.join("../../Cargo.lock");
     if lock.exists() && !dir.join("Cargo.lock").exists() {
         std::fs::copy(lock, dir.join("Cargo.lock")).unwrap();
     }

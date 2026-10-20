@@ -9,8 +9,8 @@ use super::Shared;
 use super::route::{Outcome, Tries, Way};
 use super::tcp::log_refusal;
 use crate::config::check::{MAX_TARGET_LEN, parse_host_port};
-use crate::config::model::Protocol;
 use crate::forward::{ForwardError, Meter, Opened, Opening, relay, reply};
+use burrow_config::Protocol;
 
 use crate::handshake::{Accepted, MAX_REQUEST_RECORD, read_small};
 use crate::protocol::{Connect, Status, VisitRequest, VisitTarget};

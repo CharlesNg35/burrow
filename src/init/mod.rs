@@ -98,7 +98,7 @@ impl WebSocketInit {
         let path = self
             .path
             .clone()
-            .unwrap_or_else(crate::config::model::default_ws_path);
+            .unwrap_or_else(burrow_config::default_ws_path);
         if !burrow_syntax::endpoint::valid_path(&path) {
             return Err(Failure::usage(format!("invalid --ws-path \"{path}\""))
                 .hint("use a path like /burrow"));

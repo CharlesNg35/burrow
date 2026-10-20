@@ -6,10 +6,10 @@ use std::time::{Duration, Instant};
 
 use burrow::allowlist::{AllowList, Rule};
 use burrow::client::State;
-use burrow::config::model::Protocol;
 use burrow::config::settings::{Health, ServerSettings, Service};
 use burrow::protocol::VisitTarget;
 use burrow::secret::Secret;
+use burrow_config::Protocol;
 use common::*;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream, UdpSocket};
@@ -368,7 +368,7 @@ async fn a_self_target_gets_the_proxy_protocol_header() {
     logs();
     let (target, seen) = proxy_aware_echo().await;
     let svc = Service {
-        proxy_protocol: Some(burrow::proxy_protocol::Version::V1),
+        proxy_protocol: Some(burrow_config::ProxyVersion::V1),
         ..on_self(target, Protocol::Tcp)
     };
     let srv = start_server(self_settings(vec![("web", svc)])).await;

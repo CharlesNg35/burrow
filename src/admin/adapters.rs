@@ -11,7 +11,6 @@ use super::core::{Core, Session, text};
 use super::transport::{self, Access};
 use super::{Hub, Opened};
 use crate::config::Format;
-use crate::config::model::AdminLevel;
 use crate::config::settings::ServerSettings;
 use crate::edit::save::{Refused, write_back};
 use crate::handshake::Channel;
@@ -19,6 +18,7 @@ use crate::metrics::Status;
 use crate::protocol::Status as Answer;
 use crate::server::Shared;
 use crate::throttle::Throttle;
+use burrow_config::AdminLevel;
 
 const KEEP: usize = 20;
 

@@ -135,7 +135,7 @@ async fn visitor_reaches_a_private_service() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_public_service_can_list_visitors_too() {
     let s = setup(|srv, echo| {
-        let mut web = service(echo, burrow::config::model::Protocol::Tcp);
+        let mut web = service(echo, burrow_config::Protocol::Tcp);
         web.visitors = vec!["laptop".into()];
         srv.services.insert("web".into(), web);
     })

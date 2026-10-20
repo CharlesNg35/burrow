@@ -72,9 +72,9 @@ mod tests {
         let n = clear.seal(b"hello", &mut out);
         let s = crate::secret::Secret::generate();
         let (init, m1) =
-            crate::noise::Initiator::start(crate::config::model::Cipher::Chachapoly, &s, b"p");
+            crate::noise::Initiator::start(burrow_config::Cipher::Chachapoly, &s, b"p");
         let r = crate::noise::Responder::accept(
-            crate::config::model::Cipher::Chachapoly,
+            burrow_config::Cipher::Chachapoly,
             std::slice::from_ref(&s),
             b"p",
             &m1,

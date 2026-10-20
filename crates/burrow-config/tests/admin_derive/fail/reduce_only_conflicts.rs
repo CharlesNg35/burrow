@@ -1,4 +1,4 @@
-use burrow::config::admin_schema::AdminSchema;
+use burrow_config::admin_schema::AdminSchema;
 
 #[derive(AdminSchema)]
 pub struct Entry {

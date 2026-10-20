@@ -4,9 +4,9 @@ use std::time::Duration;
 
 use burrow::allowlist::{AllowList, Rule};
 use burrow::client::State;
-use burrow::config::model::{Cipher, Protocol};
 use burrow::proxy::ProxyConfig;
 use burrow::secret::Secret;
+use burrow_config::{Cipher, Protocol};
 use common::*;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};

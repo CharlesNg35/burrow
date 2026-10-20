@@ -1,7 +1,7 @@
 use crate::config::check::parse_host_port;
-use crate::config::model::Protocol;
 use crate::config::settings::ServerSettings;
 use crate::protocol::{GrantedClient, GrantedService, Grants};
+use burrow_config::Protocol;
 
 pub fn for_visitor(settings: &ServerSettings, visitor: &str) -> Option<Grants> {
     let auth = settings.visitors.get(visitor)?;

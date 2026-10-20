@@ -2,7 +2,7 @@ use proc_macro2::Span;
 use syn::spanned::Spanned;
 use syn::{Expr, Lit};
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum Term {
     Word(String, Span),
     Call(String, Vec<Term>, Span),

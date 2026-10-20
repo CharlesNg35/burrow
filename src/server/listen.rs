@@ -55,7 +55,7 @@ impl WsListener {
         let listener = bind_tcp(settings.listen).map_err(|e| {
             bind_error(
                 "the websocket listener",
-                crate::config::model::Protocol::Tcp,
+                burrow_config::Protocol::Tcp,
                 settings.listen,
                 &e,
             )

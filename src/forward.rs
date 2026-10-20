@@ -768,9 +768,9 @@ pub async fn send_and_close(mut ch: Channel, bytes: &[u8]) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::model::Cipher;
     use crate::noise::{Initiator, Responder};
     use crate::secret::Secret;
+    use burrow_config::Cipher;
     use std::time::Instant;
     use tokio::net::TcpListener;
 

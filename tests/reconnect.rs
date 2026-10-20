@@ -5,9 +5,9 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use burrow::client::{Client, RunEnd, State};
-use burrow::config::model::Protocol;
 use burrow::secret::Secret;
 use burrow::transport::resolve::{Resolved, Resolver, resolve};
+use burrow_config::Protocol;
 use common::*;
 
 struct MovableDns {

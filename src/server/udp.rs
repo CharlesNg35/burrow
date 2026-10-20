@@ -9,10 +9,10 @@ use tracing::{debug, info, warn};
 
 use super::tcp::log_status;
 use super::{Shared, TakeError};
-use crate::config::model::Protocol;
 use crate::config::settings::Service;
 use crate::forward::ForwardError;
 use crate::protocol::{Connect, Status, decode_datagram, encode_datagram};
+use burrow_config::Protocol;
 
 pub const MAX_PEERS: usize = 4096;
 const MAX_DATAGRAM: usize = crate::noise::MAX_PLAINTEXT - 4;

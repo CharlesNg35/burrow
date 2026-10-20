@@ -5,7 +5,6 @@ use std::time::Duration;
 
 use tokio_rustls::TlsConnector;
 
-use crate::config::model::Cipher;
 use crate::config::settings::{ClientSettings, SocketTuning, VisitorSettings};
 use crate::failure::io_reason;
 use crate::handshake::{Channel, ClientHandshakeError, initiate};
@@ -17,6 +16,7 @@ use crate::transport::resolve::{self, Resolver};
 use crate::transport::tcp::tune;
 use crate::transport::ws::{self, Carrier};
 use crate::transport::{Conn, tls};
+use burrow_config::Cipher;
 use burrow_syntax::endpoint::Endpoint;
 
 #[derive(Debug)]

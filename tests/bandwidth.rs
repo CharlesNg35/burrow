@@ -3,10 +3,10 @@ mod common;
 use std::net::SocketAddr;
 use std::time::{Duration, Instant};
 
-use burrow::config::model::Protocol;
 use burrow::config::settings::Service;
 use burrow::protocol::VisitTarget;
 use burrow::secret::Secret;
+use burrow_config::Protocol;
 use common::*;
 use tokio::net::UdpSocket;
 

@@ -1503,7 +1503,7 @@ fn bandwidth_limits() {
 #[test]
 fn several_clients() {
     use burrow::config::Loaded;
-    use burrow::config::model::Mode;
+    use burrow_config::Mode;
     let ok = server(
         "  web:\n    clients: [home, office]\n    mode: balance\n    health_check: true\n    bind: 4000\n    target: 4000\n  db:\n    clients: [home, office]\n    health_check: { interval_secs: 5, failures: 3 }\n    bind: 4001\n    target: 4001\n",
     );
