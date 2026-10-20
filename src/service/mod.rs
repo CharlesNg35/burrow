@@ -119,6 +119,9 @@ pub trait Backend {
     fn stop(&self, m: &Manifest) -> Result<(), Failure>;
     fn reload(&self, m: &Manifest) -> Result<(), Failure>;
     fn status(&self, m: &Manifest) -> Status;
+    fn journal_hint(&self, _m: &Manifest) -> Option<String> {
+        None
+    }
 }
 
 pub struct InstallOptions {
@@ -482,18 +485,8 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
     let current = std::env::current_exe()
         .map_err(|e| Failure::new(format!("cannot locate the burrow binary: {e}")))?;
     let current = system::canonical(&current).unwrap_or(current);
-    let home = platform.service_binary();
-    let home_via_links = home
-        .parent()
-        .zip(home.file_name())
-        .map(|(dir, file)| system::canonical_or_same(dir).join(file));
-    let (binary, copy_binary) = if current == home || Some(&current) == home_via_links.as_ref() {
-        (home.clone(), true)
-    } else if system::trusted_binary(&current) {
-        (current.clone(), false)
-    } else {
-        (home, true)
-    };
+    let binary = platform.service_binary();
+    let copy_binary = true;
     let low_ports = checked.listens.iter().any(|(_, a, _)| a.port() < 1024);
     let manifest = Manifest {
         name: name.clone(),
@@ -635,13 +628,7 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
     .filter(|kept| system::copy_file(&binary, kept, true).is_ok());
     let _leftover = Leftover(kept_binary.clone());
     if copy_binary && !system::same_content(&current, &binary) {
-        #[cfg(unix)]
-        if binary != platform.binary_path()
-            && let Some(dir) = binary.parent()
-        {
-            system::make_dir(dir, 0o755, None)?;
-        }
-        system::copy_file(&current, &binary, true)?;
+        place_binary(&current, &binary, &platform.binary_path())?;
         say(
             out,
             format!("copied {} -> {}", current.display(), binary.display()),
@@ -779,13 +766,24 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
                 out,
                 format!("warning: {name} is not running: {}", st.detail),
             )?;
-            say(
-                out,
-                format!(
-                    "  see why with: {}",
-                    crate::failure::admin(&format!("service logs{arg}"))
-                ),
-            )?;
+            match backend
+                .journal_hint(&manifest)
+                .filter(|_| !manifest.log_file.exists())
+            {
+                Some(journal) => say(
+                    out,
+                    format!(
+                        "  it wrote no log yet, so it may never have started; see the service manager's reason with: {journal}"
+                    ),
+                )?,
+                None => say(
+                    out,
+                    format!(
+                        "  see why with: {}",
+                        crate::failure::admin(&format!("service logs{arg}"))
+                    ),
+                )?,
+            }
         }
     }
     if let Some(p) = &previous {
@@ -1188,6 +1186,18 @@ pub fn resolve(name: Option<&str>) -> Result<Manifest, Failure> {
 
 fn p_log_dir() -> PathBuf {
     Platform::current().log_dir()
+}
+
+fn place_binary(current: &Path, binary: &Path, usual: &Path) -> Result<(), Failure> {
+    #[cfg(unix)]
+    if let Some(dir) = binary.parent()
+        && (binary != usual || !dir.exists())
+    {
+        system::make_dir(dir, 0o755, None)?;
+    }
+    #[cfg(not(unix))]
+    let _ = usual;
+    system::copy_file(current, binary, true)
 }
 
 fn admin_history(config: &Path) -> PathBuf {
@@ -1716,6 +1726,7 @@ pub fn list(out: &mut dyn Write) -> Result<(), Failure> {
 
 pub fn logs(name: Option<&str>, lines: usize, follow: bool) -> Result<(), Failure> {
     let m = resolve(name)?;
+    let journal = system::backend().ok().and_then(|b| b.journal_hint(&m));
     let mut out = std::io::stdout().lock();
     let mut retry = format!("service logs {}", m.name);
     if lines != 50 {
@@ -1729,6 +1740,7 @@ pub fn logs(name: Option<&str>, lines: usize, follow: bool) -> Result<(), Failur
         lines,
         follow,
         &crate::failure::admin(&retry),
+        journal.as_deref(),
         &mut out,
     )
 }
@@ -1875,6 +1887,31 @@ mod tests {
         let inner = system::canonical(&etc.join("burrow/x/server.yaml")).unwrap();
         assert!(holds_source(&etc.join("burrow/x"), &[&inner]));
         assert!(!holds_source(&etc.join("burrow/x"), &[&source]));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_binary_in_a_private_folder_is_copied_into_a_missing_service_folder_once() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let private = dir.path().join("root");
+        std::fs::create_dir(&private).unwrap();
+        let current = private.join("burrow");
+        std::fs::write(&current, "the burrow binary").unwrap();
+        std::fs::set_permissions(&current, std::fs::Permissions::from_mode(0o755)).unwrap();
+        std::fs::set_permissions(&private, std::fs::Permissions::from_mode(0o700)).unwrap();
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
+        let usual = dir.path().join("usr/local/bin/burrow");
+        assert!(!usual.parent().unwrap().exists());
+        place_binary(&current, &usual, &usual).unwrap();
+        let folder = std::fs::metadata(usual.parent().unwrap()).unwrap();
+        assert_eq!(folder.permissions().mode() & 0o777, 0o755);
+        assert_eq!(std::fs::read(&usual).unwrap(), b"the burrow binary");
+        assert!(std::fs::metadata(&usual).unwrap().permissions().mode() & 0o001 != 0);
+        assert!(
+            system::same_content(&current, &usual),
+            "a reinstall from the same file has nothing to copy"
+        );
     }
 
     #[test]
