@@ -999,7 +999,17 @@ fn mono(v: &Value) -> AnyView {
     view! { <span class="font-mono text-sm">{plain(v)}</span> }.into_any()
 }
 
-fn ref_link(section: &str, name: &str, ctx: &Ctx) -> AnyView {
+fn ref_link(section: &str, name: &str, reserved: &[String], ctx: &Ctx) -> AnyView {
+    if reserved.iter().any(|r| r == name) {
+        let to = Route::Settings;
+        let local = name.to_string();
+        return view! {
+            <Link to=to class=chip_class(Tone::Accent, true)>
+                <span data-local=local>{crate::domain::THIS_SERVER}</span>
+            </Link>
+        }
+        .into_any();
+    }
     let exists = ctx.doc.get(section).and_then(|m| m.get(name)).is_some();
     let name = name.to_string();
     if exists {
@@ -1074,7 +1084,7 @@ fn sem_view(sem: &SemType, node: &Node, v: &Value, ctx: &Ctx) -> AnyView {
                 .unwrap_or(raw);
             view! { <span class="font-mono text-sm">{shown}</span> }.into_any()
         }
-        SemType::Ref(c) => ref_link(c.entity.section(), &plain(v), ctx),
+        SemType::Ref(c) => ref_link(c.entity.section(), &plain(v), &c.reserved, ctx),
         SemType::RefList(c) => {
             let section = c.entity.section().to_string();
             let items = names(v);
@@ -1083,7 +1093,7 @@ fn sem_view(sem: &SemType, node: &Node, v: &Value, ctx: &Ctx) -> AnyView {
             }
             view! {
                 <span class="flex flex-wrap gap-1">
-                    {items.iter().map(|n| ref_link(&section, n, ctx)).collect_view()}
+                    {items.iter().map(|n| ref_link(&section, n, &c.reserved, ctx)).collect_view()}
                 </span>
             }
             .into_any()
@@ -1098,7 +1108,7 @@ fn sem_view(sem: &SemType, node: &Node, v: &Value, ctx: &Ctx) -> AnyView {
                 .map(|(k, x)| {
                     view! {
                         <tr>
-                            <th scope="row">{ref_link(&section, k, ctx)}</th>
+                            <th scope="row">{ref_link(&section, k, &c.reserved, ctx)}</th>
                             <td>{value_view(&c.value, Some(x), None, ctx)}</td>
                         </tr>
                     }

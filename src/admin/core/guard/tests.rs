@@ -110,3 +110,38 @@ fn the_last_writer_and_the_transport_are_kept() {
             .any(|r| r.code == "self-transport")
     );
 }
+
+#[test]
+fn a_new_self_allow_names_the_reach_connections_it_may_close() {
+    let w = world();
+    let with_self = |allow: &str| {
+        settings(&w.text.replace(
+            "services:",
+            &format!("self:\n  allow: [{allow}]\nservices:"),
+        ))
+    };
+    let mut old = with_self("127.0.0.0/8");
+    let auth = old.visitors.get_mut("ops").unwrap();
+    auth.reach
+        .insert(SELF.into(), crate::allowlist::AllowList::All);
+    let mut new = with_self("127.0.0.1/32");
+    new.visitors = old.visitors.clone();
+    let status = Status {
+        clients: vec![crate::metrics::ClientStatus {
+            name: SELF.into(),
+            connected: true,
+            open: 3,
+            local: true,
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let i = impacts(&old, &new, &status, &[], &[]);
+    let changed = i.iter().find(|i| i.code == "changes-self-allow").unwrap();
+    assert_eq!(
+        changed.message,
+        "changes self.allow; of the 3 open connections to this server, those the new list no longer permits close"
+    );
+    assert_eq!(changed.level, Level::Warning);
+    assert!(impacts(&old, &old, &status, &[], &[]).is_empty());
+}

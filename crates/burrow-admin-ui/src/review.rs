@@ -40,7 +40,7 @@ fn impact_icon(l: Level) -> (&'static str, Tone) {
     }
 }
 
-pub fn service_paths(base: &Value, draft: &Value) -> Vec<(String, PathData)> {
+pub fn service_paths(base: &Value, draft: &Value, reserved: &[String]) -> Vec<(String, PathData)> {
     let empty = serde_json_map();
     let b = base
         .get("services")
@@ -76,20 +76,20 @@ pub fn service_paths(base: &Value, draft: &Value) -> Vec<(String, PathData)> {
             };
             let data = match (old, new) {
                 (Some(o), None) => {
-                    let mut p = paths::service(n, o, None, 0.0, &none, true);
+                    let mut p = paths::service(n, o, None, 0.0, &none, true, reserved);
                     mark(&mut p, HopState::Removed, EdgeState::Removed);
                     p.summary = format!("Service {n} is removed");
                     p
                 }
                 (None, Some(x)) => {
-                    let mut p = paths::service(n, x, None, 0.0, &none, true);
+                    let mut p = paths::service(n, x, None, 0.0, &none, true, reserved);
                     mark(&mut p, HopState::Added, EdgeState::Added);
                     p.summary = format!("Service {n} is added");
                     p
                 }
                 (Some(o), Some(x)) => {
-                    let before = paths::service(n, o, None, 0.0, &none, true);
-                    let mut p = paths::service(n, x, None, 0.0, &none, true);
+                    let before = paths::service(n, o, None, 0.0, &none, true, reserved);
+                    let mut p = paths::service(n, x, None, 0.0, &none, true, reserved);
                     for (h, was) in p.hops.iter_mut().zip(before.hops.iter()) {
                         h.dot = None;
                         h.state = if h.value != was.value || h.unit != was.unit {
@@ -342,8 +342,9 @@ fn detail(plan: std::sync::Arc<Plan>, revert: bool) -> AnyView {
     let paths = if revert {
         Vec::new()
     } else {
-        e.draft
-            .with_untracked(|d| service_paths(d.base(), d.draft()))
+        e.draft.with_untracked(|d| {
+            service_paths(d.base(), d.draft(), &crate::domain::reserved_clients())
+        })
     };
     let lines = diff_lines(&plan.diff);
     let (added, removed) = diff_counts(&plan.diff);
@@ -899,7 +900,7 @@ mod tests {
     fn the_review_marks_removed_added_and_changed_services() {
         let base = json!({"services": {"ssh": {"client": "a", "bind": "0.0.0.0:2222", "target": "x:22"}, "web": {"client": "a", "bind": "0.0.0.0:443", "target": "x:80"}}});
         let draft = json!({"services": {"web": {"client": "a", "bind": "0.0.0.0:8443", "target": "x:80"}, "db": {"client": "a", "target": "y:5432"}}});
-        let p = service_paths(&base, &draft);
+        let p = service_paths(&base, &draft, &[]);
         let names: Vec<&str> = p.iter().map(|(n, _)| n.as_str()).collect();
         assert_eq!(names, ["db", "ssh", "web"]);
         assert!(p[0].1.hops.iter().all(|h| h.state == HopState::Added));

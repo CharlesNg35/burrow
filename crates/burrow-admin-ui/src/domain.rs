@@ -25,6 +25,17 @@ pub struct FieldCtx {
     pub inherited: Option<Value>,
 }
 
+pub const THIS_SERVER: &str = "This server";
+
+pub fn reserved_clients() -> Vec<String> {
+    store().schema.with(|s| {
+        s.as_ref()
+            .and_then(|s| s.root.at(&["services".into(), "*".into(), "client".into()]))
+            .map(|n| n.sem.reserved().to_vec())
+            .unwrap_or_default()
+    })
+}
+
 pub fn names_of(entity: &Entity) -> Vec<String> {
     let doc = store().edit.doc();
     names(&doc, &[entity.section().to_string()])
@@ -666,9 +677,16 @@ fn map_editor(fc: FieldCtx, entity: Option<Entity>, value_node: Node) -> AnyView
     let adding = RwSignal::new(String::new());
     let fc2 = fc.clone();
     let ent = entity.clone();
+    let reserved = fc.node.sem.reserved().to_vec();
     let candidates = Signal::derive(move || {
         let used = keys.get();
         let mut o = vec![(String::new(), "Add…".to_string())];
+        o.extend(
+            reserved
+                .iter()
+                .filter(|n| !used.contains(n))
+                .map(|n| (n.clone(), format!("{THIS_SERVER} · {n}"))),
+        );
         if let Some(ent) = &ent {
             o.extend(
                 names_of(ent)

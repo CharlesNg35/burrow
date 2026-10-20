@@ -241,8 +241,10 @@ fn check_sem(sem: &SemType, v: &Value) -> Result<(), String> {
 }
 
 pub fn refs_exist(node: &Node, v: &Value, names: &[String]) -> Result<(), String> {
-    let missing =
-        |n: &str| (!names.iter().any(|x| x == n)).then(|| format!("\"{n}\" does not exist"));
+    let reserved = node.sem.reserved();
+    let missing = |n: &str| {
+        (!names.iter().chain(reserved).any(|x| x == n)).then(|| format!("\"{n}\" does not exist"))
+    };
     match (&node.sem, v) {
         (SemType::Ref(_), Value::String(s)) => missing(s).map_or(Ok(()), Err),
         (SemType::RefList(_), Value::Array(a)) => a
@@ -407,6 +409,7 @@ mod tests {
             ordered: true,
             unique: true,
             max: None,
+            reserved: vec!["self".into()],
         });
         ok(refs.clone(), json!(["home", "office"]));
         assert!(bad(refs.clone(), json!(["home", "home"])).contains("twice"));
@@ -414,6 +417,11 @@ mod tests {
         assert_eq!(
             refs_exist(&n, &json!(["home", "x"]), &["home".into()]),
             Err("\"x\" does not exist".into())
+        );
+        assert_eq!(
+            refs_exist(&n, &json!(["home", "self"]), &["home".into()]),
+            Ok(()),
+            "a reserved name is always a valid reference"
         );
     }
 

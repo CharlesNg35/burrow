@@ -402,6 +402,19 @@ pub fn layout(doc: &Value, status: Option<&Status>, rates: &Rates) -> Chart {
             problem,
         });
         for c in &s.clients {
+            let local = status
+                .and_then(|st| st.clients.iter().find(|x| &x.name == c))
+                .is_some_and(|x| x.local);
+            if local {
+                lines.push(Line {
+                    d: curve(server_right, mid(&port), COLS[4].0, mid(&target)),
+                    width: w,
+                    stroke,
+                    dashed: false,
+                    problem,
+                });
+                continue;
+            }
             if let Some(cn) = client_nodes.iter().find(|n| n.key == format!("client:{c}")) {
                 let off = cn.dashed;
                 lines.push(Line {
@@ -743,6 +756,32 @@ mod tests {
         svc.open = 60;
         st.services.push(svc);
         st
+    }
+
+    #[test]
+    fn a_service_on_this_server_goes_from_the_server_straight_to_its_target() {
+        let mut st = status();
+        st.clients.push(ClientStatus {
+            name: "self".into(),
+            connected: true,
+            local: true,
+            ..ClientStatus::default()
+        });
+        let doc = json!({
+            "clients": {},
+            "services": {"own": {"client": "self", "bind": "0.0.0.0:8080", "target": "127.0.0.1:3000"}}
+        });
+        let c = layout(&doc, Some(&st), &Rates::default());
+        assert_eq!(c.problems, 0);
+        let target = c.nodes.iter().find(|n| n.key == "target:own").unwrap();
+        assert_eq!(target.health, Health::Healthy);
+        assert!(c.nodes.iter().all(|n| n.key != "client:self"));
+        assert_eq!(c.lines.len(), 3, "source, port to server, server to target");
+        let direct = &c.lines[2].d;
+        assert!(
+            direct.contains(&format!(" {:.1},", COLS[4].0)),
+            "the line ends at the target column: {direct}"
+        );
     }
 
     #[test]

@@ -200,6 +200,76 @@ fn e3_e4_add_a_service_with_ranges_and_see_server_errors_inline() {
     );
 }
 
+fn service_on_this_server(c: &mut Ctx) -> Flow<'_> {
+    Box::pin(async move {
+        let echo = free_range(1);
+        let public = free_range(1);
+        let target = echo_server(echo).await;
+        open(c, "ops").await;
+        c.ui.nav("/services").await;
+        c.ui.click("[data-testid=new]").await;
+        c.ui.wait_for("[data-testid=new-entity]", SECS).await;
+        c.ui.fill("#new-name", "local").await;
+        c.ui.wait_for("[data-testid=name-available]", SECS).await;
+        c.ui.click("[data-testid=create]").await;
+        c.ui.wait_for("[data-testid=detail][data-name=local]", SECS)
+            .await;
+        let clients = "[data-schema='services/*/clients']";
+        c.ui.click(&format!("{clients} [data-remove]")).await;
+        c.ui.click("#f-services-local-clients").await;
+        c.ui.wait_for(&format!("{clients} [data-option=self]"), SECS)
+            .await;
+        let offered = c.ui.text(&format!("{clients} [data-option=self]")).await;
+        assert!(offered.contains("This server"), "{offered}");
+        c.ui.shot("this-server-in-the-picker").await;
+        c.ui.click(&format!("{clients} [data-option=self] input"))
+            .await;
+        c.ui.wait_for(&format!("{clients} [data-chip=self]"), SECS)
+            .await;
+        click_js(
+            c,
+            "[data-schema='services/*/visibility'] input[value=public]",
+        )
+        .await;
+        c.ui.fill("#f-services-local-bind", &format!("127.0.0.1:{public}"))
+            .await;
+        c.ui.fill("#f-services-local-target", &format!("127.0.0.1:{echo}"))
+            .await;
+        wait_checked(c).await;
+        c.ui.click("[data-testid=save]").await;
+        c.ui.wait_gone("[data-testid=save-bar]", SECS).await;
+        open_review(c, "review-service-on-this-server").await;
+        applied(c, "service-on-this-server-applied").await;
+        let text = c.world.config();
+        assert!(text.contains("  local:\n    client: self\n"), "{text}");
+        round_trip(public, 4096)
+            .await
+            .expect("a round trip through the server itself");
+        c.ui.nav("/services/local").await;
+        c.ui.wait_for("[data-hop=target]", SECS).await;
+        let hops: Vec<String> = c
+            .ui
+            .eval("[...document.querySelectorAll('[data-testid=detail] [data-hop]')].map(e => e.getAttribute('data-hop'))")
+            .await;
+        assert_eq!(hops, ["internet", "server", "target"], "no client hop");
+        c.ui.wait_text("[data-hop=target]", "on this server", SECS)
+            .await;
+        c.ui.shot("service-on-this-server-path").await;
+        target.abort();
+        c.ui.assert_no_errors();
+    })
+}
+
+#[test]
+fn a_service_on_this_server_is_created_in_the_ui_and_carries_traffic() {
+    run(
+        "service-on-this-server",
+        Options::default(),
+        false,
+        service_on_this_server,
+    );
+}
+
 async fn row_error(c: &Ctx, schema: &str) -> String {
     let css = format!("[data-schema='{schema}'] [aria-live] p");
     c.ui.wait_for(&css, SECS).await;

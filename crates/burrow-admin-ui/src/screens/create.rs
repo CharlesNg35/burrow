@@ -30,6 +30,11 @@ pub fn name_problem(name: &str, section: &str, except: Option<&str>) -> Option<S
     if let Err(e) = check_name(name) {
         return Some(e);
     }
+    if section == "clients" && crate::domain::reserved_clients().iter().any(|r| r == name) {
+        return Some(format!(
+            "{name} is reserved for this server; give the client another name"
+        ));
+    }
     (taken(section).iter().any(|t| t == name) && except != Some(name))
         .then(|| format!("a {} named {name} already exists", singular(section)))
 }

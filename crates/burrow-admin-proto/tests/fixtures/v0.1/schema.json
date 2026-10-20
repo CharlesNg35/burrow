@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:6d5316c0896922f3",
+  "hash": "b2s:67fdbd0323f5da2a",
   "root": {
     "label": "Server",
     "sem": {
@@ -287,7 +287,10 @@
                                 }
                               ]
                             }
-                          }
+                          },
+                          "reserved": [
+                            "self"
+                          ]
                         },
                         "group": "access",
                         "empty_label": "No direct access"
@@ -461,7 +464,10 @@
                           "inner": {
                             "sem": {
                               "t": "ref",
-                              "entity": "client"
+                              "entity": "client",
+                              "reserved": [
+                                "self"
+                              ]
                             }
                           }
                         },
@@ -484,7 +490,10 @@
                           "t": "ref_list",
                           "entity": "client",
                           "ordered": true,
-                          "unique": true
+                          "unique": true,
+                          "reserved": [
+                            "self"
+                          ]
                         },
                         "group": "who",
                         "relations": [

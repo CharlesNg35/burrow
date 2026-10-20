@@ -895,3 +895,29 @@ fn a_changing_connection_count_does_not_invalidate_a_reviewed_plan() {
     );
     assert!(begun.is_ok(), "{:?}", begun.err().map(|e| e.message));
 }
+
+#[test]
+fn an_apply_adds_a_service_on_this_server() {
+    let w = world();
+    let core = core_for(&w.text);
+    let s = session(&w, Level::Write);
+    let ops = [Op::Add {
+        path: p(&["services", "local"]),
+        value: json!({"client": "self", "bind": 7841, "target": 3000}),
+    }];
+    let applied = apply_now(&core, &s, &ops, &[]).unwrap();
+    assert!(!applied.rev.is_empty());
+    let text = core.read().unwrap();
+    assert!(
+        text.contains("  local:\n    client: self\n    bind: 7841\n    target: 3000\n"),
+        "{text}"
+    );
+    let named = [Op::Add {
+        path: p(&["clients", "self"]),
+        value: json!({"secret": Secret::generate().encode()}),
+    }];
+    let base = text::rev(&text);
+    let c = plan::compute(&core, &s, &base, &named).unwrap();
+    assert!(!c.plan.valid);
+    assert!(c.plan.diags.iter().any(|d| d.code == "reserved-name"));
+}

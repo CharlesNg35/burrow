@@ -49,6 +49,7 @@ pub fn service(
     in_rate: f64,
     problems: &Problems,
     editing: bool,
+    reserved: &[String],
 ) -> PathData {
     let st = status.and_then(|s| s.services.iter().find(|x| x.name == name));
     let open = st.map(|x| x.open).unwrap_or(0);
@@ -136,7 +137,19 @@ pub fn service(
         badge: None,
     };
     let clients = clients_of(svc);
-    let up = clients.iter().filter(|c| online(status, c)).count();
+    let local = |c: &String| reserved.contains(c);
+    let on_server = !clients.is_empty() && clients.iter().all(local);
+    let up = clients
+        .iter()
+        .filter(|c| local(c) || online(status, c))
+        .count();
+    let shown: Vec<String> = clients
+        .iter()
+        .map(|c| match local(c) {
+            true => crate::domain::THIS_SERVER.to_string(),
+            false => c.clone(),
+        })
+        .collect();
     let healthy = st.map(|x| x.health.iter().filter(|h| h.up).count());
     let health_on = svc
         .get("health_check")
@@ -158,7 +171,7 @@ pub fn service(
         value: if clients.is_empty() {
             "none".into()
         } else {
-            clients.join(" · ")
+            shown.join(" · ")
         },
         dot: Some(ctone),
         unit: match (health_on, healthy) {
@@ -189,7 +202,11 @@ pub fn service(
         } else {
             Tone::Neutral
         }),
-        unit: "on each client".into(),
+        unit: if on_server {
+            "on this server".into()
+        } else {
+            "on each client".into()
+        },
         state: if problems.ports.is_some() {
             HopState::Bad
         } else {
@@ -220,7 +237,7 @@ pub fn service(
                 String::new()
             }
         });
-    let edges = vec![
+    let mut edges = vec![
         Edge {
             above: format!("{open} open"),
             below: format!("{rate} {unit} in"),
@@ -260,16 +277,29 @@ pub fn service(
             },
         },
     ];
+    let kind = if public {
+        "Public port"
+    } else {
+        "Private service"
+    };
+    if on_server {
+        let mode = edges.remove(1);
+        if edges[1].below.is_empty() {
+            edges[1].below = mode.below;
+        }
+        let summary = format!(
+            "{kind} {} on the server, to {} on this server; {open} open",
+            server.value, target_hop.value
+        );
+        return PathData {
+            hops: vec![source, server, target_hop],
+            edges,
+            summary,
+        };
+    }
     let summary = format!(
-        "{} {} on the server, through {} to {}; {open} open",
-        if public {
-            "Public port"
-        } else {
-            "Private service"
-        },
-        server.value,
-        client_hop.value,
-        target_hop.value
+        "{kind} {} on the server, through {} to {}; {open} open",
+        server.value, client_hop.value, target_hop.value
     );
     PathData {
         hops: vec![source, server, client_hop, target_hop],
@@ -545,6 +575,7 @@ mod tests {
                 ports: Some("6 ≠ 11 ports".into()),
             },
             true,
+            &[],
         );
         assert_eq!(p.hops.len(), 4);
         assert_eq!(p.hops[0].state, HopState::Bad);
@@ -555,5 +586,32 @@ mod tests {
         assert_eq!(p.hops[3].badge.as_ref().unwrap().0, "6 ≠ 11 ports");
         assert_eq!(port_count(Some(&json!("unix:/run/x.sock"))), 1);
         assert_eq!(port_count(Some(&json!(7840))), 1);
+    }
+
+    #[test]
+    fn a_service_on_this_server_goes_from_the_server_straight_to_its_target() {
+        let none = Problems {
+            source: None,
+            clients: None,
+            ports: None,
+        };
+        let reserved = ["self".to_string()];
+        let svc = json!({"client": "self", "bind": 8080, "target": "127.0.0.1:3000", "proxy_protocol": "v2"});
+        let p = service("web", &svc, None, 0.0, &none, false, &reserved);
+        let heads: Vec<&str> = p.hops.iter().map(|h| h.head.as_str()).collect();
+        assert_eq!(heads, ["Internet", "Server", "Target"]);
+        assert_eq!(p.edges.len(), 2);
+        assert_eq!(p.edges[1].state, EdgeState::Live);
+        assert_eq!(p.edges[1].below, "PROXY v2");
+        assert_eq!(p.hops[2].unit, "on this server");
+        assert_eq!(
+            p.summary,
+            "Public port 8080 on the server, to 127.0.0.1:3000 on this server; 0 open"
+        );
+        let mixed = json!({"clients": ["self", "home"], "bind": 8080, "target": 3000});
+        let p = service("web", &mixed, None, 0.0, &none, false, &reserved);
+        assert_eq!(p.hops.len(), 4);
+        assert_eq!(p.hops[2].value, "This server · home");
+        assert_eq!(p.hops[2].unit, "1 of 2 online");
     }
 }

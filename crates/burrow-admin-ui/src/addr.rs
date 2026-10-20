@@ -431,12 +431,19 @@ pub fn server_editor(fc: FieldCtx) -> AnyView {
     .into_any()
 }
 
-pub fn options_for(entity: &Entity) -> Vec<ComboOption> {
+pub fn options_for(entity: &Entity, reserved: &[String]) -> Vec<ComboOption> {
     let s = store();
     let status = s.status.get();
-    names_of(entity)
+    let local = reserved.iter().map(|n| ComboOption {
+        value: n.clone(),
+        label: crate::domain::THIS_SERVER.to_string(),
+        facet: format!("{n} · always connected"),
+        dot: Some(Tone::Success),
+    });
+    local
+        .collect::<Vec<_>>()
         .into_iter()
-        .map(|n| match entity {
+        .chain(names_of(entity).into_iter().map(|n| match entity {
             Entity::Client => {
                 let c = status
                     .as_ref()
@@ -495,7 +502,7 @@ pub fn options_for(entity: &Entity) -> Vec<ComboOption> {
                 facet: String::new(),
                 dot: None,
             },
-        })
+        }))
         .collect()
 }
 
@@ -539,7 +546,8 @@ pub fn picker(fc: FieldCtx, entity: Entity, multi: bool) -> AnyView {
         names
     });
     let ent = entity.clone();
-    let options = Signal::derive(move || options_for(&ent));
+    let reserved = fc.node.sem.reserved().to_vec();
+    let options = Signal::derive(move || options_for(&ent, &reserved));
     let header = {
         let s = store();
         let plural = match entity {
@@ -549,8 +557,12 @@ pub fn picker(fc: FieldCtx, entity: Entity, multi: bool) -> AnyView {
         };
         let online = if entity == Entity::Client {
             s.status.with_untracked(|st| {
-                st.as_ref()
-                    .map(|st| st.clients.iter().filter(|c| c.connected).count())
+                st.as_ref().map(|st| {
+                    st.clients
+                        .iter()
+                        .filter(|c| c.connected && !c.local)
+                        .count()
+                })
             })
         } else {
             None

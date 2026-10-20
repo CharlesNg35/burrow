@@ -569,7 +569,7 @@ fn Attention() -> impl IntoView {
             st.as_ref().and_then(|st| {
                 st.clients
                     .iter()
-                    .filter(|c| c.connected)
+                    .filter(|c| c.connected && !c.local)
                     .max_by_key(|c| c.connected_secs.unwrap_or(0))
                     .map(|c| {
                         format!(

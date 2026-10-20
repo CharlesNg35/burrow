@@ -4,6 +4,7 @@ use std::net::SocketAddr;
 use burrow_admin_proto::plan::{Impact, Level, Refusal};
 
 use super::ports::LiveSession;
+use crate::config::SELF;
 use crate::config::model::AdminLevel;
 use crate::config::settings::{ServerSettings, Service};
 use crate::metrics::Status;
@@ -328,6 +329,23 @@ pub fn impacts(
                 None,
             );
         }
+    }
+    let reaches_self = |s: &ServerSettings| s.visitors.values().any(|v| v.reach.contains_key(SELF));
+    if old.self_allow.is_some() && new.self_allow != old.self_allow && reaches_self(old) {
+        let open = client_open(SELF);
+        push(
+            if open > 0 {
+                Level::Warning
+            } else {
+                Level::Info
+            },
+            "changes-self-allow",
+            format!(
+                "changes self.allow; of the {} to this server, those the new list no longer permits close",
+                connections(open)
+            ),
+            None,
+        );
     }
     if new.listen != old.listen {
         push(

@@ -353,6 +353,8 @@ pub struct SizeC {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RefC {
     pub entity: Entity,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reserved: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -364,12 +366,16 @@ pub struct RefListC {
     pub unique: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max: Option<u32>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reserved: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RefMapC {
     pub entity: Entity,
     pub value: Box<Node>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reserved: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -549,6 +555,16 @@ impl<'de> Deserialize<'de> for SemType {
 }
 
 impl SemType {
+    pub fn reserved(&self) -> &[String] {
+        match self {
+            SemType::Ref(r) => &r.reserved,
+            SemType::RefList(r) => &r.reserved,
+            SemType::RefMap(r) => &r.reserved,
+            SemType::Optional(o) => o.inner.sem.reserved(),
+            _ => &[],
+        }
+    }
+
     pub fn is_scalar(&self) -> bool {
         match self {
             SemType::Object(_)

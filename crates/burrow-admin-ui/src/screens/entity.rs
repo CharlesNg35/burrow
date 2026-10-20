@@ -665,6 +665,7 @@ fn Detail(section: String, name: String) -> impl IntoView {
                     rate,
                     &problems_for(&vec![sec.clone(), nm.clone()]),
                     editing.get(),
+                    &crate::domain::reserved_clients(),
                 )
             }
         }

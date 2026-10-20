@@ -231,7 +231,7 @@ pub struct VisitorEntry {
         description = "Clients this visitor may reach directly, with the targets it may pick there: any (whatever the client's allow list permits), or rules in allow-list syntax that narrow it, for example home: any, office: 192.168.150.0/25 or lab: [10.0.0.0/8:22, unix:/run/app.sock]"
     )]
     #[admin(
-        ty = ref_map(client),
+        ty = ref_map(client, reserved = "self"),
         label = "Direct access to clients",
         group = access,
         empty_label = "No direct access"
@@ -354,13 +354,13 @@ impl Secrets {
 pub struct ServiceEntry {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(description = "Name of the client that reaches the target")]
-    #[admin(ty = ref_(client), group = who, one_of = "who", none_label = "None")]
+    #[admin(ty = ref_(client, reserved = "self"), group = who, one_of = "who", none_label = "None")]
     pub client: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[schemars(
         description = "Several clients that can each reach the target, instead of client; see mode"
     )]
-    #[admin(ty = ref_list(client, ordered), group = who, one_of = "who")]
+    #[admin(ty = ref_list(client, ordered, reserved = "self"), group = who, one_of = "who")]
     pub clients: Vec<String>,
     #[serde(default, skip_serializing_if = "is_default")]
     #[schemars(
