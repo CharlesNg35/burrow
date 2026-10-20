@@ -395,3 +395,47 @@ fn e2b_create_and_apply_with_pending_edits_stops_at_the_review() {
         create_and_apply,
     );
 }
+
+fn create_and_apply_after_a_conflict(c: &mut Ctx) -> Flow<'_> {
+    Box::pin(async move {
+        open(c, "ops").await;
+        c.ui.nav("/clients").await;
+        c.ui.click("[data-testid=new]").await;
+        c.ui.fill("#new-name", "lab3").await;
+        let lab = super::world::secret();
+        c.world.hand_edit(|t| {
+            t.replacen(
+                "clients:\n",
+                &format!("clients:\n  lab:\n    secret: {lab}\n"),
+                1,
+            )
+        });
+        c.ui.click("[data-testid=create-apply]").await;
+        c.ui.wait_for("[data-testid=conflict]", Duration::from_secs(15))
+            .await;
+        c.ui.shot("create-and-apply-conflict").await;
+        c.ui.click("[data-testid=conflict-recheck]").await;
+        c.ui.wait_gone("[data-testid=conflict]", SECS).await;
+        wait_checked(c).await;
+        c.ui.click("[data-testid=review-open]").await;
+        c.ui.wait_for("[data-testid=apply]:not([disabled])", SECS)
+            .await;
+        tokio::time::sleep(Duration::from_secs(3)).await;
+        c.ui.shot("after-a-conflict-the-review-waits-for-apply")
+            .await;
+        let text = c.world.config();
+        assert!(!text.contains("lab3:"), "nothing applied: {text}");
+        assert_eq!(c.ui.count("[data-testid=shown-once]").await, 0);
+        c.ui.take_errors();
+    })
+}
+
+#[test]
+fn e2c_create_and_apply_that_met_a_conflict_waits_for_apply() {
+    run(
+        "e2c-create-and-apply-conflict",
+        Options::default(),
+        false,
+        create_and_apply_after_a_conflict,
+    );
+}

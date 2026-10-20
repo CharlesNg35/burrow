@@ -264,6 +264,7 @@ impl Edit {
         let n = self.seq.get_value() + 1;
         self.seq.set_value(n);
         self.plan.set(None);
+        self.auto_apply.set(false);
         let me = *self;
         set_timeout(move || me.validate(n), VALIDATE_AFTER);
     }
@@ -284,13 +285,19 @@ impl Edit {
                 return;
             }
             me.checking.set(false);
+            if r.is_err() {
+                me.auto_apply.set(false);
+            }
             match r {
                 Ok(v) => match serde_json::from_value::<Plan>(v) {
                     Ok(p) => {
                         me.check_error.set(None);
                         me.plan.set(Some(Arc::new(p)));
                     }
-                    Err(e) => me.check_error.set(Some(format!("unreadable plan: {e}"))),
+                    Err(e) => {
+                        me.auto_apply.set(false);
+                        me.check_error.set(Some(format!("unreadable plan: {e}")));
+                    }
                 },
                 Err(e) => match conflict_of(&e) {
                     Some(c) => me.conflict.set(Some(c)),

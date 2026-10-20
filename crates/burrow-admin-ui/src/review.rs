@@ -621,6 +621,9 @@ pub fn ReviewPage() -> impl IntoView {
         }
         rev
     });
+    on_cleanup(move || {
+        let _ = e.auto_apply.try_set(false);
+    });
     let plan = Memo::new(move |_| e.review_plan());
     Effect::new(move |_| {
         if !e.auto_apply.get() {
