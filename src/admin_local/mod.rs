@@ -147,12 +147,7 @@ async fn page(stream: &mut TcpStream, shared: &Shared, path: &str, gzip: bool) {
         return;
     };
     let (body, encoded) = assets::body(asset, gzip);
-    let mut extra = format!("ETag: \"{}\"\r\n", asset.etag);
-    extra.push_str(if asset.immutable {
-        "Cache-Control: public, max-age=31536000, immutable\r\n"
-    } else {
-        "Cache-Control: no-store\r\n"
-    });
+    let mut extra = format!("ETag: \"{}\"\r\nCache-Control: no-store\r\n", asset.etag);
     if encoded {
         extra.push_str("Content-Encoding: gzip\r\nVary: Accept-Encoding\r\n");
     }

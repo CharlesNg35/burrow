@@ -963,6 +963,23 @@ async fn the_local_page_is_only_served_to_this_machine() {
     assert!(ok.starts_with("HTTP/1.1 200"), "{ok}");
     assert!(ok.contains("Content-Security-Policy: default-src 'none'"));
     assert!(ok.contains("Cache-Control: no-store"));
+    for asset in burrow::admin_local::assets::ASSETS {
+        let got = http_get(
+            l.port,
+            &format!(
+                "GET {} HTTP/1.1\r\nHost: 127.0.0.1:{}\r\n\r\n",
+                asset.path, l.port
+            ),
+        )
+        .await;
+        let head = got.split("\r\n\r\n").next().unwrap_or_default();
+        assert!(head.starts_with("HTTP/1.1 200"), "{} {head}", asset.path);
+        assert!(
+            head.contains("Cache-Control: no-store") && !head.contains("immutable"),
+            "{} may be cached by the browser: {head}",
+            asset.path
+        );
+    }
     assert!(!ok.to_ascii_lowercase().contains("set-cookie"));
     assert!(!ok.to_ascii_lowercase().contains("access-control-allow"));
     let evil = http_get(l.port, "GET / HTTP/1.1\r\nHost: evil.example\r\n\r\n").await;

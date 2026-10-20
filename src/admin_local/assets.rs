@@ -4,7 +4,6 @@ pub struct Asset {
     pub body: &'static [u8],
     pub gzipped: bool,
     pub etag: &'static str,
-    pub immutable: bool,
 }
 
 include!(concat!(env!("OUT_DIR"), "/admin_assets.rs"));
