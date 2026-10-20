@@ -103,6 +103,16 @@ pub fn outcome_of(err: &ErrorBody) -> Outcome {
     }
 }
 
+pub fn revert_outcome(err: &ErrorBody) -> Outcome {
+    match outcome_of(err) {
+        Outcome::Unanswered => Outcome::Failed {
+            code: ErrorCode::Unknown,
+            message: "The check of the revert did not finish because the connection closed; nothing was applied. Try again once the connection is back.".into(),
+        },
+        other => other,
+    }
+}
+
 pub fn conflict_of(err: &ErrorBody) -> Option<Conflict> {
     (err.code == ErrorCode::Conflict).then(|| {
         serde_json::from_value::<Conflict>(err.body.clone()).unwrap_or(Conflict {
@@ -379,7 +389,7 @@ impl Edit {
                     }
                     None => {
                         me.review.set(None);
-                        me.outcome.set(Some(outcome_of(&e)));
+                        me.outcome.set(Some(revert_outcome(&e)));
                     }
                 },
             },
@@ -564,6 +574,11 @@ mod tests {
             body: Value::Null,
         };
         assert!(matches!(outcome_of(&never_sent), Outcome::Failed { .. }));
+        assert!(matches!(
+            revert_outcome(&crate::api::unanswered()),
+            Outcome::Failed { message, .. } if message.contains("did not finish") && message.contains("nothing was applied")
+        ));
+        assert!(matches!(revert_outcome(&reload), Outcome::ReloadFailed(_)));
     }
 
     #[test]

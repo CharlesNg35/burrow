@@ -205,16 +205,18 @@ pub async fn listen(
     if let Some(p) = port {
         return Ok((bind(p).await?, None));
     }
-    if let Ok(l) = bind(default).await {
-        return Ok((l, None));
-    }
+    let why = match TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], default))).await {
+        Ok(l) => return Ok((l, None)),
+        Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
+            format!("port {default} is in use")
+        }
+        Err(e) => format!("cannot use port {default} ({e})"),
+    };
     let l = bind(0).await?;
-    let note = l.local_addr().ok().map(|a| {
-        format!(
-            "port {default} is in use; the UI is on 127.0.0.1:{}",
-            a.port()
-        )
-    });
+    let note = l
+        .local_addr()
+        .ok()
+        .map(|a| format!("{why}; the UI is on 127.0.0.1:{}", a.port()));
     Ok((l, note))
 }
 
@@ -308,5 +310,32 @@ pub fn announce(
     lines.push("stop it with Ctrl-C".into());
     for l in lines {
         let _ = writeln!(out, "{l}");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn the_default_port_falls_back_with_the_real_reason() {
+        let held = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let busy = held.local_addr().unwrap().port();
+        let (l, note) = listen(None, busy).await.unwrap();
+        assert_ne!(l.local_addr().unwrap().port(), busy);
+        let note = note.unwrap();
+        assert!(
+            note.starts_with(&format!("port {busy} is in use; the UI is on 127.0.0.1:")),
+            "{note}"
+        );
+        if std::net::TcpListener::bind("127.0.0.1:1").is_err() {
+            let (_, note) = listen(None, 1).await.unwrap();
+            let note = note.unwrap();
+            assert!(note.starts_with("cannot use port 1 ("), "{note}");
+        }
+        let (l, note) = listen(Some(0), busy).await.unwrap();
+        assert!(note.is_none());
+        assert_ne!(l.local_addr().unwrap().port(), busy);
+        assert!(listen(Some(busy), 0).await.is_err());
     }
 }

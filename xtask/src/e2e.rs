@@ -293,7 +293,6 @@ pub fn main(root: &Path, args: &[String]) -> Result<(), String> {
                         let mut cmd = Command::new(&exe);
                         cmd.current_dir(root)
                             .args(flow_args(&name))
-                            .env("BURROW_E2E_JOBS", "1")
                             .env_remove("BURROW_E2E_FRESH")
                             .stdout(out)
                             .stderr(err);

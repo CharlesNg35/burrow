@@ -25,7 +25,7 @@ fn main() -> ExitCode {
         Some("e2e") => e2e::main(&root, &args[1..]),
         Some("size") => size::run(&root, args.iter().any(|a| a == "--budget")),
         _ => Err(
-            "usage: cargo xtask <arch-check | tools [--no-chrome] | ui [--release | --watch] | size [--budget] | e2e [flow-filter] [--update-baselines]>"
+            "usage: cargo xtask <arch-check | tools [--no-chrome] | ui [--release | --watch] | size [--budget] | e2e [flow-filter] [--jobs N] [--update-baselines]>"
                 .to_string(),
         ),
     };
