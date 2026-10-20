@@ -381,6 +381,21 @@ async fn a_hand_edit_in_between_is_a_conflict() {
         edited,
         "nothing is written on a conflict"
     );
+    // The hand edit reloads on its own; a retry planned before that reload
+    // lands is rightly a conflict too, so wait until it runs.
+    let started = std::time::Instant::now();
+    loop {
+        let st = a.state().await;
+        if st["running"]["rev"] == st["rev"] && st["rev"] == e.body["current"] {
+            break;
+        }
+        assert!(
+            started.elapsed() < Duration::from_secs(30),
+            "the hand edit never ran: {}",
+            st["running"]
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
     a.apply(ops, &[]).await.unwrap();
     let last = std::fs::read_to_string(&w.path).unwrap();
     assert!(last.contains("office:") && last.contains("target: 3002"));
