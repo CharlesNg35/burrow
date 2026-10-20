@@ -133,6 +133,29 @@ fn applies(core: &Core, old: &Value, new: &Value) -> Vec<ApplyHow> {
     out
 }
 
+fn impact_key(i: &burrow_admin_proto::plan::Impact) -> String {
+    let mut message = String::with_capacity(i.message.len());
+    let mut in_number = false;
+    for c in i.message.chars() {
+        if c.is_ascii_digit() {
+            if !in_number {
+                message.push('#');
+            }
+            in_number = true;
+        } else {
+            in_number = false;
+            message.push(c);
+        }
+    }
+    format!(
+        "{:?}|{}|{:?}|{}",
+        i.level,
+        i.code,
+        i.confirm,
+        message.replace("connections", "connection")
+    )
+}
+
 pub fn compute(
     core: &Core,
     s: &Session,
@@ -269,7 +292,8 @@ pub fn compute(
         .map(|n| n.to_json())
         .unwrap_or(Value::Null);
     let changes = summary::changes(&raw, &new_raw, &applied.renames);
-    let impacts_json = serde_json::to_vec(&impacts).unwrap_or_default();
+    let impacts_json =
+        serde_json::to_vec(&impacts.iter().map(impact_key).collect::<Vec<_>>()).unwrap_or_default();
     let refusals_json = serde_json::to_vec(&refusals).unwrap_or_default();
     let hash = text::hash_parts(&[
         base.as_bytes(),

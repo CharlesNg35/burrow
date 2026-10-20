@@ -820,3 +820,78 @@ fn generated_secrets_are_capped_per_session() {
         ErrorCode::Busy
     );
 }
+
+struct Busy {
+    text: String,
+    status: Arc<Mutex<Status>>,
+}
+
+impl Live for Busy {
+    fn status(&self) -> Status {
+        self.status.lock().unwrap().clone()
+    }
+    fn settings(&self) -> Arc<ServerSettings> {
+        Arc::new(settings_of(&self.text))
+    }
+    fn sessions(&self) -> Vec<LiveSession> {
+        Vec::new()
+    }
+    fn allows(&self) -> BTreeMap<String, Vec<String>> {
+        BTreeMap::new()
+    }
+    fn free_port(&self, near: u16, _: u16, _: bool) -> Option<u16> {
+        Some(near)
+    }
+}
+
+#[test]
+fn a_changing_connection_count_does_not_invalidate_a_reviewed_plan() {
+    let w = world();
+    let status = Arc::new(Mutex::new(Status::default()));
+    let open = |n: u64| {
+        serde_json::from_value::<Status>(json!({"services": [{"name": "web", "open": n}]})).unwrap()
+    };
+    let store = MemStore {
+        text: Arc::new(Mutex::new(w.text.clone())),
+        kept: Mutex::new(Vec::new()),
+        read_only: false,
+    };
+    let core = Core::new(
+        Box::new(store),
+        Box::new(Busy {
+            text: w.text.clone(),
+            status: status.clone(),
+        }),
+        Box::new(|_: &str| None),
+    );
+    let s = session(&w, Level::Write);
+    let ops = [Op::Remove {
+        path: p(&["services", "web"]),
+    }];
+    let base = text::rev(&core.read().unwrap());
+    let hash = |n: u64| {
+        *status.lock().unwrap() = open(n);
+        let plan = plan::compute(&core, &s, &base, &ops).unwrap().plan;
+        (plan.plan.clone(), plan.impacts[0].message.clone())
+    };
+    let (three, says_three) = hash(3);
+    let (five, says_five) = hash(5);
+    assert!(says_three.contains("3 open connections") && says_five.contains("5 open connections"));
+    assert_eq!(three, five, "only the count changed");
+    assert_eq!(hash(1).0, three, "one connection is still a busy service");
+    assert_ne!(hash(0).0, three, "a service that became idle is a new plan");
+    *status.lock().unwrap() = open(3);
+    let reviewed = plan::compute(&core, &s, &base, &ops).unwrap().plan;
+    *status.lock().unwrap() = open(7);
+    let begun = plan::apply_begin(
+        &core,
+        &s,
+        &Apply {
+            base,
+            ops: ops.to_vec(),
+            plan: reviewed.plan,
+            confirm: vec!["web".into()],
+        },
+    );
+    assert!(begun.is_ok(), "{:?}", begun.err().map(|e| e.message));
+}
