@@ -533,3 +533,117 @@ async fn visitor_churn_returns_to_baseline() {
         last.0
     );
 }
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "heavy: run with --ignored"]
+async fn self_churn_returns_to_baseline() {
+    use burrow::protocol::VisitTarget;
+    logs();
+    let rounds = env_u64("BURROW_CHURN_ROUNDS", 20);
+    let per_round = env_u64("BURROW_CHURN_CONNS", 2000) as usize;
+    let echo = echo_server().await;
+    let uecho = udp_echo_server().await;
+    let visitor_secret = Secret::generate();
+    let mut settings = server_settings(vec![Secret::generate()]);
+    settings.max_connections_per_client = 1_000_000;
+    settings.max_handshakes = 256;
+    settings.udp_session_timeout = Duration::from_secs(2);
+    settings.self_allow = Some(burrow::allowlist::AllowList::Rules(vec![
+        "127.0.0.0/8".parse().unwrap(),
+    ]));
+    let on_self = |s: burrow::config::settings::Service| burrow::config::settings::Service {
+        clients: vec!["self".into()],
+        ..s
+    };
+    settings
+        .services
+        .insert("web".into(), on_self(service(echo, Protocol::Tcp)));
+    settings
+        .services
+        .insert("dns".into(), on_self(service(uecho, Protocol::Udp)));
+    let mut auth = visitor_auth(visitor_secret.clone(), &[]);
+    auth.reach
+        .insert("self".into(), burrow::allowlist::AllowList::All);
+    settings.visitors.insert("laptop".into(), auth);
+    let srv = start_server(settings).await;
+    let (web, dns) = (srv.services["web"], srv.services["dns"]);
+    let metrics = tokio::runtime::Handle::current().metrics();
+    let mut samples = Vec::new();
+    for round in 0..rounds {
+        let v = start_visitor(visitor_settings(
+            srv.addr,
+            visitor_secret.clone(),
+            vec![(
+                "reach",
+                VisitTarget::Client {
+                    client: "self".into(),
+                    target: echo.to_string(),
+                },
+            )],
+        ));
+        let reach = v.addr("reach");
+        let gate = Arc::new(tokio::sync::Semaphore::new(256));
+        let tasks: Vec<_> = (0..per_round)
+            .map(|i| {
+                let gate = gate.clone();
+                tokio::spawn(async move {
+                    let _p = gate.acquire_owned().await.unwrap();
+                    let data = pattern(100 + (i % 50) * 997, i as u64);
+                    let to = if i % 2 == 0 { web } else { reach };
+                    assert_eq!(roundtrip(to, &data).await, data);
+                })
+            })
+            .collect();
+        for t in tasks {
+            t.await.unwrap();
+        }
+        let mut buf = vec![0u8; 2048];
+        for _ in 0..200 {
+            let s = udp_bind().await;
+            s.connect(dns).await.unwrap();
+            for _ in 0..20 {
+                s.send(b"q").await.unwrap();
+                if tokio::time::timeout(Duration::from_millis(100), s.recv(&mut buf))
+                    .await
+                    .is_ok()
+                {
+                    break;
+                }
+            }
+        }
+        v.stop.send(true).unwrap();
+        v.task.await.unwrap();
+        let shared = srv.shared.clone();
+        wait_for(|| shared.active_connections() == 0).await;
+        let shared = srv.shared.clone();
+        tokio::time::timeout(Duration::from_secs(15), async {
+            while shared.udp_peers() != 0 {
+                tokio::time::sleep(Duration::from_millis(200)).await;
+            }
+        })
+        .await
+        .expect("UDP peers expire back to zero");
+        tokio::time::sleep(Duration::from_secs(3)).await;
+        let sample = (rss_kib(), open_fds(), metrics.num_alive_tasks());
+        eprintln!(
+            "round {round}: RSS {} KiB, open fds {}, alive tasks {}",
+            sample.0, sample.1, sample.2
+        );
+        samples.push(sample);
+    }
+    let warm = samples[samples.len() / 4];
+    let last = *samples.last().unwrap();
+    assert!(
+        last.1 <= warm.1 + 4,
+        "file descriptors leak: {} -> {}",
+        warm.1,
+        last.1
+    );
+    assert!(last.2 <= warm.2 + 4, "tasks leak: {} -> {}", warm.2, last.2);
+    assert!(
+        last.0 <= warm.0 + 16 * 1024,
+        "RSS keeps growing: {} KiB -> {} KiB",
+        warm.0,
+        last.0
+    );
+}
