@@ -52,6 +52,13 @@ impl Term {
         }
     }
 
+    pub fn as_type(&self) -> Option<&syn::Type> {
+        match self {
+            Term::Type(t, _) => Some(t),
+            _ => None,
+        }
+    }
+
     pub fn as_word(&self) -> Option<&str> {
         match self {
             Term::Word(w, _) => Some(w),

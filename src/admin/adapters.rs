@@ -18,7 +18,7 @@ use crate::metrics::Status;
 use crate::protocol::Status as Answer;
 use crate::server::Shared;
 use crate::throttle::Throttle;
-use burrow_config::AdminLevel;
+use burrow_admin_proto::msg::AdminLevel;
 
 const KEEP: usize = 20;
 
@@ -552,7 +552,7 @@ pub async fn serve(shared: Arc<Shared>, mut channel: Channel, first: &[u8], open
     );
     let session = Session::new(
         visitor.clone(),
-        level.into(),
+        level,
         peer,
         secret.clone(),
         via_websocket,

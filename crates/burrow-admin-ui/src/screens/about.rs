@@ -1,6 +1,6 @@
-use burrow_admin_proto::msg::Level;
 use burrow_admin_proto::serde_json::json;
 use burrow_admin_proto::{PROTOCOL_MAX, SCHEMA_VERSION};
+use burrow_config::admin_schema::AdminEnum;
 use burrow_ui_kit::{Button, Card, Fact, Facts, PageHeader, copy_text};
 use leptos::prelude::*;
 
@@ -33,10 +33,7 @@ pub fn About() -> impl IntoView {
         let w = s.welcome.get()?;
         let st = s.state.get()?;
         let schema = s.schema.get()?;
-        let level = match w.you.level {
-            Level::Write => "write",
-            Level::Read => "read",
-        };
+        let level = w.you.level.wire();
         let writable = if st.file.writable {
             "yes".to_string()
         } else {

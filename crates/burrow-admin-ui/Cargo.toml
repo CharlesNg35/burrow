@@ -9,6 +9,7 @@ publish = false
 [dependencies]
 burrow-admin-logic = { path = "../burrow-admin-logic" }
 burrow-admin-proto = { path = "../burrow-admin-proto" }
+burrow-config = { path = "../burrow-config" }
 burrow-syntax = { path = "../burrow-syntax" }
 burrow-ui-kit = { path = "../burrow-ui-kit" }
 console_error_panic_hook = "0.1.7"

@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 
+use burrow_admin_proto::msg::AdminLevel;
 use serde::{Deserialize, Serialize};
 
 use crate::admin_schema::AdminSchema;
@@ -280,12 +281,10 @@ pub struct VisitorEntry {
     pub admin_from: Vec<String>,
 }
 
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, AdminSchema,
-)]
-#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
+#[derive(Serialize, AdminSchema)]
+#[admin(remote = AdminLevel)]
 #[serde(rename_all = "lowercase")]
-pub enum AdminLevel {
+enum AdminLevelSchema {
     #[admin(
         label = "Read",
         help = "Dashboard, config with secrets as fingerprints, history"
@@ -308,15 +307,6 @@ pub enum ProxyVersion {
     V1,
     #[admin(label = "v2 (binary)")]
     V2,
-}
-
-impl From<AdminLevel> for burrow_admin_proto::msg::Level {
-    fn from(level: AdminLevel) -> Self {
-        match level {
-            AdminLevel::Read => burrow_admin_proto::msg::Level::Read,
-            AdminLevel::Write => burrow_admin_proto::msg::Level::Write,
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, AdminSchema)]
@@ -938,4 +928,24 @@ fn is_false(v: &bool) -> bool {
 
 fn is_default<T: Default + PartialEq>(v: &T) -> bool {
     *v == T::default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::admin_schema::AdminEnum;
+    use burrow_admin_proto::serde_json::{self, json};
+
+    #[test]
+    fn the_admin_level_options_are_its_wire_values() {
+        let options = AdminLevel::options();
+        assert_eq!(options.len(), 2);
+        for o in options {
+            let l: AdminLevel = serde_json::from_value(json!(o.value)).unwrap();
+            assert_eq!(l.wire(), o.value);
+            assert_eq!(AdminLevel::from_wire(&o.value), Some(l));
+            assert_eq!(serde_json::to_value(l).unwrap(), json!(o.value));
+        }
+        assert_eq!(AdminLevel::from_wire("owner"), None);
+    }
 }

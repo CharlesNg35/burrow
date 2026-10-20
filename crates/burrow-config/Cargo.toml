@@ -13,4 +13,4 @@ schemars = { version = "1.2.3", optional = true }
 serde = { version = "1.0.229", features = ["derive"] }
 
 [features]
-json-schema = ["dep:schemars"]
+json-schema = ["dep:schemars", "burrow-admin-proto/json-schema"]

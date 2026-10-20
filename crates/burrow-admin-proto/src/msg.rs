@@ -135,8 +135,9 @@ impl ErrorCode {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "lowercase")]
-pub enum Level {
+pub enum AdminLevel {
     Read,
     Write,
 }
@@ -172,7 +173,7 @@ pub struct ServerInfo {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct You {
     pub visitor: String,
-    pub level: Level,
+    pub level: AdminLevel,
     #[serde(default)]
     pub from: String,
     #[serde(default)]
@@ -430,6 +431,6 @@ mod tests {
         }))
         .unwrap();
         assert!(w.has("status.stream"));
-        assert_eq!(w.you.level, Level::Write);
+        assert_eq!(w.you.level, AdminLevel::Write);
     }
 }

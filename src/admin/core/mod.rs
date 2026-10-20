@@ -15,9 +15,9 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use burrow_admin_proto::msg::{
-    self, AuditEntry, ErrorBody, ErrorCode, FileInfo, GeneratedSecret, HistoryReply,
-    HistoryRequest, Level, Limits, Running, Runtime, SchemaReply, ServerInfo, SessionInfo, State,
-    Suggest, Suggestions, Welcome, WhyNot as WireWhyNot, You,
+    self, AdminLevel, AuditEntry, ErrorBody, ErrorCode, FileInfo, GeneratedSecret, HistoryReply,
+    HistoryRequest, Limits, Running, Runtime, SchemaReply, ServerInfo, SessionInfo, State, Suggest,
+    Suggestions, Welcome, WhyNot as WireWhyNot, You,
 };
 use burrow_admin_proto::schema::Schema;
 use serde_json::Value;
@@ -71,7 +71,7 @@ pub struct Pending {
 
 pub struct Session {
     pub visitor: String,
-    pub level: Level,
+    pub level: AdminLevel,
     pub peer: SocketAddr,
     pub secret: Secret,
     pub via_websocket: bool,
@@ -83,7 +83,7 @@ pub struct Session {
 impl Session {
     pub fn new(
         visitor: String,
-        level: Level,
+        level: AdminLevel,
         peer: SocketAddr,
         secret: Secret,
         via_websocket: bool,
@@ -124,7 +124,7 @@ impl Session {
     }
 
     pub fn writes(&self) -> bool {
-        self.level == Level::Write
+        self.level == AdminLevel::Write
     }
 }
 

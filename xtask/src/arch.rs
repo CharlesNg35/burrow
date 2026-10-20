@@ -3,7 +3,11 @@ use std::process::Command;
 
 const CRATE_DEPS: &[(&str, &[&str], &[&str])] = &[
     ("burrow-syntax", &[], &[]),
-    ("burrow-admin-proto", &["serde", "serde_json"], &[]),
+    (
+        "burrow-admin-proto",
+        &["serde", "serde_json", "schemars"],
+        &[],
+    ),
     ("burrow-admin-derive", &["proc-macro2", "quote", "syn"], &[]),
     (
         "burrow-config",
@@ -24,7 +28,7 @@ const CRATE_DEPS: &[(&str, &[&str], &[&str])] = &[
     ),
     (
         "burrow-admin-logic",
-        &["burrow-admin-proto", "burrow-syntax"],
+        &["burrow-admin-proto", "burrow-config", "burrow-syntax"],
         &[],
     ),
     (
@@ -42,6 +46,7 @@ const CRATE_DEPS: &[(&str, &[&str], &[&str])] = &[
             "js-sys",
             "burrow-admin-proto",
             "burrow-admin-logic",
+            "burrow-config",
             "burrow-ui-kit",
             "burrow-syntax",
             "console_error_panic_hook",

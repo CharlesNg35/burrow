@@ -487,12 +487,24 @@ fn expand_enum(input: &DeriveInput, e: &syn::DataEnum, errors: &mut Errors) -> T
     let name = &input.ident;
     let p = p();
     let container = admin_attrs(&input.attrs, errors).unwrap_or_default();
-    check_keys(&container, &["semantic", "skip", "label"], errors);
+    check_keys(&container, &["semantic", "skip", "label", "remote"], errors);
     let serde_c = serde_attrs::container(&input.attrs);
     let skipped = skip_reason(&container, errors);
+    let remote = match assigned(&container, "remote") {
+        Some(r) => match r.as_type() {
+            Some(t) => Some(t.clone()),
+            None => {
+                errors.push(r.span(), "remote = path::To::Enum");
+                return TokenStream::new();
+            }
+        },
+        None => None,
+    };
     let mut options = Vec::new();
     let mut wires = Vec::new();
+    let mut parses = Vec::new();
     let mut forms = Vec::new();
+    let mut units = Vec::new();
     for v in &e.variants {
         let vident = &v.ident;
         let terms = if skipped.is_some() {
@@ -526,7 +538,13 @@ fn expand_enum(input: &DeriveInput, e: &syn::DataEnum, errors: &mut Errors) -> T
         };
         if matches!(v.fields, Fields::Unit) {
             options.push(quote!(#p::EnumOption { value: #wire.into(), label: #label.into(), help: #help.into(), danger: #danger }));
-            wires.push(quote!(#pat => #wire));
+            let target = match &remote {
+                Some(r) => quote!(#r::#vident),
+                None => quote!(#name::#vident),
+            };
+            wires.push(quote!(#target => #wire));
+            parses.push(quote!(#wire => ::core::option::Option::Some(#target)));
+            units.push(quote!(#name::#vident));
         }
         forms.push(quote!(#pat => #form));
     }
@@ -550,6 +568,48 @@ fn expand_enum(input: &DeriveInput, e: &syn::DataEnum, errors: &mut Errors) -> T
                     n
                 }
             }
+        };
+    }
+    if let Some(r) = &remote {
+        if !all_unit || assigned(&container, "semantic").is_some() {
+            errors.push(
+                name.span(),
+                "`remote` describes an enum of unit variants only",
+            );
+            return TokenStream::new();
+        }
+        return quote! {
+            impl #p::AdminEnum for #r {
+                fn options() -> ::std::vec::Vec<#p::EnumOption> {
+                    ::std::vec![#(#options),*]
+                }
+                fn wire(&self) -> &'static str {
+                    match self {
+                        #(#wires),*
+                    }
+                }
+                fn from_wire(s: &str) -> ::core::option::Option<Self> {
+                    match s {
+                        #(#parses,)*
+                        _ => ::core::option::Option::None,
+                    }
+                }
+            }
+            impl #p::AdminSchema for #r {
+                fn node() -> #p::Node {
+                    #p::Node::new(#p::SemType::Enum(#p::EnumC { options: <#r as #p::AdminEnum>::options() }))
+                }
+            }
+            impl #p::Carrier<#p::sem::Enum> for #r {}
+            impl #p::DefaultSem for #r {
+                const SEM: &'static str = "enum";
+                fn default_node() -> #p::Node {
+                    <#r as #p::AdminSchema>::node()
+                }
+            }
+            const _: () = {
+                let _ = [#(#units),*];
+            };
         };
     }
     if let Some(sem_term) = assigned(&container, "semantic") {
@@ -595,6 +655,12 @@ fn expand_enum(input: &DeriveInput, e: &syn::DataEnum, errors: &mut Errors) -> T
             fn wire(&self) -> &'static str {
                 match self {
                     #(#wires),*
+                }
+            }
+            fn from_wire(s: &str) -> ::core::option::Option<Self> {
+                match s {
+                    #(#parses,)*
+                    _ => ::core::option::Option::None,
                 }
             }
         }

@@ -134,7 +134,7 @@ impl Store {
     pub fn can_write(&self) -> bool {
         self.welcome.with(|w| {
             w.as_ref()
-                .is_some_and(|w| w.you.level == burrow_admin_proto::msg::Level::Write)
+                .is_some_and(|w| w.you.level == burrow_admin_proto::msg::AdminLevel::Write)
         }) && self
             .state
             .with(|s| s.as_ref().is_some_and(|s| s.file.writable))

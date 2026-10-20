@@ -12,7 +12,7 @@ use crate::config::patch::Rename;
 use crate::config::settings::{ServerSettings, Service};
 use crate::metrics::Status;
 use crate::secret::Secret;
-use burrow_config::AdminLevel;
+use burrow_admin_proto::msg::AdminLevel;
 
 pub struct Who<'a> {
     pub visitor: &'a str,

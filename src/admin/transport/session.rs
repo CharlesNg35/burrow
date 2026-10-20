@@ -381,7 +381,7 @@ pub async fn run(
 mod tests {
     use super::*;
     use crate::admin::core::tests::{core_for, session, world};
-    use burrow_admin_proto::msg::Level;
+    use burrow_admin_proto::msg::AdminLevel;
     use burrow_admin_proto::ops::Op;
 
     struct RevokedWhileWaiting;
@@ -398,7 +398,7 @@ mod tests {
         let (nudges, gone) = mpsc::channel(4);
         drop(gone);
         let hub = Hub::new(core_for(&w.text), nudges);
-        let s = session(&w, Level::Write);
+        let s = session(&w, AdminLevel::Write);
         let ops = vec![Op::Set {
             path: vec!["services".into(), "web".into(), "target".into()],
             value: serde_json::json!(3009),

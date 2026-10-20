@@ -51,9 +51,10 @@ pub fn apply_range(node: &mut Node, min: Option<i64>, max: Option<i64>) {
     }
 }
 
-pub trait AdminEnum {
+pub trait AdminEnum: Sized {
     fn options() -> Vec<burrow_admin_proto::schema::EnumOption>;
     fn wire(&self) -> &'static str;
+    fn from_wire(s: &str) -> Option<Self>;
 }
 
 #[diagnostic::on_unimplemented(

@@ -6,7 +6,8 @@ use crate::allowlist::{AllowList, Cidr, Sources};
 use crate::protocol::VisitTarget;
 use crate::proxy::ProxyConfig;
 use crate::secret::Secret;
-use burrow_config::{AdminLevel, Cipher, Mode, Protocol};
+use burrow_admin_proto::msg::AdminLevel;
+use burrow_config::{Cipher, Mode, Protocol};
 use burrow_syntax::endpoint::Endpoint;
 
 #[derive(Debug, Clone, PartialEq)]

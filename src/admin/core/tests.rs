@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use burrow_admin_proto::msg::{Apply, ConnectInfo, ErrorCode, HistoryRequest, Level};
+use burrow_admin_proto::msg::{AdminLevel, Apply, ConnectInfo, ErrorCode, HistoryRequest};
 use burrow_admin_proto::ops::Op;
 use serde_json::json;
 
@@ -168,7 +168,7 @@ pub fn core_running(text: &str, running: &str) -> Core {
     Core::new(Box::new(store), Box::new(live), Box::new(|_: &str| None))
 }
 
-pub fn session(w: &World, level: Level) -> Session {
+pub fn session(w: &World, level: AdminLevel) -> Session {
     Session::new(
         "ops".into(),
         level,
@@ -217,7 +217,7 @@ fn apply_now(
 fn a_plan_keeps_comments_and_shows_a_masked_diff() {
     let w = world();
     let core = core_for(&w.text);
-    let s = session(&w, Level::Write);
+    let s = session(&w, AdminLevel::Write);
     let base = text::rev(&w.text);
     let ops = [Op::Add {
         path: p(&["services", "ssh"]),
@@ -248,7 +248,7 @@ fn a_plan_keeps_comments_and_shows_a_masked_diff() {
 fn errors_land_on_their_field() {
     let w = world();
     let core = core_for(&w.text);
-    let s = session(&w, Level::Write);
+    let s = session(&w, AdminLevel::Write);
     let base = text::rev(&w.text);
     let ops = [Op::Add {
         path: p(&["services", "api"]),
@@ -266,7 +266,7 @@ fn errors_land_on_their_field() {
 fn a_changed_file_is_a_conflict_and_nothing_is_written() {
     let w = world();
     let core = core_for(&w.text);
-    let s = session(&w, Level::Write);
+    let s = session(&w, AdminLevel::Write);
     let e = plan::compute(&core, &s, "b2s:0000000000000000", &[])
         .err()
         .unwrap();
@@ -278,7 +278,7 @@ fn a_changed_file_is_a_conflict_and_nothing_is_written() {
 fn the_guard_refuses_lockouts() {
     let w = world();
     let core = core_for(&w.text);
-    let s = session(&w, Level::Write);
+    let s = session(&w, AdminLevel::Write);
     let base = text::rev(&w.text);
     let cases = [
         (
@@ -329,7 +329,7 @@ fn the_guard_refuses_lockouts() {
 fn secrets_are_revealed_once_and_destructive_changes_need_confirmation() {
     let w = world();
     let core = core_for(&w.text);
-    let s = session(&w, Level::Write);
+    let s = session(&w, AdminLevel::Write);
     let g = core.generate_secret(&s).unwrap();
     let applied = apply_now(
         &core,
@@ -397,7 +397,7 @@ fn a_new_client_comes_with_ready_snippets_and_later_only_with_a_placeholder() {
         "listen: 7835 # tcp\n",
         "listen: 7835 # tcp\npublic_address: tunnel.example.com\n",
     ));
-    let s = session(&w, Level::Write);
+    let s = session(&w, AdminLevel::Write);
     let g = core.generate_secret(&s).unwrap();
     let applied = apply_now(
         &core,
@@ -492,7 +492,7 @@ fn a_new_client_comes_with_ready_snippets_and_later_only_with_a_placeholder() {
 fn read_level_and_read_only_files_cannot_write() {
     let w = world();
     let core = core_for(&w.text);
-    let r = session(&w, Level::Read);
+    let r = session(&w, AdminLevel::Read);
     let e = dispatch(
         &core,
         &r,
@@ -518,7 +518,7 @@ fn read_level_and_read_only_files_cannot_write() {
 fn a_revert_is_an_ordinary_plan() {
     let w = world();
     let core = core_for(&w.text);
-    let s = session(&w, Level::Write);
+    let s = session(&w, AdminLevel::Write);
     apply_now(
         &core,
         &s,
@@ -561,7 +561,7 @@ fn a_revert_is_an_ordinary_plan() {
 fn locked_fields_are_refused_even_from_a_crafted_client() {
     let w = world();
     let core = core_for(&w.text);
-    let s = session(&w, Level::Write);
+    let s = session(&w, AdminLevel::Write);
     let base = text::rev(&w.text);
     for (path, value) in [
         (p(&["listen"]), json!(7836)),
@@ -632,7 +632,7 @@ fn locked_fields_are_refused_even_from_a_crafted_client() {
 fn a_revert_keeps_the_current_values_of_locked_fields() {
     let w = world();
     let core = core_for(&w.text);
-    let s = session(&w, Level::Write);
+    let s = session(&w, AdminLevel::Write);
     apply_now(
         &core,
         &s,
@@ -697,7 +697,7 @@ fn a_reload_that_would_clash_with_the_kept_listener_is_predicted() {
     let w = world();
     let edited = w.text.replace("listen: 7835 # tcp", "listen: 7836 # tcp");
     let core = core_running(&edited, &w.text);
-    let s = session(&w, Level::Write);
+    let s = session(&w, AdminLevel::Write);
     let base = text::rev(&edited);
     let ops = [Op::Set {
         path: p(&["services", "web", "bind"]),
@@ -718,7 +718,7 @@ fn a_reload_that_would_clash_with_the_kept_listener_is_predicted() {
 fn set_text_is_parsed_by_the_server() {
     let w = world();
     let core = core_for(&w.text);
-    let s = session(&w, Level::Write);
+    let s = session(&w, AdminLevel::Write);
     let base = text::rev(&w.text);
     let c = plan::compute(
         &core,
@@ -766,7 +766,7 @@ fn set_text_is_parsed_by_the_server() {
 fn a_rejected_reload_is_reported_with_the_restore() {
     let w = world();
     let core = core_for(&w.text);
-    let s = session(&w, Level::Write);
+    let s = session(&w, AdminLevel::Write);
     let base = text::rev(&w.text);
     let ops = [Op::Set {
         path: p(&["services", "web", "target"]),
@@ -811,7 +811,7 @@ fn a_rejected_reload_is_reported_with_the_restore() {
 fn generated_secrets_are_capped_per_session() {
     let w = world();
     let core = core_for(&w.text);
-    let s = session(&w, Level::Write);
+    let s = session(&w, AdminLevel::Write);
     for _ in 0..MAX_PENDING_SECRETS {
         core.generate_secret(&s).unwrap();
     }
@@ -864,7 +864,7 @@ fn a_changing_connection_count_does_not_invalidate_a_reviewed_plan() {
         }),
         Box::new(|_: &str| None),
     );
-    let s = session(&w, Level::Write);
+    let s = session(&w, AdminLevel::Write);
     let ops = [Op::Remove {
         path: p(&["services", "web"]),
     }];
@@ -900,7 +900,7 @@ fn a_changing_connection_count_does_not_invalidate_a_reviewed_plan() {
 fn an_apply_adds_a_service_on_this_server() {
     let w = world();
     let core = core_for(&w.text);
-    let s = session(&w, Level::Write);
+    let s = session(&w, AdminLevel::Write);
     let ops = [Op::Add {
         path: p(&["services", "local"]),
         value: json!({"client": "self", "bind": 7841, "target": 3000}),
@@ -961,7 +961,7 @@ impl Broken {
 
     fn refusals(&self, file: &str, ops: &[Op]) -> Vec<burrow_admin_proto::plan::Refusal> {
         let core = core_running(file, &self.running);
-        let s = session(&self.w, Level::Write);
+        let s = session(&self.w, AdminLevel::Write);
         let c = plan::compute(&core, &s, &text::rev(file), ops).unwrap();
         assert!(c.plan.valid, "{:?}", c.plan.diags);
         let e = apply_now(&core, &s, ops, &["boss", "api"]).unwrap_err();
@@ -1054,7 +1054,7 @@ fn an_invalid_file_does_not_let_a_revert_bring_power_back() {
     });
     let core = core_running(&read, &b.running);
     core.store.keep(&text::rev(&b.running), &b.running);
-    let s = session(&b.w, Level::Write);
+    let s = session(&b.w, AdminLevel::Write);
     let ops = [Op::ReplaceDocument {
         from_history: text::rev(&b.running),
     }];
@@ -1074,7 +1074,7 @@ fn a_grant_added_by_hand_to_an_invalid_file_is_left_to_the_file() {
     );
     let granted = b.with_typo(|t| t.replacen("  ops:\n", &helper, 1));
     let core = core_running(&granted, &b.running);
-    let s = session(&b.w, Level::Write);
+    let s = session(&b.w, AdminLevel::Write);
     let c = plan::compute(&core, &s, &text::rev(&granted), &[remove_typo()]).unwrap();
     file_has_errors(&c.plan.refusals, "admin-grant");
     let valid = b.running.replacen("  ops:\n", &helper, 1);

@@ -1,5 +1,6 @@
-use burrow_admin_proto::msg::Level;
+use burrow_admin_proto::msg::AdminLevel;
 use burrow_admin_proto::serde_json::{Value, json};
+use burrow_config::admin_schema::AdminEnum;
 use burrow_ui_kit::{Banner, Button, EmptyState, Icon, Kbd, Skeleton, ToastHost, Tone, copy_text};
 use leptos::prelude::*;
 use wasm_bindgen::JsCast;
@@ -309,15 +310,8 @@ fn Header() -> impl IntoView {
     };
     let you = Memo::new(move |_| {
         s.welcome.with(|w| {
-            w.as_ref().map(|w| {
-                (
-                    w.you.visitor.clone(),
-                    match w.you.level {
-                        Level::Write => "write",
-                        Level::Read => "read",
-                    },
-                )
-            })
+            w.as_ref()
+                .map(|w| (w.you.visitor.clone(), w.you.level.wire()))
         })
     });
     let facts = move || {
@@ -612,7 +606,7 @@ pub fn read_only_reason(s: Store) -> (String, String) {
     let level = s
         .welcome
         .with(|w| w.as_ref().map(|w| (w.you.level, w.you.visitor.clone())));
-    if let Some((Level::Read, who)) = level {
+    if let Some((AdminLevel::Read, who)) = level {
         return (
             format!("{who} has read admin: you can see everything, a write admin makes changes."),
             String::new(),

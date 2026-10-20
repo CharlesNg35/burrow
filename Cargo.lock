@@ -368,6 +368,7 @@ name = "burrow-admin-logic"
 version = "0.1.0"
 dependencies = [
  "burrow-admin-proto",
+ "burrow-config",
  "burrow-syntax",
 ]
 
@@ -375,6 +376,7 @@ dependencies = [
 name = "burrow-admin-proto"
 version = "0.1.0"
 dependencies = [
+ "schemars",
  "serde",
  "serde_json",
 ]
@@ -385,6 +387,7 @@ version = "0.1.0"
 dependencies = [
  "burrow-admin-logic",
  "burrow-admin-proto",
+ "burrow-config",
  "burrow-syntax",
  "burrow-ui-kit",
  "console_error_panic_hook",

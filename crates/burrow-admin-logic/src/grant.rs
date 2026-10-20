@@ -1,4 +1,4 @@
-use burrow_admin_proto::msg::Level;
+use burrow_admin_proto::msg::AdminLevel;
 use burrow_admin_proto::serde_json::{self, Value};
 use burrow_admin_proto::value::as_secret;
 use burrow_syntax::grant::{Power, grants};
@@ -12,7 +12,7 @@ pub const SECRETS: &str = "secret";
 pub const FROM: &str = "admin_from";
 pub const FIELDS: [&str; 3] = [LEVEL, SECRETS, FROM];
 
-pub fn power_of(visitor: &Value) -> Power<Level, Value> {
+pub fn power_of(visitor: &Value) -> Power<AdminLevel, Value> {
     let level = visitor
         .get(LEVEL)
         .and_then(|v| serde_json::from_value(v.clone()).ok());
@@ -68,7 +68,7 @@ mod tests {
             "admin_from": ["10.0.0.0/8", "not a cidr", "::ffff:192.0.2.1"]
         });
         let p = power_of(&v);
-        assert_eq!(p.level, Some(Level::Read));
+        assert_eq!(p.level, Some(AdminLevel::Read));
         assert_eq!(p.secrets.len(), 2);
         assert_eq!(
             p.from,

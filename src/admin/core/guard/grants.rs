@@ -5,7 +5,8 @@ use serde_json::Value;
 use super::{Base, Change, refusal};
 use crate::config::settings::{ServerSettings, VisitorAuth};
 use crate::secret::Secret;
-use burrow_config::AdminLevel;
+use burrow_admin_proto::msg::AdminLevel;
+use burrow_config::admin_schema::AdminEnum;
 
 fn power(v: &VisitorAuth) -> Power<AdminLevel, &Secret> {
     Power {
@@ -61,13 +62,6 @@ fn raw_power(v: &Value) -> Power<AdminLevel, String> {
     }
 }
 
-fn level(l: AdminLevel) -> &'static str {
-    match l {
-        AdminLevel::Read => "read",
-        AdminLevel::Write => "write",
-    }
-}
-
 fn what<S>(
     name: &str,
     renamed_from: Option<&str>,
@@ -80,7 +74,7 @@ fn what<S>(
         ),
         (Grant::Admin(l), None) => format!(
             "admin access is granted only in the config file: visitor \"{name}\" would get admin: {}",
-            level(*l)
+            l.wire()
         ),
         (Grant::Upgrade, _) => format!(
             "admin access is granted only in the config file: visitor \"{name}\" would go from admin: read to admin: write"

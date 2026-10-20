@@ -49,6 +49,10 @@ const FAIL: &[(&str, &[&str])] = &[
         ],
     ),
     (
+        "remote_missing_variant",
+        &["non-exhaustive patterns: `&Level::Owner` not covered"],
+    ),
+    (
         "unknown_key",
         &[
             "unknown key `lable` in #[admin(...)]",
