@@ -415,10 +415,7 @@ fn every_node_has_a_label_and_known_type() {
 fn the_reduce_only_fields_are_exactly_what_the_grant_rule_reads() {
     let mut marked = server_schema().reduce_only_paths();
     marked.sort();
-    let mut read: Vec<Vec<String>> = burrow_admin_logic::grant::FIELDS
-        .iter()
-        .map(|f| vec!["visitors".to_string(), "*".to_string(), f.to_string()])
-        .collect();
+    let mut read: Vec<Vec<String>> = burrow_admin_logic::grant::fields().to_vec();
     read.sort();
     assert_eq!(marked, read);
 }

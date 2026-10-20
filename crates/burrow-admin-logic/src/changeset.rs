@@ -2,6 +2,7 @@ use burrow_admin_proto::Path;
 use burrow_admin_proto::ops::Op;
 use burrow_admin_proto::serde_json::{Map, Value, json};
 use burrow_admin_proto::value::{self, as_secret};
+use burrow_config::{ClientEntry, Entry, ServerConfig, ServiceEntry, VisitorEntry};
 
 pub const NEW_SECRET: &str = "$new_secret";
 
@@ -159,17 +160,22 @@ fn parent_mut<'a>(root: &'a mut Value, path: &[String]) -> Option<&'a mut Map<St
 }
 
 pub fn rename_refs(root: &mut Value, section: &str, from: &str, to: &str) {
-    let fields: &[&str] = match section {
-        "clients" => &["client", "clients"],
-        "visitors" => &["visitors"],
-        _ => &[],
+    let fields = if section == ClientEntry::section() {
+        vec![ServiceEntry::CLIENT.key(), ServiceEntry::CLIENTS.key()]
+    } else if section == VisitorEntry::section() {
+        vec![ServiceEntry::VISITORS.key()]
+    } else {
+        Vec::new()
     };
-    if let Some(services) = root.get_mut("services").and_then(Value::as_object_mut) {
+    if let Some(services) = ServerConfig::SERVICES
+        .get_mut(root)
+        .and_then(Value::as_object_mut)
+    {
         for svc in services.values_mut() {
             let Some(svc) = svc.as_object_mut() else {
                 continue;
             };
-            for f in fields {
+            for f in &fields {
                 match svc.get_mut(*f) {
                     Some(Value::Array(items)) => items.iter_mut().for_each(|v| {
                         if v.as_str() == Some(from) {
@@ -182,11 +188,16 @@ pub fn rename_refs(root: &mut Value, section: &str, from: &str, to: &str) {
             }
         }
     }
-    if section == "clients"
-        && let Some(visitors) = root.get_mut("visitors").and_then(Value::as_object_mut)
+    if section == ClientEntry::section()
+        && let Some(visitors) = ServerConfig::VISITORS
+            .get_mut(root)
+            .and_then(Value::as_object_mut)
     {
         for v in visitors.values_mut() {
-            if let Some(reach) = v.get_mut("reach").and_then(Value::as_object_mut) {
+            if let Some(reach) = VisitorEntry::REACH
+                .get_mut(v)
+                .and_then(Value::as_object_mut)
+            {
                 let renamed: Vec<(String, Value)> = std::mem::take(reach)
                     .into_iter()
                     .map(|(k, x)| (if k == from { to.to_string() } else { k }, x))
