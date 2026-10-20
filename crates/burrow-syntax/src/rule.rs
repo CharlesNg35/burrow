@@ -203,28 +203,6 @@ impl FromStr for Cidr {
     }
 }
 
-pub fn parse_cidr_loose(s: &str) -> Result<Cidr, RuleError> {
-    let s = s.trim();
-    let (addr, prefix) = match s.split_once('/') {
-        Some((a, p)) => (a, Some(p)),
-        None => (s, None),
-    };
-    let raw: IpAddr = addr
-        .parse()
-        .map_err(|_| RuleError::Address(addr.to_string()))?;
-    let ip = canonical(raw);
-    let mapped = raw != ip;
-    match prefix {
-        None => Ok(Cidr::host(ip)),
-        Some(p) => p
-            .parse::<u8>()
-            .ok()
-            .and_then(|n| if mapped { n.checked_sub(96) } else { Some(n) })
-            .and_then(|n| Cidr::new(ip, n))
-            .ok_or_else(|| RuleError::Prefix(p.to_string())),
-    }
-}
-
 fn split_ports(s: &str) -> (&str, Option<&str>) {
     if let Some(rest) = s.strip_prefix('[') {
         return match rest.split_once(']') {
@@ -346,9 +324,6 @@ mod tests {
         assert!("10.0.0.0/8:22".parse::<Cidr>().is_err());
         assert!("10.0.0.1/8".parse::<Cidr>().is_err());
         assert!("home".parse::<Cidr>().is_err());
-        let loose = parse_cidr_loose("192.168.1.10/24").unwrap();
-        assert!(loose.has_host_bits());
-        assert_eq!(loose.network().to_string(), "192.168.1.0/24");
     }
 
     #[test]

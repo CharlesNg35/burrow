@@ -20,7 +20,6 @@ fuzz_target!(|data: &[u8]| {
     if let Ok(r) = s.parse::<rule::Rule>() {
         assert_eq!(r.to_string().parse::<rule::Rule>().ok(), Some(r));
     }
-    let _ = rule::parse_cidr_loose(s);
     if let Ok(t) = target::parse_target(s) {
         assert_eq!(target::parse_target(&t.full()).ok(), Some(t.clone()));
     }
