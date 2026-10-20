@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 
 use burrow::config::{Loaded, Role, load_file};
 use burrow::dialer::Dialer;
+use burrow::dialer::admin::{AdminOpenError, AdminRefusal, AdminRx, AdminTx};
 use burrow::secret::Secret;
 use burrow::server::Server;
 use burrow_admin_proto::frame::AdminOpen;
@@ -34,6 +35,11 @@ fn free_port() -> u16 {
 }
 
 async fn world() -> World {
+    world_with(0).await
+}
+
+async fn world_with(services: usize) -> World {
+    common::logs();
     burrow::admin::transport::shorten_keepalive_for_tests(PING, SILENCE);
     common::more_files();
     let dir = tempfile::tempdir().unwrap();
@@ -47,11 +53,21 @@ async fn world() -> World {
     } else {
         format!("listen: 127.0.0.1:{}\n", free_port())
     };
-    let text = format!(
-        "{listener}clients:\n  home:\n    secret: {}\nvisitors:\n  ops:\n    secret: {}\n    admin: write\n",
+    let mut text = format!(
+        "{listener}clients:\n  home:\n    secret: {}\nvisitors:\n  ops:\n    secret: {}\n    admin: write\n  laptop:\n    secret: {}\n",
         home.encode(),
         ops.encode(),
+        Secret::generate().encode(),
     );
+    if services > 0 {
+        text.push_str("services:\n");
+        for i in 0..services {
+            text.push_str(&format!(
+                "  service-{i}: {{ client: home, target: \"127.0.0.1:{}\", visitors: [laptop] }}\n",
+                10_000 + i
+            ));
+        }
+    }
     burrow::instance::write_private(&path, &text).unwrap();
     let env = burrow::run::Env::default();
     let outcome = load_file(&path, Some(Role::Server), &env).unwrap();
@@ -161,6 +177,52 @@ async fn the_server_ends_a_subscribed_session_whose_caller_went_silent() {
         statuses >= 4,
         "status kept coming until the end: {statuses}"
     );
+    let _ = w.stop.send(true);
+}
+
+async fn admin(w: &World) -> Result<(AdminRx, AdminTx), AdminOpenError> {
+    let mut s = common::visitor_settings(w.addr, w.ops.clone(), Vec::new());
+    s.name = "ops".into();
+    let (rx, tx, _) = Dialer::visitor(&s).open_admin(&open_msg()).await?;
+    Ok((rx, tx))
+}
+
+#[tokio::test]
+async fn a_caller_that_stops_reading_gives_its_seat_back() {
+    let w = world_with(1000).await;
+    let (_unread, mut tx) = admin(&w).await.unwrap();
+    let sub = json!({"id": 1, "t": "subscribe", "body": {"status_ms": 500, "config": true}});
+    tx.send(sub.to_string().as_bytes()).await.unwrap();
+    for id in 2..300 {
+        let req = json!({"id": id, "t": "state", "body": {}});
+        tx.send(req.to_string().as_bytes()).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    let started = Instant::now();
+    let (_second_rx, mut second) = admin(&w).await.unwrap();
+    let alive = tokio::spawn(async move {
+        loop {
+            if second.ping().await.is_err() {
+                break;
+            }
+            tokio::time::sleep(PING).await;
+        }
+    });
+    let third = loop {
+        match admin(&w).await {
+            Ok(s) => break s,
+            Err(AdminOpenError::Refused(AdminRefusal::Busy)) => {}
+            Err(e) => panic!("{e:?}"),
+        }
+        assert!(
+            started.elapsed() < SILENCE * 5,
+            "the seat of a caller that stopped reading is still held after {:?}",
+            started.elapsed()
+        );
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    };
+    drop(third);
+    alive.abort();
     let _ = w.stop.send(true);
 }
 

@@ -25,7 +25,6 @@ pub trait Access: Send + Sync {
 
 enum Out {
     Message(Vec<u8>),
-    Close,
 }
 
 struct Ctx {
@@ -169,7 +168,7 @@ async fn writer_task(
                 Ok(r) => r,
                 Err(_) => continue,
             },
-            Ok(Some(Out::Close)) | Ok(None) => break,
+            Ok(None) => break,
         };
         for r in records {
             if writer.send(&mut wr, &r).await.is_err() {
@@ -226,9 +225,14 @@ pub async fn run(
     file_check.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     let mut last_request = tokio::time::Instant::now();
     let mut heard = tokio::time::Instant::now();
-    let send = |v: Value| {
+    let send = |v: Value, until: tokio::time::Instant| {
         let tx = tx.clone();
-        async move { tx.send(Out::Message(encode(&v))).await.is_ok() }
+        async move {
+            matches!(
+                tokio::time::timeout_at(until, tx.send(Out::Message(encode(&v)))).await,
+                Ok(Ok(()))
+            )
+        }
     };
     let end = loop {
         let idle_left = IDLE.saturating_sub(last_request.elapsed());
@@ -263,14 +267,14 @@ pub async fn run(
                         i
                     });
                     config_events = sub.config;
-                    if !send(msg::reply_ok(req.id, serde_json::json!({}))).await {
+                    if !send(msg::reply_ok(req.id, serde_json::json!({})), heard + silence).await {
                         break "closed";
                     }
                     continue;
                 }
                 if jobs.len() >= MAX_INFLIGHT {
                     let e = ApiError::new(ErrorCode::Busy, "too many requests in flight");
-                    if !send(msg::reply_err(req.id, &e.wire())).await {
+                    if !send(msg::reply_err(req.id, &e.wire()), heard + silence).await {
                         break "closed";
                     }
                     continue;
@@ -279,7 +283,7 @@ pub async fn run(
             }
             Some(done) = jobs.join_next(), if !jobs.is_empty() => {
                 if let Ok(v) = done
-                    && !send(v).await
+                    && !send(v, heard + silence).await
                 {
                     break "closed";
                 }
@@ -300,7 +304,7 @@ pub async fn run(
                 }
                 if let Some(reason) = access.revoked() {
                     let ev = msg::event(msg::ev::REVOKED, serde_json::to_value(Revoked { reason }).unwrap_or_default());
-                    let _ = send(ev).await;
+                    let _ = send(ev, heard + silence).await;
                     break "revoked";
                 }
             }
@@ -322,13 +326,13 @@ pub async fn run(
                     .await
                     .unwrap_or(false);
                     let ev = msg::event(msg::ev::CONFIG, serde_json::to_value(ConfigEvent { rev, by, ok }).unwrap_or_default());
-                    if !send(ev).await {
+                    if !send(ev, heard + silence).await {
                         break "closed";
                     }
                 }
             }
             _ = shutdown.changed() => {
-                let _ = send(msg::event(msg::ev::BYE, serde_json::json!({}))).await;
+                let _ = send(msg::event(msg::ev::BYE, serde_json::json!({})), heard + silence).await;
                 break "server stopping";
             }
             _ = tokio::time::sleep_until(heard + silence) => {
@@ -341,7 +345,12 @@ pub async fn run(
     };
     debug!("admin session of visitor \"{visitor}\" ended: {end}");
     jobs.abort_all();
-    let _ = tx.send(Out::Close).await;
     drop(tx);
-    let _ = tokio::time::timeout(Duration::from_secs(5), writer).await;
+    let mut writer = writer;
+    if tokio::time::timeout(Duration::from_secs(5), &mut writer)
+        .await
+        .is_err()
+    {
+        writer.abort();
+    }
 }
