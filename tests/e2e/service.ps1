@@ -233,9 +233,18 @@ try {
   $out = & $Probe e2e-ops.yaml apply '[{"op":"add","path":["services","added"],"value":{"client":"home","bind":"127.0.0.1:27947","target":9}}]' 2>&1 | Out-String
   if ($LASTEXITCODE -ne 0) { Fail "admin apply: $out" }
   if ((Get-Content "$AdminDir\server.yaml" -Raw) -notmatch "added:") { Fail "the change is not in the installed config" }
+  Add-Content "$AdminDir\server.yaml" "# changed by hand after the admin change"
   $out = Burrow service install -c e2e-admin.yaml
   if ($out -notmatch "kept the config changed by burrow admin as a history version") { Fail "reinstall over an admin change: $out" }
   if (-not (Running burrow-e2e-admin)) { Fail "admin server not running after the reinstall" }
+  for ($i = 0; $i -lt 50; $i++) { & $Probe e2e-ops.yaml state *> $null; if ($LASTEXITCODE -eq 0) { break }; Start-Sleep -Milliseconds 200 }
+  $history = & $Probe e2e-ops.yaml history 2>&1 | Out-String
+  if ($LASTEXITCODE -ne 0) { Fail "admin history: $history" }
+  $Kept = ($history | ConvertFrom-Json).entries[0]
+  if (-not $Kept.revertible) { Fail "the version kept by the reinstall cannot be reverted: $history" }
+  $out = & $Probe e2e-ops.yaml revert $Kept.rev 2>&1 | Out-String
+  if ($LASTEXITCODE -ne 0) { Fail "revert to the kept version: $out" }
+  if ((Get-Content "$AdminDir\server.yaml" -Raw) -notmatch "changed by hand") { Fail "the revert did not bring back the kept config" }
   Burrow service uninstall burrow-e2e-admin --purge | Write-Host
   if (Test-Path $AdminDir) { Fail "$AdminDir still exists" }
   Check "a first install of an admin-writable server works and the service changes its own config"

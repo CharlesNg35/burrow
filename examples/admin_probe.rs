@@ -57,7 +57,7 @@ impl Probe {
 async fn run(args: Vec<String>) -> Result<(), String> {
     let [config, action, rest @ ..] = args.as_slice() else {
         return Err(
-            "usage: admin_probe VISITOR_CONFIG state | apply OPS_JSON [CONFIRM...] | soak COUNT [FIRST]"
+            "usage: admin_probe VISITOR_CONFIG state | history | revert REV | apply OPS_JSON [CONFIRM...] | soak COUNT [FIRST]"
                 .into(),
         );
     };
@@ -82,6 +82,25 @@ async fn run(args: Vec<String>) -> Result<(), String> {
     match (action.as_str(), rest) {
         ("state", []) => {
             println!("{}", p.call("state", json!({})).await?);
+        }
+        ("history", []) => {
+            println!("{}", p.call("history", json!({})).await?);
+        }
+        ("revert", [rev]) => {
+            let state = p.call("state", json!({})).await?;
+            let plan = p
+                .call("revert", json!({"to": rev, "base": state["rev"]}))
+                .await?;
+            if plan["valid"] != true {
+                return Err(format!("the revert plan is invalid: {plan}"));
+            }
+            let applied = p
+                .call(
+                    "apply",
+                    json!({"base": plan["base"], "ops": [{"op": "replace_document", "from_history": rev}], "plan": plan["plan"], "confirm": []}),
+                )
+                .await?;
+            println!("{applied}");
         }
         ("apply", [ops, confirm @ ..]) => {
             let ops: Value = serde_json::from_str(ops).map_err(|e| e.to_string())?;

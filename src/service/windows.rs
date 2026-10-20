@@ -401,6 +401,15 @@ impl Backend for WindowsService {
         if let Some(dir) = &m.writable_dir {
             grant(dir, &m.account, "(OI)(CI)M")?;
             grant(&m.config, &m.account, "M")?;
+            let history = crate::admin::adapters::history_dir_of(&m.config);
+            if !is_link(&history) {
+                for kept in std::fs::read_dir(&history).into_iter().flatten().flatten() {
+                    let path = kept.path();
+                    if !is_link(&path) && path.is_file() {
+                        icacls(&path, &["/reset"])?;
+                    }
+                }
+            }
         }
         Ok(())
     }
