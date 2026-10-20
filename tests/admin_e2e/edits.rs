@@ -793,3 +793,56 @@ fn stale_revert(c: &mut Ctx) -> Flow<'_> {
 fn a_revert_review_left_unapplied_is_never_applied_later() {
     run("stale-revert", Options::default(), false, stale_revert);
 }
+
+fn revert_after_restart(c: &mut Ctx) -> Flow<'_> {
+    Box::pin(async move {
+        let original = c.world.config();
+        open(c, "ops").await;
+        c.ui.nav("/services/web").await;
+        edit_mode(c).await;
+        c.ui.fill("#f-services-web-target", "4001").await;
+        wait_checked(c).await;
+        open_review(c, "change-before-a-restart").await;
+        applied(c, "changed").await;
+        c.world.stop("server");
+        c.ui.wait_text(
+            "[data-testid=conn-pill]",
+            "Reconnecting",
+            Duration::from_secs(15),
+        )
+        .await;
+        c.world
+            .start("server", &["server", "-c", "server.yaml"], &[]);
+        c.ui.wait_text(
+            "[data-testid=conn-pill]",
+            "Connected",
+            Duration::from_secs(30),
+        )
+        .await;
+        let older = activity_rev(c, 1).await;
+        c.ui.click(&format!("[data-row='{older}'] [data-testid=list-row]"))
+            .await;
+        c.ui.wait_for("[data-testid=revert]", SECS).await;
+        c.ui.shot("a-kept-version-after-a-restart").await;
+        c.ui.click("[data-testid=revert]").await;
+        c.ui.wait_for("[data-testid=review]", SECS).await;
+        c.ui.shot("review-of-a-kept-version").await;
+        applied(c, "reverted-after-a-restart").await;
+        assert_eq!(
+            c.world.config(),
+            original,
+            "the revert brings back the kept version"
+        );
+        c.ui.take_errors();
+    })
+}
+
+#[test]
+fn a_kept_version_can_be_reverted_after_a_server_restart() {
+    run(
+        "revert-after-restart",
+        Options::default(),
+        false,
+        revert_after_restart,
+    );
+}

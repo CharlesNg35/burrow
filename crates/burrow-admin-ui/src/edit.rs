@@ -349,15 +349,19 @@ impl Edit {
         api::request(
             msg::req::REVERT,
             json!({ "to": to, "base": base }),
-            move |r| match r {
-                Ok(v) => {
-                    if let Ok(p) = serde_json::from_value::<Plan>(v) {
-                        me.review.update(|rv| {
-                            if let Some(rv) = rv {
-                                rv.plan = Some(Arc::new(p));
-                            }
-                        });
-                    }
+            move |r| match r.and_then(|v| {
+                serde_json::from_value::<Plan>(v).map_err(|e| ErrorBody {
+                    code: ErrorCode::Unknown,
+                    message: format!("unreadable plan: {e}"),
+                    body: Value::Null,
+                })
+            }) {
+                Ok(p) => {
+                    me.review.update(|rv| {
+                        if let Some(rv) = rv {
+                            rv.plan = Some(Arc::new(p));
+                        }
+                    });
                 }
                 Err(e) => match conflict_of(&e) {
                     Some(c) => {
@@ -365,7 +369,10 @@ impl Edit {
                         me.conflict_revert.set(Some(to.clone()));
                         me.conflict.set(Some(c));
                     }
-                    None => me.outcome.set(Some(outcome_of(&e))),
+                    None => {
+                        me.review.set(None);
+                        me.outcome.set(Some(outcome_of(&e)));
+                    }
                 },
             },
         );
