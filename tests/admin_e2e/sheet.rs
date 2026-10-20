@@ -121,6 +121,19 @@ static INDEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
 pub fn write_index() {
     let _one = INDEX.lock().unwrap_or_else(|e| e.into_inner());
     let root = shots_dir();
+    let _ = fs::create_dir_all(&root);
+    let _lock = fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(root.join(".index.lock"))
+        .ok()
+        .inspect(|f| {
+            #[cfg(unix)]
+            let _ = rustix::fs::flock(f, rustix::fs::FlockOperation::LockExclusive);
+            #[cfg(not(unix))]
+            let _ = f;
+        });
     let mut rows: Vec<serde_json::Value> = fs::read_dir(root.join("results"))
         .into_iter()
         .flatten()

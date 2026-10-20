@@ -41,7 +41,7 @@ help:
 	@printf '  %-18s %s\n' test 'all tests'
 	@printf '  %-18s %s\n' test-ws 'the integration tests over WebSocket'
 	@printf '  %-18s %s\n' test-ui 'the admin UI crates without a browser'
-	@printf '  %-18s %s\n' e2e 'admin UI flows in the pinned Chrome, FLOW=name filters'
+	@printf '  %-18s %s\n' e2e 'admin UI flows in the pinned Chrome, FLOW=name filters, E2E_JOBS=n flows at a time'
 	@printf '  %-18s %s\n' update-baselines 'e2e that records the visual baselines'
 	@printf '  %-18s %s\n' service-e2e 'install and run as a system service (needs sudo)'
 	@printf '  %-18s %s\n' fuzz 'fuzz each of FUZZ_TARGETS for FUZZ_SECS seconds (nightly)'
@@ -110,7 +110,7 @@ test-ui:
 	$(CARGO) test --locked -p burrow-admin-logic -p burrow-admin-proto -p burrow-syntax -p burrow-ui-kit -p burrow-admin-ui
 
 e2e:
-	$(CARGO) xtask e2e $(FLOW)
+	$(CARGO) xtask e2e $(FLOW) $(if $(E2E_JOBS),--jobs $(E2E_JOBS))
 
 update-baselines:
 	$(CARGO) xtask e2e $(FLOW) --update-baselines
