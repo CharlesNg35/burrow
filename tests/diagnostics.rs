@@ -2370,3 +2370,40 @@ fn self_allow_rules_are_checked() {
     server.yaml: 2 errors, 0 warnings
     "#);
 }
+
+#[test]
+fn a_self_allow_covering_a_whole_family_is_warned_about() {
+    let text = render(
+        "server.yaml",
+        &self_server(
+            "self:\n  allow: [0.0.0.0/0, \"::/0\", 0.0.0.0/0:443, 10.0.0.0/8]\n",
+            "  web: { client: self, bind: 8080, target: 10.0.0.5:3000 }\n",
+            "",
+        ),
+        None,
+    );
+    insta::assert_snapshot!(text, @r#"
+    warning: self.allow 0.0.0.0/0 lets this server dial any IPv4 address for services with client: self and reach: self, the internet included
+      --> server.yaml:5:11
+       |
+     5 |   allow: [0.0.0.0/0, "::/0", 0.0.0.0/0:443, 10.0.0.0/8]
+       |           ^^^^^^^^^ no restriction on targets
+       = help: list only the networks this server should reach for itself, for example allow: [127.0.0.1/32, 10.0.0.0/24]
+
+    warning: self.allow ::/0 lets this server dial any IPv6 address for services with client: self and reach: self, the internet included
+      --> server.yaml:5:22
+       |
+     5 |   allow: [0.0.0.0/0, "::/0", 0.0.0.0/0:443, 10.0.0.0/8]
+       |                      ^^^^^^ no restriction on targets
+       = help: list only the networks this server should reach for itself, for example allow: [127.0.0.1/32, 10.0.0.0/24]
+
+    warning: self.allow 0.0.0.0/0:443 lets this server dial any IPv4 address for services with client: self and reach: self, the internet included
+      --> server.yaml:5:30
+       |
+     5 |   allow: [0.0.0.0/0, "::/0", 0.0.0.0/0:443, 10.0.0.0/8]
+       |                              ^^^^^^^^^^^^^ no restriction on targets
+       = help: list only the networks this server should reach for itself, for example allow: [127.0.0.1/32, 10.0.0.0/24]
+
+    server.yaml: valid server config (1 client, 1 service), 3 warnings
+    "#);
+}

@@ -5,7 +5,7 @@ use super::super::SELF;
 use super::super::model::ServerConfig;
 use super::super::settings::Service;
 use super::{Spans, parse_host_port, unix};
-use crate::allowlist::{AllowList, Gate, Refusal};
+use crate::allowlist::{AllowList, Gate, NetRule, Refusal, Rule};
 use crate::diagnostics::Diagnostic;
 
 pub(super) fn check_allow(
@@ -19,15 +19,33 @@ pub(super) fn check_allow(
         .iter()
         .enumerate()
         .filter_map(|(i, text)| {
-            super::client::parse_rule(
-                text,
-                "self.allow",
-                spans.value(&["self", "allow", &i.to_string()]),
-                out,
-            )
+            let at = spans.value(&["self", "allow", &i.to_string()]);
+            let rule = super::client::parse_rule(text, "self.allow", at, out)?;
+            if let Rule::Net(net) = &rule
+                && net.net.prefix() == 0
+            {
+                out.push(whole_family(net, at));
+            }
+            Some(rule)
         })
         .collect();
     Some(AllowList::Rules(rules))
+}
+
+fn whole_family(net: &NetRule, at: crate::config::tree::Span) -> Diagnostic {
+    let family = match net.net.addr() {
+        IpAddr::V4(_) => "IPv4",
+        IpAddr::V6(_) => "IPv6",
+    };
+    Diagnostic::warning(
+        "allow-every-address",
+        format!(
+            "self.allow {net} lets this server dial any {family} address for services with client: self and reach: self, the internet included"
+        ),
+    )
+    .at(at)
+    .label("no restriction on targets")
+    .help("list only the networks this server should reach for itself, for example allow: [127.0.0.1/32, 10.0.0.0/24]")
 }
 
 pub(super) fn check_reserved(cfg: &ServerConfig, spans: &Spans, out: &mut Vec<Diagnostic>) {
