@@ -9,8 +9,8 @@ use libfuzzer_sys::fuzz_target;
 fuzz_target!(|data: &[u8]| {
     let _ = burrow::transport::ws::route(data, "/burrow");
     if let Ok(text) = std::str::from_utf8(data) {
-        if let Ok(e) = burrow::transport::endpoint::Endpoint::parse(text) {
-            let _ = burrow::transport::endpoint::Endpoint::parse(&e.to_string())
+        if let Ok(e) = burrow_syntax::endpoint::Endpoint::parse(text) {
+            let _ = burrow_syntax::endpoint::Endpoint::parse(&e.to_string())
                 .expect("display round-trips");
         }
     }

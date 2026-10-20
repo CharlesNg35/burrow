@@ -4,7 +4,7 @@ use std::path::Path;
 use super::Spans;
 use crate::diagnostics::Diagnostic;
 use crate::proxy::ProxyConfig;
-use crate::transport::endpoint::Endpoint;
+use burrow_syntax::endpoint::Endpoint;
 
 const RESERVED_HEADERS: &[&str] = &[
     "host",

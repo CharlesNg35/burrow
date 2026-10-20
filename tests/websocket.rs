@@ -8,7 +8,7 @@ use burrow::client::State;
 use burrow::config::model::Protocol;
 use burrow::config::settings::{ClientSettings, ServerSettings, TlsMaterial, WebSocketSettings};
 use burrow::secret::Secret;
-use burrow::transport::endpoint::Endpoint;
+use burrow_syntax::endpoint::Endpoint;
 use common::*;
 use tokio::net::{TcpListener, TcpStream};
 

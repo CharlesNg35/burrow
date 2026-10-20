@@ -76,7 +76,7 @@ pub fn service(target: SocketAddr, protocol: Protocol) -> Service {
 pub fn client_settings(server: SocketAddr, secret: Secret) -> ClientSettings {
     ClientSettings {
         server: server.to_string(),
-        endpoint: burrow::transport::endpoint::Endpoint::Tcp {
+        endpoint: burrow_syntax::endpoint::Endpoint::Tcp {
             host_port: server.to_string(),
         },
         headers: Vec::new(),
@@ -196,10 +196,10 @@ pub struct RunningClient {
 
 pub fn over_transport(mut settings: ClientSettings) -> ClientSettings {
     if ws_mode()
-        && let burrow::transport::endpoint::Endpoint::Tcp { host_port } = &settings.endpoint
+        && let burrow_syntax::endpoint::Endpoint::Tcp { host_port } = &settings.endpoint
     {
         let url = format!("ws://{host_port}/burrow");
-        settings.endpoint = burrow::transport::endpoint::Endpoint::parse(&url).unwrap();
+        settings.endpoint = burrow_syntax::endpoint::Endpoint::parse(&url).unwrap();
         settings.server = url;
     }
     settings
@@ -466,12 +466,12 @@ pub fn visitor_settings(
     secret: Secret,
     forwards: Vec<(&str, VisitTarget)>,
 ) -> VisitorSettings {
-    let mut endpoint = burrow::transport::endpoint::Endpoint::Tcp {
+    let mut endpoint = burrow_syntax::endpoint::Endpoint::Tcp {
         host_port: server.to_string(),
     };
     if ws_mode() {
         endpoint =
-            burrow::transport::endpoint::Endpoint::parse(&format!("ws://{server}/burrow")).unwrap();
+            burrow_syntax::endpoint::Endpoint::parse(&format!("ws://{server}/burrow")).unwrap();
     }
     VisitorSettings {
         server: endpoint.to_string(),

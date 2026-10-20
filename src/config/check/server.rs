@@ -546,7 +546,7 @@ fn check_websocket(
             .help("use a different port for the websocket listener"),
         );
     }
-    if !crate::transport::endpoint::valid_path(&ws.path) {
+    if !burrow_syntax::endpoint::valid_path(&ws.path) {
         out.push(
             Diagnostic::error(
                 "invalid-path",

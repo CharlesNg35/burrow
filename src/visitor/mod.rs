@@ -486,7 +486,7 @@ mod tests {
         };
         VisitorSettings {
             server: "tunnel.example.com:7835".into(),
-            endpoint: crate::transport::endpoint::Endpoint::parse("tunnel.example.com").unwrap(),
+            endpoint: burrow_syntax::endpoint::Endpoint::parse("tunnel.example.com").unwrap(),
             headers: Vec::new(),
             ca_pem: None,
             ca_file: None,

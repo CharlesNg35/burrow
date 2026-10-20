@@ -139,7 +139,7 @@ fn check_sem(sem: &SemType, v: &Value) -> Result<(), String> {
             }
         }
         SemType::Host => hostport::check_host(&want_text(v)?),
-        SemType::ServerAddress => server_address(&want_text(v)?),
+        SemType::ServerAddress => burrow_syntax::endpoint::check_public_address(&want_text(v)?),
         SemType::Cidr => want_text(v)?
             .parse::<burrow_syntax::cidr::Cidr>()
             .map(|_| ())
@@ -256,23 +256,6 @@ pub fn refs_exist(node: &Node, v: &Value, names: &[String]) -> Result<(), String
         (SemType::RefList(_), Value::String(s)) => missing(s).map_or(Ok(()), Err),
         (SemType::Optional(o), _) => refs_exist(&o.inner, v, names),
         _ => Ok(()),
-    }
-}
-
-fn server_address(t: &str) -> Result<(), String> {
-    let hostport = match t.strip_prefix("wss://").or_else(|| t.strip_prefix("ws://")) {
-        Some(rest) => rest.split('/').next().unwrap_or_default(),
-        None if t.contains("://") => {
-            return Err(format!(
-                "\"{t}\" must be a host, host:port, or a ws:// or wss:// URL"
-            ));
-        }
-        None => t,
-    };
-    if hostport.starts_with('[') || hostport.matches(':').count() == 1 {
-        hostport::parse_host_port(hostport).map(|_| ())
-    } else {
-        hostport::check_host(hostport)
     }
 }
 

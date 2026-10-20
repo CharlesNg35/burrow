@@ -10,7 +10,7 @@ use super::{Spans, name_error, secret_error, tuning, unix, valid_name};
 use crate::allowlist::{AllowList, Rule};
 use crate::diagnostics::Diagnostic;
 use crate::secret::Secret;
-use crate::transport::endpoint::Endpoint;
+use burrow_syntax::endpoint::Endpoint;
 
 pub fn check_client(
     cfg: &ClientConfig,

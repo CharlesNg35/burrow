@@ -19,7 +19,7 @@ use crate::config::{Format, Role};
 use crate::failure::Failure;
 use crate::prompt::Prompter;
 use crate::secret::Secret;
-use crate::transport::endpoint::Endpoint;
+use burrow_syntax::endpoint::Endpoint;
 
 pub const DEFAULT_CLIENT_NAME: &str = "home";
 pub const DEFAULT_LISTEN: &str = "0.0.0.0:7835";
@@ -89,7 +89,7 @@ impl WebSocketInit {
             .path
             .clone()
             .unwrap_or_else(crate::config::model::default_ws_path);
-        if !crate::transport::endpoint::valid_path(&path) {
+        if !burrow_syntax::endpoint::valid_path(&path) {
             return Err(Failure::usage(format!("invalid --ws-path \"{path}\""))
                 .hint("use a path like /burrow"));
         }

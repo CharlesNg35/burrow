@@ -1,6 +1,6 @@
 use std::fmt;
 
-use crate::config::check::parse_host_port;
+use crate::hostport::parse_host_port;
 
 pub const DEFAULT_PORT: u16 = 7835;
 
@@ -84,6 +84,19 @@ impl Endpoint {
 
     pub fn is_websocket(&self) -> bool {
         matches!(self, Endpoint::WebSocket { .. })
+    }
+}
+
+pub fn check_public_address(given: &str) -> Result<(), String> {
+    let host = match Endpoint::parse(given)? {
+        Endpoint::Tcp { host_port } => parse_host_port(&host_port)?.0,
+        Endpoint::WebSocket { host, .. } => host,
+    };
+    match host.parse::<std::net::IpAddr>() {
+        Ok(ip) if ip.is_unspecified() => Err(format!(
+            "{host} means every interface, not an address clients can connect to"
+        )),
+        _ => Ok(()),
     }
 }
 

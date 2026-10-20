@@ -42,7 +42,6 @@ macro_rules! delegate_write {
     };
 }
 
-pub mod endpoint;
 pub mod local;
 pub mod proxy;
 pub mod resolve;
@@ -177,8 +176,8 @@ impl From<ws::WsConn> for Conn {
 #[cfg(test)]
 pub(crate) mod testing {
     pub(crate) async fn held_websocket() -> (crate::transport::Conn, crate::transport::Conn) {
-        use crate::transport::endpoint::Endpoint;
         use crate::transport::ws::{Carrier, accept, connect};
+        use burrow_syntax::endpoint::Endpoint;
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
         let endpoint = Endpoint::WebSocket {

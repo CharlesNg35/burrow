@@ -8,7 +8,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
 use tokio::net::TcpStream;
 use tokio_websockets::{ClientBuilder, Limits, Message, ServerBuilder, WebSocketStream};
 
-use super::endpoint::{Endpoint, join_host_port};
+use burrow_syntax::endpoint::{Endpoint, join_host_port};
 
 pub const MAX_REQUEST_HEAD: usize = 8 * 1024;
 const MAX_RESPONSE_HEAD: usize = 64 * 1024;

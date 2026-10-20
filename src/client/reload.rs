@@ -104,7 +104,7 @@ pub(crate) mod tests {
     use crate::config::model::Cipher;
     use crate::config::settings::SocketTuning;
     use crate::secret::Secret;
-    use crate::transport::endpoint::Endpoint;
+    use burrow_syntax::endpoint::Endpoint;
     use std::time::Duration;
 
     pub(crate) fn settings() -> ClientSettings {

@@ -68,6 +68,7 @@ tikv-jemallocator = "0.6"
 mimalloc = { version = "0.1", default-features = false }
 
 [dev-dependencies]
+burrow-admin-logic = { path = "crates/burrow-admin-logic" }
 chromiumoxide = { version = "=0.9.1", default-features = false }
 image = { version = "0.25.10", default-features = false, features = ["png"] }
 insta = "1.49.0"

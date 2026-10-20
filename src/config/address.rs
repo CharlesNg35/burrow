@@ -19,7 +19,7 @@ impl<'a> From<&'a WebSocketSettings> for WsShape<'a> {
         }
     }
 }
-use crate::transport::endpoint::{Endpoint, with_default_port};
+use burrow_syntax::endpoint::{Endpoint, with_default_port};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Reach {
@@ -122,6 +122,14 @@ pub fn client_address(
                         ),
                     ));
                 }
+                if given.contains(':') && !given.starts_with('[') {
+                    return Err(error(
+                        format!(
+                            "\"{given}\" looks like an IPv6 address; write it in brackets, like [2001:db8::1]"
+                        ),
+                        FORMS,
+                    ));
+                }
                 let port = if ws.tls { ws.listen.port() } else { 443 };
                 let url = Endpoint::WebSocket {
                     tls: true,
@@ -194,6 +202,59 @@ mod tests {
             &mut notes,
         )
         .map(|e| (e.to_string(), notes))
+    }
+
+    #[test]
+    fn the_admin_ui_accepts_exactly_the_public_addresses_validate_accepts() {
+        use burrow_admin_proto::schema::{Node, SemType};
+        let node = Node::new(SemType::ServerAddress);
+        let listen: SocketAddr = "0.0.0.0:7835".parse().unwrap();
+        let ws = WsShape {
+            listen: "127.0.0.1:8080".parse().unwrap(),
+            path: "/burrow",
+            tls: false,
+        };
+        for given in [
+            "tunnel.example.com",
+            "tunnel.example.com:9000",
+            "203.0.113.5",
+            "203.0.113.5:7835",
+            "[2001:db8::1]",
+            "[2001:db8::1]:7835",
+            "2001:db8::1",
+            "ws://tunnel.example.com",
+            "ws://tunnel.example.com:8080/burrow",
+            "wss://tunnel.example.com/burrow",
+            "wss://[2001:db8::1]/burrow",
+            "wss://[2001:db8::1]:8443/burrow",
+            "wss://2001:db8::1/burrow",
+            "http://tunnel.example.com",
+            "tunnel.example.com:",
+            "0.0.0.0",
+            "[::]:7835",
+            "user@tunnel.example.com",
+            "",
+        ] {
+            let mut notes = Vec::new();
+            let server =
+                client_address(given, Some(listen), Some(ws), "clients", &mut notes).is_ok();
+            let ui = burrow_admin_logic::check::check(
+                &node,
+                &burrow_admin_proto::serde_json::json!(given),
+            )
+            .is_ok();
+            assert_eq!(ui, server, "{given:?}");
+        }
+        for (given, accepted) in [
+            ("tunnel.example.com", true),
+            ("[2001:db8::1]", true),
+            ("2001:db8::1", false),
+            ("wss://[2001:db8::1]/burrow", true),
+        ] {
+            let mut notes = Vec::new();
+            let server = client_address(given, None, Some(ws), "clients", &mut notes).is_ok();
+            assert_eq!(server, accepted, "{given:?} on a WebSocket-only server");
+        }
     }
 
     #[test]

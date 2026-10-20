@@ -7,7 +7,7 @@ use crate::allowlist::{AllowList, Cidr, Sources};
 use crate::protocol::VisitTarget;
 use crate::proxy::ProxyConfig;
 use crate::secret::Secret;
-use crate::transport::endpoint::Endpoint;
+use burrow_syntax::endpoint::Endpoint;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SocketTuning {

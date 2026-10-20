@@ -47,7 +47,7 @@ async fn client_follows_the_server_to_a_new_address() {
     } else {
         "tunnel.example.test:7835".into()
     };
-    c.endpoint = burrow::transport::endpoint::Endpoint::parse(&c.server).unwrap();
+    c.endpoint = burrow_syntax::endpoint::Endpoint::parse(&c.server).unwrap();
     let client = Client::new(c).with_resolver(dns.clone());
     let mut cli = start_client_with(client).await;
     wait_state(&mut cli.state, State::Connected).await;
