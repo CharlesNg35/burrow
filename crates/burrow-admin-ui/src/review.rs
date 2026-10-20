@@ -857,6 +857,7 @@ pub fn ConflictDialog() -> impl IntoView {
                 <Button label=Signal::derive(move || format!("View rev {}", current())) variant="secondary" testid="conflict-view" on_click=move |_| {
                     let rev = e.conflict.with_untracked(|c| c.as_ref().map(|c| c.current.clone()));
                     open.set(false);
+                    e.conflict_revert.set(None);
                     e.conflict.set(None);
                     route::go(Route::Activity(rev));
                 }/>

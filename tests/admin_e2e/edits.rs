@@ -846,3 +846,53 @@ fn a_kept_version_can_be_reverted_after_a_server_restart() {
         revert_after_restart,
     );
 }
+
+fn draft_after_a_viewed_revert_conflict(c: &mut Ctx) -> Flow<'_> {
+    Box::pin(async move {
+        open(c, "ops").await;
+        c.ui.nav("/services/web").await;
+        edit_mode(c).await;
+        c.ui.fill("#f-services-web-target", "4002").await;
+        wait_checked(c).await;
+        open_review(c, "a-change").await;
+        applied(c, "changed").await;
+        revert_review_left(c, true).await;
+        c.world
+            .hand_edit(|t| t.replace("target: 4002", "target: 4003"));
+        c.ui.wait_for("[data-testid=banner-changed]", SECS).await;
+        c.ui.click("[data-testid=apply]").await;
+        c.ui.wait_for("[data-testid=conflict]", SECS).await;
+        c.ui.click("[data-testid=conflict-view]").await;
+        c.ui.wait_gone("[data-testid=conflict]", SECS).await;
+        c.ui.nav("/services/web").await;
+        edit_mode(c).await;
+        c.ui.fill("#f-services-web-target", "4005").await;
+        wait_checked(c).await;
+        c.world.hand_edit(|t| format!("{t}\n# touched\n"));
+        c.ui.wait_for("[data-testid=conflict]", Duration::from_secs(15))
+            .await;
+        c.ui.click("[data-testid=conflict-recheck]").await;
+        c.ui.wait_gone("[data-testid=conflict]", SECS).await;
+        wait_checked(c).await;
+        open_review(c, "review-my-draft-after-viewing-a-revert-conflict").await;
+        c.ui.wait_for("[data-testid=apply]", SECS).await;
+        let label = c.ui.text("[data-testid=apply]").await;
+        assert!(
+            !label.contains("revert"),
+            "the draft's review opens: {label}"
+        );
+        let page = c.ui.text("[data-testid=review]").await;
+        assert!(page.contains("4005"), "the draft is reviewed: {page}");
+        c.ui.take_errors();
+    })
+}
+
+#[test]
+fn review_my_draft_opens_the_draft_after_a_revert_conflict_was_viewed() {
+    run(
+        "draft-after-revert-conflict",
+        Options::default(),
+        false,
+        draft_after_a_viewed_revert_conflict,
+    );
+}

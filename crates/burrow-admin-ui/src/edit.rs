@@ -242,6 +242,7 @@ impl Edit {
             self.base_rev.set(rev.to_string());
             self.reset_on_load.set(false);
         } else if self.base_rev.get_untracked() != rev && self.conflict.get_untracked().is_none() {
+            self.conflict_revert.set(None);
             self.conflict.set(Some(Conflict {
                 current: rev.to_string(),
                 theirs: Vec::new(),
@@ -300,7 +301,10 @@ impl Edit {
                     }
                 },
                 Err(e) => match conflict_of(&e) {
-                    Some(c) => me.conflict.set(Some(c)),
+                    Some(c) => {
+                        me.conflict_revert.set(None);
+                        me.conflict.set(Some(c));
+                    }
                     None => me.check_error.set(Some(e.message)),
                 },
             }
