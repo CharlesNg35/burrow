@@ -32,6 +32,7 @@ pub enum Outcome {
     Failed { code: ErrorCode, message: String },
     Refused(Vec<Refusal>),
     ReloadFailed(ReloadFailed),
+    Unanswered,
 }
 
 #[derive(Clone, Copy)]
@@ -80,6 +81,9 @@ pub fn missing_confirms(plan: &Plan, typed: &BTreeMap<String, String>) -> Vec<St
 }
 
 pub fn outcome_of(err: &ErrorBody) -> Outcome {
+    if err.body.get("unanswered") == Some(&Value::Bool(true)) {
+        return Outcome::Unanswered;
+    }
     match err.code {
         ErrorCode::LockedOut => Outcome::Refused(
             serde_json::from_value(err.body.get("reasons").cloned().unwrap_or(Value::Null))
@@ -550,6 +554,16 @@ mod tests {
             Some("b2s:1".to_string())
         );
         assert!(conflict_of(&reload).is_none());
+        assert!(matches!(
+            outcome_of(&crate::api::unanswered()),
+            Outcome::Unanswered
+        ));
+        let never_sent = ErrorBody {
+            code: ErrorCode::Unknown,
+            message: "not connected to the server".into(),
+            body: Value::Null,
+        };
+        assert!(matches!(outcome_of(&never_sent), Outcome::Failed { .. }));
     }
 
     #[test]

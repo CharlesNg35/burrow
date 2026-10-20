@@ -112,11 +112,15 @@ fn fail_pending() {
             .unwrap_or_default()
     });
     for f in pending {
-        f(Err(ErrorBody {
-            code: ErrorCode::Unknown,
-            message: "the connection closed".into(),
-            body: Value::Null,
-        }));
+        f(Err(unanswered()));
+    }
+}
+
+pub fn unanswered() -> ErrorBody {
+    ErrorBody {
+        code: ErrorCode::Unknown,
+        message: "the connection closed before the server answered".into(),
+        body: json!({ "unanswered": true }),
     }
 }
 

@@ -578,6 +578,14 @@ fn outcome_view() -> impl IntoView {
                 }
                 .into_any(),
             ),
+            Outcome::Unanswered => Some(
+                view! {
+                    <div class="mb-4" data-testid="outcome-unanswered">
+                        <Callout tone=Tone::Warning title="The connection closed before the server answered"><p>"The change may have been applied. Check Activity once the connection is back."</p></Callout>
+                    </div>
+                }
+                .into_any(),
+            ),
             Outcome::Failed { code, message } => Some(
                 view! {
                     <div class="mb-4" data-testid="outcome-failed" data-code=code.as_str()>
