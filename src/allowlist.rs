@@ -110,9 +110,17 @@ fn listens_on(own: (Protocol, SocketAddr), protocol: Protocol, target: SocketAdd
 }
 
 fn is_this_host(ip: IpAddr) -> bool {
-    ip.is_unspecified()
-        || ip.is_loopback()
-        || std::net::UdpSocket::bind(SocketAddr::new(ip, 0)).is_ok()
+    ip.is_unspecified() || ip.is_loopback() || source_towards(ip) == Some(ip)
+}
+
+fn source_towards(ip: IpAddr) -> Option<IpAddr> {
+    let any = match ip {
+        IpAddr::V4(_) => SocketAddr::from(([0, 0, 0, 0], 0)),
+        IpAddr::V6(_) => SocketAddr::from(([0u16; 8], 0)),
+    };
+    let probe = std::net::UdpSocket::bind(any).ok()?;
+    probe.connect(SocketAddr::new(ip, 9)).ok()?;
+    probe.local_addr().ok().map(|a| canonical(a.ip()))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -490,16 +498,69 @@ mod tests {
         );
         assert_eq!(gate.refusal(Protocol::Tcp, sa("[::1]:7835")), None);
         let probe = std::net::UdpSocket::bind("0.0.0.0:0").unwrap();
-        if probe.connect("192.0.2.1:9").is_ok() {
-            let ip = probe.local_addr().unwrap().ip();
-            if !ip.is_loopback() && !ip.is_unspecified() {
-                assert_eq!(
-                    gate.refusal(Protocol::Tcp, SocketAddr::new(ip, 7835)),
-                    Some(Refusal::Burrow(sa("0.0.0.0:7835"))),
-                    "{ip}"
-                );
-            }
+        let routed = probe
+            .connect("192.0.2.1:9")
+            .and_then(|()| probe.local_addr())
+            .map(|a| a.ip())
+            .ok()
+            .filter(|ip| !ip.is_loopback() && !ip.is_unspecified());
+        match routed {
+            Some(ip) => assert_eq!(
+                gate.refusal(Protocol::Tcp, SocketAddr::new(ip, 7835)),
+                Some(Refusal::Burrow(sa("0.0.0.0:7835"))),
+                "{ip}"
+            ),
+            None => assert!(
+                std::env::var_os("CI").is_none(),
+                "a CI runner has a routed address to check as this host's own"
+            ),
         }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_host_that_binds_any_address_still_tells_its_own_from_another_machine() {
+        const NAME: &str = "allowlist::tests::a_host_that_binds_any_address_still_tells_its_own_from_another_machine";
+        const SETUP: &str = "ip link set lo up && ip addr add 10.9.9.9/24 dev lo && ip addr add fd09::9/64 dev lo nodad && echo 1 > /proc/sys/net/ipv4/ip_nonlocal_bind && echo 1 > /proc/sys/net/ipv6/ip_nonlocal_bind";
+        if std::env::var_os("BURROW_NONLOCAL_BIND_NETNS").is_some() {
+            assert!(std::net::UdpSocket::bind("10.9.9.20:0").is_ok());
+            assert!(std::net::UdpSocket::bind("[fd09::20]:0").is_ok());
+            let gate = Gate::this_server(None, tcp(&[sa("0.0.0.0:7835"), sa("[::]:7836")]));
+            for other in ["10.9.9.20:7835", "192.0.2.9:7835", "[fd09::20]:7836"] {
+                assert_eq!(gate.refusal(Protocol::Tcp, sa(other)), None, "{other}");
+            }
+            assert_eq!(
+                gate.refusal(Protocol::Tcp, sa("10.9.9.9:7835")),
+                Some(Refusal::Burrow(sa("0.0.0.0:7835")))
+            );
+            assert_eq!(
+                gate.refusal(Protocol::Tcp, sa("[fd09::9]:7836")),
+                Some(Refusal::Burrow(sa("[::]:7836")))
+            );
+            return;
+        }
+        let netns = |script: String| {
+            std::process::Command::new("unshare")
+                .args(["-rn", "sh", "-c", &script])
+                .env("BURROW_NONLOCAL_BIND_NETNS", "1")
+                .output()
+        };
+        if !netns(SETUP.to_string()).is_ok_and(|o| o.status.success()) {
+            println!("skipped: this machine does not permit a private network namespace");
+            return;
+        }
+        let exe = std::env::current_exe().unwrap();
+        let out = netns(format!(
+            "{SETUP} && exec '{}' --exact {NAME} --test-threads 1",
+            exe.display()
+        ))
+        .unwrap();
+        assert!(
+            out.status.success(),
+            "{}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
     }
 
     #[test]
