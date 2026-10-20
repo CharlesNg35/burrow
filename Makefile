@@ -6,7 +6,7 @@ FUZZ_TARGETS ?= handshake frames config update patch syntax_parsers
 FUZZ_SECS ?= 30
 KEEP_DAYS ?= 2
 CARGO ?= cargo
-WS_TESTS := --test integration --test reconnect --test visit --test ranges --test failover --test socks --test proxy_protocol --test sources --test admin --test admin_keepalive
+WS_TESTS := --test integration --test reconnect --test visit --test ranges --test failover --test socks --test proxy_protocol --test sources --test admin --test admin_keepalive --test self_target
 UI_DIST := crates/burrow-admin-ui/dist
 
 export CARGO_BUILD_JOBS := $(JOBS)
