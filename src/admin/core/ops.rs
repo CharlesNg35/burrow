@@ -110,7 +110,27 @@ fn rewrite_refs(root: &mut Value, section: &str, from: &str, to: &str) {
     }
 }
 
+fn path_of(op: &Op) -> Option<&Path> {
+    match op {
+        Op::Set { path, .. }
+        | Op::Add { path, .. }
+        | Op::Remove { path }
+        | Op::Rename { path, .. }
+        | Op::SecretAdd { path, .. }
+        | Op::SecretRemove { path, .. }
+        | Op::SetText { path, .. } => Some(path),
+        Op::ReplaceDocument { .. } => None,
+    }
+}
+
 pub fn apply(raw: &Value, ops: &[Op], cx: &dyn Context) -> Result<Applied, OpError> {
+    let max = crate::config::tree::MAX_DEPTH;
+    if let Some(path) = ops.iter().filter_map(path_of).find(|p| p.len() > max) {
+        return Err(err(format!(
+            "a path of {} keys is nested more than {max} levels deep; a config needs far fewer",
+            path.len()
+        )));
+    }
     let mut target = raw.clone();
     let mut renames = Vec::new();
     let mut fresh = Vec::new();
@@ -370,5 +390,46 @@ mod tests {
         .unwrap();
         assert_eq!(doc.target, json!({"listen": 1}));
         assert!(doc.document.is_some());
+    }
+
+    #[test]
+    fn a_path_deeper_than_a_config_is_refused_before_the_tree_changes() {
+        let run = |path: Path| {
+            std::thread::Builder::new()
+                .stack_size(256 * 1024)
+                .spawn(move || {
+                    let cx = Cx(crate::secret::Secret::generate());
+                    let ops = [
+                        Op::Set {
+                            path: path.clone(),
+                            value: json!(1),
+                        },
+                        Op::Add {
+                            path: path.clone(),
+                            value: json!(1),
+                        },
+                        Op::Remove { path: path.clone() },
+                        Op::SetText {
+                            path,
+                            text: "1".into(),
+                        },
+                    ];
+                    ops.iter()
+                        .map(|op| apply(&json!({}), std::slice::from_ref(op), &cx).map(|_| ()))
+                        .collect::<Vec<_>>()
+                })
+                .unwrap()
+                .join()
+                .unwrap()
+        };
+        let deep: Path = (0..5000).map(|i| format!("k{i}")).collect();
+        for r in run(deep) {
+            let e = r.unwrap_err();
+            assert!(e.0.contains("more than 64"), "{}", e.0);
+        }
+        let ok: Path = (0..crate::config::tree::MAX_DEPTH)
+            .map(|i| format!("k{i}"))
+            .collect();
+        assert!(run(ok)[0].is_ok());
     }
 }
