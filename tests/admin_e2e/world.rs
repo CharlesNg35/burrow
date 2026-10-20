@@ -6,23 +6,50 @@ use std::time::{Duration, Instant};
 
 pub const BIN: &str = env!("CARGO_BIN_EXE_burrow");
 
+const PORTS: std::ops::Range<u16> = 20_000..32_000;
+const CLAIM_KEPT: Duration = Duration::from_secs(3600);
+
+fn random_below(n: u16) -> u16 {
+    use std::hash::{BuildHasher, Hasher};
+    static COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let mut h = std::collections::hash_map::RandomState::new().build_hasher();
+    h.write_u64(COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed));
+    h.write_u32(std::process::id());
+    (h.finish() % u64::from(n)) as u16
+}
+
+fn claim(port: u16) -> bool {
+    let dir = super::sheet::shots_dir().join("ports");
+    let _ = fs::create_dir_all(&dir);
+    let file = dir.join(port.to_string());
+    let stale = fs::metadata(&file)
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.elapsed().ok())
+        .is_some_and(|age| age > CLAIM_KEPT);
+    if stale {
+        let _ = fs::remove_file(&file);
+    }
+    fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&file)
+        .is_ok()
+}
+
+fn bindable(port: u16) -> bool {
+    std::net::TcpListener::bind(("127.0.0.1", port)).is_ok()
+}
+
 pub fn free_port() -> u16 {
-    std::net::TcpListener::bind("127.0.0.1:0")
-        .and_then(|l| l.local_addr())
-        .map(|a| a.port())
-        .expect("a free port")
+    free_range(1)
 }
 
 pub fn free_range(n: u16) -> u16 {
-    for _ in 0..200 {
-        let first = free_port();
-        if first > 65535 - n {
-            continue;
-        }
-        let all: Vec<_> = (first..first + n)
-            .map(|p| std::net::TcpListener::bind(("127.0.0.1", p)))
-            .collect();
-        if all.iter().all(Result::is_ok) {
+    for _ in 0..2000 {
+        let first = PORTS.start + random_below(PORTS.end - PORTS.start - n);
+        let ports = first..first + n;
+        if ports.clone().all(bindable) && ports.clone().all(claim) {
             return first;
         }
     }
