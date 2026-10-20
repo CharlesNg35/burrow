@@ -34,6 +34,7 @@ pub struct ServerSettings {
     pub tcp: SocketTuning,
     pub udp_session_timeout: Duration,
     pub metrics: Option<SocketAddr>,
+    pub self_allow: Option<AllowList>,
 }
 
 pub struct ListenClash {

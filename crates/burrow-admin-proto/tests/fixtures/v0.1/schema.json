@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:2f036bbd4c579d5c",
+  "hash": "b2s:6d5316c0896922f3",
   "root": {
     "label": "Server",
     "sem": {
@@ -393,6 +393,43 @@
             },
             "applies": "reload",
             "group": "entities"
+          }
+        },
+        {
+          "key": "self",
+          "node": {
+            "label": "This server",
+            "help": "Targets this server may dial for itself, for services with client: self and visitors with reach: self",
+            "sem": {
+              "t": "optional",
+              "inner": {
+                "label": "This server",
+                "sem": {
+                  "t": "object",
+                  "fields": [
+                    {
+                      "key": "allow",
+                      "node": {
+                        "label": "Allowed targets",
+                        "help": "What this server may dial for itself: CIDR, optionally with :port or :lo-hi, or unix:/path; link-local and metadata addresses only when listed one by one",
+                        "sem": {
+                          "t": "list",
+                          "item": {
+                            "sem": {
+                              "t": "cidr_rule"
+                            }
+                          }
+                        },
+                        "empty_label": "Nothing"
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "applies": "reload",
+            "group": "local",
+            "none_label": "Only the targets of its own services"
           }
         },
         {
@@ -1128,6 +1165,11 @@
       {
         "key": "entities",
         "label": "Clients, visitors and services"
+      },
+      {
+        "key": "local",
+        "label": "This server",
+        "sub": "What this server may dial for itself, for services with client: self and reach: self."
       },
       {
         "key": "limits",

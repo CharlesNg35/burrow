@@ -3,6 +3,7 @@ use std::net::SocketAddr;
 use std::path::Path;
 use std::time::Duration;
 
+use super::super::SELF;
 use super::super::model::{Bind, Protocol, Secrets, ServerConfig, WebSocketConfig};
 use super::super::settings::{
     ClientAuth, ServerSettings, TlsMaterial, VisitorAuth, WebSocketSettings,
@@ -111,6 +112,9 @@ pub fn check_server(
         );
     }
 
+    super::local::check_reserved(cfg, spans, out);
+    let self_allow = super::local::check_allow(cfg, spans, out);
+
     let mut visitors = BTreeMap::new();
     for (name, entry) in &cfg.visitors {
         if !valid_name(name) {
@@ -119,13 +123,19 @@ pub fn check_server(
         let secrets = check_secrets("visitor", name, &entry.secret, spans, &mut seen, out);
         let mut reach = BTreeMap::new();
         for (client, given) in &entry.reach {
+            if client == SELF {
+                super::local::check_reach(name, self_allow.as_ref(), spans, out);
+            }
             if let Some(rules) = check_reach(name, client, given, spans, out) {
                 reach.insert(client.clone(), rules);
             }
         }
         for client in reach
             .iter()
-            .filter(|(c, r)| cfg.clients.contains_key(*c) && **r == AllowList::All)
+            .filter(|(c, r)| {
+                (cfg.clients.contains_key(*c) || (*c == SELF && self_allow.is_some()))
+                    && **r == AllowList::All
+            })
             .map(|(c, _)| c)
         {
             out.push(
@@ -138,7 +148,8 @@ pub fn check_server(
                 .at(spans.key(&["visitors", name, "reach", client]))
                 .label("limited only by the client's allow list")
                 .help(format!(
-                    "keep \"allow\" on client \"{client}\" narrow, for example allow: [127.0.0.1/32:22], or list only the services this visitor needs"
+                    "keep {} narrow, for example allow: [127.0.0.1/32:22], or list only the services this visitor needs",
+                    super::local::allow_place(client)
                 )),
             );
         }
@@ -238,6 +249,16 @@ pub fn check_server(
         .as_ref()
         .and_then(|m| check_metrics(&m.listen, &taken, spans, out));
 
+    let own: Vec<(SocketAddr, &str)> = [
+        (listen, "listen"),
+        (websocket.as_ref().map(|w| w.listen), "websocket.listen"),
+        (metrics, "metrics.listen"),
+    ]
+    .into_iter()
+    .filter_map(|(a, what)| a.map(|a| (a, what)))
+    .collect();
+    super::local::check_services(&services, self_allow.as_ref(), &own, spans, out);
+
     if cfg.pool.min_idle > cfg.pool.max_idle {
         out.push(
             Diagnostic::error(
@@ -278,6 +299,7 @@ pub fn check_server(
         tcp: tuning(&cfg.tcp),
         udp_session_timeout: Duration::from_secs(cfg.udp.session_timeout_secs.into()),
         metrics,
+        self_allow,
     })
 }
 
@@ -621,6 +643,7 @@ pub fn check_refs(root: &Node, out: &mut Vec<Diagnostic>) {
             let by = || format!("service \"{}\"", svc.key);
             if let Some(client) = svc.value.get("client")
                 && let Some(name) = client.as_str()
+                && name != SELF
                 && !clients.contains(&name)
             {
                 out.push(unknown_ref("client", name, &clients, by(), client.span));
@@ -628,6 +651,7 @@ pub fn check_refs(root: &Node, out: &mut Vec<Diagnostic>) {
             if let Some(Value::Seq(items)) = svc.value.get("clients").map(|v| &v.value) {
                 for item in items {
                     if let Some(name) = item.as_str()
+                        && name != SELF
                         && !clients.contains(&name)
                     {
                         out.push(unknown_ref("client", name, &clients, by(), item.span));
@@ -651,7 +675,7 @@ pub fn check_refs(root: &Node, out: &mut Vec<Diagnostic>) {
                 continue;
             };
             for r in reach {
-                if !clients.contains(&r.key.as_str()) {
+                if r.key != SELF && !clients.contains(&r.key.as_str()) {
                     let by = format!("\"reach\" of visitor \"{}\"", visitor.key);
                     out.push(unknown_ref("client", &r.key, &clients, by, r.key_span));
                 }

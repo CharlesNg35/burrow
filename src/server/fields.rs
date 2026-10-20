@@ -26,6 +26,7 @@ pub(super) fn changed(old: &ServerSettings, new: &ServerSettings) -> Vec<(&'stat
         tcp,
         udp_session_timeout,
         metrics,
+        self_allow,
     } = new;
     use Applied::{Live, Reload, Restart};
     [
@@ -74,6 +75,7 @@ pub(super) fn changed(old: &ServerSettings, new: &ServerSettings) -> Vec<(&'stat
         (*tcp != old.tcp, "tcp", Live),
         (*udp_session_timeout != old.udp_session_timeout, "udp", Live),
         (*metrics != old.metrics, "metrics", Reload),
+        (*self_allow != old.self_allow, "self.allow", Reload),
     ]
     .into_iter()
     .filter_map(|(changed, name, how)| changed.then_some((name, how)))
@@ -218,6 +220,11 @@ mod tests {
                 "metrics",
                 Applied::Reload,
                 Box::new(|s| s.metrics = Some("127.0.0.1:9100".parse().unwrap())),
+            ),
+            (
+                "self.allow",
+                Applied::Reload,
+                Box::new(|s| s.self_allow = Some(crate::allowlist::AllowList::Rules(Vec::new()))),
             ),
         ];
         let schema = crate::config::admin_schema::server_schema();

@@ -14,6 +14,7 @@ use super::admin_schema::AdminSchema;
         listener = "Listener",
         websocket = "WebSocket",
         entities = "Clients, visitors and services",
+        local = "This server | What this server may dial for itself, for services with client: self and reach: self.",
         limits = "Limits",
         network = "Network",
         monitoring = "Monitoring",
@@ -66,6 +67,17 @@ pub struct ServerConfig {
     )]
     #[admin(ty = map(visitor), group = entities, applies = reload)]
     pub visitors: BTreeMap<String, VisitorEntry>,
+    #[serde(rename = "self", default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        description = "Targets this server may dial for itself, for services with client: self and visitors with reach: self"
+    )]
+    #[admin(
+        label = "This server",
+        group = local,
+        applies = reload,
+        none_label = "Only the targets of its own services"
+    )]
+    pub self_: Option<SelfEntry>,
     #[serde(default)]
     #[schemars(description = "Exposed services, keyed by service name")]
     #[admin(ty = map(service), group = entities, applies = reload)]
@@ -170,6 +182,18 @@ pub struct TlsFiles {
     #[schemars(description = "Private key PEM file, relative to the config file")]
     #[admin(ty = path(must_exist, relative_to = "config"), label = "Private key file")]
     pub key: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, AdminSchema)]
+#[serde(deny_unknown_fields)]
+#[admin(label = "This server")]
+pub struct SelfEntry {
+    #[serde(default)]
+    #[schemars(
+        description = "What this server may dial for itself: CIDR, optionally with :port or :lo-hi, or unix:/path; link-local and metadata addresses only when listed one by one"
+    )]
+    #[admin(ty = list(cidr_rule), label = "Allowed targets", empty_label = "Nothing")]
+    pub allow: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, AdminSchema)]
