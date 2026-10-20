@@ -94,11 +94,20 @@ fn owner_and_me(path: &Path) -> Option<(String, String)> {
         "'{{0}} {{1}}' -f (Get-Acl -LiteralPath '{}').GetOwner([System.Security.Principal.SecurityIdentifier]).Value, [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value",
         path.display().to_string().replace('\'', "''")
     );
-    let out = run(
-        "powershell",
-        &["-NoProfile", "-NonInteractive", "-Command", &script],
-    )
-    .ok()?;
+    // Windows PowerShell by its full path, without the PSModulePath that
+    // PowerShell 7 exports: with it, Get-Acl cannot load its module.
+    let exe = std::env::var_os("SystemRoot")
+        .map_or_else(|| PathBuf::from(r"C:\Windows"), PathBuf::from)
+        .join(r"System32\WindowsPowerShell\v1.0\powershell.exe");
+    let out = std::process::Command::new(exe)
+        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+        .env_remove("PSModulePath")
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let out = String::from_utf8_lossy(&out.stdout);
     let (owner, me) = out.trim().split_once(' ')?;
     (owner.starts_with("S-1-") && me.starts_with("S-1-"))
         .then(|| (owner.to_string(), me.to_string()))
@@ -263,15 +272,21 @@ impl Backend for WindowsService {
             if *dir != instances
                 && dir.exists()
                 && !(*dir == root && holds_only_hand_run_folders(&root))
-                && let Some((owner, me)) = owner_and_me(dir)
-                && owner != me
-                && !TRUSTED_OWNERS.contains(&owner.as_str())
             {
-                return Err(Failure::new(format!(
-                    "{} already exists and belongs to {owner}, not to administrators",
-                    dir.display()
-                ))
-                .hint("another user may have created it to take over the service; delete it and run the command again"));
+                let Some((owner, me)) = owner_and_me(dir) else {
+                    return Err(Failure::new(format!(
+                        "cannot read who owns {}, so it cannot be checked before burrow takes it over",
+                        dir.display()
+                    ))
+                    .hint("run the command again from an elevated Windows PowerShell; if it keeps failing, delete the folder and run it again"));
+                };
+                if owner != me && !TRUSTED_OWNERS.contains(&owner.as_str()) {
+                    return Err(Failure::new(format!(
+                        "{} already exists and belongs to {owner}, not to administrators",
+                        dir.display()
+                    ))
+                    .hint("another user may have created it to take over the service; delete it and run the command again"));
+                }
             }
             std::fs::create_dir_all(dir)
                 .map_err(|e| Failure::new(format!("cannot create {}: {e}", dir.display())))?;
@@ -589,6 +604,42 @@ mod tests {
         for name in ["NT SERVICE\\burrow-home", "LocalService", ".\\svc-burrow"] {
             assert!(!broad(name), "{name}");
         }
+    }
+
+    #[test]
+    fn the_owner_check_works_from_powershell_7() {
+        if std::env::var_os("BURROW_OWNER_CHECK_CHILD").is_some() {
+            let dir = tempfile::tempdir().unwrap();
+            let (owner, me) =
+                owner_and_me(dir.path()).expect("the owner of a folder this test made is read");
+            assert!(
+                owner == me || TRUSTED_OWNERS.contains(&owner.as_str()),
+                "{owner} {me}"
+            );
+            return;
+        }
+        let pf = PathBuf::from(std::env::var_os("ProgramFiles").unwrap());
+        let modules = format!(
+            "{};{}",
+            pf.join(r"PowerShell\Modules").display(),
+            pf.join(r"PowerShell\7\Modules").display()
+        );
+        let out = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "service::windows::tests::the_owner_check_works_from_powershell_7",
+                "--nocapture",
+            ])
+            .env("BURROW_OWNER_CHECK_CHILD", "1")
+            .env("PSModulePath", modules)
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "under the module path of PowerShell 7: {}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
     }
 
     #[test]
