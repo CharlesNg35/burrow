@@ -632,7 +632,7 @@ pub fn all_paths_under(files: &[PathBuf], roots: &[&str]) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     #[cfg(unix)]

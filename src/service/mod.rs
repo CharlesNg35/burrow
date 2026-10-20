@@ -485,8 +485,7 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
     let current = std::env::current_exe()
         .map_err(|e| Failure::new(format!("cannot locate the burrow binary: {e}")))?;
     let current = system::canonical(&current).unwrap_or(current);
-    let binary = platform.service_binary();
-    let copy_binary = true;
+    let (binary, copy_binary) = service_binary_for(&current, platform);
     let low_ports = checked.listens.iter().any(|(_, a, _)| a.port() < 1024);
     let manifest = Manifest {
         name: name.clone(),
@@ -1186,6 +1185,10 @@ pub fn resolve(name: Option<&str>) -> Result<Manifest, Failure> {
 
 fn p_log_dir() -> PathBuf {
     Platform::current().log_dir()
+}
+
+fn service_binary_for(_current: &Path, platform: Platform) -> (PathBuf, bool) {
+    (platform.service_binary(), true)
 }
 
 fn place_binary(current: &Path, binary: &Path, usual: &Path) -> Result<(), Failure> {
@@ -1892,26 +1895,58 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn a_binary_in_a_private_folder_is_copied_into_a_missing_service_folder_once() {
-        use std::os::unix::fs::PermissionsExt;
-        let dir = tempfile::tempdir().unwrap();
-        let private = dir.path().join("root");
-        std::fs::create_dir(&private).unwrap();
-        let current = private.join("burrow");
-        std::fs::write(&current, "the burrow binary").unwrap();
-        std::fs::set_permissions(&current, std::fs::Permissions::from_mode(0o755)).unwrap();
-        std::fs::set_permissions(&private, std::fs::Permissions::from_mode(0o700)).unwrap();
-        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
-        let usual = dir.path().join("usr/local/bin/burrow");
-        assert!(!usual.parent().unwrap().exists());
-        place_binary(&current, &usual, &usual).unwrap();
-        let folder = std::fs::metadata(usual.parent().unwrap()).unwrap();
-        assert_eq!(folder.permissions().mode() & 0o777, 0o755);
-        assert_eq!(std::fs::read(&usual).unwrap(), b"the burrow binary");
-        assert!(std::fs::metadata(&usual).unwrap().permissions().mode() & 0o001 != 0);
-        assert!(
-            system::same_content(&current, &usual),
-            "a reinstall from the same file has nothing to copy"
+        system::tests::under_umask_077(
+            "service::tests::a_binary_in_a_private_folder_is_copied_into_a_missing_service_folder_once",
+            || {
+                use std::os::unix::fs::PermissionsExt;
+                let dir = tempfile::tempdir().unwrap();
+                std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o755))
+                    .unwrap();
+                let private = dir.path().join("root");
+                std::fs::create_dir(&private).unwrap();
+                let current = private.join("burrow");
+                std::fs::write(&current, "the burrow binary").unwrap();
+                std::fs::set_permissions(&current, std::fs::Permissions::from_mode(0o755)).unwrap();
+                std::fs::set_permissions(&private, std::fs::Permissions::from_mode(0o700)).unwrap();
+                let usual = dir.path().join("bin/burrow");
+                assert!(!usual.parent().unwrap().exists());
+                place_binary(&current, &usual, &usual).unwrap();
+                let folder = std::fs::metadata(usual.parent().unwrap()).unwrap();
+                assert_eq!(folder.permissions().mode() & 0o777, 0o755);
+                assert_eq!(std::fs::read(&usual).unwrap(), b"the burrow binary");
+                assert!(std::fs::metadata(&usual).unwrap().permissions().mode() & 0o001 != 0);
+                assert!(
+                    system::same_content(&current, &usual),
+                    "a reinstall from the same file has nothing to copy"
+                );
+            },
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_trusted_binary_elsewhere_is_never_used_in_place() {
+        let trusted = Path::new("/usr/bin/true");
+        assert!(
+            system::trusted_binary(trusted),
+            "/usr/bin/true is root-only here"
+        );
+        let p = Platform::current();
+        let (binary, copied) = service_binary_for(trusted, p);
+        assert_eq!(binary, p.service_binary());
+        assert!(copied);
+        #[cfg(target_os = "linux")]
+        {
+            let unit = systemd::Systemd.render(&Manifest {
+                binary: binary.clone(),
+                ..record(Platform::Linux)
+            });
+            assert!(
+                unit.contains(&format!("ExecStart={} ", binary.display())),
+                "{unit}"
+            );
+            assert!(!unit.contains("/usr/bin/true"), "{unit}");
+        }
     }
 
     #[test]
