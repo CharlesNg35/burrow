@@ -215,7 +215,7 @@ pub fn build(root: &Path, tools: &Tools, release: bool) -> Result<PathBuf, Strin
         let bytes = read(&p)?;
         let out = if name.ends_with(".woff2") {
             let h = hashed(&name, &bytes, release);
-            css_text = css_text.replace(&format!("/fonts/{name}"), &format!("/{h}"));
+            css_text = css_text.replace(&format!("/fonts/{name}"), &format!("./{h}"));
             h
         } else if name.starts_with("LICENSE") {
             "fonts-license.txt".to_string()
@@ -232,7 +232,7 @@ pub fn build(root: &Path, tools: &Tools, release: bool) -> Result<PathBuf, Strin
     let css_name = hashed("app.css", &css_bytes, release);
     write(&dist, &css_name, &css_bytes)?;
     let boot = format!(
-        "import init from \"./{js_name}\";\ninit({{ module_or_path: \"/{wasm_name}\" }});\n"
+        "import init from \"./{js_name}\";\ninit({{ module_or_path: new URL(\"./{wasm_name}\", import.meta.url) }});\n"
     );
     let boot_name = hashed("boot.js", boot.as_bytes(), release);
     write(&dist, &boot_name, boot.as_bytes())?;

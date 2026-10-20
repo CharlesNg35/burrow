@@ -865,6 +865,7 @@ async fn burrow_admin_listens_on_7839_unless_it_is_taken_or_a_port_is_given() {
 
 struct Local {
     port: u16,
+    run: String,
     token: String,
     stop: watch::Sender<bool>,
     task: tokio::task::JoinHandle<Result<(), burrow::failure::Failure>>,
@@ -903,8 +904,16 @@ async fn local(w: &World, name: &str, secret: &Secret) -> Local {
         .parse()
         .unwrap();
     let token = url.split("#token=").nth(1).unwrap().to_string();
+    let run = url
+        .split("#token=")
+        .next()
+        .unwrap()
+        .trim_start_matches(&format!("http://127.0.0.1:{port}"))
+        .trim_end_matches('/')
+        .to_string();
     Local {
         port,
+        run,
         token,
         stop,
         task,
@@ -925,9 +934,9 @@ async fn http_get(port: u16, head: &str) -> String {
 type Ws =
     tokio_websockets::WebSocketStream<tokio_websockets::MaybeTlsStream<tokio::net::TcpStream>>;
 
-async fn ws(port: u16, origin: &str) -> Result<Ws, String> {
+async fn ws(port: u16, run: &str, origin: &str) -> Result<Ws, String> {
     let b = tokio_websockets::ClientBuilder::new()
-        .uri(&format!("ws://127.0.0.1:{port}/api"))
+        .uri(&format!("ws://127.0.0.1:{port}{run}/api"))
         .unwrap()
         .add_header(
             http::header::ORIGIN,
@@ -966,18 +975,46 @@ async fn the_local_page_is_only_served_to_this_machine() {
     let l = local(&w, "ops", &w.ops).await;
     let ok = http_get(
         l.port,
-        &format!("GET / HTTP/1.1\r\nHost: 127.0.0.1:{}\r\n\r\n", l.port),
+        &format!(
+            "GET {}/ HTTP/1.1\r\nHost: 127.0.0.1:{}\r\n\r\n",
+            l.run, l.port
+        ),
     )
     .await;
     assert!(ok.starts_with("HTTP/1.1 200"), "{ok}");
+    assert!(ok.contains("Clear-Site-Data: \"cache\""), "{ok}");
+    assert!(ok.contains(&format!("src=\"{}/", l.run)), "{ok}");
+    let root = http_get(
+        l.port,
+        &format!("GET / HTTP/1.1\r\nHost: 127.0.0.1:{}\r\n\r\n", l.port),
+    )
+    .await;
+    assert!(root.starts_with("HTTP/1.1 302"), "{root}");
+    assert!(
+        root.contains(&format!("Location: {}/\r\n", l.run)),
+        "{root}"
+    );
+    assert!(root.contains("Cache-Control: no-store"), "{root}");
+    let api = http_get(
+        l.port,
+        &format!(
+            "GET /api HTTP/1.1\r\nHost: 127.0.0.1:{p}\r\nOrigin: http://127.0.0.1:{p}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n",
+            p = l.port
+        ),
+    )
+    .await;
+    assert!(
+        api.starts_with("HTTP/1.1 404"),
+        "the api answers only under this run's prefix: {api}"
+    );
     assert!(ok.contains("Content-Security-Policy: default-src 'none'"));
     assert!(ok.contains("Cache-Control: no-store"));
     for asset in burrow::admin_local::assets::ASSETS {
         let got = http_get(
             l.port,
             &format!(
-                "GET {} HTTP/1.1\r\nHost: 127.0.0.1:{}\r\n\r\n",
-                asset.path, l.port
+                "GET {}{} HTTP/1.1\r\nHost: 127.0.0.1:{}\r\n\r\n",
+                l.run, asset.path, l.port
             ),
         )
         .await;
@@ -1008,7 +1045,7 @@ async fn the_local_page_is_only_served_to_this_machine() {
     )
     .await;
     assert!(cross.starts_with("HTTP/1.1 403"), "{cross}");
-    let bad_origin = ws(l.port, "http://evil.example").await;
+    let bad_origin = ws(l.port, &l.run, "http://evil.example").await;
     assert!(bad_origin.is_err());
     let _ = l.stop.send(true);
     let _ = w.stop.send(true);
@@ -1023,8 +1060,9 @@ async fn a_socket_without_the_token_is_dropped_even_if_it_ignores_the_close() {
         .await
         .unwrap();
     let head = format!(
-        "GET /api HTTP/1.1\r\nHost: 127.0.0.1:{p}\r\nOrigin: http://127.0.0.1:{p}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n",
-        p = l.port
+        "GET {run}/api HTTP/1.1\r\nHost: 127.0.0.1:{p}\r\nOrigin: http://127.0.0.1:{p}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n",
+        p = l.port,
+        run = l.run
     );
     s.write_all(head.as_bytes()).await.unwrap();
     let started = std::time::Instant::now();
@@ -1054,7 +1092,7 @@ async fn the_websocket_needs_the_token_first() {
     let l = local(&w, "ops", &w.ops).await;
     let origin = format!("http://127.0.0.1:{}", l.port);
     let started = std::time::Instant::now();
-    let mut silent = ws(l.port, &origin).await.unwrap();
+    let mut silent = ws(l.port, &l.run, &origin).await.unwrap();
     assert!(
         ws_text(&mut silent).await.is_none(),
         "no token, no messages"
@@ -1063,10 +1101,10 @@ async fn the_websocket_needs_the_token_first() {
         started.elapsed() < Duration::from_secs(7),
         "closed within about 5 s"
     );
-    let mut wrong = ws(l.port, &origin).await.unwrap();
+    let mut wrong = ws(l.port, &l.run, &origin).await.unwrap();
     ws_send(&mut wrong, json!({"auth": "0".repeat(64)})).await;
     assert!(ws_text(&mut wrong).await.is_none());
-    let mut right = ws(l.port, &origin).await.unwrap();
+    let mut right = ws(l.port, &l.run, &origin).await.unwrap();
     ws_send(&mut right, json!({"auth": l.token})).await;
     let open = ws_text(&mut right).await.unwrap();
     assert_eq!(open["ev"], "bridge");
@@ -1132,7 +1170,7 @@ async fn a_visitor_without_admin_rights_is_told_before_anything_opens() {
     burrow::admin_local::check_access(&s).await.unwrap();
     let l = local(&w, "plain", &w.plain).await;
     let origin = format!("http://127.0.0.1:{}", l.port);
-    let mut tab = ws(l.port, &origin).await.unwrap();
+    let mut tab = ws(l.port, &l.run, &origin).await.unwrap();
     ws_send(&mut tab, json!({"auth": l.token})).await;
     let refused = ws_text(&mut tab).await.unwrap();
     assert_eq!(refused["body"]["state"], "refused");

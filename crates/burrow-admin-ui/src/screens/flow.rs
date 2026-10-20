@@ -632,7 +632,7 @@ pub fn FlowModal() -> impl IntoView {
                 let label = tip.trim_end_matches(" →").to_string();
                 view! {
                     <li>
-                        <a href=to.path() on:click=move |e| {
+                        <a href=crate::route::href(&to) on:click=move |e| {
                             e.prevent_default();
                             s.flow_open.set(false);
                             route::go(to.clone());

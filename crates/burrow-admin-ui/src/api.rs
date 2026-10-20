@@ -61,7 +61,8 @@ pub fn connect(store: Store) {
     };
     let loc = window().location();
     let host = loc.host().unwrap_or_default();
-    let Ok(ws) = WebSocket::new(&format!("ws://{host}/api")) else {
+    let prefix = crate::route::run_prefix();
+    let Ok(ws) = WebSocket::new(&format!("ws://{host}{prefix}/api")) else {
         store.conn.set(Conn::Closed {
             message: "The browser could not open a connection to burrow admin.".into(),
         });

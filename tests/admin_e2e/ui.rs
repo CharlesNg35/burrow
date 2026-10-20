@@ -362,7 +362,7 @@ impl Ui {
     pub async fn nav(&self, path: &str) {
         let _: bool = self
             .eval(&format!(
-                "(() => {{ history.pushState(null, '', {}); dispatchEvent(new PopStateEvent('popstate')); return true; }})()",
+                "(() => {{ const to = {}; const run = to.startsWith('/r-') ? '' : (location.pathname.match(/^\\/r-[0-9a-f]+/) || [''])[0]; history.pushState(null, '', run + to); dispatchEvent(new PopStateEvent('popstate')); return true; }})()",
                 js_str(path)
             ))
             .await;

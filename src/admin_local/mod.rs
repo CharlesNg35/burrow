@@ -39,6 +39,7 @@ pub struct Options {
 
 struct Shared {
     port: u16,
+    prefix: String,
     token: Token,
     dialer: Arc<Dialer>,
     visitor: String,
@@ -125,24 +126,44 @@ fn from_disk(dir: &std::path::Path, path: &str) -> Option<(Vec<u8>, &'static str
     std::fs::read(dir.join(name)).ok().map(|b| (b, mime))
 }
 
+pub fn index_for_run(index: &[u8], prefix: &str) -> Vec<u8> {
+    String::from_utf8_lossy(index)
+        .replace("href=\"/", &format!("href=\"{prefix}/"))
+        .replace("src=\"/", &format!("src=\"{prefix}/"))
+        .into_bytes()
+}
+
+const FRESH_INDEX: &str = "Cache-Control: no-store\r\nClear-Site-Data: \"cache\"\r\n";
+
 async fn page(stream: &mut TcpStream, shared: &Shared, path: &str, gzip: bool) {
+    let spa = !path.rsplit('/').next().unwrap_or("").contains('.');
     if let Some(dir) = shared.ui_dir.as_ref().filter(|_| cfg!(debug_assertions)) {
-        let found = from_disk(dir, path).or_else(|| {
-            (!path.rsplit('/').next().unwrap_or("").contains('.'))
-                .then(|| from_disk(dir, "/index.html"))
-                .flatten()
-        });
+        let index = spa || path == "/index.html";
+        let found = if index {
+            from_disk(dir, "/index.html").map(|(b, m)| (index_for_run(&b, &shared.prefix), m))
+        } else {
+            from_disk(dir, path)
+        };
         match found {
             Some((body, mime)) => {
-                reply(stream, 200, mime, "Cache-Control: no-store\r\n", &body).await
+                let extra = if spa {
+                    FRESH_INDEX
+                } else {
+                    "Cache-Control: no-store\r\n"
+                };
+                reply(stream, 200, mime, extra, &body).await
             }
             None => reply(stream, 404, "text/plain", "", b"not found\n").await,
         }
         return;
     }
-    let spa = !path.rsplit('/').next().unwrap_or("").contains('.');
-    let asset = assets::find(path).or_else(|| spa.then(assets::index));
-    let Some(asset) = asset else {
+    if spa || path == "/index.html" {
+        let (body, _) = assets::body(assets::index(), false);
+        let body = index_for_run(&body, &shared.prefix);
+        reply(stream, 200, assets::index().mime, FRESH_INDEX, &body).await;
+        return;
+    }
+    let Some(asset) = assets::find(path) else {
         reply(stream, 404, "text/plain", "", b"not found\n").await;
         return;
     };
@@ -159,7 +180,8 @@ async fn connection(mut stream: TcpStream, shared: Arc<Shared>) {
         Ok(Ok(h)) => h,
         _ => return,
     };
-    let parsed = http::parse(&head).and_then(|h| http::check(&h, shared.port).map(|r| (h, r)));
+    let parsed = http::parse(&head)
+        .and_then(|h| http::check(&h, shared.port, &shared.prefix).map(|r| (h, r)));
     match parsed {
         Err(r) => {
             debug!("burrow admin refused a request: {}", r.reason);
@@ -174,6 +196,10 @@ async fn connection(mut stream: TcpStream, shared: Arc<Shared>) {
             .await;
         }
         Ok((h, Route::Page(path))) => page(&mut stream, &shared, &path, h.gzip).await,
+        Ok((_, Route::Moved(to))) => {
+            let extra = format!("Location: {to}\r\nCache-Control: no-store\r\n");
+            reply(&mut stream, 302, "text/plain; charset=utf-8", &extra, b"").await;
+        }
         Ok((_, Route::Api)) => {
             shared.connected.fetch_add(1, Ordering::AcqRel);
             shared.changed.send_modify(|n| *n += 1);
@@ -240,10 +266,16 @@ pub async fn serve(
         .local_addr()
         .map_err(|e| Failure::new(format!("cannot read the local address: {e}")))?;
     let token = Token::generate();
-    let url = format!("http://127.0.0.1:{}/#token={}", addr.port(), token.as_str());
+    let prefix = http::run_prefix();
+    let url = format!(
+        "http://127.0.0.1:{}{prefix}/#token={}",
+        addr.port(),
+        token.as_str()
+    );
     let (changed, mut watch_changes) = watch::channel(0u64);
     let shared = Arc::new(Shared {
         port: addr.port(),
+        prefix,
         token,
         dialer: Arc::new(Dialer::visitor(settings)),
         visitor: settings.name.clone(),

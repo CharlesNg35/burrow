@@ -233,6 +233,7 @@ async fn a_caller_that_stops_reading_gives_its_seat_back() {
 
 struct Local {
     port: u16,
+    run: String,
     token: String,
     stop: watch::Sender<bool>,
 }
@@ -270,7 +271,19 @@ async fn local(server: SocketAddr, secret: &Secret) -> Local {
         .parse()
         .unwrap();
     let token = url.split("#token=").nth(1).unwrap().to_string();
-    Local { port, token, stop }
+    let run = url
+        .split("#token=")
+        .next()
+        .unwrap()
+        .trim_start_matches(&format!("http://127.0.0.1:{port}"))
+        .trim_end_matches('/')
+        .to_string();
+    Local {
+        port,
+        run,
+        token,
+        stop,
+    }
 }
 
 type Ws =
@@ -279,7 +292,7 @@ type Ws =
 async fn dashboard(l: &Local) -> Ws {
     let origin = format!("http://127.0.0.1:{}", l.port);
     let (mut ws, _) = tokio_websockets::ClientBuilder::new()
-        .uri(&format!("ws://127.0.0.1:{}/api", l.port))
+        .uri(&format!("ws://127.0.0.1:{}{}/api", l.port, l.run))
         .unwrap()
         .add_header(
             http::header::ORIGIN,

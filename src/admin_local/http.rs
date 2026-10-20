@@ -6,6 +6,7 @@ pub const SECURITY_HEADERS: &str = "Content-Security-Policy: default-src 'none';
 pub enum Route {
     Page(String),
     Api,
+    Moved(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -77,7 +78,21 @@ pub fn allowed_hosts(port: u16) -> [String; 3] {
     ]
 }
 
-pub fn check(head: &Head, port: u16) -> Result<Route, Reject> {
+pub fn run_prefix() -> String {
+    let mut bytes = [0u8; 16];
+    getrandom::fill(&mut bytes).expect("operating system random source is available");
+    let hex: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+    format!("/r-{hex}")
+}
+
+fn without_run(path: &str) -> &str {
+    match path.strip_prefix("/r-") {
+        Some(rest) => rest.find('/').map_or("/", |i| &rest[i..]),
+        None => path,
+    }
+}
+
+pub fn check(head: &Head, port: u16, prefix: &str) -> Result<Route, Reject> {
     let forbidden = |reason| Reject { code: 403, reason };
     let host = head.host.as_deref().ok_or(Reject {
         code: 400,
@@ -106,7 +121,10 @@ pub fn check(head: &Head, port: u16) -> Result<Route, Reject> {
         .next()
         .unwrap_or("/")
         .to_string();
-    if path == "/api" {
+    let inner = path
+        .strip_prefix(prefix)
+        .filter(|rest| rest.starts_with('/'));
+    if inner == Some("/api") {
         if !head.upgrade {
             return Err(Reject {
                 code: 426,
@@ -125,12 +143,29 @@ pub fn check(head: &Head, port: u16) -> Result<Route, Reject> {
             reason: "bad path",
         });
     }
-    Ok(Route::Page(path))
+    if let Some(inner) = inner {
+        return Ok(Route::Page(inner.to_string()));
+    }
+    let rest = without_run(&path);
+    let last = rest.rsplit('/').next().unwrap_or("");
+    if last == "api" || last.contains('.') {
+        return Err(Reject {
+            code: 404,
+            reason: "not found",
+        });
+    }
+    let query = head
+        .path
+        .split_once('?')
+        .map(|(_, q)| format!("?{}", q.split('#').next().unwrap_or("")))
+        .unwrap_or_default();
+    Ok(Route::Moved(format!("{prefix}{rest}{query}")))
 }
 
 pub fn reason_phrase(code: u16) -> &'static str {
     match code {
         200 => "OK",
+        302 => "Found",
         304 => "Not Modified",
         400 => "Bad Request",
         403 => "Forbidden",
@@ -166,7 +201,7 @@ mod tests {
             "LOCALHOST:4000",
         ] {
             let h = head(&["GET / HTTP/1.1", &format!("Host: {host}")]);
-            assert_eq!(check(&h, 4000), Ok(Route::Page("/".into())), "{host}");
+            assert_eq!(check(&h, 4000, ""), Ok(Route::Page("/".into())), "{host}");
         }
         for host in [
             "evil.example",
@@ -176,10 +211,10 @@ mod tests {
             "10.0.0.1:4000",
         ] {
             let h = head(&["GET / HTTP/1.1", &format!("Host: {host}")]);
-            assert_eq!(check(&h, 4000).unwrap_err().code, 403, "{host}");
+            assert_eq!(check(&h, 4000, "").unwrap_err().code, 403, "{host}");
         }
         let none = head(&["GET / HTTP/1.1"]);
-        assert_eq!(check(&none, 4000).unwrap_err().code, 400);
+        assert_eq!(check(&none, 4000, "").unwrap_err().code, 400);
         let twice = "GET / HTTP/1.1\r\nHost: 127.0.0.1:4000\r\nHost: evil\r\n\r\n";
         assert_eq!(parse(twice.as_bytes()).unwrap_err().code, 400);
     }
@@ -200,7 +235,7 @@ mod tests {
                 l.push(format!("Sec-Fetch-Site: {s}"));
             }
             let refs: Vec<&str> = l.iter().map(String::as_str).collect();
-            check(&head(&refs), 4000)
+            check(&head(&refs), 4000, "")
         };
         assert_eq!(
             ws(Some("http://127.0.0.1:4000"), Some("same-origin")),
@@ -219,11 +254,11 @@ mod tests {
             assert_eq!(ws(o, s).unwrap_err().code, 403, "{o:?} {s:?}");
         }
         let plain = head(&["GET /api HTTP/1.1", "Host: 127.0.0.1:4000"]);
-        assert_eq!(check(&plain, 4000).unwrap_err().code, 426);
+        assert_eq!(check(&plain, 4000, "").unwrap_err().code, 426);
         let post = head(&["POST / HTTP/1.1", "Host: 127.0.0.1:4000"]);
-        assert_eq!(check(&post, 4000).unwrap_err().code, 405);
+        assert_eq!(check(&post, 4000, "").unwrap_err().code, 405);
         let up = head(&["GET /../etc/passwd HTTP/1.1", "Host: 127.0.0.1:4000"]);
-        assert_eq!(check(&up, 4000).unwrap_err().code, 400);
+        assert_eq!(check(&up, 4000, "").unwrap_err().code, 400);
     }
 
     #[test]
@@ -241,5 +276,45 @@ mod tests {
         }
         assert!(!r.to_ascii_lowercase().contains("set-cookie"));
         assert!(!r.to_ascii_lowercase().contains("access-control"));
+    }
+
+    #[test]
+    fn only_this_run_s_prefix_serves_pages_and_the_api() {
+        let run = "/r-0123456789abcdef0123456789abcdef";
+        let get = |path: &str, upgrade: bool| {
+            let mut lines = vec![
+                format!("GET {path} HTTP/1.1"),
+                "Host: 127.0.0.1:4000".to_string(),
+            ];
+            if upgrade {
+                lines.push("Upgrade: websocket".into());
+                lines.push("Origin: http://127.0.0.1:4000".into());
+            }
+            let refs: Vec<&str> = lines.iter().map(String::as_str).collect();
+            check(&head(&refs), 4000, run)
+        };
+        assert_eq!(get(&format!("{run}/"), false), Ok(Route::Page("/".into())));
+        assert_eq!(
+            get(&format!("{run}/services/web?tab=x"), false),
+            Ok(Route::Page("/services/web".into()))
+        );
+        assert_eq!(get(&format!("{run}/api"), true), Ok(Route::Api));
+        for elsewhere in ["/api", "/r-old/api", "/services/api"] {
+            assert_eq!(get(elsewhere, true).unwrap_err().code, 404, "{elsewhere}");
+        }
+        assert_eq!(get("/", false), Ok(Route::Moved(format!("{run}/"))));
+        assert_eq!(
+            get("/services/web?tab=secrets", false),
+            Ok(Route::Moved(format!("{run}/services/web?tab=secrets")))
+        );
+        assert_eq!(
+            get("/r-feedfacefeedfacefeedfacefeedface/clients", false),
+            Ok(Route::Moved(format!("{run}/clients")))
+        );
+        assert_eq!(get("/app-1234.js", false).unwrap_err().code, 404);
+        assert_eq!(
+            get(&format!("{run}x/"), false),
+            Ok(Route::Moved(format!("{run}/")))
+        );
     }
 }
