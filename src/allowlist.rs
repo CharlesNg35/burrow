@@ -546,6 +546,10 @@ mod tests {
                 .output()
         };
         if !netns(SETUP.to_string()).is_ok_and(|o| o.status.success()) {
+            assert!(
+                std::env::var_os("CI").is_none(),
+                "a CI runner permits a private network namespace"
+            );
             println!("skipped: this machine does not permit a private network namespace");
             return;
         }
@@ -555,10 +559,10 @@ mod tests {
             exe.display()
         ))
         .unwrap();
+        let said = String::from_utf8_lossy(&out.stdout);
         assert!(
-            out.status.success(),
-            "{}{}",
-            String::from_utf8_lossy(&out.stdout),
+            out.status.success() && said.contains("1 passed"),
+            "{said}{}",
             String::from_utf8_lossy(&out.stderr)
         );
     }
