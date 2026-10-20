@@ -12,7 +12,7 @@ use crate::config::settings::{ServerSettings, Service};
 use crate::metrics::Status;
 use crate::secret::Secret;
 use burrow_admin_proto::msg::AdminLevel;
-use burrow_config::SELF;
+use burrow_config::{SELF, ServerConfig};
 
 pub struct Who<'a> {
     pub visitor: &'a str,
@@ -347,7 +347,7 @@ pub fn impacts(
                 old.listen.map_or_else(|| "off".into(), |a| a.to_string()),
                 new.listen.map_or_else(|| "off".into(), |a| a.to_string())
             ),
-            Some("listen".into()),
+            Some(ServerConfig::LISTEN.key().into()),
         );
     }
     let ws = |s: &ServerSettings| s.websocket.as_ref().map(|w| (w.listen, w.path.clone()));
@@ -356,7 +356,7 @@ pub fn impacts(
             Level::Danger,
             "changes-websocket",
             "changes the WebSocket listener; clients connected through it reconnect".to_string(),
-            Some("websocket".into()),
+            Some(ServerConfig::WEBSOCKET.key().into()),
         );
     }
     if new.insecure_plaintext != old.insecure_plaintext {
@@ -372,11 +372,11 @@ pub fn impacts(
                     "turns on"
                 }
             ),
-            Some("insecure_plaintext".into()),
+            Some(ServerConfig::INSECURE_PLAINTEXT.key().into()),
         );
     }
     for field in restart {
-        if field != "listen" {
+        if field != ServerConfig::LISTEN.key() {
             push(
                 Level::Info,
                 "restart-needed",

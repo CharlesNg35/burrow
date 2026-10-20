@@ -60,7 +60,9 @@ pub fn parse(bytes: &[u8]) -> Result<Head, Reject> {
             "host" => once(&mut head.host)?,
             "origin" => once(&mut head.origin)?,
             "sec-fetch-site" => once(&mut head.fetch_site)?,
-            "upgrade" => head.upgrade |= value.eq_ignore_ascii_case("websocket"),
+            "upgrade" => {
+                head.upgrade |= value.eq_ignore_ascii_case(crate::transport::ws::UPGRADE_TOKEN)
+            }
             "accept-encoding" => {
                 head.gzip |= value.split(',').any(|v| v.trim().starts_with("gzip"))
             }

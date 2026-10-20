@@ -62,6 +62,8 @@ pub enum FileFormat {
     Json,
 }
 
+pub const ADMIN_COMMAND: &str = "admin";
+
 #[derive(Debug, Subcommand)]
 pub enum Command {
     #[command(about = "Run the public server")]
@@ -73,6 +75,7 @@ pub enum Command {
     #[command(about = "Check a config file and report every problem")]
     Validate(ValidateArgs),
     #[command(
+        name = ADMIN_COMMAND,
         about = "Open the admin UI of a server in your browser, as a visitor with admin access"
     )]
     Admin(AdminArgs),

@@ -1,5 +1,6 @@
 use burrow_admin_proto::Path;
 use burrow_admin_proto::ops::Op;
+use burrow_config::{ClientEntry, Entry, ServerConfig, ServiceEntry, VisitorEntry};
 use serde_json::{Map, Value};
 
 use super::values::{fingerprint_of, has_secret_marker, raw_of};
@@ -78,18 +79,23 @@ fn rewrite_refs(root: &mut Value, section: &str, from: &str, to: &str) {
             *v = Value::String(to.to_string());
         }
     };
-    if let Some(services) = root.get_mut("services").and_then(Value::as_object_mut) {
+    if let Some(services) = ServerConfig::SERVICES
+        .get_mut(root)
+        .and_then(Value::as_object_mut)
+    {
         for svc in services.values_mut() {
             let Some(svc) = svc.as_object_mut() else {
                 continue;
             };
-            let fields: &[&str] = match section {
-                "clients" => &["client", "clients"],
-                "visitors" => &["visitors"],
-                _ => &[],
+            let fields = if section == ClientEntry::section() {
+                vec![ServiceEntry::CLIENT.key(), ServiceEntry::CLIENTS.key()]
+            } else if section == VisitorEntry::section() {
+                vec![ServiceEntry::VISITORS.key()]
+            } else {
+                Vec::new()
             };
             for f in fields {
-                match svc.get_mut(*f) {
+                match svc.get_mut(f) {
                     Some(Value::Array(items)) => items.iter_mut().for_each(rename_in),
                     Some(v) => rename_in(v),
                     None => {}
@@ -97,11 +103,15 @@ fn rewrite_refs(root: &mut Value, section: &str, from: &str, to: &str) {
             }
         }
     }
-    if section == "clients"
-        && let Some(visitors) = root.get_mut("visitors").and_then(Value::as_object_mut)
+    if section == ClientEntry::section()
+        && let Some(visitors) = ServerConfig::VISITORS
+            .get_mut(root)
+            .and_then(Value::as_object_mut)
     {
         for v in visitors.values_mut() {
-            if let Some(reach) = v.get_mut("reach").and_then(Value::as_object_mut)
+            if let Some(reach) = VisitorEntry::REACH
+                .get_mut(v)
+                .and_then(Value::as_object_mut)
                 && let Some(rules) = reach.shift_remove(from)
             {
                 reach.insert(to.to_string(), rules);

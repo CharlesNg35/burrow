@@ -2,15 +2,9 @@ use burrow_admin_proto::schema::{Node, SemType};
 use burrow_admin_proto::value::{self, EnvInfo, SecretInfo, SecretSrc};
 use serde_json::{Map, Value};
 
+use crate::config::check::secretish;
 use crate::config::env::{EnvSource, expand_value};
 use crate::secret::Secret;
-
-pub fn secretish(key: &str) -> bool {
-    let key = key.to_ascii_lowercase();
-    key.contains("secret")
-        || ["key", "psk", "token", "password", "pass", "passwd"].contains(&key.as_str())
-        || crate::suggest::closest(&key, ["secret"]).is_some()
-}
 
 fn holds_names(node: Option<&Node>) -> bool {
     match node.map(|n| &n.sem) {

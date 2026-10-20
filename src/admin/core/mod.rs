@@ -19,7 +19,8 @@ use burrow_admin_proto::msg::{
     HistoryRequest, Limits, Running, Runtime, SchemaReply, ServerInfo, SessionInfo, State, Suggest,
     Suggestions, Welcome, WhyNot as WireWhyNot, You,
 };
-use burrow_admin_proto::schema::Schema;
+use burrow_admin_proto::schema::{Entity, Schema};
+use burrow_config::{ClientEntry, Entry, Protocol, ServerConfig, ServiceEntry, VisitorEntry};
 use serde_json::Value;
 use zeroize::Zeroizing;
 
@@ -290,7 +291,7 @@ impl Core {
         if let Some(file) = &checked.settings
             && file.listen != running_settings.listen
         {
-            restart_pending.push("listen".to_string());
+            restart_pending.push(ServerConfig::LISTEN.key().to_string());
         }
         let status = self.live.status();
         let mut bound = BTreeMap::new();
@@ -379,7 +380,7 @@ impl Core {
                     .unwrap_or(burrow_syntax::ports::FIRST_SERVICE_PORT.into())
                     .clamp(1024, 65535) as u16;
                 let count = req.count.unwrap_or(1).clamp(1, 1000) as u16;
-                let udp = req.proto.as_deref() == Some("udp");
+                let udp = req.proto.as_deref().and_then(Protocol::from_wire) == Some(Protocol::Udp);
                 let text = self.read()?;
                 let used = plan::used_ports(self, &text);
                 let mut at = near;
@@ -399,10 +400,10 @@ impl Core {
             "name" => {
                 let text = self.read()?;
                 let checked = plan::check_text(self, &text);
-                let section = match req.entity.as_deref() {
-                    Some("client") => "clients",
-                    Some("visitor") => "visitors",
-                    _ => "services",
+                let section = match req.entity.as_deref().map(Entity::parse) {
+                    Some(Entity::Client) => ClientEntry::section(),
+                    Some(Entity::Visitor) => VisitorEntry::section(),
+                    _ => ServiceEntry::section(),
                 };
                 let taken: Vec<String> = checked
                     .raw

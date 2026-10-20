@@ -7,6 +7,7 @@ use crate::config::settings::{ServerSettings, VisitorAuth};
 use crate::secret::Secret;
 use burrow_admin_proto::msg::AdminLevel;
 use burrow_config::admin_schema::AdminEnum;
+use burrow_config::{Entry, VisitorEntry};
 
 fn power(v: &VisitorAuth) -> Power<AdminLevel, &Secret> {
     Power {
@@ -25,14 +26,14 @@ fn nothing() -> Power<AdminLevel, String> {
 }
 
 fn raw_power(v: &Value) -> Power<AdminLevel, String> {
-    let level = match v.get("admin") {
+    let level = match VisitorEntry::ADMIN.get(v) {
         None | Some(Value::Null) => None,
         Some(x) => match serde_json::from_value(x.clone()) {
             Ok(l) => Some(l),
             Err(_) => return nothing(),
         },
     };
-    let secrets = match v.get("secret") {
+    let secrets = match VisitorEntry::SECRET.get(v) {
         Some(Value::Array(a)) => a
             .iter()
             .filter_map(Value::as_str)
@@ -41,7 +42,7 @@ fn raw_power(v: &Value) -> Power<AdminLevel, String> {
         Some(Value::String(s)) => vec![s.clone()],
         _ => Vec::new(),
     };
-    let from = match v.get("admin_from") {
+    let from = match VisitorEntry::ADMIN_FROM.get(v) {
         None | Some(Value::Null) => Vec::new(),
         Some(Value::Array(a)) => {
             let parsed: Vec<_> = a
@@ -101,7 +102,7 @@ pub fn refusals(c: &Change) -> Vec<Refusal> {
     let renamed_from = |name: &str| {
         c.renames
             .iter()
-            .find(|r| r.to == name && r.path.len() == 2 && r.path[0] == "visitors")
+            .find(|r| r.to == name && VisitorEntry::is_entry(&r.path))
             .map(|r| r.path[1].clone())
     };
     let against = |old: &ServerSettings, out: &mut Vec<(&'static str, String)>| {
@@ -125,7 +126,7 @@ pub fn refusals(c: &Change) -> Vec<Refusal> {
         }
         Base::Broken { raw, next_raw } => {
             against(c.running, &mut found);
-            let visitors = |t: &Value| t.get("visitors").and_then(Value::as_object).cloned();
+            let visitors = |t: &Value| VisitorEntry::entries(t).cloned();
             let (old, new) = (
                 visitors(raw).unwrap_or_default(),
                 visitors(next_raw).unwrap_or_default(),

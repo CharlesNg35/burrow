@@ -1,7 +1,8 @@
 use burrow_admin_proto::plan::{Change, ChangeKind};
+use burrow_config::{ClientEntry, Entry, ServiceEntry, VisitorEntry};
 use serde_json::Value;
 
-use super::values::secretish;
+use crate::config::check::secretish;
 use crate::config::patch::Rename;
 
 fn short(v: &Value) -> String {
@@ -30,12 +31,13 @@ fn short(v: &Value) -> String {
 }
 
 fn entity(section: &str) -> Option<&'static str> {
-    match section {
-        "clients" => Some("client"),
-        "visitors" => Some("visitor"),
-        "services" => Some("service"),
-        _ => None,
-    }
+    [
+        (ClientEntry::section(), ClientEntry::ENTITY),
+        (VisitorEntry::section(), VisitorEntry::ENTITY),
+        (ServiceEntry::section(), ServiceEntry::ENTITY),
+    ]
+    .into_iter()
+    .find_map(|(s, e)| (s == section).then_some(e))
 }
 
 fn secret_count(v: Option<&Value>) -> usize {
@@ -143,18 +145,14 @@ pub fn changes(old: &Value, new: &Value, renames: &[Rename]) -> Vec<Change> {
                     .or_else(|| renamed_from(name).and_then(|f| om.get(&f)))
                 {
                     None => {
-                        let extra = match kind {
-                            "client" | "visitor" => format!(
-                                " ({} {})",
-                                secret_count(val.get("secret")),
-                                if secret_count(val.get("secret")) == 1 {
-                                    "secret"
-                                } else {
-                                    "secrets"
-                                }
-                            ),
-                            _ => String::new(),
+                        let secrets = match kind {
+                            k if k == ClientEntry::ENTITY => Some(ClientEntry::SECRET.get(val)),
+                            k if k == VisitorEntry::ENTITY => Some(VisitorEntry::SECRET.get(val)),
+                            _ => None,
                         };
+                        let extra = secrets.map(secret_count).map_or_else(String::new, |n| {
+                            format!(" ({n} secret{})", if n == 1 { "" } else { "s" })
+                        });
                         out.push(Change {
                             kind: ChangeKind::Add,
                             path,

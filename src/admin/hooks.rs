@@ -1,4 +1,5 @@
 use burrow_admin_proto::schema::{Editable, Field, Node, Schema, SemType, TextC, UnknownType};
+use burrow_config::{ServerConfig, ServiceEntry};
 use serde_json::json;
 
 pub const SCHEMA_ENV: &str = "BURROW_ADMIN_TEST_SCHEMA";
@@ -14,7 +15,7 @@ pub fn schema(s: Schema) -> Schema {
 pub fn future(mut s: Schema) -> Schema {
     let services = s
         .root
-        .field("services")
+        .field(ServerConfig::SERVICES.key())
         .map(|f| f.node.clone())
         .and_then(|n| match n.sem {
             SemType::Map(m) => Some(*m.value),
@@ -24,7 +25,11 @@ pub fn future(mut s: Schema) -> Schema {
         return s;
     };
     if let SemType::Object(o) = &mut service.sem {
-        if let Some(f) = o.fields.iter_mut().find(|f| f.key == "bandwidth") {
+        if let Some(f) = o
+            .fields
+            .iter_mut()
+            .find(|f| f.key == ServiceEntry::BANDWIDTH.key())
+        {
             f.node.sem = SemType::Unknown(UnknownType {
                 t: "rate_v2".into(),
                 fallback: vec![SemType::Text(TextC::default())],
@@ -49,7 +54,10 @@ pub fn future(mut s: Schema) -> Schema {
         });
     }
     if let SemType::Object(root) = &mut s.root.sem
-        && let Some(f) = root.fields.iter_mut().find(|f| f.key == "services")
+        && let Some(f) = root
+            .fields
+            .iter_mut()
+            .find(|f| f.key == ServerConfig::SERVICES.key())
         && let SemType::Map(m) = &mut f.node.sem
     {
         *m.value = service;

@@ -1,12 +1,13 @@
 use std::collections::BTreeSet;
 
 use burrow_admin_proto::diag::Diag;
-use burrow_admin_proto::msg::{AuditEntry, ErrorCode};
+use burrow_admin_proto::msg::{AuditEntry, ErrorCode, LockedField};
 use burrow_admin_proto::ops::Op;
 use burrow_admin_proto::plan::{
     Applied, ApplyHow, Conflict, Plan, Reformat, ReloadFailed, RevealedSecret,
 };
 use burrow_admin_proto::schema::{Applies, SemType};
+use burrow_config::ServerConfig;
 use serde_json::Value;
 
 use super::diags::Mapper;
@@ -209,7 +210,7 @@ pub fn compute(
                 locked.join(".")
             ),
         )
-        .with(serde_json::json!({ "path": locked })));
+        .with(serde_json::to_value(LockedField { path: locked }).unwrap_or_default()));
     }
     let applied = ops::apply(&raw, ops_list, &Cx { core, session: s })
         .map_err(|e| ApiError::new(ErrorCode::BadRequest, e.0))?;
@@ -277,7 +278,7 @@ pub fn compute(
                     c.what, c.kept
                 ),
                 path: Some(c.path),
-                also: vec![vec!["listen".to_string()]],
+                also: vec![ServerConfig::LISTEN.path()],
                 label: None,
                 help: Some(
                     "restart the server after changing listen, then use the old address".into(),
