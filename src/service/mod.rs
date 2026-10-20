@@ -685,6 +685,12 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
         backend.writable_folder(dir, &config, &account)?;
     }
     if source != config {
+        if writable_dir.is_some() && keep_admin_copy(&source, &config)? {
+            say(
+                out,
+                "kept the config changed by burrow admin as a history version; revert it from burrow admin Activity if needed",
+            )?;
+        }
         system::copy_file(&source, &config, false)?;
         say(
             out,
@@ -1541,20 +1547,61 @@ pub fn status(name: Option<&str>, out: &mut dyn Write) -> Result<u8, Failure> {
             say(out, format!("    {line}"))?;
         }
     }
-    if m.source_config != m.config
-        && m.source_config.exists()
-        && differs(&m.source_config, &m.config)
-    {
-        say(
-            out,
-            format!(
-                "  note:    {} differs from the installed copy; to use it, run: {}",
-                m.source_config.display(),
-                reinstall
-            ),
-        )?;
+    if let Some(note) = source_note(&m, &reinstall) {
+        say(out, format!("  note:    {note}"))?;
     }
     Ok(u8::from(!st.running))
+}
+
+fn source_note(m: &Manifest, reinstall: &str) -> Option<String> {
+    if m.source_config == m.config
+        || !m.source_config.exists()
+        || !differs(&m.source_config, &m.config)
+    {
+        return None;
+    }
+    Some(if m.writable_dir.is_some() {
+        format!(
+            "{} is managed by burrow admin; {} was only its first version",
+            m.config.display(),
+            m.source_config.display()
+        )
+    } else {
+        format!(
+            "{} differs from the installed copy; to use it, run: {reinstall}",
+            m.source_config.display()
+        )
+    })
+}
+
+/// Keeps an installed config that burrow admin changed as a history version
+/// before a reinstall replaces it with the source, so the change can be
+/// reverted from burrow admin; true when it was kept.
+fn keep_admin_copy(source: &Path, config: &Path) -> Result<bool, Failure> {
+    use crate::admin::core::ports::Store;
+    let (Ok(src), Ok(installed)) = (std::fs::read(source), std::fs::read_to_string(config)) else {
+        return Ok(false);
+    };
+    if src == installed.as_bytes() {
+        return Ok(false);
+    }
+    let store = crate::admin::adapters::FileStore::new(config);
+    store.keep(&crate::admin::core::text::rev(&installed), &installed);
+    match store.history_problem() {
+        None => Ok(true),
+        Some(why) => Err(Failure::new(format!(
+            "{} was changed by burrow admin and cannot be kept before the reinstall replaces it: {why}",
+            config.display()
+        ))
+        .hint(format!(
+            "copy {} somewhere safe, or use it as the source: {}",
+            config.display(),
+            crate::failure::admin(&format!(
+                "service install -c {} --admin-writable",
+                crate::failure::path_arg(config)
+            ))
+        ))),
+    }
 }
 
 fn differs(source: &Path, installed: &Path) -> bool {
@@ -1663,6 +1710,51 @@ mod tests {
         );
         let plain = delete_hint(&[log], None);
         assert!(!plain.contains("-r"), "{plain}");
+    }
+
+    #[test]
+    fn a_config_changed_by_burrow_admin_is_kept_before_a_reinstall_replaces_it() {
+        use crate::admin::core::ports::Store;
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("server.yaml");
+        let folder = dir.path().join("server");
+        std::fs::create_dir(&folder).unwrap();
+        let config = folder.join("server.yaml");
+        std::fs::write(&source, "listen: 1\n").unwrap();
+        assert!(
+            !keep_admin_copy(&source, &config).unwrap(),
+            "nothing installed yet"
+        );
+        std::fs::write(&config, "listen: 1\n").unwrap();
+        assert!(!keep_admin_copy(&source, &config).unwrap(), "unchanged");
+        let changed = "listen: 1\nclients:\n  laptop: {}\n";
+        std::fs::write(&config, changed).unwrap();
+        assert!(keep_admin_copy(&source, &config).unwrap());
+        let store = crate::admin::adapters::FileStore::new(&config);
+        let rev = crate::admin::core::text::rev(changed);
+        assert!(store.versions().iter().any(|v| v.rev == rev));
+        assert_eq!(store.version(&rev).as_deref(), Some(changed));
+
+        let m = Manifest {
+            config: config.clone(),
+            source_config: source.clone(),
+            writable_dir: Some(folder.clone()),
+            ..record(Platform::Linux)
+        };
+        let note = source_note(&m, "sudo burrow service install").unwrap();
+        assert!(note.contains("managed by burrow admin"), "{note}");
+        assert!(!note.contains("install"), "{note}");
+        let fixed = Manifest {
+            writable_dir: None,
+            ..m.clone()
+        };
+        let note = source_note(&fixed, "sudo burrow service install").unwrap();
+        assert!(
+            note.contains("to use it, run: sudo burrow service install"),
+            "{note}"
+        );
+        std::fs::write(&config, "listen: 1\n").unwrap();
+        assert!(source_note(&m, "x").is_none());
     }
 
     #[test]

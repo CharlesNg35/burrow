@@ -36,6 +36,8 @@ burrow admin --no-open --print-url  # ./visitor.yaml, or the one installed visit
 
 An installed server can write its config only when it has an admin visitor, or when it was installed with `service install --admin-writable`. It then gets its own folder, `/etc/burrow/<name>/server.yaml`, that only its account may change. Otherwise the UI is read-only and says why.
 
+That installed copy is then the config: the file you installed from was only its first version, and `service status` says so instead of suggesting a reinstall. A reinstall, for example to change `--run-as`, still copies the source over it, but first keeps the copy changed by burrow admin as a version in its history, so Activity can revert to it.
+
 ## Locked fields, history and revert
 
 - Some settings are shown but cannot be changed from the UI: `listen`, `websocket`, `insecure_plaintext`, the heartbeat interval and the handshake limits. Change them in server.yaml on the server, then restart. The server refuses changes to them.
