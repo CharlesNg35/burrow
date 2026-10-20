@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:67fdbd0323f5da2a",
+  "hash": "b2s:f492fcef4d7fe730",
   "root": {
     "label": "Server",
     "sem": {
@@ -244,7 +244,8 @@
                           "t": "secret_ref",
                           "max": 4
                         },
-                        "required": true
+                        "required": true,
+                        "reduce_only": true
                       }
                     },
                     {
@@ -344,6 +345,7 @@
                         },
                         "group": "admin",
                         "danger_when_set": true,
+                        "reduce_only": true,
                         "none_label": "None"
                       }
                     },
@@ -361,6 +363,7 @@
                           }
                         },
                         "group": "admin",
+                        "reduce_only": true,
                         "empty_label": "Any address",
                         "relations": [
                           {

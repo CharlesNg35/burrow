@@ -40,6 +40,14 @@ const FAIL: &[(&str, &[&str])] = &[
         &["`clientz` is not a field of `Service`"],
     ),
     (
+        "reduce_only_conflicts",
+        &[
+            "`reduce_only` and `locked` contradict",
+            "`reduce_only` and `readonly` contradict",
+            "`reduce_only` is a flag: #[admin(reduce_only)]",
+        ],
+    ),
+    (
         "unknown_key",
         &[
             "unknown key `lable` in #[admin(...)]",

@@ -7,6 +7,11 @@ use crate::changeset::as_new_secret;
 
 pub const IN_THE_FILE: &str = "Admin access is granted in the config file (burrow edit)";
 
+pub const LEVEL: &str = "admin";
+pub const SECRETS: &str = "secret";
+pub const FROM: &str = "admin_from";
+pub const FIELDS: [&str; 3] = [LEVEL, SECRETS, FROM];
+
 pub const CODES: [&str; 4] = [
     "admin-grant",
     "admin-upgrade",
@@ -79,9 +84,9 @@ pub fn grants<'a, S: PartialEq>(old: Option<&Power<S>>, new: &'a Power<S>) -> Ve
 
 pub fn power_of(visitor: &Value) -> Power<Value> {
     let level = visitor
-        .get("admin")
+        .get(LEVEL)
         .and_then(|v| serde_json::from_value(v.clone()).ok());
-    let secrets = match visitor.get("secret") {
+    let secrets = match visitor.get(SECRETS) {
         Some(Value::Array(a)) => a.clone(),
         Some(Value::Null) | None => Vec::new(),
         Some(one) => vec![one.clone()],
@@ -90,7 +95,7 @@ pub fn power_of(visitor: &Value) -> Power<Value> {
     .filter(|s| as_secret(s).is_some() || as_new_secret(s).is_some())
     .collect();
     let from = visitor
-        .get("admin_from")
+        .get(FROM)
         .and_then(Value::as_array)
         .map(|a| {
             a.iter()

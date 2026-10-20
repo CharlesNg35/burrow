@@ -176,6 +176,7 @@ const FIELD_KEYS: &[&str] = &[
     "advanced",
     "danger_when_set",
     "locked",
+    "reduce_only",
     "none_label",
     "empty_label",
     "applies",
@@ -274,6 +275,21 @@ fn expand_struct(input: &DeriveInput, s: &syn::DataStruct, errors: &mut Errors) 
         let help = str_of(&terms, "help", errors)
             .or(schemars.description.clone())
             .unwrap_or_default();
+        if let Some(t) = find(&terms, "reduce_only") {
+            let clash = ["skip", "locked", "readonly"]
+                .into_iter()
+                .find(|k| find(&terms, k).is_some());
+            match (t.as_word(), clash) {
+                (None, _) => errors.push(t.span(), "`reduce_only` is a flag: #[admin(reduce_only)]"),
+                (Some(_), Some(k)) => errors.push(
+                    t.span(),
+                    format!(
+                        "`reduce_only` and `{k}` contradict: a reduce_only field is edited in the admin UI, but only towards less power"
+                    ),
+                ),
+                (Some(_), None) => {}
+            }
+        }
         if let Some(reason) = skip_reason(&terms, errors) {
             pushes.push(quote! {
                 {
@@ -318,6 +334,9 @@ fn expand_struct(input: &DeriveInput, s: &syn::DataStruct, errors: &mut Errors) 
         }
         if has_flag(&terms, "locked") {
             meta.push(quote!(n.locked = true;));
+        }
+        if has_flag(&terms, "reduce_only") {
+            meta.push(quote!(n.reduce_only = true;));
         }
         if has_flag(&terms, "danger_when_set") {
             meta.push(quote!(n.danger_when_set = true;));

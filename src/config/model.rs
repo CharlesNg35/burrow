@@ -224,7 +224,7 @@ pub struct ClientEntry {
 ))]
 pub struct VisitorEntry {
     #[schemars(description = "256-bit secret (base64 or hex), or a list of them during rotation")]
-    #[admin(label = "Secrets")]
+    #[admin(label = "Secrets", reduce_only)]
     pub secret: Secrets,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     #[schemars(
@@ -255,7 +255,8 @@ pub struct VisitorEntry {
         label = "Admin access",
         group = admin,
         none_label = "None",
-        danger_when_set
+        danger_when_set,
+        reduce_only
     )]
     pub admin: Option<AdminLevel>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -267,7 +268,8 @@ pub struct VisitorEntry {
         label = "Admin only from",
         group = admin,
         visible_if(set(admin)),
-        empty_label = "Any address"
+        empty_label = "Any address",
+        reduce_only
     )]
     pub admin_from: Vec<String>,
 }
