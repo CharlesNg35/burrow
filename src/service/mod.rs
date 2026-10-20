@@ -675,7 +675,7 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
     }
     let undo = again.manifest.map(|p| Undo {
         manifest: p.clone(),
-        config: std::fs::read(&p.config).ok(),
+        config: system::read_plain_file(&p.config),
         env: backend.read_env(p),
         binary: kept_binary.clone().map(|kept| (kept, binary.clone())),
     });
@@ -683,11 +683,21 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
         backend.writable_folder(dir, &config, &account)?;
     }
     if source != config {
-        if writable_dir.is_some() && keep_admin_copy(&source, &config)? {
-            say(
-                out,
-                "kept the config changed by burrow admin as a history version; revert it from burrow admin Activity if needed",
-            )?;
+        if writable_dir.is_some() {
+            match keep_admin_copy(&source, &config)? {
+                Kept::Version => say(
+                    out,
+                    "kept the config changed by burrow admin as a history version; revert it from burrow admin Activity if needed",
+                )?,
+                Kept::NotPlain => say(
+                    out,
+                    format!(
+                        "note: {} is not a plain file, so it is replaced without keeping it",
+                        config.display()
+                    ),
+                )?,
+                Kept::Nothing => {}
+            }
         }
         system::copy_file(&source, &config, false)?;
         say(
@@ -1170,15 +1180,28 @@ fn writable_leftovers(dir: &Path, config: &Path) -> Option<Vec<PathBuf>> {
 
 #[cfg(unix)]
 fn give_history(dir: &Path, config: &Path, uid: u32, gid: u32) {
-    let Some(files) = writable_leftovers(dir, config) else {
+    use rustix::fs::{FileType, Mode, OFlags};
+    if !std::fs::symlink_metadata(dir).is_ok_and(|m| m.is_dir()) {
         return;
-    };
-    for f in &files {
-        let _ = system::give_plain_file(f, uid, gid);
     }
-    let history = admin_history(config);
-    if std::fs::symlink_metadata(&history).is_ok_and(|m| m.is_dir()) {
-        let _ = std::os::unix::fs::lchown(&history, Some(uid), Some(gid));
+    let folder = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC;
+    if let Ok(history) = rustix::fs::open(admin_history(config), folder, Mode::empty()) {
+        let file = OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::CLOEXEC;
+        for entry in rustix::fs::Dir::read_from(&history)
+            .into_iter()
+            .flatten()
+            .flatten()
+        {
+            let Ok(f) = rustix::fs::openat(&history, entry.file_name(), file, Mode::empty()) else {
+                continue;
+            };
+            if rustix::fs::fstat(&f).is_ok_and(|st| {
+                FileType::from_raw_mode(st.st_mode) == FileType::RegularFile && st.st_nlink == 1
+            }) {
+                let _ = std::os::unix::fs::fchown(&f, Some(uid), Some(gid));
+            }
+        }
+        let _ = std::os::unix::fs::fchown(&history, Some(uid), Some(gid));
     }
     let _ = std::os::unix::fs::lchown(dir, Some(uid), Some(gid));
 }
@@ -1567,18 +1590,31 @@ fn source_note(m: &Manifest, reinstall: &str) -> Option<String> {
     })
 }
 
-fn keep_admin_copy(source: &Path, config: &Path) -> Result<bool, Failure> {
+#[derive(Debug, PartialEq, Eq)]
+enum Kept {
+    Nothing,
+    Version,
+    NotPlain,
+}
+
+fn keep_admin_copy(source: &Path, config: &Path) -> Result<Kept, Failure> {
     use crate::admin::core::ports::Store;
-    let (Ok(src), Ok(installed)) = (std::fs::read(source), std::fs::read_to_string(config)) else {
-        return Ok(false);
+    if std::fs::symlink_metadata(config).is_err() {
+        return Ok(Kept::Nothing);
+    }
+    let Some(installed) = system::read_plain_file(config) else {
+        return Ok(Kept::NotPlain);
+    };
+    let (Ok(src), Ok(installed)) = (std::fs::read(source), String::from_utf8(installed)) else {
+        return Ok(Kept::Nothing);
     };
     if src == installed.as_bytes() {
-        return Ok(false);
+        return Ok(Kept::Nothing);
     }
     let store = crate::admin::adapters::FileStore::new(config);
     store.keep(&crate::admin::core::text::rev(&installed), &installed);
     match store.history_problem() {
-        None => Ok(true),
+        None => Ok(Kept::Version),
         Some(why) => Err(Failure::new(format!(
             "{} was changed by burrow admin and cannot be kept before the reinstall replaces it: {why}",
             config.display()
@@ -1702,6 +1738,33 @@ mod tests {
         assert!(!plain.contains("-r"), "{plain}");
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn a_config_the_account_swapped_for_a_link_is_never_read_into_the_history() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("server.yaml");
+        let folder = dir.path().join("server");
+        std::fs::create_dir(&folder).unwrap();
+        let config = folder.join("server.yaml");
+        let private = dir.path().join("shadow");
+        std::fs::write(&source, "listen: 1\n").unwrap();
+        std::fs::write(&private, "root:secret-hash:19000::::::\n").unwrap();
+        std::os::unix::fs::symlink(&private, &config).unwrap();
+        assert_eq!(keep_admin_copy(&source, &config).unwrap(), Kept::NotPlain);
+        std::fs::remove_file(&config).unwrap();
+        std::fs::hard_link(&private, &config).unwrap();
+        assert_eq!(keep_admin_copy(&source, &config).unwrap(), Kept::NotPlain);
+        let history = crate::admin::adapters::history_dir_of(&config);
+        let kept: Vec<String> = std::fs::read_dir(&history)
+            .map(|d| {
+                d.flatten()
+                    .map(|e| std::fs::read_to_string(e.path()).unwrap_or_default())
+                    .collect()
+            })
+            .unwrap_or_default();
+        assert!(!kept.iter().any(|t| t.contains("secret-hash")), "{kept:?}");
+    }
+
     #[test]
     fn a_config_changed_by_burrow_admin_is_kept_before_a_reinstall_replaces_it() {
         use crate::admin::core::ports::Store;
@@ -1711,15 +1774,12 @@ mod tests {
         std::fs::create_dir(&folder).unwrap();
         let config = folder.join("server.yaml");
         std::fs::write(&source, "listen: 1\n").unwrap();
-        assert!(
-            !keep_admin_copy(&source, &config).unwrap(),
-            "nothing installed yet"
-        );
+        assert_eq!(keep_admin_copy(&source, &config).unwrap(), Kept::Nothing);
         std::fs::write(&config, "listen: 1\n").unwrap();
-        assert!(!keep_admin_copy(&source, &config).unwrap(), "unchanged");
+        assert_eq!(keep_admin_copy(&source, &config).unwrap(), Kept::Nothing);
         let changed = "listen: 1\nclients:\n  laptop: {}\n";
         std::fs::write(&config, changed).unwrap();
-        assert!(keep_admin_copy(&source, &config).unwrap());
+        assert_eq!(keep_admin_copy(&source, &config).unwrap(), Kept::Version);
         let store = crate::admin::adapters::FileStore::new(&config);
         let rev = crate::admin::core::text::rev(changed);
         assert!(store.versions().iter().any(|v| v.rev == rev));

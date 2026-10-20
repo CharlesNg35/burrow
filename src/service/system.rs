@@ -529,6 +529,33 @@ fn private_lock(_file: &std::fs::File) -> bool {
 }
 
 #[cfg(unix)]
+pub fn read_plain_file(path: &Path) -> Option<Vec<u8>> {
+    use std::io::Read;
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+    let mut file = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(path)
+        .ok()?;
+    let meta = file.metadata().ok()?;
+    if !meta.is_file() || meta.nlink() != 1 {
+        return None;
+    }
+    let mut out = Vec::new();
+    file.read_to_end(&mut out).ok()?;
+    Some(out)
+}
+
+#[cfg(not(unix))]
+pub fn read_plain_file(path: &Path) -> Option<Vec<u8>> {
+    let meta = std::fs::symlink_metadata(path).ok()?;
+    if !meta.is_file() || meta.file_type().is_symlink() {
+        return None;
+    }
+    std::fs::read(path).ok()
+}
+
+#[cfg(unix)]
 pub fn give_plain_file(path: &Path, uid: u32, gid: u32) -> std::io::Result<bool> {
     use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
     let file = std::fs::OpenOptions::new()
@@ -598,6 +625,33 @@ mod tests {
             assert!(fresh.is_ok(), "a lock others could open is replaced");
             drop(outsider);
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn only_a_plain_file_with_one_link_is_read_as_root_would() {
+        let dir = tempfile::tempdir().unwrap();
+        let plain = dir.path().join("server.yaml");
+        std::fs::write(&plain, "listen: 1\n").unwrap();
+        assert_eq!(read_plain_file(&plain).unwrap(), b"listen: 1\n");
+        let victim = dir.path().join("shadow");
+        std::fs::write(&victim, "x").unwrap();
+        let link = dir.path().join("link.yaml");
+        std::os::unix::fs::symlink(&victim, &link).unwrap();
+        assert!(read_plain_file(&link).is_none());
+        let hard = dir.path().join("hard.yaml");
+        std::fs::hard_link(&victim, &hard).unwrap();
+        assert!(read_plain_file(&hard).is_none());
+        let fifo = dir.path().join("fifo.yaml");
+        assert!(
+            std::process::Command::new("mkfifo")
+                .arg(&fifo)
+                .status()
+                .unwrap()
+                .success()
+        );
+        assert!(read_plain_file(&fifo).is_none());
+        assert!(read_plain_file(&dir.path().join("gone")).is_none());
     }
 
     #[cfg(unix)]

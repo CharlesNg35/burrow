@@ -70,26 +70,88 @@ impl FileStore {
         let mut out: Vec<(u128, Version, PathBuf)> = entries
             .flatten()
             .filter_map(|e| {
-                let name = e.file_name().to_string_lossy().into_owned();
-                let (at, rest) = name.split_once('-')?;
-                let hex = rest.split('.').next()?;
-                let nanos: u128 = at.parse().ok()?;
-                (hex.len() == 16 && hex.bytes().all(|b| b.is_ascii_hexdigit())).then(|| {
-                    (
-                        nanos,
-                        Version {
-                            rev: format!("b2s:{hex}"),
-                            at: (nanos / 1_000_000_000) as u64,
-                        },
-                        e.path(),
-                    )
-                })
+                let (nanos, v) = parse_kept(&e.file_name().to_string_lossy())?;
+                Some((nanos, v, e.path()))
             })
             .collect();
         out.sort_by_key(|(n, _, _)| std::cmp::Reverse(*n));
         out.into_iter().map(|(_, v, p)| (v, p)).collect()
     }
 
+    fn kept_name(&self, rev: &str, newest: u128) -> String {
+        let ext = self
+            .path
+            .extension()
+            .map(|e| e.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "yaml".into());
+        let hex = rev.trim_start_matches("b2s:");
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_nanos());
+        format!("{}-{hex}.{ext}", nanos.max(newest + 1))
+    }
+
+    #[cfg(unix)]
+    fn write_history(&self, rev: &str, body: &str) -> std::io::Result<()> {
+        use rustix::fs::{AtFlags, Mode, OFlags};
+        use std::os::unix::fs::MetadataExt;
+        let dir = self.dir();
+        if let Err(e) = std::fs::create_dir(&dir)
+            && e.kind() != std::io::ErrorKind::AlreadyExists
+        {
+            return Err(e);
+        }
+        let fd = rustix::fs::open(
+            &dir,
+            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+            Mode::empty(),
+        )
+        .map_err(|_| std::io::Error::other("the history path is not a folder"))?;
+        rustix::fs::fchmod(&fd, Mode::from_bits_truncate(0o700))?;
+        let owner = std::fs::symlink_metadata(&self.path)
+            .ok()
+            .filter(|_| rustix::process::geteuid().is_root())
+            .map(|cfg| (cfg.uid(), cfg.gid()));
+        if let Some((uid, gid)) = owner {
+            std::os::unix::fs::fchown(&fd, Some(uid), Some(gid))?;
+        }
+        let list = |fd: &rustix::fd::OwnedFd| -> std::io::Result<Vec<(u128, Version, String)>> {
+            let mut out = Vec::new();
+            for entry in rustix::fs::Dir::read_from(fd)? {
+                let name = entry?.file_name().to_string_lossy().into_owned();
+                if let Some((nanos, v)) = parse_kept(&name) {
+                    out.push((nanos, v, name));
+                }
+            }
+            out.sort_by_key(|(n, _, _)| std::cmp::Reverse(*n));
+            Ok(out)
+        };
+        let files = list(&fd)?;
+        let name = self.kept_name(rev, files.first().map_or(0, |f| f.0));
+        if let Some(pos) = files.iter().position(|(_, v, _)| v.rev == rev) {
+            if pos > 0 {
+                rustix::fs::renameat(&fd, files[pos].2.as_str(), &fd, name.as_str())?;
+            }
+            return Ok(());
+        }
+        let mut file = std::fs::File::from(rustix::fs::openat(
+            &fd,
+            name.as_str(),
+            OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+            Mode::from_bits_truncate(0o600),
+        )?);
+        use std::io::Write;
+        file.write_all(body.as_bytes())?;
+        if let Some((uid, gid)) = owner {
+            let _ = std::os::unix::fs::fchown(&file, Some(uid), Some(gid));
+        }
+        for (_, _, old) in list(&fd)?.into_iter().skip(KEEP) {
+            let _ = rustix::fs::unlinkat(&fd, old.as_str(), AtFlags::empty());
+        }
+        Ok(())
+    }
+
+    #[cfg(not(unix))]
     fn write_history(&self, rev: &str, body: &str) -> std::io::Result<()> {
         let dir = self.dir();
         if let Err(e) = std::fs::create_dir(&dir)
@@ -97,43 +159,12 @@ impl FileStore {
         {
             return Err(e);
         }
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::{MetadataExt, PermissionsExt};
-            let meta = std::fs::symlink_metadata(&dir)?;
-            if !meta.is_dir() {
-                return Err(std::io::Error::other("the history path is not a folder"));
-            }
-            std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))?;
-            if let Ok(cfg) = std::fs::metadata(&self.path)
-                && (cfg.uid(), cfg.gid()) != (meta.uid(), meta.gid())
-                && rustix::process::geteuid().is_root()
-            {
-                std::os::unix::fs::chown(&dir, Some(cfg.uid()), Some(cfg.gid()))?;
-            }
-        }
-        let ext = self
-            .path
-            .extension()
-            .map(|e| e.to_string_lossy().into_owned())
-            .unwrap_or_else(|| "yaml".into());
-        let hex = rev.trim_start_matches("b2s:");
         let files = self.files();
-        let nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |d| d.as_nanos());
         let newest = files
             .first()
-            .and_then(|(_, p)| {
-                p.file_name()?
-                    .to_str()?
-                    .split('-')
-                    .next()?
-                    .parse::<u128>()
-                    .ok()
-            })
-            .unwrap_or(0);
-        let file = dir.join(format!("{}-{hex}.{ext}", nanos.max(newest + 1)));
+            .and_then(|(_, p)| parse_kept(&p.file_name()?.to_string_lossy()))
+            .map_or(0, |(n, _)| n);
+        let file = dir.join(self.kept_name(rev, newest));
         if let Some(pos) = files.iter().position(|(v, _)| v.rev == rev) {
             if pos > 0 {
                 std::fs::rename(&files[pos].1, &file)?;
@@ -141,18 +172,26 @@ impl FileStore {
             return Ok(());
         }
         crate::instance::write_private(&file, body)?;
-        #[cfg(unix)]
-        if rustix::process::geteuid().is_root()
-            && let Ok(cfg) = std::fs::metadata(&self.path)
-        {
-            use std::os::unix::fs::MetadataExt;
-            let _ = std::os::unix::fs::chown(&file, Some(cfg.uid()), Some(cfg.gid()));
-        }
         for (_, old) in self.files().into_iter().skip(KEEP) {
             let _ = std::fs::remove_file(old);
         }
         Ok(())
     }
+}
+
+fn parse_kept(name: &str) -> Option<(u128, Version)> {
+    let (at, rest) = name.split_once('-')?;
+    let hex = rest.split('.').next()?;
+    let nanos: u128 = at.parse().ok()?;
+    (hex.len() == 16 && hex.bytes().all(|b| b.is_ascii_hexdigit())).then(|| {
+        (
+            nanos,
+            Version {
+                rev: format!("b2s:{hex}"),
+                at: (nanos / 1_000_000_000) as u64,
+            },
+        )
+    })
 }
 
 impl Store for FileStore {
