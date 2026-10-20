@@ -136,7 +136,7 @@ pub fn index_for_run(index: &[u8], prefix: &str) -> Vec<u8> {
 const FRESH_INDEX: &str = "Cache-Control: no-store\r\nClear-Site-Data: \"cache\"\r\n";
 
 async fn page(stream: &mut TcpStream, shared: &Shared, path: &str, gzip: bool) {
-    let spa = !path.rsplit('/').next().unwrap_or("").contains('.');
+    let spa = !http::is_file(path);
     if let Some(dir) = shared.ui_dir.as_ref().filter(|_| cfg!(debug_assertions)) {
         let index = spa || path == "/index.html";
         let found = if index {

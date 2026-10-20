@@ -85,6 +85,11 @@ pub fn run_prefix() -> String {
     format!("/r-{hex}")
 }
 
+pub fn is_file(path: &str) -> bool {
+    path.strip_prefix('/')
+        .is_some_and(|name| !name.contains('/') && name.contains('.'))
+}
+
 fn without_run(path: &str) -> &str {
     match path.strip_prefix("/r-") {
         Some(rest) => rest.find('/').map_or("/", |i| &rest[i..]),
@@ -148,7 +153,7 @@ pub fn check(head: &Head, port: u16, prefix: &str) -> Result<Route, Reject> {
     }
     let rest = without_run(&path);
     let last = rest.rsplit('/').next().unwrap_or("");
-    if last == "api" || last.contains('.') {
+    if last == "api" || is_file(rest) {
         return Err(Reject {
             code: 404,
             reason: "not found",
@@ -312,6 +317,24 @@ mod tests {
             Ok(Route::Moved(format!("{run}/clients")))
         );
         assert_eq!(get("/app-1234.js", false).unwrap_err().code, 404);
+        assert_eq!(
+            get(&format!("{run}/services/api.v2"), false),
+            Ok(Route::Page("/services/api.v2".into()))
+        );
+        assert_eq!(
+            get("/services/api.v2?tab=x", false),
+            Ok(Route::Moved(format!("{run}/services/api.v2?tab=x")))
+        );
+        assert_eq!(
+            get("/clients/home.lan", false),
+            Ok(Route::Moved(format!("{run}/clients/home.lan")))
+        );
+        for page in ["/", "/services/api.v2", "/clients/home.lan", "/services"] {
+            assert!(!is_file(page), "{page}");
+        }
+        for file in ["/app-1234.js", "/index.html", "/fonts-license.txt"] {
+            assert!(is_file(file), "{file}");
+        }
         assert_eq!(
             get(&format!("{run}x/"), false),
             Ok(Route::Moved(format!("{run}/")))
