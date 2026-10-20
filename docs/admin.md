@@ -27,7 +27,7 @@ burrow admin --no-open --print-url  # ./visitor.yaml, or the one installed visit
 ```
 
 - Without `-c`, it uses `./visitor.yaml`, or else the installed visitor service; `--service NAME` picks one of several.
-- `--no-open` does not open the browser, and `--print-url` prints the link with its token. `--url-file FILE` writes the link to a file readable by you only. `--port` picks the local port (0, the default, takes a free one).
+- `--no-open` does not open the browser, and `--print-url` prints the link with its token. `--url-file FILE` writes the link to a file readable by you only. `--port` picks the local port (0, the default, takes a free one). If the link file or the private launch page cannot be written, `burrow admin` says why and exits at once.
 - A visitor without admin rights gets an error in the terminal and no browser opens.
 - It stops after 30 minutes without a browser tab; `--idle-exit` changes that, like `90s`, `30m` or `2h`.
 - If the page says "Open the link from your terminal", it was opened without the token: use the link `burrow admin` opened or printed, or run it again with `--print-url`.

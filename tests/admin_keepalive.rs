@@ -196,6 +196,7 @@ async fn local(server: SocketAddr, secret: &Secret) -> Local {
             if let Some(tx) = url_tx.take() {
                 let _ = tx.send(r.url.clone());
             }
+            Ok(())
         })
         .await
     });

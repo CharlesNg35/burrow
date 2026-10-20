@@ -537,6 +537,51 @@ async fn an_oversized_message_closes_the_session() {
     let _ = w.stop.send(true);
 }
 
+#[tokio::test]
+async fn burrow_admin_stops_at_once_when_it_cannot_write_the_url_file() {
+    let w = world().await;
+    let dir = tempfile::tempdir().unwrap();
+    let server = if common::ws_mode() {
+        format!("ws://{}/burrow", w.addr)
+    } else {
+        w.addr.to_string()
+    };
+    let config = dir.path().join("visitor.yaml");
+    burrow::instance::write_private(
+        &config,
+        &format!("server: {server}\nname: ops\nsecret: {}\n", w.ops.encode()),
+    )
+    .unwrap();
+    let missing = dir.path().join("no-such-dir").join("url.txt");
+    let started = std::time::Instant::now();
+    let run = tokio::task::spawn_blocking(move || {
+        std::process::Command::new(env!("CARGO_BIN_EXE_burrow"))
+            .arg("admin")
+            .arg("-c")
+            .arg(&config)
+            .args([
+                "--no-open",
+                "--print-url",
+                "--idle-exit",
+                "60s",
+                "--url-file",
+            ])
+            .arg(&missing)
+            .output()
+    });
+    let out = tokio::time::timeout(Duration::from_secs(30), run)
+        .await
+        .expect("burrow admin stopped long before its idle exit")
+        .unwrap()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(1), "{stderr}");
+    assert!(stderr.contains("cannot write"), "{stderr}");
+    assert!(!stderr.contains("no browser was connected"), "{stderr}");
+    assert!(started.elapsed() < Duration::from_secs(30));
+    let _ = w.stop.send(true);
+}
+
 struct Local {
     port: u16,
     token: String,
@@ -564,6 +609,7 @@ async fn local(w: &World, name: &str, secret: &Secret) -> Local {
             if let Some(tx) = url_tx.take() {
                 let _ = tx.send(r.url.clone());
             }
+            Ok(())
         })
         .await
     });

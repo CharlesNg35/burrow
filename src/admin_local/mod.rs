@@ -215,7 +215,7 @@ pub async fn serve(
     settings: &VisitorSettings,
     opts: &Options,
     mut stop: watch::Receiver<bool>,
-    ready: impl FnOnce(&Running),
+    ready: impl FnOnce(&Running) -> Result<(), Failure>,
 ) -> Result<(), Failure> {
     let addr = listener
         .local_addr()
@@ -233,7 +233,7 @@ pub async fn serve(
         connected: AtomicUsize::new(0),
         changed,
     });
-    ready(&Running { addr, url });
+    ready(&Running { addr, url })?;
     let open = Arc::new(Semaphore::new(MAX_OPEN));
     let mut idle_since = tokio::time::Instant::now();
     loop {
