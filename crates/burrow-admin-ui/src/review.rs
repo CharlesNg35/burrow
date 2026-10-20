@@ -1,4 +1,5 @@
 use burrow_admin_logic::changeset::get;
+use burrow_admin_logic::grant::{IN_THE_FILE, is_grant_code};
 use burrow_admin_proto::plan::{ChangeKind, Diff, Level, Plan, Refusal};
 use burrow_admin_proto::serde_json::Value;
 use burrow_ui_kit::{
@@ -274,11 +275,7 @@ fn Lockout(refusals: Vec<Refusal>) -> impl IntoView {
         .map(|r| r.message.clone())
         .collect::<Vec<_>>()
         .join("; ");
-    let mut chars = msg.chars();
-    let msg = chars
-        .next()
-        .map(|c| c.to_uppercase().chain(chars).collect::<String>())
-        .unwrap_or_default();
+    let msg = capital(&msg);
     view! {
         <PathDiagram data=lockout_path(&g) testid="lockout-path"/>
         <div class="mb-4" data-testid="lockout" data-refusal=g.code.clone()>
@@ -287,6 +284,42 @@ fn Lockout(refusals: Vec<Refusal>) -> impl IntoView {
                 <p class="mt-1 font-mono text-xs">{format!("guard: {codes}")}</p>
             </Callout>
         </div>
+    }
+}
+
+fn capital(text: &str) -> String {
+    let mut chars = text.chars();
+    chars
+        .next()
+        .map(|c| c.to_uppercase().chain(chars).collect::<String>())
+        .unwrap_or_default()
+}
+
+#[component]
+fn Granted(refusals: Vec<Refusal>) -> impl IntoView {
+    let code = refusals.first().map(|r| r.code.clone()).unwrap_or_default();
+    let codes = refusals
+        .iter()
+        .map(|r| r.code.clone())
+        .collect::<Vec<_>>()
+        .join(", ");
+    view! {
+        <div class="mb-4" data-testid="granted" data-refusal=code>
+            <Callout tone=Tone::Danger title="Admin access is granted in the config file">
+                {refusals.iter().map(|r| view! { <p>{format!("{}.", capital(&r.message))}</p> }).collect_view()}
+                <p class="mt-1 font-mono text-xs">{format!("guard: {codes}")}</p>
+            </Callout>
+        </div>
+    }
+}
+
+#[component]
+fn Refused(refusals: Vec<Refusal>) -> impl IntoView {
+    let (granted, lockouts): (Vec<Refusal>, Vec<Refusal>) =
+        refusals.into_iter().partition(|r| is_grant_code(&r.code));
+    view! {
+        {(!lockouts.is_empty()).then(|| view! { <Lockout refusals=lockouts/> })}
+        {(!granted.is_empty()).then(|| view! { <Granted refusals=granted/> })}
     }
 }
 
@@ -354,7 +387,13 @@ fn detail(plan: std::sync::Arc<Plan>, revert: bool) -> AnyView {
     let destructive = !plan.confirms().is_empty();
     let can = plan.can_apply();
     let refused = !plan.refusals.is_empty();
-    let guard_view = refused.then(|| guard(&plan.refusals));
+    let lockouts: Vec<Refusal> = plan
+        .refusals
+        .iter()
+        .filter(|r| !is_grant_code(&r.code))
+        .cloned()
+        .collect();
+    let guard_view = (!lockouts.is_empty()).then(|| guard(&lockouts));
     let impacts = plan
         .impacts
         .iter()
@@ -447,7 +486,10 @@ fn detail(plan: std::sync::Arc<Plan>, revert: bool) -> AnyView {
                     <h1 class="text-[25px] font-bold tracking-[-0.015em]">{if revert { "Review the revert".to_string() } else { format!("Review {n} change{}", if n == 1 { "" } else { "s" }) }}</h1>
                     <p class="mt-1 text-base text-text-muted">
                         {if refused {
-                            format!("Validated against rev {base_rev} · refused by the lockout guard")
+                            format!(
+                                "Validated against rev {base_rev} · refused by the {}",
+                                if lockouts.is_empty() { "admin grant guard" } else { "lockout guard" }
+                            )
                         } else if host.is_empty() {
                             format!("Validated against rev {base_rev} · {applies}")
                         } else {
@@ -463,7 +505,7 @@ fn detail(plan: std::sync::Arc<Plan>, revert: bool) -> AnyView {
                     view! { <span class=tag_class(Tone::Success) data-testid="review-state"><Icon name="check" small=true/>{format!("Valid · 0 errors · {warnings} warning{}", if warnings == 1 { "" } else { "s" })}</span> }.into_any()
                 }}
             </header>
-            {refused.then(|| view! { <Lockout refusals=plan.refusals.clone()/> })}
+            {refused.then(|| view! { <Refused refusals=plan.refusals.clone()/> })}
             {paths.into_iter().map(|(name, p)| view! { <div data-review-path=name><PathDiagram data=p/></div> }).collect_view()}
             {plan.reformat.clone().map(|r| {
                 let place = if r.scope.is_empty() { "The whole file".to_string() } else { r.scope.join(".") };
@@ -523,6 +565,8 @@ fn detail(plan: std::sync::Arc<Plan>, revert: bool) -> AnyView {
             <div class="sticky bottom-4 z-20 flex flex-wrap items-center gap-3 rounded-card border border-border bg-surface px-4 py-3 shadow-overlay max-lg:[&>button]:flex-1 [&>button]:whitespace-nowrap" data-sticky-bar="">
                 <span class="min-w-0 flex-1 basis-60 text-sm text-text-muted">{if let Some(g) = guard_view.clone() {
                     footer_text(&g)
+                } else if refused {
+                    format!("{IN_THE_FILE}.")
                 } else {
                     format!("rev {} is kept in history; you can revert it from Activity.", short_rev(&plan.base))
                 }}</span>
@@ -568,7 +612,7 @@ fn outcome_view() -> impl IntoView {
     move || {
         e.outcome.get().and_then(|o| match o {
             Outcome::Applied(_) => None,
-            Outcome::Refused(r) => Some(view! { <Lockout refusals=r/> }.into_any()),
+            Outcome::Refused(r) => Some(view! { <Refused refusals=r/> }.into_any()),
             Outcome::ReloadFailed(r) => Some(
                 view! {
                     <div class="mb-4" data-testid="outcome-reload-failed">

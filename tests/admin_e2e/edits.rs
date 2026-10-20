@@ -627,13 +627,38 @@ fn revert_refused(c: &mut Ctx) -> Flow<'_> {
         wait_checked(c).await;
         open_review(c, "boss-demotes-ops").await;
         applied(c, "ops-is-read-only").await;
-        c.ui.nav("/visitors/laptop").await;
-        c.ui.nav("/visitors/ops").await;
+        c.ui.nav("/services/web").await;
         edit_mode(c).await;
-        c.ui.choose("f-visitors-ops-admin", "write").await;
+        c.ui.fill("#f-services-web-target", "4002").await;
         wait_checked(c).await;
-        open_review(c, "boss-promotes-ops").await;
-        applied(c, "ops-can-write-again").await;
+        open_review(c, "boss-changes-web").await;
+        applied(c, "web-changed-while-ops-reads").await;
+
+        let lab = super::world::secret();
+        c.world.hand_edit(|t| {
+            t.replacen(
+                "# the admin\n    admin: read\n",
+                "# the admin\n    admin: write\n",
+                1,
+            )
+            .replacen(
+                "clients:\n",
+                &format!("clients:\n  lab:\n    secret: {lab}\n"),
+                1,
+            )
+        });
+        super::world::wait_until(
+            "the hand edit that gives ops write again is running",
+            Duration::from_secs(15),
+            || {
+                c.world
+                    .status()
+                    .and_then(|s| s["clients"].as_array().cloned())
+                    .unwrap_or_default()
+                    .iter()
+                    .any(|x| x["name"] == "lab")
+            },
+        );
 
         let url = c.world.open_admin("ops");
         c.ui.goto("about:blank").await;
@@ -652,6 +677,110 @@ fn revert_refused(c: &mut Ctx) -> Flow<'_> {
 #[test]
 fn a_revert_that_would_lock_me_out_is_refused() {
     run("revert-refused", Options::default(), false, revert_refused);
+}
+
+const IN_THE_FILE: &str = "Admin access is granted in the config file (burrow edit)";
+
+async fn off(c: &Ctx, visitor: &str, level: &str) -> bool {
+    c.ui.count(&format!(
+        "#f-visitors-{visitor}-admin label[data-off=true] input[value='{level}']"
+    ))
+    .await
+        == 1
+}
+
+fn grant_lock(c: &mut Ctx) -> Flow<'_> {
+    Box::pin(async move {
+        open(c, "boss").await;
+        c.ui.nav("/visitors/viewer").await;
+        edit_mode(c).await;
+        c.ui.wait_text(
+            "[data-schema='visitors/*/admin'] [data-testid=grant-lock]",
+            IN_THE_FILE,
+            SECS,
+        )
+        .await;
+        assert!(off(c, "viewer", "write").await, "read cannot become write");
+        assert!(!off(c, "viewer", "read").await);
+        c.ui.choose("f-visitors-viewer-admin", "write").await;
+        assert!(
+            !c.ui.eval::<bool>("document.querySelector(\"#f-visitors-viewer-admin input[value='write']\").checked")
+                .await,
+            "a refused level is not chosen"
+        );
+        c.ui.shot("viewer-may-only-go-down").await;
+
+        c.ui.nav("/visitors/plain").await;
+        edit_mode(c).await;
+        assert!(off(c, "plain", "read").await && off(c, "plain", "write").await);
+        c.ui.wait_for(
+            "[data-schema='visitors/*/admin'] [data-testid=grant-lock]",
+            SECS,
+        )
+        .await;
+        c.ui.shot("no-admin-for-a-visitor-without-it").await;
+
+        c.ui.nav("/visitors/boss?tab=secrets").await;
+        c.ui.wait_for("[data-testid=secrets] [data-testid=grant-lock]", SECS)
+            .await;
+        assert!(
+            !c.ui.enabled("[data-testid=rotate]").await,
+            "an admin gets a new secret only in the file"
+        );
+        c.ui.shot("admin-secret-locked").await;
+
+        c.ui.nav("/visitors/ops").await;
+        edit_mode(c).await;
+        let from = "#f-visitors-ops-admin-from";
+        let chips = "[data-schema='visitors/*/admin_from'] [data-chip]";
+        c.ui.click("[data-schema='visitors/*/admin_from'] [data-chip='127.0.0.1/32'] button")
+            .await;
+        c.ui.wait_text(
+            "[data-schema='visitors/*/admin_from'] [data-testid=grant-lock]",
+            IN_THE_FILE,
+            SECS,
+        )
+        .await;
+        assert_eq!(c.ui.count(chips).await, 1, "the last entry stays");
+        c.ui.fill(from, "10.0.0.0/8").await;
+        c.ui.wait_for(
+            "[data-schema='visitors/*/admin_from'] [data-testid=grant-lock]",
+            SECS,
+        )
+        .await;
+        assert_eq!(c.ui.count(chips).await, 1, "a wider entry is not added");
+        c.ui.shot("admin-from-may-not-widen").await;
+        c.ui.fill(from, "127.0.0.1").await;
+        c.ui.wait_for(
+            "[data-schema='visitors/*/admin_from'] [data-chip='127.0.0.1']",
+            SECS,
+        )
+        .await;
+        c.ui.wait_gone(
+            "[data-schema='visitors/*/admin_from'] [data-testid=grant-lock]",
+            SECS,
+        )
+        .await;
+
+        c.ui.nav("/visitors/viewer").await;
+        edit_mode(c).await;
+        c.ui.choose("f-visitors-viewer-admin", UNSET).await;
+        wait_checked(c).await;
+        open_review(c, "viewer-loses-admin").await;
+        applied(c, "viewer-is-no-admin").await;
+        let text = c.world.config();
+        assert!(!text.contains("admin: read"), "{text}");
+        assert!(
+            text.contains("admin_from: [127.0.0.1/32, 127.0.0.1]"),
+            "{text}"
+        );
+        c.ui.assert_no_errors();
+    })
+}
+
+#[test]
+fn admin_power_is_only_lowered_in_the_visitor_form() {
+    run("grant-lock", Options::default(), false, grant_lock);
 }
 
 fn revert_conflict(c: &mut Ctx) -> Flow<'_> {

@@ -11,6 +11,7 @@ use burrow_ui_kit::{ChipInput, Segmented, Select, TextArea, TextInput, Toggle, b
 use leptos::prelude::*;
 
 use crate::form::{object_view, push};
+use crate::grants::{grants_at, in_the_file};
 use crate::store::store;
 
 #[derive(Clone)]
@@ -130,6 +131,7 @@ fn by_sem(fc: FieldCtx, sem: &SemType) -> AnyView {
             let fc2 = FieldCtx {
                 node: Node {
                     required: false,
+                    reduce_only: inner_node.reduce_only || fc.node.reduce_only,
                     none_label: inner_node.none_label.clone().or(fc.node.none_label.clone()),
                     default: inner_node.default.clone().or(fc.node.default.clone()),
                     label: if inner_node.label.is_empty() {
@@ -344,6 +346,28 @@ fn enum_editor(fc: FieldCtx, c: EnumC) -> AnyView {
             .iter()
             .map(|o| (o.value.clone(), o.label.clone(), o.danger)),
     );
+    let gate = fc
+        .node
+        .reduce_only
+        .then(|| (fc.entity.clone(), fc.path.clone()));
+    let values: Vec<String> = options.iter().map(|o| o.0.clone()).collect();
+    let off = Signal::derive(move || match &gate {
+        Some((entity, path)) => values
+            .iter()
+            .filter(|v| {
+                let candidate = (*v != UNSET).then(|| Value::String(v.to_string()));
+                grants_at(entity, path, candidate)
+            })
+            .cloned()
+            .collect(),
+        None => Vec::new(),
+    });
+    let set = move |v: String| {
+        if !off.with_untracked(|o| o.contains(&v)) {
+            set(v);
+        }
+    };
+    let locked = move || off.with(|o| !o.is_empty()).then(in_the_file);
     let help = {
         let c = c.clone();
         move || {
@@ -357,12 +381,12 @@ fn enum_editor(fc: FieldCtx, c: EnumC) -> AnyView {
         }
     };
     let control = if options.len() <= 4 {
-        view! { <Segmented name=fc.id.clone() options=options value=value on_change=set label=fc.node.label.clone()/> }.into_any()
+        view! { <Segmented name=fc.id.clone() options=options value=value on_change=set label=fc.node.label.clone() off=off/> }.into_any()
     } else {
         let opts: Vec<(String, String)> = options.into_iter().map(|(v, l, _)| (v, l)).collect();
         view! { <Select id=fc.id.clone() options=opts value=value on_change=set/> }.into_any()
     };
-    view! { <div id=if c.options.len() + usize::from(optional) <= 4 { Some(fc.id.clone()) } else { None }>{control}{help}</div> }.into_any()
+    view! { <div id=if c.options.len() + usize::from(optional) <= 4 { Some(fc.id.clone()) } else { None }>{control}{locked}{help}</div> }.into_any()
 }
 
 fn duration_editor(fc: FieldCtx, stored: TimeUnit, max: Option<u64>) -> AnyView {
@@ -585,6 +609,11 @@ fn list_editor(fc: FieldCtx, item: Node) -> AnyView {
     let node = fc.node.clone();
     let fc2 = fc.clone();
     let item3 = item.clone();
+    let gate = fc
+        .node
+        .reduce_only
+        .then(|| (fc.entity.clone(), fc.path.clone()));
+    let refused = RwSignal::new(false);
     let on_change = move |list: Vec<String>| {
         let v = (!list.is_empty()).then(|| {
             Value::Array(
@@ -593,6 +622,13 @@ fn list_editor(fc: FieldCtx, item: Node) -> AnyView {
                     .collect(),
             )
         });
+        let widens = gate
+            .as_ref()
+            .is_some_and(|(entity, path)| grants_at(entity, path, v.clone()));
+        refused.set(widens);
+        if widens {
+            return;
+        }
         set_checked(&fc2, &node, v);
         let bad = list.iter().find_map(|t| {
             parse_input(&item3.sem, t)
@@ -639,6 +675,7 @@ fn list_editor(fc: FieldCtx, item: Node) -> AnyView {
             empty_label=fc.node.empty_label.clone().unwrap_or_default()
             meta=meta
         />
+        {move || refused.get().then(in_the_file)}
         {note}
     }
     .into_any()

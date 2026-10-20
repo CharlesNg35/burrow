@@ -1,4 +1,5 @@
-use burrow_admin_logic::changeset::as_new_secret;
+use burrow_admin_logic::changeset::{as_new_secret, new_secret};
+use burrow_admin_logic::grant::IN_THE_FILE;
 use burrow_admin_proto::Path;
 use burrow_admin_proto::msg::{self, GeneratedSecret};
 use burrow_admin_proto::plan::{Applied, Snippets};
@@ -19,12 +20,7 @@ pub struct Row {
 }
 
 pub fn rows(v: Option<&Value>) -> Vec<Row> {
-    let items: Vec<Value> = match v {
-        Some(Value::Array(a)) => a.clone(),
-        Some(other) => vec![other.clone()],
-        None => Vec::new(),
-    };
-    items
+    rows_value(v)
         .iter()
         .filter_map(|i| {
             if let Some((_, fp)) = as_new_secret(i) {
@@ -47,6 +43,14 @@ pub fn rows(v: Option<&Value>) -> Vec<Row> {
             })
         })
         .collect()
+}
+
+fn rows_value(v: Option<&Value>) -> Vec<Value> {
+    match v {
+        Some(Value::Array(a)) => a.clone(),
+        Some(Value::Null) | None => Vec::new(),
+        Some(one) => vec![one.clone()],
+    }
 }
 
 fn in_use_fp(section: &str, name: &str) -> Option<String> {
@@ -79,6 +83,20 @@ pub fn secret_list(path: Path, id: String, max: u32) -> AnyView {
         });
     };
     let full = Signal::derive(move || list.with(|l| l.len() as u32 >= max.max(1)));
+    let reduce_only = s
+        .schema
+        .get_untracked()
+        .and_then(|sc| sc.root.at(&path).map(|n| n.reduce_only))
+        .unwrap_or(false);
+    let p5 = path.clone();
+    let granting = Signal::derive(move || {
+        reduce_only && {
+            let mut secrets = rows_value(e.value(&p5).as_ref());
+            secrets.push(new_secret("", ""));
+            let entity = &p5[..p5.len().saturating_sub(1)];
+            crate::grants::grants_at(entity, &p5, Some(Value::Array(secrets)))
+        }
+    });
     let label = Signal::derive(move || {
         if list.with(Vec::is_empty) {
             "Generate a secret".to_string()
@@ -166,8 +184,8 @@ pub fn secret_list(path: Path, id: String, max: u32) -> AnyView {
                         small=true
                         icon="refresh"
                         testid="rotate"
-                        disabled=full
-                        reason=Signal::derive(move || if full.get() { format!("A {what} may have at most {max} secrets.") } else { String::new() })
+                        disabled=Signal::derive(move || full.get() || granting.get())
+                        reason=Signal::derive(move || if granting.get() { IN_THE_FILE.to_string() } else if full.get() { format!("A {what} may have at most {max} secrets.") } else { String::new() })
                         on_click=add
                     />
                 })}
@@ -176,6 +194,7 @@ pub fn secret_list(path: Path, id: String, max: u32) -> AnyView {
                 <span>"Fingerprint"</span><span>"Source"</span><span>"Session"</span><span></span>
             </div>
             <ul>{body}</ul>
+            {move || granting.get().then(|| view! { <div class="border-t border-border px-4 pb-1.5">{crate::grants::in_the_file()}</div> })}
             <p class="border-t border-border px-4 py-3 text-[12.5px] text-text-muted">{note}</p>
         </section>
     }
