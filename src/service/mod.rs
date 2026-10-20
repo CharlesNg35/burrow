@@ -931,10 +931,7 @@ fn release_previous(
             let _ = system::give_plain_file(&old.config, 0, 0);
             give_history(dir, &old.config, 0, 0);
         }
-        let holds_source = [&old.source_config, &new.source_config]
-            .iter()
-            .any(|s| s.starts_with(dir));
-        if !holds_source {
+        if !holds_source(dir, &[&old.source_config, &new.source_config]) {
             say(
                 out,
                 format!(
@@ -951,7 +948,7 @@ fn release_previous(
     {
         #[cfg(unix)]
         let _ = system::give_plain_file(&old.config, 0, 0);
-        if old.config != old.source_config && old.config != new.source_config {
+        if !is_source(&old.config, &[&old.source_config, &new.source_config]) {
             say(
                 out,
                 format!(
@@ -1244,6 +1241,20 @@ fn give_history(dir: &Path, config: &Path, uid: u32, gid: u32) {
         let _ = std::os::unix::fs::fchown(&history, Some(uid), Some(gid));
     }
     let _ = std::os::unix::fs::lchown(dir, Some(uid), Some(gid));
+}
+
+fn is_source(config: &Path, sources: &[&Path]) -> bool {
+    let config = system::canonical_or_same(config);
+    sources
+        .iter()
+        .any(|s| system::canonical_or_same(s) == config)
+}
+
+fn holds_source(dir: &Path, sources: &[&Path]) -> bool {
+    let dir = system::canonical_or_same(dir);
+    sources
+        .iter()
+        .any(|s| system::canonical_or_same(s).starts_with(&dir))
 }
 
 fn delete_hint(files: &[PathBuf], folder: Option<&Path>) -> String {
@@ -1845,6 +1856,25 @@ mod tests {
         );
         std::fs::write(&config, "listen: 1\n").unwrap();
         assert!(source_note(&m, "x").is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_source_recorded_through_a_linked_parent_is_still_the_source() {
+        let dir = tempfile::tempdir().unwrap();
+        let real = system::canonical(dir.path()).unwrap().join("private-etc");
+        std::fs::create_dir_all(real.join("burrow/x")).unwrap();
+        std::fs::write(real.join("burrow/x.yaml"), "listen: 1\n").unwrap();
+        std::fs::write(real.join("burrow/x/server.yaml"), "listen: 1\n").unwrap();
+        let etc = dir.path().join("etc");
+        std::os::unix::fs::symlink(&real, &etc).unwrap();
+        let source = system::canonical(&etc.join("burrow/x.yaml")).unwrap();
+        assert_ne!(source, etc.join("burrow/x.yaml"));
+        assert!(is_source(&etc.join("burrow/x.yaml"), &[&source]));
+        assert!(!is_source(&etc.join("burrow/x/server.yaml"), &[&source]));
+        let inner = system::canonical(&etc.join("burrow/x/server.yaml")).unwrap();
+        assert!(holds_source(&etc.join("burrow/x"), &[&inner]));
+        assert!(!holds_source(&etc.join("burrow/x"), &[&source]));
     }
 
     #[test]
