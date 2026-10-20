@@ -12,6 +12,14 @@ pub fn secretish(key: &str) -> bool {
         || crate::suggest::closest(&key, ["secret"]).is_some()
 }
 
+fn holds_names(node: Option<&Node>) -> bool {
+    match node.map(|n| &n.sem) {
+        Some(SemType::Map(_) | SemType::RefMap(_)) => true,
+        Some(SemType::Optional(o)) => holds_names(Some(&o.inner)),
+        _ => false,
+    }
+}
+
 fn child<'a>(node: Option<&'a Node>, key: &str) -> Option<&'a Node> {
     let node = node?;
     match &node.sem {
@@ -74,14 +82,25 @@ fn present_secret(v: &Value, env: &dyn EnvSource) -> Value {
 }
 
 pub fn present(v: &Value, node: Option<&Node>, key: &str, env: &dyn EnvSource) -> Value {
-    if is_secret(node) || secretish(key) {
+    present_at(v, node, key, false, env)
+}
+
+fn present_at(
+    v: &Value,
+    node: Option<&Node>,
+    key: &str,
+    is_name: bool,
+    env: &dyn EnvSource,
+) -> Value {
+    if is_secret(node) || (!is_name && secretish(key)) {
         return present_secret(v, env);
     }
     match v {
         Value::Object(m) => {
+            let names = holds_names(node);
             let mut out = Map::new();
             for (k, val) in m {
-                out.insert(k.clone(), present(val, child(node, k), k, env));
+                out.insert(k.clone(), present_at(val, child(node, k), k, names, env));
             }
             Value::Object(out)
         }
@@ -199,5 +218,41 @@ mod tests {
         let marker = &out["clients"]["home"]["$secret"];
         assert_eq!(marker["src"]["env"], "HOME_SECRET");
         assert_eq!(marker["fp"], s.fingerprint());
+    }
+
+    #[test]
+    fn entries_with_names_close_to_secret_are_shown_as_written() {
+        let schema = crate::config::admin_schema::server_schema();
+        let env = |_: &str| None;
+        let raw = json!({
+            "clients": {
+                "socket": {"secret": Secret::generate().encode()},
+                "secure": {"secret": Secret::generate().encode(), "max_connections": 5},
+                "sec": {"secret": Secret::generate().encode()}
+            },
+            "visitors": {
+                "sacred": {"secret": Secret::generate().encode(), "admin": "read"},
+                "token": {"secret": Secret::generate().encode(), "admin": "read"}
+            },
+            "services": {
+                "socket": {"client": "secure", "target": 3000},
+                "sacred": {"client": "sec", "target": 3001},
+                "key": {"client": "sec", "target": 3002}
+            }
+        });
+        let out = present(&raw, Some(&schema.root), "", &env);
+        assert_eq!(out["clients"]["secure"]["max_connections"], 5, "{out}");
+        assert!(
+            value::as_secret(&out["clients"]["socket"]).is_none(),
+            "{out}"
+        );
+        assert!(
+            value::as_secret(&out["clients"]["socket"]["secret"]).is_some(),
+            "{out}"
+        );
+        assert_eq!(out["visitors"]["sacred"]["admin"], "read", "{out}");
+        assert_eq!(out["visitors"]["token"]["admin"], "read", "{out}");
+        assert_eq!(out["services"], raw["services"], "{out}");
+        assert_eq!(raw_of(&out["services"]), raw["services"]);
     }
 }
