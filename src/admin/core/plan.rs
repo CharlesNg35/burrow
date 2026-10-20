@@ -238,6 +238,9 @@ pub fn compute(
         }
     };
     let checked = check_text(core, &new_text);
+    let new_raw = tree::parse(&patch::split_text(&new_text).2)
+        .map(|n| n.to_json())
+        .unwrap_or(Value::Null);
     let running = core.live.settings();
     let (mut refusals, mut impacts, mut clash) = (Vec::new(), Vec::new(), Vec::new());
     if let Some(next) = &checked.settings {
@@ -247,12 +250,19 @@ pub fn compute(
             secret: &s.secret,
             via_websocket: s.via_websocket,
         };
-        let file = check_text(core, &old_text).settings;
+        let file = check_text(core, &old_text);
+        let base = match (&file.settings, file.valid) {
+            (Some(settings), true) => guard::Base::Valid(settings),
+            _ => guard::Base::Broken {
+                raw: &raw,
+                next_raw: &new_raw,
+            },
+        };
         refusals = guard::refusals(
             &who,
             &guard::Change {
                 running: &running,
-                file: file.as_ref().unwrap_or(&running),
+                base,
                 next,
                 renames: &applied.renames,
                 path: core.store.path(),
@@ -298,9 +308,6 @@ pub fn compute(
         .collect();
     let mask = |l: &str| text::mask_secrets(l, &fresh_pairs);
     let diff = super::diff::unified(&old_text, &new_text, &mask);
-    let new_raw = tree::parse(&patch::split_text(&new_text).2)
-        .map(|n| n.to_json())
-        .unwrap_or(Value::Null);
     let changes = summary::changes(&raw, &new_raw, &applied.renames);
     let impacts_json =
         serde_json::to_vec(&impacts.iter().map(impact_key).collect::<Vec<_>>()).unwrap_or_default();

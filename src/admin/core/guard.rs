@@ -21,9 +21,17 @@ pub struct Who<'a> {
     pub via_websocket: bool,
 }
 
+pub enum Base<'a> {
+    Valid(&'a ServerSettings),
+    Broken {
+        raw: &'a serde_json::Value,
+        next_raw: &'a serde_json::Value,
+    },
+}
+
 pub struct Change<'a> {
     pub running: &'a ServerSettings,
-    pub file: &'a ServerSettings,
+    pub base: Base<'a>,
     pub next: &'a ServerSettings,
     pub renames: &'a [Rename],
     pub path: &'a Path,

@@ -26,7 +26,7 @@ fn judged(who: &Who, old: &ServerSettings, new: &ServerSettings) -> Vec<Refusal>
         who,
         &Change {
             running: old,
-            file: old,
+            base: Base::Valid(old),
             next: new,
             renames: &[],
             path: Path::new(FILE),
@@ -300,7 +300,7 @@ fn renaming_an_admin_visitor_is_left_to_the_file() {
         &ops(&t),
         &Change {
             running: &old,
-            file: &old,
+            base: Base::Valid(&old),
             next: &new,
             renames: &renames,
             path: Path::new(FILE),
@@ -426,7 +426,7 @@ fn the_base_is_the_file_so_an_unapplied_hand_edit_is_not_a_grant() {
             &ops(&t),
             &Change {
                 running: &running,
-                file,
+                base: Base::Valid(file),
                 next,
                 renames: &[],
                 path: Path::new(FILE),

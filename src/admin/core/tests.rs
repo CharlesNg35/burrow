@@ -921,3 +921,173 @@ fn an_apply_adds_a_service_on_this_server() {
     assert!(!c.plan.valid);
     assert!(c.plan.diags.iter().any(|d| d.code == "reserved-name"));
 }
+
+struct Broken {
+    w: World,
+    boss: Secret,
+    running: String,
+}
+
+const TYPO: &str = "  api: { client: home, bind: 7840, target: 3001 }\n";
+
+fn broken_world() -> Broken {
+    let w = world();
+    let boss = Secret::generate();
+    let running = w
+        .text
+        .replace(
+            "\nservices:",
+            &format!(
+                "  boss:\n    secret: {}\n    admin: write\n    admin_from: [10.0.0.0/8]\n\nservices:",
+                boss.encode()
+            ),
+        )
+        .replace(
+            "{ client: home, bind: 7840, target: 3000 }",
+            "{ client: home, bind: 7840, target: 3000, visitors: [boss] }",
+        );
+    Broken { w, boss, running }
+}
+
+impl Broken {
+    fn with_typo(&self, edit: impl Fn(&str) -> String) -> String {
+        let t = edit(&self.running);
+        t.replacen(
+            "visitors: [boss] }\n",
+            &format!("visitors: [boss] }}\n{TYPO}"),
+            1,
+        )
+    }
+
+    fn refusals(&self, file: &str, ops: &[Op]) -> Vec<burrow_admin_proto::plan::Refusal> {
+        let core = core_running(file, &self.running);
+        let s = session(&self.w, Level::Write);
+        let c = plan::compute(&core, &s, &text::rev(file), ops).unwrap();
+        assert!(c.plan.valid, "{:?}", c.plan.diags);
+        let e = apply_now(&core, &s, ops, &["boss", "api"]).unwrap_err();
+        assert_eq!(e.code, ErrorCode::LockedOut, "{e:?}");
+        assert_eq!(core.read().unwrap(), file, "nothing was written");
+        c.plan.refusals
+    }
+}
+
+fn remove_typo() -> Op {
+    Op::Remove {
+        path: p(&["services", "api"]),
+    }
+}
+
+fn file_has_errors(r: &[burrow_admin_proto::plan::Refusal], code: &str) {
+    assert!(
+        r.iter().any(|r| r.code == code
+            && r.message.contains("the config file has errors")
+            && r.message.contains("burrow edit -c server.yaml")),
+        "{code}: {r:?}"
+    );
+}
+
+#[test]
+fn an_invalid_file_does_not_undo_a_revoked_admin() {
+    let b = broken_world();
+    let deleted = b.running.replace(
+        &format!(
+            "  boss:\n    secret: {}\n    admin: write\n    admin_from: [10.0.0.0/8]\n",
+            b.boss.encode()
+        ),
+        "",
+    );
+    assert!(!plan::check_text(&core_for(&deleted), &deleted).valid);
+    let r = b.refusals(
+        &deleted,
+        &[Op::Add {
+            path: p(&["visitors", "boss"]),
+            value: json!({"secret": b.boss.encode(), "admin": "write", "admin_from": ["10.0.0.0/8"]}),
+        }],
+    );
+    file_has_errors(&r, "admin-grant");
+}
+
+#[test]
+fn an_invalid_file_does_not_undo_a_lowered_level_or_a_narrowed_admin_from() {
+    let b = broken_world();
+    let read = b.with_typo(|t| {
+        t.replacen(
+            "    admin: write\n    admin_from",
+            "    admin: read\n    admin_from",
+            1,
+        )
+    });
+    let r = b.refusals(
+        &read,
+        &[
+            remove_typo(),
+            Op::Set {
+                path: p(&["visitors", "boss", "admin"]),
+                value: json!("write"),
+            },
+        ],
+    );
+    file_has_errors(&r, "admin-upgrade");
+    let narrow = b.with_typo(|t| t.replace("[10.0.0.0/8]", "[10.1.0.0/16]"));
+    let r = b.refusals(
+        &narrow,
+        &[
+            remove_typo(),
+            Op::Set {
+                path: p(&["visitors", "boss", "admin_from"]),
+                value: json!(["10.0.0.0/8"]),
+            },
+        ],
+    );
+    file_has_errors(&r, "admin-from-widened");
+}
+
+#[test]
+fn an_invalid_file_does_not_let_a_revert_bring_power_back() {
+    let b = broken_world();
+    let read = b.with_typo(|t| {
+        t.replacen(
+            "    admin: write\n    admin_from",
+            "    admin: read\n    admin_from",
+            1,
+        )
+    });
+    let core = core_running(&read, &b.running);
+    core.store.keep(&text::rev(&b.running), &b.running);
+    let s = session(&b.w, Level::Write);
+    let ops = [Op::ReplaceDocument {
+        from_history: text::rev(&b.running),
+    }];
+    let c = plan::compute(&core, &s, &text::rev(&read), &ops).unwrap();
+    assert!(c.plan.valid, "{:?}", c.plan.diags);
+    file_has_errors(&c.plan.refusals, "admin-upgrade");
+    assert!(apply_now(&core, &s, &ops, &["boss", "api"]).is_err());
+    assert_eq!(core.read().unwrap(), read);
+}
+
+#[test]
+fn a_grant_added_by_hand_to_an_invalid_file_is_left_to_the_file() {
+    let b = broken_world();
+    let helper = format!(
+        "  helper:\n    secret: {}\n    admin: read\n  ops:\n",
+        Secret::generate().encode()
+    );
+    let granted = b.with_typo(|t| t.replacen("  ops:\n", &helper, 1));
+    let core = core_running(&granted, &b.running);
+    let s = session(&b.w, Level::Write);
+    let c = plan::compute(&core, &s, &text::rev(&granted), &[remove_typo()]).unwrap();
+    file_has_errors(&c.plan.refusals, "admin-grant");
+    let valid = b.running.replacen("  ops:\n", &helper, 1);
+    let core = core_running(&valid, &b.running);
+    let c = plan::compute(
+        &core,
+        &s,
+        &text::rev(&valid),
+        &[Op::Set {
+            path: p(&["services", "web", "target"]),
+            value: json!(3002),
+        }],
+    )
+    .unwrap();
+    assert!(c.plan.refusals.is_empty(), "{:?}", c.plan.refusals);
+}
