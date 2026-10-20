@@ -397,7 +397,7 @@ async fn connected<W: Dials>(
                         debug!("{}: connection ended: {e:?}", label(&connect));
                     }
                 }
-                _ = revoked(&live, |s| s.gate.permits(peer)) => {
+                _ = revoked(&live, |s| s.gate.permits(Protocol::Tcp, peer)) => {
                     no_longer_allowed(&connect);
                 }
             }
@@ -409,7 +409,7 @@ async fn connected<W: Dials>(
             tokio::select! {
                 _ = udp(live, resolver, ch, connect, resolved) => {}
                 _ = revoked(&watched, |s| {
-                    s.gate.permits(current.lock().expect("resolved lock").0)
+                    s.gate.permits(Protocol::Udp, current.lock().expect("resolved lock").0)
                 }) => {
                     no_longer_allowed(&label);
                 }
@@ -642,14 +642,14 @@ async fn permitted(
     let allowed: Vec<SocketAddr> = resolved
         .iter()
         .copied()
-        .filter(|a| settings.gate.permits(*a))
+        .filter(|a| settings.gate.permits(connect.protocol, *a))
         .collect();
     if allowed.is_empty() {
         static DENIED: Throttle = Throttle::new();
         if let Some(more) = DENIED.allow() {
             let first = resolved[0];
             let whom = whom(connect);
-            let why = match settings.gate.refusal(first) {
+            let why = match settings.gate.refusal(connect.protocol, first) {
                 Some(Refusal::Burrow(own)) => {
                     format!("{first} is burrow's own listener {own}, which would loop")
                 }

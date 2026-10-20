@@ -2236,6 +2236,43 @@ fn a_wildcard_listen_port_on_another_machine_is_not_burrow() {
 }
 
 #[test]
+fn udp_self_targets_are_burrows_own_only_on_its_udp_binds() {
+    let text = render(
+        "server.yaml",
+        &self_server(
+            "self:\n  allow: [127.0.0.1/32]\n",
+            "  wg: { client: self, protocol: udp, bind: 8100, target: 127.0.0.1:7835 }\n  stats: { client: self, protocol: udp, bind: 8101, target: 127.0.0.1:9100 }\n  echo: { client: self, protocol: udp, bind: 8102, target: 127.0.0.1:8102 }\n  quic: { client: self, protocol: udp, bind: 7835, target: 127.0.0.1:7835 }\n  loop: { client: self, bind: 8103, target: 127.0.0.1:7835 }\n",
+            "",
+        ),
+        None,
+    );
+    insta::assert_snapshot!(text, @r#"
+    error: service "echo" on "self" targets 127.0.0.1:8102, which is burrow's own bind of this service (0.0.0.0:8102)
+      --> server.yaml:12:60
+       |
+    12 |   echo: { client: self, protocol: udp, bind: 8102, target: 127.0.0.1:8102 }
+       |                                                            ^^^^^^^^^^^^^^ a loop back into burrow
+       = help: point the service at the application behind it, on another port
+
+    error: service "quic" on "self" targets 127.0.0.1:7835, which is burrow's own bind of this service (0.0.0.0:7835)
+      --> server.yaml:13:60
+       |
+    13 |   quic: { client: self, protocol: udp, bind: 7835, target: 127.0.0.1:7835 }
+       |                                                            ^^^^^^^^^^^^^^ a loop back into burrow
+       = help: point the service at the application behind it, on another port
+
+    error: service "loop" on "self" targets 127.0.0.1:7835, which is burrow's own listen (0.0.0.0:7835)
+      --> server.yaml:14:45
+       |
+    14 |   loop: { client: self, bind: 8103, target: 127.0.0.1:7835 }
+       |                                             ^^^^^^^^^^^^^^ a loop back into burrow
+       = help: point the service at the application behind it, on another port
+
+    server.yaml: 3 errors, 0 warnings
+    "#);
+}
+
+#[test]
 fn self_refusals() {
     let text = render(
         "server.yaml",

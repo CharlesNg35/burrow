@@ -171,6 +171,45 @@ async fn udp_on_self_reaches_its_target() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn udp_on_self_reaches_a_target_on_the_port_of_burrows_tcp_listener() {
+    logs();
+    let port = free_range(1);
+    let echo = UdpSocket::bind(("127.0.0.1", port)).await.unwrap();
+    tokio::spawn(async move {
+        let mut buf = vec![0u8; 2048];
+        while let Ok((n, from)) = echo.recv_from(&mut buf).await {
+            let _ = echo.send_to(&buf[..n], from).await;
+        }
+    });
+    let target = SocketAddr::from(([127, 0, 0, 1], port));
+    let mut settings = self_settings(vec![("wg", on_self(target, Protocol::Udp))]);
+    settings.listen = Some(target);
+    let srv = start_server(settings).await;
+    assert_eq!(
+        srv.addr.port(),
+        port,
+        "burrow listens on the echo's port over TCP"
+    );
+    let sock = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let mut buf = [0u8; 64];
+    let got = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            sock.send_to(b"handshake", srv.services["wg"])
+                .await
+                .unwrap();
+            if let Ok(Ok((n, _))) =
+                tokio::time::timeout(Duration::from_millis(300), sock.recv_from(&mut buf)).await
+            {
+                return n;
+            }
+        }
+    })
+    .await
+    .expect("the UDP echo on burrow's TCP port answers through self");
+    assert_eq!(&buf[..got], b"handshake");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn each_port_of_a_self_range_leads_to_its_own_target() {
     logs();
     let targets = tagged_targets(3).await;

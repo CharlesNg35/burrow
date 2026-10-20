@@ -6,6 +6,7 @@ use tokio::sync::watch;
 
 use crate::allowlist::Gate;
 use crate::client::data::{Dialing, Dials, Rules, serve_local};
+use crate::config::model::Protocol;
 use crate::config::settings::ServerSettings;
 use crate::handshake::Channel;
 use crate::protocol::TOKEN_LEN;
@@ -71,7 +72,10 @@ impl SelfDialer {
 
 fn dialing(settings: &ServerSettings, own: Vec<SocketAddr>) -> Dialing {
     Dialing {
-        gate: Gate::this_server(settings.self_allow.as_ref(), own),
+        gate: Gate::this_server(
+            settings.self_allow.as_ref(),
+            own.into_iter().map(|a| (Protocol::Tcp, a)).collect(),
+        ),
         connect_timeout: CONNECT_TIMEOUT,
         tcp: settings.tcp.clone(),
         udp_session_timeout: settings.udp_session_timeout,

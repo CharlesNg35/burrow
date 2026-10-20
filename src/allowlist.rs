@@ -2,6 +2,8 @@ use std::net::{IpAddr, SocketAddr};
 
 pub use burrow_syntax::cidr::Cidr;
 use burrow_syntax::cidr::canonical;
+
+use crate::config::model::Protocol;
 pub use burrow_syntax::rule::{NetRule, Rule, RuleError, SocketRule};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
@@ -100,8 +102,10 @@ pub enum Refusal {
     Outside,
 }
 
-fn listens_on(own: SocketAddr, target: SocketAddr) -> bool {
-    burrow_syntax::ports::binds_conflict(own, target)
+fn listens_on(own: (Protocol, SocketAddr), protocol: Protocol, target: SocketAddr) -> bool {
+    let (own_protocol, own) = own;
+    own_protocol == protocol
+        && burrow_syntax::ports::binds_conflict(own, target)
         && (!own.ip().is_unspecified() || is_this_host(target.ip()))
 }
 
@@ -114,7 +118,7 @@ fn is_this_host(ip: IpAddr) -> bool {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Gate {
     allow: AllowList,
-    own: Vec<SocketAddr>,
+    own: Vec<(Protocol, SocketAddr)>,
     link_local_named_only: bool,
 }
 
@@ -127,7 +131,7 @@ impl Gate {
         }
     }
 
-    pub fn this_server(allow: Option<&AllowList>, own: Vec<SocketAddr>) -> Gate {
+    pub fn this_server(allow: Option<&AllowList>, own: Vec<(Protocol, SocketAddr)>) -> Gate {
         Gate {
             allow: allow.cloned().unwrap_or(AllowList::All),
             own,
@@ -139,9 +143,13 @@ impl Gate {
         &self.allow
     }
 
-    pub fn refusal(&self, target: SocketAddr) -> Option<Refusal> {
+    pub fn refusal(&self, protocol: Protocol, target: SocketAddr) -> Option<Refusal> {
         let target = SocketAddr::new(canonical(target.ip()), target.port());
-        if let Some(own) = self.own.iter().find(|own| listens_on(**own, target)) {
+        if let Some((_, own)) = self
+            .own
+            .iter()
+            .find(|own| listens_on(**own, protocol, target))
+        {
             return Some(Refusal::Burrow(*own));
         }
         if self.link_local_named_only && named_only(target.ip()) && !self.names(target) {
@@ -150,8 +158,8 @@ impl Gate {
         (!self.allow.permits(target)).then_some(Refusal::Outside)
     }
 
-    pub fn permits(&self, target: SocketAddr) -> bool {
-        self.refusal(target).is_none()
+    pub fn permits(&self, protocol: Protocol, target: SocketAddr) -> bool {
+        self.refusal(protocol, target).is_none()
     }
 
     pub fn permits_socket(&self, path: &str) -> bool {
@@ -401,9 +409,13 @@ mod tests {
             "169.254.169.254:80",
             "[fe80::1]:22",
         ] {
-            assert_eq!(gate.permits(sa(t)), list.permits(sa(t)), "{t}");
+            assert_eq!(
+                gate.permits(Protocol::Tcp, sa(t)),
+                list.permits(sa(t)),
+                "{t}"
+            );
         }
-        assert!(Gate::client(AllowList::All).permits(sa("127.0.0.1:7835")));
+        assert!(Gate::client(AllowList::All).permits(Protocol::Tcp, sa("127.0.0.1:7835")));
         assert_eq!(
             gate.permits_socket("/run/a.sock"),
             list.permits_socket("/run/a.sock")
@@ -413,43 +425,76 @@ mod tests {
     #[test]
     fn this_server_never_dials_its_own_listeners() {
         let own = vec![sa("0.0.0.0:7835"), sa("127.0.0.1:9100")];
-        let gate = Gate::this_server(None, own);
+        let gate = Gate::this_server(None, tcp(&own));
         assert_eq!(
-            gate.refusal(sa("127.0.0.1:7835")),
+            gate.refusal(Protocol::Tcp, sa("127.0.0.1:7835")),
             Some(Refusal::Burrow(sa("0.0.0.0:7835")))
         );
-        assert_eq!(gate.refusal(sa("192.0.2.9:7835")), None);
+        assert_eq!(gate.refusal(Protocol::Tcp, sa("192.0.2.9:7835")), None);
         assert_eq!(
-            gate.refusal(sa("[::ffff:127.0.0.1]:9100")),
+            gate.refusal(Protocol::Tcp, sa("[::ffff:127.0.0.1]:9100")),
             Some(Refusal::Burrow(sa("127.0.0.1:9100")))
         );
         assert_eq!(
-            gate.refusal(sa("0.0.0.0:9100")),
+            gate.refusal(Protocol::Tcp, sa("0.0.0.0:9100")),
             Some(Refusal::Burrow(sa("127.0.0.1:9100")))
         );
-        assert_eq!(gate.refusal(sa("10.0.0.9:9100")), None);
-        assert_eq!(gate.refusal(sa("127.0.0.1:5432")), None);
+        assert_eq!(gate.refusal(Protocol::Tcp, sa("10.0.0.9:9100")), None);
+        assert_eq!(gate.refusal(Protocol::Tcp, sa("127.0.0.1:5432")), None);
+    }
+
+    fn tcp(own: &[SocketAddr]) -> Vec<(Protocol, SocketAddr)> {
+        own.iter().map(|a| (Protocol::Tcp, *a)).collect()
+    }
+
+    #[test]
+    fn udp_targets_are_burrows_own_only_on_its_udp_binds() {
+        let own = vec![
+            (Protocol::Tcp, sa("0.0.0.0:7835")),
+            (Protocol::Tcp, sa("127.0.0.1:443")),
+            (Protocol::Tcp, sa("127.0.0.1:9100")),
+            (Protocol::Udp, sa("0.0.0.0:5000")),
+        ];
+        let gate = Gate::this_server(None, own);
+        for t in ["127.0.0.1:7835", "127.0.0.1:443", "127.0.0.1:9100"] {
+            assert_eq!(gate.refusal(Protocol::Udp, sa(t)), None, "{t}");
+        }
+        assert_eq!(
+            gate.refusal(Protocol::Udp, sa("127.0.0.1:5000")),
+            Some(Refusal::Burrow(sa("0.0.0.0:5000")))
+        );
+        assert_eq!(
+            gate.refusal(Protocol::Tcp, sa("127.0.0.1:7835")),
+            Some(Refusal::Burrow(sa("0.0.0.0:7835")))
+        );
+        assert_eq!(
+            gate.refusal(Protocol::Tcp, sa("127.0.0.1:9100")),
+            Some(Refusal::Burrow(sa("127.0.0.1:9100")))
+        );
+        assert_eq!(gate.refusal(Protocol::Tcp, sa("127.0.0.1:5000")), None);
+        assert!(!gate.permits(Protocol::Udp, sa("127.0.0.1:5000")));
+        assert!(gate.permits(Protocol::Udp, sa("127.0.0.1:7835")));
     }
 
     #[test]
     fn a_wildcard_listener_covers_only_addresses_of_this_host() {
-        let gate = Gate::this_server(None, vec![sa("0.0.0.0:7835")]);
-        assert_eq!(gate.refusal(sa("192.0.2.9:7835")), None);
+        let gate = Gate::this_server(None, tcp(&[sa("0.0.0.0:7835")]));
+        assert_eq!(gate.refusal(Protocol::Tcp, sa("192.0.2.9:7835")), None);
         assert_eq!(
-            gate.refusal(sa("127.0.0.1:7835")),
+            gate.refusal(Protocol::Tcp, sa("127.0.0.1:7835")),
             Some(Refusal::Burrow(sa("0.0.0.0:7835")))
         );
         assert_eq!(
-            gate.refusal(sa("0.0.0.0:7835")),
+            gate.refusal(Protocol::Tcp, sa("0.0.0.0:7835")),
             Some(Refusal::Burrow(sa("0.0.0.0:7835")))
         );
-        assert_eq!(gate.refusal(sa("[::1]:7835")), None);
+        assert_eq!(gate.refusal(Protocol::Tcp, sa("[::1]:7835")), None);
         let probe = std::net::UdpSocket::bind("0.0.0.0:0").unwrap();
         if probe.connect("192.0.2.1:9").is_ok() {
             let ip = probe.local_addr().unwrap().ip();
             if !ip.is_loopback() && !ip.is_unspecified() {
                 assert_eq!(
-                    gate.refusal(SocketAddr::new(ip, 7835)),
+                    gate.refusal(Protocol::Tcp, SocketAddr::new(ip, 7835)),
                     Some(Refusal::Burrow(sa("0.0.0.0:7835"))),
                     "{ip}"
                 );
@@ -462,17 +507,17 @@ mod tests {
         if std::net::UdpSocket::bind("[::1]:0").is_err() {
             return;
         }
-        let gate = Gate::this_server(None, vec![sa("[::]:7835")]);
+        let gate = Gate::this_server(None, tcp(&[sa("[::]:7835")]));
         assert_eq!(
-            gate.refusal(sa("[::1]:7835")),
+            gate.refusal(Protocol::Tcp, sa("[::1]:7835")),
             Some(Refusal::Burrow(sa("[::]:7835")))
         );
         assert_eq!(
-            gate.refusal(sa("127.0.0.1:7835")),
+            gate.refusal(Protocol::Tcp, sa("127.0.0.1:7835")),
             Some(Refusal::Burrow(sa("[::]:7835")))
         );
-        assert_eq!(gate.refusal(sa("[2001:db8::9]:7835")), None);
-        assert_eq!(gate.refusal(sa("192.0.2.9:7835")), None);
+        assert_eq!(gate.refusal(Protocol::Tcp, sa("[2001:db8::9]:7835")), None);
+        assert_eq!(gate.refusal(Protocol::Tcp, sa("192.0.2.9:7835")), None);
     }
 
     #[test]
@@ -480,31 +525,37 @@ mod tests {
         let wide = AllowList::Rules(vec![rule("0.0.0.0/0"), rule("::/0")]);
         let gate = Gate::this_server(Some(&wide), Vec::new());
         assert_eq!(
-            gate.refusal(sa("169.254.169.254:80")),
-            Some(Refusal::LinkLocal)
-        );
-        assert_eq!(gate.refusal(sa("[fe80::1]:22")), Some(Refusal::LinkLocal));
-        assert_eq!(
-            gate.refusal(sa("[::ffff:169.254.1.1]:22")),
+            gate.refusal(Protocol::Tcp, sa("169.254.169.254:80")),
             Some(Refusal::LinkLocal)
         );
         assert_eq!(
-            Gate::this_server(None, Vec::new()).refusal(sa("169.254.169.254:80")),
+            gate.refusal(Protocol::Tcp, sa("[fe80::1]:22")),
+            Some(Refusal::LinkLocal)
+        );
+        assert_eq!(
+            gate.refusal(Protocol::Tcp, sa("[::ffff:169.254.1.1]:22")),
+            Some(Refusal::LinkLocal)
+        );
+        assert_eq!(
+            Gate::this_server(None, Vec::new()).refusal(Protocol::Tcp, sa("169.254.169.254:80")),
             Some(Refusal::LinkLocal)
         );
         let named = AllowList::Rules(vec![rule("169.254.169.254/32:80"), rule("fe80::1")]);
         let gate = Gate::this_server(Some(&named), Vec::new());
-        assert_eq!(gate.refusal(sa("169.254.169.254:80")), None);
+        assert_eq!(gate.refusal(Protocol::Tcp, sa("169.254.169.254:80")), None);
         assert_eq!(
-            gate.refusal(sa("169.254.169.254:81")),
+            gate.refusal(Protocol::Tcp, sa("169.254.169.254:81")),
             Some(Refusal::LinkLocal)
         );
         assert_eq!(
-            gate.refusal(sa("169.254.169.253:80")),
+            gate.refusal(Protocol::Tcp, sa("169.254.169.253:80")),
             Some(Refusal::LinkLocal)
         );
-        assert_eq!(gate.refusal(sa("[fe80::1]:22")), None);
-        assert_eq!(gate.refusal(sa("10.0.0.1:22")), Some(Refusal::Outside));
+        assert_eq!(gate.refusal(Protocol::Tcp, sa("[fe80::1]:22")), None);
+        assert_eq!(
+            gate.refusal(Protocol::Tcp, sa("10.0.0.1:22")),
+            Some(Refusal::Outside)
+        );
     }
 
     #[test]
@@ -512,19 +563,19 @@ mod tests {
         let wide = AllowList::Rules(vec![rule("fd00::/8"), rule("100.64.0.0/10")]);
         let gate = Gate::this_server(Some(&wide), Vec::new());
         assert_eq!(
-            gate.refusal(sa("[fd00:ec2::254]:80")),
+            gate.refusal(Protocol::Tcp, sa("[fd00:ec2::254]:80")),
             Some(Refusal::LinkLocal)
         );
         assert_eq!(
-            gate.refusal(sa("100.100.100.200:80")),
+            gate.refusal(Protocol::Tcp, sa("100.100.100.200:80")),
             Some(Refusal::LinkLocal)
         );
-        assert_eq!(gate.refusal(sa("[fd00:ec2::253]:80")), None);
-        assert_eq!(gate.refusal(sa("100.100.100.201:80")), None);
+        assert_eq!(gate.refusal(Protocol::Tcp, sa("[fd00:ec2::253]:80")), None);
+        assert_eq!(gate.refusal(Protocol::Tcp, sa("100.100.100.201:80")), None);
         let named = AllowList::Rules(vec![rule("fd00:ec2::254"), rule("100.100.100.200/32:80")]);
         let gate = Gate::this_server(Some(&named), Vec::new());
-        assert_eq!(gate.refusal(sa("[fd00:ec2::254]:80")), None);
-        assert_eq!(gate.refusal(sa("100.100.100.200:80")), None);
-        assert!(Gate::client(wide).permits(sa("100.100.100.200:80")));
+        assert_eq!(gate.refusal(Protocol::Tcp, sa("[fd00:ec2::254]:80")), None);
+        assert_eq!(gate.refusal(Protocol::Tcp, sa("100.100.100.200:80")), None);
+        assert!(Gate::client(wide).permits(Protocol::Tcp, sa("100.100.100.200:80")));
     }
 }

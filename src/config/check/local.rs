@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 
 use super::super::SELF;
-use super::super::model::ServerConfig;
+use super::super::model::{Protocol, ServerConfig};
 use super::super::settings::Service;
 use super::{Spans, parse_host_port, unix};
 use crate::allowlist::{AllowList, Gate, NetRule, Refusal, Rule};
@@ -110,20 +110,23 @@ pub(super) fn check_services(
             }
             continue;
         }
-        let mut mine: Vec<(SocketAddr, &str)> = own.to_vec();
+        let mut mine: Vec<(Protocol, SocketAddr, &str)> = own
+            .iter()
+            .map(|(a, what)| (Protocol::Tcp, *a, *what))
+            .collect();
         mine.extend(
             svc.binds()
                 .into_iter()
-                .map(|(_, a)| (a, "bind of this service")),
+                .map(|(_, a)| (svc.protocol, a, "bind of this service")),
         );
-        let gate = Gate::this_server(allow, mine.iter().map(|(a, _)| *a).collect());
+        let gate = Gate::this_server(allow, mine.iter().map(|(p, a, _)| (*p, *a)).collect());
         let what = |addr: SocketAddr| {
             mine.iter()
-                .find(|(a, _)| *a == addr)
-                .map_or("address", |(_, what)| *what)
+                .find(|(p, a, _)| *p == svc.protocol && *a == addr)
+                .map_or("address", |(_, _, what)| *what)
         };
         let refused = (0..svc.ports.max(1))
-            .find_map(|i| refusal_of(&gate, &literal_addrs(&svc.target_at(i))));
+            .find_map(|i| refusal_of(&gate, svc.protocol, &literal_addrs(&svc.target_at(i))));
         match refused {
             Some((addr, Refusal::Burrow(own))) => out.push(
                 Diagnostic::error(
@@ -174,9 +177,15 @@ fn outside(name: &str, target: &str, rule: &str, at: crate::config::tree::Span) 
     ))
 }
 
-fn refusal_of(gate: &Gate, addrs: &[SocketAddr]) -> Option<(SocketAddr, Refusal)> {
-    let refusals: Vec<(SocketAddr, Option<Refusal>)> =
-        addrs.iter().map(|a| (*a, gate.refusal(*a))).collect();
+fn refusal_of(
+    gate: &Gate,
+    protocol: Protocol,
+    addrs: &[SocketAddr],
+) -> Option<(SocketAddr, Refusal)> {
+    let refusals: Vec<(SocketAddr, Option<Refusal>)> = addrs
+        .iter()
+        .map(|a| (*a, gate.refusal(protocol, *a)))
+        .collect();
     let hard = refusals
         .iter()
         .find_map(|(a, r)| r.filter(|r| *r != Refusal::Outside).map(|r| (*a, r)));
