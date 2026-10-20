@@ -2407,3 +2407,26 @@ fn a_self_allow_covering_a_whole_family_is_warned_about() {
     server.yaml: valid server config (1 client, 1 service), 3 warnings
     "#);
 }
+
+#[test]
+fn cloud_metadata_targets_need_their_own_rule() {
+    let text = render(
+        "server.yaml",
+        &self_server(
+            "self:\n  allow: [100.64.0.0/10, \"fd00::/8\", \"fd00:ec2::254\"]\n",
+            "  ali: { client: self, bind: 8080, target: 100.100.100.200:80 }\n  aws: { client: self, bind: 8081, target: \"[fd00:ec2::254]:80\" }\n",
+            "",
+        ),
+        None,
+    );
+    insta::assert_snapshot!(text, @r#"
+    error: service "ali" on "self" targets 100.100.100.200:80, a link-local or metadata address
+      --> server.yaml:10:44
+       |
+    10 |   ali: { client: self, bind: 8080, target: 100.100.100.200:80 }
+       |                                            ^^^^^^^^^^^^^^^^^^ not named in self.allow
+       = help: list the address itself in self.allow, for example 100.100.100.200/32:80; a range that covers it does not count
+
+    server.yaml: 1 error, 0 warnings
+    "#);
+}

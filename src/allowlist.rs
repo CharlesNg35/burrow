@@ -137,7 +137,7 @@ impl Gate {
         {
             return Some(Refusal::Burrow(*own));
         }
-        if self.link_local_named_only && is_link_local(target.ip()) && !self.names(target) {
+        if self.link_local_named_only && named_only(target.ip()) && !self.names(target) {
             return Some(Refusal::LinkLocal);
         }
         (!self.allow.permits(target)).then_some(Refusal::Outside)
@@ -168,11 +168,18 @@ impl Gate {
     }
 }
 
-pub fn is_link_local(ip: IpAddr) -> bool {
-    match canonical(ip) {
-        IpAddr::V4(v4) => v4.is_link_local(),
-        IpAddr::V6(v6) => v6.is_unicast_link_local(),
-    }
+const METADATA: [IpAddr; 2] = [
+    IpAddr::V6(std::net::Ipv6Addr::new(0xfd00, 0xec2, 0, 0, 0, 0, 0, 0x254)),
+    IpAddr::V4(std::net::Ipv4Addr::new(100, 100, 100, 200)),
+];
+
+pub fn named_only(ip: IpAddr) -> bool {
+    let ip = canonical(ip);
+    METADATA.contains(&ip)
+        || match ip {
+            IpAddr::V4(v4) => v4.is_link_local(),
+            IpAddr::V6(v6) => v6.is_unicast_link_local(),
+        }
 }
 
 #[cfg(test)]
@@ -450,5 +457,26 @@ mod tests {
         );
         assert_eq!(gate.refusal(sa("[fe80::1]:22")), None);
         assert_eq!(gate.refusal(sa("10.0.0.1:22")), Some(Refusal::Outside));
+    }
+
+    #[test]
+    fn cloud_metadata_addresses_are_reached_only_by_a_rule_naming_them() {
+        let wide = AllowList::Rules(vec![rule("fd00::/8"), rule("100.64.0.0/10")]);
+        let gate = Gate::this_server(Some(&wide), Vec::new());
+        assert_eq!(
+            gate.refusal(sa("[fd00:ec2::254]:80")),
+            Some(Refusal::LinkLocal)
+        );
+        assert_eq!(
+            gate.refusal(sa("100.100.100.200:80")),
+            Some(Refusal::LinkLocal)
+        );
+        assert_eq!(gate.refusal(sa("[fd00:ec2::253]:80")), None);
+        assert_eq!(gate.refusal(sa("100.100.100.201:80")), None);
+        let named = AllowList::Rules(vec![rule("fd00:ec2::254"), rule("100.100.100.200/32:80")]);
+        let gate = Gate::this_server(Some(&named), Vec::new());
+        assert_eq!(gate.refusal(sa("[fd00:ec2::254]:80")), None);
+        assert_eq!(gate.refusal(sa("100.100.100.200:80")), None);
+        assert!(Gate::client(wide).permits(sa("100.100.100.200:80")));
     }
 }
