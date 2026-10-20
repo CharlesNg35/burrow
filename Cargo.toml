@@ -50,7 +50,7 @@ tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring
 tokio-websockets = { version = "0.13.3", default-features = false, features = ["client", "server", "ring", "getrandom"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json", "fmt", "ansi"] }
-webpki-roots = "1.0.9"
+webpki-roots = "1.0.10"
 zeroize = { version = "1.9.1", features = ["derive"] }
 
 [target.'cfg(unix)'.dependencies]
