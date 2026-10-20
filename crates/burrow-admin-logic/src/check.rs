@@ -140,7 +140,8 @@ fn check_sem(sem: &SemType, v: &Value) -> Result<(), String> {
         }
         SemType::Host => hostport::check_host(&want_text(v)?),
         SemType::ServerAddress => server_address(&want_text(v)?),
-        SemType::Cidr => rule::parse_cidr_loose(&want_text(v)?)
+        SemType::Cidr => want_text(v)?
+            .parse::<burrow_syntax::cidr::Cidr>()
             .map(|_| ())
             .map_err(|e| e.describe()),
         SemType::CidrRule => want_text(v)?
@@ -403,6 +404,26 @@ mod tests {
         assert_eq!(bad(e, json!("sctp")), "pick one of tcp, udp");
         ok(SemType::Cidr, json!("10.0.0.0/8"));
         bad(SemType::Cidr, json!("10.0.0.0/99"));
+        ok(SemType::Cidr, json!("[2001:db8::1]"));
+        ok(SemType::Cidr, json!("[2001:db8::/32]"));
+        for text in [
+            "10.0.0.0/8",
+            "203.0.113.7",
+            "2001:db8::/32",
+            "[2001:db8::1]",
+            "[2001:db8::/32]",
+            "[2001:db8::]/32",
+            "10.0.0.1/8",
+            "10.0.0.0/8:22",
+            "[2001:db8::1]:22",
+            "::ffff:10.0.0.0/104",
+            "home",
+            "",
+        ] {
+            let server = text.parse::<burrow_syntax::cidr::Cidr>().is_ok();
+            let ui = check_sem(&SemType::Cidr, &json!(text)).is_ok();
+            assert_eq!(ui, server, "{text}");
+        }
         ok(SemType::CidrRule, json!("10.0.0.0/8"));
         let refs = SemType::RefList(RefListC {
             entity: burrow_admin_proto::schema::Entity::Client,
