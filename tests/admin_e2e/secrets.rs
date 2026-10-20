@@ -342,3 +342,56 @@ fn e9b_a_change_sent_while_reconnecting_fails_and_later_changes_still_show() {
         request_while_reconnecting,
     );
 }
+
+fn create_and_apply(c: &mut Ctx) -> Flow<'_> {
+    Box::pin(async move {
+        open(c, "ops").await;
+        c.ui.nav("/clients").await;
+        c.ui.click("[data-testid=new]").await;
+        c.ui.fill("#new-name", "lab").await;
+        c.ui.click("[data-testid=create-apply]").await;
+        c.ui.wait_for("[data-testid=shown-once]", Duration::from_secs(20))
+            .await;
+        c.ui.shot("created-and-applied").await;
+        c.ui.click("[data-testid=saved]").await;
+        c.ui.click("[data-testid=close-shown-once]").await;
+        c.ui.wait_gone("[data-testid=shown-once]", SECS).await;
+        assert!(
+            c.world.config().contains("  lab:\n"),
+            "{}",
+            c.world.config()
+        );
+
+        c.ui.nav("/services/web").await;
+        super::edit_mode(c).await;
+        c.ui.fill("#f-services-web-target", "4100").await;
+        wait_checked(c).await;
+        c.ui.nav("/clients").await;
+        c.ui.click("[data-testid=new]").await;
+        c.ui.fill("#new-name", "lab2").await;
+        c.ui.click("[data-testid=create-apply]").await;
+        c.ui.wait_for("[data-testid=review]", SECS).await;
+        c.ui.wait_for("[data-testid=apply]:not([disabled])", SECS)
+            .await;
+        c.ui.wait_text("[data-testid=review-count]", "2", SECS)
+            .await;
+        tokio::time::sleep(Duration::from_secs(3)).await;
+        c.ui.shot("create-and-apply-with-pending-edits-stops-at-review")
+            .await;
+        assert_eq!(c.ui.count("[data-testid=shown-once]").await, 0);
+        let text = c.world.config();
+        assert!(!text.contains("lab2:"), "nothing applied: {text}");
+        assert!(!text.contains("4100"), "nothing applied: {text}");
+        c.ui.assert_no_errors();
+    })
+}
+
+#[test]
+fn e2b_create_and_apply_with_pending_edits_stops_at_the_review() {
+    run(
+        "e2b-create-and-apply",
+        Options::default(),
+        false,
+        create_and_apply,
+    );
+}
