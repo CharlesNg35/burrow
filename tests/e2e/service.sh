@@ -89,7 +89,9 @@ chmod 600 e2e-server.yaml e2e-client.yaml e2e-visitor.yaml
 
 echo "== a busy port stops the install before anything changes"
 python3 -c 'import socket,time; s=socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1); s.bind(("127.0.0.1",27940)); s.listen(); time.sleep(60)' & BUSY=$!
-sleep 0.5
+PIDS+=("$BUSY")
+for _ in $(seq 1 100); do (exec 3<>/dev/tcp/127.0.0.1/27940) 2>/dev/null && break; sleep 0.1; done
+(exec 3<>/dev/tcp/127.0.0.1/27940) 2>/dev/null || fail "the busy-port listener did not start within 10 s"
 if out="$(sudo "$B" service install -c e2e-server.yaml 2>&1)"; then fail "install succeeded with a busy port"; fi
 echo "$out" | grep -q "port 27940 (service \"web\") is already in use" || fail "unexpected message: $out"
 sudo "$B" service list | grep -q burrow-e2e-server && fail "a failed install left a service behind"
