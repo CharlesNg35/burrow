@@ -4,7 +4,6 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use burrow_admin_proto::frame::{self, AdminOpen};
-use burrow_admin_proto::msg::Level;
 use tracing::{debug, warn};
 
 use super::core::ports::{Live, LiveSession, Store, Version, WhyNot, WriteError};
@@ -553,10 +552,7 @@ pub async fn serve(shared: Arc<Shared>, mut channel: Channel, first: &[u8], open
     );
     let session = Session::new(
         visitor.clone(),
-        match level {
-            AdminLevel::Read => Level::Read,
-            AdminLevel::Write => Level::Write,
-        },
+        level.into(),
         peer,
         secret.clone(),
         via_websocket,

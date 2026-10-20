@@ -24,6 +24,7 @@ members = [
 
 [dependencies]
 burrow-admin-derive = { path = "crates/burrow-admin-derive" }
+burrow-admin-logic = { path = "crates/burrow-admin-logic" }
 burrow-admin-proto = { path = "crates/burrow-admin-proto" }
 burrow-syntax = { path = "crates/burrow-syntax" }
 base64 = "0.23.1"
@@ -68,7 +69,6 @@ tikv-jemallocator = "0.6"
 mimalloc = { version = "0.1", default-features = false }
 
 [dev-dependencies]
-burrow-admin-logic = { path = "crates/burrow-admin-logic" }
 chromiumoxide = { version = "=0.9.1", default-features = false }
 image = { version = "0.25.10", default-features = false, features = ["png"] }
 insta = "1.49.0"

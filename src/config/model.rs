@@ -300,6 +300,15 @@ pub enum AdminLevel {
     Write,
 }
 
+impl From<AdminLevel> for burrow_admin_proto::msg::Level {
+    fn from(level: AdminLevel) -> Self {
+        match level {
+            AdminLevel::Read => burrow_admin_proto::msg::Level::Read,
+            AdminLevel::Write => burrow_admin_proto::msg::Level::Write,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, AdminSchema)]
 #[serde(untagged)]
 #[admin(semantic = union(enum_values("any"), cidr_rule, list(cidr_rule)))]

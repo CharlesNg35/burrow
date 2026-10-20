@@ -1,11 +1,15 @@
+mod grants;
+
 use std::collections::BTreeSet;
 use std::net::SocketAddr;
+use std::path::Path;
 
 use burrow_admin_proto::plan::{Impact, Level, Refusal};
 
 use super::ports::LiveSession;
 use crate::config::SELF;
 use crate::config::model::AdminLevel;
+use crate::config::patch::Rename;
 use crate::config::settings::{ServerSettings, Service};
 use crate::metrics::Status;
 use crate::secret::Secret;
@@ -17,6 +21,14 @@ pub struct Who<'a> {
     pub via_websocket: bool,
 }
 
+pub struct Change<'a> {
+    pub running: &'a ServerSettings,
+    pub file: &'a ServerSettings,
+    pub next: &'a ServerSettings,
+    pub renames: &'a [Rename],
+    pub path: &'a Path,
+}
+
 fn refusal(code: &str, message: String) -> Refusal {
     Refusal {
         code: code.into(),
@@ -24,7 +36,8 @@ fn refusal(code: &str, message: String) -> Refusal {
     }
 }
 
-pub fn refusals(who: &Who, old: &ServerSettings, new: &ServerSettings) -> Vec<Refusal> {
+pub fn refusals(who: &Who, change: &Change) -> Vec<Refusal> {
+    let (old, new) = (change.running, change.next);
     let mut out = Vec::new();
     let me = who.visitor;
     match new.visitors.get(me) {
@@ -87,6 +100,7 @@ pub fn refusals(who: &Who, old: &ServerSettings, new: &ServerSettings) -> Vec<Re
             "this session comes through the TCP listener, which this change removes".into(),
         ));
     }
+    out.extend(grants::refusals(change));
     out
 }
 
@@ -296,38 +310,7 @@ pub fn impacts(
                         (open > 0).then(|| name.clone()),
                     );
                 }
-                if n.admin.is_some() && auth.admin.is_none() {
-                    push(
-                        Level::Warning,
-                        "admin-granted",
-                        format!("visitor {name} gets admin access"),
-                        None,
-                    );
-                }
-                if n.admin == Some(AdminLevel::Write)
-                    && n.admin_from.is_empty()
-                    && auth.admin != Some(AdminLevel::Write)
-                {
-                    push(
-                        Level::Info,
-                        "admin-everywhere",
-                        format!(
-                            "visitor {name} may administer from any address; admin_from can limit it"
-                        ),
-                        None,
-                    );
-                }
             }
-        }
-    }
-    for (name, n) in &new.visitors {
-        if !old.visitors.contains_key(name) && n.admin.is_some() {
-            push(
-                Level::Warning,
-                "admin-granted",
-                format!("new visitor {name} gets admin access"),
-                None,
-            );
         }
     }
     let reaches_self = |s: &ServerSettings| s.visitors.values().any(|v| v.reach.contains_key(SELF));

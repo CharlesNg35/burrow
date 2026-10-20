@@ -247,7 +247,17 @@ pub fn compute(
             secret: &s.secret,
             via_websocket: s.via_websocket,
         };
-        refusals = guard::refusals(&who, &running, next);
+        let file = check_text(core, &old_text).settings;
+        refusals = guard::refusals(
+            &who,
+            &guard::Change {
+                running: &running,
+                file: file.as_ref().unwrap_or(&running),
+                next,
+                renames: &applied.renames,
+                path: core.store.path(),
+            },
+        );
         if let Some(c) = running.listen_clash(next) {
             clash.push(Diag {
                 severity: burrow_admin_proto::diag::Severity::Error,
