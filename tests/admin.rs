@@ -388,19 +388,28 @@ async fn a_hand_edit_in_between_is_a_conflict() {
         "nothing is written on a conflict"
     );
     let started = std::time::Instant::now();
-    loop {
-        let st = a.state().await;
-        if st["running"]["rev"] == st["rev"] && st["rev"] == e.body["current"] {
-            break;
+    let retry = loop {
+        let plan = a.plan(ops.clone()).await.unwrap();
+        let live = !plan["impacts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|i| i["code"] == "adds-client");
+        if live {
+            break plan;
         }
         assert!(
             started.elapsed() < Duration::from_secs(30),
-            "the hand edit never ran: {}",
-            st["running"]
+            "the hand-edited client never became live: {plan}"
         );
         tokio::time::sleep(Duration::from_millis(100)).await;
-    }
-    a.apply(ops, &[]).await.unwrap();
+    };
+    a.call(
+        "apply",
+        json!({"base": retry["base"], "ops": ops, "plan": retry["plan"], "confirm": []}),
+    )
+    .await
+    .unwrap();
     let last = std::fs::read_to_string(&w.path).unwrap();
     assert!(last.contains("office:") && last.contains("target: 3002"));
     let _ = w.stop.send(true);
