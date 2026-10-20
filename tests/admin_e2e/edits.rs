@@ -727,3 +727,69 @@ fn locked_fields(c: &mut Ctx) -> Flow<'_> {
 fn locked_server_fields_are_read_only() {
     run("locked-fields", Options::default(), false, locked_fields);
 }
+
+async fn revert_review_left(c: &mut Ctx, ready: bool) {
+    let rev = activity_rev(c, 0).await;
+    c.ui.click(&format!("[data-row='{rev}'] [data-testid=list-row]"))
+        .await;
+    c.ui.wait_for("[data-testid=activity-diff]", SECS).await;
+    c.ui.click("[data-testid=revert]").await;
+    c.ui.wait_for("[data-testid=review]", SECS).await;
+    if ready {
+        c.ui.wait_for("[data-testid=apply]:not([disabled])", SECS)
+            .await;
+    }
+}
+
+fn stale_revert(c: &mut Ctx) -> Flow<'_> {
+    Box::pin(async move {
+        open(c, "ops").await;
+        c.ui.nav("/services/web").await;
+        edit_mode(c).await;
+        c.ui.fill("#f-services-web-target", "4001").await;
+        wait_checked(c).await;
+        open_review(c, "change-to-revert").await;
+        applied(c, "changed").await;
+        revert_review_left(c, true).await;
+        c.ui.shot("revert-reviewed-then-left").await;
+        c.ui.nav("/clients").await;
+        c.ui.click("[data-testid=new]").await;
+        c.ui.fill("#new-name", "lab9").await;
+        c.ui.click("[data-testid=create-apply]").await;
+        c.ui.wait_for("[data-testid=shown-once]", Duration::from_secs(20))
+            .await;
+        c.ui.shot("create-and-apply-after-a-left-revert").await;
+        let after = c.world.config();
+        assert!(
+            after.contains("lab9:"),
+            "the new client is applied: {after}"
+        );
+        assert!(
+            after.contains("4001"),
+            "the revert was applied without a click: {after}"
+        );
+        c.ui.click("[data-testid=saved]").await;
+        c.ui.click("[data-testid=close-shown-once]").await;
+        c.ui.wait_gone("[data-testid=shown-once]", SECS).await;
+
+        revert_review_left(c, false).await;
+        c.ui.nav("/services/web").await;
+        edit_mode(c).await;
+        c.ui.fill("#f-services-web-target", "4002").await;
+        wait_checked(c).await;
+        open_review(c, "draft-review-after-a-left-revert").await;
+        c.ui.wait_for("[data-testid=apply]:not([disabled])", SECS)
+            .await;
+        let label = c.ui.text("[data-testid=apply]").await;
+        assert!(
+            !label.contains("revert"),
+            "the draft's review shows: {label}"
+        );
+        c.ui.take_errors();
+    })
+}
+
+#[test]
+fn a_revert_review_left_unapplied_is_never_applied_later() {
+    run("stale-revert", Options::default(), false, stale_revert);
+}

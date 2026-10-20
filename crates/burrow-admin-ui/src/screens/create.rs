@@ -195,6 +195,7 @@ pub fn NewEntity(
         name.set(String::new());
         go(Route::Detail(sec.clone(), n));
         if apply {
+            e.review.set(None);
             e.auto_apply.set(clean);
             go(Route::Review);
         }

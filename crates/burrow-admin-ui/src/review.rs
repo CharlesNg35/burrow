@@ -623,6 +623,12 @@ pub fn ReviewPage() -> impl IntoView {
     });
     on_cleanup(move || {
         let _ = e.auto_apply.try_set(false);
+        if e.review
+            .try_with_untracked(|r| r.as_ref().is_some_and(|r| r.revert_of.is_some()))
+            .unwrap_or(false)
+        {
+            let _ = e.review.try_set(None);
+        }
     });
     let plan = Memo::new(move |_| e.review_plan());
     Effect::new(move |_| {
