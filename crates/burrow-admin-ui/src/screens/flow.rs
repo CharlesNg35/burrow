@@ -724,6 +724,7 @@ mod tests {
             open: 3,
             idle_channels: 2,
             left_secs_ago: None,
+            local: false,
         });
         st.clients.push(ClientStatus {
             name: "b".into(),
@@ -733,6 +734,7 @@ mod tests {
             open: 0,
             idle_channels: 0,
             left_secs_ago: Some(7200),
+            local: false,
         });
         let mut svc: ServiceStatus = burrow_admin_proto::serde_json::from_value(
             json!({"name": "web", "protocol": "tcp", "target": "x:80", "clients": ["a"]}),

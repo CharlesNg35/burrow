@@ -427,7 +427,8 @@ pub fn render(s: &Status, paint: Paint, rates: Option<&Rates>) -> String {
         }
     }
 
-    let connected = s.clients.iter().filter(|c| c.connected).count();
+    let remote = s.clients.iter().filter(|c| !c.local).count();
+    let connected = s.clients.iter().filter(|c| c.connected && !c.local).count();
     let rows = s
         .clients
         .iter()
@@ -450,13 +451,16 @@ pub fn render(s: &Status, paint: Paint, rates: Option<&Rates>) -> String {
                 cell(&c.name),
                 state,
                 since,
-                cell(c.from.clone().unwrap_or_default()),
+                match c.local {
+                    true => toned("this server", Tone::Dim),
+                    false => cell(c.from.clone().unwrap_or_default()),
+                },
                 num(c.open),
                 num(c.idle_channels),
             ]
         })
         .collect();
-    let all_in = connected == s.clients.len();
+    let all_in = connected == remote;
     table(
         &mut out,
         paint,
@@ -464,7 +468,7 @@ pub fn render(s: &Status, paint: Paint, rates: Option<&Rates>) -> String {
             "{}  {}",
             paint.bold("CLIENTS"),
             paint.tone(
-                &format!("{connected}/{} connected", s.clients.len()),
+                &format!("{connected}/{remote} connected"),
                 if all_in { Tone::Good } else { Tone::Warn }
             )
         ),
@@ -651,6 +655,7 @@ mod tests {
                     open: 3,
                     idle_channels: 4,
                     left_secs_ago: None,
+                    local: false,
                 },
                 ClientStatus {
                     name: "office".into(),
@@ -660,6 +665,7 @@ mod tests {
                     open: 0,
                     idle_channels: 0,
                     left_secs_ago: Some(300),
+                    local: false,
                 },
             ],
             services: vec![
@@ -738,6 +744,25 @@ VISITORS
 
 2 refused handshakes since start (wrong secret, unknown name or limits)
 "
+        );
+    }
+
+    #[test]
+    fn this_server_is_listed_as_local_and_not_counted_as_a_client() {
+        let mut s = sample();
+        s.clients.push(ClientStatus {
+            name: "self".into(),
+            connected: true,
+            connected_secs: Some(60),
+            open: 2,
+            local: true,
+            ..ClientStatus::default()
+        });
+        let text = render(&s, Paint::PLAIN, None);
+        assert!(text.contains("CLIENTS  1/2 connected"), "{text}");
+        assert!(
+            text.contains("  self    connected  1 min           this server        2     0"),
+            "{text}"
         );
     }
 

@@ -2,13 +2,14 @@ use std::sync::atomic::Ordering;
 
 use super::Shared;
 use super::standing::Seen;
+use crate::config::SELF;
 use crate::metrics::{ClientStatus, HealthStatus, ServiceStatus, SetAside, Status, VisitorStatus};
 
 impl Shared {
     pub fn status(&self) -> Status {
         let settings = self.settings();
         let sessions = self.sessions.lock().expect("sessions lock").clone();
-        let clients = settings
+        let mut clients: Vec<ClientStatus> = settings
             .clients
             .keys()
             .map(|name| match sessions.get(name) {
@@ -20,6 +21,7 @@ impl Shared {
                     open: self.client_counts.current(name),
                     idle_channels: s.idle_count() as u64,
                     left_secs_ago: None,
+                    local: false,
                 },
                 None => ClientStatus {
                     name: name.clone(),
@@ -29,9 +31,22 @@ impl Shared {
                     open: self.client_counts.current(name),
                     idle_channels: 0,
                     left_secs_ago: self.metrics.left_secs_ago(name),
+                    local: false,
                 },
             })
             .collect();
+        if settings.uses_self() {
+            clients.push(ClientStatus {
+                name: SELF.to_string(),
+                connected: true,
+                connected_secs: Some(self.metrics.uptime_secs()),
+                from: None,
+                open: self.client_counts.current(SELF),
+                idle_channels: 0,
+                left_secs_ago: None,
+                local: true,
+            });
+        }
         let services = settings
             .services
             .iter()

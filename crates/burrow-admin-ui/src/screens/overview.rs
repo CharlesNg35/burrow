@@ -1015,6 +1015,7 @@ mod tests {
                 open: 0,
                 idle_channels: 0,
                 left_secs_ago: (!on).then_some(172_800),
+                local: false,
             });
         }
         st

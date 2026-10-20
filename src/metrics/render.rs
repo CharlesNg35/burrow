@@ -222,6 +222,7 @@ mod tests {
                     open: 3,
                     idle_channels: 4,
                     left_secs_ago: None,
+                    local: false,
                 },
                 ClientStatus {
                     name: "office".into(),
@@ -231,6 +232,7 @@ mod tests {
                     open: 0,
                     idle_channels: 0,
                     left_secs_ago: Some(300),
+                    local: false,
                 },
             ],
             services: vec![ServiceStatus {

@@ -48,6 +48,13 @@ impl ServerSettings {
         services_for(&self.services, client)
     }
 
+    pub fn uses_self(&self) -> bool {
+        let named = |c: &String| c == super::SELF;
+        self.self_allow.is_some()
+            || self.services.values().any(|s| s.clients.iter().any(named))
+            || self.visitors.values().any(|v| v.reach.keys().any(named))
+    }
+
     pub fn listen_clash(&self, next: &ServerSettings) -> Option<ListenClash> {
         let kept = self.listen.filter(|_| next.listen != self.listen)?;
         let conflicts = |a| crate::config::check::binds_conflict(kept, a);

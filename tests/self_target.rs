@@ -621,3 +621,54 @@ async fn a_visitor_with_reach_any_to_self_is_told_self_allow() {
         "{yaml}"
     );
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn status_and_metrics_show_self_as_an_always_connected_local_client() {
+    logs();
+    let echo = echo_server().await;
+    let mut settings = self_settings(vec![("web", on_self(echo, Protocol::Tcp))]);
+    settings.metrics = Some("127.0.0.1:0".parse().unwrap());
+    let srv = start_server(settings).await;
+    let held = open_echo(srv.services["web"]).await;
+    let status = srv.shared.status();
+    let me = status.clients.iter().find(|c| c.name == "self").unwrap();
+    assert!(me.connected && me.local);
+    assert_eq!(me.open, 1);
+    assert_eq!(me.from, None);
+    let json = serde_json::to_value(&status).unwrap();
+    let listed = json["clients"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["name"] == "self")
+        .unwrap();
+    assert_eq!(listed["local"], true);
+    let home = json["clients"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["name"] == "home")
+        .unwrap();
+    assert!(
+        home.get("local").is_none(),
+        "remote clients keep their exact JSON shape"
+    );
+    let metrics = scrape(srv.metrics.unwrap()).unwrap();
+    assert!(
+        metrics.contains("burrow_client_connected{client=\"self\"} 1"),
+        "{metrics}"
+    );
+    assert!(
+        metrics.contains("burrow_client_connections_open{client=\"self\"} 1"),
+        "{metrics}"
+    );
+    drop(held);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_config_that_does_not_use_self_does_not_list_it() {
+    let mut settings = server_settings(vec![Secret::generate()]);
+    settings.self_allow = None;
+    let srv = start_server(settings).await;
+    assert!(srv.shared.status().clients.iter().all(|c| c.name != "self"));
+}
