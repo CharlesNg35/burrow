@@ -93,12 +93,19 @@ pub trait Backend {
     }
     fn secure_file(&self, path: &Path, account: &str) -> Result<(), Failure>;
     fn writable_folder(&self, dir: &Path, config: &Path, account: &str) -> Result<(), Failure> {
-        let _ = config;
         #[cfg(unix)]
-        return system::make_dir(dir, 0o700, Some(account));
+        {
+            system::make_dir(dir, 0o700, Some(account))?;
+            // Versions kept from an earlier install, given to root when that
+            // install's account was removed, belong to this account again.
+            if let Ok((uid, gid)) = system::account_ids(account) {
+                give_history(dir, config, uid, gid);
+            }
+            Ok(())
+        }
         #[cfg(not(unix))]
         {
-            let _ = account;
+            let _ = (account, config);
             std::fs::create_dir_all(dir)
                 .map_err(|e| Failure::new(format!("cannot create {}: {e}", dir.display())))
         }
@@ -1132,6 +1139,68 @@ fn p_log_dir() -> PathBuf {
     Platform::current().log_dir()
 }
 
+fn admin_history(config: &Path) -> PathBuf {
+    crate::admin::adapters::history_dir_of(config)
+}
+
+/// The plain files of the admin history in a writable config folder, when
+/// that folder is a real folder: they hold every earlier config, secrets
+/// included, so uninstall gives them back to root with the folder.
+fn writable_leftovers(dir: &Path, config: &Path) -> Option<Vec<PathBuf>> {
+    let real_dir = |p: &Path| std::fs::symlink_metadata(p).is_ok_and(|m| m.is_dir());
+    if !real_dir(dir) {
+        return None;
+    }
+    let history = admin_history(config);
+    if !real_dir(&history) {
+        return Some(Vec::new());
+    }
+    let files = std::fs::read_dir(&history)
+        .map(|entries| {
+            entries
+                .flatten()
+                .map(|e| e.path())
+                .filter(|p| std::fs::symlink_metadata(p).is_ok_and(|m| m.file_type().is_file()))
+                .collect()
+        })
+        .unwrap_or_default();
+    Some(files)
+}
+
+/// Gives the writable config folder, its history folder and the plain
+/// files in it to another owner, never following a link.
+#[cfg(unix)]
+fn give_history(dir: &Path, config: &Path, uid: u32, gid: u32) {
+    let Some(files) = writable_leftovers(dir, config) else {
+        return;
+    };
+    for f in &files {
+        let _ = system::give_plain_file(f, uid, gid);
+    }
+    let history = admin_history(config);
+    if std::fs::symlink_metadata(&history).is_ok_and(|m| m.is_dir()) {
+        let _ = std::os::unix::fs::lchown(&history, Some(uid), Some(gid));
+    }
+    let _ = std::os::unix::fs::lchown(dir, Some(uid), Some(gid));
+}
+
+fn delete_hint(files: &[PathBuf], folder: Option<&Path>) -> String {
+    let quote = |p: &Path| format!("\"{}\"", p.display());
+    let mut list: Vec<String> = folder.map(quote).into_iter().collect();
+    list.extend(
+        files
+            .iter()
+            .filter(|f| !folder.is_some_and(|d| f.starts_with(d)))
+            .map(|f| quote(f)),
+    );
+    match (cfg!(windows), folder.is_some()) {
+        (true, false) => format!("Remove-Item {}", list.join(", ")),
+        (true, true) => format!("Remove-Item -Recurse {}", list.join(", ")),
+        (false, false) => format!("sudo rm {}", list.join(" ")),
+        (false, true) => format!("sudo rm -r {}", list.join(" ")),
+    }
+}
+
 pub fn uninstall(name: Option<&str>, purge: bool, out: &mut dyn Write) -> Result<(), Failure> {
     let backend = system::backend()?;
     system::require_admin()?;
@@ -1148,6 +1217,7 @@ pub fn uninstall(name: Option<&str>, purge: bool, out: &mut dyn Write) -> Result
         (1..=crate::logfile::KEEP).map(|n| PathBuf::from(format!("{}.{n}", m.log_file.display()))),
     );
     let mut kept = Vec::new();
+    let mut kept_folder = None;
     if purge {
         for f in [Some(&m.config), m.env_file.as_ref()].into_iter().flatten() {
             if std::fs::remove_file(f).is_ok() {
@@ -1182,6 +1252,10 @@ pub fn uninstall(name: Option<&str>, purge: bool, out: &mut dyn Write) -> Result
                 .filter(|f| std::fs::symlink_metadata(f).is_ok_and(|m| m.file_type().is_file()))
                 .cloned(),
         );
+        kept_folder = m
+            .writable_dir
+            .clone()
+            .filter(|d| writable_leftovers(d, &m.config).is_some());
     }
     if m.copied_binary && !others.iter().any(|o| o.binary == m.binary) {
         match std::fs::remove_file(&m.binary) {
@@ -1240,25 +1314,22 @@ pub fn uninstall(name: Option<&str>, purge: bool, out: &mut dyn Write) -> Result
             if let Some(d) = dir {
                 let _ = std::os::unix::fs::lchown(d, Some(0), Some(0));
             }
+            if let Some(d) = &kept_folder {
+                give_history(d, &m.config, 0, 0);
+            }
         }
         match backend.remove_account(&m.account) {
             Ok(()) => say(out, format!("removed service account {}", m.account))?,
             Err(f) => account_left = Some(f),
         }
     }
-    if !kept.is_empty() {
-        let list = kept
-            .iter()
-            .map(|f| format!("\"{}\"", f.display()))
-            .collect::<Vec<_>>();
-        let delete = if cfg!(windows) {
-            format!("Remove-Item {}", list.join(", "))
-        } else {
-            format!("sudo rm {}", list.join(" "))
-        };
+    if !kept.is_empty() || kept_folder.is_some() {
         say(
             out,
-            format!("kept these files for a later reinstall; delete them with:\n  {delete}"),
+            format!(
+                "kept these files for a later reinstall; delete them with:\n  {}",
+                delete_hint(&kept, kept_folder.as_deref())
+            ),
         )?;
     }
     if others.is_empty() {
@@ -1556,6 +1627,42 @@ mod tests {
         assert!(!differs(&source, &installed));
         std::fs::write(&installed, "listen: 2\n").unwrap();
         assert!(differs(&source, &installed));
+    }
+
+    #[test]
+    fn uninstall_keeps_the_admin_history_with_its_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        let folder = dir.path().join("e2e-admin");
+        let config = folder.join("server.yaml");
+        std::fs::create_dir(&folder).unwrap();
+        std::fs::write(&config, "listen: 1\n").unwrap();
+        assert_eq!(writable_leftovers(&folder, &config), Some(Vec::new()));
+        let history = folder.join(".server.yaml.history");
+        std::fs::create_dir(&history).unwrap();
+        let old = history.join("1-0123456789abcdef.yaml");
+        std::fs::write(&old, "listen: 0\n").unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&config, history.join("2-link.yaml")).unwrap();
+        assert_eq!(writable_leftovers(&folder, &config), Some(vec![old]));
+        assert_eq!(writable_leftovers(&dir.path().join("gone"), &config), None);
+        #[cfg(unix)]
+        {
+            let link = dir.path().join("linked");
+            std::os::unix::fs::symlink(&folder, &link).unwrap();
+            assert_eq!(writable_leftovers(&link, &link.join("server.yaml")), None);
+        }
+        let log = dir.path().join("e2e-admin.log");
+        let hint = delete_hint(&[config.clone(), log.clone()], Some(&folder));
+        let q = |p: &Path| format!("\"{}\"", p.display());
+        assert!(hint.contains(&q(&folder)), "{hint}");
+        assert!(hint.contains(&q(&log)), "{hint}");
+        assert!(!hint.contains(&q(&config)), "{hint}");
+        assert!(
+            hint.contains(if cfg!(windows) { "-Recurse" } else { "rm -r" }),
+            "{hint}"
+        );
+        let plain = delete_hint(&[log], None);
+        assert!(!plain.contains("-r"), "{plain}");
     }
 
     #[test]

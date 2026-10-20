@@ -30,6 +30,19 @@ pub struct FileStore {
     problem: Mutex<Option<String>>,
 }
 
+/// The folder beside a config where burrow admin keeps its earlier versions.
+pub fn history_dir_of(config: &Path) -> PathBuf {
+    let name = config
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "config".into());
+    config
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .map_or_else(|| PathBuf::from("."), Path::to_path_buf)
+        .join(format!(".{name}.history"))
+}
+
 impl FileStore {
     pub fn new(path: &Path) -> FileStore {
         FileStore {
@@ -41,12 +54,7 @@ impl FileStore {
     }
 
     fn dir(&self) -> PathBuf {
-        let name = self
-            .path
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_else(|| "config".into());
-        self.folder().join(format!(".{name}.history"))
+        history_dir_of(&self.path)
     }
 
     fn folder(&self) -> PathBuf {

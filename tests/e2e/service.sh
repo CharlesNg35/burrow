@@ -357,14 +357,25 @@ PY
   echo "$state" | grep -q '"code":"read-only-fs"' || fail "the read-only reason is not the sandbox: $state"
   check "a server installed without admin says honestly that its config is read-only"
 fi
-sudo "$B" service uninstall burrow-e2e-admin --purge >/dev/null || fail "admin server uninstall"
-[ -e /etc/burrow/e2e-admin ] && fail "/etc/burrow/e2e-admin still exists"
-check "uninstall --purge removes the config folder and its versions"
 
 echo "== uninstall removes everything it created"
 sudo "$B" service uninstall burrow-e2e-server --purge
 sudo "$B" service uninstall burrow-e2e-client --purge
 sudo "$B" service uninstall burrow-e2e-visitor --purge
+out="$(sudo "$B" service uninstall burrow-e2e-admin 2>&1)" || fail "admin server uninstall: $out"
+echo "$out" | grep -q '"/etc/burrow/e2e-admin"' || fail "the delete hint does not name the kept config folder: $out"
+[ "$(sudo ls /etc/burrow/e2e-admin/.server.yaml.history | wc -l)" -ge 1 ] || fail "uninstall without --purge lost the kept versions"
+left="$(sudo find /etc/burrow/e2e-admin ! -uid 0)"
+[ -z "$left" ] || fail "uninstall left files of the removed account behind: $left"
+check "uninstall gives the kept config folder and its versions back to root"
+out="$(sudo "$B" service install -c e2e-admin.yaml 2>&1)" || fail "admin server reinstall over the kept folder: $out"
+running burrow-e2e-admin || fail "reinstalled admin server not running"
+left="$(sudo find /etc/burrow/e2e-admin -uid 0)"
+[ -z "$left" ] || fail "the reinstalled service account does not own its kept versions: $left"
+check "a reinstall gives the kept versions to the new service account"
+sudo "$B" service uninstall burrow-e2e-admin --purge >/dev/null || fail "admin server uninstall"
+[ -e /etc/burrow/e2e-admin ] && fail "/etc/burrow/e2e-admin still exists"
+check "uninstall --purge removes the config folder and its versions"
 sudo "$B" service list | grep -q burrow-e2e && fail "services still listed"
 for f in "$STATE" /etc/burrow/e2e-server.yaml /etc/burrow/e2e-client.yaml /etc/burrow/e2e-client.env /etc/burrow/e2e-visitor.yaml /usr/local/bin/burrow /usr/local/bin/burrow.previous "$LOG" "$JOBS"; do
   [ -e "$f" ] && fail "$f still exists"
