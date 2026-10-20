@@ -2,8 +2,8 @@ use std::sync::atomic::Ordering;
 
 use super::Shared;
 use super::standing::Seen;
-use crate::config::SELF;
 use crate::metrics::{ClientStatus, HealthStatus, ServiceStatus, SetAside, Status, VisitorStatus};
+use burrow_config::SELF;
 
 impl Shared {
     pub fn status(&self) -> Status {
@@ -79,26 +79,14 @@ impl Shared {
                 };
                 ServiceStatus {
                     name: name.clone(),
-                    protocol: svc.protocol.as_str().to_string(),
+                    protocol: svc.protocol.wire().to_string(),
                     bind: svc.shown_bind(),
                     target: svc.shown_target(),
                     clients: svc.clients.clone(),
-                    mode: (svc.clients.len() > 1).then(|| {
-                        match svc.mode {
-                            burrow_config::Mode::Failover => "failover",
-                            burrow_config::Mode::Balance => "balance",
-                        }
-                        .to_string()
-                    }),
+                    mode: (svc.clients.len() > 1).then(|| svc.mode.wire().to_string()),
                     bandwidth: svc.bandwidth,
                     visitors: svc.visitors.clone(),
-                    proxy_protocol: svc.proxy_protocol.map(|v| {
-                        match v {
-                            burrow_config::ProxyVersion::V1 => "v1",
-                            burrow_config::ProxyVersion::V2 => "v2",
-                        }
-                        .to_string()
-                    }),
+                    proxy_protocol: svc.proxy_protocol.map(|v| v.wire().to_string()),
                     filtered: !svc.sources.is_open(),
                     open: self.service_counts.current(name),
                     total: stats.total.load(Ordering::Relaxed),

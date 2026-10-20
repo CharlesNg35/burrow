@@ -246,7 +246,7 @@ fn tcp_only(
         out.push(
             Diagnostic::error(
                 code,
-                format!("service \"{name}\" is {}, but {why}", svc.protocol.as_str()),
+                format!("service \"{name}\" is {}, but {why}", svc.protocol.wire()),
             )
             .at(spans.value(&["services", name, field]))
             .help(format!("remove \"{field}\", or use a tcp service")),
@@ -346,7 +346,7 @@ fn check_bind<'a>(
                 "duplicate-bind",
                 format!(
                     "service \"{name}\" binds {} {shown}, already used by service \"{other}\"",
-                    protocol.as_str()
+                    protocol.wire()
                 ),
             )
             .at(at)

@@ -196,6 +196,55 @@ fn p() -> TokenStream {
     quote!(::burrow_config::admin_schema::__private)
 }
 
+fn field_paths(
+    name: &syn::Ident,
+    fields: &syn::FieldsNamed,
+    wires: &[String],
+    errors: &mut Errors,
+) -> TokenStream {
+    let f = quote!(::burrow_config::field);
+    let mut consts = Vec::new();
+    let mut entries = Vec::new();
+    for (field, wire) in fields.named.iter().zip(wires) {
+        let ty = sem::strip(&field.ty, "Option").unwrap_or(&field.ty);
+        let konst = format_ident!("{}", wire.to_uppercase(), span = field.span());
+        consts.push(quote! {
+            pub const #konst: #f::Field<#name, #ty> = #f::Field::new(#wire);
+        });
+        let mut terms_errors = Errors::new();
+        let terms = admin_attrs(&field.attrs, &mut terms_errors).unwrap_or_default();
+        if let Some(Term::Call(kind, args, _)) = assigned(&terms, "ty")
+            && kind == "map"
+        {
+            let (Some(entity), Some(value)) = (
+                args.first().and_then(Term::as_word),
+                sem::strip(&field.ty, "BTreeMap"),
+            ) else {
+                errors.push(
+                    field.span(),
+                    "map(entity) needs a BTreeMap<String, Entry> field",
+                );
+                continue;
+            };
+            entries.push(quote! {
+                impl #f::Entry for #value {
+                    const SECTION: &'static str = #wire;
+                    const ENTITY: &'static str = #entity;
+                }
+            });
+        }
+    }
+    quote! {
+        impl #name {
+            #(#consts)*
+        }
+        impl #f::Nest for #name {
+            type Inner = #name;
+        }
+        #(#entries)*
+    }
+}
+
 fn expand_struct(input: &DeriveInput, s: &syn::DataStruct, errors: &mut Errors) -> TokenStream {
     let name = &input.ident;
     let p = p();
@@ -227,6 +276,7 @@ fn expand_struct(input: &DeriveInput, s: &syn::DataStruct, errors: &mut Errors) 
                 .unwrap_or_else(|| f.ident.as_ref().expect("named").to_string())
         })
         .collect();
+    let paths = field_paths(name, fields, &field_names, errors);
     let mut groups: Vec<(String, String)> = Vec::new();
     if let Some(g) = find(&container, "groups") {
         for a in g.args() {
@@ -457,6 +507,7 @@ fn expand_struct(input: &DeriveInput, s: &syn::DataStruct, errors: &mut Errors) 
     };
     quote! {
         #tcp_only_const
+        #paths
         impl #p::DefaultSem for #name {
             const SEM: &'static str = "object";
             fn default_node() -> #p::Node {
@@ -624,7 +675,22 @@ fn expand_enum(input: &DeriveInput, e: &syn::DataEnum, errors: &mut Errors) -> T
         let node = built.node;
         let marker = quote_spanned!(sem_term.span()=> #p::sem::#marker);
         let tag = sem::tag_of(sem_term);
+        let objects: Vec<&syn::Type> = sem_term
+            .args()
+            .iter()
+            .filter(|a| a.name() == Some("object"))
+            .filter_map(|a| a.args().first().and_then(Term::as_type))
+            .collect();
+        let nest = match objects.as_slice() {
+            [one] => quote! {
+                impl ::burrow_config::field::Nest for #name {
+                    type Inner = #one;
+                }
+            },
+            _ => quote!(),
+        };
         return quote! {
+            #nest
             impl #p::AdminSchema for #name {
                 fn node() -> #p::Node {
                     #node
@@ -648,20 +714,29 @@ fn expand_enum(input: &DeriveInput, e: &syn::DataEnum, errors: &mut Errors) -> T
         return TokenStream::new();
     }
     quote! {
+        impl #name {
+            pub const ALL: &'static [#name] = &[#(#units),*];
+            pub const fn wire(&self) -> &'static str {
+                match self {
+                    #(#wires),*
+                }
+            }
+            pub fn from_wire(s: &str) -> ::core::option::Option<Self> {
+                match s {
+                    #(#parses,)*
+                    _ => ::core::option::Option::None,
+                }
+            }
+        }
         impl #p::AdminEnum for #name {
             fn options() -> ::std::vec::Vec<#p::EnumOption> {
                 ::std::vec![#(#options),*]
             }
             fn wire(&self) -> &'static str {
-                match self {
-                    #(#wires),*
-                }
+                #name::wire(self)
             }
             fn from_wire(s: &str) -> ::core::option::Option<Self> {
-                match s {
-                    #(#parses,)*
-                    _ => ::core::option::Option::None,
-                }
+                #name::from_wire(s)
             }
         }
         impl #p::AdminSchema for #name {

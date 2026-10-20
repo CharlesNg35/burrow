@@ -11,6 +11,4 @@ pub mod schema;
 pub mod settings;
 pub mod tree;
 
-pub const SELF: &str = "self";
-
 pub use load::{Format, Loaded, Outcome, Role, load_file, load_str};

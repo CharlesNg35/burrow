@@ -49,6 +49,10 @@ const FAIL: &[(&str, &[&str])] = &[
         ],
     ),
     (
+        "path_wrong_parent",
+        &["mismatched types", "expected `Field<Limits, _>`"],
+    ),
+    (
         "remote_missing_variant",
         &["non-exhaustive patterns: `&Level::Owner` not covered"],
     ),

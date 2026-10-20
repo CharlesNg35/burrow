@@ -7,12 +7,12 @@ use std::path::Path;
 use burrow_admin_proto::plan::{Impact, Level, Refusal};
 
 use super::ports::LiveSession;
-use crate::config::SELF;
 use crate::config::patch::Rename;
 use crate::config::settings::{ServerSettings, Service};
 use crate::metrics::Status;
 use crate::secret::Secret;
 use burrow_admin_proto::msg::AdminLevel;
+use burrow_config::SELF;
 
 pub struct Who<'a> {
     pub visitor: &'a str,

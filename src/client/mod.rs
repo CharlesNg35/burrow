@@ -499,7 +499,7 @@ impl Client {
             info!(
                 "service \"{}\": {} {at} -> {target}",
                 svc.name,
-                svc.protocol.as_str(),
+                svc.protocol.wire(),
             );
             data::precheck(&self.live.settings(), svc);
         }

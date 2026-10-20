@@ -200,7 +200,7 @@ pub(super) fn log_status(label: &str, client: &str, target: &str, st: Status) {
         return;
     };
     match st {
-        Status::Denied if client == crate::config::SELF => warn!(
+        Status::Denied if client == burrow_config::SELF => warn!(
             "{label}: this server (\"{client}\") refused {target}: self.allow does not permit it, or it is burrow's own listener or a link-local address that self.allow does not name; the warning before this one names the reason{more}"
         ),
         Status::Denied => warn!(

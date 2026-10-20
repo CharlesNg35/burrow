@@ -1225,7 +1225,7 @@ fn log_service(name: &str, svc: &Service, addr: Option<SocketAddr>) {
     };
     info!(
         "service \"{name}\": {} {at} -> {clients} {}{visitors}",
-        svc.protocol.as_str(),
+        svc.protocol.wire(),
         svc.shown_target()
     );
 }

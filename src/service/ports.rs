@@ -17,7 +17,7 @@ pub fn check_free(proto: Protocol, addr: SocketAddr, label: &str) -> Result<(), 
                 .unwrap_or_default();
             Err(Failure::new(format!(
                 "{} port {} ({label}) is already in use{owner}",
-                proto.as_str(),
+                proto.wire(),
                 addr.port()
             ))
             .hint(format!(
@@ -47,7 +47,7 @@ pub(crate) fn inspect_hint(proto: Protocol, port: u16) -> String {
         };
         format!("sudo ss {flag} 'sport = :{port}'")
     } else if cfg!(target_os = "freebsd") {
-        let flag = if proto == Protocol::Udp { "udp" } else { "tcp" };
+        let flag = proto.wire();
         format!("sockstat -46 -l -P {flag} -p {port}")
     } else {
         let flag = if proto == Protocol::Udp { "UDP" } else { "TCP" };

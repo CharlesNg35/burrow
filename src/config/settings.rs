@@ -50,7 +50,7 @@ impl ServerSettings {
     }
 
     pub fn uses_self(&self) -> bool {
-        let named = |c: &String| c == super::SELF;
+        let named = |c: &String| c == burrow_config::SELF;
         self.self_allow.is_some()
             || self.services.values().any(|s| s.clients.iter().any(named))
             || self.visitors.values().any(|v| v.reach.keys().any(named))

@@ -3,7 +3,6 @@ use std::net::SocketAddr;
 use std::path::Path;
 use std::time::Duration;
 
-use super::super::SELF;
 use super::super::settings::{
     ClientAuth, ServerSettings, TlsMaterial, VisitorAuth, WebSocketSettings,
 };
@@ -18,6 +17,7 @@ use crate::allowlist::AllowList;
 use crate::diagnostics::Diagnostic;
 use crate::secret::Secret;
 use crate::suggest::{closest, quoted_list};
+use burrow_config::SELF;
 use burrow_config::{Bind, Protocol, Secrets, ServerConfig, WebSocketConfig};
 
 pub fn check_server(

@@ -1,6 +1,9 @@
 use std::collections::BTreeMap;
 
-use burrow_admin_proto::schema::{Entity, EntityInfo, Node};
+use burrow_admin_proto::schema::{EntityInfo, Node};
+
+use crate::field::Entry;
+use crate::model::{ClientEntry, ServiceEntry, VisitorEntry};
 
 pub use burrow_admin_derive::AdminSchema;
 
@@ -160,35 +163,22 @@ pub mod __private {
 }
 
 pub fn entities() -> Vec<EntityInfo> {
-    let info =
-        |entity: Entity, section: &str, label: &str, plural: &str, facets: &[&str]| EntityInfo {
-            entity,
-            path: vec![section.to_string()],
+    fn info<E: Entry>(label: &str, plural: &str, facets: &[&str]) -> EntityInfo {
+        EntityInfo {
+            entity: E::kind(),
+            path: vec![E::section().to_string()],
             label: label.to_string(),
             plural: plural.to_string(),
             facets: facets.iter().map(|s| s.to_string()).collect(),
-        };
+        }
+    }
     vec![
-        info(
-            Entity::Client,
-            "clients",
-            "Client",
-            "Clients",
-            &["online", "from", "secret_fp"],
-        ),
-        info(
-            Entity::Visitor,
-            "visitors",
-            "Visitor",
-            "Visitors",
-            &["open"],
-        ),
-        info(
-            Entity::Service,
-            "services",
+        info::<ClientEntry>("Client", "Clients", &["online", "from", "secret_fp"]),
+        info::<VisitorEntry>("Visitor", "Visitors", &["open"]),
+        info::<ServiceEntry>(
             "Service",
             "Services",
-            &["protocol", "public"],
+            &[ServiceEntry::PROTOCOL.key(), "public"],
         ),
     ]
 }
