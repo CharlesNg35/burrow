@@ -208,10 +208,11 @@ async fn a_caller_that_stops_reading_gives_its_seat_back() {
             tokio::time::sleep(PING).await;
         }
     });
+    let mut refused = 0;
     let third = loop {
         match admin(&w).await {
             Ok(s) => break s,
-            Err(AdminOpenError::Refused(AdminRefusal::Busy)) => {}
+            Err(AdminOpenError::Refused(AdminRefusal::Busy)) => refused += 1,
             Err(e) => panic!("{e:?}"),
         }
         assert!(
@@ -221,6 +222,10 @@ async fn a_caller_that_stops_reading_gives_its_seat_back() {
         );
         tokio::time::sleep(Duration::from_millis(500)).await;
     };
+    assert!(
+        refused > 0,
+        "the seat was free at once, so the silent caller did not hold it"
+    );
     drop(third);
     alive.abort();
     let _ = w.stop.send(true);
