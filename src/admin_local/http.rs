@@ -90,6 +90,15 @@ pub fn is_file(path: &str) -> bool {
         .is_some_and(|name| !name.contains('/') && name.contains('.'))
 }
 
+fn climbs(path: &str) -> bool {
+    path.to_ascii_lowercase()
+        .replace("%2e", ".")
+        .replace("%2f", "/")
+        .replace("%5c", "/")
+        .split(['/', '\\'])
+        .any(|segment| segment == "..")
+}
+
 fn without_run(path: &str) -> &str {
     match path.strip_prefix("/r-") {
         Some(rest) => rest.find('/').map_or("/", |i| &rest[i..]),
@@ -142,7 +151,7 @@ pub fn check(head: &Head, port: u16, prefix: &str) -> Result<Route, Reject> {
         }
         return Ok(Route::Api);
     }
-    if !path.starts_with('/') || path.contains("..") {
+    if !path.starts_with('/') || climbs(&path) {
         return Err(Reject {
             code: 400,
             reason: "bad path",
@@ -153,7 +162,7 @@ pub fn check(head: &Head, port: u16, prefix: &str) -> Result<Route, Reject> {
     }
     let rest = without_run(&path);
     let last = rest.rsplit('/').next().unwrap_or("");
-    if last == "api" || is_file(rest) {
+    if rest == "/api" || (head.upgrade && last == "api") || is_file(rest) {
         return Err(Reject {
             code: 404,
             reason: "not found",
@@ -329,6 +338,33 @@ mod tests {
             get("/clients/home.lan", false),
             Ok(Route::Moved(format!("{run}/clients/home.lan")))
         );
+        for (page, moved) in [
+            ("/services/api", "/services/api"),
+            (
+                "/r-feedfacefeedfacefeedfacefeedface/clients/api",
+                "/clients/api",
+            ),
+            ("/services/a..b", "/services/a..b"),
+        ] {
+            assert_eq!(
+                get(page, false),
+                Ok(Route::Moved(format!("{run}{moved}"))),
+                "{page}"
+            );
+        }
+        assert_eq!(
+            get(&format!("{run}/services/a..b"), false),
+            Ok(Route::Page("/services/a..b".into()))
+        );
+        for bad in [
+            "/../x".to_string(),
+            format!("{run}/../x"),
+            "/a/%2e%2e/x".to_string(),
+            format!("{run}/.%2E/x"),
+            "/a%2f..%2fb".to_string(),
+        ] {
+            assert_eq!(get(&bad, false).unwrap_err().code, 400, "{bad}");
+        }
         for page in ["/", "/services/api.v2", "/clients/home.lan", "/services"] {
             assert!(!is_file(page), "{page}");
         }

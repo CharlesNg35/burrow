@@ -1005,6 +1005,30 @@ async fn the_local_page_is_only_served_to_this_machine() {
     );
     assert!(ok.contains("Content-Security-Policy: default-src 'none'"));
     assert!(ok.contains("Cache-Control: no-store"));
+    let get = |path: String| {
+        let port = l.port;
+        async move {
+            http_get(
+                port,
+                &format!("GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\r\n"),
+            )
+            .await
+        }
+    };
+    for page in ["/services/api.v2", "/services/a..b", "/services/api"] {
+        let got = get(format!("{}{page}", l.run)).await;
+        assert!(got.starts_with("HTTP/1.1 200"), "{page}: {got}");
+        let moved = get(page.to_string()).await;
+        assert!(moved.starts_with("HTTP/1.1 302"), "{page}: {moved}");
+        assert!(
+            moved.contains(&format!("Location: {}{page}\r\n", l.run)),
+            "{page}: {moved}"
+        );
+    }
+    for bad in ["/../x".to_string(), format!("{}/../x", l.run)] {
+        let got = get(bad.clone()).await;
+        assert!(got.starts_with("HTTP/1.1 400"), "{bad}: {got}");
+    }
     for asset in burrow::admin_local::assets::ASSETS {
         let got = http_get(
             l.port,
