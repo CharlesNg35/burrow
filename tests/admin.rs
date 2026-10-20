@@ -481,6 +481,36 @@ async fn losing_admin_rights_ends_the_session() {
 }
 
 #[tokio::test]
+async fn a_changed_admin_level_ends_the_session() {
+    let w = world().await;
+    let mut a = connect(&w, "ops", &w.ops, 1, 1).await.unwrap();
+    a.call("subscribe", json!({"config": true})).await.unwrap();
+    let mut v = connect(&w, "viewer", &w.viewer, 1, 1).await.unwrap();
+    v.call("subscribe", json!({"config": true})).await.unwrap();
+    let text = std::fs::read_to_string(&w.path).unwrap();
+    let swapped = text
+        .replace("    admin: write\n", "    admin: WAS_WRITE\n")
+        .replace("    admin: read\n", "    admin: write\n")
+        .replace("    admin: WAS_WRITE\n", "    admin: read\n");
+    std::fs::write(&w.path, swapped).unwrap();
+    for s in [&mut a, &mut v] {
+        let body = s.event("revoked").await;
+        assert_eq!(body["reason"], "admin level changed");
+        let closed = tokio::time::timeout(Duration::from_secs(5), s.rx.recv())
+            .await
+            .unwrap();
+        assert!(matches!(closed, Ok(None) | Err(_)), "{closed:?}");
+    }
+    let mut a = connect(&w, "ops", &w.ops, 1, 1).await.unwrap();
+    let err = a
+        .plan(json!([{"op": "set", "path": ["visitors", "ops", "admin"], "value": "write"}]))
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, ErrorCode::Forbidden, "{err:?}");
+    let _ = w.stop.send(true);
+}
+
+#[tokio::test]
 async fn an_oversized_message_closes_the_session() {
     let w = world().await;
     let mut a = connect(&w, "ops", &w.ops, 1, 1).await.unwrap();

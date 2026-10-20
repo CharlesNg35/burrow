@@ -361,6 +361,7 @@ struct SettingsAccess {
     visitor: String,
     secret: crate::secret::Secret,
     peer: SocketAddr,
+    level: AdminLevel,
 }
 
 impl Access for SettingsAccess {
@@ -374,6 +375,9 @@ impl Access for SettingsAccess {
         }
         if v.admin.is_none() {
             return Some("admin removed".into());
+        }
+        if v.admin != Some(self.level) {
+            return Some("admin level changed".into());
         }
         if !v.admits_admin(self.peer.ip()) {
             return Some("source not allowed".into());
@@ -484,6 +488,7 @@ pub async fn serve(shared: Arc<Shared>, mut channel: Channel, first: &[u8], open
         visitor,
         secret,
         peer,
+        level,
     });
     transport::run(
         hub,
