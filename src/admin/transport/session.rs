@@ -279,7 +279,20 @@ pub async fn run(
                     }
                     continue;
                 }
-                jobs.spawn(handle(cx.clone(), req));
+                if req.t == msg::req::APPLY {
+                    let id = req.id;
+                    let detached = tokio::spawn(handle(cx.clone(), req));
+                    jobs.spawn(async move {
+                        detached.await.unwrap_or_else(|_| {
+                            msg::reply_err(
+                                id,
+                                &ApiError::new(ErrorCode::Internal, "the apply task failed").wire(),
+                            )
+                        })
+                    });
+                } else {
+                    jobs.spawn(handle(cx.clone(), req));
+                }
             }
             Some(done) = jobs.join_next(), if !jobs.is_empty() => {
                 if let Ok(v) = done

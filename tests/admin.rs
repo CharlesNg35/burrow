@@ -45,6 +45,12 @@ fn listener_line() -> String {
 }
 
 async fn world() -> World {
+    world_checked(burrow::reload::accept()).await
+}
+
+async fn world_checked(
+    check: burrow::reload::Check<burrow::config::settings::ServerSettings>,
+) -> World {
     common::more_files();
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("server.yaml");
@@ -82,7 +88,7 @@ async fn world() -> World {
         path.clone(),
         *settings,
         env,
-        burrow::reload::accept(),
+        check,
         reload_tx,
         Some(nudges),
     ));
@@ -520,6 +526,77 @@ async fn a_changed_admin_level_ends_the_session() {
         .await
         .unwrap_err();
     assert_eq!(err.code, ErrorCode::Forbidden, "{err:?}");
+    let _ = w.stop.send(true);
+}
+
+async fn apply_and_close(w: &World, ops: Value) {
+    let mut a = connect(w, "ops", &w.ops, 1, 1).await.unwrap();
+    let plan = a.plan(ops.clone()).await.unwrap();
+    assert_eq!(plan["valid"], true, "{plan}");
+    a.send_raw(
+        "apply",
+        json!({"base": plan["base"], "ops": ops, "plan": plan["plan"], "confirm": []}),
+    )
+    .await;
+    drop(a);
+}
+
+async fn wait_for_entry(w: &World, result: &str) -> Value {
+    let started = std::time::Instant::now();
+    loop {
+        let mut v = connect(w, "viewer", &w.viewer, 1, 1).await.unwrap();
+        let history = v.call("history", json!({})).await.unwrap();
+        if let Some(e) = history["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|e| e["visitor"] == "ops" && e["result"] == result)
+        {
+            return e.clone();
+        }
+        assert!(
+            started.elapsed() < Duration::from_secs(30),
+            "no {result:?} entry: {history}"
+        );
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+}
+
+#[tokio::test]
+async fn an_apply_runs_to_its_end_when_its_session_closes_at_once() {
+    let w = world_checked(Box::new(
+        |next: burrow::config::settings::ServerSettings| {
+            if next.services.contains_key("refused") {
+                Err("the test refuses this service".into())
+            } else {
+                Ok(next)
+            }
+        },
+    ))
+    .await;
+    apply_and_close(
+        &w,
+        json!([{"op": "set", "path": ["services", "web", "target"], "value": 3002}]),
+    )
+    .await;
+    wait_for_entry(&w, "applied").await;
+    assert!(
+        std::fs::read_to_string(&w.path)
+            .unwrap()
+            .contains("target: 3002")
+    );
+    let before = std::fs::read_to_string(&w.path).unwrap();
+    apply_and_close(
+        &w,
+        json!([{"op": "add", "path": ["services", "refused"], "value": {"client": "home", "bind": format!("127.0.0.1:{}", free_port()), "target": 3005}}]),
+    )
+    .await;
+    wait_for_entry(&w, "rejected, restored").await;
+    assert_eq!(
+        std::fs::read_to_string(&w.path).unwrap(),
+        before,
+        "the rejected change is written back"
+    );
     let _ = w.stop.send(true);
 }
 
