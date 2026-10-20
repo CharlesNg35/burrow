@@ -176,8 +176,13 @@ pub fn service_name(config: &Path, given: Option<&str>) -> Result<String, Failur
     };
     let short = name.strip_prefix("burrow-").unwrap_or(&name);
     if OWN_FOLDERS.contains(&short) {
+        let source = if given.is_some() {
+            "--name"
+        } else {
+            "the config file name"
+        };
         return Err(Failure::usage(format!(
-            "\"{short}\" cannot be used as a service name: it is the name of one of burrow's own folders"
+            "\"{short}\" from {source} cannot be used as a service name: it is the name of one of burrow's own folders"
         ))
         .hint("pass --name with another name"));
     }
@@ -2431,14 +2436,15 @@ mod tests {
             ] {
                 let refused = service_name(&given, None).unwrap_err();
                 assert!(
-                    refused.message.contains("burrow's own folders"),
+                    refused.message.contains("burrow's own folders")
+                        && refused.message.contains("the config file name"),
                     "{short}: {}",
                     refused.message
                 );
             }
-            assert!(
-                service_name(Path::new("/x/s.yaml"), Some(&format!("burrow-{short}"))).is_err()
-            );
+            let named =
+                service_name(Path::new("/x/s.yaml"), Some(&format!("burrow-{short}"))).unwrap_err();
+            assert!(named.message.contains("--name"), "{}", named.message);
         }
         assert!(service_name(Path::new("/x/services-eu.yaml"), None).is_ok());
     }
