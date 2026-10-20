@@ -21,6 +21,7 @@ user ──> server:7840 ══ Noise-encrypted TCP or WebSocket ══ client (
 - TCP and UDP services, port ranges and Unix sockets
 - Private services that only your own machines reach, with `burrow visit` or a SOCKS5 proxy
 - Several clients per service, with failover or load balancing and health checks
+- Services and visitor access on the server machine itself, with `client: self`
 - Per service: allowed source IPs, the real client address for your app, and speed limits
 - Encrypted, with a separate secret per client; a client only reaches what it allows
 - Config changes apply on save, without a restart
@@ -227,6 +228,25 @@ web:
 **Speed limits.** Services are unlimited unless `bandwidth` is set. `bandwidth: 40mbit` (or `5MB`, bytes per second) caps each direction of a service, shared by all its connections. TCP slows down; UDP datagrams over the rate are dropped.
 
 **Unix sockets.** `target: unix:/var/run/docker.sock` makes the client connect to a Unix socket. Its `allow` list must permit it, with `unix:/var/run/docker.sock` or `unix:/var/run/*`. A socket path that is itself a symbolic link is refused; allow the socket it points to. A client installed with `burrow service` cannot see sockets under `/tmp` or in home folders, and its account must be allowed to connect (`--run-as` picks another one).
+
+**On the server itself.** `client: self` makes the server connect to the target itself, with no client. Everything else works as for any client: public and private services, UDP, ranges, limits, the PROXY protocol, health checks, and `self` among several `clients`. Visitors reach the server's own network with `reach: self`. A `self` section bounds what the server may dial for itself; without it, `self` services reach only their own target and `reach: self` is refused. The server never dials its own listen, WebSocket or metrics ports, nor a link-local or metadata address (such as 169.254.169.254) that `self.allow` does not list on its own.
+
+```yaml
+# server.yaml
+self:
+  allow: [127.0.0.1/32, 10.0.0.0/24]
+services:
+  db: { client: self, target: 127.0.0.1:5432, visitors: [laptop] }
+  web: { client: self, bind: 8080, target: 127.0.0.1:3000 }
+  app: { clients: [self, home], bind: 443, target: 127.0.0.1:8443 }
+visitors:
+  laptop:
+    secret: ${LAPTOP_SECRET}
+    reach:
+      self: [127.0.0.1/32:22, 10.0.0.0/24] # or any: everything self.allow permits
+```
+
+In `visitor.yaml`: `host: { client: self, socks: true, local: 1080 }`.
 
 ## Private services and visitors
 
