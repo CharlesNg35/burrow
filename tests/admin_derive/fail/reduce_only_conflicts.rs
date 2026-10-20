@@ -8,6 +8,8 @@ pub struct Entry {
     pub other: u32,
     #[admin(reduce_only = "yes")]
     pub third: u32,
+    #[admin(skip = "the installer writes it", reduce_only)]
+    pub fourth: u32,
 }
 
 fn main() {}

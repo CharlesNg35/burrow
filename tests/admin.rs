@@ -1301,3 +1301,25 @@ async fn burrow_admin_reduces_admin_power_but_never_grants_it() {
     );
     let _ = w.stop.send(true);
 }
+
+#[tokio::test]
+async fn renaming_an_admin_visitor_is_refused_as_a_rename() {
+    let w = world().await;
+    let mut a = connect(&w, "ops", &w.ops, 1, 1).await.unwrap();
+    let before = std::fs::read_to_string(&w.path).unwrap();
+    let rename =
+        json!([{"op": "rename", "path": ["visitors", "viewer"], "to": "watcher", "refs": true}]);
+    let plan = a.plan(rename.clone()).await.unwrap();
+    assert_eq!(plan["refusals"][0]["code"], "admin-grant", "{plan}");
+    assert_eq!(
+        plan["refusals"][0]["message"],
+        format!(
+            "an admin visitor is renamed only in the config file: visitor \"viewer\" would become \"watcher\"; use burrow edit -c {} or edit the file",
+            w.path.display()
+        )
+    );
+    let err = a.apply(rename, &["viewer"]).await.unwrap_err();
+    assert_eq!(err.code, ErrorCode::LockedOut, "{err:?}");
+    assert_eq!(std::fs::read_to_string(&w.path).unwrap(), before);
+    let _ = w.stop.send(true);
+}

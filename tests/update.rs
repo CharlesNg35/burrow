@@ -34,44 +34,49 @@ impl Releases {
         std::thread::spawn(move || {
             for conn in listener.incoming() {
                 let Ok(mut conn) = conn else { continue };
-                let mut req = Vec::new();
-                let mut byte = [0u8; 1];
-                while !req.ends_with(b"\r\n\r\n") && conn.read(&mut byte).unwrap_or(0) == 1 {
-                    req.push(byte[0]);
-                }
-                let text = String::from_utf8_lossy(&req);
-                let path = text.split_whitespace().nth(1).unwrap_or("").to_string();
-                let reply = shared.lock().unwrap().get(&path).cloned();
-                let head = |status: &str, extra: &str| {
-                    format!("HTTP/1.1 {status}\r\n{extra}Connection: close\r\n\r\n")
-                };
-                let _ = match reply {
-                    Some(Reply::Body(b)) => conn
-                        .write_all(
-                            head("200 OK", &format!("Content-Length: {}\r\n", b.len())).as_bytes(),
-                        )
-                        .and_then(|_| conn.write_all(&b)),
-                    Some(Reply::Chunked(b)) => {
-                        let mut out = head("200 OK", "Transfer-Encoding: chunked\r\n").into_bytes();
-                        for part in b.chunks(1000) {
-                            out.extend_from_slice(format!("{:x}\r\n", part.len()).as_bytes());
-                            out.extend_from_slice(part);
-                            out.extend_from_slice(b"\r\n");
+                let shared = shared.clone();
+                std::thread::spawn(move || {
+                    let _ = conn.set_read_timeout(Some(Duration::from_secs(5)));
+                    let mut req = Vec::new();
+                    let mut byte = [0u8; 1];
+                    while !req.ends_with(b"\r\n\r\n") && conn.read(&mut byte).unwrap_or(0) == 1 {
+                        req.push(byte[0]);
+                    }
+                    let text = String::from_utf8_lossy(&req);
+                    let path = text.split_whitespace().nth(1).unwrap_or("").to_string();
+                    let reply = shared.lock().unwrap().get(&path).cloned();
+                    let head = |status: &str, extra: &str| {
+                        format!("HTTP/1.1 {status}\r\n{extra}Connection: close\r\n\r\n")
+                    };
+                    let _ = match reply {
+                        Some(Reply::Body(b)) => conn
+                            .write_all(
+                                head("200 OK", &format!("Content-Length: {}\r\n", b.len()))
+                                    .as_bytes(),
+                            )
+                            .and_then(|_| conn.write_all(&b)),
+                        Some(Reply::Chunked(b)) => {
+                            let mut out =
+                                head("200 OK", "Transfer-Encoding: chunked\r\n").into_bytes();
+                            for part in b.chunks(1000) {
+                                out.extend_from_slice(format!("{:x}\r\n", part.len()).as_bytes());
+                                out.extend_from_slice(part);
+                                out.extend_from_slice(b"\r\n");
+                            }
+                            out.extend_from_slice(b"0\r\n\r\n");
+                            conn.write_all(&out)
                         }
-                        out.extend_from_slice(b"0\r\n\r\n");
-                        conn.write_all(&out)
-                    }
-                    Some(Reply::Redirect(to)) => conn.write_all(
-                        head(
-                            "302 Found",
-                            &format!("Location: {to}\r\nContent-Length: 0\r\n"),
-                        )
-                        .as_bytes(),
-                    ),
-                    None => {
-                        conn.write_all(head("404 Not Found", "Content-Length: 0\r\n").as_bytes())
-                    }
-                };
+                        Some(Reply::Redirect(to)) => conn.write_all(
+                            head(
+                                "302 Found",
+                                &format!("Location: {to}\r\nContent-Length: 0\r\n"),
+                            )
+                            .as_bytes(),
+                        ),
+                        None => conn
+                            .write_all(head("404 Not Found", "Content-Length: 0\r\n").as_bytes()),
+                    };
+                });
             }
         });
         Releases { base, routes }
@@ -353,35 +358,40 @@ fn connect_proxy() -> (String, Arc<AtomicUsize>) {
     std::thread::spawn(move || {
         for conn in listener.incoming() {
             let Ok(mut down) = conn else { continue };
-            let mut head = Vec::new();
-            let mut byte = [0u8; 1];
-            while !head.ends_with(b"\r\n\r\n") && down.read(&mut byte).unwrap_or(0) == 1 {
-                head.push(byte[0]);
-            }
-            let line = String::from_utf8_lossy(&head)
-                .lines()
-                .next()
-                .unwrap_or("")
-                .to_string();
-            let Some(target) = line
-                .strip_prefix("CONNECT ")
-                .and_then(|r| r.split(' ').next())
-            else {
-                continue;
-            };
-            let Ok(mut up) = std::net::TcpStream::connect(target) else {
-                continue;
-            };
-            count.fetch_add(1, Ordering::SeqCst);
-            down.write_all(b"HTTP/1.1 200 Connection established\r\n\r\n")
-                .unwrap();
-            let (mut d2, mut u2) = (down.try_clone().unwrap(), up.try_clone().unwrap());
+            let count = count.clone();
             std::thread::spawn(move || {
-                let _ = std::io::copy(&mut d2, &mut u2);
-                let _ = u2.shutdown(std::net::Shutdown::Write);
+                let _ = down.set_read_timeout(Some(Duration::from_secs(5)));
+                let mut head = Vec::new();
+                let mut byte = [0u8; 1];
+                while !head.ends_with(b"\r\n\r\n") && down.read(&mut byte).unwrap_or(0) == 1 {
+                    head.push(byte[0]);
+                }
+                let line = String::from_utf8_lossy(&head)
+                    .lines()
+                    .next()
+                    .unwrap_or("")
+                    .to_string();
+                let Some(target) = line
+                    .strip_prefix("CONNECT ")
+                    .and_then(|r| r.split(' ').next())
+                else {
+                    return;
+                };
+                let Ok(mut up) = std::net::TcpStream::connect(target) else {
+                    return;
+                };
+                let _ = down.set_read_timeout(None);
+                count.fetch_add(1, Ordering::SeqCst);
+                down.write_all(b"HTTP/1.1 200 Connection established\r\n\r\n")
+                    .unwrap();
+                let (mut d2, mut u2) = (down.try_clone().unwrap(), up.try_clone().unwrap());
+                std::thread::spawn(move || {
+                    let _ = std::io::copy(&mut d2, &mut u2);
+                    let _ = u2.shutdown(std::net::Shutdown::Write);
+                });
+                let _ = std::io::copy(&mut up, &mut down);
+                let _ = down.shutdown(std::net::Shutdown::Write);
             });
-            let _ = std::io::copy(&mut up, &mut down);
-            let _ = down.shutdown(std::net::Shutdown::Write);
         }
     });
     (url, used)

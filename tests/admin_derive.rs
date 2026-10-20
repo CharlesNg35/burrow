@@ -45,6 +45,7 @@ const FAIL: &[(&str, &[&str])] = &[
             "`reduce_only` and `locked` contradict",
             "`reduce_only` and `readonly` contradict",
             "`reduce_only` is a flag: #[admin(reduce_only)]",
+            "`reduce_only` and `skip` contradict",
         ],
     ),
     (
