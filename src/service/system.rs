@@ -394,14 +394,43 @@ pub fn account_ids(account: &str) -> Result<(u32, u32), Failure> {
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 pub fn private_file(path: &Path, owner: Option<&str>) -> Result<(), Failure> {
-    use std::os::unix::fs::PermissionsExt;
-    if let Some(account) = owner {
-        let (uid, gid) = account_ids(account)?;
-        std::os::unix::fs::chown(path, Some(uid), Some(gid)).map_err(|e| {
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
+    let ids = owner.map(account_ids).transpose()?;
+    let root_only_folder = path
+        .parent()
+        .and_then(|d| std::fs::symlink_metadata(d).ok())
+        .is_some_and(|d| d.is_dir() && d.uid() == 0 && d.mode() & 0o022 == 0);
+    if root_only_folder {
+        if let (Some((uid, gid)), Some(account)) = (ids, owner) {
+            std::os::unix::fs::chown(path, Some(uid), Some(gid)).map_err(|e| {
+                Failure::new(format!("cannot give {} to {account}: {e}", path.display()))
+            })?;
+        }
+        return std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).map_err(
+            |e| Failure::new(format!("cannot set permissions on {}: {e}", path.display())),
+        );
+    }
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(path)
+        .map_err(|e| Failure::new(format!("cannot open {}: {e}", path.display())))?;
+    let meta = file
+        .metadata()
+        .map_err(|e| Failure::new(format!("cannot read {}: {e}", path.display())))?;
+    if !meta.is_file() || meta.nlink() != 1 {
+        return Err(Failure::new(format!(
+            "{} is not a plain file with one link, so burrow will not secure it",
+            path.display()
+        ))
+        .hint("remove it and run the command again"));
+    }
+    if let (Some((uid, gid)), Some(account)) = (ids, owner) {
+        std::os::unix::fs::fchown(&file, Some(uid), Some(gid)).map_err(|e| {
             Failure::new(format!("cannot give {} to {account}: {e}", path.display()))
         })?;
     }
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
+    file.set_permissions(std::fs::Permissions::from_mode(0o600))
         .map_err(|e| Failure::new(format!("cannot set permissions on {}: {e}", path.display())))
 }
 
@@ -625,6 +654,29 @@ mod tests {
             assert!(fresh.is_ok(), "a lock others could open is replaced");
             drop(outsider);
         }
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn securing_a_path_never_changes_what_a_link_there_points_to() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("com.example.daemon.plist");
+        std::fs::write(&target, "x").unwrap();
+        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o644)).unwrap();
+        let mode = |p: &Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+        let link = dir.path().join("server.yaml");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        assert!(private_file(&link, None).is_err());
+        assert_eq!(mode(&target), 0o644);
+        std::fs::remove_file(&link).unwrap();
+        std::fs::hard_link(&target, &link).unwrap();
+        assert!(private_file(&link, None).is_err());
+        assert_eq!(mode(&target), 0o644);
+        let plain = dir.path().join("plain.yaml");
+        std::fs::write(&plain, "listen: 1\n").unwrap();
+        private_file(&plain, None).unwrap();
+        assert_eq!(mode(&plain), 0o600);
     }
 
     #[cfg(unix)]
