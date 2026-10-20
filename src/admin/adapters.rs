@@ -134,17 +134,28 @@ impl FileStore {
             }
             return Ok(());
         }
-        let mut file = std::fs::File::from(rustix::fs::openat(
-            &fd,
-            name.as_str(),
-            OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL | OFlags::NOFOLLOW | OFlags::CLOEXEC,
-            Mode::from_bits_truncate(0o600),
-        )?);
-        use std::io::Write;
-        file.write_all(body.as_bytes())?;
-        if let Some((uid, gid)) = owner {
-            let _ = std::os::unix::fs::fchown(&file, Some(uid), Some(gid));
+        let draft = format!(".{name}.burrow-new-{}", std::process::id());
+        let _ = rustix::fs::unlinkat(&fd, draft.as_str(), AtFlags::empty());
+        let written = (|| -> std::io::Result<()> {
+            use std::io::Write;
+            let mut file = std::fs::File::from(rustix::fs::openat(
+                &fd,
+                draft.as_str(),
+                OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+                Mode::from_bits_truncate(0o600),
+            )?);
+            file.write_all(body.as_bytes())?;
+            file.sync_all()?;
+            if let Some((uid, gid)) = owner {
+                let _ = std::os::unix::fs::fchown(&file, Some(uid), Some(gid));
+            }
+            rustix::fs::renameat(&fd, draft.as_str(), &fd, name.as_str())?;
+            Ok(())
+        })();
+        if written.is_err() {
+            let _ = rustix::fs::unlinkat(&fd, draft.as_str(), AtFlags::empty());
         }
+        written?;
         for (_, _, old) in list(&fd)?.into_iter().skip(KEEP) {
             let _ = rustix::fs::unlinkat(&fd, old.as_str(), AtFlags::empty());
         }
@@ -593,6 +604,12 @@ mod tests {
         assert!(store.history_problem().is_none());
         let versions = store.versions();
         assert_eq!(versions.len(), KEEP);
+        let names: Vec<String> = std::fs::read_dir(store.dir())
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(names.len(), KEEP, "no drafts are left behind: {names:?}");
         let (rev, body) = &revs[24];
         assert_eq!(store.version(rev).as_deref(), Some(body.as_str()));
         for (i, (rev, body)) in revs.iter().enumerate() {
