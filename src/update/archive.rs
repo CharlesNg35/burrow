@@ -48,18 +48,24 @@ pub fn from_tar_gz(data: &[u8], want: &str) -> Result<Vec<u8>, String> {
     Err(format!("the archive does not contain {want}"))
 }
 
+// Offsets come from the archive, so every sum is checked: on a 32-bit
+// target a u32 offset plus a length can pass usize::MAX.
 fn u16_at(d: &[u8], at: usize) -> Option<usize> {
-    d.get(at..at + 2)
+    d.get(at..at.checked_add(2)?)
         .map(|b| u16::from_le_bytes([b[0], b[1]]) as usize)
 }
 
 fn u32_at(d: &[u8], at: usize) -> Option<usize> {
-    d.get(at..at + 4)
+    d.get(at..at.checked_add(4)?)
         .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]) as usize)
 }
 
 pub fn from_zip(data: &[u8], want: &str) -> Result<Vec<u8>, String> {
     let corrupt = || "the zip archive is corrupt".to_string();
+    let add = |a: usize, b: usize| a.checked_add(b).ok_or_else(corrupt);
+    let span = |at: usize, len: usize| -> Result<&[u8], String> {
+        data.get(at..add(at, len)?).ok_or_else(corrupt)
+    };
     let search = data.len().saturating_sub(22 + 65535);
     let eocd = (search..data.len().saturating_sub(21))
         .rev()
@@ -68,29 +74,30 @@ pub fn from_zip(data: &[u8], want: &str) -> Result<Vec<u8>, String> {
     let count = u16_at(data, eocd + 10).ok_or_else(corrupt)?;
     let mut at = u32_at(data, eocd + 16).ok_or_else(corrupt)?;
     for _ in 0..count {
-        if data.get(at..at + 4) != Some(&[0x50, 0x4b, 0x01, 0x02]) {
+        if span(at, 4)? != [0x50, 0x4b, 0x01, 0x02] {
             return Err(corrupt());
         }
-        let method = u16_at(data, at + 10).ok_or_else(corrupt)?;
-        let packed = u32_at(data, at + 20).ok_or_else(corrupt)?;
-        let size = u32_at(data, at + 24).ok_or_else(corrupt)?;
-        let name_len = u16_at(data, at + 28).ok_or_else(corrupt)?;
-        let extra_len = u16_at(data, at + 30).ok_or_else(corrupt)?;
-        let comment_len = u16_at(data, at + 32).ok_or_else(corrupt)?;
-        let local = u32_at(data, at + 42).ok_or_else(corrupt)?;
-        let name = data.get(at + 46..at + 46 + name_len).ok_or_else(corrupt)?;
-        at += 46 + name_len + extra_len + comment_len;
+        let method = u16_at(data, add(at, 10)?).ok_or_else(corrupt)?;
+        let packed = u32_at(data, add(at, 20)?).ok_or_else(corrupt)?;
+        let size = u32_at(data, add(at, 24)?).ok_or_else(corrupt)?;
+        let name_len = u16_at(data, add(at, 28)?).ok_or_else(corrupt)?;
+        let extra_len = u16_at(data, add(at, 30)?).ok_or_else(corrupt)?;
+        let comment_len = u16_at(data, add(at, 32)?).ok_or_else(corrupt)?;
+        let local = u32_at(data, add(at, 42)?).ok_or_else(corrupt)?;
+        let name = span(add(at, 46)?, name_len)?;
+        at = add(add(at, 46)?, name_len + extra_len + comment_len)?;
         if base_name(&String::from_utf8_lossy(name)) != want {
             continue;
         }
-        if data.get(local..local + 4) != Some(&[0x50, 0x4b, 0x03, 0x04]) {
+        if span(local, 4)? != [0x50, 0x4b, 0x03, 0x04] {
             return Err(corrupt());
         }
-        let start = local
-            + 30
-            + u16_at(data, local + 26).ok_or_else(corrupt)?
-            + u16_at(data, local + 28).ok_or_else(corrupt)?;
-        let raw = data.get(start..start + packed).ok_or_else(corrupt)?;
+        let start = add(
+            add(local, 30)?,
+            u16_at(data, add(local, 26)?).ok_or_else(corrupt)?
+                + u16_at(data, add(local, 28)?).ok_or_else(corrupt)?,
+        )?;
+        let raw = span(start, packed)?;
         if size as u64 > MAX_BINARY {
             return Err(corrupt());
         }
