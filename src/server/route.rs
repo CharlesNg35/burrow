@@ -4,7 +4,8 @@ use std::sync::Arc;
 use tracing::debug;
 
 use super::CountGuard;
-use super::{ClientSession, Shared, take_channel};
+use super::via::Via;
+use super::{Shared, take_channel};
 use crate::config::settings::ServerSettings;
 use crate::forward::{Early, ForwardError, Opened};
 use crate::handshake::Channel;
@@ -44,18 +45,14 @@ pub(super) struct Tries<'a> {
     shared: &'a Arc<Shared>,
     way: &'a Way<'a>,
     settings: Arc<ServerSettings>,
-    clients: std::vec::IntoIter<Arc<ClientSession>>,
+    clients: std::vec::IntoIter<Via>,
     early: Early,
     last: Outcome,
     active: Option<CountGuard>,
 }
 
 impl<'a> Tries<'a> {
-    pub(super) fn new(
-        shared: &'a Arc<Shared>,
-        way: &'a Way<'a>,
-        clients: Vec<Arc<ClientSession>>,
-    ) -> Tries<'a> {
+    pub(super) fn new(shared: &'a Arc<Shared>, way: &'a Way<'a>, clients: Vec<Via>) -> Tries<'a> {
         Tries {
             shared,
             way,
@@ -67,13 +64,13 @@ impl<'a> Tries<'a> {
         }
     }
 
-    pub(super) async fn next(&mut self) -> Option<(Arc<ClientSession>, Channel)> {
+    pub(super) async fn next(&mut self) -> Option<(Via, Channel)> {
         while let Some(session) = self.clients.next() {
             self.active = None;
             if self.clients.len() == 0 {
                 self.early.last_try();
             }
-            let client = &session.name;
+            let client = session.name();
             let limit = self
                 .settings
                 .clients
@@ -82,7 +79,7 @@ impl<'a> Tries<'a> {
                 .unwrap_or(self.settings.max_connections_per_client);
             let (active, before) = self.shared.client_opens(client);
             if before >= limit {
-                self.last = Outcome::Full(client.clone());
+                self.last = Outcome::Full(client.to_string());
                 continue;
             }
             match take_channel(self.shared, &session, self.way.label, self.way.peer).await {
@@ -113,13 +110,13 @@ impl<'a> Tries<'a> {
         &mut self.early
     }
 
-    pub(super) fn opened(&mut self, session: &ClientSession, opened: Opened) -> Option<Outcome> {
+    pub(super) fn opened(&mut self, session: &Via, opened: Opened) -> Option<Outcome> {
         let way = self.way;
-        let client = &session.name;
+        let client = session.name();
         let service = way.service.filter(|_| way.several);
         match opened {
             Opened::Done(result) => Some(Outcome::Done {
-                client: client.clone(),
+                client: client.to_string(),
                 result,
             }),
             Opened::Refused(error) => {
@@ -139,7 +136,7 @@ impl<'a> Tries<'a> {
                     && matches!(&self.last, Outcome::Refused { error: earlier, .. } if !refusal(earlier));
                 if !earlier_says_more {
                     self.last = Outcome::Refused {
-                        client: client.clone(),
+                        client: client.to_string(),
                         error,
                     };
                 }

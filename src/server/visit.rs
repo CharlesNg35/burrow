@@ -161,7 +161,7 @@ async fn answer_grants(
     };
     for c in &mut grants.clients {
         if c.reach.is_empty() {
-            c.allow = shared.session(&c.name).and_then(|s| s.allow());
+            c.allow = shared.via(&c.name).and_then(|s| s.allow());
         }
     }
     let Ok(bytes) = grants.encode() else {
@@ -262,7 +262,7 @@ pub(super) async fn serve(
         None => grant
             .clients
             .first()
-            .and_then(|c| shared.session(c))
+            .and_then(|c| shared.via(c))
             .into_iter()
             .collect(),
     };
@@ -364,11 +364,11 @@ pub(super) async fn serve(
             break tries.outcome();
         };
         let opened = 'attempt: {
-            let client = &session.name;
+            let client = session.name();
             let mut reloads = shared.reloads();
             let allowed = || {
                 shared.still_granted(&visitor, &secret, &request.to, peer.ip(), &grant, client)
-                    && shared.allows(client, &session.secret)
+                    && session.admitted(&shared)
             };
             if !allowed() {
                 forbidden = true;

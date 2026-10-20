@@ -38,27 +38,25 @@ impl Shared {
             .map(|(name, svc)| {
                 let stats = self.metrics.service(name);
                 let health = match svc.health {
-                    Some(_) => svc
-                        .clients
+                    Some(_) => self
+                        .connected(&svc.clients)
                         .iter()
-                        .filter(|c| sessions.contains_key(*c))
                         .map(|c| HealthStatus {
-                            client: c.clone(),
-                            up: self.is_up(name, c),
+                            client: c.name().to_string(),
+                            up: self.is_up(name, c.name()),
                         })
                         .collect(),
                     None => Vec::new(),
                 };
                 let set_aside = match svc.clients.len() {
                     0 | 1 => Vec::new(),
-                    _ => svc
-                        .clients
+                    _ => self
+                        .connected(&svc.clients)
                         .iter()
-                        .filter_map(|c| sessions.get(c))
                         .filter_map(|s| match self.seen_any(name, s) {
                             Seen::Clear => None,
                             seen => Some(SetAside {
-                                client: s.name.clone(),
+                                client: s.name().to_string(),
                                 refused: seen == Seen::Refused,
                             }),
                         })

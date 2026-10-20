@@ -1,4 +1,4 @@
-mod data;
+pub(crate) mod data;
 #[cfg(unix)]
 pub(crate) use data::fit_to_open_files;
 pub mod reconnect;
@@ -44,6 +44,23 @@ pub enum State {
 struct Current {
     settings: Arc<ClientSettings>,
     dialer: Arc<Dialer>,
+    dialing: Arc<data::Dialing>,
+}
+
+impl Current {
+    fn new(settings: Arc<ClientSettings>, resolver: &Arc<dyn Resolver>) -> Current {
+        Current {
+            dialer: dialer_for(&settings, resolver),
+            dialing: Arc::new(data::Dialing::of_client(&settings)),
+            settings,
+        }
+    }
+}
+
+impl data::Dials for Current {
+    fn dialing(&self) -> Arc<data::Dialing> {
+        self.dialing.clone()
+    }
 }
 
 #[derive(Clone)]
@@ -107,10 +124,7 @@ impl Client {
     pub fn new(settings: ClientSettings) -> Self {
         let (state, _) = watch::channel(State::Connecting);
         let resolver = crate::transport::resolve::system();
-        let current = Current {
-            dialer: dialer_for(&settings, &resolver),
-            settings: Arc::new(settings),
-        };
+        let current = Current::new(Arc::new(settings), &resolver);
         Client {
             live: Live(Arc::new(watch::Sender::new(current))),
             resolver,
@@ -129,10 +143,7 @@ impl Client {
 
     pub fn with_resolver(mut self, resolver: Arc<dyn Resolver>) -> Self {
         let settings = self.live.settings();
-        self.live.0.send_replace(Current {
-            dialer: dialer_for(&settings, &resolver),
-            settings,
-        });
+        self.live.0.send_replace(Current::new(settings, &resolver));
         self.resolver = resolver;
         self
     }
@@ -154,10 +165,9 @@ impl Client {
         {
             *backoff = Backoff::new(next.reconnect_initial, next.reconnect_max);
         }
-        self.live.0.send_replace(Current {
-            dialer: dialer_for(&next, &self.resolver),
-            settings: Arc::new(next),
-        });
+        self.live
+            .0
+            .send_replace(Current::new(Arc::new(next), &self.resolver));
         !changes.reconnect.is_empty()
     }
 
@@ -544,9 +554,14 @@ impl Client {
             drop(permit);
             match ch {
                 Ok(ch) => {
-                    let stale =
-                        data::serve(self.live.clone(), self.resolver.clone(), ch, ended, held)
-                            .await;
+                    let stale = data::serve(
+                        data::Rules(self.live.0.clone()),
+                        self.resolver.clone(),
+                        ch,
+                        ended,
+                        held,
+                    )
+                    .await;
                     if !stale {
                         strays.count.store(0, std::sync::atomic::Ordering::Relaxed);
                     } else if strays

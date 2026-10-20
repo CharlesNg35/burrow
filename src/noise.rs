@@ -109,8 +109,14 @@ impl Responder {
 }
 
 #[derive(Clone)]
+enum Keys {
+    Noise(Arc<StatelessTransportState>),
+    InMemory,
+}
+
+#[derive(Clone)]
 pub struct Session {
-    state: Arc<StatelessTransportState>,
+    keys: Keys,
 }
 
 impl Session {
@@ -119,18 +125,24 @@ impl Session {
             .into_stateless_transport_mode()
             .map_err(|_| HandshakeError::Malformed)?;
         Ok(Session {
-            state: Arc::new(state),
+            keys: Keys::Noise(Arc::new(state)),
         })
+    }
+
+    pub fn in_memory(_proof: &crate::transport::local::InMemory) -> Session {
+        Session {
+            keys: Keys::InMemory,
+        }
     }
 
     pub fn split(&self) -> (Sealer, Opener) {
         (
             Sealer {
-                state: self.state.clone(),
+                keys: self.keys.clone(),
                 nonce: 0,
             },
             Opener {
-                state: self.state.clone(),
+                keys: self.keys.clone(),
                 nonce: 0,
             },
         )
@@ -138,29 +150,45 @@ impl Session {
 }
 
 pub struct Sealer {
-    state: Arc<StatelessTransportState>,
+    keys: Keys,
     nonce: u64,
 }
 
 impl Sealer {
     pub fn seal(&mut self, plain: &[u8], out: &mut [u8]) -> usize {
-        let n = self
-            .state
-            .write_message(self.nonce, plain, out)
-            .expect("plaintext and buffer sizes are checked by the caller");
+        let n = match &self.keys {
+            Keys::Noise(state) => state
+                .write_message(self.nonce, plain, out)
+                .expect("plaintext and buffer sizes are checked by the caller"),
+            Keys::InMemory => {
+                out[..plain.len()].copy_from_slice(plain);
+                out[plain.len()..plain.len() + TAG_LEN].fill(0);
+                plain.len() + TAG_LEN
+            }
+        };
         self.nonce += 1;
         n
     }
 }
 
 pub struct Opener {
-    state: Arc<StatelessTransportState>,
+    keys: Keys,
     nonce: u64,
 }
 
 impl Opener {
     pub fn open(&mut self, cipher: &[u8], out: &mut [u8]) -> Option<usize> {
-        let n = self.state.read_message(self.nonce, cipher, out).ok()?;
+        let n = match &self.keys {
+            Keys::Noise(state) => state.read_message(self.nonce, cipher, out).ok()?,
+            Keys::InMemory => {
+                let n = cipher.len().checked_sub(TAG_LEN)?;
+                if cipher[n..].iter().any(|b| *b != 0) {
+                    return None;
+                }
+                out[..n].copy_from_slice(&cipher[..n]);
+                n
+            }
+        };
         self.nonce += 1;
         Some(n)
     }

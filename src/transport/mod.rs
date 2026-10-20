@@ -43,6 +43,7 @@ macro_rules! delegate_write {
 }
 
 pub mod endpoint;
+pub mod local;
 pub mod proxy;
 pub mod resolve;
 pub mod tcp;
@@ -53,26 +54,31 @@ pub mod ws;
 pub enum Conn {
     Tcp(TcpStream),
     Ws(Box<ws::WsConn>),
+    Local(tokio::io::DuplexStream),
 }
 
 pub enum ReadHalf<'a> {
     Tcp(tokio_tcp::ReadHalf<'a>),
     Ws(tokio::io::ReadHalf<&'a mut ws::WsConn>),
+    Local(tokio::io::ReadHalf<&'a mut tokio::io::DuplexStream>),
 }
 
 pub enum WriteHalf<'a> {
     Tcp(tokio_tcp::WriteHalf<'a>),
     Ws(tokio::io::WriteHalf<&'a mut ws::WsConn>),
+    Local(tokio::io::WriteHalf<&'a mut tokio::io::DuplexStream>),
 }
 
 pub enum OwnedReadHalf {
     Tcp(tokio_tcp::OwnedReadHalf),
     Ws(tokio::io::ReadHalf<ws::WsConn>),
+    Local(tokio::io::ReadHalf<tokio::io::DuplexStream>),
 }
 
 pub enum OwnedWriteHalf {
     Tcp(tokio_tcp::OwnedWriteHalf),
     Ws(tokio::io::WriteHalf<ws::WsConn>),
+    Local(tokio::io::WriteHalf<tokio::io::DuplexStream>),
 }
 
 impl Conn {
@@ -85,6 +91,10 @@ impl Conn {
             Conn::Ws(s) => {
                 let (r, w) = tokio::io::split(&mut **s);
                 (ReadHalf::Ws(r), WriteHalf::Ws(w))
+            }
+            Conn::Local(s) => {
+                let (r, w) = tokio::io::split(s);
+                (ReadHalf::Local(r), WriteHalf::Local(w))
             }
         }
     }
@@ -99,12 +109,16 @@ impl Conn {
                 let (r, w) = tokio::io::split(*s);
                 (OwnedReadHalf::Ws(r), OwnedWriteHalf::Ws(w))
             }
+            Conn::Local(s) => {
+                let (r, w) = tokio::io::split(s);
+                (OwnedReadHalf::Local(r), OwnedWriteHalf::Local(w))
+            }
         }
     }
 
     pub async fn finish(&mut self) -> std::io::Result<()> {
         match self {
-            Conn::Tcp(_) => Ok(()),
+            Conn::Tcp(_) | Conn::Local(_) => Ok(()),
             Conn::Ws(s) => s.finish().await,
         }
     }
@@ -113,6 +127,10 @@ impl Conn {
         match self {
             Conn::Tcp(s) => s.local_addr(),
             Conn::Ws(s) => s.local_addr(),
+            Conn::Local(_) => Err(std::io::Error::new(
+                std::io::ErrorKind::Unsupported,
+                "an in-memory channel has no address",
+            )),
         }
     }
 
@@ -143,12 +161,12 @@ impl From<TcpStream> for Conn {
     }
 }
 
-delegate_read!(Conn, Tcp, Ws);
-delegate_write!(Conn, Tcp, Ws);
-delegate_read!(ReadHalf<'_>, Tcp, Ws);
-delegate_write!(WriteHalf<'_>, Tcp, Ws);
-delegate_read!(OwnedReadHalf, Tcp, Ws);
-delegate_write!(OwnedWriteHalf, Tcp, Ws);
+delegate_read!(Conn, Tcp, Ws, Local);
+delegate_write!(Conn, Tcp, Ws, Local);
+delegate_read!(ReadHalf<'_>, Tcp, Ws, Local);
+delegate_write!(WriteHalf<'_>, Tcp, Ws, Local);
+delegate_read!(OwnedReadHalf, Tcp, Ws, Local);
+delegate_write!(OwnedWriteHalf, Tcp, Ws, Local);
 
 impl From<ws::WsConn> for Conn {
     fn from(s: ws::WsConn) -> Self {
