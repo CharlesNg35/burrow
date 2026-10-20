@@ -235,7 +235,7 @@ try {
   if ((Get-Content "$AdminDir\server.yaml" -Raw) -notmatch "added:") { Fail "the change is not in the installed config" }
   Add-Content "$AdminDir\server.yaml" "# changed by hand after the admin change"
   $out = Burrow service install -c e2e-admin.yaml
-  if ($out -notmatch "kept the config changed by burrow admin as a history version") { Fail "reinstall over an admin change: $out" }
+  if ($out -notmatch "kept the installed config as a history version before replacing it") { Fail "reinstall over an admin change: $out" }
   if (-not (Running burrow-e2e-admin)) { Fail "admin server not running after the reinstall" }
   for ($i = 0; $i -lt 50; $i++) { & $Probe e2e-ops.yaml state *> $null; if ($LASTEXITCODE -eq 0) { break }; Start-Sleep -Milliseconds 200 }
   $history = & $Probe e2e-ops.yaml history 2>&1 | Out-String

@@ -687,7 +687,7 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
             match keep_admin_copy(&source, &config)? {
                 Kept::Version => say(
                     out,
-                    "kept the config changed by burrow admin as a history version; revert it from burrow admin Activity if needed",
+                    "kept the installed config as a history version before replacing it; revert to it from burrow admin Activity if needed",
                 )?,
                 Kept::NotPlain => say(
                     out,
@@ -1649,7 +1649,7 @@ fn keep_admin_copy(source: &Path, config: &Path) -> Result<Kept, Failure> {
     match store.history_problem() {
         None => Ok(Kept::Version),
         Some(why) => Err(Failure::new(format!(
-            "{} was changed by burrow admin and cannot be kept before the reinstall replaces it: {why}",
+            "{} differs from the source and cannot be kept before the reinstall replaces it: {why}",
             config.display()
         ))
         .hint(format!(

@@ -344,10 +344,10 @@ st="$(sudo "$B" service status burrow-e2e-admin 2>&1)" || true
 echo "$st" | grep -q "is managed by burrow admin" || fail "status does not say the admin manages the installed config: $st"
 echo "$st" | grep -q "to use it, run" && fail "status suggests a reinstall that would undo the admin change: $st"
 out="$(sudo "$B" service install -c e2e-admin.yaml 2>&1)" || fail "admin server reinstall: $out"
-echo "$out" | grep -q "kept the config changed by burrow admin as a history version" || fail "the reinstall does not say it kept the admin change: $out"
+echo "$out" | grep -q "kept the installed config as a history version before replacing it" || fail "the reinstall does not say it kept the installed config: $out"
 sudo sh -c 'grep -l "added:" /etc/burrow/e2e-admin/.server.yaml.history/*' >/dev/null || fail "the admin change is not among the kept versions"
 running burrow-e2e-admin || fail "reinstalled admin server not running"
-check "a reinstall keeps the config changed by burrow admin as a version to revert to"
+check "a reinstall keeps the installed config as a version to revert to"
 if [ "$(uname -s)" = Linux ]; then
   cat > "$WORK/add-admin.py" <<'PY'
 import sys
