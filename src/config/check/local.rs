@@ -123,8 +123,7 @@ pub(super) fn check_services(
                 .map_or("address", |(_, what)| *what)
         };
         let refused = (0..svc.ports.max(1))
-            .flat_map(|i| literal_addrs(&svc.target_at(i)))
-            .find_map(|addr| gate.refusal(addr).map(|r| (addr, r)));
+            .find_map(|i| refusal_of(&gate, &literal_addrs(&svc.target_at(i))));
         match refused {
             Some((addr, Refusal::Burrow(own))) => out.push(
                 Diagnostic::error(
@@ -173,6 +172,20 @@ fn outside(name: &str, target: &str, rule: &str, at: crate::config::tree::Span) 
     .help(format!(
         "add \"{rule}\" to self.allow, or a rule that covers it"
     ))
+}
+
+fn refusal_of(gate: &Gate, addrs: &[SocketAddr]) -> Option<(SocketAddr, Refusal)> {
+    let refusals: Vec<(SocketAddr, Option<Refusal>)> =
+        addrs.iter().map(|a| (*a, gate.refusal(*a))).collect();
+    let hard = refusals
+        .iter()
+        .find_map(|(a, r)| r.filter(|r| *r != Refusal::Outside).map(|r| (*a, r)));
+    let none_permitted = refusals.iter().all(|(_, r)| r.is_some());
+    hard.or_else(|| {
+        none_permitted
+            .then(|| refusals.first().map(|(a, _)| (*a, Refusal::Outside)))
+            .flatten()
+    })
 }
 
 fn literal_addrs(target: &str) -> Vec<SocketAddr> {

@@ -2430,3 +2430,43 @@ fn cloud_metadata_targets_need_their_own_rule() {
     server.yaml: 1 error, 0 warnings
     "#);
 }
+
+#[test]
+fn localhost_targets_need_one_of_their_addresses_in_self_allow() {
+    let text = render(
+        "server.yaml",
+        &format!(
+            "listen: \"[::1]:7835\"\nself:\n  allow: [127.0.0.1/32, 10.0.0.0/24]\nclients:\n  home:\n    secret: {SECRET}\nservices:\n  web: {{ client: self, bind: 8080, target: localhost:13000 }}\n  loop: {{ client: self, bind: 8081, target: localhost:7835 }}\n"
+        ),
+        None,
+    );
+    insta::assert_snapshot!(text, @r#"
+    error: service "loop" on "self" targets [::1]:7835, which is burrow's own listen ([::1]:7835)
+      --> server.yaml:9:45
+       |
+     9 |   loop: { client: self, bind: 8081, target: localhost:7835 }
+       |                                             ^^^^^^^^^^^^^^ a loop back into burrow
+       = help: point the service at the application behind it, on another port
+
+    server.yaml: 1 error, 0 warnings
+    "#);
+    let outside = render(
+        "server.yaml",
+        &self_server(
+            "self:\n  allow: [10.0.0.0/24]\n",
+            "  web: { client: self, bind: 8080, target: localhost:13000 }\n",
+            "",
+        ),
+        None,
+    );
+    insta::assert_snapshot!(outside, @r#"
+    error: service "web" on "self" targets 127.0.0.1:13000, which self.allow does not permit
+      --> server.yaml:10:44
+       |
+    10 |   web: { client: self, bind: 8080, target: localhost:13000 }
+       |                                            ^^^^^^^^^^^^^^^ not in self.allow
+       = help: add "127.0.0.1/32:13000" to self.allow, or a rule that covers it
+
+    server.yaml: 1 error, 0 warnings
+    "#);
+}
