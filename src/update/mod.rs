@@ -292,8 +292,11 @@ pub fn run(opts: &Options, out: &mut dyn Write) -> Result<u8, Failure> {
         let behind: Vec<&Manifest> = installed
             .iter()
             .filter(|m| m.copied_binary && m.binary != me)
-            .filter(|m| version_of(&service::binary_version(&m.binary)).is_ok_and(|v| v < ours))
+            .filter(|m| version_of(&service::recorded_version(m)).is_ok_and(|v| v < ours))
             .collect();
+        for m in installed.iter().filter(|m| service::exposed(m)) {
+            say(out, format!("{}: {}", m.name, service::exposed_note(m)))?;
+        }
         if behind.is_empty() {
             say(out, format!("{line}, nothing to do"))?;
         } else if theirs == ours && service::is_admin() {
@@ -307,7 +310,7 @@ pub fn run(opts: &Options, out: &mut dyn Write) -> Result<u8, Failure> {
                 out,
                 format!(
                     "{line}, but the installed services run the older {}; update them with: {}",
-                    service::binary_version(&behind[0].binary),
+                    service::recorded_version(behind[0]),
                     update_services_with(&me)
                 ),
             )?;

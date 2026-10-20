@@ -188,6 +188,10 @@ pub fn require_admin() -> Result<(), Failure> {
 #[cfg(unix)]
 fn owned_by_root(p: &Path) -> bool {
     use std::os::unix::fs::MetadataExt;
+    #[cfg(test)]
+    if tests::USER_WRITABLE.with(|w| w.borrow().iter().any(|d| d == p)) {
+        return false;
+    }
     std::fs::metadata(p).is_ok_and(|m| m.uid() == 0 && m.mode() & 0o022 == 0)
 }
 
@@ -634,6 +638,19 @@ pub fn all_paths_under(files: &[PathBuf], roots: &[&str]) -> bool {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    thread_local! {
+        pub(crate) static USER_WRITABLE: std::cell::RefCell<Vec<PathBuf>> =
+            const { std::cell::RefCell::new(Vec::new()) };
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn as_if_users_can_change(dir: &Path, body: impl FnOnce()) {
+        USER_WRITABLE.with(|w| w.borrow_mut().push(dir.to_path_buf()));
+        body();
+        USER_WRITABLE.with(|w| w.borrow_mut().clear());
+    }
 
     #[cfg(unix)]
     pub(crate) fn under_umask_077(test: &str, body: impl FnOnce()) {

@@ -1057,8 +1057,34 @@ fn trustworthy(m: &Manifest, file: &Path) -> bool {
             .as_deref()
             .is_none_or(|e| in_dir(e, &p.config_dir()))
         && (m.log_file.as_os_str().is_empty() || m.log_file == p.log_file(m.short()))
-        && (m.binary == p.service_binary()
-            || ((cfg!(not(windows)) || !m.copied_binary) && system::trusted_binary(&m.binary)))
+        && (binary_trusted(m, p) || m.binary == p.binary_path())
+}
+
+fn binary_trusted(m: &Manifest, p: Platform) -> bool {
+    m.binary == p.service_binary()
+        || ((cfg!(not(windows)) || !m.copied_binary) && system::trusted_binary(&m.binary))
+}
+
+pub fn exposed(m: &Manifest) -> bool {
+    let p = Platform::current();
+    m.binary == p.binary_path() && !binary_trusted(m, p)
+}
+
+pub fn exposed_note(m: &Manifest) -> String {
+    format!(
+        "users other than root can change {}, so burrow does not run or replace {}; move the service to its own copy with: {}",
+        m.binary.parent().unwrap_or(&m.binary).display(),
+        m.binary.display(),
+        crate::failure::admin(&install_args(m))
+    )
+}
+
+pub fn recorded_version(m: &Manifest) -> String {
+    if exposed(m) {
+        format!("not run: {}", exposed_note(m))
+    } else {
+        system::binary_version(&m.binary)
+    }
 }
 
 fn read_manifest(path: &Path) -> Result<Manifest, String> {
@@ -1608,7 +1634,7 @@ pub fn status(name: Option<&str>, out: &mut dyn Write) -> Result<u8, Failure> {
         format!(
             "  binary:  {} ({}){}",
             m.binary.display(),
-            system::binary_version(&m.binary),
+            recorded_version(&m),
             missing(&m.binary)
         ),
     )?;
@@ -2323,6 +2349,32 @@ mod tests {
             assert!(!trustworthy(&m, &file), "{m:?}");
         }
         assert!(!trustworthy(&record(p), &manifest_path("burrow-client")));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_record_whose_bin_folder_users_can_now_change_is_managed_but_its_binary_never_runs() {
+        let p = Platform::current();
+        let usual = p.binary_path();
+        system::tests::as_if_users_can_change(usual.parent().unwrap(), || {
+            assert_ne!(p.service_binary(), usual);
+            let file = manifest_path("burrow-server");
+            let installed = Manifest {
+                binary: usual.clone(),
+                ..record(p)
+            };
+            assert!(trustworthy(&installed, &file));
+            assert!(trustworthy(&record(p), &file));
+            let mut forged = installed.clone();
+            forged.binary = std::env::temp_dir().join("burrow");
+            assert!(!trustworthy(&forged, &file));
+            assert!(
+                recorded_version(&installed).contains("users other than root can change"),
+                "{}",
+                recorded_version(&installed)
+            );
+            assert_eq!(service_binary_for(&usual, p).0, p.service_binary());
+        });
     }
 
     #[test]
