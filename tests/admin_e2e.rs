@@ -1101,29 +1101,40 @@ impl Impostor {
         );
         let trojan = "export default function init() { document.documentElement.setAttribute('data-pwned', 'script'); document.body.textContent = 'PWNED ' + location.hash; }\n".to_string();
         let thread = std::thread::spawn(move || {
+            let mut served = Vec::new();
             while !flag.load(std::sync::atomic::Ordering::SeqCst) {
                 let Ok((mut s, _)) = listener.accept() else {
                     std::thread::sleep(Duration::from_millis(20));
                     continue;
                 };
-                let _ = s.set_nonblocking(false);
-                let _ = s.set_read_timeout(Some(Duration::from_secs(2)));
-                let mut buf = [0u8; 4096];
-                let n = s.read(&mut buf).unwrap_or(0);
-                let head = String::from_utf8_lossy(&buf[..n]);
-                let path = head.split_whitespace().nth(1).unwrap_or("/").to_string();
-                let (body, kind) = if path.ends_with(".js") {
-                    (trojan.clone(), "text/javascript")
-                } else if path.contains('.') {
-                    (String::new(), "application/octet-stream")
-                } else {
-                    (page.clone(), "text/html")
-                };
-                let _ = write!(
-                    s,
-                    "HTTP/1.1 200 OK\r\nContent-Type: {kind}\r\nCache-Control: public, max-age=31536000, immutable\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-                    body.len()
-                );
+                let (page, trojan) = (page.clone(), trojan.clone());
+                served.push(std::thread::spawn(move || {
+                    let _ = s.set_nonblocking(false);
+                    let _ = s.set_read_timeout(Some(Duration::from_secs(2)));
+                    let mut buf = [0u8; 4096];
+                    let n = s.read(&mut buf).unwrap_or(0);
+                    if n == 0 {
+                        return;
+                    }
+                    let head = String::from_utf8_lossy(&buf[..n]);
+                    let path = head.split_whitespace().nth(1).unwrap_or("/").to_string();
+                    let (body, kind) = if path.ends_with(".js") {
+                        (trojan, "text/javascript")
+                    } else if path.contains('.') {
+                        (String::new(), "application/octet-stream")
+                    } else {
+                        (page, "text/html")
+                    };
+                    let _ = write!(
+                        s,
+                        "HTTP/1.1 200 OK\r\nContent-Type: {kind}\r\nCache-Control: public, max-age=31536000, immutable\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    );
+                }));
+            }
+            drop(listener);
+            for t in served {
+                let _ = t.join();
             }
         });
         Impostor {
@@ -1155,6 +1166,8 @@ fn impostor(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
             .unwrap_or_else(|| "/app.js".into());
         let port = world::free_port();
         let fake = Impostor::start(port, app_js.clone());
+        c.ui.goto("about:blank").await;
+        let _: bool = c.ui.eval("true").await;
         for path in ["/services/web", "/clients", app_js.as_str(), "/"] {
             c.ui.goto(&format!("http://127.0.0.1:{port}{path}")).await;
         }
