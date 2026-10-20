@@ -376,3 +376,53 @@ pub async fn run(
         writer.abort();
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::admin::core::tests::{core_for, session, world};
+    use burrow_admin_proto::msg::Level;
+    use burrow_admin_proto::ops::Op;
+
+    struct RevokedWhileWaiting;
+
+    impl Access for RevokedWhileWaiting {
+        fn revoked(&self) -> Option<String> {
+            Some("admin level changed".into())
+        }
+    }
+
+    #[tokio::test]
+    async fn an_apply_of_a_session_revoked_while_it_waited_writes_nothing() {
+        let w = world();
+        let (nudges, gone) = mpsc::channel(4);
+        drop(gone);
+        let hub = Hub::new(core_for(&w.text), nudges);
+        let s = session(&w, Level::Write);
+        let ops = vec![Op::Set {
+            path: vec!["services".into(), "web".into(), "target".into()],
+            value: serde_json::json!(3009),
+        }];
+        let before = hub.core.read().unwrap();
+        let base = core::text::rev(&before);
+        let plan = plan::compute(&hub.core, &s, &base, &ops).unwrap().plan;
+        let (_report, applies) = watch::channel(ApplyReport::default());
+        let cx = Ctx {
+            hub: hub.clone(),
+            session: Arc::new(s),
+            applies,
+            access: Arc::new(RevokedWhileWaiting),
+        };
+        let body = serde_json::to_value(msg::Apply {
+            base,
+            ops,
+            plan: plan.plan,
+            confirm: Vec::new(),
+        })
+        .unwrap();
+        let e = apply(&cx, body).await.unwrap_err();
+        assert_eq!(e.code, ErrorCode::Forbidden, "{}", e.message);
+        assert!(e.message.contains("admin level changed"), "{}", e.message);
+        assert_eq!(hub.core.read().unwrap(), before, "nothing is written");
+    }
+}

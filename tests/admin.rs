@@ -601,7 +601,7 @@ async fn an_apply_runs_to_its_end_when_its_session_closes_at_once() {
 }
 
 #[tokio::test]
-async fn an_apply_waiting_for_the_lock_is_refused_once_its_session_lost_write_access() {
+async fn a_queued_apply_of_a_revoked_session_writes_nothing() {
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, Ordering};
     let release = Arc::new(AtomicBool::new(false));

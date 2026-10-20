@@ -559,4 +559,4 @@ pub fn dispatch(core: &Core, s: &Session, t: &str, body: &Value) -> Reply {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
