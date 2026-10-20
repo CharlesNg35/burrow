@@ -21,6 +21,8 @@ cleanup() {
   sudo "$B" service uninstall burrow-e2e-admin --purge >/dev/null 2>&1
   sudo "$B" service uninstall burrow-e2e-inplace --purge >/dev/null 2>&1
   sudo rm -rf /etc/burrow/e2e-inplace /etc/burrow/e2e-inplace.yaml.bak
+  sudo "$B" service uninstall burrow-e2e-rootadmin --purge >/dev/null 2>&1
+  sudo rm -rf /etc/burrow/e2e-rootadmin
   sudo "$B" service uninstall burrow-e2e-client --purge >/dev/null 2>&1
   sudo "$B" service uninstall burrow-e2e-server --purge >/dev/null 2>&1
   for p in "${PIDS[@]}"; do kill "$p" 2>/dev/null; done
