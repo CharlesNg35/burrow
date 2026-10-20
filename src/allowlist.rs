@@ -100,6 +100,17 @@ pub enum Refusal {
     Outside,
 }
 
+fn listens_on(own: SocketAddr, target: SocketAddr) -> bool {
+    burrow_syntax::ports::binds_conflict(own, target)
+        && (!own.ip().is_unspecified() || is_this_host(target.ip()))
+}
+
+fn is_this_host(ip: IpAddr) -> bool {
+    ip.is_unspecified()
+        || ip.is_loopback()
+        || std::net::UdpSocket::bind(SocketAddr::new(ip, 0)).is_ok()
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Gate {
     allow: AllowList,
@@ -130,11 +141,7 @@ impl Gate {
 
     pub fn refusal(&self, target: SocketAddr) -> Option<Refusal> {
         let target = SocketAddr::new(canonical(target.ip()), target.port());
-        if let Some(own) = self
-            .own
-            .iter()
-            .find(|own| burrow_syntax::ports::binds_conflict(**own, target))
-        {
+        if let Some(own) = self.own.iter().find(|own| listens_on(**own, target)) {
             return Some(Refusal::Burrow(*own));
         }
         if self.link_local_named_only && named_only(target.ip()) && !self.names(target) {
@@ -411,10 +418,7 @@ mod tests {
             gate.refusal(sa("127.0.0.1:7835")),
             Some(Refusal::Burrow(sa("0.0.0.0:7835")))
         );
-        assert_eq!(
-            gate.refusal(sa("10.0.0.9:7835")),
-            Some(Refusal::Burrow(sa("0.0.0.0:7835")))
-        );
+        assert_eq!(gate.refusal(sa("192.0.2.9:7835")), None);
         assert_eq!(
             gate.refusal(sa("[::ffff:127.0.0.1]:9100")),
             Some(Refusal::Burrow(sa("127.0.0.1:9100")))
@@ -425,6 +429,50 @@ mod tests {
         );
         assert_eq!(gate.refusal(sa("10.0.0.9:9100")), None);
         assert_eq!(gate.refusal(sa("127.0.0.1:5432")), None);
+    }
+
+    #[test]
+    fn a_wildcard_listener_covers_only_addresses_of_this_host() {
+        let gate = Gate::this_server(None, vec![sa("0.0.0.0:7835")]);
+        assert_eq!(gate.refusal(sa("192.0.2.9:7835")), None);
+        assert_eq!(
+            gate.refusal(sa("127.0.0.1:7835")),
+            Some(Refusal::Burrow(sa("0.0.0.0:7835")))
+        );
+        assert_eq!(
+            gate.refusal(sa("0.0.0.0:7835")),
+            Some(Refusal::Burrow(sa("0.0.0.0:7835")))
+        );
+        assert_eq!(gate.refusal(sa("[::1]:7835")), None);
+        let probe = std::net::UdpSocket::bind("0.0.0.0:0").unwrap();
+        if probe.connect("192.0.2.1:9").is_ok() {
+            let ip = probe.local_addr().unwrap().ip();
+            if !ip.is_loopback() && !ip.is_unspecified() {
+                assert_eq!(
+                    gate.refusal(SocketAddr::new(ip, 7835)),
+                    Some(Refusal::Burrow(sa("0.0.0.0:7835"))),
+                    "{ip}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_wildcard_ipv6_listener_covers_loopback_of_both_families() {
+        if std::net::UdpSocket::bind("[::1]:0").is_err() {
+            return;
+        }
+        let gate = Gate::this_server(None, vec![sa("[::]:7835")]);
+        assert_eq!(
+            gate.refusal(sa("[::1]:7835")),
+            Some(Refusal::Burrow(sa("[::]:7835")))
+        );
+        assert_eq!(
+            gate.refusal(sa("127.0.0.1:7835")),
+            Some(Refusal::Burrow(sa("[::]:7835")))
+        );
+        assert_eq!(gate.refusal(sa("[2001:db8::9]:7835")), None);
+        assert_eq!(gate.refusal(sa("192.0.2.9:7835")), None);
     }
 
     #[test]

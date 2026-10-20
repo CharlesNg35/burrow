@@ -229,7 +229,7 @@ web:
 
 **Unix sockets.** `target: unix:/var/run/docker.sock` makes the client connect to a Unix socket. Its `allow` list must permit it, with `unix:/var/run/docker.sock` or `unix:/var/run/*`. A socket path that is itself a symbolic link is refused; allow the socket it points to. A client installed with `burrow service` cannot see sockets under `/tmp` or in home folders, and its account must be allowed to connect (`--run-as` picks another one).
 
-**On the server itself.** `client: self` makes the server connect to the target itself, with no client. Everything else works as for any client: public and private services, UDP, ranges, limits, the PROXY protocol, health checks, and `self` among several `clients`. Visitors reach the server's own network with `reach: self`. A `self` section bounds what the server may dial for itself; without it, `self` services reach only their own target and `reach: self` is refused. The server never dials its own listen, WebSocket or metrics ports, nor a link-local or metadata address (such as 169.254.169.254) that `self.allow` does not list on its own.
+**On the server itself.** `client: self` makes the server connect to the target itself, with no client. Everything else works as for any client: public and private services, UDP, ranges, limits, the PROXY protocol, health checks, and `self` among several `clients`. Visitors reach the server's own network with `reach: self`. A `self` section bounds what the server may dial for itself; without it, `self` services reach only their own target and `reach: self` is refused. The server never dials its own listen, WebSocket or metrics addresses, nor a link-local or metadata address (such as 169.254.169.254) that `self.allow` does not list on its own.
 
 ```yaml
 # server.yaml

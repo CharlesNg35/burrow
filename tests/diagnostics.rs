@@ -2213,6 +2213,29 @@ fn a_self_service_without_self_allow_reaches_its_own_target() {
 }
 
 #[test]
+fn a_wildcard_listen_port_on_another_machine_is_not_burrow() {
+    let text = render(
+        "server.yaml",
+        &self_server(
+            "self:\n  allow: [192.0.2.0/24, 127.0.0.1/32]\n",
+            "  chain: { client: self, bind: 8092, target: 192.0.2.9:7835 }\n  peer: { client: self, bind: 8093, target: 192.0.2.9:8093 }\n  loop: { client: self, bind: 8094, target: 127.0.0.1:7835 }\n",
+            "",
+        ),
+        None,
+    );
+    insta::assert_snapshot!(text, @r#"
+    error: service "loop" on "self" targets 127.0.0.1:7835, which is burrow's own listen (0.0.0.0:7835)
+      --> server.yaml:12:45
+       |
+    12 |   loop: { client: self, bind: 8094, target: 127.0.0.1:7835 }
+       |                                             ^^^^^^^^^^^^^^ a loop back into burrow
+       = help: point the service at the application behind it, on another port
+
+    server.yaml: 1 error, 0 warnings
+    "#);
+}
+
+#[test]
 fn self_refusals() {
     let text = render(
         "server.yaml",
