@@ -9,6 +9,7 @@ pub fn secretish(key: &str) -> bool {
     let key = key.to_ascii_lowercase();
     key.contains("secret")
         || ["key", "psk", "token", "password", "pass", "passwd"].contains(&key.as_str())
+        || crate::suggest::closest(&key, ["secret"]).is_some()
 }
 
 fn child<'a>(node: Option<&'a Node>, key: &str) -> Option<&'a Node> {
@@ -91,11 +92,18 @@ pub fn present(v: &Value, node: Option<&Node>, key: &str, env: &dyn EnvSource) -
             };
             Value::Array(items.iter().map(|i| present(i, item, key, env)).collect())
         }
-        Value::String(s) if s.contains("${") => value::env(&EnvInfo {
-            raw: s.clone(),
-            vars: env_vars(s),
-            resolved: expand_value(s, env),
-        }),
+        Value::String(s) if s.contains("${") => {
+            let resolved = expand_value(s, env);
+            if resolved.as_deref().is_some_and(super::text::holds_secret) {
+                return value::secret(&secret_info(s, env));
+            }
+            value::env(&EnvInfo {
+                raw: s.clone(),
+                vars: env_vars(s),
+                resolved,
+            })
+        }
+        Value::String(s) if super::text::holds_secret(s) => value::secret(&secret_info(s, env)),
         other => other.clone(),
     }
 }
@@ -162,5 +170,34 @@ mod tests {
         assert!(!out.to_string().contains(&s.encode()));
         assert_eq!(raw_of(&out["listen"]), json!("${PORT}"));
         assert_eq!(out["services"]["web"]["target"], 3000);
+    }
+
+    #[test]
+    fn secrets_in_the_wrong_shape_or_under_a_wrong_key_stay_masked() {
+        let schema = crate::config::admin_schema::server_schema();
+        let s = Secret::generate();
+        let env = |k: &str| (k == "HOME_SECRET").then(|| s.encode());
+        for raw in [
+            json!({"clients": {"home": s.encode()}}),
+            json!({"clients": {"home": {"secert": s.encode()}}}),
+            json!({"clients": {"home": "${HOME_SECRET}"}}),
+            json!({"clients": {"home": {"note": "${HOME_SECRET}"}}}),
+            json!({"server": format!("wss://u:{}@x.example", s.encode())}),
+            json!({"limits": {"other": [s.encode()]}}),
+        ] {
+            let out = present(&raw, Some(&schema.root), "", &env);
+            let text = out.to_string();
+            assert!(!text.contains(&s.encode()), "{raw} gave {text}");
+            assert!(has_secret_marker(&out), "{text}");
+        }
+        let out = present(
+            &json!({"clients": {"home": "${HOME_SECRET}"}}),
+            Some(&schema.root),
+            "",
+            &env,
+        );
+        let marker = &out["clients"]["home"]["$secret"];
+        assert_eq!(marker["src"]["env"], "HOME_SECRET");
+        assert_eq!(marker["fp"], s.fingerprint());
     }
 }

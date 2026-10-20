@@ -23,6 +23,13 @@ fn token_char(c: char) -> bool {
     c.is_ascii_alphanumeric() || matches!(c, '+' | '/' | '=' | '-' | '_')
 }
 
+/// Whether any token of the text is a valid burrow secret, the rule the
+/// config error snippets mask by.
+pub fn holds_secret(text: &str) -> bool {
+    text.split(|c: char| !token_char(c))
+        .any(|t| !t.is_empty() && Secret::parse(t).is_ok())
+}
+
 pub fn mask_secrets(line: &str, fresh: &[(String, String)]) -> String {
     let mut out = String::with_capacity(line.len());
     let mut token = String::new();

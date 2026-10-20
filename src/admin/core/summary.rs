@@ -21,6 +21,7 @@ fn short(v: &Value) -> String {
         Value::Object(_) => "settings".into(),
         other => other.to_string(),
     };
+    let text = super::text::mask_secrets(&text, &[]);
     if text.chars().count() > 80 {
         format!("{}…", text.chars().take(79).collect::<String>())
     } else {
@@ -231,5 +232,26 @@ mod tests {
         assert!(text.contains(&"Service web: bind 7840 → 7841"), "{text:?}");
         assert!(text.contains(&"limits removed"), "{text:?}");
         assert!(!text.iter().any(|t| t.contains("SECRET-")), "{text:?}");
+    }
+
+    #[test]
+    fn secrets_in_the_wrong_shape_stay_out_of_summaries() {
+        let s = crate::secret::Secret::generate().encode();
+        let old =
+            json!({"clients": {"home": {"secret": "A"}}, "visitors": {"ops": {"secret": "B"}}});
+        let new = json!({
+            "clients": {"home": {"secret": "A", "secert": s}, "office": s},
+            "visitors": {"ops": {"secret": "B", "note": format!("key {s}")}},
+            "token_list": [s],
+            "proxy": format!("http://u:{s}@p"),
+        });
+        let c = changes(&old, &new, &[]);
+        let text: Vec<&str> = c.iter().map(|c| c.summary.as_str()).collect();
+        assert!(!text.iter().any(|t| t.contains(&s)), "{text:?}");
+        assert!(
+            !changes(&new, &old, &[])
+                .iter()
+                .any(|c| c.summary.contains(&s))
+        );
     }
 }
