@@ -374,7 +374,10 @@ impl Core {
     pub fn suggest(&self, req: &Suggest) -> Result<Suggestions, ApiError> {
         match req.what.as_str() {
             "free-port" => {
-                let near = req.near.unwrap_or(7840).clamp(1024, 65535) as u16;
+                let near = req
+                    .near
+                    .unwrap_or(burrow_syntax::ports::FIRST_SERVICE_PORT.into())
+                    .clamp(1024, 65535) as u16;
                 let count = req.count.unwrap_or(1).clamp(1, 1000) as u16;
                 let udp = req.proto.as_deref() == Some("udp");
                 let text = self.read()?;

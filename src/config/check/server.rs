@@ -40,7 +40,7 @@ pub fn check_server(
                     )
                     .at(spans.value(&["listen"]))
                     .label("expected ip:port or a port")
-                    .help("use an IP and port, for example 0.0.0.0:7835 or [::]:7835, or a port alone like 7835"),
+                    .help(format!("use an IP and port, for example 0.0.0.0:{p} or [::]:{p}, or a port alone like {p}", p = burrow_syntax::ports::SERVER_PORT)),
                 );
                 None
             }
@@ -53,7 +53,7 @@ pub fn check_server(
     {
         out.push(
             Diagnostic::error("no-listener", "the server needs \"listen\" (TCP), \"websocket\", or both")
-                .help("add \"listen: 0.0.0.0:7835\" for TCP clients, or a websocket section for clients behind HTTP-only networks (see README)"),
+                .help(format!("add \"listen: 0.0.0.0:{}\" for TCP clients, or a websocket section for clients behind HTTP-only networks (see README)", burrow_syntax::ports::SERVER_PORT)),
         );
     }
     let websocket = cfg
@@ -187,7 +187,7 @@ pub fn check_server(
         out.push(
             Diagnostic::warning("no-services", "no services are defined, so nothing is exposed")
                 .at(spans.key(&["services"]))
-                .help("add a service, for example:\n         services:\n           web: { client: NAME, bind: 0.0.0.0:7840, target: 127.0.0.1:80 }"),
+                .help(format!("add a service, for example:\n         services:\n           web: {{ client: NAME, bind: 0.0.0.0:{}, target: 127.0.0.1:80 }}", burrow_syntax::ports::FIRST_SERVICE_PORT)),
         );
     }
 
@@ -528,7 +528,7 @@ fn check_websocket(
                 )
                 .at(spans.value(&["websocket", "listen"]))
                 .label("expected ip:port or a port")
-                .help("use an IP and port, for example 127.0.0.1:7836 behind a proxy, or a port alone for 0.0.0.0"),
+                .help(format!("use an IP and port, for example 127.0.0.1:{} behind a proxy, or a port alone for 0.0.0.0", burrow_syntax::ports::WS_PORT)),
             );
             None
         }

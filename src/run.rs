@@ -214,7 +214,7 @@ pub fn admin(path: &Path, env: Env, opts: crate::admin_local::Options) -> Result
     drive(async move {
         crate::admin_local::check_access(&settings).await?;
         let (listener, note) =
-            crate::admin_local::listen(opts.port, crate::admin_local::DEFAULT_ADMIN_PORT).await?;
+            crate::admin_local::listen(opts.port, burrow_syntax::ports::ADMIN_PORT).await?;
         if let Some(note) = note {
             crate::say_errln!("{note}");
         }

@@ -222,8 +222,6 @@ pub struct Running {
     pub url: String,
 }
 
-pub const DEFAULT_ADMIN_PORT: u16 = 7839;
-
 pub async fn listen(
     port: Option<u16>,
     default: u16,

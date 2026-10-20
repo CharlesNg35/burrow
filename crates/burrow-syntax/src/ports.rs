@@ -2,6 +2,12 @@ use std::net::{IpAddr, SocketAddr};
 
 pub const MAX_RANGE: u16 = 1000;
 
+pub const SERVER_PORT: u16 = 7835;
+pub const WS_PORT: u16 = 7836;
+pub const WSS_PORT: u16 = 7837;
+pub const ADMIN_PORT: u16 = 7839;
+pub const FIRST_SERVICE_PORT: u16 = 7840;
+
 pub fn parse_port(p: &str) -> Result<u16, String> {
     p.trim()
         .parse::<u16>()
@@ -174,7 +180,7 @@ const WELL_KNOWN: &[(u16, &str)] = &[
     (5432, "PostgreSQL"),
     (5900, "VNC"),
     (6379, "Redis"),
-    (7835, "burrow"),
+    (SERVER_PORT, "burrow"),
     (8080, "HTTP alt"),
     (8443, "HTTPS alt"),
     (9090, "Prometheus"),

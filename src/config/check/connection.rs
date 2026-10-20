@@ -79,7 +79,7 @@ pub fn check_connection(
                 Diagnostic::error("invalid-address", format!("invalid server address: {e}"))
                     .at(spans.value(&["server"]))
                     .label("expected a host, host:port or wss://host/path")
-                    .help("use a host name or IP (port 7835 unless you add :PORT), or the WebSocket URL (wss://tunnel.example.com/burrow)"),
+                    .help(format!("use a host name or IP (port {} unless you add :PORT), or the WebSocket URL (wss://tunnel.example.com/burrow)", burrow_syntax::ports::SERVER_PORT)),
             );
             None
         }

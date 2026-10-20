@@ -42,7 +42,10 @@ pub(super) fn check_service<'a>(
                 )
                 .at(spans.value(&path("bind")))
                 .label("expected a port, a range or ip:port")
-                .help("use a port like 7840, a range like 30000-30010, or ip:port like 127.0.0.1:7840"),
+                .help(format!(
+                    "use a port like {p}, a range like 30000-30010, or ip:port like 127.0.0.1:{p}",
+                    p = burrow_syntax::ports::FIRST_SERVICE_PORT
+                )),
             );
             None
         }
@@ -55,7 +58,7 @@ pub(super) fn check_service<'a>(
             )
             .at(spans.key(&["services", name]))
             .label("no bind and no visitors")
-            .help("add \"bind: 7840\" to expose it publicly, or \"visitors: [NAME]\" for visitors using burrow visit"),
+            .help(format!("add \"bind: {}\" to expose it publicly, or \"visitors: [NAME]\" for visitors using burrow visit", burrow_syntax::ports::FIRST_SERVICE_PORT)),
         );
     }
     let target = check_target(name, svc, spans, out);

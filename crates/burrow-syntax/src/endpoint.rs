@@ -2,8 +2,6 @@ use std::fmt;
 
 use crate::hostport::parse_host_port;
 
-pub const DEFAULT_PORT: u16 = 7835;
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Endpoint {
     Tcp {
@@ -29,7 +27,7 @@ impl Endpoint {
                     "user names and passwords are not allowed in the server address".into(),
                 );
             }
-            let host_port = with_default_port(s, DEFAULT_PORT);
+            let host_port = with_default_port(s, crate::ports::SERVER_PORT);
             parse_host_port(&host_port)?;
             return Ok(Endpoint::Tcp { host_port });
         };
