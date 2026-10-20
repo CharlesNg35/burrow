@@ -169,12 +169,22 @@ pub fn service_name(config: &Path, given: Option<&str>) -> Result<String, Failur
                 .hint("pass --name with 1-48 letters, digits or dashes"),
         );
     }
-    Ok(if clean == "burrow" || clean.starts_with("burrow-") {
+    let name = if clean == "burrow" || clean.starts_with("burrow-") {
         clean
     } else {
         format!("burrow-{clean}")
-    })
+    };
+    let short = name.strip_prefix("burrow-").unwrap_or(&name);
+    if OWN_FOLDERS.contains(&short) {
+        return Err(Failure::usage(format!(
+            "\"{short}\" cannot be used as a service name: it is the name of one of burrow's own folders"
+        ))
+        .hint("pass --name with another name"));
+    }
+    Ok(name)
 }
+
+const OWN_FOLDERS: [&str; 5] = ["services", "jobs", "logs", "bin", "instances"];
 
 pub fn referenced_env(src: &str) -> Vec<String> {
     fn values(n: &crate::config::tree::Node, out: &mut String) {
@@ -2396,6 +2406,41 @@ mod tests {
             "burrow-edge"
         );
         assert!(service_name(Path::new("/x/s.yaml"), Some("!!!")).is_err());
+    }
+
+    #[test]
+    fn a_service_never_takes_the_name_of_one_of_burrow_s_own_folders() {
+        let p = Platform::Windows;
+        let root = p.config_dir();
+        let own: Vec<PathBuf> = [
+            p.state_dir(),
+            p.jobs_dir(),
+            p.log_dir(),
+            p.state_dir().with_file_name("bin"),
+            root.join("instances"),
+        ]
+        .into_iter()
+        .filter(|d| d.parent() == Some(root.as_path()))
+        .collect();
+        assert_eq!(own.len(), 5);
+        for dir in own {
+            let short = dir.file_name().unwrap().to_string_lossy().into_owned();
+            for given in [
+                Path::new("/x").join(format!("{short}.yaml")),
+                Path::new("/x").join(format!("{}.yaml", short.to_uppercase())),
+            ] {
+                let refused = service_name(&given, None).unwrap_err();
+                assert!(
+                    refused.message.contains("burrow's own folders"),
+                    "{short}: {}",
+                    refused.message
+                );
+            }
+            assert!(
+                service_name(Path::new("/x/s.yaml"), Some(&format!("burrow-{short}"))).is_err()
+            );
+        }
+        assert!(service_name(Path::new("/x/services-eu.yaml"), None).is_ok());
     }
 
     #[test]
