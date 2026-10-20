@@ -486,3 +486,138 @@ async fn remote_client_and_visitor_channels_stay_encrypted_next_to_self() {
         "plaintext crossed the network"
     );
 }
+
+struct SelfProxy {
+    server: RunningServer,
+    settings: ServerSettings,
+    _visitor: RunningVisitor,
+    secret: Secret,
+    addr: SocketAddr,
+}
+
+async fn self_proxy(reach: AllowList, allow: &[&str]) -> SelfProxy {
+    logs();
+    let secret = Secret::generate();
+    let mut settings = self_settings(vec![]);
+    settings.self_allow = Some(rules(allow));
+    let mut auth = visitor_auth(secret.clone(), &[]);
+    auth.reach.insert("self".into(), reach);
+    settings.visitors.insert("laptop".into(), auth);
+    let server = start_server(settings.clone()).await;
+    let mut v = visitor_settings(server.addr, secret.clone(), vec![]);
+    v.forwards.insert(
+        "self".into(),
+        burrow::config::settings::Forward::socks("127.0.0.1:0".parse().unwrap(), "self".into()),
+    );
+    let visitor = start_visitor(v);
+    SelfProxy {
+        addr: visitor.addr("self"),
+        server,
+        settings,
+        _visitor: visitor,
+        secret,
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn socks_reach_to_self_dials_targets_inside_the_rules_and_self_allow() {
+    let echo = echo_server().await;
+    let p = self_proxy(rules(&["127.0.0.0/8"]), &["127.0.0.0/8"]).await;
+    let (code, s) = common::socks::socks_connect(p.addr, "127.0.0.1", echo.port()).await;
+    assert_eq!(code, 0);
+    common::socks::echoes(s, &pattern(100_000, 6)).await;
+    let (code, s) = common::socks::socks_connect(p.addr, "localhost", echo.port()).await;
+    assert_eq!(code, 0, "a host name is resolved by the self dialer");
+    common::socks::echoes(s, b"named").await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn socks_reach_to_self_is_refused_outside_the_rules() {
+    let echo = echo_server().await;
+    let p = self_proxy(rules(&["10.0.0.0/8"]), &["127.0.0.0/8", "10.0.0.0/8"]).await;
+    let (code, _) = common::socks::socks_connect(p.addr, "127.0.0.1", echo.port()).await;
+    assert_ne!(code, 0);
+    let (code, _) = common::socks::socks_connect(p.addr, "localhost", echo.port()).await;
+    assert_ne!(
+        code, 0,
+        "a name that resolves outside the rules is refused too"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn socks_reach_to_self_is_refused_outside_self_allow() {
+    let echo = echo_server().await;
+    let p = self_proxy(AllowList::All, &["10.0.0.0/8"]).await;
+    let (code, _) = common::socks::socks_connect(p.addr, "127.0.0.1", echo.port()).await;
+    assert_ne!(code, 0, "reach any is bounded by self.allow");
+    let p = self_proxy(rules(&["127.0.0.0/8"]), &["10.0.0.0/8"]).await;
+    let (code, _) = common::socks::socks_connect(p.addr, "localhost", echo.port()).await;
+    assert_ne!(code, 0, "the effective set is the rules within self.allow");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn socks_reach_to_self_never_dials_burrows_own_listener() {
+    let p = self_proxy(AllowList::All, &["127.0.0.0/8"]).await;
+    let own = p.server.ws_addr.unwrap_or(p.server.addr);
+    let (code, _) = common::socks::socks_connect(p.addr, "localhost", own.port()).await;
+    assert_ne!(code, 0);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn narrowing_self_allow_closes_the_reach_connections_it_no_longer_permits() {
+    let first = echo_server().await;
+    let second = echo_server().await;
+    let mut p = self_proxy(AllowList::All, &["127.0.0.0/8"]).await;
+    let (code, mut cut) = common::socks::socks_connect(p.addr, "127.0.0.1", first.port()).await;
+    assert_eq!(code, 0);
+    let (code, mut kept) = common::socks::socks_connect(p.addr, "127.0.0.1", second.port()).await;
+    assert_eq!(code, 0);
+    for s in [&mut cut, &mut kept] {
+        s.write_all(b"ping").await.unwrap();
+        let mut back = [0u8; 4];
+        s.read_exact(&mut back).await.unwrap();
+    }
+    p.settings.self_allow = Some(rules(&[&format!("127.0.0.1/32:{}", second.port())]));
+    p.server.reload(p.settings.clone()).await;
+    assert_cut(cut).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    kept.write_all(b"still").await.unwrap();
+    let mut back = [0u8; 5];
+    kept.read_exact(&mut back).await.unwrap();
+    assert_eq!(&back, b"still");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_visitor_with_reach_any_to_self_is_told_self_allow() {
+    let p = self_proxy(AllowList::All, &["127.0.0.0/8", "10.0.0.5/32:22"]).await;
+    let dir = tempfile::tempdir().unwrap();
+    let server = match p.server.ws_addr {
+        Some(ws) => format!("ws://{ws}/burrow"),
+        None => p.server.addr.to_string(),
+    };
+    let secret = p.secret.encode();
+    let out = tokio::task::spawn_blocking({
+        let dir = dir.path().to_path_buf();
+        move || {
+            std::process::Command::new(env!("CARGO_BIN_EXE_burrow"))
+                .args(["init", "visitor", "--server", &server, "--name", "laptop"])
+                .args(["--secret", &secret, "-o", "visitor.yaml"])
+                .current_dir(dir)
+                .stdin(std::process::Stdio::null())
+                .output()
+                .unwrap()
+        }
+    })
+    .await
+    .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let yaml = std::fs::read_to_string(dir.path().join("visitor.yaml")).unwrap();
+    assert!(
+        yaml.contains("  # client self allows 127.0.0.0/8, 10.0.0.5/32:22\n  self:\n    client: self\n    socks: true\n"),
+        "{yaml}"
+    );
+}

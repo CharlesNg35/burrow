@@ -1,5 +1,7 @@
 #![allow(dead_code)]
 
+pub mod socks;
+
 use std::collections::BTreeMap;
 use std::net::SocketAddr;
 use std::time::Duration;
