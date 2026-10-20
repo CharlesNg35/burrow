@@ -35,17 +35,40 @@ fn self_settings(services: Vec<(&str, Service)>) -> ServerSettings {
     s
 }
 
+const PORTS: std::ops::Range<u16> = 20_000..32_000;
+const CLAIM_KEPT: Duration = Duration::from_secs(3600);
+
+fn claim(port: u16) -> bool {
+    let dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("self-target-ports");
+    let _ = std::fs::create_dir_all(&dir);
+    let file = dir.join(port.to_string());
+    let stale = std::fs::metadata(&file)
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.elapsed().ok())
+        .is_some_and(|age| age > CLAIM_KEPT);
+    if stale {
+        let _ = std::fs::remove_file(&file);
+    }
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&file)
+        .is_ok()
+}
+
 fn free_range(count: u16) -> u16 {
     static NEXT: AtomicU32 = AtomicU32::new(0);
     let seed = std::process::id().wrapping_mul(2_654_435_761);
-    for _ in 0..200 {
+    let span = u32::from(PORTS.end - PORTS.start - count);
+    for _ in 0..2000 {
         let n = NEXT.fetch_add(u32::from(count) + 1, Ordering::Relaxed);
-        let base = 20000 + (seed.wrapping_add(n) % 40000) as u16;
+        let base = PORTS.start + (seed.wrapping_add(n) % span) as u16;
         let all_free = (0..count).all(|i| {
             let addr = SocketAddr::from(([127, 0, 0, 1], base + i));
             std::net::TcpListener::bind(addr).is_ok() && std::net::UdpSocket::bind(addr).is_ok()
         });
-        if all_free {
+        if all_free && (0..count).all(|i| claim(base + i)) {
             return base;
         }
     }
@@ -309,6 +332,8 @@ async fn bandwidth_and_max_connections_hold_on_a_self_service() {
         "1 MB at 400 kB/s took {:?}",
         started.elapsed()
     );
+    let shared = srv.shared.clone();
+    wait_for(|| shared.status().services[0].open == 0).await;
     let first = open_echo(web).await;
     let second = open_echo(web).await;
     assert_ne!(
