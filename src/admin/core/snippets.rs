@@ -1,5 +1,6 @@
 use burrow_admin_proto::msg::{ConnectInfo, ErrorCode};
 use burrow_admin_proto::plan::{Command, Snippets};
+use burrow_config::{ClientEntry, Entry, VisitorEntry};
 use serde_json::Value;
 
 use super::plan::{Computed, check_text};
@@ -37,10 +38,13 @@ fn address(
         .map(str::to_string)
         .or_else(|| settings.public_address.clone());
     match wanted {
-        Some(w) => match crate::config::address::client_address(
+        Some(w) => match burrow_syntax::address::client_address(
             &w,
             settings.listen,
-            settings.websocket.as_ref().map(Into::into),
+            settings
+                .websocket
+                .as_ref()
+                .map(crate::config::settings::WebSocketSettings::shape),
             section,
             &mut notes,
         ) {
@@ -60,7 +64,8 @@ fn commands(kind: &str, name: &str, server: &str, file: &str) -> Vec<Command> {
         label: label.to_string(),
         line,
     };
-    let run = if kind == "client" {
+    let client = kind == ClientEntry::ENTITY;
+    let run = if client {
         format!("burrow client -c {file}")
     } else {
         format!("burrow visit -c {file}")
@@ -73,7 +78,7 @@ fn commands(kind: &str, name: &str, server: &str, file: &str) -> Vec<Command> {
             format!("burrow init {kind} --server {server} --name {name}"),
         ));
         out.push(cmd(os, "Run it", run.clone()));
-        if kind == "client" {
+        if client {
             let install = if os == "windows" {
                 format!("burrow service install -c {file}")
             } else {
@@ -97,9 +102,10 @@ pub fn build(
     given_address: Option<&str>,
     secret: Option<(&str, &str)>,
 ) -> Result<Snippets, ApiError> {
+    let client = kind == ClientEntry::ENTITY;
     let section = match kind {
-        "client" => "clients",
-        "visitor" => "visitors",
+        k if k == ClientEntry::ENTITY => ClientEntry::section(),
+        k if k == VisitorEntry::ENTITY => VisitorEntry::section(),
         other => {
             return Err(ApiError::new(
                 ErrorCode::BadRequest,
@@ -107,9 +113,10 @@ pub fn build(
             ));
         }
     };
-    let known = match kind {
-        "client" => settings.clients.contains_key(name),
-        _ => settings.visitors.contains_key(name),
+    let known = if client {
+        settings.clients.contains_key(name)
+    } else {
+        settings.visitors.contains_key(name)
     };
     if !known {
         return Err(ApiError::new(
@@ -124,7 +131,7 @@ pub fn build(
         .map(|(v, _)| v.to_string())
         .unwrap_or(placeholder.clone());
     let document = |secret_text: &str, notes: &mut Vec<String>| -> Value {
-        if kind == "client" {
+        if client {
             crate::init::client_document(settings, name, &server, secret_text, notes)
         } else {
             crate::init::visitor_document(settings, name, &server, secret_text, notes)
@@ -174,9 +181,9 @@ pub fn after_apply(core: &Core, c: &Computed) -> Vec<Snippets> {
     c.fresh
         .iter()
         .filter_map(|f| {
-            let kind = match f.path.first().map(String::as_str) {
-                Some("clients") => "client",
-                Some("visitors") => "visitor",
+            let kind = match f.path.first() {
+                Some(s) if s == ClientEntry::section() => ClientEntry::ENTITY,
+                Some(s) if s == VisitorEntry::section() => VisitorEntry::ENTITY,
                 _ => return None,
             };
             let name = f.path.get(1)?;

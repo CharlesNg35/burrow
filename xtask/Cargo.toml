@@ -5,7 +5,14 @@ edition = "2024"
 publish = false
 
 [dependencies]
+base64 = "0.23.1"
 blake2 = "0.10.6"
+burrow-admin-proto = { path = "../crates/burrow-admin-proto" }
+burrow-config = { path = "../crates/burrow-config" }
 flate2 = "1.1.10"
+hex = "0.4.3"
 serde_json = { version = "1.0.154", features = ["preserve_order"] }
+proc-macro2 = { version = "1.0.107", features = ["span-locations"] }
+quote = "1.0.47"
 sha2 = "0.10.9"
+syn = { version = "2.0.119", features = ["full", "visit-mut"] }

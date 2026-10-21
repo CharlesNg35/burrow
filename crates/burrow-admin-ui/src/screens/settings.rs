@@ -1,6 +1,6 @@
-use burrow_admin_logic::changeset::get;
 use burrow_admin_proto::schema::{Field, Schema, SemType};
 use burrow_admin_proto::serde_json::Value;
+use burrow_admin_proto::value::get;
 use burrow_ui_kit::Tone;
 use leptos::context::Provider;
 use leptos::prelude::*;

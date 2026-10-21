@@ -120,6 +120,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
+name = "arbitrary"
+version = "1.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3bc62ac97cc33321f50863d514c3bc38a453947a8f9e781137e47c7401020aed"
+
+[[package]]
+name = "arbtest"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2a3be567977128c0f71ad1462d9624ccda712193d124e944252f0c5789a06d46"
+dependencies = [
+ "arbitrary",
+]
+
+[[package]]
 name = "arraydeque"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -311,36 +326,48 @@ checksum = "72f5acc6cb2ba439de613abc23857ec3d78374d8ed5ac84e9d11336e87da8649"
 name = "burrow"
 version = "0.1.0"
 dependencies = [
+ "arbtest",
  "base64 0.23.1",
  "blake2",
- "burrow-admin-derive",
+ "burrow-admin-logic",
  "burrow-admin-proto",
+ "burrow-config",
  "burrow-syntax",
  "bytes",
  "chromiumoxide",
  "clap",
  "clap_complete",
  "crossterm",
+ "dunce",
  "flate2",
  "futures-util",
  "getrandom 0.3.4",
+ "hex",
  "http",
+ "http-body-util",
  "httparse",
+ "hyper",
+ "hyper-util",
  "image",
  "insta",
  "libc",
  "mimalloc",
  "notify",
+ "percent-encoding",
  "rcgen",
+ "ring",
  "rustix",
  "saphyr-parser",
  "schemars",
+ "semver",
  "serde",
  "serde_json",
  "sha2",
  "signal-hook",
  "snow",
  "socket2",
+ "strsim",
+ "subtle",
  "tempfile",
  "tikv-jemallocator",
  "tokio",
@@ -349,6 +376,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "webpki-roots",
+ "which",
  "windows-service",
  "zeroize",
 ]
@@ -367,6 +395,7 @@ name = "burrow-admin-logic"
 version = "0.1.0"
 dependencies = [
  "burrow-admin-proto",
+ "burrow-config",
  "burrow-syntax",
 ]
 
@@ -374,6 +403,7 @@ dependencies = [
 name = "burrow-admin-proto"
 version = "0.1.0"
 dependencies = [
+ "schemars",
  "serde",
  "serde_json",
 ]
@@ -384,6 +414,7 @@ version = "0.1.0"
 dependencies = [
  "burrow-admin-logic",
  "burrow-admin-proto",
+ "burrow-config",
  "burrow-syntax",
  "burrow-ui-kit",
  "console_error_panic_hook",
@@ -392,6 +423,16 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
+]
+
+[[package]]
+name = "burrow-config"
+version = "0.1.0"
+dependencies = [
+ "burrow-admin-derive",
+ "burrow-admin-proto",
+ "schemars",
+ "serde",
 ]
 
 [[package]]
@@ -1222,6 +1263,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 
 [[package]]
+name = "hex"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
+
+[[package]]
 name = "html-escape"
 version = "0.2.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1267,6 +1314,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6dbf3de79e51f3d586ab4cb9d5c3e2c14aa28ed23d180cf89b4df0454a69cc87"
 
 [[package]]
+name = "httpdate"
+version = "1.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "df3b46402a9d5adb4c86a0cf463f42e19994e3ee891101b1841f30a545cb49a9"
+
+[[package]]
 name = "hydration_context"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1291,6 +1344,7 @@ dependencies = [
  "http",
  "http-body",
  "httparse",
+ "httpdate",
  "itoa",
  "pin-project-lite",
  "smallvec",
@@ -2484,9 +2538,9 @@ dependencies = [
 
 [[package]]
 name = "rustls-webpki"
-version = "0.103.15"
+version = "0.103.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f3c3cf1d8b1e7d4927e2d154c3fcb02979afb9939629c62cd9048d4f07b60ac2"
+checksum = "4443b1b6d39d7c663139942cc4558262562d2c84123bb6282ef177009ca8b281"
 dependencies = [
  "ring",
  "rustls-pki-types",
@@ -3567,9 +3621,9 @@ dependencies = [
 
 [[package]]
 name = "webpki-roots"
-version = "1.0.9"
+version = "1.0.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7dcd9d09a39985f5344844e66b0c530a33843579125f23e21e9f0f220850f22a"
+checksum = "1c1c8e20c8a38fc7d65abfe74eb7280e4aa667e8eec8bc84996d2874810748d9"
 dependencies = [
  "rustls-pki-types",
 ]
@@ -3865,10 +3919,17 @@ dependencies = [
 name = "xtask"
 version = "0.1.0"
 dependencies = [
+ "base64 0.23.1",
  "blake2",
+ "burrow-admin-proto",
+ "burrow-config",
  "flate2",
+ "hex",
+ "proc-macro2",
+ "quote",
  "serde_json",
  "sha2",
+ "syn 2.0.119",
 ]
 
 [[package]]

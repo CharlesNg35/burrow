@@ -5,8 +5,8 @@ use serde_json::{Value, json};
 
 use super::client::client_value;
 use super::{
-    DEFAULT_CLIENT_NAME, DEFAULT_LISTEN, DEFAULT_SERVICE_BIND, InitOptions, WebSocketChoice,
-    WebSocketInit, check_env_name, check_name, resolve_output, write_new,
+    DEFAULT_CLIENT_NAME, InitOptions, WebSocketChoice, WebSocketInit, check_env_name, check_name,
+    default_listen, default_service_bind, resolve_output, write_new,
 };
 use crate::config::emit::render;
 use crate::config::{Format, Role};
@@ -15,10 +15,10 @@ use crate::secret::Secret;
 
 pub fn server_value(client: &str, secret_text: &str) -> Value {
     json!({
-        "listen": DEFAULT_LISTEN,
+        "listen": default_listen(),
         "clients": { client: { "secret": secret_text } },
         "services": {
-            "web": { "client": client, "bind": DEFAULT_SERVICE_BIND, "target": "127.0.0.1:3000" }
+            "web": { "client": client, "bind": default_service_bind(), "target": "127.0.0.1:3000" }
         }
     })
 }
@@ -50,7 +50,7 @@ fn websocket_server_value(client: &str, secret_text: &str, ws: &WebSocketChoice)
         "websocket": websocket,
         "clients": { client: { "secret": secret_text } },
         "services": {
-            "web": { "client": client, "bind": DEFAULT_SERVICE_BIND, "target": "127.0.0.1:3000" }
+            "web": { "client": client, "bind": default_service_bind(), "target": "127.0.0.1:3000" }
         }
     })
 }
@@ -74,8 +74,8 @@ pub fn init_server(opts: &InitOptions, out: &mut dyn Write) -> Result<PathBuf, F
         Some(s) => {
             let listen = ws
                 .is_none()
-                .then(|| DEFAULT_LISTEN.parse().expect("valid default"));
-            let endpoint = crate::config::address::client_address(
+                .then(|| default_listen().parse().expect("valid default"));
+            let endpoint = burrow_syntax::address::client_address(
                 s,
                 listen,
                 ws.as_ref().map(WebSocketChoice::shape),

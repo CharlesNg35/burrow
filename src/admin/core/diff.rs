@@ -11,15 +11,24 @@ enum Step {
 }
 
 fn script(a: &[&str], b: &[&str]) -> Vec<Step> {
+    search(a, b).0
+}
+
+fn search(a: &[&str], b: &[&str]) -> (Vec<Step>, usize) {
     let (n, m) = (a.len() as isize, b.len() as isize);
     let max = (n + m) as usize;
     let limit = max.min(MAX_EDITS);
     let off = max as isize + 1;
     let mut v = vec![0isize; 2 * max + 3];
-    let mut trace: Vec<Vec<isize>> = Vec::new();
+    let mut trace: Vec<Vec<u32>> = Vec::new();
     let mut found = false;
     'outer: for d in 0..=limit as isize {
-        trace.push(v.clone());
+        trace.push(
+            (-(d + 1)..=d + 1)
+                .step_by(2)
+                .map(|k| v[(k + off) as usize] as u32)
+                .collect(),
+        );
         let mut k = -d;
         while k <= d {
             let idx = (k + off) as usize;
@@ -44,20 +53,20 @@ fn script(a: &[&str], b: &[&str]) -> Vec<Step> {
     if !found {
         let mut out = vec![Step::Del; a.len()];
         out.extend(std::iter::repeat_n(Step::Add, b.len()));
-        return out;
+        return (out, trace.iter().map(Vec::len).sum());
     }
     let mut steps = Vec::new();
     let (mut x, mut y) = (n, m);
     for d in (0..trace.len() as isize).rev() {
-        let v = &trace[d as usize];
+        let band = &trace[d as usize];
+        let at = |k: isize| band[((k + d + 1) / 2) as usize] as isize;
         let k = x - y;
-        let prev_k = if k == -d || (k != d && v[(k - 1 + off) as usize] < v[(k + 1 + off) as usize])
-        {
+        let prev_k = if k == -d || (k != d && at(k - 1) < at(k + 1)) {
             k + 1
         } else {
             k - 1
         };
-        let prev_x = v[(prev_k + off) as usize];
+        let prev_x = at(prev_k);
         let prev_y = prev_x - prev_k;
         while x > prev_x && y > prev_y {
             steps.push(Step::Same);
@@ -75,7 +84,7 @@ fn script(a: &[&str], b: &[&str]) -> Vec<Step> {
         y = prev_y;
     }
     steps.reverse();
-    steps
+    (steps, trace.iter().map(Vec::len).sum())
 }
 
 pub fn unified(old: &str, new: &str, mask: &dyn Fn(&str) -> String) -> Diff {
@@ -183,5 +192,117 @@ mod tests {
         assert!(unified(&old, &old, &same).hunks.is_empty());
         let all = unified("", "a\nb\n", &same);
         assert_eq!(all.hunks[0].new_lines, 2);
+    }
+
+    fn reference(a: &[&str], b: &[&str]) -> (Vec<Step>, usize) {
+        let (n, m) = (a.len() as isize, b.len() as isize);
+        let max = (n + m) as usize;
+        let limit = max.min(MAX_EDITS);
+        let off = max as isize + 1;
+        let mut v = vec![0isize; 2 * max + 3];
+        let mut trace: Vec<Vec<isize>> = Vec::new();
+        let mut found = false;
+        'outer: for d in 0..=limit as isize {
+            trace.push(v.clone());
+            let mut k = -d;
+            while k <= d {
+                let idx = (k + off) as usize;
+                let mut x = if k == -d || (k != d && v[idx - 1] < v[idx + 1]) {
+                    v[idx + 1]
+                } else {
+                    v[idx - 1] + 1
+                };
+                let mut y = x - k;
+                while x < n && y < m && a[x as usize] == b[y as usize] {
+                    x += 1;
+                    y += 1;
+                }
+                v[idx] = x;
+                if x >= n && y >= m {
+                    found = true;
+                    break 'outer;
+                }
+                k += 2;
+            }
+        }
+        if !found {
+            let mut out = vec![Step::Del; a.len()];
+            out.extend(std::iter::repeat_n(Step::Add, b.len()));
+            return (out, trace.iter().map(Vec::len).sum());
+        }
+        let mut steps = Vec::new();
+        let (mut x, mut y) = (n, m);
+        for d in (0..trace.len() as isize).rev() {
+            let v = &trace[d as usize];
+            let k = x - y;
+            let prev_k =
+                if k == -d || (k != d && v[(k - 1 + off) as usize] < v[(k + 1 + off) as usize]) {
+                    k + 1
+                } else {
+                    k - 1
+                };
+            let prev_x = v[(prev_k + off) as usize];
+            let prev_y = prev_x - prev_k;
+            while x > prev_x && y > prev_y {
+                steps.push(Step::Same);
+                x -= 1;
+                y -= 1;
+            }
+            if d > 0 {
+                if x == prev_x {
+                    steps.push(Step::Add);
+                } else {
+                    steps.push(Step::Del);
+                }
+            }
+            x = prev_x;
+            y = prev_y;
+        }
+        steps.reverse();
+        (steps, trace.iter().map(Vec::len).sum())
+    }
+
+    fn lines(seed: &mut u64, n: usize) -> Vec<String> {
+        (0..n)
+            .map(|_| {
+                *seed = seed
+                    .wrapping_mul(6364136223846793005)
+                    .wrapping_add(1442695040888963407);
+                format!("l{}", (*seed >> 33) % 4)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn scripts_match_the_full_trace_search() {
+        let mut seed = 7u64;
+        for round in 0..400 {
+            let (n, m) = if round < 390 {
+                (round % 23, (round * 7) % 19)
+            } else {
+                (150 + round % 7, 140 + round % 5)
+            };
+            let a = lines(&mut seed, n);
+            let b = lines(&mut seed, m);
+            let a: Vec<&str> = a.iter().map(String::as_str).collect();
+            let b: Vec<&str> = b.iter().map(String::as_str).collect();
+            assert_eq!(search(&a, &b).0, reference(&a, &b).0, "{a:?} {b:?}");
+        }
+    }
+
+    #[test]
+    fn a_long_list_removed_keeps_a_small_trace() {
+        let old: String = (0..15_000)
+            .map(|i| format!("  - 10.{}.{}.0/24\n", i / 256, i % 256))
+            .collect();
+        let new = "  - 192.0.2.0/24\n";
+        let a: Vec<&str> = old.lines().collect();
+        let b: Vec<&str> = new.lines().collect();
+        let (steps, kept) = search(&a, &b);
+        assert_eq!(steps.len(), a.len() + b.len());
+        assert!(kept <= MAX_EDITS * MAX_EDITS, "kept {kept} trace entries");
+        let d = unified(&old, new, &same);
+        assert_eq!(d.hunks.len(), 1);
+        assert_eq!(d.hunks[0].old_lines, 15_000);
     }
 }

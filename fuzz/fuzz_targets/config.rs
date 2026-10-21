@@ -8,11 +8,15 @@ fn env(name: &str) -> Option<String> {
 }
 
 fuzz_target!(|data: &[u8]| {
-    let Ok(text) = std::str::from_utf8(data) else { return };
+    let Ok(text) = std::str::from_utf8(data) else {
+        return;
+    };
     for format in [Format::Yaml, Format::Json] {
         for role in [None, Some(Role::Server), Some(Role::Client)] {
             let o = load_str("fuzz.yaml", text, format, role, &env);
-            let _ = o.report.render_text(burrow::diagnostics::Style { color: false });
+            let _ = o
+                .report
+                .render_text(burrow::diagnostics::Style { color: false });
             let _ = o.report.render_json();
         }
     }

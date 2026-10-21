@@ -169,6 +169,10 @@ fn group(
             )?;
             continue;
         }
+        if let Some(m) = users.iter().find(|m| super::exposed(m)) {
+            say(out, format!("{names}: {}", super::exposed_note(m)))?;
+            continue;
+        }
         if binary == me {
             say(out, format!("{names}: already uses this binary ({mine})"))?;
             continue;
@@ -393,6 +397,29 @@ mod tests {
             version: "1.0.0".into(),
             writable_dir: None,
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_service_whose_bin_folder_users_can_now_change_is_not_updated_in_place() {
+        let usual = crate::service::Platform::current().binary_path();
+        crate::service::system::tests::as_if_users_can_change(usual.parent().unwrap(), || {
+            let all = [service("burrow-x", &usual)];
+            let mut out = Vec::new();
+            let swaps = group(
+                &all,
+                &all,
+                Path::new("/nonexistent/new"),
+                "9.9.9",
+                true,
+                &mut out,
+            )
+            .unwrap();
+            let said = String::from_utf8(out).unwrap();
+            assert!(swaps.is_empty(), "{said}");
+            assert!(said.contains("users other than root can change"), "{said}");
+            assert!(said.contains("service install -c /tmp/x.yaml"), "{said}");
+        });
     }
 
     #[test]

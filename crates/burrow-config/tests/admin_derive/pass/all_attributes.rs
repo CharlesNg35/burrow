@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
-use burrow::config::admin_schema::AdminSchema;
-use burrow::config::model::{Bind, Reach, Secrets, Target};
+use burrow_config::admin_schema::AdminSchema;
+use burrow_config::{Bind, Reach, Secrets, Target};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, serde::Serialize, serde::Deserialize, AdminSchema)]
 #[serde(rename_all = "kebab-case")]
@@ -38,7 +38,7 @@ pub struct Thing {
     pub text: String,
     #[admin(ty = integer(unit = "things"), advanced, readonly = "fixed")]
     pub count: u32,
-    #[admin(danger_when_set, applies = live)]
+    #[admin(danger_when_set, applies = live, reduce_only)]
     pub on: bool,
     #[admin(ty = ip)]
     pub ip: String,
@@ -121,11 +121,41 @@ pub struct Elsewhere {
     pub anything: u8,
 }
 
+mod wire {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+    #[serde(rename_all = "lowercase")]
+    pub enum Level {
+        Read,
+        Write,
+    }
+}
+
+#[derive(serde::Serialize, AdminSchema)]
+#[admin(remote = wire::Level)]
+#[serde(rename_all = "lowercase")]
+enum LevelSchema {
+    #[admin(label = "Read access")]
+    Read,
+    #[admin(danger)]
+    Write,
+}
+
 fn main() {
+    use burrow_config::admin_schema::AdminEnum;
+    assert_eq!(wire::Level::Write.wire(), "write");
+    assert_eq!(wire::Level::from_wire("read"), Some(wire::Level::Read));
+    assert_eq!(wire::Level::from_wire("owner"), None);
+    let levels = <wire::Level as AdminEnum>::options();
+    assert_eq!(levels.len(), 2);
+    assert_eq!(levels[0].label, "Read access");
+    assert!(levels[1].danger);
+    assert!(<wire::Level as AdminSchema>::node().field("x").is_none());
     let n = <Holder as AdminSchema>::node();
     assert!(n.field("things").is_some());
     let t = <Thing as AdminSchema>::node();
     assert_eq!(t.groups.len(), 2);
+    assert!(t.field("on").unwrap().node.reduce_only);
+    assert!(!t.field("ip").unwrap().node.reduce_only);
     let _ = <Elsewhere as AdminSchema>::node();
     assert_eq!(Svc::TCP_ONLY, ["visitors"]);
     let svc = <Svc as AdminSchema>::node();

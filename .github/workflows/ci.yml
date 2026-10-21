@@ -27,17 +27,20 @@ jobs:
       - run: cargo clippy --locked --workspace --all-targets -- -D warnings
       - run: cargo clippy --locked --all-targets --features admin-test-hooks -- -D warnings
       - run: cargo xtask arch-check
+      - run: cargo test --locked -p xtask
 
   test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - name: Allow the private network namespace that a test sets up
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
       - run: cargo test --locked
       - name: Integration tests over WebSocket
         env:
           BURROW_TEST_TRANSPORT: ws
-        run: cargo test --locked --test integration --test reconnect --test visit --test ranges --test failover --test socks --test proxy_protocol --test sources --test admin
+        run: cargo test --locked --test integration --test reconnect --test visit --test ranges --test failover --test socks --test proxy_protocol --test sources --test admin --test admin_keepalive --test self_target
       - name: Install and run as a systemd service
         env:
           BURROW_E2E_PROFILE: dev
@@ -82,8 +85,8 @@ jobs:
           path: .tools
           key: ui-tools-${{ hashFiles('xtask/src/tools.rs', 'Cargo.lock') }}
       - run: cargo xtask tools --no-chrome
-      - run: cargo clippy --locked -p burrow-admin-ui -p burrow-ui-kit --target wasm32-unknown-unknown -- -D warnings
-      - run: cargo test --locked -p burrow-admin-logic -p burrow-admin-proto -p burrow-syntax -p burrow-ui-kit -p burrow-admin-ui
+      - run: cargo clippy --locked -p burrow-admin-ui -p burrow-ui-kit -p burrow-config --target wasm32-unknown-unknown -- -D warnings
+      - run: cargo test --locked -p burrow-config -p burrow-admin-logic -p burrow-admin-proto -p burrow-syntax -p burrow-ui-kit -p burrow-admin-ui
       - run: cargo xtask ui --release
       - run: cargo xtask size --budget
       - name: The built UI is embedded
@@ -95,6 +98,10 @@ jobs:
           echo "$info"
           manifest=$(sed -n 's/^manifest //p' <<<"$info")
           [ "$manifest" != "placeholder" ] && [ -n "$manifest" ]
+      - name: The real UI files are served safely
+        env:
+          BURROW_ADMIN_UI_REQUIRE: "1"
+        run: cargo test --locked --test admin the_local_page_is_only_served_to_this_machine
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: admin-ui-dist

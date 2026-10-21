@@ -1,11 +1,12 @@
 use std::collections::BTreeMap;
 
-use schemars::JsonSchema;
+use burrow_admin_proto::msg::AdminLevel;
 use serde::{Deserialize, Serialize};
 
-use super::admin_schema::AdminSchema;
+use crate::admin_schema::AdminSchema;
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, AdminSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, AdminSchema)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 #[schemars(title = "burrow server config")]
 #[admin(
@@ -14,6 +15,7 @@ use super::admin_schema::AdminSchema;
         listener = "Listener",
         websocket = "WebSocket",
         entities = "Clients, visitors and services",
+        local = "This server | What this server may dial for itself, for services with client: self and reach: self.",
         limits = "Limits",
         network = "Network",
         monitoring = "Monitoring",
@@ -66,6 +68,17 @@ pub struct ServerConfig {
     )]
     #[admin(ty = map(visitor), group = entities, applies = reload)]
     pub visitors: BTreeMap<String, VisitorEntry>,
+    #[serde(rename = "self", default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        description = "Targets this server may dial for itself, for services with client: self and visitors with reach: self"
+    )]
+    #[admin(
+        label = "This server",
+        group = local,
+        applies = reload,
+        none_label = "Only the targets of its own services"
+    )]
+    pub self_: Option<SelfEntry>,
     #[serde(default)]
     #[schemars(description = "Exposed services, keyed by service name")]
     #[admin(ty = map(service), group = entities, applies = reload)]
@@ -106,7 +119,8 @@ pub struct ServerConfig {
     pub metrics: Option<MetricsConfig>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, AdminSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, AdminSchema)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 #[admin(label = "Metrics")]
 pub struct MetricsConfig {
@@ -117,7 +131,8 @@ pub struct MetricsConfig {
     pub listen: Bind,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, AdminSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, AdminSchema)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 #[admin(label = "WebSocket")]
 pub struct WebSocketConfig {
@@ -160,7 +175,8 @@ pub fn default_ws_path() -> String {
     "/burrow".into()
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, AdminSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, AdminSchema)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 #[admin(label = "TLS files")]
 pub struct TlsFiles {
@@ -172,7 +188,21 @@ pub struct TlsFiles {
     pub key: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, AdminSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, AdminSchema)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+#[admin(label = "This server")]
+pub struct SelfEntry {
+    #[serde(default)]
+    #[schemars(
+        description = "What this server may dial for itself: CIDR, optionally with :port or :lo-hi, or unix:/path; link-local and metadata addresses only when listed one by one"
+    )]
+    #[admin(ty = list(cidr_rule), label = "Allowed targets", empty_label = "Nothing")]
+    pub allow: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, AdminSchema)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 #[admin(entity = client, label = "Client")]
 pub struct ClientEntry {
@@ -191,7 +221,8 @@ pub struct ClientEntry {
     pub max_connections: Option<u32>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, AdminSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, AdminSchema)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 #[admin(entity = visitor, label = "Visitor", groups(
     admin = "Admin access | May this visitor run burrow admin against this server?",
@@ -200,14 +231,14 @@ pub struct ClientEntry {
 ))]
 pub struct VisitorEntry {
     #[schemars(description = "256-bit secret (base64 or hex), or a list of them during rotation")]
-    #[admin(label = "Secrets")]
+    #[admin(label = "Secrets", reduce_only)]
     pub secret: Secrets,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     #[schemars(
         description = "Clients this visitor may reach directly, with the targets it may pick there: any (whatever the client's allow list permits), or rules in allow-list syntax that narrow it, for example home: any, office: 192.168.150.0/25 or lab: [10.0.0.0/8:22, unix:/run/app.sock]"
     )]
     #[admin(
-        ty = ref_map(client),
+        ty = ref_map(client, reserved = "self"),
         label = "Direct access to clients",
         group = access,
         empty_label = "No direct access"
@@ -231,7 +262,9 @@ pub struct VisitorEntry {
         label = "Admin access",
         group = admin,
         none_label = "None",
-        danger_when_set
+        danger_when_set,
+        reduce_only,
+        wide
     )]
     pub admin: Option<AdminLevel>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -243,26 +276,16 @@ pub struct VisitorEntry {
         label = "Admin only from",
         group = admin,
         visible_if(set(admin)),
-        empty_label = "Any address"
+        empty_label = "Any address",
+        reduce_only
     )]
     pub admin_from: Vec<String>,
 }
 
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Serialize,
-    Deserialize,
-    JsonSchema,
-    AdminSchema,
-)]
+#[derive(Serialize, AdminSchema)]
+#[admin(remote = AdminLevel)]
 #[serde(rename_all = "lowercase")]
-pub enum AdminLevel {
+enum AdminLevelSchema {
     #[admin(
         label = "Read",
         help = "Dashboard, config with secrets as fingerprints, history"
@@ -276,7 +299,19 @@ pub enum AdminLevel {
     Write,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, AdminSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, AdminSchema)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "json-schema", schemars(rename = "Version"))]
+#[serde(rename_all = "lowercase")]
+pub enum ProxyVersion {
+    #[admin(label = "v1 (text)")]
+    V1,
+    #[admin(label = "v2 (binary)")]
+    V2,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, AdminSchema)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
 #[serde(untagged)]
 #[admin(semantic = union(enum_values("any"), cidr_rule, list(cidr_rule)))]
 pub enum Reach {
@@ -295,7 +330,8 @@ impl Reach {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, AdminSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, AdminSchema)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
 #[serde(untagged)]
 #[admin(semantic = secret_ref(max = 4))]
 pub enum Secrets {
@@ -314,7 +350,8 @@ impl Secrets {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, AdminSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, AdminSchema)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 #[admin(
     entity = service,
@@ -330,13 +367,13 @@ impl Secrets {
 pub struct ServiceEntry {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(description = "Name of the client that reaches the target")]
-    #[admin(ty = ref_(client), group = who, one_of = "who", none_label = "None")]
+    #[admin(ty = ref_(client, reserved = "self"), group = who, one_of = "who", none_label = "None")]
     pub client: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[schemars(
         description = "Several clients that can each reach the target, instead of client; see mode"
     )]
-    #[admin(ty = ref_list(client, ordered), group = who, one_of = "who")]
+    #[admin(ty = ref_list(client, ordered, reserved = "self"), group = who, one_of = "who")]
     pub clients: Vec<String>,
     #[serde(default, skip_serializing_if = "is_default")]
     #[schemars(
@@ -396,7 +433,8 @@ pub struct ServiceEntry {
         group = access,
         empty_label = "No visitors",
         inverse(entity = visitor, label = "Services it may use"),
-        options_filter(eq(protocol, "tcp"))
+        options_filter(eq(protocol, "tcp")),
+        narrow
     )]
     pub visitors: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -407,7 +445,13 @@ pub struct ServiceEntry {
     pub allow_from: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[schemars(description = "Source IPs or CIDRs that may never connect")]
-    #[admin(ty = list(cidr), group = access, empty_label = "No addresses denied", advanced)]
+    #[admin(
+        ty = list(cidr),
+        group = access,
+        empty_label = "No addresses denied",
+        advanced,
+        narrow
+    )]
     pub deny_from: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
@@ -419,28 +463,23 @@ pub struct ServiceEntry {
         none_label = "Off",
         advanced
     )]
-    pub proxy_protocol: Option<crate::proxy_protocol::Version>,
+    pub proxy_protocol: Option<ProxyVersion>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
         description = "Speed limit for each direction, shared by all connections of this service, for example 40mbit or 5MB (per second)"
     )]
-    #[admin(ty = rate, label = "Speed limit", group = traffic, none_label = "Unlimited")]
+    #[admin(
+        ty = rate,
+        label = "Speed limit",
+        group = traffic,
+        none_label = "Unlimited",
+        wide
+    )]
     pub bandwidth: Option<String>,
 }
 
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    Hash,
-    Default,
-    Serialize,
-    Deserialize,
-    JsonSchema,
-    AdminSchema,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, AdminSchema)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "lowercase")]
 pub enum Mode {
     #[default]
@@ -450,7 +489,8 @@ pub enum Mode {
     Balance,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, AdminSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, AdminSchema)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
 #[serde(untagged)]
 #[admin(semantic = union(bool, object(HealthCheck)))]
 pub enum HealthCheckSetting {
@@ -460,7 +500,8 @@ pub enum HealthCheckSetting {
     Tuned(HealthCheck),
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, AdminSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, AdminSchema)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields, default)]
 #[admin(label = "Health check settings")]
 pub struct HealthCheck {
@@ -488,7 +529,8 @@ impl Default for HealthCheck {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, AdminSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, AdminSchema)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
 #[serde(untagged)]
 #[admin(semantic = ip_port)]
 pub enum Bind {
@@ -507,7 +549,8 @@ impl std::fmt::Display for Bind {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, AdminSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, AdminSchema)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
 #[serde(untagged)]
 #[admin(semantic = target)]
 pub enum Target {
@@ -533,19 +576,8 @@ impl Target {
     }
 }
 
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    Hash,
-    Default,
-    Serialize,
-    Deserialize,
-    JsonSchema,
-    AdminSchema,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, AdminSchema)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "lowercase")]
 pub enum Protocol {
     #[default]
@@ -555,16 +587,8 @@ pub enum Protocol {
     Udp,
 }
 
-impl Protocol {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Protocol::Tcp => "tcp",
-            Protocol::Udp => "udp",
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, AdminSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, AdminSchema)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields, default)]
 #[admin(label = "Heartbeat")]
 pub struct Heartbeat {
@@ -583,7 +607,8 @@ impl Default for Heartbeat {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, AdminSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, AdminSchema)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields, default)]
 #[admin(label = "Limits")]
 pub struct Limits {
@@ -623,7 +648,8 @@ impl Default for Limits {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, AdminSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, AdminSchema)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields, default)]
 #[admin(label = "Pool")]
 pub struct Pool {
@@ -648,7 +674,8 @@ impl Default for Pool {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, AdminSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, AdminSchema)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields, default)]
 #[admin(label = "TCP options")]
 pub struct TcpOptions {
@@ -674,7 +701,8 @@ impl Default for TcpOptions {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, AdminSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, AdminSchema)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields, default)]
 #[admin(label = "UDP options")]
 pub struct UdpOptions {
@@ -694,7 +722,8 @@ impl Default for UdpOptions {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, AdminSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, AdminSchema)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 #[schemars(title = "burrow client config")]
 #[admin(skip = "edited on that machine")]
@@ -748,7 +777,8 @@ pub struct ClientConfig {
     pub udp: UdpOptions,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, AdminSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, AdminSchema)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 #[schemars(title = "burrow visitor config")]
 #[admin(skip = "edited on that machine")]
@@ -795,34 +825,51 @@ pub struct VisitorConfig {
     pub tcp: TcpOptions,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct ForwardEntry {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(description = "Private service on the server to reach")]
+    #[cfg_attr(
+        feature = "json-schema",
+        schemars(description = "Private service on the server to reach")
+    )]
     pub service: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(
-        description = "Client to reach directly, with target; needs reach for this visitor in the server config"
+    #[cfg_attr(
+        feature = "json-schema",
+        schemars(
+            description = "Client to reach directly, with target; needs reach for this visitor in the server config"
+        )
     )]
     pub client: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(
-        description = "host:port as seen from the client, or a port alone for 127.0.0.1 on the client"
+    #[cfg_attr(
+        feature = "json-schema",
+        schemars(
+            description = "host:port as seen from the client, or a port alone for 127.0.0.1 on the client"
+        )
     )]
     pub target: Option<Target>,
     #[serde(default, skip_serializing_if = "is_false")]
-    #[schemars(
-        description = "With client: listen as a SOCKS5 proxy, so each connection names its own target on that client"
+    #[cfg_attr(
+        feature = "json-schema",
+        schemars(
+            description = "With client: listen as a SOCKS5 proxy, so each connection names its own target on that client"
+        )
     )]
     pub socks: bool,
-    #[schemars(
-        description = "Where to listen on this machine: a port alone for 127.0.0.1, or ip:port"
+    #[cfg_attr(
+        feature = "json-schema",
+        schemars(
+            description = "Where to listen on this machine: a port alone for 127.0.0.1, or ip:port"
+        )
     )]
     pub local: Bind,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "kebab-case")]
 pub enum Cipher {
     #[default]
@@ -830,22 +877,30 @@ pub enum Cipher {
     AesGcm,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields, default)]
 pub struct Reconnect {
-    #[schemars(range(min = 10, max = 60000))]
+    #[cfg_attr(feature = "json-schema", schemars(range(min = 10, max = 60000)))]
     pub initial_delay_ms: u32,
-    #[schemars(range(min = 1, max = 3600))]
+    #[cfg_attr(feature = "json-schema", schemars(range(min = 1, max = 3600)))]
     pub max_delay_secs: u32,
-    #[schemars(
-        description = "Stop retrying after this long without a working connection to the server; 0 retries forever"
+    #[cfg_attr(
+        feature = "json-schema",
+        schemars(
+            description = "Stop retrying after this long without a working connection to the server; 0 retries forever"
+        )
     )]
     pub give_up_after_secs: u32,
-    #[schemars(description = "What to do when the server rejects the secret or name")]
+    #[cfg_attr(
+        feature = "json-schema",
+        schemars(description = "What to do when the server rejects the secret or name")
+    )]
     pub on_rejected: OnRejected,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "lowercase")]
 pub enum OnRejected {
     #[default]
@@ -878,4 +933,24 @@ fn is_false(v: &bool) -> bool {
 
 fn is_default<T: Default + PartialEq>(v: &T) -> bool {
     *v == T::default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::admin_schema::AdminEnum;
+    use burrow_admin_proto::serde_json::{self, json};
+
+    #[test]
+    fn the_admin_level_options_are_its_wire_values() {
+        let options = AdminLevel::options();
+        assert_eq!(options.len(), 2);
+        for o in options {
+            let l: AdminLevel = serde_json::from_value(json!(o.value)).unwrap();
+            assert_eq!(l.wire(), o.value);
+            assert_eq!(AdminLevel::from_wire(&o.value), Some(l));
+            assert_eq!(serde_json::to_value(l).unwrap(), json!(o.value));
+        }
+        assert_eq!(AdminLevel::from_wire("owner"), None);
+    }
 }

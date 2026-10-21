@@ -1,12 +1,17 @@
 #![allow(dead_code)]
 
+pub mod ports;
+pub mod socks;
+
+#[allow(unused_imports)]
+pub use ports::{free_port, free_range};
+
 use std::collections::BTreeMap;
 use std::net::SocketAddr;
 use std::time::Duration;
 
 use burrow::allowlist::{AllowList, Rule};
 use burrow::client::{Client, State};
-use burrow::config::model::{Cipher, Protocol};
 use burrow::config::settings::{
     ClientAuth, ClientSettings, Forward, ServerSettings, Service, SocketTuning, VisitorAuth,
     VisitorSettings,
@@ -14,6 +19,7 @@ use burrow::config::settings::{
 use burrow::protocol::VisitTarget;
 use burrow::secret::Secret;
 use burrow::server::Server;
+use burrow_config::{Cipher, Protocol};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UdpSocket;
 use tokio::sync::{mpsc, watch};
@@ -53,6 +59,7 @@ pub fn server_settings(secrets: Vec<Secret>) -> ServerSettings {
         tcp: tuning(),
         udp_session_timeout: Duration::from_secs(30),
         metrics: None,
+        self_allow: None,
     }
 }
 
@@ -69,7 +76,7 @@ pub fn service(target: SocketAddr, protocol: Protocol) -> Service {
 pub fn client_settings(server: SocketAddr, secret: Secret) -> ClientSettings {
     ClientSettings {
         server: server.to_string(),
-        endpoint: burrow::transport::endpoint::Endpoint::Tcp {
+        endpoint: burrow_syntax::endpoint::Endpoint::Tcp {
             host_port: server.to_string(),
         },
         headers: Vec::new(),
@@ -189,10 +196,10 @@ pub struct RunningClient {
 
 pub fn over_transport(mut settings: ClientSettings) -> ClientSettings {
     if ws_mode()
-        && let burrow::transport::endpoint::Endpoint::Tcp { host_port } = &settings.endpoint
+        && let burrow_syntax::endpoint::Endpoint::Tcp { host_port } = &settings.endpoint
     {
         let url = format!("ws://{host_port}/burrow");
-        settings.endpoint = burrow::transport::endpoint::Endpoint::parse(&url).unwrap();
+        settings.endpoint = burrow_syntax::endpoint::Endpoint::parse(&url).unwrap();
         settings.server = url;
     }
     settings
@@ -459,12 +466,12 @@ pub fn visitor_settings(
     secret: Secret,
     forwards: Vec<(&str, VisitTarget)>,
 ) -> VisitorSettings {
-    let mut endpoint = burrow::transport::endpoint::Endpoint::Tcp {
+    let mut endpoint = burrow_syntax::endpoint::Endpoint::Tcp {
         host_port: server.to_string(),
     };
     if ws_mode() {
         endpoint =
-            burrow::transport::endpoint::Endpoint::parse(&format!("ws://{server}/burrow")).unwrap();
+            burrow_syntax::endpoint::Endpoint::parse(&format!("ws://{server}/burrow")).unwrap();
     }
     VisitorSettings {
         server: endpoint.to_string(),

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::io::{IsTerminal, Read, Write};
-use std::net::{SocketAddr, TcpStream};
+use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -42,14 +42,26 @@ pub fn fetch(entry: &Entry) -> Result<Status, String> {
 
 fn fetch_by(entry: &Entry, deadline: Instant) -> Result<Status, (Fetch, String)> {
     let failed = |e: String| (Fetch::Failed, e);
-    let left = || {
-        deadline
-            .checked_duration_since(Instant::now())
-            .filter(|d| !d.is_zero())
-            .ok_or_else(|| failed("it did not answer in time".into()))
-    };
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| failed(e.to_string()))?;
+    let left = deadline
+        .checked_duration_since(Instant::now())
+        .filter(|d| !d.is_zero())
+        .ok_or_else(|| failed("it did not answer in time".into()))?;
+    rt.block_on(async {
+        tokio::time::timeout(left, ask(entry))
+            .await
+            .unwrap_or_else(|_| Err(failed("it did not answer in time".into())))
+    })
+}
+
+async fn ask(entry: &Entry) -> Result<Status, (Fetch, String)> {
+    use http_body_util::BodyExt;
+    let failed = |e: String| (Fetch::Failed, e);
     let addr = SocketAddr::from(([127, 0, 0, 1], entry.port));
-    let mut s = TcpStream::connect_timeout(&addr, left()?).map_err(|e| {
+    let s = tokio::net::TcpStream::connect(addr).await.map_err(|e| {
         let kind = if e.kind() == std::io::ErrorKind::ConnectionRefused {
             Fetch::Gone
         } else {
@@ -57,42 +69,57 @@ fn fetch_by(entry: &Entry, deadline: Instant) -> Result<Status, (Fetch, String)>
         };
         (kind, e.to_string())
     })?;
-    s.set_write_timeout(Some(left()?))
+    let (mut sender, conn) = hyper::client::conn::http1::Builder::new()
+        .title_case_headers(true)
+        .handshake::<_, http_body_util::Empty<bytes::Bytes>>(hyper_util::rt::TokioIo::new(s))
+        .await
         .map_err(|e| failed(e.to_string()))?;
-    let request = format!(
-        "GET /status HTTP/1.1\r\nHost: {addr}\r\nAuthorization: Bearer {}\r\nConnection: close\r\n\r\n",
-        entry.token
-    );
-    s.write_all(request.as_bytes())
-        .map_err(|e| failed(e.to_string()))?;
-    let mut raw = Vec::new();
-    let mut chunk = [0u8; 16 * 1024];
-    loop {
-        s.set_read_timeout(Some(left()?))
+    let driver = tokio::spawn(conn);
+    let result = async {
+        let request = hyper::Request::get("/status")
+            .header("Host", addr.to_string())
+            .header("Authorization", format!("Bearer {}", entry.token))
+            .header("Connection", "close")
+            .body(http_body_util::Empty::new())
             .map_err(|e| failed(e.to_string()))?;
-        match s.read(&mut chunk) {
-            Ok(0) => break,
-            Ok(n) if (raw.len() + n) as u64 <= MAX_BODY => raw.extend_from_slice(&chunk[..n]),
-            Ok(_) => return Err(failed("the answer is too large".into())),
-            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
-            Err(e) => return Err(failed(e.to_string())),
+        let response = sender.send_request(request).await.map_err(|e| {
+            if e.is_parse() {
+                failed("the answer is not HTTP".into())
+            } else {
+                failed(e.to_string())
+            }
+        })?;
+        let status = response.status();
+        if status != hyper::StatusCode::OK {
+            return Err(failed(
+                format!(
+                    "it answered HTTP/1.1 {} {}",
+                    status.as_u16(),
+                    status.canonical_reason().unwrap_or("")
+                )
+                .trim_end()
+                .to_string(),
+            ));
         }
+        let body = http_body_util::Limited::new(response.into_body(), MAX_BODY as usize)
+            .collect()
+            .await
+            .map_err(|e| {
+                if e.is::<http_body_util::LengthLimitError>() {
+                    failed("the answer is too large".into())
+                } else {
+                    failed(e.to_string())
+                }
+            })?
+            .to_bytes();
+        let mut status: Status = serde_json::from_slice(&body)
+            .map_err(|e| failed(format!("not a burrow status: {e}")))?;
+        clean_status(&mut status);
+        Ok(status)
     }
-    let split = raw
-        .windows(4)
-        .position(|w| w == b"\r\n\r\n")
-        .ok_or_else(|| failed("the answer is not HTTP".into()))?;
-    let head = String::from_utf8_lossy(&raw[..split]);
-    if !head.starts_with("HTTP/1.1 200") {
-        return Err(failed(format!(
-            "it answered {}",
-            head.lines().next().unwrap_or("nothing")
-        )));
-    }
-    let mut status: Status = serde_json::from_slice(&raw[split + 4..])
-        .map_err(|e| failed(format!("not a burrow status: {e}")))?;
-    clean_status(&mut status);
-    Ok(status)
+    .await;
+    driver.abort();
+    result
 }
 
 pub fn clean(s: &str) -> String {

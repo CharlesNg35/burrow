@@ -9,12 +9,12 @@ use tracing::{debug, info, warn};
 
 use super::Shared;
 use super::route::{Outcome, Tries, Way};
-use crate::config::model::Protocol;
 use crate::config::settings::Service;
 use crate::forward::{ForwardError, Meter, Opened, Opening, open_tcp};
 use crate::protocol::{Connect, Status};
 use crate::proxy_protocol::header;
 use crate::transport::tcp::tune;
+use burrow_config::Protocol;
 
 pub(super) async fn tcp_service(
     shared: Arc<Shared>,
@@ -117,11 +117,11 @@ async fn visit(
             break tries.outcome();
         };
         let opened = 'attempt: {
-            let client = &session.name;
+            let client = session.name();
             let mut reloads = shared.reloads();
             let public = svc.bind.map(|b| (svc.protocol, b));
             let still_open = || match shared.still_open(&name, client, peer.ip(), index, public) {
-                _ if !shared.allows(client, &session.secret) => {
+                _ if !session.admitted(&shared) => {
                     Err(format!("client \"{client}\" is no longer allowed"))
                 }
                 r => r,
@@ -200,6 +200,9 @@ pub(super) fn log_status(label: &str, client: &str, target: &str, st: Status) {
         return;
     };
     match st {
+        Status::Denied if client == burrow_config::SELF => warn!(
+            "{label}: this server (\"{client}\") refused {target}: self.allow does not permit it, or it is burrow's own listener or a link-local address that self.allow does not name; the warning before this one names the reason{more}"
+        ),
         Status::Denied => warn!(
             "{label}: client \"{client}\" refused {target}: it is not in its allow list (add it to \"allow\" in the client config) or failed a check there, which the client's log names{more}"
         ),

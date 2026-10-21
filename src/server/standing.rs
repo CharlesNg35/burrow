@@ -3,7 +3,8 @@ use std::time::{Duration, Instant};
 
 use tracing::{info, warn};
 
-use super::{ClientSession, Shared};
+use super::Shared;
+use super::via::Via;
 use crate::config::settings::ServerSettings;
 use crate::forward::ForwardError;
 use crate::protocol::{Status, TOKEN_LEN};
@@ -147,21 +148,21 @@ fn trouble_of(error: &ForwardError) -> Option<(Trouble, &'static str)> {
 }
 
 impl Shared {
-    pub(super) fn seen(&self, service: &str, session: &ClientSession, target: &str) -> Seen {
+    pub(super) fn seen(&self, service: &str, session: &Via, target: &str) -> Seen {
         self.standing.lock().expect("standing lock").of(
             service,
-            &session.name,
+            session.name(),
             target,
-            &session.token,
+            &session.token(),
             Instant::now(),
         )
     }
 
-    pub(super) fn seen_any(&self, service: &str, session: &ClientSession) -> Seen {
+    pub(super) fn seen_any(&self, service: &str, session: &Via) -> Seen {
         self.standing.lock().expect("standing lock").marked(
             service,
-            &session.name,
-            &session.token,
+            session.name(),
+            &session.token(),
             Instant::now(),
         )
     }
@@ -180,7 +181,7 @@ impl Shared {
     pub(super) fn troubled(
         &self,
         service: &str,
-        session: &ClientSession,
+        session: &Via,
         target: &str,
         error: &ForwardError,
     ) {
@@ -190,18 +191,21 @@ impl Shared {
         if session.is_closed() {
             return;
         }
-        let client = &session.name;
+        let client = session.name();
         let change = self.standing.lock().expect("standing lock").troubled(
             service,
             client,
             target,
-            &session.token,
+            &session.token(),
             trouble,
             Instant::now(),
         );
         match change {
             Change::Refused if matches!(error, ForwardError::Status(Status::Invalid)) => warn!(
                 "service \"{service}\": client \"{client}\" rejected the target {target} as invalid; new connections use the other clients until it reconnects"
+            ),
+            Change::Refused if matches!(session, Via::Local(_)) => warn!(
+                "service \"{service}\": this server (\"{client}\") refused {target} by self.allow or a check there; new connections use the other clients until self.allow changes (the warning before this one names the reason)"
             ),
             Change::Refused => warn!(
                 "service \"{service}\": client \"{client}\" refused {target} by its allow list or a check there; new connections use the other clients until it reconnects (the log of client \"{client}\" names the reason)"

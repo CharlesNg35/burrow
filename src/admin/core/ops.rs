@@ -72,45 +72,27 @@ fn checked_value(v: &Value) -> Result<Value, OpError> {
     Ok(raw_of(v))
 }
 
-fn rewrite_refs(root: &mut Value, section: &str, from: &str, to: &str) {
-    let rename_in = |v: &mut Value| {
-        if v.as_str() == Some(from) {
-            *v = Value::String(to.to_string());
-        }
-    };
-    if let Some(services) = root.get_mut("services").and_then(Value::as_object_mut) {
-        for svc in services.values_mut() {
-            let Some(svc) = svc.as_object_mut() else {
-                continue;
-            };
-            let fields: &[&str] = match section {
-                "clients" => &["client", "clients"],
-                "visitors" => &["visitors"],
-                _ => &[],
-            };
-            for f in fields {
-                match svc.get_mut(*f) {
-                    Some(Value::Array(items)) => items.iter_mut().for_each(rename_in),
-                    Some(v) => rename_in(v),
-                    None => {}
-                }
-            }
-        }
-    }
-    if section == "clients"
-        && let Some(visitors) = root.get_mut("visitors").and_then(Value::as_object_mut)
-    {
-        for v in visitors.values_mut() {
-            if let Some(reach) = v.get_mut("reach").and_then(Value::as_object_mut)
-                && let Some(rules) = reach.shift_remove(from)
-            {
-                reach.insert(to.to_string(), rules);
-            }
-        }
+fn path_of(op: &Op) -> Option<&Path> {
+    match op {
+        Op::Set { path, .. }
+        | Op::Add { path, .. }
+        | Op::Remove { path }
+        | Op::Rename { path, .. }
+        | Op::SecretAdd { path, .. }
+        | Op::SecretRemove { path, .. }
+        | Op::SetText { path, .. } => Some(path),
+        Op::ReplaceDocument { .. } => None,
     }
 }
 
 pub fn apply(raw: &Value, ops: &[Op], cx: &dyn Context) -> Result<Applied, OpError> {
+    let max = crate::config::tree::MAX_DEPTH;
+    if let Some(path) = ops.iter().filter_map(path_of).find(|p| p.len() > max) {
+        return Err(err(format!(
+            "a path of {} keys is nested more than {max} levels deep; a config needs far fewer",
+            path.len()
+        )));
+    }
     let mut target = raw.clone();
     let mut renames = Vec::new();
     let mut fresh = Vec::new();
@@ -164,7 +146,13 @@ pub fn apply(raw: &Value, ops: &[Op], cx: &dyn Context) -> Result<Applied, OpErr
                     to: to.clone(),
                 });
                 if *refs && parents.len() == 1 {
-                    rewrite_refs(&mut target, &parents[0], last, to);
+                    for key in burrow_config::refs::rename_refs(&mut target, &parents[0], last, to)
+                    {
+                        renames.push(Rename {
+                            path: key,
+                            to: to.clone(),
+                        });
+                    }
                 }
             }
             Op::SecretAdd { path, handle } => {
@@ -326,7 +314,18 @@ mod tests {
             2
         );
         assert_eq!(out.fresh[0].fp, cx.0.fingerprint());
-        assert_eq!(out.renames.len(), 1);
+        let renamed: Vec<(Vec<String>, &str)> = out
+            .renames
+            .iter()
+            .map(|r| (r.path.clone(), r.to.as_str()))
+            .collect();
+        assert_eq!(
+            renamed,
+            [
+                (p(&["clients", "home"]), "house"),
+                (p(&["visitors", "v", "reach", "home"]), "house"),
+            ]
+        );
         let removed = apply(
             &out.target,
             &[Op::SecretRemove {
@@ -370,5 +369,46 @@ mod tests {
         .unwrap();
         assert_eq!(doc.target, json!({"listen": 1}));
         assert!(doc.document.is_some());
+    }
+
+    #[test]
+    fn a_path_deeper_than_a_config_is_refused_before_the_tree_changes() {
+        let run = |path: Path| {
+            std::thread::Builder::new()
+                .stack_size(256 * 1024)
+                .spawn(move || {
+                    let cx = Cx(crate::secret::Secret::generate());
+                    let ops = [
+                        Op::Set {
+                            path: path.clone(),
+                            value: json!(1),
+                        },
+                        Op::Add {
+                            path: path.clone(),
+                            value: json!(1),
+                        },
+                        Op::Remove { path: path.clone() },
+                        Op::SetText {
+                            path,
+                            text: "1".into(),
+                        },
+                    ];
+                    ops.iter()
+                        .map(|op| apply(&json!({}), std::slice::from_ref(op), &cx).map(|_| ()))
+                        .collect::<Vec<_>>()
+                })
+                .unwrap()
+                .join()
+                .unwrap()
+        };
+        let deep: Path = (0..5000).map(|i| format!("k{i}")).collect();
+        for r in run(deep) {
+            let e = r.unwrap_err();
+            assert!(e.0.contains("more than 64"), "{}", e.0);
+        }
+        let ok: Path = (0..crate::config::tree::MAX_DEPTH)
+            .map(|i| format!("k{i}"))
+            .collect();
+        assert!(run(ok)[0].is_ok());
     }
 }

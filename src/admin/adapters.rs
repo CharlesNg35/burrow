@@ -4,7 +4,6 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use burrow_admin_proto::frame::{self, AdminOpen};
-use burrow_admin_proto::msg::Level;
 use tracing::{debug, warn};
 
 use super::core::ports::{Live, LiveSession, Store, Version, WhyNot, WriteError};
@@ -12,7 +11,6 @@ use super::core::{Core, Session, text};
 use super::transport::{self, Access};
 use super::{Hub, Opened};
 use crate::config::Format;
-use crate::config::model::AdminLevel;
 use crate::config::settings::ServerSettings;
 use crate::edit::save::{Refused, write_back};
 use crate::handshake::Channel;
@@ -20,6 +18,7 @@ use crate::metrics::Status;
 use crate::protocol::Status as Answer;
 use crate::server::Shared;
 use crate::throttle::Throttle;
+use burrow_admin_proto::msg::AdminLevel;
 
 const KEEP: usize = 20;
 
@@ -28,6 +27,18 @@ pub struct FileStore {
     format: Format,
     memory: Mutex<Vec<(Version, String)>>,
     problem: Mutex<Option<String>>,
+}
+
+pub fn history_dir_of(config: &Path) -> PathBuf {
+    let name = config
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "config".into());
+    config
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .map_or_else(|| PathBuf::from("."), Path::to_path_buf)
+        .join(format!(".{name}.history"))
 }
 
 impl FileStore {
@@ -41,12 +52,7 @@ impl FileStore {
     }
 
     fn dir(&self) -> PathBuf {
-        let name = self
-            .path
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_else(|| "config".into());
-        self.folder().join(format!(".{name}.history"))
+        history_dir_of(&self.path)
     }
 
     fn folder(&self) -> PathBuf {
@@ -63,26 +69,109 @@ impl FileStore {
         let mut out: Vec<(u128, Version, PathBuf)> = entries
             .flatten()
             .filter_map(|e| {
-                let name = e.file_name().to_string_lossy().into_owned();
-                let (at, rest) = name.split_once('-')?;
-                let hex = rest.split('.').next()?;
-                let nanos: u128 = at.parse().ok()?;
-                (hex.len() == 16 && hex.bytes().all(|b| b.is_ascii_hexdigit())).then(|| {
-                    (
-                        nanos,
-                        Version {
-                            rev: format!("b2s:{hex}"),
-                            at: (nanos / 1_000_000_000) as u64,
-                        },
-                        e.path(),
-                    )
-                })
+                let (nanos, v) = parse_kept(&e.file_name().to_string_lossy())?;
+                Some((nanos, v, e.path()))
             })
             .collect();
         out.sort_by_key(|(n, _, _)| std::cmp::Reverse(*n));
         out.into_iter().map(|(_, v, p)| (v, p)).collect()
     }
 
+    fn kept_name(&self, rev: &str, newest: u128) -> String {
+        let ext = self
+            .path
+            .extension()
+            .map(|e| e.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "yaml".into());
+        let hex = rev.trim_start_matches("b2s:");
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_nanos());
+        format!("{}-{hex}.{ext}", nanos.max(newest + 1))
+    }
+
+    #[cfg(unix)]
+    fn write_history(&self, rev: &str, body: &str) -> std::io::Result<()> {
+        use std::os::unix::fs::MetadataExt;
+        let owner = std::fs::symlink_metadata(&self.path)
+            .ok()
+            .filter(|_| rustix::process::geteuid().is_root())
+            .map(|cfg| (cfg.uid(), cfg.gid()));
+        self.write_history_for(rev, body, owner)
+    }
+
+    #[cfg(unix)]
+    fn write_history_for(
+        &self,
+        rev: &str,
+        body: &str,
+        owner: Option<(u32, u32)>,
+    ) -> std::io::Result<()> {
+        use rustix::fs::{AtFlags, Mode, OFlags};
+        let dir = self.dir();
+        if let Err(e) = std::fs::create_dir(&dir)
+            && e.kind() != std::io::ErrorKind::AlreadyExists
+        {
+            return Err(e);
+        }
+        let fd = rustix::fs::open(
+            &dir,
+            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+            Mode::empty(),
+        )
+        .map_err(|_| std::io::Error::other("the history path is not a folder"))?;
+        rustix::fs::fchmod(&fd, Mode::from_bits_truncate(0o700))?;
+        if let Some(owner) = owner {
+            hand_over(&fd, owner)?;
+        }
+        let list = |fd: &rustix::fd::OwnedFd| -> std::io::Result<Vec<(u128, Version, String)>> {
+            let mut out = Vec::new();
+            for entry in rustix::fs::Dir::read_from(fd)? {
+                let name = entry?.file_name().to_string_lossy().into_owned();
+                if let Some((nanos, v)) = parse_kept(&name) {
+                    out.push((nanos, v, name));
+                }
+            }
+            out.sort_by_key(|(n, _, _)| std::cmp::Reverse(*n));
+            Ok(out)
+        };
+        let files = list(&fd)?;
+        let name = self.kept_name(rev, files.first().map_or(0, |f| f.0));
+        if let Some(pos) = files.iter().position(|(_, v, _)| v.rev == rev) {
+            if pos > 0 {
+                rustix::fs::renameat(&fd, files[pos].2.as_str(), &fd, name.as_str())?;
+            }
+            return Ok(());
+        }
+        let draft = format!(".{name}.burrow-new-{}", std::process::id());
+        let _ = rustix::fs::unlinkat(&fd, draft.as_str(), AtFlags::empty());
+        let written = (|| -> std::io::Result<()> {
+            use std::io::Write;
+            let mut file = std::fs::File::from(rustix::fs::openat(
+                &fd,
+                draft.as_str(),
+                OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+                Mode::from_bits_truncate(0o600),
+            )?);
+            file.write_all(body.as_bytes())?;
+            file.sync_all()?;
+            if let Some(owner) = owner {
+                let _ = hand_over(&file, owner);
+            }
+            rustix::fs::renameat(&fd, draft.as_str(), &fd, name.as_str())?;
+            Ok(())
+        })();
+        if written.is_err() {
+            let _ = rustix::fs::unlinkat(&fd, draft.as_str(), AtFlags::empty());
+        }
+        written?;
+        for (_, _, old) in list(&fd)?.into_iter().skip(KEEP) {
+            let _ = rustix::fs::unlinkat(&fd, old.as_str(), AtFlags::empty());
+        }
+        Ok(())
+    }
+
+    #[cfg(not(unix))]
     fn write_history(&self, rev: &str, body: &str) -> std::io::Result<()> {
         let dir = self.dir();
         if let Err(e) = std::fs::create_dir(&dir)
@@ -90,43 +179,12 @@ impl FileStore {
         {
             return Err(e);
         }
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::{MetadataExt, PermissionsExt};
-            let meta = std::fs::symlink_metadata(&dir)?;
-            if !meta.is_dir() {
-                return Err(std::io::Error::other("the history path is not a folder"));
-            }
-            std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))?;
-            if let Ok(cfg) = std::fs::metadata(&self.path)
-                && (cfg.uid(), cfg.gid()) != (meta.uid(), meta.gid())
-                && rustix::process::geteuid().is_root()
-            {
-                std::os::unix::fs::chown(&dir, Some(cfg.uid()), Some(cfg.gid()))?;
-            }
-        }
-        let ext = self
-            .path
-            .extension()
-            .map(|e| e.to_string_lossy().into_owned())
-            .unwrap_or_else(|| "yaml".into());
-        let hex = rev.trim_start_matches("b2s:");
         let files = self.files();
-        let nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |d| d.as_nanos());
         let newest = files
             .first()
-            .and_then(|(_, p)| {
-                p.file_name()?
-                    .to_str()?
-                    .split('-')
-                    .next()?
-                    .parse::<u128>()
-                    .ok()
-            })
-            .unwrap_or(0);
-        let file = dir.join(format!("{}-{hex}.{ext}", nanos.max(newest + 1)));
+            .and_then(|(_, p)| parse_kept(&p.file_name()?.to_string_lossy()))
+            .map_or(0, |(n, _)| n);
+        let file = dir.join(self.kept_name(rev, newest));
         if let Some(pos) = files.iter().position(|(v, _)| v.rev == rev) {
             if pos > 0 {
                 std::fs::rename(&files[pos].1, &file)?;
@@ -134,18 +192,26 @@ impl FileStore {
             return Ok(());
         }
         crate::instance::write_private(&file, body)?;
-        #[cfg(unix)]
-        if rustix::process::geteuid().is_root()
-            && let Ok(cfg) = std::fs::metadata(&self.path)
-        {
-            use std::os::unix::fs::MetadataExt;
-            let _ = std::os::unix::fs::chown(&file, Some(cfg.uid()), Some(cfg.gid()));
-        }
         for (_, old) in self.files().into_iter().skip(KEEP) {
             let _ = std::fs::remove_file(old);
         }
         Ok(())
     }
+}
+
+fn parse_kept(name: &str) -> Option<(u128, Version)> {
+    let (at, rest) = name.split_once('-')?;
+    let hex = rest.split('.').next()?;
+    let nanos: u128 = at.parse().ok()?;
+    (hex.len() == 16 && hex.bytes().all(|b| b.is_ascii_hexdigit())).then(|| {
+        (
+            nanos,
+            Version {
+                rev: format!("b2s:{hex}"),
+                at: (nanos / 1_000_000_000) as u64,
+            },
+        )
+    })
 }
 
 impl Store for FileStore {
@@ -342,6 +408,17 @@ impl Live for ServerLive {
     }
 }
 
+#[cfg(unix)]
+fn hand_over(fd: impl std::os::fd::AsFd, (uid, gid): (u32, u32)) -> std::io::Result<()> {
+    let now = rustix::fs::fstat(&fd)?;
+    if (now.st_uid, now.st_gid) == (uid, gid) {
+        return Ok(());
+    }
+    #[cfg(test)]
+    tests::CHOWNS.with(|c| c.set(c.get() + 1));
+    std::os::unix::fs::fchown(fd, Some(uid), Some(gid))
+}
+
 pub fn hub(
     shared: &Arc<Shared>,
     path: &Path,
@@ -361,6 +438,7 @@ struct SettingsAccess {
     visitor: String,
     secret: crate::secret::Secret,
     peer: SocketAddr,
+    level: AdminLevel,
 }
 
 impl Access for SettingsAccess {
@@ -375,6 +453,9 @@ impl Access for SettingsAccess {
         if v.admin.is_none() {
             return Some("admin removed".into());
         }
+        if v.admin != Some(self.level) {
+            return Some("admin level changed".into());
+        }
         if !v.admits_admin(self.peer.ip()) {
             return Some("source not allowed".into());
         }
@@ -384,13 +465,14 @@ impl Access for SettingsAccess {
 
 async fn answer(ch: &mut Channel, records: &[&[u8]]) {
     use tokio::io::AsyncWriteExt;
-    for r in records {
-        if ch.writer.send(&mut ch.stream, r).await.is_err() {
-            return;
+    let sent = async {
+        for r in records {
+            ch.writer.send(&mut ch.stream, r).await?;
         }
-    }
-    let _ = ch.writer.send(&mut ch.stream, &[]).await;
-    let _ = ch.stream.shutdown().await;
+        ch.writer.send(&mut ch.stream, &[]).await?;
+        ch.stream.shutdown().await
+    };
+    let _ = tokio::time::timeout(crate::forward::ANSWER_TIMEOUT, sent).await;
 }
 
 pub async fn serve(shared: Arc<Shared>, mut channel: Channel, first: &[u8], opened: Opened) {
@@ -470,10 +552,7 @@ pub async fn serve(shared: Arc<Shared>, mut channel: Channel, first: &[u8], open
     );
     let session = Session::new(
         visitor.clone(),
-        match level {
-            AdminLevel::Read => Level::Read,
-            AdminLevel::Write => Level::Write,
-        },
+        level,
         peer,
         secret.clone(),
         via_websocket,
@@ -484,6 +563,7 @@ pub async fn serve(shared: Arc<Shared>, mut channel: Channel, first: &[u8], open
         visitor,
         secret,
         peer,
+        level,
     });
     transport::run(
         hub,
@@ -501,6 +581,49 @@ pub async fn serve(shared: Arc<Shared>, mut channel: Channel, first: &[u8], open
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    thread_local! {
+        pub(super) static CHOWNS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn root_hands_the_history_over_only_when_its_owner_differs() {
+        use std::os::unix::fs::MetadataExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("server.yaml");
+        std::fs::write(&path, "listen: 1\n").unwrap();
+        let mine = std::fs::metadata(&path)
+            .map(|m| (m.uid(), m.gid()))
+            .unwrap();
+        let store = FileStore::new(&path);
+        let body = "listen: 2\n";
+        CHOWNS.with(|c| c.set(0));
+        store
+            .write_history_for(&text::rev(body), body, Some(mine))
+            .unwrap();
+        assert_eq!(CHOWNS.with(|c| c.get()), 0, "nothing to hand over");
+        assert_eq!(store.versions().len(), 1);
+        let theirs = (mine.0.wrapping_add(1), mine.1);
+        let _ = store.write_history_for(&text::rev("listen: 3\n"), "listen: 3\n", Some(theirs));
+        assert!(
+            CHOWNS.with(|c| c.get()) > 0,
+            "a folder of another owner is handed over"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_refusal_to_a_websocket_peer_that_never_closes_gives_up() {
+        let (ours, _held) = crate::transport::testing::held_websocket().await;
+        let mut ch = crate::transport::testing::sealed(ours);
+        tokio::time::timeout(
+            crate::forward::ANSWER_TIMEOUT + std::time::Duration::from_secs(3),
+            answer(&mut ch, &[&[Answer::Forbidden as u8]]),
+        )
+        .await
+        .expect("the refusal gives up on a peer that holds the socket");
+    }
 
     #[test]
     fn a_version_kept_again_counts_as_new_and_is_not_pruned() {
@@ -542,6 +665,12 @@ mod tests {
         assert!(store.history_problem().is_none());
         let versions = store.versions();
         assert_eq!(versions.len(), KEEP);
+        let names: Vec<String> = std::fs::read_dir(store.dir())
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(names.len(), KEEP, "no drafts are left behind: {names:?}");
         let (rev, body) = &revs[24];
         assert_eq!(store.version(rev).as_deref(), Some(body.as_str()));
         for (i, (rev, body)) in revs.iter().enumerate() {

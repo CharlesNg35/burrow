@@ -56,6 +56,18 @@ impl Platform {
         }
     }
 
+    pub fn launchd_folders(self) -> Vec<(PathBuf, u32)> {
+        let state = self.state_dir();
+        let base = state.parent().map(Path::to_path_buf).unwrap_or_default();
+        vec![
+            (self.config_dir(), 0o755),
+            (base.clone(), 0o755),
+            (state, 0o755),
+            (base.join("instances"), 0o1777),
+            (self.log_dir(), 0o755),
+        ]
+    }
+
     pub fn log_dir(self) -> PathBuf {
         match self {
             Platform::Windows => Self::program_data().join("burrow").join("logs"),
@@ -149,7 +161,7 @@ pub fn run_ok(program: &str, args: &[&str]) -> bool {
 
 #[cfg(unix)]
 pub fn is_admin() -> bool {
-    run("id", &["-u"]).is_ok_and(|s| s.trim() == "0")
+    rustix::process::geteuid().is_root()
 }
 
 #[cfg(windows)]
@@ -176,6 +188,10 @@ pub fn require_admin() -> Result<(), Failure> {
 #[cfg(unix)]
 fn owned_by_root(p: &Path) -> bool {
     use std::os::unix::fs::MetadataExt;
+    #[cfg(test)]
+    if tests::USER_WRITABLE.with(|w| w.borrow().iter().any(|d| d == p)) {
+        return false;
+    }
     std::fs::metadata(p).is_ok_and(|m| m.uid() == 0 && m.mode() & 0o022 == 0)
 }
 
@@ -214,14 +230,7 @@ pub fn trusted_binary(path: &Path) -> bool {
 }
 
 pub fn canonical(p: &Path) -> std::io::Result<PathBuf> {
-    let c = std::fs::canonicalize(p)?;
-    #[cfg(windows)]
-    if let Some(rest) = c.to_str().and_then(|s| s.strip_prefix(r"\\?\"))
-        && !rest.starts_with("UNC")
-    {
-        return Ok(PathBuf::from(rest));
-    }
-    Ok(c)
+    dunce::canonicalize(p)
 }
 
 pub fn canonical_or_same(p: &Path) -> PathBuf {
@@ -394,14 +403,43 @@ pub fn account_ids(account: &str) -> Result<(u32, u32), Failure> {
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 pub fn private_file(path: &Path, owner: Option<&str>) -> Result<(), Failure> {
-    use std::os::unix::fs::PermissionsExt;
-    if let Some(account) = owner {
-        let (uid, gid) = account_ids(account)?;
-        std::os::unix::fs::chown(path, Some(uid), Some(gid)).map_err(|e| {
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
+    let ids = owner.map(account_ids).transpose()?;
+    let root_only_folder = path
+        .parent()
+        .and_then(|d| std::fs::symlink_metadata(d).ok())
+        .is_some_and(|d| d.is_dir() && d.uid() == 0 && d.mode() & 0o022 == 0);
+    if root_only_folder {
+        if let (Some((uid, gid)), Some(account)) = (ids, owner) {
+            std::os::unix::fs::chown(path, Some(uid), Some(gid)).map_err(|e| {
+                Failure::new(format!("cannot give {} to {account}: {e}", path.display()))
+            })?;
+        }
+        return std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).map_err(
+            |e| Failure::new(format!("cannot set permissions on {}: {e}", path.display())),
+        );
+    }
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(path)
+        .map_err(|e| Failure::new(format!("cannot open {}: {e}", path.display())))?;
+    let meta = file
+        .metadata()
+        .map_err(|e| Failure::new(format!("cannot read {}: {e}", path.display())))?;
+    if !meta.is_file() || meta.nlink() != 1 {
+        return Err(Failure::new(format!(
+            "{} is not a plain file with one link, so burrow will not secure it",
+            path.display()
+        ))
+        .hint("remove it and run the command again"));
+    }
+    if let (Some((uid, gid)), Some(account)) = (ids, owner) {
+        std::os::unix::fs::fchown(&file, Some(uid), Some(gid)).map_err(|e| {
             Failure::new(format!("cannot give {} to {account}: {e}", path.display()))
         })?;
     }
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
+    file.set_permissions(std::fs::Permissions::from_mode(0o600))
         .map_err(|e| Failure::new(format!("cannot set permissions on {}: {e}", path.display())))
 }
 
@@ -529,6 +567,33 @@ fn private_lock(_file: &std::fs::File) -> bool {
 }
 
 #[cfg(unix)]
+pub fn read_plain_file(path: &Path) -> Option<Vec<u8>> {
+    use std::io::Read;
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+    let mut file = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(path)
+        .ok()?;
+    let meta = file.metadata().ok()?;
+    if !meta.is_file() || meta.nlink() != 1 {
+        return None;
+    }
+    let mut out = Vec::new();
+    file.read_to_end(&mut out).ok()?;
+    Some(out)
+}
+
+#[cfg(not(unix))]
+pub fn read_plain_file(path: &Path) -> Option<Vec<u8>> {
+    let meta = std::fs::symlink_metadata(path).ok()?;
+    if !meta.is_file() || meta.file_type().is_symlink() {
+        return None;
+    }
+    std::fs::read(path).ok()
+}
+
+#[cfg(unix)]
 pub fn give_plain_file(path: &Path, uid: u32, gid: u32) -> std::io::Result<bool> {
     use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
     let file = std::fs::OpenOptions::new()
@@ -564,8 +629,93 @@ pub fn all_paths_under(files: &[PathBuf], roots: &[&str]) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
+
+    #[test]
+    fn canonical_paths_are_plain_paths() {
+        let dir = tempfile::tempdir().unwrap();
+        let c = canonical(dir.path()).unwrap();
+        assert!(c.is_absolute());
+        assert!(!c.to_string_lossy().starts_with(r"\\?\"), "{c:?}");
+        assert_eq!(c, canonical(&c).unwrap());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn admin_means_the_effective_user_is_root() {
+        let id = run("id", &["-u"]).unwrap();
+        assert_eq!(is_admin(), id.trim() == "0");
+    }
+
+    #[cfg(unix)]
+    thread_local! {
+        pub(crate) static USER_WRITABLE: std::cell::RefCell<Vec<PathBuf>> =
+            const { std::cell::RefCell::new(Vec::new()) };
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn as_if_users_can_change(dir: &Path, body: impl FnOnce()) {
+        USER_WRITABLE.with(|w| w.borrow_mut().push(dir.to_path_buf()));
+        body();
+        USER_WRITABLE.with(|w| w.borrow_mut().clear());
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn under_umask_077(test: &str, body: impl FnOnce()) {
+        if std::env::var("BURROW_UMASK_TEST").as_deref() == Ok(test) {
+            rustix::process::umask(rustix::fs::Mode::from_raw_mode(0o077));
+            body();
+            return;
+        }
+        let out = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", test, "--nocapture", "--test-threads=1"])
+            .env("BURROW_UMASK_TEST", test)
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "{test} under umask 077: {}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert!(
+            String::from_utf8_lossy(&out.stdout).contains("1 passed"),
+            "{test} did not run in the child"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn macos_service_folders_stay_reachable_under_a_strict_umask() {
+        under_umask_077(
+            "service::system::tests::macos_service_folders_stay_reachable_under_a_strict_umask",
+            || {
+                use std::os::unix::fs::PermissionsExt;
+                let dir = tempfile::tempdir().unwrap();
+                let root = dir.path();
+                let at = |p: &Path| root.join(p.strip_prefix("/").unwrap());
+                let support = at(Path::new("/Library/Application Support"));
+                std::fs::create_dir_all(&support).unwrap();
+                for d in [root.join("Library"), support] {
+                    std::fs::set_permissions(&d, std::fs::Permissions::from_mode(0o755)).unwrap();
+                }
+                let mode = |p: &Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o7777;
+                let p = Platform::MacOs;
+                assert!(p.launchd_folders().iter().any(|(d, m)| {
+                    d == Path::new("/Library/Application Support/burrow/instances") && *m == 0o1777
+                }));
+                crate::instance::private_dir(&at(&p.jobs_dir())).unwrap();
+                for (d, m) in p.launchd_folders() {
+                    make_dir(&at(&d), m, None).unwrap();
+                }
+                let base = at(&p.state_dir()).parent().unwrap().to_path_buf();
+                assert_eq!(mode(&base), 0o755, "the shared burrow folder");
+                assert_eq!(mode(&at(&p.jobs_dir())), 0o700, "jobs stay private");
+                assert_eq!(mode(&base.join("instances")), 0o1777);
+            },
+        );
+    }
 
     #[test]
     fn service_changes_take_turns() {
@@ -598,6 +748,56 @@ mod tests {
             assert!(fresh.is_ok(), "a lock others could open is replaced");
             drop(outsider);
         }
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn securing_a_path_never_changes_what_a_link_there_points_to() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("com.example.daemon.plist");
+        std::fs::write(&target, "x").unwrap();
+        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o644)).unwrap();
+        let mode = |p: &Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+        let link = dir.path().join("server.yaml");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        assert!(private_file(&link, None).is_err());
+        assert_eq!(mode(&target), 0o644);
+        std::fs::remove_file(&link).unwrap();
+        std::fs::hard_link(&target, &link).unwrap();
+        assert!(private_file(&link, None).is_err());
+        assert_eq!(mode(&target), 0o644);
+        let plain = dir.path().join("plain.yaml");
+        std::fs::write(&plain, "listen: 1\n").unwrap();
+        private_file(&plain, None).unwrap();
+        assert_eq!(mode(&plain), 0o600);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn only_a_plain_file_with_one_link_is_read_as_root_would() {
+        let dir = tempfile::tempdir().unwrap();
+        let plain = dir.path().join("server.yaml");
+        std::fs::write(&plain, "listen: 1\n").unwrap();
+        assert_eq!(read_plain_file(&plain).unwrap(), b"listen: 1\n");
+        let victim = dir.path().join("shadow");
+        std::fs::write(&victim, "x").unwrap();
+        let link = dir.path().join("link.yaml");
+        std::os::unix::fs::symlink(&victim, &link).unwrap();
+        assert!(read_plain_file(&link).is_none());
+        let hard = dir.path().join("hard.yaml");
+        std::fs::hard_link(&victim, &hard).unwrap();
+        assert!(read_plain_file(&hard).is_none());
+        let fifo = dir.path().join("fifo.yaml");
+        assert!(
+            std::process::Command::new("mkfifo")
+                .arg(&fifo)
+                .status()
+                .unwrap()
+                .success()
+        );
+        assert!(read_plain_file(&fifo).is_none());
+        assert!(read_plain_file(&dir.path().join("gone")).is_none());
     }
 
     #[cfg(unix)]

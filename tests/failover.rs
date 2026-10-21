@@ -7,12 +7,12 @@ use std::time::Duration;
 
 use burrow::allowlist::AllowList;
 use burrow::client::{Client, State};
-use burrow::config::model::{Mode, Protocol};
 use burrow::config::settings::{ClientAuth, Health, ServerSettings, Service};
 use burrow::metrics::SetAside;
 use burrow::protocol::VisitTarget;
 use burrow::secret::Secret;
 use burrow::transport::resolve::{Resolved, Resolver};
+use burrow_config::{Mode, Protocol};
 use common::*;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -900,7 +900,7 @@ async fn balance_stays_even_while_one_client_is_down() {
     }
     let web = Service {
         clients: vec!["a".into(), "b".into(), "c".into()],
-        mode: burrow::config::model::Mode::Balance,
+        mode: burrow_config::Mode::Balance,
         target: "app.test:80".into(),
         health: quick(),
         ..service(ea, Protocol::Tcp)
@@ -1020,7 +1020,7 @@ async fn deaf_client(
     use burrow::protocol::{ChannelKind, ClientMsg, Hello, Preamble, ServerMsg, Status};
     let pre = |kind| Preamble {
         kind,
-        cipher: burrow::config::model::Cipher::Chachapoly,
+        cipher: burrow_config::Cipher::Chachapoly,
         plaintext: false,
         name: name.to_string(),
     };

@@ -62,6 +62,8 @@ pub enum FileFormat {
     Json,
 }
 
+pub const ADMIN_COMMAND: &str = "admin";
+
 #[derive(Debug, Subcommand)]
 pub enum Command {
     #[command(about = "Run the public server")]
@@ -73,6 +75,7 @@ pub enum Command {
     #[command(about = "Check a config file and report every problem")]
     Validate(ValidateArgs),
     #[command(
+        name = ADMIN_COMMAND,
         about = "Open the admin UI of a server in your browser, as a visitor with admin access"
     )]
     Admin(AdminArgs),
@@ -310,10 +313,9 @@ pub struct AdminArgs {
     pub service: Option<String>,
     #[arg(
         long,
-        default_value_t = 0,
-        help = "Local port on 127.0.0.1 for the UI; 0 picks a free one"
+        help = "Local port on 127.0.0.1 for the UI; 7839 when free, otherwise any free port; 0 always picks a free one"
     )]
-    pub port: u16,
+    pub port: Option<u16>,
     #[arg(long, help = "Do not open the browser")]
     pub no_open: bool,
     #[arg(long, help = "Print the link with its one-time token")]
@@ -565,4 +567,72 @@ pub struct ExportArgs {
         help = "Config format [default: yaml, or taken from the -o file extension]"
     )]
     pub format: Option<FileFormat>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use burrow_syntax::ports::{ADMIN_PORT, FIRST_SERVICE_PORT, SERVER_PORT, WS_PORT, WSS_PORT};
+    use clap::CommandFactory;
+
+    fn help_of(cmd: &mut clap::Command, out: &mut String) {
+        out.push_str(&cmd.render_long_help().to_string());
+        for sub in cmd.get_subcommands_mut() {
+            help_of(sub, out);
+        }
+    }
+
+    fn numbers_after(text: &str, before: &str) -> Vec<u16> {
+        text.match_indices(before)
+            .filter_map(|(i, _)| {
+                let rest = &text[i + before.len()..];
+                let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
+                digits.parse().ok()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn help_and_schema_text_name_burrow_s_ports_by_their_constants() {
+        let mut text = String::new();
+        help_of(&mut Cli::command(), &mut text);
+        for role in [
+            crate::config::Role::Server,
+            crate::config::Role::Client,
+            crate::config::Role::Visitor,
+        ] {
+            text.push_str(&crate::config::load::schema_json(role).to_string());
+        }
+        let family = [
+            SERVER_PORT,
+            WS_PORT,
+            WSS_PORT,
+            ADMIN_PORT,
+            FIRST_SERVICE_PORT,
+        ];
+        let bytes = text.as_bytes();
+        for (i, _) in text.match_indices("78") {
+            let boundary = |j: usize| j >= bytes.len() || !bytes[j].is_ascii_digit();
+            if (i == 0 || boundary(i - 1)) && boundary(i + 4) && i + 4 <= bytes.len() {
+                let n: u16 = text[i..i + 4].parse().unwrap_or(0);
+                if (7800..7900).contains(&n) {
+                    assert!(family.contains(&n), "{n} is not one of burrow's ports");
+                }
+            }
+        }
+        for (before, want) in [
+            ("port ", SERVER_PORT),
+            ("like 0.0.0.0:", SERVER_PORT),
+            ("default 127.0.0.1:", WS_PORT),
+            ("for example 127.0.0.1:", WS_PORT),
+            ("or 0.0.0.0:", WSS_PORT),
+            ("UI; ", ADMIN_PORT),
+        ] {
+            let found = numbers_after(&text, before);
+            assert!(!found.is_empty(), "no text names a port after {before:?}");
+            for n in found.into_iter().filter(|n| (7800..7900).contains(n)) {
+                assert_eq!(n, want, "after {before:?}");
+            }
+        }
+    }
 }

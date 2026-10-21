@@ -6,7 +6,7 @@ FUZZ_TARGETS ?= handshake frames config update patch syntax_parsers
 FUZZ_SECS ?= 30
 KEEP_DAYS ?= 2
 CARGO ?= cargo
-WS_TESTS := --test integration --test reconnect --test visit --test ranges --test failover --test socks --test proxy_protocol --test sources --test admin
+WS_TESTS := --test integration --test reconnect --test visit --test ranges --test failover --test socks --test proxy_protocol --test sources --test admin --test admin_keepalive --test self_target
 UI_DIST := crates/burrow-admin-ui/dist
 
 export CARGO_BUILD_JOBS := $(JOBS)
@@ -41,7 +41,7 @@ help:
 	@printf '  %-18s %s\n' test 'all tests'
 	@printf '  %-18s %s\n' test-ws 'the integration tests over WebSocket'
 	@printf '  %-18s %s\n' test-ui 'the admin UI crates without a browser'
-	@printf '  %-18s %s\n' e2e 'admin UI flows in the pinned Chrome, FLOW=name filters'
+	@printf '  %-18s %s\n' e2e 'admin UI flows in the pinned Chrome, FLOW=name filters, E2E_JOBS=n flows at a time'
 	@printf '  %-18s %s\n' update-baselines 'e2e that records the visual baselines'
 	@printf '  %-18s %s\n' service-e2e 'install and run as a system service (needs sudo)'
 	@printf '  %-18s %s\n' fuzz 'fuzz each of FUZZ_TARGETS for FUZZ_SECS seconds (nightly)'
@@ -92,7 +92,7 @@ clippy-no-default:
 	$(CARGO) clippy --locked --all-targets --no-default-features -- -D warnings
 
 clippy-wasm:
-	$(CARGO) clippy --locked -p burrow-admin-ui -p burrow-ui-kit --target wasm32-unknown-unknown -- -D warnings
+	$(CARGO) clippy --locked -p burrow-admin-ui -p burrow-ui-kit -p burrow-config --target wasm32-unknown-unknown -- -D warnings
 
 arch-check:
 	$(CARGO) xtask arch-check
@@ -107,10 +107,10 @@ test-ws:
 	BURROW_TEST_TRANSPORT=ws $(CARGO) test --locked $(WS_TESTS)
 
 test-ui:
-	$(CARGO) test --locked -p burrow-admin-logic -p burrow-admin-proto -p burrow-syntax -p burrow-ui-kit -p burrow-admin-ui
+	$(CARGO) test --locked -p burrow-config -p burrow-admin-logic -p burrow-admin-proto -p burrow-syntax -p burrow-ui-kit -p burrow-admin-ui
 
 e2e:
-	$(CARGO) xtask e2e $(FLOW)
+	$(CARGO) xtask e2e $(FLOW) $(if $(E2E_JOBS),--jobs $(E2E_JOBS))
 
 update-baselines:
 	$(CARGO) xtask e2e $(FLOW) --update-baselines

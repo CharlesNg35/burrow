@@ -1,7 +1,7 @@
 use std::net::{IpAddr, SocketAddr};
 
-use super::check::parse_host_port;
-use super::settings::WebSocketSettings;
+use crate::endpoint::{Endpoint, with_default_port};
+use crate::hostport::parse_host_port;
 
 #[derive(Debug, Clone, Copy)]
 pub struct WsShape<'a> {
@@ -9,17 +9,6 @@ pub struct WsShape<'a> {
     pub path: &'a str,
     pub tls: bool,
 }
-
-impl<'a> From<&'a WebSocketSettings> for WsShape<'a> {
-    fn from(ws: &'a WebSocketSettings) -> Self {
-        WsShape {
-            listen: ws.listen,
-            path: &ws.path,
-            tls: ws.tls.is_some(),
-        }
-    }
-}
-use crate::transport::endpoint::{Endpoint, with_default_port};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Reach {
@@ -120,6 +109,14 @@ pub fn client_address(
                             "use the host name alone, or the WebSocket URL, for example wss://tunnel.example.com{}",
                             ws.path
                         ),
+                    ));
+                }
+                if given.contains(':') && !given.starts_with('[') {
+                    return Err(error(
+                        format!(
+                            "\"{given}\" looks like an IPv6 address; write it in brackets, like [2001:db8::1]"
+                        ),
+                        FORMS,
                     ));
                 }
                 let port = if ws.tls { ws.listen.port() } else { 443 };

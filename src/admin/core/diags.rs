@@ -1,4 +1,5 @@
 use burrow_admin_proto::diag::{Diag, Severity};
+use burrow_config::ServiceEntry;
 
 use crate::config::tree::{Node, Span, Value};
 use crate::diagnostics::{Diagnostic, mask_text};
@@ -60,7 +61,7 @@ fn also(d: &Diagnostic, path: Option<&[String]>) -> Vec<Vec<String>> {
     match d.code {
         "duplicate-bind" => quoted_names(&d.message, "service ")
             .into_iter()
-            .map(|n| vec!["services".to_string(), n, "bind".to_string()])
+            .map(|n| ServiceEntry::BIND.of(&n))
             .filter(|p| Some(p.as_slice()) != path)
             .collect(),
         _ => Vec::new(),
@@ -80,7 +81,7 @@ impl Mapper {
         Mapper { places }
     }
 
-    pub fn path_at(&self, at: usize) -> Option<Vec<String>> {
+    fn path_at(&self, at: usize) -> Option<Vec<String>> {
         let within = |s: Span| s.start.offset <= at && at < s.end.offset.max(s.start.offset + 1);
         self.places
             .iter()

@@ -5,10 +5,10 @@ use std::time::Duration;
 
 use burrow::allowlist::AllowList;
 use burrow::client::{Client, State};
-use burrow::config::model::Protocol;
 use burrow::config::settings::{ClientSettings, Forward, VisitorSettings};
 use burrow::protocol::VisitTarget;
 use burrow::secret::Secret;
+use burrow_config::Protocol;
 use common::*;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;

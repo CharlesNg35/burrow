@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:2f036bbd4c579d5c",
+  "hash": "b2s:a3b6d522aa045f53",
   "root": {
     "label": "Server",
     "sem": {
@@ -193,6 +193,7 @@
                             "sem": {
                               "t": "integer",
                               "min": 1,
+                              "max": 4294967295,
                               "unit": "connections"
                             }
                           }
@@ -244,7 +245,8 @@
                           "t": "secret_ref",
                           "max": 4
                         },
-                        "required": true
+                        "required": true,
+                        "reduce_only": true
                       }
                     },
                     {
@@ -287,7 +289,10 @@
                                 }
                               ]
                             }
-                          }
+                          },
+                          "reserved": [
+                            "self"
+                          ]
                         },
                         "group": "access",
                         "empty_label": "No direct access"
@@ -304,6 +309,7 @@
                             "sem": {
                               "t": "integer",
                               "min": 1,
+                              "max": 4294967295,
                               "unit": "connections"
                             }
                           }
@@ -341,6 +347,8 @@
                         },
                         "group": "admin",
                         "danger_when_set": true,
+                        "reduce_only": true,
+                        "wide": true,
                         "none_label": "None"
                       }
                     },
@@ -358,6 +366,7 @@
                           }
                         },
                         "group": "admin",
+                        "reduce_only": true,
                         "empty_label": "Any address",
                         "relations": [
                           {
@@ -396,6 +405,43 @@
           }
         },
         {
+          "key": "self",
+          "node": {
+            "label": "This server",
+            "help": "Targets this server may dial for itself, for services with client: self and visitors with reach: self",
+            "sem": {
+              "t": "optional",
+              "inner": {
+                "label": "This server",
+                "sem": {
+                  "t": "object",
+                  "fields": [
+                    {
+                      "key": "allow",
+                      "node": {
+                        "label": "Allowed targets",
+                        "help": "What this server may dial for itself: CIDR, optionally with :port or :lo-hi, or unix:/path; link-local and metadata addresses only when listed one by one",
+                        "sem": {
+                          "t": "list",
+                          "item": {
+                            "sem": {
+                              "t": "cidr_rule"
+                            }
+                          }
+                        },
+                        "empty_label": "Nothing"
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "applies": "reload",
+            "group": "local",
+            "none_label": "Only the targets of its own services"
+          }
+        },
+        {
           "key": "services",
           "node": {
             "label": "Services",
@@ -424,7 +470,10 @@
                           "inner": {
                             "sem": {
                               "t": "ref",
-                              "entity": "client"
+                              "entity": "client",
+                              "reserved": [
+                                "self"
+                              ]
                             }
                           }
                         },
@@ -447,7 +496,10 @@
                           "t": "ref_list",
                           "entity": "client",
                           "ordered": true,
-                          "unique": true
+                          "unique": true,
+                          "reserved": [
+                            "self"
+                          ]
                         },
                         "group": "who",
                         "relations": [
@@ -678,6 +730,7 @@
                             "sem": {
                               "t": "integer",
                               "min": 1,
+                              "max": 4294967295,
                               "unit": "connections"
                             }
                           }
@@ -710,6 +763,7 @@
                           "unique": true
                         },
                         "group": "access",
+                        "wide": false,
                         "empty_label": "No visitors",
                         "relations": [
                           {
@@ -772,6 +826,7 @@
                         },
                         "group": "access",
                         "advanced": true,
+                        "wide": false,
                         "empty_label": "No addresses denied"
                       }
                     },
@@ -829,6 +884,7 @@
                           }
                         },
                         "group": "traffic",
+                        "wide": true,
                         "none_label": "Unlimited"
                       }
                     }
@@ -953,6 +1009,7 @@
                     "sem": {
                       "t": "integer",
                       "min": 1,
+                      "max": 4294967295,
                       "unit": "connections"
                     },
                     "default": 8192,
@@ -967,6 +1024,7 @@
                     "sem": {
                       "t": "integer",
                       "min": 1,
+                      "max": 4294967295,
                       "unit": "connections"
                     },
                     "default": 512,
@@ -992,6 +1050,7 @@
                     "help": "Data channels each client keeps open in advance, so a new connection starts without a round trip",
                     "sem": {
                       "t": "integer",
+                      "min": 0,
                       "max": 1024,
                       "unit": "channels"
                     },
@@ -1128,6 +1187,11 @@
       {
         "key": "entities",
         "label": "Clients, visitors and services"
+      },
+      {
+        "key": "local",
+        "label": "This server",
+        "sub": "What this server may dial for itself, for services with client: self and reach: self."
       },
       {
         "key": "limits",

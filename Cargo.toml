@@ -14,6 +14,7 @@ publish = false
 members = [
     ".",
     "crates/burrow-syntax",
+    "crates/burrow-config",
     "crates/burrow-admin-logic",
     "crates/burrow-admin-proto",
     "crates/burrow-admin-derive",
@@ -23,8 +24,8 @@ members = [
 ]
 
 [dependencies]
-burrow-admin-derive = { path = "crates/burrow-admin-derive" }
 burrow-admin-proto = { path = "crates/burrow-admin-proto" }
+burrow-config = { path = "crates/burrow-config", features = ["json-schema"] }
 burrow-syntax = { path = "crates/burrow-syntax" }
 base64 = "0.23.1"
 blake2 = "0.10.6"
@@ -32,25 +33,36 @@ bytes = "1.12.1"
 clap = { version = "4.6.7", features = ["derive", "env"] }
 clap_complete = "4.6.11"
 crossterm = { version = "0.29.0", default-features = false, features = ["events", "windows"] }
+dunce = "1.0.5"
 flate2 = "1.1.10"
 futures-util = { version = "0.3.34", default-features = false, features = ["sink"] }
 getrandom = "0.3.4"
+hex = "0.4.3"
 http = "1.5.0"
 httparse = "1.10.1"
+http-body-util = "0.1.5"
+hyper = { version = "1.12.0", default-features = false, features = ["http1", "server", "client"] }
+hyper-util = { version = "0.1.21", default-features = false, features = ["tokio"] }
 notify = "8.2.0"
+ring = "0.17.14"
+percent-encoding = "2.3.2"
 saphyr-parser = "0.2.2"
 schemars = "1.2.3"
+semver = "1.0.28"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.154", features = ["preserve_order"] }
 sha2 = "0.10.9"
 snow = { version = "0.10.0", default-features = false, features = ["default-resolver-crypto", "std"] }
 socket2 = "0.6.5"
+strsim = "0.11.1"
+subtle = "2.6.1"
 tokio = { version = "1.53.3", features = ["rt-multi-thread", "net", "io-util", "time", "sync", "signal", "macros", "fs"] }
 tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring", "logging", "tls12"] }
 tokio-websockets = { version = "0.13.3", default-features = false, features = ["client", "server", "ring", "getrandom"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json", "fmt", "ansi"] }
-webpki-roots = "1.0.9"
+webpki-roots = "1.0.10"
+which = "8.0.6"
 zeroize = { version = "1.9.1", features = ["derive"] }
 
 [target.'cfg(unix)'.dependencies]
@@ -68,6 +80,8 @@ tikv-jemallocator = "0.6"
 mimalloc = { version = "0.1", default-features = false }
 
 [dev-dependencies]
+arbtest = "0.3"
+burrow-admin-logic = { path = "crates/burrow-admin-logic" }
 chromiumoxide = { version = "=0.9.1", default-features = false }
 image = { version = "0.25.10", default-features = false, features = ["png"] }
 insta = "1.49.0"

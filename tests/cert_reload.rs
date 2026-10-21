@@ -85,13 +85,7 @@ async fn serve(config: &Path) -> SocketAddr {
     addr
 }
 
-fn free_port() -> u16 {
-    std::net::TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port()
-}
+use common::free_port;
 
 fn pair(dir: &Path, cert: &str, key: &str) {
     std::fs::create_dir_all(dir).unwrap();
@@ -253,11 +247,7 @@ async fn a_renewed_certificate_is_used_without_a_restart() {
     std::fs::write(dir.path().join("cert.pem"), &old_cert).unwrap();
     std::fs::write(dir.path().join("key.pem"), &old_key).unwrap();
     let config = dir.path().join("server.yaml");
-    let port = std::net::TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port();
+    let port = common::free_port();
     std::fs::write(
         &config,
         format!(

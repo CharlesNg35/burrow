@@ -1,4 +1,5 @@
-use std::net::TcpListener;
+mod common;
+
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::time::{Duration, Instant};
@@ -239,13 +240,7 @@ fn a_file_you_cannot_change_is_refused_before_the_editor_opens() {
     std::fs::set_permissions(&path, perms).unwrap();
 }
 
-fn free_port() -> u16 {
-    TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port()
-}
+use common::free_port;
 
 #[test]
 fn a_running_server_is_found_and_picks_up_the_edit() {

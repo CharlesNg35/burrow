@@ -25,13 +25,7 @@ struct World {
     stop: watch::Sender<bool>,
 }
 
-fn free_port() -> u16 {
-    std::net::TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port()
-}
+use common::free_port;
 
 fn listener_line() -> String {
     if common::ws_mode() {
@@ -45,6 +39,12 @@ fn listener_line() -> String {
 }
 
 async fn world() -> World {
+    world_checked(burrow::reload::accept()).await
+}
+
+async fn world_checked(
+    check: burrow::reload::Check<burrow::config::settings::ServerSettings>,
+) -> World {
     common::more_files();
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("server.yaml");
@@ -82,7 +82,7 @@ async fn world() -> World {
         path.clone(),
         *settings,
         env,
-        burrow::reload::accept(),
+        check,
         reload_tx,
         Some(nudges),
     ));
@@ -381,7 +381,29 @@ async fn a_hand_edit_in_between_is_a_conflict() {
         edited,
         "nothing is written on a conflict"
     );
-    a.apply(ops, &[]).await.unwrap();
+    let started = std::time::Instant::now();
+    let retry = loop {
+        let plan = a.plan(ops.clone()).await.unwrap();
+        let live = !plan["impacts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|i| i["code"] == "adds-client");
+        if live {
+            break plan;
+        }
+        assert!(
+            started.elapsed() < Duration::from_secs(30),
+            "the hand-edited client never became live: {plan}"
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    };
+    a.call(
+        "apply",
+        json!({"base": retry["base"], "ops": ops, "plan": retry["plan"], "confirm": []}),
+    )
+    .await
+    .unwrap();
     let last = std::fs::read_to_string(&w.path).unwrap();
     assert!(last.contains("office:") && last.contains("target: 3002"));
     let _ = w.stop.send(true);
@@ -481,6 +503,162 @@ async fn losing_admin_rights_ends_the_session() {
 }
 
 #[tokio::test]
+async fn a_changed_admin_level_ends_the_session() {
+    let w = world().await;
+    let mut a = connect(&w, "ops", &w.ops, 1, 1).await.unwrap();
+    a.call("subscribe", json!({"config": true})).await.unwrap();
+    let mut v = connect(&w, "viewer", &w.viewer, 1, 1).await.unwrap();
+    v.call("subscribe", json!({"config": true})).await.unwrap();
+    let text = std::fs::read_to_string(&w.path).unwrap();
+    let swapped = text
+        .replace("    admin: write\n", "    admin: WAS_WRITE\n")
+        .replace("    admin: read\n", "    admin: write\n")
+        .replace("    admin: WAS_WRITE\n", "    admin: read\n");
+    std::fs::write(&w.path, swapped).unwrap();
+    for s in [&mut a, &mut v] {
+        let body = s.event("revoked").await;
+        assert_eq!(body["reason"], "admin level changed");
+        let closed = tokio::time::timeout(Duration::from_secs(5), s.rx.recv())
+            .await
+            .unwrap();
+        assert!(matches!(closed, Ok(None) | Err(_)), "{closed:?}");
+    }
+    let mut a = connect(&w, "ops", &w.ops, 1, 1).await.unwrap();
+    let err = a
+        .plan(json!([{"op": "set", "path": ["visitors", "ops", "admin"], "value": "write"}]))
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, ErrorCode::Forbidden, "{err:?}");
+    let _ = w.stop.send(true);
+}
+
+async fn apply_and_close(w: &World, ops: Value) {
+    let mut a = connect(w, "ops", &w.ops, 1, 1).await.unwrap();
+    let plan = a.plan(ops.clone()).await.unwrap();
+    assert_eq!(plan["valid"], true, "{plan}");
+    a.send_raw(
+        "apply",
+        json!({"base": plan["base"], "ops": ops, "plan": plan["plan"], "confirm": []}),
+    )
+    .await;
+    drop(a);
+}
+
+async fn wait_for_entry(w: &World, result: &str) -> Value {
+    let started = std::time::Instant::now();
+    loop {
+        let mut v = connect(w, "viewer", &w.viewer, 1, 1).await.unwrap();
+        let history = v.call("history", json!({})).await.unwrap();
+        if let Some(e) = history["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|e| e["visitor"] == "ops" && e["result"] == result)
+        {
+            return e.clone();
+        }
+        assert!(
+            started.elapsed() < Duration::from_secs(30),
+            "no {result:?} entry: {history}"
+        );
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+}
+
+#[tokio::test]
+async fn an_apply_runs_to_its_end_when_its_session_closes_at_once() {
+    let w = world_checked(Box::new(
+        |next: burrow::config::settings::ServerSettings| {
+            if next.services.contains_key("refused") {
+                Err("the test refuses this service".into())
+            } else {
+                Ok(next)
+            }
+        },
+    ))
+    .await;
+    apply_and_close(
+        &w,
+        json!([{"op": "set", "path": ["services", "web", "target"], "value": 3002}]),
+    )
+    .await;
+    wait_for_entry(&w, "applied").await;
+    assert!(
+        std::fs::read_to_string(&w.path)
+            .unwrap()
+            .contains("target: 3002")
+    );
+    let before = std::fs::read_to_string(&w.path).unwrap();
+    apply_and_close(
+        &w,
+        json!([{"op": "add", "path": ["services", "refused"], "value": {"client": "home", "bind": format!("127.0.0.1:{}", free_port()), "target": 3005}}]),
+    )
+    .await;
+    wait_for_entry(&w, "rejected, restored").await;
+    assert_eq!(
+        std::fs::read_to_string(&w.path).unwrap(),
+        before,
+        "the rejected change is written back"
+    );
+    let _ = w.stop.send(true);
+}
+
+#[tokio::test]
+async fn a_queued_apply_of_a_revoked_session_writes_nothing() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let release = Arc::new(AtomicBool::new(false));
+    let gate = release.clone();
+    let w = world_checked(Box::new(
+        move |mut next: burrow::config::settings::ServerSettings| {
+            if next.services.contains_key("slow") {
+                let started = std::time::Instant::now();
+                while !gate.load(Ordering::SeqCst) && started.elapsed() < Duration::from_secs(20) {
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                return Err("the test refuses the slow service".into());
+            }
+            if gate.load(Ordering::SeqCst)
+                && let Some(ops) = next.visitors.get_mut("ops")
+            {
+                ops.admin = Some(burrow_admin_proto::msg::AdminLevel::Read);
+            }
+            Ok(next)
+        },
+    ))
+    .await;
+    let mut b = connect(&w, "ops", &w.ops, 1, 1).await.unwrap();
+    let late = json!([{"op": "set", "path": ["services", "web", "target"], "value": 3009}]);
+    let late_plan = b.plan(late.clone()).await.unwrap();
+    let mut a = connect(&w, "ops", &w.ops, 1, 1).await.unwrap();
+    let first = json!([{"op": "add", "path": ["services", "slow"], "value": {"client": "home", "bind": format!("127.0.0.1:{}", free_port()), "target": 3005}}]);
+    let first_plan = a.plan(first.clone()).await.unwrap();
+    a.send_raw(
+        "apply",
+        json!({"base": first_plan["base"], "ops": first, "plan": first_plan["plan"], "confirm": []}),
+    )
+    .await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    b.send_raw(
+        "apply",
+        json!({"base": late_plan["base"], "ops": late, "plan": late_plan["plan"], "confirm": []}),
+    )
+    .await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    release.store(true, Ordering::SeqCst);
+    wait_for_entry(&w, "rejected, restored").await;
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    let text = std::fs::read_to_string(&w.path).unwrap();
+    assert!(!text.contains("slow:"), "{text}");
+    assert!(
+        !text.contains("target: 3009"),
+        "an apply of a session that lost write access was written:\n{text}"
+    );
+    drop((a, b));
+    let _ = w.stop.send(true);
+}
+
+#[tokio::test]
 async fn an_oversized_message_closes_the_session() {
     let w = world().await;
     let mut a = connect(&w, "ops", &w.ops, 1, 1).await.unwrap();
@@ -507,8 +685,181 @@ async fn an_oversized_message_closes_the_session() {
     let _ = w.stop.send(true);
 }
 
+#[tokio::test]
+async fn burrow_admin_stops_at_once_when_it_cannot_write_the_url_file() {
+    let w = world().await;
+    let dir = tempfile::tempdir().unwrap();
+    let server = if common::ws_mode() {
+        format!("ws://{}/burrow", w.addr)
+    } else {
+        w.addr.to_string()
+    };
+    let config = dir.path().join("visitor.yaml");
+    burrow::instance::write_private(
+        &config,
+        &format!("server: {server}\nname: ops\nsecret: {}\n", w.ops.encode()),
+    )
+    .unwrap();
+    let missing = dir.path().join("no-such-dir").join("url.txt");
+    let started = std::time::Instant::now();
+    let run = tokio::task::spawn_blocking(move || {
+        std::process::Command::new(env!("CARGO_BIN_EXE_burrow"))
+            .arg("admin")
+            .arg("-c")
+            .arg(&config)
+            .args([
+                "--no-open",
+                "--print-url",
+                "--port",
+                "0",
+                "--idle-exit",
+                "60s",
+                "--url-file",
+            ])
+            .arg(&missing)
+            .output()
+    });
+    let out = tokio::time::timeout(Duration::from_secs(30), run)
+        .await
+        .expect("burrow admin stopped long before its idle exit")
+        .unwrap()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(1), "{stderr}");
+    assert!(stderr.contains("cannot write"), "{stderr}");
+    assert!(!stderr.contains("no browser was connected"), "{stderr}");
+    assert!(started.elapsed() < Duration::from_secs(30));
+    let _ = w.stop.send(true);
+}
+
+struct AdminRun {
+    child: std::process::Child,
+    lines: std::sync::mpsc::Receiver<String>,
+}
+
+impl AdminRun {
+    fn start(config: &std::path::Path, port: Option<&str>) -> AdminRun {
+        use std::io::BufRead;
+        let mut cmd = std::process::Command::new(env!("CARGO_BIN_EXE_burrow"));
+        cmd.arg("admin").arg("-c").arg(config).args([
+            "--no-open",
+            "--print-url",
+            "--idle-exit",
+            "30s",
+        ]);
+        if let Some(p) = port {
+            cmd.args(["--port", p]);
+        }
+        let mut child = cmd
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        let (tx, lines) = std::sync::mpsc::channel();
+        for out in [
+            Box::new(child.stdout.take().unwrap()) as Box<dyn std::io::Read + Send>,
+            Box::new(child.stderr.take().unwrap()),
+        ] {
+            let tx = tx.clone();
+            std::thread::spawn(move || {
+                for l in std::io::BufReader::new(out).lines().map_while(Result::ok) {
+                    let _ = tx.send(l);
+                }
+            });
+        }
+        AdminRun { child, lines }
+    }
+
+    fn until(&self, what: impl Fn(&str) -> bool) -> Vec<String> {
+        let mut seen = Vec::new();
+        let deadline = std::time::Instant::now() + Duration::from_secs(20);
+        while let Some(left) = deadline.checked_duration_since(std::time::Instant::now()) {
+            match self.lines.recv_timeout(left) {
+                Ok(l) => {
+                    let done = what(&l);
+                    seen.push(l);
+                    if done {
+                        return seen;
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+        panic!("burrow admin did not print what was expected: {seen:?}")
+    }
+}
+
+impl Drop for AdminRun {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+#[tokio::test]
+async fn burrow_admin_listens_on_7839_unless_it_is_taken_or_a_port_is_given() {
+    if std::net::TcpListener::bind("127.0.0.1:7839").is_err() {
+        println!("skipped: 127.0.0.1:7839 is in use on this machine");
+        return;
+    }
+    let w = world().await;
+    let dir = tempfile::tempdir().unwrap();
+    let server = if common::ws_mode() {
+        format!("ws://{}/burrow", w.addr)
+    } else {
+        w.addr.to_string()
+    };
+    let config = dir.path().join("visitor.yaml");
+    burrow::instance::write_private(
+        &config,
+        &format!("server: {server}\nname: ops\nsecret: {}\n", w.ops.encode()),
+    )
+    .unwrap();
+    let config2 = config.clone();
+    let seen = tokio::task::spawn_blocking(move || {
+        let first = AdminRun::start(&config2, None);
+        let seen = first.until(|l| l.contains("token="));
+        drop(first);
+        seen
+    })
+    .await
+    .unwrap();
+    assert!(
+        seen.iter().any(|l| l.contains("http://127.0.0.1:7839/")),
+        "{seen:?}"
+    );
+    let config2 = config.clone();
+    tokio::task::spawn_blocking(move || {
+        let held = std::net::TcpListener::bind("127.0.0.1:7839").unwrap();
+        let fallback = AdminRun::start(&config2, None);
+        let seen = fallback.until(|l| l.contains("token="));
+        assert!(
+            seen.iter().any(|l| l.contains("port 7839 is in use")),
+            "{seen:?}"
+        );
+        assert!(
+            !seen.iter().any(|l| l.contains("127.0.0.1:7839/")),
+            "{seen:?}"
+        );
+        drop(fallback);
+        let mut strict = AdminRun::start(&config2, Some("7839"));
+        let seen = strict.until(|l| l.contains("cannot listen on 127.0.0.1:7839"));
+        assert!(!seen.iter().any(|l| l.contains("token=")), "{seen:?}");
+        let status = strict.child.wait().unwrap();
+        assert_eq!(status.code(), Some(1));
+        let random = AdminRun::start(&config2, Some("0"));
+        let seen = random.until(|l| l.contains("token="));
+        assert!(!seen.iter().any(|l| l.contains(":7839/")), "{seen:?}");
+        drop(held);
+    })
+    .await
+    .unwrap();
+    let _ = w.stop.send(true);
+}
+
 struct Local {
     port: u16,
+    run: String,
     token: String,
     stop: watch::Sender<bool>,
     task: tokio::task::JoinHandle<Result<(), burrow::failure::Failure>>,
@@ -519,7 +870,7 @@ async fn local(w: &World, name: &str, secret: &Secret) -> Local {
     s.name = name.to_string();
     let listener = burrow::admin_local::bind(0).await.unwrap();
     let opts = burrow::admin_local::Options {
-        port: 0,
+        port: Some(0),
         open: false,
         print_url: false,
         url_file: None,
@@ -534,6 +885,7 @@ async fn local(w: &World, name: &str, secret: &Secret) -> Local {
             if let Some(tx) = url_tx.take() {
                 let _ = tx.send(r.url.clone());
             }
+            Ok(())
         })
         .await
     });
@@ -546,8 +898,16 @@ async fn local(w: &World, name: &str, secret: &Secret) -> Local {
         .parse()
         .unwrap();
     let token = url.split("#token=").nth(1).unwrap().to_string();
+    let run = url
+        .split("#token=")
+        .next()
+        .unwrap()
+        .trim_start_matches(&format!("http://127.0.0.1:{port}"))
+        .trim_end_matches('/')
+        .to_string();
     Local {
         port,
+        run,
         token,
         stop,
         task,
@@ -568,9 +928,9 @@ async fn http_get(port: u16, head: &str) -> String {
 type Ws =
     tokio_websockets::WebSocketStream<tokio_websockets::MaybeTlsStream<tokio::net::TcpStream>>;
 
-async fn ws(port: u16, origin: &str) -> Result<Ws, String> {
+async fn ws(port: u16, run: &str, origin: &str) -> Result<Ws, String> {
     let b = tokio_websockets::ClientBuilder::new()
-        .uri(&format!("ws://127.0.0.1:{port}/api"))
+        .uri(&format!("ws://127.0.0.1:{port}{run}/api"))
         .unwrap()
         .add_header(
             http::header::ORIGIN,
@@ -609,12 +969,83 @@ async fn the_local_page_is_only_served_to_this_machine() {
     let l = local(&w, "ops", &w.ops).await;
     let ok = http_get(
         l.port,
-        &format!("GET / HTTP/1.1\r\nHost: 127.0.0.1:{}\r\n\r\n", l.port),
+        &format!(
+            "GET {}/ HTTP/1.1\r\nHost: 127.0.0.1:{}\r\n\r\n",
+            l.run, l.port
+        ),
     )
     .await;
     assert!(ok.starts_with("HTTP/1.1 200"), "{ok}");
+    assert!(ok.contains("Clear-Site-Data: \"cache\""), "{ok}");
+    if !ok.contains("was not built into this binary") {
+        assert!(ok.contains(&format!("src=\"{}/", l.run)), "{ok}");
+    }
+    let root = http_get(
+        l.port,
+        &format!("GET / HTTP/1.1\r\nHost: 127.0.0.1:{}\r\n\r\n", l.port),
+    )
+    .await;
+    assert!(root.starts_with("HTTP/1.1 302"), "{root}");
+    assert!(
+        root.contains(&format!("Location: {}/\r\n", l.run)),
+        "{root}"
+    );
+    assert!(root.contains("Cache-Control: no-store"), "{root}");
+    let api = http_get(
+        l.port,
+        &format!(
+            "GET /api HTTP/1.1\r\nHost: 127.0.0.1:{p}\r\nOrigin: http://127.0.0.1:{p}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n",
+            p = l.port
+        ),
+    )
+    .await;
+    assert!(
+        api.starts_with("HTTP/1.1 404"),
+        "the api answers only under this run's prefix: {api}"
+    );
     assert!(ok.contains("Content-Security-Policy: default-src 'none'"));
     assert!(ok.contains("Cache-Control: no-store"));
+    let get = |path: String| {
+        let port = l.port;
+        async move {
+            http_get(
+                port,
+                &format!("GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\r\n"),
+            )
+            .await
+        }
+    };
+    for page in ["/services/api.v2", "/services/a..b", "/services/api"] {
+        let got = get(format!("{}{page}", l.run)).await;
+        assert!(got.starts_with("HTTP/1.1 200"), "{page}: {got}");
+        let moved = get(page.to_string()).await;
+        assert!(moved.starts_with("HTTP/1.1 302"), "{page}: {moved}");
+        assert!(
+            moved.contains(&format!("Location: {}{page}\r\n", l.run)),
+            "{page}: {moved}"
+        );
+    }
+    for bad in ["/../x".to_string(), format!("{}/../x", l.run)] {
+        let got = get(bad.clone()).await;
+        assert!(got.starts_with("HTTP/1.1 400"), "{bad}: {got}");
+    }
+    for asset in burrow::admin_local::assets::ASSETS {
+        let got = http_get(
+            l.port,
+            &format!(
+                "GET {}{} HTTP/1.1\r\nHost: 127.0.0.1:{}\r\n\r\n",
+                l.run, asset.path, l.port
+            ),
+        )
+        .await;
+        let head = got.split("\r\n\r\n").next().unwrap_or_default();
+        assert!(head.starts_with("HTTP/1.1 200"), "{} {head}", asset.path);
+        assert!(
+            head.contains("Cache-Control: no-store") && !head.contains("immutable"),
+            "{} may be cached by the browser: {head}",
+            asset.path
+        );
+    }
     assert!(!ok.to_ascii_lowercase().contains("set-cookie"));
     assert!(!ok.to_ascii_lowercase().contains("access-control-allow"));
     let evil = http_get(l.port, "GET / HTTP/1.1\r\nHost: evil.example\r\n\r\n").await;
@@ -634,8 +1065,91 @@ async fn the_local_page_is_only_served_to_this_machine() {
     )
     .await;
     assert!(cross.starts_with("HTTP/1.1 403"), "{cross}");
-    let bad_origin = ws(l.port, "http://evil.example").await;
+    let bad_origin = ws(l.port, &l.run, "http://evil.example").await;
     assert!(bad_origin.is_err());
+    let _ = l.stop.send(true);
+    let _ = w.stop.send(true);
+}
+
+async fn send_and_read(port: u16, bytes: &[u8], wait: Duration) -> (String, Duration) {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let mut s = tokio::net::TcpStream::connect(("127.0.0.1", port))
+        .await
+        .unwrap();
+    let started = std::time::Instant::now();
+    let _ = s.write_all(bytes).await;
+    let mut out = Vec::new();
+    let _ = tokio::time::timeout(wait, s.read_to_end(&mut out)).await;
+    (
+        String::from_utf8_lossy(&out).into_owned(),
+        started.elapsed(),
+    )
+}
+
+#[tokio::test]
+async fn the_local_server_keeps_its_limits_and_closes_after_each_response() {
+    let w = world().await;
+    let l = local(&w, "ops", &w.ops).await;
+    let get = format!(
+        "GET {}/ HTTP/1.1\r\nHost: 127.0.0.1:{}\r\n\r\n",
+        l.run, l.port
+    );
+    let (two, took) = send_and_read(
+        l.port,
+        format!("{get}{get}").as_bytes(),
+        Duration::from_secs(5),
+    )
+    .await;
+    assert_eq!(two.matches("HTTP/1.1 200").count(), 1, "{two}");
+    assert!(
+        took < Duration::from_secs(3),
+        "the connection stayed open: {took:?}"
+    );
+    let big = format!(
+        "GET {}/ HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nX-Pad: {}\r\n\r\n",
+        l.run,
+        l.port,
+        "a".repeat(burrow::admin_local::http::MAX_HEAD + 1024)
+    );
+    let (got, _) = send_and_read(l.port, big.as_bytes(), Duration::from_secs(5)).await;
+    assert!(
+        got.is_empty() || got.starts_with("HTTP/1.1 431"),
+        "an oversized head was served: {got}"
+    );
+    let (slow, took) = send_and_read(
+        l.port,
+        format!("GET {}/ HTTP/1.1\r\nHost: 127.0.0.1", l.run).as_bytes(),
+        Duration::from_secs(12),
+    )
+    .await;
+    assert!(
+        slow.is_empty() || slow.starts_with("HTTP/1.1 408"),
+        "a slow head was served: {slow}"
+    );
+    assert!(
+        took >= Duration::from_secs(4) && took < Duration::from_secs(8),
+        "a slow head was cut after {took:?}"
+    );
+    let mut held = Vec::new();
+    for _ in 0..burrow::admin_local::MAX_OPEN {
+        use tokio::io::AsyncWriteExt;
+        let mut s = tokio::net::TcpStream::connect(("127.0.0.1", l.port))
+            .await
+            .unwrap();
+        s.write_all(b"GET / HTTP/1.1\r\n").await.unwrap();
+        held.push(s);
+    }
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let (over, took) = send_and_read(l.port, get.as_bytes(), Duration::from_secs(3)).await;
+    assert!(
+        over.is_empty(),
+        "a connection over the cap was served: {over}"
+    );
+    assert!(took < Duration::from_secs(2), "{took:?}");
+    drop(held);
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let (again, _) = send_and_read(l.port, get.as_bytes(), Duration::from_secs(5)).await;
+    assert!(again.starts_with("HTTP/1.1 200"), "{again}");
     let _ = l.stop.send(true);
     let _ = w.stop.send(true);
 }
@@ -649,8 +1163,9 @@ async fn a_socket_without_the_token_is_dropped_even_if_it_ignores_the_close() {
         .await
         .unwrap();
     let head = format!(
-        "GET /api HTTP/1.1\r\nHost: 127.0.0.1:{p}\r\nOrigin: http://127.0.0.1:{p}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n",
-        p = l.port
+        "GET {run}/api HTTP/1.1\r\nHost: 127.0.0.1:{p}\r\nOrigin: http://127.0.0.1:{p}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n",
+        p = l.port,
+        run = l.run
     );
     s.write_all(head.as_bytes()).await.unwrap();
     let started = std::time::Instant::now();
@@ -680,7 +1195,7 @@ async fn the_websocket_needs_the_token_first() {
     let l = local(&w, "ops", &w.ops).await;
     let origin = format!("http://127.0.0.1:{}", l.port);
     let started = std::time::Instant::now();
-    let mut silent = ws(l.port, &origin).await.unwrap();
+    let mut silent = ws(l.port, &l.run, &origin).await.unwrap();
     assert!(
         ws_text(&mut silent).await.is_none(),
         "no token, no messages"
@@ -689,10 +1204,10 @@ async fn the_websocket_needs_the_token_first() {
         started.elapsed() < Duration::from_secs(7),
         "closed within about 5 s"
     );
-    let mut wrong = ws(l.port, &origin).await.unwrap();
+    let mut wrong = ws(l.port, &l.run, &origin).await.unwrap();
     ws_send(&mut wrong, json!({"auth": "0".repeat(64)})).await;
     assert!(ws_text(&mut wrong).await.is_none());
-    let mut right = ws(l.port, &origin).await.unwrap();
+    let mut right = ws(l.port, &l.run, &origin).await.unwrap();
     ws_send(&mut right, json!({"auth": l.token})).await;
     let open = ws_text(&mut right).await.unwrap();
     assert_eq!(open["ev"], "bridge");
@@ -758,11 +1273,136 @@ async fn a_visitor_without_admin_rights_is_told_before_anything_opens() {
     burrow::admin_local::check_access(&s).await.unwrap();
     let l = local(&w, "plain", &w.plain).await;
     let origin = format!("http://127.0.0.1:{}", l.port);
-    let mut tab = ws(l.port, &origin).await.unwrap();
+    let mut tab = ws(l.port, &l.run, &origin).await.unwrap();
     ws_send(&mut tab, json!({"auth": l.token})).await;
     let refused = ws_text(&mut tab).await.unwrap();
     assert_eq!(refused["body"]["state"], "refused");
     assert_eq!(refused["body"]["reason"], "forbidden");
     let _ = l.stop.send(true);
+    let _ = w.stop.send(true);
+}
+
+#[tokio::test]
+async fn burrow_admin_reduces_admin_power_but_never_grants_it() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let (once, refused) = (
+        Arc::new(AtomicBool::new(true)),
+        Arc::new(AtomicBool::new(false)),
+    );
+    let (once_, refused_) = (once.clone(), refused.clone());
+    let w = world_checked(Box::new(
+        move |next: burrow::config::settings::ServerSettings| {
+            let granted = next
+                .visitors
+                .get("plain")
+                .is_some_and(|v| v.admin.is_some());
+            if granted && once_.swap(false, Ordering::SeqCst) {
+                refused_.store(true, Ordering::SeqCst);
+                return Err("the test refuses the first reload with the grant".into());
+            }
+            Ok(next)
+        },
+    ))
+    .await;
+    let mut a = connect(&w, "ops", &w.ops, 1, 1).await.unwrap();
+    let before = std::fs::read_to_string(&w.path).unwrap();
+    let grant = json!([{"op": "set", "path": ["visitors", "plain", "admin"], "value": "write"}]);
+    let plan = a.plan(grant.clone()).await.unwrap();
+    assert_eq!(plan["refusals"][0]["code"], "admin-grant", "{plan}");
+    assert_eq!(
+        plan["refusals"][0]["message"],
+        format!(
+            "admin access is granted only in the config file: visitor \"plain\" would get admin: write; use burrow edit -c {} or edit the file",
+            w.path.display()
+        )
+    );
+    let err = a.apply(grant, &["plain"]).await.unwrap_err();
+    assert_eq!(err.code, ErrorCode::LockedOut, "{err:?}");
+    assert_eq!(
+        std::fs::read_to_string(&w.path).unwrap(),
+        before,
+        "nothing was written"
+    );
+
+    std::fs::write(
+        &w.path,
+        before.replace("  plain:\n", "  plain:\n    admin: write\n"),
+    )
+    .unwrap();
+    let started = std::time::Instant::now();
+    while !refused.load(Ordering::SeqCst) {
+        assert!(
+            started.elapsed() < Duration::from_secs(20),
+            "the hand edit was reloaded"
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    a.apply(
+        json!([{"op": "set", "path": ["services", "web", "target"], "value": 3002}]),
+        &[],
+    )
+    .await
+    .expect("an unapplied grant from the file does not block another change");
+
+    let applied = a
+        .apply(
+            json!([{"op": "remove", "path": ["visitors", "plain", "admin"]}]),
+            &[],
+        )
+        .await
+        .expect("revoking another admin's write access applies");
+    let revoked = std::fs::read_to_string(&w.path).unwrap();
+    assert_eq!(revoked, before.replace("target: 3000", "target: 3002"));
+    let history = a.call("history", json!({})).await.unwrap();
+    let entry = history["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["rev"] == applied["rev"])
+        .unwrap()
+        .clone();
+    let to = entry["base"].as_str().unwrap().to_string();
+    let rev = a.state().await["rev"].clone();
+    let plan = a
+        .call("revert", json!({"to": to, "base": rev}))
+        .await
+        .unwrap();
+    assert_eq!(plan["refusals"][0]["code"], "admin-grant", "{plan}");
+    let err = a
+        .call(
+            "apply",
+            json!({"base": plan["base"], "ops": [{"op": "replace_document", "from_history": to}], "plan": plan["plan"], "confirm": ["plain"]}),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, ErrorCode::LockedOut, "{err:?}");
+    assert_eq!(
+        std::fs::read_to_string(&w.path).unwrap(),
+        revoked,
+        "the revert wrote nothing"
+    );
+    let _ = w.stop.send(true);
+}
+
+#[tokio::test]
+async fn renaming_an_admin_visitor_is_refused_as_a_rename() {
+    let w = world().await;
+    let mut a = connect(&w, "ops", &w.ops, 1, 1).await.unwrap();
+    let before = std::fs::read_to_string(&w.path).unwrap();
+    let rename =
+        json!([{"op": "rename", "path": ["visitors", "viewer"], "to": "watcher", "refs": true}]);
+    let plan = a.plan(rename.clone()).await.unwrap();
+    assert_eq!(plan["refusals"][0]["code"], "admin-grant", "{plan}");
+    assert_eq!(
+        plan["refusals"][0]["message"],
+        format!(
+            "an admin visitor is renamed only in the config file: visitor \"viewer\" would become \"watcher\"; use burrow edit -c {} or edit the file",
+            w.path.display()
+        )
+    );
+    let err = a.apply(rename, &["viewer"]).await.unwrap_err();
+    assert_eq!(err.code, ErrorCode::LockedOut, "{err:?}");
+    assert_eq!(std::fs::read_to_string(&w.path).unwrap(), before);
     let _ = w.stop.send(true);
 }

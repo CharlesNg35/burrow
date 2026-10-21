@@ -1,26 +1,15 @@
-use std::sync::Arc;
-
+use super::Shared;
 use super::standing::Seen;
-use super::{ClientSession, Shared};
-use crate::config::model::Mode;
+use super::via::Via;
 use crate::config::settings::Service;
+use burrow_config::Mode;
 
 impl Shared {
-    pub(crate) fn route(
-        &self,
-        service: &str,
-        svc: &Service,
-        target: &str,
-    ) -> Vec<Arc<ClientSession>> {
+    pub(crate) fn route(&self, service: &str, svc: &Service, target: &str) -> Vec<Via> {
         self.order(service, svc, target, true)
     }
 
-    pub(crate) fn pick(
-        &self,
-        service: &str,
-        svc: &Service,
-        target: &str,
-    ) -> Option<Arc<ClientSession>> {
+    pub(crate) fn pick(&self, service: &str, svc: &Service, target: &str) -> Option<Via> {
         self.route(service, svc, target).into_iter().next()
     }
 
@@ -29,36 +18,23 @@ impl Shared {
             Mode::Failover => self
                 .order(service, svc, target, false)
                 .first()
-                .map(|s| s.name.clone()),
+                .map(|s| s.name().to_string()),
             Mode::Balance => None,
         }
     }
 
     pub(crate) fn has_clear(&self, service: &str, svc: &Service, target: &str) -> bool {
-        let sessions = self.sessions.lock().expect("sessions lock").clone();
-        svc.clients.iter().filter_map(|c| sessions.get(c)).any(|s| {
-            (svc.health.is_none() || self.is_up(service, &s.name))
+        self.connected(&svc.clients).iter().any(|s| {
+            (svc.health.is_none() || self.is_up(service, s.name()))
                 && self.seen(service, s, target) == Seen::Clear
         })
     }
 
-    fn order(
-        &self,
-        service: &str,
-        svc: &Service,
-        target: &str,
-        rotate: bool,
-    ) -> Vec<Arc<ClientSession>> {
-        let connected: Vec<Arc<ClientSession>> = {
-            let sessions = self.sessions.lock().expect("sessions lock");
-            svc.clients
-                .iter()
-                .filter_map(|c| sessions.get(c).cloned())
-                .collect()
-        };
+    fn order(&self, service: &str, svc: &Service, target: &str, rotate: bool) -> Vec<Via> {
+        let connected = self.connected(&svc.clients);
         let (mut clear, mut aside, mut refused) = (Vec::new(), Vec::new(), Vec::new());
         for s in connected {
-            let healthy = svc.health.is_none() || self.is_up(service, &s.name);
+            let healthy = svc.health.is_none() || self.is_up(service, s.name());
             match self.seen(service, &s, target) {
                 Seen::Refused => refused.push(s),
                 Seen::Aside => aside.push(s),
@@ -90,7 +66,7 @@ impl Shared {
         client: &str,
         from: std::net::IpAddr,
         index: u16,
-        public: Option<(crate::config::model::Protocol, std::net::SocketAddr)>,
+        public: Option<(burrow_config::Protocol, std::net::SocketAddr)>,
     ) -> Result<(), String> {
         let settings = self.settings();
         let Some(s) = settings.services.get(service) else {

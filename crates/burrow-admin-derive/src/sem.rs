@@ -75,6 +75,14 @@ fn opt_str(v: Option<&str>) -> TokenStream {
     }
 }
 
+fn reserved(args: &[Term]) -> TokenStream {
+    let names: Vec<&str> = Term::value(args, "reserved")
+        .and_then(Term::as_str)
+        .into_iter()
+        .collect();
+    quote!(::std::vec![#(::std::string::String::from(#names)),*])
+}
+
 fn entity(t: Option<&Term>, span: Span, errors: &mut Errors) -> TokenStream {
     let p = crate::p();
     match t.and_then(Term::as_word) {
@@ -196,13 +204,15 @@ pub fn build(
         }
         "ref_" => {
             let e = entity(Term::positional(args).first().copied(), span, errors);
-            quote!(#p::SemType::Ref(#p::RefC { entity: #e }))
+            let reserved = reserved(args);
+            quote!(#p::SemType::Ref(#p::RefC { entity: #e, reserved: #reserved }))
         }
         "ref_list" => {
             let e = entity(Term::positional(args).first().copied(), span, errors);
             let ordered = Term::flag(args, "ordered");
             let max = opt_int(Term::value(args, "max").and_then(Term::as_int));
-            quote!(#p::SemType::RefList(#p::RefListC { entity: #e, ordered: #ordered, unique: true, max: #max }))
+            let reserved = reserved(args);
+            quote!(#p::SemType::RefList(#p::RefListC { entity: #e, ordered: #ordered, unique: true, max: #max, reserved: #reserved }))
         }
         "name" => {
             let e = entity(Term::positional(args).first().copied(), span, errors);
@@ -269,7 +279,8 @@ pub fn build(
                     }
                 },
             };
-            quote!(#p::SemType::RefMap(#p::RefMapC { entity: #e, value: ::std::boxed::Box::new(#value) }))
+            let reserved = reserved(args);
+            quote!(#p::SemType::RefMap(#p::RefMapC { entity: #e, value: ::std::boxed::Box::new(#value), reserved: #reserved }))
         }
         "list" => {
             let item_ty = ty.and_then(|t| strip(t, "Vec"));
@@ -569,6 +580,20 @@ pub fn reject_redundant(
         "redundant ty on `{field}`: its Rust type already gives the semantic type `{tag}`; remove `ty = ...`"
     );
     checks.push(quote_spanned!(span=> const _: () = #p::not_redundant(<#ty as #p::DefaultSem>::SEM, #tag, #message);));
+}
+
+pub fn primitive_int(ty: &syn::Type) -> Option<syn::Ident> {
+    let syn::Type::Path(tp) = ty else {
+        return None;
+    };
+    let seg = tp.path.segments.last()?;
+    let ints = [
+        "u8", "u16", "u32", "u64", "usize", "i8", "i16", "i32", "i64", "isize",
+    ];
+    (tp.path.segments.len() == 1
+        && seg.arguments.is_none()
+        && ints.contains(&seg.ident.to_string().as_str()))
+    .then(|| seg.ident.clone())
 }
 
 pub fn infer(

@@ -4,10 +4,10 @@ use std::net::SocketAddr;
 use std::time::Duration;
 
 use burrow::allowlist::Sources;
-use burrow::config::model::Protocol;
 use burrow::config::settings::{Health, Service};
 use burrow::protocol::VisitTarget;
 use burrow::secret::Secret;
+use burrow_config::Protocol;
 use common::*;
 use tokio::net::TcpStream;
 
@@ -404,7 +404,7 @@ async fn the_metrics_endpoint_handles_odd_requests() {
         huge.extend(std::iter::repeat_n(b'a', 64 * 1024));
         assert_eq!(raw_http(addr, &huge), "");
         assert_eq!(raw_http(addr, b""), "");
-        assert!(raw_http(addr, b"GET /status HTTP/1.0\r\n\r\n").starts_with("HTTP/1.1 404"));
+        assert!(raw_http(addr, b"GET /status HTTP/1.0\r\n\r\n").starts_with("HTTP/1.0 404"));
         assert!(scrape(addr).is_ok());
     })
     .await

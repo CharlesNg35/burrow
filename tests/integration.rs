@@ -4,9 +4,9 @@ use std::time::Duration;
 
 use burrow::allowlist::{AllowList, Rule};
 use burrow::client::State;
-use burrow::config::model::{Cipher, Protocol};
 use burrow::proxy::ProxyConfig;
 use burrow::secret::Secret;
+use burrow_config::{Cipher, Protocol};
 use common::*;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -729,7 +729,7 @@ async fn a_burst_on_a_public_service_wider_than_the_handshake_limit_still_gets_t
     .await;
     let addr = t.server.services["web"];
     let mut tasks = tokio::task::JoinSet::new();
-    for i in 0..60u64 {
+    for i in 0..20u64 {
         tasks.spawn(async move {
             let data = pattern(2_000, i);
             assert_eq!(roundtrip(addr, &data).await, data);

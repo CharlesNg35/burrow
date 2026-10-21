@@ -167,6 +167,7 @@ pub fn Segmented(
     #[prop(into)] on_change: Callback<String>,
     #[prop(optional, into)] label: Option<String>,
     #[prop(optional, into)] disabled: Signal<bool>,
+    #[prop(optional, into)] off: Signal<Vec<String>>,
 ) -> impl IntoView {
     view! {
         <div
@@ -179,15 +180,21 @@ pub fn Segmented(
                 .map(|(v, l, danger)| {
                     let v2 = v.clone();
                     let v3 = v.clone();
+                    let (v4, v5, v6) = (v.clone(), v.clone(), v.clone());
                     let name = name.clone();
                     view! {
-                        <label class=move || {
+                        <label
+                            data-off=move || off.with(|o| o.contains(&v6)).then_some("true")
+                            class=move || {
                             let on = value.get() == v2;
-                            let base = "flex h-8 cursor-pointer items-center rounded-sm px-[11px] text-sm font-semibold has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-accent";
-                            match (on, danger) {
-                                (true, true) => format!("{base} bg-danger-weak text-danger ring-1 ring-danger/45 ring-inset"),
-                                (true, false) => format!("{base} bg-surface text-text shadow-sm ring-1 ring-border ring-inset dark:bg-surface-3 dark:ring-border-strong"),
-                                (false, _) => format!("{base} text-text-muted hover:text-text"),
+                            let blocked = off.with(|o| o.contains(&v4));
+                            let base = "flex h-8 items-center rounded-sm px-[11px] text-sm font-semibold has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-accent";
+                            let base = if blocked { format!("{base} cursor-not-allowed opacity-55") } else { format!("{base} cursor-pointer") };
+                            match (on, danger, blocked) {
+                                (true, true, _) => format!("{base} bg-danger-weak text-danger ring-1 ring-danger/45 ring-inset"),
+                                (true, false, _) => format!("{base} bg-surface text-text shadow-sm ring-1 ring-border ring-inset dark:bg-surface-3 dark:ring-border-strong"),
+                                (false, _, true) => format!("{base} text-text-muted"),
+                                (false, _, false) => format!("{base} text-text-muted hover:text-text"),
                             }
                         }>
                             <input
@@ -195,7 +202,7 @@ pub fn Segmented(
                                 class="sr-only"
                                 name=name
                                 value=v.clone()
-                                disabled=move || disabled.get()
+                                disabled=move || disabled.get() || off.with(|o| o.contains(&v5))
                                 prop:checked=move || value.get() == v3
                                 on:change=move |_| on_change.run(v.clone())
                             />

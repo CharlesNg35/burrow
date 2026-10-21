@@ -2,12 +2,13 @@ use std::collections::BTreeMap;
 use std::net::SocketAddr;
 use std::time::Duration;
 
-use super::model::{AdminLevel, Cipher, Mode, Protocol};
 use crate::allowlist::{AllowList, Cidr, Sources};
 use crate::protocol::VisitTarget;
 use crate::proxy::ProxyConfig;
 use crate::secret::Secret;
-use crate::transport::endpoint::Endpoint;
+use burrow_admin_proto::msg::AdminLevel;
+use burrow_config::{Cipher, Mode, Protocol};
+use burrow_syntax::endpoint::Endpoint;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SocketTuning {
@@ -34,6 +35,7 @@ pub struct ServerSettings {
     pub tcp: SocketTuning,
     pub udp_session_timeout: Duration,
     pub metrics: Option<SocketAddr>,
+    pub self_allow: Option<AllowList>,
 }
 
 pub struct ListenClash {
@@ -45,6 +47,13 @@ pub struct ListenClash {
 impl ServerSettings {
     pub fn services_for(&self, client: &str) -> Vec<crate::protocol::ServiceInfo> {
         services_for(&self.services, client)
+    }
+
+    pub fn uses_self(&self) -> bool {
+        let named = |c: &String| c == burrow_config::SELF;
+        self.self_allow.is_some()
+            || self.services.values().any(|s| s.clients.iter().any(named))
+            || self.visitors.values().any(|v| v.reach.keys().any(named))
     }
 
     pub fn listen_clash(&self, next: &ServerSettings) -> Option<ListenClash> {
@@ -133,7 +142,7 @@ pub struct Service {
     pub max_connections: Option<usize>,
     pub visitors: Vec<String>,
     pub sources: Sources,
-    pub proxy_protocol: Option<crate::proxy_protocol::Version>,
+    pub proxy_protocol: Option<burrow_config::ProxyVersion>,
     pub bandwidth: Option<u64>,
 }
 
@@ -277,6 +286,16 @@ pub struct WebSocketSettings {
     pub path: String,
     pub tls: Option<TlsMaterial>,
     pub keepalive: std::time::Duration,
+}
+
+impl WebSocketSettings {
+    pub fn shape(&self) -> burrow_syntax::address::WsShape<'_> {
+        burrow_syntax::address::WsShape {
+            listen: self.listen,
+            path: &self.path,
+            tls: self.tls.is_some(),
+        }
+    }
 }
 
 #[derive(Clone, PartialEq)]

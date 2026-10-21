@@ -9,10 +9,10 @@ use tracing::{debug, info, warn};
 
 use super::tcp::log_status;
 use super::{Shared, TakeError};
-use crate::config::model::Protocol;
 use crate::config::settings::Service;
 use crate::forward::ForwardError;
 use crate::protocol::{Connect, Status, decode_datagram, encode_datagram};
+use burrow_config::Protocol;
 
 pub const MAX_PEERS: usize = 4096;
 const MAX_DATAGRAM: usize = crate::noise::MAX_PLAINTEXT - 4;
@@ -146,7 +146,7 @@ pub async fn udp_service(
         };
         debug!(
             "service \"{name}\": UDP relay attached to client \"{}\"",
-            session.name
+            session.name()
         );
         let port = Port {
             name: &name,
@@ -158,7 +158,7 @@ pub async fn udp_service(
             Err(Some(status)) => {
                 log_status(
                     &format!("service \"{name}\""),
-                    &session.name,
+                    session.name(),
                     &target,
                     status,
                 );
@@ -186,7 +186,7 @@ struct Port<'a> {
 async fn relay(
     shared: &Arc<Shared>,
     port: Port<'_>,
-    session: &super::ClientSession,
+    session: &super::via::Via,
     socket: Arc<UdpSocket>,
     ch: crate::handshake::Channel,
     mut config: watch::Receiver<Service>,
@@ -217,7 +217,7 @@ async fn relay(
             if let Some(more) = SILENT.allow() {
                 warn!(
                     "service \"{name}\": client \"{}\" did not answer the UDP relay within {}s; trying again{more}",
-                    session.name,
+                    session.name(),
                     wait.as_secs()
                 );
             }
@@ -231,11 +231,11 @@ async fn relay(
         return Err(Some(status));
     }
     if svc.clients.len() > 1 {
-        shared.accepted(name, &session.name, target);
+        shared.accepted(name, session.name(), target);
     }
     info!(
         "service \"{name}\": UDP relay ready via client \"{}\"",
-        session.name
+        session.name()
     );
 
     let peers = Arc::new(Mutex::new(Peers::default()));
@@ -329,7 +329,7 @@ async fn relay(
                         if let Some(more) = STALLED.allow() {
                             warn!(
                                 "service \"{name}\": client \"{}\" stopped reading its UDP relay for {}s; trying again{more}",
-                                session.name,
+                                session.name(),
                                 stall.as_secs()
                             );
                         }
@@ -352,7 +352,7 @@ async fn relay(
                 let current = config.borrow().clone();
                 if let Some(preferred) = shared
                     .preferred(name, &current, target)
-                    .filter(|p| *p != session.name)
+                    .filter(|p| p != session.name())
                 {
                     debug!("service \"{name}\": moving the UDP relay to client \"{preferred}\"");
                     break Ok(());
@@ -362,7 +362,7 @@ async fn relay(
             r = config.changed() => {
                 let moved = {
                     let next = config.borrow();
-                    next.target != svc.target || !next.clients.contains(&session.name)
+                    next.target != svc.target || !next.clients.iter().any(|c| c == session.name())
                 };
                 if r.is_err() || moved {
                     break Ok(());

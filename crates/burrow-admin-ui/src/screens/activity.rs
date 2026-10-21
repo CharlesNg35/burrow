@@ -133,7 +133,12 @@ fn Version(entry: AuditEntry, newer: Vec<AuditEntry>) -> impl IntoView {
         )));
     }
     let can_revert = entry.revertible && s.can_write_now();
-    let to = entry.base.clone();
+    let to = revert_target(&entry);
+    let revert_label = if entry.base.is_empty() {
+        "Revert to this version"
+    } else {
+        "Revert to before this change"
+    };
     let from = if entry.from.is_empty() {
         String::new()
     } else {
@@ -188,7 +193,7 @@ fn Version(entry: AuditEntry, newer: Vec<AuditEntry>) -> impl IntoView {
                 <p class="mt-1 text-base text-text-muted">{format!("{first} · {} · {written}", format::relative(entry.at))}</p>
             </div>
             {can_revert.then(|| view! {
-                <Button label="Revert to before this change" variant="tinted" icon="revert" testid="revert" on_click=move |_| {
+                <Button label=revert_label variant="tinted" icon="revert" testid="revert" on_click=move |_| {
                     s.edit.open_revert(s, to.clone());
                     route::go(Route::Review);
                 }/>
@@ -246,7 +251,7 @@ pub fn Activity(selected: Option<String>) -> impl IntoView {
         });
         match (action.as_str(), entry) {
             ("revert", Some(e)) => {
-                s.edit.open_revert(s, e.base.clone());
+                s.edit.open_revert(s, revert_target(&e));
                 route::go(Route::Review);
             }
             _ => route::go(Route::Activity(Some(rev))),
@@ -289,6 +294,14 @@ pub fn Activity(selected: Option<String>) -> impl IntoView {
     master_detail(list, detail)
 }
 
+fn revert_target(entry: &AuditEntry) -> String {
+    if entry.base.is_empty() {
+        entry.rev.clone()
+    } else {
+        entry.base.clone()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -315,5 +328,20 @@ mod tests {
         assert_eq!((l[1].old, l[1].new), (Some(3), Some(3)));
         assert_eq!((l[2].kind, l[2].old, l[2].new), ('-', Some(4), None));
         assert_eq!((l[3].kind, l[3].old, l[3].new), ('+', None, Some(4)));
+    }
+
+    #[test]
+    fn a_kept_version_reverts_to_itself_and_a_change_to_its_base() {
+        let kept = AuditEntry {
+            rev: "b2s:kept".into(),
+            ..AuditEntry::default()
+        };
+        assert_eq!(revert_target(&kept), "b2s:kept");
+        let change = AuditEntry {
+            rev: "b2s:after".into(),
+            base: "b2s:before".into(),
+            ..AuditEntry::default()
+        };
+        assert_eq!(revert_target(&change), "b2s:before");
     }
 }

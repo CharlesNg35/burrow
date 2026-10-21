@@ -11,11 +11,7 @@ pub enum Render<'a> {
     Raw,
 }
 
-impl Render<'_> {
-    pub fn local_checks(&self) -> bool {
-        matches!(self, Render::Known(_) | Render::Fallback(_))
-    }
-}
+impl Render<'_> {}
 
 fn fits(sem: &SemType, v: Option<&Value>) -> bool {
     let Some(v) = v.filter(|v| !v.is_null()) else {
@@ -35,7 +31,7 @@ fn fits(sem: &SemType, v: Option<&Value>) -> bool {
     }
 }
 
-pub fn render_value<'a>(sem: &'a SemType, v: Option<&Value>) -> Render<'a> {
+fn render_value<'a>(sem: &'a SemType, v: Option<&Value>) -> Render<'a> {
     match sem {
         SemType::Unknown(u) => u
             .fallback
@@ -115,7 +111,6 @@ mod tests {
         assert_eq!(render_value(&sem, Some(&json!({"a": 1}))), Render::Raw);
         let nested = unknown(json!({"t": "matrix", "fallback": [{"t": "future_kind"}]}));
         assert_eq!(render_value(&nested, Some(&json!([1, 2]))), Render::Raw);
-        assert!(!Render::Raw.local_checks());
         assert_eq!(
             render_value(&sem, None),
             Render::Raw,

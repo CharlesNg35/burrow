@@ -21,7 +21,7 @@ pub fn tag_class(tone: Tone) -> String {
             Tone::Success => "bg-success-weak text-success",
             Tone::Accent | Tone::Info => "bg-accent-weak text-accent-ink",
             Tone::Danger => "bg-danger-weak text-danger",
-            Tone::Udp => "bg-udp-weak text-udp",
+            Tone::Violet => "bg-udp-weak text-udp",
             Tone::Neutral => "border border-border bg-surface-3 text-text-muted",
         }
     )

@@ -1,7 +1,8 @@
 use burrow_admin_proto::plan::{Change, ChangeKind};
+use burrow_config::{ClientEntry, Entry, ServiceEntry, VisitorEntry};
 use serde_json::Value;
 
-use super::values::secretish;
+use crate::config::check::secretish;
 use crate::config::patch::Rename;
 
 fn short(v: &Value) -> String {
@@ -21,6 +22,7 @@ fn short(v: &Value) -> String {
         Value::Object(_) => "settings".into(),
         other => other.to_string(),
     };
+    let text = super::text::mask_secrets(&text, &[]);
     if text.chars().count() > 80 {
         format!("{}…", text.chars().take(79).collect::<String>())
     } else {
@@ -29,12 +31,13 @@ fn short(v: &Value) -> String {
 }
 
 fn entity(section: &str) -> Option<&'static str> {
-    match section {
-        "clients" => Some("client"),
-        "visitors" => Some("visitor"),
-        "services" => Some("service"),
-        _ => None,
-    }
+    [
+        (ClientEntry::section(), ClientEntry::ENTITY),
+        (VisitorEntry::section(), VisitorEntry::ENTITY),
+        (ServiceEntry::section(), ServiceEntry::ENTITY),
+    ]
+    .into_iter()
+    .find_map(|(s, e)| (s == section).then_some(e))
 }
 
 fn secret_count(v: Option<&Value>) -> usize {
@@ -142,18 +145,14 @@ pub fn changes(old: &Value, new: &Value, renames: &[Rename]) -> Vec<Change> {
                     .or_else(|| renamed_from(name).and_then(|f| om.get(&f)))
                 {
                     None => {
-                        let extra = match kind {
-                            "client" | "visitor" => format!(
-                                " ({} {})",
-                                secret_count(val.get("secret")),
-                                if secret_count(val.get("secret")) == 1 {
-                                    "secret"
-                                } else {
-                                    "secrets"
-                                }
-                            ),
-                            _ => String::new(),
+                        let secrets = match kind {
+                            k if k == ClientEntry::ENTITY => Some(ClientEntry::SECRET.get(val)),
+                            k if k == VisitorEntry::ENTITY => Some(VisitorEntry::SECRET.get(val)),
+                            _ => None,
                         };
+                        let extra = secrets.map(secret_count).map_or_else(String::new, |n| {
+                            format!(" ({n} secret{})", if n == 1 { "" } else { "s" })
+                        });
                         out.push(Change {
                             kind: ChangeKind::Add,
                             path,
@@ -231,5 +230,26 @@ mod tests {
         assert!(text.contains(&"Service web: bind 7840 → 7841"), "{text:?}");
         assert!(text.contains(&"limits removed"), "{text:?}");
         assert!(!text.iter().any(|t| t.contains("SECRET-")), "{text:?}");
+    }
+
+    #[test]
+    fn secrets_in_the_wrong_shape_stay_out_of_summaries() {
+        let s = crate::secret::Secret::generate().encode();
+        let old =
+            json!({"clients": {"home": {"secret": "A"}}, "visitors": {"ops": {"secret": "B"}}});
+        let new = json!({
+            "clients": {"home": {"secret": "A", "secert": s}, "office": s},
+            "visitors": {"ops": {"secret": "B", "note": format!("key {s}")}},
+            "token_list": [s],
+            "proxy": format!("http://u:{s}@p"),
+        });
+        let c = changes(&old, &new, &[]);
+        let text: Vec<&str> = c.iter().map(|c| c.summary.as_str()).collect();
+        assert!(!text.iter().any(|t| t.contains(&s)), "{text:?}");
+        assert!(
+            !changes(&new, &old, &[])
+                .iter()
+                .any(|c| c.summary.contains(&s))
+        );
     }
 }

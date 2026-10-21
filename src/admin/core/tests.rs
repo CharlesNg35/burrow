@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use burrow_admin_proto::msg::{Apply, ConnectInfo, ErrorCode, HistoryRequest, Level};
+use burrow_admin_proto::msg::{AdminLevel, Apply, ConnectInfo, ErrorCode, HistoryRequest};
 use burrow_admin_proto::ops::Op;
 use serde_json::json;
 
@@ -168,7 +168,7 @@ pub fn core_running(text: &str, running: &str) -> Core {
     Core::new(Box::new(store), Box::new(live), Box::new(|_: &str| None))
 }
 
-pub fn session(w: &World, level: Level) -> Session {
+pub fn session(w: &World, level: AdminLevel) -> Session {
     Session::new(
         "ops".into(),
         level,
@@ -214,10 +214,63 @@ fn apply_now(
 }
 
 #[test]
+fn a_renamed_client_keeps_its_place_in_reach_and_the_file_changes_only_the_names() {
+    let w = world();
+    let (office, lap) = (Secret::generate(), Secret::generate());
+    let text = w
+        .text
+        .replace(
+            "\nvisitors:",
+            &format!("  office:\n    secret: {}\n\nvisitors:", office.encode()),
+        )
+        .replace(
+            "\nservices:",
+            &format!(
+                "  lap:\n    secret: {}\n    reach:\n      home: any # first\n      office: any\n\nservices:",
+                lap.encode()
+            ),
+        );
+    let core = core_for(&text);
+    let s = session(&w, AdminLevel::Write);
+    let ops = [Op::Rename {
+        path: p(&["clients", "home"]),
+        to: "home2".into(),
+        refs: true,
+    }];
+    let c = plan::compute(&core, &s, &text::rev(&text), &ops).unwrap();
+    assert!(c.plan.valid, "{:?}", c.plan.diags);
+    assert!(
+        c.new_text
+            .contains("    reach:\n      home2: any # first\n      office: any\n"),
+        "{}",
+        c.new_text
+    );
+    assert!(
+        c.new_text.contains("  # the home box\n  home2:\n"),
+        "{}",
+        c.new_text
+    );
+    let changed: Vec<(&str, &str)> = text
+        .lines()
+        .zip(c.new_text.lines())
+        .filter(|(a, b)| a != b)
+        .collect();
+    assert_eq!(text.lines().count(), c.new_text.lines().count());
+    assert!(!changed.is_empty());
+    for (a, b) in changed {
+        assert_eq!(
+            a.replace("home", "home2"),
+            b,
+            "only the name changes in place"
+        );
+    }
+}
+
+#[test]
 fn a_plan_keeps_comments_and_shows_a_masked_diff() {
     let w = world();
     let core = core_for(&w.text);
-    let s = session(&w, Level::Write);
+    let s = session(&w, AdminLevel::Write);
     let base = text::rev(&w.text);
     let ops = [Op::Add {
         path: p(&["services", "ssh"]),
@@ -248,7 +301,7 @@ fn a_plan_keeps_comments_and_shows_a_masked_diff() {
 fn errors_land_on_their_field() {
     let w = world();
     let core = core_for(&w.text);
-    let s = session(&w, Level::Write);
+    let s = session(&w, AdminLevel::Write);
     let base = text::rev(&w.text);
     let ops = [Op::Add {
         path: p(&["services", "api"]),
@@ -266,7 +319,7 @@ fn errors_land_on_their_field() {
 fn a_changed_file_is_a_conflict_and_nothing_is_written() {
     let w = world();
     let core = core_for(&w.text);
-    let s = session(&w, Level::Write);
+    let s = session(&w, AdminLevel::Write);
     let e = plan::compute(&core, &s, "b2s:0000000000000000", &[])
         .err()
         .unwrap();
@@ -278,7 +331,7 @@ fn a_changed_file_is_a_conflict_and_nothing_is_written() {
 fn the_guard_refuses_lockouts() {
     let w = world();
     let core = core_for(&w.text);
-    let s = session(&w, Level::Write);
+    let s = session(&w, AdminLevel::Write);
     let base = text::rev(&w.text);
     let cases = [
         (
@@ -329,7 +382,7 @@ fn the_guard_refuses_lockouts() {
 fn secrets_are_revealed_once_and_destructive_changes_need_confirmation() {
     let w = world();
     let core = core_for(&w.text);
-    let s = session(&w, Level::Write);
+    let s = session(&w, AdminLevel::Write);
     let g = core.generate_secret(&s).unwrap();
     let applied = apply_now(
         &core,
@@ -397,7 +450,7 @@ fn a_new_client_comes_with_ready_snippets_and_later_only_with_a_placeholder() {
         "listen: 7835 # tcp\n",
         "listen: 7835 # tcp\npublic_address: tunnel.example.com\n",
     ));
-    let s = session(&w, Level::Write);
+    let s = session(&w, AdminLevel::Write);
     let g = core.generate_secret(&s).unwrap();
     let applied = apply_now(
         &core,
@@ -492,7 +545,7 @@ fn a_new_client_comes_with_ready_snippets_and_later_only_with_a_placeholder() {
 fn read_level_and_read_only_files_cannot_write() {
     let w = world();
     let core = core_for(&w.text);
-    let r = session(&w, Level::Read);
+    let r = session(&w, AdminLevel::Read);
     let e = dispatch(
         &core,
         &r,
@@ -518,7 +571,7 @@ fn read_level_and_read_only_files_cannot_write() {
 fn a_revert_is_an_ordinary_plan() {
     let w = world();
     let core = core_for(&w.text);
-    let s = session(&w, Level::Write);
+    let s = session(&w, AdminLevel::Write);
     apply_now(
         &core,
         &s,
@@ -561,7 +614,7 @@ fn a_revert_is_an_ordinary_plan() {
 fn locked_fields_are_refused_even_from_a_crafted_client() {
     let w = world();
     let core = core_for(&w.text);
-    let s = session(&w, Level::Write);
+    let s = session(&w, AdminLevel::Write);
     let base = text::rev(&w.text);
     for (path, value) in [
         (p(&["listen"]), json!(7836)),
@@ -632,7 +685,7 @@ fn locked_fields_are_refused_even_from_a_crafted_client() {
 fn a_revert_keeps_the_current_values_of_locked_fields() {
     let w = world();
     let core = core_for(&w.text);
-    let s = session(&w, Level::Write);
+    let s = session(&w, AdminLevel::Write);
     apply_now(
         &core,
         &s,
@@ -697,7 +750,7 @@ fn a_reload_that_would_clash_with_the_kept_listener_is_predicted() {
     let w = world();
     let edited = w.text.replace("listen: 7835 # tcp", "listen: 7836 # tcp");
     let core = core_running(&edited, &w.text);
-    let s = session(&w, Level::Write);
+    let s = session(&w, AdminLevel::Write);
     let base = text::rev(&edited);
     let ops = [Op::Set {
         path: p(&["services", "web", "bind"]),
@@ -718,7 +771,7 @@ fn a_reload_that_would_clash_with_the_kept_listener_is_predicted() {
 fn set_text_is_parsed_by_the_server() {
     let w = world();
     let core = core_for(&w.text);
-    let s = session(&w, Level::Write);
+    let s = session(&w, AdminLevel::Write);
     let base = text::rev(&w.text);
     let c = plan::compute(
         &core,
@@ -766,7 +819,7 @@ fn set_text_is_parsed_by_the_server() {
 fn a_rejected_reload_is_reported_with_the_restore() {
     let w = world();
     let core = core_for(&w.text);
-    let s = session(&w, Level::Write);
+    let s = session(&w, AdminLevel::Write);
     let base = text::rev(&w.text);
     let ops = [Op::Set {
         path: p(&["services", "web", "target"]),
@@ -811,7 +864,7 @@ fn a_rejected_reload_is_reported_with_the_restore() {
 fn generated_secrets_are_capped_per_session() {
     let w = world();
     let core = core_for(&w.text);
-    let s = session(&w, Level::Write);
+    let s = session(&w, AdminLevel::Write);
     for _ in 0..MAX_PENDING_SECRETS {
         core.generate_secret(&s).unwrap();
     }
@@ -819,4 +872,275 @@ fn generated_secrets_are_capped_per_session() {
         core.generate_secret(&s).err().unwrap().code,
         ErrorCode::Busy
     );
+}
+
+struct Busy {
+    text: String,
+    status: Arc<Mutex<Status>>,
+}
+
+impl Live for Busy {
+    fn status(&self) -> Status {
+        self.status.lock().unwrap().clone()
+    }
+    fn settings(&self) -> Arc<ServerSettings> {
+        Arc::new(settings_of(&self.text))
+    }
+    fn sessions(&self) -> Vec<LiveSession> {
+        Vec::new()
+    }
+    fn allows(&self) -> BTreeMap<String, Vec<String>> {
+        BTreeMap::new()
+    }
+    fn free_port(&self, near: u16, _: u16, _: bool) -> Option<u16> {
+        Some(near)
+    }
+}
+
+#[test]
+fn a_changing_connection_count_does_not_invalidate_a_reviewed_plan() {
+    let w = world();
+    let status = Arc::new(Mutex::new(Status::default()));
+    let open = |n: u64| {
+        serde_json::from_value::<Status>(json!({"services": [{"name": "web", "open": n}]})).unwrap()
+    };
+    let store = MemStore {
+        text: Arc::new(Mutex::new(w.text.clone())),
+        kept: Mutex::new(Vec::new()),
+        read_only: false,
+    };
+    let core = Core::new(
+        Box::new(store),
+        Box::new(Busy {
+            text: w.text.clone(),
+            status: status.clone(),
+        }),
+        Box::new(|_: &str| None),
+    );
+    let s = session(&w, AdminLevel::Write);
+    let ops = [Op::Remove {
+        path: p(&["services", "web"]),
+    }];
+    let base = text::rev(&core.read().unwrap());
+    let hash = |n: u64| {
+        *status.lock().unwrap() = open(n);
+        let plan = plan::compute(&core, &s, &base, &ops).unwrap().plan;
+        (plan.plan.clone(), plan.impacts[0].message.clone())
+    };
+    let (three, says_three) = hash(3);
+    let (five, says_five) = hash(5);
+    assert!(says_three.contains("3 open connections") && says_five.contains("5 open connections"));
+    assert_eq!(three, five, "only the count changed");
+    assert_eq!(hash(1).0, three, "one connection is still a busy service");
+    assert_ne!(hash(0).0, three, "a service that became idle is a new plan");
+    *status.lock().unwrap() = open(3);
+    let reviewed = plan::compute(&core, &s, &base, &ops).unwrap().plan;
+    *status.lock().unwrap() = open(7);
+    let begun = plan::apply_begin(
+        &core,
+        &s,
+        &Apply {
+            base,
+            ops: ops.to_vec(),
+            plan: reviewed.plan,
+            confirm: vec!["web".into()],
+        },
+    );
+    assert!(begun.is_ok(), "{:?}", begun.err().map(|e| e.message));
+}
+
+#[test]
+fn an_apply_adds_a_service_on_this_server() {
+    let w = world();
+    let core = core_for(&w.text);
+    let s = session(&w, AdminLevel::Write);
+    let ops = [Op::Add {
+        path: p(&["services", "local"]),
+        value: json!({"client": "self", "bind": 7841, "target": 3000}),
+    }];
+    let applied = apply_now(&core, &s, &ops, &[]).unwrap();
+    assert!(!applied.rev.is_empty());
+    let text = core.read().unwrap();
+    assert!(
+        text.contains("  local:\n    client: self\n    bind: 7841\n    target: 3000\n"),
+        "{text}"
+    );
+    let named = [Op::Add {
+        path: p(&["clients", "self"]),
+        value: json!({"secret": Secret::generate().encode()}),
+    }];
+    let base = text::rev(&text);
+    let c = plan::compute(&core, &s, &base, &named).unwrap();
+    assert!(!c.plan.valid);
+    assert!(c.plan.diags.iter().any(|d| d.code == "reserved-name"));
+}
+
+struct Broken {
+    w: World,
+    boss: Secret,
+    running: String,
+}
+
+const TYPO: &str = "  api: { client: home, bind: 7840, target: 3001 }\n";
+
+fn broken_world() -> Broken {
+    let w = world();
+    let boss = Secret::generate();
+    let running = w
+        .text
+        .replace(
+            "\nservices:",
+            &format!(
+                "  boss:\n    secret: {}\n    admin: write\n    admin_from: [10.0.0.0/8]\n\nservices:",
+                boss.encode()
+            ),
+        )
+        .replace(
+            "{ client: home, bind: 7840, target: 3000 }",
+            "{ client: home, bind: 7840, target: 3000, visitors: [boss] }",
+        );
+    Broken { w, boss, running }
+}
+
+impl Broken {
+    fn with_typo(&self, edit: impl Fn(&str) -> String) -> String {
+        let t = edit(&self.running);
+        t.replacen(
+            "visitors: [boss] }\n",
+            &format!("visitors: [boss] }}\n{TYPO}"),
+            1,
+        )
+    }
+
+    fn refusals(&self, file: &str, ops: &[Op]) -> Vec<burrow_admin_proto::plan::Refusal> {
+        let core = core_running(file, &self.running);
+        let s = session(&self.w, AdminLevel::Write);
+        let c = plan::compute(&core, &s, &text::rev(file), ops).unwrap();
+        assert!(c.plan.valid, "{:?}", c.plan.diags);
+        let e = apply_now(&core, &s, ops, &["boss", "api"]).unwrap_err();
+        assert_eq!(e.code, ErrorCode::LockedOut, "{e:?}");
+        assert_eq!(core.read().unwrap(), file, "nothing was written");
+        c.plan.refusals
+    }
+}
+
+fn remove_typo() -> Op {
+    Op::Remove {
+        path: p(&["services", "api"]),
+    }
+}
+
+fn file_has_errors(r: &[burrow_admin_proto::plan::Refusal], code: &str) {
+    assert!(
+        r.iter().any(|r| r.code == code
+            && r.message.contains("the config file has errors")
+            && r.message.contains("burrow edit -c server.yaml")),
+        "{code}: {r:?}"
+    );
+}
+
+#[test]
+fn an_invalid_file_does_not_undo_a_revoked_admin() {
+    let b = broken_world();
+    let deleted = b.running.replace(
+        &format!(
+            "  boss:\n    secret: {}\n    admin: write\n    admin_from: [10.0.0.0/8]\n",
+            b.boss.encode()
+        ),
+        "",
+    );
+    assert!(!plan::check_text(&core_for(&deleted), &deleted).valid);
+    let r = b.refusals(
+        &deleted,
+        &[Op::Add {
+            path: p(&["visitors", "boss"]),
+            value: json!({"secret": b.boss.encode(), "admin": "write", "admin_from": ["10.0.0.0/8"]}),
+        }],
+    );
+    file_has_errors(&r, "admin-grant");
+}
+
+#[test]
+fn an_invalid_file_does_not_undo_a_lowered_level_or_a_narrowed_admin_from() {
+    let b = broken_world();
+    let read = b.with_typo(|t| {
+        t.replacen(
+            "    admin: write\n    admin_from",
+            "    admin: read\n    admin_from",
+            1,
+        )
+    });
+    let r = b.refusals(
+        &read,
+        &[
+            remove_typo(),
+            Op::Set {
+                path: p(&["visitors", "boss", "admin"]),
+                value: json!("write"),
+            },
+        ],
+    );
+    file_has_errors(&r, "admin-upgrade");
+    let narrow = b.with_typo(|t| t.replace("[10.0.0.0/8]", "[10.1.0.0/16]"));
+    let r = b.refusals(
+        &narrow,
+        &[
+            remove_typo(),
+            Op::Set {
+                path: p(&["visitors", "boss", "admin_from"]),
+                value: json!(["10.0.0.0/8"]),
+            },
+        ],
+    );
+    file_has_errors(&r, "admin-from-widened");
+}
+
+#[test]
+fn an_invalid_file_does_not_let_a_revert_bring_power_back() {
+    let b = broken_world();
+    let read = b.with_typo(|t| {
+        t.replacen(
+            "    admin: write\n    admin_from",
+            "    admin: read\n    admin_from",
+            1,
+        )
+    });
+    let core = core_running(&read, &b.running);
+    core.store.keep(&text::rev(&b.running), &b.running);
+    let s = session(&b.w, AdminLevel::Write);
+    let ops = [Op::ReplaceDocument {
+        from_history: text::rev(&b.running),
+    }];
+    let c = plan::compute(&core, &s, &text::rev(&read), &ops).unwrap();
+    assert!(c.plan.valid, "{:?}", c.plan.diags);
+    file_has_errors(&c.plan.refusals, "admin-upgrade");
+    assert!(apply_now(&core, &s, &ops, &["boss", "api"]).is_err());
+    assert_eq!(core.read().unwrap(), read);
+}
+
+#[test]
+fn a_grant_added_by_hand_to_an_invalid_file_is_left_to_the_file() {
+    let b = broken_world();
+    let helper = format!(
+        "  helper:\n    secret: {}\n    admin: read\n  ops:\n",
+        Secret::generate().encode()
+    );
+    let granted = b.with_typo(|t| t.replacen("  ops:\n", &helper, 1));
+    let core = core_running(&granted, &b.running);
+    let s = session(&b.w, AdminLevel::Write);
+    let c = plan::compute(&core, &s, &text::rev(&granted), &[remove_typo()]).unwrap();
+    file_has_errors(&c.plan.refusals, "admin-grant");
+    let valid = b.running.replacen("  ops:\n", &helper, 1);
+    let core = core_running(&valid, &b.running);
+    let c = plan::compute(
+        &core,
+        &s,
+        &text::rev(&valid),
+        &[Op::Set {
+            path: p(&["services", "web", "target"]),
+            value: json!(3002),
+        }],
+    )
+    .unwrap();
+    assert!(c.plan.refusals.is_empty(), "{:?}", c.plan.refusals);
 }

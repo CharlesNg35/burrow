@@ -11,7 +11,7 @@ use syn::{Data, DeriveInput, Fields};
 
 use term::Term;
 
-#[proc_macro_derive(AdminSchema, attributes(admin))]
+#[proc_macro_derive(AdminSchema, attributes(admin, schemars))]
 pub fn derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input = syn::parse_macro_input!(input as DeriveInput);
     match expand(&input) {
@@ -176,6 +176,9 @@ const FIELD_KEYS: &[&str] = &[
     "advanced",
     "danger_when_set",
     "locked",
+    "reduce_only",
+    "wide",
+    "narrow",
     "none_label",
     "empty_label",
     "applies",
@@ -192,7 +195,56 @@ const FIELD_KEYS: &[&str] = &[
 ];
 
 fn p() -> TokenStream {
-    quote!(::burrow::config::admin_schema::__private)
+    quote!(::burrow_config::admin_schema::__private)
+}
+
+fn field_paths(
+    name: &syn::Ident,
+    fields: &syn::FieldsNamed,
+    wires: &[String],
+    errors: &mut Errors,
+) -> TokenStream {
+    let f = quote!(::burrow_config::field);
+    let mut consts = Vec::new();
+    let mut entries = Vec::new();
+    for (field, wire) in fields.named.iter().zip(wires) {
+        let ty = sem::strip(&field.ty, "Option").unwrap_or(&field.ty);
+        let konst = format_ident!("{}", wire.to_uppercase(), span = field.span());
+        consts.push(quote! {
+            pub const #konst: #f::Field<#name, #ty> = #f::Field::new(#wire);
+        });
+        let mut terms_errors = Errors::new();
+        let terms = admin_attrs(&field.attrs, &mut terms_errors).unwrap_or_default();
+        if let Some(Term::Call(kind, args, _)) = assigned(&terms, "ty")
+            && kind == "map"
+        {
+            let (Some(entity), Some(value)) = (
+                args.first().and_then(Term::as_word),
+                sem::strip(&field.ty, "BTreeMap"),
+            ) else {
+                errors.push(
+                    field.span(),
+                    "map(entity) needs a BTreeMap<String, Entry> field",
+                );
+                continue;
+            };
+            entries.push(quote! {
+                impl #f::Entry for #value {
+                    const SECTION: &'static str = #wire;
+                    const ENTITY: &'static str = #entity;
+                }
+            });
+        }
+    }
+    quote! {
+        impl #name {
+            #(#consts)*
+        }
+        impl #f::Nest for #name {
+            type Inner = #name;
+        }
+        #(#entries)*
+    }
 }
 
 fn expand_struct(input: &DeriveInput, s: &syn::DataStruct, errors: &mut Errors) -> TokenStream {
@@ -226,6 +278,7 @@ fn expand_struct(input: &DeriveInput, s: &syn::DataStruct, errors: &mut Errors) 
                 .unwrap_or_else(|| f.ident.as_ref().expect("named").to_string())
         })
         .collect();
+    let paths = field_paths(name, fields, &field_names, errors);
     let mut groups: Vec<(String, String)> = Vec::new();
     if let Some(g) = find(&container, "groups") {
         for a in g.args() {
@@ -274,6 +327,21 @@ fn expand_struct(input: &DeriveInput, s: &syn::DataStruct, errors: &mut Errors) 
         let help = str_of(&terms, "help", errors)
             .or(schemars.description.clone())
             .unwrap_or_default();
+        if let Some(t) = find(&terms, "reduce_only") {
+            let clash = ["skip", "locked", "readonly"]
+                .into_iter()
+                .find(|k| find(&terms, k).is_some());
+            match (t.as_word(), clash) {
+                (None, _) => errors.push(t.span(), "`reduce_only` is a flag: #[admin(reduce_only)]"),
+                (Some(_), Some(k)) => errors.push(
+                    t.span(),
+                    format!(
+                        "`reduce_only` and `{k}` contradict: a reduce_only field is edited in the admin UI, but only towards less power"
+                    ),
+                ),
+                (Some(_), None) => {}
+            }
+        }
         if let Some(reason) = skip_reason(&terms, errors) {
             pushes.push(quote! {
                 {
@@ -299,7 +367,17 @@ fn expand_struct(input: &DeriveInput, s: &syn::DataStruct, errors: &mut Errors) 
             None => sem::infer(inner_ty, range, duration, ident, errors),
         };
         checks.extend(built.checks);
-        let base = built.node;
+        let base = match sem::primitive_int(inner_ty) {
+            Some(t) => {
+                let node = built.node;
+                quote!({
+                    let mut n = #node;
+                    #p::type_bounds(&mut n, #t::MIN as i128, #t::MAX as i128);
+                    n
+                })
+            }
+            None => built.node,
+        };
         let mut meta = Vec::new();
         if let Some(g) = assigned(&terms, "group") {
             match g.as_word() {
@@ -318,6 +396,15 @@ fn expand_struct(input: &DeriveInput, s: &syn::DataStruct, errors: &mut Errors) 
         }
         if has_flag(&terms, "locked") {
             meta.push(quote!(n.locked = true;));
+        }
+        if has_flag(&terms, "reduce_only") {
+            meta.push(quote!(n.reduce_only = true;));
+        }
+        match (find(&terms, "wide"), find(&terms, "narrow")) {
+            (Some(t), Some(_)) => errors.push(t.span(), "`wide` and `narrow` contradict"),
+            (Some(_), None) => meta.push(quote!(n.wide = ::core::option::Option::Some(true);)),
+            (None, Some(_)) => meta.push(quote!(n.wide = ::core::option::Option::Some(false);)),
+            (None, None) => {}
         }
         if has_flag(&terms, "danger_when_set") {
             meta.push(quote!(n.danger_when_set = true;));
@@ -426,6 +513,10 @@ fn expand_struct(input: &DeriveInput, s: &syn::DataStruct, errors: &mut Errors) 
         let (label, sub) = l.split_once(" | ").unwrap_or((l.as_str(), ""));
         quote!(#p::Group { key: #k.into(), label: #label.into(), sub: #sub.into() })
     });
+    let group_consts = groups.iter().map(|(k, _)| {
+        let c = format_ident!("GROUP_{}", k.to_uppercase());
+        quote!(pub const #c: &'static str = #k;)
+    });
     let check_fn = format_ident!("__admin_checks_{}", name);
     let tcp_only_const = if tcp_only.is_empty() {
         quote!()
@@ -438,6 +529,10 @@ fn expand_struct(input: &DeriveInput, s: &syn::DataStruct, errors: &mut Errors) 
     };
     quote! {
         #tcp_only_const
+        #paths
+        impl #name {
+            #(#group_consts)*
+        }
         impl #p::DefaultSem for #name {
             const SEM: &'static str = "object";
             fn default_node() -> #p::Node {
@@ -468,12 +563,24 @@ fn expand_enum(input: &DeriveInput, e: &syn::DataEnum, errors: &mut Errors) -> T
     let name = &input.ident;
     let p = p();
     let container = admin_attrs(&input.attrs, errors).unwrap_or_default();
-    check_keys(&container, &["semantic", "skip", "label"], errors);
+    check_keys(&container, &["semantic", "skip", "label", "remote"], errors);
     let serde_c = serde_attrs::container(&input.attrs);
     let skipped = skip_reason(&container, errors);
+    let remote = match assigned(&container, "remote") {
+        Some(r) => match r.as_type() {
+            Some(t) => Some(t.clone()),
+            None => {
+                errors.push(r.span(), "remote = path::To::Enum");
+                return TokenStream::new();
+            }
+        },
+        None => None,
+    };
     let mut options = Vec::new();
     let mut wires = Vec::new();
+    let mut parses = Vec::new();
     let mut forms = Vec::new();
+    let mut units = Vec::new();
     for v in &e.variants {
         let vident = &v.ident;
         let terms = if skipped.is_some() {
@@ -507,7 +614,13 @@ fn expand_enum(input: &DeriveInput, e: &syn::DataEnum, errors: &mut Errors) -> T
         };
         if matches!(v.fields, Fields::Unit) {
             options.push(quote!(#p::EnumOption { value: #wire.into(), label: #label.into(), help: #help.into(), danger: #danger }));
-            wires.push(quote!(#pat => #wire));
+            let target = match &remote {
+                Some(r) => quote!(#r::#vident),
+                None => quote!(#name::#vident),
+            };
+            wires.push(quote!(#target => #wire));
+            parses.push(quote!(#wire => ::core::option::Option::Some(#target)));
+            units.push(quote!(#name::#vident));
         }
         forms.push(quote!(#pat => #form));
     }
@@ -533,6 +646,48 @@ fn expand_enum(input: &DeriveInput, e: &syn::DataEnum, errors: &mut Errors) -> T
             }
         };
     }
+    if let Some(r) = &remote {
+        if !all_unit || assigned(&container, "semantic").is_some() {
+            errors.push(
+                name.span(),
+                "`remote` describes an enum of unit variants only",
+            );
+            return TokenStream::new();
+        }
+        return quote! {
+            impl #p::AdminEnum for #r {
+                fn options() -> ::std::vec::Vec<#p::EnumOption> {
+                    ::std::vec![#(#options),*]
+                }
+                fn wire(&self) -> &'static str {
+                    match self {
+                        #(#wires),*
+                    }
+                }
+                fn from_wire(s: &str) -> ::core::option::Option<Self> {
+                    match s {
+                        #(#parses,)*
+                        _ => ::core::option::Option::None,
+                    }
+                }
+            }
+            impl #p::AdminSchema for #r {
+                fn node() -> #p::Node {
+                    #p::Node::new(#p::SemType::Enum(#p::EnumC { options: <#r as #p::AdminEnum>::options() }))
+                }
+            }
+            impl #p::Carrier<#p::sem::Enum> for #r {}
+            impl #p::DefaultSem for #r {
+                const SEM: &'static str = "enum";
+                fn default_node() -> #p::Node {
+                    <#r as #p::AdminSchema>::node()
+                }
+            }
+            const _: () = {
+                let _ = [#(#units),*];
+            };
+        };
+    }
     if let Some(sem_term) = assigned(&container, "semantic") {
         let marker = match sem::marker(sem_term) {
             Some(m) => m,
@@ -545,7 +700,22 @@ fn expand_enum(input: &DeriveInput, e: &syn::DataEnum, errors: &mut Errors) -> T
         let node = built.node;
         let marker = quote_spanned!(sem_term.span()=> #p::sem::#marker);
         let tag = sem::tag_of(sem_term);
+        let objects: Vec<&syn::Type> = sem_term
+            .args()
+            .iter()
+            .filter(|a| a.name() == Some("object"))
+            .filter_map(|a| a.args().first().and_then(Term::as_type))
+            .collect();
+        let nest = match objects.as_slice() {
+            [one] => quote! {
+                impl ::burrow_config::field::Nest for #name {
+                    type Inner = #one;
+                }
+            },
+            _ => quote!(),
+        };
         return quote! {
+            #nest
             impl #p::AdminSchema for #name {
                 fn node() -> #p::Node {
                     #node
@@ -569,14 +739,29 @@ fn expand_enum(input: &DeriveInput, e: &syn::DataEnum, errors: &mut Errors) -> T
         return TokenStream::new();
     }
     quote! {
+        impl #name {
+            pub const ALL: &'static [#name] = &[#(#units),*];
+            pub const fn wire(&self) -> &'static str {
+                match self {
+                    #(#wires),*
+                }
+            }
+            pub fn from_wire(s: &str) -> ::core::option::Option<Self> {
+                match s {
+                    #(#parses,)*
+                    _ => ::core::option::Option::None,
+                }
+            }
+        }
         impl #p::AdminEnum for #name {
             fn options() -> ::std::vec::Vec<#p::EnumOption> {
                 ::std::vec![#(#options),*]
             }
             fn wire(&self) -> &'static str {
-                match self {
-                    #(#wires),*
-                }
+                #name::wire(self)
+            }
+            fn from_wire(s: &str) -> ::core::option::Option<Self> {
+                #name::from_wire(s)
             }
         }
         impl #p::AdminSchema for #name {

@@ -4,11 +4,12 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use burrow::config::model::Protocol;
 use burrow::config::settings::{Health, Service};
 use burrow::protocol::VisitTarget;
-use burrow::proxy_protocol::{V2_SIGNATURE, Version};
+use burrow::proxy_protocol::V2_SIGNATURE;
 use burrow::secret::Secret;
+use burrow_config::Protocol;
+use burrow_config::ProxyVersion;
 use common::*;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
@@ -112,7 +113,7 @@ async fn seen_through(addr: SocketAddr) -> (SocketAddr, SocketAddr, SocketAddr) 
     (src.parse().unwrap(), dst.parse().unwrap(), me)
 }
 
-fn with(version: Version, target: SocketAddr) -> Service {
+fn with(version: ProxyVersion, target: SocketAddr) -> Service {
     Service {
         proxy_protocol: Some(version),
         ..service(target, Protocol::Tcp)
@@ -123,8 +124,8 @@ fn with(version: Version, target: SocketAddr) -> Service {
 async fn public_services_send_the_real_source_in_v1_and_v2() {
     let target = proxy_aware_echo().await;
     let t = tunnel(vec![
-        ("v1", with(Version::V1, target)),
-        ("v2", with(Version::V2, target)),
+        ("v1", with(ProxyVersion::V1, target)),
+        ("v2", with(ProxyVersion::V2, target)),
     ])
     .await;
     for name in ["v1", "v2"] {
@@ -144,8 +145,8 @@ async fn the_header_also_works_with_insecure_plaintext() {
     let t = tunnel_with(
         server,
         vec![
-            ("v1", with(Version::V1, target)),
-            ("v2", with(Version::V2, target)),
+            ("v1", with(ProxyVersion::V1, target)),
+            ("v2", with(ProxyVersion::V2, target)),
         ],
         |mut c| {
             c.insecure_plaintext = true;
@@ -172,7 +173,7 @@ async fn visits_send_the_visitor_address() {
     server.services.insert(
         "db".into(),
         Service {
-            proxy_protocol: Some(Version::V2),
+            proxy_protocol: Some(ProxyVersion::V2),
             ..private_service(target, &["laptop"])
         },
     );
@@ -229,7 +230,7 @@ async fn health_checks_of_a_proxy_protocol_service_send_a_header_too() {
     let t = tunnel(vec![(
         "web",
         Service {
-            proxy_protocol: Some(Version::V1),
+            proxy_protocol: Some(ProxyVersion::V1),
             health: Some(Health {
                 interval: Duration::from_millis(200),
                 timeout: Duration::from_secs(1),
@@ -294,7 +295,7 @@ async fn ipv6_and_dual_stack_binds_send_the_right_family() {
     }
     let target = header_echo().await;
     let v6 = Service {
-        proxy_protocol: Some(Version::V1),
+        proxy_protocol: Some(ProxyVersion::V1),
         bind: Some("[::1]:0".parse().unwrap()),
         ..service(target, Protocol::Tcp)
     };
@@ -326,7 +327,7 @@ async fn a_visitor_that_sends_nothing_still_produces_the_header() {
             vec![(
                 "web",
                 Service {
-                    proxy_protocol: Some(Version::V1),
+                    proxy_protocol: Some(ProxyVersion::V1),
                     ..service(target, Protocol::Tcp)
                 },
             )],
@@ -383,7 +384,7 @@ async fn plaintext_visits_with_a_header_and_a_limit_keep_the_data_intact() {
     server.services.insert(
         "db".into(),
         Service {
-            proxy_protocol: Some(Version::V1),
+            proxy_protocol: Some(ProxyVersion::V1),
             bandwidth: Some(2_000_000),
             ..private_service(target, &["laptop"])
         },

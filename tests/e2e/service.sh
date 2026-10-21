@@ -19,6 +19,10 @@ cleanup() {
   set +e
   sudo "$B" service uninstall burrow-e2e-visitor --purge >/dev/null 2>&1
   sudo "$B" service uninstall burrow-e2e-admin --purge >/dev/null 2>&1
+  sudo "$B" service uninstall burrow-e2e-inplace --purge >/dev/null 2>&1
+  sudo rm -rf /etc/burrow/e2e-inplace /etc/burrow/e2e-inplace.yaml.bak
+  sudo "$B" service uninstall burrow-e2e-rootadmin --purge >/dev/null 2>&1
+  sudo rm -rf /etc/burrow/e2e-rootadmin
   sudo "$B" service uninstall burrow-e2e-client --purge >/dev/null 2>&1
   sudo "$B" service uninstall burrow-e2e-server --purge >/dev/null 2>&1
   for p in "${PIDS[@]}"; do kill "$p" 2>/dev/null; done
@@ -59,7 +63,7 @@ esac
 SOCK="$SOCK_DIR/echo.sock"
 printf '  sock:\n    client: home\n    bind: 127.0.0.1:27941\n    target: unix:%s\n' "$SOCK" >> e2e-server.yaml
 printf '  db:\n    client: home\n    target: 127.0.0.1:19100\n    visitors: [laptop]\nvisitors:\n  laptop:\n    secret: %s\nmetrics:\n  listen: 127.0.0.1:27961\n' "$("$B" gensecret)" >> e2e-server.yaml
-sudo mkdir -p "$SOCK_DIR"
+sudo mkdir -p -m 755 "$SOCK_DIR"
 sudo python3 -c '
 import os, socket, sys, threading
 path = sys.argv[1]
@@ -89,7 +93,9 @@ chmod 600 e2e-server.yaml e2e-client.yaml e2e-visitor.yaml
 
 echo "== a busy port stops the install before anything changes"
 python3 -c 'import socket,time; s=socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1); s.bind(("127.0.0.1",27940)); s.listen(); time.sleep(60)' & BUSY=$!
-sleep 0.5
+PIDS+=("$BUSY")
+for _ in $(seq 1 100); do (exec 3<>/dev/tcp/127.0.0.1/27940) 2>/dev/null && break; sleep 0.1; done
+(exec 3<>/dev/tcp/127.0.0.1/27940) 2>/dev/null || fail "the busy-port listener did not start within 10 s"
 if out="$(sudo "$B" service install -c e2e-server.yaml 2>&1)"; then fail "install succeeded with a busy port"; fi
 echo "$out" | grep -q "port 27940 (service \"web\") is already in use" || fail "unexpected message: $out"
 sudo "$B" service list | grep -q burrow-e2e-server && fail "a failed install left a service behind"
@@ -338,6 +344,14 @@ sudo grep -q "added:" /etc/burrow/e2e-admin/server.yaml || fail "the change is n
 [ "$(sudo ls /etc/burrow/e2e-admin/.server.yaml.history | wc -l)" -ge 1 ] || fail "no earlier version was kept"
 sudo "$B" service logs burrow-e2e-admin -n 30 | grep -q "config changed by admin" || fail "the change is not in the service log"
 check "the sandboxed server applied a change made through the admin channel"
+st="$(sudo "$B" service status burrow-e2e-admin 2>&1)" || true
+echo "$st" | grep -q "is managed by burrow admin" || fail "status does not say the admin manages the installed config: $st"
+echo "$st" | grep -q "to use it, run" && fail "status suggests a reinstall that would undo the admin change: $st"
+out="$(sudo "$B" service install -c e2e-admin.yaml 2>&1)" || fail "admin server reinstall: $out"
+echo "$out" | grep -q "kept the installed config as a history version before replacing it" || fail "the reinstall does not say it kept the installed config: $out"
+sudo sh -c 'grep -l "added:" /etc/burrow/e2e-admin/.server.yaml.history/*' >/dev/null || fail "the admin change is not among the kept versions"
+running burrow-e2e-admin || fail "reinstalled admin server not running"
+check "a reinstall keeps the installed config as a version to revert to"
 if [ "$(uname -s)" = Linux ]; then
   cat > "$WORK/add-admin.py" <<'PY'
 import sys
@@ -357,14 +371,79 @@ PY
   echo "$state" | grep -q '"code":"read-only-fs"' || fail "the read-only reason is not the sandbox: $state"
   check "a server installed without admin says honestly that its config is read-only"
 fi
-sudo "$B" service uninstall burrow-e2e-admin --purge >/dev/null || fail "admin server uninstall"
-[ -e /etc/burrow/e2e-admin ] && fail "/etc/burrow/e2e-admin still exists"
-check "uninstall --purge removes the config folder and its versions"
+
+echo "== a config installed in place from /etc/burrow is never called deletable"
+INPLACE=/etc/burrow/e2e-inplace.yaml
+"$B" init server -o e2e-inplace.yaml >/dev/null
+sed -i.bak 's/0.0.0.0:7835/127.0.0.1:27937/; s/0.0.0.0:7840/127.0.0.1:27948/' e2e-inplace.yaml
+sudo cp e2e-inplace.yaml "$INPLACE"
+sudo chmod 600 "$INPLACE"
+out="$(sudo "$B" service install -c "$INPLACE" 2>&1)" || fail "in-place install: $out"
+printf 'visitors:\n  ops:\n    secret: %s\n    admin: write\n' "$OPS" | sudo tee -a "$INPLACE" >/dev/null
+out="$(sudo "$B" service install -c "$INPLACE" 2>&1)" || fail "in-place reinstall with admin writes: $out"
+echo "$out" | grep -q "delete it with: sudo rm \"$INPLACE\"" && fail "the reinstall says to delete the source config: $out"
+sudo test -f "$INPLACE" || fail "the source config is gone"
+sudo sed -i.bak '/^visitors:/,$d' "$INPLACE"
+out="$(sudo "$B" service install -c "$INPLACE" 2>&1)" || fail "in-place reinstall without admin writes: $out"
+running burrow-e2e-inplace || fail "the in-place server does not run after switching admin writes off"
+out="$(sudo "$B" service install -c "$INPLACE" 2>&1)" || fail "a further in-place reinstall: $out"
+sudo "$B" service uninstall burrow-e2e-inplace --purge >/dev/null || fail "in-place uninstall"
+sudo rm -rf /etc/burrow/e2e-inplace "$INPLACE.bak"
+check "an in-place install switches admin writes on and off without being told to delete its source"
+
+if [ "$(uname -s)" = Linux ]; then
+  echo "== a server run as root keeps its admin history under the systemd filter"
+  "$B" init server -o e2e-rootadmin.yaml >/dev/null
+  sed -i.bak 's/0.0.0.0:7835/127.0.0.1:27938/; s/0.0.0.0:7840/127.0.0.1:27949/' e2e-rootadmin.yaml
+  printf 'visitors:\n  ops:\n    secret: %s\n    admin: write\n' "$OPS" >> e2e-rootadmin.yaml
+  chmod 600 e2e-rootadmin.yaml
+  printf 'server: 127.0.0.1:27938\nname: ops\nsecret: %s\nforwards: {}\n' "$OPS" > e2e-rootops.yaml
+  chmod 600 e2e-rootops.yaml
+  out="$(sudo "$B" service install -c e2e-rootadmin.yaml --run-as root 2>&1)" || fail "root admin server install: $out"
+  running burrow-e2e-rootadmin || fail "root admin server not running"
+  for _ in $(seq 1 50); do "$PROBE" e2e-rootops.yaml state >/dev/null 2>&1 && break; sleep 0.2; done
+  out="$("$PROBE" e2e-rootops.yaml apply '[{"op":"add","path":["services","added"],"value":{"client":"home","bind":"127.0.0.1:27939","target":9}}]' 2>&1)" || fail "root admin apply: $out"
+  for _ in $(seq 1 50); do sudo sh -c 'ls /etc/burrow/e2e-rootadmin/.server.yaml.history/* >/dev/null 2>&1' && break; sleep 0.2; done
+  [ "$(sudo ls /etc/burrow/e2e-rootadmin/.server.yaml.history | wc -l)" -ge 1 ] || fail "a root server kept no version on disk"
+  state="$("$PROBE" e2e-rootops.yaml state 2>&1)" || fail "root admin state: $state"
+  echo "$state" | grep -q '"why_not_history":"' && fail "a root server says it cannot keep its history: $state"
+  sudo "$B" service uninstall burrow-e2e-rootadmin --purge >/dev/null || fail "root admin server uninstall"
+  [ -e /etc/burrow/e2e-rootadmin ] && fail "/etc/burrow/e2e-rootadmin still exists"
+  check "a root server keeps its admin history on disk"
+fi
 
 echo "== uninstall removes everything it created"
 sudo "$B" service uninstall burrow-e2e-server --purge
 sudo "$B" service uninstall burrow-e2e-client --purge
 sudo "$B" service uninstall burrow-e2e-visitor --purge
+out="$(sudo "$B" service uninstall burrow-e2e-admin 2>&1)" || fail "admin server uninstall: $out"
+echo "$out" | grep -q '"/etc/burrow/e2e-admin"' || fail "the delete hint does not name the kept config folder: $out"
+[ "$(sudo ls /etc/burrow/e2e-admin/.server.yaml.history | wc -l)" -ge 1 ] || fail "uninstall without --purge lost the kept versions"
+left="$(sudo find /etc/burrow/e2e-admin ! -uid 0)"
+[ -z "$left" ] || fail "uninstall left files of the removed account behind: $left"
+check "uninstall gives the kept config folder and its versions back to root"
+out="$(sudo "$B" service install -c e2e-admin.yaml 2>&1)" || fail "admin server reinstall over the kept folder: $out"
+running burrow-e2e-admin || fail "reinstalled admin server not running"
+left="$(sudo find /etc/burrow/e2e-admin -uid 0)"
+[ -z "$left" ] || fail "the reinstalled service account does not own its kept versions: $left"
+check "a reinstall gives the kept versions to the new service account"
+cp e2e-admin.yaml e2e-admin.writable
+sed -i.bak '/^visitors:/,$d' e2e-admin.yaml
+out="$(sudo "$B" service install -c e2e-admin.yaml 2>&1)" || fail "read-only reinstall of the admin server: $out"
+echo "$out" | grep -q '"/etc/burrow/e2e-admin"' || fail "the reinstall does not name the folder it no longer uses: $out"
+left="$(sudo find /etc/burrow/e2e-admin ! -uid 0)"
+[ -z "$left" ] || fail "a reinstall without admin left the old config folder with the service account: $left"
+check "a reinstall that turns admin writes off gives the old config folder and its versions to root"
+cp e2e-admin.writable e2e-admin.yaml
+out="$(sudo "$B" service install -c e2e-admin.yaml 2>&1)" || fail "writable reinstall of the admin server: $out"
+running burrow-e2e-admin || fail "admin server not running after turning admin writes on again"
+echo "$out" | grep -q '"/etc/burrow/e2e-admin.yaml"' || fail "the reinstall does not name the config it no longer uses: $out"
+[ "$(sudo stat -c '%u' /etc/burrow/e2e-admin.yaml 2>/dev/null || sudo stat -f '%u' /etc/burrow/e2e-admin.yaml)" = 0 ] || fail "the config no longer used is not given to root"
+sudo rm -f /etc/burrow/e2e-admin.yaml
+check "a reinstall that turns admin writes on gives the config it no longer uses to root"
+sudo "$B" service uninstall burrow-e2e-admin --purge >/dev/null || fail "admin server uninstall"
+[ -e /etc/burrow/e2e-admin ] && fail "/etc/burrow/e2e-admin still exists"
+check "uninstall --purge removes the config folder and its versions"
 sudo "$B" service list | grep -q burrow-e2e && fail "services still listed"
 for f in "$STATE" /etc/burrow/e2e-server.yaml /etc/burrow/e2e-client.yaml /etc/burrow/e2e-client.env /etc/burrow/e2e-visitor.yaml /usr/local/bin/burrow /usr/local/bin/burrow.previous "$LOG" "$JOBS"; do
   [ -e "$f" ] && fail "$f still exists"

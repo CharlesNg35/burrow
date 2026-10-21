@@ -1,3 +1,4 @@
+use burrow_config::{ClientEntry, Entry, ServiceEntry, VisitorEntry};
 use leptos::prelude::*;
 use wasm_bindgen::JsValue;
 
@@ -16,7 +17,11 @@ pub enum Route {
     NotFound(String),
 }
 
-pub const SECTIONS: [&str; 3] = ["services", "clients", "visitors"];
+pub const SECTIONS: [&str; 3] = [
+    ServiceEntry::SECTION,
+    ClientEntry::SECTION,
+    VisitorEntry::SECTION,
+];
 
 fn decode(s: &str) -> String {
     js_sys::decode_uri_component(s)
@@ -72,15 +77,34 @@ impl Route {
     }
 }
 
+fn split_run(path: &str) -> (&str, &str) {
+    let Some(rest) = path.strip_prefix("/r-") else {
+        return ("", path);
+    };
+    match rest.find('/') {
+        Some(i) => (&path[..i + 3], &path[i + 3..]),
+        None => (path, "/"),
+    }
+}
+
+pub fn run_prefix() -> String {
+    let path = window().location().pathname().unwrap_or_default();
+    split_run(&path).0.to_string()
+}
+
+pub fn href(route: &Route) -> String {
+    format!("{}{}", run_prefix(), route.path())
+}
+
 pub fn current() -> Route {
     let path = window().location().pathname().unwrap_or_default();
-    Route::parse(&path)
+    Route::parse(split_run(&path).1)
 }
 
 pub fn replace(route: Route) {
     let s = store();
     if let Ok(h) = window().history() {
-        let _ = h.replace_state_with_url(&JsValue::NULL, "", Some(&route.path()));
+        let _ = h.replace_state_with_url(&JsValue::NULL, "", Some(&href(&route)));
     }
     if s.route.get_untracked() != route {
         s.route.set(route);
@@ -114,7 +138,7 @@ pub fn go(route: Route) {
         return;
     }
     if let Ok(h) = window().history() {
-        let _ = h.push_state_with_url(&JsValue::NULL, "", Some(&route.path()));
+        let _ = h.push_state_with_url(&JsValue::NULL, "", Some(&href(&route)));
     }
     let was = s.route.get_untracked();
     if was != Route::Review {
@@ -133,7 +157,7 @@ pub fn Link(
     #[prop(optional, into)] state: Option<Signal<String>>,
     children: Children,
 ) -> impl IntoView {
-    let href = to.path();
+    let href = href(&to);
     view! {
         <a
             href=href
@@ -151,5 +175,23 @@ pub fn Link(
         >
             {children()}
         </a>
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_run_prefix_is_split_off_the_path() {
+        let run = "/r-0123456789abcdef0123456789abcdef";
+        assert_eq!(
+            split_run(&format!("{run}/services/web")),
+            (run, "/services/web")
+        );
+        assert_eq!(split_run(&format!("{run}/")), (run, "/"));
+        assert_eq!(split_run(run), (run, "/"));
+        assert_eq!(split_run("/services/web"), ("", "/services/web"));
+        assert_eq!(split_run("/"), ("", "/"));
     }
 }

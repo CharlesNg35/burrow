@@ -1,20 +1,52 @@
 use burrow_admin_proto::schema::{Editable, Field, Node, Schema, SemType, TextC, UnknownType};
+use burrow_config::{ServerConfig, ServiceEntry, VisitorEntry};
 use serde_json::json;
 
 pub const SCHEMA_ENV: &str = "BURROW_ADMIN_TEST_SCHEMA";
 
 pub fn schema(s: Schema) -> Schema {
-    if cfg!(feature = "admin-test-hooks") && std::env::var(SCHEMA_ENV).as_deref() == Ok("future") {
-        future(s)
-    } else {
-        s
+    if !cfg!(feature = "admin-test-hooks") {
+        return s;
     }
+    match std::env::var(SCHEMA_ENV).as_deref() {
+        Ok("future") => future(s),
+        Ok("older") => older(s),
+        _ => s,
+    }
+}
+
+const OLDER_SERVICE: [&str; 3] = [
+    ServiceEntry::BIND.key(),
+    ServiceEntry::HEALTH_CHECK.key(),
+    ServiceEntry::MODE.key(),
+];
+const OLDER_VISITOR: [&str; 1] = [VisitorEntry::ADMIN_FROM.key()];
+
+pub fn older(mut s: Schema) -> Schema {
+    if let SemType::Object(root) = &mut s.root.sem {
+        for f in &mut root.fields {
+            let gone: &[&str] = if f.key == ServerConfig::SERVICES.key() {
+                &OLDER_SERVICE
+            } else if f.key == ServerConfig::VISITORS.key() {
+                &OLDER_VISITOR
+            } else {
+                continue;
+            };
+            if let SemType::Map(m) = &mut f.node.sem
+                && let SemType::Object(o) = &mut m.value.sem
+            {
+                o.fields.retain(|x| !gone.contains(&x.key.as_str()));
+            }
+        }
+    }
+    s.hash = format!("{}-older", s.hash);
+    s
 }
 
 pub fn future(mut s: Schema) -> Schema {
     let services = s
         .root
-        .field("services")
+        .field(ServerConfig::SERVICES.key())
         .map(|f| f.node.clone())
         .and_then(|n| match n.sem {
             SemType::Map(m) => Some(*m.value),
@@ -24,7 +56,11 @@ pub fn future(mut s: Schema) -> Schema {
         return s;
     };
     if let SemType::Object(o) = &mut service.sem {
-        if let Some(f) = o.fields.iter_mut().find(|f| f.key == "bandwidth") {
+        if let Some(f) = o
+            .fields
+            .iter_mut()
+            .find(|f| f.key == ServiceEntry::BANDWIDTH.key())
+        {
             f.node.sem = SemType::Unknown(UnknownType {
                 t: "rate_v2".into(),
                 fallback: vec![SemType::Text(TextC::default())],
@@ -49,7 +85,10 @@ pub fn future(mut s: Schema) -> Schema {
         });
     }
     if let SemType::Object(root) = &mut s.root.sem
-        && let Some(f) = root.fields.iter_mut().find(|f| f.key == "services")
+        && let Some(f) = root
+            .fields
+            .iter_mut()
+            .find(|f| f.key == ServerConfig::SERVICES.key())
         && let SemType::Map(m) = &mut f.node.sem
     {
         *m.value = service;

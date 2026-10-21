@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::proxy::ProxyConfig;
 use crate::transport::proxy::dial_tcp;
@@ -98,12 +98,41 @@ impl std::fmt::Display for Url {
     }
 }
 
-fn no_proxy(host: &str, list: &str) -> bool {
-    let host = host.trim_matches(['[', ']']).to_ascii_lowercase();
-    list.split(',').map(str::trim).any(|p| {
-        let p = p.trim_start_matches('.').to_ascii_lowercase();
-        p == "*" || (!p.is_empty() && (host == p || host.ends_with(&format!(".{p}"))))
-    })
+fn no_proxy(url: &Url, list: &str) -> bool {
+    use burrow_syntax::cidr::Cidr;
+    let host = url.host.trim_matches(['[', ']']).to_ascii_lowercase();
+    let ip = host.parse::<std::net::IpAddr>().ok();
+    let in_net = |text: &str| {
+        text.trim_matches(['[', ']'])
+            .parse::<Cidr>()
+            .ok()
+            .map(|c| ip.is_some_and(|ip| c.contains(ip)))
+    };
+    list.split(',')
+        .map(str::trim)
+        .filter(|e| !e.is_empty())
+        .any(|entry| {
+            if entry == "*" {
+                return true;
+            }
+            if let Some(hit) = in_net(entry) {
+                return hit;
+            }
+            let (name, port) = match entry.rsplit_once(':') {
+                Some((h, p)) if !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()) => {
+                    (h, Some(p))
+                }
+                _ => (entry, None),
+            };
+            if port.is_some_and(|p| p.parse::<u16>().ok() != Some(url.port)) {
+                return false;
+            }
+            if let Some(hit) = in_net(name) {
+                return hit;
+            }
+            let domain = name.trim_start_matches('.').to_ascii_lowercase();
+            !domain.is_empty() && (host == domain || host.ends_with(&format!(".{domain}")))
+        })
 }
 
 pub fn proxy_from_env(
@@ -116,7 +145,7 @@ pub fn proxy_from_env(
             .find_map(|n| get(n).filter(|v| !v.trim().is_empty()))
     };
     if let Some(list) = pick(&["NO_PROXY", "no_proxy"])
-        && no_proxy(&url.host, &list)
+        && no_proxy(url, &list)
     {
         return Ok(None);
     }
@@ -129,9 +158,17 @@ pub fn proxy_from_env(
         .iter()
         .find_map(|n| get(n).filter(|v| !v.trim().is_empty()).map(|v| (*n, v)));
     match found {
-        Some((name, v)) => ProxyConfig::parse(v.trim())
-            .map(Some)
-            .map_err(|e| format!("{name} is not a valid proxy: {e}")),
+        Some((name, v)) => {
+            let v = v.trim();
+            let v = if v.contains("://") {
+                v.to_string()
+            } else {
+                format!("http://{v}")
+            };
+            ProxyConfig::parse(&v)
+                .map(Some)
+                .map_err(|e| format!("{name} is not a valid proxy: {e}"))
+        }
         None => Ok(None),
     }
 }
@@ -163,111 +200,23 @@ async fn open(url: &Url, proxy: Option<&ProxyConfig>) -> Result<Box<dyn Io>, Str
     Ok(Box::new(stream))
 }
 
-async fn read_more(s: &mut Box<dyn Io>, buf: &mut Vec<u8>, url: &Url) -> Result<usize, String> {
-    let mut chunk = [0u8; 16 * 1024];
-    match tokio::time::timeout(READ_TIMEOUT, s.read(&mut chunk)).await {
-        Err(_) => Err(format!("{} stopped sending data", url.host)),
-        Ok(Ok(n)) => {
-            buf.extend_from_slice(&chunk[..n]);
-            Ok(n)
-        }
-        Ok(Err(e)) if e.kind() == std::io::ErrorKind::UnexpectedEof => Ok(0),
-        Ok(Err(e)) => Err(format!("reading from {} failed: {e}", url.host)),
-    }
-}
-
 struct Head {
     code: u16,
     reason: String,
-    length: Option<usize>,
-    chunked: bool,
     location: Option<String>,
-    size: usize,
 }
 
-fn parse_head(buf: &[u8]) -> Result<Option<Head>, String> {
-    let mut headers = [httparse::EMPTY_HEADER; 64];
-    let mut resp = httparse::Response::new(&mut headers);
-    let size = match resp.parse(buf) {
-        Ok(httparse::Status::Complete(n)) => n,
-        Ok(httparse::Status::Partial) => return Ok(None),
-        Err(e) => return Err(format!("invalid HTTP response: {e}")),
-    };
-    let header = |name: &str| {
-        resp.headers
-            .iter()
-            .find(|h| h.name.eq_ignore_ascii_case(name))
-            .map(|h| String::from_utf8_lossy(h.value).trim().to_string())
-    };
-    let length = match header("content-length") {
-        Some(v) => Some(
-            v.parse::<usize>()
-                .map_err(|_| "invalid Content-Length".to_string())?,
-        ),
-        None => None,
-    };
-    Ok(Some(Head {
-        code: resp.code.unwrap_or(0),
-        reason: resp.reason.unwrap_or("").to_string(),
-        length,
-        chunked: header("transfer-encoding")
-            .is_some_and(|v| v.to_ascii_lowercase().contains("chunked")),
-        location: header("location"),
-        size,
-    }))
-}
-
-fn chunk_size(data: &[u8]) -> Result<Option<(usize, usize)>, String> {
-    let bad = || "invalid chunked response".to_string();
-    let Some(line) = data.windows(2).position(|w| w == b"\r\n") else {
-        return Ok(None);
-    };
-    let size = std::str::from_utf8(&data[..line]).map_err(|_| bad())?;
-    let size = size.split(';').next().unwrap_or("").trim();
-    let size = u64::from_str_radix(size, 16)
-        .ok()
-        .filter(|n| *n <= u64::from(u32::MAX))
-        .and_then(|n| usize::try_from(n).ok())
-        .ok_or_else(bad)?;
-    Ok(Some((line + 2, size)))
-}
-
-fn chunk_end(start: usize, size: usize, len: usize) -> Option<usize> {
-    start
-        .checked_add(size)
-        .and_then(|e| e.checked_add(2))
-        .filter(|e| *e <= len)
-}
-
-pub fn dechunk(mut data: &[u8]) -> Result<Vec<u8>, String> {
-    let mut out = Vec::with_capacity(data.len());
-    loop {
-        let (start, size) =
-            chunk_size(data)?.ok_or_else(|| "invalid chunked response".to_string())?;
-        if size == 0 {
-            return Ok(out);
-        }
-        let end = chunk_end(start, size, data.len())
-            .filter(|e| &data[e - 2..*e] == b"\r\n")
-            .ok_or_else(|| "the download was cut short".to_string())?;
-        out.extend_from_slice(&data[start..end - 2]);
-        data = &data[end..];
-    }
-}
-
-fn chunked_complete(mut data: &[u8]) -> Result<bool, String> {
-    loop {
-        let Some((start, size)) = chunk_size(data)? else {
-            return Ok(false);
-        };
-        if size == 0 {
-            let rest = &data[start..];
-            return Ok(rest.starts_with(b"\r\n") || rest.windows(4).any(|w| w == b"\r\n\r\n"));
-        }
-        let Some(end) = chunk_end(start, size, data.len()) else {
-            return Ok(false);
-        };
-        data = &data[end..];
+fn failed(e: &hyper::Error, url: &Url, at_head: bool) -> String {
+    if e.is_parse_too_large() {
+        format!("{} sent a response header that is too large", url.host)
+    } else if e.is_incomplete_message() && at_head {
+        format!("{} closed the connection without an answer", url.host)
+    } else if !at_head {
+        format!("the download of {url} was cut short: {e}")
+    } else if e.is_parse() {
+        format!("invalid HTTP response: {e}")
+    } else {
+        format!("reading from {} failed: {e}", url.host)
     }
 }
 
@@ -276,67 +225,72 @@ async fn fetch_once(
     proxy: Option<&ProxyConfig>,
     limit: usize,
 ) -> Result<(Head, Vec<u8>), String> {
-    let mut s = open(url, proxy).await?;
-    let request = format!(
-        "GET {} HTTP/1.1\r\nHost: {}\r\nUser-Agent: burrow/{}\r\nAccept: */*\r\nAccept-Encoding: identity\r\nConnection: close\r\n\r\n",
-        url.path,
-        url.host_header(),
-        env!("CARGO_PKG_VERSION")
-    );
-    s.write_all(request.as_bytes())
+    use http_body_util::BodyExt;
+    let s = open(url, proxy).await?;
+    let (mut sender, conn) = hyper::client::conn::http1::Builder::new()
+        .title_case_headers(true)
+        .max_buf_size(MAX_HEAD)
+        .handshake::<_, http_body_util::Empty<bytes::Bytes>>(hyper_util::rt::TokioIo::new(s))
         .await
         .map_err(|e| format!("sending the request to {} failed: {e}", url.host))?;
-    let mut buf = Vec::new();
-    let head = loop {
-        if let Some(h) = parse_head(&buf)? {
-            break h;
-        }
-        if buf.len() > MAX_HEAD {
-            return Err(format!(
-                "{} sent a response header that is too large",
-                url.host
-            ));
-        }
-        if read_more(&mut s, &mut buf, url).await? == 0 {
-            return Err(format!(
-                "{} closed the connection without an answer",
-                url.host
-            ));
-        }
-    };
-    if head.code != 200 {
-        return Ok((head, Vec::new()));
-    }
-    let mut body = buf.split_off(head.size);
-    loop {
-        let complete = if head.chunked {
-            chunked_complete(&body)?
-        } else {
-            head.length.is_some_and(|n| body.len() >= n)
+    let driver = tokio::spawn(conn);
+    let result = async {
+        let request = ::http::Request::get(url.path.as_str())
+            .header("Host", url.host_header())
+            .header(
+                "User-Agent",
+                format!("burrow/{}", env!("CARGO_PKG_VERSION")),
+            )
+            .header("Accept", "*/*")
+            .header("Accept-Encoding", "identity")
+            .header("Connection", "close")
+            .body(http_body_util::Empty::new())
+            .map_err(|e| format!("cannot request {url}: {e}"))?;
+        let response = tokio::time::timeout(READ_TIMEOUT, sender.send_request(request))
+            .await
+            .map_err(|_| format!("{} stopped sending data", url.host))?
+            .map_err(|e| failed(&e, url, true))?;
+        let status = response.status();
+        let head = Head {
+            code: status.as_u16(),
+            reason: response
+                .extensions()
+                .get::<hyper::ext::ReasonPhrase>()
+                .map(|r| String::from_utf8_lossy(r.as_bytes()).into_owned())
+                .or_else(|| status.canonical_reason().map(str::to_string))
+                .unwrap_or_default(),
+            location: response
+                .headers()
+                .get("location")
+                .map(|v| String::from_utf8_lossy(v.as_bytes()).trim().to_string()),
         };
-        if complete {
-            break;
+        if head.code != 200 {
+            return Ok((head, Vec::new()));
         }
-        if body.len() > limit + MAX_HEAD {
-            return Err(format!("{url} is larger than expected"));
+        let mut body = response.into_body();
+        let mut out = Vec::new();
+        loop {
+            let frame = tokio::time::timeout(READ_TIMEOUT, body.frame())
+                .await
+                .map_err(|_| format!("{} stopped sending data", url.host))?;
+            match frame {
+                None => break,
+                Some(Err(e)) => return Err(failed(&e, url, false)),
+                Some(Ok(f)) => {
+                    if let Ok(data) = f.into_data() {
+                        out.extend_from_slice(&data);
+                        if out.len() > limit {
+                            return Err(format!("{url} is larger than expected"));
+                        }
+                    }
+                }
+            }
         }
-        if read_more(&mut s, &mut body, url).await? == 0 {
-            break;
-        }
+        Ok((head, out))
     }
-    let body = match head.length {
-        _ if head.chunked => dechunk(&body)?,
-        Some(n) if body.len() < n => return Err(format!("the download of {url} was cut short")),
-        Some(n) => {
-            body.truncate(n);
-            body
-        }
-        None => body,
-    };
-    if body.len() > limit {
-        return Err(format!("{url} is larger than expected"));
-    }
-    Ok((head, body))
+    .await;
+    driver.abort();
+    result
 }
 
 pub async fn get(
@@ -485,6 +439,31 @@ mod tests {
         let other: &[(&str, &str)] = &[("HTTPS_PROXY", "http://p:1"), ("NO_PROXY", "hub.com")];
         assert!(proxy_from_env(&https, env(other)).unwrap().is_some());
         assert!(proxy_from_env(&https, env(&[("HTTPS_PROXY", "nope")])).is_err());
+        let bare = proxy_from_env(&https, env(&[("HTTPS_PROXY", "proxy:3128")]))
+            .unwrap()
+            .unwrap();
+        assert_eq!(format!("{bare:?}"), "http://proxy:3128");
+        let with = |no: &'static str| {
+            move |k: &str| match k {
+                "HTTPS_PROXY" => Some("http://p:1".to_string()),
+                "NO_PROXY" => Some(no.to_string()),
+                _ => None,
+            }
+        };
+        let to = |u: &str| Url::parse(u).unwrap();
+        let bypass =
+            |u: &str, no: &'static str| proxy_from_env(&to(u), with(no)).unwrap().is_none();
+        assert!(bypass("https://10.1.2.3/x", "10.0.0.0/8"));
+        assert!(!bypass("https://11.1.2.3/x", "10.0.0.0/8"));
+        assert!(bypass("https://[2001:db8::5]/x", "2001:db8::/32"));
+        assert!(bypass("https://192.0.2.7/x", "192.0.2.7"));
+        assert!(bypass("https://mirror.lan:8443/x", "mirror.lan:8443"));
+        assert!(!bypass("https://mirror.lan/x", "mirror.lan:8443"));
+        assert!(bypass("https://a.b.example.com/x", ".example.com"));
+        assert!(bypass("https://example.com/x", ".example.com"));
+        assert!(!bypass("https://notexample.com/x", "example.com"));
+        assert!(bypass("https://anything/x", "*"));
+        assert!(bypass("https://GitHub.com/x", " other.org , github.com "));
         let leaked = proxy_from_env(&https, env(&[("HTTPS_PROXY", "https://bob:S3cret@p:3128")]))
             .unwrap_err();
         assert!(
@@ -493,39 +472,103 @@ mod tests {
         );
     }
 
-    #[test]
-    fn decodes_chunked_bodies() {
-        assert_eq!(
-            dechunk(b"3\r\nabc\r\n2;x=1\r\nde\r\n0\r\n\r\n").unwrap(),
-            b"abcde"
-        );
-        assert!(dechunk(b"3\r\nabc\r\n").is_err());
-        assert!(dechunk(b"5\r\nabc").is_err());
-        assert!(dechunk(b"zz\r\n").is_err());
-        assert!(dechunk(b"ffffffffffffffff\r\nabc\r\n0\r\n\r\n").is_err());
-        assert!(chunked_complete(b"3\r\nabc\r\n0\r\n\r\n").unwrap());
-        assert!(chunked_complete(b"3\r\nabc\r\n0\r\nX-Trailer: 1\r\n\r\n").unwrap());
-        assert!(!chunked_complete(b"3\r\nabc\r\n0\r\n").unwrap());
-        assert!(!chunked_complete(b"5\r\nabc").unwrap());
-        assert!(chunked_complete(b"ffffffffffffffff\r\nabc").is_err());
-        assert!(dechunk(b"100000000\r\nabc\r\n0\r\n\r\n").is_err());
+    async fn answer(reply: &'static [u8]) -> String {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = l.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((mut s, _)) = l.accept().await {
+                let mut buf = [0u8; 4096];
+                let _ = s.read(&mut buf).await;
+                let _ = s.write_all(reply).await;
+                let _ = s.shutdown().await;
+            }
+        });
+        format!("http://127.0.0.1:{port}/x")
     }
 
-    #[test]
-    fn reads_response_heads() {
-        assert!(
-            parse_head(b"HTTP/1.1 200 OK\r\nContent-Le")
-                .unwrap()
-                .is_none()
-        );
-        let h = parse_head(b"HTTP/1.1 302 Found\r\nLocation: /x\r\nContent-Length: 0\r\n\r\nrest")
-            .unwrap()
-            .unwrap();
+    async fn body_of(reply: &'static [u8]) -> Result<Vec<u8>, String> {
+        match get(&answer(reply).await, 1 << 20, &|_| None).await? {
+            Fetched::Body(b) => Ok(b),
+            Fetched::NotFound => Err("not found".into()),
+        }
+    }
+
+    #[tokio::test]
+    async fn decodes_chunked_bodies() {
+        let head = "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n";
+        let with = |body: &str| -> &'static [u8] {
+            Box::leak(format!("{head}{body}").into_boxed_str()).as_bytes()
+        };
         assert_eq!(
-            (h.code, h.location.as_deref(), h.length, h.size),
-            (302, Some("/x"), Some(0), 55)
+            body_of(with("3\r\nabc\r\n2;x=1\r\nde\r\n0\r\n\r\n"))
+                .await
+                .unwrap(),
+            b"abcde"
         );
-        assert!(parse_head(b"HTTP/1.1 200 OK\r\nContent-Length: x\r\n\r\n").is_err());
-        assert!(parse_head(b"garbage\r\n\r\n").is_err());
+        assert_eq!(
+            body_of(with("3\r\nabc\r\n0\r\nX-Trailer: 1\r\n\r\n"))
+                .await
+                .unwrap(),
+            b"abc"
+        );
+        for bad in [
+            "3\r\nabc\r\n",
+            "5\r\nabc",
+            "zz\r\n",
+            "ffffffffffffffff\r\nabc\r\n0\r\n\r\n",
+            "100000000\r\nabc\r\n0\r\n\r\n",
+            "3\r\nabc\r\n0\r\n",
+        ] {
+            assert!(body_of(with(bad)).await.is_err(), "{bad:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn reads_response_heads() {
+        let cut = body_of(b"HTTP/1.1 200 OK\r\nContent-Le").await.unwrap_err();
+        assert!(
+            cut.contains("without an answer") || cut.contains("invalid"),
+            "{cut}"
+        );
+        assert!(
+            body_of(b"HTTP/1.1 200 OK\r\nContent-Length: x\r\n\r\n")
+                .await
+                .is_err()
+        );
+        assert!(body_of(b"garbage\r\n\r\n").await.is_err());
+        let short = body_of(b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nabc")
+            .await
+            .unwrap_err();
+        assert!(short.contains("cut short"), "{short}");
+        assert_eq!(
+            body_of(b"HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\nabcdef")
+                .await
+                .unwrap(),
+            b"abc"
+        );
+        let target = answer(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok").await;
+        let moved: &'static [u8] = Box::leak(
+            format!("HTTP/1.1 302 Found\r\nLocation: {target}\r\nContent-Length: 0\r\n\r\n")
+                .into_bytes()
+                .into_boxed_slice(),
+        );
+        assert_eq!(body_of(moved).await.unwrap(), b"ok");
+        let missing = body_of(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n")
+            .await
+            .unwrap_err();
+        assert_eq!(missing, "not found");
+        let teapot = body_of(b"HTTP/1.1 418 Teapot Here\r\nContent-Length: 0\r\n\r\n")
+            .await
+            .unwrap_err();
+        assert!(teapot.ends_with("answered 418 Teapot Here"), "{teapot}");
+    }
+
+    #[tokio::test]
+    async fn a_redirect_loop_stops_at_the_cap() {
+        let looped = body_of(b"HTTP/1.1 302 Found\r\nLocation: /x\r\nContent-Length: 0\r\n\r\n")
+            .await
+            .unwrap_err();
+        assert!(looped.starts_with("too many redirects"), "{looped}");
     }
 }

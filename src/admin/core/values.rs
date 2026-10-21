@@ -2,13 +2,16 @@ use burrow_admin_proto::schema::{Node, SemType};
 use burrow_admin_proto::value::{self, EnvInfo, SecretInfo, SecretSrc};
 use serde_json::{Map, Value};
 
+use crate::config::check::secretish;
 use crate::config::env::{EnvSource, expand_value};
 use crate::secret::Secret;
 
-pub fn secretish(key: &str) -> bool {
-    let key = key.to_ascii_lowercase();
-    key.contains("secret")
-        || ["key", "psk", "token", "password", "pass", "passwd"].contains(&key.as_str())
+fn holds_names(node: Option<&Node>) -> bool {
+    match node.map(|n| &n.sem) {
+        Some(SemType::Map(_) | SemType::RefMap(_)) => true,
+        Some(SemType::Optional(o)) => holds_names(Some(&o.inner)),
+        _ => false,
+    }
 }
 
 fn child<'a>(node: Option<&'a Node>, key: &str) -> Option<&'a Node> {
@@ -30,12 +33,8 @@ fn is_secret(node: Option<&Node>) -> bool {
     }
 }
 
-fn env_vars(raw: &str) -> Vec<String> {
-    burrow_syntax::secret_fmt::env_vars(raw)
-}
-
-pub fn secret_info(raw: &str, env: &dyn EnvSource) -> SecretInfo {
-    let vars = env_vars(raw);
+fn secret_info(raw: &str, env: &dyn EnvSource) -> SecretInfo {
+    let vars = burrow_syntax::env::names(raw);
     let src = match vars.first() {
         Some(v) if raw.contains("${") => SecretSrc::Env(v.clone()),
         _ => SecretSrc::Literal,
@@ -73,14 +72,25 @@ fn present_secret(v: &Value, env: &dyn EnvSource) -> Value {
 }
 
 pub fn present(v: &Value, node: Option<&Node>, key: &str, env: &dyn EnvSource) -> Value {
-    if is_secret(node) || secretish(key) {
+    present_at(v, node, key, false, env)
+}
+
+fn present_at(
+    v: &Value,
+    node: Option<&Node>,
+    key: &str,
+    is_name: bool,
+    env: &dyn EnvSource,
+) -> Value {
+    if is_secret(node) || (!is_name && secretish(key)) {
         return present_secret(v, env);
     }
     match v {
         Value::Object(m) => {
+            let names = holds_names(node);
             let mut out = Map::new();
             for (k, val) in m {
-                out.insert(k.clone(), present(val, child(node, k), k, env));
+                out.insert(k.clone(), present_at(val, child(node, k), k, names, env));
             }
             Value::Object(out)
         }
@@ -91,11 +101,18 @@ pub fn present(v: &Value, node: Option<&Node>, key: &str, env: &dyn EnvSource) -
             };
             Value::Array(items.iter().map(|i| present(i, item, key, env)).collect())
         }
-        Value::String(s) if s.contains("${") => value::env(&EnvInfo {
-            raw: s.clone(),
-            vars: env_vars(s),
-            resolved: expand_value(s, env),
-        }),
+        Value::String(s) if s.contains("${") => {
+            let resolved = expand_value(s, env);
+            if resolved.as_deref().is_some_and(super::text::holds_secret) {
+                return value::secret(&secret_info(s, env));
+            }
+            value::env(&EnvInfo {
+                raw: s.clone(),
+                vars: burrow_syntax::env::names(s),
+                resolved,
+            })
+        }
+        Value::String(s) if super::text::holds_secret(s) => value::secret(&secret_info(s, env)),
         other => other.clone(),
     }
 }
@@ -162,5 +179,70 @@ mod tests {
         assert!(!out.to_string().contains(&s.encode()));
         assert_eq!(raw_of(&out["listen"]), json!("${PORT}"));
         assert_eq!(out["services"]["web"]["target"], 3000);
+    }
+
+    #[test]
+    fn secrets_in_the_wrong_shape_or_under_a_wrong_key_stay_masked() {
+        let schema = crate::config::admin_schema::server_schema();
+        let s = Secret::generate();
+        let env = |k: &str| (k == "HOME_SECRET").then(|| s.encode());
+        for raw in [
+            json!({"clients": {"home": s.encode()}}),
+            json!({"clients": {"home": {"secert": s.encode()}}}),
+            json!({"clients": {"home": "${HOME_SECRET}"}}),
+            json!({"clients": {"home": {"note": "${HOME_SECRET}"}}}),
+            json!({"server": format!("wss://u:{}@x.example", s.encode())}),
+            json!({"limits": {"other": [s.encode()]}}),
+        ] {
+            let out = present(&raw, Some(&schema.root), "", &env);
+            let text = out.to_string();
+            assert!(!text.contains(&s.encode()), "{raw} gave {text}");
+            assert!(has_secret_marker(&out), "{text}");
+        }
+        let out = present(
+            &json!({"clients": {"home": "${HOME_SECRET}"}}),
+            Some(&schema.root),
+            "",
+            &env,
+        );
+        let marker = &out["clients"]["home"]["$secret"];
+        assert_eq!(marker["src"]["env"], "HOME_SECRET");
+        assert_eq!(marker["fp"], s.fingerprint());
+    }
+
+    #[test]
+    fn entries_with_names_close_to_secret_are_shown_as_written() {
+        let schema = crate::config::admin_schema::server_schema();
+        let env = |_: &str| None;
+        let raw = json!({
+            "clients": {
+                "socket": {"secret": Secret::generate().encode()},
+                "secure": {"secret": Secret::generate().encode(), "max_connections": 5},
+                "sec": {"secret": Secret::generate().encode()}
+            },
+            "visitors": {
+                "sacred": {"secret": Secret::generate().encode(), "admin": "read"},
+                "token": {"secret": Secret::generate().encode(), "admin": "read"}
+            },
+            "services": {
+                "socket": {"client": "secure", "target": 3000},
+                "sacred": {"client": "sec", "target": 3001},
+                "key": {"client": "sec", "target": 3002}
+            }
+        });
+        let out = present(&raw, Some(&schema.root), "", &env);
+        assert_eq!(out["clients"]["secure"]["max_connections"], 5, "{out}");
+        assert!(
+            value::as_secret(&out["clients"]["socket"]).is_none(),
+            "{out}"
+        );
+        assert!(
+            value::as_secret(&out["clients"]["socket"]["secret"]).is_some(),
+            "{out}"
+        );
+        assert_eq!(out["visitors"]["sacred"]["admin"], "read", "{out}");
+        assert_eq!(out["visitors"]["token"]["admin"], "read", "{out}");
+        assert_eq!(out["services"], raw["services"], "{out}");
+        assert_eq!(raw_of(&out["services"]), raw["services"]);
     }
 }

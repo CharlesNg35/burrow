@@ -3,7 +3,6 @@ use std::net::SocketAddr;
 use std::path::Path;
 use std::time::Duration;
 
-use super::super::model::{Bind, Protocol, Secrets, ServerConfig, WebSocketConfig};
 use super::super::settings::{
     ClientAuth, ServerSettings, TlsMaterial, VisitorAuth, WebSocketSettings,
 };
@@ -18,6 +17,8 @@ use crate::allowlist::AllowList;
 use crate::diagnostics::Diagnostic;
 use crate::secret::Secret;
 use crate::suggest::{closest, quoted_list};
+use burrow_config::SELF;
+use burrow_config::{Bind, Protocol, Secrets, ServerConfig, WebSocketConfig};
 
 pub fn check_server(
     cfg: &ServerConfig,
@@ -39,7 +40,7 @@ pub fn check_server(
                     )
                     .at(spans.value(&["listen"]))
                     .label("expected ip:port or a port")
-                    .help("use an IP and port, for example 0.0.0.0:7835 or [::]:7835, or a port alone like 7835"),
+                    .help(format!("use an IP and port, for example 0.0.0.0:{p} or [::]:{p}, or a port alone like {p}", p = burrow_syntax::ports::SERVER_PORT)),
                 );
                 None
             }
@@ -52,7 +53,7 @@ pub fn check_server(
     {
         out.push(
             Diagnostic::error("no-listener", "the server needs \"listen\" (TCP), \"websocket\", or both")
-                .help("add \"listen: 0.0.0.0:7835\" for TCP clients, or a websocket section for clients behind HTTP-only networks (see README)"),
+                .help(format!("add \"listen: 0.0.0.0:{}\" for TCP clients, or a websocket section for clients behind HTTP-only networks (see README)", burrow_syntax::ports::SERVER_PORT)),
         );
     }
     let websocket = cfg
@@ -62,10 +63,12 @@ pub fn check_server(
 
     if let Some(text) = &cfg.public_address
         && (listen.is_some() || websocket.is_some())
-        && let Err(e) = crate::config::address::client_address(
+        && let Err(e) = burrow_syntax::address::client_address(
             text,
             listen,
-            websocket.as_ref().map(Into::into),
+            websocket
+                .as_ref()
+                .map(crate::config::settings::WebSocketSettings::shape),
             "clients",
             &mut Vec::new(),
         )
@@ -111,6 +114,9 @@ pub fn check_server(
         );
     }
 
+    super::local::check_reserved(cfg, spans, out);
+    let self_allow = super::local::check_allow(cfg, spans, out);
+
     let mut visitors = BTreeMap::new();
     for (name, entry) in &cfg.visitors {
         if !valid_name(name) {
@@ -119,13 +125,19 @@ pub fn check_server(
         let secrets = check_secrets("visitor", name, &entry.secret, spans, &mut seen, out);
         let mut reach = BTreeMap::new();
         for (client, given) in &entry.reach {
+            if client == SELF {
+                super::local::check_reach(name, self_allow.as_ref(), spans, out);
+            }
             if let Some(rules) = check_reach(name, client, given, spans, out) {
                 reach.insert(client.clone(), rules);
             }
         }
         for client in reach
             .iter()
-            .filter(|(c, r)| cfg.clients.contains_key(*c) && **r == AllowList::All)
+            .filter(|(c, r)| {
+                (cfg.clients.contains_key(*c) || (*c == SELF && self_allow.is_some()))
+                    && **r == AllowList::All
+            })
             .map(|(c, _)| c)
         {
             out.push(
@@ -138,7 +150,8 @@ pub fn check_server(
                 .at(spans.key(&["visitors", name, "reach", client]))
                 .label("limited only by the client's allow list")
                 .help(format!(
-                    "keep \"allow\" on client \"{client}\" narrow, for example allow: [127.0.0.1/32:22], or list only the services this visitor needs"
+                    "keep {} narrow, for example allow: [127.0.0.1/32:22], or list only the services this visitor needs",
+                    super::local::allow_place(client)
                 )),
             );
         }
@@ -176,7 +189,7 @@ pub fn check_server(
         out.push(
             Diagnostic::warning("no-services", "no services are defined, so nothing is exposed")
                 .at(spans.key(&["services"]))
-                .help("add a service, for example:\n         services:\n           web: { client: NAME, bind: 0.0.0.0:7840, target: 127.0.0.1:80 }"),
+                .help(format!("add a service, for example:\n         services:\n           web: {{ client: NAME, bind: 0.0.0.0:{}, target: 127.0.0.1:80 }}", burrow_syntax::ports::FIRST_SERVICE_PORT)),
         );
     }
 
@@ -238,6 +251,16 @@ pub fn check_server(
         .as_ref()
         .and_then(|m| check_metrics(&m.listen, &taken, spans, out));
 
+    let own: Vec<(SocketAddr, &str)> = [
+        (listen, "listen"),
+        (websocket.as_ref().map(|w| w.listen), "websocket.listen"),
+        (metrics, "metrics.listen"),
+    ]
+    .into_iter()
+    .filter_map(|(a, what)| a.map(|a| (a, what)))
+    .collect();
+    super::local::check_services(&services, self_allow.as_ref(), &own, spans, out);
+
     if cfg.pool.min_idle > cfg.pool.max_idle {
         out.push(
             Diagnostic::error(
@@ -278,12 +301,13 @@ pub fn check_server(
         tcp: tuning(&cfg.tcp),
         udp_session_timeout: Duration::from_secs(cfg.udp.session_timeout_secs.into()),
         metrics,
+        self_allow,
     })
 }
 
 fn check_admin(
     name: &str,
-    entry: &super::super::model::VisitorEntry,
+    entry: &burrow_config::VisitorEntry,
     listed: bool,
     spans: &Spans,
     out: &mut Vec<Diagnostic>,
@@ -506,7 +530,7 @@ fn check_websocket(
                 )
                 .at(spans.value(&["websocket", "listen"]))
                 .label("expected ip:port or a port")
-                .help("use an IP and port, for example 127.0.0.1:7836 behind a proxy, or a port alone for 0.0.0.0"),
+                .help(format!("use an IP and port, for example 127.0.0.1:{} behind a proxy, or a port alone for 0.0.0.0", burrow_syntax::ports::WS_PORT)),
             );
             None
         }
@@ -524,7 +548,7 @@ fn check_websocket(
             .help("use a different port for the websocket listener"),
         );
     }
-    if !crate::transport::endpoint::valid_path(&ws.path) {
+    if !burrow_syntax::endpoint::valid_path(&ws.path) {
         out.push(
             Diagnostic::error(
                 "invalid-path",
@@ -621,6 +645,7 @@ pub fn check_refs(root: &Node, out: &mut Vec<Diagnostic>) {
             let by = || format!("service \"{}\"", svc.key);
             if let Some(client) = svc.value.get("client")
                 && let Some(name) = client.as_str()
+                && name != SELF
                 && !clients.contains(&name)
             {
                 out.push(unknown_ref("client", name, &clients, by(), client.span));
@@ -628,6 +653,7 @@ pub fn check_refs(root: &Node, out: &mut Vec<Diagnostic>) {
             if let Some(Value::Seq(items)) = svc.value.get("clients").map(|v| &v.value) {
                 for item in items {
                     if let Some(name) = item.as_str()
+                        && name != SELF
                         && !clients.contains(&name)
                     {
                         out.push(unknown_ref("client", name, &clients, by(), item.span));
@@ -651,7 +677,7 @@ pub fn check_refs(root: &Node, out: &mut Vec<Diagnostic>) {
                 continue;
             };
             for r in reach {
-                if !clients.contains(&r.key.as_str()) {
+                if r.key != SELF && !clients.contains(&r.key.as_str()) {
                     let by = format!("\"reach\" of visitor \"{}\"", visitor.key);
                     out.push(unknown_ref("client", &r.key, &clients, by, r.key_span));
                 }
@@ -663,12 +689,12 @@ pub fn check_refs(root: &Node, out: &mut Vec<Diagnostic>) {
 fn check_reach(
     visitor: &str,
     client: &str,
-    given: &crate::config::model::Reach,
+    given: &burrow_config::Reach,
     spans: &Spans,
     out: &mut Vec<Diagnostic>,
 ) -> Option<AllowList> {
     let entries = given.entries();
-    let many = matches!(given, crate::config::model::Reach::Many(_));
+    let many = matches!(given, burrow_config::Reach::Many(_));
     let at = |i: usize| {
         let path = ["visitors", visitor, "reach", client];
         if many {

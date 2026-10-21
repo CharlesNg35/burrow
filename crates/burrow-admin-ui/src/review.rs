@@ -1,6 +1,9 @@
-use burrow_admin_logic::changeset::get;
+use burrow_admin_logic::grant::IN_THE_FILE;
 use burrow_admin_proto::plan::{ChangeKind, Diff, Level, Plan, Refusal};
 use burrow_admin_proto::serde_json::Value;
+use burrow_admin_proto::value::get;
+use burrow_config::{Entry, ServiceEntry, VisitorEntry};
+use burrow_syntax::grant::is_grant_code;
 use burrow_ui_kit::{
     Button, Callout, ConfirmInput, Dialog, DiffView, Edge, EdgeState, EmptyState, Hop, HopState,
     Icon, PathData, PathDiagram, Segmented, Skeleton, Tone, button_class, tag_class,
@@ -14,7 +17,7 @@ use crate::screens::paths::{self, Problems};
 use crate::screens::{DetailPane, ListPane, Row, master_detail};
 use crate::store::{short_rev, store};
 
-pub fn diff_counts(d: &Diff) -> (usize, usize) {
+fn diff_counts(d: &Diff) -> (usize, usize) {
     let lines = d.hunks.iter().flat_map(|h| h.lines.iter());
     lines.fold((0, 0), |(a, r), (k, _)| match k.as_str() {
         "+" => (a + 1, r),
@@ -40,16 +43,10 @@ fn impact_icon(l: Level) -> (&'static str, Tone) {
     }
 }
 
-pub fn service_paths(base: &Value, draft: &Value) -> Vec<(String, PathData)> {
+fn service_paths(base: &Value, draft: &Value, reserved: &[String]) -> Vec<(String, PathData)> {
     let empty = serde_json_map();
-    let b = base
-        .get("services")
-        .and_then(Value::as_object)
-        .unwrap_or(&empty);
-    let d = draft
-        .get("services")
-        .and_then(Value::as_object)
-        .unwrap_or(&empty);
+    let b = ServiceEntry::entries(base).unwrap_or(&empty);
+    let d = ServiceEntry::entries(draft).unwrap_or(&empty);
     let none = Problems {
         source: None,
         clients: None,
@@ -76,20 +73,20 @@ pub fn service_paths(base: &Value, draft: &Value) -> Vec<(String, PathData)> {
             };
             let data = match (old, new) {
                 (Some(o), None) => {
-                    let mut p = paths::service(n, o, None, 0.0, &none, true);
+                    let mut p = paths::service(n, o, None, 0.0, &none, true, reserved);
                     mark(&mut p, HopState::Removed, EdgeState::Removed);
                     p.summary = format!("Service {n} is removed");
                     p
                 }
                 (None, Some(x)) => {
-                    let mut p = paths::service(n, x, None, 0.0, &none, true);
+                    let mut p = paths::service(n, x, None, 0.0, &none, true, reserved);
                     mark(&mut p, HopState::Added, EdgeState::Added);
                     p.summary = format!("Service {n} is added");
                     p
                 }
                 (Some(o), Some(x)) => {
-                    let before = paths::service(n, o, None, 0.0, &none, true);
-                    let mut p = paths::service(n, x, None, 0.0, &none, true);
+                    let before = paths::service(n, o, None, 0.0, &none, true, reserved);
+                    let mut p = paths::service(n, x, None, 0.0, &none, true, reserved);
                     for (h, was) in p.hops.iter_mut().zip(before.hops.iter()) {
                         h.dot = None;
                         h.state = if h.value != was.value || h.unit != was.unit {
@@ -118,7 +115,7 @@ fn serde_json_map() -> burrow_admin_proto::serde_json::Map<String, Value> {
     burrow_admin_proto::serde_json::Map::new()
 }
 
-pub fn destructive_summary(impacts: &[burrow_admin_proto::plan::Impact]) -> String {
+fn destructive_summary(impacts: &[burrow_admin_proto::plan::Impact]) -> String {
     let mut parts: Vec<String> = Vec::new();
     for i in impacts.iter().filter(|i| i.confirm.is_some()) {
         let mut clauses = i.message.split("; ");
@@ -179,12 +176,11 @@ fn guard(refusals: &[Refusal]) -> Guard {
         .map(str::to_string)
         .or_else(|| refusals.first().map(|r| r.code.clone()))
         .unwrap_or_default();
-    let mut path = vec!["visitors".to_string(), me.clone()];
-    match code.as_str() {
-        "self-demoted" => path.push("admin".into()),
-        "self-source" => path.push("admin_from".into()),
-        _ => {}
-    }
+    let path = match code.as_str() {
+        "self-demoted" => VisitorEntry::ADMIN.of(&me),
+        "self-source" => VisitorEntry::ADMIN_FROM.of(&me),
+        _ => VisitorEntry::path(&me),
+    };
     let base = e.draft.with_untracked(|d| list_at(get(d.base(), &path)));
     let now = list_at(e.peek(&path).as_ref());
     Guard {
@@ -205,16 +201,22 @@ fn lockout_path(g: &Guard) -> PathData {
     };
     let (above, below) = match g.code.as_str() {
         "self-removed" => ("removed".to_string(), String::new()),
-        "self-demoted" => ("admin".to_string(), "not write".to_string()),
+        "self-demoted" => (
+            VisitorEntry::ADMIN.key().to_string(),
+            "not write".to_string(),
+        ),
         "self-source" => (
-            "admin_from".to_string(),
+            VisitorEntry::ADMIN_FROM.key().to_string(),
             if g.now.is_empty() {
                 "empty".to_string()
             } else {
                 g.now.join(", ")
             },
         ),
-        "self-secret" => ("secret".to_string(), "removed".to_string()),
+        "self-secret" => (
+            VisitorEntry::SECRET.key().to_string(),
+            "removed".to_string(),
+        ),
         other => (other.trim_start_matches("self-").to_string(), String::new()),
     };
     PathData {
@@ -274,11 +276,7 @@ fn Lockout(refusals: Vec<Refusal>) -> impl IntoView {
         .map(|r| r.message.clone())
         .collect::<Vec<_>>()
         .join("; ");
-    let mut chars = msg.chars();
-    let msg = chars
-        .next()
-        .map(|c| c.to_uppercase().chain(chars).collect::<String>())
-        .unwrap_or_default();
+    let msg = capital(&msg);
     view! {
         <PathDiagram data=lockout_path(&g) testid="lockout-path"/>
         <div class="mb-4" data-testid="lockout" data-refusal=g.code.clone()>
@@ -287,6 +285,42 @@ fn Lockout(refusals: Vec<Refusal>) -> impl IntoView {
                 <p class="mt-1 font-mono text-xs">{format!("guard: {codes}")}</p>
             </Callout>
         </div>
+    }
+}
+
+fn capital(text: &str) -> String {
+    let mut chars = text.chars();
+    chars
+        .next()
+        .map(|c| c.to_uppercase().chain(chars).collect::<String>())
+        .unwrap_or_default()
+}
+
+#[component]
+fn Granted(refusals: Vec<Refusal>) -> impl IntoView {
+    let code = refusals.first().map(|r| r.code.clone()).unwrap_or_default();
+    let codes = refusals
+        .iter()
+        .map(|r| r.code.clone())
+        .collect::<Vec<_>>()
+        .join(", ");
+    view! {
+        <div class="mb-4" data-testid="granted" data-refusal=code>
+            <Callout tone=Tone::Danger title="Admin access is granted in the config file">
+                {refusals.iter().map(|r| view! { <p>{format!("{}.", capital(&r.message))}</p> }).collect_view()}
+                <p class="mt-1 font-mono text-xs">{format!("guard: {codes}")}</p>
+            </Callout>
+        </div>
+    }
+}
+
+#[component]
+fn Refused(refusals: Vec<Refusal>) -> impl IntoView {
+    let (granted, lockouts): (Vec<Refusal>, Vec<Refusal>) =
+        refusals.into_iter().partition(|r| is_grant_code(&r.code));
+    view! {
+        {(!lockouts.is_empty()).then(|| view! { <Lockout refusals=lockouts/> })}
+        {(!granted.is_empty()).then(|| view! { <Granted refusals=granted/> })}
     }
 }
 
@@ -342,8 +376,9 @@ fn detail(plan: std::sync::Arc<Plan>, revert: bool) -> AnyView {
     let paths = if revert {
         Vec::new()
     } else {
-        e.draft
-            .with_untracked(|d| service_paths(d.base(), d.draft()))
+        e.draft.with_untracked(|d| {
+            service_paths(d.base(), d.draft(), &crate::domain::reserved_clients())
+        })
     };
     let lines = diff_lines(&plan.diff);
     let (added, removed) = diff_counts(&plan.diff);
@@ -353,7 +388,13 @@ fn detail(plan: std::sync::Arc<Plan>, revert: bool) -> AnyView {
     let destructive = !plan.confirms().is_empty();
     let can = plan.can_apply();
     let refused = !plan.refusals.is_empty();
-    let guard_view = refused.then(|| guard(&plan.refusals));
+    let lockouts: Vec<Refusal> = plan
+        .refusals
+        .iter()
+        .filter(|r| !is_grant_code(&r.code))
+        .cloned()
+        .collect();
+    let guard_view = (!lockouts.is_empty()).then(|| guard(&lockouts));
     let impacts = plan
         .impacts
         .iter()
@@ -446,7 +487,10 @@ fn detail(plan: std::sync::Arc<Plan>, revert: bool) -> AnyView {
                     <h1 class="text-[25px] font-bold tracking-[-0.015em]">{if revert { "Review the revert".to_string() } else { format!("Review {n} change{}", if n == 1 { "" } else { "s" }) }}</h1>
                     <p class="mt-1 text-base text-text-muted">
                         {if refused {
-                            format!("Validated against rev {base_rev} · refused by the lockout guard")
+                            format!(
+                                "Validated against rev {base_rev} · refused by the {}",
+                                if lockouts.is_empty() { "admin grant guard" } else { "lockout guard" }
+                            )
                         } else if host.is_empty() {
                             format!("Validated against rev {base_rev} · {applies}")
                         } else {
@@ -462,7 +506,7 @@ fn detail(plan: std::sync::Arc<Plan>, revert: bool) -> AnyView {
                     view! { <span class=tag_class(Tone::Success) data-testid="review-state"><Icon name="check" small=true/>{format!("Valid · 0 errors · {warnings} warning{}", if warnings == 1 { "" } else { "s" })}</span> }.into_any()
                 }}
             </header>
-            {refused.then(|| view! { <Lockout refusals=plan.refusals.clone()/> })}
+            {refused.then(|| view! { <Refused refusals=plan.refusals.clone()/> })}
             {paths.into_iter().map(|(name, p)| view! { <div data-review-path=name><PathDiagram data=p/></div> }).collect_view()}
             {plan.reformat.clone().map(|r| {
                 let place = if r.scope.is_empty() { "The whole file".to_string() } else { r.scope.join(".") };
@@ -522,6 +566,8 @@ fn detail(plan: std::sync::Arc<Plan>, revert: bool) -> AnyView {
             <div class="sticky bottom-4 z-20 flex flex-wrap items-center gap-3 rounded-card border border-border bg-surface px-4 py-3 shadow-overlay max-lg:[&>button]:flex-1 [&>button]:whitespace-nowrap" data-sticky-bar="">
                 <span class="min-w-0 flex-1 basis-60 text-sm text-text-muted">{if let Some(g) = guard_view.clone() {
                     footer_text(&g)
+                } else if refused {
+                    format!("{IN_THE_FILE}.")
                 } else {
                     format!("rev {} is kept in history; you can revert it from Activity.", short_rev(&plan.base))
                 }}</span>
@@ -567,13 +613,21 @@ fn outcome_view() -> impl IntoView {
     move || {
         e.outcome.get().and_then(|o| match o {
             Outcome::Applied(_) => None,
-            Outcome::Refused(r) => Some(view! { <Lockout refusals=r/> }.into_any()),
+            Outcome::Refused(r) => Some(view! { <Refused refusals=r/> }.into_any()),
             Outcome::ReloadFailed(r) => Some(
                 view! {
                     <div class="mb-4" data-testid="outcome-reload-failed">
                         <Callout tone=Tone::Danger title=if r.restored { "The server rejected the new config; the previous file was restored".to_string() } else { "The server rejected the new config".to_string() }>
                             <p>{format!("{} {}", r.reason, r.hint)}</p>
                         </Callout>
+                    </div>
+                }
+                .into_any(),
+            ),
+            Outcome::Unanswered => Some(
+                view! {
+                    <div class="mb-4" data-testid="outcome-unanswered">
+                        <Callout tone=Tone::Warning title="The connection closed before the server answered"><p>"The change may have been applied. Check Activity once the connection is back."</p></Callout>
                     </div>
                 }
                 .into_any(),
@@ -620,6 +674,15 @@ pub fn ReviewPage() -> impl IntoView {
             }
         }
         rev
+    });
+    on_cleanup(move || {
+        let _ = e.auto_apply.try_set(false);
+        if e.review
+            .try_with_untracked(|r| r.as_ref().is_some_and(|r| r.revert_of.is_some()))
+            .unwrap_or(false)
+        {
+            let _ = e.review.try_set(None);
+        }
     });
     let plan = Memo::new(move |_| e.review_plan());
     Effect::new(move |_| {
@@ -848,6 +911,7 @@ pub fn ConflictDialog() -> impl IntoView {
                 <Button label=Signal::derive(move || format!("View rev {}", current())) variant="secondary" testid="conflict-view" on_click=move |_| {
                     let rev = e.conflict.with_untracked(|c| c.as_ref().map(|c| c.current.clone()));
                     open.set(false);
+                    e.conflict_revert.set(None);
                     e.conflict.set(None);
                     route::go(Route::Activity(rev));
                 }/>
@@ -881,7 +945,7 @@ mod tests {
     fn the_review_marks_removed_added_and_changed_services() {
         let base = json!({"services": {"ssh": {"client": "a", "bind": "0.0.0.0:2222", "target": "x:22"}, "web": {"client": "a", "bind": "0.0.0.0:443", "target": "x:80"}}});
         let draft = json!({"services": {"web": {"client": "a", "bind": "0.0.0.0:8443", "target": "x:80"}, "db": {"client": "a", "target": "y:5432"}}});
-        let p = service_paths(&base, &draft);
+        let p = service_paths(&base, &draft, &[]);
         let names: Vec<&str> = p.iter().map(|(n, _)| n.as_str()).collect();
         assert_eq!(names, ["db", "ssh", "web"]);
         assert!(p[0].1.hops.iter().all(|h| h.state == HopState::Added));

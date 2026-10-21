@@ -1,9 +1,11 @@
-use burrow_admin_logic::changeset::as_new_secret;
+use burrow_admin_logic::changeset::{as_new_secret, new_secret};
+use burrow_admin_logic::grant::IN_THE_FILE;
 use burrow_admin_proto::Path;
 use burrow_admin_proto::msg::{self, GeneratedSecret};
 use burrow_admin_proto::plan::{Applied, Snippets};
 use burrow_admin_proto::serde_json::{self, Value, json};
 use burrow_admin_proto::value::{SecretSrc, as_secret};
+use burrow_config::{ClientEntry, Entry, VisitorEntry};
 use burrow_ui_kit::{Button, Callout, CodeBlock, Segmented, TextInput, Tone, tag_class};
 use leptos::prelude::*;
 
@@ -19,12 +21,7 @@ pub struct Row {
 }
 
 pub fn rows(v: Option<&Value>) -> Vec<Row> {
-    let items: Vec<Value> = match v {
-        Some(Value::Array(a)) => a.clone(),
-        Some(other) => vec![other.clone()],
-        None => Vec::new(),
-    };
-    items
+    burrow_admin_proto::value::one_or_many(v)
         .iter()
         .filter_map(|i| {
             if let Some((_, fp)) = as_new_secret(i) {
@@ -50,7 +47,7 @@ pub fn rows(v: Option<&Value>) -> Vec<Row> {
 }
 
 fn in_use_fp(section: &str, name: &str) -> Option<String> {
-    if section != "clients" {
+    if section != ClientEntry::section() {
         return None;
     }
     store().state.with(|s| {
@@ -79,6 +76,12 @@ pub fn secret_list(path: Path, id: String, max: u32) -> AnyView {
         });
     };
     let full = Signal::derive(move || list.with(|l| l.len() as u32 >= max.max(1)));
+    let p5 = path.clone();
+    let granting = Signal::derive(move || {
+        let mut secrets = burrow_admin_proto::value::one_or_many(e.value(&p5).as_ref());
+        secrets.push(new_secret("", ""));
+        crate::grants::refuses(&p5, Some(&Value::Array(secrets)))
+    });
     let label = Signal::derive(move || {
         if list.with(Vec::is_empty) {
             "Generate a secret".to_string()
@@ -87,15 +90,15 @@ pub fn secret_list(path: Path, id: String, max: u32) -> AnyView {
         }
     });
     let can = s.can_write_now();
-    let what = if section == "clients" {
-        "client"
+    let what = if section == ClientEntry::section() {
+        ClientEntry::ENTITY
     } else {
-        "visitor"
+        VisitorEntry::ENTITY
     };
     let p4 = path.clone();
     let body = move || {
         let used = in_use.get();
-        let known = section == "clients";
+        let known = section == ClientEntry::section();
         list.get()
             .into_iter()
             .map(|r| {
@@ -114,7 +117,7 @@ pub fn secret_list(path: Path, id: String, max: u32) -> AnyView {
                 };
                 view! {
                     <li class="grid grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_minmax(0,1.4fr)_auto] items-center gap-4 border-b border-rowline px-4 py-3 last:border-b-0" data-fp=fp.clone() data-in-use=using.then_some("true")>
-                        <span class="flex items-center gap-2 font-mono text-[13px]"><burrow_ui_kit::Icon name="key" small=true/>{fp.clone()}</span>
+                        <span class="flex items-center gap-2 font-mono text-[13px]"><burrow_ui_kit::Icon name="passkey" small=true/>{fp.clone()}</span>
                         <span class=if r.source.starts_with("env:") { "font-mono text-[13px]" } else { "text-[13px]" }>
                             {r.source.clone()}
                             {r.unset.then(|| view! { <span class="ml-2 text-danger">"not set in the environment"</span> })}
@@ -166,8 +169,8 @@ pub fn secret_list(path: Path, id: String, max: u32) -> AnyView {
                         small=true
                         icon="refresh"
                         testid="rotate"
-                        disabled=full
-                        reason=Signal::derive(move || if full.get() { format!("A {what} may have at most {max} secrets.") } else { String::new() })
+                        disabled=Signal::derive(move || full.get() || granting.get())
+                        reason=Signal::derive(move || if granting.get() { IN_THE_FILE.to_string() } else if full.get() { format!("A {what} may have at most {max} secrets.") } else { String::new() })
                         on_click=add
                     />
                 })}
@@ -176,6 +179,7 @@ pub fn secret_list(path: Path, id: String, max: u32) -> AnyView {
                 <span>"Fingerprint"</span><span>"Source"</span><span>"Session"</span><span></span>
             </div>
             <ul>{body}</ul>
+            {move || granting.get().then(|| view! { <div class="border-t border-border px-4 pb-1.5">{crate::grants::in_the_file()}</div> })}
             <p class="border-t border-border px-4 py-3 text-[12.5px] text-text-muted">{note}</p>
         </section>
     }
@@ -239,7 +243,7 @@ pub fn SnippetView(sn: Snippets, #[prop(optional)] secret: Option<String>) -> im
         ("file", file_label),
         ("env", "Environment variable".to_string()),
     ];
-    let allow_note = if kind == "client" {
+    let allow_note = if kind == ClientEntry::ENTITY {
         "The allow list comes from the services that use this client."
     } else {
         "The reach list comes from this visitor's access."
@@ -324,7 +328,7 @@ pub fn ShownOnce(section: String, name: String) -> impl IntoView {
             .find(|x| x.path.first() == Some(&sec) && x.path.get(1) == Some(&nm))
             .cloned()?;
         let sn = a.snippets.iter().find(|x| x.name == nm).cloned();
-        let what = if sec == "clients" {
+        let what = if sec == ClientEntry::section() {
             "client.yaml"
         } else {
             "visitor.yaml"
@@ -384,7 +388,7 @@ pub fn ShownOnce(section: String, name: String) -> impl IntoView {
                     </button>
                 </div>
                 {snippet}
-                {sec.eq("clients").then(|| waiting.clone())}
+                {(sec == ClientEntry::section()).then(|| waiting.clone())}
                 <div class="sticky bottom-4 z-20 mt-6 flex items-center gap-3 rounded-card border border-border bg-surface px-4 py-3 shadow-overlay" data-sticky-bar="">
                     <label class="flex items-center gap-2 text-sm">
                         <input type="checkbox" data-testid="saved" class="size-4 accent-accent" prop:checked=move || saved.get() on:change:target=move |ev| saved.set(ev.target().checked())/>
@@ -417,10 +421,10 @@ pub fn ShownOnce(section: String, name: String) -> impl IntoView {
 pub fn ConnectPanel(section: String, name: String) -> impl IntoView {
     let data: RwSignal<Option<Result<Snippets, String>>> = RwSignal::new(None);
     let address = RwSignal::new(String::new());
-    let kind = if section == "clients" {
-        "client"
+    let kind = if section == ClientEntry::section() {
+        ClientEntry::ENTITY
     } else {
-        "visitor"
+        VisitorEntry::ENTITY
     };
     let fetch = move |name: String, addr: Option<String>| {
         data.set(None);

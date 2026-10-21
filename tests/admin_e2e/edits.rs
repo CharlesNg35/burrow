@@ -200,6 +200,76 @@ fn e3_e4_add_a_service_with_ranges_and_see_server_errors_inline() {
     );
 }
 
+fn service_on_this_server(c: &mut Ctx) -> Flow<'_> {
+    Box::pin(async move {
+        let echo = free_range(1);
+        let public = free_range(1);
+        let target = echo_server(echo).await;
+        open(c, "ops").await;
+        c.ui.nav("/services").await;
+        c.ui.click("[data-testid=new]").await;
+        c.ui.wait_for("[data-testid=new-entity]", SECS).await;
+        c.ui.fill("#new-name", "local").await;
+        c.ui.wait_for("[data-testid=name-available]", SECS).await;
+        c.ui.click("[data-testid=create]").await;
+        c.ui.wait_for("[data-testid=detail][data-name=local]", SECS)
+            .await;
+        let clients = "[data-schema='services/*/clients']";
+        c.ui.click(&format!("{clients} [data-remove]")).await;
+        c.ui.click("#f-services-local-clients").await;
+        c.ui.wait_for(&format!("{clients} [data-option=self]"), SECS)
+            .await;
+        let offered = c.ui.text(&format!("{clients} [data-option=self]")).await;
+        assert!(offered.contains("This server"), "{offered}");
+        c.ui.shot("this-server-in-the-picker").await;
+        c.ui.click(&format!("{clients} [data-option=self] input"))
+            .await;
+        c.ui.wait_for(&format!("{clients} [data-chip=self]"), SECS)
+            .await;
+        click_js(
+            c,
+            "[data-schema='services/*/visibility'] input[value=public]",
+        )
+        .await;
+        c.ui.fill("#f-services-local-bind", &format!("127.0.0.1:{public}"))
+            .await;
+        c.ui.fill("#f-services-local-target", &format!("127.0.0.1:{echo}"))
+            .await;
+        wait_checked(c).await;
+        c.ui.click("[data-testid=save]").await;
+        c.ui.wait_gone("[data-testid=save-bar]", SECS).await;
+        open_review(c, "review-service-on-this-server").await;
+        applied(c, "service-on-this-server-applied").await;
+        let text = c.world.config();
+        assert!(text.contains("  local:\n    client: self\n"), "{text}");
+        round_trip(public, 4096)
+            .await
+            .expect("a round trip through the server itself");
+        c.ui.nav("/services/local").await;
+        c.ui.wait_for("[data-hop=target]", SECS).await;
+        let hops: Vec<String> = c
+            .ui
+            .eval("[...document.querySelectorAll('[data-testid=detail] [data-hop]')].map(e => e.getAttribute('data-hop'))")
+            .await;
+        assert_eq!(hops, ["internet", "server", "target"], "no client hop");
+        c.ui.wait_text("[data-hop=target]", "on this server", SECS)
+            .await;
+        c.ui.shot("service-on-this-server-path").await;
+        target.abort();
+        c.ui.assert_no_errors();
+    })
+}
+
+#[test]
+fn a_service_on_this_server_is_created_in_the_ui_and_carries_traffic() {
+    run(
+        "service-on-this-server",
+        Options::default(),
+        false,
+        service_on_this_server,
+    );
+}
+
 async fn row_error(c: &Ctx, schema: &str) -> String {
     let css = format!("[data-schema='{schema}'] [aria-live] p");
     c.ui.wait_for(&css, SECS).await;
@@ -335,7 +405,11 @@ fn editors(c: &mut Ctx) -> Flow<'_> {
         click_js(c, "[data-server-address] input[value=wss]").await;
         c.ui.fill("#f-public-address", "tunnel.example.net/burrow")
             .await;
-        row_clean(c, "public_address").await;
+        let err = row_error(c, "public_address").await;
+        assert!(
+            err.contains("no websocket section"),
+            "a wss:// address is refused inline on a server without WebSocket, as validate refuses it: {err}"
+        );
         c.ui.shot("server-address-wss").await;
         click_js(c, "[data-server-address] input[value=host]").await;
         c.ui.fill("#f-public-address", "tunnel.example.net").await;
@@ -557,13 +631,38 @@ fn revert_refused(c: &mut Ctx) -> Flow<'_> {
         wait_checked(c).await;
         open_review(c, "boss-demotes-ops").await;
         applied(c, "ops-is-read-only").await;
-        c.ui.nav("/visitors/laptop").await;
-        c.ui.nav("/visitors/ops").await;
+        c.ui.nav("/services/web").await;
         edit_mode(c).await;
-        c.ui.choose("f-visitors-ops-admin", "write").await;
+        c.ui.fill("#f-services-web-target", "4002").await;
         wait_checked(c).await;
-        open_review(c, "boss-promotes-ops").await;
-        applied(c, "ops-can-write-again").await;
+        open_review(c, "boss-changes-web").await;
+        applied(c, "web-changed-while-ops-reads").await;
+
+        let lab = super::world::secret();
+        c.world.hand_edit(|t| {
+            t.replacen(
+                "# the admin\n    admin: read\n",
+                "# the admin\n    admin: write\n",
+                1,
+            )
+            .replacen(
+                "clients:\n",
+                &format!("clients:\n  lab:\n    secret: {lab}\n"),
+                1,
+            )
+        });
+        super::world::wait_until(
+            "the hand edit that gives ops write again is running",
+            Duration::from_secs(15),
+            || {
+                c.world
+                    .status()
+                    .and_then(|s| s["clients"].as_array().cloned())
+                    .unwrap_or_default()
+                    .iter()
+                    .any(|x| x["name"] == "lab")
+            },
+        );
 
         let url = c.world.open_admin("ops");
         c.ui.goto("about:blank").await;
@@ -582,6 +681,130 @@ fn revert_refused(c: &mut Ctx) -> Flow<'_> {
 #[test]
 fn a_revert_that_would_lock_me_out_is_refused() {
     run("revert-refused", Options::default(), false, revert_refused);
+}
+
+const IN_THE_FILE: &str = "Admin access is granted in the config file (burrow edit)";
+
+async fn off(c: &Ctx, visitor: &str, level: &str) -> bool {
+    c.ui.count(&format!(
+        "#f-visitors-{visitor}-admin label[data-off=true] input[value='{level}']"
+    ))
+    .await
+        == 1
+}
+
+fn grant_lock(c: &mut Ctx) -> Flow<'_> {
+    Box::pin(async move {
+        open(c, "boss").await;
+        c.ui.nav("/visitors/viewer").await;
+        edit_mode(c).await;
+        c.ui.wait_text(
+            "[data-schema='visitors/*/admin'] [data-testid=grant-lock]",
+            IN_THE_FILE,
+            SECS,
+        )
+        .await;
+        assert!(off(c, "viewer", "write").await, "read cannot become write");
+        assert!(!off(c, "viewer", "read").await);
+        c.ui.choose("f-visitors-viewer-admin", "write").await;
+        assert!(
+            !c.ui.eval::<bool>("document.querySelector(\"#f-visitors-viewer-admin input[value='write']\").checked")
+                .await,
+            "a refused level is not chosen"
+        );
+        c.ui.shot("viewer-may-only-go-down").await;
+
+        c.ui.nav("/visitors/plain").await;
+        edit_mode(c).await;
+        assert!(off(c, "plain", "read").await && off(c, "plain", "write").await);
+        c.ui.wait_for(
+            "[data-schema='visitors/*/admin'] [data-testid=grant-lock]",
+            SECS,
+        )
+        .await;
+        c.ui.shot("no-admin-for-a-visitor-without-it").await;
+
+        c.ui.nav("/visitors/boss?tab=secrets").await;
+        c.ui.wait_for("[data-testid=secrets] [data-testid=grant-lock]", SECS)
+            .await;
+        assert!(
+            !c.ui.enabled("[data-testid=rotate]").await,
+            "an admin gets a new secret only in the file"
+        );
+        c.ui.shot("admin-secret-locked").await;
+        c.ui.click("[data-testid=more]").await;
+        c.ui.wait_for("[data-testid=more-menu] [data-testid=grant-lock]", SECS)
+            .await;
+        assert!(
+            !c.ui.enabled("[data-testid=rename-open]").await,
+            "an admin visitor is renamed only in the file"
+        );
+        c.ui.shot("admin-rename-locked").await;
+        c.ui.click("[data-testid=more]").await;
+        c.ui.nav("/visitors/plain").await;
+        c.ui.click("[data-testid=more]").await;
+        c.ui.wait_for("[data-testid=more-menu] [data-testid=rename-open]", SECS)
+            .await;
+        assert!(c.ui.enabled("[data-testid=rename-open]").await);
+        assert_eq!(
+            c.ui.count("[data-testid=more-menu] [data-testid=grant-lock]")
+                .await,
+            0
+        );
+        c.ui.click("[data-testid=more]").await;
+
+        c.ui.nav("/visitors/ops").await;
+        edit_mode(c).await;
+        let from = "#f-visitors-ops-admin-from";
+        let chips = "[data-schema='visitors/*/admin_from'] [data-chip]";
+        c.ui.click("[data-schema='visitors/*/admin_from'] [data-chip='127.0.0.1/32'] button")
+            .await;
+        c.ui.wait_text(
+            "[data-schema='visitors/*/admin_from'] [data-testid=grant-lock]",
+            IN_THE_FILE,
+            SECS,
+        )
+        .await;
+        assert_eq!(c.ui.count(chips).await, 1, "the last entry stays");
+        c.ui.fill(from, "10.0.0.0/8").await;
+        c.ui.wait_for(
+            "[data-schema='visitors/*/admin_from'] [data-testid=grant-lock]",
+            SECS,
+        )
+        .await;
+        assert_eq!(c.ui.count(chips).await, 1, "a wider entry is not added");
+        c.ui.shot("admin-from-may-not-widen").await;
+        c.ui.fill(from, "127.0.0.1").await;
+        c.ui.wait_for(
+            "[data-schema='visitors/*/admin_from'] [data-chip='127.0.0.1']",
+            SECS,
+        )
+        .await;
+        c.ui.wait_gone(
+            "[data-schema='visitors/*/admin_from'] [data-testid=grant-lock]",
+            SECS,
+        )
+        .await;
+
+        c.ui.nav("/visitors/viewer").await;
+        edit_mode(c).await;
+        c.ui.choose("f-visitors-viewer-admin", UNSET).await;
+        wait_checked(c).await;
+        open_review(c, "viewer-loses-admin").await;
+        applied(c, "viewer-is-no-admin").await;
+        let text = c.world.config();
+        assert!(!text.contains("admin: read"), "{text}");
+        assert!(
+            text.contains("admin_from: [127.0.0.1/32, 127.0.0.1]"),
+            "{text}"
+        );
+        c.ui.assert_no_errors();
+    })
+}
+
+#[test]
+fn admin_power_is_only_lowered_in_the_visitor_form() {
+    run("grant-lock", Options::default(), false, grant_lock);
 }
 
 fn revert_conflict(c: &mut Ctx) -> Flow<'_> {
@@ -726,4 +949,173 @@ fn locked_fields(c: &mut Ctx) -> Flow<'_> {
 #[test]
 fn locked_server_fields_are_read_only() {
     run("locked-fields", Options::default(), false, locked_fields);
+}
+
+async fn revert_review_left(c: &mut Ctx, ready: bool) {
+    let rev = activity_rev(c, 0).await;
+    c.ui.click(&format!("[data-row='{rev}'] [data-testid=list-row]"))
+        .await;
+    c.ui.wait_for("[data-testid=activity-diff]", SECS).await;
+    c.ui.click("[data-testid=revert]").await;
+    c.ui.wait_for("[data-testid=review]", SECS).await;
+    if ready {
+        c.ui.wait_for("[data-testid=apply]:not([disabled])", SECS)
+            .await;
+    }
+}
+
+fn stale_revert(c: &mut Ctx) -> Flow<'_> {
+    Box::pin(async move {
+        open(c, "ops").await;
+        c.ui.nav("/services/web").await;
+        edit_mode(c).await;
+        c.ui.fill("#f-services-web-target", "4001").await;
+        wait_checked(c).await;
+        open_review(c, "change-to-revert").await;
+        applied(c, "changed").await;
+        revert_review_left(c, true).await;
+        c.ui.shot("revert-reviewed-then-left").await;
+        c.ui.nav("/clients").await;
+        c.ui.click("[data-testid=new]").await;
+        c.ui.fill("#new-name", "lab9").await;
+        c.ui.click("[data-testid=create-apply]").await;
+        c.ui.wait_for("[data-testid=shown-once]", Duration::from_secs(20))
+            .await;
+        c.ui.shot("create-and-apply-after-a-left-revert").await;
+        let after = c.world.config();
+        assert!(
+            after.contains("lab9:"),
+            "the new client is applied: {after}"
+        );
+        assert!(
+            after.contains("4001"),
+            "the revert was applied without a click: {after}"
+        );
+        c.ui.click("[data-testid=saved]").await;
+        c.ui.click("[data-testid=close-shown-once]").await;
+        c.ui.wait_gone("[data-testid=shown-once]", SECS).await;
+
+        revert_review_left(c, false).await;
+        c.ui.nav("/services/web").await;
+        edit_mode(c).await;
+        c.ui.fill("#f-services-web-target", "4002").await;
+        wait_checked(c).await;
+        open_review(c, "draft-review-after-a-left-revert").await;
+        c.ui.wait_for("[data-testid=apply]:not([disabled])", SECS)
+            .await;
+        let label = c.ui.text("[data-testid=apply]").await;
+        assert!(
+            !label.contains("revert"),
+            "the draft's review shows: {label}"
+        );
+        c.ui.take_errors();
+    })
+}
+
+#[test]
+fn a_revert_review_left_unapplied_is_never_applied_later() {
+    run("stale-revert", Options::default(), false, stale_revert);
+}
+
+fn revert_after_restart(c: &mut Ctx) -> Flow<'_> {
+    Box::pin(async move {
+        let original = c.world.config();
+        open(c, "ops").await;
+        c.ui.nav("/services/web").await;
+        edit_mode(c).await;
+        c.ui.fill("#f-services-web-target", "4001").await;
+        wait_checked(c).await;
+        open_review(c, "change-before-a-restart").await;
+        applied(c, "changed").await;
+        c.world.stop("server");
+        c.ui.wait_text(
+            "[data-testid=conn-pill]",
+            "Reconnecting",
+            Duration::from_secs(15),
+        )
+        .await;
+        c.world
+            .start("server", &["server", "-c", "server.yaml"], &[]);
+        c.ui.wait_text(
+            "[data-testid=conn-pill]",
+            "Connected",
+            Duration::from_secs(30),
+        )
+        .await;
+        let older = activity_rev(c, 1).await;
+        c.ui.click(&format!("[data-row='{older}'] [data-testid=list-row]"))
+            .await;
+        c.ui.wait_for("[data-testid=revert]", SECS).await;
+        c.ui.shot("a-kept-version-after-a-restart").await;
+        c.ui.click("[data-testid=revert]").await;
+        c.ui.wait_for("[data-testid=review]", SECS).await;
+        c.ui.shot("review-of-a-kept-version").await;
+        applied(c, "reverted-after-a-restart").await;
+        assert_eq!(
+            c.world.config(),
+            original,
+            "the revert brings back the kept version"
+        );
+        c.ui.take_errors();
+    })
+}
+
+#[test]
+fn a_kept_version_can_be_reverted_after_a_server_restart() {
+    run(
+        "revert-after-restart",
+        Options::default(),
+        false,
+        revert_after_restart,
+    );
+}
+
+fn draft_after_a_viewed_revert_conflict(c: &mut Ctx) -> Flow<'_> {
+    Box::pin(async move {
+        open(c, "ops").await;
+        c.ui.nav("/services/web").await;
+        edit_mode(c).await;
+        c.ui.fill("#f-services-web-target", "4002").await;
+        wait_checked(c).await;
+        open_review(c, "a-change").await;
+        applied(c, "changed").await;
+        revert_review_left(c, true).await;
+        c.world
+            .hand_edit(|t| t.replace("target: 4002", "target: 4003"));
+        c.ui.wait_for("[data-testid=banner-changed]", SECS).await;
+        c.ui.click("[data-testid=apply]").await;
+        c.ui.wait_for("[data-testid=conflict]", SECS).await;
+        c.ui.click("[data-testid=conflict-view]").await;
+        c.ui.wait_gone("[data-testid=conflict]", SECS).await;
+        c.ui.nav("/services/web").await;
+        edit_mode(c).await;
+        c.ui.fill("#f-services-web-target", "4005").await;
+        wait_checked(c).await;
+        c.world.hand_edit(|t| format!("{t}\n# touched\n"));
+        c.ui.wait_for("[data-testid=conflict]", Duration::from_secs(15))
+            .await;
+        c.ui.click("[data-testid=conflict-recheck]").await;
+        c.ui.wait_gone("[data-testid=conflict]", SECS).await;
+        wait_checked(c).await;
+        open_review(c, "review-my-draft-after-viewing-a-revert-conflict").await;
+        c.ui.wait_for("[data-testid=apply]", SECS).await;
+        let label = c.ui.text("[data-testid=apply]").await;
+        assert!(
+            !label.contains("revert"),
+            "the draft's review opens: {label}"
+        );
+        let page = c.ui.text("[data-testid=review]").await;
+        assert!(page.contains("4005"), "the draft is reviewed: {page}");
+        c.ui.take_errors();
+    })
+}
+
+#[test]
+fn review_my_draft_opens_the_draft_after_a_revert_conflict_was_viewed() {
+    run(
+        "draft-after-revert-conflict",
+        Options::default(),
+        false,
+        draft_after_a_viewed_revert_conflict,
+    );
 }

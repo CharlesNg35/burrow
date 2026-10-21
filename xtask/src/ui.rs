@@ -18,10 +18,7 @@ const WATCHED: &[&str] = &[
 ];
 
 pub fn blake2s(bytes: &[u8]) -> String {
-    blake2::Blake2s256::digest(bytes)
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
+    hex::encode(blake2::Blake2s256::digest(bytes))
 }
 
 fn run(cmd: &mut Command) -> Result<(), String> {
@@ -67,25 +64,10 @@ fn mime(name: &str) -> &'static str {
 fn sri(bytes: &[u8]) -> String {
     use sha2::Digest as _;
     let d = sha2::Sha384::digest(bytes);
-    format!("sha384-{}", base64(&d))
-}
-
-fn base64(bytes: &[u8]) -> String {
-    const T: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::new();
-    for c in bytes.chunks(3) {
-        let n = (u32::from(c[0]) << 16)
-            | (u32::from(*c.get(1).unwrap_or(&0)) << 8)
-            | u32::from(*c.get(2).unwrap_or(&0));
-        for i in 0..4 {
-            if i <= c.len() {
-                out.push(T[(n >> (18 - 6 * i) & 63) as usize] as char);
-            } else {
-                out.push('=');
-            }
-        }
-    }
-    out
+    format!(
+        "sha384-{}",
+        base64::Engine::encode(&base64::engine::general_purpose::STANDARD, d)
+    )
 }
 
 fn write(dir: &Path, name: &str, bytes: &[u8]) -> Result<(), String> {
@@ -215,7 +197,7 @@ pub fn build(root: &Path, tools: &Tools, release: bool) -> Result<PathBuf, Strin
         let bytes = read(&p)?;
         let out = if name.ends_with(".woff2") {
             let h = hashed(&name, &bytes, release);
-            css_text = css_text.replace(&format!("/fonts/{name}"), &format!("/{h}"));
+            css_text = css_text.replace(&format!("/fonts/{name}"), &format!("./{h}"));
             h
         } else if name.starts_with("LICENSE") {
             "fonts-license.txt".to_string()
@@ -232,7 +214,7 @@ pub fn build(root: &Path, tools: &Tools, release: bool) -> Result<PathBuf, Strin
     let css_name = hashed("app.css", &css_bytes, release);
     write(&dist, &css_name, &css_bytes)?;
     let boot = format!(
-        "import init from \"./{js_name}\";\ninit({{ module_or_path: \"/{wasm_name}\" }});\n"
+        "import init from \"./{js_name}\";\ninit({{ module_or_path: new URL(\"./{wasm_name}\", import.meta.url) }});\n"
     );
     let boot_name = hashed("boot.js", boot.as_bytes(), release);
     write(&dist, &boot_name, boot.as_bytes())?;
@@ -392,11 +374,18 @@ mod tests {
 
     #[test]
     fn subresource_integrity_uses_standard_base64() {
-        assert_eq!(base64(b""), "");
-        assert_eq!(base64(b"f"), "Zg==");
-        assert_eq!(base64(b"fo"), "Zm8=");
-        assert_eq!(base64(b"foo"), "Zm9v");
-        assert!(sri(b"x").starts_with("sha384-"));
+        assert_eq!(
+            sri(b""),
+            "sha384-OLBgp1GsljhM2TJ+sbHjaiH9txEUvgdDTAzHv2P24donTt6/529l+9Ua0vFImLlb"
+        );
+        assert_eq!(
+            sri(b"f"),
+            "sha384-OjHKRDtsrjcXtKTxmXK8kkE2RTgOSZDk/k3DIjhklPraorY7T2K+bitwd+mCu3ra"
+        );
+        assert_eq!(
+            sri(b"foo"),
+            "sha384-mMEf/f3VQGdrGhN8saIrKnA1DJpEFx1rEYDGvly7LuP3nVMsih3Z7y6OCOdSo7q7"
+        );
     }
 
     #[test]

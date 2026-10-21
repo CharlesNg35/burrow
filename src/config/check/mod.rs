@@ -1,5 +1,6 @@
 mod client;
 mod connection;
+mod local;
 pub mod ports;
 mod server;
 mod service;
@@ -14,11 +15,11 @@ use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::time::Duration;
 
-use super::model::{Bind, TcpOptions};
 use super::settings::SocketTuning;
 use super::tree::{Node, Span, Value};
 use crate::diagnostics::Diagnostic;
 use crate::secret::SecretError;
+use burrow_config::{Bind, TcpOptions};
 
 pub const MAX_SECRETS_PER_CLIENT: usize = 4;
 pub use burrow_syntax::hostport::{MAX_TARGET_LEN, parse_host_port};
@@ -102,6 +103,14 @@ impl Spans {
     }
 }
 
+pub fn secretish(key: &str) -> bool {
+    use burrow_syntax::secret_fmt::{SECRET_LIKE, SECRET_WORD};
+    let key = key.to_ascii_lowercase();
+    key.contains(SECRET_WORD)
+        || SECRET_LIKE.contains(&key.as_str())
+        || crate::suggest::closest(&key, [SECRET_WORD]).is_some()
+}
+
 pub fn secret_spans(root: &Node) -> Vec<Span> {
     let mut out = Vec::new();
     fn collect(n: &Node, out: &mut Vec<Span>) {
@@ -112,12 +121,6 @@ pub fn secret_spans(root: &Node) -> Vec<Span> {
             _ => out.push(n.span),
         }
     }
-    let secretish = |key: &str| {
-        let key = key.to_ascii_lowercase();
-        key.contains("secret")
-            || ["key", "psk", "token", "password", "pass", "passwd"].contains(&key.as_str())
-            || crate::suggest::closest(&key, ["secret"]).is_some()
-    };
     if let Value::Map(top) = &root.value {
         let credentials = |e: &&crate::config::tree::Entry| {
             e.key == "server" && matches!(&e.value.value, Value::Str(s) if s.contains('@'))

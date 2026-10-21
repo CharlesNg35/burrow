@@ -1,12 +1,13 @@
 use std::collections::BTreeSet;
 
 use burrow_admin_proto::diag::Diag;
-use burrow_admin_proto::msg::{AuditEntry, ErrorCode};
+use burrow_admin_proto::msg::{AuditEntry, ErrorCode, LockedField};
 use burrow_admin_proto::ops::Op;
 use burrow_admin_proto::plan::{
     Applied, ApplyHow, Conflict, Plan, Reformat, ReloadFailed, RevealedSecret,
 };
 use burrow_admin_proto::schema::{Applies, SemType};
+use burrow_config::ServerConfig;
 use serde_json::Value;
 
 use super::diags::Mapper;
@@ -133,6 +134,29 @@ fn applies(core: &Core, old: &Value, new: &Value) -> Vec<ApplyHow> {
     out
 }
 
+fn impact_key(i: &burrow_admin_proto::plan::Impact) -> String {
+    let mut message = String::with_capacity(i.message.len());
+    let mut in_number = false;
+    for c in i.message.chars() {
+        if c.is_ascii_digit() {
+            if !in_number {
+                message.push('#');
+            }
+            in_number = true;
+        } else {
+            in_number = false;
+            message.push(c);
+        }
+    }
+    format!(
+        "{:?}|{}|{:?}|{}",
+        i.level,
+        i.code,
+        i.confirm,
+        message.replace("connections", "connection")
+    )
+}
+
 pub fn compute(
     core: &Core,
     s: &Session,
@@ -186,7 +210,7 @@ pub fn compute(
                 locked.join(".")
             ),
         )
-        .with(serde_json::json!({ "path": locked })));
+        .with(serde_json::to_value(LockedField { path: locked }).unwrap_or_default()));
     }
     let applied = ops::apply(&raw, ops_list, &Cx { core, session: s })
         .map_err(|e| ApiError::new(ErrorCode::BadRequest, e.0))?;
@@ -215,6 +239,9 @@ pub fn compute(
         }
     };
     let checked = check_text(core, &new_text);
+    let new_raw = tree::parse(&patch::split_text(&new_text).2)
+        .map(|n| n.to_json())
+        .unwrap_or(Value::Null);
     let running = core.live.settings();
     let (mut refusals, mut impacts, mut clash) = (Vec::new(), Vec::new(), Vec::new());
     if let Some(next) = &checked.settings {
@@ -224,7 +251,24 @@ pub fn compute(
             secret: &s.secret,
             via_websocket: s.via_websocket,
         };
-        refusals = guard::refusals(&who, &running, next);
+        let file = check_text(core, &old_text);
+        let base = match (&file.settings, file.valid) {
+            (Some(settings), true) => guard::Base::Valid(settings),
+            _ => guard::Base::Broken {
+                raw: &raw,
+                next_raw: &new_raw,
+            },
+        };
+        refusals = guard::refusals(
+            &who,
+            &guard::Change {
+                running: &running,
+                base,
+                next,
+                renames: &applied.renames,
+                path: core.store.path(),
+            },
+        );
         if let Some(c) = running.listen_clash(next) {
             clash.push(Diag {
                 severity: burrow_admin_proto::diag::Severity::Error,
@@ -234,7 +278,7 @@ pub fn compute(
                     c.what, c.kept
                 ),
                 path: Some(c.path),
-                also: vec![vec!["listen".to_string()]],
+                also: vec![ServerConfig::LISTEN.path()],
                 label: None,
                 help: Some(
                     "restart the server after changing listen, then use the old address".into(),
@@ -265,11 +309,9 @@ pub fn compute(
         .collect();
     let mask = |l: &str| text::mask_secrets(l, &fresh_pairs);
     let diff = super::diff::unified(&old_text, &new_text, &mask);
-    let new_raw = tree::parse(&patch::split_text(&new_text).2)
-        .map(|n| n.to_json())
-        .unwrap_or(Value::Null);
     let changes = summary::changes(&raw, &new_raw, &applied.renames);
-    let impacts_json = serde_json::to_vec(&impacts).unwrap_or_default();
+    let impacts_json =
+        serde_json::to_vec(&impacts.iter().map(impact_key).collect::<Vec<_>>()).unwrap_or_default();
     let refusals_json = serde_json::to_vec(&refusals).unwrap_or_default();
     let hash = text::hash_parts(&[
         base.as_bytes(),
@@ -302,33 +344,6 @@ pub fn compute(
     })
 }
 
-fn put(root: &mut Value, path: &[String], v: Option<Value>) -> bool {
-    let Some((last, parents)) = path.split_last() else {
-        return false;
-    };
-    let mut cur = root;
-    for k in parents {
-        let Some(m) = cur.as_object_mut() else {
-            return false;
-        };
-        cur = m
-            .entry(k.clone())
-            .or_insert_with(|| Value::Object(Default::default()));
-    }
-    let Some(m) = cur.as_object_mut() else {
-        return false;
-    };
-    match v {
-        Some(v) => {
-            m.insert(last.clone(), v);
-        }
-        None => {
-            m.remove(last);
-        }
-    }
-    true
-}
-
 fn shown(v: Option<&Value>) -> String {
     match v {
         None | Some(Value::Null) => "not set".into(),
@@ -337,7 +352,7 @@ fn shown(v: Option<&Value>) -> String {
     }
 }
 
-pub fn keep_locked(
+fn keep_locked(
     schema: &burrow_admin_proto::schema::Schema,
     current: &Value,
     target: &Value,
@@ -350,7 +365,7 @@ pub fn keep_locked(
         if now == then {
             continue;
         }
-        if !put(&mut out, &path, now.clone()) {
+        if !burrow_admin_proto::value::put(&mut out, &path, now.clone()) {
             continue;
         }
         notes.push(burrow_admin_proto::plan::Impact {

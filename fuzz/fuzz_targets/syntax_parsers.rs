@@ -1,6 +1,6 @@
 #![no_main]
 
-use burrow_syntax::{duration, hostport, ip, name, ports, rate, rule, secret_fmt, target};
+use burrow_syntax::{duration, env, hostport, ip, name, ports, rate, rule, secret_fmt, target};
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {
@@ -20,12 +20,12 @@ fuzz_target!(|data: &[u8]| {
     if let Ok(r) = s.parse::<rule::Rule>() {
         assert_eq!(r.to_string().parse::<rule::Rule>().ok(), Some(r));
     }
-    let _ = rule::parse_cidr_loose(s);
     if let Ok(t) = target::parse_target(s) {
         assert_eq!(target::parse_target(&t.full()).ok(), Some(t.clone()));
     }
     let _ = target::parse_bind(s, [0, 0, 0, 0], 1000);
     let _ = duration::to_stored(s, duration::TimeUnit::Mins, duration::TimeUnit::Secs);
-    let _ = secret_fmt::env_vars(s);
+    let _ = env::names(s);
+    let _ = env::pieces(s);
     let _ = secret_fmt::looks_like_secret(s);
 });

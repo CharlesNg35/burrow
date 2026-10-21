@@ -4,7 +4,7 @@ use crate::secret::Secret;
 
 pub fn rev(text: &str) -> String {
     let digest = blake2::Blake2s256::digest(text.as_bytes());
-    let hex: String = digest[..8].iter().map(|b| format!("{b:02x}")).collect();
+    let hex = hex::encode(&digest[..8]);
     format!("b2s:{hex}")
 }
 
@@ -15,12 +15,17 @@ pub fn hash_parts(parts: &[&[u8]]) -> String {
         h.update(p);
     }
     let digest = h.finalize();
-    let hex: String = digest[..8].iter().map(|b| format!("{b:02x}")).collect();
+    let hex = hex::encode(&digest[..8]);
     format!("b2s:{hex}")
 }
 
 fn token_char(c: char) -> bool {
     c.is_ascii_alphanumeric() || matches!(c, '+' | '/' | '=' | '-' | '_')
+}
+
+pub fn holds_secret(text: &str) -> bool {
+    text.split(|c: char| !token_char(c))
+        .any(|t| !t.is_empty() && Secret::parse(t).is_ok())
 }
 
 pub fn mask_secrets(line: &str, fresh: &[(String, String)]) -> String {

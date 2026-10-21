@@ -1,4 +1,3 @@
-pub mod address;
 pub mod admin_schema;
 pub mod check;
 pub mod discover;
@@ -6,7 +5,6 @@ pub mod emit;
 pub mod env;
 pub mod grants;
 pub mod load;
-pub mod model;
 pub mod patch;
 pub mod schema;
 pub mod settings;

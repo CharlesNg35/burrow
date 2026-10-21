@@ -21,6 +21,7 @@ user ──> server:7840 ══ Noise-encrypted TCP or WebSocket ══ client (
 - TCP and UDP services, port ranges and Unix sockets
 - Private services that only your own machines reach, with `burrow visit` or a SOCKS5 proxy
 - Several clients per service, with failover or load balancing and health checks
+- Services and visitor access on the server machine itself, with `client: self`
 - Per service: allowed source IPs, the real client address for your app, and speed limits
 - Encrypted, with a separate secret per client; a client only reaches what it allows
 - Config changes apply on save, without a restart
@@ -227,6 +228,25 @@ web:
 **Speed limits.** Services are unlimited unless `bandwidth` is set. `bandwidth: 40mbit` (or `5MB`, bytes per second) caps each direction of a service, shared by all its connections. TCP slows down; UDP datagrams over the rate are dropped.
 
 **Unix sockets.** `target: unix:/var/run/docker.sock` makes the client connect to a Unix socket. Its `allow` list must permit it, with `unix:/var/run/docker.sock` or `unix:/var/run/*`. A socket path that is itself a symbolic link is refused; allow the socket it points to. A client installed with `burrow service` cannot see sockets under `/tmp` or in home folders, and its account must be allowed to connect (`--run-as` picks another one).
+
+**On the server itself.** `client: self` makes the server connect to the target itself, with no client. Everything else works as for any client: public and private services, UDP, ranges, limits, the PROXY protocol, health checks, and `self` among several `clients`. Visitors reach the server's own network with `reach: self`. A `self` section bounds what the server may dial for itself; without it, `self` services reach only their own target and `reach: self` is refused. The server never dials its own listen, WebSocket or metrics addresses, nor a link-local or metadata address (such as 169.254.169.254) that `self.allow` does not list on its own.
+
+```yaml
+# server.yaml
+self:
+  allow: [127.0.0.1/32, 10.0.0.0/24]
+services:
+  db: { client: self, target: 127.0.0.1:5432, visitors: [laptop] }
+  web: { client: self, bind: 8080, target: 127.0.0.1:3000 }
+  app: { clients: [self, home], bind: 443, target: 127.0.0.1:8443 }
+visitors:
+  laptop:
+    secret: ${LAPTOP_SECRET}
+    reach:
+      self: [127.0.0.1/32:22, 10.0.0.0/24] # or any: everything self.allow permits
+```
+
+In `visitor.yaml`: `host: { client: self, socks: true, local: 1080 }`.
 
 ## Private services and visitors
 
@@ -587,11 +607,11 @@ On Linux and macOS, `install` copies the binary to `/usr/local/bin` (when only r
 
 - Checks the config first, and checks that every port it listens on is free. If another program holds a port, it names it (`tcp port 7840 (service "web") is already in use by nginx (pid 812)`) and changes nothing.
 - Copies the config to `/etc/burrow/` (`%ProgramData%\burrow\` on Windows), readable only by the service. Edit that copy, or use `burrow edit`: the service applies it on save, and `edit` refuses a change the service could not run after a restart, such as a port below 1024 it was not installed for. `status` tells you when the file you installed from has changed since. A server with an admin visitor (or installed with `--admin-writable`) gets its own folder, `/etc/burrow/<name>/server.yaml`, that only its account may change, so `burrow admin` can edit it; every other service keeps a config it cannot change.
-- Copies the binary to `/usr/local/bin/burrow` (`%ProgramFiles%\burrow\` on Windows), unless it already lives in a root-owned folder such as one managed by a package manager. If other users can write `/usr/local/bin`, the service gets its own copy in a root-only folder. A service never runs a binary from a user's home folder.
+- Copies the binary to `/usr/local/bin/burrow` (`%ProgramFiles%\burrow\` on Windows), creating the folder if it is missing, wherever you ran it from, so the service never depends on the folder you downloaded burrow to (`/root`, a home folder or any private folder). If other users can write `/usr/local/bin`, the service gets its own copy in a root-only folder. Installing again from the same file copies nothing new.
 - Runs the service as a dedicated account without login or home: `burrow` on Linux, `_burrow` on macOS, the virtual account `NT SERVICE\burrow-<name>` on Windows. `--run-as` picks another one. Ports below 1024 get only `CAP_NET_BIND_SERVICE` on Linux.
 - Writes logs to `/var/log/burrow/<name>/<name>.log` (`%ProgramData%\burrow\logs\<name>.log` on Windows), rotated at 10 MB with 5 old files kept, so a log never fills the disk.
 
-The service name comes from the config file name (`server.yaml` → `burrow-server`) or `--name`. You can install several servers and clients side by side. The same tunnel cannot run twice: a second copy of a server config, or a second client with the same name for the same server, is refused while the first one runs. A service itself is never kept from starting by a copy started by hand: it starts with a warning, and the server then refuses the duplicate client or the duplicate ports.
+The service name comes from the config file name (`server.yaml` → `burrow-server`) or `--name`. `services`, `jobs`, `logs`, `bin` and `instances` are burrow's own folders, so they cannot be service names. You can install several servers and clients side by side. The same tunnel cannot run twice: a second copy of a server config, or a second client with the same name for the same server, is refused while the first one runs. A service itself is never kept from starting by a copy started by hand: it starts with a warning, and the server then refuses the duplicate client or the duplicate ports.
 
 Variables used as `${VAR}` in the config are saved for the service at install time, readable by it only. `sudo` drops environment variables, so keep them with `sudo --preserve-env=HOME_SECRET ./burrow service install`; the install says so if one is missing.
 

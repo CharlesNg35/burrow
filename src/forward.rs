@@ -22,7 +22,7 @@ const KEEP_EARLY: usize = 64 * 1024;
 const EARLY_READ: usize = SMALL;
 
 const CLOSE_TIMEOUT: Duration = Duration::from_secs(2);
-const ANSWER_TIMEOUT: Duration = Duration::from_secs(10);
+pub(crate) const ANSWER_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Clone, Copy, Default)]
 pub struct Meter<'a> {
@@ -768,9 +768,9 @@ pub async fn send_and_close(mut ch: Channel, bytes: &[u8]) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::model::Cipher;
     use crate::noise::{Initiator, Responder};
     use crate::secret::Secret;
+    use burrow_config::Cipher;
     use std::time::Instant;
     use tokio::net::TcpListener;
 

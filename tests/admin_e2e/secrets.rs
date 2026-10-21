@@ -285,3 +285,157 @@ fn e9_revoked_access_is_shown_and_a_restart_keeps_the_draft() {
         revoke_and_reconnect,
     );
 }
+
+fn request_while_reconnecting(c: &mut Ctx) -> Flow<'_> {
+    Box::pin(async move {
+        open(c, "ops").await;
+        c.ui.nav("/services/web").await;
+        super::edit_mode(c).await;
+        c.ui.fill("#f-services-web-target", "4100").await;
+        wait_checked(c).await;
+        c.ui.click("[data-testid=review-open]").await;
+        c.ui.wait_for("[data-testid=apply]:not([disabled])", SECS)
+            .await;
+        c.world.stop("server");
+        c.ui.wait_text(
+            "[data-testid=conn-pill]",
+            "Reconnecting",
+            Duration::from_secs(15),
+        )
+        .await;
+        c.ui.click("[data-testid=apply]").await;
+        c.ui.shot("apply-while-reconnecting").await;
+        c.world
+            .start("server", &["server", "-c", "server.yaml"], &[]);
+        c.ui.wait_text(
+            "[data-testid=conn-pill]",
+            "Connected",
+            Duration::from_secs(30),
+        )
+        .await;
+        c.ui.wait_gone("[data-testid=apply][aria-busy=true]", SECS)
+            .await;
+        let lab = super::world::secret();
+        c.world.hand_edit(|t| {
+            t.replacen(
+                "clients:\n",
+                &format!("clients:\n  lab:\n    secret: {lab}\n"),
+                1,
+            )
+        });
+        c.ui.wait_for(
+            "[data-testid=banner-changed], [data-testid=conflict]",
+            Duration::from_secs(15),
+        )
+        .await;
+        c.ui.shot("later-change-noticed").await;
+        c.ui.take_errors();
+    })
+}
+
+#[test]
+fn e9b_a_change_sent_while_reconnecting_fails_and_later_changes_still_show() {
+    run(
+        "e9b-request-while-reconnecting",
+        Options::default(),
+        false,
+        request_while_reconnecting,
+    );
+}
+
+fn create_and_apply(c: &mut Ctx) -> Flow<'_> {
+    Box::pin(async move {
+        open(c, "ops").await;
+        c.ui.nav("/clients").await;
+        c.ui.click("[data-testid=new]").await;
+        c.ui.fill("#new-name", "lab").await;
+        c.ui.click("[data-testid=create-apply]").await;
+        c.ui.wait_for("[data-testid=shown-once]", Duration::from_secs(20))
+            .await;
+        c.ui.shot("created-and-applied").await;
+        c.ui.click("[data-testid=saved]").await;
+        c.ui.click("[data-testid=close-shown-once]").await;
+        c.ui.wait_gone("[data-testid=shown-once]", SECS).await;
+        assert!(
+            c.world.config().contains("  lab:\n"),
+            "{}",
+            c.world.config()
+        );
+
+        c.ui.nav("/services/web").await;
+        super::edit_mode(c).await;
+        c.ui.fill("#f-services-web-target", "4100").await;
+        wait_checked(c).await;
+        c.ui.nav("/clients").await;
+        c.ui.click("[data-testid=new]").await;
+        c.ui.fill("#new-name", "lab2").await;
+        c.ui.click("[data-testid=create-apply]").await;
+        c.ui.wait_for("[data-testid=review]", SECS).await;
+        c.ui.wait_for("[data-testid=apply]:not([disabled])", SECS)
+            .await;
+        c.ui.wait_text("[data-testid=review-count]", "2", SECS)
+            .await;
+        tokio::time::sleep(Duration::from_secs(3)).await;
+        c.ui.shot("create-and-apply-with-pending-edits-stops-at-review")
+            .await;
+        assert_eq!(c.ui.count("[data-testid=shown-once]").await, 0);
+        let text = c.world.config();
+        assert!(!text.contains("lab2:"), "nothing applied: {text}");
+        assert!(!text.contains("4100"), "nothing applied: {text}");
+        c.ui.assert_no_errors();
+    })
+}
+
+#[test]
+fn e2b_create_and_apply_with_pending_edits_stops_at_the_review() {
+    run(
+        "e2b-create-and-apply",
+        Options::default(),
+        false,
+        create_and_apply,
+    );
+}
+
+fn create_and_apply_after_a_conflict(c: &mut Ctx) -> Flow<'_> {
+    Box::pin(async move {
+        open(c, "ops").await;
+        c.ui.nav("/clients").await;
+        c.ui.click("[data-testid=new]").await;
+        c.ui.fill("#new-name", "lab3").await;
+        let lab = super::world::secret();
+        c.world.hand_edit(|t| {
+            t.replacen(
+                "clients:\n",
+                &format!("clients:\n  lab:\n    secret: {lab}\n"),
+                1,
+            )
+        });
+        c.ui.click("[data-testid=create-apply]").await;
+        c.ui.wait_for("[data-testid=conflict]", Duration::from_secs(15))
+            .await;
+        c.ui.shot("create-and-apply-conflict").await;
+        c.ui.click("[data-testid=conflict-recheck]").await;
+        c.ui.wait_gone("[data-testid=conflict]", SECS).await;
+        wait_checked(c).await;
+        c.ui.click("[data-testid=review-open]").await;
+        c.ui.wait_for("[data-testid=apply]:not([disabled])", SECS)
+            .await;
+        tokio::time::sleep(Duration::from_secs(3)).await;
+        c.ui.shot("after-a-conflict-the-review-waits-for-apply")
+            .await;
+        let text = c.world.config();
+        assert!(!text.contains("lab3:"), "nothing applied: {text}");
+        assert_eq!(c.ui.count("[data-testid=shown-once]").await, 0);
+        c.ui.take_errors();
+    })
+}
+
+#[test]
+fn e2c_create_and_apply_that_met_a_conflict_waits_for_apply() {
+    run(
+        "e2c-create-and-apply-conflict",
+        Options::default(),
+        false,
+        create_and_apply_after_a_conflict,
+    );
+}

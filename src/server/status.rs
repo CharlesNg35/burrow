@@ -3,12 +3,13 @@ use std::sync::atomic::Ordering;
 use super::Shared;
 use super::standing::Seen;
 use crate::metrics::{ClientStatus, HealthStatus, ServiceStatus, SetAside, Status, VisitorStatus};
+use burrow_config::SELF;
 
 impl Shared {
     pub fn status(&self) -> Status {
         let settings = self.settings();
         let sessions = self.sessions.lock().expect("sessions lock").clone();
-        let clients = settings
+        let mut clients: Vec<ClientStatus> = settings
             .clients
             .keys()
             .map(|name| match sessions.get(name) {
@@ -20,6 +21,7 @@ impl Shared {
                     open: self.client_counts.current(name),
                     idle_channels: s.idle_count() as u64,
                     left_secs_ago: None,
+                    local: false,
                 },
                 None => ClientStatus {
                     name: name.clone(),
@@ -29,36 +31,47 @@ impl Shared {
                     open: self.client_counts.current(name),
                     idle_channels: 0,
                     left_secs_ago: self.metrics.left_secs_ago(name),
+                    local: false,
                 },
             })
             .collect();
+        if settings.uses_self() {
+            clients.push(ClientStatus {
+                name: SELF.to_string(),
+                connected: true,
+                connected_secs: Some(self.metrics.uptime_secs()),
+                from: None,
+                open: self.client_counts.current(SELF),
+                idle_channels: 0,
+                left_secs_ago: None,
+                local: true,
+            });
+        }
         let services = settings
             .services
             .iter()
             .map(|(name, svc)| {
                 let stats = self.metrics.service(name);
                 let health = match svc.health {
-                    Some(_) => svc
-                        .clients
+                    Some(_) => self
+                        .connected(&svc.clients)
                         .iter()
-                        .filter(|c| sessions.contains_key(*c))
                         .map(|c| HealthStatus {
-                            client: c.clone(),
-                            up: self.is_up(name, c),
+                            client: c.name().to_string(),
+                            up: self.is_up(name, c.name()),
                         })
                         .collect(),
                     None => Vec::new(),
                 };
                 let set_aside = match svc.clients.len() {
                     0 | 1 => Vec::new(),
-                    _ => svc
-                        .clients
+                    _ => self
+                        .connected(&svc.clients)
                         .iter()
-                        .filter_map(|c| sessions.get(c))
                         .filter_map(|s| match self.seen_any(name, s) {
                             Seen::Clear => None,
                             seen => Some(SetAside {
-                                client: s.name.clone(),
+                                client: s.name().to_string(),
                                 refused: seen == Seen::Refused,
                             }),
                         })
@@ -66,26 +79,14 @@ impl Shared {
                 };
                 ServiceStatus {
                     name: name.clone(),
-                    protocol: svc.protocol.as_str().to_string(),
+                    protocol: svc.protocol.wire().to_string(),
                     bind: svc.shown_bind(),
                     target: svc.shown_target(),
                     clients: svc.clients.clone(),
-                    mode: (svc.clients.len() > 1).then(|| {
-                        match svc.mode {
-                            crate::config::model::Mode::Failover => "failover",
-                            crate::config::model::Mode::Balance => "balance",
-                        }
-                        .to_string()
-                    }),
+                    mode: (svc.clients.len() > 1).then(|| svc.mode.wire().to_string()),
                     bandwidth: svc.bandwidth,
                     visitors: svc.visitors.clone(),
-                    proxy_protocol: svc.proxy_protocol.map(|v| {
-                        match v {
-                            crate::proxy_protocol::Version::V1 => "v1",
-                            crate::proxy_protocol::Version::V2 => "v2",
-                        }
-                        .to_string()
-                    }),
+                    proxy_protocol: svc.proxy_protocol.map(|v| v.wire().to_string()),
                     filtered: !svc.sources.is_open(),
                     open: self.service_counts.current(name),
                     total: stats.total.load(Ordering::Relaxed),

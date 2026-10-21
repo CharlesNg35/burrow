@@ -3,11 +3,32 @@ use std::process::Command;
 
 const CRATE_DEPS: &[(&str, &[&str], &[&str])] = &[
     ("burrow-syntax", &[], &[]),
-    ("burrow-admin-proto", &["serde", "serde_json"], &[]),
+    (
+        "burrow-admin-proto",
+        &["serde", "serde_json", "schemars"],
+        &[],
+    ),
     ("burrow-admin-derive", &["proc-macro2", "quote", "syn"], &[]),
     (
+        "burrow-config",
+        &[
+            "serde",
+            "burrow-admin-proto",
+            "burrow-admin-derive",
+            "burrow-syntax",
+            "schemars",
+        ],
+        &[
+            "burrow",
+            "tokio",
+            "burrow-ui-kit",
+            "burrow-admin-logic",
+            "burrow-admin-ui",
+        ],
+    ),
+    (
         "burrow-admin-logic",
-        &["burrow-admin-proto", "burrow-syntax"],
+        &["burrow-admin-proto", "burrow-config", "burrow-syntax"],
         &[],
     ),
     (
@@ -25,6 +46,7 @@ const CRATE_DEPS: &[(&str, &[&str], &[&str])] = &[
             "js-sys",
             "burrow-admin-proto",
             "burrow-admin-logic",
+            "burrow-config",
             "burrow-ui-kit",
             "burrow-syntax",
             "console_error_panic_hook",
@@ -36,7 +58,8 @@ const CRATE_DEPS: &[(&str, &[&str], &[&str])] = &[
 const ROOT_NEVER: &[&str] = &["burrow-ui-kit", "burrow-admin-logic", "burrow-admin-ui"];
 
 pub fn run(root: &Path) -> Result<(), String> {
-    let problems = check_deps(root)?;
+    let mut problems = check_deps(root)?;
+    problems.extend(crate::fields::problems(root)?);
     if problems.is_empty() {
         println!("arch-check: ok");
         Ok(())
@@ -124,5 +147,19 @@ mod tests {
             1
         );
         assert_eq!(dep_problems("burrow", &["burrow-admin-ui"]).len(), 1);
+        assert!(
+            dep_problems(
+                "burrow-config",
+                &[
+                    "serde",
+                    "burrow-admin-proto",
+                    "burrow-admin-derive",
+                    "schemars"
+                ]
+            )
+            .is_empty()
+        );
+        assert_eq!(dep_problems("burrow-config", &["serde", "tokio"]).len(), 1);
+        assert_eq!(dep_problems("burrow-config", &["burrow"]).len(), 1);
     }
 }

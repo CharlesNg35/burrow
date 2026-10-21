@@ -41,7 +41,6 @@ struct Entry {
     file: PathBuf,
     gzipped: bool,
     hash: String,
-    immutable: bool,
 }
 
 fn assets() {
@@ -84,7 +83,6 @@ fn assets() {
                 };
                 println!("cargo:rerun-if-changed={}", file.display());
                 entries.push(Entry {
-                    immutable: path != "/index.html",
                     path,
                     mime,
                     file,
@@ -114,7 +112,6 @@ fn assets() {
                     file: page,
                     gzipped: false,
                     hash: blake2s(PLACEHOLDER.as_bytes())[..16].to_string(),
-                    immutable: false,
                 }],
                 "placeholder".to_string(),
                 "none".to_string(),
@@ -128,13 +125,12 @@ fn assets() {
     let mut code = String::from("pub static ASSETS: &[Asset] = &[\n");
     for e in &entries {
         code.push_str(&format!(
-            "    Asset {{ path: {:?}, mime: {:?}, body: include_bytes!({:?}), gzipped: {}, etag: {:?}, immutable: {} }},\n",
+            "    Asset {{ path: {:?}, mime: {:?}, body: include_bytes!({:?}), gzipped: {}, etag: {:?} }},\n",
             e.path,
             e.mime,
             e.file.display().to_string(),
             e.gzipped,
-            e.hash,
-            e.immutable
+            e.hash
         ));
     }
     code.push_str("];\n");

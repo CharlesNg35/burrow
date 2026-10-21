@@ -3,9 +3,9 @@ use leptos::prelude::*;
 pub fn path(name: &str) -> &'static str {
     match name {
         "overview" => "M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z",
-        "services" => "M4 5h16v5H4zM4 14h16v5H4zM7.5 7.5h.01M7.5 16.5h.01",
-        "clients" | "monitor" => "M3.5 5h17v11h-17zM9 20h6M12 16v4",
-        "visitors" | "person" => "M12 12a4 4 0 100-8 4 4 0 000 8zM5 20a7 7 0 0114 0",
+        "stack" => "M4 5h16v5H4zM4 14h16v5H4zM7.5 7.5h.01M7.5 16.5h.01",
+        "monitor" => "M3.5 5h17v11h-17zM9 20h6M12 16v4",
+        "person" => "M12 12a4 4 0 100-8 4 4 0 000 8zM5 20a7 7 0 0114 0",
         "settings" => "M4 7h10M18 7h2M4 17h4M12 17h8M14 4.5v5M8 14.5v5",
         "activity" | "history" => {
             "M3.5 12a8.5 8.5 0 108.5-8.5A8.5 8.5 0 005.5 6.5M3.5 3.5v3h3M12 8v4l3 2"
@@ -34,7 +34,7 @@ pub fn path(name: &str) -> &'static str {
         "eye" => {
             "M2.5 12s3.5-6.5 9.5-6.5 9.5 6.5 9.5 6.5-3.5 6.5-9.5 6.5S2.5 12 2.5 12zM12 15a3 3 0 100-6 3 3 0 000 6z"
         }
-        "key" => {
+        "passkey" => {
             "M14.5 9.5a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0zM13.2 12.7L20 19.5M17 16.5l2-2M15 14.5l1.5-1.5"
         }
         "terminal" => "M4 5h16v14H4zM7.5 9.5l3 2.5-3 2.5M12.5 15h4",
@@ -56,7 +56,7 @@ pub fn path(name: &str) -> &'static str {
         "trash" => "M4 7h16M10 11v6M14 11v6M5.5 7l1 13h11l1-13M9 7V4h6v3",
         "external" => "M14 4h6v6M20 4l-9 9M18 14v6H4V6h6",
         "more" => "M5 12h.01M12 12h.01M19 12h.01",
-        "target" => "M10 3h4v4h-4zM3.5 17h4v4h-4zM16.5 17h4v4h-4zM12 7v4M5.5 17v-3h13v3",
+        "fork" => "M10 3h4v4h-4zM3.5 17h4v4h-4zM16.5 17h4v4h-4zM12 7v4M5.5 17v-3h13v3",
         "sun" => {
             "M12 16a4 4 0 100-8 4 4 0 000 8zM12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"
         }

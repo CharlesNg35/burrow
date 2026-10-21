@@ -128,9 +128,9 @@ fn export(
 }
 
 fn visit_pick(args: burrow::cli::VisitArgs) -> Result<burrow::visitor::Pick, Failure> {
-    use burrow::config::model::{Bind, Target};
     use burrow::protocol::VisitTarget;
     use burrow::visitor::Pick;
+    use burrow_config::{Bind, Target};
     let local = match &args.local {
         Some(l) => Some(
             burrow::config::check::parse_local(&Bind::Addr(l.clone())).map_err(|e| {

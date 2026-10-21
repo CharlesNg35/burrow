@@ -294,6 +294,10 @@ impl Backend for Systemd {
         run("systemctl", &["reload", &m.name]).map(drop)
     }
 
+    fn journal_hint(&self, m: &Manifest) -> Option<String> {
+        Some(format!("sudo journalctl -u {} -n 50", m.name))
+    }
+
     fn status(&self, m: &Manifest) -> Status {
         let text = run(
             "systemctl",
@@ -327,10 +331,18 @@ impl Backend for Systemd {
                 "the config has errors or cannot be read (exit 3); fix it, then: {}",
                 crate::failure::admin(&format!("service start {}", m.name))
             ),
-            code if !code.is_empty() && code != "0" => format!(
-                "{} {} (last exit code {code})",
+            "203" => format!(
+                "{} {}: systemd could not run {} as {} (203/EXEC); the account may not reach the binary",
                 get("ActiveState"),
-                get("SubState")
+                get("SubState"),
+                m.binary.display(),
+                m.account
+            ),
+            code if !code.is_empty() && code != "0" => format!(
+                "{} {} (last exit code {code}, result {})",
+                get("ActiveState"),
+                get("SubState"),
+                get("Result")
             ),
             _ => format!("{} {}", get("ActiveState"), get("SubState")),
         };

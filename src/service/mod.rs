@@ -18,11 +18,11 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::config::model::Protocol;
 use crate::config::{Loaded, Role, load_file};
 use crate::diagnostics::Style;
 use crate::failure::Failure;
 use crate::instance::Identity;
+use burrow_config::Protocol;
 
 pub use system::{Platform, binary_version, copy_file, is_admin};
 pub use update::{update, update_from, worker as update_worker};
@@ -93,12 +93,17 @@ pub trait Backend {
     }
     fn secure_file(&self, path: &Path, account: &str) -> Result<(), Failure>;
     fn writable_folder(&self, dir: &Path, config: &Path, account: &str) -> Result<(), Failure> {
-        let _ = config;
         #[cfg(unix)]
-        return system::make_dir(dir, 0o700, Some(account));
+        {
+            system::make_dir(dir, 0o700, Some(account))?;
+            if let Ok((uid, gid)) = system::account_ids(account) {
+                give_history(dir, config, uid, gid);
+            }
+            Ok(())
+        }
         #[cfg(not(unix))]
         {
-            let _ = account;
+            let _ = (account, config);
             std::fs::create_dir_all(dir)
                 .map_err(|e| Failure::new(format!("cannot create {}: {e}", dir.display())))
         }
@@ -114,6 +119,9 @@ pub trait Backend {
     fn stop(&self, m: &Manifest) -> Result<(), Failure>;
     fn reload(&self, m: &Manifest) -> Result<(), Failure>;
     fn status(&self, m: &Manifest) -> Status;
+    fn journal_hint(&self, _m: &Manifest) -> Option<String> {
+        None
+    }
 }
 
 pub struct InstallOptions {
@@ -161,12 +169,27 @@ pub fn service_name(config: &Path, given: Option<&str>) -> Result<String, Failur
                 .hint("pass --name with 1-48 letters, digits or dashes"),
         );
     }
-    Ok(if clean == "burrow" || clean.starts_with("burrow-") {
+    let name = if clean == "burrow" || clean.starts_with("burrow-") {
         clean
     } else {
         format!("burrow-{clean}")
-    })
+    };
+    let short = name.strip_prefix("burrow-").unwrap_or(&name);
+    if OWN_FOLDERS.contains(&short) {
+        let source = if given.is_some() {
+            "--name"
+        } else {
+            "the config file name"
+        };
+        return Err(Failure::usage(format!(
+            "\"{short}\" from {source} cannot be used as a service name: it is the name of one of burrow's own folders"
+        ))
+        .hint("pass --name with another name"));
+    }
+    Ok(name)
 }
+
+const OWN_FOLDERS: [&str; 5] = ["services", "jobs", "logs", "bin", "instances"];
 
 pub fn referenced_env(src: &str) -> Vec<String> {
     fn values(n: &crate::config::tree::Node, out: &mut String) {
@@ -186,25 +209,7 @@ pub fn referenced_env(src: &str) -> Vec<String> {
         Ok(root) => values(&root, &mut text),
         Err(_) => text.push_str(src),
     }
-    let mut out = Vec::new();
-    let mut rest = text.as_str();
-    while let Some(i) = rest.find("${") {
-        if i > 0 && rest.as_bytes()[i - 1] == b'$' {
-            rest = &rest[i + 2..];
-            continue;
-        }
-        let tail = &rest[i + 2..];
-        if let Some(end) = tail.find('}') {
-            let name = &tail[..end];
-            if !name.is_empty() && !out.iter().any(|n| n == name) {
-                out.push(name.to_string());
-            }
-            rest = &tail[end + 1..];
-        } else {
-            break;
-        }
-    }
-    out
+    burrow_syntax::env::names(&text)
 }
 
 struct Uses {
@@ -477,18 +482,7 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
     let current = std::env::current_exe()
         .map_err(|e| Failure::new(format!("cannot locate the burrow binary: {e}")))?;
     let current = system::canonical(&current).unwrap_or(current);
-    let home = platform.service_binary();
-    let home_via_links = home
-        .parent()
-        .zip(home.file_name())
-        .map(|(dir, file)| system::canonical_or_same(dir).join(file));
-    let (binary, copy_binary) = if current == home || Some(&current) == home_via_links.as_ref() {
-        (home.clone(), true)
-    } else if system::trusted_binary(&current) {
-        (current.clone(), false)
-    } else {
-        (home, true)
-    };
+    let (binary, copy_binary) = service_binary_for(&current, platform);
     let low_ports = checked.listens.iter().any(|(_, a, _)| a.port() < 1024);
     let manifest = Manifest {
         name: name.clone(),
@@ -630,13 +624,7 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
     .filter(|kept| system::copy_file(&binary, kept, true).is_ok());
     let _leftover = Leftover(kept_binary.clone());
     if copy_binary && !system::same_content(&current, &binary) {
-        #[cfg(unix)]
-        if binary != platform.binary_path()
-            && let Some(dir) = binary.parent()
-        {
-            system::make_dir(dir, 0o755, None)?;
-        }
-        system::copy_file(&current, &binary, true)?;
+        place_binary(&current, &binary, &platform.binary_path())?;
         say(
             out,
             format!("copied {} -> {}", current.display(), binary.display()),
@@ -670,7 +658,7 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
     }
     let undo = again.manifest.map(|p| Undo {
         manifest: p.clone(),
-        config: std::fs::read(&p.config).ok(),
+        config: system::read_plain_file(&p.config),
         env: backend.read_env(p),
         binary: kept_binary.clone().map(|kept| (kept, binary.clone())),
     });
@@ -678,6 +666,22 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
         backend.writable_folder(dir, &config, &account)?;
     }
     if source != config {
+        if writable_dir.is_some() {
+            match keep_admin_copy(&source, &config)? {
+                Kept::Version => say(
+                    out,
+                    "kept the installed config as a history version before replacing it; revert to it from burrow admin Activity if needed",
+                )?,
+                Kept::NotPlain => say(
+                    out,
+                    format!(
+                        "note: {} is not a plain file, so it is replaced without keeping it",
+                        config.display()
+                    ),
+                )?,
+                Kept::Nothing => {}
+            }
+        }
         system::copy_file(&source, &config, false)?;
         say(
             out,
@@ -758,13 +762,24 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
                 out,
                 format!("warning: {name} is not running: {}", st.detail),
             )?;
-            say(
-                out,
-                format!(
-                    "  see why with: {}",
-                    crate::failure::admin(&format!("service logs{arg}"))
-                ),
-            )?;
+            match backend
+                .journal_hint(&manifest)
+                .filter(|_| !manifest.log_file.exists())
+            {
+                Some(journal) => say(
+                    out,
+                    format!(
+                        "  it wrote no log yet, so it may never have started; see the service manager's reason with: {journal}"
+                    ),
+                )?,
+                None => say(
+                    out,
+                    format!(
+                        "  see why with: {}",
+                        crate::failure::admin(&format!("service logs{arg}"))
+                    ),
+                )?,
+            }
         }
     }
     if let Some(p) = &previous {
@@ -901,6 +916,43 @@ fn release_previous(
             ),
         )?;
     }
+    if let Some(dir) = &old.writable_dir
+        && new.writable_dir.as_ref() != Some(dir)
+        && writable_leftovers(dir, &old.config).is_some()
+    {
+        #[cfg(unix)]
+        {
+            let _ = system::give_plain_file(&old.config, 0, 0);
+            give_history(dir, &old.config, 0, 0);
+        }
+        if !holds_source(dir, &[&old.source_config, &new.source_config]) {
+            say(
+                out,
+                format!(
+                    "note: {} still holds the config and the versions burrow admin kept, secrets included; the service no longer uses it, so delete it with: {}",
+                    dir.display(),
+                    delete_hint(&[], Some(dir))
+                ),
+            )?;
+        }
+    }
+    if old.writable_dir.is_none()
+        && old.config != new.config
+        && std::fs::symlink_metadata(&old.config).is_ok_and(|m| m.file_type().is_file())
+    {
+        #[cfg(unix)]
+        let _ = system::give_plain_file(&old.config, 0, 0);
+        if !is_source(&old.config, &[&old.source_config, &new.source_config]) {
+            say(
+                out,
+                format!(
+                    "note: {} holds the config the service used before, secrets included; the service no longer uses it, so delete it with: {}",
+                    old.config.display(),
+                    delete_hint(std::slice::from_ref(&old.config), None)
+                ),
+            )?;
+        }
+    }
     if old.copied_binary
         && (old.binary != new.binary || !new.copied_binary)
         && !others
@@ -1002,8 +1054,34 @@ fn trustworthy(m: &Manifest, file: &Path) -> bool {
             .as_deref()
             .is_none_or(|e| in_dir(e, &p.config_dir()))
         && (m.log_file.as_os_str().is_empty() || m.log_file == p.log_file(m.short()))
-        && (m.binary == p.service_binary()
-            || ((cfg!(not(windows)) || !m.copied_binary) && system::trusted_binary(&m.binary)))
+        && (binary_trusted(m, p) || m.binary == p.binary_path())
+}
+
+fn binary_trusted(m: &Manifest, p: Platform) -> bool {
+    m.binary == p.service_binary()
+        || ((cfg!(not(windows)) || !m.copied_binary) && system::trusted_binary(&m.binary))
+}
+
+pub fn exposed(m: &Manifest) -> bool {
+    let p = Platform::current();
+    m.binary == p.binary_path() && !binary_trusted(m, p)
+}
+
+pub fn exposed_note(m: &Manifest) -> String {
+    format!(
+        "users other than root can change {}, so burrow does not run or replace {}; move the service to its own copy with: {}",
+        m.binary.parent().unwrap_or(&m.binary).display(),
+        m.binary.display(),
+        crate::failure::admin(&install_args(m))
+    )
+}
+
+pub fn recorded_version(m: &Manifest) -> String {
+    if exposed(m) {
+        format!("not run: {}", exposed_note(m))
+    } else {
+        system::binary_version(&m.binary)
+    }
 }
 
 fn read_manifest(path: &Path) -> Result<Manifest, String> {
@@ -1132,6 +1210,106 @@ fn p_log_dir() -> PathBuf {
     Platform::current().log_dir()
 }
 
+fn service_binary_for(_current: &Path, platform: Platform) -> (PathBuf, bool) {
+    (platform.service_binary(), true)
+}
+
+fn place_binary(current: &Path, binary: &Path, usual: &Path) -> Result<(), Failure> {
+    #[cfg(unix)]
+    if let Some(dir) = binary.parent()
+        && (binary != usual || !dir.exists())
+    {
+        system::make_dir(dir, 0o755, None)?;
+    }
+    #[cfg(not(unix))]
+    let _ = usual;
+    system::copy_file(current, binary, true)
+}
+
+fn admin_history(config: &Path) -> PathBuf {
+    crate::admin::adapters::history_dir_of(config)
+}
+
+fn writable_leftovers(dir: &Path, config: &Path) -> Option<Vec<PathBuf>> {
+    let real_dir = |p: &Path| std::fs::symlink_metadata(p).is_ok_and(|m| m.is_dir());
+    if !real_dir(dir) {
+        return None;
+    }
+    let history = admin_history(config);
+    if !real_dir(&history) {
+        return Some(Vec::new());
+    }
+    let files = std::fs::read_dir(&history)
+        .map(|entries| {
+            entries
+                .flatten()
+                .map(|e| e.path())
+                .filter(|p| std::fs::symlink_metadata(p).is_ok_and(|m| m.file_type().is_file()))
+                .collect()
+        })
+        .unwrap_or_default();
+    Some(files)
+}
+
+#[cfg(unix)]
+fn give_history(dir: &Path, config: &Path, uid: u32, gid: u32) {
+    use rustix::fs::{FileType, Mode, OFlags};
+    if !std::fs::symlink_metadata(dir).is_ok_and(|m| m.is_dir()) {
+        return;
+    }
+    let folder = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC;
+    if let Ok(history) = rustix::fs::open(admin_history(config), folder, Mode::empty()) {
+        let file = OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::CLOEXEC;
+        for entry in rustix::fs::Dir::read_from(&history)
+            .into_iter()
+            .flatten()
+            .flatten()
+        {
+            let Ok(f) = rustix::fs::openat(&history, entry.file_name(), file, Mode::empty()) else {
+                continue;
+            };
+            if rustix::fs::fstat(&f).is_ok_and(|st| {
+                FileType::from_raw_mode(st.st_mode) == FileType::RegularFile && st.st_nlink == 1
+            }) {
+                let _ = std::os::unix::fs::fchown(&f, Some(uid), Some(gid));
+            }
+        }
+        let _ = std::os::unix::fs::fchown(&history, Some(uid), Some(gid));
+    }
+    let _ = std::os::unix::fs::lchown(dir, Some(uid), Some(gid));
+}
+
+fn is_source(config: &Path, sources: &[&Path]) -> bool {
+    let config = system::canonical_or_same(config);
+    sources
+        .iter()
+        .any(|s| system::canonical_or_same(s) == config)
+}
+
+fn holds_source(dir: &Path, sources: &[&Path]) -> bool {
+    let dir = system::canonical_or_same(dir);
+    sources
+        .iter()
+        .any(|s| system::canonical_or_same(s).starts_with(&dir))
+}
+
+fn delete_hint(files: &[PathBuf], folder: Option<&Path>) -> String {
+    let quote = |p: &Path| format!("\"{}\"", p.display());
+    let mut list: Vec<String> = folder.map(quote).into_iter().collect();
+    list.extend(
+        files
+            .iter()
+            .filter(|f| !folder.is_some_and(|d| f.starts_with(d)))
+            .map(|f| quote(f)),
+    );
+    match (cfg!(windows), folder.is_some()) {
+        (true, false) => format!("Remove-Item {}", list.join(", ")),
+        (true, true) => format!("Remove-Item -Recurse {}", list.join(", ")),
+        (false, false) => format!("sudo rm {}", list.join(" ")),
+        (false, true) => format!("sudo rm -r {}", list.join(" ")),
+    }
+}
+
 pub fn uninstall(name: Option<&str>, purge: bool, out: &mut dyn Write) -> Result<(), Failure> {
     let backend = system::backend()?;
     system::require_admin()?;
@@ -1148,6 +1326,7 @@ pub fn uninstall(name: Option<&str>, purge: bool, out: &mut dyn Write) -> Result
         (1..=crate::logfile::KEEP).map(|n| PathBuf::from(format!("{}.{n}", m.log_file.display()))),
     );
     let mut kept = Vec::new();
+    let mut kept_folder = None;
     if purge {
         for f in [Some(&m.config), m.env_file.as_ref()].into_iter().flatten() {
             if std::fs::remove_file(f).is_ok() {
@@ -1182,6 +1361,10 @@ pub fn uninstall(name: Option<&str>, purge: bool, out: &mut dyn Write) -> Result
                 .filter(|f| std::fs::symlink_metadata(f).is_ok_and(|m| m.file_type().is_file()))
                 .cloned(),
         );
+        kept_folder = m
+            .writable_dir
+            .clone()
+            .filter(|d| writable_leftovers(d, &m.config).is_some());
     }
     if m.copied_binary && !others.iter().any(|o| o.binary == m.binary) {
         match std::fs::remove_file(&m.binary) {
@@ -1240,25 +1423,22 @@ pub fn uninstall(name: Option<&str>, purge: bool, out: &mut dyn Write) -> Result
             if let Some(d) = dir {
                 let _ = std::os::unix::fs::lchown(d, Some(0), Some(0));
             }
+            if let Some(d) = &kept_folder {
+                give_history(d, &m.config, 0, 0);
+            }
         }
         match backend.remove_account(&m.account) {
             Ok(()) => say(out, format!("removed service account {}", m.account))?,
             Err(f) => account_left = Some(f),
         }
     }
-    if !kept.is_empty() {
-        let list = kept
-            .iter()
-            .map(|f| format!("\"{}\"", f.display()))
-            .collect::<Vec<_>>();
-        let delete = if cfg!(windows) {
-            format!("Remove-Item {}", list.join(", "))
-        } else {
-            format!("sudo rm {}", list.join(" "))
-        };
+    if !kept.is_empty() || kept_folder.is_some() {
         say(
             out,
-            format!("kept these files for a later reinstall; delete them with:\n  {delete}"),
+            format!(
+                "kept these files for a later reinstall; delete them with:\n  {}",
+                delete_hint(&kept, kept_folder.as_deref())
+            ),
         )?;
     }
     if others.is_empty() {
@@ -1296,56 +1476,9 @@ fn account_not_removed(account: &str, f: Failure) -> Failure {
     .hint(finish)
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Version {
-    core: (u64, u64, u64),
-    pre: Vec<String>,
-}
-
-impl Ord for Version {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        use std::cmp::Ordering;
-        let ident = |a: &String, b: &String| match (a.parse::<u64>(), b.parse::<u64>()) {
-            (Ok(x), Ok(y)) => x.cmp(&y),
-            (Ok(_), Err(_)) => Ordering::Less,
-            (Err(_), Ok(_)) => Ordering::Greater,
-            (Err(_), Err(_)) => a.cmp(b),
-        };
-        self.core
-            .cmp(&other.core)
-            .then_with(|| match (self.pre.is_empty(), other.pre.is_empty()) {
-                (true, true) => Ordering::Equal,
-                (true, false) => Ordering::Greater,
-                (false, true) => Ordering::Less,
-                (false, false) => self
-                    .pre
-                    .iter()
-                    .zip(&other.pre)
-                    .map(|(a, b)| ident(a, b))
-                    .find(|o| o.is_ne())
-                    .unwrap_or_else(|| self.pre.len().cmp(&other.pre.len())),
-            })
-    }
-}
-
-impl PartialOrd for Version {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-pub fn parse_version(v: &str) -> Option<Version> {
+pub fn parse_version(v: &str) -> Option<semver::Version> {
     let v = v.trim().split([' ', '+']).next()?;
-    let (core, pre) = match v.split_once('-') {
-        Some((c, p)) => (c, p.split('.').map(str::to_string).collect()),
-        None => (v, Vec::new()),
-    };
-    let mut it = core.split('.').map(|p| p.parse::<u64>().ok());
-    let core = (it.next()??, it.next()??, it.next()??);
-    if it.next().is_some() {
-        return None;
-    }
-    Some(Version { core, pre })
+    semver::Version::parse(v).ok()
 }
 
 pub fn this_binary() -> Result<PathBuf, Failure> {
@@ -1451,7 +1584,7 @@ pub fn status(name: Option<&str>, out: &mut dyn Write) -> Result<u8, Failure> {
         format!(
             "  binary:  {} ({}){}",
             m.binary.display(),
-            system::binary_version(&m.binary),
+            recorded_version(&m),
             missing(&m.binary)
         ),
     )?;
@@ -1470,20 +1603,71 @@ pub fn status(name: Option<&str>, out: &mut dyn Write) -> Result<u8, Failure> {
             say(out, format!("    {line}"))?;
         }
     }
-    if m.source_config != m.config
-        && m.source_config.exists()
-        && differs(&m.source_config, &m.config)
-    {
-        say(
-            out,
-            format!(
-                "  note:    {} differs from the installed copy; to use it, run: {}",
-                m.source_config.display(),
-                reinstall
-            ),
-        )?;
+    if let Some(note) = source_note(&m, &reinstall) {
+        say(out, format!("  note:    {note}"))?;
     }
     Ok(u8::from(!st.running))
+}
+
+fn source_note(m: &Manifest, reinstall: &str) -> Option<String> {
+    if m.source_config == m.config
+        || !m.source_config.exists()
+        || !differs(&m.source_config, &m.config)
+    {
+        return None;
+    }
+    Some(if m.writable_dir.is_some() {
+        format!(
+            "{} is managed by burrow admin; {} was only its first version",
+            m.config.display(),
+            m.source_config.display()
+        )
+    } else {
+        format!(
+            "{} differs from the installed copy; to use it, run: {reinstall}",
+            m.source_config.display()
+        )
+    })
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum Kept {
+    Nothing,
+    Version,
+    NotPlain,
+}
+
+fn keep_admin_copy(source: &Path, config: &Path) -> Result<Kept, Failure> {
+    use crate::admin::core::ports::Store;
+    if std::fs::symlink_metadata(config).is_err() {
+        return Ok(Kept::Nothing);
+    }
+    let Some(installed) = system::read_plain_file(config) else {
+        return Ok(Kept::NotPlain);
+    };
+    let (Ok(src), Ok(installed)) = (std::fs::read(source), String::from_utf8(installed)) else {
+        return Ok(Kept::Nothing);
+    };
+    if src == installed.as_bytes() {
+        return Ok(Kept::Nothing);
+    }
+    let store = crate::admin::adapters::FileStore::new(config);
+    store.keep(&crate::admin::core::text::rev(&installed), &installed);
+    match store.history_problem() {
+        None => Ok(Kept::Version),
+        Some(why) => Err(Failure::new(format!(
+            "{} differs from the source and cannot be kept before the reinstall replaces it: {why}",
+            config.display()
+        ))
+        .hint(format!(
+            "copy {} somewhere safe, or use it as the source: {}",
+            config.display(),
+            crate::failure::admin(&format!(
+                "service install -c {} --admin-writable",
+                crate::failure::path_arg(config)
+            ))
+        ))),
+    }
 }
 
 fn differs(source: &Path, installed: &Path) -> bool {
@@ -1521,6 +1705,7 @@ pub fn list(out: &mut dyn Write) -> Result<(), Failure> {
 
 pub fn logs(name: Option<&str>, lines: usize, follow: bool) -> Result<(), Failure> {
     let m = resolve(name)?;
+    let journal = system::backend().ok().and_then(|b| b.journal_hint(&m));
     let mut out = std::io::stdout().lock();
     let mut retry = format!("service logs {}", m.name);
     if lines != 50 {
@@ -1534,6 +1719,7 @@ pub fn logs(name: Option<&str>, lines: usize, follow: bool) -> Result<(), Failur
         lines,
         follow,
         &crate::failure::admin(&retry),
+        journal.as_deref(),
         &mut out,
     )
 }
@@ -1556,6 +1742,187 @@ mod tests {
         assert!(!differs(&source, &installed));
         std::fs::write(&installed, "listen: 2\n").unwrap();
         assert!(differs(&source, &installed));
+    }
+
+    #[test]
+    fn uninstall_keeps_the_admin_history_with_its_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        let folder = dir.path().join("e2e-admin");
+        let config = folder.join("server.yaml");
+        std::fs::create_dir(&folder).unwrap();
+        std::fs::write(&config, "listen: 1\n").unwrap();
+        assert_eq!(writable_leftovers(&folder, &config), Some(Vec::new()));
+        let history = folder.join(".server.yaml.history");
+        std::fs::create_dir(&history).unwrap();
+        let old = history.join("1-0123456789abcdef.yaml");
+        std::fs::write(&old, "listen: 0\n").unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&config, history.join("2-link.yaml")).unwrap();
+        assert_eq!(writable_leftovers(&folder, &config), Some(vec![old]));
+        assert_eq!(writable_leftovers(&dir.path().join("gone"), &config), None);
+        #[cfg(unix)]
+        {
+            let link = dir.path().join("linked");
+            std::os::unix::fs::symlink(&folder, &link).unwrap();
+            assert_eq!(writable_leftovers(&link, &link.join("server.yaml")), None);
+        }
+        let log = dir.path().join("e2e-admin.log");
+        let hint = delete_hint(&[config.clone(), log.clone()], Some(&folder));
+        let q = |p: &Path| format!("\"{}\"", p.display());
+        assert!(hint.contains(&q(&folder)), "{hint}");
+        assert!(hint.contains(&q(&log)), "{hint}");
+        assert!(!hint.contains(&q(&config)), "{hint}");
+        assert!(
+            hint.contains(if cfg!(windows) { "-Recurse" } else { "rm -r" }),
+            "{hint}"
+        );
+        let plain = delete_hint(&[log], None);
+        assert!(!plain.contains("-r"), "{plain}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_config_the_account_swapped_for_a_link_is_never_read_into_the_history() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("server.yaml");
+        let folder = dir.path().join("server");
+        std::fs::create_dir(&folder).unwrap();
+        let config = folder.join("server.yaml");
+        let private = dir.path().join("shadow");
+        std::fs::write(&source, "listen: 1\n").unwrap();
+        std::fs::write(&private, "root:secret-hash:19000::::::\n").unwrap();
+        std::os::unix::fs::symlink(&private, &config).unwrap();
+        assert_eq!(keep_admin_copy(&source, &config).unwrap(), Kept::NotPlain);
+        std::fs::remove_file(&config).unwrap();
+        std::fs::hard_link(&private, &config).unwrap();
+        assert_eq!(keep_admin_copy(&source, &config).unwrap(), Kept::NotPlain);
+        let history = crate::admin::adapters::history_dir_of(&config);
+        let kept: Vec<String> = std::fs::read_dir(&history)
+            .map(|d| {
+                d.flatten()
+                    .map(|e| std::fs::read_to_string(e.path()).unwrap_or_default())
+                    .collect()
+            })
+            .unwrap_or_default();
+        assert!(!kept.iter().any(|t| t.contains("secret-hash")), "{kept:?}");
+    }
+
+    #[test]
+    fn a_config_changed_by_burrow_admin_is_kept_before_a_reinstall_replaces_it() {
+        use crate::admin::core::ports::Store;
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("server.yaml");
+        let folder = dir.path().join("server");
+        std::fs::create_dir(&folder).unwrap();
+        let config = folder.join("server.yaml");
+        std::fs::write(&source, "listen: 1\n").unwrap();
+        assert_eq!(keep_admin_copy(&source, &config).unwrap(), Kept::Nothing);
+        std::fs::write(&config, "listen: 1\n").unwrap();
+        assert_eq!(keep_admin_copy(&source, &config).unwrap(), Kept::Nothing);
+        let changed = "listen: 1\nclients:\n  laptop: {}\n";
+        std::fs::write(&config, changed).unwrap();
+        assert_eq!(keep_admin_copy(&source, &config).unwrap(), Kept::Version);
+        let store = crate::admin::adapters::FileStore::new(&config);
+        let rev = crate::admin::core::text::rev(changed);
+        assert!(store.versions().iter().any(|v| v.rev == rev));
+        assert_eq!(store.version(&rev).as_deref(), Some(changed));
+
+        let m = Manifest {
+            config: config.clone(),
+            source_config: source.clone(),
+            writable_dir: Some(folder.clone()),
+            ..record(Platform::Linux)
+        };
+        let note = source_note(&m, "sudo burrow service install").unwrap();
+        assert!(note.contains("managed by burrow admin"), "{note}");
+        assert!(!note.contains("install"), "{note}");
+        let fixed = Manifest {
+            writable_dir: None,
+            ..m.clone()
+        };
+        let note = source_note(&fixed, "sudo burrow service install").unwrap();
+        assert!(
+            note.contains("to use it, run: sudo burrow service install"),
+            "{note}"
+        );
+        std::fs::write(&config, "listen: 1\n").unwrap();
+        assert!(source_note(&m, "x").is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_source_recorded_through_a_linked_parent_is_still_the_source() {
+        let dir = tempfile::tempdir().unwrap();
+        let real = system::canonical(dir.path()).unwrap().join("private-etc");
+        std::fs::create_dir_all(real.join("burrow/x")).unwrap();
+        std::fs::write(real.join("burrow/x.yaml"), "listen: 1\n").unwrap();
+        std::fs::write(real.join("burrow/x/server.yaml"), "listen: 1\n").unwrap();
+        let etc = dir.path().join("etc");
+        std::os::unix::fs::symlink(&real, &etc).unwrap();
+        let source = system::canonical(&etc.join("burrow/x.yaml")).unwrap();
+        assert_ne!(source, etc.join("burrow/x.yaml"));
+        assert!(is_source(&etc.join("burrow/x.yaml"), &[&source]));
+        assert!(!is_source(&etc.join("burrow/x/server.yaml"), &[&source]));
+        let inner = system::canonical(&etc.join("burrow/x/server.yaml")).unwrap();
+        assert!(holds_source(&etc.join("burrow/x"), &[&inner]));
+        assert!(!holds_source(&etc.join("burrow/x"), &[&source]));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_binary_in_a_private_folder_is_copied_into_a_missing_service_folder_once() {
+        system::tests::under_umask_077(
+            "service::tests::a_binary_in_a_private_folder_is_copied_into_a_missing_service_folder_once",
+            || {
+                use std::os::unix::fs::PermissionsExt;
+                let dir = tempfile::tempdir().unwrap();
+                std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o755))
+                    .unwrap();
+                let private = dir.path().join("root");
+                std::fs::create_dir(&private).unwrap();
+                let current = private.join("burrow");
+                std::fs::write(&current, "the burrow binary").unwrap();
+                std::fs::set_permissions(&current, std::fs::Permissions::from_mode(0o755)).unwrap();
+                std::fs::set_permissions(&private, std::fs::Permissions::from_mode(0o700)).unwrap();
+                let usual = dir.path().join("bin/burrow");
+                assert!(!usual.parent().unwrap().exists());
+                place_binary(&current, &usual, &usual).unwrap();
+                let folder = std::fs::metadata(usual.parent().unwrap()).unwrap();
+                assert_eq!(folder.permissions().mode() & 0o777, 0o755);
+                assert_eq!(std::fs::read(&usual).unwrap(), b"the burrow binary");
+                assert!(std::fs::metadata(&usual).unwrap().permissions().mode() & 0o001 != 0);
+                assert!(
+                    system::same_content(&current, &usual),
+                    "a reinstall from the same file has nothing to copy"
+                );
+            },
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_trusted_binary_elsewhere_is_never_used_in_place() {
+        let trusted = Path::new("/usr/bin/true");
+        assert!(
+            system::trusted_binary(trusted),
+            "/usr/bin/true is root-only here"
+        );
+        let p = Platform::current();
+        let (binary, copied) = service_binary_for(trusted, p);
+        assert_eq!(binary, p.service_binary());
+        assert!(copied);
+        #[cfg(target_os = "linux")]
+        {
+            let unit = systemd::Systemd.render(&Manifest {
+                binary: binary.clone(),
+                ..record(Platform::Linux)
+            });
+            assert!(
+                unit.contains(&format!("ExecStart={} ", binary.display())),
+                "{unit}"
+            );
+            assert!(!unit.contains("/usr/bin/true"), "{unit}");
+        }
     }
 
     #[test]
@@ -1934,6 +2301,32 @@ mod tests {
         assert!(!trustworthy(&record(p), &manifest_path("burrow-client")));
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn a_record_whose_bin_folder_users_can_now_change_is_managed_but_its_binary_never_runs() {
+        let p = Platform::current();
+        let usual = p.binary_path();
+        system::tests::as_if_users_can_change(usual.parent().unwrap(), || {
+            assert_ne!(p.service_binary(), usual);
+            let file = manifest_path("burrow-server");
+            let installed = Manifest {
+                binary: usual.clone(),
+                ..record(p)
+            };
+            assert!(trustworthy(&installed, &file));
+            assert!(trustworthy(&record(p), &file));
+            let mut forged = installed.clone();
+            forged.binary = std::env::temp_dir().join("burrow");
+            assert!(!trustworthy(&forged, &file));
+            assert!(
+                recorded_version(&installed).contains("users other than root can change"),
+                "{}",
+                recorded_version(&installed)
+            );
+            assert_eq!(service_binary_for(&usual, p).0, p.service_binary());
+        });
+    }
+
     #[test]
     fn names_come_from_the_config_file() {
         assert_eq!(
@@ -1956,6 +2349,42 @@ mod tests {
     }
 
     #[test]
+    fn a_service_never_takes_the_name_of_one_of_burrow_s_own_folders() {
+        let p = Platform::Windows;
+        let root = p.config_dir();
+        let own: Vec<PathBuf> = [
+            p.state_dir(),
+            p.jobs_dir(),
+            p.log_dir(),
+            p.state_dir().with_file_name("bin"),
+            root.join("instances"),
+        ]
+        .into_iter()
+        .filter(|d| d.parent() == Some(root.as_path()))
+        .collect();
+        assert_eq!(own.len(), 5);
+        for dir in own {
+            let short = dir.file_name().unwrap().to_string_lossy().into_owned();
+            for given in [
+                Path::new("/x").join(format!("{short}.yaml")),
+                Path::new("/x").join(format!("{}.yaml", short.to_uppercase())),
+            ] {
+                let refused = service_name(&given, None).unwrap_err();
+                assert!(
+                    refused.message.contains("burrow's own folders")
+                        && refused.message.contains("the config file name"),
+                    "{short}: {}",
+                    refused.message
+                );
+            }
+            let named =
+                service_name(Path::new("/x/s.yaml"), Some(&format!("burrow-{short}"))).unwrap_err();
+            assert!(named.message.contains("--name"), "{}", named.message);
+        }
+        assert!(service_name(Path::new("/x/services-eu.yaml"), None).is_ok());
+    }
+
+    #[test]
     fn versions_compare_numerically() {
         let v = |s: &str| parse_version(s).unwrap();
         assert!(v("0.10.0") > v("0.9.9"));
@@ -1970,6 +2399,17 @@ mod tests {
         assert_eq!(parse_version("unknown version"), None);
         assert_eq!(parse_version("1.2"), None);
         assert_eq!(parse_version("1.2.3.4"), None);
+    }
+
+    #[test]
+    fn versions_follow_semver_strictly() {
+        assert_eq!(parse_version("01.2.3"), None);
+        assert_eq!(parse_version("1.02.3"), None);
+        assert_eq!(parse_version("1.0.0-01"), None);
+        let v = |s: &str| parse_version(s).unwrap();
+        assert!(v("1.0.0-1") < v("1.0.0-2"));
+        assert!(v("1.0.0-1") < v("1.0.0-a"));
+        assert_eq!(parse_version("1.0.0-"), None);
     }
 
     #[test]

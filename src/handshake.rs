@@ -184,7 +184,7 @@ mod tests {
 
     #[tokio::test]
     async fn only_an_explicit_refusal_counts_as_rejected() {
-        use crate::config::model::Cipher;
+        use burrow_config::Cipher;
         async fn against(answer: &'static [u8]) -> Result<Channel, ClientHandshakeError> {
             let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
             let addr = listener.local_addr().unwrap();

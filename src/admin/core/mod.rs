@@ -15,11 +15,12 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use burrow_admin_proto::msg::{
-    self, AuditEntry, ErrorBody, ErrorCode, FileInfo, GeneratedSecret, HistoryReply,
-    HistoryRequest, Level, Limits, Running, Runtime, SchemaReply, ServerInfo, SessionInfo, State,
-    Suggest, Suggestions, Welcome, WhyNot as WireWhyNot, You,
+    self, AdminLevel, AuditEntry, ErrorBody, ErrorCode, FileInfo, GeneratedSecret, HistoryReply,
+    HistoryRequest, Limits, Running, Runtime, SchemaReply, ServerInfo, SessionInfo, State, Suggest,
+    Suggestions, Welcome, WhyNot as WireWhyNot, You,
 };
-use burrow_admin_proto::schema::Schema;
+use burrow_admin_proto::schema::{Entity, Schema};
+use burrow_config::{ClientEntry, Entry, Protocol, ServerConfig, ServiceEntry, VisitorEntry};
 use serde_json::Value;
 use zeroize::Zeroizing;
 
@@ -71,7 +72,7 @@ pub struct Pending {
 
 pub struct Session {
     pub visitor: String,
-    pub level: Level,
+    pub level: AdminLevel,
     pub peer: SocketAddr,
     pub secret: Secret,
     pub via_websocket: bool,
@@ -83,7 +84,7 @@ pub struct Session {
 impl Session {
     pub fn new(
         visitor: String,
-        level: Level,
+        level: AdminLevel,
         peer: SocketAddr,
         secret: Secret,
         via_websocket: bool,
@@ -124,7 +125,7 @@ impl Session {
     }
 
     pub fn writes(&self) -> bool {
-        self.level == Level::Write
+        self.level == AdminLevel::Write
     }
 }
 
@@ -213,7 +214,7 @@ impl Core {
         }
     }
 
-    pub fn schema_reply(&self, have: &str) -> SchemaReply {
+    fn schema_reply(&self, have: &str) -> SchemaReply {
         if have == self.schema.hash {
             SchemaReply {
                 hash: have.to_string(),
@@ -242,7 +243,7 @@ impl Core {
         })
     }
 
-    pub fn file_info(&self, s: &Session) -> FileInfo {
+    fn file_info(&self, s: &Session) -> FileInfo {
         let writable = self.store.writable();
         FileInfo {
             path: self.store.path().display().to_string(),
@@ -290,7 +291,7 @@ impl Core {
         if let Some(file) = &checked.settings
             && file.listen != running_settings.listen
         {
-            restart_pending.push("listen".to_string());
+            restart_pending.push(ServerConfig::LISTEN.key().to_string());
         }
         let status = self.live.status();
         let mut bound = BTreeMap::new();
@@ -374,9 +375,12 @@ impl Core {
     pub fn suggest(&self, req: &Suggest) -> Result<Suggestions, ApiError> {
         match req.what.as_str() {
             "free-port" => {
-                let near = req.near.unwrap_or(7840).clamp(1024, 65535) as u16;
+                let near = req
+                    .near
+                    .unwrap_or(burrow_syntax::ports::FIRST_SERVICE_PORT.into())
+                    .clamp(1024, 65535) as u16;
                 let count = req.count.unwrap_or(1).clamp(1, 1000) as u16;
-                let udp = req.proto.as_deref() == Some("udp");
+                let udp = req.proto.as_deref().and_then(Protocol::from_wire) == Some(Protocol::Udp);
                 let text = self.read()?;
                 let used = plan::used_ports(self, &text);
                 let mut at = near;
@@ -396,10 +400,10 @@ impl Core {
             "name" => {
                 let text = self.read()?;
                 let checked = plan::check_text(self, &text);
-                let section = match req.entity.as_deref() {
-                    Some("client") => "clients",
-                    Some("visitor") => "visitors",
-                    _ => "services",
+                let section = match req.entity.as_deref().map(Entity::parse) {
+                    Some(Entity::Client) => ClientEntry::section(),
+                    Some(Entity::Visitor) => VisitorEntry::section(),
+                    _ => ServiceEntry::section(),
                 };
                 let taken: Vec<String> = checked
                     .raw
@@ -559,4 +563,6 @@ pub fn dispatch(core: &Core, s: &Session, t: &str, body: &Value) -> Reply {
 }
 
 #[cfg(test)]
-mod tests;
+mod agree;
+#[cfg(test)]
+pub(crate) mod tests;

@@ -1,7 +1,6 @@
 use std::net::SocketAddr;
 use std::time::Duration;
 
-use super::super::model::{HealthCheck, HealthCheckSetting, Mode, Protocol, ServiceEntry};
 use super::super::settings::{Health, Service};
 use super::ports::{parse_ranged, ranges_conflict, show_addr, split_target};
 use super::{
@@ -9,6 +8,7 @@ use super::{
 };
 use crate::allowlist::{Cidr, Sources};
 use crate::diagnostics::Diagnostic;
+use burrow_config::{HealthCheck, HealthCheckSetting, Mode, Protocol, ServiceEntry};
 
 pub(super) struct Taken<'a> {
     pub listen: Option<SocketAddr>,
@@ -42,7 +42,10 @@ pub(super) fn check_service<'a>(
                 )
                 .at(spans.value(&path("bind")))
                 .label("expected a port, a range or ip:port")
-                .help("use a port like 7840, a range like 30000-30010, or ip:port like 127.0.0.1:7840"),
+                .help(format!(
+                    "use a port like {p}, a range like 30000-30010, or ip:port like 127.0.0.1:{p}",
+                    p = burrow_syntax::ports::FIRST_SERVICE_PORT
+                )),
             );
             None
         }
@@ -55,7 +58,7 @@ pub(super) fn check_service<'a>(
             )
             .at(spans.key(&["services", name]))
             .label("no bind and no visitors")
-            .help("add \"bind: 7840\" to expose it publicly, or \"visitors: [NAME]\" for visitors using burrow visit"),
+            .help(format!("add \"bind: {}\" to expose it publicly, or \"visitors: [NAME]\" for visitors using burrow visit", burrow_syntax::ports::FIRST_SERVICE_PORT)),
         );
     }
     let target = check_target(name, svc, spans, out);
@@ -83,10 +86,20 @@ pub(super) fn check_service<'a>(
         deny: parse_sources(name, "deny_from", &svc.deny_from, spans, out),
     };
     let mut listed = Vec::new();
-    for v in &svc.visitors {
-        if !listed.contains(v) {
-            listed.push(v.clone());
+    for (i, v) in svc.visitors.iter().enumerate() {
+        if listed.contains(v) {
+            let at = i.to_string();
+            out.push(
+                Diagnostic::error(
+                    "duplicate-visitor",
+                    format!("service \"{name}\" lists visitor \"{v}\" twice"),
+                )
+                .at(spans.value(&["services", name, "visitors", &at]))
+                .help("list each visitor once"),
+            );
+            continue;
         }
+        listed.push(v.clone());
     }
     let bandwidth = match svc.bandwidth.as_deref().map(crate::ratelimit::parse_rate) {
         None => None,
@@ -188,14 +201,19 @@ fn check_clients(
         ),
         _ => {}
     }
-    for c in svc.client.iter().chain(&svc.clients) {
+    let named = svc.client.iter().map(|c| (None, c));
+    let listed = svc.clients.iter().enumerate().map(|(i, c)| (Some(i), c));
+    for (i, c) in named.chain(listed) {
         if clients.contains(c) {
+            let at = i.map(|i| i.to_string());
+            let mut place = vec!["services", name, "clients"];
+            place.extend(at.as_deref());
             out.push(
                 Diagnostic::error(
                     "duplicate-client",
                     format!("service \"{name}\" lists client \"{c}\" twice"),
                 )
-                .at(spans.value(&["services", name, "clients"]))
+                .at(spans.value(&place))
                 .help("list each client once"),
             );
             continue;
@@ -243,7 +261,7 @@ fn tcp_only(
         out.push(
             Diagnostic::error(
                 code,
-                format!("service \"{name}\" is {}, but {why}", svc.protocol.as_str()),
+                format!("service \"{name}\" is {}, but {why}", svc.protocol.wire()),
             )
             .at(spans.value(&["services", name, field]))
             .help(format!("remove \"{field}\", or use a tcp service")),
@@ -343,7 +361,7 @@ fn check_bind<'a>(
                 "duplicate-bind",
                 format!(
                     "service \"{name}\" binds {} {shown}, already used by service \"{other}\"",
-                    protocol.as_str()
+                    protocol.wire()
                 ),
             )
             .at(at)

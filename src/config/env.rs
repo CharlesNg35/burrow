@@ -66,17 +66,14 @@ fn expand_str(
     secret: bool,
     out: &mut Vec<Diagnostic>,
 ) -> Option<String> {
+    use burrow_syntax::env::Piece;
     let mut result = String::with_capacity(s.len());
-    let mut rest = s;
     let mut ok = true;
-    while let Some(i) = rest.find('$') {
-        result.push_str(&rest[..i]);
-        let tail = &rest[i..];
-        if let Some(t) = tail.strip_prefix("$${") {
-            result.push_str("${");
-            rest = t;
-        } else if let Some(t) = tail.strip_prefix("${") {
-            let Some(end) = t.find('}') else {
+    for piece in burrow_syntax::env::pieces(s) {
+        match piece {
+            Piece::Text(t) => result.push_str(t),
+            Piece::Escape => result.push_str("${"),
+            Piece::Unclosed(tail) => {
                 out.push(
                     Diagnostic::error("env-syntax", "unclosed \"${\" in value")
                         .at(sub_span(src, span, tail))
@@ -84,46 +81,42 @@ fn expand_str(
                         .help("write ${NAME}, or $${ for a literal \"${\""),
                 );
                 return None;
-            };
-            let name = &t[..end];
-            let token = &tail[..end + 3];
-            if !valid_name(name) {
-                out.push(
-                    Diagnostic::error(
-                        "env-syntax",
-                        format!("invalid environment variable name \"{name}\""),
-                    )
-                    .at(sub_span(src, span, token))
-                    .label("not a valid variable name")
-                    .help(
-                        "names use letters, digits and underscores, and do not start with a digit",
-                    ),
-                );
-                ok = false;
-            } else {
-                match env.get(name) {
-                    Some(v) => result.push_str(&v),
-                    None => {
-                        out.push(
-                            Diagnostic::error(
-                                "env-unset",
-                                format!("environment variable \"{name}\" is not set"),
-                            )
-                            .at(sub_span(src, span, token))
-                            .label("referenced here")
-                            .help(set_hint(name, secret)),
-                        );
-                        ok = false;
+            }
+            Piece::Var { name, valid } => {
+                let token = format!("${{{name}}}");
+                if !valid {
+                    out.push(
+                        Diagnostic::error(
+                            "env-syntax",
+                            format!("invalid environment variable name \"{name}\""),
+                        )
+                        .at(sub_span(src, span, &token))
+                        .label("not a valid variable name")
+                        .help(
+                            "names use letters, digits and underscores, and do not start with a digit",
+                        ),
+                    );
+                    ok = false;
+                } else {
+                    match env.get(name) {
+                        Some(v) => result.push_str(&v),
+                        None => {
+                            out.push(
+                                Diagnostic::error(
+                                    "env-unset",
+                                    format!("environment variable \"{name}\" is not set"),
+                                )
+                                .at(sub_span(src, span, &token))
+                                .label("referenced here")
+                                .help(set_hint(name, secret)),
+                            );
+                            ok = false;
+                        }
                     }
                 }
             }
-            rest = &t[end + 1..];
-        } else {
-            result.push('$');
-            rest = &tail[1..];
         }
     }
-    result.push_str(rest);
     ok.then_some(result)
 }
 
@@ -139,12 +132,6 @@ fn set_hint(name: &str, secret: bool) -> String {
         format!("export {name}={value}")
     };
     format!("set it before starting burrow, for example: {set}")
-}
-
-fn valid_name(name: &str) -> bool {
-    let mut chars = name.chars();
-    matches!(chars.next(), Some(c) if c.is_ascii_alphabetic() || c == '_')
-        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
 fn sub_span(src: &str, span: Span, token: &str) -> Span {
@@ -211,5 +198,36 @@ mod tests {
         let s = out[0].span.unwrap();
         assert_eq!(&src[s.start.offset..s.end.offset], "${MISSING}");
         assert_eq!(s.start.col, 13);
+    }
+
+    #[test]
+    fn expansion_and_the_scanners_agree_on_which_variables_a_value_uses() {
+        for text in [
+            "${A}",
+            "$${A}",
+            "$$${A}",
+            "${A:-d}",
+            "${1X}",
+            "${_X1}",
+            "${A${B}}",
+            "x ${A",
+            "$5 ${B}",
+            "${A}-${B}-${A}",
+            "pre$${A}${B}post",
+            "${}",
+        ] {
+            let asked = std::cell::RefCell::new(Vec::new());
+            let record = |name: &str| {
+                if !asked.borrow().iter().any(|n: &String| n == name) {
+                    asked.borrow_mut().push(name.to_string());
+                }
+                Some("v".to_string())
+            };
+            expand_str(text, Span::default(), "", &record, false, &mut Vec::new());
+            let scanned = burrow_syntax::env::names(text);
+            assert_eq!(*asked.borrow(), scanned, "{text}");
+            let yaml = format!("x: '{text}'\n");
+            assert_eq!(crate::service::referenced_env(&yaml), scanned, "{text}");
+        }
     }
 }

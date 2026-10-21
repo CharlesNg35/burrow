@@ -37,25 +37,36 @@ pub struct AdminTx {
     wr: OwnedWriteHalf,
 }
 
+pub enum Heard {
+    Message(Vec<u8>),
+    Record,
+}
+
 impl AdminRx {
     pub async fn recv(&mut self) -> std::io::Result<Option<Vec<u8>>> {
         loop {
-            let Some(rec) = self.reader.recv(&mut self.rd).await? else {
-                return Ok(None);
-            };
-            if rec.is_empty() {
-                return Ok(None);
+            match self.recv_record().await? {
+                Some(Heard::Message(m)) => return Ok(Some(m)),
+                Some(Heard::Record) => continue,
+                None => return Ok(None),
             }
-            match self.assembler.push(rec) {
-                Ok(Frame::Message(m)) => return Ok(Some(m)),
-                Ok(_) => continue,
-                Err(e) => {
-                    return Err(std::io::Error::new(
-                        std::io::ErrorKind::InvalidData,
-                        e.to_string(),
-                    ));
-                }
-            }
+        }
+    }
+
+    pub async fn recv_record(&mut self) -> std::io::Result<Option<Heard>> {
+        let Some(rec) = self.reader.recv(&mut self.rd).await? else {
+            return Ok(None);
+        };
+        if rec.is_empty() {
+            return Ok(None);
+        }
+        match self.assembler.push(rec) {
+            Ok(Frame::Message(m)) => Ok(Some(Heard::Message(m))),
+            Ok(_) => Ok(Some(Heard::Record)),
+            Err(e) => Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                e.to_string(),
+            )),
         }
     }
 }
@@ -79,8 +90,11 @@ impl AdminTx {
     }
 
     pub async fn close(mut self) {
-        let _ = self.writer.send(&mut self.wr, &[]).await;
-        let _ = self.wr.shutdown().await;
+        let closed = async {
+            self.writer.send(&mut self.wr, &[]).await?;
+            self.wr.shutdown().await
+        };
+        let _ = tokio::time::timeout(crate::forward::ANSWER_TIMEOUT, closed).await;
     }
 }
 
@@ -144,5 +158,27 @@ impl Dialer {
             _ => AdminRefusal::Other(0xff),
         };
         Err(AdminOpenError::Refused(refusal))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn closing_toward_a_websocket_peer_that_never_closes_gives_up() {
+        let (ours, _held) = crate::transport::testing::held_websocket().await;
+        let ch = crate::transport::testing::sealed(ours);
+        let (_, wr) = ch.stream.into_split();
+        let tx = AdminTx {
+            writer: ch.writer,
+            wr,
+        };
+        tokio::time::timeout(
+            crate::forward::ANSWER_TIMEOUT + Duration::from_secs(3),
+            tx.close(),
+        )
+        .await
+        .expect("closing gives up on a peer that holds the socket");
     }
 }

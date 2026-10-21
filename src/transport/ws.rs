@@ -8,7 +8,9 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
 use tokio::net::TcpStream;
 use tokio_websockets::{ClientBuilder, Limits, Message, ServerBuilder, WebSocketStream};
 
-use super::endpoint::{Endpoint, join_host_port};
+use burrow_syntax::endpoint::{Endpoint, join_host_port};
+
+pub const UPGRADE_TOKEN: &str = "websocket";
 
 pub const MAX_REQUEST_HEAD: usize = 8 * 1024;
 const MAX_RESPONSE_HEAD: usize = 64 * 1024;
@@ -339,7 +341,7 @@ pub fn route(head: &[u8], path: &str) -> Result<(), Refused> {
     let upgrade = req.headers.iter().any(|h| {
         h.name.eq_ignore_ascii_case("upgrade")
             && std::str::from_utf8(h.value)
-                .is_ok_and(|v| v.trim().eq_ignore_ascii_case("websocket"))
+                .is_ok_and(|v| v.trim().eq_ignore_ascii_case(UPGRADE_TOKEN))
     });
     if req.method != Some("GET") || !upgrade {
         return Err(Refused::UpgradeRequired);

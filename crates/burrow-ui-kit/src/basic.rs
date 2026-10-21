@@ -11,7 +11,7 @@ pub enum Tone {
     Warning,
     Danger,
     Info,
-    Udp,
+    Violet,
 }
 
 impl Tone {
@@ -23,7 +23,7 @@ impl Tone {
             Tone::Warning => "warning",
             Tone::Danger => "danger",
             Tone::Info => "info",
-            Tone::Udp => "udp",
+            Tone::Violet => "violet",
         }
     }
 
@@ -34,7 +34,7 @@ impl Tone {
             Tone::Success => "bg-success-weak text-success",
             Tone::Warning => "bg-warning-weak text-warning",
             Tone::Danger => "bg-danger-weak text-danger",
-            Tone::Udp => "bg-udp-weak text-udp",
+            Tone::Violet => "bg-udp-weak text-udp",
         }
     }
 
@@ -45,7 +45,7 @@ impl Tone {
             Tone::Success => "border-success/40 bg-success-weak text-co-success",
             Tone::Warning => "border-warning/40 bg-warning-weak text-co-warning",
             Tone::Danger => "border-danger/40 bg-danger-weak text-co-danger",
-            Tone::Udp => "border-udp/40 bg-udp-weak text-udp",
+            Tone::Violet => "border-udp/40 bg-udp-weak text-udp",
         }
     }
 
@@ -56,7 +56,7 @@ impl Tone {
             Tone::Success => "text-success",
             Tone::Warning => "text-warning",
             Tone::Danger => "text-danger",
-            Tone::Udp => "text-udp",
+            Tone::Violet => "text-udp",
         }
     }
 
@@ -66,7 +66,9 @@ impl Tone {
             Tone::Warning => "bg-warning ring-3 ring-warning-weak",
             Tone::Danger => "bg-danger ring-3 ring-danger-weak",
             Tone::Accent | Tone::Info => "bg-accent ring-3 ring-accent-weak",
-            Tone::Neutral | Tone::Udp => "bg-transparent ring-[1.5px] ring-text-faint ring-inset",
+            Tone::Neutral | Tone::Violet => {
+                "bg-transparent ring-[1.5px] ring-text-faint ring-inset"
+            }
         }
     }
 

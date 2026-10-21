@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use sha2::{Digest, Sha256};
 
 use crate::failure::{Failure, admin, cmd};
-use crate::service::{self, Manifest, Version, parse_version};
+use crate::service::{self, Manifest, parse_version};
 
 const MAX_SUMS: usize = 1024 * 1024;
 const MAX_ASSET: usize = 256 * 1024 * 1024;
@@ -209,7 +209,7 @@ fn stage(near: &Path, bytes: &[u8]) -> Result<Staged, Failure> {
     )))
 }
 
-fn version_of(v: &str) -> Result<Version, Failure> {
+fn version_of(v: &str) -> Result<semver::Version, Failure> {
     parse_version(v).ok_or_else(|| Failure::usage(format!("\"{v}\" is not a version like 1.2.3")))
 }
 
@@ -292,8 +292,11 @@ pub fn run(opts: &Options, out: &mut dyn Write) -> Result<u8, Failure> {
         let behind: Vec<&Manifest> = installed
             .iter()
             .filter(|m| m.copied_binary && m.binary != me)
-            .filter(|m| version_of(&service::binary_version(&m.binary)).is_ok_and(|v| v < ours))
+            .filter(|m| version_of(&service::recorded_version(m)).is_ok_and(|v| v < ours))
             .collect();
+        for m in installed.iter().filter(|m| service::exposed(m)) {
+            say(out, format!("{}: {}", m.name, service::exposed_note(m)))?;
+        }
         if behind.is_empty() {
             say(out, format!("{line}, nothing to do"))?;
         } else if theirs == ours && service::is_admin() {
@@ -307,7 +310,7 @@ pub fn run(opts: &Options, out: &mut dyn Write) -> Result<u8, Failure> {
                 out,
                 format!(
                     "{line}, but the installed services run the older {}; update them with: {}",
-                    service::binary_version(&behind[0].binary),
+                    service::recorded_version(behind[0]),
                     update_services_with(&me)
                 ),
             )?;
@@ -411,7 +414,7 @@ fn update_services_with(me: &Path) -> String {
 }
 
 fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
+    hex::encode(bytes)
 }
 
 fn connect_hint(url: &str, env: &dyn Fn(&str) -> Option<String>) -> String {

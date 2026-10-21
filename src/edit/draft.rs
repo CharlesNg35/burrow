@@ -15,7 +15,7 @@ impl Draft {
     pub fn new_in(parent: &Path, name: &OsStr, text: &str) -> std::io::Result<Draft> {
         let mut random = [0u8; 8];
         getrandom::fill(&mut random).map_err(std::io::Error::other)?;
-        let tag: String = random.iter().map(|b| format!("{b:02x}")).collect();
+        let tag = hex::encode(random);
         let dir = parent.join(format!("burrow-edit-{tag}"));
         #[cfg(unix)]
         {

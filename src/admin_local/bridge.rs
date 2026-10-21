@@ -1,61 +1,17 @@
-use std::pin::Pin;
 use std::sync::Arc;
-use std::task::{Context, Poll};
 use std::time::Duration;
 
-use bytes::{Buf, Bytes};
 use futures_util::{SinkExt, StreamExt};
-use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
-use tokio::net::TcpStream;
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_websockets::{CloseCode, Limits, Message, ServerBuilder};
 
 use super::token::Token;
 use crate::dialer::Dialer;
-use crate::dialer::admin::{AdminOpenError, AdminRefusal};
+use crate::dialer::admin::{AdminOpenError, AdminRefusal, Heard};
 use burrow_admin_proto::frame::{AdminOpen, MAX_MESSAGE};
 
 pub const AUTH_WAIT: Duration = Duration::from_secs(5);
 pub const CLOSE_WAIT: Duration = Duration::from_secs(1);
-const SERVER_PING: Duration = Duration::from_secs(25);
-
-pub struct Rewind {
-    prefix: Bytes,
-    inner: TcpStream,
-}
-
-impl AsyncRead for Rewind {
-    fn poll_read(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &mut ReadBuf<'_>,
-    ) -> Poll<std::io::Result<()>> {
-        if self.prefix.has_remaining() {
-            let n = self.prefix.len().min(buf.remaining());
-            buf.put_slice(&self.prefix[..n]);
-            self.prefix.advance(n);
-            return Poll::Ready(Ok(()));
-        }
-        Pin::new(&mut self.inner).poll_read(cx, buf)
-    }
-}
-
-impl AsyncWrite for Rewind {
-    fn poll_write(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &[u8],
-    ) -> Poll<std::io::Result<usize>> {
-        Pin::new(&mut self.inner).poll_write(cx, buf)
-    }
-
-    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
-        Pin::new(&mut self.inner).poll_flush(cx)
-    }
-
-    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
-        Pin::new(&mut self.inner).poll_shutdown(cx)
-    }
-}
 
 fn bridge_event(state: &str, reason: &str, message: &str) -> Message {
     let v = serde_json::json!({"ev": "bridge", "body": {"state": state, "reason": reason, "message": message}});
@@ -102,22 +58,15 @@ pub fn open_message() -> AdminOpen {
     }
 }
 
-pub async fn serve(
-    stream: TcpStream,
-    head: Vec<u8>,
+pub async fn serve<S: AsyncRead + AsyncWrite + Unpin>(
+    stream: S,
     token: Token,
     dialer: Arc<Dialer>,
     visitor: String,
     server: String,
 ) {
-    let rewind = Rewind {
-        prefix: Bytes::from(head),
-        inner: stream,
-    };
     let limits = Limits::default().max_payload_len(Some(MAX_MESSAGE + 1024));
-    let Ok((_, mut ws)) = ServerBuilder::new().limits(limits).accept(rewind).await else {
-        return;
-    };
+    let mut ws = ServerBuilder::new().limits(limits).serve(stream);
     let first = tokio::time::timeout(AUTH_WAIT, ws.next()).await;
     let authed = match &first {
         Ok(Some(Ok(m))) => m
@@ -158,17 +107,16 @@ pub async fn serve(
         tx.close().await;
         return;
     }
+    let (ping, silence) = crate::admin::transport::keepalive();
+    let mut pings = tokio::time::interval_at(tokio::time::Instant::now() + ping, ping);
+    pings.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    let mut heard = tokio::time::Instant::now();
     let why = loop {
         tokio::select! {
-            from_browser = tokio::time::timeout(SERVER_PING, ws.next()) => match from_browser {
-                Err(_) => {
-                    if tx.ping().await.is_err() {
-                        break "the server connection broke";
-                    }
-                }
-                Ok(None) | Ok(Some(Err(_))) => break "the browser closed",
-                Ok(Some(Ok(m))) if m.is_close() => break "the browser closed",
-                Ok(Some(Ok(m))) => {
+            from_browser = ws.next() => match from_browser {
+                None | Some(Err(_)) => break "the browser closed",
+                Some(Ok(m)) if m.is_close() => break "the browser closed",
+                Some(Ok(m)) => {
                     let Some(text) = m.as_text() else {
                         continue;
                     };
@@ -180,18 +128,30 @@ pub async fn serve(
                     }
                 }
             },
-            from_server = rx.recv() => match from_server {
-                Ok(Some(m)) => {
-                    let Ok(text) = String::from_utf8(m) else {
-                        break "the server sent text that is not UTF-8";
-                    };
-                    if ws.send(Message::text(text)).await.is_err() {
-                        break "the browser went away";
-                    }
+            _ = pings.tick() => {
+                if tx.ping().await.is_err() {
+                    break "the server connection broke";
                 }
-                Ok(None) => break "the server closed the admin session",
-                Err(_) => break "the server connection broke",
-            },
+            }
+            from_server = rx.recv_record() => {
+                heard = tokio::time::Instant::now();
+                match from_server {
+                    Ok(Some(Heard::Message(m))) => {
+                        let Ok(text) = String::from_utf8(m) else {
+                            break "the server sent text that is not UTF-8";
+                        };
+                        if ws.send(Message::text(text)).await.is_err() {
+                            break "the browser went away";
+                        }
+                    }
+                    Ok(Some(Heard::Record)) => {}
+                    Ok(None) => break "the server closed the admin session",
+                    Err(_) => break "the server connection broke",
+                }
+            }
+            _ = tokio::time::sleep_until(heard + silence) => {
+                break "the server sent nothing for 90 s";
+            }
         }
     };
     let _ = ws.send(bridge_event("server-closed", why, why)).await;

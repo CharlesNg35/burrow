@@ -68,7 +68,7 @@ pub fn holds(c: &Cond, get: &dyn Fn(&str) -> Lookup) -> bool {
     tri(c, get).unwrap_or(true)
 }
 
-pub fn holds_at(c: &Cond, root: &Node, doc: &Value, base: &[String]) -> bool {
+fn holds_at(c: &Cond, root: &Node, doc: &Value, base: &[String]) -> bool {
     holds(c, &|p| lookup(root, doc, base, p))
 }
 
@@ -110,17 +110,6 @@ pub fn field_state(node: &Node, root: &Node, doc: &Value, base: &[String]) -> Fi
         }
     }
     s
-}
-
-pub fn options_allowed(node: &Node, root: &Node, doc: &Value, candidate: &[String]) -> bool {
-    node.relations.iter().all(|r| match r {
-        Relation::OptionsFilter(c) => holds_at(c, root, doc, candidate),
-        _ => true,
-    })
-}
-
-pub fn inverse_allowed(node: &Node, root: &Node, doc: &Value, owner: &[String]) -> bool {
-    options_allowed(node, root, doc, owner)
 }
 
 fn set_in(v: &Value, key: &str) -> bool {
@@ -283,19 +272,6 @@ mod tests {
             .clone();
         let st = field_state(mc, &s.root, &d, &p(&["clients", "home"]));
         assert_eq!(st.default_from, Some(json!(50)));
-        let visitors = s.root.at(&p(&["services", "x", "visitors"])).expect("node");
-        assert!(inverse_allowed(
-            visitors,
-            &s.root,
-            &d,
-            &p(&["services", "web"])
-        ));
-        assert!(!inverse_allowed(
-            visitors,
-            &s.root,
-            &d,
-            &p(&["services", "dns"])
-        ));
     }
 
     #[test]

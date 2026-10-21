@@ -1,16 +1,19 @@
-use burrow_admin_logic::check::{check, refs_exist};
+use burrow_admin_logic::check::{check, check_in, refs_exist};
 use burrow_admin_logic::fallback::{Render, for_node};
 use burrow_admin_logic::input::{parse_input, rate_parts, rate_value, time_unit, to_text};
 use burrow_admin_logic::tree::{inner, names};
 use burrow_admin_proto::Path;
 use burrow_admin_proto::schema::{Entity, EnumC, Node, SemType, UnionC};
 use burrow_admin_proto::serde_json::{self, Value};
+use burrow_admin_proto::value::child;
+use burrow_config::{Field, HealthCheck, ServiceEntry};
 use burrow_syntax::duration::{TimeUnit, best_unit, human, to_stored, units_for};
 use burrow_syntax::rate::RateUnit;
 use burrow_ui_kit::{ChipInput, Segmented, Select, TextArea, TextInput, Toggle, button_class};
 use leptos::prelude::*;
 
-use crate::form::{object_view, push};
+use crate::form::object_view;
+use crate::grants::in_the_file;
 use crate::store::store;
 
 #[derive(Clone)]
@@ -25,6 +28,17 @@ pub struct FieldCtx {
     pub inherited: Option<Value>,
 }
 
+pub const THIS_SERVER: &str = "This server";
+
+pub fn reserved_clients() -> Vec<String> {
+    store().schema.with(|s| {
+        s.as_ref()
+            .and_then(|s| s.root.at(&ServiceEntry::CLIENT.schema()))
+            .map(|n| n.sem.reserved().to_vec())
+            .unwrap_or_default()
+    })
+}
+
 pub fn names_of(entity: &Entity) -> Vec<String> {
     let doc = store().edit.doc();
     names(&doc, &[entity.section().to_string()])
@@ -32,12 +46,16 @@ pub fn names_of(entity: &Entity) -> Vec<String> {
 
 pub fn set_checked(fc: &FieldCtx, node: &Node, v: Option<Value>) {
     let e = store().edit;
+    if crate::grants::refuses(&fc.path, v.as_ref()) {
+        e.refuse(&fc.path, true);
+        return;
+    }
     let problem = match &v {
         None if node.required && node.default.is_none() => {
             Some(format!("{} is required", node.label))
         }
         None => None,
-        Some(x) => check(node, x)
+        Some(x) => check_in(node, x, &e.doc())
             .err()
             .or_else(|| refs_exist(node, x, &ref_names(node)).err()),
     };
@@ -119,6 +137,7 @@ fn by_sem(fc: FieldCtx, sem: &SemType) -> AnyView {
             let fc2 = FieldCtx {
                 node: Node {
                     required: false,
+                    reduce_only: inner_node.reduce_only || fc.node.reduce_only,
                     none_label: inner_node.none_label.clone().or(fc.node.none_label.clone()),
                     default: inner_node.default.clone().or(fc.node.default.clone()),
                     label: if inner_node.label.is_empty() {
@@ -319,9 +338,8 @@ fn enum_editor(fc: FieldCtx, c: EnumC) -> AnyView {
         let clear = v == UNSET
             || (merge_default
                 && Some(&v) == default_raw.as_ref()
-                && e.draft.with_untracked(|d| {
-                    burrow_admin_logic::changeset::get(d.base(), &p2).is_none()
-                }));
+                && e.draft
+                    .with_untracked(|d| burrow_admin_proto::value::get(d.base(), &p2).is_none()));
         e.set(&p2, (!clear).then(|| Value::String(v)));
     };
     let mut options: Vec<(String, String, bool)> = Vec::new();
@@ -333,6 +351,24 @@ fn enum_editor(fc: FieldCtx, c: EnumC) -> AnyView {
             .iter()
             .map(|o| (o.value.clone(), o.label.clone(), o.danger)),
     );
+    let gated = fc.path.clone();
+    let values: Vec<String> = options.iter().map(|o| o.0.clone()).collect();
+    let off = Signal::derive(move || {
+        values
+            .iter()
+            .filter(|v| {
+                let candidate = (*v != UNSET).then(|| Value::String(v.to_string()));
+                crate::grants::refuses(&gated, candidate.as_ref())
+            })
+            .cloned()
+            .collect::<Vec<_>>()
+    });
+    let set = move |v: String| {
+        if !off.with_untracked(|o| o.contains(&v)) {
+            set(v);
+        }
+    };
+    let locked = move || off.with(|o| !o.is_empty()).then(in_the_file);
     let help = {
         let c = c.clone();
         move || {
@@ -346,12 +382,12 @@ fn enum_editor(fc: FieldCtx, c: EnumC) -> AnyView {
         }
     };
     let control = if options.len() <= 4 {
-        view! { <Segmented name=fc.id.clone() options=options value=value on_change=set label=fc.node.label.clone()/> }.into_any()
+        view! { <Segmented name=fc.id.clone() options=options value=value on_change=set label=fc.node.label.clone() off=off/> }.into_any()
     } else {
         let opts: Vec<(String, String)> = options.into_iter().map(|(v, l, _)| (v, l)).collect();
         view! { <Select id=fc.id.clone() options=opts value=value on_change=set/> }.into_any()
     };
-    view! { <div id=if c.options.len() + usize::from(optional) <= 4 { Some(fc.id.clone()) } else { None }>{control}{help}</div> }.into_any()
+    view! { <div id=if c.options.len() + usize::from(optional) <= 4 { Some(fc.id.clone()) } else { None }>{control}{locked}{help}</div> }.into_any()
 }
 
 fn duration_editor(fc: FieldCtx, stored: TimeUnit, max: Option<u64>) -> AnyView {
@@ -582,6 +618,10 @@ fn list_editor(fc: FieldCtx, item: Node) -> AnyView {
                     .collect(),
             )
         });
+        if crate::grants::refuses(&fc2.path, v.as_ref()) {
+            store().edit.refuse(&fc2.path, true);
+            return;
+        }
         set_checked(&fc2, &node, v);
         let bad = list.iter().find_map(|t| {
             parse_input(&item3.sem, t)
@@ -593,31 +633,6 @@ fn list_editor(fc: FieldCtx, item: Node) -> AnyView {
     };
     let cidr = matches!(item.sem, SemType::Cidr | SemType::CidrRule);
     let meta = Callback::new(move |t: String| if cidr { cidr_size(&t) } else { String::new() });
-    let note = {
-        let path = fc.path.clone();
-        move || {
-            let last = path.last().map(String::as_str);
-            if last != Some("admin_from") {
-                return None;
-            }
-            let mut level_path = path.clone();
-            level_path.pop();
-            level_path.push("admin".into());
-            let write = e
-                .value(&level_path)
-                .is_some_and(|v| v.as_str() == Some("write"));
-            let empty = e
-                .value(&path)
-                .and_then(|v| v.as_array().map(Vec::is_empty))
-                .unwrap_or(true);
-            (write && empty).then(|| view! {
-                <p class="mt-1.5 flex items-center gap-1.5 text-xs text-info" data-testid="admin-from-note">
-                    <burrow_ui_kit::Icon name="info" small=true/>
-                    "A write admin without admin_from may administer from any address. Consider limiting it."
-                </p>
-            })
-        }
-    };
     view! {
         <ChipInput
             id=fc.id.clone()
@@ -628,7 +643,6 @@ fn list_editor(fc: FieldCtx, item: Node) -> AnyView {
             empty_label=fc.node.empty_label.clone().unwrap_or_default()
             meta=meta
         />
-        {note}
     }
     .into_any()
 }
@@ -666,9 +680,16 @@ fn map_editor(fc: FieldCtx, entity: Option<Entity>, value_node: Node) -> AnyView
     let adding = RwSignal::new(String::new());
     let fc2 = fc.clone();
     let ent = entity.clone();
+    let reserved = fc.node.sem.reserved().to_vec();
     let candidates = Signal::derive(move || {
         let used = keys.get();
         let mut o = vec![(String::new(), "Add…".to_string())];
+        o.extend(
+            reserved
+                .iter()
+                .filter(|n| !used.contains(n))
+                .map(|n| (n.clone(), format!("{THIS_SERVER} · {n}"))),
+        );
         if let Some(ent) = &ent {
             o.extend(
                 names_of(ent)
@@ -698,8 +719,8 @@ fn map_editor(fc: FieldCtx, entity: Option<Entity>, value_node: Node) -> AnyView
         keys.get()
             .into_iter()
             .map(|k| {
-                let p = push(&fc2.path, &k);
-                let sp = push(&fc2.spath, "*");
+                let p = child(&fc2.path, &k);
+                let sp = child(&fc2.spath, "*");
                 let sub = FieldCtx {
                     node: value_node.clone(),
                     path: p.clone(),
@@ -765,7 +786,7 @@ fn union_editor(fc: FieldCtx, u: UnionC) -> AnyView {
     let Some(obj) = object_branch.filter(|_| bool_branch) else {
         return text_editor(fc, None);
     };
-    let split = fc.spath.len() == 3 && fc.spath[0] == "services" && fc.spath[2] == "health_check";
+    let split = ServiceEntry::HEALTH_CHECK.is(&fc.spath);
     let path = fc.path.clone();
     let mode = Memo::new(move |_| match e.value(&path) {
         None | Some(Value::Bool(false)) => "off".to_string(),
@@ -830,12 +851,15 @@ pub fn health_box(node: Node, path: Path, spath: Path, entity: Path) -> AnyView 
     let p2 = path.clone();
     let summary = move || {
         let v = e.value(&p2).unwrap_or(Value::Null);
-        let num = |k: &str, d: u64| v.get(k).and_then(Value::as_u64).unwrap_or(d);
+        let d = HealthCheck::default();
+        let num = |f: Field<HealthCheck, u32>, d: u32| {
+            f.get(&v).and_then(Value::as_u64).unwrap_or(u64::from(d))
+        };
         format!(
             "= every {} s, {} s to answer, down after {} failures in a row.",
-            num("interval_secs", 10),
-            num("timeout_secs", 3),
-            num("failures", 2)
+            num(HealthCheck::INTERVAL_SECS, d.interval_secs),
+            num(HealthCheck::TIMEOUT_SECS, d.timeout_secs),
+            num(HealthCheck::FAILURES, d.failures)
         )
     };
     (move || {

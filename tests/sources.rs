@@ -3,10 +3,10 @@ mod common;
 use std::time::Duration;
 
 use burrow::allowlist::{Cidr, Sources};
-use burrow::config::model::Protocol;
 use burrow::config::settings::Service;
 use burrow::protocol::VisitTarget;
 use burrow::secret::Secret;
+use burrow_config::Protocol;
 use common::*;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 

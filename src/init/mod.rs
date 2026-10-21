@@ -19,11 +19,17 @@ use crate::config::{Format, Role};
 use crate::failure::Failure;
 use crate::prompt::Prompter;
 use crate::secret::Secret;
-use crate::transport::endpoint::Endpoint;
+use burrow_syntax::endpoint::Endpoint;
+use burrow_syntax::ports::{FIRST_SERVICE_PORT, SERVER_PORT, WS_PORT, WSS_PORT};
 
 pub const DEFAULT_CLIENT_NAME: &str = "home";
-pub const DEFAULT_LISTEN: &str = "0.0.0.0:7835";
-pub const DEFAULT_SERVICE_BIND: &str = "0.0.0.0:7840";
+pub fn default_listen() -> String {
+    format!("0.0.0.0:{SERVER_PORT}")
+}
+
+pub fn default_service_bind() -> String {
+    format!("0.0.0.0:{FIRST_SERVICE_PORT}")
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct InitOptions {
@@ -48,8 +54,13 @@ pub struct WebSocketInit {
     pub tls_key: Option<String>,
 }
 
-pub const DEFAULT_WS_LISTEN: &str = "127.0.0.1:7836";
-pub const DEFAULT_WS_TLS_LISTEN: &str = "0.0.0.0:7837";
+pub fn default_ws_listen() -> String {
+    format!("127.0.0.1:{WS_PORT}")
+}
+
+pub fn default_ws_tls_listen() -> String {
+    format!("0.0.0.0:{WSS_PORT}")
+}
 
 struct WebSocketChoice {
     listen: String,
@@ -75,21 +86,20 @@ impl WebSocketInit {
         };
         let listen = self.listen.clone().unwrap_or_else(|| {
             if tls.is_some() {
-                DEFAULT_WS_TLS_LISTEN
+                default_ws_tls_listen()
             } else {
-                DEFAULT_WS_LISTEN
+                default_ws_listen()
             }
-            .to_string()
         });
         listen.parse::<std::net::SocketAddr>().map_err(|_| {
             Failure::usage(format!("invalid --ws-listen \"{listen}\""))
-                .hint("use ip:port, for example 127.0.0.1:7836")
+                .hint(format!("use ip:port, for example {}", default_ws_listen()))
         })?;
         let path = self
             .path
             .clone()
-            .unwrap_or_else(crate::config::model::default_ws_path);
-        if !crate::transport::endpoint::valid_path(&path) {
+            .unwrap_or_else(burrow_config::default_ws_path);
+        if !burrow_syntax::endpoint::valid_path(&path) {
             return Err(Failure::usage(format!("invalid --ws-path \"{path}\""))
                 .hint("use a path like /burrow"));
         }
@@ -98,8 +108,8 @@ impl WebSocketInit {
 }
 
 impl WebSocketChoice {
-    fn shape(&self) -> crate::config::address::WsShape<'_> {
-        crate::config::address::WsShape {
+    fn shape(&self) -> burrow_syntax::address::WsShape<'_> {
+        burrow_syntax::address::WsShape {
             listen: self.listen.parse().expect("checked in resolve"),
             path: &self.path,
             tls: self.tls.is_some(),
@@ -241,7 +251,9 @@ fn ask_login(
     let server = match &opts.server {
         Some(s) => s.clone(),
         None => prompt
-            .ask("server host name or IP (port 7835 unless you add :PORT)")
+            .ask(&format!(
+                "server host name or IP (port {SERVER_PORT} unless you add :PORT)"
+            ))
             .ok_or_else(|| missing("server address", "--server HOST"))?,
     };
     let server = Endpoint::parse(&server)

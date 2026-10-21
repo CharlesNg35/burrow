@@ -5,7 +5,7 @@ impl Token {
     pub fn generate() -> Token {
         let mut bytes = [0u8; 32];
         getrandom::fill(&mut bytes).expect("operating system random source is available");
-        Token(bytes.iter().map(|b| format!("{b:02x}")).collect())
+        Token(hex::encode(bytes))
     }
 
     pub fn as_str(&self) -> &str {
@@ -13,12 +13,8 @@ impl Token {
     }
 
     pub fn matches(&self, given: &str) -> bool {
-        let (a, b) = (self.0.as_bytes(), given.as_bytes());
-        let mut diff = a.len() ^ b.len();
-        for (i, x) in a.iter().enumerate() {
-            diff |= usize::from(x ^ b.get(i).copied().unwrap_or(0));
-        }
-        diff == 0
+        use subtle::ConstantTimeEq;
+        self.0.as_bytes().ct_eq(given.as_bytes()).into()
     }
 }
 

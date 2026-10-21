@@ -39,7 +39,7 @@ pub fn write(dir: &Path, url: &str) -> Result<LaunchFile, Failure> {
     })?;
     let mut tag = [0u8; 6];
     getrandom::fill(&mut tag).expect("operating system random source is available");
-    let tag: String = tag.iter().map(|b| format!("{b:02x}")).collect();
+    let tag = hex::encode(tag);
     let path = dir.join(format!("admin-{}-{tag}.html", std::process::id()));
     crate::instance::write_private(&path, &page(url))
         .map_err(|e| Failure::new(format!("cannot write {}: {e}", path.display())))?;

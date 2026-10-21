@@ -1,6 +1,7 @@
 use super::*;
-use burrow_admin_proto::schema::{Relation, SemType};
-use std::collections::BTreeSet;
+use burrow_admin_proto::schema::{Node, Relation, SemType};
+use burrow_config::admin_schema::{assert_carrier, sem};
+use std::collections::{BTreeMap, BTreeSet};
 
 fn admin_paths(node: &Node, prefix: &str, out: &mut BTreeSet<String>) {
     match &node.sem {
@@ -334,7 +335,7 @@ fn admin_rights_are_checked() {
 
 #[test]
 fn carriers_cover_semtypes() {
-    use crate::config::model::{Bind, ClientEntry, Mode, Reach, Secrets, ServerConfig, Target};
+    use burrow_config::{Bind, ClientEntry, Mode, Reach, Secrets, ServerConfig, Target};
     fn proof(s: &SemType) {
         match s {
             SemType::Text(_) => assert_carrier::<String, sem::Text>(),
@@ -408,4 +409,13 @@ fn every_node_has_a_label_and_known_type() {
     }
     let back: Schema = serde_json::from_value(serde_json::to_value(&schema).unwrap()).unwrap();
     assert_eq!(back, schema);
+}
+
+#[test]
+fn the_reduce_only_fields_are_exactly_what_the_grant_rule_reads() {
+    let mut marked = server_schema().reduce_only_paths();
+    marked.sort();
+    let mut read: Vec<Vec<String>> = burrow_admin_logic::grant::fields().to_vec();
+    read.sort();
+    assert_eq!(marked, read);
 }

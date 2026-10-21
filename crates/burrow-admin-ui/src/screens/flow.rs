@@ -1,6 +1,7 @@
 use burrow_admin_logic::rates::{Rates, human_bits};
 use burrow_admin_proto::serde_json::Value;
 use burrow_admin_proto::status::Status;
+use burrow_config::{ClientEntry, Entry, Protocol, ServiceEntry, VisitorEntry};
 use burrow_ui_kit::{Icon, Segmented, active_element, button_class, focus_first, trap_focus};
 use leptos::html;
 use leptos::prelude::*;
@@ -88,7 +89,7 @@ pub struct Chart {
     pub alt: String,
 }
 
-pub fn weight(open: u64) -> f64 {
+fn weight(open: u64) -> f64 {
     1.4 + open.min(50) as f64 * 0.14
 }
 
@@ -124,9 +125,7 @@ struct Svc {
 }
 
 pub fn layout(doc: &Value, status: Option<&Status>, rates: &Rates) -> Chart {
-    let mut svcs: Vec<Svc> = doc
-        .get("services")
-        .and_then(Value::as_object)
+    let mut svcs: Vec<Svc> = ServiceEntry::entries(doc)
         .map(|m| {
             m.iter()
                 .map(|(name, v)| {
@@ -157,9 +156,15 @@ pub fn layout(doc: &Value, status: Option<&Status>, rates: &Rates) -> Chart {
                     };
                     Svc {
                         name: name.clone(),
-                        bind: v.get("bind").filter(|b| !b.is_null()).map(plain),
-                        target: v.get("target").map(plain).unwrap_or_default(),
-                        protocol: v.get("protocol").map(plain).unwrap_or_else(|| "tcp".into()),
+                        bind: ServiceEntry::BIND
+                            .get(v)
+                            .filter(|b| !b.is_null())
+                            .map(plain),
+                        target: ServiceEntry::TARGET.get(v).map(plain).unwrap_or_default(),
+                        protocol: ServiceEntry::PROTOCOL
+                            .get(v)
+                            .map(plain)
+                            .unwrap_or_else(|| Protocol::default().wire().into()),
                         clients,
                         open: st.map(|x| x.open).unwrap_or(0),
                         rate: rates.service(name).bytes_in,
@@ -176,11 +181,7 @@ pub fn layout(doc: &Value, status: Option<&Status>, rates: &Rates) -> Chart {
             .cmp(&b.bind.is_none())
             .then_with(|| a.name.cmp(&b.name))
     });
-    let client_names: Vec<String> = doc
-        .get("clients")
-        .and_then(Value::as_object)
-        .map(|m| m.keys().cloned().collect())
-        .unwrap_or_default();
+    let client_names: Vec<String> = ClientEntry::names(doc);
     let rows = svcs.len().max(client_names.len()).max(2);
     let height = TOP + rows as f64 * PITCH;
     let row_y = |i: usize| TOP + i as f64 * PITCH + 6.0;
@@ -243,7 +244,7 @@ pub fn layout(doc: &Value, status: Option<&Status>, rates: &Rates) -> Chart {
             .map(|s| s.visitors.iter().filter(|v| v.open > 0).count())
             .unwrap_or(0);
         nodes.push(Node {
-            key: "visitors".into(),
+            key: VisitorEntry::section().into(),
             col: 0,
             y,
             h,
@@ -255,7 +256,7 @@ pub fn layout(doc: &Value, status: Option<&Status>, rates: &Rates) -> Chart {
             dashed: false,
             server: false,
             problem: private.iter().any(|i| problem_svc(&svcs[*i])),
-            to: Some(Route::List("visitors".into())),
+            to: Some(Route::List(VisitorEntry::section().into())),
             tip: "Open visitors →".into(),
         });
     }
@@ -326,7 +327,7 @@ pub fn layout(doc: &Value, status: Option<&Status>, rates: &Rates) -> Chart {
                 dashed: status.is_some() && !on,
                 server: false,
                 problem: involved || (status.is_some() && !on),
-                to: Some(Route::Detail("clients".into(), c.clone())),
+                to: Some(Route::Detail(ClientEntry::section().into(), c.clone())),
                 tip: format!("Open client {c} →"),
             }
         })
@@ -351,7 +352,10 @@ pub fn layout(doc: &Value, status: Option<&Status>, rates: &Rates) -> Chart {
             dashed: false,
             server: false,
             problem,
-            to: Some(Route::Detail("services".into(), s.name.clone())),
+            to: Some(Route::Detail(
+                ServiceEntry::section().into(),
+                s.name.clone(),
+            )),
             tip: format!("Open service {} →", s.name),
         };
         let (r, u) = human_bits(s.rate);
@@ -372,7 +376,10 @@ pub fn layout(doc: &Value, status: Option<&Status>, rates: &Rates) -> Chart {
             dashed: false,
             server: false,
             problem,
-            to: Some(Route::Detail("services".into(), s.name.clone())),
+            to: Some(Route::Detail(
+                ServiceEntry::section().into(),
+                s.name.clone(),
+            )),
             tip: format!("Open service {} →", s.name),
         };
         let w = weight(s.open);
@@ -383,7 +390,7 @@ pub fn layout(doc: &Value, status: Option<&Status>, rates: &Rates) -> Chart {
                     == if s.bind.is_some() {
                         "internet"
                     } else {
-                        "visitors"
+                        VisitorEntry::section()
                     }
         }) {
             lines.push(Line {
@@ -402,6 +409,19 @@ pub fn layout(doc: &Value, status: Option<&Status>, rates: &Rates) -> Chart {
             problem,
         });
         for c in &s.clients {
+            let local = status
+                .and_then(|st| st.clients.iter().find(|x| &x.name == c))
+                .is_some_and(|x| x.local);
+            if local {
+                lines.push(Line {
+                    d: curve(server_right, mid(&port), COLS[4].0, mid(&target)),
+                    width: w,
+                    stroke,
+                    dashed: false,
+                    problem,
+                });
+                continue;
+            }
             if let Some(cn) = client_nodes.iter().find(|n| n.key == format!("client:{c}")) {
                 let off = cn.dashed;
                 lines.push(Line {
@@ -632,7 +652,7 @@ pub fn FlowModal() -> impl IntoView {
                 let label = tip.trim_end_matches(" →").to_string();
                 view! {
                     <li>
-                        <a href=to.path() on:click=move |e| {
+                        <a href=crate::route::href(&to) on:click=move |e| {
                             e.prevent_default();
                             s.flow_open.set(false);
                             route::go(to.clone());
@@ -724,6 +744,7 @@ mod tests {
             open: 3,
             idle_channels: 2,
             left_secs_ago: None,
+            local: false,
         });
         st.clients.push(ClientStatus {
             name: "b".into(),
@@ -733,6 +754,7 @@ mod tests {
             open: 0,
             idle_channels: 0,
             left_secs_ago: Some(7200),
+            local: false,
         });
         let mut svc: ServiceStatus = burrow_admin_proto::serde_json::from_value(
             json!({"name": "web", "protocol": "tcp", "target": "x:80", "clients": ["a"]}),
@@ -741,6 +763,32 @@ mod tests {
         svc.open = 60;
         st.services.push(svc);
         st
+    }
+
+    #[test]
+    fn a_service_on_this_server_goes_from_the_server_straight_to_its_target() {
+        let mut st = status();
+        st.clients.push(ClientStatus {
+            name: "self".into(),
+            connected: true,
+            local: true,
+            ..ClientStatus::default()
+        });
+        let doc = json!({
+            "clients": {},
+            "services": {"own": {"client": "self", "bind": "0.0.0.0:8080", "target": "127.0.0.1:3000"}}
+        });
+        let c = layout(&doc, Some(&st), &Rates::default());
+        assert_eq!(c.problems, 0);
+        let target = c.nodes.iter().find(|n| n.key == "target:own").unwrap();
+        assert_eq!(target.health, Health::Healthy);
+        assert!(c.nodes.iter().all(|n| n.key != "client:self"));
+        assert_eq!(c.lines.len(), 3, "source, port to server, server to target");
+        let direct = &c.lines[2].d;
+        assert!(
+            direct.contains(&format!(" {:.1},", COLS[4].0)),
+            "the line ends at the target column: {direct}"
+        );
     }
 
     #[test]

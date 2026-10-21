@@ -2,6 +2,7 @@ use burrow_admin_logic::addr;
 use burrow_admin_logic::input::to_text;
 use burrow_admin_proto::schema::Entity;
 use burrow_admin_proto::serde_json::Value;
+use burrow_config::{ClientEntry, Entry, VisitorEntry};
 use burrow_ui_kit::{ComboOption, Combobox, Segmented, Select, TextInput, Toggle, Tone, tag_class};
 use leptos::prelude::*;
 
@@ -431,12 +432,19 @@ pub fn server_editor(fc: FieldCtx) -> AnyView {
     .into_any()
 }
 
-pub fn options_for(entity: &Entity) -> Vec<ComboOption> {
+fn options_for(entity: &Entity, reserved: &[String]) -> Vec<ComboOption> {
     let s = store();
     let status = s.status.get();
-    names_of(entity)
+    let local = reserved.iter().map(|n| ComboOption {
+        value: n.clone(),
+        label: crate::domain::THIS_SERVER.to_string(),
+        facet: format!("{n} · always connected"),
+        dot: Some(Tone::Success),
+    });
+    local
+        .collect::<Vec<_>>()
         .into_iter()
-        .map(|n| match entity {
+        .chain(names_of(entity).into_iter().map(|n| match entity {
             Entity::Client => {
                 let c = status
                     .as_ref()
@@ -495,12 +503,16 @@ pub fn options_for(entity: &Entity) -> Vec<ComboOption> {
                 facet: String::new(),
                 dot: None,
             },
-        })
+        }))
         .collect()
 }
 
-pub fn merged_clients(fc: &FieldCtx) -> bool {
-    fc.spath.len() == 3 && fc.spath[0] == "services" && fc.spath[2] == "clients"
+pub fn merged_partner(spath: &[String]) -> Option<String> {
+    let (key, parent) = spath.split_last()?;
+    store().schema.with_untracked(|s| {
+        let obj = s.as_ref()?.root.at(parent)?;
+        burrow_admin_logic::tree::merged_single(obj, key).map(str::to_string)
+    })
 }
 
 fn as_names(v: Option<Value>) -> Vec<String> {
@@ -517,11 +529,12 @@ fn as_names(v: Option<Value>) -> Vec<String> {
 pub fn picker(fc: FieldCtx, entity: Entity, multi: bool) -> AnyView {
     let e = store().edit;
     let path = fc.path.clone();
-    let merged = merged_clients(&fc);
+    let partner = merged_partner(&fc.spath);
+    let merged = partner.is_some();
     let single_path = {
         let mut p = fc.path.clone();
         p.pop();
-        p.push("client".into());
+        p.extend(partner);
         p
     };
     let sp = single_path.clone();
@@ -539,7 +552,8 @@ pub fn picker(fc: FieldCtx, entity: Entity, multi: bool) -> AnyView {
         names
     });
     let ent = entity.clone();
-    let options = Signal::derive(move || options_for(&ent));
+    let reserved = fc.node.sem.reserved().to_vec();
+    let options = Signal::derive(move || options_for(&ent, &reserved));
     let header = {
         let s = store();
         let plural = match entity {
@@ -549,8 +563,12 @@ pub fn picker(fc: FieldCtx, entity: Entity, multi: bool) -> AnyView {
         };
         let online = if entity == Entity::Client {
             s.status.with_untracked(|st| {
-                st.as_ref()
-                    .map(|st| st.clients.iter().filter(|c| c.connected).count())
+                st.as_ref().map(|st| {
+                    st.clients
+                        .iter()
+                        .filter(|c| c.connected && !c.local)
+                        .count()
+                })
             })
         } else {
             None
@@ -584,8 +602,8 @@ pub fn picker(fc: FieldCtx, entity: Entity, multi: bool) -> AnyView {
         Signal::derive(move || touched.get() && e.local.with(|l| l.contains_key(&path)))
     };
     let section = match entity {
-        Entity::Client => Some("clients"),
-        Entity::Visitor => Some("visitors"),
+        Entity::Client => Some(ClientEntry::section()),
+        Entity::Visitor => Some(VisitorEntry::section()),
         _ => None,
     };
     let can = store().can_write_now();

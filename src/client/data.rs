@@ -8,10 +8,9 @@ use tokio::net::UdpSocket;
 use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
 
-use crate::allowlist::AllowList;
+use crate::allowlist::{AllowList, Gate, Refusal};
 use crate::config::check::{parse_host_port, unix};
-use crate::config::model::Protocol;
-use crate::config::settings::ClientSettings;
+use crate::config::settings::{ClientSettings, SocketTuning};
 use crate::failure::io_reason;
 use crate::forward::{client_tcp, refuse};
 use crate::handshake::Channel;
@@ -21,6 +20,48 @@ use crate::protocol::{
 use crate::throttle::Throttle;
 use crate::transport::resolve::Resolver;
 use crate::transport::tcp::{connect_any, tune};
+use burrow_config::Protocol;
+
+#[derive(Clone, PartialEq)]
+pub(crate) struct Dialing {
+    pub(crate) gate: Gate,
+    pub(crate) connect_timeout: Duration,
+    pub(crate) tcp: SocketTuning,
+    pub(crate) udp_session_timeout: Duration,
+    pub(crate) plaintext: bool,
+    pub(crate) list: &'static str,
+}
+
+impl Dialing {
+    pub(crate) fn of_client(s: &ClientSettings) -> Dialing {
+        Dialing {
+            gate: Gate::client(s.allow.clone()),
+            connect_timeout: s.connect_timeout,
+            tcp: s.tcp.clone(),
+            udp_session_timeout: s.udp_session_timeout,
+            plaintext: s.insecure_plaintext,
+            list: "\"allow\"",
+        }
+    }
+}
+
+pub(crate) trait Dials: Send + Sync + 'static {
+    fn dialing(&self) -> Arc<Dialing>;
+}
+
+pub(crate) struct Rules<W>(pub(crate) Arc<tokio::sync::watch::Sender<W>>);
+
+impl<W> Clone for Rules<W> {
+    fn clone(&self) -> Self {
+        Rules(self.0.clone())
+    }
+}
+
+impl<W: Dials> Rules<W> {
+    fn now(&self) -> Arc<Dialing> {
+        self.0.borrow().dialing()
+    }
+}
 
 const MAX_PEERS: usize = 4096;
 const IDLE_CHANNEL_LIMIT: Duration = Duration::from_secs(90);
@@ -162,17 +203,17 @@ fn preferred(addrs: &[SocketAddr]) -> SocketAddr {
 
 const RESOLVE_AGAIN: Duration = Duration::from_secs(30);
 
-async fn peer_replies(
+async fn peer_replies<W: Dials>(
     id: u32,
     sock: Arc<UdpSocket>,
     seen: Arc<AtomicU64>,
     epoch: Instant,
-    live: super::Live,
+    live: Rules<W>,
     tx: mpsc::Sender<(u32, Vec<u8>)>,
     peers: Arc<Mutex<HashMap<u32, Peer>>>,
 ) {
     loop {
-        let timeout = live.settings().udp_session_timeout;
+        let timeout = live.now().udp_session_timeout;
         let check = timeout.min(Duration::from_secs(5));
         match tokio::time::timeout(check, sock.readable()).await {
             Ok(Ok(())) => {
@@ -250,8 +291,8 @@ pub fn precheck(settings: &ClientSettings, svc: &ServiceInfo) {
     }
 }
 
-pub async fn serve(
-    live: super::Live,
+pub(crate) async fn serve<W: Dials>(
+    live: Rules<W>,
     resolver: Arc<dyn Resolver>,
     mut ch: Channel,
     mut ended: tokio::sync::watch::Receiver<bool>,
@@ -273,18 +314,29 @@ pub async fn serve(
             _ => return false,
         }
     };
-    connected(live, resolver, ch, first, held).await;
+    drop(held);
+    connected(live, resolver, ch, first).await;
     false
 }
 
-async fn connected(
-    live: super::Live,
+pub(crate) async fn serve_local<W: Dials>(
+    live: Rules<W>,
+    resolver: Arc<dyn Resolver>,
+    mut ch: Channel,
+) {
+    let first = match ch.reader.recv(&mut ch.stream).await {
+        Ok(Some(b)) => Connect::decode(b),
+        _ => return,
+    };
+    connected(live, resolver, ch, first).await;
+}
+
+async fn connected<W: Dials>(
+    live: Rules<W>,
     resolver: Arc<dyn Resolver>,
     ch: Channel,
     first: Result<Connect, crate::protocol::DecodeError>,
-    held: super::Waiting,
 ) {
-    drop(held);
     let connect = match first {
         Ok(c) => c,
         Err(_) => {
@@ -304,7 +356,7 @@ async fn connected(
         refuse(ch, Status::Busy).await;
         return;
     };
-    let settings = live.settings();
+    let settings = live.now();
     if let Some(path) = unix::path_of(&connect.target) {
         socket(&live, &settings, ch, &connect, path).await;
         return;
@@ -340,12 +392,12 @@ async fn connected(
                 return;
             };
             tokio::select! {
-                r = client_tcp(ch, target, settings.insecure_plaintext) => {
+                r = client_tcp(ch, target, settings.plaintext) => {
                     if let Err(e) = r {
                         debug!("{}: connection ended: {e:?}", label(&connect));
                     }
                 }
-                _ = revoked(&live, |s| s.allow.permits(peer)) => {
+                _ = revoked(&live, |s| s.gate.permits(Protocol::Tcp, peer)) => {
                     no_longer_allowed(&connect);
                 }
             }
@@ -357,7 +409,7 @@ async fn connected(
             tokio::select! {
                 _ = udp(live, resolver, ch, connect, resolved) => {}
                 _ = revoked(&watched, |s| {
-                    s.allow.permits(current.lock().expect("resolved lock").0)
+                    s.gate.permits(Protocol::Udp, current.lock().expect("resolved lock").0)
                 }) => {
                     no_longer_allowed(&label);
                 }
@@ -366,10 +418,11 @@ async fn connected(
     }
 }
 
-async fn revoked(live: &super::Live, allowed: impl Fn(&ClientSettings) -> bool) {
+async fn revoked<W: Dials>(live: &Rules<W>, allowed: impl Fn(&Dialing) -> bool) {
     let mut rx = live.0.subscribe();
     loop {
-        if !allowed(&rx.borrow_and_update().settings) {
+        let now = rx.borrow_and_update().dialing();
+        if !allowed(&now) {
             return;
         }
         if rx.changed().await.is_err() {
@@ -386,9 +439,9 @@ fn no_longer_allowed(connect: &Connect) {
     );
 }
 
-async fn socket(
-    live: &super::Live,
-    settings: &ClientSettings,
+async fn socket<W: Dials>(
+    live: &Rules<W>,
+    settings: &Dialing,
     ch: Channel,
     connect: &Connect,
     path: &str,
@@ -404,14 +457,15 @@ async fn socket(
         refuse(ch, Status::Denied).await;
         return;
     }
-    if !settings.allow.permits_socket(path) {
+    if !settings.gate.permits_socket(path) {
         static DENIED: Throttle = Throttle::new();
         if let Some(more) = DENIED.allow() {
             warn!(
-                "denied connection to {} for {}: it is not in the allow list; add \"{}\" to \"allow\" to permit it{more}",
+                "denied connection to {} for {}: it is not in the allow list; add \"{}\" to {} to permit it{more}",
                 connect.target,
                 whom(connect),
-                connect.target
+                connect.target,
+                settings.list
             );
         }
         refuse(ch, Status::Denied).await;
@@ -451,12 +505,12 @@ async fn socket(
     match tokio::net::UnixStream::connect(path).await {
         Ok(target) => {
             tokio::select! {
-                r = client_tcp(ch, target, settings.insecure_plaintext) => {
+                r = client_tcp(ch, target, settings.plaintext) => {
                     if let Err(e) = r {
                         debug!("{}: connection ended: {e:?}", label(connect));
                     }
                 }
-                _ = revoked(live, |s| s.allow.permits_socket(path)) => {
+                _ = revoked(live, |s| s.gate.permits_socket(path)) => {
                     no_longer_allowed(connect);
                 }
             }
@@ -490,7 +544,7 @@ async fn socket(
 }
 
 async fn lookup(
-    settings: &ClientSettings,
+    settings: &Dialing,
     resolver: &Arc<dyn Resolver>,
     connect: &Connect,
 ) -> std::io::Result<Vec<SocketAddr>> {
@@ -548,7 +602,7 @@ fn whom(connect: &Connect) -> String {
 }
 
 async fn permitted(
-    settings: &ClientSettings,
+    settings: &Dialing,
     resolver: &Arc<dyn Resolver>,
     connect: &Connect,
 ) -> Result<Vec<SocketAddr>, Status> {
@@ -588,17 +642,31 @@ async fn permitted(
     let allowed: Vec<SocketAddr> = resolved
         .iter()
         .copied()
-        .filter(|a| settings.allow.permits(*a))
+        .filter(|a| settings.gate.permits(connect.protocol, *a))
         .collect();
     if allowed.is_empty() {
         static DENIED: Throttle = Throttle::new();
         if let Some(more) = DENIED.allow() {
             let first = resolved[0];
             let whom = whom(connect);
+            let why = match settings.gate.refusal(connect.protocol, first) {
+                Some(Refusal::Burrow(own)) => {
+                    format!("{first} is burrow's own listener {own}, which would loop")
+                }
+                Some(Refusal::LinkLocal) => format!(
+                    "{first} is a link-local or metadata address, which {} must name on its own, for example \"{}\"",
+                    settings.list,
+                    AllowList::suggestion(first)
+                ),
+                _ => format!(
+                    "{first} is not in the allow list; add \"{}\" to {} to permit it",
+                    AllowList::suggestion(first),
+                    settings.list
+                ),
+            };
             warn!(
-                "denied connection to {} for {whom}: {first} is not in the allow list; add \"{}\" to \"allow\" to permit it{more}",
-                connect.target,
-                AllowList::suggestion(first)
+                "denied connection to {} for {whom}: {why}{more}",
+                connect.target
             );
         }
         return Err(Status::Denied);
@@ -624,8 +692,8 @@ fn label(connect: &Connect) -> String {
     }
 }
 
-async fn udp(
-    live: super::Live,
+async fn udp<W: Dials>(
+    live: Rules<W>,
     resolver: Arc<dyn Resolver>,
     ch: Channel,
     connect: Connect,
@@ -670,7 +738,7 @@ async fn udp(
             let (live, resolver, connect) = (live.clone(), resolver.clone(), connect.clone());
             let (resolved, resolving) = (resolved.clone(), resolving.clone());
             tokio::spawn(async move {
-                let found = permitted(&live.settings(), &resolver, &connect).await;
+                let found = permitted(&live.now(), &resolver, &connect).await;
                 let mut current = resolved.lock().expect("resolved lock");
                 *current = match found {
                     Ok(addrs)
@@ -857,6 +925,7 @@ mod tests {
     async fn a_mapped_ipv6_target_is_dialed_as_ipv4() {
         let mut settings = crate::client::reload::tests::settings();
         settings.allow = AllowList::Rules(vec!["127.0.0.0/8".parse().unwrap()]);
+        let settings = Dialing::of_client(&settings);
         let resolver: Arc<dyn Resolver> = Arc::new(Hanging);
         let addrs = permitted(&settings, &resolver, &visit("[::ffff:127.0.0.1]:22"))
             .await
@@ -887,6 +956,7 @@ mod tests {
     async fn lookups_that_never_return_cannot_use_up_more_than_their_share() {
         let mut settings = crate::client::reload::tests::settings();
         settings.connect_timeout = Duration::from_millis(50);
+        let settings = Dialing::of_client(&settings);
         let resolver: Arc<dyn Resolver> = Arc::new(Hanging);
         let mut stuck = tokio::task::JoinSet::new();
         for _ in 0..MAX_LOOKUPS {

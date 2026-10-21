@@ -1,5 +1,10 @@
-use burrow_admin_proto::msg::Level;
-use burrow_admin_proto::serde_json::{Value, json};
+use burrow_admin_proto::msg::{AdminLevel, FileDiagnostics, UiDiagnostics};
+use burrow_admin_proto::schema::Entity;
+use burrow_admin_proto::serde_json::{self, Value};
+use burrow_config::admin_schema::AdminEnum;
+use burrow_config::{
+    ClientEntry, Entry, ServerConfig, ServiceEntry, VisitorEntry, entity_of_section,
+};
 use burrow_ui_kit::{Banner, Button, EmptyState, Icon, Kbd, Skeleton, ToastHost, Tone, copy_text};
 use leptos::prelude::*;
 use wasm_bindgen::JsCast;
@@ -50,17 +55,21 @@ pub fn diagnostics(s: Store) -> String {
     let w = s.welcome.get_untracked();
     let st = s.state.get_untracked();
     let schema = s.schema.get_untracked();
-    json!({
-        "ui": env!("CARGO_PKG_VERSION"),
-        "server": w.as_ref().map(|w| &w.server.version),
-        "target": w.as_ref().map(|w| &w.server.target),
-        "protocol": w.as_ref().map(|w| w.protocol),
-        "features": w.as_ref().map(|w| &w.features),
-        "schema_hash": schema.as_ref().map(|s| &s.hash),
-        "schema_version": schema.as_ref().map(|s| s.schema_version),
-        "file": st.as_ref().map(|s| json!({"format": s.file.format, "writable": s.file.writable, "running_ok": s.running.ok})),
+    serde_json::to_string(&UiDiagnostics {
+        ui: env!("CARGO_PKG_VERSION").to_string(),
+        server: w.as_ref().map(|w| w.server.version.clone()),
+        target: w.as_ref().map(|w| w.server.target.clone()),
+        protocol: w.as_ref().map(|w| w.protocol),
+        features: w.as_ref().map(|w| w.features.clone()),
+        schema_hash: schema.as_ref().map(|s| s.hash.clone()),
+        schema_version: schema.as_ref().map(|s| s.schema_version),
+        file: st.as_ref().map(|s| FileDiagnostics {
+            format: s.file.format.clone(),
+            writable: s.file.writable,
+            running_ok: s.running.ok,
+        }),
     })
-    .to_string()
+    .unwrap_or_default()
 }
 
 #[component]
@@ -190,9 +199,8 @@ fn initials(name: &str) -> String {
 pub fn host_line(s: Store) -> String {
     let public = s.state.with(|st| {
         st.as_ref().and_then(|st| {
-            st.values
-                .get("public_address")
-                .and_then(Value::as_str)
+            ServerConfig::PUBLIC_ADDRESS
+                .str(&st.values)
                 .map(str::to_string)
         })
     });
@@ -209,9 +217,21 @@ fn Header() -> impl IntoView {
     let s = store();
     let tabs: [(Route, &str, &str); 6] = [
         (Route::Overview, "Overview", "overview"),
-        (Route::List("services".into()), "Services", "services"),
-        (Route::List("clients".into()), "Clients", "clients"),
-        (Route::List("visitors".into()), "Visitors", "visitors"),
+        (
+            Route::List(ServiceEntry::section().into()),
+            "Services",
+            "stack",
+        ),
+        (
+            Route::List(ClientEntry::section().into()),
+            "Clients",
+            "monitor",
+        ),
+        (
+            Route::List(VisitorEntry::section().into()),
+            "Visitors",
+            "person",
+        ),
         (Route::Settings, "Settings", "settings"),
         (Route::Activity(None), "Activity", "activity"),
     ];
@@ -309,15 +329,8 @@ fn Header() -> impl IntoView {
     };
     let you = Memo::new(move |_| {
         s.welcome.with(|w| {
-            w.as_ref().map(|w| {
-                (
-                    w.you.visitor.clone(),
-                    match w.you.level {
-                        Level::Write => "write",
-                        Level::Read => "read",
-                    },
-                )
-            })
+            w.as_ref()
+                .map(|w| (w.you.visitor.clone(), w.you.level.wire()))
         })
     });
     let facts = move || {
@@ -336,9 +349,9 @@ fn Header() -> impl IntoView {
         <header class="sticky top-0 z-30 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-4 border-b border-hdr-line bg-hdr px-5 text-hdr-text max-xl:grid-cols-[minmax(0,1fr)_auto] max-xl:pt-3 max-sm:gap-x-2 max-sm:px-3 max-sm:pt-2 xl:h-16" data-testid="header">
             {move || match s.route.get() {
                 Route::Detail(sec, name) => {
-                    let label = match sec.as_str() {
-                        "clients" => "Clients",
-                        "visitors" => "Visitors",
+                    let label = match entity_of_section(&sec) {
+                        Some(Entity::Client) => "Clients",
+                        Some(Entity::Visitor) => "Visitors",
                         _ => "Services",
                     };
                     Some(view! {
@@ -608,11 +621,11 @@ pub fn popover(open: RwSignal<bool>, trigger: &'static str, panel: &'static str)
     });
 }
 
-pub fn read_only_reason(s: Store) -> (String, String) {
+fn read_only_reason(s: Store) -> (String, String) {
     let level = s
         .welcome
         .with(|w| w.as_ref().map(|w| (w.you.level, w.you.visitor.clone())));
-    if let Some((Level::Read, who)) = level {
+    if let Some((AdminLevel::Read, who)) = level {
         return (
             format!("{who} has read admin: you can see everything, a write admin makes changes."),
             String::new(),
@@ -747,23 +760,23 @@ fn search_hits(s: Store, needle: &str) -> Vec<Hit> {
             .unwrap_or_default()
     };
     if s.can_write_now() {
-        for c in names("clients") {
+        for c in names(ClientEntry::section()) {
             let label = format!("Rotate secret of {c}…");
             if !needle.is_empty() && hit(&label) {
                 out.push(Hit {
                     section: "Actions",
                     icon: "refresh",
                     label,
-                    facet: "client".into(),
-                    go: Route::Detail("clients".into(), c),
+                    facet: ClientEntry::ENTITY.into(),
+                    go: Route::Detail(ClientEntry::section().into(), c),
                     query: Some(("tab", "secrets")),
                 });
             }
         }
         for (sec, what) in [
-            ("services", "service"),
-            ("clients", "client"),
-            ("visitors", "visitor"),
+            (ServiceEntry::section(), ServiceEntry::ENTITY),
+            (ClientEntry::section(), ClientEntry::ENTITY),
+            (VisitorEntry::section(), VisitorEntry::ENTITY),
         ] {
             let label = format!("New {what}…");
             if hit(&label) {
@@ -793,9 +806,9 @@ fn search_hits(s: Store, needle: &str) -> Vec<Hit> {
         }
     }
     for (sec, title, icon) in [
-        ("services", "Services", "services"),
-        ("clients", "Clients", "monitor"),
-        ("visitors", "Visitors", "person"),
+        (ServiceEntry::section(), "Services", "stack"),
+        (ClientEntry::section(), "Clients", "monitor"),
+        (VisitorEntry::section(), "Visitors", "person"),
     ] {
         for n in names(sec) {
             if !hit(&n) {
@@ -806,13 +819,13 @@ fn search_hits(s: Store, needle: &str) -> Vec<Hit> {
                 .and_then(|m| m.get(&n))
                 .cloned()
                 .unwrap_or(Value::Null);
-            let facet = match sec {
-                "clients" => {
+            let facet = match entity_of_section(sec) {
+                Some(Entity::Client) => {
                     let c = status
                         .as_ref()
                         .and_then(|st| st.clients.iter().find(|c| c.name == n))
                         .cloned();
-                    let secrets = match v.get("secret") {
+                    let secrets = match ClientEntry::SECRET.get(&v) {
                         Some(Value::Array(a)) => a.len(),
                         Some(_) => 1,
                         None => 0,
@@ -833,13 +846,13 @@ fn search_hits(s: Store, needle: &str) -> Vec<Hit> {
                         ),
                     }
                 }
-                "services" => v
-                    .get("bind")
+                Some(Entity::Service) => ServiceEntry::BIND
+                    .get(&v)
                     .filter(|b| !b.is_null())
                     .map(crate::form::plain)
                     .unwrap_or_else(|| "private".into()),
-                _ => v
-                    .get("admin")
+                _ => VisitorEntry::ADMIN
+                    .get(&v)
                     .map(|a| format!("admin · {}", crate::form::plain(a)))
                     .unwrap_or_else(|| "visitor".into()),
             };

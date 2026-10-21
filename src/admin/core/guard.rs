@@ -1,19 +1,40 @@
+mod grants;
+
 use std::collections::BTreeSet;
 use std::net::SocketAddr;
+use std::path::Path;
 
 use burrow_admin_proto::plan::{Impact, Level, Refusal};
 
 use super::ports::LiveSession;
-use crate::config::model::AdminLevel;
+use crate::config::patch::Rename;
 use crate::config::settings::{ServerSettings, Service};
 use crate::metrics::Status;
 use crate::secret::Secret;
+use burrow_admin_proto::msg::AdminLevel;
+use burrow_config::{SELF, ServerConfig};
 
 pub struct Who<'a> {
     pub visitor: &'a str,
     pub peer: SocketAddr,
     pub secret: &'a Secret,
     pub via_websocket: bool,
+}
+
+pub enum Base<'a> {
+    Valid(&'a ServerSettings),
+    Broken {
+        raw: &'a serde_json::Value,
+        next_raw: &'a serde_json::Value,
+    },
+}
+
+pub struct Change<'a> {
+    pub running: &'a ServerSettings,
+    pub base: Base<'a>,
+    pub next: &'a ServerSettings,
+    pub renames: &'a [Rename],
+    pub path: &'a Path,
 }
 
 fn refusal(code: &str, message: String) -> Refusal {
@@ -23,7 +44,8 @@ fn refusal(code: &str, message: String) -> Refusal {
     }
 }
 
-pub fn refusals(who: &Who, old: &ServerSettings, new: &ServerSettings) -> Vec<Refusal> {
+pub fn refusals(who: &Who, change: &Change) -> Vec<Refusal> {
+    let (old, new) = (change.running, change.next);
     let mut out = Vec::new();
     let me = who.visitor;
     match new.visitors.get(me) {
@@ -86,6 +108,7 @@ pub fn refusals(who: &Who, old: &ServerSettings, new: &ServerSettings) -> Vec<Re
             "this session comes through the TCP listener, which this change removes".into(),
         ));
     }
+    out.extend(grants::refusals(change));
     out
 }
 
@@ -295,39 +318,25 @@ pub fn impacts(
                         (open > 0).then(|| name.clone()),
                     );
                 }
-                if n.admin.is_some() && auth.admin.is_none() {
-                    push(
-                        Level::Warning,
-                        "admin-granted",
-                        format!("visitor {name} gets admin access"),
-                        None,
-                    );
-                }
-                if n.admin == Some(AdminLevel::Write)
-                    && n.admin_from.is_empty()
-                    && auth.admin != Some(AdminLevel::Write)
-                {
-                    push(
-                        Level::Info,
-                        "admin-everywhere",
-                        format!(
-                            "visitor {name} may administer from any address; admin_from can limit it"
-                        ),
-                        None,
-                    );
-                }
             }
         }
     }
-    for (name, n) in &new.visitors {
-        if !old.visitors.contains_key(name) && n.admin.is_some() {
-            push(
-                Level::Warning,
-                "admin-granted",
-                format!("new visitor {name} gets admin access"),
-                None,
-            );
-        }
+    let reaches_self = |s: &ServerSettings| s.visitors.values().any(|v| v.reach.contains_key(SELF));
+    if old.self_allow.is_some() && new.self_allow != old.self_allow && reaches_self(old) {
+        let open = client_open(SELF);
+        push(
+            if open > 0 {
+                Level::Warning
+            } else {
+                Level::Info
+            },
+            "changes-self-allow",
+            format!(
+                "changes self.allow; of the {} to this server, those the new list no longer permits close",
+                connections(open)
+            ),
+            None,
+        );
     }
     if new.listen != old.listen {
         push(
@@ -338,7 +347,7 @@ pub fn impacts(
                 old.listen.map_or_else(|| "off".into(), |a| a.to_string()),
                 new.listen.map_or_else(|| "off".into(), |a| a.to_string())
             ),
-            Some("listen".into()),
+            Some(ServerConfig::LISTEN.key().into()),
         );
     }
     let ws = |s: &ServerSettings| s.websocket.as_ref().map(|w| (w.listen, w.path.clone()));
@@ -347,7 +356,7 @@ pub fn impacts(
             Level::Danger,
             "changes-websocket",
             "changes the WebSocket listener; clients connected through it reconnect".to_string(),
-            Some("websocket".into()),
+            Some(ServerConfig::WEBSOCKET.key().into()),
         );
     }
     if new.insecure_plaintext != old.insecure_plaintext {
@@ -363,11 +372,11 @@ pub fn impacts(
                     "turns on"
                 }
             ),
-            Some("insecure_plaintext".into()),
+            Some(ServerConfig::INSECURE_PLAINTEXT.key().into()),
         );
     }
     for field in restart {
-        if field != "listen" {
+        if field != ServerConfig::LISTEN.key() {
             push(
                 Level::Info,
                 "restart-needed",

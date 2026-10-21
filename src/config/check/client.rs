@@ -2,7 +2,6 @@ use std::net::IpAddr;
 use std::path::Path;
 use std::time::Duration;
 
-use super::super::model::{ClientConfig, OnRejected};
 use super::super::settings::ClientSettings;
 use super::connection::{Connection, Dial, check_connection};
 use super::server::insecure_warning;
@@ -10,7 +9,8 @@ use super::{Spans, name_error, secret_error, tuning, unix, valid_name};
 use crate::allowlist::{AllowList, Rule};
 use crate::diagnostics::Diagnostic;
 use crate::secret::Secret;
-use crate::transport::endpoint::Endpoint;
+use burrow_config::{ClientConfig, OnRejected};
+use burrow_syntax::endpoint::Endpoint;
 
 pub fn check_client(
     cfg: &ClientConfig,

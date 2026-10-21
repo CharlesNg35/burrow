@@ -1,3 +1,5 @@
+mod common;
+
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
@@ -17,13 +19,7 @@ impl Drop for Running {
     }
 }
 
-fn free_port() -> u16 {
-    std::net::TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port()
-}
+use common::free_port;
 
 fn server_config(dir: &Path, file: &str) -> PathBuf {
     let config = dir.join(file);
@@ -263,6 +259,10 @@ fn the_status_endpoint_needs_the_token() {
     assert!(ask("Authorization: Bearer nope\r\n").starts_with("HTTP/1.1 401"));
     let token = entry["token"].as_str().unwrap();
     assert!(ask(&format!("Authorization: Bearer {token}\r\n")).starts_with("HTTP/1.1 200"));
+    assert!(ask(&format!("Authorization: bearer {token}\r\n")).starts_with("HTTP/1.1 200"));
+    assert!(ask(&format!("Authorization: Bearer {token}x\r\n")).starts_with("HTTP/1.1 401"));
+    assert!(ask(&format!("Authorization: Basic {token}\r\n")).starts_with("HTTP/1.1 401"));
+    assert!(ask("Authorization: Bearer\r\n").starts_with("HTTP/1.1 401"));
 }
 
 #[test]
@@ -553,6 +553,7 @@ fn status_json_keeps_its_exact_shape() {
                 open: 2,
                 idle_channels: 4,
                 left_secs_ago: None,
+                local: false,
             },
             ClientStatus {
                 name: "office".into(),
@@ -562,6 +563,7 @@ fn status_json_keeps_its_exact_shape() {
                 open: 0,
                 idle_channels: 0,
                 left_secs_ago: Some(120),
+                local: false,
             },
         ],
         services: vec![ServiceStatus {

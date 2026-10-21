@@ -114,6 +114,28 @@ fn open_folder(folder: &Path) -> std::io::Result<rustix::fd::OwnedFd> {
     Ok(dir)
 }
 
+fn spare_prefix(name: &str) -> String {
+    format!(".{name}.burrow-edit-")
+}
+
+pub fn spare_next_to(path: &Path) -> Option<std::path::PathBuf> {
+    let name = path.file_name()?.to_str()?;
+    let folder = path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    let prefix = spare_prefix(name);
+    std::fs::read_dir(folder)
+        .ok()?
+        .flatten()
+        .map(|e| e.path())
+        .find(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with(&prefix))
+        })
+}
+
 #[cfg(not(unix))]
 pub fn write_back(path: &Path, before: &str, text: &str) -> Result<(), Refused> {
     if std::fs::read_to_string(path)? != before {
@@ -130,8 +152,8 @@ fn replace(path: &Path, text: &str) -> std::io::Result<()> {
         return Err(std::io::ErrorKind::InvalidInput.into());
     };
     let spare = folder.join(format!(
-        ".{}.burrow-edit-{}",
-        name.to_string_lossy(),
+        "{}{}",
+        spare_prefix(&name.to_string_lossy()),
         std::process::id()
     ));
     let _ = std::fs::remove_file(&spare);
@@ -155,6 +177,37 @@ fn replace(path: &Path, text: &str) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_leftover_spare_is_found_next_to_its_config() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = dir.path().join("server.yaml");
+        std::fs::write(&config, "x").unwrap();
+        assert_eq!(spare_next_to(&config), None);
+        std::fs::write(dir.path().join(".other.yaml.burrow-edit-7"), "x").unwrap();
+        assert_eq!(spare_next_to(&config), None);
+        let spare = dir.path().join(".server.yaml.burrow-edit-42");
+        std::fs::write(&spare, "listen: 7835\n").unwrap();
+        assert_eq!(spare_next_to(&config), Some(spare));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_windows_save_rewrites_the_same_file_so_its_acl_and_owner_stay() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = dir.path().join("server.yaml");
+        std::fs::write(&config, "listen: 1\n").unwrap();
+        let born = std::fs::metadata(&config).unwrap().created().unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        write_back(&config, "listen: 1\n", "listen: 2\n").unwrap();
+        assert_eq!(std::fs::read_to_string(&config).unwrap(), "listen: 2\n");
+        assert_eq!(std::fs::metadata(&config).unwrap().created().unwrap(), born);
+        assert_eq!(
+            spare_next_to(&config),
+            None,
+            "the spare is removed after a good save"
+        );
+    }
 
     #[cfg(unix)]
     #[test]

@@ -82,6 +82,7 @@ impl Ui {
             .arg("--hide-scrollbars")
             .arg("--font-render-hinting=none")
             .arg("--force-device-scale-factor=1")
+            .env("DBUS_SESSION_BUS_ADDRESS", "disabled:")
             .launch_timeout(Duration::from_secs(30))
             .request_timeout(Duration::from_secs(30))
             .build()
@@ -362,7 +363,7 @@ impl Ui {
     pub async fn nav(&self, path: &str) {
         let _: bool = self
             .eval(&format!(
-                "(() => {{ history.pushState(null, '', {}); dispatchEvent(new PopStateEvent('popstate')); return true; }})()",
+                "(() => {{ const to = {}; const run = to.startsWith('/r-') ? '' : (location.pathname.match(/^\\/r-[0-9a-f]+/) || [''])[0]; history.pushState(null, '', run + to); dispatchEvent(new PopStateEvent('popstate')); return true; }})()",
                 js_str(path)
             ))
             .await;

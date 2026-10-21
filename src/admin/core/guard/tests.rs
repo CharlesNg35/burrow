@@ -19,6 +19,21 @@ fn settings(text: &str) -> ServerSettings {
     }
 }
 
+const FILE: &str = "/etc/burrow/server.yaml";
+
+fn judged(who: &Who, old: &ServerSettings, new: &ServerSettings) -> Vec<Refusal> {
+    refusals(
+        who,
+        &Change {
+            running: old,
+            base: Base::Valid(old),
+            next: new,
+            renames: &[],
+            path: Path::new(FILE),
+        },
+    )
+}
+
 #[test]
 fn impacts_count_the_connections_a_change_closes() {
     let w = world();
@@ -96,17 +111,338 @@ fn the_last_writer_and_the_transport_are_kept() {
         secret: &w.ops,
         via_websocket: false,
     };
-    assert!(refusals(&who, &old, &old).is_empty());
+    assert!(judged(&who, &old, &old).is_empty());
     let read = settings(&w.text.replace("admin: write", "admin: read"));
-    let r = refusals(&who, &old, &read);
+    let r = judged(&who, &old, &read);
     assert!(r.iter().any(|r| r.code == "self-demoted"));
     let no_listen = settings(
         &w.text
             .replace("listen: 7835 # tcp\n", "websocket: { listen: 7836 }\n"),
     );
     assert!(
-        refusals(&who, &old, &no_listen)
+        judged(&who, &old, &no_listen)
             .iter()
             .any(|r| r.code == "self-transport")
     );
+}
+
+#[test]
+fn a_new_self_allow_names_the_reach_connections_it_may_close() {
+    let w = world();
+    let with_self = |allow: &str| {
+        settings(&w.text.replace(
+            "services:",
+            &format!("self:\n  allow: [{allow}]\nservices:"),
+        ))
+    };
+    let mut old = with_self("127.0.0.0/8");
+    let auth = old.visitors.get_mut("ops").unwrap();
+    auth.reach
+        .insert(SELF.into(), crate::allowlist::AllowList::All);
+    let mut new = with_self("127.0.0.1/32");
+    new.visitors = old.visitors.clone();
+    let status = Status {
+        clients: vec![crate::metrics::ClientStatus {
+            name: SELF.into(),
+            connected: true,
+            open: 3,
+            local: true,
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let i = impacts(&old, &new, &status, &[], &[]);
+    let changed = i.iter().find(|i| i.code == "changes-self-allow").unwrap();
+    assert_eq!(
+        changed.message,
+        "changes self.allow; of the 3 open connections to this server, those the new list no longer permits close"
+    );
+    assert_eq!(changed.level, Level::Warning);
+    assert!(impacts(&old, &old, &status, &[], &[]).is_empty());
+}
+
+struct Team {
+    text: String,
+    ops: Secret,
+    boss: Secret,
+    spare: Secret,
+    viewer: Secret,
+}
+
+fn team() -> Team {
+    let w = world();
+    let (boss, spare, viewer, plain) = (
+        Secret::generate(),
+        Secret::generate(),
+        Secret::generate(),
+        Secret::generate(),
+    );
+    let text = w.text.replace(
+        "\nservices:",
+        &format!(
+            "  boss:\n    secret: [{}, {}]\n    admin: write\n  viewer:\n    secret: {}\n    admin: read\n    admin_from: [10.0.0.0/8, 2001:db8::/32]\n  plain:\n    secret: {}\n\nservices:",
+            boss.encode(),
+            spare.encode(),
+            viewer.encode(),
+            plain.encode()
+        ),
+    );
+    Team {
+        text,
+        ops: w.ops,
+        boss,
+        spare,
+        viewer,
+    }
+}
+
+fn ops(t: &Team) -> Who<'_> {
+    Who {
+        visitor: "ops",
+        peer: "203.0.113.7:1".parse().unwrap(),
+        secret: &t.ops,
+        via_websocket: false,
+    }
+}
+
+fn codes(r: &[Refusal]) -> Vec<&str> {
+    r.iter().map(|r| r.code.as_str()).collect()
+}
+
+fn in_file(what: &str) -> String {
+    format!(
+        "admin access is granted only in the config file: {what}; use burrow edit -c {FILE} or edit the file"
+    )
+}
+
+#[test]
+fn granting_or_widening_admin_power_is_refused_with_its_own_code() {
+    let t = team();
+    let old = settings(&t.text);
+    let who = ops(&t);
+    let refused = |text: String| judged(&who, &old, &settings(&text));
+    let plain_admin = t.text.replace("  plain:\n", "  plain:\n    admin: write\n");
+    let r = refused(plain_admin);
+    assert_eq!(codes(&r), ["admin-grant"]);
+    assert_eq!(
+        r[0].message,
+        in_file("visitor \"plain\" would get admin: write")
+    );
+    let r = refused(t.text.replace("admin: read", "admin: write"));
+    assert_eq!(codes(&r), ["admin-upgrade"]);
+    assert_eq!(
+        r[0].message,
+        in_file("visitor \"viewer\" would go from admin: read to admin: write")
+    );
+    let r = refused(
+        t.text
+            .replace("    admin_from: [10.0.0.0/8, 2001:db8::/32]\n", ""),
+    );
+    assert_eq!(codes(&r), ["admin-from-widened"]);
+    assert_eq!(
+        r[0].message,
+        in_file("admin_from of visitor \"viewer\" would be removed, which admits every address")
+    );
+    let r = refused(
+        t.text
+            .replace("2001:db8::/32]", "2001:db8::/32, 192.0.2.0/24]"),
+    );
+    assert_eq!(
+        r[0].message,
+        in_file(
+            "admin_from of visitor \"viewer\" would admit 192.0.2.0/24, which the current list does not"
+        )
+    );
+    assert_eq!(
+        codes(&refused(t.text.replace("2001:db8::/32]", "::/0]"))),
+        ["admin-from-widened"]
+    );
+    let fresh = Secret::generate();
+    let rotated = t.text.replace(
+        &format!("[{}, {}]", t.boss.encode(), t.spare.encode()),
+        &format!("[{}, {}]", t.boss.encode(), fresh.encode()),
+    );
+    let r = refused(rotated);
+    assert_eq!(codes(&r), ["admin-secret-added"]);
+    assert_eq!(
+        r[0].message,
+        in_file(&format!(
+            "visitor \"boss\" would get the new secret {}",
+            fresh.fingerprint()
+        ))
+    );
+    assert!(!r[0].message.contains(&fresh.encode()));
+    let added = t.text.replace(
+        "\nservices:",
+        &format!(
+            "  extra:\n    secret: {}\n    admin: read\n\nservices:",
+            Secret::generate().encode()
+        ),
+    );
+    let r = refused(added);
+    assert_eq!(codes(&r), ["admin-grant"]);
+    assert_eq!(
+        r[0].message,
+        in_file("visitor \"extra\" would get admin: read")
+    );
+}
+
+#[test]
+fn renaming_an_admin_visitor_is_left_to_the_file() {
+    let t = team();
+    let old = settings(&t.text);
+    let new = settings(&t.text.replace("  boss:\n", "  chief:\n"));
+    let renames = [Rename {
+        path: vec!["visitors".into(), "boss".into()],
+        to: "chief".into(),
+    }];
+    let r = refusals(
+        &ops(&t),
+        &Change {
+            running: &old,
+            base: Base::Valid(&old),
+            next: &new,
+            renames: &renames,
+            path: Path::new(FILE),
+        },
+    );
+    assert_eq!(codes(&r), ["admin-grant"]);
+    assert_eq!(
+        r[0].message,
+        format!(
+            "an admin visitor is renamed only in the config file: visitor \"boss\" would become \"chief\"; use burrow edit -c {FILE} or edit the file"
+        )
+    );
+    let plain = settings(&t.text.replace("  plain:\n", "  simple:\n"));
+    assert!(judged(&ops(&t), &old, &plain).is_empty());
+}
+
+#[test]
+fn reducing_admin_power_of_others_is_allowed() {
+    let t = team();
+    let old = settings(&t.text);
+    let who = ops(&t);
+    let allowed = |text: String| {
+        let r = judged(&who, &old, &settings(&text));
+        assert!(r.is_empty(), "{text}: {r:?}");
+    };
+    allowed(t.text.replacen("    admin: write\n  viewer", "  viewer", 1));
+    allowed(
+        t.text
+            .replacen("    admin: write\n  viewer", "    admin: read\n  viewer", 1),
+    );
+    allowed(t.text.replace("    admin: read\n", ""));
+    allowed(t.text.replace(
+        "[10.0.0.0/8, 2001:db8::/32]",
+        "[10.1.0.0/16, ::ffff:10.2.3.4]",
+    ));
+    allowed(
+        t.text
+            .replace("[10.0.0.0/8, 2001:db8::/32]", "[10.0.0.0/9, 10.128.0.0/9]"),
+    );
+    allowed(t.text.replace(
+        &format!("[{}, {}]", t.boss.encode(), t.spare.encode()),
+        &t.spare.encode(),
+    ));
+    let gone = settings(&t.text.replace(
+        &format!(
+            "  viewer:\n    secret: {}\n    admin: read\n    admin_from: [10.0.0.0/8, 2001:db8::/32]\n",
+            t.viewer.encode()
+        ),
+        "",
+    ));
+    assert!(!gone.visitors.contains_key("viewer"));
+    assert!(judged(&who, &old, &gone).is_empty());
+    let plain_secret = t.text.replace(
+        "  plain:\n    secret: ",
+        &format!("  plain:\n    secret: [{}, ", Secret::generate().encode()),
+    );
+    let plain_secret = plain_secret.replacen("\n\nservices:", "]\n\nservices:", 1);
+    allowed(plain_secret);
+}
+
+#[test]
+fn the_self_guards_still_decide_for_the_session() {
+    let t = team();
+    let old = settings(&t.text);
+    let who = ops(&t);
+    let judge = |text: String| judged(&who, &old, &settings(&text));
+    let ops_line = format!("  ops:\n    secret: {}\n", t.ops.encode());
+    assert_eq!(
+        codes(&judge(t.text.replacen(
+            "admin: write\n  boss",
+            "admin: read\n  boss",
+            1
+        ))),
+        ["self-demoted"]
+    );
+    let fresh = Secret::generate();
+    assert_eq!(
+        codes(&judge(t.text.replace(
+            &ops_line,
+            &format!(
+                "  ops:\n    secret: [{}, {}]\n",
+                t.ops.encode(),
+                fresh.encode()
+            )
+        ))),
+        ["admin-secret-added"]
+    );
+    assert_eq!(
+        codes(&judge(t.text.replace(
+            &ops_line,
+            &format!("  ops:\n    secret: {}\n", fresh.encode())
+        ))),
+        ["self-secret", "admin-secret-added"]
+    );
+    assert_eq!(
+        codes(&judge(t.text.replace(
+            &ops_line,
+            &format!("{ops_line}    admin_from: [10.0.0.0/8]\n")
+        ))),
+        ["self-source"]
+    );
+    assert_eq!(
+        codes(&judge(t.text.replace(
+            &ops_line,
+            &format!("{ops_line}    admin_from: [203.0.113.0/24]\n")
+        ))),
+        Vec::<&str>::new()
+    );
+}
+
+#[test]
+fn the_base_is_the_file_so_an_unapplied_hand_edit_is_not_a_grant() {
+    let t = team();
+    let running = settings(&t.text);
+    let edited = settings(&t.text.replace("  plain:\n", "  plain:\n    admin: write\n"));
+    let later = settings(
+        &t.text
+            .replace("  plain:\n", "  plain:\n    admin: write\n")
+            .replace("target: 3000", "target: 3001"),
+    );
+    let change = |file: &ServerSettings, next: &ServerSettings| {
+        refusals(
+            &ops(&t),
+            &Change {
+                running: &running,
+                base: Base::Valid(file),
+                next,
+                renames: &[],
+                path: Path::new(FILE),
+            },
+        )
+    };
+    assert!(change(&edited, &later).is_empty());
+    assert_eq!(codes(&change(&running, &later)), ["admin-grant"]);
+    assert_eq!(codes(&change(&running, &edited)), ["admin-grant"]);
+}
+
+#[test]
+fn a_grant_brings_no_impact_since_it_is_refused() {
+    let t = team();
+    let old = settings(&t.text);
+    let new = settings(&t.text.replace("  plain:\n", "  plain:\n    admin: write\n"));
+    let i = impacts(&old, &new, &Status::default(), &[], &[]);
+    assert!(i.iter().all(|i| !i.code.starts_with("admin")), "{i:?}");
 }

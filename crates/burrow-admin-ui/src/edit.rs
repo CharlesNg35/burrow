@@ -32,6 +32,7 @@ pub enum Outcome {
     Failed { code: ErrorCode, message: String },
     Refused(Vec<Refusal>),
     ReloadFailed(ReloadFailed),
+    Unanswered,
 }
 
 #[derive(Clone, Copy)]
@@ -52,10 +53,11 @@ pub struct Edit {
     pub outcome: RwSignal<Option<Outcome>>,
     pub reset_on_load: RwSignal<bool>,
     pub auto_apply: RwSignal<bool>,
+    pub refused: RwSignal<std::collections::BTreeSet<Path>>,
     seq: StoredValue<u64>,
 }
 
-pub fn ops_of(draft: &Changeset, texts: &BTreeMap<Path, String>) -> Vec<Op> {
+fn ops_of(draft: &Changeset, texts: &BTreeMap<Path, String>) -> Vec<Op> {
     let mut ops = draft.ops();
     for (path, text) in texts {
         ops.push(Op::SetText {
@@ -79,7 +81,10 @@ pub fn missing_confirms(plan: &Plan, typed: &BTreeMap<String, String>) -> Vec<St
         .collect()
 }
 
-pub fn outcome_of(err: &ErrorBody) -> Outcome {
+fn outcome_of(err: &ErrorBody) -> Outcome {
+    if err.body.get("unanswered") == Some(&Value::Bool(true)) {
+        return Outcome::Unanswered;
+    }
     match err.code {
         ErrorCode::LockedOut => Outcome::Refused(
             serde_json::from_value(err.body.get("reasons").cloned().unwrap_or(Value::Null))
@@ -99,7 +104,17 @@ pub fn outcome_of(err: &ErrorBody) -> Outcome {
     }
 }
 
-pub fn conflict_of(err: &ErrorBody) -> Option<Conflict> {
+fn revert_outcome(err: &ErrorBody) -> Outcome {
+    match outcome_of(err) {
+        Outcome::Unanswered => Outcome::Failed {
+            code: ErrorCode::Unknown,
+            message: "The check of the revert did not finish because the connection closed; nothing was applied. Try again once the connection is back.".into(),
+        },
+        other => other,
+    }
+}
+
+fn conflict_of(err: &ErrorBody) -> Option<Conflict> {
     (err.code == ErrorCode::Conflict).then(|| {
         serde_json::from_value::<Conflict>(err.body.clone()).unwrap_or(Conflict {
             current: err
@@ -134,6 +149,7 @@ impl Edit {
             outcome: RwSignal::new(None),
             reset_on_load: RwSignal::new(false),
             auto_apply: RwSignal::new(false),
+            refused: RwSignal::new(std::collections::BTreeSet::new()),
             seq: StoredValue::new(0),
         }
     }
@@ -159,19 +175,36 @@ impl Edit {
 
     pub fn value(&self, path: &[String]) -> Option<Value> {
         self.draft
-            .with(|d| burrow_admin_logic::changeset::get(d.draft(), path).cloned())
+            .with(|d| burrow_admin_proto::value::get(d.draft(), path).cloned())
     }
 
     pub fn peek(&self, path: &[String]) -> Option<Value> {
         self.draft
-            .with_untracked(|d| burrow_admin_logic::changeset::get(d.draft(), path).cloned())
+            .with_untracked(|d| burrow_admin_proto::value::get(d.draft(), path).cloned())
     }
 
     pub fn doc(&self) -> Value {
         self.draft.with(|d| d.draft().clone())
     }
 
+    pub fn refuse(&self, path: &[String], refused: bool) {
+        if self.refused.with_untracked(|r| r.contains(path)) != refused {
+            self.refused.update(|r| {
+                if refused {
+                    r.insert(path.to_vec());
+                } else {
+                    r.remove(path);
+                }
+            });
+        }
+    }
+
     pub fn set(&self, path: &[String], v: Option<Value>) {
+        let refused = crate::grants::refuses(path, v.as_ref());
+        self.refuse(path, refused);
+        if refused {
+            return;
+        }
         self.draft.update(|d| d.set(path, v.unwrap_or(Value::Null)));
         self.changed();
     }
@@ -189,6 +222,13 @@ impl Edit {
     }
 
     pub fn add_secret(&self, path: &[String], handle: &str, fp: &str) {
+        let mut secrets = burrow_admin_proto::value::one_or_many(self.value(path).as_ref());
+        secrets.push(burrow_admin_logic::changeset::new_secret(handle, fp));
+        let refused = crate::grants::refuses(path, Some(&Value::Array(secrets)));
+        self.refuse(path, refused);
+        if refused {
+            return;
+        }
         self.draft.update(|d| d.add_secret(path, handle, fp));
         self.changed();
     }
@@ -242,6 +282,7 @@ impl Edit {
             self.base_rev.set(rev.to_string());
             self.reset_on_load.set(false);
         } else if self.base_rev.get_untracked() != rev && self.conflict.get_untracked().is_none() {
+            self.conflict_revert.set(None);
             self.conflict.set(Some(Conflict {
                 current: rev.to_string(),
                 theirs: Vec::new(),
@@ -264,6 +305,7 @@ impl Edit {
         let n = self.seq.get_value() + 1;
         self.seq.set_value(n);
         self.plan.set(None);
+        self.auto_apply.set(false);
         let me = *self;
         set_timeout(move || me.validate(n), VALIDATE_AFTER);
     }
@@ -284,16 +326,25 @@ impl Edit {
                 return;
             }
             me.checking.set(false);
+            if r.is_err() {
+                me.auto_apply.set(false);
+            }
             match r {
                 Ok(v) => match serde_json::from_value::<Plan>(v) {
                     Ok(p) => {
                         me.check_error.set(None);
                         me.plan.set(Some(Arc::new(p)));
                     }
-                    Err(e) => me.check_error.set(Some(format!("unreadable plan: {e}"))),
+                    Err(e) => {
+                        me.auto_apply.set(false);
+                        me.check_error.set(Some(format!("unreadable plan: {e}")));
+                    }
                 },
                 Err(e) => match conflict_of(&e) {
-                    Some(c) => me.conflict.set(Some(c)),
+                    Some(c) => {
+                        me.conflict_revert.set(None);
+                        me.conflict.set(Some(c));
+                    }
                     None => me.check_error.set(Some(e.message)),
                 },
             }
@@ -342,15 +393,19 @@ impl Edit {
         api::request(
             msg::req::REVERT,
             json!({ "to": to, "base": base }),
-            move |r| match r {
-                Ok(v) => {
-                    if let Ok(p) = serde_json::from_value::<Plan>(v) {
-                        me.review.update(|rv| {
-                            if let Some(rv) = rv {
-                                rv.plan = Some(Arc::new(p));
-                            }
-                        });
-                    }
+            move |r| match r.and_then(|v| {
+                serde_json::from_value::<Plan>(v).map_err(|e| ErrorBody {
+                    code: ErrorCode::Unknown,
+                    message: format!("unreadable plan: {e}"),
+                    body: Value::Null,
+                })
+            }) {
+                Ok(p) => {
+                    me.review.update(|rv| {
+                        if let Some(rv) = rv {
+                            rv.plan = Some(Arc::new(p));
+                        }
+                    });
                 }
                 Err(e) => match conflict_of(&e) {
                     Some(c) => {
@@ -358,7 +413,10 @@ impl Edit {
                         me.conflict_revert.set(Some(to.clone()));
                         me.conflict.set(Some(c));
                     }
-                    None => me.outcome.set(Some(outcome_of(&e))),
+                    None => {
+                        me.review.set(None);
+                        me.outcome.set(Some(revert_outcome(&e)));
+                    }
                 },
             },
         );
@@ -436,7 +494,7 @@ fn related_errors(draft: RwSignal<Changeset>) -> BTreeMap<Path, String> {
     draft.with(|d| entity_errors(&schema, d.draft()))
 }
 
-pub fn entity_errors(
+fn entity_errors(
     schema: &burrow_admin_proto::schema::Schema,
     doc: &Value,
 ) -> BTreeMap<Path, String> {
@@ -449,7 +507,7 @@ pub fn entity_errors(
             continue;
         };
         let Some(items) =
-            burrow_admin_logic::changeset::get(doc, &info.path).and_then(Value::as_object)
+            burrow_admin_proto::value::get(doc, &info.path).and_then(Value::as_object)
         else {
             continue;
         };
@@ -532,6 +590,21 @@ mod tests {
             Some("b2s:1".to_string())
         );
         assert!(conflict_of(&reload).is_none());
+        assert!(matches!(
+            outcome_of(&crate::api::unanswered()),
+            Outcome::Unanswered
+        ));
+        let never_sent = ErrorBody {
+            code: ErrorCode::Unknown,
+            message: "not connected to the server".into(),
+            body: Value::Null,
+        };
+        assert!(matches!(outcome_of(&never_sent), Outcome::Failed { .. }));
+        assert!(matches!(
+            revert_outcome(&crate::api::unanswered()),
+            Outcome::Failed { message, .. } if message.contains("did not finish") && message.contains("nothing was applied")
+        ));
+        assert!(matches!(revert_outcome(&reload), Outcome::ReloadFailed(_)));
     }
 
     #[test]

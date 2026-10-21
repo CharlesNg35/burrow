@@ -1,7 +1,7 @@
 use std::net::SocketAddr;
 
-use crate::config::model::Protocol;
 use crate::failure::Failure;
+use burrow_config::Protocol;
 
 pub fn check_free(proto: Protocol, addr: SocketAddr, label: &str) -> Result<(), Failure> {
     let kind = match proto {
@@ -17,7 +17,7 @@ pub fn check_free(proto: Protocol, addr: SocketAddr, label: &str) -> Result<(), 
                 .unwrap_or_default();
             Err(Failure::new(format!(
                 "{} port {} ({label}) is already in use{owner}",
-                proto.as_str(),
+                proto.wire(),
                 addr.port()
             ))
             .hint(format!(
@@ -47,7 +47,7 @@ pub(crate) fn inspect_hint(proto: Protocol, port: u16) -> String {
         };
         format!("sudo ss {flag} 'sport = :{port}'")
     } else if cfg!(target_os = "freebsd") {
-        let flag = if proto == Protocol::Udp { "udp" } else { "tcp" };
+        let flag = proto.wire();
         format!("sockstat -46 -l -P {flag} -p {port}")
     } else {
         let flag = if proto == Protocol::Udp { "UDP" } else { "TCP" };
@@ -149,7 +149,15 @@ mod tests {
         #[cfg(target_os = "linux")]
         assert!(err.message.contains("pid "), "{}", err.message);
         drop(l);
-        assert!(check_free(Protocol::Tcp, addr, "x").is_ok());
+        let started = std::time::Instant::now();
+        while check_free(Protocol::Tcp, addr, "x").is_err() {
+            assert!(
+                started.elapsed() < std::time::Duration::from_secs(5),
+                "port {} stays busy after its listener closed",
+                addr.port()
+            );
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
     }
 
     #[test]

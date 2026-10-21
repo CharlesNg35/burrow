@@ -53,16 +53,21 @@ pub fn show(
     n: usize,
     follow: bool,
     retry: &str,
+    journal: Option<&str>,
     out: &mut dyn Write,
 ) -> Result<(), Failure> {
     match open(path) {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            return Err(
-                Failure::new(format!("no log file yet at {}", path.display())).hint(format!(
-                    "the service creates it when it starts; check it with: {}",
-                    crate::failure::cmd("service list")
-                )),
+            let mut hint = format!(
+                "the service creates it when it starts; check it with: {}",
+                crate::failure::cmd("service list")
             );
+            if let Some(j) = journal {
+                hint.push_str(&format!(
+                    "; if it never started, the service manager says why: {j}"
+                ));
+            }
+            return Err(Failure::new(format!("no log file yet at {}", path.display())).hint(hint));
         }
         Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
             return Err(Failure::new(format!(

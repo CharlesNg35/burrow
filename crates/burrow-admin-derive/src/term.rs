@@ -2,7 +2,7 @@ use proc_macro2::Span;
 use syn::spanned::Spanned;
 use syn::{Expr, Lit};
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum Term {
     Word(String, Span),
     Call(String, Vec<Term>, Span),
@@ -48,6 +48,13 @@ impl Term {
     pub fn as_int(&self) -> Option<i64> {
         match self {
             Term::Int(i, _) => Some(*i),
+            _ => None,
+        }
+    }
+
+    pub fn as_type(&self) -> Option<&syn::Type> {
+        match self {
+            Term::Type(t, _) => Some(t),
             _ => None,
         }
     }

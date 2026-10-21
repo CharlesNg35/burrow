@@ -2,6 +2,7 @@ mod control;
 mod fields;
 mod health;
 mod listen;
+mod local;
 mod pick;
 mod route;
 mod session;
@@ -9,6 +10,7 @@ mod standing;
 mod status;
 mod tcp;
 mod udp;
+mod via;
 mod visit;
 
 use std::collections::HashMap;
@@ -22,12 +24,12 @@ use tokio::sync::{Notify, Semaphore, mpsc, watch};
 use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
 
-use crate::config::model::Protocol;
 use crate::config::settings::WebSocketSettings;
 use crate::config::settings::{ServerSettings, Service};
 use crate::failure::Failure;
 use crate::protocol::{ByeReason, ServerMsg};
 use crate::ratelimit::Limit;
+use burrow_config::Protocol;
 use listen::WsListener;
 pub use session::{ClientSession, PoolConfig, TakeError};
 
@@ -55,6 +57,7 @@ pub struct Shared {
     probes: Mutex<health::Probes>,
     standing: Mutex<standing::Standing>,
     turns: Mutex<HashMap<String, usize>>,
+    local: Arc<local::SelfDialer>,
     pub(crate) metrics: crate::metrics::Metrics,
 }
 
@@ -381,7 +384,7 @@ async fn accept_tcp(
 
 async fn take_channel(
     shared: &Shared,
-    session: &ClientSession,
+    session: &via::Via,
     label: &str,
     peer: SocketAddr,
 ) -> Result<crate::handshake::Channel, crate::protocol::Status> {
@@ -394,7 +397,7 @@ async fn take_channel(
             if let Some(more) = WAITING.allow() {
                 warn!(
                     "{label}: too many connections waiting for client \"{}\", dropping one{more}",
-                    session.name
+                    session.name()
                 );
             }
             Err(Status::Busy)
@@ -408,7 +411,7 @@ async fn take_channel(
             if let Some(more) = SLOW.allow() {
                 warn!(
                     "{label}: client \"{}\" did not open a data channel within {}s{more}",
-                    session.name,
+                    session.name(),
                     TAKE_TIMEOUT.as_secs()
                 );
             }
@@ -517,6 +520,11 @@ impl Server {
             probes: Mutex::new(HashMap::new()),
             standing: Mutex::new(standing::Standing::default()),
             turns: Mutex::new(HashMap::new()),
+            local: Arc::new(local::SelfDialer::new(
+                &settings,
+                Vec::new(),
+                crate::transport::resolve::system(),
+            )),
             metrics: crate::metrics::Metrics::default(),
         });
         let mut services = HashMap::new();
@@ -530,7 +538,7 @@ impl Server {
         let websocket = ws_listener.map(|l| WsTask::start(&shared, l));
         let health = tokio::spawn(health::run(shared.clone()));
         let metrics = metrics_listener.map(|l| MetricsTask::start(&shared, l));
-        Ok(Server {
+        let server = Server {
             health,
             metrics,
             shared,
@@ -539,7 +547,26 @@ impl Server {
             services,
             shutdown_tx,
             wanted: Wanted::default(),
-        })
+        };
+        server.refresh_self();
+        Ok(server)
+    }
+
+    fn own_addrs(&self) -> Vec<SocketAddr> {
+        [
+            self.local_addr(),
+            self.websocket_addr(),
+            self.metrics_addr(),
+        ]
+        .into_iter()
+        .flatten()
+        .collect()
+    }
+
+    fn refresh_self(&self) {
+        self.shared
+            .local
+            .reconfigure(&self.shared.settings(), self.own_addrs());
     }
 
     pub fn local_addr(&self) -> Option<SocketAddr> {
@@ -632,6 +659,7 @@ impl Server {
 
     async fn bind_waiting(&mut self) {
         self.move_waiting().await;
+        self.refresh_self();
         let settings = self.shared.settings();
         for (name, svc) in &settings.services {
             if svc.bind.is_none() || self.services.contains_key(name) {
@@ -963,6 +991,7 @@ impl Server {
             .filter(|(_, how)| *how == fields::Applied::Restart)
             .map(|(name, _)| *name)
             .collect();
+        self.refresh_self();
         self.shared.report_apply(None, unbound.clone(), restart);
         if unbound.is_empty() {
             info!("{summary}");
@@ -1181,8 +1210,8 @@ fn log_service(name: &str, svc: &Service, addr: Option<SocketAddr>) {
                 .collect::<Vec<_>>()
                 .join(", "),
             match svc.mode {
-                crate::config::model::Mode::Failover => "failover",
-                crate::config::model::Mode::Balance => "balance",
+                burrow_config::Mode::Failover => "failover",
+                burrow_config::Mode::Balance => "balance",
             }
         ),
     };
@@ -1196,7 +1225,7 @@ fn log_service(name: &str, svc: &Service, addr: Option<SocketAddr>) {
     };
     info!(
         "service \"{name}\": {} {at} -> {clients} {}{visitors}",
-        svc.protocol.as_str(),
+        svc.protocol.wire(),
         svc.shown_target()
     );
 }

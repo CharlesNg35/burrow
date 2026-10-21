@@ -143,6 +143,8 @@ impl<'a> Lines<'a> {
     }
 }
 
+pub const MAX_DEPTH: usize = 64;
+
 enum Frame {
     Seq(Vec<Node>, Span),
     Map(Vec<Entry>, Span, Option<(String, Span)>),
@@ -189,6 +191,15 @@ pub fn parse(src: &str) -> Result<Node, Vec<ParseError>> {
             Event::Alias(_) => {
                 errors.push(ParseError {
                     message: "YAML aliases (*name) are not supported".into(),
+                    span,
+                });
+                return Err(errors);
+            }
+            Event::SequenceStart(..) | Event::MappingStart(..) if stack.len() >= MAX_DEPTH => {
+                errors.push(ParseError {
+                    message: format!(
+                        "the file is nested more than {MAX_DEPTH} levels deep; a config needs far fewer"
+                    ),
                     span,
                 });
                 return Err(errors);
@@ -375,6 +386,33 @@ mod tests {
         let errs = parse("a: 1\na: 2\n").unwrap_err();
         assert_eq!(errs[0].message, "duplicate key \"a\"");
         assert_eq!(errs[0].span.start.line, 2);
+    }
+
+    #[test]
+    fn deep_nesting_is_an_error_not_a_crash() {
+        let run = |src: String| {
+            std::thread::Builder::new()
+                .stack_size(256 * 1024)
+                .spawn(move || parse(&src).map(|_| ()))
+                .unwrap()
+                .join()
+                .unwrap()
+        };
+        for src in [
+            "- ".repeat(200_000) + "x\n",
+            "a:\n".to_string() + &"  - ".repeat(100) + "x\n",
+            (0..200).map(|i| format!("{}k:\n", " ".repeat(i))).collect(),
+        ] {
+            let errs = run(src).unwrap_err();
+            assert!(
+                errs[0].message.contains("nested more than 64 levels"),
+                "{}",
+                errs[0].message
+            );
+        }
+        let ok = "- ".repeat(MAX_DEPTH) + "x\n";
+        assert!(run(ok).is_ok());
+        assert!(run("- ".repeat(MAX_DEPTH + 1) + "x\n").is_err());
     }
 
     #[test]

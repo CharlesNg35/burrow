@@ -3,7 +3,6 @@ use std::net::SocketAddr;
 use std::path::Path;
 use std::time::Duration;
 
-use super::super::model::{ForwardEntry, VisitorConfig};
 use super::super::settings::{Forward, VisitorSettings};
 use super::connection::{Connection, Dial, check_connection};
 use super::ports::{ranges_conflict, show, show_addr, split_target};
@@ -14,6 +13,7 @@ use super::{
 use crate::diagnostics::Diagnostic;
 use crate::protocol::VisitTarget;
 use crate::secret::Secret;
+use burrow_config::{ForwardEntry, VisitorConfig};
 
 pub fn check_visitor(
     cfg: &VisitorConfig,

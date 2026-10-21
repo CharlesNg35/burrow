@@ -1,6 +1,6 @@
 use std::net::SocketAddr;
 
-use super::super::model::Bind;
+use burrow_config::Bind;
 
 pub use burrow_syntax::ports::{
     MAX_RANGE, parse_range, port_at, ranges_conflict, show, show_addr, split_target,

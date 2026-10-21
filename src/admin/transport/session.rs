@@ -15,8 +15,6 @@ use crate::handshake::Channel;
 use crate::reload::{Nudge, ReloadOutcome};
 use crate::server::ApplyReport;
 
-const KEEPALIVE: Duration = Duration::from_secs(25);
-const SILENCE: Duration = Duration::from_secs(90);
 const IDLE: Duration = Duration::from_secs(30 * 60);
 const RELOAD_WAIT: Duration = Duration::from_secs(15);
 const FILE_CHECK: Duration = Duration::from_secs(3);
@@ -27,13 +25,13 @@ pub trait Access: Send + Sync {
 
 enum Out {
     Message(Vec<u8>),
-    Close,
 }
 
 struct Ctx {
     hub: Arc<Hub>,
     session: Arc<Session>,
     applies: watch::Receiver<ApplyReport>,
+    access: Arc<dyn Access>,
 }
 
 fn encode(v: &Value) -> Vec<u8> {
@@ -59,6 +57,12 @@ async fn apply(cx: &Ctx, body: Value) -> Result<Value, ApiError> {
         ));
     };
     let _lock = cx.hub.plan_lock().await;
+    if let Some(why) = cx.access.revoked() {
+        return Err(ApiError::new(
+            ErrorCode::Forbidden,
+            format!("this session lost its admin rights ({why}), so nothing was written"),
+        ));
+    }
     let mut applies = cx.applies.clone();
     let seq = applies.borrow_and_update().seq;
     let (core_, session) = (cx.hub.core.clone(), cx.session.clone());
@@ -160,17 +164,18 @@ async fn writer_task(
     mut rx: mpsc::Receiver<Out>,
     mut writer: crate::record::RecordWriter,
     mut wr: crate::transport::OwnedWriteHalf,
+    ping: Duration,
 ) {
     use tokio::io::AsyncWriteExt;
     loop {
-        let next = tokio::time::timeout(KEEPALIVE, rx.recv()).await;
+        let next = tokio::time::timeout(ping, rx.recv()).await;
         let records = match next {
             Err(_) => vec![frame::ping().to_vec()],
             Ok(Some(Out::Message(m))) => match frame::chunks(&m) {
                 Ok(r) => r,
                 Err(_) => continue,
             },
-            Ok(Some(Out::Close)) | Ok(None) => break,
+            Ok(None) => break,
         };
         for r in records {
             if writer.send(&mut wr, &r).await.is_err() {
@@ -205,12 +210,15 @@ pub async fn run(
     } = channel;
     let (mut rd, wr) = stream.into_split();
     let (tx, rx) = mpsc::channel::<Out>(64);
-    let writer = tokio::spawn(writer_task(rx, writer, wr));
+    let (ping, silence) = super::keepalive();
+    let writer = tokio::spawn(writer_task(rx, writer, wr, ping));
     let visitor = session.visitor.clone();
+    let access: Arc<dyn Access> = Arc::from(access);
     let cx = Arc::new(Ctx {
         hub: hub.clone(),
         session: Arc::new(session),
         applies,
+        access: access.clone(),
     });
     let mut assembler = Assembler::new();
     let mut jobs: JoinSet<Value> = JoinSet::new();
@@ -225,19 +233,25 @@ pub async fn run(
     let mut file_check = tokio::time::interval(FILE_CHECK);
     file_check.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     let mut last_request = tokio::time::Instant::now();
-    let send = |v: Value| {
+    let mut heard = tokio::time::Instant::now();
+    let send = |v: Value, until: tokio::time::Instant| {
         let tx = tx.clone();
-        async move { tx.send(Out::Message(encode(&v))).await.is_ok() }
+        async move {
+            matches!(
+                tokio::time::timeout_at(until, tx.send(Out::Message(encode(&v)))).await,
+                Ok(Ok(()))
+            )
+        }
     };
     let end = loop {
         let idle_left = IDLE.saturating_sub(last_request.elapsed());
         tokio::select! {
-            record = tokio::time::timeout(SILENCE, reader.recv(&mut rd)) => {
+            record = reader.recv(&mut rd) => {
                 let record = match record {
-                    Err(_) => break "silent for 90 s",
-                    Ok(Err(_)) | Ok(Ok(None)) => break "closed",
-                    Ok(Ok(Some(r))) => r.to_vec(),
+                    Err(_) | Ok(None) => break "closed",
+                    Ok(Some(r)) => r.to_vec(),
                 };
+                heard = tokio::time::Instant::now();
                 if record.is_empty() {
                     break "closed";
                 }
@@ -262,23 +276,36 @@ pub async fn run(
                         i
                     });
                     config_events = sub.config;
-                    if !send(msg::reply_ok(req.id, serde_json::json!({}))).await {
+                    if !send(msg::reply_ok(req.id, serde_json::json!({})), heard + silence).await {
                         break "closed";
                     }
                     continue;
                 }
                 if jobs.len() >= MAX_INFLIGHT {
                     let e = ApiError::new(ErrorCode::Busy, "too many requests in flight");
-                    if !send(msg::reply_err(req.id, &e.wire())).await {
+                    if !send(msg::reply_err(req.id, &e.wire()), heard + silence).await {
                         break "closed";
                     }
                     continue;
                 }
-                jobs.spawn(handle(cx.clone(), req));
+                if req.t == msg::req::APPLY {
+                    let id = req.id;
+                    let detached = tokio::spawn(handle(cx.clone(), req));
+                    jobs.spawn(async move {
+                        detached.await.unwrap_or_else(|_| {
+                            msg::reply_err(
+                                id,
+                                &ApiError::new(ErrorCode::Internal, "the apply task failed").wire(),
+                            )
+                        })
+                    });
+                } else {
+                    jobs.spawn(handle(cx.clone(), req));
+                }
             }
             Some(done) = jobs.join_next(), if !jobs.is_empty() => {
                 if let Ok(v) = done
-                    && !send(v).await
+                    && !send(v, heard + silence).await
                 {
                     break "closed";
                 }
@@ -299,7 +326,7 @@ pub async fn run(
                 }
                 if let Some(reason) = access.revoked() {
                     let ev = msg::event(msg::ev::REVOKED, serde_json::to_value(Revoked { reason }).unwrap_or_default());
-                    let _ = send(ev).await;
+                    let _ = send(ev, heard + silence).await;
                     break "revoked";
                 }
             }
@@ -321,14 +348,17 @@ pub async fn run(
                     .await
                     .unwrap_or(false);
                     let ev = msg::event(msg::ev::CONFIG, serde_json::to_value(ConfigEvent { rev, by, ok }).unwrap_or_default());
-                    if !send(ev).await {
+                    if !send(ev, heard + silence).await {
                         break "closed";
                     }
                 }
             }
             _ = shutdown.changed() => {
-                let _ = send(msg::event(msg::ev::BYE, serde_json::json!({}))).await;
+                let _ = send(msg::event(msg::ev::BYE, serde_json::json!({})), heard + silence).await;
                 break "server stopping";
+            }
+            _ = tokio::time::sleep_until(heard + silence) => {
+                break "silent for 90 s";
             }
             _ = tokio::time::sleep(idle_left), if status_every.is_none() && jobs.is_empty() => {
                 break "idle for 30 min";
@@ -337,7 +367,62 @@ pub async fn run(
     };
     debug!("admin session of visitor \"{visitor}\" ended: {end}");
     jobs.abort_all();
-    let _ = tx.send(Out::Close).await;
     drop(tx);
-    let _ = tokio::time::timeout(Duration::from_secs(5), writer).await;
+    let mut writer = writer;
+    if tokio::time::timeout(Duration::from_secs(5), &mut writer)
+        .await
+        .is_err()
+    {
+        writer.abort();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::admin::core::tests::{core_for, session, world};
+    use burrow_admin_proto::msg::AdminLevel;
+    use burrow_admin_proto::ops::Op;
+
+    struct RevokedWhileWaiting;
+
+    impl Access for RevokedWhileWaiting {
+        fn revoked(&self) -> Option<String> {
+            Some("admin level changed".into())
+        }
+    }
+
+    #[tokio::test]
+    async fn an_apply_of_a_session_revoked_while_it_waited_writes_nothing() {
+        let w = world();
+        let (nudges, gone) = mpsc::channel(4);
+        drop(gone);
+        let hub = Hub::new(core_for(&w.text), nudges);
+        let s = session(&w, AdminLevel::Write);
+        let ops = vec![Op::Set {
+            path: vec!["services".into(), "web".into(), "target".into()],
+            value: serde_json::json!(3009),
+        }];
+        let before = hub.core.read().unwrap();
+        let base = core::text::rev(&before);
+        let plan = plan::compute(&hub.core, &s, &base, &ops).unwrap().plan;
+        let (_report, applies) = watch::channel(ApplyReport::default());
+        let cx = Ctx {
+            hub: hub.clone(),
+            session: Arc::new(s),
+            applies,
+            access: Arc::new(RevokedWhileWaiting),
+        };
+        let body = serde_json::to_value(msg::Apply {
+            base,
+            ops,
+            plan: plan.plan,
+            confirm: Vec::new(),
+        })
+        .unwrap();
+        let e = apply(&cx, body).await.unwrap_err();
+        assert_eq!(e.code, ErrorCode::Forbidden, "{}", e.message);
+        assert!(e.message.contains("admin level changed"), "{}", e.message);
+        assert_eq!(hub.core.read().unwrap(), before, "nothing is written");
+    }
 }

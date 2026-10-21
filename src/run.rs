@@ -213,36 +213,32 @@ pub fn admin(path: &Path, env: Env, opts: crate::admin_local::Options) -> Result
     };
     drive(async move {
         crate::admin_local::check_access(&settings).await?;
-        let listener = crate::admin_local::bind(opts.port).await?;
+        let (listener, note) =
+            crate::admin_local::listen(opts.port, burrow_syntax::ports::ADMIN_PORT).await?;
+        if let Some(note) = note {
+            crate::say_errln!("{note}");
+        }
         let stop = stop_on_signal(None);
         let dir = crate::instance::default_dir();
         let mut launch = None;
-        let mut failed = None;
         let mut out = std::io::stdout();
         crate::admin_local::serve(listener, &settings, &opts, stop, |running| {
-            if let Some(file) = &opts.url_file
-                && let Err(e) = crate::admin_local::launch::write_url_file(file, &running.url)
-            {
-                failed = Some(e);
-                return;
+            if let Some(file) = &opts.url_file {
+                crate::admin_local::launch::write_url_file(file, &running.url)?;
             }
             let mut opened = false;
             if opts.open {
-                match crate::admin_local::launch::write(&dir, &running.url) {
-                    Ok(f) => {
-                        opened = crate::admin_local::launch::open_browser(f.path());
-                        launch = Some(f);
-                    }
-                    Err(e) => failed = Some(e),
-                }
+                let f = crate::admin_local::launch::write(&dir, &running.url).map_err(|e| {
+                    e.hint("run with --no-open --print-url to open the link by hand")
+                })?;
+                opened = crate::admin_local::launch::open_browser(f.path());
+                launch = Some(f);
             }
             crate::admin_local::announce(&mut out, &settings, running, &opts, opened);
+            Ok(())
         })
         .await?;
         drop(launch);
-        if let Some(e) = failed {
-            return Err(e);
-        }
         Ok(0)
     })
 }

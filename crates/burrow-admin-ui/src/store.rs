@@ -1,3 +1,4 @@
+use burrow_config::ServerConfig;
 use std::sync::Arc;
 
 use burrow_admin_logic::rates::{Rates, Recorder, rates};
@@ -134,7 +135,7 @@ impl Store {
     pub fn can_write(&self) -> bool {
         self.welcome.with(|w| {
             w.as_ref()
-                .is_some_and(|w| w.you.level == burrow_admin_proto::msg::Level::Write)
+                .is_some_and(|w| w.you.level == burrow_admin_proto::msg::AdminLevel::Write)
         }) && self
             .state
             .with(|s| s.as_ref().is_some_and(|s| s.file.writable))
@@ -178,9 +179,8 @@ impl Store {
     pub fn server_name(&self) -> String {
         let public = self.state.with(|s| {
             s.as_ref().and_then(|s| {
-                s.values
-                    .get("public_address")
-                    .and_then(|v| v.as_str())
+                ServerConfig::PUBLIC_ADDRESS
+                    .str(&s.values)
                     .map(str::to_string)
             })
         });
