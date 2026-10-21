@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:5011d1e6f8801a97",
+  "hash": "b2s:a3b6d522aa045f53",
   "root": {
     "label": "Server",
     "sem": {
@@ -193,6 +193,7 @@
                             "sem": {
                               "t": "integer",
                               "min": 1,
+                              "max": 4294967295,
                               "unit": "connections"
                             }
                           }
@@ -308,6 +309,7 @@
                             "sem": {
                               "t": "integer",
                               "min": 1,
+                              "max": 4294967295,
                               "unit": "connections"
                             }
                           }
@@ -728,6 +730,7 @@
                             "sem": {
                               "t": "integer",
                               "min": 1,
+                              "max": 4294967295,
                               "unit": "connections"
                             }
                           }
@@ -1006,6 +1009,7 @@
                     "sem": {
                       "t": "integer",
                       "min": 1,
+                      "max": 4294967295,
                       "unit": "connections"
                     },
                     "default": 8192,
@@ -1020,6 +1024,7 @@
                     "sem": {
                       "t": "integer",
                       "min": 1,
+                      "max": 4294967295,
                       "unit": "connections"
                     },
                     "default": 512,
@@ -1045,6 +1050,7 @@
                     "help": "Data channels each client keeps open in advance, so a new connection starts without a round trip",
                     "sem": {
                       "t": "integer",
+                      "min": 0,
                       "max": 1024,
                       "unit": "channels"
                     },

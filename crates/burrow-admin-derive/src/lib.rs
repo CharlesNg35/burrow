@@ -367,7 +367,17 @@ fn expand_struct(input: &DeriveInput, s: &syn::DataStruct, errors: &mut Errors) 
             None => sem::infer(inner_ty, range, duration, ident, errors),
         };
         checks.extend(built.checks);
-        let base = built.node;
+        let base = match sem::primitive_int(inner_ty) {
+            Some(t) => {
+                let node = built.node;
+                quote!({
+                    let mut n = #node;
+                    #p::type_bounds(&mut n, #t::MIN as i128, #t::MAX as i128);
+                    n
+                })
+            }
+            None => built.node,
+        };
         let mut meta = Vec::new();
         if let Some(g) = assigned(&terms, "group") {
             match g.as_word() {

@@ -582,6 +582,20 @@ pub fn reject_redundant(
     checks.push(quote_spanned!(span=> const _: () = #p::not_redundant(<#ty as #p::DefaultSem>::SEM, #tag, #message);));
 }
 
+pub fn primitive_int(ty: &syn::Type) -> Option<syn::Ident> {
+    let syn::Type::Path(tp) = ty else {
+        return None;
+    };
+    let seg = tp.path.segments.last()?;
+    let ints = [
+        "u8", "u16", "u32", "u64", "usize", "i8", "i16", "i32", "i64", "isize",
+    ];
+    (tp.path.segments.len() == 1
+        && seg.arguments.is_none()
+        && ints.contains(&seg.ident.to_string().as_str()))
+    .then(|| seg.ident.clone())
+}
+
 pub fn infer(
     ty: &syn::Type,
     range: (Option<i64>, Option<i64>),

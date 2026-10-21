@@ -54,6 +54,15 @@ pub fn apply_range(node: &mut Node, min: Option<i64>, max: Option<i64>) {
     }
 }
 
+pub fn type_bounds(node: &mut Node, min: i128, max: i128) {
+    use burrow_admin_proto::schema::SemType;
+    let fit = |v: i128| v.clamp(i128::from(i64::MIN), i128::from(i64::MAX)) as i64;
+    if let SemType::Integer(c) = &mut node.sem {
+        c.min = c.min.or(Some(fit(min)));
+        c.max = c.max.or(Some(fit(max)));
+    }
+}
+
 pub trait AdminEnum: Sized {
     fn options() -> Vec<burrow_admin_proto::schema::EnumOption>;
     fn wire(&self) -> &'static str;
@@ -136,7 +145,7 @@ impl<T> Carrier<sem::List> for Vec<T> {}
 pub mod __private {
     pub use super::{
         AdminEnum, AdminSchema, Carrier, DefaultSem, apply_range, assert_carrier, not_redundant,
-        sem,
+        sem, type_bounds,
     };
     pub use burrow_admin_proto::schema::{
         Applies, Cond, DurationC, DurationUnit, Editable, EnumC, EnumOption, Field, Group,
