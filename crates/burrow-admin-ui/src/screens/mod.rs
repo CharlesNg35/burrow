@@ -7,6 +7,7 @@ mod overview;
 pub mod paths;
 mod settings;
 
+use burrow_config::Protocol;
 use burrow_ui_kit::{EmptyState, Icon, Kbd, LABEL, Tone, button_class, tag_class};
 use leptos::prelude::*;
 
@@ -202,7 +203,7 @@ pub fn ListPane(
                     {label}
                     {move || {
                         let n = rows.with(|r| r.iter().filter(|x| key == "all" || x.filters.contains(&key)).count());
-                        (!no_counts && n > 0 && key != "tcp" && key != "udp").then(|| format!(" {n}"))
+                        (!no_counts && n > 0 && Protocol::from_wire(key).is_none()).then(|| format!(" {n}"))
                     }}
                 </button>
             }

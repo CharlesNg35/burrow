@@ -135,6 +135,25 @@ impl ErrorCode {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UiDiagnostics {
+    pub ui: String,
+    pub server: Option<String>,
+    pub target: Option<String>,
+    pub protocol: Option<u8>,
+    pub features: Option<Vec<String>>,
+    pub schema_hash: Option<String>,
+    pub schema_version: Option<u32>,
+    pub file: Option<FileDiagnostics>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FileDiagnostics {
+    pub format: String,
+    pub writable: bool,
+    pub running_ok: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LockedField {
     pub path: crate::Path,
 }

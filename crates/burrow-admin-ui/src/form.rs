@@ -6,6 +6,7 @@ use burrow_admin_proto::diag::Severity;
 use burrow_admin_proto::schema::{Applies, DurationUnit, Editable, Field, Node, SemType};
 use burrow_admin_proto::serde_json::{self, Value};
 use burrow_admin_proto::value::{SecretSrc, as_env, as_secret};
+use burrow_config::{Entry, ServiceEntry, VisitorEntry};
 use burrow_syntax::duration::{TimeUnit, human};
 use burrow_ui_kit::{Badge, Chip, FieldRow, FieldState, Toggle, Tone, chip_class};
 use leptos::prelude::*;
@@ -14,6 +15,25 @@ use crate::domain::{self, FieldCtx};
 use crate::edit::diags_at;
 use crate::route::{Link, Route};
 use crate::store::store;
+
+const SERVICES: &str = ServiceEntry::SECTION;
+const VISITORS: &str = VisitorEntry::SECTION;
+const CLIENT: &str = ServiceEntry::CLIENT.key();
+const CLIENTS: &str = ServiceEntry::CLIENTS.key();
+const MODE: &str = ServiceEntry::MODE.key();
+const HEALTH_CHECK: &str = ServiceEntry::HEALTH_CHECK.key();
+const PROTOCOL: &str = ServiceEntry::PROTOCOL.key();
+const BIND: &str = ServiceEntry::BIND.key();
+const TARGET: &str = ServiceEntry::TARGET.key();
+const SERVICE_VISITORS: &str = ServiceEntry::VISITORS.key();
+const DENY_FROM: &str = ServiceEntry::DENY_FROM.key();
+const ALLOW_FROM: &str = ServiceEntry::ALLOW_FROM.key();
+const BANDWIDTH: &str = ServiceEntry::BANDWIDTH.key();
+const MAX_CONNECTIONS: &str = ServiceEntry::MAX_CONNECTIONS.key();
+const PROXY_PROTOCOL: &str = ServiceEntry::PROXY_PROTOCOL.key();
+const ADMIN: &str = VisitorEntry::ADMIN.key();
+const ADMIN_FROM: &str = VisitorEntry::ADMIN_FROM.key();
+const REACH: &str = VisitorEntry::REACH.key();
 
 const MAX_TEXT: usize = 4096;
 pub const LOCKED_HINT: &str = "Change this in server.yaml on the server, then restart";
@@ -133,8 +153,8 @@ pub fn object_view_skipping(
         .iter()
         .map(|g| (g.key.clone(), g.label.clone(), g.sub.clone()))
         .collect();
-    let service = spath.len() == 2 && spath[0] == "services";
-    let hidden: &[&str] = if service { &["client"] } else { &[] };
+    let service = ServiceEntry::is_entry(&spath);
+    let hidden: &[&str] = if service { &[CLIENT] } else { &[] };
     let all: Vec<&Field> = fields(node)
         .iter()
         .filter(|f| !skip.contains(&f.key.as_str()) && !hidden.contains(&f.key.as_str()))
@@ -145,7 +165,7 @@ pub fn object_view_skipping(
         }
     }
     let public = service.then(|| {
-        let bind = push(&path, "bind");
+        let bind = push(&path, BIND);
         RwSignal::new(store().edit.peek(&bind).is_some_and(|v| !v.is_null()))
     });
     let sections = groups
@@ -157,22 +177,22 @@ pub fn object_view_skipping(
             }
             let mut rows: Vec<AnyView> = Vec::new();
             for f in mine {
-                if f.key == "clients" && service {
-                    let sp = join(&push(&spath, "client"));
-                    rows.push(view! { <span hidden data-schema=sp data-merged-into="clients"></span> }.into_any());
+                if f.key == CLIENTS && service {
+                    let sp = join(&push(&spath, CLIENT));
+                    rows.push(view! { <span hidden data-schema=sp data-merged-into=CLIENTS></span> }.into_any());
                 }
-                if f.key == "protocol"
+                if f.key == PROTOCOL
                     && let Some(public) = public
                 {
-                    rows.push(visibility_row(push(&path, "bind"), public));
+                    rows.push(visibility_row(push(&path, BIND), public));
                 }
                 let (fp, fs) = (push(&path, &f.key), push(&spath, &f.key));
                 match (f.key.as_str(), public) {
-                    ("bind", Some(public)) => {
+                    (BIND, Some(public)) => {
                         let (f, entity) = ((*f).clone(), entity.clone());
                         rows.push((move || public.get().then(|| row(f.clone(), fp.clone(), fs.clone(), entity.clone()))).into_any());
                     }
-                    ("health_check", Some(_)) => {
+                    (HEALTH_CHECK, Some(_)) => {
                         rows.push(row((*f).clone(), fp.clone(), fs.clone(), entity.clone()));
                         rows.push(domain::health_box(f.node.clone(), fp, fs, entity.clone()));
                     }
@@ -433,12 +453,12 @@ pub fn settings_card(c: &SettingsCard) -> AnyView {
 pub fn facts(node: &Node, path: Path, spath: Path, skip: &[&str]) -> AnyView {
     let e = store().edit;
     let node = inner(node);
-    let service = spath.len() == 2 && spath[0] == "services";
+    let service = ServiceEntry::is_entry(&spath);
     let mut keys: Vec<&Field> = fields(node)
         .iter()
         .filter(|f| !skip.contains(&f.key.as_str()))
         .filter(|f| !matches!(inner(&f.node).sem, SemType::SecretRef(_)))
-        .filter(|f| !(service && f.key == "client"))
+        .filter(|f| !(service && f.key == CLIENT))
         .collect();
     let groups: Vec<String> = node.groups.iter().map(|g| g.key.clone()).collect();
     keys.sort_by_key(|f| {
@@ -472,8 +492,8 @@ pub fn facts(node: &Node, path: Path, spath: Path, skip: &[&str]) -> AnyView {
                     <span class="min-w-0">
                         {move || {
                             let v = e.value(&fpath).or_else(|| {
-                                (fpath.len() == 3 && fpath[0] == "services" && fpath[2] == "clients")
-                                    .then(|| e.value(&[fpath[0].clone(), fpath[1].clone(), "client".into()]))
+                                ServiceEntry::CLIENTS.is(&fpath)
+                                    .then(|| e.value(&ServiceEntry::CLIENT.of(&fpath[1])))
                                     .flatten()
                                     .map(|c| Value::Array(vec![c]))
                             });
@@ -531,13 +551,15 @@ fn fact_text(node: &Node, v: Option<&Value>) -> Option<String> {
 
 fn layout_order(spath: &[String], group: &str) -> Option<&'static [&'static str]> {
     match (spath.first().map(String::as_str), spath.len(), group) {
-        (Some("services"), 2, "who") => Some(&["clients", "mode", "health_check"]),
-        (Some("services"), 2, "exposure") => Some(&["protocol", "bind", "target"]),
-        (Some("services"), 2, "access") => Some(&["visitors", "deny_from", "allow_from"]),
-        (Some("services"), 2, "traffic") => {
-            Some(&["bandwidth", "max_connections", "proxy_protocol"])
+        (Some(SERVICES), 2, ServiceEntry::GROUP_WHO) => Some(&[CLIENTS, MODE, HEALTH_CHECK]),
+        (Some(SERVICES), 2, ServiceEntry::GROUP_EXPOSURE) => Some(&[PROTOCOL, BIND, TARGET]),
+        (Some(SERVICES), 2, ServiceEntry::GROUP_ACCESS) => {
+            Some(&[SERVICE_VISITORS, DENY_FROM, ALLOW_FROM])
         }
-        (Some("visitors"), 2, "admin") => Some(&["admin", "admin_from"]),
+        (Some(SERVICES), 2, ServiceEntry::GROUP_TRAFFIC) => {
+            Some(&[BANDWIDTH, MAX_CONNECTIONS, PROXY_PROTOCOL])
+        }
+        (Some(VISITORS), 2, VisitorEntry::GROUP_ADMIN) => Some(&[ADMIN, ADMIN_FROM]),
         _ => None,
     }
 }
@@ -815,8 +837,8 @@ fn row(f: Field, path: Path, spath: Path, entity: Path) -> AnyView {
                     <div class="flex min-h-[38px] items-center text-[13px]" id=id.clone()>
                         {move || {
                             let v = e.value(&path).or_else(|| {
-                                (path.len() == 3 && path[0] == "services" && path[2] == "clients")
-                                    .then(|| e.value(&[path[0].clone(), path[1].clone(), "client".into()]))
+                                ServiceEntry::CLIENTS.is(&path)
+                                    .then(|| e.value(&ServiceEntry::CLIENT.of(&path[1])))
                                     .flatten()
                                     .map(|c| Value::Array(vec![c]))
                             });
@@ -849,9 +871,9 @@ fn row(f: Field, path: Path, spath: Path, entity: Path) -> AnyView {
         spath.len(),
         f.key.as_str(),
     ) {
-        (Some("services"), 3, "visitors" | "deny_from") => false,
-        (Some("services"), 3, "bandwidth") => true,
-        (Some("visitors"), 3, "admin" | "admin_from" | "reach") => true,
+        (Some(SERVICES), 3, SERVICE_VISITORS | DENY_FROM) => false,
+        (Some(SERVICES), 3, BANDWIDTH) => true,
+        (Some(VISITORS), 3, ADMIN | ADMIN_FROM | REACH) => true,
         _ => is_wide(&node),
     };
     let visible = Memo::new(move |_| st.with(|s| s.visible));

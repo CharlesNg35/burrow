@@ -84,6 +84,17 @@ pub trait Entry: Sized {
     }
 }
 
+pub fn entity_of_section(section: &str) -> Option<Entity> {
+    use crate::model::{ClientEntry, ServiceEntry, VisitorEntry};
+    [
+        (ClientEntry::SECTION, ClientEntry::kind()),
+        (VisitorEntry::SECTION, VisitorEntry::kind()),
+        (ServiceEntry::SECTION, ServiceEntry::kind()),
+    ]
+    .into_iter()
+    .find_map(|(s, e)| (s == section).then_some(e))
+}
+
 impl<P, T> Field<P, T> {
     #[doc(hidden)]
     pub const fn new(key: &'static str) -> Self {
@@ -258,6 +269,23 @@ mod tests {
         assert_eq!(PROTOCOL, "protocol");
         assert_eq!(ServiceEntry::section(), "services");
         assert_eq!(ClientEntry::kind(), Entity::Client);
+        for e in [
+            ClientEntry::kind(),
+            VisitorEntry::kind(),
+            ServiceEntry::kind(),
+        ] {
+            assert_eq!(entity_of_section(e.section()), Some(e.clone()));
+            assert_eq!(
+                e.section(),
+                entity_of_section(e.section()).unwrap().section()
+            );
+        }
+        assert_eq!(Entity::Visitor.section(), VisitorEntry::section());
+        assert_eq!(
+            entity_of_section(ServerConfig::SERVICES.key()),
+            Some(Entity::Service)
+        );
+        assert_eq!(entity_of_section(ServerConfig::LIMITS.key()), None);
         assert_eq!(VisitorEntry::path("ops"), p(&["visitors", "ops"]));
         assert!(VisitorEntry::is_entry(&p(&["visitors", "ops"])));
         assert!(!VisitorEntry::is_entry(&p(&["services", "ops"])));

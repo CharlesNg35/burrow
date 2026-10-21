@@ -347,6 +347,53 @@ fn fallback(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
     })
 }
 
+fn older(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
+    Box::pin(async move {
+        open(c, "ops").await;
+        c.ui.wait_for("[data-testid=overview-services]", SECS).await;
+        let gone = [
+            "[data-schema='services/*/bind']",
+            "[data-schema='services/*/health_check']",
+            "[data-schema='services/*/mode']",
+        ];
+        c.ui.nav("/services/web?tab=settings").await;
+        c.ui.wait_for("[data-schema='services/*/target']", SECS)
+            .await;
+        for g in gone {
+            assert_eq!(c.ui.count(g).await, 0, "{g} is shown without a schema node");
+        }
+        edit_mode(c).await;
+        c.ui.wait_for("#f-services-web-target", SECS).await;
+        for g in gone {
+            assert_eq!(
+                c.ui.count(g).await,
+                0,
+                "{g} is edited without a schema node"
+            );
+        }
+        c.ui.shot("service-of-an-older-server").await;
+        c.ui.nav("/visitors/ops?tab=access").await;
+        c.ui.wait_for("[data-schema='visitors/*/admin']", SECS)
+            .await;
+        assert_eq!(c.ui.count("[data-schema='visitors/*/admin_from']").await, 0);
+        c.ui.shot("visitor-of-an-older-server").await;
+        c.ui.nav("/services").await;
+        c.ui.wait_for("[data-testid=list-row]", SECS).await;
+        c.ui.nav("/about").await;
+        c.ui.wait_text("[data-testid=about]", "-older", SECS).await;
+        c.ui.assert_no_errors();
+    })
+}
+
+#[test]
+fn e8_an_older_server_without_fields_the_screens_place_still_renders() {
+    let opts = Options {
+        server_env: vec![("BURROW_ADMIN_TEST_SCHEMA".into(), "older".into())],
+        ..Options::default()
+    };
+    run("e8-older", opts, true, older);
+}
+
 #[test]
 fn e8_a_newer_server_field_renders_through_its_fallback() {
     let opts = Options {

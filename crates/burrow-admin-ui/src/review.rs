@@ -2,6 +2,7 @@ use burrow_admin_logic::changeset::get;
 use burrow_admin_logic::grant::IN_THE_FILE;
 use burrow_admin_proto::plan::{ChangeKind, Diff, Level, Plan, Refusal};
 use burrow_admin_proto::serde_json::Value;
+use burrow_config::{Entry, ServiceEntry, VisitorEntry};
 use burrow_syntax::grant::is_grant_code;
 use burrow_ui_kit::{
     Button, Callout, ConfirmInput, Dialog, DiffView, Edge, EdgeState, EmptyState, Hop, HopState,
@@ -44,14 +45,8 @@ fn impact_icon(l: Level) -> (&'static str, Tone) {
 
 pub fn service_paths(base: &Value, draft: &Value, reserved: &[String]) -> Vec<(String, PathData)> {
     let empty = serde_json_map();
-    let b = base
-        .get("services")
-        .and_then(Value::as_object)
-        .unwrap_or(&empty);
-    let d = draft
-        .get("services")
-        .and_then(Value::as_object)
-        .unwrap_or(&empty);
+    let b = ServiceEntry::entries(base).unwrap_or(&empty);
+    let d = ServiceEntry::entries(draft).unwrap_or(&empty);
     let none = Problems {
         source: None,
         clients: None,
@@ -181,12 +176,11 @@ fn guard(refusals: &[Refusal]) -> Guard {
         .map(str::to_string)
         .or_else(|| refusals.first().map(|r| r.code.clone()))
         .unwrap_or_default();
-    let mut path = vec!["visitors".to_string(), me.clone()];
-    match code.as_str() {
-        "self-demoted" => path.push("admin".into()),
-        "self-source" => path.push("admin_from".into()),
-        _ => {}
-    }
+    let path = match code.as_str() {
+        "self-demoted" => VisitorEntry::ADMIN.of(&me),
+        "self-source" => VisitorEntry::ADMIN_FROM.of(&me),
+        _ => VisitorEntry::path(&me),
+    };
     let base = e.draft.with_untracked(|d| list_at(get(d.base(), &path)));
     let now = list_at(e.peek(&path).as_ref());
     Guard {
@@ -207,16 +201,22 @@ fn lockout_path(g: &Guard) -> PathData {
     };
     let (above, below) = match g.code.as_str() {
         "self-removed" => ("removed".to_string(), String::new()),
-        "self-demoted" => ("admin".to_string(), "not write".to_string()),
+        "self-demoted" => (
+            VisitorEntry::ADMIN.key().to_string(),
+            "not write".to_string(),
+        ),
         "self-source" => (
-            "admin_from".to_string(),
+            VisitorEntry::ADMIN_FROM.key().to_string(),
             if g.now.is_empty() {
                 "empty".to_string()
             } else {
                 g.now.join(", ")
             },
         ),
-        "self-secret" => ("secret".to_string(), "removed".to_string()),
+        "self-secret" => (
+            VisitorEntry::SECRET.key().to_string(),
+            "removed".to_string(),
+        ),
         other => (other.trim_start_matches("self-").to_string(), String::new()),
     };
     PathData {

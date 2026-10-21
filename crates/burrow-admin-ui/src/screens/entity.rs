@@ -1,8 +1,14 @@
 use burrow_admin_logic::changeset::{get, ops_between};
 use burrow_admin_logic::rates::human_bits;
 use burrow_admin_proto::Path;
+use burrow_admin_proto::msg::AdminLevel;
+use burrow_admin_proto::schema::Entity;
 use burrow_admin_proto::serde_json::Value;
 use burrow_admin_proto::value::as_secret;
+use burrow_config::Mode;
+use burrow_config::admin_schema::AdminEnum;
+use burrow_config::{ClientEntry, Entry, Protocol, ServiceEntry, VisitorEntry, entity_of_section};
+use burrow_config::{Limits, Pool, ServerConfig};
 use burrow_ui_kit::{
     Button, Callout, Card, EmptyState, Icon, PathDiagram, Stat, Stats, StatusDot, Table, Tabs,
     Tone, button_class, copy_text, tag_class,
@@ -18,16 +24,31 @@ use crate::screens::paths::{self, Problems, clients_of, online};
 use crate::screens::{DetailPane, ListPane, Row, master_detail, wide};
 use crate::store::store;
 
+const SERVICES: &str = ServiceEntry::SECTION;
+const CLIENTS: &str = ClientEntry::SECTION;
+const VISITORS: &str = VisitorEntry::SECTION;
+const VISITOR_ACCESS: [&str; 4] = [
+    VisitorEntry::REACH.key(),
+    VisitorEntry::MAX_CONNECTIONS.key(),
+    VisitorEntry::ADMIN.key(),
+    VisitorEntry::ADMIN_FROM.key(),
+];
+const SERVICE_ACCESS: [&str; 3] = [
+    ServiceEntry::VISITORS.key(),
+    ServiceEntry::ALLOW_FROM.key(),
+    ServiceEntry::DENY_FROM.key(),
+];
+
 fn plural(section: &str) -> &'static str {
-    match section {
-        "clients" => "Clients",
-        "visitors" => "Visitors",
+    match entity_of_section(section) {
+        Some(Entity::Client) => "Clients",
+        Some(Entity::Visitor) => "Visitors",
         _ => "Services",
     }
 }
 
-fn secrets(v: &Value) -> usize {
-    match v.get("secret") {
+fn secrets(v: Option<&Value>) -> usize {
+    match v {
         Some(Value::Array(a)) => a.len(),
         Some(x) if as_secret(x).is_some() || x.is_object() => 1,
         _ => 0,
@@ -53,16 +74,14 @@ pub fn rows_for(section: &str) -> Vec<Row> {
     for (name, v) in &items {
         let pending = (!base_items.contains_key(name)).then_some("new");
         let to = Route::Detail(section.to_string(), name.clone());
-        let row = match section {
-            "clients" => {
+        let row = match entity_of_section(section) {
+            Some(Entity::Client) => {
                 let c = status
                     .as_ref()
                     .and_then(|st| st.clients.iter().find(|c| &c.name == name))
                     .cloned();
                 let on = c.as_ref().is_some_and(|c| c.connected);
-                let served: Vec<String> = draft
-                    .get("services")
-                    .and_then(Value::as_object)
+                let served: Vec<String> = ServiceEntry::entries(&draft)
                     .map(|m| {
                         m.iter()
                             .filter(|(_, x)| clients_of(x).contains(name))
@@ -125,13 +144,13 @@ pub fn rows_for(section: &str) -> Vec<Row> {
                     ..Row::default()
                 }
             }
-            "visitors" => {
+            Some(Entity::Visitor) => {
                 let st = status
                     .as_ref()
                     .and_then(|st| st.visitors.iter().find(|c| &c.name == name))
                     .cloned();
                 let open = st.as_ref().map(|x| x.open).unwrap_or(0);
-                let admin = v.get("admin").map(plain);
+                let admin = VisitorEntry::ADMIN.get(v).map(plain);
                 let mut filters = vec![];
                 if admin.is_some() {
                     filters.push("admins");
@@ -139,13 +158,12 @@ pub fn rows_for(section: &str) -> Vec<Row> {
                 if open > 0 {
                     filters.push("active");
                 }
-                let may: Vec<String> = draft
-                    .get("services")
-                    .and_then(Value::as_object)
+                let may: Vec<String> = ServiceEntry::entries(&draft)
                     .map(|m| {
                         m.iter()
                             .filter(|(_, x)| {
-                                x.get("visitors")
+                                ServiceEntry::VISITORS
+                                    .get(x)
                                     .and_then(Value::as_array)
                                     .is_some_and(|a| {
                                         a.iter().any(|y| y.as_str() == Some(name.as_str()))
@@ -155,8 +173,8 @@ pub fn rows_for(section: &str) -> Vec<Row> {
                             .collect()
                     })
                     .unwrap_or_default();
-                let reach: Vec<String> = v
-                    .get("reach")
+                let reach: Vec<String> = VisitorEntry::REACH
+                    .get(v)
                     .and_then(Value::as_object)
                     .map(|m| m.keys().cloned().collect())
                     .unwrap_or_default();
@@ -210,8 +228,12 @@ pub fn rows_for(section: &str) -> Vec<Row> {
                     .as_ref()
                     .and_then(|st| st.services.iter().find(|c| &c.name == name))
                     .cloned();
-                let public = v.get("bind").is_some_and(|b| !b.is_null());
-                let protocol = v.get("protocol").map(plain).unwrap_or_else(|| "tcp".into());
+                let public = ServiceEntry::BIND.get(v).is_some_and(|b| !b.is_null());
+                let protocol = ServiceEntry::PROTOCOL
+                    .get(v)
+                    .map(plain)
+                    .unwrap_or_else(|| Protocol::default().wire().into());
+                let udp = Protocol::from_wire(&protocol) == Some(Protocol::Udp);
                 let cs = clients_of(v);
                 let up = cs.iter().filter(|c| online(status.as_deref(), c)).count();
                 let health_up = st
@@ -221,11 +243,7 @@ pub fn rows_for(section: &str) -> Vec<Row> {
                     status.is_some() && (up == 0 || health_up.is_some_and(|(u, n)| n > 0 && u < n));
                 let mut tags = vec![(
                     protocol.to_uppercase(),
-                    if protocol == "udp" {
-                        Tone::Udp
-                    } else {
-                        Tone::Accent
-                    },
+                    if udp { Tone::Violet } else { Tone::Accent },
                 )];
                 if up == 0 && status.is_some() {
                     tags.push(("✕ Down".into(), Tone::Danger));
@@ -258,11 +276,11 @@ pub fn rows_for(section: &str) -> Vec<Row> {
                         "{} · {} → {}",
                         protocol.to_uppercase(),
                         if public {
-                            plain(v.get("bind").unwrap_or(&Value::Null))
+                            plain(ServiceEntry::BIND.get(v).unwrap_or(&Value::Null))
                         } else {
                             "private".into()
                         },
-                        plain(v.get("target").unwrap_or(&Value::Null))
+                        plain(ServiceEntry::TARGET.get(v).unwrap_or(&Value::Null))
                     ),
                     tags,
                     aside,
@@ -274,7 +292,7 @@ pub fn rows_for(section: &str) -> Vec<Row> {
                     pending,
                     filters: vec![
                         if public { "public" } else { "private" },
-                        if protocol == "udp" { "udp" } else { "tcp" },
+                        if udp { Protocol::Udp } else { Protocol::Tcp }.wire(),
                     ],
                     actions: Vec::new(),
                     ..Row::default()
@@ -330,35 +348,35 @@ pub fn Entities(section: String, selected: Option<String>) -> impl IntoView {
         rows.with(|r| r.iter().filter(|x| x.icon != "trash").count())
             .to_string()
     });
-    let (filters, groups): (Vec<(&'static str, String)>, Vec<&'static str>) = match section.as_str()
-    {
-        "clients" => (
-            vec![
-                ("all", "All".into()),
-                ("online", "Online".into()),
-                ("offline", "Offline".into()),
-            ],
-            vec!["Online", "Offline"],
-        ),
-        "visitors" => (
-            vec![
-                ("all", "All".into()),
-                ("admins", "Admins".into()),
-                ("active", "Active".into()),
-            ],
-            vec!["Active", "Idle"],
-        ),
-        _ => (
-            vec![
-                ("all", "All".into()),
-                ("public", "Public".into()),
-                ("private", "Private".into()),
-                ("tcp", "TCP".into()),
-                ("udp", "UDP".into()),
-            ],
-            vec!["Problems", "Healthy"],
-        ),
-    };
+    let (filters, groups): (Vec<(&'static str, String)>, Vec<&'static str>) =
+        match entity_of_section(&section) {
+            Some(Entity::Client) => (
+                vec![
+                    ("all", "All".into()),
+                    ("online", "Online".into()),
+                    ("offline", "Offline".into()),
+                ],
+                vec!["Online", "Offline"],
+            ),
+            Some(Entity::Visitor) => (
+                vec![
+                    ("all", "All".into()),
+                    ("admins", "Admins".into()),
+                    ("active", "Active".into()),
+                ],
+                vec!["Active", "Idle"],
+            ),
+            _ => (
+                vec![
+                    ("all", "All".into()),
+                    ("public", "Public".into()),
+                    ("private", "Private".into()),
+                    (Protocol::Tcp.wire(), "TCP".into()),
+                    (Protocol::Udp.wire(), "UDP".into()),
+                ],
+                vec!["Problems", "Healthy"],
+            ),
+        };
     let draft_name = RwSignal::new(String::new());
     let shown_rows = {
         let what = what.to_string();
@@ -371,12 +389,12 @@ pub fn Entities(section: String, selected: Option<String>) -> impl IntoView {
                     Row {
                         key: "__new".into(),
                         to: route::current(),
-                        icon: if what == "client" {
+                        icon: if what == ClientEntry::ENTITY {
                             "monitor"
-                        } else if what == "visitor" {
+                        } else if what == VisitorEntry::ENTITY {
                             "person"
                         } else {
-                            "services"
+                            "stack"
                         },
                         dot: Some(Tone::Accent),
                         title: if n.is_empty() {
@@ -432,7 +450,7 @@ pub fn Entities(section: String, selected: Option<String>) -> impl IntoView {
                 Some(name) => view! { <Detail section=sec name=name/> }.into_any(),
                 None => view! {
                     <DetailPane>
-                        <EmptyState icon="services" title=pick message="Or add a new one."/>
+                        <EmptyState icon="stack" title=pick message="Or add a new one."/>
                     </DetailPane>
                 }
                 .into_any(),
@@ -477,22 +495,30 @@ fn problems_for(path: &Path) -> Problems {
             .map(|(_, m)| m.clone())
     };
     let doc = e.doc();
-    let ports = at("target").map(|_| {
+    let ports = at(ServiceEntry::TARGET.key()).map(|_| {
         let b = paths::port_count(get(
             &doc,
-            &[path[0].clone(), path[1].clone(), "bind".into()],
+            &[
+                path[0].clone(),
+                path[1].clone(),
+                ServiceEntry::BIND.key().into(),
+            ],
         ));
         let t = paths::port_count(get(
             &doc,
-            &[path[0].clone(), path[1].clone(), "target".into()],
+            &[
+                path[0].clone(),
+                path[1].clone(),
+                ServiceEntry::TARGET.key().into(),
+            ],
         ));
         format!("{t} ≠ {b} ports")
     });
     Problems {
-        source: at("allow_from")
-            .or_else(|| at("deny_from"))
+        source: at(ServiceEntry::ALLOW_FROM.key())
+            .or_else(|| at(ServiceEntry::DENY_FROM.key()))
             .map(|_| "invalid CIDR".into()),
-        clients: at("health_check").map(|_| "health".into()),
+        clients: at(ServiceEntry::HEALTH_CHECK.key()).map(|_| "health".into()),
         ports,
     }
 }
@@ -524,7 +550,7 @@ fn Detail(section: String, name: String) -> impl IntoView {
         Some("settings") => "settings",
         Some("access") => "access",
         Some("secrets") => "secrets",
-        Some("services") => "services",
+        Some(SERVICES) => SERVICES,
         Some("connect") => "connect",
         _ if fresh => "settings",
         _ if crate::secrets::revealed_for(&section, &name).is_some() => "connect",
@@ -553,7 +579,7 @@ fn Detail(section: String, name: String) -> impl IntoView {
     let menu = RwSignal::new(false);
     crate::app::popover(menu, "entity-more", "entity-more-menu");
     let what = singular(&section);
-    if section == "clients"
+    if section == ClientEntry::section()
         && let Ok(h) = set_interval_with_handle(
             move || crate::api::load_state(s),
             std::time::Duration::from_secs(5),
@@ -634,14 +660,14 @@ fn Detail(section: String, name: String) -> impl IntoView {
         let doc = e.doc();
         let status = s.status.get();
         match sec.as_str() {
-            "clients" => {
+            CLIENTS => {
                 let listen = status
                     .as_ref()
                     .and_then(|st| st.listening.first().map(|l| format::listen_addr(l)))
                     .unwrap_or_default();
                 paths::client(&nm, &doc, status.as_deref(), &listen)
             }
-            "visitors" => {
+            VISITORS => {
                 let me = s.welcome.with(|w| {
                     w.as_ref()
                         .map(|w| (w.you.visitor.clone(), w.you.from.clone()))
@@ -677,7 +703,7 @@ fn Detail(section: String, name: String) -> impl IntoView {
             let st = s.status.get();
             let edit = if editing.get() { "Editing · " } else { "" };
             match sec.as_str() {
-                "clients" => {
+                CLIENTS => {
                     let c = st
                         .as_ref()
                         .and_then(|x| x.clients.iter().find(|c| c.name == nm))
@@ -696,16 +722,14 @@ fn Detail(section: String, name: String) -> impl IntoView {
                         }
                     )
                 }
-                "visitors" => {
+                VISITORS => {
                     let v = st
                         .as_ref()
                         .and_then(|x| x.visitors.iter().find(|c| c.name == nm))
                         .cloned();
                     let open = v.as_ref().map(|v| v.open).unwrap_or(0);
-                    let fp = doc
-                        .get("visitors")
-                        .and_then(|m| m.get(&nm))
-                        .and_then(|x| x.get("secret"))
+                    let fp = VisitorEntry::SECRET
+                        .at(&doc, &nm)
                         .and_then(|x| match x {
                             Value::Array(a) => a.first().cloned(),
                             other => Some(other.clone()),
@@ -730,7 +754,9 @@ fn Detail(section: String, name: String) -> impl IntoView {
                     let how = if cs.len() > 1 {
                         format!(
                             "{} over {} clients",
-                            if svc.get("mode").map(plain).as_deref() == Some("balance") {
+                            if ServiceEntry::MODE.get(&svc).map(plain).as_deref()
+                                == Some(Mode::Balance.wire())
+                            {
                                 "Balanced"
                             } else {
                                 "Failover"
@@ -755,31 +781,28 @@ fn Detail(section: String, name: String) -> impl IntoView {
     let protocol_tag = {
         let (sec, nm) = (section.clone(), name.clone());
         move || match sec.as_str() {
-            "services" => {
-                let p = e
-                    .doc()
-                    .get("services")
-                    .and_then(|m| m.get(&nm))
-                    .and_then(|v| v.get("protocol"))
+            SERVICES => {
+                let p = ServiceEntry::PROTOCOL
+                    .at(&e.doc(), &nm)
                     .map(plain)
-                    .unwrap_or_else(|| "tcp".into());
-                let tone = if p == "udp" { Tone::Udp } else { Tone::Accent };
+                    .unwrap_or_else(|| Protocol::default().wire().into());
+                let tone = if p == Protocol::Udp.wire() {
+                    Tone::Violet
+                } else {
+                    Tone::Accent
+                };
                 view! { <span class=tag_class(tone)>{p.to_uppercase()}</span> }.into_any()
             }
-            "visitors" => {
-                let admin = e
-                    .doc()
-                    .get("visitors")
-                    .and_then(|m| m.get(&nm))
-                    .and_then(|v| v.get("admin"))
-                    .map(plain);
+            VISITORS => {
+                let admin = VisitorEntry::ADMIN.at(&e.doc(), &nm).map(plain);
                 let me = s
                     .welcome
                     .with(|w| w.as_ref().is_some_and(|w| w.you.visitor == nm));
                 view! {
                         {admin.map(|a| {
-                            let tone = if a == "write" { Tone::Danger } else { Tone::Accent };
-                            view! { <span class=tag_class(tone)><Icon name=if a == "write" { "shield" } else { "eye" } small=true/>{format!("admin · {a}")}</span> }
+                            let write = a == AdminLevel::Write.wire();
+                            let tone = if write { Tone::Danger } else { Tone::Accent };
+                            view! { <span class=tag_class(tone)><Icon name=if write { "shield" } else { "eye" } small=true/>{format!("admin · {a}")}</span> }
                         })}
                         {me.then(|| view! { <span class=tag_class(Tone::Neutral) data-testid="you-tag">"you"</span> })}
                     }
@@ -789,14 +812,14 @@ fn Detail(section: String, name: String) -> impl IntoView {
         }
     };
     let tabs: Vec<(&'static str, String)> = match section.as_str() {
-        "clients" => vec![
+        CLIENTS => vec![
             ("overview", "Overview".into()),
             ("secrets", "Secrets".into()),
-            ("services", "Services".into()),
+            (SERVICES, "Services".into()),
             ("connect", "Connect".into()),
             ("settings", "Settings".into()),
         ],
-        "visitors" => vec![
+        VISITORS => vec![
             ("overview", "Overview".into()),
             ("access", "Access".into()),
             ("secrets", "Secrets".into()),
@@ -828,18 +851,15 @@ fn Detail(section: String, name: String) -> impl IntoView {
                 Some(Value::Null) | None => 0,
                 Some(_) => 1,
             };
-            let served = doc
-                .get("services")
-                .and_then(Value::as_object)
+            let served = ServiceEntry::entries(&doc)
                 .map(|m| m.values().filter(|v| clients_of(v).contains(&nm)).count())
                 .unwrap_or(0);
-            let may = doc
-                .get("services")
-                .and_then(Value::as_object)
+            let may = ServiceEntry::entries(&doc)
                 .map(|m| {
                     m.values()
                         .filter(|v| {
-                            v.get("visitors")
+                            ServiceEntry::VISITORS
+                                .get(v)
                                 .and_then(Value::as_array)
                                 .is_some_and(|a| a.iter().any(|y| y.as_str() == Some(nm.as_str())))
                         })
@@ -849,13 +869,15 @@ fn Detail(section: String, name: String) -> impl IntoView {
             keys.iter()
                 .map(|k| {
                     let n = match (sec.as_str(), *k) {
-                        (_, "secrets") => secrets(&me),
-                        ("clients", "services") => served,
-                        ("visitors", "access") => may + list(me.get("reach")),
-                        ("services", "access") => {
-                            list(me.get("visitors"))
-                                + list(me.get("allow_from"))
-                                + list(me.get("deny_from"))
+                        (CLIENTS, "secrets") => secrets(ClientEntry::SECRET.get(&me)),
+                        (VISITORS, "secrets") => secrets(VisitorEntry::SECRET.get(&me)),
+                        (_, "secrets") => 0,
+                        (CLIENTS, SERVICES) => served,
+                        (VISITORS, "access") => may + list(VisitorEntry::REACH.get(&me)),
+                        (SERVICES, "access") => {
+                            list(ServiceEntry::VISITORS.get(&me))
+                                + list(ServiceEntry::ALLOW_FROM.get(&me))
+                                + list(ServiceEntry::DENY_FROM.get(&me))
                         }
                         _ => 0,
                     };
@@ -878,7 +900,7 @@ fn Detail(section: String, name: String) -> impl IntoView {
             let start_edit = start_edit.clone();
             let (path, sec, nm) = (path.clone(), sec.clone(), nm.clone());
             let back = Route::List(sec.clone());
-            let connect = (sec == "clients").then(|| view! {
+            let connect = (sec == CLIENTS).then(|| view! {
                 <Button label="Connect" icon="terminal" variant="secondary" testid="connect-head" on_click=move |_| tab.set("connect")/>
             });
             view! {
@@ -922,7 +944,7 @@ fn Detail(section: String, name: String) -> impl IntoView {
                                             route::go(back.clone());
                                         }>{format!("Delete {}…", singular(&sec))}</button> }
                                     })}
-                                    {(sec != "services").then(|| view! { <button type="button" class="block w-full cursor-pointer rounded-md px-2 py-1.5 text-left text-sm hover:bg-surface-3" data-testid="connect-open" on:click=move |_| tab.set("connect")>"Connect"</button> })}
+                                    {(sec != SERVICES).then(|| view! { <button type="button" class="block w-full cursor-pointer rounded-md px-2 py-1.5 text-left text-sm hover:bg-surface-3" data-testid="connect-open" on:click=move |_| tab.set("connect")>"Connect"</button> })}
                                     {
                                         let nm = nm.clone();
                                         view! { <button type="button" class="block w-full cursor-pointer rounded-md px-2 py-1.5 text-left text-sm hover:bg-surface-3" on:click=move |_| { copy_text(&nm); s.toast(Tone::Success, "Copied", None); }>"Copy name"</button> }
@@ -962,10 +984,10 @@ fn Detail(section: String, name: String) -> impl IntoView {
             let tab_body = move || {
                 let t = tab.get();
                 match (sec2.as_str(), t) {
-                    ("visitors", "overview") => visitor_panels(&nm2).into_any(),
-                    ("clients", "overview") => {
+                    (VISITORS, "overview") => visitor_panels(&nm2).into_any(),
+                    (CLIENTS, "overview") => {
                         let secrets = crate::secrets::secret_list(
-                            vec![sec2.clone(), nm2.clone(), "secret".into()],
+                            ClientEntry::SECRET.of(&nm2),
                             "overview-secrets".into(),
                             4,
                         );
@@ -973,7 +995,7 @@ fn Detail(section: String, name: String) -> impl IntoView {
                             &node,
                             path2.clone(),
                             spath.clone(),
-                            &["secret"],
+                            &[ClientEntry::SECRET.key()],
                             edit_cb,
                         );
                         view! { {secrets} {served(&nm2)} {card} }.into_any()
@@ -982,11 +1004,15 @@ fn Detail(section: String, name: String) -> impl IntoView {
                         let card = settings_card(&node, path2.clone(), spath.clone(), &[], edit_cb);
                         view! { {overview(&sec2, &nm2, false)} {card} }.into_any()
                     }
-                    ("clients", "secrets") | ("visitors", "secrets") => {
-                        let p = vec![sec2.clone(), nm2.clone(), "secret".into()];
+                    (CLIENTS, "secrets") | (VISITORS, "secrets") => {
+                        let p = if sec2 == CLIENTS {
+                            ClientEntry::SECRET.of(&nm2)
+                        } else {
+                            VisitorEntry::SECRET.of(&nm2)
+                        };
                         crate::secrets::secret_list(p, "secrets".into(), 4)
                     }
-                    ("clients", "services") => served(&nm2).into_any(),
+                    (CLIENTS, SERVICES) => served(&nm2).into_any(),
                     (_, "connect") => {
                         if crate::secrets::revealed_for(&sec2, &nm2).is_some() {
                             view! { <crate::secrets::ShownOnce section=sec2.clone() name=nm2.clone()/> }.into_any()
@@ -995,10 +1021,10 @@ fn Detail(section: String, name: String) -> impl IntoView {
                         }
                     }
                     (_, "access") => {
-                        let keep: &[&str] = if sec2 == "visitors" {
-                            &["reach", "max_connections", "admin", "admin_from"]
+                        let keep: &[&str] = if sec2 == VISITORS {
+                            &VISITOR_ACCESS
                         } else {
-                            &["visitors", "allow_from", "deny_from"]
+                            &SERVICE_ACCESS
                         };
                         let skip: Vec<&str> = burrow_admin_logic::tree::fields(&node)
                             .iter()
@@ -1018,7 +1044,7 @@ fn Detail(section: String, name: String) -> impl IntoView {
             };
             let nm_p = nm.clone();
             Some(view! {
-                <PathDiagram data=path_data testid="path"/>
+                <PathDiagram data=path_data testid="path-diagram"/>
                 <div class:max-sm:hidden=move || editing.get()>{overview(&sec, &nm, true)}</div>
                 <Tabs tabs=tabs.clone() active=tab counts=tab_counts/>
                 <div data-testid="detail-settings">
@@ -1077,7 +1103,7 @@ fn Detail(section: String, name: String) -> impl IntoView {
     let title_dot = {
         let (sec, nm) = (section.clone(), name.clone());
         move || {
-            (sec == "clients").then(|| {
+            (sec == CLIENTS).then(|| {
                 let on = s.status.with(|st| st.as_ref().and_then(|st| st.clients.iter().find(|c| c.name == nm)).is_some_and(|c| c.connected));
                 view! { <span class=format!("size-2.5 shrink-0 rounded-full {}", if on { "bg-success" } else { "bg-transparent ring-[1.5px] ring-text-faint ring-inset" }) aria-label=if on { "online" } else { "offline" }></span> }
             })
@@ -1111,15 +1137,17 @@ fn Detail(section: String, name: String) -> impl IntoView {
 }
 
 fn pool_range(doc: &Value) -> String {
-    let p = doc.get("pool");
-    let min = p
-        .and_then(|p| p.get("min_idle"))
+    let d = Pool::default();
+    let min = ServerConfig::POOL
+        .then(Pool::MIN_IDLE)
+        .get(doc)
         .and_then(Value::as_u64)
-        .unwrap_or(4);
-    let max = p
-        .and_then(|p| p.get("max_idle"))
+        .unwrap_or(u64::from(d.min_idle));
+    let max = ServerConfig::POOL
+        .then(Pool::MAX_IDLE)
+        .get(doc)
         .and_then(Value::as_u64)
-        .unwrap_or(64);
+        .unwrap_or(u64::from(d.max_idle));
     format!("pool {min}–{max}")
 }
 
@@ -1144,7 +1172,7 @@ fn overview(section: &str, name: &str, stats: bool) -> impl IntoView {
         let st = s.status.get();
         let doc = s.edit.doc();
         match section.as_str() {
-            "clients" => {
+            CLIENTS => {
                 if !stats {
                     return ().into_any();
                 }
@@ -1152,22 +1180,17 @@ fn overview(section: &str, name: &str, stats: bool) -> impl IntoView {
                     .as_ref()
                     .and_then(|x| x.clients.iter().find(|c| c.name == name))
                     .cloned();
-                let n = doc
-                    .get("clients")
-                    .and_then(|m| m.get(&name))
-                    .map(secrets)
-                    .unwrap_or(0);
-                let max = doc
-                    .get("clients")
-                    .and_then(|m| m.get(&name))
-                    .and_then(|v| v.get("max_connections"))
+                let n = secrets(ClientEntry::SECRET.at(&doc, &name));
+                let max = ClientEntry::MAX_CONNECTIONS
+                    .at(&doc, &name)
                     .and_then(Value::as_u64)
                     .or_else(|| {
-                        doc.get("limits")
-                            .and_then(|l| l.get("max_connections_per_client"))
+                        ServerConfig::LIMITS
+                            .then(Limits::MAX_CONNECTIONS_PER_CLIENT)
+                            .get(&doc)
                             .and_then(Value::as_u64)
                     })
-                    .unwrap_or(8192);
+                    .unwrap_or(u64::from(Limits::default().max_connections_per_client));
                 let connected = c.as_ref().and_then(|c| c.connected_secs);
                 view! {
                     <Stats testid="live">
@@ -1183,7 +1206,7 @@ fn overview(section: &str, name: &str, stats: bool) -> impl IntoView {
                 }
                 .into_any()
             }
-            "visitors" => ().into_any(),
+            VISITORS => ().into_any(),
             _ => {
                 let x = st
                     .as_ref()
@@ -1193,10 +1216,8 @@ fn overview(section: &str, name: &str, stats: bool) -> impl IntoView {
                     let r = s.rates.get().service(&name);
                     let (i, iu) = human_bits(r.bytes_in);
                     let (o, ou) = human_bits(r.bytes_out);
-                    let limit = doc
-                        .get("services")
-                        .and_then(|m| m.get(&name))
-                        .and_then(|v| v.get("bandwidth"))
+                    let limit = ServiceEntry::BANDWIDTH
+                        .at(&doc, &name)
                         .map(|b| format!("limit {}", plain(b)));
                     return view! {
                         <Stats testid="live">
@@ -1208,9 +1229,7 @@ fn overview(section: &str, name: &str, stats: bool) -> impl IntoView {
                     }
                     .into_any();
                 }
-                let svc = doc
-                    .get("services")
-                    .and_then(|m| m.get(&name))
+                let svc = ServiceEntry::entry(&doc, &name)
                     .cloned()
                     .unwrap_or(Value::Null);
                 let health = x.as_ref().map(|x| x.health.clone()).unwrap_or_default();
@@ -1239,9 +1258,13 @@ fn overview(section: &str, name: &str, stats: bool) -> impl IntoView {
                     .collect_view();
                 let mode = match (
                     clients_of(&svc).len() > 1,
-                    svc.get("mode").map(plain).as_deref(),
+                    ServiceEntry::MODE
+                        .get(&svc)
+                        .map(plain)
+                        .as_deref()
+                        .and_then(Mode::from_wire),
                 ) {
-                    (true, Some("balance")) => {
+                    (true, Some(Mode::Balance)) => {
                         "balance · new connections spread over healthy clients".to_string()
                     }
                     (true, _) => {
@@ -1291,24 +1314,21 @@ fn visitor_panels(name: &str) -> impl IntoView {
     move || {
         let doc = s.edit.doc();
         let st = s.status.get();
-        let v = doc
-            .get("visitors")
-            .and_then(|m| m.get(&name))
+        let v = VisitorEntry::entry(&doc, &name)
             .cloned()
             .unwrap_or(Value::Null);
-        let level = v.get("admin").map(plain);
-        let from: Vec<String> = v
-            .get("admin_from")
+        let level = VisitorEntry::ADMIN.get(&v).map(plain);
+        let from: Vec<String> = VisitorEntry::ADMIN_FROM
+            .get(&v)
             .and_then(Value::as_array)
             .map(|a| a.iter().map(plain).collect())
             .unwrap_or_default();
-        let may: Vec<(String, Option<bool>)> = doc
-            .get("services")
-            .and_then(Value::as_object)
+        let may: Vec<(String, Option<bool>)> = ServiceEntry::entries(&doc)
             .map(|m| {
                 m.iter()
                     .filter(|(_, x)| {
-                        x.get("visitors")
+                        ServiceEntry::VISITORS
+                            .get(x)
                             .and_then(Value::as_array)
                             .is_some_and(|a| a.iter().any(|y| y.as_str() == Some(name.as_str())))
                     })
@@ -1323,14 +1343,14 @@ fn visitor_panels(name: &str) -> impl IntoView {
                     .collect()
             })
             .unwrap_or_default();
-        let reach: Vec<(String, Value)> = v
-            .get("reach")
+        let reach: Vec<(String, Value)> = VisitorEntry::REACH
+            .get(&v)
             .and_then(Value::as_object)
             .map(|m| m.iter().map(|(k, x)| (k.clone(), x.clone())).collect())
             .unwrap_or_default();
-        let level_view = match level.as_deref() {
-            Some("write") => view! { <span class=tag_class(Tone::Danger)>"write"</span><span class="ml-2">"may change the whole server config"</span> }.into_any(),
-            Some("read") => view! { <span class=tag_class(Tone::Accent)>"read"</span><span class="ml-2">"may see everything, with secrets as fingerprints"</span> }.into_any(),
+        let level_view = match level.as_deref().and_then(AdminLevel::from_wire) {
+            Some(AdminLevel::Write) => view! { <span class=tag_class(Tone::Danger)>{AdminLevel::Write.wire()}</span><span class="ml-2">"may change the whole server config"</span> }.into_any(),
+            Some(AdminLevel::Read) => view! { <span class=tag_class(Tone::Accent)>{AdminLevel::Read.wire()}</span><span class="ml-2">"may see everything, with secrets as fingerprints"</span> }.into_any(),
             _ => view! { <span class="text-text-muted">"none: no admin access"</span> }.into_any(),
         };
         let from_view = if from.is_empty() {
@@ -1356,7 +1376,7 @@ fn visitor_panels(name: &str) -> impl IntoView {
                             None => "bg-text-faint",
                         };
                         view! {
-                            <Link to=Route::Detail("services".into(), n.clone()) class="inline-flex h-[26px] items-center gap-1.5 rounded-sm bg-surface-3 px-2 text-[12.5px] font-semibold text-text no-underline ring-1 ring-border ring-inset">
+                            <Link to=Route::Detail(ServiceEntry::section().into(), n.clone()) class="inline-flex h-[26px] items-center gap-1.5 rounded-sm bg-surface-3 px-2 text-[12.5px] font-semibold text-text no-underline ring-1 ring-border ring-inset">
                                 <span class=format!("size-2 rounded-full {dot}") aria-hidden="true"></span>
                                 {n.clone()}
                             </Link>
@@ -1390,7 +1410,7 @@ fn visitor_panels(name: &str) -> impl IntoView {
                 .collect_view();
             view! {
                 <div class="mb-4">
-                    <Card title="Direct access" flush=true testid="direct-access" head=std::sync::Arc::new(|| view! { <span>"reach"</span> }.into_any()) as ChildrenFn>
+                    <Card title="Direct access" flush=true testid="direct-access" head=std::sync::Arc::new(|| view! { <span>{VisitorEntry::REACH.key()}</span> }.into_any()) as ChildrenFn>
                         <Table head=vec!["Client", "Rules"]>{rows}</Table>
                     </Card>
                 </div>
@@ -1420,9 +1440,7 @@ fn served(name: &str) -> impl IntoView {
     move || {
         let doc = s.edit.doc();
         let st = s.status.get();
-        let rows = doc
-            .get("services")
-            .and_then(Value::as_object)
+        let rows = ServiceEntry::entries(&doc)
             .map(|m| {
                 m.iter()
                     .filter(|(_, v)| clients_of(v).contains(&name))
@@ -1439,7 +1457,7 @@ fn served(name: &str) -> impl IntoView {
                     <Table head=vec!["Service", "_", "Public", "Target", ">Open", "_Health"]>
                         {rows.into_iter().map(|(n, v)| {
                             let x = st.as_ref().and_then(|x| x.services.iter().find(|c| c.name == n)).cloned();
-                            let protocol = v.get("protocol").map(plain).unwrap_or_else(|| "tcp".into());
+                            let protocol = ServiceEntry::PROTOCOL.get(&v).map(plain).unwrap_or_else(|| Protocol::default().wire().into());
                             let up = st.as_ref().map(|st| clients_of(&v).iter().filter(|c| st.clients.iter().any(|y| &y.name == *c && y.connected)).count());
                             let failing = x.as_ref().map(|x| x.health.iter().filter(|h| !h.up).count()).unwrap_or(0);
                             let health = match up {
@@ -1451,13 +1469,13 @@ fn served(name: &str) -> impl IntoView {
                             let label = n.clone();
                             view! {
                                 <tr data-row=n.clone()>
-                                    <th scope="row"><Link to=Route::Detail("services".into(), n.clone()) class="font-semibold text-text no-underline hover:underline">{label}</Link></th>
-                                    <td><span class=tag_class(if protocol == "udp" { Tone::Udp } else { Tone::Accent })>{protocol.to_uppercase()}</span></td>
-                                    <td>{match v.get("bind").filter(|b| !b.is_null()) {
+                                    <th scope="row"><Link to=Route::Detail(ServiceEntry::section().into(), n.clone()) class="font-semibold text-text no-underline hover:underline">{label}</Link></th>
+                                    <td><span class=tag_class(if protocol == Protocol::Udp.wire() { Tone::Violet } else { Tone::Accent })>{protocol.to_uppercase()}</span></td>
+                                    <td>{match ServiceEntry::BIND.get(&v).filter(|b| !b.is_null()) {
                                         Some(b) => view! { <span class="font-mono text-[13px]">{plain(b)}</span> }.into_any(),
                                         None => view! { <span class="font-mono text-[13px] text-text-faint">"private"</span> }.into_any(),
                                     }}</td>
-                                    <td class="font-mono text-[13px] text-text-muted">{format!("→ {}", v.get("target").map(plain).unwrap_or_default())}</td>
+                                    <td class="font-mono text-[13px] text-text-muted">{format!("→ {}", ServiceEntry::TARGET.get(&v).map(plain).unwrap_or_default())}</td>
                                     <td class="text-right tabular-nums">{x.map(|x| x.open).unwrap_or(0)}</td>
                                     <td>{health}</td>
                                 </tr>

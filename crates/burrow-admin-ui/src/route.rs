@@ -1,3 +1,4 @@
+use burrow_config::{ClientEntry, Entry, ServiceEntry, VisitorEntry};
 use leptos::prelude::*;
 use wasm_bindgen::JsValue;
 
@@ -16,7 +17,11 @@ pub enum Route {
     NotFound(String),
 }
 
-pub const SECTIONS: [&str; 3] = ["services", "clients", "visitors"];
+pub const SECTIONS: [&str; 3] = [
+    ServiceEntry::SECTION,
+    ClientEntry::SECTION,
+    VisitorEntry::SECTION,
+];
 
 fn decode(s: &str) -> String {
     js_sys::decode_uri_component(s)

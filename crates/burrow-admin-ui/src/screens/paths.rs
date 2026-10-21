@@ -1,12 +1,16 @@
 use burrow_admin_logic::rates::human_bits;
 use burrow_admin_proto::serde_json::Value;
 use burrow_admin_proto::status::Status;
+use burrow_config::{Entry, HealthCheck, Protocol, ServiceEntry, VisitorEntry};
 use burrow_ui_kit::{Edge, EdgeState, Hop, HopState, PathData, Tone};
 
 use crate::form::plain;
 
 pub fn clients_of(svc: &Value) -> Vec<String> {
-    match (svc.get("client"), svc.get("clients")) {
+    match (
+        ServiceEntry::CLIENT.get(svc),
+        ServiceEntry::CLIENTS.get(svc),
+    ) {
         (Some(Value::String(c)), _) => vec![c.clone()],
         (_, Some(Value::Array(a))) => a.iter().map(plain).collect(),
         (_, Some(Value::String(c))) => vec![c.clone()],
@@ -53,19 +57,19 @@ pub fn service(
 ) -> PathData {
     let st = status.and_then(|s| s.services.iter().find(|x| x.name == name));
     let open = st.map(|x| x.open).unwrap_or(0);
-    let public = svc.get("bind").is_some_and(|b| !b.is_null());
-    let allow: Vec<String> = svc
-        .get("allow_from")
+    let public = ServiceEntry::BIND.get(svc).is_some_and(|b| !b.is_null());
+    let allow: Vec<String> = ServiceEntry::ALLOW_FROM
+        .get(svc)
         .and_then(Value::as_array)
         .map(|a| a.iter().map(plain).collect())
         .unwrap_or_default();
-    let deny: Vec<String> = svc
-        .get("deny_from")
+    let deny: Vec<String> = ServiceEntry::DENY_FROM
+        .get(svc)
         .and_then(Value::as_array)
         .map(|a| a.iter().map(plain).collect())
         .unwrap_or_default();
-    let visitors: Vec<String> = svc
-        .get("visitors")
+    let visitors: Vec<String> = ServiceEntry::VISITORS
+        .get(svc)
         .and_then(Value::as_array)
         .map(|a| a.iter().map(plain).collect())
         .unwrap_or_default();
@@ -81,7 +85,7 @@ pub fn service(
             mono: !allow.is_empty(),
             dot: problems.source.as_ref().map(|_| Tone::Danger),
             unit: if !allow.is_empty() {
-                "allow_from".into()
+                ServiceEntry::ALLOW_FROM.key().into()
             } else if !deny.is_empty() {
                 format!("deny {}", deny.join(", "))
             } else {
@@ -107,18 +111,18 @@ pub fn service(
             ..Hop::default()
         }
     };
-    let protocol = svc
-        .get("protocol")
+    let protocol = ServiceEntry::PROTOCOL
+        .get(svc)
         .map(plain)
-        .unwrap_or_else(|| "tcp".into())
+        .unwrap_or_else(|| Protocol::default().wire().into())
         .to_uppercase();
-    let ports = port_count(svc.get("bind")).max(1);
+    let ports = port_count(ServiceEntry::BIND.get(svc)).max(1);
     let (rate, unit) = human_bits(in_rate);
     let server = Hop {
         icon: "box",
         head: "Server".into(),
         value: if public {
-            plain(svc.get("bind").unwrap_or(&Value::Null))
+            plain(ServiceEntry::BIND.get(svc).unwrap_or(&Value::Null))
         } else {
             "private".into()
         },
@@ -151,8 +155,8 @@ pub fn service(
         })
         .collect();
     let healthy = st.map(|x| x.health.iter().filter(|h| h.up).count());
-    let health_on = svc
-        .get("health_check")
+    let health_on = ServiceEntry::HEALTH_CHECK
+        .get(svc)
         .is_some_and(|h| !h.is_null() && h != &Value::Bool(false));
     let ctone = if clients.is_empty() || up == 0 {
         Tone::Danger
@@ -191,9 +195,9 @@ pub fn service(
         mono: false,
     };
     let target_hop = Hop {
-        icon: "target",
+        icon: "fork",
         head: "Target".into(),
-        value: plain(svc.get("target").unwrap_or(&Value::Null)),
+        value: plain(ServiceEntry::TARGET.get(svc).unwrap_or(&Value::Null)),
         mono: true,
         dot: Some(if problems.ports.is_some() {
             Tone::Danger
@@ -215,20 +219,21 @@ pub fn service(
         badge: problems.ports.clone().map(|b| (b, Tone::Danger)),
     };
     let mode = if clients.len() > 1 {
-        svc.get("mode")
+        ServiceEntry::MODE
+            .get(svc)
             .map(plain)
             .unwrap_or_else(|| "failover".into())
     } else {
         String::new()
     };
-    let proxy = svc
-        .get("proxy_protocol")
+    let proxy = ServiceEntry::PROXY_PROTOCOL
+        .get(svc)
         .filter(|p| !p.is_null())
         .map(|p| format!("PROXY {}", plain(p)))
         .unwrap_or_default();
-    let interval = svc
-        .get("health_check")
-        .and_then(|h| h.get("interval_secs"))
+    let interval = ServiceEntry::HEALTH_CHECK
+        .get(svc)
+        .and_then(|h| HealthCheck::INTERVAL_SECS.get(h))
         .map(|i| format!("every {} s", plain(i)))
         .unwrap_or_else(|| {
             if health_on {
@@ -311,14 +316,12 @@ pub fn service(
 pub fn client(name: &str, doc: &Value, status: Option<&Status>, listen: &str) -> PathData {
     let c = status.and_then(|s| s.clients.iter().find(|c| c.name == name));
     let on = c.is_some_and(|c| c.connected);
-    let served: Vec<(String, String)> = doc
-        .get("services")
-        .and_then(Value::as_object)
+    let served: Vec<(String, String)> = ServiceEntry::entries(doc)
         .map(|m| {
             m.iter()
                 .filter(|(_, v)| clients_of(v).iter().any(|x| x == name))
                 .map(|(n, v)| {
-                    let at = v.get("bind").filter(|b| !b.is_null()).map(|b| {
+                    let at = ServiceEntry::BIND.get(v).filter(|b| !b.is_null()).map(|b| {
                         let t = plain(b);
                         match t.rsplit_once(':') {
                             Some((_, p)) => format!(":{p}"),
@@ -367,7 +370,7 @@ pub fn client(name: &str, doc: &Value, status: Option<&Status>, listen: &str) ->
                 ..Hop::default()
             },
             Hop {
-                icon: "services",
+                icon: "stack",
                 head: "Services".into(),
                 value: first
                     .as_ref()
@@ -435,14 +438,13 @@ pub fn visitor(
 ) -> PathData {
     let v = status.and_then(|s| s.visitors.iter().find(|v| v.name == name));
     let open = v.map(|v| v.open).unwrap_or(0);
-    let entry = doc.get("visitors").and_then(|m| m.get(name));
-    let services: Vec<(String, bool)> = doc
-        .get("services")
-        .and_then(Value::as_object)
+    let entry = VisitorEntry::entry(doc, name);
+    let services: Vec<(String, bool)> = ServiceEntry::entries(doc)
         .map(|m| {
             m.iter()
                 .filter(|(_, s)| {
-                    s.get("visitors")
+                    ServiceEntry::VISITORS
+                        .get(s)
                         .and_then(Value::as_array)
                         .is_some_and(|a| a.iter().any(|x| x.as_str() == Some(name)))
                 })
@@ -457,7 +459,7 @@ pub fn visitor(
         .unwrap_or_default();
     let down = services.iter().filter(|(_, up)| !up).count();
     let admin_from: Vec<String> = entry
-        .and_then(|x| x.get("admin_from"))
+        .and_then(|x| VisitorEntry::ADMIN_FROM.get(x))
         .and_then(Value::as_array)
         .map(|a| a.iter().map(plain).collect())
         .unwrap_or_default();
@@ -484,7 +486,7 @@ pub fn visitor(
                 head: "Server".into(),
                 value: "this server".into(),
                 dot: Some(Tone::Success),
-                unit: match entry.and_then(|x| x.get("admin")).map(plain) {
+                unit: match entry.and_then(|x| VisitorEntry::ADMIN.get(x)).map(plain) {
                     Some(_) if !admin_from.is_empty() => {
                         format!("admin from {}", admin_from.join(", "))
                     }
@@ -494,7 +496,7 @@ pub fn visitor(
                 ..Hop::default()
             },
             Hop {
-                icon: "services",
+                icon: "stack",
                 head: "Services".into(),
                 value: if services.is_empty() {
                     "none".into()

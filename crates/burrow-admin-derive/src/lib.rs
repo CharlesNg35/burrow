@@ -495,6 +495,10 @@ fn expand_struct(input: &DeriveInput, s: &syn::DataStruct, errors: &mut Errors) 
         let (label, sub) = l.split_once(" | ").unwrap_or((l.as_str(), ""));
         quote!(#p::Group { key: #k.into(), label: #label.into(), sub: #sub.into() })
     });
+    let group_consts = groups.iter().map(|(k, _)| {
+        let c = format_ident!("GROUP_{}", k.to_uppercase());
+        quote!(pub const #c: &'static str = #k;)
+    });
     let check_fn = format_ident!("__admin_checks_{}", name);
     let tcp_only_const = if tcp_only.is_empty() {
         quote!()
@@ -508,6 +512,9 @@ fn expand_struct(input: &DeriveInput, s: &syn::DataStruct, errors: &mut Errors) 
     quote! {
         #tcp_only_const
         #paths
+        impl #name {
+            #(#group_consts)*
+        }
         impl #p::DefaultSem for #name {
             const SEM: &'static str = "object";
             fn default_node() -> #p::Node {

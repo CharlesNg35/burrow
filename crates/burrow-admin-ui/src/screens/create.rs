@@ -1,5 +1,8 @@
 use burrow_admin_proto::msg::{self, GeneratedSecret};
+use burrow_admin_proto::schema::Entity;
 use burrow_admin_proto::serde_json::{self, Value, json};
+use burrow_config::{ClientEntry, Entry, ServiceEntry, VisitorEntry, entity_of_section};
+use burrow_config::{Limits, ServerConfig};
 use burrow_syntax::name::check_name;
 use burrow_ui_kit::{Button, Dialog, TextInput};
 use leptos::prelude::*;
@@ -9,10 +12,10 @@ use crate::route::{Route, go};
 use crate::store::store;
 
 pub fn singular(section: &str) -> &'static str {
-    match section {
-        "clients" => "client",
-        "visitors" => "visitor",
-        _ => "service",
+    match entity_of_section(section) {
+        Some(Entity::Client) => ClientEntry::ENTITY,
+        Some(Entity::Visitor) => VisitorEntry::ENTITY,
+        _ => ServiceEntry::ENTITY,
     }
 }
 
@@ -30,7 +33,9 @@ pub fn name_problem(name: &str, section: &str, except: Option<&str>) -> Option<S
     if let Err(e) = check_name(name) {
         return Some(e);
     }
-    if section == "clients" && crate::domain::reserved_clients().iter().any(|r| r == name) {
+    if section == ClientEntry::section()
+        && crate::domain::reserved_clients().iter().any(|r| r == name)
+    {
         return Some(format!(
             "{name} is reserved for this server; give the client another name"
         ));
@@ -40,16 +45,14 @@ pub fn name_problem(name: &str, section: &str, except: Option<&str>) -> Option<S
 }
 
 fn template(section: &str) -> Value {
-    match section {
-        "services" => {
-            let first = taken("clients").into_iter().next();
-            match first {
-                Some(c) => json!({ "client": c, "target": 8080 }),
-                None => json!({ "target": 8080 }),
-            }
+    let mut v = json!({});
+    if section == ServiceEntry::section() {
+        if let Some(c) = taken(ClientEntry::section()).into_iter().next() {
+            ServiceEntry::CLIENT.set(&mut v, Value::String(c));
         }
-        _ => json!({}),
+        ServiceEntry::TARGET.set(&mut v, Value::from(8080));
     }
+    v
 }
 
 pub fn create_with(
@@ -62,30 +65,34 @@ pub fn create_with(
     let e = store().edit;
     let path = vec![section.to_string(), name.to_string()];
     let mut value = template(section);
-    if let (Some(m), Some(obj)) = (max, value.as_object_mut()) {
-        obj.insert("max_connections".into(), Value::from(m));
+    if let Some(m) = max
+        && value.is_object()
+    {
+        if section == ClientEntry::section() {
+            ClientEntry::MAX_CONNECTIONS.set(&mut value, Value::from(m));
+        } else {
+            VisitorEntry::MAX_CONNECTIONS.set(&mut value, Value::from(m));
+        }
     }
     e.set(&path, Some(value));
     let doc = e.doc();
     for svc in links {
-        let entry = vec!["services".to_string(), svc.clone()];
-        let Some(v) = doc.get("services").and_then(|m| m.get(svc)) else {
+        let Some(v) = ServiceEntry::entry(&doc, svc) else {
             continue;
         };
-        if section == "clients" {
-            let mut names: Vec<String> = match (v.get("client"), v.get("clients")) {
-                (Some(Value::String(c)), _) => vec![c.clone()],
-                (_, Some(Value::Array(a))) => a
-                    .iter()
-                    .filter_map(|x| x.as_str().map(str::to_string))
-                    .collect(),
-                _ => Vec::new(),
-            };
+        if section == ClientEntry::section() {
+            let mut names: Vec<String> =
+                match (ServiceEntry::CLIENT.get(v), ServiceEntry::CLIENTS.get(v)) {
+                    (Some(Value::String(c)), _) => vec![c.clone()],
+                    (_, Some(Value::Array(a))) => a
+                        .iter()
+                        .filter_map(|x| x.as_str().map(str::to_string))
+                        .collect(),
+                    _ => Vec::new(),
+                };
             names.push(name.to_string());
-            let mut client = entry.clone();
-            client.push("client".into());
-            let mut clients = entry.clone();
-            clients.push("clients".into());
+            let client = ServiceEntry::CLIENT.of(svc);
+            let clients = ServiceEntry::CLIENTS.of(svc);
             if names.len() == 1 {
                 e.set(&client, Some(Value::String(names.remove(0))));
             } else {
@@ -96,10 +103,9 @@ pub fn create_with(
                 );
             }
         } else {
-            let mut visitors = entry.clone();
-            visitors.push("visitors".into());
-            let mut list: Vec<Value> = v
-                .get("visitors")
+            let visitors = ServiceEntry::VISITORS.of(svc);
+            let mut list: Vec<Value> = ServiceEntry::VISITORS
+                .get(v)
                 .and_then(Value::as_array)
                 .cloned()
                 .unwrap_or_default();
@@ -107,8 +113,13 @@ pub fn create_with(
             e.set(&visitors, Some(Value::Array(list)));
         }
     }
-    if section != "services" {
-        let secret_path = vec![section.to_string(), name.to_string(), "secret".to_string()];
+    if section != ServiceEntry::section() {
+        let mut secret_path = vec![section.to_string(), name.to_string()];
+        secret_path.extend(if section == ClientEntry::section() {
+            ClientEntry::SECRET.rel()
+        } else {
+            VisitorEntry::SECRET.rel()
+        });
         match secret {
             Some((handle, fp)) => e.add_secret(&secret_path, &handle, &fp),
             None => api::request(msg::req::GENERATE_SECRET, json!({}), move |r| {
@@ -124,11 +135,13 @@ fn services_for(section: &str) -> Vec<burrow_ui_kit::ComboOption> {
     let s = store();
     let doc = s.edit.doc();
     let status = s.status.get();
-    doc.get("services")
-        .and_then(Value::as_object)
+    ServiceEntry::entries(&doc)
         .map(|m| {
             m.iter()
-                .filter(|(_, v)| section == "clients" || v.get("bind").is_none_or(Value::is_null))
+                .filter(|(_, v)| {
+                    section == ClientEntry::section()
+                        || ServiceEntry::BIND.get(v).is_none_or(Value::is_null)
+                })
                 .map(|(n, v)| {
                     let up = status.as_ref().map(|st| {
                         crate::screens::paths::clients_of(v)
@@ -138,8 +151,8 @@ fn services_for(section: &str) -> Vec<burrow_ui_kit::ComboOption> {
                     burrow_ui_kit::ComboOption {
                         value: n.clone(),
                         label: n.clone(),
-                        facet: v
-                            .get("bind")
+                        facet: ServiceEntry::BIND
+                            .get(v)
                             .filter(|b| !b.is_null())
                             .map(crate::form::plain)
                             .unwrap_or_else(|| "private".into()),
@@ -170,7 +183,7 @@ pub fn NewEntity(
     let max = RwSignal::new(String::new());
     let links: RwSignal<Vec<String>> = RwSignal::new(Vec::new());
     let secret: RwSignal<Option<(String, String)>> = RwSignal::new(None);
-    if section != "services" {
+    if section != ServiceEntry::section() {
         api::request(msg::req::GENERATE_SECRET, json!({}), move |r| {
             if let Ok(Ok(g)) = r.map(serde_json::from_value::<GeneratedSecret>) {
                 let _ = secret.try_set(Some((g.handle, g.fp)));
@@ -219,12 +232,12 @@ pub fn NewEntity(
         burrow_ui_kit::PathData {
             hops: vec![
                 burrow_ui_kit::Hop {
-                    icon: if sec4 == "clients" {
+                    icon: if sec4 == ClientEntry::section() {
                         "monitor"
-                    } else if sec4 == "visitors" {
+                    } else if sec4 == VisitorEntry::section() {
                         "person"
                     } else {
-                        "services"
+                        "stack"
                     },
                     head: singular(&sec4).to_uppercase(),
                     value: shown,
@@ -244,7 +257,7 @@ pub fn NewEntity(
                     ..burrow_ui_kit::Hop::default()
                 },
                 burrow_ui_kit::Hop {
-                    icon: "services",
+                    icon: "stack",
                     head: "Services".into(),
                     value: first.clone().unwrap_or_else(|| "none".into()),
                     unit: if first.is_some() {
@@ -257,7 +270,7 @@ pub fn NewEntity(
             ],
             edges: vec![
                 burrow_ui_kit::Edge {
-                    above: if sec4 == "visitors" {
+                    above: if sec4 == VisitorEntry::section() {
                         "will visit".into()
                     } else {
                         "will dial".into()
@@ -266,7 +279,7 @@ pub fn NewEntity(
                     state: burrow_ui_kit::EdgeState::Added,
                 },
                 burrow_ui_kit::Edge {
-                    above: if sec4 == "visitors" {
+                    above: if sec4 == VisitorEntry::section() {
                         "may use".into()
                     } else {
                         "serves".into()
@@ -278,14 +291,16 @@ pub fn NewEntity(
             summary: format!("A new {} for this server", singular(&sec4)),
         }
     });
-    let intro = match what {
-        "client" => {
+    let intro = match entity_of_section(&section) {
+        Some(Entity::Client) => {
             "A machine that dials out to this server and reaches targets for your services."
         }
-        "visitor" => "A person or machine that reaches private services with burrow visit.",
+        Some(Entity::Visitor) => {
+            "A person or machine that reaches private services with burrow visit."
+        }
         _ => "A port on this server, or a private target, reached through one of your clients.",
     };
-    let link_label = if what == "client" {
+    let link_label = if what == ClientEntry::ENTITY {
         "Serves"
     } else {
         "Services it may use"
@@ -297,7 +312,7 @@ pub fn NewEntity(
         } else {
             n
         };
-        if what == "client" {
+        if what == ClientEntry::ENTITY {
             format!("Adds {who} to the service's clients.")
         } else {
             format!("Adds {who} to the service's visitors.")
@@ -307,22 +322,20 @@ pub fn NewEntity(
     let options = Signal::derive(move || services_for(&sec5));
     let placeholder_max = s.state.with_untracked(|st| {
         st.as_ref()
-            .and_then(|st| st.values.get("limits"))
-            .and_then(|l| {
-                l.get(if what == "client" {
-                    "max_connections_per_client"
-                } else {
-                    "max_connections_per_visitor"
-                })
+            .filter(|_| what == ClientEntry::ENTITY)
+            .and_then(|st| {
+                ServerConfig::LIMITS
+                    .then(Limits::MAX_CONNECTIONS_PER_CLIENT)
+                    .get(&st.values)
             })
             .and_then(Value::as_u64)
             .unwrap_or(8192)
             .to_string()
     });
     let crumb = Route::List(section.clone());
-    let plural_s = match what {
-        "client" => "Clients",
-        "visitor" => "Visitors",
+    let plural_s = match entity_of_section(&section) {
+        Some(Entity::Client) => "Clients",
+        Some(Entity::Visitor) => "Visitors",
         _ => "Services",
     };
     view! {
@@ -367,7 +380,7 @@ pub fn NewEntity(
                     <div>
                         <span class="mb-1.5 block text-sm font-semibold">"Secret"</span>
                         <div class="flex h-[38px] items-center gap-2 rounded-input border border-border bg-surface-2 px-2.5 text-[13px] dark:bg-surface-3" data-testid="new-secret">
-                            <burrow_ui_kit::Icon name="key" small=true/>
+                            <burrow_ui_kit::Icon name="passkey" small=true/>
                             {move || match secret.get() {
                                 Some((_, fp)) => view! { <span>"new secret "<span class="font-mono font-semibold">{fp}</span></span> }.into_any(),
                                 None => view! { <span class="text-text-muted">"generating…"</span> }.into_any(),
@@ -382,7 +395,7 @@ pub fn NewEntity(
                 view! {
                     <section class="mb-[26px] grid grid-cols-1 gap-x-6 gap-y-[22px] md:grid-cols-2">
                         <div class="flex items-baseline gap-2.5 border-b border-border pb-2.5 md:col-span-2">
-                            <h3 class="text-[14px] font-bold">{if what == "client" { "Limits and services" } else { "Access and limits" }}</h3>
+                            <h3 class="text-[14px] font-bold">{if what == ClientEntry::ENTITY { "Limits and services" } else { "Access and limits" }}</h3>
                             <span class="text-[12.5px] text-text-muted">"Both optional."</span>
                         </div>
                         <div>
@@ -459,11 +472,11 @@ pub fn RenameEntity(section: String, name: String, open: RwSignal<bool>) -> impl
             name_problem(&n, &sec, None)
         }
     });
-    let note = match what {
-        "client" => {
+    let note = match entity_of_section(&section) {
+        Some(Entity::Client) => {
             "The client.yaml on that machine must use the new name, or the client cannot connect."
         }
-        "visitor" => {
+        Some(Entity::Visitor) => {
             "The visitor.yaml on that machine must use the new name, or the visitor cannot connect."
         }
         _ => "Visitors that forward this service by name must use the new name.",

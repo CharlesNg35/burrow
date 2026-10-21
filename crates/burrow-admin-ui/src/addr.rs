@@ -2,6 +2,7 @@ use burrow_admin_logic::addr;
 use burrow_admin_logic::input::to_text;
 use burrow_admin_proto::schema::Entity;
 use burrow_admin_proto::serde_json::Value;
+use burrow_config::{ClientEntry, Entry, ServiceEntry, VisitorEntry};
 use burrow_ui_kit::{ComboOption, Combobox, Segmented, Select, TextInput, Toggle, Tone, tag_class};
 use leptos::prelude::*;
 
@@ -507,7 +508,7 @@ pub fn options_for(entity: &Entity, reserved: &[String]) -> Vec<ComboOption> {
 }
 
 pub fn merged_clients(fc: &FieldCtx) -> bool {
-    fc.spath.len() == 3 && fc.spath[0] == "services" && fc.spath[2] == "clients"
+    ServiceEntry::CLIENTS.is(&fc.spath)
 }
 
 fn as_names(v: Option<Value>) -> Vec<String> {
@@ -528,7 +529,7 @@ pub fn picker(fc: FieldCtx, entity: Entity, multi: bool) -> AnyView {
     let single_path = {
         let mut p = fc.path.clone();
         p.pop();
-        p.push("client".into());
+        p.push(ServiceEntry::CLIENT.key().into());
         p
     };
     let sp = single_path.clone();
@@ -596,8 +597,8 @@ pub fn picker(fc: FieldCtx, entity: Entity, multi: bool) -> AnyView {
         Signal::derive(move || touched.get() && e.local.with(|l| l.contains_key(&path)))
     };
     let section = match entity {
-        Entity::Client => Some("clients"),
-        Entity::Visitor => Some("visitors"),
+        Entity::Client => Some(ClientEntry::section()),
+        Entity::Visitor => Some(VisitorEntry::section()),
         _ => None,
     };
     let can = store().can_write_now();

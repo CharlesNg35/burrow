@@ -5,6 +5,7 @@ use burrow_admin_logic::tree::{inner, names};
 use burrow_admin_proto::Path;
 use burrow_admin_proto::schema::{Entity, EnumC, Node, SemType, UnionC};
 use burrow_admin_proto::serde_json::{self, Value};
+use burrow_config::{Field, HealthCheck, ServiceEntry};
 use burrow_syntax::duration::{TimeUnit, best_unit, human, to_stored, units_for};
 use burrow_syntax::rate::RateUnit;
 use burrow_ui_kit::{ChipInput, Segmented, Select, TextArea, TextInput, Toggle, button_class};
@@ -31,7 +32,7 @@ pub const THIS_SERVER: &str = "This server";
 pub fn reserved_clients() -> Vec<String> {
     store().schema.with(|s| {
         s.as_ref()
-            .and_then(|s| s.root.at(&["services".into(), "*".into(), "client".into()]))
+            .and_then(|s| s.root.at(&ServiceEntry::CLIENT.schema()))
             .map(|n| n.sem.reserved().to_vec())
             .unwrap_or_default()
     })
@@ -640,31 +641,6 @@ fn list_editor(fc: FieldCtx, item: Node) -> AnyView {
     };
     let cidr = matches!(item.sem, SemType::Cidr | SemType::CidrRule);
     let meta = Callback::new(move |t: String| if cidr { cidr_size(&t) } else { String::new() });
-    let note = {
-        let path = fc.path.clone();
-        move || {
-            let last = path.last().map(String::as_str);
-            if last != Some("admin_from") {
-                return None;
-            }
-            let mut level_path = path.clone();
-            level_path.pop();
-            level_path.push("admin".into());
-            let write = e
-                .value(&level_path)
-                .is_some_and(|v| v.as_str() == Some("write"));
-            let empty = e
-                .value(&path)
-                .and_then(|v| v.as_array().map(Vec::is_empty))
-                .unwrap_or(true);
-            (write && empty).then(|| view! {
-                <p class="mt-1.5 flex items-center gap-1.5 text-xs text-info" data-testid="admin-from-note">
-                    <burrow_ui_kit::Icon name="info" small=true/>
-                    "A write admin without admin_from may administer from any address. Consider limiting it."
-                </p>
-            })
-        }
-    };
     view! {
         <ChipInput
             id=fc.id.clone()
@@ -676,7 +652,6 @@ fn list_editor(fc: FieldCtx, item: Node) -> AnyView {
             meta=meta
         />
         {move || refused.get().then(in_the_file)}
-        {note}
     }
     .into_any()
 }
@@ -820,7 +795,7 @@ fn union_editor(fc: FieldCtx, u: UnionC) -> AnyView {
     let Some(obj) = object_branch.filter(|_| bool_branch) else {
         return text_editor(fc, None);
     };
-    let split = fc.spath.len() == 3 && fc.spath[0] == "services" && fc.spath[2] == "health_check";
+    let split = ServiceEntry::HEALTH_CHECK.is(&fc.spath);
     let path = fc.path.clone();
     let mode = Memo::new(move |_| match e.value(&path) {
         None | Some(Value::Bool(false)) => "off".to_string(),
@@ -885,12 +860,15 @@ pub fn health_box(node: Node, path: Path, spath: Path, entity: Path) -> AnyView 
     let p2 = path.clone();
     let summary = move || {
         let v = e.value(&p2).unwrap_or(Value::Null);
-        let num = |k: &str, d: u64| v.get(k).and_then(Value::as_u64).unwrap_or(d);
+        let d = HealthCheck::default();
+        let num = |f: Field<HealthCheck, u32>, d: u32| {
+            f.get(&v).and_then(Value::as_u64).unwrap_or(u64::from(d))
+        };
         format!(
             "= every {} s, {} s to answer, down after {} failures in a row.",
-            num("interval_secs", 10),
-            num("timeout_secs", 3),
-            num("failures", 2)
+            num(HealthCheck::INTERVAL_SECS, d.interval_secs),
+            num(HealthCheck::TIMEOUT_SECS, d.timeout_secs),
+            num(HealthCheck::FAILURES, d.failures)
         )
     };
     (move || {
