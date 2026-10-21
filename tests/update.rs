@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use burrow::update::archive::{from_tar_gz, from_zip};
-use burrow::update::http::{Fetched, dechunk, get};
+use burrow::update::http::{Fetched, get};
 use sha2::{Digest, Sha256};
 
 const MINE: &str = env!("CARGO_PKG_VERSION");
@@ -483,10 +483,27 @@ fn no_env(_: &str) -> Option<String> {
     None
 }
 
+async fn chunked(body: &[u8]) -> Result<Vec<u8>, String> {
+    let mut reply =
+        b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n".to_vec();
+    reply.extend_from_slice(body);
+    match get(&serve_raw(reply, true), 1 << 20, &no_env).await? {
+        Fetched::Body(b) => Ok(b),
+        Fetched::NotFound => Err("not found".into()),
+    }
+}
+
 #[test]
 fn a_huge_chunk_size_is_an_error_not_a_panic() {
-    let got = std::panic::catch_unwind(|| dechunk(b"ffffffffffffffff\r\nabc\r\n0\r\n\r\n"));
-    assert!(got.is_ok(), "dechunk panicked");
+    let got = std::thread::spawn(|| {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(chunked(b"ffffffffffffffff\r\nabc\r\n0\r\n\r\n"))
+    })
+    .join();
+    assert!(got.is_ok(), "the download panicked");
     assert!(got.unwrap().is_err());
 }
 
@@ -668,8 +685,8 @@ fn hostile_tar_and_zip_headers_are_errors() {
     assert!(from_tar_gz(&[], "burrow").is_err());
 }
 
-#[test]
-fn malformed_chunked_bodies_are_errors() {
+#[tokio::test]
+async fn malformed_chunked_bodies_are_errors() {
     for body in [
         &b""[..],
         b"\r\n",
@@ -678,7 +695,10 @@ fn malformed_chunked_bodies_are_errors() {
         b"3\r\nabcX\n0\r\n\r\n",
         b"3 ; ext\r\nabc\r\n",
     ] {
-        assert!(dechunk(body).is_err(), "{body:?}");
+        assert!(chunked(body).await.is_err(), "{body:?}");
     }
-    assert_eq!(dechunk(b"3 ; ext\r\nabc\r\n0\r\n\r\n").unwrap(), b"abc");
+    assert_eq!(
+        chunked(b"3 ; ext\r\nabc\r\n0\r\n\r\n").await.unwrap(),
+        b"abc"
+    );
 }
