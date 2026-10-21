@@ -35,26 +35,23 @@ fn token() -> String {
 
 fn handler(token: String, snapshot: Arc<dyn Fn() -> Status + Send + Sync>) -> Handler {
     let expected = format!("bearer {token}");
-    Arc::new(move |head: &[u8]| {
-        let text = String::from_utf8_lossy(head);
-        let mut lines = text.split("\r\n");
-        let request = lines.next().unwrap_or("");
-        let authorized = lines.any(|l| {
-            l.split_once(':').is_some_and(|(k, v)| {
-                k.trim().eq_ignore_ascii_case("authorization")
-                    && v.trim().eq_ignore_ascii_case(&expected)
-            })
+    Arc::new(move |req: &hyper::Request<()>| {
+        let authorized = req.headers().get_all("authorization").iter().any(|v| {
+            String::from_utf8_lossy(v.as_bytes())
+                .trim()
+                .eq_ignore_ascii_case(&expected)
         });
         if !authorized {
             return (401, "text/plain", "a token is required\n".into());
         }
-        match request.split(' ').take(2).collect::<Vec<_>>().as_slice() {
-            ["GET", "/status"] => (
+        let target = req.uri().path_and_query().map_or("", |p| p.as_str());
+        match (req.method().as_str(), target) {
+            ("GET", "/status") => (
                 200,
                 "application/json",
                 serde_json::to_string(&snapshot()).expect("status serializes"),
             ),
-            ["GET", _] => (404, "text/plain", "not found\n".into()),
+            ("GET", _) => (404, "text/plain", "not found\n".into()),
             _ => (405, "text/plain", "only GET is supported\n".into()),
         }
     })

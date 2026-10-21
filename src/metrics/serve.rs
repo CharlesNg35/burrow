@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use hyper::{Request, Response};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::Semaphore;
 use tracing::{debug, warn};
@@ -16,10 +16,10 @@ const WRITE_TIMEOUT: Duration = Duration::from_secs(5);
 const WAIT_FOR_SLOT: Duration = Duration::from_secs(2);
 
 pub type Snapshot = Arc<dyn Fn() -> Status + Send + Sync>;
-pub type Handler = Arc<dyn Fn(&[u8]) -> (u16, &'static str, String) + Send + Sync>;
+pub type Handler = Arc<dyn Fn(&Request<()>) -> (u16, &'static str, String) + Send + Sync>;
 
 pub async fn serve(listener: TcpListener, snapshot: Snapshot) {
-    let handler: Handler = Arc::new(move |head| respond(head, snapshot.as_ref()));
+    let handler: Handler = Arc::new(move |req| respond(req, snapshot.as_ref()));
     serve_with(listener, handler).await
 }
 
@@ -61,29 +61,54 @@ pub async fn serve_with(listener: TcpListener, handler: Handler) {
     }
 }
 
-async fn read_head(stream: &mut TcpStream) -> std::io::Result<Vec<u8>> {
-    let mut head = Vec::with_capacity(512);
-    let mut chunk = [0u8; 1024];
-    while !head.windows(4).any(|w| w == b"\r\n\r\n") {
-        if head.len() > MAX_HEAD {
-            return Err(std::io::Error::other("request header too large"));
-        }
-        let n = stream.read(&mut chunk).await?;
-        if n == 0 {
-            return Err(std::io::Error::other("closed before the request ended"));
-        }
-        head.extend_from_slice(&chunk[..n]);
-    }
-    Ok(head)
+struct Capped {
+    inner: TcpStream,
+    left: usize,
 }
 
-pub fn respond(head: &[u8], snapshot: &dyn Fn() -> Status) -> (u16, &'static str, String) {
-    let line = head.split(|b| *b == b'\r').next().unwrap_or_default();
-    let line = String::from_utf8_lossy(line);
-    let mut parts = line.split(' ');
-    let (method, path) = (parts.next().unwrap_or(""), parts.next().unwrap_or(""));
-    let path = path.split('?').next().unwrap_or("");
-    match (method, path) {
+impl tokio::io::AsyncRead for Capped {
+    fn poll_read(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        let before = buf.filled().len();
+        let polled = std::pin::Pin::new(&mut self.inner).poll_read(cx, buf);
+        let read = buf.filled().len() - before;
+        if read > self.left {
+            return std::task::Poll::Ready(Err(std::io::Error::other("request header too large")));
+        }
+        self.left -= read;
+        polled
+    }
+}
+
+impl tokio::io::AsyncWrite for Capped {
+    fn poll_write(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        std::pin::Pin::new(&mut self.inner).poll_write(cx, buf)
+    }
+
+    fn poll_flush(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut self.inner).poll_flush(cx)
+    }
+
+    fn poll_shutdown(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut self.inner).poll_shutdown(cx)
+    }
+}
+
+pub fn respond(req: &Request<()>, snapshot: &dyn Fn() -> Status) -> (u16, &'static str, String) {
+    match (req.method().as_str(), req.uri().path()) {
         ("GET", "/metrics") => (
             200,
             "text/plain; version=0.0.4; charset=utf-8",
@@ -94,28 +119,40 @@ pub fn respond(head: &[u8], snapshot: &dyn Fn() -> Status) -> (u16, &'static str
     }
 }
 
-async fn answer(mut stream: TcpStream, handler: &Handler) -> std::io::Result<()> {
-    let head = tokio::time::timeout(READ_TIMEOUT, read_head(&mut stream))
-        .await
-        .map_err(|_| std::io::Error::other("request timed out"))??;
-    let (code, kind, body) = handler(&head);
-    let write = async {
-        let reason = match code {
-            200 => "OK",
-            401 => "Unauthorized",
-            404 => "Not Found",
-            _ => "Method Not Allowed",
-        };
-        let response = format!(
-            "HTTP/1.1 {code} {reason}\r\nContent-Type: {kind}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-            body.len()
-        );
-        stream.write_all(response.as_bytes()).await?;
-        stream.shutdown().await
-    };
-    tokio::time::timeout(WRITE_TIMEOUT, write)
-        .await
-        .map_err(|_| std::io::Error::other("the reader is too slow"))?
+async fn answer(stream: TcpStream, handler: &Handler) -> std::io::Result<()> {
+    let handler = handler.clone();
+    let service = hyper::service::service_fn(move |req: Request<hyper::body::Incoming>| {
+        let (parts, _) = req.into_parts();
+        let (code, kind, body) = handler(&Request::from_parts(parts, ()));
+        let response = Response::builder()
+            .status(code)
+            .header("Content-Type", kind)
+            .header("Content-Length", body.len())
+            .header("Connection", "close")
+            .body(http_body_util::Full::new(bytes::Bytes::from(body)));
+        async move { response }
+    });
+    let mut builder = hyper::server::conn::http1::Builder::new();
+    builder
+        .timer(hyper_util::rt::TokioTimer::new())
+        .header_read_timeout(READ_TIMEOUT)
+        .max_buf_size(4 * MAX_HEAD)
+        .keep_alive(false)
+        .title_case_headers(true)
+        .auto_date_header(false);
+    let io = hyper_util::rt::TokioIo::new(Capped {
+        inner: stream,
+        left: MAX_HEAD + 1024,
+    });
+    match tokio::time::timeout(
+        READ_TIMEOUT + WRITE_TIMEOUT,
+        builder.serve_connection(io, service),
+    )
+    .await
+    {
+        Err(_) => Err(std::io::Error::other("the reader is too slow")),
+        Ok(r) => r.map_err(std::io::Error::other),
+    }
 }
 
 #[cfg(test)]
@@ -135,14 +172,37 @@ mod tests {
         }
     }
 
+    fn req(method: &str, uri: &str) -> Request<()> {
+        Request::builder().method(method).uri(uri).body(()).unwrap()
+    }
+
     #[test]
     fn routes() {
-        let (code, kind, body) = respond(b"GET /metrics HTTP/1.1\r\n\r\n", &empty);
+        let (code, kind, body) = respond(&req("GET", "/metrics"), &empty);
         assert_eq!((code, kind.starts_with("text/plain")), (200, true));
         assert!(body.contains("burrow_uptime_seconds 5"));
-        assert_eq!(respond(b"GET /status HTTP/1.1\r\n\r\n", &empty).0, 404);
-        assert_eq!(respond(b"GET / HTTP/1.1\r\n\r\n", &empty).0, 404);
-        assert_eq!(respond(b"POST /metrics HTTP/1.1\r\n\r\n", &empty).0, 405);
-        assert_eq!(respond(b"\r\n\r\n", &empty).0, 405);
+        assert_eq!(respond(&req("GET", "/metrics?x=1"), &empty).0, 200);
+        assert_eq!(respond(&req("GET", "/status"), &empty).0, 404);
+        assert_eq!(respond(&req("GET", "/"), &empty).0, 404);
+        assert_eq!(respond(&req("POST", "/metrics"), &empty).0, 405);
+        assert_eq!(respond(&req("PATCH", "/metrics"), &empty).0, 405);
+    }
+
+    #[tokio::test]
+    async fn a_garbage_request_gets_no_metrics() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = l.local_addr().unwrap();
+        tokio::spawn(serve(l, Arc::new(empty)));
+        let mut s = TcpStream::connect(addr).await.unwrap();
+        s.write_all(b"\r\n\r\nnot http\r\n\r\n").await.unwrap();
+        let mut out = Vec::new();
+        let _ = tokio::time::timeout(Duration::from_secs(5), s.read_to_end(&mut out)).await;
+        let text = String::from_utf8_lossy(&out);
+        assert!(!text.contains("burrow_uptime_seconds"), "{text}");
+        assert!(
+            text.is_empty() || text.starts_with("HTTP/1.1 400"),
+            "{text}"
+        );
     }
 }
