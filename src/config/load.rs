@@ -145,6 +145,25 @@ pub fn load_file(
         outcome.report.push(w);
         outcome.report.sort();
     }
+    if outcome
+        .report
+        .diagnostics
+        .iter()
+        .any(|d| d.code == "syntax")
+        && let Some(spare) = crate::edit::save::spare_next_to(path)
+    {
+        outcome.report.push(
+            Diagnostic::warning(
+                "edit-spare",
+                format!(
+                    "{} holds the text of a burrow edit save that did not finish",
+                    spare.display()
+                ),
+            )
+            .help("if this file was cut short while saving, copy that file over it"),
+        );
+        outcome.report.sort();
+    }
     Ok(outcome)
 }
 
@@ -603,5 +622,45 @@ fn drop_pruned_items(node: &mut Node) {
             .iter_mut()
             .for_each(|e| drop_pruned_items(&mut e.value)),
         _ => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_broken_config_names_a_spare_left_by_burrow_edit() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = dir.path().join("server.yaml");
+        std::fs::write(&config, "listen: [7835\n").unwrap();
+        let nothing = |_: &str| None;
+        let codes = |o: &Outcome| {
+            o.report
+                .diagnostics
+                .iter()
+                .map(|d| d.code)
+                .collect::<Vec<_>>()
+        };
+        let before = load_file(&config, Some(Role::Server), &nothing).unwrap();
+        assert!(codes(&before).contains(&"syntax"));
+        assert!(!codes(&before).contains(&"edit-spare"));
+        let spare = dir.path().join(".server.yaml.burrow-edit-9");
+        std::fs::write(&spare, "listen: 7835\n").unwrap();
+        let after = load_file(&config, Some(Role::Server), &nothing).unwrap();
+        let hint = after
+            .report
+            .diagnostics
+            .iter()
+            .find(|d| d.code == "edit-spare")
+            .expect("the spare is named");
+        assert!(
+            hint.message.contains(".server.yaml.burrow-edit-9"),
+            "{}",
+            hint.message
+        );
+        std::fs::write(&config, "listen: 7835\n").unwrap();
+        let fine = load_file(&config, Some(Role::Server), &nothing).unwrap();
+        assert!(!codes(&fine).contains(&"edit-spare"));
     }
 }
