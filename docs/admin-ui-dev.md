@@ -39,8 +39,8 @@ The browser flows do not run in CI. Before every tag, run `cargo xtask e2e` once
 Other tests:
 
 ```bash
-cargo test -p burrow-admin-logic -p burrow-ui-kit -p burrow-admin-ui     # logic without a browser
-cargo xtask ui --release && cargo xtask size --budget                    # the release build and its size gate
+cargo test -p burrow-config -p burrow-admin-logic -p burrow-ui-kit -p burrow-admin-ui     # logic without a browser
+cargo xtask ui --release && cargo xtask size --budget                                     # the release build and its size gate
 ```
 
 On Linux and macOS, `make help` lists the same commands with the memory limits used here (`make e2e FLOW=e3`, `make test JOBS=8`).

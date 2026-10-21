@@ -92,7 +92,7 @@ clippy-no-default:
 	$(CARGO) clippy --locked --all-targets --no-default-features -- -D warnings
 
 clippy-wasm:
-	$(CARGO) clippy --locked -p burrow-admin-ui -p burrow-ui-kit --target wasm32-unknown-unknown -- -D warnings
+	$(CARGO) clippy --locked -p burrow-admin-ui -p burrow-ui-kit -p burrow-config --target wasm32-unknown-unknown -- -D warnings
 
 arch-check:
 	$(CARGO) xtask arch-check
@@ -107,7 +107,7 @@ test-ws:
 	BURROW_TEST_TRANSPORT=ws $(CARGO) test --locked $(WS_TESTS)
 
 test-ui:
-	$(CARGO) test --locked -p burrow-admin-logic -p burrow-admin-proto -p burrow-syntax -p burrow-ui-kit -p burrow-admin-ui
+	$(CARGO) test --locked -p burrow-config -p burrow-admin-logic -p burrow-admin-proto -p burrow-syntax -p burrow-ui-kit -p burrow-admin-ui
 
 e2e:
 	$(CARGO) xtask e2e $(FLOW) $(if $(E2E_JOBS),--jobs $(E2E_JOBS))
