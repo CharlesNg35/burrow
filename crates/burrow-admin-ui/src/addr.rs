@@ -2,7 +2,7 @@ use burrow_admin_logic::addr;
 use burrow_admin_logic::input::to_text;
 use burrow_admin_proto::schema::Entity;
 use burrow_admin_proto::serde_json::Value;
-use burrow_config::{ClientEntry, Entry, ServiceEntry, VisitorEntry};
+use burrow_config::{ClientEntry, Entry, VisitorEntry};
 use burrow_ui_kit::{ComboOption, Combobox, Segmented, Select, TextInput, Toggle, Tone, tag_class};
 use leptos::prelude::*;
 
@@ -507,8 +507,12 @@ pub fn options_for(entity: &Entity, reserved: &[String]) -> Vec<ComboOption> {
         .collect()
 }
 
-pub fn merged_clients(fc: &FieldCtx) -> bool {
-    ServiceEntry::CLIENTS.is(&fc.spath)
+pub fn merged_partner(spath: &[String]) -> Option<String> {
+    let (key, parent) = spath.split_last()?;
+    store().schema.with_untracked(|s| {
+        let obj = s.as_ref()?.root.at(parent)?;
+        burrow_admin_logic::tree::merged_single(obj, key).map(str::to_string)
+    })
 }
 
 fn as_names(v: Option<Value>) -> Vec<String> {
@@ -525,11 +529,12 @@ fn as_names(v: Option<Value>) -> Vec<String> {
 pub fn picker(fc: FieldCtx, entity: Entity, multi: bool) -> AnyView {
     let e = store().edit;
     let path = fc.path.clone();
-    let merged = merged_clients(&fc);
+    let partner = merged_partner(&fc.spath);
+    let merged = partner.is_some();
     let single_path = {
         let mut p = fc.path.clone();
         p.pop();
-        p.push(ServiceEntry::CLIENT.key().into());
+        p.extend(partner);
         p
     };
     let sp = single_path.clone();

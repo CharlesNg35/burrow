@@ -1,6 +1,6 @@
 use burrow_admin_logic::fallback::{Render, for_node, needs_newer_ui};
 use burrow_admin_logic::relations::field_state;
-use burrow_admin_logic::tree::{fields, inner};
+use burrow_admin_logic::tree::{fields, inner, merged_into, merged_single};
 use burrow_admin_proto::Path;
 use burrow_admin_proto::diag::Severity;
 use burrow_admin_proto::schema::{Applies, DurationUnit, Editable, Field, Node, SemType};
@@ -18,7 +18,6 @@ use crate::store::store;
 
 const SERVICES: &str = ServiceEntry::SECTION;
 const VISITORS: &str = VisitorEntry::SECTION;
-const CLIENT: &str = ServiceEntry::CLIENT.key();
 const CLIENTS: &str = ServiceEntry::CLIENTS.key();
 const MODE: &str = ServiceEntry::MODE.key();
 const HEALTH_CHECK: &str = ServiceEntry::HEALTH_CHECK.key();
@@ -154,10 +153,9 @@ pub fn object_view_skipping(
         .map(|g| (g.key.clone(), g.label.clone(), g.sub.clone()))
         .collect();
     let service = ServiceEntry::is_entry(&spath);
-    let hidden: &[&str] = if service { &[CLIENT] } else { &[] };
     let all: Vec<&Field> = fields(node)
         .iter()
-        .filter(|f| !skip.contains(&f.key.as_str()) && !hidden.contains(&f.key.as_str()))
+        .filter(|f| !skip.contains(&f.key.as_str()) && merged_into(node, &f.key).is_none())
         .collect();
     for f in &all {
         if !groups.iter().any(|(k, _, _)| *k == f.node.group) {
@@ -177,9 +175,10 @@ pub fn object_view_skipping(
             }
             let mut rows: Vec<AnyView> = Vec::new();
             for f in mine {
-                if f.key == CLIENTS && service {
-                    let sp = join(&push(&spath, CLIENT));
-                    rows.push(view! { <span hidden data-schema=sp data-merged-into=CLIENTS></span> }.into_any());
+                if let Some(single) = merged_single(node, &f.key) {
+                    let sp = join(&push(&spath, single));
+                    let into = f.key.clone();
+                    rows.push(view! { <span hidden data-schema=sp data-merged-into=into></span> }.into_any());
                 }
                 if f.key == PROTOCOL
                     && let Some(public) = public
@@ -453,12 +452,11 @@ pub fn settings_card(c: &SettingsCard) -> AnyView {
 pub fn facts(node: &Node, path: Path, spath: Path, skip: &[&str]) -> AnyView {
     let e = store().edit;
     let node = inner(node);
-    let service = ServiceEntry::is_entry(&spath);
     let mut keys: Vec<&Field> = fields(node)
         .iter()
         .filter(|f| !skip.contains(&f.key.as_str()))
         .filter(|f| !matches!(inner(&f.node).sem, SemType::SecretRef(_)))
-        .filter(|f| !(service && f.key == CLIENT))
+        .filter(|f| merged_into(node, &f.key).is_none())
         .collect();
     let groups: Vec<String> = node.groups.iter().map(|g| g.key.clone()).collect();
     keys.sort_by_key(|f| {
@@ -476,6 +474,7 @@ pub fn facts(node: &Node, path: Path, spath: Path, skip: &[&str]) -> AnyView {
         .into_iter()
         .map(|f| {
             let fpath = push(&path, &f.key);
+            let single = merged_single(node, &f.key).map(|s| push(&path, s));
             let fnode = f.node.clone();
             let label = f.node.label.clone();
             let key = f.key.clone();
@@ -492,9 +491,9 @@ pub fn facts(node: &Node, path: Path, spath: Path, skip: &[&str]) -> AnyView {
                     <span class="min-w-0">
                         {move || {
                             let v = e.value(&fpath).or_else(|| {
-                                ServiceEntry::CLIENTS.is(&fpath)
-                                    .then(|| e.value(&ServiceEntry::CLIENT.of(&fpath[1])))
-                                    .flatten()
+                                single
+                                    .as_ref()
+                                    .and_then(|s| e.value(s))
                                     .map(|c| Value::Array(vec![c]))
                             });
                             if let Some(t) = fact_text(&fnode, v.as_ref()) {
@@ -832,14 +831,20 @@ fn row(f: Field, path: Path, spath: Path, entity: Path) -> AnyView {
             } else {
                 let node = node.clone();
                 let path = path.clone();
+                let single = crate::addr::merged_partner(&spath).map(|s| {
+                    let mut p = path.clone();
+                    p.pop();
+                    p.push(s);
+                    p
+                });
                 let inherited = st.with_untracked(|s| s.default_from.clone());
                 view! {
                     <div class="flex min-h-[38px] items-center text-[13px]" id=id.clone()>
                         {move || {
                             let v = e.value(&path).or_else(|| {
-                                ServiceEntry::CLIENTS.is(&path)
-                                    .then(|| e.value(&ServiceEntry::CLIENT.of(&path[1])))
-                                    .flatten()
+                                single
+                                    .as_ref()
+                                    .and_then(|s| e.value(s))
                                     .map(|c| Value::Array(vec![c]))
                             });
                             match ctx_now() {

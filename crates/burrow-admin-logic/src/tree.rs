@@ -125,6 +125,40 @@ pub fn referrers(schema: &Schema, doc: &Value, entity: &Entity, name: &str) -> V
     out
 }
 
+fn one_of(node: &Node) -> Option<&str> {
+    node.relations.iter().find_map(|r| match r {
+        burrow_admin_proto::schema::Relation::OneOf { group } => Some(group.as_str()),
+        _ => None,
+    })
+}
+
+fn pair(object: &Node) -> Option<(&str, &str)> {
+    let all = fields(object);
+    all.iter().find_map(|list| {
+        let SemType::RefList(l) = &inner(&list.node).sem else {
+            return None;
+        };
+        let group = one_of(&list.node)?;
+        all.iter()
+            .find_map(|single| match &inner(&single.node).sem {
+                SemType::Ref(r) if r.entity == l.entity && one_of(&single.node) == Some(group) => {
+                    Some((single.key.as_str(), list.key.as_str()))
+                }
+                _ => None,
+            })
+    })
+}
+
+pub fn merged_single<'a>(object: &'a Node, list_key: &str) -> Option<&'a str> {
+    pair(object).filter(|(_, l)| *l == list_key).map(|(s, _)| s)
+}
+
+pub fn merged_into<'a>(object: &'a Node, single_key: &str) -> Option<&'a str> {
+    pair(object)
+        .filter(|(s, _)| *s == single_key)
+        .map(|(_, l)| l)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -132,6 +166,18 @@ mod tests {
 
     fn p(s: &[&str]) -> Path {
         s.iter().map(|x| x.to_string()).collect()
+    }
+
+    #[test]
+    fn a_single_reference_merges_into_its_list_through_one_of() {
+        let s = schema();
+        let svc = s.root.at(&p(&["services", "*"])).unwrap();
+        assert_eq!(merged_single(svc, "clients"), Some("client"));
+        assert_eq!(merged_into(svc, "client"), Some("clients"));
+        assert_eq!(merged_single(svc, "visitors"), None);
+        assert_eq!(merged_into(svc, "target"), None);
+        let visitor = s.root.at(&p(&["visitors", "*"])).unwrap();
+        assert_eq!(merged_single(visitor, "reach"), None);
     }
 
     #[test]
