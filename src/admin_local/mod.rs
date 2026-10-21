@@ -20,7 +20,7 @@ use tracing::debug;
 use crate::config::settings::VisitorSettings;
 use crate::dialer::Dialer;
 use crate::failure::Failure;
-use http::Route;
+use http::Decision;
 use token::Token;
 
 const MAX_OPEN: usize = 32;
@@ -135,8 +135,7 @@ pub fn index_for_run(index: &[u8], prefix: &str) -> Vec<u8> {
 
 const FRESH_INDEX: &str = "Cache-Control: no-store\r\nClear-Site-Data: \"cache\"\r\n";
 
-async fn page(stream: &mut TcpStream, shared: &Shared, path: &str, gzip: bool) {
-    let spa = !http::is_file(path);
+async fn page(stream: &mut TcpStream, shared: &Shared, path: &str, spa: bool, gzip: bool) {
     if let Some(dir) = shared.ui_dir.as_ref().filter(|_| cfg!(debug_assertions)) {
         let index = spa || path == "/index.html";
         let found = if index {
@@ -195,12 +194,16 @@ async fn connection(mut stream: TcpStream, shared: Arc<Shared>) {
             )
             .await;
         }
-        Ok((h, Route::Page(path))) => page(&mut stream, &shared, &path, h.gzip).await,
-        Ok((_, Route::Moved(to))) => {
+        Ok((h, Decision::Page(path))) => page(&mut stream, &shared, &path, true, h.gzip).await,
+        Ok((h, Decision::Asset(path))) => page(&mut stream, &shared, &path, false, h.gzip).await,
+        Ok((_, Decision::Redirect(to))) => {
             let extra = format!("Location: {to}\r\nCache-Control: no-store\r\n");
             reply(&mut stream, 302, "text/plain; charset=utf-8", &extra, b"").await;
         }
-        Ok((_, Route::Api)) => {
+        Ok((_, Decision::NotFound | Decision::Reject)) => {
+            reply(&mut stream, 404, "text/plain", "", b"not found\n").await;
+        }
+        Ok((_, Decision::Api)) => {
             shared.connected.fetch_add(1, Ordering::AcqRel);
             shared.changed.send_modify(|n| *n += 1);
             let _guard = Connected(shared.clone());

@@ -39,6 +39,7 @@ getrandom = "0.3.4"
 http = "1.5.0"
 httparse = "1.10.1"
 notify = "8.2.0"
+percent-encoding = "2.3.2"
 saphyr-parser = "0.2.2"
 schemars = "1.2.3"
 serde = { version = "1.0.229", features = ["derive"] }
@@ -69,6 +70,7 @@ tikv-jemallocator = "0.6"
 mimalloc = { version = "0.1", default-features = false }
 
 [dev-dependencies]
+arbtest = "0.3"
 burrow-admin-logic = { path = "crates/burrow-admin-logic" }
 chromiumoxide = { version = "=0.9.1", default-features = false }
 image = { version = "0.25.10", default-features = false, features = ["png"] }

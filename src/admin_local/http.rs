@@ -2,13 +2,6 @@ pub const MAX_HEAD: usize = 8 * 1024;
 
 pub const SECURITY_HEADERS: &str = "Content-Security-Policy: default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' data:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'\r\nX-Content-Type-Options: nosniff\r\nReferrer-Policy: no-referrer\r\nCross-Origin-Opener-Policy: same-origin\r\nCross-Origin-Resource-Policy: same-origin\r\nX-Frame-Options: DENY\r\n";
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Route {
-    Page(String),
-    Api,
-    Moved(String),
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Reject {
     pub code: u16,
@@ -92,11 +85,19 @@ pub fn is_file(path: &str) -> bool {
         .is_some_and(|name| !name.contains('/') && name.contains('.'))
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Decision {
+    Page(String),
+    Asset(String),
+    Api,
+    Redirect(String),
+    NotFound,
+    Reject,
+}
+
 fn climbs(path: &str) -> bool {
-    path.to_ascii_lowercase()
-        .replace("%2e", ".")
-        .replace("%2f", "/")
-        .replace("%5c", "/")
+    percent_encoding::percent_decode_str(path)
+        .decode_utf8_lossy()
         .split(['/', '\\'])
         .any(|segment| segment == "..")
 }
@@ -108,7 +109,37 @@ fn without_run(path: &str) -> &str {
     }
 }
 
-pub fn check(head: &Head, port: u16, prefix: &str) -> Result<Route, Reject> {
+pub fn route(target: &str, prefix: &str, upgrade: bool) -> Decision {
+    let path = target.split(['?', '#']).next().unwrap_or("/");
+    let inner = path
+        .strip_prefix(prefix)
+        .filter(|rest| rest.starts_with('/'));
+    if inner == Some("/api") {
+        return Decision::Api;
+    }
+    if !path.starts_with('/') || climbs(path) {
+        return Decision::Reject;
+    }
+    if let Some(inner) = inner {
+        return if is_file(inner) {
+            Decision::Asset(inner.to_string())
+        } else {
+            Decision::Page(inner.to_string())
+        };
+    }
+    let rest = without_run(path);
+    let last = rest.rsplit('/').next().unwrap_or("");
+    if rest == "/api" || (upgrade && last == "api") || is_file(rest) {
+        return Decision::NotFound;
+    }
+    let query = target
+        .split_once('?')
+        .map(|(_, q)| format!("?{}", q.split('#').next().unwrap_or("")))
+        .unwrap_or_default();
+    Decision::Redirect(format!("{prefix}{rest}{query}"))
+}
+
+pub fn check(head: &Head, port: u16, prefix: &str) -> Result<Decision, Reject> {
     let forbidden = |reason| Reject { code: 403, reason };
     let host = head.host.as_deref().ok_or(Reject {
         code: 400,
@@ -131,51 +162,30 @@ pub fn check(head: &Head, port: u16, prefix: &str) -> Result<Route, Reject> {
             reason: "only GET is supported",
         });
     }
-    let path = head
-        .path
-        .split(['?', '#'])
-        .next()
-        .unwrap_or("/")
-        .to_string();
-    let inner = path
-        .strip_prefix(prefix)
-        .filter(|rest| rest.starts_with('/'));
-    if inner == Some("/api") {
-        if !head.upgrade {
-            return Err(Reject {
-                code: 426,
-                reason: "a WebSocket upgrade is needed",
-            });
+    match route(&head.path, prefix, head.upgrade) {
+        Decision::Api => {
+            if !head.upgrade {
+                return Err(Reject {
+                    code: 426,
+                    reason: "a WebSocket upgrade is needed",
+                });
+            }
+            let expected = format!("http://{host}");
+            if head.origin.as_deref() != Some(expected.as_str()) {
+                return Err(forbidden("the WebSocket must come from this page"));
+            }
+            Ok(Decision::Api)
         }
-        let expected = format!("http://{host}");
-        if head.origin.as_deref() != Some(expected.as_str()) {
-            return Err(forbidden("the WebSocket must come from this page"));
-        }
-        return Ok(Route::Api);
-    }
-    if !path.starts_with('/') || climbs(&path) {
-        return Err(Reject {
+        Decision::Reject => Err(Reject {
             code: 400,
             reason: "bad path",
-        });
-    }
-    if let Some(inner) = inner {
-        return Ok(Route::Page(inner.to_string()));
-    }
-    let rest = without_run(&path);
-    let last = rest.rsplit('/').next().unwrap_or("");
-    if rest == "/api" || (head.upgrade && last == "api") || is_file(rest) {
-        return Err(Reject {
+        }),
+        Decision::NotFound => Err(Reject {
             code: 404,
             reason: "not found",
-        });
+        }),
+        other => Ok(other),
     }
-    let query = head
-        .path
-        .split_once('?')
-        .map(|(_, q)| format!("?{}", q.split('#').next().unwrap_or("")))
-        .unwrap_or_default();
-    Ok(Route::Moved(format!("{prefix}{rest}{query}")))
 }
 
 pub fn reason_phrase(code: u16) -> &'static str {
@@ -217,7 +227,11 @@ mod tests {
             "LOCALHOST:4000",
         ] {
             let h = head(&["GET / HTTP/1.1", &format!("Host: {host}")]);
-            assert_eq!(check(&h, 4000, ""), Ok(Route::Page("/".into())), "{host}");
+            assert_eq!(
+                check(&h, 4000, ""),
+                Ok(Decision::Page("/".into())),
+                "{host}"
+            );
         }
         for host in [
             "evil.example",
@@ -255,9 +269,9 @@ mod tests {
         };
         assert_eq!(
             ws(Some("http://127.0.0.1:4000"), Some("same-origin")),
-            Ok(Route::Api)
+            Ok(Decision::Api)
         );
-        assert_eq!(ws(Some("http://127.0.0.1:4000"), None), Ok(Route::Api));
+        assert_eq!(ws(Some("http://127.0.0.1:4000"), None), Ok(Decision::Api));
         for (o, s) in [
             (Some("http://evil.example"), None),
             (Some("http://localhost:4000"), None),
@@ -309,36 +323,41 @@ mod tests {
             let refs: Vec<&str> = lines.iter().map(String::as_str).collect();
             check(&head(&refs), 4000, run)
         };
-        assert_eq!(get(&format!("{run}/"), false), Ok(Route::Page("/".into())));
+        assert_eq!(
+            get(&format!("{run}/"), false),
+            Ok(Decision::Page("/".into()))
+        );
         assert_eq!(
             get(&format!("{run}/services/web?tab=x"), false),
-            Ok(Route::Page("/services/web".into()))
+            Ok(Decision::Page("/services/web".into()))
         );
-        assert_eq!(get(&format!("{run}/api"), true), Ok(Route::Api));
+        assert_eq!(get(&format!("{run}/api"), true), Ok(Decision::Api));
         for elsewhere in ["/api", "/r-old/api", "/services/api"] {
             assert_eq!(get(elsewhere, true).unwrap_err().code, 404, "{elsewhere}");
         }
-        assert_eq!(get("/", false), Ok(Route::Moved(format!("{run}/"))));
+        assert_eq!(get("/", false), Ok(Decision::Redirect(format!("{run}/"))));
         assert_eq!(
             get("/services/web?tab=secrets", false),
-            Ok(Route::Moved(format!("{run}/services/web?tab=secrets")))
+            Ok(Decision::Redirect(format!(
+                "{run}/services/web?tab=secrets"
+            )))
         );
         assert_eq!(
             get("/r-feedfacefeedfacefeedfacefeedface/clients", false),
-            Ok(Route::Moved(format!("{run}/clients")))
+            Ok(Decision::Redirect(format!("{run}/clients")))
         );
         assert_eq!(get("/app-1234.js", false).unwrap_err().code, 404);
         assert_eq!(
             get(&format!("{run}/services/api.v2"), false),
-            Ok(Route::Page("/services/api.v2".into()))
+            Ok(Decision::Page("/services/api.v2".into()))
         );
         assert_eq!(
             get("/services/api.v2?tab=x", false),
-            Ok(Route::Moved(format!("{run}/services/api.v2?tab=x")))
+            Ok(Decision::Redirect(format!("{run}/services/api.v2?tab=x")))
         );
         assert_eq!(
             get("/clients/home.lan", false),
-            Ok(Route::Moved(format!("{run}/clients/home.lan")))
+            Ok(Decision::Redirect(format!("{run}/clients/home.lan")))
         );
         for (page, moved) in [
             ("/services/api", "/services/api"),
@@ -350,13 +369,13 @@ mod tests {
         ] {
             assert_eq!(
                 get(page, false),
-                Ok(Route::Moved(format!("{run}{moved}"))),
+                Ok(Decision::Redirect(format!("{run}{moved}"))),
                 "{page}"
             );
         }
         assert_eq!(
             get(&format!("{run}/services/a..b"), false),
-            Ok(Route::Page("/services/a..b".into()))
+            Ok(Decision::Page("/services/a..b".into()))
         );
         for bad in [
             "/../x".to_string(),
@@ -375,7 +394,124 @@ mod tests {
         }
         assert_eq!(
             get(&format!("{run}x/"), false),
-            Ok(Route::Moved(format!("{run}/")))
+            Ok(Decision::Redirect(format!("{run}/")))
         );
+    }
+
+    #[test]
+    fn every_past_path_bug_is_decided_by_route() {
+        let run = "/r-0123456789abcdef0123456789abcdef";
+        let page = |p: &str| Decision::Page(p.to_string());
+        let asset = |p: &str| Decision::Asset(p.to_string());
+        let moved = |p: &str| Decision::Redirect(format!("{run}{p}"));
+        for (target, upgrade, prefixed, plain) in [
+            ("/", false, page("/"), moved("/")),
+            (
+                "/services/web?tab=x",
+                false,
+                page("/services/web"),
+                moved("/services/web?tab=x"),
+            ),
+            ("/app-1.js", false, asset("/app-1.js"), Decision::NotFound),
+            (
+                "/index.html",
+                false,
+                asset("/index.html"),
+                Decision::NotFound,
+            ),
+            ("/x.y.z", false, asset("/x.y.z"), Decision::NotFound),
+            (
+                "/services/x.y.z",
+                false,
+                page("/services/x.y.z"),
+                moved("/services/x.y.z"),
+            ),
+            ("/api", true, Decision::Api, Decision::NotFound),
+            ("/api", false, Decision::Api, Decision::NotFound),
+            ("/api/", true, page("/api/"), moved("/api/")),
+            (
+                "/services/api",
+                true,
+                page("/services/api"),
+                Decision::NotFound,
+            ),
+            (
+                "/services/api",
+                false,
+                page("/services/api"),
+                moved("/services/api"),
+            ),
+            ("/..", false, Decision::Reject, Decision::Reject),
+            ("/a/../b", false, Decision::Reject, Decision::Reject),
+            ("/a/%2e%2e/b", false, Decision::Reject, Decision::Reject),
+            ("/a/%2E./b", false, Decision::Reject, Decision::Reject),
+            ("/a/.%2E/b", false, Decision::Reject, Decision::Reject),
+            ("/a%2f..%2fb", false, Decision::Reject, Decision::Reject),
+            ("/a%5c..%5cb", false, Decision::Reject, Decision::Reject),
+            ("/a\\..\\b", false, Decision::Reject, Decision::Reject),
+            (
+                "/services/a..b",
+                false,
+                page("/services/a..b"),
+                moved("/services/a..b"),
+            ),
+            ("//services", false, page("//services"), moved("//services")),
+        ] {
+            assert_eq!(
+                route(&format!("{run}{target}"), run, upgrade),
+                prefixed,
+                "{run}{target}"
+            );
+            assert_eq!(route(target, run, upgrade), plain, "{target}");
+        }
+        let stale = "/r-feedfacefeedfacefeedfacefeedface";
+        assert_eq!(
+            route(&format!("{stale}/clients"), run, false),
+            moved("/clients")
+        );
+        assert_eq!(
+            route(&format!("{stale}/api"), run, true),
+            Decision::NotFound
+        );
+        assert_eq!(route(&format!("{run}x/"), run, false), moved("/"));
+        assert_eq!(route("services", run, false), Decision::Reject);
+    }
+
+    #[test]
+    fn random_paths_never_escape_and_reach_the_api_only_exactly() {
+        let run = "/r-0123456789abcdef0123456789abcdef";
+        let alphabet = [
+            "..", ".", "%2e", "%2E", "%2f", "%5c", "%", "/", "\\", "api", "a", "x.js", "?", "#",
+            "r-", run, "%252e", "", "%00", "\u{e9}",
+        ];
+        arbtest::arbtest(|u| {
+            let n = u.int_in_range(0..=8)?;
+            let mut target = String::from(if u.arbitrary()? { run } else { "" });
+            for _ in 0..n {
+                target.push('/');
+                let parts = u.int_in_range(1..=3)?;
+                for _ in 0..parts {
+                    target.push_str(u.choose(&alphabet)?);
+                }
+            }
+            let upgrade = u.arbitrary()?;
+            let path = target.split(['?', '#']).next().unwrap_or("");
+            match route(&target, run, upgrade) {
+                Decision::Api => assert_eq!(path, format!("{run}/api"), "{target}"),
+                Decision::Page(p) | Decision::Asset(p) => {
+                    assert!(!climbs(&p), "{target} escapes as {p}");
+                    assert!(p.starts_with('/'), "{target}");
+                }
+                Decision::Redirect(to) => {
+                    assert!(to.starts_with(&format!("{run}/")), "{target} -> {to}");
+                    let to_path = to.split(['?', '#']).next().unwrap_or("");
+                    assert!(!climbs(to_path), "{target} -> {to}");
+                    assert_ne!(to_path, format!("{run}/api"), "{target}");
+                }
+                Decision::NotFound | Decision::Reject => {}
+            }
+            Ok(())
+        })
+        .budget_ms(500);
     }
 }

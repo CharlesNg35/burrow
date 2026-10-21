@@ -120,6 +120,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
+name = "arbitrary"
+version = "1.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3bc62ac97cc33321f50863d514c3bc38a453947a8f9e781137e47c7401020aed"
+
+[[package]]
+name = "arbtest"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2a3be567977128c0f71ad1462d9624ccda712193d124e944252f0c5789a06d46"
+dependencies = [
+ "arbitrary",
+]
+
+[[package]]
 name = "arraydeque"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -311,6 +326,7 @@ checksum = "72f5acc6cb2ba439de613abc23857ec3d78374d8ed5ac84e9d11336e87da8649"
 name = "burrow"
 version = "0.1.0"
 dependencies = [
+ "arbtest",
  "base64 0.23.1",
  "blake2",
  "burrow-admin-logic",
@@ -332,6 +348,7 @@ dependencies = [
  "libc",
  "mimalloc",
  "notify",
+ "percent-encoding",
  "rcgen",
  "rustix",
  "saphyr-parser",
