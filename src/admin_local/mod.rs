@@ -12,7 +12,10 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use hyper::body::Incoming;
+use hyper::service::service_fn;
+use hyper::{Request, Response};
+use hyper_util::rt::{TokioIo, TokioTimer};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{Semaphore, watch};
 use tracing::debug;
@@ -23,7 +26,7 @@ use crate::failure::Failure;
 use http::Decision;
 use token::Token;
 
-const MAX_OPEN: usize = 32;
+pub const MAX_OPEN: usize = 32;
 const READ_TIMEOUT: Duration = Duration::from_secs(5);
 const WRITE_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -81,30 +84,13 @@ pub async fn check_access(settings: &VisitorSettings) -> Result<(), Failure> {
     }
 }
 
-async fn read_head(stream: &mut TcpStream) -> std::io::Result<Vec<u8>> {
-    let mut head = Vec::with_capacity(1024);
-    let mut chunk = [0u8; 1024];
-    while !head.windows(4).any(|w| w == b"\r\n\r\n") {
-        if head.len() > http::MAX_HEAD {
-            return Err(std::io::Error::other("request header too large"));
-        }
-        let n = stream.read(&mut chunk).await?;
-        if n == 0 {
-            return Err(std::io::Error::other("closed before the request ended"));
-        }
-        head.extend_from_slice(&chunk[..n]);
-    }
-    Ok(head)
-}
-
-async fn reply(stream: &mut TcpStream, code: u16, mime: &str, extra: &str, body: &[u8]) {
-    let head = http::response(code, mime, extra, body.len());
-    let write = async {
-        stream.write_all(head.as_bytes()).await?;
-        stream.write_all(body).await?;
-        stream.shutdown().await
-    };
-    let _ = tokio::time::timeout(WRITE_TIMEOUT, write).await;
+fn plain(code: u16, text: &str) -> Response<http::Body> {
+    http::response(
+        code,
+        "text/plain; charset=utf-8",
+        &[],
+        format!("{text}\n").into_bytes(),
+    )
 }
 
 fn from_disk(dir: &std::path::Path, path: &str) -> Option<(Vec<u8>, &'static str)> {
@@ -133,9 +119,14 @@ pub fn index_for_run(index: &[u8], prefix: &str) -> Vec<u8> {
         .into_bytes()
 }
 
-const FRESH_INDEX: &str = "Cache-Control: no-store\r\nClear-Site-Data: \"cache\"\r\n";
+fn fresh_index() -> Vec<(&'static str, String)> {
+    vec![
+        ("Cache-Control", "no-store".into()),
+        ("Clear-Site-Data", "\"cache\"".into()),
+    ]
+}
 
-async fn page(stream: &mut TcpStream, shared: &Shared, path: &str, spa: bool, gzip: bool) {
+fn page(shared: &Shared, path: &str, spa: bool, gzip: bool) -> Response<http::Body> {
     if let Some(dir) = shared.ui_dir.as_ref().filter(|_| cfg!(debug_assertions)) {
         let index = spa || path == "/index.html";
         let found = if index {
@@ -143,80 +134,141 @@ async fn page(stream: &mut TcpStream, shared: &Shared, path: &str, spa: bool, gz
         } else {
             from_disk(dir, path)
         };
-        match found {
+        return match found {
             Some((body, mime)) => {
                 let extra = if spa {
-                    FRESH_INDEX
+                    fresh_index()
                 } else {
-                    "Cache-Control: no-store\r\n"
+                    vec![("Cache-Control", "no-store".into())]
                 };
-                reply(stream, 200, mime, extra, &body).await
+                http::response(200, mime, &extra, body)
             }
-            None => reply(stream, 404, "text/plain", "", b"not found\n").await,
-        }
-        return;
+            None => http::response(404, "text/plain", &[], &b"not found\n"[..]),
+        };
     }
     if spa || path == "/index.html" {
         let (body, _) = assets::body(assets::index(), false);
         let body = index_for_run(&body, &shared.prefix);
-        reply(stream, 200, assets::index().mime, FRESH_INDEX, &body).await;
-        return;
+        return http::response(200, assets::index().mime, &fresh_index(), body);
     }
     let Some(asset) = assets::find(path) else {
-        reply(stream, 404, "text/plain", "", b"not found\n").await;
-        return;
+        return http::response(404, "text/plain", &[], &b"not found\n"[..]);
     };
     let (body, encoded) = assets::body(asset, gzip);
-    let mut extra = format!("ETag: \"{}\"\r\nCache-Control: no-store\r\n", asset.etag);
+    let mut extra = vec![
+        ("ETag", format!("\"{}\"", asset.etag)),
+        ("Cache-Control", "no-store".into()),
+    ];
     if encoded {
-        extra.push_str("Content-Encoding: gzip\r\nVary: Accept-Encoding\r\n");
+        extra.push(("Content-Encoding", "gzip".into()));
+        extra.push(("Vary", "Accept-Encoding".into()));
     }
-    reply(stream, 200, asset.mime, &extra, &body).await;
+    http::response(200, asset.mime, &extra, body.into_owned())
 }
 
-async fn connection(mut stream: TcpStream, shared: Arc<Shared>) {
-    let head = match tokio::time::timeout(READ_TIMEOUT, read_head(&mut stream)).await {
-        Ok(Ok(h)) => h,
-        _ => return,
+fn accept_key<B>(req: &Request<B>) -> Option<String> {
+    use base64::Engine;
+    let h = req.headers();
+    let has = |name: &str, want: &str, whole: bool| {
+        h.get(name).and_then(|v| v.to_str().ok()).is_some_and(|v| {
+            if whole {
+                v.eq_ignore_ascii_case(want)
+            } else {
+                v.to_ascii_lowercase().contains(&want.to_ascii_lowercase())
+            }
+        })
     };
-    let parsed = http::parse(&head)
-        .and_then(|h| http::check(&h, shared.port, &shared.prefix).map(|r| (h, r)));
-    match parsed {
+    if !has("upgrade", crate::transport::ws::UPGRADE_TOKEN, true)
+        || !has("connection", "upgrade", false)
+        || !has("sec-websocket-version", "13", true)
+    {
+        return None;
+    }
+    let key = h.get("sec-websocket-key")?.as_bytes();
+    let mut ctx = ring::digest::Context::new(&ring::digest::SHA1_FOR_LEGACY_USE_ONLY);
+    ctx.update(key);
+    ctx.update(b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11");
+    Some(base64::engine::general_purpose::STANDARD.encode(ctx.finish()))
+}
+
+type Bridge = Arc<std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>>;
+
+fn handle(req: Request<Incoming>, shared: &Arc<Shared>, bridge: &Bridge) -> Response<http::Body> {
+    let decided = http::head_of(&req)
+        .and_then(|h| http::check(&h, shared.port, &shared.prefix).map(|d| (h, d)));
+    match decided {
         Err(r) => {
             debug!("burrow admin refused a request: {}", r.reason);
-            let body = format!("{}\n", r.reason);
-            reply(
-                &mut stream,
-                r.code,
-                "text/plain; charset=utf-8",
-                "",
-                body.as_bytes(),
-            )
-            .await;
+            plain(r.code, r.reason)
         }
-        Ok((h, Decision::Page(path))) => page(&mut stream, &shared, &path, true, h.gzip).await,
-        Ok((h, Decision::Asset(path))) => page(&mut stream, &shared, &path, false, h.gzip).await,
-        Ok((_, Decision::Redirect(to))) => {
-            let extra = format!("Location: {to}\r\nCache-Control: no-store\r\n");
-            reply(&mut stream, 302, "text/plain; charset=utf-8", &extra, b"").await;
-        }
-        Ok((_, Decision::NotFound | Decision::Reject)) => {
-            reply(&mut stream, 404, "text/plain", "", b"not found\n").await;
-        }
+        Ok((h, Decision::Page(path))) => page(shared, &path, true, h.gzip),
+        Ok((h, Decision::Asset(path))) => page(shared, &path, false, h.gzip),
+        Ok((_, Decision::Redirect(to))) => http::response(
+            302,
+            "text/plain; charset=utf-8",
+            &[("Location", to), ("Cache-Control", "no-store".into())],
+            Vec::new(),
+        ),
+        Ok((_, Decision::NotFound | Decision::Reject)) => plain(404, "not found"),
         Ok((_, Decision::Api)) => {
-            shared.connected.fetch_add(1, Ordering::AcqRel);
-            shared.changed.send_modify(|n| *n += 1);
-            let _guard = Connected(shared.clone());
-            bridge::serve(
-                stream,
-                head,
-                shared.token.clone(),
-                shared.dialer.clone(),
-                shared.visitor.clone(),
-                shared.server.clone(),
-            )
-            .await;
+            let Some(accept) = accept_key(&req) else {
+                return plain(400, "bad request");
+            };
+            let shared = shared.clone();
+            let task = tokio::spawn(async move {
+                let Ok(upgraded) = hyper::upgrade::on(req).await else {
+                    return;
+                };
+                shared.connected.fetch_add(1, Ordering::AcqRel);
+                shared.changed.send_modify(|n| *n += 1);
+                let _guard = Connected(shared.clone());
+                bridge::serve(
+                    TokioIo::new(upgraded),
+                    shared.token.clone(),
+                    shared.dialer.clone(),
+                    shared.visitor.clone(),
+                    shared.server.clone(),
+                )
+                .await;
+            });
+            if let Ok(mut slot) = bridge.lock() {
+                *slot = Some(task);
+            }
+            Response::builder()
+                .status(101)
+                .header("Upgrade", crate::transport::ws::UPGRADE_TOKEN)
+                .header("Connection", "Upgrade")
+                .header("Sec-WebSocket-Accept", accept)
+                .body(http::Body::default())
+                .unwrap_or_else(|_| plain(500, "error"))
         }
+    }
+}
+
+async fn connection(stream: TcpStream, shared: Arc<Shared>) {
+    let bridge: Bridge = Arc::new(std::sync::Mutex::new(None));
+    let service = {
+        let (shared, bridge) = (shared.clone(), bridge.clone());
+        service_fn(move |req| {
+            let response = handle(req, &shared, &bridge);
+            async move { Ok::<_, std::convert::Infallible>(response) }
+        })
+    };
+    let mut builder = hyper::server::conn::http1::Builder::new();
+    builder
+        .timer(TokioTimer::new())
+        .header_read_timeout(READ_TIMEOUT)
+        .max_buf_size(http::MAX_HEAD)
+        .keep_alive(false)
+        .title_case_headers(true)
+        .auto_date_header(false);
+    let served = builder
+        .serve_connection(TokioIo::new(stream), service)
+        .with_upgrades();
+    let _ = tokio::time::timeout(READ_TIMEOUT + WRITE_TIMEOUT, served).await;
+    let task = bridge.lock().ok().and_then(|mut b| b.take());
+    if let Some(task) = task {
+        let _ = task.await;
     }
 }
 
@@ -349,6 +401,30 @@ pub fn announce(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_websocket_accept_key_follows_rfc_6455() {
+        let req = |key: Option<&str>, version: &str| {
+            let mut b = Request::builder()
+                .uri("/api")
+                .header("Upgrade", "websocket")
+                .header("Connection", "keep-alive, Upgrade")
+                .header("Sec-WebSocket-Version", version);
+            if let Some(k) = key {
+                b = b.header("Sec-WebSocket-Key", k);
+            }
+            b.body(()).unwrap()
+        };
+        assert_eq!(
+            accept_key(&req(Some("dGhlIHNhbXBsZSBub25jZQ=="), "13")).as_deref(),
+            Some("s3pPLMBiTxaQ9kYGzzhZRbK+xOo=")
+        );
+        assert_eq!(accept_key(&req(None, "13")), None);
+        assert_eq!(
+            accept_key(&req(Some("dGhlIHNhbXBsZSBub25jZQ=="), "8")),
+            None
+        );
+    }
 
     #[tokio::test]
     async fn the_default_port_falls_back_with_the_real_reason() {

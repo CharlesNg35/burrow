@@ -1071,6 +1071,89 @@ async fn the_local_page_is_only_served_to_this_machine() {
     let _ = w.stop.send(true);
 }
 
+async fn send_and_read(port: u16, bytes: &[u8], wait: Duration) -> (String, Duration) {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let mut s = tokio::net::TcpStream::connect(("127.0.0.1", port))
+        .await
+        .unwrap();
+    let started = std::time::Instant::now();
+    let _ = s.write_all(bytes).await;
+    let mut out = Vec::new();
+    let _ = tokio::time::timeout(wait, s.read_to_end(&mut out)).await;
+    (
+        String::from_utf8_lossy(&out).into_owned(),
+        started.elapsed(),
+    )
+}
+
+#[tokio::test]
+async fn the_local_server_keeps_its_limits_and_closes_after_each_response() {
+    let w = world().await;
+    let l = local(&w, "ops", &w.ops).await;
+    let get = format!(
+        "GET {}/ HTTP/1.1\r\nHost: 127.0.0.1:{}\r\n\r\n",
+        l.run, l.port
+    );
+    let (two, took) = send_and_read(
+        l.port,
+        format!("{get}{get}").as_bytes(),
+        Duration::from_secs(5),
+    )
+    .await;
+    assert_eq!(two.matches("HTTP/1.1 200").count(), 1, "{two}");
+    assert!(
+        took < Duration::from_secs(3),
+        "the connection stayed open: {took:?}"
+    );
+    let big = format!(
+        "GET {}/ HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nX-Pad: {}\r\n\r\n",
+        l.run,
+        l.port,
+        "a".repeat(burrow::admin_local::http::MAX_HEAD + 1024)
+    );
+    let (got, _) = send_and_read(l.port, big.as_bytes(), Duration::from_secs(5)).await;
+    assert!(
+        got.is_empty() || got.starts_with("HTTP/1.1 431"),
+        "an oversized head was served: {got}"
+    );
+    let (slow, took) = send_and_read(
+        l.port,
+        format!("GET {}/ HTTP/1.1\r\nHost: 127.0.0.1", l.run).as_bytes(),
+        Duration::from_secs(12),
+    )
+    .await;
+    assert!(
+        slow.is_empty() || slow.starts_with("HTTP/1.1 408"),
+        "a slow head was served: {slow}"
+    );
+    assert!(
+        took >= Duration::from_secs(4) && took < Duration::from_secs(8),
+        "a slow head was cut after {took:?}"
+    );
+    let mut held = Vec::new();
+    for _ in 0..burrow::admin_local::MAX_OPEN {
+        use tokio::io::AsyncWriteExt;
+        let mut s = tokio::net::TcpStream::connect(("127.0.0.1", l.port))
+            .await
+            .unwrap();
+        s.write_all(b"GET / HTTP/1.1\r\n").await.unwrap();
+        held.push(s);
+    }
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let (over, took) = send_and_read(l.port, get.as_bytes(), Duration::from_secs(3)).await;
+    assert!(
+        over.is_empty(),
+        "a connection over the cap was served: {over}"
+    );
+    assert!(took < Duration::from_secs(2), "{took:?}");
+    drop(held);
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let (again, _) = send_and_read(l.port, get.as_bytes(), Duration::from_secs(5)).await;
+    assert!(again.starts_with("HTTP/1.1 200"), "{again}");
+    let _ = l.stop.send(true);
+    let _ = w.stop.send(true);
+}
+
 #[tokio::test]
 async fn a_socket_without_the_token_is_dropped_even_if_it_ignores_the_close() {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};

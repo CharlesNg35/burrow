@@ -38,7 +38,11 @@ futures-util = { version = "0.3.34", default-features = false, features = ["sink
 getrandom = "0.3.4"
 http = "1.5.0"
 httparse = "1.10.1"
+http-body-util = "0.1.5"
+hyper = { version = "1.12.0", default-features = false, features = ["http1", "server", "client"] }
+hyper-util = { version = "0.1.21", default-features = false, features = ["tokio"] }
 notify = "8.2.0"
+ring = "0.17.14"
 percent-encoding = "2.3.2"
 saphyr-parser = "0.2.2"
 schemars = "1.2.3"

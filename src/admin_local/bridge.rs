@@ -1,12 +1,8 @@
-use std::pin::Pin;
 use std::sync::Arc;
-use std::task::{Context, Poll};
 use std::time::Duration;
 
-use bytes::{Buf, Bytes};
 use futures_util::{SinkExt, StreamExt};
-use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
-use tokio::net::TcpStream;
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_websockets::{CloseCode, Limits, Message, ServerBuilder};
 
 use super::token::Token;
@@ -16,45 +12,6 @@ use burrow_admin_proto::frame::{AdminOpen, MAX_MESSAGE};
 
 pub const AUTH_WAIT: Duration = Duration::from_secs(5);
 pub const CLOSE_WAIT: Duration = Duration::from_secs(1);
-
-pub struct Rewind {
-    prefix: Bytes,
-    inner: TcpStream,
-}
-
-impl AsyncRead for Rewind {
-    fn poll_read(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &mut ReadBuf<'_>,
-    ) -> Poll<std::io::Result<()>> {
-        if self.prefix.has_remaining() {
-            let n = self.prefix.len().min(buf.remaining());
-            buf.put_slice(&self.prefix[..n]);
-            self.prefix.advance(n);
-            return Poll::Ready(Ok(()));
-        }
-        Pin::new(&mut self.inner).poll_read(cx, buf)
-    }
-}
-
-impl AsyncWrite for Rewind {
-    fn poll_write(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &[u8],
-    ) -> Poll<std::io::Result<usize>> {
-        Pin::new(&mut self.inner).poll_write(cx, buf)
-    }
-
-    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
-        Pin::new(&mut self.inner).poll_flush(cx)
-    }
-
-    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
-        Pin::new(&mut self.inner).poll_shutdown(cx)
-    }
-}
 
 fn bridge_event(state: &str, reason: &str, message: &str) -> Message {
     let v = serde_json::json!({"ev": "bridge", "body": {"state": state, "reason": reason, "message": message}});
@@ -101,22 +58,15 @@ pub fn open_message() -> AdminOpen {
     }
 }
 
-pub async fn serve(
-    stream: TcpStream,
-    head: Vec<u8>,
+pub async fn serve<S: AsyncRead + AsyncWrite + Unpin>(
+    stream: S,
     token: Token,
     dialer: Arc<Dialer>,
     visitor: String,
     server: String,
 ) {
-    let rewind = Rewind {
-        prefix: Bytes::from(head),
-        inner: stream,
-    };
     let limits = Limits::default().max_payload_len(Some(MAX_MESSAGE + 1024));
-    let Ok((_, mut ws)) = ServerBuilder::new().limits(limits).accept(rewind).await else {
-        return;
-    };
+    let mut ws = ServerBuilder::new().limits(limits).serve(stream);
     let first = tokio::time::timeout(AUTH_WAIT, ws.next()).await;
     let authed = match &first {
         Ok(Some(Ok(m))) => m

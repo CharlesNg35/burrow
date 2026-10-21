@@ -1,6 +1,16 @@
 pub const MAX_HEAD: usize = 8 * 1024;
 
-pub const SECURITY_HEADERS: &str = "Content-Security-Policy: default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' data:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'\r\nX-Content-Type-Options: nosniff\r\nReferrer-Policy: no-referrer\r\nCross-Origin-Opener-Policy: same-origin\r\nCross-Origin-Resource-Policy: same-origin\r\nX-Frame-Options: DENY\r\n";
+pub const SECURITY_HEADERS: [(&str, &str); 6] = [
+    (
+        "Content-Security-Policy",
+        "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' data:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+    ),
+    ("X-Content-Type-Options", "nosniff"),
+    ("Referrer-Policy", "no-referrer"),
+    ("Cross-Origin-Opener-Policy", "same-origin"),
+    ("Cross-Origin-Resource-Policy", "same-origin"),
+    ("X-Frame-Options", "DENY"),
+];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Reject {
@@ -19,50 +29,35 @@ pub struct Head {
     pub gzip: bool,
 }
 
-pub fn parse(bytes: &[u8]) -> Result<Head, Reject> {
-    let mut headers = [httparse::EMPTY_HEADER; 48];
-    let mut req = httparse::Request::new(&mut headers);
-    match req.parse(bytes) {
-        Ok(httparse::Status::Complete(_)) => {}
-        _ => {
+pub fn head_of<B>(req: &::http::Request<B>) -> Result<Head, Reject> {
+    let h = req.headers();
+    let one = |name: &str| -> Result<Option<String>, Reject> {
+        let mut all = h.get_all(name).iter();
+        let first = all.next();
+        if all.next().is_some() {
             return Err(Reject {
                 code: 400,
-                reason: "bad request",
+                reason: "repeated header",
             });
         }
-    }
-    let mut head = Head {
-        method: req.method.unwrap_or_default().to_string(),
-        path: req.path.unwrap_or_default().to_string(),
-        ..Head::default()
+        Ok(first.map(|v| String::from_utf8_lossy(v.as_bytes()).trim().to_string()))
     };
-    for h in req.headers.iter() {
-        let value = String::from_utf8_lossy(h.value).trim().to_string();
-        let name = h.name.to_ascii_lowercase();
-        let once = |slot: &mut Option<String>| {
-            if slot.is_some() {
-                return Err(Reject {
-                    code: 400,
-                    reason: "repeated header",
-                });
-            }
-            *slot = Some(value.clone());
-            Ok(())
-        };
-        match name.as_str() {
-            "host" => once(&mut head.host)?,
-            "origin" => once(&mut head.origin)?,
-            "sec-fetch-site" => once(&mut head.fetch_site)?,
-            "upgrade" => {
-                head.upgrade |= value.eq_ignore_ascii_case(crate::transport::ws::UPGRADE_TOKEN)
-            }
-            "accept-encoding" => {
-                head.gzip |= value.split(',').any(|v| v.trim().starts_with("gzip"))
-            }
-            _ => {}
-        }
-    }
-    Ok(head)
+    let text = |v: &::http::HeaderValue| String::from_utf8_lossy(v.as_bytes()).trim().to_string();
+    Ok(Head {
+        method: req.method().as_str().to_string(),
+        path: req.uri().to_string(),
+        host: one("host")?,
+        origin: one("origin")?,
+        fetch_site: one("sec-fetch-site")?,
+        upgrade: h
+            .get_all("upgrade")
+            .iter()
+            .any(|v| text(v).eq_ignore_ascii_case(crate::transport::ws::UPGRADE_TOKEN)),
+        gzip: h
+            .get_all("accept-encoding")
+            .iter()
+            .any(|v| text(v).split(',').any(|e| e.trim().starts_with("gzip"))),
+    })
 }
 
 pub fn allowed_hosts(port: u16) -> [String; 3] {
@@ -188,34 +183,48 @@ pub fn check(head: &Head, port: u16, prefix: &str) -> Result<Decision, Reject> {
     }
 }
 
-pub fn reason_phrase(code: u16) -> &'static str {
-    match code {
-        200 => "OK",
-        302 => "Found",
-        304 => "Not Modified",
-        400 => "Bad Request",
-        403 => "Forbidden",
-        404 => "Not Found",
-        405 => "Method Not Allowed",
-        426 => "Upgrade Required",
-        _ => "Error",
-    }
-}
+pub type Body = http_body_util::Full<bytes::Bytes>;
 
-pub fn response(code: u16, mime: &str, extra: &str, body_len: usize) -> String {
-    format!(
-        "HTTP/1.1 {code} {}\r\nContent-Type: {mime}\r\nContent-Length: {body_len}\r\n{SECURITY_HEADERS}{extra}Connection: close\r\n\r\n",
-        reason_phrase(code)
-    )
+pub fn response(
+    code: u16,
+    mime: &str,
+    extra: &[(&str, String)],
+    body: impl Into<bytes::Bytes>,
+) -> ::http::Response<Body> {
+    let body: bytes::Bytes = body.into();
+    let mut b = ::http::Response::builder()
+        .status(code)
+        .header("Content-Type", mime)
+        .header("Content-Length", body.len());
+    for (k, v) in SECURITY_HEADERS {
+        b = b.header(k, v);
+    }
+    for (k, v) in extra {
+        b = b.header(*k, v.as_str());
+    }
+    b.header("Connection", "close")
+        .body(Body::new(body))
+        .unwrap_or_else(|_| ::http::Response::new(Body::default()))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn request(lines: &[&str]) -> ::http::Request<()> {
+        let mut parts = lines[0].split(' ');
+        let mut b = ::http::Request::builder()
+            .method(parts.next().unwrap())
+            .uri(parts.next().unwrap());
+        for l in &lines[1..] {
+            let (k, v) = l.split_once(": ").unwrap();
+            b = b.header(k, v);
+        }
+        b.body(()).unwrap()
+    }
+
     fn head(lines: &[&str]) -> Head {
-        let text = format!("{}\r\n\r\n", lines.join("\r\n"));
-        parse(text.as_bytes()).unwrap()
+        head_of(&request(lines)).unwrap()
     }
 
     #[test]
@@ -245,8 +254,8 @@ mod tests {
         }
         let none = head(&["GET / HTTP/1.1"]);
         assert_eq!(check(&none, 4000, "").unwrap_err().code, 400);
-        let twice = "GET / HTTP/1.1\r\nHost: 127.0.0.1:4000\r\nHost: evil\r\n\r\n";
-        assert_eq!(parse(twice.as_bytes()).unwrap_err().code, 400);
+        let twice = request(&["GET / HTTP/1.1", "Host: 127.0.0.1:4000", "Host: evil"]);
+        assert_eq!(head_of(&twice).unwrap_err().code, 400);
     }
 
     #[test]
@@ -293,14 +302,21 @@ mod tests {
 
     #[test]
     fn every_response_carries_the_security_headers() {
-        let r = response(200, "text/html", "", 10);
+        let r = response(200, "text/html", &[], vec![0u8; 10]);
+        let r: String = r
+            .headers()
+            .iter()
+            .map(|(k, v)| format!("{k}: {}\r\n", v.to_str().unwrap()))
+            .collect();
         for h in [
-            "Content-Security-Policy: default-src 'none'; script-src 'self' 'wasm-unsafe-eval'",
-            "X-Content-Type-Options: nosniff",
-            "Referrer-Policy: no-referrer",
-            "Cross-Origin-Opener-Policy: same-origin",
-            "Cross-Origin-Resource-Policy: same-origin",
+            "content-security-policy: default-src 'none'; script-src 'self' 'wasm-unsafe-eval'",
+            "x-content-type-options: nosniff",
+            "referrer-policy: no-referrer",
+            "cross-origin-opener-policy: same-origin",
+            "cross-origin-resource-policy: same-origin",
             "frame-ancestors 'none'",
+            "content-length: 10",
+            "connection: close",
         ] {
             assert!(r.contains(h), "{h}");
         }
