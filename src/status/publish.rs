@@ -34,12 +34,13 @@ fn token() -> String {
 }
 
 fn handler(token: String, snapshot: Arc<dyn Fn() -> Status + Send + Sync>) -> Handler {
-    let expected = format!("bearer {token}");
     Arc::new(move |req: &hyper::Request<()>| {
+        use subtle::ConstantTimeEq;
         let authorized = req.headers().get_all("authorization").iter().any(|v| {
-            String::from_utf8_lossy(v.as_bytes())
-                .trim()
-                .eq_ignore_ascii_case(&expected)
+            v.as_bytes()
+                .trim_ascii()
+                .strip_prefix(b"Bearer ")
+                .is_some_and(|given| bool::from(given.ct_eq(token.as_bytes())))
         });
         if !authorized {
             return (401, "text/plain", "a token is required\n".into());

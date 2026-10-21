@@ -364,6 +364,7 @@ dependencies = [
  "snow",
  "socket2",
  "strsim",
+ "subtle",
  "tempfile",
  "tikv-jemallocator",
  "tokio",

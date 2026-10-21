@@ -13,12 +13,8 @@ impl Token {
     }
 
     pub fn matches(&self, given: &str) -> bool {
-        let (a, b) = (self.0.as_bytes(), given.as_bytes());
-        let mut diff = a.len() ^ b.len();
-        for (i, x) in a.iter().enumerate() {
-            diff |= usize::from(x ^ b.get(i).copied().unwrap_or(0));
-        }
-        diff == 0
+        use subtle::ConstantTimeEq;
+        self.0.as_bytes().ct_eq(given.as_bytes()).into()
     }
 }
 
