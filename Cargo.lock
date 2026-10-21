@@ -373,6 +373,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "webpki-roots",
+ "which",
  "windows-service",
  "zeroize",
 ]

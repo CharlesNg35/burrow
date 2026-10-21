@@ -72,29 +72,19 @@ pub fn split(command: &str) -> Vec<String> {
 }
 
 pub fn on_path(program: &str) -> bool {
-    let Some(paths) = std::env::var_os("PATH") else {
-        return false;
-    };
-    std::env::split_paths(&paths).any(|dir| runnable(&dir.join(program)))
-}
-
-#[cfg(unix)]
-fn runnable(path: &Path) -> bool {
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::metadata(path).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
-}
-
-#[cfg(not(unix))]
-fn runnable(path: &Path) -> bool {
-    path.with_extension("exe").is_file()
+    which::which(program).is_ok()
 }
 
 pub fn open(editor: &[String], file: &Path) -> Result<(), Failure> {
     let (program, args) = editor
         .split_first()
         .expect("an editor command has a program");
+    let resolved = which::which(program).map_err(|e| {
+        Failure::usage(format!("cannot start the editor {program}: {e}"))
+            .hint("pick another with --editor, for example: --editor nano")
+    })?;
     let quiet = Quiet::new();
-    let status = Command::new(program)
+    let status = Command::new(resolved)
         .args(args)
         .arg(file)
         .status()
@@ -209,6 +199,42 @@ impl Quiet {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn the_editor_is_resolved_before_it_runs() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let editor = dir.path().join("fake-editor");
+        std::fs::write(&editor, "#!/bin/sh\necho edited > \"$1\"\n").unwrap();
+        std::fs::set_permissions(&editor, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let file = dir.path().join("server.yaml");
+        std::fs::write(&file, "x").unwrap();
+        open(&[editor.display().to_string()], &file).unwrap();
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "edited\n");
+        let missing = open(&["burrow-no-such-editor".into()], &file).unwrap_err();
+        assert!(
+            missing
+                .to_string()
+                .contains("cannot start the editor burrow-no-such-editor")
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_cmd_editor_is_found_through_pathext() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("code.cmd"), "@echo edited> %1\r\n").unwrap();
+        let file = dir.path().join("server.yaml");
+        std::fs::write(&file, "x").unwrap();
+        let editor = dir.path().join("code");
+        open(&[editor.display().to_string()], &file).unwrap();
+        assert!(
+            std::fs::read_to_string(&file)
+                .unwrap()
+                .starts_with("edited")
+        );
+    }
 
     #[test]
     fn editor_commands_keep_their_arguments_and_quoted_paths() {
