@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:f492fcef4d7fe730",
+  "hash": "b2s:5011d1e6f8801a97",
   "root": {
     "label": "Server",
     "sem": {
@@ -346,6 +346,7 @@
                         "group": "admin",
                         "danger_when_set": true,
                         "reduce_only": true,
+                        "wide": true,
                         "none_label": "None"
                       }
                     },
@@ -759,6 +760,7 @@
                           "unique": true
                         },
                         "group": "access",
+                        "wide": false,
                         "empty_label": "No visitors",
                         "relations": [
                           {
@@ -821,6 +823,7 @@
                         },
                         "group": "access",
                         "advanced": true,
+                        "wide": false,
                         "empty_label": "No addresses denied"
                       }
                     },
@@ -878,6 +881,7 @@
                           }
                         },
                         "group": "traffic",
+                        "wide": true,
                         "none_label": "Unlimited"
                       }
                     }

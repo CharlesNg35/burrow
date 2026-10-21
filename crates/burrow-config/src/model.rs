@@ -263,7 +263,8 @@ pub struct VisitorEntry {
         group = admin,
         none_label = "None",
         danger_when_set,
-        reduce_only
+        reduce_only,
+        wide
     )]
     pub admin: Option<AdminLevel>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -432,7 +433,8 @@ pub struct ServiceEntry {
         group = access,
         empty_label = "No visitors",
         inverse(entity = visitor, label = "Services it may use"),
-        options_filter(eq(protocol, "tcp"))
+        options_filter(eq(protocol, "tcp")),
+        narrow
     )]
     pub visitors: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -443,7 +445,13 @@ pub struct ServiceEntry {
     pub allow_from: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[schemars(description = "Source IPs or CIDRs that may never connect")]
-    #[admin(ty = list(cidr), group = access, empty_label = "No addresses denied", advanced)]
+    #[admin(
+        ty = list(cidr),
+        group = access,
+        empty_label = "No addresses denied",
+        advanced,
+        narrow
+    )]
     pub deny_from: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
@@ -460,7 +468,13 @@ pub struct ServiceEntry {
     #[schemars(
         description = "Speed limit for each direction, shared by all connections of this service, for example 40mbit or 5MB (per second)"
     )]
-    #[admin(ty = rate, label = "Speed limit", group = traffic, none_label = "Unlimited")]
+    #[admin(
+        ty = rate,
+        label = "Speed limit",
+        group = traffic,
+        none_label = "Unlimited",
+        wide
+    )]
     pub bandwidth: Option<String>,
 }
 

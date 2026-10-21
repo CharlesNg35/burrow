@@ -56,6 +56,7 @@ const FAIL: &[(&str, &[&str])] = &[
         "remote_missing_variant",
         &["non-exhaustive patterns: `&Level::Owner` not covered"],
     ),
+    ("width_conflict", &["`wide` and `narrow` contradict"]),
     (
         "unknown_key",
         &[

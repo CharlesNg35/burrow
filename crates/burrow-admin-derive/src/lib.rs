@@ -177,6 +177,8 @@ const FIELD_KEYS: &[&str] = &[
     "danger_when_set",
     "locked",
     "reduce_only",
+    "wide",
+    "narrow",
     "none_label",
     "empty_label",
     "applies",
@@ -387,6 +389,12 @@ fn expand_struct(input: &DeriveInput, s: &syn::DataStruct, errors: &mut Errors) 
         }
         if has_flag(&terms, "reduce_only") {
             meta.push(quote!(n.reduce_only = true;));
+        }
+        match (find(&terms, "wide"), find(&terms, "narrow")) {
+            (Some(t), Some(_)) => errors.push(t.span(), "`wide` and `narrow` contradict"),
+            (Some(_), None) => meta.push(quote!(n.wide = ::core::option::Option::Some(true);)),
+            (None, Some(_)) => meta.push(quote!(n.wide = ::core::option::Option::Some(false);)),
+            (None, None) => {}
         }
         if has_flag(&terms, "danger_when_set") {
             meta.push(quote!(n.danger_when_set = true;));

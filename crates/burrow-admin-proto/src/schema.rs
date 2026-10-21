@@ -106,6 +106,8 @@ pub struct Node {
     #[serde(default, skip_serializing_if = "is_false")]
     pub reduce_only: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wide: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub none_label: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub empty_label: Option<String>,

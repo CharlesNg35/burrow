@@ -32,7 +32,6 @@ const MAX_CONNECTIONS: &str = ServiceEntry::MAX_CONNECTIONS.key();
 const PROXY_PROTOCOL: &str = ServiceEntry::PROXY_PROTOCOL.key();
 const ADMIN: &str = VisitorEntry::ADMIN.key();
 const ADMIN_FROM: &str = VisitorEntry::ADMIN_FROM.key();
-const REACH: &str = VisitorEntry::REACH.key();
 
 const MAX_TEXT: usize = 4096;
 pub const LOCKED_HINT: &str = "Change this in server.yaml on the server, then restart";
@@ -871,16 +870,7 @@ fn row(f: Field, path: Path, spath: Path, entity: Path) -> AnyView {
     } else {
         String::new()
     };
-    let wide = match (
-        spath.first().map(String::as_str),
-        spath.len(),
-        f.key.as_str(),
-    ) {
-        (Some(SERVICES), 3, SERVICE_VISITORS | DENY_FROM) => false,
-        (Some(SERVICES), 3, BANDWIDTH) => true,
-        (Some(VISITORS), 3, ADMIN | ADMIN_FROM | REACH) => true,
-        _ => is_wide(&node),
-    };
+    let wide = node.wide.unwrap_or_else(|| is_wide(&node));
     let visible = Memo::new(move |_| st.with(|s| s.visible));
     let (jp, js) = (join(&path), join(&spath));
     (move || {
