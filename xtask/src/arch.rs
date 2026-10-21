@@ -58,7 +58,8 @@ const CRATE_DEPS: &[(&str, &[&str], &[&str])] = &[
 const ROOT_NEVER: &[&str] = &["burrow-ui-kit", "burrow-admin-logic", "burrow-admin-ui"];
 
 pub fn run(root: &Path) -> Result<(), String> {
-    let problems = check_deps(root)?;
+    let mut problems = check_deps(root)?;
+    problems.extend(crate::fields::problems(root)?);
     if problems.is_empty() {
         println!("arch-check: ok");
         Ok(())

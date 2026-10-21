@@ -3,6 +3,7 @@
 
 mod arch;
 mod e2e;
+mod fields;
 mod size;
 mod tools;
 mod ui;

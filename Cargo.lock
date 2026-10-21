@@ -3880,9 +3880,14 @@ name = "xtask"
 version = "0.1.0"
 dependencies = [
  "blake2",
+ "burrow-admin-proto",
+ "burrow-config",
  "flate2",
+ "proc-macro2",
+ "quote",
  "serde_json",
  "sha2",
+ "syn 2.0.119",
 ]
 
 [[package]]
