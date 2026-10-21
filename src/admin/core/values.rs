@@ -33,12 +33,8 @@ fn is_secret(node: Option<&Node>) -> bool {
     }
 }
 
-fn env_vars(raw: &str) -> Vec<String> {
-    burrow_syntax::secret_fmt::env_vars(raw)
-}
-
 fn secret_info(raw: &str, env: &dyn EnvSource) -> SecretInfo {
-    let vars = env_vars(raw);
+    let vars = burrow_syntax::env::names(raw);
     let src = match vars.first() {
         Some(v) if raw.contains("${") => SecretSrc::Env(v.clone()),
         _ => SecretSrc::Literal,
@@ -112,7 +108,7 @@ fn present_at(
             }
             value::env(&EnvInfo {
                 raw: s.clone(),
-                vars: env_vars(s),
+                vars: burrow_syntax::env::names(s),
                 resolved,
             })
         }

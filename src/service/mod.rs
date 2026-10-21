@@ -209,25 +209,7 @@ pub fn referenced_env(src: &str) -> Vec<String> {
         Ok(root) => values(&root, &mut text),
         Err(_) => text.push_str(src),
     }
-    let mut out = Vec::new();
-    let mut rest = text.as_str();
-    while let Some(i) = rest.find("${") {
-        if i > 0 && rest.as_bytes()[i - 1] == b'$' {
-            rest = &rest[i + 2..];
-            continue;
-        }
-        let tail = &rest[i + 2..];
-        if let Some(end) = tail.find('}') {
-            let name = &tail[..end];
-            if !name.is_empty() && !out.iter().any(|n| n == name) {
-                out.push(name.to_string());
-            }
-            rest = &tail[end + 1..];
-        } else {
-            break;
-        }
-    }
-    out
+    burrow_syntax::env::names(&text)
 }
 
 struct Uses {
