@@ -4,7 +4,6 @@ use burrow::update::{archive, http};
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {
-    let _ = http::dechunk(data);
     if let Ok(text) = std::str::from_utf8(data) {
         let _ = http::Url::parse(text);
         let _ = burrow::update::find_asset(text, "linux-amd64", "tar.gz");
