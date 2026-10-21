@@ -363,6 +363,7 @@ dependencies = [
  "signal-hook",
  "snow",
  "socket2",
+ "strsim",
  "tempfile",
  "tikv-jemallocator",
  "tokio",
