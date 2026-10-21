@@ -357,6 +357,7 @@ dependencies = [
  "rustix",
  "saphyr-parser",
  "schemars",
+ "semver",
  "serde",
  "serde_json",
  "sha2",

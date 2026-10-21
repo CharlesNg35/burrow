@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use sha2::{Digest, Sha256};
 
 use crate::failure::{Failure, admin, cmd};
-use crate::service::{self, Manifest, Version, parse_version};
+use crate::service::{self, Manifest, parse_version};
 
 const MAX_SUMS: usize = 1024 * 1024;
 const MAX_ASSET: usize = 256 * 1024 * 1024;
@@ -209,7 +209,7 @@ fn stage(near: &Path, bytes: &[u8]) -> Result<Staged, Failure> {
     )))
 }
 
-fn version_of(v: &str) -> Result<Version, Failure> {
+fn version_of(v: &str) -> Result<semver::Version, Failure> {
     parse_version(v).ok_or_else(|| Failure::usage(format!("\"{v}\" is not a version like 1.2.3")))
 }
 

@@ -1494,56 +1494,9 @@ fn account_not_removed(account: &str, f: Failure) -> Failure {
     .hint(finish)
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Version {
-    core: (u64, u64, u64),
-    pre: Vec<String>,
-}
-
-impl Ord for Version {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        use std::cmp::Ordering;
-        let ident = |a: &String, b: &String| match (a.parse::<u64>(), b.parse::<u64>()) {
-            (Ok(x), Ok(y)) => x.cmp(&y),
-            (Ok(_), Err(_)) => Ordering::Less,
-            (Err(_), Ok(_)) => Ordering::Greater,
-            (Err(_), Err(_)) => a.cmp(b),
-        };
-        self.core
-            .cmp(&other.core)
-            .then_with(|| match (self.pre.is_empty(), other.pre.is_empty()) {
-                (true, true) => Ordering::Equal,
-                (true, false) => Ordering::Greater,
-                (false, true) => Ordering::Less,
-                (false, false) => self
-                    .pre
-                    .iter()
-                    .zip(&other.pre)
-                    .map(|(a, b)| ident(a, b))
-                    .find(|o| o.is_ne())
-                    .unwrap_or_else(|| self.pre.len().cmp(&other.pre.len())),
-            })
-    }
-}
-
-impl PartialOrd for Version {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-pub fn parse_version(v: &str) -> Option<Version> {
+pub fn parse_version(v: &str) -> Option<semver::Version> {
     let v = v.trim().split([' ', '+']).next()?;
-    let (core, pre) = match v.split_once('-') {
-        Some((c, p)) => (c, p.split('.').map(str::to_string).collect()),
-        None => (v, Vec::new()),
-    };
-    let mut it = core.split('.').map(|p| p.parse::<u64>().ok());
-    let core = (it.next()??, it.next()??, it.next()??);
-    if it.next().is_some() {
-        return None;
-    }
-    Some(Version { core, pre })
+    semver::Version::parse(v).ok()
 }
 
 pub fn this_binary() -> Result<PathBuf, Failure> {
@@ -2464,6 +2417,17 @@ mod tests {
         assert_eq!(parse_version("unknown version"), None);
         assert_eq!(parse_version("1.2"), None);
         assert_eq!(parse_version("1.2.3.4"), None);
+    }
+
+    #[test]
+    fn versions_follow_semver_strictly() {
+        assert_eq!(parse_version("01.2.3"), None);
+        assert_eq!(parse_version("1.02.3"), None);
+        assert_eq!(parse_version("1.0.0-01"), None);
+        let v = |s: &str| parse_version(s).unwrap();
+        assert!(v("1.0.0-1") < v("1.0.0-2"));
+        assert!(v("1.0.0-1") < v("1.0.0-a"));
+        assert_eq!(parse_version("1.0.0-"), None);
     }
 
     #[test]
