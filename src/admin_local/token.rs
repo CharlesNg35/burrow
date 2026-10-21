@@ -5,7 +5,7 @@ impl Token {
     pub fn generate() -> Token {
         let mut bytes = [0u8; 32];
         getrandom::fill(&mut bytes).expect("operating system random source is available");
-        Token(bytes.iter().map(|b| format!("{b:02x}")).collect())
+        Token(hex::encode(bytes))
     }
 
     pub fn as_str(&self) -> &str {

@@ -9,6 +9,7 @@ blake2 = "0.10.6"
 burrow-admin-proto = { path = "../crates/burrow-admin-proto" }
 burrow-config = { path = "../crates/burrow-config" }
 flate2 = "1.1.10"
+hex = "0.4.3"
 serde_json = { version = "1.0.154", features = ["preserve_order"] }
 proc-macro2 = { version = "1.0.107", features = ["span-locations"] }
 quote = "1.0.47"

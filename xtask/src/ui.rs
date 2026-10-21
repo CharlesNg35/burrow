@@ -18,10 +18,7 @@ const WATCHED: &[&str] = &[
 ];
 
 pub fn blake2s(bytes: &[u8]) -> String {
-    blake2::Blake2s256::digest(bytes)
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
+    hex::encode(blake2::Blake2s256::digest(bytes))
 }
 
 fn run(cmd: &mut Command) -> Result<(), String> {

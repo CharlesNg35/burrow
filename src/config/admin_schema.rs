@@ -21,7 +21,7 @@ pub fn schema_hash(schema: &Schema) -> String {
     })
     .unwrap_or_default();
     let digest = blake2::Blake2s256::digest(&bytes);
-    let hex: String = digest[..8].iter().map(|b| format!("{b:02x}")).collect();
+    let hex = hex::encode(&digest[..8]);
     format!("b2s:{hex}")
 }
 

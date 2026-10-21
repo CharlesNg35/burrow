@@ -30,7 +30,7 @@ impl Drop for Published {
 fn token() -> String {
     let mut bytes = [0u8; 24];
     getrandom::fill(&mut bytes).expect("operating system random source is available");
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
+    hex::encode(bytes)
 }
 
 fn handler(token: String, snapshot: Arc<dyn Fn() -> Status + Send + Sync>) -> Handler {

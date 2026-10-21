@@ -4,7 +4,7 @@ use crate::secret::Secret;
 
 pub fn rev(text: &str) -> String {
     let digest = blake2::Blake2s256::digest(text.as_bytes());
-    let hex: String = digest[..8].iter().map(|b| format!("{b:02x}")).collect();
+    let hex = hex::encode(&digest[..8]);
     format!("b2s:{hex}")
 }
 
@@ -15,7 +15,7 @@ pub fn hash_parts(parts: &[&[u8]]) -> String {
         h.update(p);
     }
     let digest = h.finalize();
-    let hex: String = digest[..8].iter().map(|b| format!("{b:02x}")).collect();
+    let hex = hex::encode(&digest[..8]);
     format!("b2s:{hex}")
 }
 

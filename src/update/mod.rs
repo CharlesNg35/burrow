@@ -414,7 +414,7 @@ fn update_services_with(me: &Path) -> String {
 }
 
 fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
+    hex::encode(bytes)
 }
 
 fn connect_hint(url: &str, env: &dyn Fn(&str) -> Option<String>) -> String {

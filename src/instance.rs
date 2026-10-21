@@ -32,7 +32,7 @@ impl Identity {
             Identity::Client { server, name } => format!("client\0{server}\0{name}"),
         };
         let digest = Blake2s256::new().chain_update(text.as_bytes()).finalize();
-        digest[..8].iter().map(|b| format!("{b:02x}")).collect()
+        hex::encode(&digest[..8])
     }
 
     fn describe(&self) -> String {

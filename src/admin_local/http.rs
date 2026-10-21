@@ -71,7 +71,7 @@ fn allowed_hosts(port: u16) -> [String; 3] {
 pub fn run_prefix() -> String {
     let mut bytes = [0u8; 16];
     getrandom::fill(&mut bytes).expect("operating system random source is available");
-    let hex: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+    let hex = hex::encode(bytes);
     format!("/r-{hex}")
 }
 

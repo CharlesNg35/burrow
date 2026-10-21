@@ -40,10 +40,7 @@ pub struct Tools {
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
-    sha2::Sha256::digest(bytes)
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
+    hex::encode(sha2::Sha256::digest(bytes))
 }
 
 fn fetch(url: &str, to: &Path, sha256: &str) -> Result<(), String> {

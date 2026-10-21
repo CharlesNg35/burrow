@@ -94,13 +94,13 @@ impl Secret {
             .chain_update(b"burrow secret fingerprint")
             .chain_update(self.0)
             .finalize();
-        digest[..4].iter().map(|b| format!("{b:02x}")).collect()
+        hex::encode(&digest[..4])
     }
 }
 
 fn decode(text: &str) -> Option<Vec<u8>> {
     if text.len() == SECRET_LEN * 2 && text.bytes().all(|b| b.is_ascii_hexdigit()) {
-        return decode_hex(text);
+        return hex::decode(text).ok();
     }
     for engine in [&STANDARD, &STANDARD_NO_PAD, &URL_SAFE, &URL_SAFE_NO_PAD] {
         if let Ok(v) = engine.decode(text) {
@@ -108,16 +108,9 @@ fn decode(text: &str) -> Option<Vec<u8>> {
         }
     }
     if text.len().is_multiple_of(2) && text.bytes().all(|b| b.is_ascii_hexdigit()) {
-        return decode_hex(text);
+        return hex::decode(text).ok();
     }
     None
-}
-
-fn decode_hex(text: &str) -> Option<Vec<u8>> {
-    (0..text.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&text[i..i + 2], 16).ok())
-        .collect()
 }
 
 fn distinct_bytes(bytes: &[u8]) -> usize {

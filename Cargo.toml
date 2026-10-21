@@ -37,6 +37,7 @@ dunce = "1.0.5"
 flate2 = "1.1.10"
 futures-util = { version = "0.3.34", default-features = false, features = ["sink"] }
 getrandom = "0.3.4"
+hex = "0.4.3"
 http = "1.5.0"
 httparse = "1.10.1"
 http-body-util = "0.1.5"
