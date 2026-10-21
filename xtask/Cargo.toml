@@ -5,6 +5,7 @@ edition = "2024"
 publish = false
 
 [dependencies]
+base64 = "0.23.1"
 blake2 = "0.10.6"
 burrow-admin-proto = { path = "../crates/burrow-admin-proto" }
 burrow-config = { path = "../crates/burrow-config" }
