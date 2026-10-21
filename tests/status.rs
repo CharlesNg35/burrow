@@ -259,6 +259,10 @@ fn the_status_endpoint_needs_the_token() {
     assert!(ask("Authorization: Bearer nope\r\n").starts_with("HTTP/1.1 401"));
     let token = entry["token"].as_str().unwrap();
     assert!(ask(&format!("Authorization: Bearer {token}\r\n")).starts_with("HTTP/1.1 200"));
+    assert!(ask(&format!("Authorization: bearer {token}\r\n")).starts_with("HTTP/1.1 200"));
+    assert!(ask(&format!("Authorization: Bearer {token}x\r\n")).starts_with("HTTP/1.1 401"));
+    assert!(ask(&format!("Authorization: Basic {token}\r\n")).starts_with("HTTP/1.1 401"));
+    assert!(ask("Authorization: Bearer\r\n").starts_with("HTTP/1.1 401"));
 }
 
 #[test]

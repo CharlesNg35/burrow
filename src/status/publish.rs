@@ -37,10 +37,10 @@ fn handler(token: String, snapshot: Arc<dyn Fn() -> Status + Send + Sync>) -> Ha
     Arc::new(move |req: &hyper::Request<()>| {
         use subtle::ConstantTimeEq;
         let authorized = req.headers().get_all("authorization").iter().any(|v| {
-            v.as_bytes()
-                .trim_ascii()
-                .strip_prefix(b"Bearer ")
-                .is_some_and(|given| bool::from(given.ct_eq(token.as_bytes())))
+            let v = v.as_bytes().trim_ascii();
+            v.get(..7)
+                .is_some_and(|scheme| scheme.eq_ignore_ascii_case(b"bearer "))
+                && bool::from(v[7..].ct_eq(token.as_bytes()))
         });
         if !authorized {
             return (401, "text/plain", "a token is required\n".into());
