@@ -37,6 +37,20 @@ fn server(extra_service: &str) -> String {
 }
 
 #[test]
+fn a_visitor_listed_twice_is_an_error_at_the_second_mention() {
+    let src = format!(
+        "listen: 0.0.0.0:7835\nclients:\n  home:\n    secret: {SECRET}\nvisitors:\n  lap:\n    secret: ${{HOME_SECRET}}\nservices:\n  db:\n    client: home\n    target: 5432\n    visitors:\n      - lap\n      - lap\n"
+    );
+    let text = render("server.yaml", &src, None);
+    assert!(
+        text.contains("error: service \"db\" lists visitor \"lap\" twice"),
+        "{text}"
+    );
+    assert!(text.contains("--> server.yaml:14:9"), "{text}");
+    assert!(text.contains("list each visitor once"), "{text}");
+}
+
+#[test]
 fn valid_server() {
     insta::assert_snapshot!(render("server.yaml", &server("  web:\n    client: home\n    bind: 0.0.0.0:4000\n    target: 127.0.0.1:3000\n"), None), @"server.yaml: valid server config (2 clients, 1 service)");
 }
@@ -981,7 +995,7 @@ fn private_services_and_visitors() {
     use burrow::config::Loaded;
     let src = visitors_server(
         "  laptop:\n    secret: ${HOME_SECRET}\n    reach:\n      home: any\n",
-        "  web: { client: home, bind: 7840, target: 3000, visitors: [laptop] }\n  db: { client: home, target: 5432, visitors: [laptop, laptop] }\n",
+        "  web: { client: home, bind: 7840, target: 3000, visitors: [laptop] }\n  db: { client: home, target: 5432, visitors: [laptop] }\n",
     );
     insta::assert_snapshot!(render("server.yaml", &src, None), @r#"
     warning: visitor "laptop" may reach any target that client "home" allows
@@ -1539,10 +1553,10 @@ fn several_clients() {
        = help: add "client: NAME" with a client from "clients:", or "clients: [A, B]" for several
 
     error: service "c" lists client "home" twice
-      --> server.yaml:17:14
+      --> server.yaml:17:21
        |
     17 |     clients: [home, home, ofice]
-       |              ^^^^^^^^^^^^^^^^^^^
+       |                     ^^^^
        = help: list each client once
 
     error: unknown client "ofice" referenced by service "c"

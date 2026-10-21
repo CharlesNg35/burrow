@@ -86,10 +86,20 @@ pub(super) fn check_service<'a>(
         deny: parse_sources(name, "deny_from", &svc.deny_from, spans, out),
     };
     let mut listed = Vec::new();
-    for v in &svc.visitors {
-        if !listed.contains(v) {
-            listed.push(v.clone());
+    for (i, v) in svc.visitors.iter().enumerate() {
+        if listed.contains(v) {
+            let at = i.to_string();
+            out.push(
+                Diagnostic::error(
+                    "duplicate-visitor",
+                    format!("service \"{name}\" lists visitor \"{v}\" twice"),
+                )
+                .at(spans.value(&["services", name, "visitors", &at]))
+                .help("list each visitor once"),
+            );
+            continue;
         }
+        listed.push(v.clone());
     }
     let bandwidth = match svc.bandwidth.as_deref().map(crate::ratelimit::parse_rate) {
         None => None,
@@ -191,14 +201,19 @@ fn check_clients(
         ),
         _ => {}
     }
-    for c in svc.client.iter().chain(&svc.clients) {
+    let named = svc.client.iter().map(|c| (None, c));
+    let listed = svc.clients.iter().enumerate().map(|(i, c)| (Some(i), c));
+    for (i, c) in named.chain(listed) {
         if clients.contains(c) {
+            let at = i.map(|i| i.to_string());
+            let mut place = vec!["services", name, "clients"];
+            place.extend(at.as_deref());
             out.push(
                 Diagnostic::error(
                     "duplicate-client",
                     format!("service \"{name}\" lists client \"{c}\" twice"),
                 )
-                .at(spans.value(&["services", name, "clients"]))
+                .at(spans.value(&place))
                 .help("list each client once"),
             );
             continue;
