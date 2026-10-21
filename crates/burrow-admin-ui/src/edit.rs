@@ -53,6 +53,7 @@ pub struct Edit {
     pub outcome: RwSignal<Option<Outcome>>,
     pub reset_on_load: RwSignal<bool>,
     pub auto_apply: RwSignal<bool>,
+    pub refused: RwSignal<std::collections::BTreeSet<Path>>,
     seq: StoredValue<u64>,
 }
 
@@ -148,6 +149,7 @@ impl Edit {
             outcome: RwSignal::new(None),
             reset_on_load: RwSignal::new(false),
             auto_apply: RwSignal::new(false),
+            refused: RwSignal::new(std::collections::BTreeSet::new()),
             seq: StoredValue::new(0),
         }
     }
@@ -185,7 +187,24 @@ impl Edit {
         self.draft.with(|d| d.draft().clone())
     }
 
+    pub fn refuse(&self, path: &[String], refused: bool) {
+        if self.refused.with_untracked(|r| r.contains(path)) != refused {
+            self.refused.update(|r| {
+                if refused {
+                    r.insert(path.to_vec());
+                } else {
+                    r.remove(path);
+                }
+            });
+        }
+    }
+
     pub fn set(&self, path: &[String], v: Option<Value>) {
+        let refused = crate::grants::refuses(path, v.as_ref());
+        self.refuse(path, refused);
+        if refused {
+            return;
+        }
         self.draft.update(|d| d.set(path, v.unwrap_or(Value::Null)));
         self.changed();
     }
@@ -203,6 +222,13 @@ impl Edit {
     }
 
     pub fn add_secret(&self, path: &[String], handle: &str, fp: &str) {
+        let mut secrets = burrow_admin_proto::value::one_or_many(self.value(path).as_ref());
+        secrets.push(burrow_admin_logic::changeset::new_secret(handle, fp));
+        let refused = crate::grants::refuses(path, Some(&Value::Array(secrets)));
+        self.refuse(path, refused);
+        if refused {
+            return;
+        }
         self.draft.update(|d| d.add_secret(path, handle, fp));
         self.changed();
     }

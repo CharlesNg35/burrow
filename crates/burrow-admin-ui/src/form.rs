@@ -820,6 +820,7 @@ fn row(f: Field, path: Path, spath: Path, entity: Path) -> AnyView {
                         <div class="min-w-0 flex-1">{domain::editor(fc)}</div>
                         {reset_button(path.clone())}
                     </div>
+                    {crate::grants::refused_line(path.clone())}
                 }
                 .into_any()
             } else {

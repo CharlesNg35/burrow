@@ -13,7 +13,7 @@ use burrow_ui_kit::{ChipInput, Segmented, Select, TextArea, TextInput, Toggle, b
 use leptos::prelude::*;
 
 use crate::form::object_view;
-use crate::grants::{grants_at, in_the_file};
+use crate::grants::in_the_file;
 use crate::store::store;
 
 #[derive(Clone)]
@@ -46,6 +46,10 @@ pub fn names_of(entity: &Entity) -> Vec<String> {
 
 pub fn set_checked(fc: &FieldCtx, node: &Node, v: Option<Value>) {
     let e = store().edit;
+    if crate::grants::refuses(&fc.path, v.as_ref()) {
+        e.refuse(&fc.path, true);
+        return;
+    }
     let problem = match &v {
         None if node.required && node.default.is_none() => {
             Some(format!("{} is required", node.label))
@@ -347,21 +351,17 @@ fn enum_editor(fc: FieldCtx, c: EnumC) -> AnyView {
             .iter()
             .map(|o| (o.value.clone(), o.label.clone(), o.danger)),
     );
-    let gate = fc
-        .node
-        .reduce_only
-        .then(|| (fc.entity.clone(), fc.path.clone()));
+    let gated = fc.path.clone();
     let values: Vec<String> = options.iter().map(|o| o.0.clone()).collect();
-    let off = Signal::derive(move || match &gate {
-        Some((entity, path)) => values
+    let off = Signal::derive(move || {
+        values
             .iter()
             .filter(|v| {
                 let candidate = (*v != UNSET).then(|| Value::String(v.to_string()));
-                grants_at(entity, path, candidate)
+                crate::grants::refuses(&gated, candidate.as_ref())
             })
             .cloned()
-            .collect(),
-        None => Vec::new(),
+            .collect::<Vec<_>>()
     });
     let set = move |v: String| {
         if !off.with_untracked(|o| o.contains(&v)) {
@@ -610,11 +610,6 @@ fn list_editor(fc: FieldCtx, item: Node) -> AnyView {
     let node = fc.node.clone();
     let fc2 = fc.clone();
     let item3 = item.clone();
-    let gate = fc
-        .node
-        .reduce_only
-        .then(|| (fc.entity.clone(), fc.path.clone()));
-    let refused = RwSignal::new(false);
     let on_change = move |list: Vec<String>| {
         let v = (!list.is_empty()).then(|| {
             Value::Array(
@@ -623,11 +618,8 @@ fn list_editor(fc: FieldCtx, item: Node) -> AnyView {
                     .collect(),
             )
         });
-        let widens = gate
-            .as_ref()
-            .is_some_and(|(entity, path)| grants_at(entity, path, v.clone()));
-        refused.set(widens);
-        if widens {
+        if crate::grants::refuses(&fc2.path, v.as_ref()) {
+            store().edit.refuse(&fc2.path, true);
             return;
         }
         set_checked(&fc2, &node, v);
@@ -651,7 +643,6 @@ fn list_editor(fc: FieldCtx, item: Node) -> AnyView {
             empty_label=fc.node.empty_label.clone().unwrap_or_default()
             meta=meta
         />
-        {move || refused.get().then(in_the_file)}
     }
     .into_any()
 }

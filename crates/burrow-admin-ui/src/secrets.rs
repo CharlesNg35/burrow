@@ -76,19 +76,11 @@ pub fn secret_list(path: Path, id: String, max: u32) -> AnyView {
         });
     };
     let full = Signal::derive(move || list.with(|l| l.len() as u32 >= max.max(1)));
-    let reduce_only = s
-        .schema
-        .get_untracked()
-        .and_then(|sc| sc.root.at(&path).map(|n| n.reduce_only))
-        .unwrap_or(false);
     let p5 = path.clone();
     let granting = Signal::derive(move || {
-        reduce_only && {
-            let mut secrets = burrow_admin_proto::value::one_or_many(e.value(&p5).as_ref());
-            secrets.push(new_secret("", ""));
-            let entity = &p5[..p5.len().saturating_sub(1)];
-            crate::grants::grants_at(entity, &p5, Some(Value::Array(secrets)))
-        }
+        let mut secrets = burrow_admin_proto::value::one_or_many(e.value(&p5).as_ref());
+        secrets.push(new_secret("", ""));
+        crate::grants::refuses(&p5, Some(&Value::Array(secrets)))
     });
     let label = Signal::derive(move || {
         if list.with(Vec::is_empty) {
