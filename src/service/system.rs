@@ -161,7 +161,7 @@ pub fn run_ok(program: &str, args: &[&str]) -> bool {
 
 #[cfg(unix)]
 pub fn is_admin() -> bool {
-    run("id", &["-u"]).is_ok_and(|s| s.trim() == "0")
+    rustix::process::geteuid().is_root()
 }
 
 #[cfg(windows)]
@@ -638,6 +638,13 @@ pub fn all_paths_under(files: &[PathBuf], roots: &[&str]) -> bool {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn admin_means_the_effective_user_is_root() {
+        let id = run("id", &["-u"]).unwrap();
+        assert_eq!(is_admin(), id.trim() == "0");
+    }
 
     #[cfg(unix)]
     thread_local! {
