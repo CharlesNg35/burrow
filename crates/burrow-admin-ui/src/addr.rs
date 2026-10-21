@@ -432,7 +432,7 @@ pub fn server_editor(fc: FieldCtx) -> AnyView {
     .into_any()
 }
 
-pub fn options_for(entity: &Entity, reserved: &[String]) -> Vec<ComboOption> {
+fn options_for(entity: &Entity, reserved: &[String]) -> Vec<ComboOption> {
     let s = store();
     let status = s.status.get();
     let local = reserved.iter().map(|n| ComboOption {

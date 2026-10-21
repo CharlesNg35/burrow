@@ -60,7 +60,7 @@ pub fn head_of<B>(req: &::http::Request<B>) -> Result<Head, Reject> {
     })
 }
 
-pub fn allowed_hosts(port: u16) -> [String; 3] {
+fn allowed_hosts(port: u16) -> [String; 3] {
     [
         format!("127.0.0.1:{port}"),
         format!("localhost:{port}"),

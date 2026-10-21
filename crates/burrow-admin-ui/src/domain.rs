@@ -5,13 +5,14 @@ use burrow_admin_logic::tree::{inner, names};
 use burrow_admin_proto::Path;
 use burrow_admin_proto::schema::{Entity, EnumC, Node, SemType, UnionC};
 use burrow_admin_proto::serde_json::{self, Value};
+use burrow_admin_proto::value::child;
 use burrow_config::{Field, HealthCheck, ServiceEntry};
 use burrow_syntax::duration::{TimeUnit, best_unit, human, to_stored, units_for};
 use burrow_syntax::rate::RateUnit;
 use burrow_ui_kit::{ChipInput, Segmented, Select, TextArea, TextInput, Toggle, button_class};
 use leptos::prelude::*;
 
-use crate::form::{object_view, push};
+use crate::form::object_view;
 use crate::grants::{grants_at, in_the_file};
 use crate::store::store;
 
@@ -333,9 +334,8 @@ fn enum_editor(fc: FieldCtx, c: EnumC) -> AnyView {
         let clear = v == UNSET
             || (merge_default
                 && Some(&v) == default_raw.as_ref()
-                && e.draft.with_untracked(|d| {
-                    burrow_admin_logic::changeset::get(d.base(), &p2).is_none()
-                }));
+                && e.draft
+                    .with_untracked(|d| burrow_admin_proto::value::get(d.base(), &p2).is_none()));
         e.set(&p2, (!clear).then(|| Value::String(v)));
     };
     let mut options: Vec<(String, String, bool)> = Vec::new();
@@ -728,8 +728,8 @@ fn map_editor(fc: FieldCtx, entity: Option<Entity>, value_node: Node) -> AnyView
         keys.get()
             .into_iter()
             .map(|k| {
-                let p = push(&fc2.path, &k);
-                let sp = push(&fc2.spath, "*");
+                let p = child(&fc2.path, &k);
+                let sp = child(&fc2.spath, "*");
                 let sub = FieldCtx {
                     node: value_node.clone(),
                     path: p.clone(),

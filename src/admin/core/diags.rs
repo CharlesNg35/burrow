@@ -81,7 +81,7 @@ impl Mapper {
         Mapper { places }
     }
 
-    pub fn path_at(&self, at: usize) -> Option<Vec<String>> {
+    fn path_at(&self, at: usize) -> Option<Vec<String>> {
         let within = |s: Span| s.start.offset <= at && at < s.end.offset.max(s.start.offset + 1);
         self.places
             .iter()

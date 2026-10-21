@@ -89,7 +89,7 @@ pub struct Chart {
     pub alt: String,
 }
 
-pub fn weight(open: u64) -> f64 {
+fn weight(open: u64) -> f64 {
     1.4 + open.min(50) as f64 * 0.14
 }
 

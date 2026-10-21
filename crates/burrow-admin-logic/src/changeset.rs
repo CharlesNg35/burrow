@@ -2,7 +2,6 @@ use burrow_admin_proto::Path;
 use burrow_admin_proto::ops::Op;
 use burrow_admin_proto::serde_json::{Map, Value, json};
 use burrow_admin_proto::value::{self, as_secret};
-use burrow_config::{ClientEntry, Entry, ServerConfig, ServiceEntry, VisitorEntry};
 
 pub const NEW_SECRET: &str = "$new_secret";
 
@@ -33,12 +32,6 @@ fn secret_items(v: &Value) -> Option<Vec<&Value>> {
         .then_some(items)
 }
 
-fn child(path: &[String], key: &str) -> Path {
-    let mut p = path.to_vec();
-    p.push(key.to_string());
-    p
-}
-
 fn strip_new(v: &Value, path: &[String], adds: &mut Vec<Op>) -> Value {
     if let Some(items) = secret_items(v)
         && items.iter().any(|i| as_new_secret(i).is_some())
@@ -57,7 +50,7 @@ fn strip_new(v: &Value, path: &[String], adds: &mut Vec<Op>) -> Value {
         Value::Object(m) if !special(v) => {
             let mut out = Map::new();
             for (k, x) in m {
-                let cleaned = strip_new(x, &child(path, k), adds);
+                let cleaned = strip_new(x, &value::child(path, k), adds);
                 if !cleaned.is_null() || x.is_null() {
                     out.insert(k.clone(), cleaned);
                 }
@@ -98,7 +91,7 @@ fn diff(base: &Value, draft: &Value, path: &[String], out: &mut Vec<Op>, tail: &
     match (base, draft) {
         (Value::Object(b), Value::Object(d)) if !special(base) && !special(draft) => {
             for (k, dv) in d {
-                let p = child(path, k);
+                let p = value::child(path, k);
                 match b.get(k) {
                     None => {
                         let mut adds = Vec::new();
@@ -114,7 +107,7 @@ fn diff(base: &Value, draft: &Value, path: &[String], out: &mut Vec<Op>, tail: &
             }
             for k in b.keys().filter(|k| !d.contains_key(*k)) {
                 out.push(Op::Remove {
-                    path: child(path, k),
+                    path: value::child(path, k),
                 });
             }
         }
@@ -137,10 +130,6 @@ pub fn ops_between(base: &Value, draft: &Value) -> Vec<Op> {
     main
 }
 
-pub fn get<'a>(root: &'a Value, path: &[String]) -> Option<&'a Value> {
-    value::get(root, path)
-}
-
 fn parent_mut<'a>(root: &'a mut Value, path: &[String]) -> Option<&'a mut Map<String, Value>> {
     let mut cur = root;
     for k in path {
@@ -157,55 +146,6 @@ fn parent_mut<'a>(root: &'a mut Value, path: &[String]) -> Option<&'a mut Map<St
         }
     }
     cur.as_object_mut()
-}
-
-pub fn rename_refs(root: &mut Value, section: &str, from: &str, to: &str) {
-    let fields = if section == ClientEntry::section() {
-        vec![ServiceEntry::CLIENT.key(), ServiceEntry::CLIENTS.key()]
-    } else if section == VisitorEntry::section() {
-        vec![ServiceEntry::VISITORS.key()]
-    } else {
-        Vec::new()
-    };
-    if let Some(services) = ServerConfig::SERVICES
-        .get_mut(root)
-        .and_then(Value::as_object_mut)
-    {
-        for svc in services.values_mut() {
-            let Some(svc) = svc.as_object_mut() else {
-                continue;
-            };
-            for f in &fields {
-                match svc.get_mut(*f) {
-                    Some(Value::Array(items)) => items.iter_mut().for_each(|v| {
-                        if v.as_str() == Some(from) {
-                            *v = Value::String(to.to_string());
-                        }
-                    }),
-                    Some(v) if v.as_str() == Some(from) => *v = Value::String(to.to_string()),
-                    _ => {}
-                }
-            }
-        }
-    }
-    if section == ClientEntry::section()
-        && let Some(visitors) = ServerConfig::VISITORS
-            .get_mut(root)
-            .and_then(Value::as_object_mut)
-    {
-        for v in visitors.values_mut() {
-            if let Some(reach) = VisitorEntry::REACH
-                .get_mut(v)
-                .and_then(Value::as_object_mut)
-            {
-                let renamed: Vec<(String, Value)> = std::mem::take(reach)
-                    .into_iter()
-                    .map(|(k, x)| (if k == from { to.to_string() } else { k }, x))
-                    .collect();
-                reach.extend(renamed);
-            }
-        }
-    }
 }
 
 pub fn rename_key(root: &mut Value, path: &[String], to: &str) -> bool {
@@ -246,7 +186,7 @@ pub fn apply(root: &Value, ops: &[Op]) -> Value {
             }
             Op::Rename { path, to, refs } => {
                 if rename_key(&mut v, path, to) && *refs && path.len() == 2 {
-                    rename_refs(&mut v, &path[0], &path[1], to);
+                    burrow_config::refs::rename_refs(&mut v, &path[0], &path[1], to);
                 }
             }
             Op::SecretAdd { path, handle } => {
@@ -315,15 +255,7 @@ impl Changeset {
     }
 
     pub fn set(&mut self, path: &[String], value: Value) {
-        if let Some((last, parents)) = path.split_last()
-            && let Some(m) = parent_mut(&mut self.draft, parents)
-        {
-            if value.is_null() {
-                m.shift_remove(last);
-            } else {
-                m.insert(last.clone(), value);
-            }
-        }
+        value::put(&mut self.draft, path, (!value.is_null()).then_some(value));
     }
 
     pub fn remove(&mut self, path: &[String]) {
@@ -334,14 +266,14 @@ impl Changeset {
         if path.len() != 2 || !rename_key(&mut self.draft, path, to) {
             return false;
         }
-        rename_refs(&mut self.draft, &path[0], &path[1], to);
+        burrow_config::refs::rename_refs(&mut self.draft, &path[0], &path[1], to);
         self.renames.push((path.to_vec(), to.to_string()));
         true
     }
 
     pub fn add_secret(&mut self, path: &[String], handle: &str, fp: &str) {
         let marker = new_secret(handle, fp);
-        let next = match get(&self.draft, path).cloned() {
+        let next = match value::get(&self.draft, path).cloned() {
             None | Some(Value::Null) => marker,
             Some(Value::Array(mut a)) => {
                 a.push(marker);
@@ -354,7 +286,7 @@ impl Changeset {
     }
 
     pub fn remove_secret(&mut self, path: &[String], fp: &str) {
-        let Some(cur) = get(&self.draft, path).cloned() else {
+        let Some(cur) = value::get(&self.draft, path).cloned() else {
             return;
         };
         let items: Vec<Value> = match cur {
@@ -381,7 +313,7 @@ impl Changeset {
         let mut out = Vec::new();
         for (path, to) in &self.renames {
             if rename_key(&mut renamed, path, to) {
-                rename_refs(&mut renamed, &path[0], &path[1], to);
+                burrow_config::refs::rename_refs(&mut renamed, &path[0], &path[1], to);
                 out.push(Op::Rename {
                     path: path.clone(),
                     to: to.clone(),
@@ -401,7 +333,7 @@ impl Changeset {
     }
 
     pub fn modified(&self, path: &[String]) -> bool {
-        get(&self.base, path) != get(&self.draft, path)
+        value::get(&self.base, path) != value::get(&self.draft, path)
     }
 
     pub fn reset(&mut self) {
@@ -692,5 +624,20 @@ mod tests {
         let ops = ops_between(&a, &b);
         assert_eq!(ops.len(), 3, "{ops:?}");
         assert!(ops_between(&a, &a).is_empty());
+    }
+
+    #[test]
+    fn a_renamed_client_keeps_its_place_in_the_draft_reach() {
+        let mut c = Changeset::new(json!({
+            "clients": {"home": {}, "office": {}},
+            "visitors": {"lap": {"reach": {"home": "any", "office": "any"}}}
+        }));
+        assert!(c.rename(&["clients".to_string(), "home".to_string()], "home2"));
+        let keys: Vec<&String> = c.draft()["visitors"]["lap"]["reach"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .collect();
+        assert_eq!(keys, ["home2", "office"]);
     }
 }

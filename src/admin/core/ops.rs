@@ -1,6 +1,5 @@
 use burrow_admin_proto::Path;
 use burrow_admin_proto::ops::Op;
-use burrow_config::{ClientEntry, Entry, ServerConfig, ServiceEntry, VisitorEntry};
 use serde_json::{Map, Value};
 
 use super::values::{fingerprint_of, has_secret_marker, raw_of};
@@ -71,53 +70,6 @@ fn checked_value(v: &Value) -> Result<Value, OpError> {
         ));
     }
     Ok(raw_of(v))
-}
-
-fn rewrite_refs(root: &mut Value, section: &str, from: &str, to: &str) {
-    let rename_in = |v: &mut Value| {
-        if v.as_str() == Some(from) {
-            *v = Value::String(to.to_string());
-        }
-    };
-    if let Some(services) = ServerConfig::SERVICES
-        .get_mut(root)
-        .and_then(Value::as_object_mut)
-    {
-        for svc in services.values_mut() {
-            let Some(svc) = svc.as_object_mut() else {
-                continue;
-            };
-            let fields = if section == ClientEntry::section() {
-                vec![ServiceEntry::CLIENT.key(), ServiceEntry::CLIENTS.key()]
-            } else if section == VisitorEntry::section() {
-                vec![ServiceEntry::VISITORS.key()]
-            } else {
-                Vec::new()
-            };
-            for f in fields {
-                match svc.get_mut(f) {
-                    Some(Value::Array(items)) => items.iter_mut().for_each(rename_in),
-                    Some(v) => rename_in(v),
-                    None => {}
-                }
-            }
-        }
-    }
-    if section == ClientEntry::section()
-        && let Some(visitors) = ServerConfig::VISITORS
-            .get_mut(root)
-            .and_then(Value::as_object_mut)
-    {
-        for v in visitors.values_mut() {
-            if let Some(reach) = VisitorEntry::REACH
-                .get_mut(v)
-                .and_then(Value::as_object_mut)
-                && let Some(rules) = reach.shift_remove(from)
-            {
-                reach.insert(to.to_string(), rules);
-            }
-        }
-    }
 }
 
 fn path_of(op: &Op) -> Option<&Path> {
@@ -194,7 +146,13 @@ pub fn apply(raw: &Value, ops: &[Op], cx: &dyn Context) -> Result<Applied, OpErr
                     to: to.clone(),
                 });
                 if *refs && parents.len() == 1 {
-                    rewrite_refs(&mut target, &parents[0], last, to);
+                    for key in burrow_config::refs::rename_refs(&mut target, &parents[0], last, to)
+                    {
+                        renames.push(Rename {
+                            path: key,
+                            to: to.clone(),
+                        });
+                    }
                 }
             }
             Op::SecretAdd { path, handle } => {
@@ -356,7 +314,18 @@ mod tests {
             2
         );
         assert_eq!(out.fresh[0].fp, cx.0.fingerprint());
-        assert_eq!(out.renames.len(), 1);
+        let renamed: Vec<(Vec<String>, &str)> = out
+            .renames
+            .iter()
+            .map(|r| (r.path.clone(), r.to.as_str()))
+            .collect();
+        assert_eq!(
+            renamed,
+            [
+                (p(&["clients", "home"]), "house"),
+                (p(&["visitors", "v", "reach", "home"]), "house"),
+            ]
+        );
         let removed = apply(
             &out.target,
             &[Op::SecretRemove {

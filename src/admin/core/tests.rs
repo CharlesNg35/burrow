@@ -214,6 +214,59 @@ fn apply_now(
 }
 
 #[test]
+fn a_renamed_client_keeps_its_place_in_reach_and_the_file_changes_only_the_names() {
+    let w = world();
+    let (office, lap) = (Secret::generate(), Secret::generate());
+    let text = w
+        .text
+        .replace(
+            "\nvisitors:",
+            &format!("  office:\n    secret: {}\n\nvisitors:", office.encode()),
+        )
+        .replace(
+            "\nservices:",
+            &format!(
+                "  lap:\n    secret: {}\n    reach:\n      home: any # first\n      office: any\n\nservices:",
+                lap.encode()
+            ),
+        );
+    let core = core_for(&text);
+    let s = session(&w, AdminLevel::Write);
+    let ops = [Op::Rename {
+        path: p(&["clients", "home"]),
+        to: "home2".into(),
+        refs: true,
+    }];
+    let c = plan::compute(&core, &s, &text::rev(&text), &ops).unwrap();
+    assert!(c.plan.valid, "{:?}", c.plan.diags);
+    assert!(
+        c.new_text
+            .contains("    reach:\n      home2: any # first\n      office: any\n"),
+        "{}",
+        c.new_text
+    );
+    assert!(
+        c.new_text.contains("  # the home box\n  home2:\n"),
+        "{}",
+        c.new_text
+    );
+    let changed: Vec<(&str, &str)> = text
+        .lines()
+        .zip(c.new_text.lines())
+        .filter(|(a, b)| a != b)
+        .collect();
+    assert_eq!(text.lines().count(), c.new_text.lines().count());
+    assert!(!changed.is_empty());
+    for (a, b) in changed {
+        assert_eq!(
+            a.replace("home", "home2"),
+            b,
+            "only the name changes in place"
+        );
+    }
+}
+
+#[test]
 fn a_plan_keeps_comments_and_shows_a_masked_diff() {
     let w = world();
     let core = core_for(&w.text);

@@ -56,7 +56,7 @@ pub struct Edit {
     seq: StoredValue<u64>,
 }
 
-pub fn ops_of(draft: &Changeset, texts: &BTreeMap<Path, String>) -> Vec<Op> {
+fn ops_of(draft: &Changeset, texts: &BTreeMap<Path, String>) -> Vec<Op> {
     let mut ops = draft.ops();
     for (path, text) in texts {
         ops.push(Op::SetText {
@@ -80,7 +80,7 @@ pub fn missing_confirms(plan: &Plan, typed: &BTreeMap<String, String>) -> Vec<St
         .collect()
 }
 
-pub fn outcome_of(err: &ErrorBody) -> Outcome {
+fn outcome_of(err: &ErrorBody) -> Outcome {
     if err.body.get("unanswered") == Some(&Value::Bool(true)) {
         return Outcome::Unanswered;
     }
@@ -103,7 +103,7 @@ pub fn outcome_of(err: &ErrorBody) -> Outcome {
     }
 }
 
-pub fn revert_outcome(err: &ErrorBody) -> Outcome {
+fn revert_outcome(err: &ErrorBody) -> Outcome {
     match outcome_of(err) {
         Outcome::Unanswered => Outcome::Failed {
             code: ErrorCode::Unknown,
@@ -113,7 +113,7 @@ pub fn revert_outcome(err: &ErrorBody) -> Outcome {
     }
 }
 
-pub fn conflict_of(err: &ErrorBody) -> Option<Conflict> {
+fn conflict_of(err: &ErrorBody) -> Option<Conflict> {
     (err.code == ErrorCode::Conflict).then(|| {
         serde_json::from_value::<Conflict>(err.body.clone()).unwrap_or(Conflict {
             current: err
@@ -173,12 +173,12 @@ impl Edit {
 
     pub fn value(&self, path: &[String]) -> Option<Value> {
         self.draft
-            .with(|d| burrow_admin_logic::changeset::get(d.draft(), path).cloned())
+            .with(|d| burrow_admin_proto::value::get(d.draft(), path).cloned())
     }
 
     pub fn peek(&self, path: &[String]) -> Option<Value> {
         self.draft
-            .with_untracked(|d| burrow_admin_logic::changeset::get(d.draft(), path).cloned())
+            .with_untracked(|d| burrow_admin_proto::value::get(d.draft(), path).cloned())
     }
 
     pub fn doc(&self) -> Value {
@@ -468,7 +468,7 @@ fn related_errors(draft: RwSignal<Changeset>) -> BTreeMap<Path, String> {
     draft.with(|d| entity_errors(&schema, d.draft()))
 }
 
-pub fn entity_errors(
+fn entity_errors(
     schema: &burrow_admin_proto::schema::Schema,
     doc: &Value,
 ) -> BTreeMap<Path, String> {
@@ -481,7 +481,7 @@ pub fn entity_errors(
             continue;
         };
         let Some(items) =
-            burrow_admin_logic::changeset::get(doc, &info.path).and_then(Value::as_object)
+            burrow_admin_proto::value::get(doc, &info.path).and_then(Value::as_object)
         else {
             continue;
         };

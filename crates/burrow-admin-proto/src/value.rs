@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
+use crate::Path;
+
 pub const SECRET_KEY: &str = "$secret";
 pub const ENV_KEY: &str = "$env";
 
@@ -88,6 +90,51 @@ pub fn get_mut<'a>(root: &'a mut Value, path: &[String]) -> Option<&'a mut Value
         Value::Array(a) => k.parse::<usize>().ok().and_then(move |i| a.get_mut(i)),
         _ => None,
     })
+}
+
+pub fn put(root: &mut Value, path: &[String], v: Option<Value>) -> bool {
+    let Some((last, parents)) = path.split_last() else {
+        return false;
+    };
+    let mut cur = root;
+    for k in parents {
+        if cur.is_null() {
+            *cur = Value::Object(serde_json::Map::new());
+        }
+        let Some(m) = cur.as_object_mut() else {
+            return false;
+        };
+        cur = m.entry(k.clone()).or_insert(Value::Null);
+    }
+    if cur.is_null() {
+        *cur = Value::Object(serde_json::Map::new());
+    }
+    let Some(m) = cur.as_object_mut() else {
+        return false;
+    };
+    match v {
+        Some(v) => {
+            m.insert(last.clone(), v);
+        }
+        None => {
+            m.shift_remove(last);
+        }
+    }
+    true
+}
+
+pub fn child(path: &[String], key: &str) -> Path {
+    let mut p = path.to_vec();
+    p.push(key.to_string());
+    p
+}
+
+pub fn one_or_many(v: Option<&Value>) -> Vec<Value> {
+    match v {
+        Some(Value::Array(a)) => a.clone(),
+        Some(Value::Null) | None => Vec::new(),
+        Some(one) => vec![one.clone()],
+    }
 }
 
 pub fn display(v: &Value) -> String {

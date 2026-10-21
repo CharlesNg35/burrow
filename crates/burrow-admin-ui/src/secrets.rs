@@ -21,7 +21,7 @@ pub struct Row {
 }
 
 pub fn rows(v: Option<&Value>) -> Vec<Row> {
-    rows_value(v)
+    burrow_admin_proto::value::one_or_many(v)
         .iter()
         .filter_map(|i| {
             if let Some((_, fp)) = as_new_secret(i) {
@@ -44,14 +44,6 @@ pub fn rows(v: Option<&Value>) -> Vec<Row> {
             })
         })
         .collect()
-}
-
-fn rows_value(v: Option<&Value>) -> Vec<Value> {
-    match v {
-        Some(Value::Array(a)) => a.clone(),
-        Some(Value::Null) | None => Vec::new(),
-        Some(one) => vec![one.clone()],
-    }
 }
 
 fn in_use_fp(section: &str, name: &str) -> Option<String> {
@@ -92,7 +84,7 @@ pub fn secret_list(path: Path, id: String, max: u32) -> AnyView {
     let p5 = path.clone();
     let granting = Signal::derive(move || {
         reduce_only && {
-            let mut secrets = rows_value(e.value(&p5).as_ref());
+            let mut secrets = burrow_admin_proto::value::one_or_many(e.value(&p5).as_ref());
             secrets.push(new_secret("", ""));
             let entity = &p5[..p5.len().saturating_sub(1)];
             crate::grants::grants_at(entity, &p5, Some(Value::Array(secrets)))

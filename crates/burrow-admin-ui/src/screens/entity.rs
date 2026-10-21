@@ -1,10 +1,11 @@
-use burrow_admin_logic::changeset::{get, ops_between};
+use burrow_admin_logic::changeset::ops_between;
 use burrow_admin_logic::rates::human_bits;
 use burrow_admin_proto::Path;
 use burrow_admin_proto::msg::AdminLevel;
 use burrow_admin_proto::schema::Entity;
 use burrow_admin_proto::serde_json::Value;
 use burrow_admin_proto::value::as_secret;
+use burrow_admin_proto::value::get;
 use burrow_config::Mode;
 use burrow_config::admin_schema::AdminEnum;
 use burrow_config::{ClientEntry, Entry, Protocol, ServiceEntry, VisitorEntry, entity_of_section};
@@ -924,7 +925,7 @@ fn Detail(section: String, name: String) -> impl IntoView {
                                 <div class="absolute top-10 right-0 z-30 w-48 rounded-[10px] border border-border-strong bg-surface p-1 shadow-overlay outline-none dark:bg-surface-2" id="entity-more-menu" tabindex="-1" data-testid="more-menu" on:click=move |_| menu.set(false)>
                                     {can.then(|| {
                                         let path = path.clone();
-                                        let blocked = Memo::new(move |_| e.draft.with(|d| burrow_admin_logic::changeset::get(d.draft(), &path).is_some_and(|v| burrow_admin_logic::grant::would_grant(None, v))));
+                                        let blocked = Memo::new(move |_| e.draft.with(|d| burrow_admin_proto::value::get(d.draft(), &path).is_some_and(|v| burrow_admin_logic::grant::would_grant(None, v))));
                                         view! {
                                             <button
                                                 type="button"

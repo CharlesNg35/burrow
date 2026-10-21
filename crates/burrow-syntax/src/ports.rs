@@ -133,13 +133,6 @@ pub fn port_at(base: &str, index: u16) -> String {
     }
 }
 
-pub fn well_known(port: u16) -> Option<&'static str> {
-    WELL_KNOWN
-        .iter()
-        .find(|(p, _)| *p == port)
-        .map(|(_, name)| *name)
-}
-
 pub fn sensitive(port: u16) -> Option<&'static str> {
     SENSITIVE_PORTS
         .iter()
@@ -160,35 +153,6 @@ pub const SENSITIVE_PORTS: &[(u16, &str)] = &[
     (9200, "Elasticsearch"),
     (11211, "memcached"),
     (27017, "MongoDB"),
-];
-
-const WELL_KNOWN: &[(u16, &str)] = &[
-    (21, "FTP"),
-    (22, "SSH"),
-    (23, "telnet"),
-    (25, "SMTP"),
-    (53, "DNS"),
-    (80, "HTTP"),
-    (443, "HTTPS"),
-    (445, "SMB"),
-    (1194, "OpenVPN"),
-    (1883, "MQTT"),
-    (2375, "Docker API"),
-    (3000, "dev server"),
-    (3306, "MySQL"),
-    (3389, "RDP"),
-    (5432, "PostgreSQL"),
-    (5900, "VNC"),
-    (6379, "Redis"),
-    (SERVER_PORT, "burrow"),
-    (8080, "HTTP alt"),
-    (8443, "HTTPS alt"),
-    (9090, "Prometheus"),
-    (9200, "Elasticsearch"),
-    (11211, "memcached"),
-    (25565, "Minecraft"),
-    (27017, "MongoDB"),
-    (51820, "WireGuard"),
 ];
 
 #[cfg(test)]
@@ -297,7 +261,6 @@ mod tests {
 
     #[test]
     fn port_names() {
-        assert_eq!(well_known(22), Some("SSH"));
         assert_eq!(sensitive(5432), Some("PostgreSQL"));
         assert_eq!(sensitive(80), None);
     }

@@ -344,33 +344,6 @@ pub fn compute(
     })
 }
 
-fn put(root: &mut Value, path: &[String], v: Option<Value>) -> bool {
-    let Some((last, parents)) = path.split_last() else {
-        return false;
-    };
-    let mut cur = root;
-    for k in parents {
-        let Some(m) = cur.as_object_mut() else {
-            return false;
-        };
-        cur = m
-            .entry(k.clone())
-            .or_insert_with(|| Value::Object(Default::default()));
-    }
-    let Some(m) = cur.as_object_mut() else {
-        return false;
-    };
-    match v {
-        Some(v) => {
-            m.insert(last.clone(), v);
-        }
-        None => {
-            m.remove(last);
-        }
-    }
-    true
-}
-
 fn shown(v: Option<&Value>) -> String {
     match v {
         None | Some(Value::Null) => "not set".into(),
@@ -379,7 +352,7 @@ fn shown(v: Option<&Value>) -> String {
     }
 }
 
-pub fn keep_locked(
+fn keep_locked(
     schema: &burrow_admin_proto::schema::Schema,
     current: &Value,
     target: &Value,
@@ -392,7 +365,7 @@ pub fn keep_locked(
         if now == then {
             continue;
         }
-        if !put(&mut out, &path, now.clone()) {
+        if !burrow_admin_proto::value::put(&mut out, &path, now.clone()) {
             continue;
         }
         notes.push(burrow_admin_proto::plan::Impact {

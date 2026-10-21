@@ -32,10 +32,6 @@ pub fn env_vars(text: &str) -> Vec<String> {
     out
 }
 
-pub fn fingerprint_ok(fp: &str) -> bool {
-    fp.len() == 8 && fp.bytes().all(|b| b.is_ascii_hexdigit())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -48,7 +44,5 @@ mod tests {
         ));
         assert!(!looks_like_secret("password"));
         assert_eq!(env_vars("${A}-${B:-x}${A}"), vec!["A", "B"]);
-        assert!(fingerprint_ok("ab12cd34"));
-        assert!(!fingerprint_ok("xyz"));
     }
 }

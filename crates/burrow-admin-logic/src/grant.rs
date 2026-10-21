@@ -1,7 +1,7 @@
 use burrow_admin_proto::Path;
 use burrow_admin_proto::msg::AdminLevel;
 use burrow_admin_proto::serde_json::{self, Value};
-use burrow_admin_proto::value::as_secret;
+use burrow_admin_proto::value::{as_secret, one_or_many};
 use burrow_config::VisitorEntry;
 use burrow_syntax::grant::{Power, grants};
 
@@ -17,18 +17,14 @@ pub fn fields() -> [Path; 3] {
     ]
 }
 
-pub fn power_of(visitor: &Value) -> Power<AdminLevel, Value> {
+fn power_of(visitor: &Value) -> Power<AdminLevel, Value> {
     let level = VisitorEntry::ADMIN
         .get(visitor)
         .and_then(|v| serde_json::from_value(v.clone()).ok());
-    let secrets = match VisitorEntry::SECRET.get(visitor) {
-        Some(Value::Array(a)) => a.clone(),
-        Some(Value::Null) | None => Vec::new(),
-        Some(one) => vec![one.clone()],
-    }
-    .into_iter()
-    .filter(|s| as_secret(s).is_some() || as_new_secret(s).is_some())
-    .collect();
+    let secrets = one_or_many(VisitorEntry::SECRET.get(visitor))
+        .into_iter()
+        .filter(|s| as_secret(s).is_some() || as_new_secret(s).is_some())
+        .collect();
     let from = VisitorEntry::ADMIN_FROM
         .get(visitor)
         .and_then(Value::as_array)

@@ -294,7 +294,7 @@ pub fn Activity(selected: Option<String>) -> impl IntoView {
     master_detail(list, detail)
 }
 
-pub fn revert_target(entry: &AuditEntry) -> String {
+fn revert_target(entry: &AuditEntry) -> String {
     if entry.base.is_empty() {
         entry.rev.clone()
     } else {

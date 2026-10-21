@@ -621,7 +621,7 @@ pub fn popover(open: RwSignal<bool>, trigger: &'static str, panel: &'static str)
     });
 }
 
-pub fn read_only_reason(s: Store) -> (String, String) {
+fn read_only_reason(s: Store) -> (String, String) {
     let level = s
         .welcome
         .with(|w| w.as_ref().map(|w| (w.you.level, w.you.visitor.clone())));

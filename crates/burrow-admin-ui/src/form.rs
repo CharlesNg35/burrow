@@ -5,6 +5,7 @@ use burrow_admin_proto::Path;
 use burrow_admin_proto::diag::Severity;
 use burrow_admin_proto::schema::{Applies, DurationUnit, Editable, Field, Node, SemType};
 use burrow_admin_proto::serde_json::{self, Value};
+use burrow_admin_proto::value::child;
 use burrow_admin_proto::value::{SecretSrc, as_env, as_secret};
 use burrow_config::{Entry, ServiceEntry, VisitorEntry};
 use burrow_syntax::duration::{TimeUnit, human};
@@ -45,13 +46,7 @@ pub fn join(p: &[String]) -> String {
     p.join("/")
 }
 
-pub fn push(p: &[String], k: &str) -> Path {
-    let mut out = p.to_vec();
-    out.push(k.to_string());
-    out
-}
-
-pub fn field_id(path: &[String]) -> String {
+fn field_id(path: &[String]) -> String {
     format!(
         "f-{}",
         join(path).replace(|c: char| !c.is_ascii_alphanumeric(), "-")
@@ -85,7 +80,7 @@ fn locked(n: &Node) -> Option<String> {
     }
 }
 
-pub fn ctx_now() -> Option<Ctx> {
+fn ctx_now() -> Option<Ctx> {
     let s = store();
     s.schema.get_untracked()?;
     Some(Ctx { doc: s.edit.doc() })
@@ -162,7 +157,7 @@ pub fn object_view_skipping(
         }
     }
     let public = service.then(|| {
-        let bind = push(&path, BIND);
+        let bind = child(&path, BIND);
         RwSignal::new(store().edit.peek(&bind).is_some_and(|v| !v.is_null()))
     });
     let sections = groups
@@ -175,16 +170,16 @@ pub fn object_view_skipping(
             let mut rows: Vec<AnyView> = Vec::new();
             for f in mine {
                 if let Some(single) = merged_single(node, &f.key) {
-                    let sp = join(&push(&spath, single));
+                    let sp = join(&child(&spath, single));
                     let into = f.key.clone();
                     rows.push(view! { <span hidden data-schema=sp data-merged-into=into></span> }.into_any());
                 }
                 if f.key == PROTOCOL
                     && let Some(public) = public
                 {
-                    rows.push(visibility_row(push(&path, BIND), public));
+                    rows.push(visibility_row(child(&path, BIND), public));
                 }
-                let (fp, fs) = (push(&path, &f.key), push(&spath, &f.key));
+                let (fp, fs) = (child(&path, &f.key), child(&spath, &f.key));
                 match (f.key.as_str(), public) {
                     (BIND, Some(public)) => {
                         let (f, entity) = ((*f).clone(), entity.clone());
@@ -472,8 +467,8 @@ pub fn facts(node: &Node, path: Path, spath: Path, skip: &[&str]) -> AnyView {
     let rows = keys
         .into_iter()
         .map(|f| {
-            let fpath = push(&path, &f.key);
-            let single = merged_single(node, &f.key).map(|s| push(&path, s));
+            let fpath = child(&path, &f.key);
+            let single = merged_single(node, &f.key).map(|s| child(&path, s));
             let fnode = f.node.clone();
             let label = f.node.label.clone();
             let key = f.key.clone();
@@ -917,7 +912,7 @@ fn reset_button(path: Path) -> impl IntoView {
                     on:click=move |_| {
                         let base = e
                             .draft
-                            .with_untracked(|d| burrow_admin_logic::changeset::get(d.base(), &path).cloned());
+                            .with_untracked(|d| burrow_admin_proto::value::get(d.base(), &path).cloned());
                         e.local_error(&path, None);
                         e.set(&path, base);
                     }
@@ -930,7 +925,7 @@ fn reset_button(path: Path) -> impl IntoView {
     }
 }
 
-pub fn object_static(node: &Node, v: &Value, ctx: &Ctx) -> AnyView {
+fn object_static(node: &Node, v: &Value, ctx: &Ctx) -> AnyView {
     let rows = fields(inner(node))
         .iter()
         .filter_map(|f| {
@@ -963,7 +958,7 @@ fn server_checked() -> AnyView {
     view! { <Badge text="Checked by the server" tone=Tone::Info/> }.into_any()
 }
 
-pub fn value_view(node: &Node, v: Option<&Value>, inherited: Option<&Value>, ctx: &Ctx) -> AnyView {
+fn value_view(node: &Node, v: Option<&Value>, inherited: Option<&Value>, ctx: &Ctx) -> AnyView {
     let v = v.filter(|v| !v.is_null());
     let Some(v) = v else {
         if matches!(inner(node).sem, SemType::Unknown(_)) && for_node(node, None) == Render::Raw {

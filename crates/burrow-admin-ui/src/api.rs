@@ -280,7 +280,7 @@ fn lost(store: Store) {
     });
 }
 
-pub fn after_refusal(now: &Conn, reason: String, message: String) -> Conn {
+fn after_refusal(now: &Conn, reason: String, message: String) -> Conn {
     match now {
         Conn::Revoked { .. } => now.clone(),
         Conn::Reconnecting { .. } if reason == "unreachable" || reason == "busy" => now.clone(),

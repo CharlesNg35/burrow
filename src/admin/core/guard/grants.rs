@@ -33,15 +33,11 @@ fn raw_power(v: &Value) -> Power<AdminLevel, String> {
             Err(_) => return nothing(),
         },
     };
-    let secrets = match VisitorEntry::SECRET.get(v) {
-        Some(Value::Array(a)) => a
-            .iter()
-            .filter_map(Value::as_str)
-            .map(str::to_string)
-            .collect(),
-        Some(Value::String(s)) => vec![s.clone()],
-        _ => Vec::new(),
-    };
+    let secrets = burrow_admin_proto::value::one_or_many(VisitorEntry::SECRET.get(v))
+        .iter()
+        .filter_map(Value::as_str)
+        .map(str::to_string)
+        .collect();
     let from = match VisitorEntry::ADMIN_FROM.get(v) {
         None | Some(Value::Null) => Vec::new(),
         Some(Value::Array(a)) => {

@@ -1,7 +1,7 @@
-use burrow_admin_logic::changeset::get;
 use burrow_admin_logic::grant::IN_THE_FILE;
 use burrow_admin_proto::plan::{ChangeKind, Diff, Level, Plan, Refusal};
 use burrow_admin_proto::serde_json::Value;
+use burrow_admin_proto::value::get;
 use burrow_config::{Entry, ServiceEntry, VisitorEntry};
 use burrow_syntax::grant::is_grant_code;
 use burrow_ui_kit::{
@@ -17,7 +17,7 @@ use crate::screens::paths::{self, Problems};
 use crate::screens::{DetailPane, ListPane, Row, master_detail};
 use crate::store::{short_rev, store};
 
-pub fn diff_counts(d: &Diff) -> (usize, usize) {
+fn diff_counts(d: &Diff) -> (usize, usize) {
     let lines = d.hunks.iter().flat_map(|h| h.lines.iter());
     lines.fold((0, 0), |(a, r), (k, _)| match k.as_str() {
         "+" => (a + 1, r),
@@ -43,7 +43,7 @@ fn impact_icon(l: Level) -> (&'static str, Tone) {
     }
 }
 
-pub fn service_paths(base: &Value, draft: &Value, reserved: &[String]) -> Vec<(String, PathData)> {
+fn service_paths(base: &Value, draft: &Value, reserved: &[String]) -> Vec<(String, PathData)> {
     let empty = serde_json_map();
     let b = ServiceEntry::entries(base).unwrap_or(&empty);
     let d = ServiceEntry::entries(draft).unwrap_or(&empty);
@@ -115,7 +115,7 @@ fn serde_json_map() -> burrow_admin_proto::serde_json::Map<String, Value> {
     burrow_admin_proto::serde_json::Map::new()
 }
 
-pub fn destructive_summary(impacts: &[burrow_admin_proto::plan::Impact]) -> String {
+fn destructive_summary(impacts: &[burrow_admin_proto::plan::Impact]) -> String {
     let mut parts: Vec<String> = Vec::new();
     for i in impacts.iter().filter(|i| i.confirm.is_some()) {
         let mut clauses = i.message.split("; ");

@@ -199,21 +199,6 @@ pub fn human_bits(bytes_per_sec: f64) -> (String, &'static str) {
     (text, unit)
 }
 
-pub fn human_bytes(bytes_per_sec: f64) -> String {
-    let units = ["B/s", "KB/s", "MB/s", "GB/s"];
-    let mut v = bytes_per_sec.max(0.0);
-    let mut i = 0;
-    while v >= 1000.0 && i + 1 < units.len() {
-        v /= 1000.0;
-        i += 1;
-    }
-    if i == 0 || v >= 100.0 {
-        format!("{v:.0} {}", units[i])
-    } else {
-        format!("{v:.1} {}", units[i])
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -273,9 +258,6 @@ mod tests {
             vec![Some(0.0), Some(4.0), Some(0.0)]
         );
         assert_eq!(h.max(), 4.0);
-        assert_eq!(human_bytes(512.0), "512 B/s");
-        assert_eq!(human_bytes(1_250_000.0), "1.2 MB/s");
-        assert_eq!(human_bytes(250_000.0), "250 KB/s");
     }
 
     #[test]

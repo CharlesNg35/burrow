@@ -77,7 +77,7 @@ impl Route {
     }
 }
 
-pub fn split_run(path: &str) -> (&str, &str) {
+fn split_run(path: &str) -> (&str, &str) {
     let Some(rest) = path.strip_prefix("/r-") else {
         return ("", path);
     };

@@ -214,7 +214,7 @@ impl Core {
         }
     }
 
-    pub fn schema_reply(&self, have: &str) -> SchemaReply {
+    fn schema_reply(&self, have: &str) -> SchemaReply {
         if have == self.schema.hash {
             SchemaReply {
                 hash: have.to_string(),
@@ -243,7 +243,7 @@ impl Core {
         })
     }
 
-    pub fn file_info(&self, s: &Session) -> FileInfo {
+    fn file_info(&self, s: &Session) -> FileInfo {
         let writable = self.store.writable();
         FileInfo {
             path: self.store.path().display().to_string(),

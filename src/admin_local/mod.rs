@@ -112,7 +112,7 @@ fn from_disk(dir: &std::path::Path, path: &str) -> Option<(Vec<u8>, &'static str
     std::fs::read(dir.join(name)).ok().map(|b| (b, mime))
 }
 
-pub fn index_for_run(index: &[u8], prefix: &str) -> Vec<u8> {
+fn index_for_run(index: &[u8], prefix: &str) -> Vec<u8> {
     String::from_utf8_lossy(index)
         .replace("href=\"/", &format!("href=\"{prefix}/"))
         .replace("src=\"/", &format!("src=\"{prefix}/"))

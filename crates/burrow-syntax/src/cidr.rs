@@ -118,7 +118,7 @@ impl Spans {
             .any(|m| m.v6 == s.v6 && m.start <= s.start && s.end <= m.end)
     }
 
-    pub fn covers_everything(&self) -> bool {
+    fn covers_everything(&self) -> bool {
         EVERYWHERE.iter().all(|c| self.covers(c))
     }
 }

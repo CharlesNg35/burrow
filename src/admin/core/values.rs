@@ -37,7 +37,7 @@ fn env_vars(raw: &str) -> Vec<String> {
     burrow_syntax::secret_fmt::env_vars(raw)
 }
 
-pub fn secret_info(raw: &str, env: &dyn EnvSource) -> SecretInfo {
+fn secret_info(raw: &str, env: &dyn EnvSource) -> SecretInfo {
     let vars = env_vars(raw);
     let src = match vars.first() {
         Some(v) if raw.contains("${") => SecretSrc::Env(v.clone()),
