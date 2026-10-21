@@ -66,18 +66,16 @@ fn decode(text: &str) -> Result<String, String> {
             .to_string()
     };
     let bytes = text.as_bytes();
-    let mut out = Zeroizing::new(Vec::with_capacity(bytes.len()));
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'%' {
-            let hex = text.get(i + 1..i + 3).ok_or_else(bad)?;
-            out.push(u8::from_str_radix(hex, 16).map_err(|_| bad())?);
-            i += 3;
-        } else {
-            out.push(bytes[i]);
-            i += 1;
-        }
+    let escapes_ok = bytes.iter().enumerate().all(|(i, b)| {
+        *b != b'%'
+            || bytes
+                .get(i + 1..i + 3)
+                .is_some_and(|h| h.iter().all(u8::is_ascii_hexdigit))
+    });
+    if !escapes_ok {
+        return Err(bad());
     }
+    let out = Zeroizing::new(percent_encoding::percent_decode_str(text).collect::<Vec<u8>>());
     String::from_utf8(out.to_vec())
         .map_err(|_| "proxy user name and password must be UTF-8 text".to_string())
 }
@@ -107,6 +105,9 @@ mod tests {
         assert!(ProxyConfig::parse("http://u:p%4@proxy.local:3128").is_err());
         assert!(ProxyConfig::parse("http://u:p%zz@proxy.local:3128").is_err());
         assert!(ProxyConfig::parse("http://u:%ff@proxy.local:3128").is_err());
+        assert!(ProxyConfig::parse("http://u:p%+1@proxy.local:3128").is_err());
+        assert!(ProxyConfig::parse("http://u:p%1@proxy.local:3128").is_err());
+        assert!(ProxyConfig::parse("http://u:p%-1@proxy.local:3128").is_err());
         let plain = ProxyConfig::parse("http://u:p+w@proxy.local:3128").unwrap();
         assert_eq!(plain.auth.unwrap().1.as_str(), "p+w");
     }
