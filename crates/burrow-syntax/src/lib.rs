@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+pub mod address;
 pub mod cidr;
 pub mod duration;
 pub mod endpoint;

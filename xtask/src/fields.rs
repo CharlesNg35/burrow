@@ -104,6 +104,9 @@ fn literals(tokens: TokenStream, out: &mut Vec<(usize, String)>) {
 
 pub fn problems_in(file: &str, src: &str, keys: &BTreeSet<String>) -> Result<Vec<String>, String> {
     let mut ast = syn::parse_file(src).map_err(|e| format!("{file}: {e}"))?;
+    if is_test(&ast.attrs) {
+        return Ok(Vec::new());
+    }
     StripTests.visit_file_mut(&mut ast);
     let mut found = Vec::new();
     literals(ast.into_token_stream(), &mut found);
@@ -170,6 +173,15 @@ mod tests {
             assert!(k.contains(key), "{key}");
         }
         assert!(!k.contains("online"));
+    }
+
+    #[test]
+    fn a_test_only_file_is_skipped() {
+        let keys: BTreeSet<String> = ["bind".to_string()].into();
+        let only_tests = "#![cfg(test)]\nfn a() { let x = \"bind\"; }\n";
+        assert!(problems_in("x.rs", only_tests, &keys).unwrap().is_empty());
+        let shipped = "#![cfg(not(test))]\nfn a() { let x = \"bind\"; }\n";
+        assert_eq!(problems_in("x.rs", shipped, &keys).unwrap().len(), 1);
     }
 
     #[test]

@@ -63,10 +63,12 @@ pub fn check_server(
 
     if let Some(text) = &cfg.public_address
         && (listen.is_some() || websocket.is_some())
-        && let Err(e) = crate::config::address::client_address(
+        && let Err(e) = burrow_syntax::address::client_address(
             text,
             listen,
-            websocket.as_ref().map(Into::into),
+            websocket
+                .as_ref()
+                .map(crate::config::settings::WebSocketSettings::shape),
             "clients",
             &mut Vec::new(),
         )

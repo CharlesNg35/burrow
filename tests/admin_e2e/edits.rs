@@ -405,7 +405,11 @@ fn editors(c: &mut Ctx) -> Flow<'_> {
         click_js(c, "[data-server-address] input[value=wss]").await;
         c.ui.fill("#f-public-address", "tunnel.example.net/burrow")
             .await;
-        row_clean(c, "public_address").await;
+        let err = row_error(c, "public_address").await;
+        assert!(
+            err.contains("no websocket section"),
+            "a wss:// address is refused inline on a server without WebSocket, as validate refuses it: {err}"
+        );
         c.ui.shot("server-address-wss").await;
         click_js(c, "[data-server-address] input[value=host]").await;
         c.ui.fill("#f-public-address", "tunnel.example.net").await;

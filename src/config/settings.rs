@@ -288,6 +288,16 @@ pub struct WebSocketSettings {
     pub keepalive: std::time::Duration,
 }
 
+impl WebSocketSettings {
+    pub fn shape(&self) -> burrow_syntax::address::WsShape<'_> {
+        burrow_syntax::address::WsShape {
+            listen: self.listen,
+            path: &self.path,
+            tls: self.tls.is_some(),
+        }
+    }
+}
+
 #[derive(Clone, PartialEq)]
 pub struct TlsMaterial {
     pub cert_path: std::path::PathBuf,

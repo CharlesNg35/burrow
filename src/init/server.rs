@@ -75,7 +75,7 @@ pub fn init_server(opts: &InitOptions, out: &mut dyn Write) -> Result<PathBuf, F
             let listen = ws
                 .is_none()
                 .then(|| default_listen().parse().expect("valid default"));
-            let endpoint = crate::config::address::client_address(
+            let endpoint = burrow_syntax::address::client_address(
                 s,
                 listen,
                 ws.as_ref().map(WebSocketChoice::shape),

@@ -38,10 +38,13 @@ fn address(
         .map(str::to_string)
         .or_else(|| settings.public_address.clone());
     match wanted {
-        Some(w) => match crate::config::address::client_address(
+        Some(w) => match burrow_syntax::address::client_address(
             &w,
             settings.listen,
-            settings.websocket.as_ref().map(Into::into),
+            settings
+                .websocket
+                .as_ref()
+                .map(crate::config::settings::WebSocketSettings::shape),
             section,
             &mut notes,
         ) {

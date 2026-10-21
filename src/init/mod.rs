@@ -108,8 +108,8 @@ impl WebSocketInit {
 }
 
 impl WebSocketChoice {
-    fn shape(&self) -> crate::config::address::WsShape<'_> {
-        crate::config::address::WsShape {
+    fn shape(&self) -> burrow_syntax::address::WsShape<'_> {
+        burrow_syntax::address::WsShape {
             listen: self.listen.parse().expect("checked in resolve"),
             path: &self.path,
             tls: self.tls.is_some(),

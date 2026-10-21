@@ -1,4 +1,4 @@
-use burrow_admin_logic::check::{check, refs_exist};
+use burrow_admin_logic::check::{check, check_in, refs_exist};
 use burrow_admin_logic::fallback::{Render, for_node};
 use burrow_admin_logic::input::{parse_input, rate_parts, rate_value, time_unit, to_text};
 use burrow_admin_logic::tree::{inner, names};
@@ -50,7 +50,7 @@ pub fn set_checked(fc: &FieldCtx, node: &Node, v: Option<Value>) {
             Some(format!("{} is required", node.label))
         }
         None => None,
-        Some(x) => check(node, x)
+        Some(x) => check_in(node, x, &e.doc())
             .err()
             .or_else(|| refs_exist(node, x, &ref_names(node)).err()),
     };

@@ -149,10 +149,13 @@ pub(super) fn connect_address(
             }
         },
     };
-    crate::config::address::client_address(
+    burrow_syntax::address::client_address(
         &given,
         settings.listen,
-        settings.websocket.as_ref().map(Into::into),
+        settings
+            .websocket
+            .as_ref()
+            .map(crate::config::settings::WebSocketSettings::shape),
         kind.section,
         notes,
     )

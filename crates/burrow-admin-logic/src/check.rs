@@ -41,12 +41,13 @@ fn want_int(v: &Value) -> Result<i64, String> {
         Value::Number(n) => n
             .as_i64()
             .ok_or_else(|| "expected a whole number".to_string()),
-        Value::String(s) => s
-            .trim()
-            .parse::<i64>()
-            .map_err(|_| format!("\"{s}\" is not a whole number")),
+        Value::String(s) => Err(format!("\"{s}\" is not a whole number")),
         _ => Err("expected a whole number".into()),
     }
+}
+
+fn want_str(v: &Value) -> Result<&str, String> {
+    v.as_str().ok_or_else(|| "expected text".to_string())
 }
 
 fn port(v: &Value) -> Result<u16, String> {
@@ -105,7 +106,10 @@ fn check_sem(sem: &SemType, v: &Value) -> Result<(), String> {
             }
             Ok(())
         }
-        SemType::Port => port(v).map(|_| ()),
+        SemType::Port => match v {
+            Value::String(s) => ports::parse_port(s).map(|_| ()),
+            _ => port(v).map(|_| ()),
+        },
         SemType::IpPort(c) => {
             if v.is_number() {
                 return port(v).map(|_| ());
@@ -173,7 +177,7 @@ fn check_sem(sem: &SemType, v: &Value) -> Result<(), String> {
             Ok(())
         }
         SemType::Ref(_) => {
-            let s = want_text(v)?;
+            let s = want_str(v)?;
             (!s.trim().is_empty())
                 .then_some(())
                 .ok_or_else(|| "pick one".to_string())
@@ -181,9 +185,12 @@ fn check_sem(sem: &SemType, v: &Value) -> Result<(), String> {
         SemType::RefList(c) => {
             let items = match v {
                 Value::Array(a) => a.clone(),
-                other => vec![other.clone()],
+                _ => return Err("expected a list of names".into()),
             };
-            let names: Vec<String> = items.iter().filter_map(text).collect();
+            let names: Vec<String> = items
+                .iter()
+                .filter_map(|x| x.as_str().map(str::to_string))
+                .collect();
             if names.len() != items.len() {
                 return Err("expected a list of names".into());
             }
@@ -217,7 +224,7 @@ fn check_sem(sem: &SemType, v: &Value) -> Result<(), String> {
         SemType::List(c) => match v {
             Value::Array(a) => match c.max_items {
                 Some(m) if a.len() > m as usize => Err(format!("at most {m} items")),
-                _ => Ok(()),
+                _ => a.iter().try_for_each(|x| check(&c.item, x)),
             },
             _ => Err("expected a list".into()),
         },
@@ -233,12 +240,74 @@ fn check_sem(sem: &SemType, v: &Value) -> Result<(), String> {
                     .map_or(Ok(()), Err)
             }
         }
-        SemType::Object(_)
-        | SemType::Map(_)
-        | SemType::RefMap(_)
-        | SemType::SecretRef(_)
-        | SemType::Unknown(_) => Ok(()),
+        SemType::Object(o) => {
+            let Value::Object(m) = v else {
+                return Err("expected a group of settings".into());
+            };
+            m.iter()
+                .try_for_each(|(k, x)| match o.fields.iter().find(|f| f.key == *k) {
+                    Some(f) => check(&f.node, x).map_err(|e| format!("{k}: {e}")),
+                    None => Err(format!("{k} is not a setting here")),
+                })
+        }
+        SemType::Map(c) => match v {
+            Value::Object(m) => m.values().try_for_each(|x| check(&c.value, x)),
+            _ => Err("expected a group of settings".into()),
+        },
+        SemType::RefMap(c) => match v {
+            Value::Object(m) => m.values().try_for_each(|x| check(&c.value, x)),
+            _ => Err("expected a group of settings".into()),
+        },
+        SemType::SecretRef(_) | SemType::Unknown(_) => Ok(()),
     }
+}
+
+pub fn check_in(node: &Node, v: &Value, doc: &Value) -> Result<(), String> {
+    check(node, v)?;
+    match (&crate::tree::inner(node).sem, v) {
+        (SemType::ServerAddress, Value::String(s)) => public_address_in(s, doc),
+        _ => Ok(()),
+    }
+}
+
+fn bind_at(v: Option<&Value>) -> Option<std::net::SocketAddr> {
+    let text = match v? {
+        Value::Number(n) => n.to_string(),
+        Value::String(s) => s.clone(),
+        _ => return None,
+    };
+    target::parse_bind(&text, [0, 0, 0, 0], 1)
+        .ok()
+        .map(|b| std::net::SocketAddr::new(b.ip, b.first))
+}
+
+fn public_address_in(given: &str, doc: &Value) -> Result<(), String> {
+    use burrow_config::{ServerConfig, WebSocketConfig};
+    let listen = bind_at(ServerConfig::LISTEN.get(doc));
+    let ws = ServerConfig::WEBSOCKET.get(doc).filter(|w| w.is_object());
+    let path = ws
+        .and_then(|w| WebSocketConfig::PATH.str(w))
+        .map(str::to_string)
+        .unwrap_or_else(burrow_config::default_ws_path);
+    let shape = ws.and_then(|w| {
+        Some(burrow_syntax::address::WsShape {
+            listen: bind_at(WebSocketConfig::LISTEN.get(w))?,
+            path: &path,
+            tls: WebSocketConfig::TLS.get(w).is_some_and(|t| !t.is_null()),
+        })
+    });
+    if listen.is_none() && shape.is_none() {
+        return Ok(());
+    }
+    burrow_syntax::address::client_address(
+        given,
+        listen,
+        shape,
+        ServerConfig::CLIENTS.key(),
+        &mut Vec::new(),
+    )
+    .map(|_| ())
+    .map_err(|e| e.message)
 }
 
 pub fn refs_exist(node: &Node, v: &Value, names: &[String]) -> Result<(), String> {

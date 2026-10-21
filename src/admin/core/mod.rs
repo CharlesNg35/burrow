@@ -563,4 +563,6 @@ pub fn dispatch(core: &Core, s: &Session, t: &str, body: &Value) -> Reply {
 }
 
 #[cfg(test)]
+mod agree;
+#[cfg(test)]
 pub(crate) mod tests;
