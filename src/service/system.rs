@@ -230,14 +230,7 @@ pub fn trusted_binary(path: &Path) -> bool {
 }
 
 pub fn canonical(p: &Path) -> std::io::Result<PathBuf> {
-    let c = std::fs::canonicalize(p)?;
-    #[cfg(windows)]
-    if let Some(rest) = c.to_str().and_then(|s| s.strip_prefix(r"\\?\"))
-        && !rest.starts_with("UNC")
-    {
-        return Ok(PathBuf::from(rest));
-    }
-    Ok(c)
+    dunce::canonicalize(p)
 }
 
 pub fn canonical_or_same(p: &Path) -> PathBuf {
@@ -638,6 +631,15 @@ pub fn all_paths_under(files: &[PathBuf], roots: &[&str]) -> bool {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+
+    #[test]
+    fn canonical_paths_are_plain_paths() {
+        let dir = tempfile::tempdir().unwrap();
+        let c = canonical(dir.path()).unwrap();
+        assert!(c.is_absolute());
+        assert!(!c.to_string_lossy().starts_with(r"\\?\"), "{c:?}");
+        assert_eq!(c, canonical(&c).unwrap());
+    }
 
     #[cfg(unix)]
     #[test]
