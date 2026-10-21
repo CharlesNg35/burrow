@@ -98,12 +98,41 @@ impl std::fmt::Display for Url {
     }
 }
 
-fn no_proxy(host: &str, list: &str) -> bool {
-    let host = host.trim_matches(['[', ']']).to_ascii_lowercase();
-    list.split(',').map(str::trim).any(|p| {
-        let p = p.trim_start_matches('.').to_ascii_lowercase();
-        p == "*" || (!p.is_empty() && (host == p || host.ends_with(&format!(".{p}"))))
-    })
+fn no_proxy(url: &Url, list: &str) -> bool {
+    use burrow_syntax::cidr::Cidr;
+    let host = url.host.trim_matches(['[', ']']).to_ascii_lowercase();
+    let ip = host.parse::<std::net::IpAddr>().ok();
+    let in_net = |text: &str| {
+        text.trim_matches(['[', ']'])
+            .parse::<Cidr>()
+            .ok()
+            .map(|c| ip.is_some_and(|ip| c.contains(ip)))
+    };
+    list.split(',')
+        .map(str::trim)
+        .filter(|e| !e.is_empty())
+        .any(|entry| {
+            if entry == "*" {
+                return true;
+            }
+            if let Some(hit) = in_net(entry) {
+                return hit;
+            }
+            let (name, port) = match entry.rsplit_once(':') {
+                Some((h, p)) if !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()) => {
+                    (h, Some(p))
+                }
+                _ => (entry, None),
+            };
+            if port.is_some_and(|p| p.parse::<u16>().ok() != Some(url.port)) {
+                return false;
+            }
+            if let Some(hit) = in_net(name) {
+                return hit;
+            }
+            let domain = name.trim_start_matches('.').to_ascii_lowercase();
+            !domain.is_empty() && (host == domain || host.ends_with(&format!(".{domain}")))
+        })
 }
 
 pub fn proxy_from_env(
@@ -116,7 +145,7 @@ pub fn proxy_from_env(
             .find_map(|n| get(n).filter(|v| !v.trim().is_empty()))
     };
     if let Some(list) = pick(&["NO_PROXY", "no_proxy"])
-        && no_proxy(&url.host, &list)
+        && no_proxy(url, &list)
     {
         return Ok(None);
     }
@@ -129,9 +158,17 @@ pub fn proxy_from_env(
         .iter()
         .find_map(|n| get(n).filter(|v| !v.trim().is_empty()).map(|v| (*n, v)));
     match found {
-        Some((name, v)) => ProxyConfig::parse(v.trim())
-            .map(Some)
-            .map_err(|e| format!("{name} is not a valid proxy: {e}")),
+        Some((name, v)) => {
+            let v = v.trim();
+            let v = if v.contains("://") {
+                v.to_string()
+            } else {
+                format!("http://{v}")
+            };
+            ProxyConfig::parse(&v)
+                .map(Some)
+                .map_err(|e| format!("{name} is not a valid proxy: {e}"))
+        }
         None => Ok(None),
     }
 }
@@ -402,6 +439,31 @@ mod tests {
         let other: &[(&str, &str)] = &[("HTTPS_PROXY", "http://p:1"), ("NO_PROXY", "hub.com")];
         assert!(proxy_from_env(&https, env(other)).unwrap().is_some());
         assert!(proxy_from_env(&https, env(&[("HTTPS_PROXY", "nope")])).is_err());
+        let bare = proxy_from_env(&https, env(&[("HTTPS_PROXY", "proxy:3128")]))
+            .unwrap()
+            .unwrap();
+        assert_eq!(format!("{bare:?}"), "http://proxy:3128");
+        let with = |no: &'static str| {
+            move |k: &str| match k {
+                "HTTPS_PROXY" => Some("http://p:1".to_string()),
+                "NO_PROXY" => Some(no.to_string()),
+                _ => None,
+            }
+        };
+        let to = |u: &str| Url::parse(u).unwrap();
+        let bypass =
+            |u: &str, no: &'static str| proxy_from_env(&to(u), with(no)).unwrap().is_none();
+        assert!(bypass("https://10.1.2.3/x", "10.0.0.0/8"));
+        assert!(!bypass("https://11.1.2.3/x", "10.0.0.0/8"));
+        assert!(bypass("https://[2001:db8::5]/x", "2001:db8::/32"));
+        assert!(bypass("https://192.0.2.7/x", "192.0.2.7"));
+        assert!(bypass("https://mirror.lan:8443/x", "mirror.lan:8443"));
+        assert!(!bypass("https://mirror.lan/x", "mirror.lan:8443"));
+        assert!(bypass("https://a.b.example.com/x", ".example.com"));
+        assert!(bypass("https://example.com/x", ".example.com"));
+        assert!(!bypass("https://notexample.com/x", "example.com"));
+        assert!(bypass("https://anything/x", "*"));
+        assert!(bypass("https://GitHub.com/x", " other.org , github.com "));
         let leaked = proxy_from_env(&https, env(&[("HTTPS_PROXY", "https://bob:S3cret@p:3128")]))
             .unwrap_err();
         assert!(
