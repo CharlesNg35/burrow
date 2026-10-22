@@ -159,6 +159,7 @@ async fn answer_grants(
         reply(channel, Status::Forbidden).await;
         return;
     };
+    shared.metrics.visitor(visitor).seen();
     for c in &mut grants.clients {
         if c.reach.is_empty() {
             c.allow = shared.via(&c.name).and_then(|s| s.allow());
@@ -240,7 +241,12 @@ pub(super) async fn serve(
         }
     };
     let grant = match shared.grant(&visitor, &secret, &request.to, peer.ip()) {
-        Ok(g) => g,
+        Ok(g) => {
+            if request.check {
+                shared.metrics.visitor(&visitor).seen();
+            }
+            g
+        }
         Err(r) => {
             shared.rejected.fetch_add(1, Ordering::Relaxed);
             static REFUSED: Throttle = Throttle::new();

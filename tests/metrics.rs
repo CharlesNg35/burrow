@@ -209,6 +209,12 @@ async fn a_visitor_shows_when_it_last_used_a_tunnel() {
         visitor_secret,
         vec![("web", VisitTarget::service("web"))],
     ));
+    wait_for(|| laptop(&t.server.shared.status()).last_seen_secs.is_some()).await;
+    let started = laptop(&t.server.shared.status());
+    assert_eq!(
+        started.open, 0,
+        "the visit asked what it may use, with no tunnel open yet"
+    );
     let mut conn = TcpStream::connect(v.addr("web")).await.unwrap();
     conn.write_all(b"ping").await.unwrap();
     let mut back = [0u8; 4];
