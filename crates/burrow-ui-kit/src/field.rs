@@ -101,7 +101,7 @@ pub fn FieldRow(
                 <label class="text-sm font-semibold" for=id.clone() id=format!("{id}-label")>
                     {label}
                 </label>
-                {(!key_hint.is_empty()).then(|| view! { <span class="font-mono text-xs break-all text-text-faint">{key_hint}</span> })}
+                {(!key_hint.is_empty()).then(|| view! { <span class="font-mono text-xs break-words text-text-faint">{key_hint}</span> })}
                 {badges
                     .into_iter()
                     .map(|(text, tone)| view! { <span class=tag_class(tone)>{text}</span> })

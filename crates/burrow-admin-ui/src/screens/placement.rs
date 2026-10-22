@@ -53,7 +53,7 @@ pub fn tabs(section: &str, node: &Node) -> Vec<(&'static str, String)> {
     };
     let order: &[&'static str] = match entity_of_section(section) {
         Some(Entity::Client) => &[OVERVIEW, SECRETS, SETTINGS, CONNECT],
-        Some(Entity::Visitor) => &[OVERVIEW, ACCESS, SECRETS, CONNECT, SETTINGS],
+        Some(Entity::Visitor) => &[ACCESS, SECRETS, CONNECT, SETTINGS],
         _ => &[OVERVIEW, SETTINGS],
     };
     order
@@ -124,7 +124,7 @@ mod tests {
             .iter()
             .map(|(t, _)| *t)
             .collect();
-        assert_eq!(shown, [OVERVIEW, ACCESS, SECRETS, CONNECT, SETTINGS]);
+        assert_eq!(shown, [ACCESS, SECRETS, CONNECT, SETTINGS]);
         let today: Vec<&'static str> = tabs(
             VisitorEntry::section(),
             &entity_node(&root, VisitorEntry::section()),
@@ -134,7 +134,7 @@ mod tests {
         .collect();
         assert_eq!(
             today,
-            [OVERVIEW, ACCESS, SECRETS, CONNECT],
+            [ACCESS, SECRETS, CONNECT],
             "no empty Settings tab today"
         );
         let services: Vec<&'static str> = tabs(

@@ -385,7 +385,7 @@ impl Edit {
         if !reset && known == rev {
             return;
         }
-        if reset || !self.dirty() || known.is_empty() {
+        if reset || !untrack(|| self.dirty()) || known.is_empty() {
             self.draft.set(Changeset::new(values.clone()));
             self.texts.set(BTreeMap::new());
             self.clear_refused();

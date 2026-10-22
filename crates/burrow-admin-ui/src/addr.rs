@@ -298,17 +298,16 @@ pub fn addr_editor(fc: FieldCtx, kind: Kind) -> AnyView {
                         let c_range = c_range.clone();
                         let id = range_id.clone();
                         view! {
-                            <div class="ml-auto">
+                            <div class="ml-4">
                                 <Toggle
                                     id=id
                                     checked=range_on
                                     label="Port range"
                                     on_change=move |on: bool| {
                                         range_on.set(on);
-                                        if on && parts.with_untracked(|p| p.to.is_empty()) {
-                                            parts.update(|p| p.to = p.from.clone());
+                                        if !on {
+                                            c_range();
                                         }
-                                        c_range();
                                     }
                                 />
                             </div>
@@ -487,14 +486,21 @@ fn options_for(entity: &Entity, reserved: &[String]) -> Vec<ComboOption> {
                     .and_then(|st| st.visitors.iter().find(|v| v.name == n))
                     .map(|v| v.open)
                     .unwrap_or(0);
+                let admin = store()
+                    .edit
+                    .peek(&VisitorEntry::ADMIN.of(&n))
+                    .map(|v| crate::form::plain(&v));
+                let mut parts: Vec<String> = Vec::new();
+                if let Some(a) = admin {
+                    parts.push(format!("admin · {a}, uses burrow admin"));
+                }
+                if open > 0 {
+                    parts.push("in use now".into());
+                }
                 ComboOption {
                     value: n.clone(),
                     label: n,
-                    facet: if open > 0 {
-                        "active".into()
-                    } else {
-                        String::new()
-                    },
+                    facet: parts.join(" · "),
                     dot: None,
                 }
             }

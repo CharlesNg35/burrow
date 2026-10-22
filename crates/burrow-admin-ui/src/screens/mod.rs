@@ -167,6 +167,7 @@ pub fn ListPane(
     #[prop(optional)] new_disabled: bool,
     #[prop(optional)] default_filter: Option<&'static str>,
     #[prop(optional)] compact: bool,
+    #[prop(optional)] empty_icon: Option<&'static str>,
 ) -> impl IntoView {
     let q = RwSignal::new(String::new());
     let filter = RwSignal::new(default_filter.unwrap_or("all"));
@@ -259,7 +260,7 @@ pub fn ListPane(
         let list = visible.get();
         if list.is_empty() {
             return match &empty {
-                Some((t, m)) if rows.with(Vec::is_empty) => view! { <EmptyState icon="plus" title=t.clone() message=m.clone() testid="list-empty"/> }.into_any(),
+                Some((t, m)) if rows.with(Vec::is_empty) => view! { <EmptyState icon=empty_icon.unwrap_or("plus") title=t.clone() message=m.clone() testid="list-empty"/> }.into_any(),
                 _ => view! { <p class="px-4 py-6 text-sm text-text-muted">"Nothing matches."</p> }.into_any(),
             };
         }

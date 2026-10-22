@@ -294,6 +294,19 @@ const UNSET: &str = "\u{1}unset";
 fn enum_editor(fc: FieldCtx, c: EnumC) -> AnyView {
     let e = store().edit;
     let path = fc.path.clone();
+    if fc.node.reduce_only
+        && e.draft
+            .with_untracked(|d| burrow_admin_proto::value::get(d.base(), &path).is_none())
+    {
+        let none = fc.node.none_label.clone().unwrap_or_else(|| "None".into());
+        return view! {
+            <div id=fc.id.clone() class="flex min-h-[38px] flex-col justify-center text-[13px]" data-testid="grant-none">
+                <span>{none}</span>
+                {crate::grants::in_the_file()}
+            </div>
+        }
+        .into_any();
+    }
     let optional = !fc.node.required;
     let default_label = fc
         .node

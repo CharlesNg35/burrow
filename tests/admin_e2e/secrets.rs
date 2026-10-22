@@ -195,19 +195,15 @@ fn rotation(c: &mut Ctx) -> Flow<'_> {
         assert_eq!(in_use, old, "the old secret is still the one in use");
         c.ui.shot("both-listed-old-in-use").await;
 
-        c.ui.click(&format!(
-            "[data-testid=secrets] [data-fp='{old}'] [data-testid=remove-secret]"
-        ))
-        .await;
-        wait_checked(c).await;
-        c.ui.click("[data-testid=review-open]").await;
-        c.ui.wait_for("[data-testid=review] [data-confirm=home]", SECS)
-            .await;
-        c.ui.shot("removing-the-used-secret-needs-the-name").await;
-        c.ui.click("[data-testid=discard]").await;
-        c.ui.wait_gone("[data-testid=review-open]", SECS).await;
-        c.ui.nav("/clients/office").await;
-        c.ui.nav("/clients/home?tab=secrets").await;
+        assert!(
+            !c.ui
+                .enabled(&format!(
+                    "[data-testid=secrets] [data-fp='{old}'] [data-testid=remove-secret]"
+                ))
+                .await,
+            "the secret the session uses cannot be removed"
+        );
+        c.ui.shot("the-used-secret-cannot-be-removed").await;
 
         let yaml = format!(
             "server: {}\nname: home\nsecret: {new_secret}\nallow: [127.0.0.1/32]\n",

@@ -207,7 +207,7 @@ fn service_paths(
                         } else {
                             HopState::Normal
                         };
-                        if h.value != was.value {
+                        if h.value != was.value && h.head == was.head {
                             h.badge = Some((format!("was {}", was.value), Tone::Neutral));
                         }
                     }
@@ -667,7 +667,7 @@ fn detail(plan: std::sync::Arc<Plan>, revert: bool) -> AnyView {
                     {confirms}
                 </div>
             })}
-            <div class="sticky bottom-4 z-20 flex flex-wrap items-center gap-3 rounded-card border border-border bg-surface px-4 py-3 shadow-overlay max-lg:[&>button]:flex-1 [&>button]:whitespace-nowrap" data-sticky-bar="">
+            <div class="sticky bottom-4 z-20 flex flex-wrap items-center gap-3 rounded-card border border-border bg-surface px-4 py-3 shadow-overlay max-lg:[&>span]:flex-1 max-lg:[&_button]:w-full [&_button]:whitespace-nowrap" data-sticky-bar="">
                 <span class="min-w-0 flex-1 basis-60 text-sm text-text-muted" data-testid="review-footer">{if empty {
                     if revert {
                         "The file already matches that version; there is nothing to apply.".to_string()
@@ -880,6 +880,7 @@ pub fn ReviewPage() -> impl IntoView {
             groups=vec!["Changes"]
             no_counts=true
             empty=("Nothing changes".to_string(), "The file would stay as it is.".to_string())
+            empty_icon="check"
             rows=rows
             selected=Signal::stored(None::<String>)
             testid="review-list"

@@ -36,7 +36,7 @@ pub fn rows(v: Option<&Value>) -> Vec<Row> {
             Some(Row {
                 fp: s.fp.clone().unwrap_or_default(),
                 source: match &s.src {
-                    SecretSrc::Literal => "literal".into(),
+                    SecretSrc::Literal => "in server.yaml".into(),
                     SecretSrc::Env(e) => format!("env: {e}"),
                 },
                 fresh: false,
@@ -130,8 +130,10 @@ pub fn secret_list(path: Path, id: String, max: u32) -> AnyView {
                                 view! {
                                     <button
                                         type="button"
-                                        class="inline-flex cursor-pointer items-center gap-1 text-[13px] font-semibold text-danger hover:underline"
+                                        class="inline-flex cursor-pointer items-center gap-1 text-[13px] font-semibold text-danger hover:underline disabled:cursor-not-allowed disabled:text-text-faint disabled:no-underline"
                                         data-testid="remove-secret"
+                                        disabled=using
+                                        title=using.then_some("The connected session uses this secret. Rotate first, then remove it once the client uses the new one.")
                                         aria-label=format!("Remove secret {fp}")
                                         on:click=move |_| e.remove_secret(&p, &fp)
                                     >
@@ -354,6 +356,7 @@ pub fn ShownOnce(section: String, name: String) -> impl IntoView {
             sec_item.fp
         );
         let nm2 = nm.clone();
+        let (sec3, new_fp) = (sec.clone(), sec_item.fp.clone());
         let waiting = move || {
             let on = s.status.with(|st| {
                 st.as_ref()
@@ -361,7 +364,9 @@ pub fn ShownOnce(section: String, name: String) -> impl IntoView {
                     .filter(|c| c.connected)
                     .map(|c| c.from.clone().unwrap_or_default())
             });
+            let used = in_use_fp(&sec3, &nm2);
             match on {
+                Some(_) if used.as_ref().is_some_and(|u| *u != new_fp) => view! { <p class="mt-4 flex items-center gap-2 text-sm text-text-muted" data-testid="old-secret"><burrow_ui_kit::Spinner/>{format!("{} is still connected with its old secret; it switches once its config has the new one.", nm2)}</p> }.into_any(),
                 Some(from) => view! { <p class="mt-4 flex items-center gap-2 text-sm text-success" data-testid="connected-now"><span class="size-2 rounded-full bg-success"></span>{format!("{} connected from {from}", nm2)}</p> }.into_any(),
                 None => view! { <p class="mt-4 flex items-center gap-2 text-sm text-text-muted"><burrow_ui_kit::Spinner/>{format!("Waiting for {} to connect…", nm2)}</p> }.into_any(),
             }
@@ -439,7 +444,11 @@ pub fn ConnectPanel(section: String, name: String) -> impl IntoView {
             })));
         });
     };
-    fetch(name.clone(), None);
+    let known = store().server_addr.get_untracked();
+    if !known.is_empty() {
+        address.set(known.clone());
+    }
+    fetch(name.clone(), (!known.is_empty()).then_some(known));
     let n2 = StoredValue::new(name.clone());
     let body = move || match data.get() {
         None => view! { <p class="text-text-muted">"Loading…"</p> }.into_any(),
@@ -455,7 +464,7 @@ pub fn ConnectPanel(section: String, name: String) -> impl IntoView {
                                     <label class="sr-only" for="connect-address">"Server address"</label>
                                     <TextInput id="connect-address" value=address on_input=move |t: String| address.set(t) placeholder="myserver.example.com" mono=true/>
                                 </div>
-                                <Button label="Use it" on_click=move |_| fetch(n2.get_value(), Some(address.get_untracked()))/>
+                                <Button label="Use it" disabled=Signal::derive(move || address.with(|a| a.trim().is_empty())) on_click=move |_| fetch(n2.get_value(), Some(address.get_untracked()))/>
                             </div>
                         })}
                     </SnippetView>
@@ -481,7 +490,7 @@ mod tests {
         ]);
         let r = rows(Some(&v));
         assert_eq!(r.len(), 3);
-        assert_eq!(r[0].source, "literal");
+        assert_eq!(r[0].source, "in server.yaml");
         assert!(r[1].unset);
         assert_eq!(r[1].source, "env: HOME_SECRET");
         assert!(r[2].fresh);

@@ -133,16 +133,119 @@ pub fn Settings() -> impl IntoView {
             view! { <div class="max-w-[1120px]">{cards.iter().map(settings_card).collect_view()}</div> },
         )
     };
+    let e = s.edit;
+    let root: Vec<String> = Vec::new();
+    let editing = {
+        let root = root.clone();
+        Memo::new(move |_| e.is_editing(&root))
+    };
+    let settings_of = move |doc: &burrow_admin_proto::serde_json::Value| {
+        let mut out = burrow_admin_proto::serde_json::Map::new();
+        if let Some(m) = doc.as_object() {
+            for (k, v) in m {
+                if !crate::route::SECTIONS.contains(&k.as_str()) {
+                    out.insert(k.clone(), v.clone());
+                }
+            }
+        }
+        burrow_admin_proto::serde_json::Value::Object(out)
+    };
+    let changed = Signal::derive(move || {
+        let now = settings_of(&e.doc());
+        e.editing.with(|m| {
+            let snap = m
+                .get(&Vec::<String>::new())
+                .cloned()
+                .flatten()
+                .map(|d| settings_of(&d))
+                .unwrap_or_else(|| now.clone());
+            burrow_admin_logic::changeset::ops_between(&snap, &now).len()
+        })
+    });
+    let problems = Signal::derive(move || {
+        e.local.with(|l| {
+            l.keys()
+                .filter(|p| {
+                    p.first()
+                        .is_some_and(|k| !crate::route::SECTIONS.contains(&k.as_str()))
+                })
+                .count()
+        })
+    });
+    let start = move |_| e.start_edit(&[]);
+    let close = move || {
+        let snap = e
+            .editing
+            .with_untracked(|m| m.get(&Vec::<String>::new()).cloned().flatten());
+        if let Some(snap) = snap {
+            let now = e.doc();
+            let mut keys: Vec<String> = Vec::new();
+            for d in [&snap, &now] {
+                if let Some(m) = d.as_object() {
+                    keys.extend(
+                        m.keys()
+                            .filter(|k| !crate::route::SECTIONS.contains(&k.as_str()))
+                            .cloned(),
+                    );
+                }
+            }
+            keys.sort();
+            keys.dedup();
+            for k in keys {
+                let (a, b) = (snap.get(&k).cloned(), now.get(&k).cloned());
+                if a != b {
+                    e.set(std::slice::from_ref(&k), a);
+                }
+            }
+            e.local.update(|l| {
+                l.retain(|p, _| {
+                    p.first()
+                        .is_some_and(|k| crate::route::SECTIONS.contains(&k.as_str()))
+                })
+            });
+        }
+        e.stop_edit(&[]);
+    };
+    let save = move || {
+        e.stop_edit(&[]);
+        s.toast(
+            burrow_ui_kit::Tone::Success,
+            "Added to changes",
+            Some("Review"),
+        );
+    };
+    let can = s.can_write_now();
     let detail = view! {
         <Provider value=ShowKeys(true)>
+        <Provider value=crate::form::EditMode(Signal::derive(move || editing.get()))>
         <DetailPane>
-            <header class="mb-[22px]">
-                <p class="mb-1.5 text-[12.5px] font-semibold">"Settings"</p>
-                <h1 class="text-[25px] font-bold tracking-[-0.015em]">"Server settings"</h1>
-                <p class="mt-1 text-base text-text-muted">"Everything in server.yaml besides clients, visitors and services. Each field says when it takes effect."</p>
+            <header class="mb-[22px] flex flex-wrap items-start gap-3.5">
+                <div class="min-w-0 flex-1">
+                    <p class="mb-1.5 text-[12.5px] font-semibold">"Settings"</p>
+                    <h1 class="text-[25px] font-bold tracking-[-0.015em]">"Server settings"</h1>
+                    <p class="mt-1 text-base text-text-muted">"Everything in server.yaml besides clients, visitors and services. Each field says when it takes effect."</p>
+                </div>
+                {move || (!editing.get()).then(|| view! {
+                    <burrow_ui_kit::Button label="Edit" icon="edit" testid="edit" disabled=!can reason=if can { String::new() } else { "Editing needs write admin".to_string() } on_click=start/>
+                })}
             </header>
             <div data-testid="settings">{body}</div>
+            {move || editing.get().then(|| {
+                let bad = problems.get() > 0;
+                view! {
+                    <div class=format!("sticky bottom-4 z-20 mt-6 flex items-center gap-3 rounded-card border bg-surface px-4 py-3 shadow-overlay {}", if bad { "border-danger" } else { "border-border" }) data-testid="save-bar" data-sticky-bar="">
+                        <span class="text-sm text-text-muted" data-testid="fields-changed">{move || {
+                            let n = changed.get();
+                            if bad { format!("{} problem{} to fix", problems.get(), if problems.get() == 1 { "" } else { "s" }) } else if n == 0 { "No changes yet".to_string() } else { format!("{n} field{} changed", if n == 1 { "" } else { "s" }) }
+                        }}</span>
+                        <span class="ml-auto"></span>
+                        <burrow_ui_kit::Button label=Signal::derive(move || if changed.get() == 0 { "Close".to_string() } else { "Discard".to_string() }) variant="ghost" testid="discard-edit" on_click=move |_| close()/>
+                        <burrow_ui_kit::Button label="Add to changes" variant="primary" testid="save" disabled=Signal::derive(move || bad || changed.get() == 0) on_click=move |_| save()/>
+                    </div>
+                }
+            })}
         </DetailPane>
+        </Provider>
         </Provider>
     }
     .into_any();

@@ -97,7 +97,7 @@ pub const LABEL: &str = "text-2xs font-bold uppercase tracking-[0.08em] text-tex
 pub fn button_class(variant: &str, small: bool) -> String {
     let look = match variant {
         "primary" => {
-            "border-accent bg-accent text-on-accent hover:brightness-95 dark:hover:brightness-110"
+            "border-accent bg-accent text-on-accent hover:brightness-95 dark:hover:brightness-110 disabled:border-border disabled:bg-surface-3 disabled:text-text-faint disabled:opacity-100 disabled:hover:brightness-100"
         }
         "danger" => {
             "border-danger bg-danger text-danger-ink hover:brightness-95 dark:hover:brightness-110"
@@ -134,11 +134,11 @@ pub fn Button(
     #[prop(into)] on_click: Callback<()>,
 ) -> impl IntoView {
     view! {
+        <span class="inline-flex" title=move || Some(reason.get()).filter(|r| !r.is_empty())>
         <button
             type="button"
             class=move || button_class(if variant == "danger" && disabled.get() { "danger-pending" } else { variant }, small)
             disabled=move || disabled.get() || busy.get()
-            title=move || Some(reason.get()).filter(|r| !r.is_empty())
             aria-busy=move || busy.get().then_some("true")
             data-testid=(!testid.is_empty()).then_some(testid)
             on:click=move |_| on_click.run(())
@@ -148,6 +148,7 @@ pub fn Button(
             <span>{move || label.get()}</span>
             {(!kbd.is_empty()).then(|| view! { <Kbd text=kbd/> })}
         </button>
+        </span>
     }
 }
 

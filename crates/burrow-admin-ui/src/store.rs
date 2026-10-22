@@ -193,11 +193,18 @@ impl Store {
     }
 
     pub fn note_clients(&self, next: &State) {
-        use burrow_config::{ClientEntry, Entry};
+        use burrow_config::{ClientEntry, Entry, VisitorEntry};
         let names = |v: &burrow_admin_proto::serde_json::Value| -> Vec<String> {
-            ClientEntry::entries(v)
-                .map(|m| m.keys().cloned().collect())
-                .unwrap_or_default()
+            let mut out: Vec<String> = Vec::new();
+            for (sec, m) in [
+                (ClientEntry::section(), ClientEntry::entries(v)),
+                (VisitorEntry::section(), VisitorEntry::entries(v)),
+            ] {
+                if let Some(m) = m {
+                    out.extend(m.keys().map(|k| format!("{sec}/{k}")));
+                }
+            }
+            out
         };
         let Some(before) = self
             .state
@@ -219,8 +226,10 @@ impl Store {
         }
     }
 
-    pub fn added_secs(&self, client: &str) -> Option<u64> {
-        let at = self.added_at.with(|m| m.get(client).copied())?;
+    pub fn added_secs(&self, section: &str, name: &str) -> Option<u64> {
+        let at = self
+            .added_at
+            .with(|m| m.get(&format!("{section}/{name}")).copied())?;
         Some(((self.now.get() - at) / 1000.0).max(0.0) as u64)
     }
 

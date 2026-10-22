@@ -35,6 +35,8 @@ const ADMIN: &str = VisitorEntry::ADMIN.key();
 const ADMIN_FROM: &str = VisitorEntry::ADMIN_FROM.key();
 
 const MAX_TEXT: usize = 4096;
+pub const UNREACHABLE: &str = "unreachable-service";
+
 pub fn locked_hint(n: &Node) -> String {
     match n.applies {
         Some(Applies::Restart) => {
@@ -330,7 +332,15 @@ pub fn settings_cards(node: &Node, skip: &[&str]) -> Vec<SettingsCard> {
 }
 
 pub fn settings_card(c: &SettingsCard) -> AnyView {
-    let danger = c.fields.iter().any(|f| danger_in(&f.node));
+    let locked_all = store().schema.with_untracked(|sc| {
+        sc.as_ref().is_some_and(|sc| {
+            let locked = sc.locked_paths();
+            card_fields(c)
+                .iter()
+                .all(|(p, _)| locked.iter().any(|l| p.starts_with(l)))
+        })
+    });
+    let danger = !locked_all && c.fields.iter().any(|f| danger_in(&f.node));
     let border = if danger {
         "border-danger/45"
     } else {
@@ -681,9 +691,11 @@ fn row(f: Field, path: Path, spath: Path, entity: Path) -> AnyView {
         let node = node.clone();
         Signal::derive(move || {
             let s = st.get();
+            let picked = touched.get();
             let server = e.plan.with(|p| {
                 diags_at(p.as_deref(), &path, items)
                     .into_iter()
+                    .filter(|d| picked || d.code != UNREACHABLE)
                     .map(|d| (d.severity, d.message.clone()))
                     .collect::<Vec<_>>()
             });
@@ -781,7 +793,7 @@ fn row(f: Field, path: Path, spath: Path, entity: Path) -> AnyView {
         node.help.clone()
     };
     let key_hint = if show_keys {
-        spath.join(".")
+        spath.join(".\u{200b}")
     } else if matches!(inner(&node).sem, SemType::List(_)) {
         f.key.clone()
     } else {

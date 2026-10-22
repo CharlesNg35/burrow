@@ -245,7 +245,7 @@ pub fn x_ticks(window: usize) -> Vec<String> {
 }
 
 fn tick(v: f64) -> String {
-    if v >= 10.0 || v == 0.0 {
+    if v >= 10.0 || v.fract() == 0.0 {
         format!("{v:.0}")
     } else if v >= 1.0 {
         format!("{v:.1}")
@@ -271,10 +271,10 @@ pub fn chart(a: &[Option<f64>], b: &[Option<f64>], window: usize) -> ChartData {
         .fold(0.0_f64, f64::max);
     let max = if top > 0.0 { axis_max(top) } else { 20.0 };
     let samples = a.iter().filter(|v| v.is_some()).count();
-    let empty_note = (a.len() * 2 < window).then(|| {
+    let empty_note = (a.len() < 30 && a.len() * 2 < window).then(|| {
         format!(
-            "Recording since you opened this page · {} s so far",
-            a.len()
+            "Recording since you opened this page · {} so far",
+            format::span(a.len() as u64)
         )
     });
     ChartData {
@@ -983,7 +983,7 @@ mod tests {
         assert!((d.a[2].unwrap() - 50.0).abs() < 1e-9);
         assert_eq!(d.y_ticks, ["0", "15", "30", "45", "60"]);
         assert_eq!(d.x_ticks.last().map(String::as_str), Some("now"));
-        assert!(d.empty_note.unwrap().contains("3 s so far"));
+        assert!(d.empty_note.unwrap().contains("3s so far"));
         assert!(chart(&a[..1], &b[..1], 900).a.is_empty());
         let full: Vec<Option<f64>> = vec![Some(mb); 1000];
         let d = chart(&full, &full, 900);

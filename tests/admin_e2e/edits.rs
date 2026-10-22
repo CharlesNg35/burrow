@@ -396,6 +396,7 @@ fn editors(c: &mut Ctx) -> Flow<'_> {
         assert!(text.contains("interval_secs: 5"), "{text}");
 
         c.ui.nav("/settings").await;
+        edit_mode(c).await;
         c.ui.wait_for("[data-server-address]", SECS).await;
         click_js(c, "[data-server-address] input[value=host]").await;
         c.ui.fill("#f-public-address", "bad host").await;
@@ -731,7 +732,11 @@ fn grant_lock(c: &mut Ctx) -> Flow<'_> {
 
         c.ui.nav("/visitors/plain").await;
         edit_mode(c).await;
-        assert!(off(c, "plain", "read").await && off(c, "plain", "write").await);
+        assert_eq!(
+            c.ui.count("#f-visitors-plain-admin input").await,
+            0,
+            "no selector to offer when nothing may be chosen"
+        );
         c.ui.wait_for(
             "[data-schema='visitors/*/admin'] [data-testid=grant-lock]",
             SECS,
@@ -954,9 +959,15 @@ fn locked_fields(c: &mut Ctx) -> Flow<'_> {
         );
         c.ui.wait_for("[data-schema=websocket] [data-testid=locked-hint]", SECS)
             .await;
+        assert_eq!(
+            c.ui.count("[data-schema=public_address] input").await,
+            0,
+            "view mode shows values"
+        );
+        edit_mode(c).await;
         assert!(
             c.ui.count("[data-schema=public_address] input").await > 0,
-            "unlocked fields stay editable"
+            "unlocked fields are editable in edit mode"
         );
         assert!(
             c.ui.count("[data-schema='limits/max_pending'] input").await > 0,
@@ -1260,22 +1271,28 @@ fn edit_state(c: &mut Ctx) -> Flow<'_> {
         c.ui.choose("f-services-web-bind-visibility", "private")
             .await;
         c.ui.wait_for("[data-testid=pick-visitors]", SECS).await;
-        let problems =
-            c.ui.wait_text("[data-testid=form-problems]", "Visitors", SECS)
-                .await;
-        assert!(problems.contains("nobody can reach it"), "{problems}");
-        c.ui.wait_for("[role=tablist] [data-tab=settings] [data-tab-errors]", SECS)
-            .await;
-        c.ui.wait_text(
-            "[data-schema='services/*/visitors']",
-            "nobody can reach it",
+        wait_checked(c).await;
+        tokio::time::sleep(Duration::from_millis(600)).await;
+        assert_eq!(
+            c.ui.count("[data-testid=form-problems]").await,
+            0,
+            "the hint asks for visitors; no red error while they are being picked"
+        );
+        c.ui.shot("private-needs-visitors").await;
+        c.ui.click("[data-testid=pick-visitors] button").await;
+        c.ui.wait_for(
+            "#f-services-web-visitors:focus, #f-services-web-visitors:focus-within",
             SECS,
         )
         .await;
-        c.ui.shot("private-needs-visitors").await;
+        c.ui.fill("#f-services-web-max-connections", "abc").await;
+        c.ui.wait_for("[data-testid=form-problems] [data-problem]", SECS)
+            .await;
+        c.ui.wait_for("[role=tablist] [data-tab=settings] [data-tab-errors]", SECS)
+            .await;
         c.ui.click("[data-testid=form-problems] button").await;
         c.ui.wait_for(
-            "#f-services-web-visitors:focus, #f-services-web-visitors:focus-within",
+            "#f-services-web-max-connections:focus, #f-services-web-max-connections:focus-within",
             SECS,
         )
         .await;

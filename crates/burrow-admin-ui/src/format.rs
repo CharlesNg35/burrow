@@ -29,7 +29,12 @@ pub fn left_or_added(
 }
 
 pub fn left_of(client: &str, left_secs_ago: Option<u64>, uptime: u64) -> String {
-    let added = crate::store::try_store().and_then(|s| s.added_secs(client));
+    let added = crate::store::try_store().and_then(|s| {
+        s.added_secs(
+            <burrow_config::ClientEntry as burrow_config::Entry>::section(),
+            client,
+        )
+    });
     left_or_added(left_secs_ago, uptime, added)
 }
 

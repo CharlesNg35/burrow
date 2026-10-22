@@ -181,7 +181,7 @@ pub fn rows_for(section: &str) -> Vec<Row> {
                 Row {
                     key: name.clone(),
                     to,
-                    icon: "person",
+                    icon: if admin.is_some() { "shield" } else { "person" },
                     dot: None,
                     title: name.clone(),
                     title_tag: admin.map(|a| {
@@ -532,7 +532,7 @@ fn Detail(section: String, name: String) -> impl IntoView {
         get(d.base(), &path).is_none()
             && get(d.draft(), &path).is_some()
             && d.renamed_from(&section, &name).is_none()
-    }) && crate::secrets::revealed_for(&section, &name).is_none();
+    }) && untrack(|| crate::secrets::revealed_for(&section, &name)).is_none();
     if fresh && s.can_write_now() {
         e.start_edit(&path);
     }
@@ -602,8 +602,12 @@ fn Detail(section: String, name: String) -> impl IntoView {
     let tab: RwSignal<&'static str> = RwSignal::new(match known {
         Some(k) => k,
         None if fresh => untrack(form_tab),
-        None if crate::secrets::revealed_for(&section, &name).is_some() => placement::CONNECT,
-        None => placement::OVERVIEW,
+        None if untrack(|| crate::secrets::revealed_for(&section, &name)).is_some() => {
+            placement::CONNECT
+        }
+        None => {
+            tab_list.with_untracked(|t| t.first().map(|(k, _)| *k).unwrap_or(placement::OVERVIEW))
+        }
     });
     {
         let (sec, nm) = (section.clone(), name.clone());
@@ -870,7 +874,6 @@ fn Detail(section: String, name: String) -> impl IntoView {
             let tab_body = move || {
                 let t = tab.get();
                 match (sec2.as_str(), t) {
-                    (VISITORS, placement::OVERVIEW) => visitor_overview(&nm2).into_any(),
                     (CLIENTS, placement::OVERVIEW) => served(&nm2).into_any(),
                     (_, placement::OVERVIEW) => overview(&sec2, &nm2, false).into_any(),
                     (CLIENTS, placement::SECRETS) => crate::secrets::secret_list(
@@ -896,7 +899,10 @@ fn Detail(section: String, name: String) -> impl IntoView {
                             .map(|f| f.key.as_str())
                             .filter(|k| placement::tab_of(&sec2, k) != t)
                             .collect();
+                        let may = (sec2 == VISITORS && t == placement::ACCESS)
+                            .then(|| visitor_overview(&nm2));
                         view! {
+                            {may}
                             <div data-form-tab=t>
                                 {crate::form::object_view_skipping(&node, path2.clone(), spath.clone(), path2.clone(), &skip)}
                             </div>
@@ -1002,7 +1008,7 @@ fn pool_range(doc: &Value) -> String {
         .get(doc)
         .and_then(Value::as_u64)
         .unwrap_or(u64::from(d.max_idle));
-    format!("pool {min}–{max}")
+    format!("{min} to {max} kept ready")
 }
 
 fn since_date(secs: u64) -> String {
@@ -1012,9 +1018,11 @@ fn since_date(secs: u64) -> String {
         "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
     ];
     format!(
-        "since {} {:02}",
+        "since {} {:02}, {:02}:{:02}",
         months[d.get_month() as usize % 12],
-        d.get_date()
+        d.get_date(),
+        d.get_hours(),
+        d.get_minutes()
     )
 }
 
@@ -1168,7 +1176,9 @@ fn problems_of(section: &str, entity: &Path) -> Vec<Problem> {
             .map(|p| {
                 p.diags
                     .iter()
-                    .filter(|d| d.is_error() && d.within(entity))
+                    .filter(|d| {
+                        d.is_error() && d.within(entity) && d.code != crate::form::UNREACHABLE
+                    })
                     .map(|d| {
                         let at = d
                             .path
@@ -1372,7 +1382,15 @@ fn visitor_overview(name: &str) -> impl IntoView {
                     .collect()
             })
             .unwrap_or_default();
-        let chips = if may.is_empty() {
+        let admin_only = may.is_empty()
+            && VisitorEntry::ADMIN.at(&doc, &name).is_some()
+            && VisitorEntry::REACH
+                .at(&doc, &name)
+                .and_then(Value::as_object)
+                .is_none_or(|m| m.is_empty());
+        let chips = if admin_only {
+            view! { <p class="px-4 py-3 text-sm text-text-muted">"None: this visitor runs burrow admin, not burrow visit."</p> }.into_any()
+        } else if may.is_empty() {
             view! { <p class="px-4 py-3 text-sm text-text-muted">"No private service names this visitor. Pick it in a service's Visitors field."</p> }.into_any()
         } else {
             view! {

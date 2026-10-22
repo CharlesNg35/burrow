@@ -134,7 +134,7 @@ pub fn service(
         } else if ports > 1 {
             format!("{ports} ports · {protocol}")
         } else {
-            format!("bound · {protocol}")
+            format!("public port · {protocol}")
         },
         state: HopState::Current,
         badge: None,
@@ -208,7 +208,10 @@ pub fn service(
         unit: if on_server {
             "on this server".into()
         } else {
-            "on each client".into()
+            match clients.as_slice() {
+                [one] => format!("on {one}"),
+                _ => "on each client".into(),
+            }
         },
         state: if problems.ports.is_some() {
             HopState::Bad
@@ -396,6 +399,14 @@ pub fn client(name: &str, doc: &Value, status: Option<&Status>, listen: &str) ->
     }
 }
 
+fn unseen(name: &str) -> String {
+    let added = crate::store::try_store().and_then(|s| s.added_secs(VisitorEntry::section(), name));
+    match added {
+        Some(a) => format!("added {}, not seen yet", crate::format::ago(a)),
+        None => "not seen since start".into(),
+    }
+}
+
 fn count_of(n: usize, what: &str) -> String {
     match n {
         0 => "none".into(),
@@ -454,9 +465,9 @@ pub fn visitor(
                     (false, Some(_)) if open > 0 => format!("in use now · {open} open"),
                     (false, Some(v)) => match v.last_seen_secs {
                         Some(a) => format!("seen {} · no open connection", crate::format::ago(a)),
-                        None => "not seen since start".into(),
+                        None => unseen(name),
                     },
-                    (false, None) if status.is_some() => "not seen since start".into(),
+                    (false, None) if status.is_some() => unseen(name),
                     _ => String::new(),
                 },
                 state: HopState::Current,
@@ -506,7 +517,7 @@ pub fn visitor(
                     "burrow visit".into()
                 },
                 below: String::new(),
-                state: if open > 0 {
+                state: if open > 0 || this_session {
                     EdgeState::Live
                 } else {
                     EdgeState::Dead

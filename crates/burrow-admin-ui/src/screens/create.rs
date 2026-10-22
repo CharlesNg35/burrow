@@ -435,13 +435,10 @@ pub fn NewEntity(
             <div class="sticky bottom-4 z-20 mt-6 flex flex-wrap items-center gap-3 rounded-card border border-border bg-surface px-4 py-3 shadow-overlay" data-sticky-bar="" on:keydown=move |ev| if ev.key() == "Enter" { finish(false) }>
                 <span class="flex items-center gap-1.5 text-sm text-text-muted">
                     <burrow_ui_kit::Icon name="info" small=true/>
-                    {move || {
-                        let n = name.get();
-                        if what == "service" {
-                            "You set the client and target next.".to_string()
-                        } else {
-                            format!("Add to changes keeps {} in your draft; Create and apply applies it now and shows its secret once.", if n.is_empty() { format!("the new {what}") } else { n })
-                        }
+                    {if what == ServiceEntry::ENTITY {
+                        "You set the client and target next."
+                    } else {
+                        "The secret is shown once, after apply."
                     }}
                 </span>
                 <span class="ml-auto"></span>
@@ -471,6 +468,10 @@ pub fn NewEntity(
 pub fn RenameEntity(section: String, name: String, open: RwSignal<bool>) -> impl IntoView {
     let what = singular(&section);
     let to = RwSignal::new(name.clone());
+    let same = {
+        let old = name.clone();
+        Signal::derive(move || to.with(|t| t.trim() == old))
+    };
     let (sec, old) = (section.clone(), name.clone());
     let problem = Signal::derive(move || {
         let n = to.get();
@@ -510,14 +511,15 @@ pub fn RenameEntity(section: String, name: String, open: RwSignal<bool>) -> impl
                 mono=true
             />
             <p id="rename-msg" class="mt-1 min-h-5 text-sm text-danger">{move || problem.get()}</p>
-            <p class="mb-3 text-sm text-warning">{note}" References in server.yaml are updated too."</p>
+            <p class=move || if same.get() { "mb-3 text-sm text-text-muted" } else { "mb-3 text-sm text-warning" }>{note}" References in server.yaml are updated too."</p>
             <div class="flex justify-end gap-2">
                 <Button label="Cancel" on_click=move |_| open.set(false)/>
                 <Button
                     label="Rename"
                     variant="primary"
                     testid="rename"
-                    disabled=Signal::derive(move || problem.get().is_some() || to.get().is_empty())
+                    disabled=Signal::derive(move || problem.get().is_some() || to.get().is_empty() || same.get())
+                    reason=Signal::derive(move || if same.get() { "Type a new name first".to_string() } else { String::new() })
                     on_click=move |_| rename_now.run(())
                 />
             </div>
