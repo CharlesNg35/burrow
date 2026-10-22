@@ -901,7 +901,7 @@ pub fn ReviewPage() -> impl IntoView {
             return view! {
                 {outcome_view()}
                 <EmptyState icon="check" title="Nothing to apply" message="Your draft has no changes left." testid="review-empty">
-                    <Link to=Route::Overview class=button_class("secondary", false)>"Go to the overview"</Link>
+                    <Link to=s.prev.get_untracked() class=button_class("secondary", false)>"Back"</Link>
                 </EmptyState>
             }
             .into_any();

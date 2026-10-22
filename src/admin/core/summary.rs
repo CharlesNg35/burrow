@@ -223,6 +223,11 @@ pub fn changes(old: &Value, new: &Value, renames: &[Rename]) -> Vec<Change> {
                 }
                 parts.join("; ")
             }
+            (None, Some(Value::Object(b))) if !b.is_empty() => b
+                .iter()
+                .map(|(k, v)| format!("{key}.{k} set to {}", short(v)))
+                .collect::<Vec<_>>()
+                .join("; "),
             (None, Some(v)) => format!("{key} set to {}", short(v)),
             (Some(_), None) => format!("{key} removed"),
             (Some(a), Some(b)) => format!("{key}: {} → {}", short(a), short(b)),
@@ -278,7 +283,7 @@ mod tests {
             ),
             "{text:?}"
         );
-        assert!(text.contains(&"self set to allow: 10.0.0.0/8"), "{text:?}");
+        assert!(text.contains(&"self.allow set to 10.0.0.0/8"), "{text:?}");
         assert!(!text.iter().any(|t| t.contains("settings")), "{text:?}");
         assert!(!text.iter().any(|t| t.contains("SECRET-")), "{text:?}");
     }

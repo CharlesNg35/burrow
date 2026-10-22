@@ -545,7 +545,7 @@ fn node_view(
     let tx = if dot.is_some() { x + 21.0 } else { x + 10.0 };
     let badge_px = n.badge.as_ref().map_or(0.0, |b| b.len() as f64 * 6.5 + 8.0);
     let room = ((w - (tx - x) - 8.0 - badge_px) / 7.0).max(4.0) as usize;
-    let sub_room = ((w - 18.0) / 6.0).max(4.0) as usize;
+    let sub_room = ((w - 18.0) / 5.4).max(4.0) as usize;
     view! {
         <g
             class=cursor
