@@ -746,7 +746,7 @@ fn detail(plan: std::sync::Arc<Plan>, revert: bool) -> AnyView {
                     }.into_any()
                 } else {
                     view! {
-                        <Button label="Keep editing" variant="secondary" testid="keep-editing" on_click=move |_| {
+                        <Button label="Back" variant="secondary" testid="keep-editing" on_click=move |_| {
                             e.review.set(None);
                             back();
                         }/>
