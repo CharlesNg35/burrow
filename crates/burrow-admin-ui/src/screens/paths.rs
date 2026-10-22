@@ -473,10 +473,10 @@ pub fn visitor(
                 mono: true,
                 unit: if this_session {
                     format!("this session · {open} open")
-                } else if open > 0 {
-                    format!("active · {open} open")
+                } else if status.is_some() {
+                    crate::format::visitor_use(open, v.and_then(|v| v.last_seen_secs))
                 } else {
-                    "idle".into()
+                    String::new()
                 },
                 state: HopState::Current,
                 ..Hop::default()

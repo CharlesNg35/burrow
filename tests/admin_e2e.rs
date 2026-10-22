@@ -424,10 +424,17 @@ fn many_issues(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
             .eval("(() => { const l = document.querySelector('[data-testid=attention] ul'); return l.scrollHeight > l.clientHeight + 1; })()")
             .await;
         assert!(scrolls, "the attention rows scroll inside the card");
-        let more =
-            c.ui.wait_text("[data-testid=attention] [data-testid=more]", "more", SECS)
-                .await;
-        assert!(more.starts_with('+'), "{more}");
+        c.ui.wait_for(
+            "[data-testid=attention] [data-testid=fade]:not(.hidden)",
+            SECS,
+        )
+        .await;
+        assert_eq!(
+            c.ui.count("[data-testid=attention] [data-testid=more]")
+                .await,
+            0,
+            "no +N more chip: the card scrolls"
+        );
         let first: String = c
             .ui
             .eval("document.querySelector('[data-testid=attention] li').getAttribute('data-tone')")
@@ -461,7 +468,16 @@ fn many_issues(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
             .ui
             .eval("[...document.querySelectorAll('[data-testid=attention] li')].filter(e => e.offsetParent !== null).length")
             .await;
-        assert_eq!(rows, 5, "below 1200 px at most five rows show");
+        let all = c.ui.count("[data-testid=attention] li").await;
+        assert!(
+            rows >= 14 && rows == all,
+            "below 1200 px every row is there: {rows} of {all}"
+        );
+        let scrolls: bool = c
+            .ui
+            .eval("(() => { const l = document.querySelector('[data-testid=attention] ul'); return l.scrollHeight > l.clientHeight + 1; })()")
+            .await;
+        assert!(scrolls, "below 1200 px the rows scroll in a capped list");
         c.ui.shot("many-issues-below-1200").await;
         c.ui.viewport(1440, 900).await;
         c.ui.assert_no_errors();

@@ -23,6 +23,22 @@ pub fn left(left_secs_ago: Option<u64>, uptime: u64) -> String {
     }
 }
 
+pub fn visitor_use(open: u64, last_seen_secs: Option<u64>) -> String {
+    match (open, last_seen_secs) {
+        (1.., _) => format!("in use now · {open} open"),
+        (0, Some(s)) => format!("last used {}", ago(s)),
+        (0, None) => "not seen since the server started".into(),
+    }
+}
+
+pub fn visitor_use_short(open: u64, last_seen_secs: Option<u64>) -> String {
+    match (open, last_seen_secs) {
+        (1.., _) => format!("{open} open"),
+        (0, Some(s)) => ago(s),
+        (0, None) => "not seen".into(),
+    }
+}
+
 pub fn away_badge(left_secs_ago: Option<u64>) -> &'static str {
     if left_secs_ago.is_some() {
         "away"

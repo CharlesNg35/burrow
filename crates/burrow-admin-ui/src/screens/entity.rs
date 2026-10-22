@@ -61,6 +61,9 @@ pub fn rows_for(section: &str) -> Vec<Row> {
     let (draft, base) = s.edit.draft.with(|d| (d.draft().clone(), d.base().clone()));
     let status = s.status.get();
     let rates = s.rates.get();
+    let me = s
+        .welcome
+        .with(|w| w.as_ref().map(|w| w.you.visitor.clone()));
     let items = draft
         .get(section)
         .and_then(Value::as_object)
@@ -151,6 +154,7 @@ pub fn rows_for(section: &str) -> Vec<Row> {
                     .and_then(|st| st.visitors.iter().find(|c| &c.name == name))
                     .cloned();
                 let open = st.as_ref().map(|x| x.open).unwrap_or(0);
+                let seen = st.as_ref().and_then(|x| x.last_seen_secs);
                 let admin = VisitorEntry::ADMIN.get(v).map(plain);
                 let mut filters = vec![];
                 if admin.is_some() {
@@ -203,10 +207,16 @@ pub fn rows_for(section: &str) -> Vec<Row> {
                             },
                         )
                     }),
-                    meta: format!("{open} open"),
+                    meta: if me.as_deref() == Some(name.as_str()) && open == 0 {
+                        "you, now".into()
+                    } else if status.is_some() {
+                        format::visitor_use_short(open, seen)
+                    } else {
+                        String::new()
+                    },
                     line2,
                     tags: if open > 0 {
-                        vec![("active".to_string(), Tone::Success)]
+                        vec![("in use now".to_string(), Tone::Success)]
                     } else {
                         Vec::new()
                     },
@@ -215,9 +225,9 @@ pub fn rows_for(section: &str) -> Vec<Row> {
                         format::count(st.as_ref().map(|x| x.total).unwrap_or(0))
                     ),
                     group: if open > 0 {
-                        "Active".into()
+                        "In use now".into()
                     } else {
-                        "Idle".into()
+                        "Not in use".into()
                     },
                     pending,
                     filters,
@@ -363,9 +373,9 @@ pub fn Entities(section: String, selected: Option<String>) -> impl IntoView {
                 vec![
                     ("all", "All".into()),
                     ("admins", "Admins".into()),
-                    ("active", "Active".into()),
+                    ("active", "In use".into()),
                 ],
-                vec!["Active", "Idle"],
+                vec!["In use now", "Not in use"],
             ),
             _ => (
                 vec![
@@ -729,6 +739,7 @@ fn Detail(section: String, name: String) -> impl IntoView {
                         .and_then(|x| x.visitors.iter().find(|c| c.name == nm))
                         .cloned();
                     let open = v.as_ref().map(|v| v.open).unwrap_or(0);
+                    let seen = v.as_ref().and_then(|v| v.last_seen_secs);
                     let fp = VisitorEntry::SECRET
                         .at(&doc, &nm)
                         .and_then(|x| match x {
@@ -737,8 +748,17 @@ fn Detail(section: String, name: String) -> impl IntoView {
                         })
                         .and_then(|x| as_secret(&x).and_then(|s| s.fp.clone()));
                     format!(
-                        "{edit}Visitor · {} · {open} open · {} total{}",
-                        if open > 0 { "active" } else { "idle" },
+                        "{edit}Visitor · {} · {} total{}",
+                        if open == 0
+                            && s.welcome
+                                .with(|w| w.as_ref().is_some_and(|w| w.you.visitor == nm))
+                        {
+                            "this admin session is yours".into()
+                        } else if st.is_some() {
+                            format::visitor_use(open, seen)
+                        } else {
+                            "status not known yet".into()
+                        },
                         format::count(v.as_ref().map(|v| v.total).unwrap_or(0)),
                         fp.map(|f| format!(" · secret {f}")).unwrap_or_default()
                     )
@@ -895,9 +915,9 @@ fn Detail(section: String, name: String) -> impl IntoView {
             if editing.get() {
                 return view! { <span class=tag_class(Tone::Accent) data-testid="editing-tag"><Icon name="edit" small=true/>"Editing"</span> }.into_any();
             }
-            if crate::secrets::revealed_for(&sec, &nm).is_some() {
-                return view! { <span class=tag_class(Tone::Success) data-testid="applied-tag"><Icon name="check" small=true/>"Applied"</span> }.into_any();
-            }
+            let applied = crate::secrets::revealed_for(&sec, &nm).is_some().then(|| {
+                view! { <span class=tag_class(Tone::Success) data-testid="applied-tag"><Icon name="check" small=true/>"Applied"</span> }
+            });
             let start_edit = start_edit.clone();
             let (path, sec, nm) = (path.clone(), sec.clone(), nm.clone());
             let back = Route::List(sec.clone());
@@ -905,6 +925,7 @@ fn Detail(section: String, name: String) -> impl IntoView {
                 <Button label="Connect" icon="terminal" variant="secondary" testid="connect-head" on_click=move |_| tab.set("connect")/>
             });
             view! {
+                {applied}
                 {connect}
                 <Button
                     label="Edit"

@@ -67,6 +67,10 @@ fn secret_once(c: &mut Ctx) -> Flow<'_> {
         c.ui.click("[data-testid=apply]").await;
         c.ui.wait_for("[data-testid=shown-once]", Duration::from_secs(20))
             .await;
+        assert!(
+            c.ui.enabled("[data-testid=edit]").await,
+            "a just-created client can be edited without a reload"
+        );
         let secret =
             c.ui.text("[data-testid=secret-value] pre")
                 .await

@@ -393,7 +393,7 @@ fn Traffic() -> impl IntoView {
     }
 }
 
-fn row_view(i: Item, index: usize, icon: bool) -> impl IntoView {
+fn row_view(i: Item, icon: bool) -> impl IntoView {
     let tone = i.tone;
     let glyph = match tone {
         Tone::Danger => "alert-circle",
@@ -411,14 +411,7 @@ fn row_view(i: Item, index: usize, icon: bool) -> impl IntoView {
         </span>
     };
     let class = "flex gap-2.5 px-4 py-[11px] text-text no-underline hover:bg-surface-2 dark:hover:bg-surface-3/50";
-    let li = format!(
-        "border-b border-rowline last:border-b-0{}",
-        if index >= 5 {
-            " max-[1199px]:hidden"
-        } else {
-            ""
-        }
-    );
+    let li = "border-b border-rowline last:border-b-0";
     view! {
         <li class=li data-item=i.key.clone() data-tone=tone.name()>
             {match i.to {
@@ -453,7 +446,6 @@ fn Section(
     title: &'static str,
     #[prop(into)] items: Signal<Vec<Item>>,
     tone: Signal<Tone>,
-    more: Route,
     icon: bool,
     testid: &'static str,
     #[prop(into)] grow: Signal<String>,
@@ -481,20 +473,12 @@ fn Section(
     let resize = window_event_listener(leptos::ev::resize, move |_| measure());
     on_cleanup(move || resize.remove());
     let total = move || items.with(Vec::len);
-    let narrow_more = move || total().saturating_sub(5);
-    let more2 = more.clone();
     view! {
         <div class=move || format!("flex min-h-0 flex-col {}", grow.get()) data-testid=testid>
             <div class="flex shrink-0 items-center gap-2 border-b border-border px-4 py-3">
                 <h2 class="text-[13.5px] font-bold">{title}</h2>
                 <span class=move || tag_class(tone.get()) data-testid="count">{total}</span>
                 <span class="ml-auto"></span>
-                {move || (hidden.get() > 0).then(|| view! {
-                    <Link to=more.clone() class="rounded-full border border-border px-2 py-0.5 text-xs font-semibold text-accent-ink no-underline hover:border-accent-line max-[1199px]:hidden" testid="more">{format!("+{} more", hidden.get())}</Link>
-                })}
-                {move || (narrow_more() > 0).then(|| view! {
-                    <Link to=more2.clone() class="rounded-full border border-border px-2 py-0.5 text-xs font-semibold text-accent-ink no-underline hover:border-accent-line min-[1200px]:hidden">{format!("+{} more", narrow_more())}</Link>
-                })}
             </div>
             <div class="relative min-h-0 flex-1">
                 {move || if total() == 0 {
@@ -512,16 +496,16 @@ fn Section(
                 }}
                 <ul
                     node_ref=list
-                    class="h-full overflow-y-auto overscroll-contain [scrollbar-width:thin]"
+                    class="h-full overflow-y-auto overscroll-contain [scrollbar-width:thin] max-[1199px]:max-h-[340px]"
                     on:scroll=move |_| measure()
                 >
                     <For
                         each=move || numbered(items.get())
                         key=|(i, x)| format!("{i}|{}|{}|{}", x.key, x.title, x.detail)
-                        children=move |(i, x)| row_view(x, i, icon)
+                        children=move |(_, x)| row_view(x, icon)
                     />
                 </ul>
-                <div class=move || format!("pointer-events-none absolute inset-x-0 bottom-0 h-6 bg-gradient-to-t from-surface to-transparent max-[1199px]:hidden{}", if hidden.get() > 0 { "" } else { " hidden" })></div>
+                <div data-testid="fade" class=move || format!("pointer-events-none absolute inset-x-0 bottom-0 h-6 bg-gradient-to-t from-surface to-transparent{}", if hidden.get() > 0 { "" } else { " hidden" })></div>
             </div>
         </div>
     }
@@ -613,7 +597,6 @@ fn Attention() -> impl IntoView {
                     title="Needs attention"
                     items=items
                     tone=Signal::derive(move || if items.with(Vec::is_empty) { Tone::Success } else { Tone::Warning })
-                    more=Route::List(ServiceEntry::section().into())
                     icon=true
                     testid="attention"
                     grow="grow shrink basis-auto".to_string()
@@ -623,7 +606,6 @@ fn Attention() -> impl IntoView {
                     title=away_title
                     items=away_items
                     tone=away_tone
-                    more=Route::List(ClientEntry::section().into())
                     icon=false
                     testid="away"
                     grow=away_grow
@@ -844,17 +826,18 @@ pub fn Overview() -> impl IntoView {
                     <tr data-row=name.clone()>
                         <th scope="row">
                             <Link to=Route::Detail(VisitorEntry::section().into(), name.clone()) class="text-text no-underline hover:underline">{label}</Link>
-                            {(open > 0).then(|| view! { <span class=format!("ml-2 {}", tag_class(Tone::Success))>"active"</span> })}
+                            {(open > 0).then(|| view! { <span class=format!("ml-2 {}", tag_class(Tone::Success))>"in use now"</span> })}
                         </th>
                         <td>{admin.map(|a| view! { <span class=tag_class(if a == "write" { Tone::Danger } else { Tone::Accent })>{format!("admin · {a}")}</span> })}</td>
                         <td class="text-text-muted">{may.join(", ")}</td>
                         <td class="text-right tabular-nums">{open}</td>
                         <td class="text-right tabular-nums">{x.as_ref().map(|x| format::count(x.total)).unwrap_or_default()}</td>
+                        <td class="text-text-muted" data-last-used="">{x.as_ref().map(|x| if x.open > 0 { "now".to_string() } else { x.last_seen_secs.map(format::ago).unwrap_or_else(|| "not seen".into()) }).unwrap_or_default()}</td>
                     </tr>
                 }
             })
             .collect_view();
-        view! { <div class="max-sm:hidden"><Table head=vec!["Visitor", "Admin", "Services it may use", ">Open", ">Total"] testid="overview-visitors">{rows}</Table></div> {mobile_cards(VisitorEntry::section())} }.into_any()
+        view! { <div class="max-sm:hidden"><Table head=vec!["Visitor", "Admin", "Services it may use", ">Open", ">Total", "Last used"] testid="overview-visitors">{rows}</Table></div> {mobile_cards(VisitorEntry::section())} }.into_any()
     };
     let kpi_link = "rounded-card no-underline text-text hover:[&>div]:border-border-strong";
     view! {
@@ -924,14 +907,17 @@ pub fn Overview() -> impl IntoView {
                 </div>
                 <div class="md:col-span-2">
                     <Kpi
-                        label="Visitors active"
+                        label="Visitors in use"
                         icon="person"
                         value=Signal::derive(move || {
                             let active = s.status.with(|st| st.as_ref().map(|st| st.visitors.iter().filter(|v| v.open > 0).count()).unwrap_or(0));
                             active.to_string()
                         })
                         unit=Signal::derive(move || format!("/ {}", names(&values.get(), VisitorEntry::section()).len()))
-                        detail="with open connections"
+                        detail=Signal::derive(move || {
+                            let seen = s.status.with(|st| st.as_ref().map(|st| st.visitors.iter().filter(|v| v.open > 0 || v.last_seen_secs.is_some()).count()).unwrap_or(0));
+                            format!("with open connections · {seen} used since start")
+                        })
                         testid="kpi-visitors"
                     />
                 </div>
