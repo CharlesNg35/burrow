@@ -1138,6 +1138,23 @@ fn edit_state(c: &mut Ctx) -> Flow<'_> {
     Box::pin(async move {
         open(c, "ops").await;
         c.ui.nav("/visitors/laptop").await;
+        c.world.hand_edit(|t| {
+            t.replace(
+                "  plain:\n",
+                "  plain:\n    reach: { home: [127.0.0.1/32] }\n",
+            )
+        });
+        c.ui.wait_text(
+            "[data-testid=entity-list] [data-row=plain]",
+            "reach: home",
+            SECS,
+        )
+        .await;
+        assert_eq!(
+            c.ui.count("[data-testid=banner-changed]").await,
+            0,
+            "without a draft a hand edit just shows up, with no banner to act on"
+        );
         c.ui.click("[role=tablist] [data-tab=access]").await;
         c.ui.wait_for("[data-schema='visitors/*/reach']", SECS)
             .await;
