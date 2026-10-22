@@ -451,6 +451,12 @@ fn conflict(c: &mut Ctx) -> Flow<'_> {
         c.ui.shot("conflict-dialog").await;
         c.ui.click("[data-testid=conflict-recheck]").await;
         c.ui.wait_gone("[data-testid=conflict]", SECS).await;
+        c.ui.wait_for("[data-testid=review]", SECS).await;
+        assert_eq!(
+            c.ui.count("[data-testid=banner-changed]").await,
+            0,
+            "the banner goes with the draft it protected"
+        );
         wait_checked(c).await;
         c.ui.shot("draft-kept-on-the-new-version").await;
         open_review(c, "review-after-recheck").await;

@@ -679,9 +679,16 @@ fn detail(plan: std::sync::Arc<Plan>, revert: bool) -> AnyView {
                 {guard_view.clone().map(lockout_fixes)}
                 {(!revert).then(|| view! {
                     <Button label="Discard all" variant="ghost" testid="discard" on_click=move |_| {
+                        let to = match s.prev.get_untracked() {
+                            Route::Detail(sec, name) => {
+                                let from = e.draft.with_untracked(|d| d.renamed_from(&sec, &name));
+                                Route::Detail(sec, from.unwrap_or(name))
+                            }
+                            other => other,
+                        };
                         e.review.set(None);
                         e.discard();
-                        back();
+                        route::go(to);
                     }/>
                 })}
                 {if revert {
@@ -1029,7 +1036,11 @@ pub fn ConflictDialog() -> impl IntoView {
                             st.state.set(Some(std::sync::Arc::new(state)));
                             match revert.clone() {
                                 Some(to) => st.edit.open_revert(st, to),
-                                None => st.edit.rebase(st),
+                                None => {
+                                    st.edit.rebase(st);
+                                    st.edit.open_review();
+                                    route::go(Route::Review);
+                                }
                             }
                         }
                     });

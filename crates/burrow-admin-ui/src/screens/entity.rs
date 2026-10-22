@@ -49,7 +49,6 @@ pub fn rows_for(section: &str) -> Vec<Row> {
     let s = store();
     let (draft, base) = s.edit.draft.with(|d| (d.draft().clone(), d.base().clone()));
     let status = s.status.get();
-    let rates = s.rates.get();
     let me = s
         .welcome
         .with(|w| w.as_ref().map(|w| w.you.visitor.clone()));
@@ -263,8 +262,6 @@ pub fn rows_for(section: &str) -> Vec<Row> {
                     .as_ref()
                     .map(|x| format!("{} total", format::count(x.total)))
                     .unwrap_or_default();
-                let r = rates.service(name);
-                let _ = r;
                 Row {
                     key: name.clone(),
                     to,
@@ -314,8 +311,7 @@ pub fn rows_for(section: &str) -> Vec<Row> {
         }
         out.push(row);
     }
-    for (name, v) in base_items.iter().filter(|(k, _)| !items.contains_key(*k)) {
-        let _ = v;
+    for name in base_items.keys().filter(|k| !items.contains_key(*k)) {
         out.push(Row {
             key: name.clone(),
             to: Route::Detail(section.to_string(), name.clone()),
@@ -1063,7 +1059,7 @@ fn Detail(section: String, name: String) -> impl IntoView {
                 <span class="font-semibold text-text">{name.clone()}</span>
                 {move || editing.get().then(|| view! { <span aria-hidden="true">"/"</span><span class="font-semibold text-text">"Edit"</span> })}
             </nav>
-            <header class="mb-[22px] flex items-start gap-3.5" class:max-sm:hidden=move || editing.get()>
+            <header class="mb-[22px] flex items-start gap-3.5" class:max-sm:hidden=move || editing.get() class:hidden=move || !exists.get()>
                 <div class="min-w-0 flex-1">
                     <h1 class="flex items-center gap-2.5 text-[25px] font-bold tracking-[-0.015em]">{title_dot}{name.clone()}{protocol_tag}</h1>
                     <p class="mt-1 text-base text-text-muted" data-testid="summary">{summary}</p>
@@ -1072,7 +1068,7 @@ fn Detail(section: String, name: String) -> impl IntoView {
             </header>
             <RenameEntity section=sec_r name=name_r open=renaming/>
             <div data-testid="detail" data-entity=sec_d data-name=name_d>{body}</div>
-            {save_bar}
+            {move || exists.get().then(save_bar.clone())}
         </DetailPane>
         </Provider>
     }

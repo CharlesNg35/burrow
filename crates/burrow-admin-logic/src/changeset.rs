@@ -356,6 +356,13 @@ impl Changeset {
         }
     }
 
+    pub fn renamed_from(&self, section: &str, name: &str) -> Option<String> {
+        self.renames
+            .iter()
+            .find(|(from, to)| from.first().map(String::as_str) == Some(section) && to == name)
+            .and_then(|(from, _)| from.get(1).cloned())
+    }
+
     pub fn fresh(&self) -> &[(String, String)] {
         &self.fresh
     }
@@ -476,6 +483,8 @@ mod tests {
         assert_eq!(c.changed_entities(), 2);
         c.rename(&p(&["clients", "home"]), "house");
         assert_eq!(c.changed_entities(), 4, "web now carries two changes");
+        assert_eq!(c.renamed_from("clients", "house").as_deref(), Some("home"));
+        assert_eq!(c.renamed_from("visitors", "house"), None);
     }
 
     #[test]
