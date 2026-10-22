@@ -222,7 +222,7 @@ pub fn ListPane(
                     {label}
                     {move || {
                         let n = rows.with(|r| r.iter().filter(|x| !x.key.starts_with("__") && (key == "all" || x.filters.contains(&key))).count());
-                        (!no_counts && n > 0 && Protocol::from_wire(key).is_none()).then(|| format!(" {n}"))
+                        (!no_counts && key != "all" && n > 0 && Protocol::from_wire(key).is_none()).then(|| format!(" {n}"))
                     }}
                 </button>
             }
@@ -270,6 +270,10 @@ pub fn ListPane(
                 gs.push(r.group.clone());
             }
         }
+        let shown = gs
+            .iter()
+            .filter(|g| list.iter().any(|r| &r.group == *g))
+            .count();
         gs.into_iter()
             .filter_map(|g| {
                 let in_group: Vec<Row> = list.iter().filter(|r| r.group == g).cloned().collect();
@@ -279,7 +283,7 @@ pub fn ListPane(
                         {(!g.is_empty()).then(|| view! {
                             <div class=format!("flex justify-between px-4 pt-3.5 pb-1.5 {LABEL}")>
                                 <span>{g.clone()}</span>
-                                <span>{n}</span>
+                                {(shown > 1 && !no_counts).then(|| view! { <span>{n}</span> })}
                             </div>
                         })}
                         {in_group.into_iter().map(|r| {

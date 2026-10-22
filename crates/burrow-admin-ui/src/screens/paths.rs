@@ -130,7 +130,7 @@ pub fn service(
             Tone::Neutral
         }),
         unit: if !public {
-            format!("no public port · {protocol}")
+            protocol.clone()
         } else if ports > 1 {
             format!("{ports} ports · {protocol}")
         } else {
@@ -348,13 +348,7 @@ pub fn client(name: &str, doc: &Value, status: Option<&Status>, listen: &str) ->
                 unit: c
                     .and_then(|c| c.from.clone())
                     .map(|f| f.rsplit_once(':').map(|(h, _)| h.to_string()).unwrap_or(f))
-                    .unwrap_or_else(|| {
-                        if on {
-                            String::new()
-                        } else {
-                            "not connected".into()
-                        }
-                    }),
+                    .unwrap_or_default(),
                 state: HopState::Current,
                 badge: None,
             },
@@ -380,11 +374,7 @@ pub fn client(name: &str, doc: &Value, status: Option<&Status>, listen: &str) ->
         ],
         edges: vec![
             Edge {
-                above: if on {
-                    "tunnel".into()
-                } else {
-                    "not connected".into()
-                },
+                above: "tunnel".into(),
                 below: String::new(),
                 state: if on { EdgeState::Live } else { EdgeState::Dead },
             },
@@ -587,7 +577,8 @@ mod tests {
             false,
             &[],
         );
-        assert_eq!(p.hops[1].unit, "no public port · TCP");
+        assert_eq!(p.hops[1].value, "private");
+        assert_eq!(p.hops[1].unit, "TCP");
         assert_eq!(port_count(Some(&json!("unix:/run/x.sock"))), 1);
         assert_eq!(port_count(Some(&json!(7840))), 1);
     }

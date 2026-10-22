@@ -455,7 +455,6 @@ fn detail(plan: std::sync::Arc<Plan>, revert: bool) -> AnyView {
     let errors = plan.errors();
     let empty = nothing_to_apply(&plan);
     let old_problems = plan.diags.iter().filter(|d| d.before).count();
-    let base_rev = short_rev(&plan.base);
     let paths = if revert {
         Vec::new()
     } else {
@@ -487,6 +486,7 @@ fn detail(plan: std::sync::Arc<Plan>, revert: bool) -> AnyView {
     let impacts = plan
         .impacts
         .iter()
+        .filter(|i| i.code != "adds-client")
         .map(|i| {
             let (icon, tone) = impact_icon(i.level);
             let (head, tail) = match i.message.split_once(" · ") {
@@ -559,7 +559,6 @@ fn detail(plan: std::sync::Arc<Plan>, revert: bool) -> AnyView {
         }
     });
     let back = move || route::go(s.prev.get_untracked());
-    let host = crate::app::host_line(s);
     let applies = if restart.is_empty() {
         "applies on reload"
     } else {
@@ -577,13 +576,11 @@ fn detail(plan: std::sync::Arc<Plan>, revert: bool) -> AnyView {
                     <p class="mt-1 text-base text-text-muted">
                         {if refused {
                             format!(
-                                "Validated against rev {base_rev} · refused by the {}",
+                                "Refused by the {}",
                                 if lockouts.is_empty() { "admin grant guard" } else { "lockout guard" }
                             )
-                        } else if host.is_empty() {
-                            format!("Validated against rev {base_rev} · {applies}")
                         } else {
-                            format!("Validated against rev {base_rev} on {host} · {applies}")
+                            format!("Checked with the same rules as burrow validate · {applies}")
                         }}
                     </p>
                 </div>
@@ -607,7 +604,7 @@ fn detail(plan: std::sync::Arc<Plan>, revert: bool) -> AnyView {
                     </div>
                 }
             })}
-            {(!plan.impacts.is_empty() || !restart.is_empty()).then(|| view! {
+            {(plan.impacts.iter().any(|i| i.code != "adds-client") || !restart.is_empty()).then(|| view! {
                 <h3 class=label>"Impact"</h3>
                 <div class="mb-6 grid gap-3 md:grid-cols-2" data-testid="impacts">
                     {impacts}
@@ -879,13 +876,7 @@ pub fn ReviewPage() -> impl IntoView {
         }
         out
     });
-    let count = Signal::derive(move || {
-        plan.with(|p| {
-            p.as_ref()
-                .map(|p| format!("rev {}", short_rev(&p.base)))
-                .unwrap_or_default()
-        })
-    });
+    let count = Signal::stored(String::new());
     let list = view! {
         <ListPane
             title="Review"
@@ -893,6 +884,7 @@ pub fn ReviewPage() -> impl IntoView {
             search_label="Search changes"
             filters=Vec::new()
             groups=vec!["Changes", "New problems"]
+            no_counts=true
             empty=("Nothing changes".to_string(), "The file would stay as it is.".to_string())
             rows=rows
             selected=Signal::stored(None::<String>)

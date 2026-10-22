@@ -326,23 +326,6 @@ fn Traffic() -> impl IntoView {
         };
         human_bits(if out { rate.bytes_out } else { rate.bytes_in })
     };
-    let recorded = move || series.with(|(a, _)| a.len());
-    let note = move || {
-        let n = recorded();
-        let w = window.get();
-        if n >= w {
-            format!(
-                "{} recorded · 1 sample per second",
-                if w == 60 {
-                    "1 min".to_string()
-                } else {
-                    format!("{} min", w / 60)
-                }
-            )
-        } else {
-            format!("{n} s recorded · fills in as samples arrive")
-        }
-    };
     let label = Signal::derive(move || {
         let (i, iu) = now(false);
         let (o, ou) = now(true);
@@ -374,7 +357,6 @@ fn Traffic() -> impl IntoView {
                     <span class="flex items-center gap-1.5"><span class="h-0.5 w-3.5 rounded bg-udp"></span>"Out"</span>
                 </div>
                 <div class="ml-auto text-right text-[11.5px] text-text-muted" data-testid="traffic-note">
-                    <div>{note}</div>
                     <div>{move || format!("{} · Mbit/s", if service.get().is_empty() { "all services".to_string() } else { service.get() })}</div>
                 </div>
             </div>

@@ -203,7 +203,11 @@ fn os_now() -> String {
 }
 
 #[component]
-pub fn SnippetView(sn: Snippets, #[prop(optional)] secret: Option<String>) -> impl IntoView {
+pub fn SnippetView(
+    sn: Snippets,
+    #[prop(optional)] secret: Option<String>,
+    #[prop(optional)] children: Option<Children>,
+) -> impl IntoView {
     let tab: RwSignal<&'static str> = RwSignal::new("commands");
     let os = RwSignal::new(os_now());
     let commands = sn.commands.clone();
@@ -229,11 +233,13 @@ pub fn SnippetView(sn: Snippets, #[prop(optional)] secret: Option<String>) -> im
     let file = sn.file_name.clone();
     let env_config = sn.env_config.clone();
     let kind = sn.kind.clone();
+    let asks = children.is_some();
     let unknown = (!sn.server_known).then(|| {
         view! {
             <div class="mb-3">
                 <Callout tone=Tone::Warning title="The server address is not known">
-                    <p>"Set public_address in Settings, or replace SERVER_ADDRESS by hand."</p>
+                    <p>{if asks { "Type how machines reach this server, or set public_address in Settings. Until then the commands say SERVER_ADDRESS." } else { "Set public_address in Settings, or replace SERVER_ADDRESS by hand." }}</p>
+                    {children.map(|c| c())}
                 </Callout>
             </div>
         }
@@ -442,21 +448,20 @@ pub fn ConnectPanel(section: String, name: String) -> impl IntoView {
         None => view! { <p class="text-text-muted">"Loading…"</p> }.into_any(),
         Some(Err(e)) => view! { <p class="text-danger">{e}</p> }.into_any(),
         Some(Ok(sn)) => {
-            let ask = (!sn.server_known).then(|| {
-                view! {
-                    <div class="mb-3 flex items-end gap-2">
-                        <div class="flex-1">
-                            <label class="text-sm" for="connect-address">"How do machines reach this server?"</label>
-                            <TextInput id="connect-address" value=address on_input=move |t: String| address.set(t) placeholder="myserver.example.com" mono=true/>
-                        </div>
-                        <Button label="Use it" small=true on_click=move |_| fetch(n2.get_value(), Some(address.get_untracked()))/>
-                    </div>
-                }
-            });
+            let known = sn.server_known;
             view! {
                 <div>
-                    {ask}
-                    <SnippetView sn=sn/>
+                    <SnippetView sn=sn>
+                        {(!known).then(|| view! {
+                            <div class="mt-2 flex items-end gap-2">
+                                <div class="flex-1">
+                                    <label class="sr-only" for="connect-address">"Server address"</label>
+                                    <TextInput id="connect-address" value=address on_input=move |t: String| address.set(t) placeholder="myserver.example.com" mono=true/>
+                                </div>
+                                <Button label="Use it" on_click=move |_| fetch(n2.get_value(), Some(address.get_untracked()))/>
+                            </div>
+                        })}
+                    </SnippetView>
                     <p class="mt-2 text-sm text-text-muted">"The secret is not shown: it is set when the file is written by burrow init, or taken from the environment variable."</p>
                 </div>
             }

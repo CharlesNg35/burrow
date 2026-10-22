@@ -75,7 +75,7 @@ fn hop_view(h: Hop) -> impl IntoView {
     view! {
         <div
             class=format!(
-                "relative flex min-w-[130px] max-w-[240px] shrink-0 flex-col gap-1 rounded-hop border p-3.5 {}{}",
+                "relative flex min-w-[104px] max-w-[240px] shrink flex-col gap-1 rounded-hop border p-3.5 {}{}",
                 hop_class(h.state),
                 if h.badge.is_some() { " pt-5" } else { "" }
             )
@@ -127,7 +127,7 @@ fn edge_view(e: Edge) -> impl IntoView {
         EdgeState::Added => "border-l-success",
     };
     view! {
-        <div class="flex min-w-[56px] flex-1 flex-col justify-center px-1.5 text-center" data-edge=format!("{:?}", e.state).to_lowercase()>
+        <div class="flex min-w-[36px] flex-1 flex-col justify-center px-1.5 text-center" data-edge=format!("{:?}", e.state).to_lowercase()>
             <span class=format!("font-mono text-[11px] leading-tight {label}")>{e.above.clone()}</span>
             <div class="my-1 flex items-center">
                 <div class=format!("flex-1 {line}")></div>
@@ -191,7 +191,7 @@ pub fn PathDiagram(
             aria-label=move || data.get().summary
             data-testid=(!testid.is_empty()).then_some(testid)
         >
-            <div class="mb-[22px] flex items-stretch overflow-hidden rounded-[14px] border border-border bg-surface px-5 pt-6 pb-5 max-sm:hidden">
+            <div class="mb-[22px] flex items-stretch overflow-hidden rounded-[14px] border border-border bg-surface px-5 pt-6 pb-5 max-xl:hidden">
                 {move || {
                     let d = data.get();
                     let mut edges = d.edges.into_iter();
@@ -208,7 +208,7 @@ pub fn PathDiagram(
                         .collect_view()
                 }}
             </div>
-            <ol class="mb-4 rounded-[14px] border border-border bg-surface p-4 sm:hidden">
+            <ol class="mb-4 rounded-[14px] border border-border bg-surface p-4 xl:hidden">
                 {move || {
                     let d = data.get();
                     let n = d.hops.len();
