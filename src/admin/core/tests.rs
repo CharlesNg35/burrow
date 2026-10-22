@@ -327,6 +327,20 @@ fn errors_land_on_their_field() {
     assert_eq!(d.code, "duplicate-bind");
     assert!(d.concerns(&p(&["services", "api", "bind"])), "{d:?}");
     assert!(d.concerns(&p(&["services", "web", "bind"])), "{d:?}");
+    let private = [Op::Remove {
+        path: p(&["services", "web", "bind"]),
+    }];
+    let c = plan::compute(&core, &s, &base, &private).unwrap();
+    let d = c
+        .plan
+        .diags
+        .iter()
+        .find(|d| d.code == "unreachable-service")
+        .expect("a private service without visitors is an error");
+    assert!(
+        d.concerns(&p(&["services", "web", "visitors"])),
+        "the error shows at the visitors field: {d:?}"
+    );
 }
 
 #[test]
