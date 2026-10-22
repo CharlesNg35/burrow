@@ -28,6 +28,15 @@ fn secret_once(c: &mut Ctx) -> Flow<'_> {
         open(c, "ops").await;
         c.ui.nav("/clients").await;
         c.ui.click("[data-testid=new]").await;
+        c.ui.wait_for("[data-testid=create]", SECS).await;
+        assert_eq!(
+            c.ui.eval::<String>(
+                "document.querySelector('[data-testid=create]').parentElement.title"
+            )
+            .await,
+            "Type a name first",
+            "a disabled button says why"
+        );
         c.ui.fill("#new-name", "lab").await;
         for svc in ["web", "ssh"] {
             c.ui.click("#new-links").await;

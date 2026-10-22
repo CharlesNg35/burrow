@@ -448,6 +448,7 @@ pub fn NewEntity(
                     variant=if what == "service" { "primary" } else { "secondary" }
                     testid="create"
                     disabled=Signal::derive(move || name.get().is_empty() || problem.get().is_some())
+                    reason=Signal::derive(move || if name.get().is_empty() { "Type a name first".to_string() } else if problem.get().is_some() { "Fix the name first".to_string() } else { String::new() })
                     on_click=move |_| finish2(false)
                 />
                 {(what != "service").then(|| view! {
@@ -456,6 +457,7 @@ pub fn NewEntity(
                         variant="primary"
                         testid="create-apply"
                         disabled=Signal::derive(move || name.get().is_empty() || problem.get().is_some() || secret.get().is_none())
+                        reason=Signal::derive(move || if name.get().is_empty() { "Type a name first".to_string() } else if problem.get().is_some() { "Fix the name first".to_string() } else if secret.get().is_none() { "Waiting for the server to make a secret".to_string() } else { String::new() })
                         on_click=move |_| finish2(true)
                     />
                 })}
@@ -519,7 +521,7 @@ pub fn RenameEntity(section: String, name: String, open: RwSignal<bool>) -> impl
                     variant="primary"
                     testid="rename"
                     disabled=Signal::derive(move || problem.get().is_some() || to.get().is_empty() || same.get())
-                    reason=Signal::derive(move || if same.get() { "Type a new name first".to_string() } else { String::new() })
+                    reason=Signal::derive(move || if same.get() || to.get().is_empty() { "Type a new name first".to_string() } else if problem.get().is_some() { "Fix the name first".to_string() } else { String::new() })
                     on_click=move |_| rename_now.run(())
                 />
             </div>

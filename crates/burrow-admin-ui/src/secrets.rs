@@ -409,6 +409,7 @@ pub fn ShownOnce(section: String, name: String) -> impl IntoView {
                         variant="primary"
                         testid="close-shown-once"
                         disabled=Signal::derive(move || !saved.get())
+                        reason=Signal::derive(move || if saved.get() { String::new() } else { "Tick I have saved the secret first".to_string() })
                         on_click=move |_| {
                             saved.set(false);
                             e.outcome.update(|o| {
@@ -464,7 +465,7 @@ pub fn ConnectPanel(section: String, name: String) -> impl IntoView {
                                     <label class="sr-only" for="connect-address">"Server address"</label>
                                     <TextInput id="connect-address" value=address on_input=move |t: String| address.set(t) placeholder="myserver.example.com" mono=true/>
                                 </div>
-                                <Button label="Use it" disabled=Signal::derive(move || address.with(|a| a.trim().is_empty())) on_click=move |_| fetch(n2.get_value(), Some(address.get_untracked()))/>
+                                <Button label="Use it" disabled=Signal::derive(move || address.with(|a| a.trim().is_empty())) reason=Signal::derive(move || if address.with(|a| a.trim().is_empty()) { "Type the server address first".to_string() } else { String::new() }) on_click=move |_| fetch(n2.get_value(), Some(address.get_untracked()))/>
                             </div>
                         })}
                     </SnippetView>
