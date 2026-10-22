@@ -72,7 +72,9 @@ pub fn rows_for(section: &str) -> Vec<Row> {
     let mut out = Vec::new();
     for (name, v) in &items {
         let pending = (!base_items.contains_key(name)
-            && s.edit.draft.with(|d| d.renamed_from(section, name).is_none()))
+            && s.edit
+                .draft
+                .with(|d| d.renamed_from(section, name).is_none()))
         .then_some("new");
         let entity_path = vec![section.to_string(), name.clone()];
         let mark = if s.edit.unsaved(&entity_path) {

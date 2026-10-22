@@ -152,7 +152,10 @@ pub fn layout(doc: &Value, status: Option<&Status>, rates: &Rates) -> Chart {
                             Some(format!("{} of {} up", checks.0, checks.1)),
                         )
                     } else if up < clients.len() {
-                        (Health::Degraded, Some(format!("{up} of {} up", clients.len())))
+                        (
+                            Health::Degraded,
+                            Some(format!("{up} of {} up", clients.len())),
+                        )
                     } else {
                         (Health::Healthy, None)
                     };
