@@ -783,7 +783,10 @@ fn outcome_view() -> impl IntoView {
 pub fn ReviewPage() -> impl IntoView {
     let s = store();
     let e = s.edit;
-    if e.review.with_untracked(Option::is_none) && untrack(|| e.dirty()) {
+    let reverting = e
+        .review
+        .with_untracked(|r| r.as_ref().is_some_and(|r| r.revert_of.is_some()));
+    if !reverting && untrack(|| e.dirty()) {
         e.open_review();
     }
     Effect::new(move |prev: Option<Option<String>>| {
@@ -949,6 +952,7 @@ pub fn stale(s: Store) -> Option<(String, String)> {
 
 pub fn recheck(s: Store) {
     let e = s.edit;
+    e.keep_open_edits();
     let revert = e.conflict_revert.get_untracked();
     e.conflict_revert.set(None);
     e.end_conflict();

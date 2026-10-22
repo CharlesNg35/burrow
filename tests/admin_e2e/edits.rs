@@ -169,7 +169,7 @@ fn add_service(c: &mut Ctx) -> Flow<'_> {
             SECS,
         )
         .await;
-        c.ui.wait_for("[data-testid=review-open][data-state=errors]", SECS)
+        c.ui.wait_for("[data-testid=check-state][data-state=errors]", SECS)
             .await;
         assert!(
             !c.ui.enabled("[data-testid=save]").await,
@@ -178,7 +178,8 @@ fn add_service(c: &mut Ctx) -> Flow<'_> {
         c.ui.shot("server-says-duplicate-bind").await;
         c.ui.click("[data-schema='services/*/bind'] [data-testid=reset-field]")
             .await;
-        c.ui.wait_gone("[data-testid=review-open]", SECS).await;
+        c.ui.wait_gone("[data-testid=check-state][data-state=errors]", SECS)
+            .await;
         c.ui.shot("undo-clears-the-error").await;
         for e in echoes {
             e.abort();
@@ -476,6 +477,8 @@ fn conflict(c: &mut Ctx) -> Flow<'_> {
         edit_mode(c).await;
         c.ui.fill("#f-services-web-target", "4000").await;
         wait_checked(c).await;
+        c.ui.click("[data-testid=save]").await;
+        c.ui.wait_gone("[data-testid=save-bar]", SECS).await;
         c.ui.shot("editing-web-target").await;
         let lab = super::world::secret();
         c.world.hand_edit(|t| {
@@ -874,6 +877,9 @@ fn grant_lock(c: &mut Ctx) -> Flow<'_> {
             SECS,
         )
         .await;
+        wait_checked(c).await;
+        c.ui.click("[data-testid=save]").await;
+        c.ui.wait_gone("[data-testid=save-bar]", SECS).await;
 
         c.ui.nav("/visitors/viewer").await;
         edit_mode(c).await;
@@ -1324,8 +1330,25 @@ fn edit_state(c: &mut Ctx) -> Flow<'_> {
         edit_mode(c).await;
         c.ui.fill("#f-visitors-laptop-max-connections", "50").await;
         wait_checked(c).await;
+        assert_eq!(
+            c.ui.count("[data-testid=review-open]").await,
+            0,
+            "an edit not yet added to the changes is not counted"
+        );
+        c.ui.click("[data-testid=save]").await;
+        c.ui.wait_gone("[data-testid=save-bar]", SECS).await;
+        c.ui.wait_text("[data-testid=review-count]", "1", SECS)
+            .await;
+        edit_mode(c).await;
+        c.ui.fill("#f-visitors-laptop-max-connections", "60").await;
+        wait_checked(c).await;
         c.ui.click("[data-testid=review-open]").await;
-        c.ui.wait_for("[data-testid=review]", SECS).await;
+        c.ui.wait_for("[data-testid=review-diff]", SECS).await;
+        let diff = c.ui.text("[data-testid=review-diff]").await;
+        assert!(
+            diff.contains("max_connections: 50") && !diff.contains("max_connections: 60"),
+            "the review shows only what was added: {diff}"
+        );
         let _: bool =
             c.ui.eval("(() => { history.back(); return true; })()")
                 .await;
@@ -1335,7 +1358,7 @@ fn edit_state(c: &mut Ctx) -> Flow<'_> {
         let kept: String =
             c.ui.eval("document.getElementById('f-visitors-laptop-max-connections').value")
                 .await;
-        assert_eq!(kept, "50", "Back returns to the edit with its value");
+        assert_eq!(kept, "60", "Back returns to the edit with its value");
         c.ui.shot("edit-kept-after-back").await;
         c.ui.nav("/services/web").await;
         c.ui.wait_text("[data-testid=entity-list]", "web", SECS)

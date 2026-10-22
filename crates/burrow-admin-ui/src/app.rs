@@ -271,7 +271,11 @@ fn Header() -> impl IntoView {
         let errors = e.local.with(|l| l.len())
             + e.related.with(|r| r.len())
             + e.plan.with(|p| p.as_ref().map(|p| p.errors()).unwrap_or(0));
-        if e.checking.get() {
+        let waiting = e.plan.with(Option::is_none)
+            && e.check_error.with(Option::is_none)
+            && e.conflict.with(Option::is_none)
+            && e.dirty();
+        if e.checking.get() || waiting {
             "checking".to_string()
         } else if errors > 0 {
             "errors".to_string()
@@ -458,6 +462,7 @@ fn Header() -> impl IntoView {
                         ().into_any()
                     }
                 }}
+                {move || s.edit.dirty().then(|| view! { <span class="hidden" data-testid="check-state" data-state=check_state></span> })}
                 <div class="relative flex items-center gap-2">
                     <button type="button" class="relative flex size-[30px] cursor-pointer items-center justify-center rounded-full bg-hdr-raised-2 text-xs font-bold text-hdr-on" aria-label=move || format!("Account {}", you.get().map(|y| y.0).unwrap_or_default()) title=conn_line aria-haspopup="true" aria-expanded=move || avatar_open.get().to_string() aria-controls="avatar-menu" id="avatar" data-testid="avatar" on:click=move |_| avatar_open.update(|o| *o = !*o)>
                         {move || you.get().map(|y| initials(&y.0)).unwrap_or_default()}

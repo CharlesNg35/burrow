@@ -347,7 +347,9 @@ pub fn load_state(store: Store) {
     request(msg::req::STATE, json!({}), move |r| {
         match r.map(serde_json::from_value::<State>) {
             Ok(Ok(s)) => {
-                store.edit.sync_base(&s.values, &s.rev);
+                if store.edit.sync_base(&s.values, &s.rev) {
+                    store.edit.revalidate_now();
+                }
                 store.note_clients(&s);
                 store.state.set(Some(Arc::new(s)));
                 if store.conn.get_untracked() != Conn::Open {

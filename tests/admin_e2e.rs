@@ -185,9 +185,26 @@ async fn open(c: &mut Ctx, visitor: &str) {
 }
 
 pub async fn wait_checked(c: &Ctx) {
-    c.ui.wait_for("[data-testid=review-open]", SECS).await;
-    c.ui.wait_for("[data-testid=review-open]:not([data-state=checking])", SECS)
+    c.ui.wait_for("[data-testid=check-state]", SECS).await;
+    c.ui.wait_for("[data-testid=check-state]:not([data-state=checking])", SECS)
         .await;
+}
+
+pub async fn review_now(c: &Ctx) {
+    if c.ui
+        .count("[data-testid=save-bar] [data-testid=save]")
+        .await
+        > 0
+        && c.ui
+            .enabled("[data-testid=save-bar] [data-testid=save]")
+            .await
+    {
+        c.ui.click("[data-testid=save-bar] [data-testid=save]")
+            .await;
+        c.ui.wait_gone("[data-testid=save-bar]", SECS).await;
+        wait_checked(c).await;
+    }
+    c.ui.click("[data-testid=review-open]").await;
 }
 
 pub async fn edit_mode(c: &Ctx) {
@@ -198,7 +215,7 @@ pub async fn edit_mode(c: &Ctx) {
 }
 
 pub async fn open_review(c: &mut Ctx, step: &str) {
-    c.ui.click("[data-testid=review-open]").await;
+    review_now(c).await;
     c.ui.wait_for("[data-testid=review]", SECS).await;
     c.ui.shot(step).await;
 }
@@ -880,6 +897,8 @@ fn calm_header(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
         edit_mode(c).await;
         c.ui.fill("#f-services-web-target", "4321").await;
         wait_checked(c).await;
+        c.ui.click("[data-testid=save]").await;
+        c.ui.wait_gone("[data-testid=save-bar]", SECS).await;
         c.ui.wait_for("[data-testid=review-open]", SECS).await;
         assert_eq!(
             header_items(c).await,

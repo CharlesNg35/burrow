@@ -9,7 +9,7 @@ type Flow<'a> = Pin<Box<dyn Future<Output = ()> + 'a>>;
 
 async fn review_and_apply(c: &mut Ctx, what: &str) {
     wait_checked(c).await;
-    c.ui.click("[data-testid=review-open]").await;
+    super::review_now(c).await;
     c.ui.wait_for("[data-testid=apply]:not([disabled])", SECS)
         .await;
     c.ui.shot(&format!("review-{what}")).await;
@@ -285,6 +285,8 @@ fn revoke_and_reconnect(c: &mut Ctx) -> Flow<'_> {
         super::edit_mode(c).await;
         c.ui.fill("#f-services-web-target", "4100").await;
         wait_checked(c).await;
+        c.ui.click("[data-testid=save]").await;
+        c.ui.wait_gone("[data-testid=save-bar]", SECS).await;
         c.ui.shot("ops-with-a-draft").await;
         c.world.stop("server");
         c.ui.wait_text(
@@ -333,7 +335,7 @@ fn request_while_reconnecting(c: &mut Ctx) -> Flow<'_> {
         super::edit_mode(c).await;
         c.ui.fill("#f-services-web-target", "4100").await;
         wait_checked(c).await;
-        c.ui.click("[data-testid=review-open]").await;
+        super::review_now(c).await;
         c.ui.wait_for("[data-testid=apply]:not([disabled])", SECS)
             .await;
         c.world.stop("server");
@@ -406,6 +408,8 @@ fn create_and_apply(c: &mut Ctx) -> Flow<'_> {
         super::edit_mode(c).await;
         c.ui.fill("#f-services-web-target", "4100").await;
         wait_checked(c).await;
+        c.ui.click("[data-testid=save]").await;
+        c.ui.wait_gone("[data-testid=save-bar]", SECS).await;
         c.ui.nav("/clients").await;
         c.ui.click("[data-testid=new]").await;
         c.ui.fill("#new-name", "lab2").await;
@@ -457,7 +461,7 @@ fn create_and_apply_after_a_conflict(c: &mut Ctx) -> Flow<'_> {
         c.ui.click("[data-testid=conflict-recheck]").await;
         c.ui.wait_gone("[data-testid=conflict]", SECS).await;
         wait_checked(c).await;
-        c.ui.click("[data-testid=review-open]").await;
+        super::review_now(c).await;
         c.ui.wait_for("[data-testid=apply]:not([disabled])", SECS)
             .await;
         tokio::time::sleep(Duration::from_secs(3)).await;
