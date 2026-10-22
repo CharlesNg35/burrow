@@ -82,6 +82,34 @@ fn section_label(section: &str, n: usize) -> String {
     }
 }
 
+pub fn place_of(root: &burrow_admin_proto::schema::Node, path: &[String]) -> String {
+    let label = |p: &[String]| {
+        root.at(p)
+            .map(|n| n.label.clone())
+            .filter(|l| !l.is_empty())
+    };
+    match path {
+        [sec, name, rest @ ..] if crate::route::SECTIONS.contains(&sec.as_str()) => {
+            let head = format!("{} {name}", section_label(sec, 1));
+            let mut head = head[..1].to_uppercase() + &head[1..];
+            if let Some(k) = rest.first()
+                && let Some(l) = label(&[sec.clone(), "*".into(), k.clone()])
+            {
+                head.push_str(&format!(" · {l}"));
+            }
+            head
+        }
+        [k, rest @ ..] => match label(std::slice::from_ref(k)) {
+            Some(top) => match rest.first().and_then(|r| label(&[k.clone(), r.clone()])) {
+                Some(l) => format!("{top} · {l}"),
+                None => top,
+            },
+            None => path.join("."),
+        },
+        [] => String::new(),
+    }
+}
+
 pub fn group_line(g: &Group) -> String {
     if g.parts.is_empty() {
         return g.head.path.join(".");
@@ -549,7 +577,16 @@ fn detail(plan: std::sync::Arc<Plan>, revert: bool) -> AnyView {
     let diags = new_diags
         .iter()
         .map(|d| {
-            let where_ = d.path.as_ref().map(|p| p.join(".")).unwrap_or_default();
+            let where_ = d
+                .path
+                .as_ref()
+                .map(|p| {
+                    store()
+                        .schema
+                        .with_untracked(|sc| sc.as_ref().map(|sc| place_of(&sc.root, p)))
+                        .unwrap_or_else(|| p.join("."))
+                })
+                .unwrap_or_default();
             view! {
                 <li class=format!("rounded-input border px-3 py-2 text-sm {}", severity_tone(d).soft()) data-diag=d.code.clone()>
                     <strong>{where_}</strong>" "{d.message.clone()}
@@ -1086,6 +1123,26 @@ pub fn ConflictDialog() -> impl IntoView {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_diagnostic_says_where_in_the_words_of_the_form() {
+        let root =
+            <burrow_config::ServerConfig as burrow_config::admin_schema::AdminSchema>::node();
+        let p = |x: &[&str]| x.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(
+            place_of(&root, &p(&["visitors", "laptop", "max_connections"])),
+            "Visitor laptop · Max connections"
+        );
+        assert_eq!(
+            place_of(&root, &p(&["services", "web", "allow_from", "1"])),
+            "Service web · Allow from"
+        );
+        assert_eq!(
+            place_of(&root, &p(&["pool", "min_idle"])),
+            "Pool of idle channels · Idle channels kept ready"
+        );
+        assert_eq!(place_of(&root, &p(&["nonsense"])), "nonsense");
+    }
     use burrow_admin_proto::plan::Hunk;
     use burrow_admin_proto::serde_json::json;
 
