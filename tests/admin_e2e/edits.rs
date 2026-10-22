@@ -1345,6 +1345,25 @@ fn edit_state(c: &mut Ctx) -> Flow<'_> {
         .await;
         c.ui.click("[data-testid=discard-edit]").await;
         c.ui.wait_gone("[data-testid=save-bar]", SECS).await;
+
+        c.ui.nav("/clients/home?tab=settings").await;
+        edit_mode(c).await;
+        c.ui.fill("#f-clients-home-max-connections", "7").await;
+        wait_checked(c).await;
+        c.ui.click("[data-testid=save]").await;
+        c.ui.wait_for("[data-testid=toast]", SECS).await;
+        c.ui.click("[data-testid=review-open]").await;
+        c.ui.wait_for("[data-testid=apply]", SECS).await;
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        let gap: f64 = c
+            .ui
+            .eval("(() => { const t = document.querySelector('[data-testid=toasts]').getBoundingClientRect(); const b = document.querySelector('[data-sticky-bar]').getBoundingClientRect(); return b.top - t.bottom; })()")
+            .await;
+        assert!(
+            gap >= 0.0,
+            "a toast sits above the review's action bar: {gap}"
+        );
+        c.ui.shot("toast-above-the-action-bar").await;
         c.ui.assert_no_errors();
     })
 }
