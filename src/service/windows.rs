@@ -406,6 +406,7 @@ impl Backend for WindowsService {
         if !m.admin_writable {
             revoke(m.folder(), &m.account)?;
             revoke(&m.config, &m.account)?;
+            grant(m.folder(), &m.account, "RX")?;
         }
         grant(&m.config, &m.account, "R")?;
         if let Some(env) = &m.env_file {

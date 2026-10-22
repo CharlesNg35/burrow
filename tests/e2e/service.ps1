@@ -252,7 +252,9 @@ try {
   Set-Content $Installed $text
   $out = Burrow service install -c $Installed
   if (-not (Running burrow-e2e-admin)) { Fail "admin server not running after switching admin writes off: $out" }
-  if ((icacls $AdminDir | Out-String) -match "NT SERVICE\\burrow-e2e-admin:") { Fail "the service account keeps access to its config folder after switching admin writes off: $(icacls $AdminDir | Out-String)" }
+  $folderAcl = icacls $AdminDir | Out-String
+  if ($folderAcl -match "NT SERVICE\\burrow-e2e-admin:\(OI\)" -or $folderAcl -match "NT SERVICE\\burrow-e2e-admin:\(M\)") { Fail "the service account keeps write access to its config folder after switching admin writes off: $folderAcl" }
+  if ($folderAcl -notmatch "NT SERVICE\\burrow-e2e-admin:\(RX\)") { Fail "the service account cannot list its config folder to watch it: $folderAcl" }
   if ((icacls $Installed | Out-String) -notmatch "NT SERVICE\\burrow-e2e-admin:\(R\)") { Fail "the service account cannot only read its config: $(icacls $Installed | Out-String)" }
   $out = Burrow service install -c $Installed --admin-writable
   if (-not (Running burrow-e2e-admin)) { Fail "admin server not running after switching admin writes on: $out" }
