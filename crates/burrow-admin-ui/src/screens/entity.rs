@@ -1,13 +1,11 @@
 use burrow_admin_logic::changeset::ops_between;
 use burrow_admin_logic::rates::human_bits;
 use burrow_admin_proto::Path;
-use burrow_admin_proto::msg::AdminLevel;
 use burrow_admin_proto::schema::Entity;
 use burrow_admin_proto::serde_json::Value;
 use burrow_admin_proto::value::as_secret;
 use burrow_admin_proto::value::get;
 use burrow_config::Mode;
-use burrow_config::admin_schema::AdminEnum;
 use burrow_config::{ClientEntry, Entry, Protocol, ServiceEntry, VisitorEntry, entity_of_section};
 use burrow_config::{Limits, Pool, ServerConfig};
 use burrow_ui_kit::{
@@ -728,17 +726,6 @@ fn Detail(section: String, name: String) -> impl IntoView {
                     Tone::Accent
                 };
                 view! { <span class=tag_class(tone)>{p.to_uppercase()}</span> }.into_any()
-            }
-            VISITORS => {
-                let admin = VisitorEntry::ADMIN.at(&e.doc(), &nm).map(plain);
-                view! {
-                        {admin.map(|a| {
-                            let write = a == AdminLevel::Write.wire();
-                            let tone = if write { Tone::Danger } else { Tone::Accent };
-                            view! { <span class=tag_class(tone)><Icon name=if write { "shield" } else { "eye" } small=true/>{format!("admin · {a}")}</span> }
-                        })}
-                    }
-                    .into_any()
             }
             _ => ().into_any(),
         }
