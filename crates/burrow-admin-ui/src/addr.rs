@@ -464,7 +464,8 @@ fn options_for(entity: &Entity, reserved: &[String]) -> Vec<ComboOption> {
                     }
                     Some(c) => format!(
                         "offline · {}",
-                        format::left(
+                        format::left_of(
+                            &c.name,
                             c.left_secs_ago,
                             status.as_ref().map(|s| s.uptime_secs).unwrap_or(0)
                         )

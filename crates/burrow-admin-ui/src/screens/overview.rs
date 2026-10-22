@@ -199,7 +199,7 @@ pub fn away(values: &Value, status: Option<&Status>) -> Vec<Item> {
                         .collect()
                 })
                 .unwrap_or_default();
-            let when = format::left(st.and_then(|x| x.left_secs_ago), status.uptime_secs);
+            let when = format::left_of(&c, st.and_then(|x| x.left_secs_ago), status.uptime_secs);
             Some(Item {
                 key: format!("away:{c}"),
                 tone: Tone::Neutral,
@@ -710,7 +710,7 @@ pub fn Overview() -> impl IntoView {
         let vis = names(&v, VisitorEntry::section()).len();
         let active = s.status.with(|st| {
             st.as_ref()
-                .map(|st| st.visitors.iter().filter(|x| x.open > 0).count())
+                .map(|st| st.visitors.iter().filter(|x| s.in_use(x)).count())
                 .unwrap_or(0)
         });
         vec![
@@ -786,7 +786,7 @@ pub fn Overview() -> impl IntoView {
                         (None, Some(a)) => Some(format!("left {}", format::ago(a))),
                         _ => None,
                     })
-                    .unwrap_or_else(|| format::left(None, st.as_ref().map(|s| s.uptime_secs).unwrap_or(0)));
+                    .unwrap_or_else(|| format::left_of(&name, None, st.as_ref().map(|s| s.uptime_secs).unwrap_or(0)));
                 let serves: Vec<String> = ServiceEntry::entries(&v)
                     .map(|m| m.iter().filter(|(_, x)| clients_of(x).contains(&name)).map(|(k, _)| k.clone()).collect())
                     .unwrap_or_default();
@@ -826,13 +826,13 @@ pub fn Overview() -> impl IntoView {
                     <tr data-row=name.clone()>
                         <th scope="row">
                             <Link to=Route::Detail(VisitorEntry::section().into(), name.clone()) class="text-text no-underline hover:underline">{label}</Link>
-                            {(open > 0).then(|| view! { <span class=format!("ml-2 {}", tag_class(Tone::Success))>"in use now"</span> })}
+                            {x.as_ref().is_some_and(|x| s.in_use(x)).then(|| view! { <span class=format!("ml-2 {}", tag_class(Tone::Success))>"in use now"</span> })}
                         </th>
                         <td>{admin.map(|a| view! { <span class=tag_class(if a == "write" { Tone::Danger } else { Tone::Accent })>{format!("admin · {a}")}</span> })}</td>
                         <td class="text-text-muted">{may.join(", ")}</td>
                         <td class="text-right tabular-nums">{open}</td>
                         <td class="text-right tabular-nums">{x.as_ref().map(|x| format::count(x.total)).unwrap_or_default()}</td>
-                        <td class="text-text-muted" data-last-used="">{x.as_ref().map(|x| if x.open > 0 { "now".to_string() } else { x.last_seen_secs.map(format::ago).unwrap_or_else(|| "not seen".into()) }).unwrap_or_default()}</td>
+                        <td class="text-text-muted" data-last-used="">{x.as_ref().map(|x| if s.in_use(x) { "now".to_string() } else { x.last_seen_secs.map(format::ago).unwrap_or_else(|| "not seen".into()) }).unwrap_or_default()}</td>
                     </tr>
                 }
             })
@@ -910,12 +910,12 @@ pub fn Overview() -> impl IntoView {
                         label="Visitors in use"
                         icon="person"
                         value=Signal::derive(move || {
-                            let active = s.status.with(|st| st.as_ref().map(|st| st.visitors.iter().filter(|v| v.open > 0).count()).unwrap_or(0));
+                            let active = s.status.with(|st| st.as_ref().map(|st| st.visitors.iter().filter(|v| s.in_use(v)).count()).unwrap_or(0));
                             active.to_string()
                         })
                         unit=Signal::derive(move || format!("/ {}", names(&values.get(), VisitorEntry::section()).len()))
                         detail=Signal::derive(move || {
-                            let seen = s.status.with(|st| st.as_ref().map(|st| st.visitors.iter().filter(|v| v.open > 0 || v.last_seen_secs.is_some()).count()).unwrap_or(0));
+                            let seen = s.status.with(|st| st.as_ref().map(|st| st.visitors.iter().filter(|v| s.in_use(v) || v.last_seen_secs.is_some()).count()).unwrap_or(0));
                             format!("{seen} used since start")
                         })
                         testid="kpi-visitors"

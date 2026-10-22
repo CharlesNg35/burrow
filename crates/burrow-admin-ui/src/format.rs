@@ -16,11 +16,21 @@ pub fn ago(secs: u64) -> String {
     }
 }
 
-pub fn left(left_secs_ago: Option<u64>, uptime: u64) -> String {
-    match left_secs_ago {
-        Some(a) => format!("left {}", ago(a)),
-        None => format!("not seen since server start ({})", span(uptime)),
+pub fn left_or_added(
+    left_secs_ago: Option<u64>,
+    uptime: u64,
+    added_secs_ago: Option<u64>,
+) -> String {
+    match (left_secs_ago, added_secs_ago) {
+        (Some(a), _) => format!("left {}", ago(a)),
+        (None, Some(a)) if a < uptime => format!("added {}, not connected yet", ago(a)),
+        (None, _) => format!("not seen since server start ({})", span(uptime)),
     }
+}
+
+pub fn left_of(client: &str, left_secs_ago: Option<u64>, uptime: u64) -> String {
+    let added = crate::store::try_store().and_then(|s| s.added_secs(client));
+    left_or_added(left_secs_ago, uptime, added)
 }
 
 pub fn visitor_use(open: u64, last_seen_secs: Option<u64>) -> String {
@@ -113,4 +123,27 @@ pub fn clock(ms: f64) -> String {
         d.get_minutes(),
         d.get_seconds()
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_client_added_after_the_server_started_is_not_called_unseen_since_start() {
+        assert_eq!(left_or_added(Some(120), 900, None), "left 2m ago");
+        assert_eq!(
+            left_or_added(None, 900, Some(2)),
+            "added just now, not connected yet"
+        );
+        assert_eq!(
+            left_or_added(None, 900, None),
+            "not seen since server start (15m)"
+        );
+        assert_eq!(
+            left_or_added(None, 60, Some(600)),
+            "not seen since server start (1m)",
+            "an add from before this server start does not count"
+        );
+    }
 }

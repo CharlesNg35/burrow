@@ -310,10 +310,12 @@ pub fn layout(doc: &Value, status: Option<&Status>, rates: &Rates) -> Chart {
                 right: String::new(),
                 sub: match cs {
                     Some(x) if x.connected => format!("{} open · {} idle", x.open, x.idle_channels),
-                    Some(x) => {
-                        format::left(x.left_secs_ago, status.map(|s| s.uptime_secs).unwrap_or(0))
-                    }
-                    None => format::left(None, status.map(|s| s.uptime_secs).unwrap_or(0)),
+                    Some(x) => format::left_of(
+                        c,
+                        x.left_secs_ago,
+                        status.map(|s| s.uptime_secs).unwrap_or(0),
+                    ),
+                    None => format::left_of(c, None, status.map(|s| s.uptime_secs).unwrap_or(0)),
                 },
                 badge: (status.is_some() && !on)
                     .then(|| format::away_badge(cs.and_then(|x| x.left_secs_ago)).to_string()),

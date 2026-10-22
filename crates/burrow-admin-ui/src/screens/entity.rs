@@ -131,7 +131,7 @@ pub fn rows_for(section: &str) -> Vec<Row> {
                             c.as_ref().map(|c| c.idle_channels).unwrap_or(0)
                         )
                     } else if status.is_some() && pending.is_none() {
-                        format::left(left, uptime)
+                        format::left_of(name, left, uptime)
                     } else {
                         String::new()
                     },
@@ -152,12 +152,13 @@ pub fn rows_for(section: &str) -> Vec<Row> {
                     .cloned();
                 let open = st.as_ref().map(|x| x.open).unwrap_or(0);
                 let seen = st.as_ref().and_then(|x| x.last_seen_secs);
+                let in_use = open > 0 || me.as_deref() == Some(name.as_str());
                 let admin = VisitorEntry::ADMIN.get(v).map(plain);
                 let mut filters = vec![];
                 if admin.is_some() {
                     filters.push("admins");
                 }
-                if open > 0 {
+                if in_use {
                     filters.push("active");
                 }
                 let may: Vec<String> = ServiceEntry::entries(&draft)
@@ -212,7 +213,7 @@ pub fn rows_for(section: &str) -> Vec<Row> {
                         String::new()
                     },
                     line2,
-                    tags: if open > 0 {
+                    tags: if in_use {
                         vec![("in use now".to_string(), Tone::Success)]
                     } else {
                         Vec::new()
@@ -221,7 +222,7 @@ pub fn rows_for(section: &str) -> Vec<Row> {
                         "{} total",
                         format::count(st.as_ref().map(|x| x.total).unwrap_or(0))
                     ),
-                    group: if open > 0 {
+                    group: if in_use {
                         "In use now".into()
                     } else {
                         "Not in use".into()
@@ -734,7 +735,8 @@ fn Detail(section: String, name: String) -> impl IntoView {
                                 c.from.unwrap_or_default(),
                                 format::span(c.connected_secs.unwrap_or(0))
                             ),
-                            Some(c) => format!("offline · {}", format::left(c.left_secs_ago, up)),
+                            Some(c) =>
+                                format!("offline · {}", format::left_of(&nm, c.left_secs_ago, up)),
                             None => "status not known yet".into(),
                         }
                     )
@@ -1139,7 +1141,7 @@ fn overview(section: &str, name: &str, stats: bool) -> impl IntoView {
                         <Stat
                             label="Connected"
                             value=connected.map(format::span).unwrap_or_else(|| "—".into())
-                            detail=connected.map(since_date).unwrap_or_else(|| c.as_ref().map(|c| format::left(c.left_secs_ago, st.as_ref().map(|s| s.uptime_secs).unwrap_or(0))).unwrap_or_default())
+                            detail=connected.map(since_date).unwrap_or_else(|| c.as_ref().map(|c| format::left_of(&name, c.left_secs_ago, st.as_ref().map(|s| s.uptime_secs).unwrap_or(0))).unwrap_or_default())
                         />
                         <Stat label="Secrets" value=n.to_string() unit="/ 4" detail={ if n > 1 { "rotation in progress" } else { "" } }/>
                     </Stats>
@@ -1248,6 +1250,8 @@ fn problems_of(section: &str, entity: &Path) -> Vec<Problem> {
             .map(|(p, m)| (p.clone(), m.clone()))
             .collect::<Vec<_>>()
     }));
+    let field = |p: &Path| p.get(..3).map(<[String]>::to_vec);
+    let flagged: Vec<Path> = raw.iter().filter_map(|(p, _)| field(p)).collect();
     raw.extend(e.plan.with(|p| {
         p.as_ref()
             .map(|p| {
@@ -1265,6 +1269,7 @@ fn problems_of(section: &str, entity: &Path) -> Vec<Problem> {
                             .unwrap_or_else(|| entity.clone());
                         (at, d.message.clone())
                     })
+                    .filter(|(at, _)| field(at).is_none_or(|f| !flagged.contains(&f)))
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default()

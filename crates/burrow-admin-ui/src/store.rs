@@ -66,6 +66,7 @@ pub struct Store {
     pub history: RwSignal<Option<Vec<AuditEntry>>>,
     pub changed: RwSignal<Option<ConfigEvent>>,
     pub changed_from: RwSignal<(String, f64)>,
+    pub added_at: RwSignal<std::collections::BTreeMap<String, f64>>,
     pub route: RwSignal<Route>,
     pub prev: RwSignal<Route>,
     pub server_addr: RwSignal<String>,
@@ -97,6 +98,7 @@ impl Store {
             history: RwSignal::new(None),
             changed: RwSignal::new(None),
             changed_from: RwSignal::new((String::new(), 0.0)),
+            added_at: RwSignal::new(std::collections::BTreeMap::new()),
             prev: RwSignal::new(Route::Overview),
             server_addr: RwSignal::new(String::new()),
             route: RwSignal::new(route),
@@ -188,6 +190,47 @@ impl Store {
             .filter(|p| !p.is_empty())
             .or_else(|| Some(self.server_addr.get()).filter(|a| !a.is_empty()))
             .unwrap_or_else(|| "burrow server".into())
+    }
+
+    pub fn note_clients(&self, next: &State) {
+        use burrow_config::{ClientEntry, Entry};
+        let names = |v: &burrow_admin_proto::serde_json::Value| -> Vec<String> {
+            ClientEntry::entries(v)
+                .map(|m| m.keys().cloned().collect())
+                .unwrap_or_default()
+        };
+        let Some(before) = self
+            .state
+            .with_untracked(|s| s.as_ref().map(|s| names(&s.values)))
+        else {
+            return;
+        };
+        let fresh: Vec<String> = names(&next.values)
+            .into_iter()
+            .filter(|n| !before.contains(n))
+            .collect();
+        if !fresh.is_empty() {
+            let now = js_sys::Date::now();
+            self.added_at.update(|m| {
+                for n in fresh {
+                    m.insert(n, now);
+                }
+            });
+        }
+    }
+
+    pub fn added_secs(&self, client: &str) -> Option<u64> {
+        let at = self.added_at.with(|m| m.get(client).copied())?;
+        Some(((self.now.get() - at) / 1000.0).max(0.0) as u64)
+    }
+
+    pub fn me(&self) -> Option<String> {
+        self.welcome
+            .with(|w| w.as_ref().map(|w| w.you.visitor.clone()))
+    }
+
+    pub fn in_use(&self, v: &burrow_admin_proto::status::VisitorStatus) -> bool {
+        v.open > 0 || self.me().as_deref() == Some(v.name.as_str())
     }
 
     pub fn short_rev(&self) -> String {

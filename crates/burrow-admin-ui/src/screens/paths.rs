@@ -132,7 +132,9 @@ pub fn service(
         } else {
             Tone::Neutral
         }),
-        unit: if ports > 1 {
+        unit: if !public {
+            format!("no public port · {protocol}")
+        } else if ports > 1 {
             format!("{ports} ports · {protocol}")
         } else {
             format!("bound · {protocol}")
@@ -464,6 +466,10 @@ pub fn visitor(
         .map(|a| a.iter().map(plain).collect())
         .unwrap_or_default();
     let this_session = me.is_some_and(|(n, _)| n == name);
+    let reach_none = entry
+        .and_then(|x| VisitorEntry::REACH.get(x))
+        .and_then(Value::as_object)
+        .is_none_or(|m| m.is_empty());
     PathData {
         hops: vec![
             Hop {
@@ -529,7 +535,14 @@ pub fn visitor(
         ],
         edges: vec![
             Edge {
-                above: "burrow visit".into(),
+                above: if services.is_empty()
+                    && reach_none
+                    && entry.and_then(|x| VisitorEntry::ADMIN.get(x)).is_some()
+                {
+                    "burrow admin".into()
+                } else {
+                    "burrow visit".into()
+                },
                 below: format!("{open} open"),
                 state: if open > 0 {
                     EdgeState::Live
