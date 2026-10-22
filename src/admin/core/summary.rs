@@ -217,7 +217,7 @@ pub fn changes(old: &Value, new: &Value, renames: &[Rename]) -> Vec<Change> {
         .map(|r| (r.path.clone(), r.to.clone()))
         .collect();
     for c in out.iter_mut().filter(|c| c.kind == ChangeKind::Set) {
-        c.part_of = burrow_admin_logic::group::part_of(old, new, &c.path, &renamed);
+        c.part_of = burrow_config::refs::part_of(old, new, &c.path, &renamed);
     }
     out
 }
