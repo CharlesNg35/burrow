@@ -94,10 +94,10 @@ fn add_service(c: &mut Ctx) -> Flow<'_> {
             c.ui.eval("document.getElementById('f-services-game-bind-host').value")
                 .await;
         assert_eq!(host, "127.0.0.1", "a pasted address fills the address part");
-        c.ui.wait_text(
-            "[data-schema='services/*/bind'] [data-testid=stored-as]",
+        stored_as(
+            c,
+            "services/*/bind",
             &format!("127.0.0.1:{}-{}", public, public + 2),
-            SECS,
         )
         .await;
         c.ui.wait_text(
@@ -287,6 +287,20 @@ async fn clear_of_bar(c: &Ctx, schema: &str) {
     assert!(gap >= 0.0, "the save bar covers {schema} by {gap}px");
 }
 
+async fn stored_as(c: &Ctx, schema: &str, wanted: &str) {
+    let css = format!("[data-schema='{schema}'] [data-testid=stored-as]");
+    for _ in 0..50 {
+        if c.ui.attr_of(&css, "data-stored").await == wanted {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+    panic!(
+        "{schema} is not stored as {wanted:?}: {:?}",
+        c.ui.attr_of(&css, "data-stored").await
+    );
+}
+
 async fn row_clean(c: &Ctx, schema: &str) {
     c.ui.wait_gone(&format!("[data-schema='{schema}'] [aria-live] p"), SECS)
         .await;
@@ -346,12 +360,7 @@ fn editors(c: &mut Ctx) -> Flow<'_> {
         click_js(c, "[data-schema='services/*/target'] input[value=unix]").await;
         c.ui.fill("#f-services-web-target", "/tmp/burrow-e2e.sock")
             .await;
-        c.ui.wait_text(
-            "[data-schema='services/*/target'] [data-testid=stored-as]",
-            "unix:/tmp/burrow-e2e.sock",
-            SECS,
-        )
-        .await;
+        stored_as(c, "services/*/target", "unix:/tmp/burrow-e2e.sock").await;
         c.ui.shot("target-unix-socket").await;
         click_js(c, "[data-schema='services/*/target'] input[value=network]").await;
         c.ui.fill("#f-services-web-target-host", "127.0.0.1").await;

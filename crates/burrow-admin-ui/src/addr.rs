@@ -359,12 +359,11 @@ pub fn addr_editor(fc: FieldCtx, kind: Kind) -> AnyView {
         <div data-addr="">
             {mode}
             {move || if unix_mode.get() { unix().into_any() } else { network().into_any() }}
-            {ranges.then(|| view! {
-                <p class="mt-1.5 text-xs text-text-muted">
-                    "Stored as "
-                    <code class="font-mono" data-testid="stored-as">{stored}</code>
-                    {max.map(|m| format!(" · at most {m} ports."))}
-                </p>
+            <span class="hidden" data-testid="stored-as" data-stored=stored></span>
+            {(ranges && max.is_some()).then(|| view! {
+                <Show when=move || range_on.get()>
+                    <p class="mt-1.5 text-xs text-text-muted">{max.map(|m| format!("A range has at most {m} ports."))}</p>
+                </Show>
             })}
         </div>
     }

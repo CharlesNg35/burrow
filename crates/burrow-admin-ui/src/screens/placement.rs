@@ -146,4 +146,47 @@ mod tests {
         .collect();
         assert_eq!(services, [OVERVIEW, SETTINGS]);
     }
+
+    fn helps(v: &burrow_admin_proto::serde_json::Value, out: &mut Vec<String>) {
+        use burrow_admin_proto::serde_json::Value;
+        match v {
+            Value::Object(m) => {
+                if let Some(Value::String(h)) = m.get("help") {
+                    out.push(h.clone());
+                }
+                m.values().for_each(|x| helps(x, out));
+            }
+            Value::Array(a) => a.iter().for_each(|x| helps(x, out)),
+            _ => {}
+        }
+    }
+
+    #[test]
+    fn the_help_under_server_fields_reads_as_plain_english() {
+        let root = <burrow_config::ServerConfig as AdminSchema>::node();
+        let mut all = Vec::new();
+        helps(
+            &burrow_admin_proto::serde_json::to_value(&root).unwrap(),
+            &mut all,
+        );
+        assert!(all.len() > 20, "{}", all.len());
+        let wrong: Vec<&String> = all
+            .iter()
+            .filter(|h| {
+                [
+                    "[",
+                    "true",
+                    "_secs",
+                    "client: self",
+                    "ip:port",
+                    "host:port",
+                    "CIDR",
+                    "keyed by",
+                ]
+                .iter()
+                .any(|bad| h.contains(bad))
+            })
+            .collect();
+        assert!(wrong.is_empty(), "{wrong:#?}");
+    }
 }

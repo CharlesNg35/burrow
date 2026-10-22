@@ -793,7 +793,7 @@ fn row(f: Field, path: Path, spath: Path, entity: Path) -> AnyView {
         node.help.clone()
     };
     let key_hint = if show_keys {
-        spath.join(".\u{200b}")
+        spath.last().cloned().unwrap_or_default()
     } else if matches!(inner(&node).sem, SemType::List(_)) {
         f.key.clone()
     } else {

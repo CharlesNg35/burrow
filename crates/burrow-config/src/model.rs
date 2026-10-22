@@ -27,7 +27,7 @@ pub struct ServerConfig {
     #[schemars(
         description = "Where the server waits for clients: ip:port like 0.0.0.0:7835, or a port alone for 0.0.0.0 (all IPv4 addresses)"
     )]
-    #[admin(
+    #[admin(help = "Where the server waits for clients",
         label = "Listen address",
         group = listener,
         applies = restart,
@@ -39,7 +39,7 @@ pub struct ServerConfig {
     #[schemars(
         description = "How clients reach this server: a host name or IP (the port comes from listen), host:port, or a wss:// URL; client-config writes it into client configs"
     )]
-    #[admin(
+    #[admin(help = "How clients reach this server; the connect commands and client configs made here use it",
         ty = server_address,
         group = listener,
         applies = live,
@@ -60,19 +60,19 @@ pub struct ServerConfig {
     pub websocket: Option<WebSocketConfig>,
     #[serde(default)]
     #[schemars(description = "Clients allowed to connect, keyed by client name")]
-    #[admin(ty = map(client), group = entities, applies = reload)]
+    #[admin(help = "Clients allowed to connect", ty = map(client), group = entities, applies = reload)]
     pub clients: BTreeMap<String, ClientEntry>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     #[schemars(
         description = "Visitors allowed to reach private services with burrow visit, keyed by visitor name"
     )]
-    #[admin(ty = map(visitor), group = entities, applies = reload)]
+    #[admin(help = "Visitors allowed to reach private services with burrow visit", ty = map(visitor), group = entities, applies = reload)]
     pub visitors: BTreeMap<String, VisitorEntry>,
     #[serde(rename = "self", default, skip_serializing_if = "Option::is_none")]
     #[schemars(
         description = "Targets this server may dial for itself, for services with client: self and visitors with reach: self"
     )]
-    #[admin(
+    #[admin(help = "Targets this server may reach itself, for services that run on this server and visitors that reach it directly",
         label = "This server",
         group = local,
         applies = reload,
@@ -81,7 +81,7 @@ pub struct ServerConfig {
     pub self_: Option<SelfEntry>,
     #[serde(default)]
     #[schemars(description = "Exposed services, keyed by service name")]
-    #[admin(ty = map(service), group = entities, applies = reload)]
+    #[admin(help = "Services this server exposes", ty = map(service), group = entities, applies = reload)]
     pub services: BTreeMap<String, ServiceEntry>,
     #[serde(default, skip_serializing_if = "is_false")]
     #[schemars(description = "Disable encryption of forwarded data (authentication still runs)")]
@@ -197,7 +197,7 @@ pub struct SelfEntry {
     #[schemars(
         description = "What this server may dial for itself: CIDR, optionally with :port or :lo-hi, or unix:/path; link-local and metadata addresses only when listed one by one"
     )]
-    #[admin(ty = list(cidr_rule), label = "Allowed targets", empty_label = "Nothing")]
+    #[admin(help = "Addresses this server may reach itself, with optional ports, or Unix sockets; link-local and cloud metadata addresses only when listed one by one", ty = list(cidr_rule), label = "Allowed targets", empty_label = "Nothing")]
     pub allow: Vec<String>,
 }
 
@@ -207,7 +207,10 @@ pub struct SelfEntry {
 #[admin(entity = client, label = "Client")]
 pub struct ClientEntry {
     #[schemars(description = "256-bit secret (base64 or hex), or a list of them during rotation")]
-    #[admin(label = "Secrets")]
+    #[admin(
+        help = "Secrets this client may sign in with; it has several only during a rotation",
+        label = "Secrets"
+    )]
     pub secret: Secrets,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(description = "Maximum concurrent forwarded connections for this client")]
@@ -231,13 +234,17 @@ pub struct ClientEntry {
 ))]
 pub struct VisitorEntry {
     #[schemars(description = "256-bit secret (base64 or hex), or a list of them during rotation")]
-    #[admin(label = "Secrets", reduce_only)]
+    #[admin(
+        help = "Secrets this visitor may sign in with; it has several only during a rotation",
+        label = "Secrets",
+        reduce_only
+    )]
     pub secret: Secrets,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     #[schemars(
         description = "Clients this visitor may reach directly, with the targets it may pick there: any (whatever the client's allow list permits), or rules in allow-list syntax that narrow it, for example home: any, office: 192.168.150.0/25 or lab: [10.0.0.0/8:22, unix:/run/app.sock]"
     )]
-    #[admin(
+    #[admin(help = "Clients this visitor may reach directly, and which targets there: any target the client allows, or only the ones listed",
         ty = ref_map(client, reserved = "self"),
         label = "Direct access to clients",
         group = access,
@@ -271,7 +278,7 @@ pub struct VisitorEntry {
     #[schemars(
         description = "Admin access only from these source IPs or CIDRs, for example [203.0.113.0/24]; any address when empty"
     )]
-    #[admin(
+    #[admin(help = "Admin access only from these addresses or networks; any address when empty",
         ty = list(cidr),
         label = "Admin only from",
         group = admin,
@@ -373,7 +380,7 @@ pub struct ServiceEntry {
     #[schemars(
         description = "Several clients that can each reach the target, instead of client; see mode"
     )]
-    #[admin(ty = ref_list(client, ordered, reserved = "self"), group = who, one_of = "who")]
+    #[admin(help = "Clients that can each reach the target; Mode says how one is picked", ty = ref_list(client, ordered, reserved = "self"), group = who, one_of = "who")]
     pub clients: Vec<String>,
     #[serde(default, skip_serializing_if = "is_default")]
     #[schemars(
@@ -385,7 +392,7 @@ pub struct ServiceEntry {
     #[schemars(
         description = "Check that each client can reach the target, and send connections only to those that can: true, or a map with interval_secs, timeout_secs and failures"
     )]
-    #[admin(
+    #[admin(help = "Check that each client can reach the target, and send connections only to those that can",
         group = who,
         none_label = "Off",
         advanced
@@ -395,7 +402,7 @@ pub struct ServiceEntry {
     #[schemars(
         description = "Public address on the server: a port, or ip:port; leave it out for a private service that only visitors reach"
     )]
-    #[admin(
+    #[admin(help = "The address and port the server opens for this service",
         ty = ip_port(ranges, max_range = 1000),
         label = "Public address",
         group = exposure,
@@ -406,7 +413,7 @@ pub struct ServiceEntry {
     #[schemars(
         description = "host:port as seen from the client, or a port alone for 127.0.0.1 on the client"
     )]
-    #[admin(
+    #[admin(help = "Where the client connects, as seen from the client; a port alone means the client itself",
         ty = target(ranges, unix),
         label = "Target on the client",
         group = exposure,
@@ -441,11 +448,11 @@ pub struct ServiceEntry {
     #[schemars(
         description = "Only these source IPs or CIDRs may connect, for example [203.0.113.0/24]; everyone when empty"
     )]
-    #[admin(ty = list(cidr), group = access, empty_label = "Empty means everyone may connect")]
+    #[admin(help = "Only these addresses or networks may connect", ty = list(cidr), group = access, empty_label = "Empty means everyone may connect")]
     pub allow_from: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[schemars(description = "Source IPs or CIDRs that may never connect")]
-    #[admin(
+    #[admin(help = "Addresses or networks that may never connect",
         ty = list(cidr),
         group = access,
         empty_label = "No addresses denied",
@@ -468,7 +475,7 @@ pub struct ServiceEntry {
     #[schemars(
         description = "Speed limit for each direction, shared by all connections of this service, for example 40mbit or 5MB (per second)"
     )]
-    #[admin(
+    #[admin(help = "Speed limit in each direction, shared by all connections of this service",
         ty = rate,
         label = "Speed limit",
         group = traffic,
@@ -688,7 +695,10 @@ pub struct TcpOptions {
         description = "TCP keepalive idle time, 0 disables",
         range(max = 32767)
     )]
-    #[admin(label = "Keepalive")]
+    #[admin(
+        help = "Idle time before keepalive probes start; 0 turns them off",
+        label = "Keepalive"
+    )]
     pub keepalive_secs: u32,
 }
 
