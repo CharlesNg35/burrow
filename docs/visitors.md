@@ -172,13 +172,23 @@ In a browser, set the SOCKS5 proxy to `127.0.0.1`, port `1080`, and turn on "pro
 
   | reason | SOCKS5 reply |
   | --- | --- |
-  | the target is not in `reach`, or not in the client's `allow` list | connection not allowed by ruleset |
-  | the client is not connected | network unreachable |
-  | the client cannot resolve the host name | host unreachable |
-  | the target refuses or does not answer | connection refused |
-  | the client or server is busy, or the request is invalid | general failure |
+  | the target is not in `reach`, or not in the client's `allow` list | connection not allowed by ruleset (code 2) |
+  | the client is not connected | network unreachable (code 3) |
+  | the client cannot resolve the host name | host unreachable (code 4) |
+  | the target refuses or does not answer | connection refused (code 5) |
+  | the client or server is busy, or the request is invalid | general failure (code 1) |
+  | the app asks for UDP ASSOCIATE or BIND | command not supported (code 7) |
+  | the app offers only a user name and password | no acceptable methods |
 
 </details>
+
+### If a SOCKS app says it cannot connect
+
+Some apps show only a vague error, such as "code -1", whatever went wrong. Look at the visitor's log: it says what the app asked for and which SOCKS5 reply it got.
+
+- **Most often, the target is not allowed.** The app gets "connection not allowed by ruleset" (code 2). Add the target to the client's `allow` list, and to the visitor's `reach` if you use rules there. The client's log names the exact rule to add. Some apps look up a host name themselves and send its IP address, so it is that address that must be allowed.
+- **A test of UDP fails.** That is expected: visitors are TCP only, so UDP ASSOCIATE gets "command not supported" (code 7). TCP through the proxy still works.
+- **The app asks for a user name and password.** Set it to no authentication.
 
 ## Port ranges
 
