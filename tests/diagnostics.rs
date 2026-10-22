@@ -132,7 +132,7 @@ fn missing_fields() {
     insta::assert_snapshot!(render("server.yaml", "clients:\n  home:\n    secret: x\nservices:\n  web:\n    client: home\n", None), @r#"
     error: the server needs "listen" (TCP), "websocket", or both
       --> server.yaml
-       = help: add "listen: 0.0.0.0:7835" for TCP clients, or a websocket section for clients behind HTTP-only networks (see README)
+       = help: add "listen: 0.0.0.0:7835" for TCP clients, or a websocket section for clients behind HTTP-only networks (see https://github.com/charlesng35/burrow/blob/main/docs/websocket.md)
 
     error: secret for client "home" is not valid base64 or hex (1 character)
       --> server.yaml:3:13
@@ -686,7 +686,7 @@ fn server_without_any_listener() {
     insta::assert_snapshot!(render("server.yaml", &src, None), @r#"
     error: the server needs "listen" (TCP), "websocket", or both
       --> server.yaml
-       = help: add "listen: 0.0.0.0:7835" for TCP clients, or a websocket section for clients behind HTTP-only networks (see README)
+       = help: add "listen: 0.0.0.0:7835" for TCP clients, or a websocket section for clients behind HTTP-only networks (see https://github.com/charlesng35/burrow/blob/main/docs/websocket.md)
 
     warning: no services are defined, so nothing is exposed
       --> server.yaml:4:1

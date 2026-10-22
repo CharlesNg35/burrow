@@ -126,7 +126,7 @@ pub fn init_server(opts: &InitOptions, out: &mut dyn Write) -> Result<PathBuf, F
                 ws.listen
             ),
             None => format!(
-                "WebSocket clients are accepted on ws://{}{}; point your TLS proxy (nginx, Caddy, Cloudflare) at it, see README. No TCP control port is opened",
+                "WebSocket clients are accepted on ws://{}{}; point your TLS proxy (nginx, Caddy, Cloudflare) at it, see https://github.com/charlesng35/burrow/blob/main/docs/websocket.md. No TCP control port is opened",
                 ws.listen, ws.path
             ),
         };
