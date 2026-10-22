@@ -27,15 +27,12 @@ impl fmt::Debug for ProxyConfig {
 
 impl ProxyConfig {
     pub fn parse(url: &str) -> Result<Self, String> {
-        let (kind, rest) = if let Some(r) = url.strip_prefix("http://") {
-            (ProxyKind::Http, r)
-        } else if let Some(r) = url
-            .strip_prefix("socks5://")
-            .or_else(|| url.strip_prefix("socks5h://"))
-        {
-            (ProxyKind::Socks5, r)
-        } else {
-            return Err("proxy must start with http:// or socks5://".into());
+        let refused = || "proxy must start with http:// or socks5://".to_string();
+        let (scheme, rest) = url.split_once("://").ok_or_else(refused)?;
+        let kind = match scheme.to_ascii_lowercase().as_str() {
+            "http" => ProxyKind::Http,
+            "socks5" | "socks5h" => ProxyKind::Socks5,
+            _ => return Err(refused()),
         };
         let rest = rest.trim_end_matches('/');
         let (auth, hostport) = match rest.rsplit_once('@') {
@@ -99,6 +96,22 @@ mod tests {
         assert!(ProxyConfig::parse("http://10.0.0.1:3128/").is_ok());
         assert!(ProxyConfig::parse("ftp://x:1").is_err());
         assert!(ProxyConfig::parse("http://nohost").is_err());
+    }
+
+    #[test]
+    fn the_scheme_is_case_insensitive_like_curl() {
+        for (url, kind) in [
+            ("HTTP://p.local:3128", ProxyKind::Http),
+            ("Http://u:pw@p.local:3128", ProxyKind::Http),
+            ("SOCKS5://p.local:1080", ProxyKind::Socks5),
+            ("Socks5h://p.local:1080", ProxyKind::Socks5),
+        ] {
+            let p = ProxyConfig::parse(url).unwrap_or_else(|e| panic!("{url}: {e}"));
+            assert!(p.kind == kind, "{url}");
+            assert!(p.addr.starts_with("p.local:"), "{url}");
+        }
+        assert!(ProxyConfig::parse("HTTPS://p.local:1").is_err());
+        assert!(ProxyConfig::parse("p.local:1").is_err());
     }
 
     #[test]

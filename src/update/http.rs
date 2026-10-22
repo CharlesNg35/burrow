@@ -434,6 +434,8 @@ mod tests {
         );
         let p = proxy_from_env(&http, env(&[("all_proxy", "socks5://s:1080")])).unwrap();
         assert_eq!(p.unwrap().addr, "s:1080");
+        let upper = proxy_from_env(&https, env(&[("HTTPS_PROXY", "HTTP://proxy:3128")]));
+        assert_eq!(upper.unwrap().unwrap().addr, "proxy:3128");
         let both: &[(&str, &str)] = &[("HTTPS_PROXY", "http://p:1"), ("NO_PROXY", ".github.com")];
         assert!(proxy_from_env(&https, env(both)).unwrap().is_none());
         let other: &[(&str, &str)] = &[("HTTPS_PROXY", "http://p:1"), ("NO_PROXY", "hub.com")];
