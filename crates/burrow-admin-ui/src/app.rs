@@ -337,9 +337,10 @@ fn Header() -> impl IntoView {
         let w = s.welcome.get()?;
         let st = s.state.get()?;
         Some(view! {
-            <dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 px-3 py-2 text-sm [&_dt]:text-text-muted [&_dd]:font-mono [&_dd]:text-xs [&_dd]:break-all">
+            <dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 px-3 py-2 text-sm [&_dt]:text-text-muted [&_dd]:font-mono [&_dd]:text-xs [&_dd]:break-all [&_dd]:whitespace-pre-line">
                 <dt>"Version"</dt><dd>{w.server.version.clone()}</dd>
                 <dt>"Up"</dt><dd>{format::span(s.status.get().map(|x| x.uptime_secs).unwrap_or(w.server.uptime_secs))}</dd>
+                <dt>"Listening"</dt><dd>{s.status.get().map(|x| x.listening.join("\n")).unwrap_or_default()}</dd>
                 <dt>"Revision"</dt><dd>{short_rev(&st.rev)}</dd>
                 <dt>"Config"</dt><dd>{st.file.path.clone()}</dd>
             </dl>
@@ -371,7 +372,7 @@ fn Header() -> impl IntoView {
             }}
             <div class=move || format!("relative flex min-w-0 items-center gap-2.5{}", if matches!(s.route.get(), Route::Detail(..)) { " max-sm:hidden" } else { "" })>
                 <span class="flex size-[30px] shrink-0 items-center justify-center rounded-md bg-gradient-to-b from-logo-from to-logo-to text-white" aria-hidden="true"><Icon name="logo" large=true/></span>
-                <button type="button" class="flex min-w-0 cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 hover:bg-hdr-raised" aria-haspopup="true" aria-expanded=move || menu_open.get().to_string() aria-controls="server-menu" id="server-switcher" data-testid="server-switcher" on:click=move |_| menu_open.update(|o| *o = !*o)>
+                <button type="button" class="flex min-w-0 cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 hover:bg-hdr-raised" aria-haspopup="true" aria-expanded=move || menu_open.get().to_string() aria-controls="server-menu" id="server-switcher" data-testid="server-switcher" title=move || s.status.with(|x| x.as_ref().map(|x| x.listening.join(", ")).unwrap_or_default()) on:click=move |_| menu_open.update(|o| *o = !*o)>
                     <span class="flex min-w-0 flex-col text-left">
                         <span class="truncate font-semibold text-hdr-on" data-testid="server-line">{move || s.server_name()}</span>
                         <span class="truncate text-[11px] text-hdr-muted sm:hidden">{move || {
@@ -383,10 +384,6 @@ fn Header() -> impl IntoView {
                             }
                         }}</span>
                     </span>
-                    {move || {
-                        let host = host_line(s);
-                        (host != s.server_name()).then(|| view! { <span class="truncate font-mono text-xs text-hdr-muted max-sm:hidden">{host}</span> })
-                    }}
                     <Icon name="chevron-down" small=true/>
                 </button>
                 <Show when=move || menu_open.get()>
