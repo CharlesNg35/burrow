@@ -577,8 +577,12 @@ fn lockout(c: &mut Ctx) -> Flow<'_> {
         c.ui.wait_for("[data-testid=read-only-tag]", SECS).await;
         c.ui.nav("/services/web?tab=settings").await;
         c.ui.wait_for("[data-testid=detail]", SECS).await;
-        c.ui.wait_text("[data-schema='services/*/target']", "127.0.0.1", SECS)
-            .await;
+        c.ui.wait_text(
+            "[data-schema='services/*/target']",
+            &c.world.ports["echo"].to_string(),
+            SECS,
+        )
+        .await;
         assert_eq!(
             c.ui.count("[data-editor]").await,
             0,
