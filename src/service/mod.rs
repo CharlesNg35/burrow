@@ -442,6 +442,10 @@ fn check_config(path: &Path, env: &BTreeMap<String, String>) -> Result<Checked, 
     })
 }
 
+fn installs_from(existing: &Manifest, source: &Path) -> bool {
+    existing.source_config == source || system::canonical_or_same(&existing.config) == source
+}
+
 pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure> {
     let backend = system::backend()?;
     let platform = Platform::current();
@@ -463,8 +467,7 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
     };
     let checked = check_config(&source, &env)?;
     if let Ok(existing) = load_manifest(&name)
-        && existing.source_config != source
-        && existing.config != source
+        && !installs_from(&existing, &source)
     {
         return Err(Failure::usage(format!(
             "{name} is already installed from {}; its config is {}",
@@ -678,7 +681,7 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
         binary: kept_binary.clone().map(|kept| (kept, binary.clone())),
     });
     backend.config_folder(&folder, &config, &account, writable)?;
-    if source != config {
+    if source != system::canonical_or_same(&config) {
         if writable {
             match keep_admin_copy(&source, &config)? {
                 Kept::Version => say(
@@ -1852,6 +1855,28 @@ mod tests {
         assert!(note.contains(&from), "{note}");
         std::fs::write(&config, "listen: 1\n").unwrap();
         assert!(source_note(&m).is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_reinstall_from_the_installed_config_is_recognised_through_a_linked_folder() {
+        let tmp = tempfile::tempdir().unwrap();
+        let real = tmp.path().join("private-etc");
+        std::fs::create_dir_all(real.join("burrow/server")).unwrap();
+        std::os::unix::fs::symlink(&real, tmp.path().join("etc")).unwrap();
+        let installed = tmp.path().join("etc/burrow/server/server.yaml");
+        std::fs::write(&installed, "listen: 1\n").unwrap();
+        let m = Manifest {
+            config: installed.clone(),
+            source_config: tmp.path().join("gone/server.yaml"),
+            ..record(Platform::MacOs)
+        };
+        let source = system::canonical(&installed).unwrap();
+        assert_ne!(source, installed, "the folder is reached through a link");
+        assert!(installs_from(&m, &source));
+        let elsewhere = tmp.path().join("other.yaml");
+        std::fs::write(&elsewhere, "listen: 1\n").unwrap();
+        assert!(!installs_from(&m, &system::canonical(&elsewhere).unwrap()));
     }
 
     #[cfg(unix)]
