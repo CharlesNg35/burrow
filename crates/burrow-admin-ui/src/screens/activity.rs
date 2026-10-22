@@ -56,12 +56,23 @@ fn who(e: &AuditEntry) -> String {
 }
 
 fn title_of(e: &AuditEntry) -> String {
+    if let Some(to) = &e.reverts {
+        return format!("Reverted to rev {}", short_rev(to));
+    }
     e.changes
         .iter()
         .find(|c| c.part_of.is_none())
         .or(e.changes.first())
         .map(|c| c.summary.clone())
         .unwrap_or_else(|| format!("No change ({})", e.result))
+}
+
+fn repeats(entries: &[AuditEntry], i: usize) -> Option<&AuditEntry> {
+    let e = &entries[i];
+    if e.reverts.is_some() {
+        return None;
+    }
+    entries[i + 1..].iter().find(|o| o.rev == e.rev)
 }
 
 fn hand(e: &AuditEntry) -> bool {
@@ -95,7 +106,18 @@ fn rows_of(entries: &[AuditEntry], can_write: bool, current: &str) -> Vec<Row> {
                 dot: Some(tone),
                 title: title_of(e),
                 meta: short_rev(&e.rev),
-                line2: format!("{} · {}", format::relative(e.at), who(e)),
+                line2: {
+                    let same = repeats(entries, i);
+                    match same {
+                        Some(o) => format!(
+                            "{} · {} · same file as the version from {}",
+                            format::relative(e.at),
+                            who(e),
+                            format::relative(o.at)
+                        ),
+                        None => format!("{} · {}", format::relative(e.at), who(e)),
+                    }
+                },
                 tags: if Some(i) == now {
                     vec![("current".to_string(), Tone::Success)]
                 } else {
@@ -137,10 +159,13 @@ fn Version(entry: AuditEntry, newer: Vec<AuditEntry>) -> impl IntoView {
         )));
     }
     let to = revert_target(&entry);
-    let current = s
-        .state
-        .with_untracked(|st| st.as_ref().map(|st| st.rev.clone()).unwrap_or_default());
-    let matches = to == current;
+    let matches = {
+        let to = to.clone();
+        Signal::derive(move || {
+            s.state
+                .with(|st| st.as_ref().is_some_and(|st| st.rev == to))
+        })
+    };
     let can_revert = entry.revertible && s.can_write_now();
     let revert_label = if entry.base.is_empty() {
         "Revert to this version"
@@ -155,7 +180,7 @@ fn Version(entry: AuditEntry, newer: Vec<AuditEntry>) -> impl IntoView {
             view! {
                 <li class="grid grid-cols-[70px_minmax(0,1fr)_auto] items-center gap-4 border-b border-rowline py-2.5 text-[13.5px] last:border-b-0">
                     <Link to=Route::Activity(Some(n.rev.clone())) class="font-mono text-[13px] text-text-muted no-underline hover:underline">{rev}</Link>
-                    <span class="truncate">{n.changes.first().map(|c| c.summary.clone()).unwrap_or_default()}</span>
+                    <span class="truncate">{title_of(&n)}</span>
                     <span class="text-text-muted">{format!("{} · {}", who(&n), format::relative(n.at))}</span>
                 </li>
             }
@@ -180,7 +205,7 @@ fn Version(entry: AuditEntry, newer: Vec<AuditEntry>) -> impl IntoView {
                     icon="revert"
                     testid="revert"
                     disabled=matches
-                    reason=if matches { "The file already matches that version".to_string() } else { String::new() }
+                    reason=Signal::derive(move || if matches.get() { "The file already matches this version".to_string() } else { String::new() })
                     on_click=move |_| {
                         s.edit.open_revert(s, to.clone());
                         route::go(Route::Review);
@@ -318,6 +343,48 @@ mod tests {
         assert_eq!((l[1].old, l[1].new), (Some(3), Some(3)));
         assert_eq!((l[2].kind, l[2].old, l[2].new), ('-', Some(4), None));
         assert_eq!((l[3].kind, l[3].old, l[3].new), ('+', None, Some(4)));
+    }
+
+    #[test]
+    fn a_revert_is_titled_as_one_and_a_repeated_file_says_so() {
+        let added = AuditEntry {
+            rev: "b2s:aaaa1111".into(),
+            base: "b2s:base".into(),
+            visitor: "ops".into(),
+            at: 100,
+            changes: vec![burrow_admin_proto::plan::Change {
+                kind: burrow_admin_proto::plan::ChangeKind::Add,
+                path: vec!["visitors".into(), "c".into()],
+                summary: "New visitor c (1 secret)".into(),
+                part_of: None,
+            }],
+            ..AuditEntry::default()
+        };
+        let removed = AuditEntry {
+            rev: "b2s:bbbb2222".into(),
+            base: added.rev.clone(),
+            visitor: "ops".into(),
+            at: 200,
+            ..AuditEntry::default()
+        };
+        let reverted = AuditEntry {
+            rev: added.rev.clone(),
+            base: removed.rev.clone(),
+            reverts: Some(added.rev.clone()),
+            at: 300,
+            ..added.clone()
+        };
+        let by_hand = AuditEntry {
+            reverts: None,
+            visitor: "file".into(),
+            ..reverted.clone()
+        };
+        assert_eq!(title_of(&reverted), "Reverted to rev aaaa1111");
+        let list = [reverted, removed.clone(), added.clone()];
+        assert!(repeats(&list, 0).is_none(), "the revert's title says it");
+        let list = [by_hand, removed, added];
+        assert_eq!(repeats(&list, 0).map(|o| o.at), Some(100));
+        assert!(repeats(&list, 2).is_none());
     }
 
     #[test]

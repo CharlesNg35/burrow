@@ -660,6 +660,45 @@ fn read_level_and_read_only_files_cannot_write() {
 }
 
 #[test]
+fn an_applied_revert_is_recorded_with_the_rev_it_went_back_to() {
+    let w = world();
+    let core = core_for(&w.text);
+    let s = session(&w, AdminLevel::Write);
+    apply_now(
+        &core,
+        &s,
+        &[Op::Set {
+            path: p(&["services", "web", "target"]),
+            value: json!(3001),
+        }],
+        &[],
+    )
+    .unwrap();
+    let all = || {
+        core.history(&HistoryRequest {
+            limit: None,
+            diff: None,
+        })
+        .unwrap()
+        .entries
+    };
+    let changed = all().remove(0);
+    assert_eq!(changed.reverts, None);
+    apply_now(
+        &core,
+        &s,
+        &[Op::ReplaceDocument {
+            from_history: changed.base.clone(),
+        }],
+        &[],
+    )
+    .unwrap();
+    let back = all().remove(0);
+    assert_eq!(back.reverts.as_deref(), Some(changed.base.as_str()));
+    assert_eq!(back.rev, changed.base);
+}
+
+#[test]
 fn a_revert_is_an_ordinary_plan() {
     let w = world();
     let core = core_for(&w.text);

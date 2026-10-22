@@ -654,6 +654,10 @@ fn revert(c: &mut Ctx) -> Flow<'_> {
             original,
             "the revert restores the file byte for byte"
         );
+        let at: String = c.ui.eval("location.pathname").await;
+        if at.starts_with("/activity") {
+            c.ui.wait_for("[data-testid=revert][disabled]", SECS).await;
+        }
         c.ui.nav("/activity").await;
         c.ui.click(&format!("[data-row='{rev}'] [data-testid=list-row]"))
             .await;

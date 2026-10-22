@@ -79,6 +79,7 @@ pub struct Computed {
     pub old_text: String,
     pub new_text: String,
     pub fresh: Vec<Fresh>,
+    pub reverts: Option<String>,
 }
 
 struct Cx<'a> {
@@ -360,6 +361,10 @@ pub fn compute(
         old_text,
         new_text,
         fresh: applied.fresh,
+        reverts: ops_list.iter().find_map(|o| match o {
+            Op::ReplaceDocument { from_history } => Some(from_history.clone()),
+            _ => None,
+        }),
     })
 }
 
@@ -532,6 +537,7 @@ pub fn finish(
         result: result.into(),
         revertible: true,
         details_kept: true,
+        reverts: begun.computed.reverts.clone(),
     };
     let summary: Vec<&str> = plan.changes.iter().map(|c| c.summary.as_str()).collect();
     match reload {

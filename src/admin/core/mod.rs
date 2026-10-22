@@ -174,6 +174,7 @@ impl Core {
                 result: "kept".into(),
                 revertible: true,
                 details_kept: false,
+                reverts: None,
             });
         }
         Core {
