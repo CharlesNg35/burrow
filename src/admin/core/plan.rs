@@ -79,6 +79,7 @@ pub struct Computed {
     pub old_text: String,
     pub new_text: String,
     pub fresh: Vec<Fresh>,
+    pub reverts: Option<String>,
 }
 
 struct Cx<'a> {
@@ -166,15 +167,19 @@ pub fn compute(
     let old_text = core.read()?;
     let current = text::rev(&old_text);
     if current != base {
-        let theirs = core.store.version(base).and_then(|b| {
-            let (_, _, a) = patch::split_text(&b);
-            let (_, _, c) = patch::split_text(&old_text);
-            Some(summary::changes(
-                &tree::parse(&a).ok()?.to_json(),
-                &tree::parse(&c).ok()?.to_json(),
-                &[],
-            ))
-        });
+        let theirs = core
+            .store
+            .version(base)
+            .or_else(|| core.seen_text(base))
+            .and_then(|b| {
+                let (_, _, a) = patch::split_text(&b);
+                let (_, _, c) = patch::split_text(&old_text);
+                Some(summary::changes(
+                    &tree::parse(&a).ok()?.to_json(),
+                    &tree::parse(&c).ok()?.to_json(),
+                    &[],
+                ))
+            });
         let body = Conflict {
             current: current.clone(),
             known: theirs.is_some(),
@@ -243,6 +248,7 @@ pub fn compute(
         .map(|n| n.to_json())
         .unwrap_or(Value::Null);
     let running = core.live.settings();
+    let file = check_text(core, &old_text);
     let (mut refusals, mut impacts, mut clash) = (Vec::new(), Vec::new(), Vec::new());
     if let Some(next) = &checked.settings {
         let who = guard::Who {
@@ -251,7 +257,6 @@ pub fn compute(
             secret: &s.secret,
             via_websocket: s.via_websocket,
         };
-        let file = check_text(core, &old_text);
         let base = match (&file.settings, file.valid) {
             (Some(settings), true) => guard::Base::Valid(settings),
             _ => guard::Base::Broken {
@@ -285,6 +290,7 @@ pub fn compute(
                 ),
                 line: None,
                 col: None,
+                before: false,
             });
         }
         let how = applies(core, &raw, &applied.target);
@@ -299,6 +305,7 @@ pub fn compute(
             &core.live.status(),
             &core.live.sessions(),
             &restart,
+            &applied.renames,
         );
     }
     impacts.extend(kept);
@@ -324,7 +331,20 @@ pub fn compute(
         base: base.to_string(),
         result_rev: text::rev(&new_text),
         valid: checked.valid && clash.is_empty(),
-        diags: checked.diags.into_iter().chain(clash).collect(),
+        diags: checked
+            .diags
+            .into_iter()
+            .chain(clash)
+            .map(|mut d| {
+                d.before = file.diags.iter().any(|o| {
+                    o.severity == d.severity
+                        && o.code == d.code
+                        && o.path == d.path
+                        && o.message == d.message
+                });
+                d
+            })
+            .collect(),
         changes,
         diff,
         impacts,
@@ -341,6 +361,10 @@ pub fn compute(
         old_text,
         new_text,
         fresh: applied.fresh,
+        reverts: ops_list.iter().find_map(|o| match o {
+            Op::ReplaceDocument { from_history } => Some(from_history.clone()),
+            _ => None,
+        }),
     })
 }
 
@@ -385,6 +409,7 @@ fn keep_locked(
 pub struct Begun {
     pub computed: Computed,
     pub wrote: bool,
+    pub address: Option<String>,
 }
 
 pub fn apply_begin(
@@ -448,6 +473,7 @@ pub fn apply_begin(
         return Ok(Begun {
             computed,
             wrote: false,
+            address: req.address.clone(),
         });
     }
     core.store.keep(&computed.plan.base, &computed.old_text);
@@ -472,6 +498,7 @@ pub fn apply_begin(
     Ok(Begun {
         computed,
         wrote: true,
+        address: req.address.clone(),
     })
 }
 
@@ -510,6 +537,7 @@ pub fn finish(
         result: result.into(),
         revertible: true,
         details_kept: true,
+        reverts: begun.computed.reverts.clone(),
     };
     let summary: Vec<&str> = plan.changes.iter().map(|c| c.summary.as_str()).collect();
     match reload {
@@ -580,7 +608,8 @@ pub fn finish(
                 })
                 .collect();
             s.consume(&handles);
-            let snippets = super::snippets::after_apply(core, &begun.computed);
+            let snippets =
+                super::snippets::after_apply(core, &begun.computed, begun.address.as_deref());
             Ok(Applied {
                 rev: plan.result_rev.clone(),
                 applied: plan.applies.clone(),

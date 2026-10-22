@@ -43,6 +43,7 @@ fail() {
   fi
   for n in burrow-e2e-server burrow-e2e-client burrow-e2e-visitor; do sudo "$B" service logs "$n" -n 30 >&2 || true; done; exit 1; }
 check() { echo "  ok: $*"; }
+mode_owner() { sudo stat -c '%a %U' "$1" 2>/dev/null || sudo stat -f '%Lp %Su' "$1"; }
 running() {
   for _ in $(seq 1 50); do
     sudo "$B" service status "$1" 2>/dev/null | grep -q "^$1: running" && return 0
@@ -256,7 +257,7 @@ if [ "$(uname -s)" = Linux ]; then
   out="$(sudo "$B" edit e2e-server --editor "sed -i s/127.0.0.1:27935/127.0.0.1:443/" </dev/null 2>&1)" && fail "edit saved a port the service cannot bind: $out"
   echo "$out" | grep -q "without permission for ports below 1024" || fail "edit did not say why: $out"
   echo "$out" | grep -q "service install -c" || fail "edit did not say how: $out"
-  sudo grep -q "127.0.0.1:27935" /etc/burrow/e2e-server.yaml || fail "edit changed the config anyway"
+  sudo grep -q "127.0.0.1:27935" /etc/burrow/e2e-server/server.yaml || fail "edit changed the config anyway"
   check "edit refuses a change the installed service could not run after a restart"
 fi
 interrupted install env E2E_SECRET="$SECRET" sudo --preserve-env=E2E_SECRET "$B" service install -c e2e-client.yaml
@@ -361,35 +362,58 @@ open(path, "w").write(text)
 PY
   WATCH="$("$B" gensecret)"
   out="$(sudo "$B" edit e2e-server --editor "python3 $WORK/add-admin.py $WATCH" </dev/null 2>&1)" || true
-  sudo grep -q "watcher:" /etc/burrow/e2e-server.yaml || fail "could not add an admin visitor by hand: $out"
+  sudo grep -q "watcher:" /etc/burrow/e2e-server/server.yaml || fail "could not add an admin visitor by hand: $out"
   echo "$out" | grep -q "installed without permission to change its config" || fail "edit does not warn that admin will be read-only: $out"
+  echo "$out" | grep -q "service install -c /etc/burrow/e2e-server/server.yaml --admin-writable" || fail "edit does not name the command that makes the installed config writable: $out"
   printf 'server: 127.0.0.1:27935\nname: watcher\nsecret: %s\nforwards: {}\n' "$WATCH" > e2e-watcher.yaml
   chmod 600 e2e-watcher.yaml
   for _ in $(seq 1 50); do "$PROBE" e2e-watcher.yaml state >/dev/null 2>&1 && break; sleep 0.2; done
   state="$("$PROBE" e2e-watcher.yaml state 2>&1)" || fail "read-only admin state: $state"
   echo "$state" | grep -q '"writable":false' || fail "a server that cannot write its config claims it can: $state"
   echo "$state" | grep -q '"code":"read-only-fs"' || fail "the read-only reason is not the sandbox: $state"
+  echo "$state" | grep -q 'service install -c /etc/burrow/e2e-server/server.yaml --admin-writable' || fail "the admin read-only hint does not name the exact command: $state"
   check "a server installed without admin says honestly that its config is read-only"
 fi
 
-echo "== a config installed in place from /etc/burrow is never called deletable"
-INPLACE=/etc/burrow/e2e-inplace.yaml
-"$B" init server -o e2e-inplace.yaml >/dev/null
-sed -i.bak 's/0.0.0.0:7835/127.0.0.1:27937/; s/0.0.0.0:7840/127.0.0.1:27948/' e2e-inplace.yaml
-sudo cp e2e-inplace.yaml "$INPLACE"
-sudo chmod 600 "$INPLACE"
-out="$(sudo "$B" service install -c "$INPLACE" 2>&1)" || fail "in-place install: $out"
-printf 'visitors:\n  ops:\n    secret: %s\n    admin: write\n' "$OPS" | sudo tee -a "$INPLACE" >/dev/null
-out="$(sudo "$B" service install -c "$INPLACE" 2>&1)" || fail "in-place reinstall with admin writes: $out"
-echo "$out" | grep -q "delete it with: sudo rm \"$INPLACE\"" && fail "the reinstall says to delete the source config: $out"
-sudo test -f "$INPLACE" || fail "the source config is gone"
-sudo sed -i.bak '/^visitors:/,$d' "$INPLACE"
-out="$(sudo "$B" service install -c "$INPLACE" 2>&1)" || fail "in-place reinstall without admin writes: $out"
-running burrow-e2e-inplace || fail "the in-place server does not run after switching admin writes off"
-out="$(sudo "$B" service install -c "$INPLACE" 2>&1)" || fail "a further in-place reinstall: $out"
-sudo "$B" service uninstall burrow-e2e-inplace --purge >/dev/null || fail "in-place uninstall"
-sudo rm -rf /etc/burrow/e2e-inplace "$INPLACE.bak"
-check "an in-place install switches admin writes on and off without being told to delete its source"
+echo "== admin writes switch on and off from the installed config, and nothing moves"
+FOLDER=/etc/burrow/e2e-inplace
+INSTALLED="$FOLDER/server.yaml"
+mkdir -p download
+"$B" init server -o download/e2e-inplace.yaml >/dev/null
+sed -i.bak 's/0.0.0.0:7835/127.0.0.1:27937/; s/0.0.0.0:7840/127.0.0.1:27948/' download/e2e-inplace.yaml
+chmod 600 download/e2e-inplace.yaml
+out="$(sudo "$B" service install -c download/e2e-inplace.yaml 2>&1)" || fail "read-only install: $out"
+rm -rf download
+[ "$(mode_owner "$FOLDER")" = "755 root" ] || fail "the read-only config folder is not root's: $(mode_owner "$FOLDER")"
+INPLACE_ACCOUNT="$(mode_owner "$INSTALLED" | awk '{print $2}')"
+[ "$(mode_owner "$INSTALLED")" = "600 $INPLACE_ACCOUNT" ] || fail "the installed config is not private: $(mode_owner "$INSTALLED")"
+printf 'visitors:\n  ops:\n    secret: %s\n    admin: write\n' "$OPS" | sudo tee -a "$INSTALLED" >/dev/null
+out="$(sudo "$B" service install --admin-writable -c "$INSTALLED" 2>&1)" || fail "admin-writable reinstall from the installed config: $out"
+echo "$out" | grep -qi "delete" && fail "switching admin writes on asks to delete something: $out"
+running burrow-e2e-inplace || fail "the server does not run after switching admin writes on"
+[ "$(mode_owner "$FOLDER")" = "700 $INPLACE_ACCOUNT" ] || fail "the writable config folder is not the service account's: $(mode_owner "$FOLDER")"
+[ "$(sudo find "$FOLDER" -maxdepth 1 -type f | wc -l | tr -d ' ')" = 1 ] || fail "switching admin writes on left another file: $(sudo ls -la "$FOLDER")"
+sudo grep -q "ops:" "$INSTALLED" || fail "the installed config lost the admin visitor"
+st="$(sudo "$B" service status burrow-e2e-inplace 2>&1)" || true
+echo "$st" | grep -q "config:  $INSTALLED (the service may change it" || fail "status does not say the service may change its config: $st"
+printf 'server: 127.0.0.1:27937\nname: ops\nsecret: %s\nforwards: {}\n' "$OPS" > e2e-inplace-ops.yaml
+chmod 600 e2e-inplace-ops.yaml
+for _ in $(seq 1 50); do "$PROBE" e2e-inplace-ops.yaml state >/dev/null 2>&1 && break; sleep 0.2; done
+out="$("$PROBE" e2e-inplace-ops.yaml apply '[{"op":"add","path":["services","added"],"value":{"client":"home","bind":"127.0.0.1:27933","target":9}}]' 2>&1)" || fail "admin apply on the switched server: $out"
+for _ in $(seq 1 50); do sudo sh -c "ls $FOLDER/.server.yaml.history/* >/dev/null 2>&1" && break; sleep 0.2; done
+sudo grep -q "added:" "$INSTALLED" || fail "the switched server did not write its installed config"
+sudo perl -0pi -e 's/\nvisitors:.*//s' "$INSTALLED"
+out="$(sudo "$B" service install -c "$INSTALLED" 2>&1)" || fail "read-only reinstall from the installed config: $out"
+echo "$out" | grep -qi "delete" && fail "switching admin writes off asks to delete something: $out"
+running burrow-e2e-inplace || fail "the server does not run after switching admin writes off"
+[ "$(mode_owner "$FOLDER")" = "755 root" ] || fail "switching admin writes off left the folder with the service account: $(mode_owner "$FOLDER")"
+left="$(sudo find "$FOLDER" -mindepth 1 ! -uid 0 ! -path "$INSTALLED")"
+[ -z "$left" ] || fail "switching admin writes off left files with the service account: $left"
+[ "$(sudo find "$FOLDER" -maxdepth 1 -type f | wc -l | tr -d ' ')" = 1 ] || fail "switching admin writes off left another file: $(sudo ls -la "$FOLDER")"
+[ "$(sudo ls "$FOLDER/.server.yaml.history" | wc -l)" -ge 1 ] || fail "switching admin writes off lost the kept versions"
+out="$(sudo "$B" service uninstall burrow-e2e-inplace --purge 2>&1)" || fail "uninstall: $out"
+sudo test -e "$FOLDER" && fail "uninstall --purge left $FOLDER"
+check "admin writes switch on and off in place, with no source left and nothing to delete"
 
 if [ "$(uname -s)" = Linux ]; then
   echo "== a server run as root keeps its admin history under the systemd filter"
@@ -430,22 +454,24 @@ check "a reinstall gives the kept versions to the new service account"
 cp e2e-admin.yaml e2e-admin.writable
 sed -i.bak '/^visitors:/,$d' e2e-admin.yaml
 out="$(sudo "$B" service install -c e2e-admin.yaml 2>&1)" || fail "read-only reinstall of the admin server: $out"
-echo "$out" | grep -q '"/etc/burrow/e2e-admin"' || fail "the reinstall does not name the folder it no longer uses: $out"
-left="$(sudo find /etc/burrow/e2e-admin ! -uid 0)"
-[ -z "$left" ] || fail "a reinstall without admin left the old config folder with the service account: $left"
-check "a reinstall that turns admin writes off gives the old config folder and its versions to root"
+echo "$out" | grep -qi "delete" && fail "a reinstall without admin asks to delete something: $out"
+[ "$(mode_owner /etc/burrow/e2e-admin)" = "755 root" ] || fail "a reinstall without admin left the config folder with the service account: $(mode_owner /etc/burrow/e2e-admin)"
+left="$(sudo find /etc/burrow/e2e-admin -mindepth 1 ! -uid 0 ! -path /etc/burrow/e2e-admin/server.yaml)"
+[ -z "$left" ] || fail "a reinstall without admin left the kept versions with the service account: $left"
+check "a reinstall that turns admin writes off gives the config folder and its versions to root"
 cp e2e-admin.writable e2e-admin.yaml
 out="$(sudo "$B" service install -c e2e-admin.yaml 2>&1)" || fail "writable reinstall of the admin server: $out"
 running burrow-e2e-admin || fail "admin server not running after turning admin writes on again"
-echo "$out" | grep -q '"/etc/burrow/e2e-admin.yaml"' || fail "the reinstall does not name the config it no longer uses: $out"
-[ "$(sudo stat -c '%u' /etc/burrow/e2e-admin.yaml 2>/dev/null || sudo stat -f '%u' /etc/burrow/e2e-admin.yaml)" = 0 ] || fail "the config no longer used is not given to root"
-sudo rm -f /etc/burrow/e2e-admin.yaml
-check "a reinstall that turns admin writes on gives the config it no longer uses to root"
+echo "$out" | grep -qi "delete" && fail "a reinstall with admin asks to delete something: $out"
+[ "$(sudo find /etc/burrow/e2e-admin -maxdepth 1 -type f | wc -l | tr -d ' ')" = 1 ] || fail "turning admin writes on left a second config: $(sudo ls -la /etc/burrow/e2e-admin)"
+left="$(sudo find /etc/burrow/e2e-admin -uid 0)"
+[ -z "$left" ] || fail "turning admin writes on left files with root: $left"
+check "a reinstall that turns admin writes on gives the same folder back to the service account"
 sudo "$B" service uninstall burrow-e2e-admin --purge >/dev/null || fail "admin server uninstall"
 [ -e /etc/burrow/e2e-admin ] && fail "/etc/burrow/e2e-admin still exists"
 check "uninstall --purge removes the config folder and its versions"
 sudo "$B" service list | grep -q burrow-e2e && fail "services still listed"
-for f in "$STATE" /etc/burrow/e2e-server.yaml /etc/burrow/e2e-client.yaml /etc/burrow/e2e-client.env /etc/burrow/e2e-visitor.yaml /usr/local/bin/burrow /usr/local/bin/burrow.previous "$LOG" "$JOBS"; do
+for f in "$STATE" /etc/burrow/e2e-server /etc/burrow/e2e-client /etc/burrow/e2e-client.env /etc/burrow/e2e-visitor /usr/local/bin/burrow /usr/local/bin/burrow.previous "$LOG" "$JOBS"; do
   [ -e "$f" ] && fail "$f still exists"
 done
 case "$(uname -s)" in

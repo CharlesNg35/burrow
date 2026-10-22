@@ -1,4 +1,3 @@
-use burrow_admin_logic::rates::human_bits;
 use burrow_admin_proto::serde_json::Value;
 use burrow_admin_proto::status::Status;
 use burrow_config::{Entry, HealthCheck, Protocol, ServiceEntry, VisitorEntry};
@@ -50,7 +49,6 @@ pub fn service(
     name: &str,
     svc: &Value,
     status: Option<&Status>,
-    in_rate: f64,
     problems: &Problems,
     editing: bool,
     reserved: &[String],
@@ -85,7 +83,7 @@ pub fn service(
             mono: !allow.is_empty(),
             dot: problems.source.as_ref().map(|_| Tone::Danger),
             unit: if !allow.is_empty() {
-                ServiceEntry::ALLOW_FROM.key().into()
+                "allowed sources".into()
             } else if !deny.is_empty() {
                 format!("deny {}", deny.join(", "))
             } else {
@@ -117,7 +115,6 @@ pub fn service(
         .unwrap_or_else(|| Protocol::default().wire().into())
         .to_uppercase();
     let ports = port_count(ServiceEntry::BIND.get(svc)).max(1);
-    let (rate, unit) = human_bits(in_rate);
     let server = Hop {
         icon: "box",
         head: "Server".into(),
@@ -132,10 +129,12 @@ pub fn service(
         } else {
             Tone::Neutral
         }),
-        unit: if ports > 1 {
+        unit: if !public {
+            protocol.clone()
+        } else if ports > 1 {
             format!("{ports} ports · {protocol}")
         } else {
-            format!("bound · {protocol}")
+            format!("public port · {protocol}")
         },
         state: HopState::Current,
         badge: None,
@@ -209,7 +208,10 @@ pub fn service(
         unit: if on_server {
             "on this server".into()
         } else {
-            "on each client".into()
+            match clients.as_slice() {
+                [one] => format!("on {one}"),
+                _ => "on each client".into(),
+            }
         },
         state: if problems.ports.is_some() {
             HopState::Bad
@@ -244,8 +246,8 @@ pub fn service(
         });
     let mut edges = vec![
         Edge {
-            above: format!("{open} open"),
-            below: format!("{rate} {unit} in"),
+            above: String::new(),
+            below: String::new(),
             state: if problems.source.is_some() {
                 EdgeState::Error
             } else {
@@ -333,7 +335,6 @@ pub fn client(name: &str, doc: &Value, status: Option<&Status>, listen: &str) ->
                 .collect()
         })
         .unwrap_or_default();
-    let open: u64 = c.map(|c| c.open).unwrap_or(0);
     let short = match listen.rsplit_once(':') {
         Some((_, p)) => format!(":{p}"),
         None => listen.to_string(),
@@ -350,13 +351,7 @@ pub fn client(name: &str, doc: &Value, status: Option<&Status>, listen: &str) ->
                 unit: c
                     .and_then(|c| c.from.clone())
                     .map(|f| f.rsplit_once(':').map(|(h, _)| h.to_string()).unwrap_or(f))
-                    .unwrap_or_else(|| {
-                        if on {
-                            String::new()
-                        } else {
-                            "not connected".into()
-                        }
-                    }),
+                    .unwrap_or_default(),
                 state: HopState::Current,
                 badge: None,
             },
@@ -372,49 +367,23 @@ pub fn client(name: &str, doc: &Value, status: Option<&Status>, listen: &str) ->
             Hop {
                 icon: "stack",
                 head: "Services".into(),
-                value: first
-                    .as_ref()
-                    .map(|(n, at)| format!("{n} {at}"))
-                    .unwrap_or_else(|| "none".into()),
-                mono: true,
+                value: count_of(served.len(), "service"),
+                mono: false,
                 dot: first
                     .as_ref()
                     .map(|_| if on { Tone::Success } else { Tone::Warning }),
-                unit: served
-                    .iter()
-                    .skip(1)
-                    .map(|(n, at)| {
-                        if at == "private" {
-                            format!("{n} · private")
-                        } else {
-                            n.clone()
-                        }
-                    })
-                    .collect::<Vec<_>>()
-                    .join(", "),
                 ..Hop::default()
             },
         ],
         edges: vec![
             Edge {
-                above: if on {
-                    "tunnel".into()
-                } else {
-                    "not connected".into()
-                },
-                below: c
-                    .filter(|_| on)
-                    .map(|c| format!("{} idle · {} open", c.idle_channels, open))
-                    .unwrap_or_default(),
+                above: "tunnel".into(),
+                below: String::new(),
                 state: if on { EdgeState::Live } else { EdgeState::Dead },
             },
             Edge {
                 above: "serves".into(),
-                below: format!(
-                    "{} service{}",
-                    served.len(),
-                    if served.len() == 1 { "" } else { "s" }
-                ),
+                below: String::new(),
                 state: if on && !served.is_empty() {
                     EdgeState::Live
                 } else {
@@ -427,6 +396,22 @@ pub fn client(name: &str, doc: &Value, status: Option<&Status>, listen: &str) ->
             if on { "online" } else { "offline" },
             served.len()
         ),
+    }
+}
+
+fn unseen(name: &str) -> String {
+    let added = crate::store::try_store().and_then(|s| s.added_secs(VisitorEntry::section(), name));
+    match added {
+        Some(a) => format!("added {}, not seen yet", crate::format::ago(a)),
+        None => "not seen since start".into(),
+    }
+}
+
+fn count_of(n: usize, what: &str) -> String {
+    match n {
+        0 => "none".into(),
+        1 => format!("1 {what}"),
+        n => format!("{n} {what}s"),
     }
 }
 
@@ -458,12 +443,11 @@ pub fn visitor(
         })
         .unwrap_or_default();
     let down = services.iter().filter(|(_, up)| !up).count();
-    let admin_from: Vec<String> = entry
-        .and_then(|x| VisitorEntry::ADMIN_FROM.get(x))
-        .and_then(Value::as_array)
-        .map(|a| a.iter().map(plain).collect())
-        .unwrap_or_default();
     let this_session = me.is_some_and(|(n, _)| n == name);
+    let reach_none = entry
+        .and_then(|x| VisitorEntry::REACH.get(x))
+        .and_then(Value::as_object)
+        .is_none_or(|m| m.is_empty());
     PathData {
         hops: vec![
             Hop {
@@ -471,12 +455,15 @@ pub fn visitor(
                 head: "Visitor".into(),
                 value: name.to_string(),
                 mono: true,
-                unit: if this_session {
-                    format!("this session · {open} open")
-                } else if open > 0 {
-                    format!("active · {open} open")
-                } else {
-                    "idle".into()
+                unit: match (this_session, v) {
+                    (true, _) => "you, in burrow admin now".into(),
+                    (false, Some(_)) if open > 0 => format!("in use now · {open} open"),
+                    (false, Some(v)) => match v.last_seen_secs {
+                        Some(a) => format!("seen {} · no open connection", crate::format::ago(a)),
+                        None => unseen(name),
+                    },
+                    (false, None) if status.is_some() => unseen(name),
+                    _ => String::new(),
                 },
                 state: HopState::Current,
                 ..Hop::default()
@@ -486,52 +473,40 @@ pub fn visitor(
                 head: "Server".into(),
                 value: "this server".into(),
                 dot: Some(Tone::Success),
-                unit: match entry.and_then(|x| VisitorEntry::ADMIN.get(x)).map(plain) {
-                    Some(_) if !admin_from.is_empty() => {
-                        format!("admin from {}", admin_from.join(", "))
-                    }
-                    Some(_) => "admin from any address".into(),
-                    None => "checks access".into(),
-                },
+                unit: "checks access".into(),
                 ..Hop::default()
             },
             Hop {
                 icon: "stack",
                 head: "Services".into(),
-                value: if services.is_empty() {
-                    "none".into()
-                } else {
-                    services
-                        .iter()
-                        .map(|(n, _)| n.as_str())
-                        .collect::<Vec<_>>()
-                        .join(" · ")
-                },
+                value: count_of(services.len(), "service"),
                 dot: (!services.is_empty()).then_some(if down > 0 {
                     Tone::Warning
                 } else {
                     Tone::Success
                 }),
-                unit: services
-                    .iter()
-                    .filter(|(_, up)| !up)
-                    .map(|(n, _)| format!("{n} down"))
-                    .collect::<Vec<_>>()
-                    .join(", "),
+                unit: String::new(),
                 state: if down > 0 {
                     HopState::Warn
                 } else {
                     HopState::Normal
                 },
-                badge: (down > 0).then(|| (format!("{down} down"), Tone::Danger)),
+                badge: None,
                 mono: false,
             },
         ],
         edges: vec![
             Edge {
-                above: "burrow visit".into(),
-                below: format!("{open} open"),
-                state: if open > 0 {
+                above: if services.is_empty()
+                    && reach_none
+                    && entry.and_then(|x| VisitorEntry::ADMIN.get(x)).is_some()
+                {
+                    "burrow admin".into()
+                } else {
+                    "burrow visit".into()
+                },
+                below: String::new(),
+                state: if open > 0 || this_session {
                     EdgeState::Live
                 } else {
                     EdgeState::Dead
@@ -539,11 +514,7 @@ pub fn visitor(
             },
             Edge {
                 above: "may use".into(),
-                below: format!(
-                    "{} service{}",
-                    services.len(),
-                    if services.len() == 1 { "" } else { "s" }
-                ),
+                below: String::new(),
                 state: if services.is_empty() {
                     EdgeState::Dead
                 } else {
@@ -558,10 +529,41 @@ pub fn visitor(
     }
 }
 
+pub const PICK_VISITORS: &str = "Pick at least one visitor or switch back to Public port";
+
+pub fn add_blocker(svc: &Value) -> Option<&'static str> {
+    let public = ServiceEntry::BIND.get(svc).is_some_and(|b| !b.is_null());
+    let picked = ServiceEntry::VISITORS
+        .get(svc)
+        .and_then(Value::as_array)
+        .is_some_and(|a| !a.is_empty());
+    (!public && !picked).then_some(PICK_VISITORS)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use burrow_admin_proto::serde_json::json;
+
+    #[test]
+    fn a_private_service_needs_a_visitor_before_it_can_be_added() {
+        assert_eq!(
+            add_blocker(&json!({"client": "a", "target": 80})),
+            Some(PICK_VISITORS)
+        );
+        assert_eq!(
+            add_blocker(&json!({"client": "a", "target": 80, "visitors": []})),
+            Some(PICK_VISITORS)
+        );
+        assert_eq!(
+            add_blocker(&json!({"client": "a", "target": 80, "visitors": ["ops"]})),
+            None
+        );
+        assert_eq!(
+            add_blocker(&json!({"client": "a", "target": 80, "bind": 7840})),
+            None
+        );
+    }
 
     #[test]
     fn a_service_path_reads_the_config_and_marks_problems() {
@@ -570,7 +572,6 @@ mod tests {
             "media",
             &svc,
             None,
-            0.0,
             &Problems {
                 source: Some("invalid CIDR".into()),
                 clients: None,
@@ -586,6 +587,25 @@ mod tests {
         assert_eq!(p.edges[1].above, "balance");
         assert_eq!(p.edges[2].state, EdgeState::Error);
         assert_eq!(p.hops[3].badge.as_ref().unwrap().0, "6 ≠ 11 ports");
+        assert!(
+            p.edges[0].above.is_empty() && p.edges[0].below.is_empty(),
+            "counts and rates live in the stat cards, not on the path"
+        );
+        let private = json!({"client": "a", "target": 22, "visitors": ["lap"]});
+        let p = service(
+            "ssh",
+            &private,
+            None,
+            &Problems {
+                source: None,
+                clients: None,
+                ports: None,
+            },
+            false,
+            &[],
+        );
+        assert_eq!(p.hops[1].value, "private");
+        assert_eq!(p.hops[1].unit, "TCP");
         assert_eq!(port_count(Some(&json!("unix:/run/x.sock"))), 1);
         assert_eq!(port_count(Some(&json!(7840))), 1);
     }
@@ -599,7 +619,7 @@ mod tests {
         };
         let reserved = ["self".to_string()];
         let svc = json!({"client": "self", "bind": 8080, "target": "127.0.0.1:3000", "proxy_protocol": "v2"});
-        let p = service("web", &svc, None, 0.0, &none, false, &reserved);
+        let p = service("web", &svc, None, &none, false, &reserved);
         let heads: Vec<&str> = p.hops.iter().map(|h| h.head.as_str()).collect();
         assert_eq!(heads, ["Internet", "Server", "Target"]);
         assert_eq!(p.edges.len(), 2);
@@ -611,7 +631,7 @@ mod tests {
             "Public port 8080 on the server, to 127.0.0.1:3000 on this server; 0 open"
         );
         let mixed = json!({"clients": ["self", "home"], "bind": 8080, "target": 3000});
-        let p = service("web", &mixed, None, 0.0, &none, false, &reserved);
+        let p = service("web", &mixed, None, &none, false, &reserved);
         assert_eq!(p.hops.len(), 4);
         assert_eq!(p.hops[2].value, "This server · home");
         assert_eq!(p.hops[2].unit, "1 of 2 online");

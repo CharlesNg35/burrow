@@ -22,6 +22,21 @@ pub enum Reply {
     AddressNotSupported = 8,
 }
 
+impl Reply {
+    pub fn meaning(self) -> &'static str {
+        match self {
+            Reply::Succeeded => "succeeded",
+            Reply::Failure => "general failure",
+            Reply::NotAllowed => "connection not allowed by ruleset",
+            Reply::NetworkUnreachable => "network unreachable",
+            Reply::HostUnreachable => "host unreachable",
+            Reply::Refused => "connection refused",
+            Reply::CommandNotSupported => "command not supported",
+            Reply::AddressNotSupported => "address type not supported",
+        }
+    }
+}
+
 impl From<Status> for Reply {
     fn from(s: Status) -> Self {
         match s {
@@ -39,17 +54,25 @@ fn bad(why: &str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, why.to_string())
 }
 
+fn unsupported(why: String) -> io::Error {
+    io::Error::new(io::ErrorKind::Unsupported, why)
+}
+
 pub async fn request<S: AsyncRead + AsyncWrite + Unpin>(s: &mut S) -> io::Result<String> {
     let mut head = [0u8; 2];
     s.read_exact(&mut head).await?;
     if head[0] != VERSION {
-        return Err(bad("not a SOCKS5 client"));
+        return Err(bad(
+            "not a SOCKS5 client (SOCKS4 and HTTP proxy requests are not supported)",
+        ));
     }
     let mut methods = vec![0u8; head[1] as usize];
     s.read_exact(&mut methods).await?;
     if !methods.contains(&NO_AUTH) {
         s.write_all(&[VERSION, NO_METHOD]).await?;
-        return Err(bad("the SOCKS client wants authentication"));
+        return Err(unsupported(
+            "the app asks for a user name and password, but this SOCKS5 proxy takes none, so it was told: no acceptable method; set the app to no authentication".into(),
+        ));
     }
     s.write_all(&[VERSION, NO_AUTH]).await?;
     let mut req = [0u8; 4];
@@ -59,7 +82,20 @@ pub async fn request<S: AsyncRead + AsyncWrite + Unpin>(s: &mut S) -> io::Result
     }
     if req[1] != CONNECT {
         reply(s, Reply::CommandNotSupported).await?;
-        return Err(bad("only CONNECT is supported"));
+        let asked = match req[1] {
+            2 => "BIND".to_string(),
+            3 => {
+                return Err(unsupported(format!(
+                    "the app asked for UDP ASSOCIATE, but visitors carry TCP only, so it was told: {}; TCP through this proxy still works",
+                    Reply::CommandNotSupported.meaning()
+                )));
+            }
+            n => format!("command {n}"),
+        };
+        return Err(unsupported(format!(
+            "the app asked for {asked}, but only CONNECT is supported, so it was told: {}",
+            Reply::CommandNotSupported.meaning()
+        )));
     }
     let host = match req[3] {
         1 => {
@@ -83,9 +119,12 @@ pub async fn request<S: AsyncRead + AsyncWrite + Unpin>(s: &mut S) -> io::Result
             s.read_exact(&mut ip).await?;
             format!("[{}]", Ipv6Addr::from(ip))
         }
-        _ => {
+        n => {
             reply(s, Reply::AddressNotSupported).await?;
-            return Err(bad("unknown address type"));
+            return Err(unsupported(format!(
+                "the app sent address type {n}, which SOCKS5 does not define, so it was told: {}",
+                Reply::AddressNotSupported.meaning()
+            )));
         }
     };
     let mut port = [0u8; 2];
@@ -143,6 +182,38 @@ mod tests {
             ask(&[4, 1, 0, 80]).await.0.is_err(),
             "SOCKS4 is not supported"
         );
+    }
+
+    #[tokio::test]
+    async fn udp_and_authentication_requests_are_refused_with_the_reason() {
+        let (got, answer) = ask(&[5, 1, 0, 5, 3, 0, 1, 0, 0, 0, 0, 0, 0]).await;
+        assert_eq!(answer, [5, 0, 5, 7, 0, 1, 0, 0, 0, 0, 0, 0]);
+        let e = got.unwrap_err();
+        assert_eq!(e.kind(), io::ErrorKind::Unsupported);
+        assert!(e.to_string().contains("UDP ASSOCIATE"), "{e}");
+        assert!(e.to_string().contains("TCP only"), "{e}");
+        let (got, answer) = ask(&[5, 1, 2]).await;
+        assert_eq!(answer, [5, 0xff]);
+        let e = got.unwrap_err();
+        assert_eq!(e.kind(), io::ErrorKind::Unsupported);
+        assert!(e.to_string().contains("user name and password"), "{e}");
+        let (got, _) = ask(&[5, 1, 0, 5, 2, 0, 1, 1, 2, 3, 4, 0, 1]).await;
+        assert!(got.unwrap_err().to_string().contains("BIND"));
+        let (got, _) = ask(&[4, 1, 0, 80]).await;
+        assert_eq!(got.unwrap_err().kind(), io::ErrorKind::InvalidData);
+    }
+
+    #[test]
+    fn replies_have_their_standard_names() {
+        assert_eq!(
+            Reply::NotAllowed.meaning(),
+            "connection not allowed by ruleset"
+        );
+        assert_eq!(
+            Reply::CommandNotSupported.meaning(),
+            "command not supported"
+        );
+        assert_eq!(Reply::Refused.meaning(), "connection refused");
     }
 
     #[test]

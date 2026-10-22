@@ -94,10 +94,10 @@ fn add_service(c: &mut Ctx) -> Flow<'_> {
             c.ui.eval("document.getElementById('f-services-game-bind-host').value")
                 .await;
         assert_eq!(host, "127.0.0.1", "a pasted address fills the address part");
-        c.ui.wait_text(
-            "[data-schema='services/*/bind'] [data-testid=stored-as]",
+        stored_as(
+            c,
+            "services/*/bind",
             &format!("127.0.0.1:{}-{}", public, public + 2),
-            SECS,
         )
         .await;
         c.ui.wait_text(
@@ -169,7 +169,7 @@ fn add_service(c: &mut Ctx) -> Flow<'_> {
             SECS,
         )
         .await;
-        c.ui.wait_for("[data-testid=review-open][data-state=errors]", SECS)
+        c.ui.wait_for("[data-testid=check-state][data-state=errors]", SECS)
             .await;
         assert!(
             !c.ui.enabled("[data-testid=save]").await,
@@ -178,7 +178,8 @@ fn add_service(c: &mut Ctx) -> Flow<'_> {
         c.ui.shot("server-says-duplicate-bind").await;
         c.ui.click("[data-schema='services/*/bind'] [data-testid=reset-field]")
             .await;
-        c.ui.wait_gone("[data-testid=review-open]", SECS).await;
+        c.ui.wait_gone("[data-testid=check-state][data-state=errors]", SECS)
+            .await;
         c.ui.shot("undo-clears-the-error").await;
         for e in echoes {
             e.abort();
@@ -276,6 +277,31 @@ async fn row_error(c: &Ctx, schema: &str) -> String {
     c.ui.text(&css).await
 }
 
+async fn clear_of_bar(c: &Ctx, schema: &str) {
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    let gap: f64 = c
+        .ui
+        .eval(&format!(
+            "(() => {{ const b = document.querySelector('[data-sticky-bar]'); const r = document.querySelector(\"[data-schema='{schema}']\"); return b.getBoundingClientRect().top - r.getBoundingClientRect().bottom; }})()"
+        ))
+        .await;
+    assert!(gap >= 0.0, "the save bar covers {schema} by {gap}px");
+}
+
+async fn stored_as(c: &Ctx, schema: &str, wanted: &str) {
+    let css = format!("[data-schema='{schema}'] [data-testid=stored-as]");
+    for _ in 0..50 {
+        if c.ui.attr_of(&css, "data-stored").await == wanted {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+    panic!(
+        "{schema} is not stored as {wanted:?}: {:?}",
+        c.ui.attr_of(&css, "data-stored").await
+    );
+}
+
 async fn row_clean(c: &Ctx, schema: &str) {
     c.ui.wait_gone(&format!("[data-schema='{schema}'] [aria-live] p"), SECS)
         .await;
@@ -335,12 +361,7 @@ fn editors(c: &mut Ctx) -> Flow<'_> {
         click_js(c, "[data-schema='services/*/target'] input[value=unix]").await;
         c.ui.fill("#f-services-web-target", "/tmp/burrow-e2e.sock")
             .await;
-        c.ui.wait_text(
-            "[data-schema='services/*/target'] [data-testid=stored-as]",
-            "unix:/tmp/burrow-e2e.sock",
-            SECS,
-        )
-        .await;
+        stored_as(c, "services/*/target", "unix:/tmp/burrow-e2e.sock").await;
         c.ui.shot("target-unix-socket").await;
         click_js(c, "[data-schema='services/*/target'] input[value=network]").await;
         c.ui.fill("#f-services-web-target-host", "127.0.0.1").await;
@@ -396,6 +417,25 @@ fn editors(c: &mut Ctx) -> Flow<'_> {
         assert!(text.contains("interval_secs: 5"), "{text}");
 
         c.ui.nav("/settings").await;
+        edit_mode(c).await;
+        c.ui.wait_for("[data-schema='pool/min_idle'] [data-editor]", SECS)
+            .await;
+        let _: bool = c
+            .ui
+            .eval("(() => { const b = document.querySelector('[data-sticky-bar]').getBoundingClientRect(); const r = document.querySelector(\"[data-schema='pool/min_idle']\").getBoundingClientRect(); scrollBy(0, r.bottom - b.top - 10); document.getElementById('f-pool-min-idle').focus(); return true; })()")
+            .await;
+        clear_of_bar(c, "pool/min_idle").await;
+        c.ui.fill("#f-pool-min-idle", "100").await;
+        let err = row_error(c, "pool/min_idle").await;
+        assert!(err.contains("max_idle"), "{err}");
+        clear_of_bar(c, "pool/min_idle").await;
+        assert!(
+            !c.ui.enabled("[data-testid=save]").await,
+            "a server error in a setting blocks Add to changes"
+        );
+        c.ui.click("[data-testid=discard-edit]").await;
+        c.ui.wait_gone("[data-testid=save-bar]", SECS).await;
+        edit_mode(c).await;
         c.ui.wait_for("[data-server-address]", SECS).await;
         click_js(c, "[data-server-address] input[value=host]").await;
         c.ui.fill("#f-public-address", "bad host").await;
@@ -437,6 +477,8 @@ fn conflict(c: &mut Ctx) -> Flow<'_> {
         edit_mode(c).await;
         c.ui.fill("#f-services-web-target", "4000").await;
         wait_checked(c).await;
+        c.ui.click("[data-testid=save]").await;
+        c.ui.wait_gone("[data-testid=save-bar]", SECS).await;
         c.ui.shot("editing-web-target").await;
         let lab = super::world::secret();
         c.world.hand_edit(|t| {
@@ -448,9 +490,38 @@ fn conflict(c: &mut Ctx) -> Flow<'_> {
         });
         c.ui.wait_for("[data-testid=conflict]", Duration::from_secs(15))
             .await;
+        c.ui.wait_text(
+            "[data-testid=conflict-theirs]",
+            "New client lab (1 secret)",
+            SECS,
+        )
+        .await;
         c.ui.shot("conflict-dialog").await;
-        c.ui.click("[data-testid=conflict-recheck]").await;
+        c.ui.click("[data-testid=conflict] button[aria-label=Close]")
+            .await;
         c.ui.wait_gone("[data-testid=conflict]", SECS).await;
+        tokio::time::sleep(Duration::from_secs(6)).await;
+        assert_eq!(
+            c.ui.count("[data-testid=banner-changed]").await,
+            1,
+            "closing the dialog keeps the banner while the draft is on the old rev"
+        );
+        assert_eq!(
+            c.ui.count("[data-testid=conflict]").await,
+            0,
+            "the closed dialog does not come back on its own"
+        );
+        c.ui.click("[data-testid=review-open]").await;
+        c.ui.wait_for("[data-testid=review-stale]", SECS).await;
+        c.ui.shot("review-on-the-old-rev").await;
+        c.ui.click("[data-testid=review-stale] button").await;
+        c.ui.wait_gone("[data-testid=review-stale]", SECS).await;
+        c.ui.wait_for("[data-testid=review]", SECS).await;
+        assert_eq!(
+            c.ui.count("[data-testid=banner-changed]").await,
+            0,
+            "the banner goes with the draft it protected"
+        );
         wait_checked(c).await;
         c.ui.shot("draft-kept-on-the-new-version").await;
         open_review(c, "review-after-recheck").await;
@@ -509,27 +580,30 @@ fn lockout(c: &mut Ctx) -> Flow<'_> {
         c.ui.wait_for("[data-testid=read-only-tag]", SECS).await;
         c.ui.nav("/services/web?tab=settings").await;
         c.ui.wait_for("[data-testid=detail]", SECS).await;
-        assert!(
-            c.ui.count("[data-editor]").await > 0,
-            "read access sees the controls in their read-only look"
-        );
-        assert_eq!(
-            c.ui.count("[data-editor]:not([inert])").await,
-            0,
-            "every control is inert for read access"
-        );
         c.ui.wait_text(
-            "[data-testid=save-bar]",
-            "Read-only: changes need write admin",
+            "[data-schema='services/*/target']",
+            &c.world.ports["echo"].to_string(),
             SECS,
         )
         .await;
+        assert_eq!(
+            c.ui.count("[data-editor]").await,
+            0,
+            "read access sees plain values, not controls that invite clicks"
+        );
+        assert_eq!(
+            c.ui.count("[data-testid=save-bar]").await,
+            0,
+            "the read-only state is told once, by the header tag"
+        );
         assert!(
             !c.ui.enabled("[data-testid=edit]").await,
             "Edit is disabled for read access"
         );
-        c.ui.click("[data-testid=more]").await;
-        assert_eq!(c.ui.count("[data-testid=delete]").await, 0);
+        let more: bool =
+            c.ui.eval("document.querySelector('[data-testid=more]').offsetParent !== null")
+                .await;
+        assert!(!more, "read access gets no More menu");
         c.ui.nav("/services").await;
         assert!(
             !c.ui.enabled("[data-testid=new]").await,
@@ -613,6 +687,20 @@ fn revert(c: &mut Ctx) -> Flow<'_> {
             original,
             "the revert restores the file byte for byte"
         );
+        let at: String = c.ui.eval("location.pathname").await;
+        if at.starts_with("/activity") {
+            c.ui.wait_for("[data-testid=revert][disabled]", SECS).await;
+        }
+        c.ui.nav("/activity").await;
+        c.ui.click(&format!("[data-row='{rev}'] [data-testid=list-row]"))
+            .await;
+        c.ui.wait_for("[data-testid=activity-diff]", SECS).await;
+        assert!(
+            !c.ui.enabled("[data-testid=revert]").await,
+            "no revert when the file already matches that version"
+        );
+        c.ui.shot("a-revert-that-would-change-nothing").await;
+        assert_eq!(c.world.config(), original);
         c.ui.assert_no_errors();
     })
 }
@@ -716,7 +804,11 @@ fn grant_lock(c: &mut Ctx) -> Flow<'_> {
 
         c.ui.nav("/visitors/plain").await;
         edit_mode(c).await;
-        assert!(off(c, "plain", "read").await && off(c, "plain", "write").await);
+        assert_eq!(
+            c.ui.count("#f-visitors-plain-admin input").await,
+            0,
+            "no selector to offer when nothing may be chosen"
+        );
         c.ui.wait_for(
             "[data-schema='visitors/*/admin'] [data-testid=grant-lock]",
             SECS,
@@ -785,6 +877,9 @@ fn grant_lock(c: &mut Ctx) -> Flow<'_> {
             SECS,
         )
         .await;
+        wait_checked(c).await;
+        c.ui.click("[data-testid=save]").await;
+        c.ui.wait_gone("[data-testid=save-bar]", SECS).await;
 
         c.ui.nav("/visitors/viewer").await;
         edit_mode(c).await;
@@ -918,12 +1013,19 @@ fn locked_fields(c: &mut Ctx) -> Flow<'_> {
                 0,
                 "{field} has no input"
             );
-            c.ui.wait_text(
-                &row,
-                "Change this in server.yaml on the server, then restart",
-                SECS,
-            )
-            .await;
+            let text =
+                c.ui.wait_text(&row, "Change this in server.yaml (burrow edit)", SECS)
+                    .await;
+            assert_eq!(
+                text.contains("then restart"),
+                field == "listen",
+                "{field}: only listen needs a restart: {text}"
+            );
+            assert_eq!(
+                text.matches("Change this").count(),
+                1,
+                "{field} says it once"
+            );
         }
         assert_eq!(
             c.ui.count("[data-schema=websocket] input").await,
@@ -932,9 +1034,15 @@ fn locked_fields(c: &mut Ctx) -> Flow<'_> {
         );
         c.ui.wait_for("[data-schema=websocket] [data-testid=locked-hint]", SECS)
             .await;
+        assert_eq!(
+            c.ui.count("[data-schema=public_address] input").await,
+            0,
+            "view mode shows values"
+        );
+        edit_mode(c).await;
         assert!(
             c.ui.count("[data-schema=public_address] input").await > 0,
-            "unlocked fields stay editable"
+            "unlocked fields are editable in edit mode"
         );
         assert!(
             c.ui.count("[data-schema='limits/max_pending'] input").await > 0,
@@ -1118,4 +1226,262 @@ fn review_my_draft_opens_the_draft_after_a_revert_conflict_was_viewed() {
         false,
         draft_after_a_viewed_revert_conflict,
     );
+}
+
+fn edit_state(c: &mut Ctx) -> Flow<'_> {
+    Box::pin(async move {
+        open(c, "ops").await;
+        c.ui.nav("/visitors/laptop").await;
+        c.world.hand_edit(|t| {
+            t.replace(
+                "  plain:\n",
+                "  plain:\n    reach: { home: [127.0.0.1/32] }\n",
+            )
+        });
+        c.ui.wait_text(
+            "[data-testid=entity-list] [data-row=plain]",
+            "reach: home",
+            SECS,
+        )
+        .await;
+        assert_eq!(
+            c.ui.count("[data-testid=banner-changed]").await,
+            0,
+            "without a draft a hand edit just shows up, with no banner to act on"
+        );
+        c.ui.click("[role=tablist] [data-tab=access]").await;
+        c.ui.wait_for("[data-schema='visitors/*/reach']", SECS)
+            .await;
+        assert_eq!(
+            c.ui.count("[data-editor]").await,
+            0,
+            "view mode shows plain values"
+        );
+        assert_eq!(
+            c.ui.count("[role=tablist] [data-tab=settings]").await,
+            0,
+            "no Settings tab repeats the visitor's fields"
+        );
+        c.ui.shot("visitor-access-view").await;
+        edit_mode(c).await;
+        c.ui.fill("#f-visitors-laptop-max-connections", "abc").await;
+        wait_checked(c).await;
+        c.ui.wait_for("[data-testid=form-problems] [data-problem]", SECS)
+            .await;
+        tokio::time::sleep(Duration::from_millis(600)).await;
+        assert_eq!(
+            c.ui.count("[data-testid=form-problems] [data-problem]")
+                .await,
+            1,
+            "one problem in one field is listed once"
+        );
+        let badge =
+            c.ui.text("[role=tablist] [data-tab=access] [data-tab-errors]")
+                .await;
+        assert_eq!(
+            badge.split_whitespace().collect::<Vec<_>>(),
+            ["1", "problem"],
+            "the tab counts it once"
+        );
+        c.ui.click("[data-testid=discard-edit]").await;
+        c.ui.wait_gone("[data-testid=save-bar]", SECS).await;
+        edit_mode(c).await;
+        assert_eq!(
+            c.ui.count("[data-testid=form-problems]").await,
+            0,
+            "a discarded edit leaves no problems behind"
+        );
+        let reach = "[data-schema='visitors/*/reach']";
+        c.ui.wait_for(
+            &format!("{reach} [data-key=home] input[value=only]:checked"),
+            SECS,
+        )
+        .await;
+        c.ui.wait_for(&format!("{reach} [data-chip='127.0.0.1/32']"), SECS)
+            .await;
+        click_js(c, &format!("{reach} [data-key=home] input[value=any]")).await;
+        c.ui.wait_gone(&format!("{reach} [data-chip]"), SECS).await;
+        wait_checked(c).await;
+        c.ui.shot("reach-any-target").await;
+        click_js(c, &format!("{reach} [data-key=home] input[value=only]")).await;
+        c.ui.fill(
+            &format!("{reach} [data-key=home] input[type=text]"),
+            "127.0.0.1/32:22",
+        )
+        .await;
+        c.ui.press(
+            &format!("{reach} [data-key=home] input[type=text]"),
+            "Enter",
+        )
+        .await;
+        c.ui.wait_for(&format!("{reach} [data-chip='127.0.0.1/32:22']"), SECS)
+            .await;
+        let geo: Vec<f64> = c
+            .ui
+            .eval(&format!("(() => {{ const r = document.querySelector(\"{reach} [data-key=home]\").getBoundingClientRect(); const b = document.querySelector(\"{reach} [data-key=home] button[aria-label='Remove home']\").getBoundingClientRect(); return [r.right, b.right]; }})()"))
+            .await;
+        assert!(
+            geo[1] <= geo[0] + 0.5,
+            "Remove stays inside its row: {geo:?}"
+        );
+        c.ui.shot("reach-only-these").await;
+        c.ui.click("[data-testid=discard-edit]").await;
+        c.ui.wait_gone("[data-testid=save-bar]", SECS).await;
+        edit_mode(c).await;
+        c.ui.fill("#f-visitors-laptop-max-connections", "50").await;
+        wait_checked(c).await;
+        assert_eq!(
+            c.ui.count("[data-testid=review-open]").await,
+            0,
+            "an edit not yet added to the changes is not counted"
+        );
+        c.ui.click("[data-testid=save]").await;
+        c.ui.wait_gone("[data-testid=save-bar]", SECS).await;
+        c.ui.wait_text("[data-testid=review-count]", "1", SECS)
+            .await;
+        edit_mode(c).await;
+        c.ui.fill("#f-visitors-laptop-max-connections", "60").await;
+        wait_checked(c).await;
+        c.ui.click("[data-testid=review-open]").await;
+        c.ui.wait_for("[data-testid=review-diff]", SECS).await;
+        let diff = c.ui.text("[data-testid=review-diff]").await;
+        assert!(
+            diff.contains("max_connections: 50") && !diff.contains("max_connections: 60"),
+            "the review shows only what was added: {diff}"
+        );
+        let _: bool =
+            c.ui.eval("(() => { history.back(); return true; })()")
+                .await;
+        c.ui.wait_for("[data-testid=save-bar]", SECS).await;
+        c.ui.wait_for("[role=tablist] [data-tab=access][aria-selected=true]", SECS)
+            .await;
+        let kept: String =
+            c.ui.eval("document.getElementById('f-visitors-laptop-max-connections').value")
+                .await;
+        assert_eq!(kept, "60", "Back returns to the edit with its value");
+        c.ui.shot("edit-kept-after-back").await;
+        c.ui.nav("/services/web").await;
+        c.ui.wait_text("[data-testid=entity-list]", "web", SECS)
+            .await;
+        c.ui.nav("/visitors").await;
+        c.ui.wait_text(
+            "[data-testid=entity-list] [data-row=laptop]",
+            "unsaved",
+            SECS,
+        )
+        .await;
+        c.ui.nav("/visitors/laptop").await;
+        c.ui.wait_for("[data-testid=save-bar]", SECS).await;
+        c.ui.click("[data-testid=discard-edit]").await;
+        c.ui.wait_gone("[data-testid=save-bar]", SECS).await;
+        c.ui.wait_for(
+            "[data-testid=entity-list] [data-row=ops][data-group='In use now']",
+            SECS,
+        )
+        .await;
+        c.ui.nav("/clients/home").await;
+        edit_mode(c).await;
+        assert!(
+            !c.ui.enabled("[data-testid=save]").await,
+            "nothing to add before a change"
+        );
+        tokio::time::sleep(Duration::from_secs(6)).await;
+        assert_eq!(
+            c.ui.count("[data-testid=save-bar]").await,
+            1,
+            "the periodic reload does not end the edit"
+        );
+        c.ui.click("[data-testid=discard-edit]").await;
+        c.ui.wait_gone("[data-testid=save-bar]", SECS).await;
+
+        c.ui.nav("/services/web").await;
+        c.ui.wait_for(
+            "[data-testid=entity-list] [data-row=web][data-selected]",
+            SECS,
+        )
+        .await;
+        assert_eq!(
+            c.ui.text("main h1").await.trim(),
+            "web",
+            "the protocol is on the path, not repeated by the title"
+        );
+        let meta: String = c
+            .ui
+            .eval("document.querySelector('[data-testid=entity-list] [data-row=web]').lastElementChild.textContent")
+            .await;
+        assert_eq!(meta, "", "the selected row leaves its numbers to the page");
+        c.ui.click("[role=tablist] [data-tab=settings]").await;
+        let protocol = c.ui.text("[data-schema='services/*/protocol']").await;
+        assert!(
+            protocol.contains("TCP")
+                && protocol.contains("(default)")
+                && !protocol.contains("Default:"),
+            "a default reads as a plain value: {protocol}"
+        );
+        edit_mode(c).await;
+        c.ui.choose("f-services-web-bind-visibility", "private")
+            .await;
+        c.ui.wait_for("[data-testid=pick-visitors]", SECS).await;
+        wait_checked(c).await;
+        tokio::time::sleep(Duration::from_millis(600)).await;
+        assert_eq!(
+            c.ui.count("[data-testid=form-problems]").await,
+            0,
+            "the hint asks for visitors; no red error while they are being picked"
+        );
+        assert!(
+            !c.ui.enabled("[data-testid=save]").await,
+            "a private service without visitors cannot be added"
+        );
+        assert_eq!(
+            c.ui.text("[data-testid=fields-changed]").await,
+            "Pick at least one visitor or switch back to Public port"
+        );
+        c.ui.shot("private-needs-visitors").await;
+        c.ui.click("[data-testid=pick-visitors] button").await;
+        c.ui.wait_for(
+            "#f-services-web-visitors:focus, #f-services-web-visitors:focus-within",
+            SECS,
+        )
+        .await;
+        clear_of_bar(c, "services/*/visitors").await;
+        c.ui.fill("#f-services-web-max-connections", "abc").await;
+        c.ui.wait_for("[data-testid=form-problems] [data-problem]", SECS)
+            .await;
+        c.ui.wait_for("[role=tablist] [data-tab=settings] [data-tab-errors]", SECS)
+            .await;
+        c.ui.click("[data-testid=form-problems] button").await;
+        c.ui.wait_for(
+            "#f-services-web-max-connections:focus, #f-services-web-max-connections:focus-within",
+            SECS,
+        )
+        .await;
+        c.ui.click("[data-testid=discard-edit]").await;
+        c.ui.wait_gone("[data-testid=save-bar]", SECS).await;
+
+        c.ui.nav("/clients/home?tab=settings").await;
+        edit_mode(c).await;
+        c.ui.fill("#f-clients-home-max-connections", "7").await;
+        wait_checked(c).await;
+        c.ui.click("[data-testid=save]").await;
+        c.ui.wait_for("[data-testid=toast]", SECS).await;
+        c.ui.click("[data-testid=review-open]").await;
+        c.ui.wait_for("[data-testid=apply]", SECS).await;
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        let gap: f64 = c
+            .ui
+            .eval("(() => { const t = document.querySelector('[data-testid=toasts]').getBoundingClientRect(); const b = document.querySelector('[data-sticky-bar]').getBoundingClientRect(); return b.top - t.bottom; })()")
+            .await;
+        assert!(
+            gap >= 0.0,
+            "a toast sits above the review's action bar: {gap}"
+        );
+        c.ui.shot("toast-above-the-action-bar").await;
+        c.ui.assert_no_errors();
+    })
+}
+
+#[test]
+fn edits_survive_navigation_and_problems_show_where_you_edit() {
+    run("edit-state", Options::default(), false, edit_state);
 }

@@ -25,6 +25,35 @@ pub fn refuses_in(
     would_grant(get(draft.base(), entity), &candidate)
 }
 
+pub fn refuses_text_in(
+    root: &burrow_admin_proto::schema::Node,
+    draft: &burrow_admin_logic::changeset::Changeset,
+    path: &[String],
+    text: Option<&str>,
+) -> bool {
+    let value = match text.map(burrow_admin_proto::serde_json::from_str::<Value>) {
+        None => None,
+        Some(Ok(v)) => Some(v),
+        Some(Err(_)) => {
+            return (3..=path.len()).any(|n| root.at(&path[..n]).is_some_and(|x| x.reduce_only));
+        }
+    };
+    refuses_in(root, draft, path, value.as_ref())
+}
+
+pub fn refuses_text(path: &[String], text: Option<&str>) -> bool {
+    let Some(s) = crate::store::try_store() else {
+        return false;
+    };
+    s.schema.with_untracked(|sc| {
+        sc.as_ref().is_some_and(|sc| {
+            s.edit
+                .draft
+                .with_untracked(|d| refuses_text_in(&sc.root, d, path, text))
+        })
+    })
+}
+
 pub fn refuses(path: &[String], value: Option<&Value>) -> bool {
     let Some(s) = crate::store::try_store() else {
         return false;
@@ -102,5 +131,25 @@ mod tests {
             refuses(item, Some(json!("0.0.0.0/0"))),
             "a single list item is gated too"
         );
+        let text =
+            |path: Vec<String>, t: &str| refuses_text_in(&schema.root, &draft, &path, Some(t));
+        assert!(text(VisitorEntry::ADMIN.of("lap"), "\"write\""));
+        assert!(!text(VisitorEntry::ADMIN.of("lap"), "\"read\""));
+        assert!(text(VisitorEntry::ADMIN_FROM.of("lap"), "[\"0.0.0.0/0\"]"));
+        assert!(!text(
+            VisitorEntry::ADMIN_FROM.of("lap"),
+            "[\"10.1.0.0/16\"]"
+        ));
+        assert!(
+            text(VisitorEntry::ADMIN_FROM.of("lap"), "- 0.0.0.0/0"),
+            "text the UI cannot read is refused on a reduce-only field"
+        );
+        assert!(!text(VisitorEntry::MAX_CONNECTIONS.of("lap"), "not json"));
+        assert!(!refuses_text_in(
+            &schema.root,
+            &draft,
+            &VisitorEntry::ADMIN.of("lap"),
+            None
+        ));
     }
 }

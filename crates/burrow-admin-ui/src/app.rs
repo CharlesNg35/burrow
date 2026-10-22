@@ -2,9 +2,7 @@ use burrow_admin_proto::msg::{AdminLevel, FileDiagnostics, UiDiagnostics};
 use burrow_admin_proto::schema::Entity;
 use burrow_admin_proto::serde_json::{self, Value};
 use burrow_config::admin_schema::AdminEnum;
-use burrow_config::{
-    ClientEntry, Entry, ServerConfig, ServiceEntry, VisitorEntry, entity_of_section,
-};
+use burrow_config::{ClientEntry, Entry, ServiceEntry, VisitorEntry, entity_of_section};
 use burrow_ui_kit::{Banner, Button, EmptyState, Icon, Kbd, Skeleton, ToastHost, Tone, copy_text};
 use leptos::prelude::*;
 use wasm_bindgen::JsCast;
@@ -151,6 +149,13 @@ pub fn App() -> impl IntoView {
         move || s.now.set(js_sys::Date::now()),
         std::time::Duration::from_millis(1000),
     );
+    for ev in ["focusin", "click", "input", "keyup"] {
+        let cb = wasm_bindgen::closure::Closure::<dyn Fn()>::new(move || {
+            request_animation_frame(screens::clear_of_bar);
+        });
+        let _ = document().add_event_listener_with_callback(ev, cb.as_ref().unchecked_ref());
+        cb.forget();
+    }
     api::connect(s);
     let no_token = Memo::new(move |_| s.conn.get() == Conn::NoToken);
     view! {
@@ -173,7 +178,19 @@ pub fn App() -> impl IntoView {
             }
         }}
         <ToastHost
-            toasts=s.toasts
+            toasts=Signal::derive(move || {
+                let on_review = s.route.with(|r| *r == Route::Review);
+                s.toasts
+                    .get()
+                    .into_iter()
+                    .map(|mut t| {
+                        if on_review {
+                            t.action = None;
+                        }
+                        t
+                    })
+                    .collect::<Vec<_>>()
+            })
             on_action=move |_| route::go(Route::Review)
             on_hover=move |h: bool| s.toast_hold.set(h)
         />
@@ -194,22 +211,6 @@ fn initials(name: &str) -> String {
         .flatten()
         .collect::<String>()
         .to_uppercase()
-}
-
-pub fn host_line(s: Store) -> String {
-    let public = s.state.with(|st| {
-        st.as_ref().and_then(|st| {
-            ServerConfig::PUBLIC_ADDRESS
-                .str(&st.values)
-                .map(str::to_string)
-        })
-    });
-    public
-        .or_else(|| {
-            s.status
-                .with(|st| st.as_ref().and_then(|st| st.listening.first().cloned()))
-        })
-        .unwrap_or_default()
 }
 
 #[component]
@@ -270,7 +271,11 @@ fn Header() -> impl IntoView {
         let errors = e.local.with(|l| l.len())
             + e.related.with(|r| r.len())
             + e.plan.with(|p| p.as_ref().map(|p| p.errors()).unwrap_or(0));
-        if e.checking.get() {
+        let waiting = e.plan.with(Option::is_none)
+            && e.check_error.with(Option::is_none)
+            && e.conflict.with(Option::is_none)
+            && e.dirty();
+        if e.checking.get() || waiting {
             "checking".to_string()
         } else if errors > 0 {
             "errors".to_string()
@@ -283,6 +288,12 @@ fn Header() -> impl IntoView {
     let retry_open = RwSignal::new(false);
     popover(menu_open, "server-switcher", "server-menu");
     popover(avatar_open, "avatar", "avatar-menu");
+    Effect::new(move |_| {
+        s.route.track();
+        s.search_open.track();
+        avatar_open.set(false);
+        menu_open.set(false);
+    });
     popover(why_open, "read-only-tag", "read-only-why");
     popover(retry_open, "conn-pill", "retry-popover");
     let conn_state = move || {
@@ -306,7 +317,7 @@ fn Header() -> impl IntoView {
                 }
                 .into_any()
             }
-            Conn::Open => view! { <span class="sr-only" data-testid="conn-pill">{move || format!("Connected to {}", host_line(s))}</span> }.into_any(),
+            Conn::Open => view! { <span class="sr-only" data-testid="conn-pill">{move || format!("Connected to {}", s.server_name())}</span> }.into_any(),
             Conn::Connecting => view! { <span class="text-[12.5px] text-hdr-muted" data-testid="conn-pill">"Connecting"</span> }.into_any(),
             other => view! { <span class="flex items-center gap-1.5 text-[12.5px] text-danger" data-testid="conn-pill"><Icon name="wifi-off"/>{other.label()}</span> }.into_any(),
         }
@@ -318,8 +329,8 @@ fn Header() -> impl IntoView {
         _ => "bg-danger",
     };
     let conn_line = move || match s.conn.get() {
-        Conn::Open => format!("Connected to {}", host_line(s)),
-        Conn::Reconnecting { .. } => format!("Reconnecting to {}", host_line(s)),
+        Conn::Open => format!("Connected to {}", s.server_name()),
+        Conn::Reconnecting { .. } => format!("Reconnecting to {}", s.server_name()),
         other => other.label().to_string(),
     };
     let next_theme = move || match theme.get().as_str() {
@@ -334,13 +345,11 @@ fn Header() -> impl IntoView {
         })
     });
     let facts = move || {
-        let w = s.welcome.get()?;
+        s.welcome.get()?;
         let st = s.state.get()?;
         Some(view! {
-            <dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 px-3 py-2 text-sm [&_dt]:text-text-muted [&_dd]:font-mono [&_dd]:text-xs [&_dd]:break-all">
-                <dt>"Version"</dt><dd>{w.server.version.clone()}</dd>
-                <dt>"Up"</dt><dd>{format::span(s.status.get().map(|x| x.uptime_secs).unwrap_or(w.server.uptime_secs))}</dd>
-                <dt>"Revision"</dt><dd>{short_rev(&st.rev)}</dd>
+            <dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 px-3 py-2 text-sm [&_dt]:text-text-muted [&_dd]:font-mono [&_dd]:text-xs [&_dd]:break-all [&_dd]:whitespace-pre-line">
+                <dt>"Listening"</dt><dd>{s.status.get().map(|x| x.listening.join("\n")).unwrap_or_default()}</dd>
                 <dt>"Config"</dt><dd>{st.file.path.clone()}</dd>
             </dl>
         })
@@ -371,7 +380,7 @@ fn Header() -> impl IntoView {
             }}
             <div class=move || format!("relative flex min-w-0 items-center gap-2.5{}", if matches!(s.route.get(), Route::Detail(..)) { " max-sm:hidden" } else { "" })>
                 <span class="flex size-[30px] shrink-0 items-center justify-center rounded-md bg-gradient-to-b from-logo-from to-logo-to text-white" aria-hidden="true"><Icon name="logo" large=true/></span>
-                <button type="button" class="flex min-w-0 cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 hover:bg-hdr-raised" aria-haspopup="true" aria-expanded=move || menu_open.get().to_string() aria-controls="server-menu" id="server-switcher" data-testid="server-switcher" on:click=move |_| menu_open.update(|o| *o = !*o)>
+                <button type="button" class="flex min-w-0 cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 hover:bg-hdr-raised" aria-haspopup="true" aria-expanded=move || menu_open.get().to_string() aria-controls="server-menu" id="server-switcher" data-testid="server-switcher" title=move || s.status.with(|x| x.as_ref().map(|x| x.listening.join(", ")).unwrap_or_default()) on:click=move |_| menu_open.update(|o| *o = !*o)>
                     <span class="flex min-w-0 flex-col text-left">
                         <span class="truncate font-semibold text-hdr-on" data-testid="server-line">{move || s.server_name()}</span>
                         <span class="truncate text-[11px] text-hdr-muted sm:hidden">{move || {
@@ -383,10 +392,6 @@ fn Header() -> impl IntoView {
                             }
                         }}</span>
                     </span>
-                    {move || {
-                        let host = host_line(s);
-                        (host != s.server_name()).then(|| view! { <span class="truncate font-mono text-xs text-hdr-muted max-sm:hidden">{host}</span> })
-                    }}
                     <Icon name="chevron-down" small=true/>
                 </button>
                 <Show when=move || menu_open.get()>
@@ -398,11 +403,11 @@ fn Header() -> impl IntoView {
                     </div>
                 </Show>
             </div>
-            <nav aria-label="Sections" class="flex gap-0.5 rounded-[11px] border border-hdr-line bg-hdr-raised p-[3px] max-xl:col-span-2 max-xl:row-start-2 max-xl:mb-3 max-xl:justify-self-center max-sm:mb-2 max-sm:max-w-full max-sm:justify-self-stretch max-sm:overflow-x-auto max-sm:rounded-none max-sm:border-0 max-sm:bg-transparent max-sm:p-0 max-sm:[scrollbar-width:none] dark:border-hdr-raised-2">
+            <nav aria-label="Sections" class="flex gap-0.5 rounded-[11px] border border-hdr-line bg-hdr-raised p-[3px] max-xl:col-span-2 max-xl:row-start-2 max-xl:mb-3 max-xl:justify-self-center max-sm:mb-2 max-sm:max-w-full max-sm:justify-self-stretch max-sm:overflow-x-auto max-sm:rounded-none max-sm:border-0 max-sm:bg-transparent max-sm:p-0 max-sm:pr-8 max-sm:[scrollbar-width:none] max-sm:[mask-image:linear-gradient(to_right,black_calc(100%-2rem),transparent)] dark:border-hdr-raised-2">
                 {nav}
             </nav>
             <div class="flex items-center justify-end gap-3" data-testid="header-right">
-                <button type="button" class="flex size-8 cursor-pointer items-center justify-center rounded-lg text-hdr-text outline-none hover:bg-hdr-raised focus-visible:bg-hdr-raised max-sm:hidden" aria-label="Search (/)" title="Search (/)" data-testid="search-open" on:click=move |_| s.search_open.set(true)>
+                <button type="button" class="flex size-8 cursor-pointer items-center justify-center rounded-lg text-hdr-text outline-none hover:bg-hdr-raised focus-visible:bg-hdr-raised" aria-label="Search (/)" title="Search (/)" data-testid="search-open" on:click=move |_| s.search_open.set(true)>
                     <Icon name="search"/>
                 </button>
                 <button
@@ -457,7 +462,8 @@ fn Header() -> impl IntoView {
                         ().into_any()
                     }
                 }}
-                <div class="relative flex items-center gap-2 max-sm:hidden">
+                {move || s.edit.dirty().then(|| view! { <span class="hidden" data-testid="check-state" data-state=check_state></span> })}
+                <div class="relative flex items-center gap-2">
                     <button type="button" class="relative flex size-[30px] cursor-pointer items-center justify-center rounded-full bg-hdr-raised-2 text-xs font-bold text-hdr-on" aria-label=move || format!("Account {}", you.get().map(|y| y.0).unwrap_or_default()) title=conn_line aria-haspopup="true" aria-expanded=move || avatar_open.get().to_string() aria-controls="avatar-menu" id="avatar" data-testid="avatar" on:click=move |_| avatar_open.update(|o| *o = !*o)>
                         {move || you.get().map(|y| initials(&y.0)).unwrap_or_default()}
                         <span class=move || format!("absolute -right-0.5 -bottom-0.5 size-2.5 rounded-full ring-2 ring-hdr {}", dot())></span>
@@ -657,7 +663,7 @@ fn Banners() -> impl IntoView {
             Some(view! {
                 <Banner
                     tone=Tone::Warning
-                    title=format!("Lost the connection to {}.", host_line(s))
+                    title=format!("Lost the connection to {}.", s.server_name())
                     message=format!("Reconnecting in {left} s · attempt {attempt}. Your {n} pending changes are kept. Values are from {at}.")
                     testid="banner-reconnecting"
                 >
@@ -691,29 +697,51 @@ fn Banners() -> impl IntoView {
         })
     };
     let changed = move || {
-        s.changed.get().map(|c| {
-            let by = if c.by.is_empty() || c.by == "file" { "by a hand edit".to_string() } else { format!("by visitor {}", c.by) };
-            view! {
-                <Banner
-                    tone=Tone::Warning
-                    title=format!("Config changed {by}")
-                    message={
-                        let (old, at) = s.changed_from.get_untracked();
-                        let when = if s.now.get_untracked() - at < 60_000.0 { "noticed just now".to_string() } else { format!("at {}", crate::format::clock(at)) };
-                        if old.is_empty() {
-                            format!("now rev {} · {when}", short_rev(&c.rev))
-                        } else {
-                            format!("rev {} → {} · {when}", short_rev(&old), short_rev(&c.rev))
-                        }
-                    }
-                    testid="banner-changed"
-                >
-                    <Button label="Refresh" small=true on_click=move |_| {
-                        api::load_state(s);
-                        s.changed.set(None);
-                    }/>
-                </Banner>
+        let stale = crate::review::stale(s);
+        let c = s.changed.get();
+        if c.is_none() && stale.is_none() {
+            return None;
+        }
+        let by = match &c {
+            Some(c) if !c.by.is_empty() && c.by != "file" => format!("by visitor {}", c.by),
+            Some(_) => "by a hand edit".to_string(),
+            None => "on the server".to_string(),
+        };
+        let revs = match (&stale, &c) {
+            (Some((base, now)), _) => (base.clone(), now.clone()),
+            (None, Some(c)) => (s.changed_from.get_untracked().0, c.rev.clone()),
+            (None, None) => (String::new(), String::new()),
+        };
+        let action = match stale {
+            Some((_, now)) => view! {
+                <Button label=format!("Review my draft on rev {}", short_rev(&now)) small=true testid="banner-recheck" on_click=move |_| crate::review::recheck(s)/>
             }
+            .into_any(),
+            None => view! {
+                <Button label="Refresh" small=true on_click=move |_| {
+                    api::load_state(s);
+                    s.changed.set(None);
+                }/>
+            }
+            .into_any(),
+        };
+        Some(view! {
+            <Banner
+                tone=Tone::Warning
+                title=format!("Config changed {by}")
+                message=move || {
+                    let (_, at) = s.changed_from.get();
+                    let when = if at == 0.0 || s.now.get() - at < 60_000.0 { "noticed just now".to_string() } else { format!("noticed at {}", crate::format::clock(at)) };
+                    if revs.0.is_empty() {
+                        format!("now rev {} · {when}", short_rev(&revs.1))
+                    } else {
+                        format!("rev {} → {} · {when}", short_rev(&revs.0), short_rev(&revs.1))
+                    }
+                }
+                testid="banner-changed"
+            >
+                {action}
+            </Banner>
         })
     };
     view! {

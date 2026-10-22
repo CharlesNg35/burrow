@@ -1,5 +1,5 @@
 use burrow_admin_logic::grant::IN_THE_FILE;
-use burrow_admin_proto::plan::{ChangeKind, Diff, Level, Plan, Refusal};
+use burrow_admin_proto::plan::{Change, ChangeKind, Diff, Level, Plan, Refusal};
 use burrow_admin_proto::serde_json::Value;
 use burrow_admin_proto::value::get;
 use burrow_config::{Entry, ServiceEntry, VisitorEntry};
@@ -15,7 +15,143 @@ use crate::route::{self, Link, Route};
 use crate::screens::activity::diff_lines;
 use crate::screens::paths::{self, Problems};
 use crate::screens::{DetailPane, ListPane, Row, master_detail};
-use crate::store::{short_rev, store};
+use crate::store::{Store, short_rev, store};
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Group {
+    pub head: Change,
+    pub parts: Vec<Change>,
+}
+
+pub fn change_groups(plan: &Plan) -> Vec<Group> {
+    let mut out: Vec<Group> = plan
+        .changes
+        .iter()
+        .filter(|c| {
+            c.part_of
+                .as_ref()
+                .is_none_or(|g| !plan.changes.iter().any(|h| h.path == *g))
+        })
+        .map(|c| Group {
+            head: c.clone(),
+            parts: Vec::new(),
+        })
+        .collect();
+    for c in &plan.changes {
+        if let Some(g) = c
+            .part_of
+            .as_ref()
+            .and_then(|g| out.iter_mut().find(|x| x.head.path == *g))
+        {
+            g.parts.push(c.clone());
+        }
+    }
+    let entity = |g: &Group| {
+        g.head
+            .path
+            .first()
+            .is_some_and(|s| crate::route::SECTIONS.contains(&s.as_str()))
+    };
+    let settings: Vec<Group> = out.iter().filter(|g| !entity(g)).cloned().collect();
+    if settings.len() > 1 {
+        out.retain(entity);
+        let names: Vec<String> = settings.iter().map(|g| g.head.path.join(".")).collect();
+        out.push(Group {
+            head: Change {
+                kind: ChangeKind::Set,
+                path: vec!["settings".into()],
+                summary: format!("Server settings: {}", names.join(", ")),
+                part_of: None,
+            },
+            parts: settings.into_iter().map(|g| g.head).collect(),
+        });
+    }
+    out
+}
+
+fn section_label(section: &str, n: usize) -> String {
+    let one = match burrow_config::entity_of_section(section) {
+        Some(burrow_admin_proto::schema::Entity::Client) => burrow_config::ClientEntry::ENTITY,
+        Some(burrow_admin_proto::schema::Entity::Visitor) => burrow_config::VisitorEntry::ENTITY,
+        _ => burrow_config::ServiceEntry::ENTITY,
+    };
+    if n == 1 {
+        one.to_string()
+    } else {
+        format!("{one}s")
+    }
+}
+
+pub fn place_of(root: &burrow_admin_proto::schema::Node, path: &[String]) -> String {
+    let label = |p: &[String]| {
+        root.at(p)
+            .map(|n| n.label.clone())
+            .filter(|l| !l.is_empty())
+    };
+    match path {
+        [sec, name, rest @ ..] if crate::route::SECTIONS.contains(&sec.as_str()) => {
+            let head = format!("{} {name}", section_label(sec, 1));
+            let mut head = head[..1].to_uppercase() + &head[1..];
+            if let Some(k) = rest.first()
+                && let Some(l) = label(&[sec.clone(), "*".into(), k.clone()])
+            {
+                head.push_str(&format!(" · {l}"));
+            }
+            head
+        }
+        [k, rest @ ..] => match label(std::slice::from_ref(k)) {
+            Some(top) => match rest.first().and_then(|r| label(&[k.clone(), r.clone()])) {
+                Some(l) => format!("{top} · {l}"),
+                None => top,
+            },
+            None => path.join("."),
+        },
+        [] => String::new(),
+    }
+}
+
+pub fn group_line(g: &Group) -> String {
+    if g.parts.is_empty() {
+        return g.head.path.join(".");
+    }
+    if g.head
+        .path
+        .first()
+        .is_none_or(|s| !crate::route::SECTIONS.contains(&s.as_str()))
+    {
+        return g
+            .parts
+            .iter()
+            .map(|p| p.summary.clone())
+            .collect::<Vec<_>>()
+            .join("; ");
+    }
+    let verb = match g.head.kind {
+        ChangeKind::Add => "added to",
+        ChangeKind::Remove => "removed from",
+        _ => "updated in",
+    };
+    let mut sections: Vec<(String, Vec<String>)> = Vec::new();
+    for p in &g.parts {
+        let (Some(sec), Some(name)) = (p.path.first(), p.path.get(1)) else {
+            continue;
+        };
+        match sections.iter_mut().find(|(s, _)| s == sec) {
+            Some((_, names)) => names.push(name.clone()),
+            None => sections.push((sec.clone(), vec![name.clone()])),
+        }
+    }
+    let text = sections
+        .iter()
+        .map(|(sec, names)| format!("{} {}", section_label(sec, names.len()), names.join(", ")))
+        .collect::<Vec<_>>()
+        .join(" and ");
+    format!("{verb} {text}")
+}
+
+pub fn nothing_to_apply(plan: &Plan) -> bool {
+    plan.changes.is_empty() && plan.diff.hunks.is_empty()
+}
 
 fn diff_counts(d: &Diff) -> (usize, usize) {
     let lines = d.hunks.iter().flat_map(|h| h.lines.iter());
@@ -43,7 +179,12 @@ fn impact_icon(l: Level) -> (&'static str, Tone) {
     }
 }
 
-fn service_paths(base: &Value, draft: &Value, reserved: &[String]) -> Vec<(String, PathData)> {
+fn service_paths(
+    base: &Value,
+    draft: &Value,
+    status: Option<&burrow_admin_proto::status::Status>,
+    reserved: &[String],
+) -> Vec<(String, PathData)> {
     let empty = serde_json_map();
     let b = ServiceEntry::entries(base).unwrap_or(&empty);
     let d = ServiceEntry::entries(draft).unwrap_or(&empty);
@@ -73,20 +214,20 @@ fn service_paths(base: &Value, draft: &Value, reserved: &[String]) -> Vec<(Strin
             };
             let data = match (old, new) {
                 (Some(o), None) => {
-                    let mut p = paths::service(n, o, None, 0.0, &none, true, reserved);
+                    let mut p = paths::service(n, o, status, &none, true, reserved);
                     mark(&mut p, HopState::Removed, EdgeState::Removed);
                     p.summary = format!("Service {n} is removed");
                     p
                 }
                 (None, Some(x)) => {
-                    let mut p = paths::service(n, x, None, 0.0, &none, true, reserved);
+                    let mut p = paths::service(n, x, status, &none, true, reserved);
                     mark(&mut p, HopState::Added, EdgeState::Added);
                     p.summary = format!("Service {n} is added");
                     p
                 }
                 (Some(o), Some(x)) => {
-                    let before = paths::service(n, o, None, 0.0, &none, true, reserved);
-                    let mut p = paths::service(n, x, None, 0.0, &none, true, reserved);
+                    let before = paths::service(n, o, status, &none, true, reserved);
+                    let mut p = paths::service(n, x, status, &none, true, reserved);
                     for (h, was) in p.hops.iter_mut().zip(before.hops.iter()) {
                         h.dot = None;
                         h.state = if h.value != was.value || h.unit != was.unit {
@@ -94,7 +235,7 @@ fn service_paths(base: &Value, draft: &Value, reserved: &[String]) -> Vec<(Strin
                         } else {
                             HopState::Normal
                         };
-                        if h.value != was.value {
+                        if h.value != was.value && h.head == was.head {
                             h.badge = Some((format!("was {}", was.value), Tone::Neutral));
                         }
                     }
@@ -113,27 +254,6 @@ fn service_paths(base: &Value, draft: &Value, reserved: &[String]) -> Vec<(Strin
 
 fn serde_json_map() -> burrow_admin_proto::serde_json::Map<String, Value> {
     burrow_admin_proto::serde_json::Map::new()
-}
-
-fn destructive_summary(impacts: &[burrow_admin_proto::plan::Impact]) -> String {
-    let mut parts: Vec<String> = Vec::new();
-    for i in impacts.iter().filter(|i| i.confirm.is_some()) {
-        let mut clauses = i.message.split("; ");
-        let first = clauses.next().unwrap_or_default().to_string();
-        let rest: Vec<String> = clauses.map(str::to_string).collect();
-        if rest.is_empty() {
-            parts.push(first);
-        } else {
-            parts.extend(rest);
-        }
-    }
-    parts.dedup();
-    let text = parts.join("; ");
-    let mut c = text.chars();
-    match c.next() {
-        Some(f) => format!("{}{}.", f.to_uppercase(), c.as_str()),
-        None => String::new(),
-    }
 }
 
 fn session_ip(from: &str) -> String {
@@ -255,10 +375,12 @@ fn lockout_path(g: &Guard) -> PathData {
 fn footer_text(g: &Guard) -> String {
     match g.code.as_str() {
         "self-source" if !g.base.is_empty() => format!(
-            "Keep {} in admin_from, or apply from an allowed address.",
+            "Keep {} in Admin only from, or apply from an allowed address.",
             g.base.join(", ")
         ),
-        "self-source" => "Undo the admin_from change, or apply from an allowed address.".into(),
+        "self-source" => {
+            "Undo the Admin only from change, or apply from an allowed address.".into()
+        }
         _ => "Change it back to keep your admin access.".into(),
     }
 }
@@ -370,14 +492,21 @@ fn lockout_fixes(g: Guard) -> impl IntoView {
 fn detail(plan: std::sync::Arc<Plan>, revert: bool) -> AnyView {
     let s = store();
     let e = s.edit;
-    let n = plan.changes.len();
+    let n = change_groups(&plan).len();
     let errors = plan.errors();
-    let base_rev = short_rev(&plan.base);
+    let empty = nothing_to_apply(&plan);
+    let old_problems = plan.diags.iter().filter(|d| d.before).count();
     let paths = if revert {
         Vec::new()
     } else {
+        let status = s.status.get_untracked();
         e.draft.with_untracked(|d| {
-            service_paths(d.base(), d.draft(), &crate::domain::reserved_clients())
+            service_paths(
+                d.base(),
+                d.draft(),
+                status.as_deref(),
+                &crate::domain::reserved_clients(),
+            )
         })
     };
     let lines = diff_lines(&plan.diff);
@@ -398,6 +527,7 @@ fn detail(plan: std::sync::Arc<Plan>, revert: bool) -> AnyView {
     let impacts = plan
         .impacts
         .iter()
+        .filter(|i| i.code != "adds-client")
         .map(|i| {
             let (icon, tone) = impact_icon(i.level);
             let (head, tail) = match i.message.split_once(" · ") {
@@ -443,11 +573,20 @@ fn detail(plan: std::sync::Arc<Plan>, revert: bool) -> AnyView {
             }
         })
         .collect_view();
-    let diags = plan
-        .diags
+    let new_diags: Vec<_> = plan.diags.iter().filter(|d| !d.before).cloned().collect();
+    let diags = new_diags
         .iter()
         .map(|d| {
-            let where_ = d.path.as_ref().map(|p| p.join(".")).unwrap_or_default();
+            let where_ = d
+                .path
+                .as_ref()
+                .map(|p| {
+                    store()
+                        .schema
+                        .with_untracked(|sc| sc.as_ref().map(|sc| place_of(&sc.root, p)))
+                        .unwrap_or_else(|| p.join("."))
+                })
+                .unwrap_or_default();
             view! {
                 <li class=format!("rounded-input border px-3 py-2 text-sm {}", severity_tone(d).soft()) data-diag=d.code.clone()>
                     <strong>{where_}</strong>" "{d.message.clone()}
@@ -470,35 +609,31 @@ fn detail(plan: std::sync::Arc<Plan>, revert: bool) -> AnyView {
         }
     });
     let back = move || route::go(s.prev.get_untracked());
-    let host = crate::app::host_line(s);
     let applies = if restart.is_empty() {
         "applies on reload"
     } else {
         "needs a restart"
     };
-    let warnings = plan.diags.len() - errors;
-    let destructive_text = destructive_summary(&plan.impacts);
+    let warnings = new_diags.iter().filter(|d| !d.is_error()).count();
     let label = "mb-2 text-[11px] font-bold tracking-[0.07em] text-text-faint uppercase";
     view! {
         <div data-testid="review" data-valid=plan.valid.to_string()>
             <nav class="mb-1.5 text-sm font-semibold text-text" aria-label="Breadcrumb">"Review"</nav>
             <header class="mb-[22px] flex flex-wrap items-start gap-3.5">
                 <div class="min-w-0 flex-1">
-                    <h1 class="text-[25px] font-bold tracking-[-0.015em]">{if revert { "Review the revert".to_string() } else { format!("Review {n} change{}", if n == 1 { "" } else { "s" }) }}</h1>
-                    <p class="mt-1 text-base text-text-muted">
+                    <h1 class="text-[25px] font-bold tracking-[-0.015em]">{if empty { "Nothing to apply".to_string() } else if revert { "Review the revert".to_string() } else { format!("Review {n} change{}", if n == 1 { "" } else { "s" }) }}</h1>
+                    <p class="mt-1 text-base text-text-muted" class:hidden=empty>
                         {if refused {
                             format!(
-                                "Validated against rev {base_rev} · refused by the {}",
+                                "Refused by the {}",
                                 if lockouts.is_empty() { "admin grant guard" } else { "lockout guard" }
                             )
-                        } else if host.is_empty() {
-                            format!("Validated against rev {base_rev} · {applies}")
                         } else {
-                            format!("Validated against rev {base_rev} on {host} · {applies}")
+                            format!("Checked with the same rules as burrow validate · {applies}")
                         }}
                     </p>
                 </div>
-                {if refused {
+                {if refused || empty {
                     ().into_any()
                 } else if errors > 0 {
                     view! { <span class=tag_class(Tone::Danger) data-testid="review-state">{format!("{errors} error{} · {warnings} warning{}", if errors == 1 { "" } else { "s" }, if warnings == 1 { "" } else { "s" })}</span> }.into_any()
@@ -518,7 +653,7 @@ fn detail(plan: std::sync::Arc<Plan>, revert: bool) -> AnyView {
                     </div>
                 }
             })}
-            {(!plan.impacts.is_empty() || !restart.is_empty()).then(|| view! {
+            {(plan.impacts.iter().any(|i| i.code != "adds-client") || !restart.is_empty()).then(|| view! {
                 <h3 class=label>"Impact"</h3>
                 <div class="mb-6 grid gap-3 md:grid-cols-2" data-testid="impacts">
                     {impacts}
@@ -533,10 +668,18 @@ fn detail(plan: std::sync::Arc<Plan>, revert: bool) -> AnyView {
                     })}
                 </div>
             })}
-            {(!plan.diags.is_empty()).then(|| view! {
-                <h3 class=label>"Problems found by the server"</h3>
+            {(!new_diags.is_empty()).then(|| view! {
+                <h3 class=label>"Errors and warnings from this change"</h3>
                 <ul class="mb-6 space-y-1" data-testid="review-diags">{diags}</ul>
             })}
+            {(old_problems > 0).then(|| view! {
+                <p class="-mt-3 mb-6 text-[12.5px] text-text-muted" data-testid="old-problems">
+                    {format!("{old_problems} problem{} the config already had {} not shown here; ", if old_problems == 1 { "" } else { "s" }, if old_problems == 1 { "is" } else { "are" })}
+                    <Link to=Route::Overview class="text-accent-ink">"see the overview"</Link>
+                    "."
+                </p>
+            })}
+            {(!empty).then(|| view! {
             <div class="mb-2 flex items-center gap-2">
                 <h3 class="text-[11px] font-bold tracking-[0.07em] text-text-faint uppercase">"server.yaml"</h3>
                 <span class="text-xs text-text-muted">{format!("+{added} −{removed}{}", if plan.secrets_in_diff.is_empty() { "" } else { " · secrets masked" })}</span>
@@ -556,15 +699,21 @@ fn detail(plan: std::sync::Arc<Plan>, revert: bool) -> AnyView {
                     view! { <DiffView lines=lines split=split testid="review-diff"/> }.into_any()
                 }}
             </section>
+            })}
             {destructive.then(|| view! {
                 <div class="mb-6 rounded-[10px] border border-l-[3px] border-border border-l-danger bg-danger-weak/50 p-3.5 dark:bg-surface" data-testid="confirms">
                     <p class="flex items-center gap-2 text-sm font-semibold text-danger"><Icon name="alert"/>"Destructive change"</p>
-                    <p class="mt-1 text-sm text-text-muted" data-testid="destructive-summary">{destructive_text.clone()}</p>
                     {confirms}
                 </div>
             })}
-            <div class="sticky bottom-4 z-20 flex flex-wrap items-center gap-3 rounded-card border border-border bg-surface px-4 py-3 shadow-overlay max-lg:[&>button]:flex-1 [&>button]:whitespace-nowrap" data-sticky-bar="">
-                <span class="min-w-0 flex-1 basis-60 text-sm text-text-muted">{if let Some(g) = guard_view.clone() {
+            <div class="sticky bottom-4 z-20 flex flex-wrap items-center gap-3 rounded-card border border-border bg-surface px-4 py-3 shadow-overlay max-lg:[&>span]:flex-1 max-lg:[&_button]:w-full [&_button]:whitespace-nowrap" data-sticky-bar="">
+                <span class="min-w-0 flex-1 basis-60 text-sm text-text-muted" data-testid="review-footer">{if empty {
+                    if revert {
+                        "The file already matches that version.".to_string()
+                    } else {
+                        "Your edits put every value back as it was; the file would not change.".to_string()
+                    }
+                } else if let Some(g) = guard_view.clone() {
                     footer_text(&g)
                 } else if refused {
                     format!("{IN_THE_FILE}.")
@@ -573,16 +722,39 @@ fn detail(plan: std::sync::Arc<Plan>, revert: bool) -> AnyView {
                 }}</span>
                 <span class="sr-only" data-testid="apply-reason">{move || reason.get()}</span>
                 {guard_view.clone().map(lockout_fixes)}
-                <Button label="Discard all" variant="ghost" testid="discard" on_click=move |_| {
-                    e.review.set(None);
-                    e.discard();
-                    back();
-                }/>
-                <Button label="Keep editing" variant="secondary" testid="keep-editing" on_click=move |_| {
-                    e.review.set(None);
-                    back();
-                }/>
-                {if refused || !can {
+                {(!revert).then(|| view! {
+                    <Button label="Discard all" variant="ghost" testid="discard" on_click=move |_| {
+                        let to = match s.prev.get_untracked() {
+                            Route::Detail(sec, name) => {
+                                let name = e.draft.with_untracked(|d| d.renamed_from(&sec, &name)).unwrap_or(name);
+                                let there = e.draft.with_untracked(|d| get(d.base(), &[sec.clone(), name.clone()]).is_some());
+                                if there { Route::Detail(sec, name) } else { Route::List(sec) }
+                            }
+                            other => other,
+                        };
+                        e.review.set(None);
+                        e.discard();
+                        route::go(to);
+                    }/>
+                })}
+                {if revert {
+                    view! {
+                        <Button label="Cancel" variant="secondary" testid="cancel-revert" on_click=move |_| {
+                            e.review.set(None);
+                            back();
+                        }/>
+                    }.into_any()
+                } else {
+                    view! {
+                        <Button label="Back" variant="secondary" testid="keep-editing" on_click=move |_| {
+                            e.review.set(None);
+                            back();
+                        }/>
+                    }.into_any()
+                }}
+                {if empty {
+                    ().into_any()
+                } else if refused || !can {
                     view! {
                         <button type="button" class=button_class("danger-pending", false) disabled=true data-testid="apply">
                             {refused.then(|| view! { <Icon name="lock" small=true/> })}
@@ -648,7 +820,10 @@ fn outcome_view() -> impl IntoView {
 pub fn ReviewPage() -> impl IntoView {
     let s = store();
     let e = s.edit;
-    if e.review.with_untracked(Option::is_none) && untrack(|| e.dirty()) {
+    let reverting = e
+        .review
+        .with_untracked(|r| r.as_ref().is_some_and(|r| r.revert_of.is_some()));
+    if !reverting && untrack(|| e.dirty()) {
         e.open_review();
     }
     Effect::new(move |prev: Option<Option<String>>| {
@@ -670,7 +845,11 @@ pub fn ReviewPage() -> impl IntoView {
             });
             match shown {
                 Some((sec, name)) => route::go(Route::Detail(sec, name)),
-                None => route::go(s.prev.get_untracked()),
+                None => route::go(
+                    e.after_apply
+                        .get_untracked()
+                        .unwrap_or_else(|| s.prev.get_untracked()),
+                ),
             }
         }
         rev
@@ -705,84 +884,44 @@ pub fn ReviewPage() -> impl IntoView {
         let Some(p) = plan.get() else {
             return Vec::new();
         };
-        let mut out: Vec<Row> = p
-            .changes
+        let draft_has =
+            |path: &[String]| e.draft.with_untracked(|d| get(d.draft(), path).is_some());
+        let out: Vec<Row> = change_groups(&p)
             .iter()
             .enumerate()
-            .map(|(i, c)| {
-                let (icon, tone) = kind_look(c.kind);
+            .map(|(i, g)| {
+                let (icon, tone) = kind_look(g.head.kind);
+                let entity = g.head.path.len() == 2
+                    && crate::route::SECTIONS.contains(&g.head.path[0].as_str());
+                let to = if entity && !revert.get_untracked() && draft_has(&g.head.path) {
+                    Route::Detail(g.head.path[0].clone(), g.head.path[1].clone())
+                } else {
+                    Route::Review
+                };
                 Row {
                     key: format!("{i}"),
-                    to: Route::Review,
+                    to,
                     icon,
                     dot: Some(tone),
-                    title: c.summary.clone(),
-                    line2: c.path.join("."),
-                    group: "Pending changes".into(),
-                    filters: vec!["changes"],
+                    title: g.head.summary.clone(),
+                    line2: group_line(g),
+                    group: "Changes".into(),
                     ..Row::default()
                 }
             })
             .collect();
-        for (i, imp) in p.impacts.iter().enumerate() {
-            let (icon, tone) = impact_icon(imp.level);
-            let (head, tail) = match imp.message.split_once(" · ") {
-                Some((a, b)) => (a.to_string(), b.to_string()),
-                None => (imp.message.clone(), String::new()),
-            };
-            out.push(Row {
-                key: format!("impact-{i}"),
-                to: Route::Review,
-                icon,
-                dot: Some(tone),
-                title: head,
-                line2: tail,
-                group: "Impact".into(),
-                filters: vec!["changes"],
-                ..Row::default()
-            });
-        }
-        for (i, d) in p.diags.iter().enumerate() {
-            out.push(Row {
-                key: format!("diag-{i}"),
-                to: Route::Review,
-                icon: if d.is_error() {
-                    "alert-circle"
-                } else {
-                    "alert"
-                },
-                dot: Some(if d.is_error() {
-                    Tone::Danger
-                } else {
-                    Tone::Warning
-                }),
-                title: d.message.clone(),
-                line2: d.path.as_ref().map(|p| p.join(".")).unwrap_or_default(),
-                group: "Diagnostics".into(),
-                filters: vec!["diagnostics"],
-                ..Row::default()
-            });
-        }
         out
     });
-    let count = Signal::derive(move || {
-        plan.with(|p| {
-            p.as_ref()
-                .map(|p| format!("rev {}", short_rev(&p.base)))
-                .unwrap_or_default()
-        })
-    });
-    let n_diags =
-        Signal::derive(move || plan.with(|p| p.as_ref().map(|p| p.diags.len()).unwrap_or(0)));
+    let count = Signal::stored(String::new());
     let list = view! {
         <ListPane
             title="Review"
             count=count
             search_label="Search changes"
-            filters=vec![("changes", "Changes".into()), ("diagnostics", format!("Diagnostics {}", n_diags.get_untracked()))]
-            groups=vec!["Pending changes", "Impact", "Diagnostics"]
+            filters=Vec::new()
+            groups=vec!["Changes"]
             no_counts=true
-            default_filter="changes"
+            empty=(String::new(), String::new())
             rows=rows
             selected=Signal::stored(None::<String>)
             testid="review-list"
@@ -796,6 +935,26 @@ pub fn ReviewPage() -> impl IntoView {
                 <EmptyState icon="check" title="Nothing to review" message="Your changes show up here before they are applied." testid="review-empty">
                     <Link to=Route::Overview class=button_class("secondary", false)>"Go to the overview"</Link>
                 </EmptyState>
+            }
+            .into_any();
+        }
+        if !revert.get() && !e.dirty() {
+            return view! {
+                {outcome_view()}
+                <EmptyState icon="check" title="Nothing to apply" message="Your draft has no changes left." testid="review-empty">
+                    <Link to=s.prev.get_untracked() class=button_class("secondary", false)>"Back"</Link>
+                </EmptyState>
+            }
+            .into_any();
+        }
+        if !revert.get()
+            && let Some((base, now)) = stale(s)
+        {
+            return view! {
+                <Callout tone=Tone::Warning title=format!("Based on rev {}; the file is now rev {}", short_rev(&base), short_rev(&now)) testid="review-stale">
+                    <p class="mb-2.5">"The config changed on the server after you started. Your draft is kept; check it on the new rev to see what it applies."</p>
+                    <Button label=format!("Review my draft on rev {}", short_rev(&now)) variant="primary" icon="refresh" small=true on_click=move |_| recheck(s)/>
+                </Callout>
             }
             .into_any();
         }
@@ -815,12 +974,51 @@ pub fn ReviewPage() -> impl IntoView {
     master_detail(list, detail)
 }
 
+pub fn stale(s: Store) -> Option<(String, String)> {
+    let e = s.edit;
+    if !e.dirty()
+        || e.review
+            .with(|r| r.as_ref().is_some_and(|r| r.revert_of.is_some()))
+    {
+        return None;
+    }
+    let base = e.base_rev.get();
+    let now = s.state.with(|st| st.as_ref().map(|st| st.rev.clone()))?;
+    (!base.is_empty() && base != now).then_some((base, now))
+}
+
+pub fn recheck(s: Store) {
+    let e = s.edit;
+    e.keep_open_edits();
+    let revert = e.conflict_revert.get_untracked();
+    e.conflict_revert.set(None);
+    e.end_conflict();
+    crate::api::request(
+        burrow_admin_proto::msg::req::STATE,
+        burrow_admin_proto::serde_json::json!({}),
+        move |r| {
+            if let Ok(Ok(state)) =
+                r.map(burrow_admin_proto::serde_json::from_value::<burrow_admin_proto::msg::State>)
+            {
+                s.state.set(Some(std::sync::Arc::new(state)));
+                match revert.clone() {
+                    Some(to) => s.edit.open_revert(s, to),
+                    None => {
+                        s.edit.rebase(s);
+                        s.edit.open_review();
+                        route::go_in(s, Route::Review);
+                    }
+                }
+            }
+        },
+    );
+}
+
 #[component]
 pub fn ConflictDialog() -> impl IntoView {
     let s = store();
     let e = s.edit;
-    let open = RwSignal::new(false);
-    Effect::new(move |_| open.set(e.conflict.with(Option::is_some)));
+    let open = e.conflict_open;
     let current = move || {
         e.conflict.with(|c| {
             c.as_ref()
@@ -897,8 +1095,10 @@ pub fn ConflictDialog() -> impl IntoView {
     let label = "mb-1 text-[11px] font-bold tracking-[0.07em] text-text-faint uppercase";
     view! {
         <Dialog open=open title="The config changed on the server" sub=sub icon="refresh" tone=Tone::Warning wide=true testid="conflict">
-            <h3 class=label>{move || format!("Changed on the server · rev {}", current())}</h3>
-            <ul class="mb-4 text-sm" data-testid="conflict-theirs">{theirs}</ul>
+            {move || e.conflict.with(|c| c.as_ref().is_some_and(|c| !c.theirs.is_empty())).then(|| view! {
+                <h3 class=label>{move || format!("Changed on the server · rev {}", current())}</h3>
+                <ul class="mb-4 text-sm" data-testid="conflict-theirs">{theirs}</ul>
+            })}
             <h3 class=label>{move || format!("Your draft · {} change{}", n_mine(), if n_mine() == 1 { "" } else { "s" })}</h3>
             <ul class="mb-5 text-sm" data-testid="conflict-mine">{mine}</ul>
             <div class="flex flex-wrap items-center gap-2">
@@ -910,26 +1110,11 @@ pub fn ConflictDialog() -> impl IntoView {
                 <span class="flex-1"></span>
                 <Button label=Signal::derive(move || format!("View rev {}", current())) variant="secondary" testid="conflict-view" on_click=move |_| {
                     let rev = e.conflict.with_untracked(|c| c.as_ref().map(|c| c.current.clone()));
-                    open.set(false);
                     e.conflict_revert.set(None);
-                    e.conflict.set(None);
+                    e.end_conflict();
                     route::go(Route::Activity(rev));
                 }/>
-                <Button label=Signal::derive(move || format!("Review my draft on rev {}", current())) variant="primary" icon="refresh" testid="conflict-recheck" on_click=move |_| {
-                    e.conflict.set(None);
-                    let revert = e.conflict_revert.get_untracked();
-                    e.conflict_revert.set(None);
-                    let st = s;
-                    crate::api::request(burrow_admin_proto::msg::req::STATE, burrow_admin_proto::serde_json::json!({}), move |r| {
-                        if let Ok(Ok(state)) = r.map(burrow_admin_proto::serde_json::from_value::<burrow_admin_proto::msg::State>) {
-                            st.state.set(Some(std::sync::Arc::new(state)));
-                            match revert.clone() {
-                                Some(to) => st.edit.open_revert(st, to),
-                                None => st.edit.rebase(st),
-                            }
-                        }
-                    });
-                }/>
+                <Button label=Signal::derive(move || format!("Review my draft on rev {}", current())) variant="primary" icon="refresh" testid="conflict-recheck" on_click=move |_| recheck(s)/>
             </div>
         </Dialog>
     }
@@ -938,6 +1123,26 @@ pub fn ConflictDialog() -> impl IntoView {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_diagnostic_says_where_in_the_words_of_the_form() {
+        let root =
+            <burrow_config::ServerConfig as burrow_config::admin_schema::AdminSchema>::node();
+        let p = |x: &[&str]| x.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(
+            place_of(&root, &p(&["visitors", "laptop", "max_connections"])),
+            "Visitor laptop · Max connections"
+        );
+        assert_eq!(
+            place_of(&root, &p(&["services", "web", "allow_from", "1"])),
+            "Service web · Allow from"
+        );
+        assert_eq!(
+            place_of(&root, &p(&["pool", "min_idle"])),
+            "Pool of idle channels · Idle channels kept ready"
+        );
+        assert_eq!(place_of(&root, &p(&["nonsense"])), "nonsense");
+    }
     use burrow_admin_proto::plan::Hunk;
     use burrow_admin_proto::serde_json::json;
 
@@ -945,7 +1150,7 @@ mod tests {
     fn the_review_marks_removed_added_and_changed_services() {
         let base = json!({"services": {"ssh": {"client": "a", "bind": "0.0.0.0:2222", "target": "x:22"}, "web": {"client": "a", "bind": "0.0.0.0:443", "target": "x:80"}}});
         let draft = json!({"services": {"web": {"client": "a", "bind": "0.0.0.0:8443", "target": "x:80"}, "db": {"client": "a", "target": "y:5432"}}});
-        let p = service_paths(&base, &draft, &[]);
+        let p = service_paths(&base, &draft, None, &[]);
         let names: Vec<&str> = p.iter().map(|(n, _)| n.as_str()).collect();
         assert_eq!(names, ["db", "ssh", "web"]);
         assert!(p[0].1.hops.iter().all(|h| h.state == HopState::Added));
@@ -954,6 +1159,88 @@ mod tests {
         assert_eq!(web.hops[1].state, HopState::Added);
         assert_eq!(web.hops[1].badge.as_ref().unwrap().0, "was 0.0.0.0:443");
         assert_eq!(web.hops[3].state, HopState::Normal);
+    }
+
+    #[test]
+    fn a_new_client_and_the_services_it_joins_are_one_group() {
+        let ch = |kind, path: &[&str], summary: &str, part_of: Option<&[&str]>| Change {
+            kind,
+            path: path.iter().map(|x| x.to_string()).collect(),
+            summary: summary.into(),
+            part_of: part_of.map(|g| g.iter().map(|x| x.to_string()).collect()),
+        };
+        let office: &[&str] = &["clients", "office"];
+        let plan = Plan {
+            changes: vec![
+                ch(
+                    ChangeKind::Add,
+                    office,
+                    "New client office (1 secret)",
+                    None,
+                ),
+                ch(
+                    ChangeKind::Set,
+                    &["services", "web"],
+                    "Service web: clients",
+                    Some(office),
+                ),
+                ch(
+                    ChangeKind::Set,
+                    &["services", "db"],
+                    "Service db: clients",
+                    Some(office),
+                ),
+                ch(
+                    ChangeKind::Set,
+                    &["visitors", "lap"],
+                    "Visitor lap: reach",
+                    Some(office),
+                ),
+                ch(
+                    ChangeKind::Set,
+                    &["services", "ssh"],
+                    "Service ssh: target",
+                    None,
+                ),
+                ch(
+                    ChangeKind::Set,
+                    &["services", "x"],
+                    "Service x: clients",
+                    Some(&["clients", "gone"]),
+                ),
+            ],
+            ..Plan::default()
+        };
+        let g = change_groups(&plan);
+        assert_eq!(g.len(), 3, "{g:?}");
+        assert_eq!(g[0].parts.len(), 3);
+        assert_eq!(
+            group_line(&g[0]),
+            "added to services web, db and visitor lap"
+        );
+        assert_eq!(group_line(&g[1]), "services.ssh");
+        assert_eq!(
+            g[2].head.path,
+            ["services", "x"],
+            "a group whose head is missing stands alone"
+        );
+        assert!(!nothing_to_apply(&plan));
+        assert!(nothing_to_apply(&Plan::default()));
+        let settings = Plan {
+            changes: vec![
+                ch(ChangeKind::Set, &["pool"], "pool: min_idle 4 → 8", None),
+                ch(
+                    ChangeKind::Set,
+                    &["limits"],
+                    "limits: max_pending 512 → 9",
+                    None,
+                ),
+            ],
+            ..Plan::default()
+        };
+        let g = change_groups(&settings);
+        assert_eq!(g.len(), 1, "server settings are one change");
+        assert_eq!(g[0].head.summary, "Server settings: pool, limits");
     }
 
     #[test]

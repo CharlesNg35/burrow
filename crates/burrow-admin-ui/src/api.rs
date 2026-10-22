@@ -248,11 +248,26 @@ fn event(store: Store, ev: &str, body: Value) {
                     )
                     || store.edit.applying.get_untracked();
                 if !ours {
-                    let old = store
-                        .state
-                        .with_untracked(|s| s.as_ref().map(|s| s.rev.clone()).unwrap_or_default());
-                    store.changed_from.set((old, js_sys::Date::now()));
-                    store.changed.set(Some(c));
+                    let busy = untrack(|| store.edit.dirty())
+                        || store.edit.review.with_untracked(Option::is_some);
+                    if busy {
+                        let old = store.state.with_untracked(|s| {
+                            s.as_ref().map(|s| s.rev.clone()).unwrap_or_default()
+                        });
+                        store.changed_from.set((old, js_sys::Date::now()));
+                        store.changed.set(Some(c));
+                    } else {
+                        let by = if c.by.is_empty() || c.by == "file" {
+                            "by a hand edit".to_string()
+                        } else {
+                            format!("by visitor {}", c.by)
+                        };
+                        store.toast(
+                            burrow_ui_kit::Tone::Info,
+                            format!("Config changed {by}; this page shows it now"),
+                            None,
+                        );
+                    }
                     load_state(store);
                     load_history(store);
                 }
@@ -332,7 +347,10 @@ pub fn load_state(store: Store) {
     request(msg::req::STATE, json!({}), move |r| {
         match r.map(serde_json::from_value::<State>) {
             Ok(Ok(s)) => {
-                store.edit.sync_base(&s.values, &s.rev);
+                if store.edit.sync_base(&s.values, &s.rev) {
+                    store.edit.revalidate_now();
+                }
+                store.note_clients(&s);
                 store.state.set(Some(Arc::new(s)));
                 if store.conn.get_untracked() != Conn::Open {
                     store.conn.set(Conn::Open);

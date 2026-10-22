@@ -64,6 +64,8 @@ pub struct Change {
     pub kind: ChangeKind,
     pub path: Path,
     pub summary: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub part_of: Option<Path>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]

@@ -9,7 +9,7 @@ type Flow<'a> = Pin<Box<dyn Future<Output = ()> + 'a>>;
 
 async fn review_and_apply(c: &mut Ctx, what: &str) {
     wait_checked(c).await;
-    c.ui.click("[data-testid=review-open]").await;
+    super::review_now(c).await;
     c.ui.wait_for("[data-testid=apply]:not([disabled])", SECS)
         .await;
     c.ui.shot(&format!("review-{what}")).await;
@@ -28,21 +28,66 @@ fn secret_once(c: &mut Ctx) -> Flow<'_> {
         open(c, "ops").await;
         c.ui.nav("/clients").await;
         c.ui.click("[data-testid=new]").await;
+        c.ui.wait_for("[data-testid=create]", SECS).await;
+        assert_eq!(
+            c.ui.eval::<String>(
+                "document.querySelector('[data-testid=create]').parentElement.title"
+            )
+            .await,
+            "Type a name first",
+            "a disabled button says why"
+        );
         c.ui.fill("#new-name", "lab").await;
+        for svc in ["web", "ssh"] {
+            c.ui.click("#new-links").await;
+            c.ui.click(&format!("[data-option={svc}]")).await;
+        }
+        c.ui.press("#new-links", "Escape").await;
         c.ui.click("[data-testid=create]").await;
         c.ui.wait_for("[data-testid=detail][data-name=lab]", SECS)
             .await;
+        c.ui.click("[data-tab=secrets]").await;
         c.ui.wait_for("[data-testid=secrets] [data-fp]", SECS).await;
         c.ui.shot("new-client-with-a-generated-secret").await;
-        review_and_apply(c, "new-client").await;
+        wait_checked(c).await;
+        assert_eq!(
+            c.ui.text("[data-testid=review-count]").await.trim(),
+            "1",
+            "a new client and the services it joins count once"
+        );
+        c.ui.click("[data-testid=review-open]").await;
+        c.ui.wait_for("[data-testid=apply]:not([disabled])", SECS)
+            .await;
+        let rows =
+            c.ui.count("[data-testid=review-list] [data-testid=list-row]")
+                .await;
+        let list = c.ui.text("[data-testid=review-list]").await;
+        assert_eq!(rows, 1, "one grouped change: {list}");
+        assert!(list.contains("New client lab"), "{list}");
+        assert!(list.contains("added to services"), "{list}");
+        assert!(
+            !list.contains("uses its new target"),
+            "impacts stay in the main pane: {list}"
+        );
+        let impacts =
+            c.ui.count("[data-testid=impacts] [data-impact=changes-service]")
+                .await;
+        assert_eq!(impacts, 1, "one impact for both services");
+        c.ui.shot("review-new-client-in-two-services").await;
+        c.ui.click("[data-testid=apply]").await;
         c.ui.wait_for("[data-testid=shown-once]", Duration::from_secs(20))
             .await;
+        assert!(
+            c.ui.enabled("[data-testid=edit]").await,
+            "a just-created client can be edited without a reload"
+        );
         let secret =
             c.ui.text("[data-testid=secret-value] pre")
                 .await
                 .trim()
                 .to_string();
         assert_eq!(secret.len(), 44, "a 256-bit base64 secret: {secret:?}");
+        c.ui.click("[data-testid=shown-once] [data-tab=file]").await;
         let config = c.ui.text("[data-testid=config-text] pre").await;
         assert!(config.contains("name: lab"), "{config}");
         assert!(config.contains(&secret), "{config}");
@@ -85,8 +130,7 @@ fn secret_once(c: &mut Ctx) -> Flow<'_> {
         let page: String = c.ui.eval("document.body.innerText").await;
         assert!(!page.contains(&secret), "the secret is not shown again");
         c.ui.shot("only-the-fingerprint-later").await;
-        c.ui.click("[data-testid=more]").await;
-        c.ui.click("[data-testid=connect-open]").await;
+        c.ui.click("[role=tablist] [data-tab=connect]").await;
         c.ui.wait_for("[data-testid=connect] [data-testid=snippets]", SECS)
             .await;
         let later = c.ui.text("[data-testid=connect]").await;
@@ -138,6 +182,8 @@ fn rotation(c: &mut Ctx) -> Flow<'_> {
         c.ui.click("[data-testid=rotate]").await;
         c.ui.wait_for("[data-testid=secrets] li:nth-child(2)", SECS)
             .await;
+        c.ui.wait_text("[data-testid=toast]", "Added to changes", SECS)
+            .await;
         c.ui.shot("rotation-adds-a-second-secret").await;
         review_and_apply(c, "rotation").await;
         c.ui.wait_for("[data-testid=shown-once]", Duration::from_secs(20))
@@ -160,19 +206,15 @@ fn rotation(c: &mut Ctx) -> Flow<'_> {
         assert_eq!(in_use, old, "the old secret is still the one in use");
         c.ui.shot("both-listed-old-in-use").await;
 
-        c.ui.click(&format!(
-            "[data-testid=secrets] [data-fp='{old}'] [data-testid=remove-secret]"
-        ))
-        .await;
-        wait_checked(c).await;
-        c.ui.click("[data-testid=review-open]").await;
-        c.ui.wait_for("[data-testid=review] [data-confirm=home]", SECS)
-            .await;
-        c.ui.shot("removing-the-used-secret-needs-the-name").await;
-        c.ui.click("[data-testid=discard]").await;
-        c.ui.wait_gone("[data-testid=review-open]", SECS).await;
-        c.ui.nav("/clients/office").await;
-        c.ui.nav("/clients/home?tab=secrets").await;
+        assert!(
+            !c.ui
+                .enabled(&format!(
+                    "[data-testid=secrets] [data-fp='{old}'] [data-testid=remove-secret]"
+                ))
+                .await,
+            "the secret the session uses cannot be removed"
+        );
+        c.ui.shot("the-used-secret-cannot-be-removed").await;
 
         let yaml = format!(
             "server: {}\nname: home\nsecret: {new_secret}\nallow: [127.0.0.1/32]\n",
@@ -245,6 +287,8 @@ fn revoke_and_reconnect(c: &mut Ctx) -> Flow<'_> {
         super::edit_mode(c).await;
         c.ui.fill("#f-services-web-target", "4100").await;
         wait_checked(c).await;
+        c.ui.click("[data-testid=save]").await;
+        c.ui.wait_gone("[data-testid=save-bar]", SECS).await;
         c.ui.shot("ops-with-a-draft").await;
         c.world.stop("server");
         c.ui.wait_text(
@@ -293,7 +337,7 @@ fn request_while_reconnecting(c: &mut Ctx) -> Flow<'_> {
         super::edit_mode(c).await;
         c.ui.fill("#f-services-web-target", "4100").await;
         wait_checked(c).await;
-        c.ui.click("[data-testid=review-open]").await;
+        super::review_now(c).await;
         c.ui.wait_for("[data-testid=apply]:not([disabled])", SECS)
             .await;
         c.world.stop("server");
@@ -366,6 +410,8 @@ fn create_and_apply(c: &mut Ctx) -> Flow<'_> {
         super::edit_mode(c).await;
         c.ui.fill("#f-services-web-target", "4100").await;
         wait_checked(c).await;
+        c.ui.click("[data-testid=save]").await;
+        c.ui.wait_gone("[data-testid=save-bar]", SECS).await;
         c.ui.nav("/clients").await;
         c.ui.click("[data-testid=new]").await;
         c.ui.fill("#new-name", "lab2").await;
@@ -417,7 +463,7 @@ fn create_and_apply_after_a_conflict(c: &mut Ctx) -> Flow<'_> {
         c.ui.click("[data-testid=conflict-recheck]").await;
         c.ui.wait_gone("[data-testid=conflict]", SECS).await;
         wait_checked(c).await;
-        c.ui.click("[data-testid=review-open]").await;
+        super::review_now(c).await;
         c.ui.wait_for("[data-testid=apply]:not([disabled])", SECS)
             .await;
         tokio::time::sleep(Duration::from_secs(3)).await;

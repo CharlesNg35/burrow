@@ -148,6 +148,14 @@ fn explain(status: Status, to: &VisitTarget, visitor: &str) -> String {
     }
 }
 
+fn told_app(reply: Reply) -> String {
+    format!(
+        " (the SOCKS app was told: {}, code {})",
+        reply.meaning(),
+        reply as u8
+    )
+}
+
 fn socks_target_ok(target: &str) -> bool {
     target.len() <= crate::config::check::MAX_TARGET_LEN
         && !target.starts_with(crate::config::check::unix::PREFIX)
@@ -230,6 +238,13 @@ pub(super) async fn visit(
                 Ok(Ok(target)) => {
                     debug!(%peer, "forward \"{name}\": SOCKS target {target:?} is not a valid host:port");
                     let _ = socks::reply(&mut stream, Reply::HostUnreachable).await;
+                    return;
+                }
+                Ok(Err(e)) if e.kind() == std::io::ErrorKind::Unsupported => {
+                    static ASKED: Throttle = Throttle::new();
+                    if let Some(more) = ASKED.allow() {
+                        info!(%peer, "forward \"{name}\": SOCKS request refused: {e}{more}");
+                    }
                     return;
                 }
                 Ok(Err(e)) => {
@@ -316,6 +331,7 @@ pub(super) async fn visit(
         }
         tokio::time::sleep(backoff.next_delay()).await;
     };
+    let mut told = None;
     let result = match answer {
         Ok(ch) if socks => match socks::reply(&mut stream, Reply::Succeeded).await {
             Ok(()) => pump_tcp(ch, stream, false).await,
@@ -329,6 +345,7 @@ pub(super) async fn visit(
                     _ => Reply::Failure,
                 };
                 let _ = socks::reply(&mut stream, code).await;
+                told = Some(code);
             }
             Err(e)
         }
@@ -339,8 +356,9 @@ pub(super) async fn visit(
             static REFUSED: Throttle = Throttle::new();
             if let Some(more) = REFUSED.allow() {
                 warn!(
-                    "forward \"{name}\": {}{more}",
-                    explain(st, &to, &dialer.name)
+                    "forward \"{name}\": {}{}{more}",
+                    explain(st, &to, &dialer.name),
+                    told.map(told_app).unwrap_or_default()
                 );
             }
         }
@@ -354,6 +372,14 @@ pub(super) async fn visit(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_socks_refusal_names_the_reply_the_app_got() {
+        assert_eq!(
+            told_app(Reply::from(Status::Denied)),
+            " (the SOCKS app was told: connection not allowed by ruleset, code 2)"
+        );
+    }
 
     #[tokio::test]
     async fn a_slot_wait_goes_on_while_other_dials_succeed() {

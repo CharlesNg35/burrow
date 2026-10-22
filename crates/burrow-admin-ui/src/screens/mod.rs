@@ -5,6 +5,7 @@ pub mod entity;
 pub mod flow;
 mod overview;
 pub mod paths;
+pub mod placement;
 mod settings;
 
 use burrow_config::Protocol;
@@ -73,6 +74,23 @@ impl Row {
 }
 
 #[component]
+pub fn TocRow(row: Row, selected: bool) -> impl IntoView {
+    let class = if selected {
+        "bg-accent-weak text-accent-ink"
+    } else {
+        "text-text hover:bg-surface-3"
+    };
+    view! {
+        <div class=format!("relative mx-3 mb-0.5 flex items-center gap-2 rounded-md px-3 py-2 {class}") data-row=row.key.clone() data-group=row.group.clone() data-selected=selected.then_some("true")>
+            <Link to=row.to.clone() class="min-w-0 flex-1 truncate text-sm font-semibold text-inherit no-underline after:absolute after:inset-0 after:rounded-md" testid="list-row" current=Signal::stored(selected)>
+                {row.title.clone()}
+            </Link>
+            {row.tags.iter().map(|(t, tone)| view! { <span class=tag_class(*tone)>{t.clone()}</span> }).collect_view()}
+        </div>
+    }
+}
+
+#[component]
 pub fn ListCard(row: Row, selected: bool) -> impl IntoView {
     let class = if selected {
         "border-accent-line ring-3 ring-accent-weak"
@@ -126,7 +144,7 @@ pub fn ListCard(row: Row, selected: bool) -> impl IntoView {
                     </span>
                 })}
             </span>
-            <span class="font-mono text-xs whitespace-nowrap text-text-muted">{row.meta.clone()}</span>
+            <span class="font-mono text-xs whitespace-nowrap text-text-muted">{(!selected).then(|| row.meta.clone())}</span>
         </div>
     }
 }
@@ -148,6 +166,8 @@ pub fn ListPane(
     #[prop(optional)] no_counts: bool,
     #[prop(optional)] new_disabled: bool,
     #[prop(optional)] default_filter: Option<&'static str>,
+    #[prop(optional)] compact: bool,
+    #[prop(optional)] empty_icon: Option<&'static str>,
 ) -> impl IntoView {
     let q = RwSignal::new(String::new());
     let filter = RwSignal::new(default_filter.unwrap_or("all"));
@@ -202,8 +222,8 @@ pub fn ListPane(
                 >
                     {label}
                     {move || {
-                        let n = rows.with(|r| r.iter().filter(|x| key == "all" || x.filters.contains(&key)).count());
-                        (!no_counts && n > 0 && Protocol::from_wire(key).is_none()).then(|| format!(" {n}"))
+                        let n = rows.with(|r| r.iter().filter(|x| !x.key.starts_with("__") && (key == "all" || x.filters.contains(&key))).count());
+                        (!no_counts && key != "all" && n > 0 && Protocol::from_wire(key).is_none()).then(|| format!(" {n}"))
                     }}
                 </button>
             }
@@ -240,7 +260,8 @@ pub fn ListPane(
         let list = visible.get();
         if list.is_empty() {
             return match &empty {
-                Some((t, m)) if rows.with(Vec::is_empty) => view! { <EmptyState icon="plus" title=t.clone() message=m.clone() testid="list-empty"/> }.into_any(),
+                Some((t, _)) if t.is_empty() => ().into_any(),
+                Some((t, m)) if rows.with(Vec::is_empty) => view! { <EmptyState icon=empty_icon.unwrap_or("plus") title=t.clone() message=m.clone() testid="list-empty"/> }.into_any(),
                 _ => view! { <p class="px-4 py-6 text-sm text-text-muted">"Nothing matches."</p> }.into_any(),
             };
         }
@@ -251,6 +272,10 @@ pub fn ListPane(
                 gs.push(r.group.clone());
             }
         }
+        let shown = gs
+            .iter()
+            .filter(|g| list.iter().any(|r| &r.group == *g))
+            .count();
         gs.into_iter()
             .filter_map(|g| {
                 let in_group: Vec<Row> = list.iter().filter(|r| r.group == g).cloned().collect();
@@ -260,12 +285,16 @@ pub fn ListPane(
                         {(!g.is_empty()).then(|| view! {
                             <div class=format!("flex justify-between px-4 pt-3.5 pb-1.5 {LABEL}")>
                                 <span>{g.clone()}</span>
-                                <span>{n}</span>
+                                {(shown > 1 && !no_counts).then(|| view! { <span>{n}</span> })}
                             </div>
                         })}
                         {in_group.into_iter().map(|r| {
                             let on = sel.as_deref() == Some(r.key.as_str());
-                            view! { <ListCard row=r selected=on/> }
+                            if compact {
+                                view! { <TocRow row=r selected=on/> }.into_any()
+                            } else {
+                                view! { <ListCard row=r selected=on/> }.into_any()
+                            }
                         }).collect_view()}
                     }
                 })
@@ -366,9 +395,52 @@ pub fn DetailPane(
     }
 }
 
+pub fn clear_of_bar() {
+    use wasm_bindgen::JsCast;
+    let doc = document();
+    let Some(root) = doc
+        .document_element()
+        .and_then(|r| r.dyn_into::<web_sys::HtmlElement>().ok())
+    else {
+        return;
+    };
+    let Some(bar) = doc.query_selector("[data-sticky-bar]").ok().flatten() else {
+        let _ = root.style().remove_property("scroll-padding-bottom");
+        return;
+    };
+    let h = window()
+        .inner_height()
+        .ok()
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0);
+    let top = bar.get_bounding_client_rect().top();
+    let room = (h - top + 16.0).clamp(16.0, h / 2.0);
+    let _ = root
+        .style()
+        .set_property("scroll-padding-bottom", &format!("{room}px"));
+    let Some(active) = doc.active_element() else {
+        return;
+    };
+    if bar.contains(Some(&active)) || active.tag_name() == "BODY" {
+        return;
+    }
+    let row = active
+        .closest("[data-schema]")
+        .ok()
+        .flatten()
+        .filter(|r| r.get_bounding_client_rect().height() < h / 2.0)
+        .unwrap_or(active);
+    let r = row.get_bounding_client_rect();
+    let limit = h - room;
+    if r.bottom() > limit && r.top() < h {
+        let by = (r.bottom() - limit + 8.0).min(r.top() - 80.0).max(0.0);
+        window().scroll_by_with_x_and_y(0.0, by);
+    }
+}
+
 pub fn master_detail(list: AnyView, detail: AnyView) -> AnyView {
     view! {
-        <div class="grid min-h-[calc(100vh-var(--hdr-h,64px))] items-start lg:grid-cols-[380px_minmax(0,1fr)]">
+        <div class="grid min-h-[calc(100vh-var(--hdr-h,64px))] items-start lg:grid-cols-[380px_minmax(0,1fr)] lg:bg-[linear-gradient(to_right,var(--color-surface)_379px,var(--color-border)_379px,var(--color-border)_380px,transparent_380px)]">
             {list}
             {detail}
         </div>

@@ -132,7 +132,7 @@ fn missing_fields() {
     insta::assert_snapshot!(render("server.yaml", "clients:\n  home:\n    secret: x\nservices:\n  web:\n    client: home\n", None), @r#"
     error: the server needs "listen" (TCP), "websocket", or both
       --> server.yaml
-       = help: add "listen: 0.0.0.0:7835" for TCP clients, or a websocket section for clients behind HTTP-only networks (see README)
+       = help: add "listen: 0.0.0.0:7835" for TCP clients, or a websocket section for clients behind HTTP-only networks (see https://github.com/charlesng35/burrow/blob/main/docs/websocket.md)
 
     error: secret for client "home" is not valid base64 or hex (1 character)
       --> server.yaml:3:13
@@ -686,7 +686,7 @@ fn server_without_any_listener() {
     insta::assert_snapshot!(render("server.yaml", &src, None), @r#"
     error: the server needs "listen" (TCP), "websocket", or both
       --> server.yaml
-       = help: add "listen: 0.0.0.0:7835" for TCP clients, or a websocket section for clients behind HTTP-only networks (see README)
+       = help: add "listen: 0.0.0.0:7835" for TCP clients, or a websocket section for clients behind HTTP-only networks (see https://github.com/charlesng35/burrow/blob/main/docs/websocket.md)
 
     warning: no services are defined, so nothing is exposed
       --> server.yaml:4:1
@@ -1161,19 +1161,7 @@ fn visitor_mistakes() {
 
     visitor.yaml: 7 errors, 1 warning
     "#);
-    insta::assert_snapshot!(render("visitor.yaml", &visitor("  {}\n"), None), @r#"
-    warning: no forwards are defined
-      --> visitor.yaml:4:1
-       |
-     4 | forwards:
-       | ^^^^^^^^
-       = help: add one, for example:
-             forwards:
-               db: { service: db, local: 5432 }
-           or name the target when you run it: burrow visit --service NAME --local PORT
-
-    visitor.yaml: valid visitor config for "laptop" (0 forwards), 1 warning
-    "#);
+    insta::assert_snapshot!(render("visitor.yaml", &visitor("  {}\n"), None), @r#"visitor.yaml: valid visitor config for "laptop" (0 forwards)"#);
     insta::assert_snapshot!(render("visitor.yaml", &format!("server: a\nname: laptop\nsecret: {SECRET}\n"), Some(Role::Visitor)), @r#"
     warning: no forwards are defined
       --> visitor.yaml
@@ -1989,7 +1977,7 @@ fn invalid_forwards_are_not_called_missing() {
         o.report.diagnostics.iter().any(|d| d.code == "no-forwards")
     };
     assert!(warned(""));
-    assert!(warned("forwards: {}\n"));
+    assert!(!warned("forwards: {}\n"));
     assert!(!warned("forwards:\n  a: { service: db, local: 0 }\n"));
     assert!(!warned("forwards:\n"));
     assert!(!warned("forwards:\n  a: { service: db, local: 5432 }\n"));

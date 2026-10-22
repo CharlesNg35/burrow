@@ -36,7 +36,7 @@ pub fn rows(v: Option<&Value>) -> Vec<Row> {
             Some(Row {
                 fp: s.fp.clone().unwrap_or_default(),
                 source: match &s.src {
-                    SecretSrc::Literal => "literal".into(),
+                    SecretSrc::Literal => "in server.yaml".into(),
                     SecretSrc::Env(e) => format!("env: {e}"),
                 },
                 fresh: false,
@@ -62,6 +62,7 @@ pub fn secret_list(path: Path, id: String, max: u32) -> AnyView {
     let e = s.edit;
     let section = path.first().cloned().unwrap_or_default();
     let name = path.get(1).cloned().unwrap_or_default();
+    let schema_path = format!("{section}/*/{}", path.get(2).cloned().unwrap_or_default());
     let p2 = path.clone();
     let list = Memo::new(move |_| rows(e.value(&p2).as_ref()));
     let (sec2, name2) = (section.clone(), name.clone());
@@ -72,6 +73,7 @@ pub fn secret_list(path: Path, id: String, max: u32) -> AnyView {
         api::request(msg::req::GENERATE_SECRET, json!({}), move |r| {
             if let Ok(Ok(g)) = r.map(serde_json::from_value::<GeneratedSecret>) {
                 e.add_secret(&p, &g.handle, &g.fp);
+                added_outside_edit(s, &p);
             }
         });
     };
@@ -129,10 +131,15 @@ pub fn secret_list(path: Path, id: String, max: u32) -> AnyView {
                                 view! {
                                     <button
                                         type="button"
-                                        class="inline-flex cursor-pointer items-center gap-1 text-[13px] font-semibold text-danger hover:underline"
+                                        class="inline-flex cursor-pointer items-center gap-1 text-[13px] font-semibold text-danger hover:underline disabled:cursor-not-allowed disabled:text-text-faint disabled:no-underline"
                                         data-testid="remove-secret"
+                                        disabled=using
+                                        title=using.then_some("The connected session uses this secret. Rotate first, then remove it once the client uses the new one.")
                                         aria-label=format!("Remove secret {fp}")
-                                        on:click=move |_| e.remove_secret(&p, &fp)
+                                        on:click=move |_| {
+                                            e.remove_secret(&p, &fp);
+                                            added_outside_edit(s, &p);
+                                        }
                                     >
                                         <burrow_ui_kit::Icon name="trash" small=true/>
                                         "Remove"
@@ -158,7 +165,7 @@ pub fn secret_list(path: Path, id: String, max: u32) -> AnyView {
         }
     };
     view! {
-        <section id=id class="mb-4 rounded-card border border-border bg-surface" data-testid="secrets">
+        <section id=id class="mb-4 rounded-card border border-border bg-surface" data-testid="secrets" data-schema=schema_path>
             <div class="flex items-center gap-3 border-b border-border px-4 py-3">
                 <h2 class="text-[13.5px] font-bold">"Secrets"</h2>
                 <span class="ml-auto"></span>
@@ -202,7 +209,11 @@ fn os_now() -> String {
 }
 
 #[component]
-pub fn SnippetView(sn: Snippets, #[prop(optional)] secret: Option<String>) -> impl IntoView {
+pub fn SnippetView(
+    sn: Snippets,
+    #[prop(optional)] secret: Option<String>,
+    #[prop(optional)] children: Option<Children>,
+) -> impl IntoView {
     let tab: RwSignal<&'static str> = RwSignal::new("commands");
     let os = RwSignal::new(os_now());
     let commands = sn.commands.clone();
@@ -228,11 +239,13 @@ pub fn SnippetView(sn: Snippets, #[prop(optional)] secret: Option<String>) -> im
     let file = sn.file_name.clone();
     let env_config = sn.env_config.clone();
     let kind = sn.kind.clone();
+    let asks = children.is_some();
     let unknown = (!sn.server_known).then(|| {
         view! {
             <div class="mb-3">
                 <Callout tone=Tone::Warning title="The server address is not known">
-                    <p>"Set public_address in Settings, or replace SERVER_ADDRESS by hand."</p>
+                    <p>{if asks { "Type how machines reach this server, or set public_address in Settings. Until then the commands say SERVER_ADDRESS." } else { "Set public_address in Settings, or replace SERVER_ADDRESS by hand." }}</p>
+                    {children.map(|c| c())}
                 </Callout>
             </div>
         }
@@ -246,7 +259,7 @@ pub fn SnippetView(sn: Snippets, #[prop(optional)] secret: Option<String>) -> im
     let allow_note = if kind == ClientEntry::ENTITY {
         "The allow list comes from the services that use this client."
     } else {
-        "The reach list comes from this visitor's access."
+        "The forwards come from the private services this visitor may use."
     };
     view! {
         <div data-testid="snippets" data-kind=sn.kind.clone() data-name=sn.name.clone()>
@@ -268,10 +281,7 @@ pub fn SnippetView(sn: Snippets, #[prop(optional)] secret: Option<String>) -> im
                 "commands" => view! {
                     <div data-testid="snippet-commands">
                         <CodeBlock text=commands_text/>
-                        {has_init.then(|| view! { <p class="mt-2 mb-4 text-xs text-text-muted">"burrow init prompts for the secret, so it stays out of your shell history."</p> })}
-                        <h3 class="mb-2 text-sm font-semibold">{file.clone()}</h3>
-                        <CodeBlock text=config.clone() file_name=file.clone() testid="config-text"/>
-                        <p class="mt-2 text-xs text-text-muted">{allow_note}</p>
+                        {has_init.then(|| view! { <p class="mt-2 text-xs text-text-muted">"burrow init prompts for the secret, so it stays out of your shell history."</p> })}
                     </div>
                 }
                 .into_any(),
@@ -295,6 +305,13 @@ pub fn SnippetView(sn: Snippets, #[prop(optional)] secret: Option<String>) -> im
                 .into_any(),
             }}
         </div>
+    }
+}
+
+fn added_outside_edit(s: crate::store::Store, path: &[String]) {
+    let entity: Vec<String> = path.iter().take(2).cloned().collect();
+    if !s.edit.is_editing(&entity) {
+        s.toast(Tone::Success, "Added to changes", Some("Review"));
     }
 }
 
@@ -350,6 +367,7 @@ pub fn ShownOnce(section: String, name: String) -> impl IntoView {
             sec_item.fp
         );
         let nm2 = nm.clone();
+        let (sec3, new_fp) = (sec.clone(), sec_item.fp.clone());
         let waiting = move || {
             let on = s.status.with(|st| {
                 st.as_ref()
@@ -357,7 +375,9 @@ pub fn ShownOnce(section: String, name: String) -> impl IntoView {
                     .filter(|c| c.connected)
                     .map(|c| c.from.clone().unwrap_or_default())
             });
+            let used = in_use_fp(&sec3, &nm2);
             match on {
+                Some(_) if used.as_ref().is_some_and(|u| *u != new_fp) => view! { <p class="mt-4 flex items-center gap-2 text-sm text-text-muted" data-testid="old-secret"><burrow_ui_kit::Spinner/>{format!("{} is still connected with its old secret; it switches once its config has the new one.", nm2)}</p> }.into_any(),
                 Some(from) => view! { <p class="mt-4 flex items-center gap-2 text-sm text-success" data-testid="connected-now"><span class="size-2 rounded-full bg-success"></span>{format!("{} connected from {from}", nm2)}</p> }.into_any(),
                 None => view! { <p class="mt-4 flex items-center gap-2 text-sm text-text-muted"><burrow_ui_kit::Spinner/>{format!("Waiting for {} to connect…", nm2)}</p> }.into_any(),
             }
@@ -400,6 +420,7 @@ pub fn ShownOnce(section: String, name: String) -> impl IntoView {
                         variant="primary"
                         testid="close-shown-once"
                         disabled=Signal::derive(move || !saved.get())
+                        reason=Signal::derive(move || if saved.get() { String::new() } else { "Tick I have saved the secret first".to_string() })
                         on_click=move |_| {
                             saved.set(false);
                             e.outcome.update(|o| {
@@ -435,27 +456,30 @@ pub fn ConnectPanel(section: String, name: String) -> impl IntoView {
             })));
         });
     };
-    fetch(name.clone(), None);
+    let known = store().server_addr.get_untracked();
+    if !known.is_empty() {
+        address.set(known.clone());
+    }
+    fetch(name.clone(), (!known.is_empty()).then_some(known));
     let n2 = StoredValue::new(name.clone());
     let body = move || match data.get() {
         None => view! { <p class="text-text-muted">"Loading…"</p> }.into_any(),
         Some(Err(e)) => view! { <p class="text-danger">{e}</p> }.into_any(),
         Some(Ok(sn)) => {
-            let ask = (!sn.server_known).then(|| {
-                view! {
-                    <div class="mb-3 flex items-end gap-2">
-                        <div class="flex-1">
-                            <label class="text-sm" for="connect-address">"How do machines reach this server?"</label>
-                            <TextInput id="connect-address" value=address on_input=move |t: String| address.set(t) placeholder="myserver.example.com" mono=true/>
-                        </div>
-                        <Button label="Use it" small=true on_click=move |_| fetch(n2.get_value(), Some(address.get_untracked()))/>
-                    </div>
-                }
-            });
+            let known = sn.server_known;
             view! {
                 <div>
-                    {ask}
-                    <SnippetView sn=sn/>
+                    <SnippetView sn=sn>
+                        {(!known).then(|| view! {
+                            <div class="mt-2 flex items-end gap-2">
+                                <div class="flex-1">
+                                    <label class="sr-only" for="connect-address">"Server address"</label>
+                                    <TextInput id="connect-address" value=address on_input=move |t: String| address.set(t) placeholder="myserver.example.com" mono=true/>
+                                </div>
+                                <Button label="Use it" disabled=Signal::derive(move || address.with(|a| a.trim().is_empty())) reason=Signal::derive(move || if address.with(|a| a.trim().is_empty()) { "Type the server address first".to_string() } else { String::new() }) on_click=move |_| fetch(n2.get_value(), Some(address.get_untracked()))/>
+                            </div>
+                        })}
+                    </SnippetView>
                     <p class="mt-2 text-sm text-text-muted">"The secret is not shown: it is set when the file is written by burrow init, or taken from the environment variable."</p>
                 </div>
             }
@@ -478,7 +502,7 @@ mod tests {
         ]);
         let r = rows(Some(&v));
         assert_eq!(r.len(), 3);
-        assert_eq!(r[0].source, "literal");
+        assert_eq!(r[0].source, "in server.yaml");
         assert!(r[1].unset);
         assert_eq!(r[1].source, "env: HOME_SECRET");
         assert!(r[2].fresh);

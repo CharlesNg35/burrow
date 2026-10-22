@@ -222,8 +222,8 @@ pub fn NewEntity(
     let sec4 = section.clone();
     let path_data = Signal::derive(move || {
         let n = name.get();
-        let host = crate::app::host_line(s);
-        let first = links.with(|l| l.first().cloned());
+        let host = s.server_name();
+        let picked = links.with(Vec::len);
         let shown = if n.is_empty() {
             format!("new {}", singular(&sec4))
         } else {
@@ -259,11 +259,15 @@ pub fn NewEntity(
                 burrow_ui_kit::Hop {
                     icon: "stack",
                     head: "Services".into(),
-                    value: first.clone().unwrap_or_else(|| "none".into()),
-                    unit: if first.is_some() {
-                        "added below".into()
-                    } else {
+                    value: match picked {
+                        0 => "none".into(),
+                        1 => "1 service".into(),
+                        n => format!("{n} services"),
+                    },
+                    unit: if picked == 0 {
                         "pick below".into()
+                    } else {
+                        String::new()
                     },
                     ..burrow_ui_kit::Hop::default()
                 },
@@ -320,18 +324,23 @@ pub fn NewEntity(
     };
     let sec5 = section.clone();
     let options = Signal::derive(move || services_for(&sec5));
-    let placeholder_max = s.state.with_untracked(|st| {
-        st.as_ref()
-            .filter(|_| what == ClientEntry::ENTITY)
-            .and_then(|st| {
-                ServerConfig::LIMITS
-                    .then(Limits::MAX_CONNECTIONS_PER_CLIENT)
-                    .get(&st.values)
+    let client = what == ClientEntry::ENTITY;
+    let placeholder_max = if client {
+        let n = s
+            .state
+            .with_untracked(|st| {
+                st.as_ref().and_then(|st| {
+                    ServerConfig::LIMITS
+                        .then(Limits::MAX_CONNECTIONS_PER_CLIENT)
+                        .get(&st.values)
+                        .and_then(Value::as_u64)
+                })
             })
-            .and_then(Value::as_u64)
-            .unwrap_or(8192)
-            .to_string()
-    });
+            .unwrap_or(u64::from(Limits::default().max_connections_per_client));
+        format!("Default: {}", crate::format::count(n))
+    } else {
+        "Unlimited".to_string()
+    };
     let crumb = Route::List(section.clone());
     let plural_s = match entity_of_section(&section) {
         Some(Entity::Client) => "Clients",
@@ -401,10 +410,9 @@ pub fn NewEntity(
                         <div>
                             <span class="mb-1.5 flex items-center gap-2 text-sm font-semibold">"Max connections"<span class="font-normal text-text-faint">"· optional"</span></span>
                             <div class="flex items-center gap-2">
-                                <div class="w-36">
-                                    <TextInput id="new-max" value=max on_input=move |t: String| max.set(t) numeric=true placeholder=placeholder_max.clone() suffix="conn."/>
+                                <div class="w-56">
+                                    <TextInput id="new-max" value=max on_input=move |t: String| max.set(t) numeric=true placeholder=placeholder_max.clone() suffix="connections"/>
                                 </div>
-                                <span class="text-xs text-text-muted">"default from limits"</span>
                             </div>
                         </div>
                         <div>
@@ -427,13 +435,10 @@ pub fn NewEntity(
             <div class="sticky bottom-4 z-20 mt-6 flex flex-wrap items-center gap-3 rounded-card border border-border bg-surface px-4 py-3 shadow-overlay" data-sticky-bar="" on:keydown=move |ev| if ev.key() == "Enter" { finish(false) }>
                 <span class="flex items-center gap-1.5 text-sm text-text-muted">
                     <burrow_ui_kit::Icon name="info" small=true/>
-                    {move || {
-                        let n = name.get();
-                        if what == "service" {
-                            "You set the client and target next.".to_string()
-                        } else {
-                            format!("The review shows \"New {what} {} (1 secret)\".", if n.is_empty() { "…".to_string() } else { n })
-                        }
+                    {if what == ServiceEntry::ENTITY {
+                        "You set the client and target next."
+                    } else {
+                        "The secret is shown once, after apply."
                     }}
                 </span>
                 <span class="ml-auto"></span>
@@ -443,6 +448,7 @@ pub fn NewEntity(
                     variant=if what == "service" { "primary" } else { "secondary" }
                     testid="create"
                     disabled=Signal::derive(move || name.get().is_empty() || problem.get().is_some())
+                    reason=Signal::derive(move || if name.get().is_empty() { "Type a name first".to_string() } else if problem.get().is_some() { "Fix the name first".to_string() } else { String::new() })
                     on_click=move |_| finish2(false)
                 />
                 {(what != "service").then(|| view! {
@@ -451,6 +457,7 @@ pub fn NewEntity(
                         variant="primary"
                         testid="create-apply"
                         disabled=Signal::derive(move || name.get().is_empty() || problem.get().is_some() || secret.get().is_none())
+                        reason=Signal::derive(move || if name.get().is_empty() { "Type a name first".to_string() } else if problem.get().is_some() { "Fix the name first".to_string() } else if secret.get().is_none() { "Waiting for the server to make a secret".to_string() } else { String::new() })
                         on_click=move |_| finish2(true)
                     />
                 })}
@@ -463,6 +470,10 @@ pub fn NewEntity(
 pub fn RenameEntity(section: String, name: String, open: RwSignal<bool>) -> impl IntoView {
     let what = singular(&section);
     let to = RwSignal::new(name.clone());
+    let same = {
+        let old = name.clone();
+        Signal::derive(move || to.with(|t| t.trim() == old))
+    };
     let (sec, old) = (section.clone(), name.clone());
     let problem = Signal::derive(move || {
         let n = to.get();
@@ -502,14 +513,15 @@ pub fn RenameEntity(section: String, name: String, open: RwSignal<bool>) -> impl
                 mono=true
             />
             <p id="rename-msg" class="mt-1 min-h-5 text-sm text-danger">{move || problem.get()}</p>
-            <p class="mb-3 text-sm text-warning">{note}" References in server.yaml are updated too."</p>
+            <p class=move || if same.get() { "mb-3 text-sm text-text-muted" } else { "mb-3 text-sm text-warning" }>{note}" References in server.yaml are updated too."</p>
             <div class="flex justify-end gap-2">
                 <Button label="Cancel" on_click=move |_| open.set(false)/>
                 <Button
                     label="Rename"
                     variant="primary"
                     testid="rename"
-                    disabled=Signal::derive(move || problem.get().is_some() || to.get().is_empty())
+                    disabled=Signal::derive(move || problem.get().is_some() || to.get().is_empty() || same.get())
+                    reason=Signal::derive(move || if same.get() || to.get().is_empty() { "Type a new name first".to_string() } else if problem.get().is_some() { "Fix the name first".to_string() } else { String::new() })
                     on_click=move |_| rename_now.run(())
                 />
             </div>

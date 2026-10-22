@@ -310,6 +310,8 @@ pub struct Apply {
     pub plan: String,
     #[serde(default)]
     pub confirm: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub address: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -376,6 +378,8 @@ pub struct AuditEntry {
     pub revertible: bool,
     #[serde(default)]
     pub details_kept: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reverts: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

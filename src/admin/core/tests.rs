@@ -148,6 +148,20 @@ pub fn core_for(text: &str) -> Core {
     core_running(text, text)
 }
 
+pub fn core_with_env(
+    text: &str,
+    running: &str,
+    vars: &'static [(&'static str, &'static str)],
+) -> Core {
+    let mut core = core_running(text, running);
+    core.env = Box::new(move |name: &str| {
+        vars.iter()
+            .find(|(k, _)| *k == name)
+            .map(|(_, v)| v.to_string())
+    });
+    core
+}
+
 pub fn core_running(text: &str, running: &str) -> Core {
     let shared = Arc::new(Mutex::new(text.to_string()));
     let live_text = if text == running {
@@ -189,6 +203,16 @@ fn apply_now(
     ops: &[Op],
     confirm: &[&str],
 ) -> Result<burrow_admin_proto::plan::Applied, ApiError> {
+    apply_at(core, s, ops, confirm, None)
+}
+
+fn apply_at(
+    core: &Core,
+    s: &Session,
+    ops: &[Op],
+    confirm: &[&str],
+    address: Option<&str>,
+) -> Result<burrow_admin_proto::plan::Applied, ApiError> {
     let base = text::rev(&core.read()?);
     let plan = plan::compute(core, s, &base, ops)?.plan;
     let begun = plan::apply_begin(
@@ -199,6 +223,7 @@ fn apply_now(
             ops: ops.to_vec(),
             plan: plan.plan,
             confirm: confirm.iter().map(|c| c.to_string()).collect(),
+            address: address.map(str::to_string),
         },
     )?;
     plan::finish(
@@ -239,6 +264,15 @@ fn a_renamed_client_keeps_its_place_in_reach_and_the_file_changes_only_the_names
     }];
     let c = plan::compute(&core, &s, &text::rev(&text), &ops).unwrap();
     assert!(c.plan.valid, "{:?}", c.plan.diags);
+    let codes: Vec<&str> = c.plan.impacts.iter().map(|i| i.code.as_str()).collect();
+    assert!(codes.contains(&"renames"), "{codes:?}");
+    assert!(
+        !codes
+            .iter()
+            .any(|c| c.starts_with("removes-") || c.starts_with("adds-")),
+        "a rename is not a removal plus an addition: {codes:?}"
+    );
+    assert!(c.plan.confirms().is_empty(), "nothing to type for a rename");
     assert!(
         c.new_text
             .contains("    reach:\n      home2: any # first\n      office: any\n"),
@@ -313,6 +347,20 @@ fn errors_land_on_their_field() {
     assert_eq!(d.code, "duplicate-bind");
     assert!(d.concerns(&p(&["services", "api", "bind"])), "{d:?}");
     assert!(d.concerns(&p(&["services", "web", "bind"])), "{d:?}");
+    let private = [Op::Remove {
+        path: p(&["services", "web", "bind"]),
+    }];
+    let c = plan::compute(&core, &s, &base, &private).unwrap();
+    let d = c
+        .plan
+        .diags
+        .iter()
+        .find(|d| d.code == "unreachable-service")
+        .expect("a private service without visitors is an error");
+    assert!(
+        d.concerns(&p(&["services", "web", "visitors"])),
+        "the error shows at the visitors field: {d:?}"
+    );
 }
 
 #[test]
@@ -325,6 +373,22 @@ fn a_changed_file_is_a_conflict_and_nothing_is_written() {
         .unwrap();
     assert_eq!(e.code, ErrorCode::Conflict);
     assert_eq!(e.body["current"], text::rev(&w.text));
+}
+
+#[test]
+fn a_hand_edit_after_the_state_was_read_is_described_in_the_conflict() {
+    let w = world();
+    let core = core_for(&w.text);
+    let s = session(&w, AdminLevel::Write);
+    let base = core.state(&s).unwrap().rev;
+    let edited = w.text.replace("target: 3000", "target: 3001");
+    core.store.write(&w.text, &edited).unwrap();
+    let e = plan::compute(&core, &s, &base, &[]).err().unwrap();
+    assert_eq!(e.code, ErrorCode::Conflict);
+    let c: burrow_admin_proto::plan::Conflict = serde_json::from_value(e.body).unwrap();
+    assert!(c.known);
+    let theirs: Vec<&str> = c.theirs.iter().map(|t| t.summary.as_str()).collect();
+    assert_eq!(theirs, ["Service web: target 3000 → 3001"]);
 }
 
 #[test]
@@ -369,6 +433,7 @@ fn the_guard_refuses_lockouts() {
                 ops: vec![op],
                 plan: c.plan.plan.clone(),
                 confirm: vec!["ops".into()],
+                address: None,
             },
         )
         .err()
@@ -440,6 +505,33 @@ fn secrets_are_revealed_once_and_destructive_changes_need_confirmation() {
         !serde_json::to_string(&h)
             .unwrap()
             .contains(&applied.secrets[0].value)
+    );
+}
+
+#[test]
+fn the_snippets_after_an_apply_use_the_address_the_admin_connected_to() {
+    let w = world();
+    let core = core_for(&w.text);
+    let s = session(&w, AdminLevel::Write);
+    let g = core.generate_secret(&s).unwrap();
+    let ops = [
+        Op::Add {
+            path: p(&["clients", "office"]),
+            value: json!({}),
+        },
+        Op::SecretAdd {
+            path: p(&["clients", "office", "secret"]),
+            handle: g.handle.clone(),
+        },
+    ];
+    let applied = apply_at(&core, &s, &ops, &[], Some("203.0.113.9:7835")).unwrap();
+    let sn = &applied.snippets[0];
+    assert!(sn.server_known);
+    assert_eq!(sn.server, "203.0.113.9:7835");
+    assert!(
+        sn.config.starts_with("server: 203.0.113.9:7835\n"),
+        "{}",
+        sn.config
     );
 }
 
@@ -568,6 +660,45 @@ fn read_level_and_read_only_files_cannot_write() {
 }
 
 #[test]
+fn an_applied_revert_is_recorded_with_the_rev_it_went_back_to() {
+    let w = world();
+    let core = core_for(&w.text);
+    let s = session(&w, AdminLevel::Write);
+    apply_now(
+        &core,
+        &s,
+        &[Op::Set {
+            path: p(&["services", "web", "target"]),
+            value: json!(3001),
+        }],
+        &[],
+    )
+    .unwrap();
+    let all = || {
+        core.history(&HistoryRequest {
+            limit: None,
+            diff: None,
+        })
+        .unwrap()
+        .entries
+    };
+    let changed = all().remove(0);
+    assert_eq!(changed.reverts, None);
+    apply_now(
+        &core,
+        &s,
+        &[Op::ReplaceDocument {
+            from_history: changed.base.clone(),
+        }],
+        &[],
+    )
+    .unwrap();
+    let back = all().remove(0);
+    assert_eq!(back.reverts.as_deref(), Some(changed.base.as_str()));
+    assert_eq!(back.rev, changed.base);
+}
+
+#[test]
 fn a_revert_is_an_ordinary_plan() {
     let w = world();
     let core = core_for(&w.text);
@@ -608,6 +739,23 @@ fn a_revert_is_an_ordinary_plan() {
         })
         .unwrap();
     assert!(with_diff.diff.unwrap().unified.contains("target: 3001"));
+    apply_now(
+        &core,
+        &s,
+        &[Op::Set {
+            path: p(&["services", "web", "target"]),
+            value: json!(3002),
+        }],
+        &[],
+    )
+    .unwrap();
+    let older = core
+        .history(&HistoryRequest {
+            limit: Some(1),
+            diff: Some(entry.rev.clone()),
+        })
+        .expect("an older entry's diff is found whatever the limit");
+    assert!(older.diff.unwrap().unified.contains("target: 3001"));
 }
 
 #[test]
@@ -834,6 +982,7 @@ fn a_rejected_reload_is_reported_with_the_restore() {
             ops: ops.to_vec(),
             plan: plan.plan,
             confirm: Vec::new(),
+            address: None,
         },
     )
     .unwrap();
@@ -944,6 +1093,7 @@ fn a_changing_connection_count_does_not_invalidate_a_reviewed_plan() {
             ops: ops.to_vec(),
             plan: reviewed.plan,
             confirm: vec!["web".into()],
+            address: None,
         },
     );
     assert!(begun.is_ok(), "{:?}", begun.err().map(|e| e.message));
@@ -1143,4 +1293,72 @@ fn a_grant_added_by_hand_to_an_invalid_file_is_left_to_the_file() {
     )
     .unwrap();
     assert!(c.plan.refusals.is_empty(), "{:?}", c.plan.refusals);
+}
+
+#[test]
+fn a_plan_tells_new_problems_from_old_ones_and_groups_references_under_their_entity() {
+    let w = world();
+    let lap = Secret::generate();
+    let text = w.text.replace(
+        "\nservices:",
+        &format!(
+            "  lap:\n    secret: {}\n    reach:\n      home: any\n\nservices:\n  db: {{ client: home, bind: 7841, target: 5432 }}",
+            lap.encode()
+        ),
+    );
+    let core = core_for(&text);
+    let s = session(&w, AdminLevel::Write);
+    let office = Secret::generate();
+    let ops = [
+        Op::Add {
+            path: p(&["clients", "office"]),
+            value: json!({"secret": office.encode()}),
+        },
+        Op::Remove {
+            path: p(&["services", "web", "client"]),
+        },
+        Op::Add {
+            path: p(&["services", "web", "clients"]),
+            value: json!(["home", "office"]),
+        },
+        Op::Set {
+            path: p(&["services", "db", "client"]),
+            value: json!("office"),
+        },
+        Op::Add {
+            path: p(&["visitors", "lap", "reach", "office"]),
+            value: json!("any"),
+        },
+    ];
+    let c = plan::compute(&core, &s, &text::rev(&text), &ops).unwrap();
+    assert!(c.plan.valid, "{:?}", c.plan.diags);
+    let old: Vec<String> = c
+        .plan
+        .diags
+        .iter()
+        .filter(|d| d.before)
+        .map(|d| d.path.as_ref().map(|p| p.join(".")).unwrap_or_default())
+        .collect();
+    let new: Vec<String> = c
+        .plan
+        .diags
+        .iter()
+        .filter(|d| !d.before)
+        .map(|d| d.path.as_ref().map(|p| p.join(".")).unwrap_or_default())
+        .collect();
+    assert_eq!(old, ["visitors.lap.reach.home"], "{:?}", c.plan.diags);
+    assert_eq!(new, ["visitors.lap.reach.office"], "{:?}", c.plan.diags);
+    let group = |path: &[&str]| {
+        c.plan
+            .changes
+            .iter()
+            .find(|ch| ch.path == p(path))
+            .unwrap_or_else(|| panic!("{path:?} in {:?}", c.plan.changes))
+            .part_of
+            .clone()
+    };
+    assert_eq!(group(&["clients", "office"]), None);
+    assert_eq!(group(&["services", "web"]), Some(p(&["clients", "office"])));
+    assert_eq!(group(&["visitors", "lap"]), Some(p(&["clients", "office"])));
+    assert_eq!(group(&["services", "db"]), None, "db moves away from home");
 }

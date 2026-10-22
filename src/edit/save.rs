@@ -67,8 +67,8 @@ pub fn write_back(path: &Path, before: &str, text: &str) -> Result<(), Refused> 
     }
     let mode = stat.st_mode as u32 & 0o777;
     let next = format!(
-        ".{}.burrow-edit-{}",
-        name.to_string_lossy(),
+        "{}{}",
+        spare_prefix(&name.to_string_lossy()),
         std::process::id()
     );
     let _ = rustix::fs::unlinkat(&dir, next.as_str(), AtFlags::empty());
@@ -119,8 +119,9 @@ fn spare_prefix(name: &str) -> String {
 }
 
 pub fn spare_next_to(path: &Path) -> Option<std::path::PathBuf> {
-    let name = path.file_name()?.to_str()?;
-    let folder = path
+    let real = dunce::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let name = real.file_name()?.to_str()?;
+    let folder = real
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
         .unwrap_or(Path::new("."));
@@ -180,15 +181,37 @@ mod tests {
 
     #[test]
     fn a_leftover_spare_is_found_next_to_its_config() {
-        let dir = tempfile::tempdir().unwrap();
-        let config = dir.path().join("server.yaml");
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = dunce::canonicalize(tmp.path()).unwrap();
+        let config = dir.join("server.yaml");
         std::fs::write(&config, "x").unwrap();
         assert_eq!(spare_next_to(&config), None);
-        std::fs::write(dir.path().join(".other.yaml.burrow-edit-7"), "x").unwrap();
+        std::fs::write(dir.join(".other.yaml.burrow-edit-7"), "x").unwrap();
         assert_eq!(spare_next_to(&config), None);
-        let spare = dir.path().join(".server.yaml.burrow-edit-42");
+        let spare = dir.join(".server.yaml.burrow-edit-42");
         std::fs::write(&spare, "listen: 7835\n").unwrap();
         assert_eq!(spare_next_to(&config), Some(spare));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_linked_config_finds_the_spare_next_to_the_file_it_points_to() {
+        let base = tempfile::tempdir().unwrap();
+        let real = base.path().join("real");
+        let links = base.path().join("links");
+        std::fs::create_dir(&real).unwrap();
+        std::fs::create_dir(&links).unwrap();
+        let target = real.join("server.yaml");
+        std::fs::write(&target, "x").unwrap();
+        let link = links.join("current.yaml");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        assert_eq!(spare_next_to(&link), None);
+        let spare = real.join(format!("{}42", spare_prefix("server.yaml")));
+        std::fs::write(&spare, "listen: 7835\n").unwrap();
+        assert_eq!(
+            spare_next_to(&link),
+            Some(dunce::canonicalize(&spare).unwrap())
+        );
     }
 
     #[cfg(windows)]

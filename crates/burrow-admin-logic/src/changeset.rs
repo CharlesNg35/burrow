@@ -2,6 +2,7 @@ use burrow_admin_proto::Path;
 use burrow_admin_proto::ops::Op;
 use burrow_admin_proto::serde_json::{Map, Value, json};
 use burrow_admin_proto::value::{self, as_secret};
+use burrow_config::Entry;
 
 pub const NEW_SECRET: &str = "$new_secret";
 
@@ -258,6 +259,22 @@ impl Changeset {
         value::put(&mut self.draft, path, (!value.is_null()).then_some(value));
     }
 
+    pub fn remove_pruned(&mut self, path: &[String]) {
+        self.set(path, Value::Null);
+        for n in (1..path.len()).rev() {
+            let at = &path[..n];
+            let empty = match value::get(&self.draft, at) {
+                Some(Value::Object(m)) => m.is_empty(),
+                Some(Value::Array(a)) => a.is_empty(),
+                _ => false,
+            };
+            if !empty || value::get(&self.base, at).is_some() {
+                break;
+            }
+            value::put(&mut self.draft, at, None);
+        }
+    }
+
     pub fn remove(&mut self, path: &[String]) {
         self.set(path, Value::Null);
     }
@@ -356,6 +373,23 @@ impl Changeset {
         }
     }
 
+    pub fn renamed_to(&self, section: &str, name: &str) -> Option<String> {
+        self.renames
+            .iter()
+            .find(|(from, _)| {
+                from.first().map(String::as_str) == Some(section)
+                    && from.get(1).map(String::as_str) == Some(name)
+            })
+            .map(|(_, to)| to.clone())
+    }
+
+    pub fn renamed_from(&self, section: &str, name: &str) -> Option<String> {
+        self.renames
+            .iter()
+            .find(|(from, to)| from.first().map(String::as_str) == Some(section) && to == name)
+            .and_then(|(from, _)| from.get(1).cloned())
+    }
+
     pub fn fresh(&self) -> &[(String, String)] {
         &self.fresh
     }
@@ -365,7 +399,28 @@ impl Changeset {
             .ops()
             .iter()
             .filter_map(|o| o.path().cloned())
-            .map(|p| p.into_iter().take(2).collect())
+            .map(|p| p.into_iter().take(2).collect::<Path>())
+            .map(|p| {
+                self.renames
+                    .iter()
+                    .find(|(from, to)| p.len() == 2 && from[0] == p[0] && *to == p[1])
+                    .map(|(from, _)| from.clone())
+                    .unwrap_or(p)
+            })
+            .filter(|p| {
+                burrow_config::refs::part_of(&self.base, &self.draft, p, &self.renames).is_none()
+            })
+            .map(|p| {
+                let entity = p.first().is_some_and(|s| {
+                    [
+                        burrow_config::ClientEntry::section(),
+                        burrow_config::VisitorEntry::section(),
+                        burrow_config::ServiceEntry::section(),
+                    ]
+                    .contains(&s.as_str())
+                });
+                if entity { p } else { Vec::new() }
+            })
             .collect();
         paths.sort();
         paths.dedup();
@@ -440,8 +495,59 @@ mod tests {
         assert!(c.modified(&p(&["services", "web", "bind"])));
         assert!(!c.modified(&p(&["services", "web", "target"])));
         assert_eq!(c.changed_entities(), 3);
+        c.set(&p(&["pool", "min_idle"]), json!(9));
+        assert_eq!(c.changed_entities(), 3, "server settings count once");
         c.reset();
         assert!(!c.dirty());
+    }
+
+    #[test]
+    fn removing_the_last_entry_of_a_new_group_leaves_no_empty_group() {
+        let mut c = Changeset::new(json!({"visitors": {"lap": {"secret": "x"}}}));
+        c.set(&p(&["visitors", "lap", "reach", "home"]), json!("any"));
+        assert!(c.dirty());
+        c.remove_pruned(&p(&["visitors", "lap", "reach", "home"]));
+        assert!(!c.dirty(), "{:?}", c.ops());
+        c.set(&p(&["pool", "min_idle"]), json!(8));
+        c.remove_pruned(&p(&["pool", "min_idle"]));
+        assert!(!c.dirty(), "{:?}", c.ops());
+        c.set(&p(&["health_check", "interval_secs"]), json!(5));
+        c.set(&p(&["health_check", "interval_secs"]), Value::Null);
+        assert!(c.dirty(), "clearing a field keeps a group set on purpose");
+        let mut kept = Changeset::new(json!({"pool": {"min_idle": 2}}));
+        kept.remove_pruned(&p(&["pool", "min_idle"]));
+        assert_eq!(
+            kept.draft(),
+            &json!({"pool": {}}),
+            "a group the base has stays"
+        );
+    }
+
+    #[test]
+    fn a_new_client_added_to_services_counts_as_one_change() {
+        let mut c = Changeset::new(json!({"clients": {"home": {}}, "services": {
+            "web": {"client": "home", "target": 80},
+            "db": {"client": "home", "target": 5432}
+        }}));
+        c.set(&p(&["clients", "example"]), json!({}));
+        c.set(&p(&["services", "web", "client"]), Value::Null);
+        c.set(
+            &p(&["services", "web", "clients"]),
+            json!(["home", "example"]),
+        );
+        c.set(&p(&["services", "db", "client"]), Value::Null);
+        c.set(
+            &p(&["services", "db", "clients"]),
+            json!(["home", "example"]),
+        );
+        assert_eq!(c.changed_entities(), 1);
+        c.set(&p(&["services", "db", "target"]), json!(5433));
+        assert_eq!(c.changed_entities(), 2);
+        c.rename(&p(&["clients", "home"]), "house");
+        assert_eq!(c.changed_entities(), 4, "web now carries two changes");
+        assert_eq!(c.renamed_from("clients", "house").as_deref(), Some("home"));
+        assert_eq!(c.renamed_from("visitors", "house"), None);
+        assert_eq!(c.renamed_to("clients", "home").as_deref(), Some("house"));
     }
 
     #[test]

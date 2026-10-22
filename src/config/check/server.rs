@@ -53,7 +53,7 @@ pub fn check_server(
     {
         out.push(
             Diagnostic::error("no-listener", "the server needs \"listen\" (TCP), \"websocket\", or both")
-                .help(format!("add \"listen: 0.0.0.0:{}\" for TCP clients, or a websocket section for clients behind HTTP-only networks (see README)", burrow_syntax::ports::SERVER_PORT)),
+                .help(format!("add \"listen: 0.0.0.0:{}\" for TCP clients, or a websocket section for clients behind HTTP-only networks (see https://github.com/charlesng35/burrow/blob/main/docs/websocket.md)", burrow_syntax::ports::SERVER_PORT)),
         );
     }
     let websocket = cfg

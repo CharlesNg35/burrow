@@ -24,6 +24,7 @@ pub struct Review {
     pub base: String,
     pub plan: Option<Arc<Plan>>,
     pub revert_of: Option<String>,
+    pub own: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -47,6 +48,7 @@ pub struct Edit {
     pub check_error: RwSignal<Option<String>>,
     pub conflict: RwSignal<Option<Conflict>>,
     pub conflict_revert: RwSignal<Option<String>>,
+    pub conflict_open: RwSignal<bool>,
     pub review: RwSignal<Option<Review>>,
     pub confirms: RwSignal<BTreeMap<String, String>>,
     pub applying: RwSignal<bool>,
@@ -54,7 +56,21 @@ pub struct Edit {
     pub reset_on_load: RwSignal<bool>,
     pub auto_apply: RwSignal<bool>,
     pub refused: RwSignal<std::collections::BTreeSet<Path>>,
+    pub editing: RwSignal<BTreeMap<Path, Option<Value>>>,
+    pub after_apply: RwSignal<Option<crate::route::Route>>,
     seq: StoredValue<u64>,
+    carry: StoredValue<Vec<(Path, Option<Value>)>>,
+}
+
+fn restore(c: &mut Changeset, path: &[String], snap: Option<&Value>) {
+    let now = burrow_admin_proto::value::get(c.draft(), path).cloned();
+    if now.as_ref() == snap {
+        return;
+    }
+    match snap {
+        Some(v) => c.set(path, v.clone()),
+        None => c.remove(path),
+    }
 }
 
 fn ops_of(draft: &Changeset, texts: &BTreeMap<Path, String>) -> Vec<Op> {
@@ -68,9 +84,20 @@ fn ops_of(draft: &Changeset, texts: &BTreeMap<Path, String>) -> Vec<Op> {
     ops
 }
 
-pub fn diags_at<'a>(plan: Option<&'a Plan>, path: &[String]) -> Vec<&'a Diag> {
-    plan.map(|p| p.diags.iter().filter(|d| d.concerns(path)).collect())
-        .unwrap_or_default()
+pub fn diags_at<'a>(plan: Option<&'a Plan>, path: &[String], items: bool) -> Vec<&'a Diag> {
+    plan.map(|p| {
+        p.diags
+            .iter()
+            .filter(|d| {
+                if items {
+                    d.within(path)
+                } else {
+                    d.concerns(path)
+                }
+            })
+            .collect()
+    })
+    .unwrap_or_default()
 }
 
 pub fn missing_confirms(plan: &Plan, typed: &BTreeMap<String, String>) -> Vec<String> {
@@ -143,6 +170,7 @@ impl Edit {
             check_error: RwSignal::new(None),
             conflict: RwSignal::new(None),
             conflict_revert: RwSignal::new(None),
+            conflict_open: RwSignal::new(false),
             review: RwSignal::new(None),
             confirms: RwSignal::new(BTreeMap::new()),
             applying: RwSignal::new(false),
@@ -150,7 +178,10 @@ impl Edit {
             reset_on_load: RwSignal::new(false),
             auto_apply: RwSignal::new(false),
             refused: RwSignal::new(std::collections::BTreeSet::new()),
+            editing: RwSignal::new(BTreeMap::new()),
+            after_apply: RwSignal::new(None),
             seq: StoredValue::new(0),
+            carry: StoredValue::new(Vec::new()),
         }
     }
 
@@ -164,13 +195,101 @@ impl Edit {
 
     pub fn review_count(&self) -> usize {
         match self.review_plan() {
-            Some(p) => p.changes.len().max(1),
+            Some(p) => crate::review::change_groups(&p).len(),
             None => self.pending(),
         }
     }
 
+    fn open_edits(&self) -> Vec<(Path, Option<Value>)> {
+        self.editing.with(|m| {
+            m.iter()
+                .map(|(p, snap)| (p.clone(), snap.clone()))
+                .collect()
+        })
+    }
+
+    fn saved_of(d: &Changeset, open: &[(Path, Option<Value>)]) -> Changeset {
+        let mut c = d.clone();
+        for (path, snap) in open {
+            if path.is_empty() {
+                let snap = snap.clone().unwrap_or(Value::Null);
+                let mut keys: Vec<String> = Vec::new();
+                for v in [&snap, d.draft()] {
+                    if let Some(m) = v.as_object() {
+                        keys.extend(
+                            m.keys()
+                                .filter(|k| !crate::route::SECTIONS.contains(&k.as_str()))
+                                .cloned(),
+                        );
+                    }
+                }
+                keys.sort();
+                keys.dedup();
+                for k in keys {
+                    restore(&mut c, std::slice::from_ref(&k), snap.get(&k));
+                }
+            } else {
+                restore(&mut c, path, snap.as_ref());
+            }
+        }
+        c
+    }
+
     pub fn pending(&self) -> usize {
-        self.draft.with(Changeset::changed_entities) + self.texts.with(BTreeMap::len)
+        let open = self.open_edits();
+        let saved = self.draft.with(|d| {
+            if open.is_empty() {
+                d.changed_entities()
+            } else {
+                Self::saved_of(d, &open).changed_entities()
+            }
+        });
+        saved + self.texts.with(BTreeMap::len)
+    }
+
+    pub fn saved_ops(&self) -> Vec<Op> {
+        let open = self.open_edits();
+        if open.is_empty() {
+            return self.ops();
+        }
+        self.texts
+            .with(|t| self.draft.with(|d| ops_of(&Self::saved_of(d, &open), t)))
+    }
+
+    fn unsaved_values(&self) -> Vec<(Path, Option<Value>)> {
+        let open = self.open_edits();
+        let mut out = Vec::new();
+        self.draft.with_untracked(|d| {
+            for (path, snap) in &open {
+                if path.is_empty() {
+                    if let Some(m) = d.draft().as_object() {
+                        for (k, v) in m {
+                            if crate::route::SECTIONS.contains(&k.as_str()) {
+                                continue;
+                            }
+                            if snap.as_ref().and_then(|s| s.get(k)) != Some(v) {
+                                out.push((vec![k.clone()], Some(v.clone())));
+                            }
+                        }
+                    }
+                    if let Some(m) = snap.as_ref().and_then(Value::as_object) {
+                        for k in m.keys() {
+                            if !crate::route::SECTIONS.contains(&k.as_str())
+                                && d.draft().get(k).is_none()
+                            {
+                                out.push((vec![k.clone()], None));
+                            }
+                        }
+                    }
+                } else {
+                    let now = burrow_admin_proto::value::get(d.draft(), path).cloned();
+                    if now != *snap {
+                        out.push((path.clone(), now));
+                    }
+                }
+            }
+        });
+        out
     }
 
     pub fn value(&self, path: &[String]) -> Option<Value> {
@@ -209,7 +328,17 @@ impl Edit {
         self.changed();
     }
 
+    pub fn remove_pruned(&self, path: &[String]) {
+        self.draft.update(|d| d.remove_pruned(path));
+        self.changed();
+    }
+
     pub fn set_text(&self, path: &[String], text: Option<String>) {
+        let refused = crate::grants::refuses_text(path, text.as_deref());
+        self.refuse(path, refused);
+        if refused {
+            return;
+        }
         self.texts.update(|t| match text {
             Some(x) => {
                 t.insert(path.to_vec(), x);
@@ -264,31 +393,192 @@ impl Edit {
         self.texts.set(BTreeMap::new());
         self.local.set(BTreeMap::new());
         self.plan.set(None);
-        self.conflict.set(None);
+        self.end_conflict();
         self.check_error.set(None);
         self.confirms.set(BTreeMap::new());
+        self.clear_refused();
+        self.clear_edits();
+        self.clear_changed();
     }
 
-    pub fn sync_base(&self, values: &Value, rev: &str) {
+    pub fn is_editing(&self, entity: &[String]) -> bool {
+        self.editing.with(|m| m.contains_key(entity))
+    }
+
+    pub fn start_edit(&self, entity: &[String]) {
+        if self.editing.with_untracked(|m| m.contains_key(entity)) {
+            return;
+        }
+        let snapshot = self.peek(entity);
+        self.editing.update(|m| {
+            m.insert(entity.to_vec(), snapshot);
+        });
+    }
+
+    pub fn keep_open_edits(&self) {
+        let all: Vec<Path> = self
+            .editing
+            .with_untracked(|m| m.keys().cloned().collect::<Vec<Path>>());
+        let open: Vec<Path> = all
+            .into_iter()
+            .filter(|p| untrack(|| self.unsaved(p)))
+            .collect();
+        for p in open {
+            self.stop_edit(&p);
+        }
+    }
+
+    pub fn stop_edit(&self, entity: &[String]) {
+        if self.editing.with_untracked(|m| m.contains_key(entity)) {
+            self.editing.update(|m| {
+                m.remove(entity);
+            });
+        }
+    }
+
+    pub fn discard_edit(&self, entity: &[String]) {
+        let Some(snapshot) = self.editing.with_untracked(|m| m.get(entity).cloned()) else {
+            return;
+        };
+        if self
+            .local
+            .with_untracked(|l| l.keys().any(|p| p.starts_with(entity)))
+        {
+            self.local
+                .update(|l| l.retain(|p, _| !p.starts_with(entity)));
+        }
+        if self
+            .refused
+            .with_untracked(|r| r.iter().any(|p| p.starts_with(entity)))
+        {
+            self.refused
+                .update(|r| r.retain(|p| !p.starts_with(entity)));
+        }
+        if self
+            .texts
+            .with_untracked(|t| t.keys().any(|p| p.starts_with(entity)))
+        {
+            self.texts
+                .update(|t| t.retain(|p, _| !p.starts_with(entity)));
+        }
+        if self.peek(entity) != snapshot {
+            self.set(entity, snapshot);
+        }
+        self.stop_edit(entity);
+    }
+
+    pub fn unsaved(&self, entity: &[String]) -> bool {
+        self.editing.with(|m| {
+            m.get(entity).is_some_and(|snap| {
+                self.draft
+                    .with(|d| burrow_admin_proto::value::get(d.draft(), entity) != snap.as_ref())
+            })
+        })
+    }
+
+    fn clear_changed(&self) {
+        if let Some(s) = crate::store::try_store()
+            && s.changed.with_untracked(Option::is_some)
+        {
+            s.changed.set(None);
+        }
+    }
+
+    fn clear_edits(&self) {
+        if self.editing.with_untracked(|m| !m.is_empty()) {
+            self.editing.set(BTreeMap::new());
+        }
+    }
+
+    fn clear_refused(&self) {
+        if self.refused.with_untracked(|r| !r.is_empty()) {
+            self.refused.set(std::collections::BTreeSet::new());
+        }
+    }
+
+    pub fn sync_base(&self, values: &Value, rev: &str) -> bool {
         let reset = self.reset_on_load.get_untracked();
-        if reset || !self.dirty() || self.base_rev.get_untracked().is_empty() {
+        let known = self.base_rev.get_untracked();
+        if !reset && known == rev {
+            return false;
+        }
+        let mut carried = false;
+        if reset || !untrack(|| self.dirty()) || known.is_empty() {
             self.draft.set(Changeset::new(values.clone()));
             self.texts.set(BTreeMap::new());
-            self.local.set(BTreeMap::new());
+            self.clear_refused();
+            if reset {
+                self.local.set(BTreeMap::new());
+                self.clear_edits();
+                let carry = std::mem::take(&mut *self.carry.write_value());
+                carried = !carry.is_empty();
+                for (path, v) in carry {
+                    let entity: Path = path.iter().take(2).cloned().collect();
+                    let entity = if crate::route::SECTIONS
+                        .contains(&path.first().map(String::as_str).unwrap_or(""))
+                    {
+                        entity
+                    } else {
+                        Vec::new()
+                    };
+                    self.start_edit(&entity);
+                    self.draft.update(|d| match v {
+                        Some(v) => d.set(&path, v),
+                        None => d.remove(&path),
+                    });
+                }
+            } else {
+                self.resnapshot(values);
+            }
             self.plan.set(None);
             if self.conflict_revert.with_untracked(Option::is_none) {
-                self.conflict.set(None);
+                self.end_conflict();
             }
             self.base_rev.set(rev.to_string());
             self.reset_on_load.set(false);
-        } else if self.base_rev.get_untracked() != rev && self.conflict.get_untracked().is_none() {
-            self.conflict_revert.set(None);
-            self.conflict.set(Some(Conflict {
-                current: rev.to_string(),
-                theirs: Vec::new(),
-                known: false,
-            }));
+        } else if self
+            .conflict
+            .with_untracked(|c| c.as_ref().map(|c| c.current.as_str()) != Some(rev))
+        {
+            if let Some(s) = crate::store::try_store()
+                && s.changed_from.with_untracked(|(old, _)| *old != known)
+            {
+                s.changed_from.set((known, js_sys::Date::now()));
+            }
+            self.plan.set(None);
+            self.revalidate_now();
         }
+        carried
+    }
+
+    pub fn raise(&self, c: Conflict, show: bool) {
+        let new = self
+            .conflict
+            .with_untracked(|o| o.as_ref().map(|o| &o.current) != Some(&c.current));
+        self.conflict.set(Some(c));
+        if show || new {
+            self.conflict_open.set(true);
+        }
+    }
+
+    pub fn end_conflict(&self) {
+        if self.conflict.with_untracked(Option::is_some) {
+            self.conflict.set(None);
+        }
+        if self.conflict_open.get_untracked() {
+            self.conflict_open.set(false);
+        }
+    }
+
+    fn resnapshot(&self, values: &Value) {
+        if self.editing.with_untracked(|m| m.is_empty()) {
+            return;
+        }
+        self.editing.update(|m| {
+            for (path, snap) in m.iter_mut() {
+                *snap = burrow_admin_proto::value::get(values, path).cloned();
+            }
+        });
     }
 
     pub fn rebase(&self, store: Store) {
@@ -297,7 +587,9 @@ impl Edit {
         };
         self.draft.update(|d| d.rebase(state.values.clone()));
         self.base_rev.set(state.rev.clone());
-        self.conflict.set(None);
+        self.end_conflict();
+        self.clear_refused();
+        store.changed.set(None);
         self.changed();
     }
 
@@ -343,7 +635,7 @@ impl Edit {
                 Err(e) => match conflict_of(&e) {
                     Some(c) => {
                         me.conflict_revert.set(None);
-                        me.conflict.set(Some(c));
+                        me.raise(c, false);
                     }
                     None => me.check_error.set(Some(e.message)),
                 },
@@ -358,19 +650,49 @@ impl Edit {
     }
 
     pub fn open_review(&self) {
-        let ops = self.ops();
+        let ops = untrack(|| self.saved_ops());
+        let own = ops != untrack(|| self.ops());
+        let base = self.base_rev.get_untracked();
         self.confirms.set(BTreeMap::new());
         self.outcome.set(None);
         self.review.set(Some(Review {
             title: "Review changes".into(),
-            ops,
-            base: self.base_rev.get_untracked(),
-            plan: self.plan.get_untracked(),
+            ops: ops.clone(),
+            base: base.clone(),
+            plan: if own { None } else { self.plan.get_untracked() },
             revert_of: None,
+            own,
         }));
-        if self.plan.with_untracked(Option::is_none) {
-            self.revalidate_now();
+        if !own {
+            if self.plan.with_untracked(Option::is_none) {
+                self.revalidate_now();
+            }
+            return;
         }
+        let me = *self;
+        api::request(
+            msg::req::VALIDATE,
+            json!({ "base": base, "ops": ops }),
+            move |r| match r {
+                Ok(v) => {
+                    if let Ok(p) = serde_json::from_value::<Plan>(v) {
+                        me.review.update(|rv| {
+                            if let Some(rv) = rv.as_mut().filter(|rv| rv.own) {
+                                rv.plan = Some(Arc::new(p));
+                            }
+                        });
+                    }
+                }
+                Err(e) => {
+                    if let Some(c) = conflict_of(&e) {
+                        me.conflict_revert.set(None);
+                        me.raise(c, false);
+                    } else {
+                        me.check_error.set(Some(e.message));
+                    }
+                }
+            },
+        );
     }
 
     pub fn open_revert(&self, store: Store, to: String) {
@@ -388,6 +710,7 @@ impl Edit {
             base: base.clone(),
             plan: None,
             revert_of: Some(to.clone()),
+            own: true,
         }));
         let me = *self;
         api::request(
@@ -411,7 +734,7 @@ impl Edit {
                     Some(c) => {
                         me.review.set(None);
                         me.conflict_revert.set(Some(to.clone()));
-                        me.conflict.set(Some(c));
+                        me.raise(c, true);
                     }
                     None => {
                         me.review.set(None);
@@ -425,7 +748,7 @@ impl Edit {
     pub fn review_plan(&self) -> Option<Arc<Plan>> {
         self.review.with(|r| {
             r.as_ref().and_then(|r| {
-                if r.revert_of.is_some() {
+                if r.own {
                     r.plan.clone()
                 } else {
                     self.plan.get()
@@ -441,21 +764,34 @@ impl Edit {
         let Some(plan) = self.review_plan() else {
             return;
         };
-        let ops = if review.revert_of.is_some() {
+        let ops = if review.own {
             review.ops.clone()
         } else {
             self.ops()
         };
-        let base = if review.revert_of.is_some() {
+        let base = if review.own {
             review.base.clone()
         } else {
             self.base_rev.get_untracked()
         };
+        let carry = if review.revert_of.is_none() {
+            self.unsaved_values()
+        } else {
+            Vec::new()
+        };
         let confirm: Vec<String> = plan.confirms().into_iter().map(str::to_string).collect();
+        let target = if review.revert_of.is_some() {
+            Some(crate::route::Route::Activity(None))
+        } else {
+            self.draft
+                .with_untracked(|d| landing(&plan, |sec, name| d.renamed_to(sec, name)))
+        };
+        self.after_apply.set(target);
         self.applying.set(true);
         self.outcome.set(None);
         let me = *self;
-        let body = json!({ "base": base, "ops": ops, "plan": plan.plan, "confirm": confirm });
+        let address = store.server_addr.get_untracked();
+        let body = json!({ "base": base, "ops": ops, "plan": plan.plan, "confirm": confirm, "address": (!address.is_empty()).then_some(address) });
         api::request(msg::req::APPLY, body, move |r| {
             me.applying.set(false);
             match r {
@@ -463,6 +799,8 @@ impl Edit {
                     let applied = serde_json::from_value::<Applied>(v).unwrap_or_default();
                     me.outcome.set(Some(Outcome::Applied(applied)));
                     me.review.set(None);
+                    store.changed.set(None);
+                    me.carry.set_value(carry.clone());
                     me.reset_on_load.set(true);
                     api::load_state(store);
                     api::load_history(store);
@@ -471,7 +809,7 @@ impl Edit {
                     Some(c) => {
                         me.review.set(None);
                         me.conflict_revert.set(review.revert_of.clone());
-                        me.conflict.set(Some(c));
+                        me.raise(c, true);
                         api::load_state(store);
                     }
                     None => {
@@ -484,6 +822,26 @@ impl Edit {
                 },
             }
         });
+    }
+}
+
+pub fn landing(
+    plan: &Plan,
+    renamed: impl Fn(&str, &str) -> Option<String>,
+) -> Option<crate::route::Route> {
+    use crate::route::Route;
+    use burrow_admin_proto::plan::ChangeKind;
+    let head = crate::review::change_groups(plan).into_iter().next()?.head;
+    match head.path.as_slice() {
+        [sec, name] if crate::route::SECTIONS.contains(&sec.as_str()) => Some(match head.kind {
+            ChangeKind::Remove => Route::List(sec.clone()),
+            ChangeKind::Rename => match renamed(sec, name) {
+                Some(to) => Route::Detail(sec.clone(), to),
+                None => Route::List(sec.clone()),
+            },
+            _ => Route::Detail(sec.clone(), name.clone()),
+        }),
+        _ => Some(Route::Settings),
     }
 }
 
@@ -605,6 +963,174 @@ mod tests {
             Outcome::Failed { message, .. } if message.contains("did not finish") && message.contains("nothing was applied")
         ));
         assert!(matches!(revert_outcome(&reload), Outcome::ReloadFailed(_)));
+    }
+
+    #[test]
+    fn a_discard_or_a_fresh_base_clears_the_refused_marks() {
+        let e = Edit::new();
+        e.refused.set([p(&["visitors", "lap", "admin"])].into());
+        e.discard();
+        assert!(e.refused.get_untracked().is_empty());
+        e.refused.set([p(&["visitors", "lap", "admin"])].into());
+        e.sync_base(&json!({"visitors": {}}), "b2s:1");
+        assert!(e.refused.get_untracked().is_empty());
+    }
+
+    #[test]
+    fn the_review_count_leaves_out_edits_not_yet_added_to_the_changes() {
+        let e = Edit::new();
+        e.sync_base(
+            &json!({"pool": {"min_idle": 1}, "visitors": {"lap": {"max_connections": 5}, "bob": {}}}),
+            "b2s:1",
+        );
+        let lap = p(&["visitors", "lap"]);
+        let bob = p(&["visitors", "bob"]);
+        e.start_edit(&lap);
+        e.draft
+            .update(|d| d.set(&p(&["visitors", "lap", "max_connections"]), json!(9)));
+        assert_eq!(e.pending(), 0, "an open, unsaved edit is not a change yet");
+        e.stop_edit(&lap);
+        assert_eq!(e.pending(), 1);
+        e.start_edit(&lap);
+        e.draft
+            .update(|d| d.set(&p(&["visitors", "lap", "max_connections"]), json!(11)));
+        assert_eq!(e.pending(), 1, "what was added before still counts");
+        e.start_edit(&bob);
+        e.draft
+            .update(|d| d.set(&p(&["visitors", "bob", "max_connections"]), json!(3)));
+        assert_eq!(e.pending(), 1);
+        e.start_edit(&[]);
+        e.draft
+            .update(|d| d.set(&p(&["pool", "min_idle"]), json!(2)));
+        assert_eq!(e.pending(), 1, "open settings edits do not count either");
+        let saved: Vec<String> = e
+            .saved_ops()
+            .iter()
+            .filter_map(|o| o.path().map(|p| p.join(".")))
+            .collect();
+        assert_eq!(saved, ["visitors.lap.max_connections"]);
+        e.carry.set_value(e.unsaved_values());
+        e.reset_on_load.set(true);
+        e.sync_base(
+            &json!({"pool": {"min_idle": 1}, "visitors": {"lap": {"max_connections": 9}, "bob": {}}}),
+            "b2s:2",
+        );
+        assert!(
+            e.unsaved(&lap) && e.unsaved(&bob),
+            "open edits survive the apply"
+        );
+        assert_eq!(
+            e.value(&p(&["visitors", "lap", "max_connections"])),
+            Some(json!(11))
+        );
+        assert_eq!(e.value(&p(&["pool", "min_idle"])), Some(json!(2)));
+        assert_eq!(e.pending(), 0);
+    }
+
+    #[test]
+    fn edit_state_is_kept_per_entity_until_saved_discarded_or_reset() {
+        let e = Edit::new();
+        e.sync_base(
+            &json!({"visitors": {"lap": {"max_connections": 5}, "bob": {}}}),
+            "b2s:1",
+        );
+        let lap = p(&["visitors", "lap"]);
+        let bob = p(&["visitors", "bob"]);
+        e.start_edit(&lap);
+        e.start_edit(&bob);
+        assert!(e.is_editing(&lap) && e.is_editing(&bob));
+        e.draft
+            .update(|d| d.set(&p(&["visitors", "lap", "max_connections"]), json!(9)));
+        assert!(e.unsaved(&lap));
+        assert!(!e.unsaved(&bob));
+        e.start_edit(&lap);
+        e.draft
+            .update(|d| d.set(&lap, json!({"max_connections": 5})));
+        assert!(!e.unsaved(&lap), "a second start keeps the first snapshot");
+        e.stop_edit(&bob);
+        assert!(!e.is_editing(&bob));
+        e.discard();
+        assert!(
+            !e.is_editing(&lap),
+            "a discard of the draft ends every edit"
+        );
+    }
+
+    #[test]
+    fn a_reload_of_the_same_or_a_newer_base_keeps_an_open_edit() {
+        let e = Edit::new();
+        let lap = p(&["visitors", "lap"]);
+        e.sync_base(
+            &json!({"visitors": {"lap": {"max_connections": 5}}}),
+            "b2s:1",
+        );
+        e.start_edit(&lap);
+        e.local.update(|l| {
+            l.insert(
+                p(&["visitors", "lap", "max_connections"]),
+                "not a number".into(),
+            );
+        });
+        e.sync_base(
+            &json!({"visitors": {"lap": {"max_connections": 5}}}),
+            "b2s:1",
+        );
+        assert!(
+            e.is_editing(&lap),
+            "the 5 s reload of the same rev keeps the edit"
+        );
+        assert_eq!(e.local.get_untracked().len(), 1, "and the typed problem");
+        e.sync_base(
+            &json!({"visitors": {"lap": {"max_connections": 7}}}),
+            "b2s:2",
+        );
+        assert!(
+            e.is_editing(&lap),
+            "a change elsewhere keeps an edit with nothing typed"
+        );
+        assert!(!e.unsaved(&lap), "its snapshot follows the new base");
+        e.reset_on_load.set(true);
+        e.sync_base(
+            &json!({"visitors": {"lap": {"max_connections": 7}}}),
+            "b2s:3",
+        );
+        assert!(!e.is_editing(&lap), "an apply ends the edits");
+    }
+
+    #[test]
+    fn after_apply_the_page_shows_what_changed() {
+        use crate::route::Route;
+        use burrow_admin_proto::plan::{Change, ChangeKind};
+        let plan = |kind, path: &[&str]| Plan {
+            changes: vec![Change {
+                kind,
+                path: p(path),
+                summary: String::new(),
+                part_of: None,
+            }],
+            ..Plan::default()
+        };
+        let none = |_: &str, _: &str| None;
+        assert_eq!(
+            landing(&plan(ChangeKind::Add, &["visitors", "phone"]), none),
+            Some(Route::Detail("visitors".into(), "phone".into()))
+        );
+        assert_eq!(
+            landing(&plan(ChangeKind::Remove, &["visitors", "phone"]), none),
+            Some(Route::List("visitors".into()))
+        );
+        assert_eq!(
+            landing(
+                &plan(ChangeKind::Rename, &["clients", "home"]),
+                |_, _| Some("house".into())
+            ),
+            Some(Route::Detail("clients".into(), "house".into()))
+        );
+        assert_eq!(
+            landing(&plan(ChangeKind::Set, &["pool"]), none),
+            Some(Route::Settings)
+        );
+        assert_eq!(landing(&Plan::default(), none), None);
     }
 
     #[test]

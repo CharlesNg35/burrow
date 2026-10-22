@@ -97,7 +97,7 @@ pub const LABEL: &str = "text-2xs font-bold uppercase tracking-[0.08em] text-tex
 pub fn button_class(variant: &str, small: bool) -> String {
     let look = match variant {
         "primary" => {
-            "border-accent bg-accent text-on-accent hover:brightness-95 dark:hover:brightness-110"
+            "border-accent bg-accent text-on-accent hover:brightness-95 dark:hover:brightness-110 disabled:border-border disabled:bg-surface-3 disabled:text-text-faint disabled:opacity-100 disabled:hover:brightness-100"
         }
         "danger" => {
             "border-danger bg-danger text-danger-ink hover:brightness-95 dark:hover:brightness-110"
@@ -134,11 +134,11 @@ pub fn Button(
     #[prop(into)] on_click: Callback<()>,
 ) -> impl IntoView {
     view! {
+        <span class="inline-flex" title=move || Some(reason.get()).filter(|r| !r.is_empty())>
         <button
             type="button"
             class=move || button_class(if variant == "danger" && disabled.get() { "danger-pending" } else { variant }, small)
             disabled=move || disabled.get() || busy.get()
-            title=move || Some(reason.get()).filter(|r| !r.is_empty())
             aria-busy=move || busy.get().then_some("true")
             data-testid=(!testid.is_empty()).then_some(testid)
             on:click=move |_| on_click.run(())
@@ -148,6 +148,7 @@ pub fn Button(
             <span>{move || label.get()}</span>
             {(!kbd.is_empty()).then(|| view! { <Kbd text=kbd/> })}
         </button>
+        </span>
     }
 }
 
@@ -297,6 +298,7 @@ pub fn Tabs(
     tabs: Vec<(&'static str, String)>,
     #[prop(into)] active: RwSignal<&'static str>,
     #[prop(optional)] counts: Option<Signal<Vec<String>>>,
+    #[prop(optional, into)] errors: Option<Signal<Vec<usize>>>,
 ) -> impl IntoView {
     view! {
         <div class="mb-4 flex gap-1 border-b border-border" role="tablist">
@@ -315,6 +317,15 @@ pub fn Tabs(
                         >
                             {label}
                             {counts.map(|c| view! { <span class="text-[11px] text-text-faint">{move || c.get().get(i).cloned().unwrap_or_default()}</span> })}
+                            {errors.map(|e| move || {
+                                let n = e.get().get(i).copied().unwrap_or(0);
+                                (n > 0).then(|| view! {
+                                    <span class="ml-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1 text-[10.5px] font-bold text-white dark:text-[#1A0507]" data-tab-errors=n.to_string()>
+                                        {n}
+                                        <span class="sr-only">{if n == 1 { " problem" } else { " problems" }}</span>
+                                    </span>
+                                })
+                            })}
                         </button>
                     }
                 })

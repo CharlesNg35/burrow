@@ -133,6 +133,13 @@ fn grant(path: &Path, account: &str, rights: &str) -> Result<(), Failure> {
     icacls(path, &["/grant", &format!("{account}:{rights}")])
 }
 
+fn revoke(path: &Path, account: &str) -> Result<(), Failure> {
+    if system_account(account) || !path.exists() || is_link(path) {
+        return Ok(());
+    }
+    icacls(path, &["/remove:g", account])
+}
+
 fn broad(account: &str) -> bool {
     let name = account.trim().trim_start_matches('*').to_ascii_lowercase();
     let name = name.rsplit('\\').next().unwrap_or(&name);
@@ -237,7 +244,13 @@ impl Backend for WindowsService {
         )
     }
 
-    fn writable_folder(&self, dir: &Path, _config: &Path, _account: &str) -> Result<(), Failure> {
+    fn config_folder(
+        &self,
+        dir: &Path,
+        _config: &Path,
+        _account: &str,
+        _writable: bool,
+    ) -> Result<(), Failure> {
         std::fs::create_dir_all(dir)
             .map_err(|e| Failure::new(format!("cannot create {}: {e}", dir.display())))?;
         if is_link(dir) {
@@ -390,6 +403,11 @@ impl Backend for WindowsService {
         service
             .set_failure_actions_on_non_crash_failures(true)
             .map_err(|e| scm_error("set the restart policy", e))?;
+        if !m.admin_writable {
+            revoke(m.folder(), &m.account)?;
+            revoke(&m.config, &m.account)?;
+            grant(m.folder(), &m.account, "RX")?;
+        }
         grant(&m.config, &m.account, "R")?;
         if let Some(env) = &m.env_file {
             grant(env, &m.account, "R")?;
@@ -398,8 +416,8 @@ impl Backend for WindowsService {
         for f in &m.files {
             grant(f, &m.account, "R")?;
         }
-        if let Some(dir) = &m.writable_dir {
-            grant(dir, &m.account, "(OI)(CI)M")?;
+        if m.admin_writable {
+            grant(m.folder(), &m.account, "(OI)(CI)M")?;
             grant(&m.config, &m.account, "M")?;
             let history = crate::admin::adapters::history_dir_of(&m.config);
             if !is_link(&history) {

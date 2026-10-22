@@ -270,32 +270,51 @@ pub fn check_in(node: &Node, v: &Value, doc: &Value) -> Result<(), String> {
     }
 }
 
-fn bind_at(v: Option<&Value>) -> Option<std::net::SocketAddr> {
-    let text = match v? {
-        Value::Number(n) => n.to_string(),
-        Value::String(s) => s.clone(),
-        _ => return None,
+enum Bound {
+    Missing,
+    Unknown,
+    At(std::net::SocketAddr),
+}
+
+fn bind_at(v: Option<&Value>) -> Bound {
+    let text = match v {
+        None | Some(Value::Null) => return Bound::Missing,
+        Some(Value::Number(n)) => n.to_string(),
+        Some(Value::String(s)) => s.clone(),
+        Some(other) => match burrow_admin_proto::value::as_env(other).and_then(|e| e.resolved) {
+            Some(r) => r,
+            None => return Bound::Unknown,
+        },
     };
-    target::parse_bind(&text, [0, 0, 0, 0], 1)
-        .ok()
-        .map(|b| std::net::SocketAddr::new(b.ip, b.first))
+    match target::parse_bind(&text, [0, 0, 0, 0], 1) {
+        Ok(b) => Bound::At(std::net::SocketAddr::new(b.ip, b.first)),
+        Err(_) => Bound::Unknown,
+    }
 }
 
 fn public_address_in(given: &str, doc: &Value) -> Result<(), String> {
     use burrow_config::{ServerConfig, WebSocketConfig};
-    let listen = bind_at(ServerConfig::LISTEN.get(doc));
+    let listen = match bind_at(ServerConfig::LISTEN.get(doc)) {
+        Bound::Unknown => return Ok(()),
+        Bound::Missing => None,
+        Bound::At(a) => Some(a),
+    };
     let ws = ServerConfig::WEBSOCKET.get(doc).filter(|w| w.is_object());
     let path = ws
         .and_then(|w| WebSocketConfig::PATH.str(w))
         .map(str::to_string)
         .unwrap_or_else(burrow_config::default_ws_path);
-    let shape = ws.and_then(|w| {
-        Some(burrow_syntax::address::WsShape {
-            listen: bind_at(WebSocketConfig::LISTEN.get(w))?,
+    let shape = match ws.map(|w| bind_at(WebSocketConfig::LISTEN.get(w))) {
+        Some(Bound::Unknown) => return Ok(()),
+        Some(Bound::At(listen)) => Some(burrow_syntax::address::WsShape {
+            listen,
             path: &path,
-            tls: WebSocketConfig::TLS.get(w).is_some_and(|t| !t.is_null()),
-        })
-    });
+            tls: ws
+                .and_then(|w| WebSocketConfig::TLS.get(w))
+                .is_some_and(|t| !t.is_null()),
+        }),
+        _ => None,
+    };
     if listen.is_none() && shape.is_none() {
         return Ok(());
     }

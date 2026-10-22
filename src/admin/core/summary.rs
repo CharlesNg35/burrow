@@ -19,7 +19,15 @@ fn short(v: &Value) -> String {
             })
             .collect::<Vec<_>>()
             .join(", "),
-        Value::Object(_) => "settings".into(),
+        Value::Object(m) if m.is_empty() => "nothing".into(),
+        Value::Object(m) => m
+            .iter()
+            .map(|(k, x)| match x {
+                Value::Object(_) => format!("{k}: {{…}}"),
+                _ => format!("{k}: {}", short(x)),
+            })
+            .collect::<Vec<_>>()
+            .join(", "),
         other => other.to_string(),
     };
     let text = super::text::mask_secrets(&text, &[]);
@@ -74,6 +82,25 @@ fn fields_changed(
                 });
             }
             None => parts.push(format!("{k} set to {}", short(nv))),
+            Some(Value::Object(om)) if nv.is_object() => {
+                let nm = nv.as_object().unwrap_or(&empty);
+                let mut what: Vec<String> = Vec::new();
+                for (sub, x) in nm {
+                    match om.get(sub) {
+                        None => what.push(format!("{sub} added ({})", short(x))),
+                        Some(y) if y != x => {
+                            what.push(format!("{sub} {} → {}", short(y), short(x)))
+                        }
+                        _ => {}
+                    }
+                }
+                what.extend(
+                    om.keys()
+                        .filter(|sub| !nm.contains_key(*sub))
+                        .map(|sub| format!("{sub} removed")),
+                );
+                parts.push(format!("{k}: {}", what.join(", ")));
+            }
             Some(ov) => parts.push(format!("{k} {} → {}", short(ov), short(nv))),
         }
     }
@@ -86,6 +113,7 @@ fn fields_changed(
             kind: ChangeKind::Set,
             path,
             summary: format!("{label} {name}: {}", parts.join("; ")),
+            part_of: None,
         });
     }
 }
@@ -110,6 +138,7 @@ pub fn changes(old: &Value, new: &Value, renames: &[Rename]) -> Vec<Change> {
                     r.path[1],
                     r.to
                 ),
+                part_of: None,
             });
         }
     }
@@ -157,6 +186,7 @@ pub fn changes(old: &Value, new: &Value, renames: &[Rename]) -> Vec<Change> {
                             kind: ChangeKind::Add,
                             path,
                             summary: format!("New {kind} {name}{extra}"),
+                            part_of: None,
                         })
                     }
                     Some(before) if before != val => {
@@ -170,6 +200,7 @@ pub fn changes(old: &Value, new: &Value, renames: &[Rename]) -> Vec<Change> {
                     kind: ChangeKind::Remove,
                     path: vec![key.clone(), name.clone()],
                     summary: format!("{} {name} removed", kind[..1].to_uppercase() + &kind[1..]),
+                    part_of: None,
                 });
             }
             continue;
@@ -192,6 +223,11 @@ pub fn changes(old: &Value, new: &Value, renames: &[Rename]) -> Vec<Change> {
                 }
                 parts.join("; ")
             }
+            (None, Some(Value::Object(b))) if !b.is_empty() => b
+                .iter()
+                .map(|(k, v)| format!("{key}.{k} set to {}", short(v)))
+                .collect::<Vec<_>>()
+                .join("; "),
             (None, Some(v)) => format!("{key} set to {}", short(v)),
             (Some(_), None) => format!("{key} removed"),
             (Some(a), Some(b)) => format!("{key}: {} → {}", short(a), short(b)),
@@ -205,7 +241,15 @@ pub fn changes(old: &Value, new: &Value, renames: &[Rename]) -> Vec<Change> {
             },
             path,
             summary,
+            part_of: None,
         });
+    }
+    let renamed: Vec<(Vec<String>, String)> = renames
+        .iter()
+        .map(|r| (r.path.clone(), r.to.clone()))
+        .collect();
+    for c in out.iter_mut().filter(|c| c.kind == ChangeKind::Set) {
+        c.part_of = burrow_config::refs::part_of(old, new, &c.path, &renamed);
     }
     out
 }
@@ -229,6 +273,18 @@ mod tests {
         assert!(text.contains(&"New client office (1 secret)"), "{text:?}");
         assert!(text.contains(&"Service web: bind 7840 → 7841"), "{text:?}");
         assert!(text.contains(&"limits removed"), "{text:?}");
+        let old = json!({"visitors": {"lap": {"reach": {"home": "any", "lab": "any"}}}});
+        let new = json!({"visitors": {"lap": {"reach": {"home": ["10.0.0.0/8"], "office": "any"}}}, "self": {"allow": ["10.0.0.0/8"]}});
+        let c = changes(&old, &new, &[]);
+        let text: Vec<&str> = c.iter().map(|c| c.summary.as_str()).collect();
+        assert!(
+            text.contains(
+                &"Visitor lap: reach: home any → 10.0.0.0/8, office added (any), lab removed"
+            ),
+            "{text:?}"
+        );
+        assert!(text.contains(&"self.allow set to 10.0.0.0/8"), "{text:?}");
+        assert!(!text.iter().any(|t| t.contains("settings")), "{text:?}");
         assert!(!text.iter().any(|t| t.contains("SECRET-")), "{text:?}");
     }
 

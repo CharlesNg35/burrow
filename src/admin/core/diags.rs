@@ -1,5 +1,5 @@
 use burrow_admin_proto::diag::{Diag, Severity};
-use burrow_config::ServiceEntry;
+use burrow_config::{Entry, ServiceEntry};
 
 use crate::config::tree::{Node, Span, Value};
 use crate::diagnostics::{Diagnostic, mask_text};
@@ -64,6 +64,12 @@ fn also(d: &Diagnostic, path: Option<&[String]>) -> Vec<Vec<String>> {
             .map(|n| ServiceEntry::BIND.of(&n))
             .filter(|p| Some(p.as_slice()) != path)
             .collect(),
+        "unreachable-service" => match path {
+            Some([section, name]) if section == ServiceEntry::section() => {
+                vec![ServiceEntry::VISITORS.of(name)]
+            }
+            _ => Vec::new(),
+        },
         _ => Vec::new(),
     }
 }
@@ -115,6 +121,7 @@ impl Mapper {
                 .span
                 .filter(|s| s.start.line > 0)
                 .map(|s| s.start.col as u32),
+            before: false,
         }
     }
 }

@@ -30,7 +30,14 @@ pub fn About() -> impl IntoView {
         let facts: Vec<(&str, String)> = vec![
             ("Server version", w.server.version.clone()),
             ("Server target", w.server.target.clone()),
-            ("Uptime", format::span(w.server.uptime_secs)),
+            (
+                "Uptime",
+                format::span(
+                    s.status
+                        .with(|x| x.as_ref().map(|x| x.uptime_secs))
+                        .unwrap_or(w.server.uptime_secs),
+                ),
+            ),
             ("burrow admin UI", UI_VERSION.to_string()),
             (
                 "Admin protocol",
@@ -38,12 +45,16 @@ pub fn About() -> impl IntoView {
             ),
             (
                 "Schema",
-                format!("version {} · {}", schema.schema_version, schema.hash),
+                format!(
+                    "version {} · {}",
+                    schema.schema_version,
+                    schema.hash.trim_start_matches("b2s:")
+                ),
             ),
             ("This UI's schema version", SCHEMA_VERSION.to_string()),
             (
                 "Signed in as",
-                format!("visitor {} ({level}) from {}", w.you.visitor, w.you.from),
+                format!("{} · admin {level} · from {}", w.you.visitor, w.you.from),
             ),
             ("Config file", st.file.path.clone()),
             ("Format", st.file.format.clone()),
@@ -56,16 +67,14 @@ pub fn About() -> impl IntoView {
                     .or(st.file.why_not_history.clone())
                     .unwrap_or_else(|| "kept in memory only".into()),
             ),
-            ("Revision", st.rev.clone()),
+            ("Revision", crate::store::short_rev(&st.rev)),
         ];
-        let features = w.features.join(", ");
         Some(view! {
             <Facts testid="about">
                 {facts
                     .into_iter()
                     .map(|(k, v)| view! { <Fact label=k mono=true>{v}</Fact> })
                     .collect_view()}
-                <Fact label="Features" mono=true><span data-testid="features">{features}</span></Fact>
             </Facts>
         })
     };

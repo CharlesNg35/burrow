@@ -298,17 +298,16 @@ pub fn addr_editor(fc: FieldCtx, kind: Kind) -> AnyView {
                         let c_range = c_range.clone();
                         let id = range_id.clone();
                         view! {
-                            <div class="ml-auto">
+                            <div class="ml-4">
                                 <Toggle
                                     id=id
                                     checked=range_on
                                     label="Port range"
                                     on_change=move |on: bool| {
                                         range_on.set(on);
-                                        if on && parts.with_untracked(|p| p.to.is_empty()) {
-                                            parts.update(|p| p.to = p.from.clone());
+                                        if !on {
+                                            c_range();
                                         }
-                                        c_range();
                                     }
                                 />
                             </div>
@@ -360,12 +359,11 @@ pub fn addr_editor(fc: FieldCtx, kind: Kind) -> AnyView {
         <div data-addr="">
             {mode}
             {move || if unix_mode.get() { unix().into_any() } else { network().into_any() }}
-            {ranges.then(|| view! {
-                <p class="mt-1.5 text-xs text-text-muted">
-                    "Stored as "
-                    <code class="font-mono" data-testid="stored-as">{stored}</code>
-                    {max.map(|m| format!(" · at most {m} ports."))}
-                </p>
+            <span class="hidden" data-testid="stored-as" data-stored=stored></span>
+            {(ranges && max.is_some()).then(|| view! {
+                <Show when=move || range_on.get()>
+                    <p class="mt-1.5 text-xs text-text-muted">{max.map(|m| format!("A range has at most {m} ports."))}</p>
+                </Show>
             })}
         </div>
     }
@@ -464,7 +462,8 @@ fn options_for(entity: &Entity, reserved: &[String]) -> Vec<ComboOption> {
                     }
                     Some(c) => format!(
                         "offline · {}",
-                        format::left(
+                        format::left_of(
+                            &c.name,
                             c.left_secs_ago,
                             status.as_ref().map(|s| s.uptime_secs).unwrap_or(0)
                         )
@@ -486,14 +485,21 @@ fn options_for(entity: &Entity, reserved: &[String]) -> Vec<ComboOption> {
                     .and_then(|st| st.visitors.iter().find(|v| v.name == n))
                     .map(|v| v.open)
                     .unwrap_or(0);
+                let admin = store()
+                    .edit
+                    .peek(&VisitorEntry::ADMIN.of(&n))
+                    .map(|v| crate::form::plain(&v));
+                let mut parts: Vec<String> = Vec::new();
+                if let Some(a) = admin {
+                    parts.push(format!("admin · {a}, uses burrow admin"));
+                }
+                if open > 0 {
+                    parts.push("in use now".into());
+                }
                 ComboOption {
                     value: n.clone(),
                     label: n,
-                    facet: if open > 0 {
-                        "active".into()
-                    } else {
-                        String::new()
-                    },
+                    facet: parts.join(" · "),
                     dot: None,
                 }
             }

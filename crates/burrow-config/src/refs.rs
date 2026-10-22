@@ -1,5 +1,8 @@
+use std::collections::BTreeSet;
+
 use burrow_admin_proto::Path;
-use burrow_admin_proto::serde_json::Value;
+use burrow_admin_proto::serde_json::{Map, Value};
+use burrow_admin_proto::value::get;
 
 use crate::field::Entry;
 use crate::model::{ClientEntry, ServerConfig, ServiceEntry, VisitorEntry};
@@ -57,6 +60,120 @@ pub fn rename_refs(root: &mut Value, section: &str, from: &str, to: &str) -> Vec
     keys
 }
 
+struct Refs {
+    rest: Value,
+    names: Vec<(&'static str, BTreeSet<String>)>,
+    order: Vec<Value>,
+}
+
+fn names_in(v: Option<&Value>) -> Vec<String> {
+    match v {
+        Some(Value::Array(a)) => a
+            .iter()
+            .filter_map(Value::as_str)
+            .map(str::to_string)
+            .collect(),
+        Some(Value::String(s)) => vec![s.clone()],
+        _ => Vec::new(),
+    }
+}
+
+fn refs(section: &str, v: &Value, shared: &BTreeSet<String>) -> Option<Refs> {
+    let mut rest = v.as_object().cloned().unwrap_or_default();
+    if section == ServiceEntry::section() {
+        let mut clients = names_in(rest.remove(ServiceEntry::CLIENT.key()).as_ref());
+        clients.extend(names_in(rest.remove(ServiceEntry::CLIENTS.key()).as_ref()));
+        let visitors = names_in(rest.remove(ServiceEntry::VISITORS.key()).as_ref());
+        let order = clients
+            .iter()
+            .filter(|c| shared.contains(*c))
+            .map(|c| Value::String(c.clone()))
+            .collect();
+        return Some(Refs {
+            rest: Value::Object(rest),
+            names: vec![
+                (ClientEntry::section(), clients.into_iter().collect()),
+                (VisitorEntry::section(), visitors.into_iter().collect()),
+            ],
+            order,
+        });
+    }
+    if section == VisitorEntry::section() {
+        let reach = rest
+            .remove(VisitorEntry::REACH.key())
+            .and_then(|r| r.as_object().cloned())
+            .unwrap_or_default();
+        let kept: Map<String, Value> = reach
+            .iter()
+            .filter(|(k, _)| shared.contains(*k))
+            .map(|(k, x)| (k.clone(), x.clone()))
+            .collect();
+        return Some(Refs {
+            rest: Value::Object(rest),
+            names: vec![(ClientEntry::section(), reach.keys().cloned().collect())],
+            order: vec![Value::Object(kept)],
+        });
+    }
+    None
+}
+
+fn event(
+    base: &Value,
+    draft: &Value,
+    renames: &[(Path, String)],
+    section: &str,
+    name: &str,
+) -> Option<Path> {
+    for (from, to) in renames {
+        if from.first().map(String::as_str) == Some(section)
+            && (from.get(1).map(String::as_str) == Some(name) || to == name)
+        {
+            return Some(from.clone());
+        }
+    }
+    let path = vec![section.to_string(), name.to_string()];
+    (get(base, &path).is_some() != get(draft, &path).is_some()).then_some(path)
+}
+
+pub fn part_of(
+    base: &Value,
+    draft: &Value,
+    entity: &[String],
+    renames: &[(Path, String)],
+) -> Option<Path> {
+    let [section, _] = entity else {
+        return None;
+    };
+    let (old, new) = (get(base, entity)?, get(draft, entity)?);
+    let keys = |doc: &Value, sec: &str| -> BTreeSet<String> {
+        get(doc, &[sec.to_string()])
+            .and_then(Value::as_object)
+            .map(|m| m.keys().cloned().collect())
+            .unwrap_or_default()
+    };
+    let mut shared = BTreeSet::new();
+    for sec in [ClientEntry::section(), VisitorEntry::section()] {
+        shared.extend(keys(base, sec).intersection(&keys(draft, sec)).cloned());
+    }
+    let (a, b) = (refs(section, old, &shared)?, refs(section, new, &shared)?);
+    if a.rest != b.rest || a.order != b.order {
+        return None;
+    }
+    let mut found: Option<Path> = None;
+    let mut any = false;
+    for ((sec, before), (_, after)) in a.names.iter().zip(b.names.iter()) {
+        for name in before.symmetric_difference(after) {
+            any = true;
+            let id = event(base, draft, renames, sec, name)?;
+            match &found {
+                Some(f) if *f != id => return None,
+                _ => found = Some(id),
+            }
+        }
+    }
+    if any { found } else { None }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -86,5 +203,81 @@ mod tests {
         rename_refs(&mut doc, VisitorEntry::section(), "home", "guest");
         assert_eq!(doc["services"]["ssh"]["visitors"], json!(["guest"]));
         assert_eq!(doc["services"]["web"]["client"], "home2");
+    }
+
+    fn p(a: &str, b: &str) -> Path {
+        vec![a.to_string(), b.to_string()]
+    }
+
+    #[test]
+    fn a_service_that_only_gains_a_new_client_is_part_of_that_client() {
+        let base = json!({"clients": {"home": {}}, "services": {
+            "web": {"client": "home", "target": 80},
+            "db": {"clients": ["home"], "target": 5432},
+            "ssh": {"client": "home", "target": 22}
+        }});
+        let draft = json!({"clients": {"home": {}, "example": {}}, "services": {
+            "web": {"clients": ["home", "example"], "target": 80},
+            "db": {"clients": ["home", "example"], "target": 5432},
+            "ssh": {"clients": ["home", "example"], "target": 2222}
+        }});
+        let c = p("clients", "example");
+        assert_eq!(
+            part_of(&base, &draft, &p("services", "web"), &[]),
+            Some(c.clone())
+        );
+        assert_eq!(part_of(&base, &draft, &p("services", "db"), &[]), Some(c));
+        assert_eq!(
+            part_of(&base, &draft, &p("services", "ssh"), &[]),
+            None,
+            "the target changed too"
+        );
+        assert_eq!(part_of(&base, &draft, &p("clients", "example"), &[]), None);
+    }
+
+    #[test]
+    fn removed_and_renamed_entities_take_their_references_with_them() {
+        let base = json!({"clients": {"home": {}, "office": {}}, "visitors": {"lap": {"reach": {"office": "any"}}, "bob": {}}, "services": {
+            "web": {"clients": ["home", "office"], "visitors": ["bob"], "target": 80}
+        }});
+        let removed = json!({"clients": {"home": {}}, "visitors": {"lap": {}, "bob": {}}, "services": {
+            "web": {"clients": ["home"], "visitors": ["bob"], "target": 80}
+        }});
+        let office = p("clients", "office");
+        assert_eq!(
+            part_of(&base, &removed, &p("services", "web"), &[]),
+            Some(office.clone())
+        );
+        assert_eq!(
+            part_of(&base, &removed, &p("visitors", "lap"), &[]),
+            Some(office.clone())
+        );
+        let renamed = json!({"clients": {"home": {}, "branch": {}}, "visitors": {"lap": {"reach": {"branch": "any"}}, "bob": {}}, "services": {
+            "web": {"clients": ["home", "branch"], "visitors": ["bob"], "target": 80}
+        }});
+        let r = vec![(office.clone(), "branch".to_string())];
+        assert_eq!(
+            part_of(&base, &renamed, &p("services", "web"), &r),
+            Some(office.clone())
+        );
+        assert_eq!(
+            part_of(&base, &renamed, &p("visitors", "lap"), &r),
+            Some(office)
+        );
+    }
+
+    #[test]
+    fn a_reordered_list_or_two_new_entities_stand_on_their_own() {
+        let base = json!({"clients": {"a": {}, "b": {}}, "services": {"web": {"clients": ["a", "b"], "target": 80}}});
+        let order = json!({"clients": {"a": {}, "b": {}}, "services": {"web": {"clients": ["b", "a"], "target": 80}}});
+        assert_eq!(part_of(&base, &order, &p("services", "web"), &[]), None);
+        let two = json!({"clients": {"a": {}, "b": {}, "c": {}, "d": {}}, "services": {"web": {"clients": ["a", "b", "c", "d"], "target": 80}}});
+        assert_eq!(part_of(&base, &two, &p("services", "web"), &[]), None);
+        let existing = json!({"clients": {"a": {}, "b": {}}, "services": {"web": {"clients": ["a"], "target": 80}}});
+        assert_eq!(
+            part_of(&base, &existing, &p("services", "web"), &[]),
+            None,
+            "b still exists"
+        );
     }
 }

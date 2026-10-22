@@ -267,7 +267,8 @@ impl Store for FileStore {
             }
             Err(e) => {
                 let ro = e.raw_os_error() == Some(30);
-                let installed = std::env::var_os("INVOCATION_ID").is_some();
+                let installed = std::env::var_os("INVOCATION_ID").is_some()
+                    || crate::service::in_service_folder(&self.path);
                 Err(WhyNot {
                     code: if ro {
                         "read-only-fs".into()
@@ -287,7 +288,7 @@ impl Store for FileStore {
                         )
                     },
                     hint: if installed || ro {
-                        "install the service again so it may change its config: sudo burrow service install --admin-writable -c SERVER_CONFIG (this is the default when a visitor has admin access)".into()
+                        crate::service::writable_hint(&self.path)
                     } else {
                         format!(
                             "give the account the server runs as write access to {}",

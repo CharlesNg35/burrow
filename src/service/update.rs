@@ -384,7 +384,7 @@ mod tests {
         Manifest {
             name: name.into(),
             role: "client".into(),
-            config: PathBuf::from("/etc/burrow/x.yaml"),
+            config: PathBuf::from("/etc/burrow/x/client.yaml"),
             source_config: PathBuf::from("/tmp/x.yaml"),
             env_file: None,
             log_file: PathBuf::new(),
@@ -395,7 +395,7 @@ mod tests {
             low_ports: false,
             files: vec![],
             version: "1.0.0".into(),
-            writable_dir: None,
+            admin_writable: false,
         }
     }
 
@@ -418,7 +418,10 @@ mod tests {
             let said = String::from_utf8(out).unwrap();
             assert!(swaps.is_empty(), "{said}");
             assert!(said.contains("users other than root can change"), "{said}");
-            assert!(said.contains("service install -c /tmp/x.yaml"), "{said}");
+            assert!(
+                said.contains("service install -c /etc/burrow/x/client.yaml"),
+                "{said}"
+            );
         });
     }
 

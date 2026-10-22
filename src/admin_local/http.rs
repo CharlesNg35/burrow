@@ -1,4 +1,4 @@
-pub const MAX_HEAD: usize = 8 * 1024;
+pub const MAX_HEAD: usize = 64 * 1024;
 
 pub const SECURITY_HEADERS: [(&str, &str); 6] = [
     (
@@ -25,6 +25,8 @@ pub struct Head {
     pub host: Option<String>,
     pub origin: Option<String>,
     pub fetch_site: Option<String>,
+    pub fetch_mode: Option<String>,
+    pub fetch_dest: Option<String>,
     pub upgrade: bool,
     pub gzip: bool,
 }
@@ -49,6 +51,8 @@ pub fn head_of<B>(req: &::http::Request<B>) -> Result<Head, Reject> {
         host: one("host")?,
         origin: one("origin")?,
         fetch_site: one("sec-fetch-site")?,
+        fetch_mode: one("sec-fetch-mode")?,
+        fetch_dest: one("sec-fetch-dest")?,
         upgrade: h
             .get_all("upgrade")
             .iter()
@@ -146,8 +150,12 @@ pub fn check(head: &Head, port: u16, prefix: &str) -> Result<Decision, Reject> {
     {
         return Err(forbidden("this page is served for 127.0.0.1 only"));
     }
+    let opened = !head.upgrade
+        && head.fetch_mode.as_deref() == Some("navigate")
+        && head.fetch_dest.as_deref() == Some("document");
     if let Some(site) = head.fetch_site.as_deref()
         && !matches!(site, "same-origin" | "none")
+        && !opened
     {
         return Err(forbidden("requests from other sites are refused"));
     }
@@ -298,6 +306,50 @@ mod tests {
         assert_eq!(check(&post, 4000, "").unwrap_err().code, 405);
         let up = head(&["GET /../etc/passwd HTTP/1.1", "Host: 127.0.0.1:4000"]);
         assert_eq!(check(&up, 4000, "").unwrap_err().code, 400);
+    }
+
+    #[test]
+    fn the_launch_page_can_open_the_ui_while_other_cross_site_requests_are_refused() {
+        let get = |site: &str, mode: &str, dest: &str| {
+            check(
+                &head(&[
+                    "GET /r-abc/ HTTP/1.1",
+                    "Host: 127.0.0.1:4000",
+                    &format!("Sec-Fetch-Site: {site}"),
+                    &format!("Sec-Fetch-Mode: {mode}"),
+                    &format!("Sec-Fetch-Dest: {dest}"),
+                ]),
+                4000,
+                "/r-abc",
+            )
+        };
+        assert_eq!(
+            get("cross-site", "navigate", "document"),
+            Ok(Decision::Page("/".into()))
+        );
+        for (site, mode, dest) in [
+            ("cross-site", "no-cors", "script"),
+            ("cross-site", "cors", "empty"),
+            ("cross-site", "navigate", "iframe"),
+            ("same-site", "no-cors", "image"),
+        ] {
+            assert_eq!(
+                get(site, mode, dest).unwrap_err().code,
+                403,
+                "{site} {mode} {dest}"
+            );
+        }
+        let ws = head(&[
+            "GET /r-abc/api HTTP/1.1",
+            "Host: 127.0.0.1:4000",
+            "Upgrade: websocket",
+            "Connection: Upgrade",
+            "Origin: http://127.0.0.1:4000",
+            "Sec-Fetch-Site: cross-site",
+            "Sec-Fetch-Mode: navigate",
+            "Sec-Fetch-Dest: document",
+        ]);
+        assert_eq!(check(&ws, 4000, "/r-abc").unwrap_err().code, 403);
     }
 
     #[test]

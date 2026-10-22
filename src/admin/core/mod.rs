@@ -136,8 +136,11 @@ pub struct Core {
     schema: Schema,
     audit: Mutex<VecDeque<AuditEntry>>,
     last_good: Mutex<Option<String>>,
+    seen: Mutex<VecDeque<(String, String)>>,
     started: Instant,
 }
+
+const SEEN: usize = 8;
 
 pub fn features() -> Vec<String> {
     use burrow_admin_proto::features::*;
@@ -171,6 +174,7 @@ impl Core {
                 result: "kept".into(),
                 revertible: true,
                 details_kept: false,
+                reverts: None,
             });
         }
         Core {
@@ -180,6 +184,7 @@ impl Core {
             schema: crate::admin::hooks::schema(crate::config::admin_schema::server_schema()),
             audit: Mutex::new(audit),
             last_good: Mutex::new(None),
+            seen: Mutex::new(VecDeque::new()),
             started: Instant::now(),
         }
     }
@@ -274,9 +279,25 @@ impl Core {
         }
     }
 
+    pub fn seen_text(&self, rev: &str) -> Option<String> {
+        self.seen
+            .lock()
+            .expect("seen lock")
+            .iter()
+            .find(|(r, _)| r == rev)
+            .map(|(_, t)| t.clone())
+    }
+
     pub fn state(&self, s: &Session) -> Result<State, ApiError> {
         let text = self.read()?;
         let rev = text::rev(&text);
+        {
+            let mut seen = self.seen.lock().expect("seen lock");
+            if !seen.iter().any(|(r, _)| *r == rev) {
+                seen.push_front((rev.clone(), text.clone()));
+                seen.truncate(SEEN);
+            }
+        }
         let checked = plan::check_text(self, &text);
         if checked.valid {
             *self.last_good.lock().expect("last good lock") = Some(rev.clone());
@@ -447,9 +468,16 @@ impl Core {
             .collect();
         let diff = match &req.diff {
             Some(rev) => {
-                let entry = entries.iter().find(|e| &e.rev == rev).ok_or_else(|| {
-                    ApiError::new(ErrorCode::BadRequest, format!("no history entry {rev}"))
-                })?;
+                let entry = self
+                    .audit
+                    .lock()
+                    .expect("audit lock")
+                    .iter()
+                    .find(|e| &e.rev == rev)
+                    .cloned()
+                    .ok_or_else(|| {
+                        ApiError::new(ErrorCode::BadRequest, format!("no history entry {rev}"))
+                    })?;
                 let after = self.store.version(&entry.rev);
                 let before = self.store.version(&entry.base);
                 match (before, after) {

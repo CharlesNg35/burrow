@@ -267,6 +267,7 @@ mod tests {
                 name: "lap\"top".into(),
                 open: 1,
                 total: 12,
+                last_seen_secs: Some(0),
             }],
         }
     }

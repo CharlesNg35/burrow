@@ -101,17 +101,11 @@ pub fn FieldRow(
                 <label class="text-sm font-semibold" for=id.clone() id=format!("{id}-label")>
                     {label}
                 </label>
-                {(!key_hint.is_empty()).then(|| view! { <span class="font-mono text-xs break-all text-text-faint">{key_hint}</span> })}
+                {(!key_hint.is_empty()).then(|| view! { <span class="font-mono text-xs whitespace-nowrap text-text-faint">{key_hint}</span> })}
                 {badges
                     .into_iter()
                     .map(|(text, tone)| view! { <span class=tag_class(tone)>{text}</span> })
                     .collect_view()}
-                {move || {
-                    state
-                        .get()
-                        .locked_reason
-                        .map(|_| view! { <span class=tag_class(Tone::Neutral) data-testid="locked-tag"><Icon name="lock" small=true/>"locked"</span> })
-                }}
             </div>
             <div class="min-w-0">
                 <div

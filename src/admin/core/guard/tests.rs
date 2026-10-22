@@ -54,7 +54,7 @@ fn impacts_count_the_connections_a_change_closes() {
         }],
         ..Default::default()
     };
-    let i = impacts(&old, &new, &status, &[], &[]);
+    let i = impacts(&old, &new, &status, &[], &[], &[]);
     let removed = i.iter().find(|i| i.code == "removes-service").unwrap();
     assert_eq!(
         removed.message,
@@ -62,7 +62,7 @@ fn impacts_count_the_connections_a_change_closes() {
     );
     assert_eq!(removed.confirm.as_deref(), Some("web"));
     let moved = settings(&w.text.replace("bind: 7840", "bind: 7841"));
-    let i = impacts(&old, &moved, &status, &[], &[]);
+    let i = impacts(&old, &moved, &status, &[], &[], &[]);
     assert!(
         i.iter()
             .any(|i| i.code == "rebinds-service" && i.confirm.as_deref() == Some("web"))
@@ -91,13 +91,13 @@ fn removing_the_secret_a_client_is_connected_with_disconnects_it() {
         secret_fp: w.home.fingerprint(),
         from: "198.51.100.4:1".into(),
     }];
-    let i = impacts(&old, &new, &Status::default(), &live, &[]);
+    let i = impacts(&old, &new, &Status::default(), &live, &[], &[]);
     assert!(
         i.iter()
             .any(|i| i.code == "disconnects-client" && i.confirm.as_deref() == Some("home")),
         "{i:?}"
     );
-    let safe = impacts(&old, &new, &Status::default(), &[], &[]);
+    let safe = impacts(&old, &new, &Status::default(), &[], &[], &[]);
     assert!(!safe.iter().any(|i| i.code == "disconnects-client"));
 }
 
@@ -151,14 +151,14 @@ fn a_new_self_allow_names_the_reach_connections_it_may_close() {
         }],
         ..Default::default()
     };
-    let i = impacts(&old, &new, &status, &[], &[]);
+    let i = impacts(&old, &new, &status, &[], &[], &[]);
     let changed = i.iter().find(|i| i.code == "changes-self-allow").unwrap();
     assert_eq!(
         changed.message,
         "changes self.allow; of the 3 open connections to this server, those the new list no longer permits close"
     );
     assert_eq!(changed.level, Level::Warning);
-    assert!(impacts(&old, &old, &status, &[], &[]).is_empty());
+    assert!(impacts(&old, &old, &status, &[], &[], &[]).is_empty());
 }
 
 struct Team {
@@ -443,6 +443,212 @@ fn a_grant_brings_no_impact_since_it_is_refused() {
     let t = team();
     let old = settings(&t.text);
     let new = settings(&t.text.replace("  plain:\n", "  plain:\n    admin: write\n"));
-    let i = impacts(&old, &new, &Status::default(), &[], &[]);
+    let i = impacts(&old, &new, &Status::default(), &[], &[], &[]);
     assert!(i.iter().all(|i| !i.code.starts_with("admin")), "{i:?}");
+}
+
+#[test]
+fn services_that_only_change_target_or_clients_share_one_impact() {
+    let (a, b) = (
+        crate::secret::Secret::generate().encode(),
+        crate::secret::Secret::generate().encode(),
+    );
+    let head = format!(
+        "listen: 7835\nclients:\n  a:\n    secret: {a}\n  b:\n    secret: {b}\nservices:\n"
+    );
+    let old = settings(&format!(
+        "{head}  web: {{ client: a, target: 80, bind: 7840 }}\n  db: {{ client: a, target: 5432, bind: 7841 }}\n  ssh: {{ client: a, target: 22, bind: 7842 }}\n"
+    ));
+    let new = settings(&format!(
+        "{head}  web: {{ clients: [a, b], target: 80, bind: 7840 }}\n  db: {{ clients: [a, b], target: 5432, bind: 7841 }}\n  ssh: {{ client: a, target: 22, bind: 7842 }}\n"
+    ));
+    let changed: Vec<String> = impacts(&old, &new, &Status::default(), &[], &[], &[])
+        .into_iter()
+        .filter(|i| i.code == "changes-service")
+        .map(|i| i.message)
+        .collect();
+    assert_eq!(
+        changed,
+        ["services db and web use their new target or clients for new connections; open ones stay"]
+    );
+}
+
+fn renamed(section: &str, from: &str, to: &str) -> Rename {
+    Rename {
+        path: vec![section.into(), from.into()],
+        to: to.into(),
+    }
+}
+
+fn twins() -> (String, String) {
+    let (c, v, o) = (
+        crate::secret::Secret::generate().encode(),
+        crate::secret::Secret::generate().encode(),
+        crate::secret::Secret::generate().encode(),
+    );
+    (
+        format!(
+            "listen: 7835\nclients:\n  home:\n    secret: {c}\nvisitors:\n  ops:\n    secret: {o}\n    admin: write\n  home:\n    secret: {v}\nservices:\n  web: {{ client: home, bind: 7840, target: 3000 }}\n"
+        ),
+        c,
+    )
+}
+
+#[test]
+fn renaming_a_connected_client_says_it_is_locked_out_until_its_config_says_the_new_name() {
+    let (text, c) = twins();
+    let old = settings(&text);
+    let new = settings(
+        &text
+            .replace(
+                &format!("  home:\n    secret: {c}"),
+                &format!("  house:\n    secret: {c}"),
+            )
+            .replace("client: home", "client: house"),
+    );
+    let renames = [renamed("clients", "home", "house")];
+    let live = [LiveSession {
+        client: "home".into(),
+        secret_fp: String::new(),
+        from: "198.51.100.4:1".into(),
+    }];
+    let status = Status {
+        clients: vec![crate::metrics::ClientStatus {
+            name: "home".into(),
+            open: 2,
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let i = impacts(&old, &new, &status, &live, &[], &renames);
+    let r = i.iter().find(|i| i.code == "renames").expect("renames");
+    assert_eq!(
+        r.message,
+        "renames client home to house; it is connected and will be disconnected, closing 2 open connections, until its client.yaml says name: house"
+    );
+    assert_eq!(r.level, Level::Danger);
+    assert_eq!(r.confirm.as_deref(), Some("home"));
+    assert!(
+        i.iter()
+            .all(|i| i.code != "removes-client" && i.code != "adds-client"),
+        "{i:?}"
+    );
+    let away = impacts(&old, &new, &Status::default(), &[], &[], &renames);
+    let r = away.iter().find(|i| i.code == "renames").expect("renames");
+    assert_eq!(
+        r.message,
+        "renames client home to house; it cannot connect until its client.yaml says name: house"
+    );
+    assert_eq!(r.level, Level::Warning);
+    assert_eq!(r.confirm, None);
+}
+
+#[test]
+fn renaming_a_bound_service_closes_its_port_and_its_open_connections() {
+    let (text, _) = twins();
+    let old = settings(&text);
+    let new = settings(&text.replace("  web: {", "  site: {"));
+    let renames = [renamed("services", "web", "site")];
+    let status = Status {
+        services: vec![ServiceStatus {
+            name: "web".into(),
+            open: 3,
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let i = impacts(&old, &new, &status, &[], &[], &renames);
+    let r = i.iter().find(|i| i.code == "renames").expect("renames");
+    assert_eq!(
+        r.message,
+        "renames service web to site; port 0.0.0.0:7840 closes and reopens; closes 3 open connections on it"
+    );
+    assert_eq!(r.level, Level::Danger);
+    assert_eq!(r.confirm.as_deref(), Some("web"));
+    assert!(
+        i.iter()
+            .all(|i| i.code != "removes-service" && i.code != "adds-service"),
+        "{i:?}"
+    );
+    let idle = impacts(&old, &new, &Status::default(), &[], &[], &renames);
+    let r = idle.iter().find(|i| i.code == "renames").expect("renames");
+    assert_eq!(r.level, Level::Danger, "the port still closes");
+    assert_eq!(r.confirm.as_deref(), Some("web"));
+}
+
+#[test]
+fn renaming_a_visitor_with_open_tunnels_closes_them() {
+    let (text, _) = twins();
+    let old = settings(&text);
+    let renames = [renamed("visitors", "home", "phone")];
+    let new = settings(&{
+        let mut t = text.clone();
+        let at = t.find("visitors:").unwrap();
+        let tail = t.split_off(at);
+        t + &tail.replacen("  home:\n", "  phone:\n", 1)
+    });
+    let status = Status {
+        visitors: vec![VisitorStatus {
+            name: "home".into(),
+            open: 1,
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let i = impacts(&old, &new, &status, &[], &[], &renames);
+    let r = i.iter().find(|i| i.code == "renames").expect("renames");
+    assert_eq!(
+        r.message,
+        "renames visitor home to phone; closes 1 open connection; it cannot connect until its visitor.yaml says name: phone"
+    );
+    assert_eq!(r.level, Level::Danger);
+    assert_eq!(r.confirm.as_deref(), Some("home"));
+}
+
+#[test]
+fn a_rename_hides_only_the_removal_and_addition_of_the_entity_in_its_own_section() {
+    let (text, c) = twins();
+    let old = settings(&text);
+    let mut t = text
+        .replace(
+            &format!("clients:\n  home:\n    secret: {c}\n"),
+            "clients: {}\n",
+        )
+        .replace("  web: { client: home, bind: 7840, target: 3000 }\n", "");
+    let at = t.find("visitors:").unwrap();
+    let tail = t.split_off(at);
+    t = t + &tail.replacen("  home:\n", "  phone:\n", 1);
+    let t = t.replace(
+        "services:\n",
+        "services:\n  site: { client: x, bind: 7850, target: 3000 }\n",
+    );
+    let t = t.replace(
+        "clients: {}\n",
+        &format!("clients:\n  x:\n    secret: {c}\n"),
+    );
+    let new = settings(&t);
+    let renames = [renamed("visitors", "home", "phone")];
+    let i = impacts(&old, &new, &Status::default(), &[], &[], &renames);
+    let codes: Vec<(&str, Option<&str>)> = i
+        .iter()
+        .map(|i| (i.code.as_str(), i.confirm.as_deref()))
+        .collect();
+    assert!(
+        codes.contains(&("removes-client", Some("home"))),
+        "{codes:?}"
+    );
+    assert!(
+        codes.contains(&("removes-service", Some("web"))),
+        "{codes:?}"
+    );
+    assert!(
+        i.iter()
+            .any(|i| i.code == "adds-service" && i.message.contains("site")),
+        "{i:?}"
+    );
+    assert!(
+        !codes.contains(&("removes-visitor", Some("home"))),
+        "{codes:?}"
+    );
+    assert_eq!(i.iter().filter(|i| i.code == "renames").count(), 1);
 }

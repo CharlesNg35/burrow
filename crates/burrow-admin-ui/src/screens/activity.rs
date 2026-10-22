@@ -1,9 +1,7 @@
 use burrow_admin_proto::msg::{self, AuditEntry, HistoryReply};
 use burrow_admin_proto::plan::Diff;
 use burrow_admin_proto::serde_json::{self, json};
-use burrow_ui_kit::{
-    Button, Callout, DiffLine, DiffView, EmptyState, Skeleton, Stat, Stats, Tone, tag_class,
-};
+use burrow_ui_kit::{Button, DiffLine, DiffView, EmptyState, Skeleton, Stat, Stats, Tone};
 use leptos::prelude::*;
 
 use crate::api;
@@ -57,17 +55,38 @@ fn who(e: &AuditEntry) -> String {
     }
 }
 
+fn title_of(e: &AuditEntry) -> String {
+    if let Some(to) = &e.reverts {
+        return format!("Reverted to rev {}", short_rev(to));
+    }
+    e.changes
+        .iter()
+        .find(|c| c.part_of.is_none())
+        .or(e.changes.first())
+        .map(|c| c.summary.clone())
+        .unwrap_or_else(|| format!("No change ({})", e.result))
+}
+
+fn repeats(entries: &[AuditEntry], i: usize) -> Option<&AuditEntry> {
+    let e = &entries[i];
+    if e.reverts.is_some() {
+        return None;
+    }
+    entries[i + 1..].iter().find(|o| o.rev == e.rev)
+}
+
 fn hand(e: &AuditEntry) -> bool {
     e.visitor.is_empty() || e.visitor == "file"
 }
 
-fn rows_of(entries: &[AuditEntry], can_write: bool) -> Vec<Row> {
+fn rows_of(entries: &[AuditEntry], can_write: bool, current: &str) -> Vec<Row> {
+    let now = entries.iter().position(|e| e.rev == current);
     entries
         .iter()
         .enumerate()
         .map(|(i, e)| {
             let mut actions = vec!["View"];
-            if e.revertible && can_write {
+            if e.revertible && can_write && revert_target(e) != current {
                 actions.push("Revert");
             }
             let tone = if hand(e) {
@@ -85,20 +104,27 @@ fn rows_of(entries: &[AuditEntry], can_write: bool) -> Vec<Row> {
                 to: Route::Activity(Some(e.rev.clone())),
                 icon: "history",
                 dot: Some(tone),
-                title: e
-                    .changes
-                    .first()
-                    .map(|c| c.summary.clone())
-                    .unwrap_or_else(|| format!("No change ({})", e.result)),
+                title: title_of(e),
                 meta: short_rev(&e.rev),
-                line2: format!("{} · {}", format::relative(e.at), who(e)),
-                tags: if i == 0 {
+                line2: {
+                    let same = repeats(entries, i);
+                    match same {
+                        Some(o) => format!(
+                            "{} · {} · same file as the version from {}",
+                            format::relative(e.at),
+                            who(e),
+                            format::relative(o.at)
+                        ),
+                        None => format!("{} · {}", format::relative(e.at), who(e)),
+                    }
+                },
+                tags: if Some(i) == now {
                     vec![("current".to_string(), Tone::Success)]
                 } else {
                     Vec::new()
                 },
                 filters: vec![if hand(e) { "hand" } else { "admins" }],
-                actions: if i == 0 { Vec::new() } else { actions },
+                actions: if Some(i) == now { Vec::new() } else { actions },
                 ..Row::default()
             }
         })
@@ -132,34 +158,21 @@ fn Version(entry: AuditEntry, newer: Vec<AuditEntry>) -> impl IntoView {
             "The details of this change are no longer kept.".into()
         )));
     }
-    let can_revert = entry.revertible && s.can_write_now();
     let to = revert_target(&entry);
+    let matches = {
+        let to = to.clone();
+        Signal::derive(move || {
+            s.state
+                .with(|st| st.as_ref().is_some_and(|st| st.rev == to))
+        })
+    };
+    let can_revert = entry.revertible && s.can_write_now();
     let revert_label = if entry.base.is_empty() {
         "Revert to this version"
     } else {
         "Revert to before this change"
     };
-    let from = if entry.from.is_empty() {
-        String::new()
-    } else {
-        format!(" from {}", entry.from)
-    };
-    let first = entry
-        .changes
-        .first()
-        .map(|c| c.summary.clone())
-        .unwrap_or_else(|| "No change".into());
-    let first_path = entry
-        .changes
-        .first()
-        .map(|c| c.path.join("."))
-        .unwrap_or_default();
-    let n = entry.changes.len();
-    let written = if hand(&entry) {
-        "written directly to server.yaml".to_string()
-    } else {
-        format!("by {}{from}", who(&entry))
-    };
+    let title = title_of(&entry);
     let newer_list = newer
         .into_iter()
         .map(|n| {
@@ -167,16 +180,13 @@ fn Version(entry: AuditEntry, newer: Vec<AuditEntry>) -> impl IntoView {
             view! {
                 <li class="grid grid-cols-[70px_minmax(0,1fr)_auto] items-center gap-4 border-b border-rowline py-2.5 text-[13.5px] last:border-b-0">
                     <Link to=Route::Activity(Some(n.rev.clone())) class="font-mono text-[13px] text-text-muted no-underline hover:underline">{rev}</Link>
-                    <span class="truncate">{n.changes.first().map(|c| c.summary.clone()).unwrap_or_default()}</span>
+                    <span class="truncate">{title_of(&n)}</span>
                     <span class="text-text-muted">{format!("{} · {}", who(&n), format::relative(n.at))}</span>
                 </li>
             }
         })
         .collect::<Vec<_>>();
     let base_short = short_rev(&entry.base);
-    let plan_note = format!(
-        "It builds a plan from rev {base_short}, then goes through validation, the lockout guard, the impact summary and your confirmation, like any edit. The review then shows the impact summary from the server."
-    );
     let label = "mb-2 text-[11px] font-bold tracking-[0.07em] text-text-faint uppercase";
     view! {
         <nav class="mb-1.5 flex gap-1.5 text-sm text-text-muted" aria-label="Breadcrumb">
@@ -186,24 +196,27 @@ fn Version(entry: AuditEntry, newer: Vec<AuditEntry>) -> impl IntoView {
         </nav>
         <header class="mb-[22px] flex flex-wrap items-start gap-3.5">
             <div class="min-w-0 flex-1">
-                <h1 class="flex items-center gap-2.5 text-[25px] font-bold tracking-[-0.015em]">
-                    {format!("rev {}", short_rev(&entry.rev))}
-                    <span class=tag_class(if hand(&entry) { Tone::Warning } else { Tone::Accent })>{if hand(&entry) { "hand edit".to_string() } else { who(&entry) }}</span>
-                </h1>
-                <p class="mt-1 text-base text-text-muted">{format!("{first} · {} · {written}", format::relative(entry.at))}</p>
+                <h1 class="text-[25px] font-bold tracking-[-0.015em]">{title}</h1>
             </div>
             {can_revert.then(|| view! {
-                <Button label=revert_label variant="tinted" icon="revert" testid="revert" on_click=move |_| {
-                    s.edit.open_revert(s, to.clone());
-                    route::go(Route::Review);
-                }/>
+                <Button
+                    label=revert_label
+                    variant="tinted"
+                    icon="revert"
+                    testid="revert"
+                    disabled=matches
+                    reason=Signal::derive(move || if matches.get() { "The file already matches this version".to_string() } else { String::new() })
+                    on_click=move |_| {
+                        s.edit.open_revert(s, to.clone());
+                        route::go(Route::Review);
+                    }
+                />
             })}
         </header>
         <Stats testid="version-stats">
-            <Stat label="Rev" value=short_rev(&entry.rev) detail="this version"/>
-            <Stat label="Base" value=base_short.clone() detail="the version it replaced"/>
-            <Stat label="Author" value=who(&entry) detail=if hand(&entry) { "no admin session".to_string() } else { entry.from.clone() }/>
-            <Stat label="Changed" value=n.to_string() unit={ if n == 1 { "field" } else { "fields" } } detail=first_path/>
+            <Stat label="Rev" value=short_rev(&entry.rev) detail=format!("replaced {base_short}")/>
+            <Stat label="By" value=if hand(&entry) { "hand edit".to_string() } else { who(&entry) } detail=if hand(&entry) { "written to server.yaml directly".to_string() } else { entry.from.clone() }/>
+            <Stat label="When" value=format::relative(entry.at) detail=""/>
         </Stats>
         <h3 class=label>"Diff of this change"</h3>
         <div class="mb-6 overflow-hidden rounded-card border border-border bg-surface">
@@ -212,11 +225,6 @@ fn Version(entry: AuditEntry, newer: Vec<AuditEntry>) -> impl IntoView {
                 Some(Ok(lines)) => view! { <DiffView lines=lines testid="activity-diff"/> }.into_any(),
                 Some(Err(e)) => view! { <p class="px-4 py-3 text-text-muted">{e}</p> }.into_any(),
             }}
-        </div>
-        <div class="mb-6">
-            <Callout tone=Tone::Info title="A revert is an ordinary change.">
-                <p>{plan_note}</p>
-            </Callout>
         </div>
         {(!newer_list.is_empty()).then(|| view! {
             <h3 class=label>"Changes since then"</h3>
@@ -231,7 +239,14 @@ pub fn Activity(selected: Option<String>) -> impl IntoView {
     let rows = Memo::new(move |_| {
         s.history
             .get()
-            .map(|h| rows_of(&h, s.can_write()))
+            .map(|h| {
+                rows_of(
+                    &h,
+                    s.can_write(),
+                    &s.state
+                        .with(|st| st.as_ref().map(|st| st.rev.clone()).unwrap_or_default()),
+                )
+            })
             .unwrap_or_default()
     });
     if selected.is_none()
@@ -328,6 +343,48 @@ mod tests {
         assert_eq!((l[1].old, l[1].new), (Some(3), Some(3)));
         assert_eq!((l[2].kind, l[2].old, l[2].new), ('-', Some(4), None));
         assert_eq!((l[3].kind, l[3].old, l[3].new), ('+', None, Some(4)));
+    }
+
+    #[test]
+    fn a_revert_is_titled_as_one_and_a_repeated_file_says_so() {
+        let added = AuditEntry {
+            rev: "b2s:aaaa1111".into(),
+            base: "b2s:base".into(),
+            visitor: "ops".into(),
+            at: 100,
+            changes: vec![burrow_admin_proto::plan::Change {
+                kind: burrow_admin_proto::plan::ChangeKind::Add,
+                path: vec!["visitors".into(), "c".into()],
+                summary: "New visitor c (1 secret)".into(),
+                part_of: None,
+            }],
+            ..AuditEntry::default()
+        };
+        let removed = AuditEntry {
+            rev: "b2s:bbbb2222".into(),
+            base: added.rev.clone(),
+            visitor: "ops".into(),
+            at: 200,
+            ..AuditEntry::default()
+        };
+        let reverted = AuditEntry {
+            rev: added.rev.clone(),
+            base: removed.rev.clone(),
+            reverts: Some(added.rev.clone()),
+            at: 300,
+            ..added.clone()
+        };
+        let by_hand = AuditEntry {
+            reverts: None,
+            visitor: "file".into(),
+            ..reverted.clone()
+        };
+        assert_eq!(title_of(&reverted), "Reverted to rev aaaa1111");
+        let list = [reverted, removed.clone(), added.clone()];
+        assert!(repeats(&list, 0).is_none(), "the revert's title says it");
+        let list = [by_hand, removed, added];
+        assert_eq!(repeats(&list, 0).map(|o| o.at), Some(100));
+        assert!(repeats(&list, 2).is_none());
     }
 
     #[test]

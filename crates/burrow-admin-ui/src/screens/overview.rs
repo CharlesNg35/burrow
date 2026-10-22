@@ -105,33 +105,38 @@ pub fn attention(values: &Value, state: Option<&State>, status: Option<&Status>)
                 .find(|x| x.name == c)
                 .is_some_and(|x| x.connected)
         };
+        let mut by_client: std::collections::BTreeMap<String, Hits> =
+            std::collections::BTreeMap::new();
+        let mut own = Vec::new();
         if let Some(services) = ServiceEntry::entries(values) {
             for (name, svc) in services {
                 let cs = clients_of(svc);
                 let up: Vec<&String> = cs.iter().filter(|c| online(c)).collect();
+                let off: Vec<&String> = cs.iter().filter(|c| !online(c)).collect();
                 let st = status.services.iter().find(|x| &x.name == name);
                 let to = Some(Route::Detail(ServiceEntry::section().into(), name.clone()));
                 if up.is_empty() {
-                    let detail = match cs.as_slice() {
-                        [] => "It has no client.".to_string(),
-                        [c] => match status
-                            .clients
-                            .iter()
-                            .find(|x| &x.name == c)
-                            .and_then(|x| x.left_secs_ago)
-                        {
-                            Some(a) => {
-                                format!("Its only client {c} is offline since {}.", format::span(a))
-                            }
-                            None => format!("Its only client {c} is offline."),
-                        },
-                        many => format!("None of its {} clients is online.", many.len()),
-                    };
-                    out.push(Item {
+                    if let [c] = off.as_slice() {
+                        by_client
+                            .entry((*c).clone())
+                            .or_default()
+                            .0
+                            .push(name.clone());
+                        continue;
+                    }
+                    own.push(Item {
                         key: format!("down:{name}"),
                         tone: Tone::Danger,
                         title: format!("Service {name} is down"),
-                        detail,
+                        detail: if cs.is_empty() {
+                            "It has no client.".to_string()
+                        } else {
+                            format!(
+                                "None of its {} clients is online: {}.",
+                                cs.len(),
+                                cs.join(", ")
+                            )
+                        },
                         to,
                     });
                     continue;
@@ -146,15 +151,21 @@ pub fn attention(values: &Value, state: Option<&State>, status: Option<&Status>)
                     })
                     .unwrap_or_default();
                 if !failing.is_empty() {
-                    out.push(Item {
+                    own.push(Item {
                         key: format!("health:{name}"),
                         tone: Tone::Warning,
                         title: format!("Service {name}: health check failing"),
                         detail: format!("Failing on {}.", failing.join(", ")),
                         to,
                     });
-                } else if up.len() < cs.len() {
-                    out.push(Item {
+                } else if let [c] = off.as_slice() {
+                    by_client.entry((*c).clone()).or_default().1.push((
+                        name.clone(),
+                        up.len(),
+                        cs.len(),
+                    ));
+                } else if !off.is_empty() {
+                    own.push(Item {
                         key: format!("partial:{name}"),
                         tone: Tone::Warning,
                         title: format!(
@@ -164,9 +175,8 @@ pub fn attention(values: &Value, state: Option<&State>, status: Option<&Status>)
                         ),
                         detail: format!(
                             "Offline: {}.",
-                            cs.iter()
-                                .filter(|c| !online(c))
-                                .cloned()
+                            off.iter()
+                                .map(|c| c.as_str())
                                 .collect::<Vec<_>>()
                                 .join(", ")
                         ),
@@ -175,12 +185,76 @@ pub fn attention(values: &Value, state: Option<&State>, status: Option<&Status>)
                 }
             }
         }
+        for (c, (down, partial)) in by_client {
+            let mut parts = Vec::new();
+            if !down.is_empty() {
+                parts.push(format!(
+                    "{} {} down",
+                    and_list(&down),
+                    if down.len() == 1 { "is" } else { "are" }
+                ));
+            }
+            let mut shapes: Vec<(usize, usize)> =
+                partial.iter().map(|(_, u, n)| (*u, *n)).collect();
+            shapes.sort();
+            shapes.dedup();
+            for (u, n) in shapes {
+                let names: Vec<String> = partial
+                    .iter()
+                    .filter(|(_, a, b)| (*a, *b) == (u, n))
+                    .map(|(x, _, _)| x.clone())
+                    .collect();
+                parts.push(format!(
+                    "{} {} on {u} of {n} clients",
+                    and_list(&names),
+                    if names.len() == 1 { "runs" } else { "run" }
+                ));
+            }
+            let when = format::left_of(
+                &c,
+                status
+                    .clients
+                    .iter()
+                    .find(|x| x.name == c)
+                    .and_then(|x| x.left_secs_ago),
+                status.uptime_secs,
+            );
+            out.push(Item {
+                key: format!("client:{c}"),
+                tone: if down.is_empty() {
+                    Tone::Warning
+                } else {
+                    Tone::Danger
+                },
+                title: format!("Client {c} is offline"),
+                detail: format!("{} · {when}", parts.join("; ")),
+                to: Some(Route::Detail(ClientEntry::section().into(), c)),
+            });
+        }
+        out.extend(own);
     }
     out.sort_by_key(|i| rank(i.tone));
     out
 }
 
-pub fn away(values: &Value, status: Option<&Status>) -> Vec<Item> {
+type Hits = (Vec<String>, Vec<(String, usize, usize)>);
+
+fn and_list(names: &[String]) -> String {
+    match names {
+        [] => String::new(),
+        [one] => one.clone(),
+        [first @ .., last] => format!("{} and {last}", first.join(", ")),
+    }
+}
+
+pub fn listed_clients(items: &[Item]) -> Vec<String> {
+    items
+        .iter()
+        .filter_map(|i| i.key.strip_prefix("client:").map(str::to_string))
+        .collect()
+}
+
+pub fn away(values: &Value, status: Option<&Status>, listed: &[String]) -> Vec<Item> {
     let Some(status) = status else {
         return Vec::new();
     };
@@ -188,7 +262,7 @@ pub fn away(values: &Value, status: Option<&Status>) -> Vec<Item> {
         .into_iter()
         .filter_map(|c| {
             let st = status.clients.iter().find(|x| x.name == c);
-            if st.is_some_and(|x| x.connected) {
+            if st.is_some_and(|x| x.connected) || listed.contains(&c) {
                 return None;
             }
             let serves: Vec<String> = ServiceEntry::entries(values)
@@ -199,7 +273,7 @@ pub fn away(values: &Value, status: Option<&Status>) -> Vec<Item> {
                         .collect()
                 })
                 .unwrap_or_default();
-            let when = format::left(st.and_then(|x| x.left_secs_ago), status.uptime_secs);
+            let when = format::left_of(&c, st.and_then(|x| x.left_secs_ago), status.uptime_secs);
             Some(Item {
                 key: format!("away:{c}"),
                 tone: Tone::Neutral,
@@ -245,7 +319,7 @@ pub fn x_ticks(window: usize) -> Vec<String> {
 }
 
 fn tick(v: f64) -> String {
-    if v >= 10.0 || v == 0.0 {
+    if v >= 10.0 || v.fract() == 0.0 {
         format!("{v:.0}")
     } else if v >= 1.0 {
         format!("{v:.1}")
@@ -271,10 +345,10 @@ pub fn chart(a: &[Option<f64>], b: &[Option<f64>], window: usize) -> ChartData {
         .fold(0.0_f64, f64::max);
     let max = if top > 0.0 { axis_max(top) } else { 20.0 };
     let samples = a.iter().filter(|v| v.is_some()).count();
-    let empty_note = (a.len() * 2 < window).then(|| {
+    let empty_note = (a.len() < 30 && a.len() * 2 < window).then(|| {
         format!(
-            "Recording since you opened this page · {} s so far",
-            a.len()
+            "Recording since you opened this page · {} so far",
+            format::span(a.len() as u64)
         )
     });
     ChartData {
@@ -326,23 +400,6 @@ fn Traffic() -> impl IntoView {
         };
         human_bits(if out { rate.bytes_out } else { rate.bytes_in })
     };
-    let recorded = move || series.with(|(a, _)| a.len());
-    let note = move || {
-        let n = recorded();
-        let w = window.get();
-        if n >= w {
-            format!(
-                "{} recorded · 1 sample per second",
-                if w == 60 {
-                    "1 min".to_string()
-                } else {
-                    format!("{} min", w / 60)
-                }
-            )
-        } else {
-            format!("{n} s recorded · fills in as samples arrive")
-        }
-    };
     let label = Signal::derive(move || {
         let (i, iu) = now(false);
         let (o, ou) = now(true);
@@ -369,16 +426,11 @@ fn Traffic() -> impl IntoView {
                 />
             </div>
             <div class="flex flex-wrap items-end gap-6 px-4 pt-3">
-                <div data-testid="traffic-in">
-                    <div class="flex items-center gap-1.5 text-xs text-text-muted"><span class="h-0.5 w-3.5 rounded bg-accent"></span>"In"</div>
-                    <div class="text-2xl font-bold tabular-nums">{move || now(false).0}<small class="ml-1 text-[13px] font-medium text-text-muted">{move || now(false).1}</small></div>
-                </div>
-                <div data-testid="traffic-out">
-                    <div class="flex items-center gap-1.5 text-xs text-text-muted"><span class="h-0.5 w-3.5 rounded bg-udp"></span>"Out"</div>
-                    <div class="text-2xl font-bold tabular-nums">{move || now(true).0}<small class="ml-1 text-[13px] font-medium text-text-muted">{move || now(true).1}</small></div>
+                <div class="flex items-center gap-4 text-xs text-text-muted" data-testid="traffic-legend">
+                    <span class="flex items-center gap-1.5"><span class="h-0.5 w-3.5 rounded bg-accent"></span>"In"</span>
+                    <span class="flex items-center gap-1.5"><span class="h-0.5 w-3.5 rounded bg-udp"></span>"Out"</span>
                 </div>
                 <div class="ml-auto text-right text-[11.5px] text-text-muted" data-testid="traffic-note">
-                    <div>{note}</div>
                     <div>{move || format!("{} · Mbit/s", if service.get().is_empty() { "all services".to_string() } else { service.get() })}</div>
                 </div>
             </div>
@@ -393,7 +445,7 @@ fn Traffic() -> impl IntoView {
     }
 }
 
-fn row_view(i: Item, index: usize, icon: bool) -> impl IntoView {
+fn row_view(i: Item, icon: bool) -> impl IntoView {
     let tone = i.tone;
     let glyph = match tone {
         Tone::Danger => "alert-circle",
@@ -411,14 +463,7 @@ fn row_view(i: Item, index: usize, icon: bool) -> impl IntoView {
         </span>
     };
     let class = "flex gap-2.5 px-4 py-[11px] text-text no-underline hover:bg-surface-2 dark:hover:bg-surface-3/50";
-    let li = format!(
-        "border-b border-rowline last:border-b-0{}",
-        if index >= 5 {
-            " max-[1199px]:hidden"
-        } else {
-            ""
-        }
-    );
+    let li = "border-b border-rowline last:border-b-0";
     view! {
         <li class=li data-item=i.key.clone() data-tone=tone.name()>
             {match i.to {
@@ -453,7 +498,6 @@ fn Section(
     title: &'static str,
     #[prop(into)] items: Signal<Vec<Item>>,
     tone: Signal<Tone>,
-    more: Route,
     icon: bool,
     testid: &'static str,
     #[prop(into)] grow: Signal<String>,
@@ -481,20 +525,12 @@ fn Section(
     let resize = window_event_listener(leptos::ev::resize, move |_| measure());
     on_cleanup(move || resize.remove());
     let total = move || items.with(Vec::len);
-    let narrow_more = move || total().saturating_sub(5);
-    let more2 = more.clone();
     view! {
         <div class=move || format!("flex min-h-0 flex-col {}", grow.get()) data-testid=testid>
             <div class="flex shrink-0 items-center gap-2 border-b border-border px-4 py-3">
                 <h2 class="text-[13.5px] font-bold">{title}</h2>
                 <span class=move || tag_class(tone.get()) data-testid="count">{total}</span>
                 <span class="ml-auto"></span>
-                {move || (hidden.get() > 0).then(|| view! {
-                    <Link to=more.clone() class="rounded-full border border-border px-2 py-0.5 text-xs font-semibold text-accent-ink no-underline hover:border-accent-line max-[1199px]:hidden" testid="more">{format!("+{} more", hidden.get())}</Link>
-                })}
-                {move || (narrow_more() > 0).then(|| view! {
-                    <Link to=more2.clone() class="rounded-full border border-border px-2 py-0.5 text-xs font-semibold text-accent-ink no-underline hover:border-accent-line min-[1200px]:hidden">{format!("+{} more", narrow_more())}</Link>
-                })}
             </div>
             <div class="relative min-h-0 flex-1">
                 {move || if total() == 0 {
@@ -512,16 +548,16 @@ fn Section(
                 }}
                 <ul
                     node_ref=list
-                    class="h-full overflow-y-auto overscroll-contain [scrollbar-width:thin]"
+                    class="h-full overflow-y-auto overscroll-contain [scrollbar-width:thin] max-[1199px]:max-h-[340px]"
                     on:scroll=move |_| measure()
                 >
                     <For
                         each=move || numbered(items.get())
                         key=|(i, x)| format!("{i}|{}|{}|{}", x.key, x.title, x.detail)
-                        children=move |(i, x)| row_view(x, i, icon)
+                        children=move |(_, x)| row_view(x, icon)
                     />
                 </ul>
-                <div class=move || format!("pointer-events-none absolute inset-x-0 bottom-0 h-6 bg-gradient-to-t from-surface to-transparent max-[1199px]:hidden{}", if hidden.get() > 0 { "" } else { " hidden" })></div>
+                <div data-testid="fade" class=move || format!("pointer-events-none absolute inset-x-0 bottom-0 h-6 bg-gradient-to-t from-surface to-transparent{}", if hidden.get() > 0 { "" } else { " hidden" })></div>
             </div>
         </div>
     }
@@ -538,7 +574,8 @@ fn Attention() -> impl IntoView {
     });
     let away_items = Memo::new(move |_| {
         let v = s.running();
-        away(&v, s.status.get().as_deref())
+        let listed = items.with(|i| listed_clients(i));
+        away(&v, s.status.get().as_deref(), &listed)
     });
     let seen: StoredValue<Vec<String>> = StoredValue::new(Vec::new());
     let announce = RwSignal::new(String::new());
@@ -582,6 +619,7 @@ fn Attention() -> impl IntoView {
         })
     };
     let n_clients = move || names(&s.running(), ClientEntry::section()).len();
+    let above = Memo::new(move |_| items.with(|i| listed_clients(i).len()));
     let away_title: &'static str = "Clients away";
     let away_grow = Signal::derive(move || {
         if away_items.with(Vec::len) >= 2 {
@@ -591,7 +629,7 @@ fn Attention() -> impl IntoView {
         }
     });
     let away_tone = Signal::derive(move || {
-        if away_items.with(Vec::is_empty) {
+        if away_items.with(Vec::is_empty) && above.get() == 0 {
             Tone::Success
         } else {
             Tone::Warning
@@ -601,11 +639,19 @@ fn Attention() -> impl IntoView {
         let n = n_clients();
         if n == 0 {
             "No clients yet".to_string()
+        } else if above.get() > 0 {
+            "No other clients away".to_string()
         } else {
             format!("All {n} clients online")
         }
     });
-    let away_msg = Signal::derive(move || longest().unwrap_or_default());
+    let away_msg = Signal::derive(move || {
+        if above.get() > 0 {
+            "The offline clients above are listed with what they affect.".to_string()
+        } else {
+            longest().unwrap_or_default()
+        }
+    });
     view! {
         <section class="relative rounded-card border border-border bg-surface min-[1200px]:col-span-4" data-testid="attention-card">
             <div class="flex flex-col overflow-hidden rounded-card min-[1200px]:absolute min-[1200px]:inset-0 [&>[data-testid=away]]:border-t [&>[data-testid=away]]:border-border">
@@ -613,7 +659,6 @@ fn Attention() -> impl IntoView {
                     title="Needs attention"
                     items=items
                     tone=Signal::derive(move || if items.with(Vec::is_empty) { Tone::Success } else { Tone::Warning })
-                    more=Route::List(ServiceEntry::section().into())
                     icon=true
                     testid="attention"
                     grow="grow shrink basis-auto".to_string()
@@ -623,7 +668,6 @@ fn Attention() -> impl IntoView {
                     title=away_title
                     items=away_items
                     tone=away_tone
-                    more=Route::List(ClientEntry::section().into())
                     icon=false
                     testid="away"
                     grow=away_grow
@@ -684,7 +728,11 @@ pub fn Overview() -> impl IntoView {
         let svcs = names(&v, ServiceEntry::section());
         let bad: Vec<String> = attention(&v, None, st.as_deref())
             .into_iter()
-            .filter(|i| i.key.starts_with("down:") || i.key.starts_with("health:"))
+            .filter(|i| {
+                i.key.starts_with("down:")
+                    || i.key.starts_with("health:")
+                    || i.key.starts_with("partial:")
+            })
             .filter_map(|i| i.key.split_once(':').map(|(_, n)| n.to_string()))
             .collect();
         (svcs.len(), bad)
@@ -698,16 +746,6 @@ pub fn Overview() -> impl IntoView {
         }
         if let Some(st) = &st {
             parts.push(format!("up {}", format::span(st.uptime_secs)));
-            if !st.listening.is_empty() {
-                parts.push(format!(
-                    "listening on {}",
-                    st.listening
-                        .iter()
-                        .map(|l| format::listen_addr(l))
-                        .collect::<Vec<_>>()
-                        .join(" and ")
-                ));
-            }
         }
         let rev = s.short_rev();
         if !rev.is_empty() {
@@ -722,21 +760,6 @@ pub fn Overview() -> impl IntoView {
             _ => ServiceEntry::section(),
         },
     );
-    let counts = Signal::derive(move || {
-        let v = values.get();
-        let (up, n) = clients_now.get();
-        let vis = names(&v, VisitorEntry::section()).len();
-        let active = s.status.with(|st| {
-            st.as_ref()
-                .map(|st| st.visitors.iter().filter(|x| x.open > 0).count())
-                .unwrap_or(0)
-        });
-        vec![
-            names(&v, ServiceEntry::section()).len().to_string(),
-            format!("{up}/{n}"),
-            format!("{active}/{vis}"),
-        ]
-    });
     let rate = move |name: &str| {
         let (v, u) = human_bits(s.rates.with(|r| r.service(name).bytes_in));
         format!("{v} {u}")
@@ -755,17 +778,7 @@ pub fn Overview() -> impl IntoView {
                 let protocol = ServiceEntry::PROTOCOL.get(svc).map(plain).unwrap_or_else(|| Protocol::default().wire().into());
                 let cs = clients_of(svc);
                 let up = cs.iter().filter(|c| online(c)).count();
-                let failing = x.as_ref().map(|x| x.health.iter().filter(|h| !h.up).count()).unwrap_or(0);
-                let health = if st.is_none() {
-                    view! { <span class="text-text-faint">"—"</span> }.into_any()
-                } else if up == 0 {
-                    view! { <span class=tag_class(Tone::Danger)><Icon name="x" small=true/>"Down"</span> }.into_any()
-                } else if failing > 0 {
-                    let checked = x.as_ref().map(|x| x.health.len()).unwrap_or(0);
-                    view! { <span class=tag_class(Tone::Warning)><Icon name="alert" small=true/>{format!("{} of {checked} up", checked - failing)}</span> }.into_any()
-                } else {
-                    view! { <span class=tag_class(Tone::Success)><Icon name="check" small=true/>"Healthy"</span> }.into_any()
-                };
+                let health = crate::screens::entity::health_tag(st.is_some().then_some(up), cs.len(), x.as_ref().map(|x| x.health.as_slice()).unwrap_or(&[]));
                 let label = name.clone();
                 view! {
                     <tr data-row=name.clone()>
@@ -804,7 +817,7 @@ pub fn Overview() -> impl IntoView {
                         (None, Some(a)) => Some(format!("left {}", format::ago(a))),
                         _ => None,
                     })
-                    .unwrap_or_else(|| format::left(None, st.as_ref().map(|s| s.uptime_secs).unwrap_or(0)));
+                    .unwrap_or_else(|| format::left_of(&name, None, st.as_ref().map(|s| s.uptime_secs).unwrap_or(0)));
                 let serves: Vec<String> = ServiceEntry::entries(&v)
                     .map(|m| m.iter().filter(|(_, x)| clients_of(x).contains(&name)).map(|(k, _)| k.clone()).collect())
                     .unwrap_or_default();
@@ -844,24 +857,25 @@ pub fn Overview() -> impl IntoView {
                     <tr data-row=name.clone()>
                         <th scope="row">
                             <Link to=Route::Detail(VisitorEntry::section().into(), name.clone()) class="text-text no-underline hover:underline">{label}</Link>
-                            {(open > 0).then(|| view! { <span class=format!("ml-2 {}", tag_class(Tone::Success))>"active"</span> })}
+                            {x.as_ref().is_some_and(|x| s.in_use(x)).then(|| view! { <span class=format!("ml-2 {}", tag_class(Tone::Success))>"in use now"</span> })}
                         </th>
                         <td>{admin.map(|a| view! { <span class=tag_class(if a == "write" { Tone::Danger } else { Tone::Accent })>{format!("admin · {a}")}</span> })}</td>
                         <td class="text-text-muted">{may.join(", ")}</td>
                         <td class="text-right tabular-nums">{open}</td>
                         <td class="text-right tabular-nums">{x.as_ref().map(|x| format::count(x.total)).unwrap_or_default()}</td>
+                        <td class="text-text-muted" data-last-used="">{x.as_ref().map(|x| if s.in_use(x) { "now".to_string() } else { x.last_seen_secs.map(format::ago).unwrap_or_else(|| "not seen".into()) }).unwrap_or_default()}</td>
                     </tr>
                 }
             })
             .collect_view();
-        view! { <div class="max-sm:hidden"><Table head=vec!["Visitor", "Admin", "Services it may use", ">Open", ">Total"] testid="overview-visitors">{rows}</Table></div> {mobile_cards(VisitorEntry::section())} }.into_any()
+        view! { <div class="max-sm:hidden"><Table head=vec!["Visitor", "Admin", "Services it may use", ">Open", ">Total", "Last seen"] testid="overview-visitors">{rows}</Table></div> {mobile_cards(VisitorEntry::section())} }.into_any()
     };
     let kpi_link = "rounded-card no-underline text-text hover:[&>div]:border-border-strong";
     view! {
         <div class="px-8 pt-7 pb-12 max-sm:px-4" data-testid="overview">
             <header class="mb-[22px] flex flex-wrap items-start gap-3">
                 <div class="min-w-0 flex-1">
-                    <h1 class="text-2xl font-bold tracking-[-0.015em]">{move || s.server_name()}</h1>
+                    <h1 class="text-2xl font-bold tracking-[-0.015em]">"Overview"</h1>
                     <p class="mt-1 text-sm text-text-muted" data-testid="overview-sub">{sub}</p>
                 </div>
                 <button type="button" class=button_class("secondary", false) data-testid="flow-open" on:click=move |_| s.flow_open.set(true)>
@@ -877,7 +891,7 @@ pub fn Overview() -> impl IntoView {
                         icon="monitor"
                         value=Signal::derive(move || clients_now.get().0.to_string())
                         unit=Signal::derive(move || format!("/ {}", clients_now.get().1))
-                        detail=Signal::derive(move || { let (u, n) = clients_now.get(); if u == n { "all connected".to_string() } else { format!("{} away", n - u) } })
+                        detail=Signal::derive(move || { let (u, n) = clients_now.get(); if u == n { "all connected".to_string() } else { "online now".to_string() } })
                         testid="kpi-clients"
                     />
                 </Link>
@@ -888,16 +902,12 @@ pub fn Overview() -> impl IntoView {
                         value=Signal::derive(move || { let (n, bad) = down.get(); let b: std::collections::BTreeSet<_> = bad.into_iter().collect(); (n - b.len().min(n)).to_string() })
                         unit=Signal::derive(move || format!("/ {}", down.get().0))
                         detail=Signal::derive(move || {
-                            let v = values.get();
-                            let items = attention(&v, None, s.status.get().as_deref());
-                            let down: Vec<String> = items.iter().filter_map(|i| i.key.strip_prefix("down:").map(str::to_string)).collect();
-                            let degraded = items.iter().filter(|i| i.key.starts_with("health:")).count();
-                            match (down.len(), degraded) {
-                                (0, 0) => "all up".to_string(),
-                                (1, 0) => format!("{} is down", down[0]),
-                                (0, g) => format!("{g} degraded"),
-                                (d, 0) => format!("{d} down"),
-                                (d, g) => format!("{d} down · {g} degraded"),
+                            let (_, bad) = down.get();
+                            let b: std::collections::BTreeSet<_> = bad.into_iter().collect();
+                            match b.len() {
+                                0 => "all up".to_string(),
+                                1 => "1 with a problem".to_string(),
+                                n => format!("{n} with problems"),
                             }
                         })
                         testid="kpi-services"
@@ -924,14 +934,17 @@ pub fn Overview() -> impl IntoView {
                 </div>
                 <div class="md:col-span-2">
                     <Kpi
-                        label="Visitors active"
+                        label="Visitors in use"
                         icon="person"
                         value=Signal::derive(move || {
-                            let active = s.status.with(|st| st.as_ref().map(|st| st.visitors.iter().filter(|v| v.open > 0).count()).unwrap_or(0));
+                            let active = s.status.with(|st| st.as_ref().map(|st| st.visitors.iter().filter(|v| s.in_use(v)).count()).unwrap_or(0));
                             active.to_string()
                         })
                         unit=Signal::derive(move || format!("/ {}", names(&values.get(), VisitorEntry::section()).len()))
-                        detail="with open connections"
+                        detail=Signal::derive(move || {
+                            let seen = s.status.with(|st| st.as_ref().map(|st| st.visitors.iter().filter(|v| s.in_use(v) || v.last_seen_secs.is_some()).count()).unwrap_or(0));
+                            format!("{seen} used since start")
+                        })
                         testid="kpi-visitors"
                     />
                 </div>
@@ -957,7 +970,6 @@ pub fn Overview() -> impl IntoView {
                         <PillTabs
                             tabs=vec![(ServiceEntry::section(), "Services".into()), (ClientEntry::section(), "Clients".into()), (VisitorEntry::section(), "Visitors".into())]
                             active=tab
-                            counts=counts
                             on_change=Callback::new(move |t: &'static str| {
                                 tab.set(t);
                                 route::set_query("tab", t);
@@ -1016,31 +1028,34 @@ mod tests {
     }
 
     #[test]
-    fn needs_attention_puts_down_services_first_and_lists_away_clients() {
+    fn needs_attention_groups_by_the_offline_client_and_away_lists_the_rest() {
         let v = json!({
-            "clients": {"a": {}, "b": {}, "c": {}},
+            "clients": {"a": {}, "b": {}, "c": {}, "d": {}},
             "services": {
                 "aa-partial": {"clients": ["a", "b"], "target": "x:1"},
                 "zz-down": {"client": "b", "target": "x:2"},
-                "ok": {"client": "a", "target": "x:3"}
+                "ok": {"client": "a", "target": "x:3"},
+                "both": {"clients": ["c", "d"], "target": "x:4"}
             }
         });
-        let st = status(&["a"], &["b", "c"]);
+        let st = status(&["a"], &["b", "c", "d"]);
         let items = attention(&v, None, Some(&st));
-        assert_eq!(items.len(), 2);
-        assert_eq!(items[0].title, "Service zz-down is down");
-        assert_eq!(items[0].detail, "Its only client b is offline since 2d 0h.");
-        assert_eq!(items[1].tone, Tone::Warning);
-        let a = away(&v, Some(&st));
+        let titles: Vec<&str> = items.iter().map(|i| i.title.as_str()).collect();
+        assert_eq!(titles, ["Client b is offline", "Service both is down"]);
+        assert_eq!(
+            items[0].detail,
+            "zz-down is down; aa-partial runs on 1 of 2 clients · left 2d 0h ago"
+        );
+        assert_eq!(items[0].tone, Tone::Danger);
+        assert_eq!(items[1].detail, "None of its 2 clients is online: c, d.");
+        let listed = listed_clients(&items);
+        assert_eq!(listed, ["b"]);
+        let a = away(&v, Some(&st), &listed);
         assert_eq!(
             a.iter().map(|i| i.title.as_str()).collect::<Vec<_>>(),
-            ["b", "c"]
+            ["c", "d"]
         );
-        assert!(
-            a[0].detail
-                .starts_with("serves aa-partial, zz-down · left ")
-        );
-        assert!(a[1].detail.starts_with("no services · "));
+        assert!(a[0].detail.starts_with("serves both · "), "{}", a[0].detail);
         assert!(attention(&v, None, None).is_empty());
     }
 
@@ -1055,7 +1070,7 @@ mod tests {
         assert!((d.a[2].unwrap() - 50.0).abs() < 1e-9);
         assert_eq!(d.y_ticks, ["0", "15", "30", "45", "60"]);
         assert_eq!(d.x_ticks.last().map(String::as_str), Some("now"));
-        assert!(d.empty_note.unwrap().contains("3 s so far"));
+        assert!(d.empty_note.unwrap().contains("3s so far"));
         assert!(chart(&a[..1], &b[..1], 900).a.is_empty());
         let full: Vec<Option<f64>> = vec![Some(mb); 1000];
         let d = chart(&full, &full, 900);

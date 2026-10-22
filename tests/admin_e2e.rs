@@ -185,9 +185,26 @@ async fn open(c: &mut Ctx, visitor: &str) {
 }
 
 pub async fn wait_checked(c: &Ctx) {
-    c.ui.wait_for("[data-testid=review-open]", SECS).await;
-    c.ui.wait_for("[data-testid=review-open]:not([data-state=checking])", SECS)
+    c.ui.wait_for("[data-testid=check-state]", SECS).await;
+    c.ui.wait_for("[data-testid=check-state]:not([data-state=checking])", SECS)
         .await;
+}
+
+pub async fn review_now(c: &Ctx) {
+    if c.ui
+        .count("[data-testid=save-bar] [data-testid=save]")
+        .await
+        > 0
+        && c.ui
+            .enabled("[data-testid=save-bar] [data-testid=save]")
+            .await
+    {
+        c.ui.click("[data-testid=save-bar] [data-testid=save]")
+            .await;
+        c.ui.wait_gone("[data-testid=save-bar]", SECS).await;
+        wait_checked(c).await;
+    }
+    c.ui.click("[data-testid=review-open]").await;
 }
 
 pub async fn edit_mode(c: &Ctx) {
@@ -198,7 +215,7 @@ pub async fn edit_mode(c: &Ctx) {
 }
 
 pub async fn open_review(c: &mut Ctx, step: &str) {
-    c.ui.click("[data-testid=review-open]").await;
+    review_now(c).await;
     c.ui.wait_for("[data-testid=review]", SECS).await;
     c.ui.shot(step).await;
 }
@@ -254,7 +271,7 @@ fn dashboard(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
     Box::pin(async move {
         let echo = echo_server(c.world.ports["echo"]).await;
         open(c, "ops").await;
-        c.ui.wait_text("[data-testid=kpi-clients]", "1 away", SECS)
+        c.ui.wait_text("[data-testid=kpi-clients]", "online now", SECS)
             .await;
         c.ui.wait_text("[data-testid=conn-pill]", "Connected", SECS)
             .await;
@@ -424,10 +441,17 @@ fn many_issues(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
             .eval("(() => { const l = document.querySelector('[data-testid=attention] ul'); return l.scrollHeight > l.clientHeight + 1; })()")
             .await;
         assert!(scrolls, "the attention rows scroll inside the card");
-        let more =
-            c.ui.wait_text("[data-testid=attention] [data-testid=more]", "more", SECS)
-                .await;
-        assert!(more.starts_with('+'), "{more}");
+        c.ui.wait_for(
+            "[data-testid=attention] [data-testid=fade]:not(.hidden)",
+            SECS,
+        )
+        .await;
+        assert_eq!(
+            c.ui.count("[data-testid=attention] [data-testid=more]")
+                .await,
+            0,
+            "no +N more chip: the card scrolls"
+        );
         let first: String = c
             .ui
             .eval("document.querySelector('[data-testid=attention] li').getAttribute('data-tone')")
@@ -461,7 +485,16 @@ fn many_issues(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
             .ui
             .eval("[...document.querySelectorAll('[data-testid=attention] li')].filter(e => e.offsetParent !== null).length")
             .await;
-        assert_eq!(rows, 5, "below 1200 px at most five rows show");
+        let all = c.ui.count("[data-testid=attention] li").await;
+        assert!(
+            rows >= 14 && rows == all,
+            "below 1200 px every row is there: {rows} of {all}"
+        );
+        let scrolls: bool = c
+            .ui
+            .eval("(() => { const l = document.querySelector('[data-testid=attention] ul'); return l.scrollHeight > l.clientHeight + 1; })()")
+            .await;
+        assert!(scrolls, "below 1200 px the rows scroll in a capped list");
         c.ui.shot("many-issues-below-1200").await;
         c.ui.viewport(1440, 900).await;
         c.ui.assert_no_errors();
@@ -470,15 +503,20 @@ fn many_issues(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
 
 #[test]
 fn many_issues_scroll_inside_a_card_as_tall_as_traffic() {
-    let mut extra = String::new();
+    let (mut extra, mut clients) = (String::new(), String::new());
     for i in 0..14 {
+        clients.push_str(&format!(
+            "  spare{i:02}:\n    secret: {}\n",
+            world::secret()
+        ));
         extra.push_str(&format!(
-            "  down{i:02}:\n    client: office\n    target: {}\n    visitors: [laptop]\n",
+            "  down{i:02}:\n    clients: [office, spare{i:02}]\n    target: {}\n    visitors: [laptop]\n",
             9100 + i
         ));
     }
     let opts = Options {
         extra_services: extra,
+        extra_clients: clients,
         ..Options::default()
     };
     run("many-issues", opts, false, many_issues);
@@ -859,6 +897,8 @@ fn calm_header(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
         edit_mode(c).await;
         c.ui.fill("#f-services-web-target", "4321").await;
         wait_checked(c).await;
+        c.ui.click("[data-testid=save]").await;
+        c.ui.wait_gone("[data-testid=save-bar]", SECS).await;
         c.ui.wait_for("[data-testid=review-open]", SECS).await;
         assert_eq!(
             header_items(c).await,
@@ -1007,29 +1047,43 @@ fn schema_walk(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
         open(c, "ops").await;
         let mut seen: Vec<String> = Vec::new();
         let mut unset: Vec<String> = Vec::new();
-        for path in [
-            "/settings",
-            "/clients/office?tab=settings",
-            "/visitors/ops?tab=settings",
-            "/visitors/laptop?tab=settings",
-            "/services/web?tab=settings",
-            "/services/game?tab=settings",
-            "/services/dns?tab=settings",
+        for (path, tabs) in [
+            ("/settings", &[][..]),
+            ("/clients/office", &["settings", "secrets"][..]),
+            ("/visitors/ops", &["access", "secrets"][..]),
+            ("/visitors/laptop", &["access"][..]),
+            ("/services/web", &["settings"][..]),
+            ("/services/game", &["settings"][..]),
+            ("/services/dns", &["settings"][..]),
         ] {
             c.ui.nav(path).await;
-            c.ui.wait_for("[data-schema]", SECS).await;
-            c.ui.shot(&format!(
-                "walk-{}",
-                path.trim_start_matches('/')
-                    .trim_end_matches("?tab=settings")
-                    .replace('/', "-")
-            ))
-            .await;
-            seen.extend(c.ui.all_attrs("[data-schema]", "data-schema").await);
-            unset.extend(
-                c.ui.all_attrs("[data-schema]:has([data-testid=not-set])", "data-schema")
-                    .await,
-            );
+            let steps: Vec<Option<&str>> = if tabs.is_empty() {
+                vec![None]
+            } else {
+                tabs.iter().map(|t| Some(*t)).collect()
+            };
+            for tab in steps {
+                if let Some(t) = tab {
+                    c.ui.click(&format!("[role=tablist] [data-tab={t}]")).await;
+                    c.ui.wait_for(
+                        &format!("[role=tablist] [data-tab={t}][aria-selected=true]"),
+                        SECS,
+                    )
+                    .await;
+                }
+                c.ui.wait_for("[data-schema]", SECS).await;
+                c.ui.shot(&format!(
+                    "walk-{}{}",
+                    path.trim_start_matches('/').replace('/', "-"),
+                    tab.map(|t| format!("-{t}")).unwrap_or_default()
+                ))
+                .await;
+                seen.extend(c.ui.all_attrs("[data-schema]", "data-schema").await);
+                unset.extend(
+                    c.ui.all_attrs("[data-schema]:has([data-testid=not-set])", "data-schema")
+                        .await,
+                );
+            }
         }
         let missing: Vec<&String> = wanted
             .iter()
@@ -1368,4 +1422,65 @@ async fn round_trip(port: u16, bytes: usize) -> std::io::Result<()> {
     a?;
     b.map_err(|_| std::io::Error::other("echo timed out"))??;
     Ok(())
+}
+
+fn visitor_live(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
+    Box::pin(async move {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let echo = echo_server(c.world.ports["echo"]).await;
+        open(c, "ops").await;
+        c.ui.nav("/visitors/laptop").await;
+        c.ui.wait_text("[data-testid=path-diagram]", "not seen since start", SECS)
+            .await;
+        c.ui.shot("visitor-not-seen-yet").await;
+        let file = c.world.visitor_file("laptop");
+        let (target, local) = (
+            c.world.ports["echo"].to_string(),
+            c.world.ports["forward"].to_string(),
+        );
+        c.world.start(
+            "visit",
+            &[
+                "visit", "-c", &file, "--client", "home", "--target", &target, "--local", &local,
+            ],
+            &[],
+        );
+        let port = c.world.ports["forward"];
+        let mut held = None;
+        for _ in 0..50 {
+            if let Ok(s) = tokio::net::TcpStream::connect(("127.0.0.1", port)).await {
+                held = Some(s);
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        let mut s = held.expect("the visit forward listens");
+        s.write_all(b"ping").await.expect("send through the tunnel");
+        let mut back = [0u8; 4];
+        s.read_exact(&mut back)
+            .await
+            .expect("echo through the tunnel");
+        c.ui.wait_text("[data-testid=path-diagram]", "in use now", SECS)
+            .await;
+        c.ui.wait_for(
+            "[data-testid=entity-list] [data-row=laptop][data-group='In use now']",
+            SECS,
+        )
+        .await;
+        c.ui.shot("visitor-in-use-now").await;
+        drop(s);
+        c.ui.wait_text("[data-testid=path-diagram]", "no open connection", SECS)
+            .await;
+        c.ui.shot("visitor-last-used").await;
+        c.ui.nav("/").await;
+        c.ui.wait_text("[data-testid=kpi-visitors]", "2 used since start", SECS)
+            .await;
+        echo.abort();
+        c.ui.assert_no_errors();
+    })
+}
+
+#[test]
+fn a_visitor_shows_live_use_while_burrow_visit_carries_a_connection() {
+    run("visitor-live", Options::default(), false, visitor_live);
 }

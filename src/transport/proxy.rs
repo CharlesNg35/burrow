@@ -85,14 +85,24 @@ async fn http_connect(s: &mut TcpStream, target: &str, p: &ProxyConfig) -> io::R
         }
         head.push(byte[0]);
     }
-    let line = String::from_utf8_lossy(&head);
-    let status = line.lines().next().unwrap_or("");
-    let code = status.split_whitespace().nth(1).unwrap_or("");
-    if code != "200" {
-        return Err(proxy_err(format!(
-            "proxy refused CONNECT: {}",
-            status.trim()
-        )));
+    let mut headers = [httparse::EMPTY_HEADER; 64];
+    let mut reply = httparse::Response::new(&mut headers);
+    if !matches!(reply.parse(&head), Ok(httparse::Status::Complete(_))) {
+        return Err(proxy_err(
+            "proxy answered CONNECT with something that is not a valid HTTP response".into(),
+        ));
+    }
+    if reply.code != Some(200) {
+        return Err(proxy_err(
+            format!(
+                "proxy refused CONNECT: HTTP/1.{} {} {}",
+                reply.version.unwrap_or(1),
+                reply.code.unwrap_or_default(),
+                reply.reason.unwrap_or_default()
+            )
+            .trim_end()
+            .to_string(),
+        ));
     }
     Ok(())
 }
@@ -207,5 +217,61 @@ mod lookup_tests {
                 .contains("looking up myserver.example.com:7835")
         );
         assert!(started.elapsed() < Duration::from_secs(2));
+    }
+}
+
+#[cfg(test)]
+mod connect_tests {
+    use super::*;
+
+    async fn through(reply: &'static [u8]) -> (io::Result<()>, Vec<u8>) {
+        let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = l.local_addr().unwrap();
+        tokio::spawn(async move {
+            let (mut s, _) = l.accept().await.unwrap();
+            let mut head = Vec::new();
+            let mut byte = [0u8; 1];
+            while !head.ends_with(b"\r\n\r\n") && s.read(&mut byte).await.unwrap_or(0) == 1 {
+                head.push(byte[0]);
+            }
+            let _ = s.write_all(reply).await;
+        });
+        let mut s = TcpStream::connect(addr).await.unwrap();
+        let p = ProxyConfig::parse(&format!("http://{addr}")).unwrap();
+        let r = http_connect(&mut s, "target.example:22", &p).await;
+        let mut rest = Vec::new();
+        if r.is_ok() {
+            let _ = tokio::time::timeout(Duration::from_secs(2), s.read_to_end(&mut rest)).await;
+        }
+        (r, rest)
+    }
+
+    #[tokio::test]
+    async fn a_connect_reply_is_read_up_to_its_head_and_no_further() {
+        let (r, rest) =
+            through(b"HTTP/1.1 200 Connection established\r\nVia: x\r\n\r\nSSH-2.0-tunnel").await;
+        r.unwrap();
+        assert_eq!(rest, b"SSH-2.0-tunnel");
+        let (r, _) = through(b"HTTP/1.0 200 OK\r\n\r\n").await;
+        r.unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_refused_or_broken_connect_reply_is_named() {
+        let err = |r: io::Result<()>| r.unwrap_err().to_string();
+        let (r, _) = through(b"HTTP/1.1 407 Proxy Authentication Required\r\n\r\n").await;
+        assert_eq!(
+            err(r),
+            "proxy refused CONNECT: HTTP/1.1 407 Proxy Authentication Required"
+        );
+        let (r, _) = through(b"SSH-2.0-OpenSSH\r\n\r\n").await;
+        assert!(err(r).contains("not a valid HTTP response"));
+        let (r, _) = through(b"HTTP/1.1 200 OK\r\n").await;
+        assert!(err(r).contains("proxy closed the connection"));
+        let mut big = b"HTTP/1.1 200 OK\r\n".to_vec();
+        big.extend(std::iter::repeat_n(b"X-Pad: 0123456789\r\n".as_slice(), 600).flatten());
+        big.extend_from_slice(b"\r\n");
+        let (r, _) = through(Box::leak(big.into_boxed_slice())).await;
+        assert!(err(r).contains("too large"));
     }
 }

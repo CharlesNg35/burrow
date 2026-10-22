@@ -27,22 +27,19 @@ impl fmt::Debug for ProxyConfig {
 
 impl ProxyConfig {
     pub fn parse(url: &str) -> Result<Self, String> {
-        let (kind, rest) = if let Some(r) = url.strip_prefix("http://") {
-            (ProxyKind::Http, r)
-        } else if let Some(r) = url
-            .strip_prefix("socks5://")
-            .or_else(|| url.strip_prefix("socks5h://"))
-        {
-            (ProxyKind::Socks5, r)
-        } else {
-            return Err("proxy must start with http:// or socks5://".into());
+        let refused = || "proxy must start with http:// or socks5://".to_string();
+        let (scheme, rest) = url.split_once("://").ok_or_else(refused)?;
+        let kind = match scheme.to_ascii_lowercase().as_str() {
+            "http" => ProxyKind::Http,
+            "socks5" | "socks5h" => ProxyKind::Socks5,
+            _ => return Err(refused()),
         };
         let rest = rest.trim_end_matches('/');
         let (auth, hostport) = match rest.rsplit_once('@') {
             Some((a, h)) => {
                 let (u, p) = a.split_once(':').unwrap_or((a, ""));
-                let p = Zeroizing::new(decode(p)?);
-                (Some((decode(u)?, p)), h)
+                let p = decode(p)?;
+                (Some((std::mem::take(&mut *decode(u)?), p)), h)
             }
             None => (None, rest),
         };
@@ -60,7 +57,7 @@ impl ProxyConfig {
     }
 }
 
-fn decode(text: &str) -> Result<String, String> {
+fn decode(text: &str) -> Result<Zeroizing<String>, String> {
     let bad = || {
         "proxy user name and password may use %XX escapes only for bytes, such as %40 for @"
             .to_string()
@@ -75,9 +72,14 @@ fn decode(text: &str) -> Result<String, String> {
     if !escapes_ok {
         return Err(bad());
     }
-    let out = Zeroizing::new(percent_encoding::percent_decode_str(text).collect::<Vec<u8>>());
-    String::from_utf8(out.to_vec())
-        .map_err(|_| "proxy user name and password must be UTF-8 text".to_string())
+    let mut out = Zeroizing::new(Vec::with_capacity(text.len()));
+    out.extend(percent_encoding::percent_decode_str(text));
+    String::from_utf8(std::mem::take(&mut *out))
+        .map(Zeroizing::new)
+        .map_err(|e| {
+            drop(Zeroizing::new(e.into_bytes()));
+            "proxy user name and password must be UTF-8 text".to_string()
+        })
 }
 
 #[cfg(test)]
@@ -97,6 +99,22 @@ mod tests {
     }
 
     #[test]
+    fn the_scheme_is_case_insensitive_like_curl() {
+        for (url, kind) in [
+            ("HTTP://p.local:3128", ProxyKind::Http),
+            ("Http://u:pw@p.local:3128", ProxyKind::Http),
+            ("SOCKS5://p.local:1080", ProxyKind::Socks5),
+            ("Socks5h://p.local:1080", ProxyKind::Socks5),
+        ] {
+            let p = ProxyConfig::parse(url).unwrap_or_else(|e| panic!("{url}: {e}"));
+            assert!(p.kind == kind, "{url}");
+            assert!(p.addr.starts_with("p.local:"), "{url}");
+        }
+        assert!(ProxyConfig::parse("HTTPS://p.local:1").is_err());
+        assert!(ProxyConfig::parse("p.local:1").is_err());
+    }
+
+    #[test]
     fn credentials_are_percent_decoded() {
         let p = ProxyConfig::parse("http://us%3Aer:p%40ss%2Fw@proxy.local:3128").unwrap();
         let (user, pass) = p.auth.unwrap();
@@ -110,5 +128,19 @@ mod tests {
         assert!(ProxyConfig::parse("http://u:p%-1@proxy.local:3128").is_err());
         let plain = ProxyConfig::parse("http://u:p+w@proxy.local:3128").unwrap();
         assert_eq!(plain.auth.unwrap().1.as_str(), "p+w");
+    }
+
+    #[test]
+    fn a_decoded_password_is_written_once_into_room_reserved_up_front() {
+        let escaped = "p%40ss%2Fw%20and%20a%20long%20tail%20to%20outgrow%20a%20first%20guess";
+        let pass = decode(escaped).unwrap();
+        assert_eq!(
+            pass.as_str(),
+            "p@ss/w and a long tail to outgrow a first guess"
+        );
+        assert_eq!(pass.capacity(), escaped.len());
+        assert!(decode("p%zz").is_err());
+        assert!(decode("%ff").is_err());
+        assert_eq!(decode("").unwrap().as_str(), "");
     }
 }

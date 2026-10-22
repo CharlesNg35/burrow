@@ -1116,6 +1116,18 @@ async fn the_local_server_keeps_its_limits_and_closes_after_each_response() {
         got.is_empty() || got.starts_with("HTTP/1.1 431"),
         "an oversized head was served: {got}"
     );
+    let cookies = format!(
+        "GET {}/ HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nCookie: jupyter={}\r\n\r\n",
+        l.run,
+        l.port,
+        "c".repeat(32 * 1024)
+    );
+    let (got, _) = send_and_read(l.port, cookies.as_bytes(), Duration::from_secs(5)).await;
+    assert!(
+        got.starts_with("HTTP/1.1 200"),
+        "large localhost cookies locked the browser out: {}",
+        got.lines().next().unwrap_or_default()
+    );
     let (slow, took) = send_and_read(
         l.port,
         format!("GET {}/ HTTP/1.1\r\nHost: 127.0.0.1", l.run).as_bytes(),

@@ -10,13 +10,9 @@ fn main() {
     assets();
 }
 
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
-}
-
 fn blake2s(bytes: &[u8]) -> String {
     use blake2::Digest;
-    hex(&blake2::Blake2s256::digest(bytes))
+    hex::encode(blake2::Blake2s256::digest(bytes))
 }
 
 fn dist_dir() -> Option<PathBuf> {

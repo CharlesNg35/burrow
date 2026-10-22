@@ -998,6 +998,24 @@ fn visitor_config_explains_what_is_missing() {
 }
 
 #[test]
+fn visitor_config_writes_a_config_for_an_admin_only_visitor() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = visitors_server(
+        dir.path(),
+        "  laptop:\n    secret: @SECRET@\n  ops:\n    secret: @SECRET@\n    admin: write\n",
+        "  db: { client: home, target: 5432, visitors: [laptop] }\n",
+    );
+    let out =
+        burrow::init::visitor_config(Some("ops"), &path, None, Format::Yaml, &ProcessEnv).unwrap();
+    assert!(out.text.contains("name: ops"), "{}", out.text);
+    assert!(
+        out.notes.iter().any(|n| n.contains("admin -c FILE")),
+        "{:?}",
+        out.notes
+    );
+}
+
+#[test]
 fn visitor_config_keeps_an_env_secret() {
     let dir = tempfile::tempdir().unwrap();
     let path = visitors_server(

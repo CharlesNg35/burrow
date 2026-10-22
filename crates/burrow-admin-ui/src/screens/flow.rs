@@ -124,7 +124,7 @@ struct Svc {
     badge: Option<String>,
 }
 
-pub fn layout(doc: &Value, status: Option<&Status>, rates: &Rates) -> Chart {
+pub fn layout(doc: &Value, status: Option<&Status>, rates: &Rates, me: Option<&str>) -> Chart {
     let mut svcs: Vec<Svc> = ServiceEntry::entries(doc)
         .map(|m| {
             m.iter()
@@ -150,6 +150,11 @@ pub fn layout(doc: &Value, status: Option<&Status>, rates: &Rates) -> Chart {
                         (
                             Health::Degraded,
                             Some(format!("{} of {} up", checks.0, checks.1)),
+                        )
+                    } else if up < clients.len() {
+                        (
+                            Health::Degraded,
+                            Some(format!("{up} of {} up", clients.len())),
                         )
                     } else {
                         (Health::Healthy, None)
@@ -223,7 +228,7 @@ pub fn layout(doc: &Value, status: Option<&Status>, rates: &Rates) -> Chart {
             title: "Internet".into(),
             right: String::new(),
             sub: format!(
-                "{} public · {lo} loopback · {} refused",
+                "{} public · {lo} loopback\n{} refused",
                 public.len() - lo,
                 status
                     .map(|s| s.services.iter().map(|x| x.refused).sum::<u64>())
@@ -241,7 +246,12 @@ pub fn layout(doc: &Value, status: Option<&Status>, rates: &Rates) -> Chart {
     if !private.is_empty() {
         let (y, h) = span(&private);
         let active = status
-            .map(|s| s.visitors.iter().filter(|v| v.open > 0).count())
+            .map(|s| {
+                s.visitors
+                    .iter()
+                    .filter(|v| v.open > 0 || me == Some(v.name.as_str()))
+                    .count()
+            })
             .unwrap_or(0);
         nodes.push(Node {
             key: VisitorEntry::section().into(),
@@ -250,7 +260,7 @@ pub fn layout(doc: &Value, status: Option<&Status>, rates: &Rates) -> Chart {
             h,
             title: "Visitors".into(),
             right: String::new(),
-            sub: format!("{active} active"),
+            sub: format!("{active} in use"),
             badge: None,
             health: Health::Unknown,
             dashed: false,
@@ -310,10 +320,11 @@ pub fn layout(doc: &Value, status: Option<&Status>, rates: &Rates) -> Chart {
                 right: String::new(),
                 sub: match cs {
                     Some(x) if x.connected => format!("{} open · {} idle", x.open, x.idle_channels),
-                    Some(x) => {
-                        format::left(x.left_secs_ago, status.map(|s| s.uptime_secs).unwrap_or(0))
-                    }
-                    None => format::left(None, status.map(|s| s.uptime_secs).unwrap_or(0)),
+                    Some(x) => match x.left_secs_ago {
+                        Some(a) => format!("left {}", format::ago(a)),
+                        None => "not seen since start".into(),
+                    },
+                    None => "not seen since start".into(),
                 },
                 badge: (status.is_some() && !on)
                     .then(|| format::away_badge(cs.and_then(|x| x.left_secs_ago)).to_string()),
@@ -341,12 +352,16 @@ pub fn layout(doc: &Value, status: Option<&Status>, rates: &Rates) -> Chart {
             y,
             h: 42.0,
             title: s.name.clone(),
-            right: s
-                .bind
-                .as_deref()
-                .map(short_bind)
-                .unwrap_or_else(|| "private".into()),
-            sub: format!("{} · {} open", s.protocol, s.open),
+            right: String::new(),
+            sub: format!(
+                "{} · {} · {} open",
+                s.bind
+                    .as_deref()
+                    .map(short_bind)
+                    .unwrap_or_else(|| "private".into()),
+                s.protocol,
+                s.open
+            ),
             badge: None,
             health: s.health,
             dashed: false,
@@ -380,7 +395,7 @@ pub fn layout(doc: &Value, status: Option<&Status>, rates: &Rates) -> Chart {
                 ServiceEntry::section().into(),
                 s.name.clone(),
             )),
-            tip: format!("Open service {} →", s.name),
+            tip: format!("{} · open service {} →", s.target, s.name),
         };
         let w = weight(s.open);
         let stroke = s.health.stroke();
@@ -475,6 +490,20 @@ pub fn layout(doc: &Value, status: Option<&Status>, rates: &Rates) -> Chart {
     }
 }
 
+fn fit(text: &str, room: usize) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    if chars.len() <= room {
+        return text.to_string();
+    }
+    let keep = room.saturating_sub(1);
+    let head = keep.div_ceil(2);
+    let tail = keep - head;
+    let mut out: String = chars[..head].iter().collect();
+    out.push('…');
+    out.extend(&chars[chars.len() - tail..]);
+    out
+}
+
 fn node_view(
     n: Node,
     only_problems: Signal<bool>,
@@ -511,11 +540,14 @@ fn node_view(
             Health::Degraded => "fill-warning",
             _ => "fill-text-muted",
         };
-        view! { <text x=x + w - 8.0 y=y + 30.0 text-anchor="end" class=format!("text-[10.5px] font-semibold {tone}")>{b}</text> }
+        view! { <text x=x + w - 8.0 y=y + 17.0 text-anchor="end" class=format!("text-[10.5px] font-semibold {tone}")>{b}</text> }
     });
     let dot = (!n.server && n.col == 3 && !n.dashed && n.health == Health::Healthy)
         .then(|| view! { <circle cx=x + 12.0 cy=y + 15.0 r="3.5" class="fill-success"></circle> });
     let tx = if dot.is_some() { x + 21.0 } else { x + 10.0 };
+    let badge_px = n.badge.as_ref().map_or(0.0, |b| b.len() as f64 * 6.5 + 8.0);
+    let room = ((w - (tx - x) - 8.0 - badge_px) / 7.0).max(4.0) as usize;
+    let sub_room = ((w - 18.0) / 5.4).max(4.0) as usize;
     view! {
         <g
             class=cursor
@@ -549,10 +581,10 @@ fn node_view(
                 stroke-dasharray=n.dashed.then_some("4 3")
             ></rect>
             {dot}
-            <text x=tx y=y + 17.0 class=if n.col == 4 { "fill-text font-mono text-[11.5px] font-semibold" } else { "fill-text text-[12px] font-semibold" }>{n.title.clone()}</text>
+            <text x=tx y=y + 17.0 class=if n.col == 4 { "fill-text font-mono text-[11.5px] font-semibold" } else { "fill-text text-[12px] font-semibold" }>{fit(&n.title, room)}</text>
             {(!n.right.is_empty()).then(|| view! { <text x=x + w - 8.0 y=y + 17.0 text-anchor="end" class="fill-text-muted font-mono text-[11px]">{n.right.clone()}</text> })}
             {lines.into_iter().enumerate().map(|(i, l)| view! {
-                <text x=x + 10.0 y=y + 31.0 + i as f64 * 14.0 class="fill-text-muted text-[11px]">{l}</text>
+                <text x=x + 10.0 y=y + 31.0 + i as f64 * 14.0 class="fill-text-muted text-[11px]">{fit(&l, sub_room)}</text>
             }).collect_view()}
             {badge}
         </g>
@@ -570,7 +602,7 @@ pub fn FlowModal() -> impl IntoView {
         let doc = s.running();
         let status = s.status.get();
         let rates = s.rates.get();
-        layout(&doc, status.as_deref(), &rates)
+        layout(&doc, status.as_deref(), &rates, s.me().as_deref())
     });
     let panel: NodeRef<html::Div> = NodeRef::new();
     let wrap: NodeRef<html::Div> = NodeRef::new();
@@ -727,6 +759,13 @@ pub fn FlowModal() -> impl IntoView {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn long_text_is_cut_in_the_middle() {
+        assert_eq!(fit("short", 10), "short");
+        assert_eq!(fit("unix:/home/ubuntu/app.sock", 12), "unix:/….sock");
+        assert_eq!(fit("unix:/home/ubuntu/app.sock", 12).chars().count(), 12);
+    }
     use burrow_admin_proto::serde_json::json;
     use burrow_admin_proto::status::{ClientStatus, ServiceStatus};
 
@@ -778,7 +817,7 @@ mod tests {
             "clients": {},
             "services": {"own": {"client": "self", "bind": "0.0.0.0:8080", "target": "127.0.0.1:3000"}}
         });
-        let c = layout(&doc, Some(&st), &Rates::default());
+        let c = layout(&doc, Some(&st), &Rates::default(), None);
         assert_eq!(c.problems, 0);
         let target = c.nodes.iter().find(|n| n.key == "target:own").unwrap();
         assert_eq!(target.health, Health::Healthy);
@@ -792,6 +831,35 @@ mod tests {
     }
 
     #[test]
+    fn the_source_nodes_say_their_counts_without_cutting_them() {
+        let doc = json!({
+            "clients": {"a": {}},
+            "visitors": {"v": {}},
+            "services": {
+                "web": {"client": "a", "bind": "0.0.0.0:443", "target": "x:80"},
+                "lo": {"client": "a", "bind": "127.0.0.1:3000", "target": "z:3000"},
+                "db": {"client": "a", "target": "y:5432", "visitors": ["v"]}
+            }
+        });
+        let mut st = status();
+        st.visitors.push(
+            burrow_admin_proto::serde_json::from_value(json!({"name": "v", "open": 0})).unwrap(),
+        );
+        let c = layout(&doc, Some(&st), &Rates::default(), Some("v"));
+        for n in c.nodes.iter().filter(|n| n.col == 0) {
+            let room = ((COLS[0].1 - 18.0) / 5.4) as usize;
+            for line in n.sub.lines() {
+                assert!(line.chars().count() <= room, "{line:?} is cut");
+            }
+        }
+        let visitors = c.nodes.iter().find(|n| n.title == "Visitors").unwrap();
+        assert_eq!(
+            visitors.sub, "1 in use",
+            "your own admin session counts, as on the overview"
+        );
+    }
+
+    #[test]
     fn the_flow_marks_down_services_and_away_clients_as_problems() {
         let doc = json!({
             "clients": {"a": {}, "b": {}},
@@ -801,7 +869,7 @@ mod tests {
                 "lo": {"client": "a", "bind": "127.0.0.1:3000", "target": "z:3000"}
             }
         });
-        let c = layout(&doc, Some(&status()), &Rates::default());
+        let c = layout(&doc, Some(&status()), &Rates::default(), None);
         assert_eq!(c.services, 3);
         assert_eq!(c.problems, 2, "db is down and b is away");
         let order: Vec<&str> = c
@@ -816,17 +884,16 @@ mod tests {
             "public first, then private, each by name"
         );
         let internet = c.nodes.iter().find(|n| n.key == "internet").unwrap();
-        assert_eq!(internet.sub, "1 public · 1 loopback · 0 refused");
+        assert_eq!(internet.sub, "1 public · 1 loopback\n0 refused");
         let db = c.nodes.iter().find(|n| n.key == "target:db").unwrap();
         assert_eq!(db.health, Health::Down);
         assert_eq!(db.sub, "no client online");
         let b = c.nodes.iter().find(|n| n.key == "client:b").unwrap();
         assert!(b.dashed && b.problem);
         assert_eq!(b.badge.as_deref(), Some("away"));
-        assert_eq!(
-            c.nodes.iter().find(|n| n.key == "port:web").unwrap().right,
-            ":443"
-        );
+        let web = c.nodes.iter().find(|n| n.key == "port:web").unwrap();
+        assert!(web.right.is_empty(), "the bind sits on line 2");
+        assert!(web.sub.starts_with(":443 · "), "{}", web.sub);
         assert_eq!(c.height, TOP + 3.0 * PITCH);
         assert!(c.lines.iter().all(|l| l.d.starts_with('M')));
     }
@@ -842,7 +909,7 @@ mod tests {
     fn without_status_nothing_is_called_a_problem() {
         let doc =
             json!({"clients": {"a": {}}, "services": {"web": {"client": "a", "target": "x:80"}}});
-        let c = layout(&doc, None, &Rates::default());
+        let c = layout(&doc, None, &Rates::default(), None);
         assert_eq!(c.problems, 0);
         assert!(c.nodes.iter().all(|n| !n.problem));
     }
