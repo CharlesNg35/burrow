@@ -275,10 +275,7 @@ pub fn SnippetView(
                 "commands" => view! {
                     <div data-testid="snippet-commands">
                         <CodeBlock text=commands_text/>
-                        {has_init.then(|| view! { <p class="mt-2 mb-4 text-xs text-text-muted">"burrow init prompts for the secret, so it stays out of your shell history."</p> })}
-                        <h3 class="mb-2 text-sm font-semibold">{file.clone()}</h3>
-                        <CodeBlock text=config.clone() file_name=file.clone() testid="config-text"/>
-                        <p class="mt-2 text-xs text-text-muted">{allow_note}</p>
+                        {has_init.then(|| view! { <p class="mt-2 text-xs text-text-muted">"burrow init prompts for the secret, so it stays out of your shell history."</p> })}
                     </div>
                 }
                 .into_any(),

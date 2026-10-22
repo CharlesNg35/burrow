@@ -46,6 +46,26 @@ pub fn change_groups(plan: &Plan) -> Vec<Group> {
             g.parts.push(c.clone());
         }
     }
+    let entity = |g: &Group| {
+        g.head
+            .path
+            .first()
+            .is_some_and(|s| crate::route::SECTIONS.contains(&s.as_str()))
+    };
+    let settings: Vec<Group> = out.iter().filter(|g| !entity(g)).cloned().collect();
+    if settings.len() > 1 {
+        out.retain(entity);
+        let names: Vec<String> = settings.iter().map(|g| g.head.path.join(".")).collect();
+        out.push(Group {
+            head: Change {
+                kind: ChangeKind::Set,
+                path: vec!["settings".into()],
+                summary: format!("Server settings: {}", names.join(", ")),
+                part_of: None,
+            },
+            parts: settings.into_iter().map(|g| g.head).collect(),
+        });
+    }
     out
 }
 
@@ -65,6 +85,18 @@ fn section_label(section: &str, n: usize) -> String {
 pub fn group_line(g: &Group) -> String {
     if g.parts.is_empty() {
         return g.head.path.join(".");
+    }
+    if g.head
+        .path
+        .first()
+        .is_none_or(|s| !crate::route::SECTIONS.contains(&s.as_str()))
+    {
+        return g
+            .parts
+            .iter()
+            .map(|p| p.summary.clone())
+            .collect::<Vec<_>>()
+            .join("; ");
     }
     let verb = match g.head.kind {
         ChangeKind::Add => "added to",
@@ -194,27 +226,6 @@ fn service_paths(
 
 fn serde_json_map() -> burrow_admin_proto::serde_json::Map<String, Value> {
     burrow_admin_proto::serde_json::Map::new()
-}
-
-fn destructive_summary(impacts: &[burrow_admin_proto::plan::Impact]) -> String {
-    let mut parts: Vec<String> = Vec::new();
-    for i in impacts.iter().filter(|i| i.confirm.is_some()) {
-        let mut clauses = i.message.split("; ");
-        let first = clauses.next().unwrap_or_default().to_string();
-        let rest: Vec<String> = clauses.map(str::to_string).collect();
-        if rest.is_empty() {
-            parts.push(first);
-        } else {
-            parts.extend(rest);
-        }
-    }
-    parts.dedup();
-    let text = parts.join("; ");
-    let mut c = text.chars();
-    match c.next() {
-        Some(f) => format!("{}{}.", f.to_uppercase(), c.as_str()),
-        None => String::new(),
-    }
 }
 
 fn session_ip(from: &str) -> String {
@@ -565,7 +576,6 @@ fn detail(plan: std::sync::Arc<Plan>, revert: bool) -> AnyView {
         "needs a restart"
     };
     let warnings = new_diags.iter().filter(|d| !d.is_error()).count();
-    let destructive_text = destructive_summary(&plan.impacts);
     let label = "mb-2 text-[11px] font-bold tracking-[0.07em] text-text-faint uppercase";
     view! {
         <div data-testid="review" data-valid=plan.valid.to_string()>
@@ -573,7 +583,7 @@ fn detail(plan: std::sync::Arc<Plan>, revert: bool) -> AnyView {
             <header class="mb-[22px] flex flex-wrap items-start gap-3.5">
                 <div class="min-w-0 flex-1">
                     <h1 class="text-[25px] font-bold tracking-[-0.015em]">{if empty { "Nothing to apply".to_string() } else if revert { "Review the revert".to_string() } else { format!("Review {n} change{}", if n == 1 { "" } else { "s" }) }}</h1>
-                    <p class="mt-1 text-base text-text-muted">
+                    <p class="mt-1 text-base text-text-muted" class:hidden=empty>
                         {if refused {
                             format!(
                                 "Refused by the {}",
@@ -584,7 +594,7 @@ fn detail(plan: std::sync::Arc<Plan>, revert: bool) -> AnyView {
                         }}
                     </p>
                 </div>
-                {if refused {
+                {if refused || empty {
                     ().into_any()
                 } else if errors > 0 {
                     view! { <span class=tag_class(Tone::Danger) data-testid="review-state">{format!("{errors} error{} · {warnings} warning{}", if errors == 1 { "" } else { "s" }, if warnings == 1 { "" } else { "s" })}</span> }.into_any()
@@ -620,7 +630,7 @@ fn detail(plan: std::sync::Arc<Plan>, revert: bool) -> AnyView {
                 </div>
             })}
             {(!new_diags.is_empty()).then(|| view! {
-                <h3 class=label>"Problems this change causes"</h3>
+                <h3 class=label>"Errors and warnings from this change"</h3>
                 <ul class="mb-6 space-y-1" data-testid="review-diags">{diags}</ul>
             })}
             {(old_problems > 0).then(|| view! {
@@ -654,7 +664,6 @@ fn detail(plan: std::sync::Arc<Plan>, revert: bool) -> AnyView {
             {destructive.then(|| view! {
                 <div class="mb-6 rounded-[10px] border border-l-[3px] border-border border-l-danger bg-danger-weak/50 p-3.5 dark:bg-surface" data-testid="confirms">
                     <p class="flex items-center gap-2 text-sm font-semibold text-danger"><Icon name="alert"/>"Destructive change"</p>
-                    <p class="mt-1 text-sm text-text-muted" data-testid="destructive-summary">{destructive_text.clone()}</p>
                     {confirms}
                 </div>
             })}
@@ -835,7 +844,7 @@ pub fn ReviewPage() -> impl IntoView {
         };
         let draft_has =
             |path: &[String]| e.draft.with_untracked(|d| get(d.draft(), path).is_some());
-        let mut out: Vec<Row> = change_groups(&p)
+        let out: Vec<Row> = change_groups(&p)
             .iter()
             .enumerate()
             .map(|(i, g)| {
@@ -859,26 +868,6 @@ pub fn ReviewPage() -> impl IntoView {
                 }
             })
             .collect();
-        for (i, d) in p.diags.iter().filter(|d| !d.before).enumerate() {
-            out.push(Row {
-                key: format!("diag-{i}"),
-                to: Route::Review,
-                icon: if d.is_error() {
-                    "alert-circle"
-                } else {
-                    "alert"
-                },
-                dot: Some(if d.is_error() {
-                    Tone::Danger
-                } else {
-                    Tone::Warning
-                }),
-                title: d.message.clone(),
-                line2: d.path.as_ref().map(|p| p.join(".")).unwrap_or_default(),
-                group: "New problems".into(),
-                ..Row::default()
-            });
-        }
         out
     });
     let count = Signal::stored(String::new());
@@ -888,7 +877,7 @@ pub fn ReviewPage() -> impl IntoView {
             count=count
             search_label="Search changes"
             filters=Vec::new()
-            groups=vec!["Changes", "New problems"]
+            groups=vec!["Changes"]
             no_counts=true
             empty=("Nothing changes".to_string(), "The file would stay as it is.".to_string())
             rows=rows
@@ -1144,6 +1133,21 @@ mod tests {
         );
         assert!(!nothing_to_apply(&plan));
         assert!(nothing_to_apply(&Plan::default()));
+        let settings = Plan {
+            changes: vec![
+                ch(ChangeKind::Set, &["pool"], "pool: min_idle 4 → 8", None),
+                ch(
+                    ChangeKind::Set,
+                    &["limits"],
+                    "limits: max_pending 512 → 9",
+                    None,
+                ),
+            ],
+            ..Plan::default()
+        };
+        let g = change_groups(&settings);
+        assert_eq!(g.len(), 1, "server settings are one change");
+        assert_eq!(g[0].head.summary, "Server settings: pool, limits");
     }
 
     #[test]

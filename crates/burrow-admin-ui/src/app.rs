@@ -334,14 +334,11 @@ fn Header() -> impl IntoView {
         })
     });
     let facts = move || {
-        let w = s.welcome.get()?;
+        s.welcome.get()?;
         let st = s.state.get()?;
         Some(view! {
             <dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 px-3 py-2 text-sm [&_dt]:text-text-muted [&_dd]:font-mono [&_dd]:text-xs [&_dd]:break-all [&_dd]:whitespace-pre-line">
-                <dt>"Version"</dt><dd>{w.server.version.clone()}</dd>
-                <dt>"Up"</dt><dd>{format::span(s.status.get().map(|x| x.uptime_secs).unwrap_or(w.server.uptime_secs))}</dd>
                 <dt>"Listening"</dt><dd>{s.status.get().map(|x| x.listening.join("\n")).unwrap_or_default()}</dd>
-                <dt>"Revision"</dt><dd>{short_rev(&st.rev)}</dd>
                 <dt>"Config"</dt><dd>{st.file.path.clone()}</dd>
             </dl>
         })

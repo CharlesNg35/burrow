@@ -29,6 +29,13 @@ use crate::store::store;
 const SERVICES: &str = ServiceEntry::SECTION;
 const CLIENTS: &str = ClientEntry::SECTION;
 const VISITORS: &str = VisitorEntry::SECTION;
+fn capital(s: &str) -> String {
+    let mut c = s.chars();
+    c.next()
+        .map(|f| f.to_uppercase().chain(c).collect())
+        .unwrap_or_default()
+}
+
 fn plural(section: &str) -> &'static str {
     match entity_of_section(section) {
         Some(Entity::Client) => "Clients",
@@ -64,7 +71,9 @@ pub fn rows_for(section: &str) -> Vec<Row> {
         .unwrap_or_default();
     let mut out = Vec::new();
     for (name, v) in &items {
-        let pending = (!base_items.contains_key(name)).then_some("new");
+        let pending = (!base_items.contains_key(name)
+            && s.edit.draft.with(|d| d.renamed_from(section, name).is_none()))
+        .then_some("new");
         let entity_path = vec![section.to_string(), name.clone()];
         let mark = if s.edit.unsaved(&entity_path) {
             Some(("unsaved".to_string(), Tone::Warning))
@@ -89,17 +98,11 @@ pub fn rows_for(section: &str) -> Vec<Row> {
                             .collect()
                     })
                     .unwrap_or_default();
-                let uptime = status.as_ref().map(|s| s.uptime_secs).unwrap_or(0);
                 let serves = if served.is_empty() {
                     "no services".to_string()
                 } else {
                     served.join(", ")
                 };
-                let host = c
-                    .as_ref()
-                    .and_then(|c| c.from.clone())
-                    .map(|f| f.rsplit_once(':').map(|(h, _)| h.to_string()).unwrap_or(f))
-                    .unwrap_or_default();
                 let left = c.as_ref().and_then(|c| c.left_secs_ago);
                 Row {
                     key: name.clone(),
@@ -109,30 +112,15 @@ pub fn rows_for(section: &str) -> Vec<Row> {
                     title: name.clone(),
                     meta: match (&c, on) {
                         (Some(c), true) => format!("{} open", c.open),
-                        (Some(_), false) => {
-                            left.map(format::ago).unwrap_or_else(|| "not seen".into())
-                        }
+                        (Some(_), false) => left
+                            .map(|a| format!("left {}", format::ago(a)))
+                            .unwrap_or_else(|| "not seen".into()),
                         (None, _) => String::new(),
                     },
-                    line2: if on {
-                        format!(
-                            "{host} · for {} · {serves}",
-                            format::span(c.as_ref().and_then(|c| c.connected_secs).unwrap_or(0))
-                        )
-                    } else if pending.is_some() {
+                    line2: if pending.is_some() {
                         "Draft · not applied yet".into()
                     } else {
-                        format!("offline · {serves}")
-                    },
-                    line3: if on {
-                        format!(
-                            "{} idle channels",
-                            c.as_ref().map(|c| c.idle_channels).unwrap_or(0)
-                        )
-                    } else if status.is_some() && pending.is_none() {
-                        format::left_of(name, left, uptime)
-                    } else {
-                        String::new()
+                        serves
                     },
                     group: if on {
                         "Online".into()
@@ -212,15 +200,7 @@ pub fn rows_for(section: &str) -> Vec<Row> {
                         String::new()
                     },
                     line2,
-                    tags: if in_use {
-                        vec![("in use now".to_string(), Tone::Success)]
-                    } else {
-                        Vec::new()
-                    },
-                    aside: format!(
-                        "{} total",
-                        format::count(st.as_ref().map(|x| x.total).unwrap_or(0))
-                    ),
+                    tags: Vec::new(),
                     group: if in_use {
                         "In use now".into()
                     } else {
@@ -247,8 +227,8 @@ pub fn rows_for(section: &str) -> Vec<Row> {
                 let health_up = st
                     .as_ref()
                     .map(|x| (x.health.iter().filter(|h| h.up).count(), x.health.len()));
-                let problem =
-                    status.is_some() && (up == 0 || health_up.is_some_and(|(u, n)| n > 0 && u < n));
+                let problem = status.is_some()
+                    && (up < cs.len() || health_up.is_some_and(|(u, n)| n > 0 && u < n));
                 let mut tags = vec![(
                     protocol.to_uppercase(),
                     if udp { Tone::Violet } else { Tone::Accent },
@@ -257,11 +237,9 @@ pub fn rows_for(section: &str) -> Vec<Row> {
                     tags.push(("✕ Down".into(), Tone::Danger));
                 } else if let Some((u, n)) = health_up.filter(|(u, n)| *n > 0 && u < n) {
                     tags.push((format!("⚠ {u} of {n} up"), Tone::Warning));
+                } else if status.is_some() && up < cs.len() {
+                    tags.push((format!("⚠ {up} of {} up", cs.len()), Tone::Warning));
                 }
-                let aside = st
-                    .as_ref()
-                    .map(|x| format!("{} total", format::count(x.total)))
-                    .unwrap_or_default();
                 Row {
                     key: name.clone(),
                     to,
@@ -279,8 +257,7 @@ pub fn rows_for(section: &str) -> Vec<Row> {
                         .map(|x| format!("{} open", x.open))
                         .unwrap_or_default(),
                     line2: format!(
-                        "{} · {} → {}",
-                        protocol.to_uppercase(),
+                        "{} → {}",
                         if public {
                             plain(ServiceEntry::BIND.get(v).unwrap_or(&Value::Null))
                         } else {
@@ -289,11 +266,10 @@ pub fn rows_for(section: &str) -> Vec<Row> {
                         plain(ServiceEntry::TARGET.get(v).unwrap_or(&Value::Null))
                     ),
                     tags,
-                    aside,
                     group: if problem {
                         "Problems".into()
                     } else {
-                        "Healthy".into()
+                        "Up".into()
                     },
                     pending,
                     filters: vec![
@@ -311,7 +287,16 @@ pub fn rows_for(section: &str) -> Vec<Row> {
         }
         out.push(row);
     }
-    for name in base_items.keys().filter(|k| !items.contains_key(*k)) {
+    let renamed: Vec<String> = s.edit.draft.with(|d| {
+        items
+            .keys()
+            .filter_map(|n| d.renamed_from(section, n))
+            .collect()
+    });
+    for name in base_items
+        .keys()
+        .filter(|k| !items.contains_key(*k) && !renamed.contains(k))
+    {
         out.push(Row {
             key: name.clone(),
             to: Route::Detail(section.to_string(), name.clone()),
@@ -383,7 +368,7 @@ pub fn Entities(section: String, selected: Option<String>) -> impl IntoView {
                     (Protocol::Tcp.wire(), "TCP".into()),
                     (Protocol::Udp.wire(), "UDP".into()),
                 ],
-                vec!["Problems", "Healthy"],
+                vec!["Problems", "Up"],
             ),
         };
     let draft_name = RwSignal::new(String::new());
@@ -541,10 +526,11 @@ fn Detail(section: String, name: String) -> impl IntoView {
         let path = path.clone();
         Memo::new(move |_| e.draft.with(|d| get(d.draft(), &path).is_some()))
     };
-    let fresh = e
-        .draft
-        .with_untracked(|d| get(d.base(), &path).is_none() && get(d.draft(), &path).is_some())
-        && crate::secrets::revealed_for(&section, &name).is_none();
+    let fresh = e.draft.with_untracked(|d| {
+        get(d.base(), &path).is_none()
+            && get(d.draft(), &path).is_some()
+            && d.renamed_from(&section, &name).is_none()
+    }) && crate::secrets::revealed_for(&section, &name).is_none();
     if fresh && s.can_write_now() {
         e.start_edit(&path);
     }
@@ -739,16 +725,12 @@ fn Detail(section: String, name: String) -> impl IntoView {
             }
             VISITORS => {
                 let admin = VisitorEntry::ADMIN.at(&e.doc(), &nm).map(plain);
-                let me = s
-                    .welcome
-                    .with(|w| w.as_ref().is_some_and(|w| w.you.visitor == nm));
                 view! {
                         {admin.map(|a| {
                             let write = a == AdminLevel::Write.wire();
                             let tone = if write { Tone::Danger } else { Tone::Accent };
                             view! { <span class=tag_class(tone)><Icon name=if write { "shield" } else { "eye" } small=true/>{format!("admin · {a}")}</span> }
                         })}
-                        {me.then(|| view! { <span class=tag_class(Tone::Neutral) data-testid="you-tag">"you"</span> })}
                     }
                     .into_any()
             }
@@ -802,12 +784,8 @@ fn Detail(section: String, name: String) -> impl IntoView {
             let start_edit = start_edit.clone();
             let (path, sec, nm) = (path.clone(), sec.clone(), nm.clone());
             let back = Route::List(sec.clone());
-            let connect = (sec == CLIENTS).then(|| view! {
-                <Button label="Connect" icon="terminal" variant="secondary" testid="connect-head" on_click=move |_| tab.set("connect")/>
-            });
             view! {
                 {applied}
-                {connect}
                 <Button
                     label="Edit"
                     icon="edit"
@@ -816,7 +794,7 @@ fn Detail(section: String, name: String) -> impl IntoView {
                     reason=if can { String::new() } else { format!("Editing needs write admin. {} has read.", s.welcome.with_untracked(|w| w.as_ref().map(|w| w.you.visitor.clone()).unwrap_or_default())) }
                     on_click=move |_| start_edit()
                 />
-                <div class="relative">
+                <div class="relative" class:hidden=!can>
                     <button type="button" class=button_class("secondary", false) aria-label="More actions" aria-haspopup="true" aria-expanded=move || menu.get().to_string() aria-controls="entity-more-menu" id="entity-more" data-testid="more" on:click=move |_| menu.update(|m| *m = !*m)>
                         <Icon name="more"/>
                     </button>
@@ -847,7 +825,6 @@ fn Detail(section: String, name: String) -> impl IntoView {
                                             route::go(back.clone());
                                         }>{format!("Delete {}…", singular(&sec))}</button> }
                                     })}
-                                    {(sec != SERVICES).then(|| view! { <button type="button" class="block w-full cursor-pointer rounded-md px-2 py-1.5 text-left text-sm hover:bg-surface-3" data-testid="connect-open" on:click=move |_| tab.set("connect")>"Connect"</button> })}
                                     {
                                         let nm = nm.clone();
                                         view! { <button type="button" class="block w-full cursor-pointer rounded-md px-2 py-1.5 text-left text-sm hover:bg-surface-3" on:click=move |_| { copy_text(&nm); s.toast(Tone::Success, "Copied", None); }>"Copy name"</button> }
@@ -870,9 +847,17 @@ fn Detail(section: String, name: String) -> impl IntoView {
                 let back = Route::List(sec.clone());
                 return Some(
                     view! {
-                        <EmptyState icon="trash" title=format!("No {} named {nm}", singular(&sec)) message="It may have been removed or renamed." testid="detail-missing">
-                            <Link to=back class=button_class("secondary", false)>{format!("Back to {}", plural(&sec))}</Link>
-                        </EmptyState>
+                        {
+                            let was = e.draft.with_untracked(|d| get(d.base(), &path).cloned());
+                            let removed = was.is_some();
+                            let p2 = path.clone();
+                            view! {
+                                <EmptyState icon="trash" title=if removed { format!("{} {nm} is removed in your changes", capital(singular(&sec))) } else { format!("No {} named {nm}", singular(&sec)) } message=if removed { "It goes when you apply. Undo keeps it." } else { "It may have been removed or renamed." } testid="detail-missing">
+                                    {removed.then(|| view! { <Button label="Undo the removal" variant="secondary" icon="revert" testid="undo-remove" on_click=move |_| e.set(&p2, was.clone())/> })}
+                                    <Link to=back class=button_class("secondary", false)>{format!("Back to {}", plural(&sec))}</Link>
+                                </EmptyState>
+                            }
+                        }
                     }
                     .into_any(),
                 );
@@ -1273,6 +1258,25 @@ fn apply_notes() -> Option<AnyView> {
     )
 }
 
+pub fn health_tag(
+    up: Option<usize>,
+    clients: usize,
+    health: &[burrow_admin_proto::status::HealthStatus],
+) -> AnyView {
+    let failing = health.iter().filter(|h| !h.up).count();
+    match up {
+        None => view! { <span class="text-text-faint">"—"</span> }.into_any(),
+        Some(0) => view! { <span class=tag_class(Tone::Danger)><Icon name="x" small=true/>"Down"</span> }.into_any(),
+        Some(_) if failing > 0 => {
+            let n = health.len();
+            view! { <span class=tag_class(Tone::Warning)><Icon name="alert" small=true/>{format!("{} of {n} up", n - failing)}</span> }.into_any()
+        }
+        Some(u) if u < clients => view! { <span class=tag_class(Tone::Warning)><Icon name="alert" small=true/>{format!("{u} of {clients} up")}</span> }.into_any(),
+        Some(_) if !health.is_empty() => view! { <span class=tag_class(Tone::Success) title="Health checks pass"><Icon name="check" small=true/>"Healthy"</span> }.into_any(),
+        Some(_) => view! { <span class=tag_class(Tone::Success) title="A client is online; no health check is set"><Icon name="check" small=true/>"Up"</span> }.into_any(),
+    }
+}
+
 pub fn go_to_field(path: &[String]) {
     let ids: Vec<String> = (3..=path.len())
         .rev()
@@ -1425,13 +1429,7 @@ fn served(name: &str) -> impl IntoView {
                             let x = st.as_ref().and_then(|x| x.services.iter().find(|c| c.name == n)).cloned();
                             let protocol = ServiceEntry::PROTOCOL.get(&v).map(plain).unwrap_or_else(|| Protocol::default().wire().into());
                             let up = st.as_ref().map(|st| clients_of(&v).iter().filter(|c| st.clients.iter().any(|y| &y.name == *c && y.connected)).count());
-                            let failing = x.as_ref().map(|x| x.health.iter().filter(|h| !h.up).count()).unwrap_or(0);
-                            let health = match up {
-                                None => view! { <span class="text-text-faint">"—"</span> }.into_any(),
-                                Some(0) => view! { <span class=tag_class(Tone::Danger)><Icon name="x" small=true/>"Down"</span> }.into_any(),
-                                Some(_) if failing > 0 => view! { <span class=tag_class(Tone::Warning)><Icon name="alert" small=true/>{format!("{failing} failing")}</span> }.into_any(),
-                                Some(_) => view! { <span class=tag_class(Tone::Success)><Icon name="check" small=true/>"Healthy"</span> }.into_any(),
-                            };
+                            let health = health_tag(up, clients_of(&v).len(), x.as_ref().map(|x| x.health.as_slice()).unwrap_or(&[]));
                             let label = n.clone();
                             view! {
                                 <tr data-row=n.clone()>

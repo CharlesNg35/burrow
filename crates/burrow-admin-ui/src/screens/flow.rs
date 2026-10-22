@@ -151,6 +151,8 @@ pub fn layout(doc: &Value, status: Option<&Status>, rates: &Rates) -> Chart {
                             Health::Degraded,
                             Some(format!("{} of {} up", checks.0, checks.1)),
                         )
+                    } else if up < clients.len() {
+                        (Health::Degraded, Some(format!("{up} of {} up", clients.len())))
                     } else {
                         (Health::Healthy, None)
                     };
@@ -250,7 +252,10 @@ pub fn layout(doc: &Value, status: Option<&Status>, rates: &Rates) -> Chart {
             h,
             title: "Visitors".into(),
             right: String::new(),
-            sub: format!("{active} active"),
+            sub: match active {
+                1 => "1 with an open tunnel".to_string(),
+                n => format!("{n} with open tunnels"),
+            },
             badge: None,
             health: Health::Unknown,
             dashed: false,

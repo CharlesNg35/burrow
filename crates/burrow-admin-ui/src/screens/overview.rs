@@ -644,7 +644,11 @@ pub fn Overview() -> impl IntoView {
         let svcs = names(&v, ServiceEntry::section());
         let bad: Vec<String> = attention(&v, None, st.as_deref())
             .into_iter()
-            .filter(|i| i.key.starts_with("down:") || i.key.starts_with("health:"))
+            .filter(|i| {
+                i.key.starts_with("down:")
+                    || i.key.starts_with("health:")
+                    || i.key.starts_with("partial:")
+            })
             .filter_map(|i| i.key.split_once(':').map(|(_, n)| n.to_string()))
             .collect();
         (svcs.len(), bad)
@@ -690,17 +694,7 @@ pub fn Overview() -> impl IntoView {
                 let protocol = ServiceEntry::PROTOCOL.get(svc).map(plain).unwrap_or_else(|| Protocol::default().wire().into());
                 let cs = clients_of(svc);
                 let up = cs.iter().filter(|c| online(c)).count();
-                let failing = x.as_ref().map(|x| x.health.iter().filter(|h| !h.up).count()).unwrap_or(0);
-                let health = if st.is_none() {
-                    view! { <span class="text-text-faint">"—"</span> }.into_any()
-                } else if up == 0 {
-                    view! { <span class=tag_class(Tone::Danger)><Icon name="x" small=true/>"Down"</span> }.into_any()
-                } else if failing > 0 {
-                    let checked = x.as_ref().map(|x| x.health.len()).unwrap_or(0);
-                    view! { <span class=tag_class(Tone::Warning)><Icon name="alert" small=true/>{format!("{} of {checked} up", checked - failing)}</span> }.into_any()
-                } else {
-                    view! { <span class=tag_class(Tone::Success)><Icon name="check" small=true/>"Healthy"</span> }.into_any()
-                };
+                let health = crate::screens::entity::health_tag(st.is_some().then_some(up), cs.len(), x.as_ref().map(|x| x.health.as_slice()).unwrap_or(&[]));
                 let label = name.clone();
                 view! {
                     <tr data-row=name.clone()>
@@ -824,16 +818,12 @@ pub fn Overview() -> impl IntoView {
                         value=Signal::derive(move || { let (n, bad) = down.get(); let b: std::collections::BTreeSet<_> = bad.into_iter().collect(); (n - b.len().min(n)).to_string() })
                         unit=Signal::derive(move || format!("/ {}", down.get().0))
                         detail=Signal::derive(move || {
-                            let v = values.get();
-                            let items = attention(&v, None, s.status.get().as_deref());
-                            let down: Vec<String> = items.iter().filter_map(|i| i.key.strip_prefix("down:").map(str::to_string)).collect();
-                            let degraded = items.iter().filter(|i| i.key.starts_with("health:")).count();
-                            match (down.len(), degraded) {
-                                (0, 0) => "all up".to_string(),
-                                (1, 0) => format!("{} is down", down[0]),
-                                (0, g) => format!("{g} degraded"),
-                                (d, 0) => format!("{d} down"),
-                                (d, g) => format!("{d} down · {g} degraded"),
+                            let (_, bad) = down.get();
+                            let b: std::collections::BTreeSet<_> = bad.into_iter().collect();
+                            match b.len() {
+                                0 => "all up".to_string(),
+                                1 => "1 with a problem".to_string(),
+                                n => format!("{n} with problems"),
                             }
                         })
                         testid="kpi-services"

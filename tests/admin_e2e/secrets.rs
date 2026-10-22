@@ -78,6 +78,7 @@ fn secret_once(c: &mut Ctx) -> Flow<'_> {
                 .trim()
                 .to_string();
         assert_eq!(secret.len(), 44, "a 256-bit base64 secret: {secret:?}");
+        c.ui.click("[data-testid=shown-once] [data-tab=file]").await;
         let config = c.ui.text("[data-testid=config-text] pre").await;
         assert!(config.contains("name: lab"), "{config}");
         assert!(config.contains(&secret), "{config}");
@@ -120,8 +121,7 @@ fn secret_once(c: &mut Ctx) -> Flow<'_> {
         let page: String = c.ui.eval("document.body.innerText").await;
         assert!(!page.contains(&secret), "the secret is not shown again");
         c.ui.shot("only-the-fingerprint-later").await;
-        c.ui.click("[data-testid=more]").await;
-        c.ui.click("[data-testid=connect-open]").await;
+        c.ui.click("[role=tablist] [data-tab=connect]").await;
         c.ui.wait_for("[data-testid=connect] [data-testid=snippets]", SECS)
             .await;
         let later = c.ui.text("[data-testid=connect]").await;
