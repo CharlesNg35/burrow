@@ -146,6 +146,7 @@ pub fn impacts(
             .map_or(0, |c| c.open)
     };
     let connected = |name: &str| sessions.iter().find(|s| s.client == name);
+    let mut retargeted: Vec<String> = Vec::new();
     let mut push = |level: Level, code: &str, message: String, confirm: Option<String>| {
         out.push(Impact {
             level,
@@ -188,17 +189,30 @@ pub fn impacts(
                 push(level, "rebinds-service", msg, confirm);
             }
             Some(n) if n.target != svc.target || n.clients != svc.clients => {
-                push(
-                    Level::Info,
-                    "changes-service",
-                    format!(
-                        "service {name} uses its new target or clients for new connections; open ones stay"
-                    ),
-                    None,
-                );
+                retargeted.push(name.clone());
             }
             _ => {}
         }
+    }
+    match retargeted.as_slice() {
+        [] => {}
+        [one] => push(
+            Level::Info,
+            "changes-service",
+            format!(
+                "service {one} uses its new target or clients for new connections; open ones stay"
+            ),
+            None,
+        ),
+        [first @ .., last] => push(
+            Level::Info,
+            "changes-service",
+            format!(
+                "services {} and {last} use their new target or clients for new connections; open ones stay",
+                first.join(", ")
+            ),
+            None,
+        ),
     }
     for (name, svc) in &new.services {
         if !old.services.contains_key(name) {

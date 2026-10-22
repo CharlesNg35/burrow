@@ -446,3 +446,29 @@ fn a_grant_brings_no_impact_since_it_is_refused() {
     let i = impacts(&old, &new, &Status::default(), &[], &[]);
     assert!(i.iter().all(|i| !i.code.starts_with("admin")), "{i:?}");
 }
+
+#[test]
+fn services_that_only_change_target_or_clients_share_one_impact() {
+    let (a, b) = (
+        crate::secret::Secret::generate().encode(),
+        crate::secret::Secret::generate().encode(),
+    );
+    let head = format!(
+        "listen: 7835\nclients:\n  a:\n    secret: {a}\n  b:\n    secret: {b}\nservices:\n"
+    );
+    let old = settings(&format!(
+        "{head}  web: {{ client: a, target: 80, bind: 7840 }}\n  db: {{ client: a, target: 5432, bind: 7841 }}\n  ssh: {{ client: a, target: 22, bind: 7842 }}\n"
+    ));
+    let new = settings(&format!(
+        "{head}  web: {{ clients: [a, b], target: 80, bind: 7840 }}\n  db: {{ clients: [a, b], target: 5432, bind: 7841 }}\n  ssh: {{ client: a, target: 22, bind: 7842 }}\n"
+    ));
+    let changed: Vec<String> = impacts(&old, &new, &Status::default(), &[], &[])
+        .into_iter()
+        .filter(|i| i.code == "changes-service")
+        .map(|i| i.message)
+        .collect();
+    assert_eq!(
+        changed,
+        ["services db and web use their new target or clients for new connections; open ones stay"]
+    );
+}
