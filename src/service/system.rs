@@ -744,12 +744,18 @@ pub(crate) mod tests {
             std::fs::set_permissions(&lock, std::fs::Permissions::from_mode(0o644)).unwrap();
             let outsider = std::fs::File::open(&lock).unwrap();
             let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-            while let Err(std::fs::TryLockError::WouldBlock) = outsider.try_lock() {
-                assert!(
-                    std::time::Instant::now() < deadline,
-                    "a child forked by another test still holds the lock"
-                );
-                std::thread::sleep(std::time::Duration::from_millis(20));
+            loop {
+                match outsider.try_lock() {
+                    Ok(()) => break,
+                    Err(std::fs::TryLockError::WouldBlock) => {
+                        assert!(
+                            std::time::Instant::now() < deadline,
+                            "a child forked by another test still holds the lock"
+                        );
+                        std::thread::sleep(std::time::Duration::from_millis(20));
+                    }
+                    Err(std::fs::TryLockError::Error(e)) => panic!("cannot lock: {e}"),
+                }
             }
             let fresh = operation_in(dir.path(), short, &mut std::io::sink());
             assert!(fresh.is_ok(), "a lock others could open is replaced");
