@@ -33,14 +33,6 @@ pub fn left_of(client: &str, left_secs_ago: Option<u64>, uptime: u64) -> String 
     left_or_added(left_secs_ago, uptime, added)
 }
 
-pub fn visitor_use(open: u64, last_seen_secs: Option<u64>) -> String {
-    match (open, last_seen_secs) {
-        (1.., _) => format!("in use now · {open} open"),
-        (0, Some(s)) => format!("last used {}", ago(s)),
-        (0, None) => "not seen since the server started".into(),
-    }
-}
-
 pub fn visitor_use_short(open: u64, last_seen_secs: Option<u64>) -> String {
     match (open, last_seen_secs) {
         (1.., _) => format!("{open} open"),

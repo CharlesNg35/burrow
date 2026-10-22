@@ -254,7 +254,7 @@ fn dashboard(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
     Box::pin(async move {
         let echo = echo_server(c.world.ports["echo"]).await;
         open(c, "ops").await;
-        c.ui.wait_text("[data-testid=kpi-clients]", "1 away", SECS)
+        c.ui.wait_text("[data-testid=kpi-clients]", "online now", SECS)
             .await;
         c.ui.wait_text("[data-testid=conn-pill]", "Connected", SECS)
             .await;
@@ -1406,12 +1406,8 @@ fn visitor_live(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
         let echo = echo_server(c.world.ports["echo"]).await;
         open(c, "ops").await;
         c.ui.nav("/visitors/laptop").await;
-        c.ui.wait_text(
-            "[data-testid=summary]",
-            "not seen since the server started",
-            SECS,
-        )
-        .await;
+        c.ui.wait_text("[data-testid=path-diagram]", "not seen since start", SECS)
+            .await;
         c.ui.shot("visitor-not-seen-yet").await;
         let file = c.world.visitor_file("laptop");
         let (target, local) = (
@@ -1440,7 +1436,7 @@ fn visitor_live(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
         s.read_exact(&mut back)
             .await
             .expect("echo through the tunnel");
-        c.ui.wait_text("[data-testid=summary]", "in use now", SECS)
+        c.ui.wait_text("[data-testid=path-diagram]", "in use now", SECS)
             .await;
         c.ui.wait_for(
             "[data-testid=entity-list] [data-row=laptop][data-group='In use now']",
@@ -1449,11 +1445,11 @@ fn visitor_live(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
         .await;
         c.ui.shot("visitor-in-use-now").await;
         drop(s);
-        c.ui.wait_text("[data-testid=summary]", "last used", SECS)
+        c.ui.wait_text("[data-testid=path-diagram]", "last used", SECS)
             .await;
         c.ui.shot("visitor-last-used").await;
         c.ui.nav("/").await;
-        c.ui.wait_text("[data-testid=kpi-visitors]", "1 used since start", SECS)
+        c.ui.wait_text("[data-testid=kpi-visitors]", "2 used since start", SECS)
             .await;
         echo.abort();
         c.ui.assert_no_errors();

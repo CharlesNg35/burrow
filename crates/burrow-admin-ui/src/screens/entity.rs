@@ -205,7 +205,7 @@ pub fn rows_for(section: &str) -> Vec<Row> {
                         )
                     }),
                     meta: if me.as_deref() == Some(name.as_str()) && open == 0 {
-                        "you, now".into()
+                        "you".into()
                     } else if status.is_some() {
                         format::visitor_use_short(open, seen)
                     } else {
@@ -555,11 +555,25 @@ fn Detail(section: String, name: String) -> impl IntoView {
     Effect::new(move |_| {
         let on = editing.get();
         let _ = s.editing.try_set(on);
+        if let Some(root) = document().document_element() {
+            use wasm_bindgen::JsCast;
+            if let Ok(h) = root.dyn_into::<web_sys::HtmlElement>() {
+                let _ = h
+                    .style()
+                    .set_property("scroll-padding-bottom", if on { "96px" } else { "" });
+            }
+        }
     });
     {
         let path = path.clone();
         on_cleanup(move || {
             let _ = s.editing.try_set(false);
+            if let Some(root) = document().document_element() {
+                use wasm_bindgen::JsCast;
+                if let Ok(h) = root.dyn_into::<web_sys::HtmlElement>() {
+                    let _ = h.style().remove_property("scroll-padding-bottom");
+                }
+            }
             if !untrack(|| e.unsaved(&path)) {
                 e.stop_edit(&path);
             }
@@ -697,12 +711,10 @@ fn Detail(section: String, name: String) -> impl IntoView {
                 let svc = get(&doc, &[sec.clone(), nm.clone()])
                     .cloned()
                     .unwrap_or(Value::Null);
-                let rate = s.rates.with(|r| r.service(&nm).bytes_in);
                 paths::service(
                     &nm,
                     &svc,
                     status.as_deref(),
-                    rate,
                     &problems_for(&vec![sec.clone(), nm.clone()]),
                     editing.get(),
                     &crate::domain::reserved_clients(),
@@ -710,99 +722,6 @@ fn Detail(section: String, name: String) -> impl IntoView {
             }
         }
     });
-    let summary = {
-        let (sec, nm) = (section.clone(), name.clone());
-        move || {
-            let doc = e.doc();
-            let st = s.status.get();
-            let edit = if editing.get() { "Editing · " } else { "" };
-            match sec.as_str() {
-                CLIENTS => {
-                    let c = st
-                        .as_ref()
-                        .and_then(|x| x.clients.iter().find(|c| c.name == nm))
-                        .cloned();
-                    let up = st.as_ref().map(|s| s.uptime_secs).unwrap_or(0);
-                    format!(
-                        "{edit}Client · {}",
-                        match c {
-                            Some(c) if c.connected => format!(
-                                "connected from {} for {}",
-                                c.from.unwrap_or_default(),
-                                format::span(c.connected_secs.unwrap_or(0))
-                            ),
-                            Some(c) =>
-                                format!("offline · {}", format::left_of(&nm, c.left_secs_ago, up)),
-                            None => "status not known yet".into(),
-                        }
-                    )
-                }
-                VISITORS => {
-                    let v = st
-                        .as_ref()
-                        .and_then(|x| x.visitors.iter().find(|c| c.name == nm))
-                        .cloned();
-                    let open = v.as_ref().map(|v| v.open).unwrap_or(0);
-                    let seen = v.as_ref().and_then(|v| v.last_seen_secs);
-                    let fp = VisitorEntry::SECRET
-                        .at(&doc, &nm)
-                        .and_then(|x| match x {
-                            Value::Array(a) => a.first().cloned(),
-                            other => Some(other.clone()),
-                        })
-                        .and_then(|x| as_secret(&x).and_then(|s| s.fp.clone()));
-                    format!(
-                        "{edit}Visitor · {} · {} total{}",
-                        if open == 0
-                            && s.welcome
-                                .with(|w| w.as_ref().is_some_and(|w| w.you.visitor == nm))
-                        {
-                            "you, in burrow admin now".into()
-                        } else if st.is_some() {
-                            format::visitor_use(open, seen)
-                        } else {
-                            "status not known yet".into()
-                        },
-                        format::count(v.as_ref().map(|v| v.total).unwrap_or(0)),
-                        fp.map(|f| format!(" · secret {f}")).unwrap_or_default()
-                    )
-                }
-                _ => {
-                    let svc = get(&doc, &[sec.clone(), nm.clone()])
-                        .cloned()
-                        .unwrap_or(Value::Null);
-                    let cs = clients_of(&svc);
-                    let x = st
-                        .as_ref()
-                        .and_then(|x| x.services.iter().find(|c| c.name == nm))
-                        .cloned();
-                    let how = if cs.len() > 1 {
-                        format!(
-                            "{} over {} clients",
-                            if ServiceEntry::MODE.get(&svc).map(plain).as_deref()
-                                == Some(Mode::Balance.wire())
-                            {
-                                "Balanced"
-                            } else {
-                                "Failover"
-                            },
-                            cs.len()
-                        )
-                    } else {
-                        format!(
-                            "On {}",
-                            cs.first().cloned().unwrap_or_else(|| "no client".into())
-                        )
-                    };
-                    format!(
-                        "{edit}{how} · {} open · {} total",
-                        x.as_ref().map(|x| x.open).unwrap_or(0),
-                        format::count(x.as_ref().map(|x| x.total).unwrap_or(0))
-                    )
-                }
-            }
-        }
-    };
     let protocol_tag = {
         let (sec, nm) = (section.clone(), name.clone());
         move || match sec.as_str() {
@@ -875,7 +794,7 @@ fn Detail(section: String, name: String) -> impl IntoView {
         let (path, sec, nm) = (path.clone(), section.clone(), name.clone());
         move || {
             if editing.get() {
-                return view! { <span class=tag_class(Tone::Accent) data-testid="editing-tag"><Icon name="edit" small=true/>"Editing"</span> }.into_any();
+                return ().into_any();
             }
             let applied = crate::secrets::revealed_for(&sec, &nm).is_some().then(|| {
                 view! { <span class=tag_class(Tone::Success) data-testid="applied-tag"><Icon name="check" small=true/>"Applied"</span> }
@@ -1001,8 +920,10 @@ fn Detail(section: String, name: String) -> impl IntoView {
             };
             let nm_p = nm.clone();
             Some(view! {
-                <PathDiagram data=path_data testid="path-diagram"/>
-                <div class:max-sm:hidden=move || editing.get()>{overview(&sec, &nm, true)}</div>
+                <div class:hidden=move || editing.get()>
+                    <PathDiagram data=path_data testid="path-diagram"/>
+                    {overview(&sec, &nm, true)}
+                </div>
                 {move || view! { <Tabs tabs=tab_list.get() active=tab counts=tab_counts errors=tab_errors/> }}
                 <div data-testid="detail-settings">
                     {move || (editing.get() && !problems.get().is_empty()).then(|| problem_list(problems.get(), what, nm_p.clone(), tab))}
@@ -1027,11 +948,18 @@ fn Detail(section: String, name: String) -> impl IntoView {
                         {if bad {
                             view! { <span class="flex min-w-0 items-center gap-1.5 text-sm font-semibold text-danger"><Icon name="alert-circle"/>{format!("{} problem{}", p.len(), if p.len() == 1 { "" } else { "s" })}<span class="truncate font-normal text-text-muted">{format!(" · {}", fields.join(", "))}</span></span> }.into_any()
                         } else {
-                            view! { <span class="text-sm text-text-muted" data-testid="fields-changed">{move || { let n = changed.get(); format!("{n} field{} changed", if n == 1 { "" } else { "s" }) }}</span> }.into_any()
+                            view! { <span class="text-sm text-text-muted" data-testid="fields-changed">{move || { let n = changed.get(); if n == 0 { "No changes yet".to_string() } else { format!("{n} field{} changed", if n == 1 { "" } else { "s" }) } }}</span> }.into_any()
                         }}
                         <span class="ml-auto"></span>
-                        <Button label="Discard" variant="ghost" testid="discard-edit" on_click=move |_| discard()/>
-                        <Button label="Save to changes" variant="primary" testid="save" disabled=bad reason=if bad { "Fix the problems first".to_string() } else { String::new() } on_click=move |_| save()/>
+                        <Button label=Signal::derive(move || if changed.get() == 0 { "Close".to_string() } else { "Discard".to_string() }) variant="ghost" testid="discard-edit" on_click=move |_| discard()/>
+                        <Button
+                            label="Add to changes"
+                            variant="primary"
+                            testid="save"
+                            disabled=Signal::derive(move || bad || changed.get() == 0)
+                            reason=Signal::derive(move || if bad { "Fix the problems first".to_string() } else if changed.get() == 0 { "Nothing changed yet".to_string() } else { String::new() })
+                            on_click=move |_| save()
+                        />
                     </div>
                 }
                 .into_any()
@@ -1062,7 +990,7 @@ fn Detail(section: String, name: String) -> impl IntoView {
             <header class="mb-[22px] flex items-start gap-3.5" class:max-sm:hidden=move || editing.get() class:hidden=move || !exists.get()>
                 <div class="min-w-0 flex-1">
                     <h1 class="flex items-center gap-2.5 text-[25px] font-bold tracking-[-0.015em]">{title_dot}{name.clone()}{protocol_tag}</h1>
-                    <p class="mt-1 text-base text-text-muted" data-testid="summary">{summary}</p>
+
                 </div>
                 <div class="flex items-center gap-2">{head_actions}</div>
             </header>
@@ -1118,7 +1046,6 @@ fn overview(section: &str, name: &str, stats: bool) -> impl IntoView {
                     .as_ref()
                     .and_then(|x| x.clients.iter().find(|c| c.name == name))
                     .cloned();
-                let n = secrets(ClientEntry::SECRET.at(&doc, &name));
                 let max = ClientEntry::MAX_CONNECTIONS
                     .at(&doc, &name)
                     .and_then(Value::as_u64)
@@ -1139,7 +1066,7 @@ fn overview(section: &str, name: &str, stats: bool) -> impl IntoView {
                             value=connected.map(format::span).unwrap_or_else(|| "—".into())
                             detail=connected.map(since_date).unwrap_or_else(|| c.as_ref().map(|c| format::left_of(&name, c.left_secs_ago, st.as_ref().map(|s| s.uptime_secs).unwrap_or(0))).unwrap_or_default())
                         />
-                        <Stat label="Secrets" value=n.to_string() unit="/ 4" detail={ if n > 1 { "rotation in progress" } else { "" } }/>
+
                     </Stats>
                 }
                 .into_any()

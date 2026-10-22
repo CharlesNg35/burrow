@@ -133,7 +133,10 @@ pub fn set_query(key: &str, value: &str) {
 }
 
 pub fn go(route: Route) {
-    let s = store();
+    go_in(store(), route);
+}
+
+pub fn go_in(s: crate::store::Store, route: Route) {
     if s.route.get_untracked() == route {
         return;
     }

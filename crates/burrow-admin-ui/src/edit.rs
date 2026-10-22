@@ -389,7 +389,7 @@ impl Edit {
         self.base_rev.set(state.rev.clone());
         self.conflict.set(None);
         self.clear_refused();
-        self.clear_changed();
+        store.changed.set(None);
         self.changed();
     }
 

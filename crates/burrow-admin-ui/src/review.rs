@@ -154,20 +154,20 @@ fn service_paths(
             };
             let data = match (old, new) {
                 (Some(o), None) => {
-                    let mut p = paths::service(n, o, status, 0.0, &none, true, reserved);
+                    let mut p = paths::service(n, o, status, &none, true, reserved);
                     mark(&mut p, HopState::Removed, EdgeState::Removed);
                     p.summary = format!("Service {n} is removed");
                     p
                 }
                 (None, Some(x)) => {
-                    let mut p = paths::service(n, x, status, 0.0, &none, true, reserved);
+                    let mut p = paths::service(n, x, status, &none, true, reserved);
                     mark(&mut p, HopState::Added, EdgeState::Added);
                     p.summary = format!("Service {n} is added");
                     p
                 }
                 (Some(o), Some(x)) => {
-                    let before = paths::service(n, o, status, 0.0, &none, true, reserved);
-                    let mut p = paths::service(n, x, status, 0.0, &none, true, reserved);
+                    let before = paths::service(n, o, status, &none, true, reserved);
+                    let mut p = paths::service(n, x, status, &none, true, reserved);
                     for (h, was) in p.hops.iter_mut().zip(before.hops.iter()) {
                         h.dot = None;
                         h.state = if h.value != was.value || h.unit != was.unit {
@@ -1039,7 +1039,7 @@ pub fn ConflictDialog() -> impl IntoView {
                                 None => {
                                     st.edit.rebase(st);
                                     st.edit.open_review();
-                                    route::go(Route::Review);
+                                    route::go_in(st, Route::Review);
                                 }
                             }
                         }

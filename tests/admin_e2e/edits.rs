@@ -938,12 +938,19 @@ fn locked_fields(c: &mut Ctx) -> Flow<'_> {
                 0,
                 "{field} has no input"
             );
-            c.ui.wait_text(
-                &row,
-                "Change this in server.yaml on the server, then restart",
-                SECS,
-            )
-            .await;
+            let text =
+                c.ui.wait_text(&row, "Change this in server.yaml (burrow edit)", SECS)
+                    .await;
+            assert_eq!(
+                text.contains("then restart"),
+                field == "listen",
+                "{field}: only listen needs a restart: {text}"
+            );
+            assert_eq!(
+                text.matches("Change this").count(),
+                1,
+                "{field} says it once"
+            );
         }
         assert_eq!(
             c.ui.count("[data-schema=websocket] input").await,
@@ -1176,6 +1183,25 @@ fn edit_state(c: &mut Ctx) -> Flow<'_> {
         );
         c.ui.shot("visitor-access-view").await;
         edit_mode(c).await;
+        c.ui.fill("#f-visitors-laptop-max-connections", "abc").await;
+        wait_checked(c).await;
+        c.ui.wait_for("[data-testid=form-problems] [data-problem]", SECS)
+            .await;
+        tokio::time::sleep(Duration::from_millis(600)).await;
+        assert_eq!(
+            c.ui.count("[data-testid=form-problems] [data-problem]")
+                .await,
+            1,
+            "one problem in one field is listed once"
+        );
+        let badge =
+            c.ui.text("[role=tablist] [data-tab=access] [data-tab-errors]")
+                .await;
+        assert_eq!(
+            badge.split_whitespace().collect::<Vec<_>>(),
+            ["1", "problem"],
+            "the tab counts it once"
+        );
         c.ui.fill("#f-visitors-laptop-max-connections", "50").await;
         wait_checked(c).await;
         c.ui.click("[data-testid=review-open]").await;
@@ -1203,6 +1229,25 @@ fn edit_state(c: &mut Ctx) -> Flow<'_> {
         .await;
         c.ui.nav("/visitors/laptop").await;
         c.ui.wait_for("[data-testid=save-bar]", SECS).await;
+        c.ui.click("[data-testid=discard-edit]").await;
+        c.ui.wait_gone("[data-testid=save-bar]", SECS).await;
+        c.ui.wait_for(
+            "[data-testid=entity-list] [data-row=ops][data-group='In use now']",
+            SECS,
+        )
+        .await;
+        c.ui.nav("/clients/home").await;
+        edit_mode(c).await;
+        assert!(
+            !c.ui.enabled("[data-testid=save]").await,
+            "nothing to add before a change"
+        );
+        tokio::time::sleep(Duration::from_secs(6)).await;
+        assert_eq!(
+            c.ui.count("[data-testid=save-bar]").await,
+            1,
+            "the periodic reload does not end the edit"
+        );
         c.ui.click("[data-testid=discard-edit]").await;
         c.ui.wait_gone("[data-testid=save-bar]", SECS).await;
 

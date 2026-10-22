@@ -369,13 +369,9 @@ fn Traffic() -> impl IntoView {
                 />
             </div>
             <div class="flex flex-wrap items-end gap-6 px-4 pt-3">
-                <div data-testid="traffic-in">
-                    <div class="flex items-center gap-1.5 text-xs text-text-muted"><span class="h-0.5 w-3.5 rounded bg-accent"></span>"In"</div>
-                    <div class="text-2xl font-bold tabular-nums">{move || now(false).0}<small class="ml-1 text-[13px] font-medium text-text-muted">{move || now(false).1}</small></div>
-                </div>
-                <div data-testid="traffic-out">
-                    <div class="flex items-center gap-1.5 text-xs text-text-muted"><span class="h-0.5 w-3.5 rounded bg-udp"></span>"Out"</div>
-                    <div class="text-2xl font-bold tabular-nums">{move || now(true).0}<small class="ml-1 text-[13px] font-medium text-text-muted">{move || now(true).1}</small></div>
+                <div class="flex items-center gap-4 text-xs text-text-muted" data-testid="traffic-legend">
+                    <span class="flex items-center gap-1.5"><span class="h-0.5 w-3.5 rounded bg-accent"></span>"In"</span>
+                    <span class="flex items-center gap-1.5"><span class="h-0.5 w-3.5 rounded bg-udp"></span>"Out"</span>
                 </div>
                 <div class="ml-auto text-right text-[11.5px] text-text-muted" data-testid="traffic-note">
                     <div>{note}</div>
@@ -680,16 +676,6 @@ pub fn Overview() -> impl IntoView {
         }
         if let Some(st) = &st {
             parts.push(format!("up {}", format::span(st.uptime_secs)));
-            if !st.listening.is_empty() {
-                parts.push(format!(
-                    "listening on {}",
-                    st.listening
-                        .iter()
-                        .map(|l| format::listen_addr(l))
-                        .collect::<Vec<_>>()
-                        .join(" and ")
-                ));
-            }
         }
         let rev = s.short_rev();
         if !rev.is_empty() {
@@ -704,21 +690,6 @@ pub fn Overview() -> impl IntoView {
             _ => ServiceEntry::section(),
         },
     );
-    let counts = Signal::derive(move || {
-        let v = values.get();
-        let (up, n) = clients_now.get();
-        let vis = names(&v, VisitorEntry::section()).len();
-        let active = s.status.with(|st| {
-            st.as_ref()
-                .map(|st| st.visitors.iter().filter(|x| s.in_use(x)).count())
-                .unwrap_or(0)
-        });
-        vec![
-            names(&v, ServiceEntry::section()).len().to_string(),
-            format!("{up}/{n}"),
-            format!("{active}/{vis}"),
-        ]
-    });
     let rate = move |name: &str| {
         let (v, u) = human_bits(s.rates.with(|r| r.service(name).bytes_in));
         format!("{v} {u}")
@@ -844,7 +815,7 @@ pub fn Overview() -> impl IntoView {
         <div class="px-8 pt-7 pb-12 max-sm:px-4" data-testid="overview">
             <header class="mb-[22px] flex flex-wrap items-start gap-3">
                 <div class="min-w-0 flex-1">
-                    <h1 class="text-2xl font-bold tracking-[-0.015em]">{move || s.server_name()}</h1>
+                    <h1 class="text-2xl font-bold tracking-[-0.015em]">"Overview"</h1>
                     <p class="mt-1 text-sm text-text-muted" data-testid="overview-sub">{sub}</p>
                 </div>
                 <button type="button" class=button_class("secondary", false) data-testid="flow-open" on:click=move |_| s.flow_open.set(true)>
@@ -860,7 +831,7 @@ pub fn Overview() -> impl IntoView {
                         icon="monitor"
                         value=Signal::derive(move || clients_now.get().0.to_string())
                         unit=Signal::derive(move || format!("/ {}", clients_now.get().1))
-                        detail=Signal::derive(move || { let (u, n) = clients_now.get(); if u == n { "all connected".to_string() } else { format!("{} away", n - u) } })
+                        detail=Signal::derive(move || { let (u, n) = clients_now.get(); if u == n { "all connected".to_string() } else { "online now".to_string() } })
                         testid="kpi-clients"
                     />
                 </Link>
@@ -943,7 +914,6 @@ pub fn Overview() -> impl IntoView {
                         <PillTabs
                             tabs=vec![(ServiceEntry::section(), "Services".into()), (ClientEntry::section(), "Clients".into()), (VisitorEntry::section(), "Visitors".into())]
                             active=tab
-                            counts=counts
                             on_change=Callback::new(move |t: &'static str| {
                                 tab.set(t);
                                 route::set_query("tab", t);
