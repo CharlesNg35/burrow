@@ -905,7 +905,7 @@ fn value_view(node: &Node, v: Option<&Value>, inherited: Option<&Value>, ctx: &C
         return match fallback {
             Some(d) => {
                 let shown = value_view(node, Some(d), None, ctx);
-                view! { <span class="inline-flex flex-wrap items-center gap-1 text-text-muted" data-unset="default">"Default:" {shown}</span> }.into_any()
+                view! { <span class="inline-flex flex-wrap items-center gap-1.5" data-unset="default">{shown}<span class="text-text-muted">"(default)"</span></span> }.into_any()
             }
             None => {
                 let text = node.none_label.clone().unwrap_or_else(|| "Not set".into());
@@ -991,7 +991,8 @@ fn sem_view(sem: &SemType, node: &Node, v: &Value, ctx: &Ctx) -> AnyView {
         | SemType::Target(_) => mono(v),
         SemType::Integer(c) => {
             let unit = c.unit.clone().map(|u| format!(" {u}")).unwrap_or_default();
-            view! { <span class="tabular-nums">{format!("{}{unit}", plain(v))}</span> }.into_any()
+            let n = v.as_u64().map(crate::format::count).unwrap_or_else(|| plain(v));
+            view! { <span class="tabular-nums">{format!("{n}{unit}")}</span> }.into_any()
         }
         SemType::Bool => {
             let yes = v.as_bool().unwrap_or(false);
@@ -1001,12 +1002,12 @@ fn sem_view(sem: &SemType, node: &Node, v: &Value, ctx: &Ctx) -> AnyView {
             let raw = plain(v);
             let opt = c.options.iter().find(|o| o.value == raw);
             let label = opt.map(|o| o.label.clone()).unwrap_or(raw.clone());
-            let tone = if opt.is_some_and(|o| o.danger) {
-                Tone::Danger
+            let class = if opt.is_some_and(|o| o.danger) {
+                "font-medium text-danger"
             } else {
-                Tone::Neutral
+                "font-medium"
             };
-            view! { <Badge text=label tone=tone title=raw/> }.into_any()
+            view! { <span class=class title=raw data-value=plain(v)>{label}</span> }.into_any()
         }
         SemType::Cidr | SemType::CidrRule => view! { <Chip text=plain(v) mono=true/> }.into_any(),
         SemType::Duration(c) => {
@@ -1124,6 +1125,19 @@ fn sem_view(sem: &SemType, node: &Node, v: &Value, ctx: &Ctx) -> AnyView {
                 .collect_view();
             view! { <table class="text-sm [&_td]:py-1 [&_td]:pl-3 [&_th]:py-1 [&_th]:text-left [&_th]:font-normal"><tbody>{rows}</tbody></table> }.into_any()
         }
+        SemType::Union(u) if u.branches.iter().any(|b| matches!(inner(b).sem, SemType::Bool)) && !matches!(v, Value::String(_)) => match v {
+            Value::Bool(on) => view! { <span class="font-medium" data-value=on.to_string()>{if *on { "On" } else { "Off" }}</span> }.into_any(),
+            _ => {
+                let object = u.branches.iter().find(|b| matches!(inner(b).sem, SemType::Object(_)));
+                view! {
+                    <span class="block">
+                        <span class="font-medium">"Custom"</span>
+                        {object.map(|b| value_view(b, Some(v), None, ctx))}
+                    </span>
+                }
+                .into_any()
+            }
+        },
         SemType::Union(u) => {
             let pick = u
                 .branches

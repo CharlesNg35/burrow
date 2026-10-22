@@ -260,6 +260,7 @@ pub fn ListPane(
         let list = visible.get();
         if list.is_empty() {
             return match &empty {
+                Some((t, _)) if t.is_empty() => ().into_any(),
                 Some((t, m)) if rows.with(Vec::is_empty) => view! { <EmptyState icon=empty_icon.unwrap_or("plus") title=t.clone() message=m.clone() testid="list-empty"/> }.into_any(),
                 _ => view! { <p class="px-4 py-6 text-sm text-text-muted">"Nothing matches."</p> }.into_any(),
             };

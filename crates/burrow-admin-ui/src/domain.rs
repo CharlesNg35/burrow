@@ -164,7 +164,14 @@ fn placeholder(fc: &FieldCtx) -> String {
     fc.inherited
         .as_ref()
         .or(fc.node.default.as_ref())
-        .map(|d| format!("Default: {}", to_text(Some(d))))
+        .map(|d| {
+            format!(
+                "Default: {}",
+                d.as_u64()
+                    .map(crate::format::count)
+                    .unwrap_or_else(|| to_text(Some(d)))
+            )
+        })
         .or_else(|| fc.node.none_label.clone())
         .unwrap_or_default()
 }

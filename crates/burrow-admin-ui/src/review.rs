@@ -672,7 +672,7 @@ fn detail(plan: std::sync::Arc<Plan>, revert: bool) -> AnyView {
             <div class="sticky bottom-4 z-20 flex flex-wrap items-center gap-3 rounded-card border border-border bg-surface px-4 py-3 shadow-overlay max-lg:[&>span]:flex-1 max-lg:[&_button]:w-full [&_button]:whitespace-nowrap" data-sticky-bar="">
                 <span class="min-w-0 flex-1 basis-60 text-sm text-text-muted" data-testid="review-footer">{if empty {
                     if revert {
-                        "The file already matches that version; there is nothing to apply.".to_string()
+                        "The file already matches that version.".to_string()
                     } else {
                         "Your edits put every value back as it was; the file would not change.".to_string()
                     }
@@ -881,8 +881,7 @@ pub fn ReviewPage() -> impl IntoView {
             filters=Vec::new()
             groups=vec!["Changes"]
             no_counts=true
-            empty=("Nothing changes".to_string(), "The file would stay as it is.".to_string())
-            empty_icon="check"
+            empty=(String::new(), String::new())
             rows=rows
             selected=Signal::stored(None::<String>)
             testid="review-list"

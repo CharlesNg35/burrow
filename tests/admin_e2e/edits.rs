@@ -1347,6 +1347,13 @@ fn edit_state(c: &mut Ctx) -> Flow<'_> {
             .await;
         assert_eq!(meta, "", "the selected row leaves its numbers to the page");
         c.ui.click("[role=tablist] [data-tab=settings]").await;
+        let protocol = c.ui.text("[data-schema='services/*/protocol']").await;
+        assert!(
+            protocol.contains("TCP")
+                && protocol.contains("(default)")
+                && !protocol.contains("Default:"),
+            "a default reads as a plain value: {protocol}"
+        );
         edit_mode(c).await;
         c.ui.choose("f-services-web-bind-visibility", "private")
             .await;
