@@ -54,7 +54,7 @@ burrow service status                  # state, version, account, files, the las
 sudo burrow service logs -f            # follow the log (-n 200 for the last 200 lines)
 sudo burrow service restart            # also: start, stop
 sudo burrow service reload             # apply the config now (it is also applied on save)
-sudo burrow service uninstall          # remove it; --purge also deletes its config and saved variables
+sudo burrow service uninstall          # remove it; --purge also deletes its config folder and saved variables
 sudo burrow status -f                  # live clients and traffic of a server, see monitoring.md
 ```
 
@@ -75,8 +75,9 @@ Each service gets its own config folder, named after the service without `burrow
 
 **Who may change the config folder:**
 
-- Normally the folder belongs to root, and the service can only read its config.
-- A server with a visitor that has admin access, or installed with `--admin-writable`, owns its folder instead (mode 0700), so `burrow admin` can save changes. Nothing moves: only the folder's owner changes.
+- Normally the folder belongs to root (mode 0755), and the service can only read its config.
+- A server with a visitor that has admin access, or installed with `--admin-writable`, owns its folder instead (mode 0700), so `burrow admin` can save changes. On Linux, systemd lets the service write to that folder only. `burrow service status` then shows `config: /etc/burrow/server/server.yaml (the service may change it, for burrow admin)`.
+- Switching between the two moves nothing: only the folder's owner changes, and the config stays where it is.
 
 `services`, `jobs`, `logs`, `bin` and `instances` are burrow's own folders, so they cannot be service names.
 
@@ -91,19 +92,20 @@ sudo nano /etc/burrow/server/server.yaml   # or edit the file directly
 
 `burrow edit` refuses a change that the service could not run after a restart, such as a port below 1024 it was not installed for.
 
-**Adding admin access later.** A server installed without an admin visitor cannot write its config, so `burrow admin` is read-only and says so. Add the admin visitor to the installed config, then install again from that same file:
+**Adding admin access later.** A server installed without an admin visitor cannot write its config, so `burrow admin` is read-only. Its hint gives the exact command: `install the service again so it may change its config; nothing moves: sudo burrow service install -c /etc/burrow/server/server.yaml --admin-writable`. Add the admin visitor to the installed config, then install again from that same file:
 
 ```sh
 sudo burrow edit burrow-server         # add a visitor with admin: write
 sudo burrow service install --admin-writable -c /etc/burrow/server/server.yaml
 ```
 
-The folder then belongs to the service, and `burrow admin` can save changes.
+This reinstalls the existing service `burrow-server`: burrow recognizes its installed config, so no `--name` is needed. The folder then belongs to the service, and `burrow admin` can save changes.
 
 <details>
 <summary><b>Installing again</b></summary>
 
-- You can install again from the installed copy, as above, or from the original file. Installing from another file under the same service name is refused; rename the file or pass `--name` to add a second service.
+- You can install again from the installed copy, as above, or from the original file. An installed config always leads to its own service: `-c /etc/burrow/home/client.yaml` reinstalls `burrow-home`.
+- Installing from another file under the same service name is refused; rename the file or pass `--name` to add a second service.
 - A reinstall from the original file copies it over the installed one. When the installed copy has changes made with `burrow admin`, it is first kept as a version in the admin history, so you can revert to it.
 - A reinstall from the original file also brings back admin access you removed in `burrow admin`, because the original still has it. Remove it there too.
 
