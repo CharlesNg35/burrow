@@ -697,9 +697,9 @@ fn Banners() -> impl IntoView {
                 <Banner
                     tone=Tone::Warning
                     title=format!("Config changed {by}")
-                    message={
-                        let (old, at) = s.changed_from.get_untracked();
-                        let when = if s.now.get_untracked() - at < 60_000.0 { "noticed just now".to_string() } else { format!("at {}", crate::format::clock(at)) };
+                    message=move || {
+                        let (old, at) = s.changed_from.get();
+                        let when = if s.now.get() - at < 60_000.0 { "noticed just now".to_string() } else { format!("noticed at {}", crate::format::clock(at)) };
                         if old.is_empty() {
                             format!("now rev {} · {when}", short_rev(&c.rev))
                         } else {

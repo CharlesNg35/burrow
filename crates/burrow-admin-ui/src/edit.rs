@@ -276,6 +276,7 @@ impl Edit {
         self.confirms.set(BTreeMap::new());
         self.clear_refused();
         self.clear_edits();
+        self.clear_changed();
     }
 
     pub fn is_editing(&self, entity: &[String]) -> bool {
@@ -317,6 +318,14 @@ impl Edit {
         })
     }
 
+    fn clear_changed(&self) {
+        if let Some(s) = crate::store::try_store()
+            && s.changed.with_untracked(Option::is_some)
+        {
+            s.changed.set(None);
+        }
+    }
+
     fn clear_edits(&self) {
         if self.editing.with_untracked(|m| !m.is_empty()) {
             self.editing.set(BTreeMap::new());
@@ -331,19 +340,27 @@ impl Edit {
 
     pub fn sync_base(&self, values: &Value, rev: &str) {
         let reset = self.reset_on_load.get_untracked();
-        if reset || !self.dirty() || self.base_rev.get_untracked().is_empty() {
+        let known = self.base_rev.get_untracked();
+        if !reset && known == rev {
+            return;
+        }
+        if reset || !self.dirty() || known.is_empty() {
             self.draft.set(Changeset::new(values.clone()));
             self.texts.set(BTreeMap::new());
-            self.local.set(BTreeMap::new());
             self.clear_refused();
-            self.clear_edits();
+            if reset {
+                self.local.set(BTreeMap::new());
+                self.clear_edits();
+            } else {
+                self.resnapshot(values);
+            }
             self.plan.set(None);
             if self.conflict_revert.with_untracked(Option::is_none) {
                 self.conflict.set(None);
             }
             self.base_rev.set(rev.to_string());
             self.reset_on_load.set(false);
-        } else if self.base_rev.get_untracked() != rev && self.conflict.get_untracked().is_none() {
+        } else if self.conflict.get_untracked().is_none() {
             self.conflict_revert.set(None);
             self.conflict.set(Some(Conflict {
                 current: rev.to_string(),
@@ -351,6 +368,17 @@ impl Edit {
                 known: false,
             }));
         }
+    }
+
+    fn resnapshot(&self, values: &Value) {
+        if self.editing.with_untracked(|m| m.is_empty()) {
+            return;
+        }
+        self.editing.update(|m| {
+            for (path, snap) in m.iter_mut() {
+                *snap = burrow_admin_proto::value::get(values, path).cloned();
+            }
+        });
     }
 
     pub fn rebase(&self, store: Store) {
@@ -361,6 +389,7 @@ impl Edit {
         self.base_rev.set(state.rev.clone());
         self.conflict.set(None);
         self.clear_refused();
+        self.clear_changed();
         self.changed();
     }
 
@@ -526,6 +555,7 @@ impl Edit {
                     let applied = serde_json::from_value::<Applied>(v).unwrap_or_default();
                     me.outcome.set(Some(Outcome::Applied(applied)));
                     me.review.set(None);
+                    store.changed.set(None);
                     me.reset_on_load.set(true);
                     api::load_state(store);
                     api::load_history(store);
@@ -708,6 +738,47 @@ mod tests {
             !e.is_editing(&lap),
             "a discard of the draft ends every edit"
         );
+    }
+
+    #[test]
+    fn a_reload_of_the_same_or_a_newer_base_keeps_an_open_edit() {
+        let e = Edit::new();
+        let lap = p(&["visitors", "lap"]);
+        e.sync_base(
+            &json!({"visitors": {"lap": {"max_connections": 5}}}),
+            "b2s:1",
+        );
+        e.start_edit(&lap);
+        e.local.update(|l| {
+            l.insert(
+                p(&["visitors", "lap", "max_connections"]),
+                "not a number".into(),
+            );
+        });
+        e.sync_base(
+            &json!({"visitors": {"lap": {"max_connections": 5}}}),
+            "b2s:1",
+        );
+        assert!(
+            e.is_editing(&lap),
+            "the 5 s reload of the same rev keeps the edit"
+        );
+        assert_eq!(e.local.get_untracked().len(), 1, "and the typed problem");
+        e.sync_base(
+            &json!({"visitors": {"lap": {"max_connections": 7}}}),
+            "b2s:2",
+        );
+        assert!(
+            e.is_editing(&lap),
+            "a change elsewhere keeps an edit with nothing typed"
+        );
+        assert!(!e.unsaved(&lap), "its snapshot follows the new base");
+        e.reset_on_load.set(true);
+        e.sync_base(
+            &json!({"visitors": {"lap": {"max_connections": 7}}}),
+            "b2s:3",
+        );
+        assert!(!e.is_editing(&lap), "an apply ends the edits");
     }
 
     #[test]
