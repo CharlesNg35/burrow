@@ -51,9 +51,9 @@ pub fn change_groups(plan: &Plan) -> Vec<Group> {
 
 fn section_label(section: &str, n: usize) -> String {
     let one = match burrow_config::entity_of_section(section) {
-        Some(burrow_admin_proto::schema::Entity::Client) => "client",
-        Some(burrow_admin_proto::schema::Entity::Visitor) => "visitor",
-        _ => "service",
+        Some(burrow_admin_proto::schema::Entity::Client) => burrow_config::ClientEntry::ENTITY,
+        Some(burrow_admin_proto::schema::Entity::Visitor) => burrow_config::VisitorEntry::ENTITY,
+        _ => burrow_config::ServiceEntry::ENTITY,
     };
     if n == 1 {
         one.to_string()
