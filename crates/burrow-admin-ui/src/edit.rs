@@ -164,7 +164,7 @@ impl Edit {
 
     pub fn review_count(&self) -> usize {
         match self.review_plan() {
-            Some(p) => p.changes.len().max(1),
+            Some(p) => crate::review::change_groups(&p).len(),
             None => self.pending(),
         }
     }

@@ -613,6 +613,23 @@ fn revert(c: &mut Ctx) -> Flow<'_> {
             original,
             "the revert restores the file byte for byte"
         );
+        c.ui.nav("/activity").await;
+        c.ui.click(&format!("[data-row='{rev}'] [data-testid=list-row]"))
+            .await;
+        c.ui.wait_for("[data-testid=activity-diff]", SECS).await;
+        c.ui.click("[data-testid=revert]").await;
+        c.ui.wait_text("[data-testid=review] h1", "Nothing to apply", SECS)
+            .await;
+        c.ui.shot("a-revert-that-changes-nothing").await;
+        assert_eq!(
+            c.ui.count("[data-testid=apply]").await,
+            0,
+            "no Apply when nothing changes"
+        );
+        assert_eq!(c.ui.count("[data-testid=review-diff]").await, 0);
+        c.ui.click("[data-testid=cancel-revert]").await;
+        c.ui.wait_gone("[data-testid=review]", SECS).await;
+        assert_eq!(c.world.config(), original);
         c.ui.assert_no_errors();
     })
 }

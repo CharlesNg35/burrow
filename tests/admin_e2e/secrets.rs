@@ -29,12 +29,42 @@ fn secret_once(c: &mut Ctx) -> Flow<'_> {
         c.ui.nav("/clients").await;
         c.ui.click("[data-testid=new]").await;
         c.ui.fill("#new-name", "lab").await;
+        for svc in ["web", "ssh"] {
+            c.ui.click("#new-links").await;
+            c.ui.click(&format!("[data-option={svc}]")).await;
+        }
+        c.ui.press("#new-links", "Escape").await;
         c.ui.click("[data-testid=create]").await;
         c.ui.wait_for("[data-testid=detail][data-name=lab]", SECS)
             .await;
         c.ui.wait_for("[data-testid=secrets] [data-fp]", SECS).await;
         c.ui.shot("new-client-with-a-generated-secret").await;
-        review_and_apply(c, "new-client").await;
+        wait_checked(c).await;
+        assert_eq!(
+            c.ui.text("[data-testid=review-count]").await.trim(),
+            "1",
+            "a new client and the services it joins count once"
+        );
+        c.ui.click("[data-testid=review-open]").await;
+        c.ui.wait_for("[data-testid=apply]:not([disabled])", SECS)
+            .await;
+        let rows =
+            c.ui.count("[data-testid=review-list] [data-testid=list-row]")
+                .await;
+        let list = c.ui.text("[data-testid=review-list]").await;
+        assert_eq!(rows, 1, "one grouped change: {list}");
+        assert!(list.contains("New client lab"), "{list}");
+        assert!(list.contains("added to services"), "{list}");
+        assert!(
+            !list.contains("uses its new target"),
+            "impacts stay in the main pane: {list}"
+        );
+        let impacts =
+            c.ui.count("[data-testid=impacts] [data-impact=changes-service]")
+                .await;
+        assert_eq!(impacts, 1, "one impact for both services");
+        c.ui.shot("review-new-client-in-two-services").await;
+        c.ui.click("[data-testid=apply]").await;
         c.ui.wait_for("[data-testid=shown-once]", Duration::from_secs(20))
             .await;
         let secret =
