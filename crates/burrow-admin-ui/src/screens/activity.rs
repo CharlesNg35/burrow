@@ -61,7 +61,8 @@ fn hand(e: &AuditEntry) -> bool {
     e.visitor.is_empty() || e.visitor == "file"
 }
 
-fn rows_of(entries: &[AuditEntry], can_write: bool) -> Vec<Row> {
+fn rows_of(entries: &[AuditEntry], can_write: bool, current: &str) -> Vec<Row> {
+    let now = entries.iter().position(|e| e.rev == current);
     entries
         .iter()
         .enumerate()
@@ -92,13 +93,13 @@ fn rows_of(entries: &[AuditEntry], can_write: bool) -> Vec<Row> {
                     .unwrap_or_else(|| format!("No change ({})", e.result)),
                 meta: short_rev(&e.rev),
                 line2: format!("{} · {}", format::relative(e.at), who(e)),
-                tags: if i == 0 {
+                tags: if Some(i) == now {
                     vec![("current".to_string(), Tone::Success)]
                 } else {
                     Vec::new()
                 },
                 filters: vec![if hand(e) { "hand" } else { "admins" }],
-                actions: if i == 0 { Vec::new() } else { actions },
+                actions: if Some(i) == now { Vec::new() } else { actions },
                 ..Row::default()
             }
         })
@@ -231,7 +232,14 @@ pub fn Activity(selected: Option<String>) -> impl IntoView {
     let rows = Memo::new(move |_| {
         s.history
             .get()
-            .map(|h| rows_of(&h, s.can_write()))
+            .map(|h| {
+                rows_of(
+                    &h,
+                    s.can_write(),
+                    &s.state
+                        .with(|st| st.as_ref().map(|st| st.rev.clone()).unwrap_or_default()),
+                )
+            })
             .unwrap_or_default()
     });
     if selected.is_none()
