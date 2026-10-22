@@ -447,9 +447,16 @@ impl Core {
             .collect();
         let diff = match &req.diff {
             Some(rev) => {
-                let entry = entries.iter().find(|e| &e.rev == rev).ok_or_else(|| {
-                    ApiError::new(ErrorCode::BadRequest, format!("no history entry {rev}"))
-                })?;
+                let entry = self
+                    .audit
+                    .lock()
+                    .expect("audit lock")
+                    .iter()
+                    .find(|e| &e.rev == rev)
+                    .cloned()
+                    .ok_or_else(|| {
+                        ApiError::new(ErrorCode::BadRequest, format!("no history entry {rev}"))
+                    })?;
                 let after = self.store.version(&entry.rev);
                 let before = self.store.version(&entry.base);
                 match (before, after) {

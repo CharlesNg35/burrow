@@ -622,6 +622,23 @@ fn a_revert_is_an_ordinary_plan() {
         })
         .unwrap();
     assert!(with_diff.diff.unwrap().unified.contains("target: 3001"));
+    apply_now(
+        &core,
+        &s,
+        &[Op::Set {
+            path: p(&["services", "web", "target"]),
+            value: json!(3002),
+        }],
+        &[],
+    )
+    .unwrap();
+    let older = core
+        .history(&HistoryRequest {
+            limit: Some(1),
+            diff: Some(entry.rev.clone()),
+        })
+        .expect("an older entry's diff is found whatever the limit");
+    assert!(older.diff.unwrap().unified.contains("target: 3001"));
 }
 
 #[test]
