@@ -2,6 +2,7 @@ use burrow_admin_proto::Path;
 use burrow_admin_proto::ops::Op;
 use burrow_admin_proto::serde_json::{Map, Value, json};
 use burrow_admin_proto::value::{self, as_secret};
+use burrow_config::Entry;
 
 pub const NEW_SECRET: &str = "$new_secret";
 
@@ -409,6 +410,17 @@ impl Changeset {
             .filter(|p| {
                 burrow_config::refs::part_of(&self.base, &self.draft, p, &self.renames).is_none()
             })
+            .map(|p| {
+                let entity = p.first().is_some_and(|s| {
+                    [
+                        burrow_config::ClientEntry::section(),
+                        burrow_config::VisitorEntry::section(),
+                        burrow_config::ServiceEntry::section(),
+                    ]
+                    .contains(&s.as_str())
+                });
+                if entity { p } else { Vec::new() }
+            })
             .collect();
         paths.sort();
         paths.dedup();
@@ -483,6 +495,8 @@ mod tests {
         assert!(c.modified(&p(&["services", "web", "bind"])));
         assert!(!c.modified(&p(&["services", "web", "target"])));
         assert_eq!(c.changed_entities(), 3);
+        c.set(&p(&["pool", "min_idle"]), json!(9));
+        assert_eq!(c.changed_entities(), 3, "server settings count once");
         c.reset();
         assert!(!c.dirty());
     }
