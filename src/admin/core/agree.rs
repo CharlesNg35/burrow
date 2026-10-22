@@ -13,7 +13,7 @@ use burrow_config::{
 };
 use serde_json::{Value, json};
 
-use super::tests::{core_for, session, world};
+use super::tests::{core_for, core_with_env, session, world};
 use super::{plan, text};
 
 enum Cases {
@@ -490,5 +490,73 @@ fn the_admin_ui_accepts_exactly_the_public_addresses_validate_accepts() {
             burrow_syntax::address::client_address(given, None, Some(ws), "clients", &mut notes)
                 .is_ok();
         assert_eq!(server, accepted, "{given:?} on a WebSocket-only server");
+    }
+}
+
+fn public_address_agrees(
+    text: &str,
+    vars: &'static [(&'static str, &'static str)],
+    given: &str,
+) -> (bool, bool) {
+    let w = world();
+    let mut running = text.to_string();
+    for (k, fallback) in [("LISTEN", "0.0.0.0:7835"), ("WS_LISTEN", "127.0.0.1:8080")] {
+        let v = vars
+            .iter()
+            .find(|(n, _)| *n == k)
+            .map_or(fallback, |(_, v)| *v);
+        running = running.replace(&format!("${{{k}}}"), v);
+    }
+    let core = core_with_env(text, &running, vars);
+    let s = session(&w, AdminLevel::Write);
+    let raw = plan::check_text(&core, text).raw.unwrap_or(Value::Null);
+    let doc = super::values::present(&raw, Some(&core.schema().root), "", &*core.env);
+    let node = core
+        .schema()
+        .root
+        .at(&ServerConfig::PUBLIC_ADDRESS.path())
+        .cloned()
+        .expect("public_address in the schema");
+    let ui = check_in(&node, &json!(given), &doc).is_ok();
+    let case = Case {
+        path: ServerConfig::PUBLIC_ADDRESS.path(),
+        item: false,
+        value: json!(given),
+    };
+    (ui, server_ok(&core, &s, text, &case))
+}
+
+#[test]
+fn a_listen_address_from_the_environment_is_checked_through_its_resolved_value() {
+    let w = world();
+    let tail = w.text.replace("listen: 7835 # tcp\n", "");
+    let env_listen = format!("listen: ${{LISTEN}}\nwebsocket:\n  listen: 127.0.0.1:8080\n{tail}");
+    let env_ws = format!("listen: 0.0.0.0:7835\nwebsocket:\n  listen: ${{WS_LISTEN}}\n{tail}");
+    let resolved: &[(&str, &str)] = &[("LISTEN", "0.0.0.0:7900"), ("WS_LISTEN", "127.0.0.1:8080")];
+    for (text, given) in [
+        (&env_listen, "tunnel.example.com:7900"),
+        (&env_listen, "tunnel.example.com:7901"),
+        (&env_listen, "ws://tunnel.example.com:8080/burrow"),
+        (&env_ws, "wss://tunnel.example.com/burrow"),
+        (&env_ws, "ws://tunnel.example.com:8081/burrow"),
+        (&env_ws, "tunnel.example.com:7835"),
+    ] {
+        let (ui, server) = public_address_agrees(text, resolved, given);
+        assert_eq!(ui, server, "{given:?} in\n{text}");
+    }
+    assert_eq!(
+        public_address_agrees(&env_listen, resolved, "tunnel.example.com:7900"),
+        (true, true)
+    );
+    assert_eq!(
+        public_address_agrees(&env_ws, resolved, "wss://tunnel.example.com/burrow"),
+        (true, true)
+    );
+    for text in [&env_listen, &env_ws] {
+        let (ui, _) = public_address_agrees(text, &[], "tunnel.example.com:7900");
+        assert!(
+            ui,
+            "an unresolved address is not checked in the UI:\n{text}"
+        );
     }
 }

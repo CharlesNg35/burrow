@@ -148,6 +148,20 @@ pub fn core_for(text: &str) -> Core {
     core_running(text, text)
 }
 
+pub fn core_with_env(
+    text: &str,
+    running: &str,
+    vars: &'static [(&'static str, &'static str)],
+) -> Core {
+    let mut core = core_running(text, running);
+    core.env = Box::new(move |name: &str| {
+        vars.iter()
+            .find(|(k, _)| *k == name)
+            .map(|(_, v)| v.to_string())
+    });
+    core
+}
+
 pub fn core_running(text: &str, running: &str) -> Core {
     let shared = Arc::new(Mutex::new(text.to_string()));
     let live_text = if text == running {
