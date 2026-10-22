@@ -442,6 +442,13 @@ fn check_config(path: &Path, env: &BTreeMap<String, String>) -> Result<Checked, 
     })
 }
 
+fn recorded_source(existing: Option<&Manifest>, source: &Path) -> PathBuf {
+    match existing {
+        Some(m) if system::canonical_or_same(&m.config) == source => m.source_config.clone(),
+        _ => source.to_path_buf(),
+    }
+}
+
 fn installs_from(existing: &Manifest, source: &Path) -> bool {
     existing.source_config == source || system::canonical_or_same(&existing.config) == source
 }
@@ -506,7 +513,7 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
         name: name.clone(),
         role: checked.role.as_str().to_string(),
         config: config.clone(),
-        source_config: source.clone(),
+        source_config: recorded_source(load_manifest(&name).ok().as_ref(), &source),
         env_file: env_file.clone(),
         log_file: platform.log_file(&short),
         binary: binary.clone(),
@@ -1874,6 +1881,8 @@ mod tests {
         let source = system::canonical(&installed).unwrap();
         assert_ne!(source, installed, "the folder is reached through a link");
         assert!(installs_from(&m, &source));
+        assert_eq!(recorded_source(Some(&m), &source), m.source_config);
+        assert_eq!(recorded_source(None, &source), source);
         let elsewhere = tmp.path().join("other.yaml");
         std::fs::write(&elsewhere, "listen: 1\n").unwrap();
         assert!(!installs_from(&m, &system::canonical(&elsewhere).unwrap()));
