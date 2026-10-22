@@ -432,7 +432,7 @@ pub fn NewEntity(
                         if what == "service" {
                             "You set the client and target next.".to_string()
                         } else {
-                            format!("The review shows \"New {what} {} (1 secret)\".", if n.is_empty() { "…".to_string() } else { n })
+                            format!("Add to changes keeps {} in your draft; Create and apply applies it now and shows its secret once.", if n.is_empty() { format!("the new {what}") } else { n })
                         }
                     }}
                 </span>

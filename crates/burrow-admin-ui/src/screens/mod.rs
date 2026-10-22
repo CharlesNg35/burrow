@@ -203,7 +203,7 @@ pub fn ListPane(
                 >
                     {label}
                     {move || {
-                        let n = rows.with(|r| r.iter().filter(|x| key == "all" || x.filters.contains(&key)).count());
+                        let n = rows.with(|r| r.iter().filter(|x| !x.key.starts_with("__") && (key == "all" || x.filters.contains(&key))).count());
                         (!no_counts && n > 0 && Protocol::from_wire(key).is_none()).then(|| format!(" {n}"))
                     }}
                 </button>

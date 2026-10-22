@@ -247,7 +247,7 @@ pub fn SnippetView(sn: Snippets, #[prop(optional)] secret: Option<String>) -> im
     let allow_note = if kind == ClientEntry::ENTITY {
         "The allow list comes from the services that use this client."
     } else {
-        "The reach list comes from this visitor's access."
+        "The forwards come from the private services this visitor may use."
     };
     view! {
         <div data-testid="snippets" data-kind=sn.kind.clone() data-name=sn.name.clone()>
