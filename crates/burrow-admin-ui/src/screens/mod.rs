@@ -74,6 +74,23 @@ impl Row {
 }
 
 #[component]
+pub fn TocRow(row: Row, selected: bool) -> impl IntoView {
+    let class = if selected {
+        "bg-accent-weak text-accent-ink"
+    } else {
+        "text-text hover:bg-surface-3"
+    };
+    view! {
+        <div class=format!("relative mx-3 mb-0.5 flex items-center gap-2 rounded-md px-3 py-2 {class}") data-row=row.key.clone() data-group=row.group.clone() data-selected=selected.then_some("true")>
+            <Link to=row.to.clone() class="min-w-0 flex-1 truncate text-sm font-semibold text-inherit no-underline after:absolute after:inset-0 after:rounded-md" testid="list-row" current=Signal::stored(selected)>
+                {row.title.clone()}
+            </Link>
+            {row.tags.iter().map(|(t, tone)| view! { <span class=tag_class(*tone)>{t.clone()}</span> }).collect_view()}
+        </div>
+    }
+}
+
+#[component]
 pub fn ListCard(row: Row, selected: bool) -> impl IntoView {
     let class = if selected {
         "border-accent-line ring-3 ring-accent-weak"
@@ -149,6 +166,7 @@ pub fn ListPane(
     #[prop(optional)] no_counts: bool,
     #[prop(optional)] new_disabled: bool,
     #[prop(optional)] default_filter: Option<&'static str>,
+    #[prop(optional)] compact: bool,
 ) -> impl IntoView {
     let q = RwSignal::new(String::new());
     let filter = RwSignal::new(default_filter.unwrap_or("all"));
@@ -266,7 +284,11 @@ pub fn ListPane(
                         })}
                         {in_group.into_iter().map(|r| {
                             let on = sel.as_deref() == Some(r.key.as_str());
-                            view! { <ListCard row=r selected=on/> }
+                            if compact {
+                                view! { <TocRow row=r selected=on/> }.into_any()
+                            } else {
+                                view! { <ListCard row=r selected=on/> }.into_any()
+                            }
                         }).collect_view()}
                     }
                 })
@@ -369,7 +391,7 @@ pub fn DetailPane(
 
 pub fn master_detail(list: AnyView, detail: AnyView) -> AnyView {
     view! {
-        <div class="grid min-h-[calc(100vh-var(--hdr-h,64px))] items-start lg:grid-cols-[380px_minmax(0,1fr)]">
+        <div class="grid min-h-[calc(100vh-var(--hdr-h,64px))] items-start lg:grid-cols-[380px_minmax(0,1fr)] lg:bg-[linear-gradient(to_right,var(--color-surface)_379px,var(--color-border)_379px,var(--color-border)_380px,transparent_380px)]">
             {list}
             {detail}
         </div>

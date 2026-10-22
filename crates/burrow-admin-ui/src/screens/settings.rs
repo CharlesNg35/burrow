@@ -1,12 +1,10 @@
-use burrow_admin_proto::schema::{Field, Schema, SemType};
-use burrow_admin_proto::serde_json::Value;
-use burrow_admin_proto::value::get;
+use burrow_admin_proto::schema::Schema;
 use burrow_ui_kit::Tone;
 use leptos::context::Provider;
 use leptos::prelude::*;
 use wasm_bindgen::JsCast;
 
-use crate::form::{ShowKeys, card_fields, locked_text, settings_card, settings_cards};
+use crate::form::{ShowKeys, card_fields, settings_card, settings_cards};
 use crate::route::Route;
 use crate::screens::{DetailPane, ListPane, Row, master_detail};
 use crate::store::store;
@@ -19,18 +17,8 @@ fn sections(schema: &Schema) -> Vec<String> {
         .collect()
 }
 
-fn short(f: &Field, v: Option<&Value>) -> Option<String> {
-    let shown = v.filter(|v| !v.is_null()).or(f.node.default.as_ref())?;
-    match shown {
-        Value::Object(_) => None,
-        Value::Array(a) if a.is_empty() => None,
-        other => Some(locked_text(&f.node, other)),
-    }
-}
-
 pub fn groups(
     schema: &Schema,
-    values: &Value,
     changed: &dyn Fn(&[String]) -> bool,
     restart: &[String],
 ) -> Vec<Row> {
@@ -41,22 +29,6 @@ pub fn groups(
         .into_iter()
         .map(|c| {
             let inside = card_fields(&c);
-            let n = inside.len();
-            let unset = c.object
-                && c.fields.iter().any(|f| {
-                    matches!(f.node.sem, SemType::Optional(_))
-                        && get(values, std::slice::from_ref(&f.key)).is_none_or(Value::is_null)
-                });
-            let summary = if unset {
-                "off".to_string()
-            } else {
-                inside
-                    .iter()
-                    .filter_map(|(p, f)| short(f, get(values, p)))
-                    .take(2)
-                    .collect::<Vec<_>>()
-                    .join(" · ")
-            };
             let tops: Vec<String> = c.fields.iter().map(|f| f.key.clone()).collect();
             let n_locked = inside
                 .iter()
@@ -74,8 +46,19 @@ pub fn groups(
                 filters.push("changed");
             }
             let mut tags = Vec::new();
+            if is_changed {
+                tags.push(("changed".to_string(), Tone::Accent));
+            }
             if n_locked > 0 {
-                tags.push((format!("{n_locked} locked"), Tone::Neutral));
+                let all = n_locked == inside.len();
+                tags.push((
+                    if all {
+                        "locked".to_string()
+                    } else {
+                        format!("{n_locked} locked")
+                    },
+                    Tone::Neutral,
+                ));
             }
             if needs_restart {
                 tags.push(("restart needed".to_string(), Tone::Info));
@@ -84,15 +67,8 @@ pub fn groups(
                 key: c.key.clone(),
                 to: Route::Settings,
                 icon: "settings",
-                dot: is_changed.then_some(Tone::Info),
                 title: c.title.clone(),
-                meta: n.to_string(),
-                line2: if summary.is_empty() {
-                    "not set".into()
-                } else {
-                    summary
-                },
-                line3: format!("{n} field{}", if n == 1 { "" } else { "s" }),
+                line2: String::new(),
                 tags,
                 filters,
                 ..Row::default()
@@ -107,14 +83,13 @@ pub fn Settings() -> impl IntoView {
     let current: RwSignal<Option<String>> = RwSignal::new(None);
     let rows = Memo::new(move |_| {
         let schema = s.schema.get();
-        let doc = s.edit.doc();
         let restart = s
             .state
             .with(|st| st.as_ref().map(|st| st.runtime.restart_pending.clone()))
             .unwrap_or_default();
         let changed = |p: &[String]| s.edit.draft.with(|d| d.modified(p));
         schema
-            .map(|sc| groups(&sc, &doc, &changed, &restart))
+            .map(|sc| groups(&sc, &changed, &restart))
             .unwrap_or_default()
     });
     let count = Signal::derive(move || rows.with(Vec::len).to_string());
@@ -144,6 +119,7 @@ pub fn Settings() -> impl IntoView {
                 rows=rows
                 selected=current
                 testid="settings-list"
+                compact=true
             />
         </div>
     }

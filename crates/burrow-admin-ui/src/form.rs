@@ -35,7 +35,14 @@ const ADMIN: &str = VisitorEntry::ADMIN.key();
 const ADMIN_FROM: &str = VisitorEntry::ADMIN_FROM.key();
 
 const MAX_TEXT: usize = 4096;
-pub const LOCKED_HINT: &str = "Change this in server.yaml on the server, then restart";
+pub fn locked_hint(n: &Node) -> String {
+    match n.applies {
+        Some(Applies::Restart) => {
+            "Change this in server.yaml (burrow edit), then restart the server".into()
+        }
+        _ => "Change this in server.yaml (burrow edit)".into(),
+    }
+}
 
 #[derive(Clone)]
 pub struct Ctx {
@@ -96,13 +103,6 @@ fn editing_now() -> Signal<bool> {
     use_context::<EditMode>()
         .map(|m| m.0)
         .unwrap_or(Signal::stored(true))
-}
-
-fn tcp_only(n: &Node) -> bool {
-    n.relations.iter().any(|r| match r {
-        burrow_admin_proto::schema::Relation::EnabledIf { reason, .. } => reason.contains("UDP"),
-        _ => false,
-    })
 }
 
 fn is_wide(n: &Node) -> bool {
@@ -330,7 +330,6 @@ pub fn settings_cards(node: &Node, skip: &[&str]) -> Vec<SettingsCard> {
 }
 
 pub fn settings_card(c: &SettingsCard) -> AnyView {
-    let n = card_fields(c).len();
     let danger = c.fields.iter().any(|f| danger_in(&f.node));
     let border = if danger {
         "border-danger/45"
@@ -343,7 +342,6 @@ pub fn settings_card(c: &SettingsCard) -> AnyView {
                 <h3 class="text-[14px] font-bold">{title}</h3>
                 <span class="ml-auto"></span>
                 {right}
-                <span class="text-xs text-text-muted">{format!("{n} field{}", if n == 1 { "" } else { "s" })}</span>
             </div>
         }
     };
@@ -406,7 +404,7 @@ pub fn settings_card(c: &SettingsCard) -> AnyView {
             {lock.then(|| view! {
                 <span class="flex items-center gap-1.5 text-xs text-text-muted" data-testid="locked-hint">
                     <burrow_ui_kit::Icon name="lock" small=true/>
-                    {LOCKED_HINT}
+                    {locked_hint(&f.node)}
                 </span>
             })}
             {toggle}
@@ -554,7 +552,6 @@ fn locked_box(node: Node, path: Path, id: String) -> AnyView {
                     }
                 }}
             </span>
-            <span class="text-text-muted"><burrow_ui_kit::Icon name="lock"/></span>
         </div>
     }
     .into_any()
@@ -594,6 +591,8 @@ fn row(f: Field, path: Path, spath: Path, entity: Path) -> AnyView {
         })
     };
     let lock = schema.locked_paths().iter().any(|l| spath.starts_with(l));
+    let lock_here = schema.locked_paths().contains(&spath);
+    let hint = locked_hint(&node);
     let can = s.can_write_now() && node.editable.is_yes() && !lock;
     let editing = editing_now();
     let show_keys = use_context::<ShowKeys>().map(|k| k.0).unwrap_or(false);
@@ -643,10 +642,10 @@ fn row(f: Field, path: Path, spath: Path, entity: Path) -> AnyView {
                         <legend class="px-1 text-sm font-semibold">{label.clone()}</legend>
                         <div class="mb-3 flex flex-wrap items-center gap-3">
                             <p class="flex-1 text-xs text-text-muted">{help.clone()}</p>
-                            {lock.then(|| view! {
+                            {lock_here.then(|| view! {
                                 <p class="flex items-center gap-1.5 text-xs text-text-muted" data-testid="locked-hint">
                                     <burrow_ui_kit::Icon name="lock" small=true/>
-                                    {LOCKED_HINT}
+                                    {hint.clone()}
                                 </p>
                             })}
                             {toggle}
@@ -659,9 +658,6 @@ fn row(f: Field, path: Path, spath: Path, entity: Path) -> AnyView {
         .into_any();
     }
     let mut badges: Vec<(String, Tone)> = Vec::new();
-    if tcp_only(&node) {
-        badges.push(("TCP ONLY".into(), Tone::Warning));
-    }
     let mut aside: Vec<(String, Tone)> = Vec::new();
     if !lock {
         if show_keys {
@@ -707,7 +703,7 @@ fn row(f: Field, path: Path, spath: Path, entity: Path) -> AnyView {
                 info: None,
                 disabled_reason: (!s.enabled).then(|| s.disabled_reason.clone()).flatten(),
                 locked_reason: if lock {
-                    Some(LOCKED_HINT.to_string())
+                    Some(locked_hint(&node))
                 } else {
                     locked(&node)
                 },
@@ -775,8 +771,8 @@ fn row(f: Field, path: Path, spath: Path, entity: Path) -> AnyView {
         }
     };
     let label = node.label.clone();
-    let help = if lock {
-        format!("{LOCKED_HINT}.")
+    let help = if lock_here {
+        format!("{}.", locked_hint(&node))
     } else {
         node.help.clone()
     };

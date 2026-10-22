@@ -106,12 +106,6 @@ pub fn FieldRow(
                     .into_iter()
                     .map(|(text, tone)| view! { <span class=tag_class(tone)>{text}</span> })
                     .collect_view()}
-                {move || {
-                    state
-                        .get()
-                        .locked_reason
-                        .map(|_| view! { <span class=tag_class(Tone::Neutral) data-testid="locked-tag"><Icon name="lock" small=true/>"locked"</span> })
-                }}
             </div>
             <div class="min-w-0">
                 <div
