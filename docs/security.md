@@ -1,0 +1,62 @@
+# Security
+
+This page explains how burrow protects your tunnel, and what you need to do.
+
+## What you need to do
+
+- **Use random secrets.** Make each secret with `burrow gensecret`. Never use a password.
+- **Give each client and visitor its own secret.** burrow refuses two clients with the same secret.
+- **Keep each client's `allow` list narrow.** List only the targets it should reach.
+- **Keep config files private.** They hold secrets. Use `chmod 600 server.yaml`; `burrow validate` warns when a config is readable by every user. Or keep secrets in environment variables with `${VAR}`.
+- **Keep the metrics address on `127.0.0.1`,** unless a firewall limits who can connect.
+
+## Secrets
+
+A secret is 32 random bytes (256 bits). Someone who records a connection could try to guess the secret offline, as many times as they like, so a secret must be random and long. burrow refuses anything that is not exactly 32 bytes, and anything that does not look random.
+
+**Changing a secret without downtime:**
+
+1. On the server, list the old and the new secret: `secret: [old, new]` (up to 4).
+2. Put the new secret in the client's config. It reconnects with it.
+3. Remove the old secret from the server.
+
+Removing a client or visitor, or the secret it connected with, and saving the server's config closes its open connections at once.
+
+Secrets never appear in logs or error messages, only their length or a short fingerprint.
+
+## Encryption
+
+Every connection between client, server and visitor is encrypted and authenticated with the [Noise protocol framework](https://noiseprotocol.org/), the same framework WireGuard builds on. Each connection uses fresh keys, so a secret that leaks later does not reveal traffic recorded before (this is called forward secrecy).
+
+The cipher is ChaCha20-Poly1305 by default. `cipher: aes-gcm` in the client or visitor config uses AES-GCM instead, which is faster on CPUs with AES instructions.
+
+`insecure_plaintext: true` turns off encryption of forwarded data, for example inside a network you trust completely. Logging in still uses the full handshake, so the secret never crosses the network in clear text. It must be set on both the server and the client.
+
+The exact protocol, and the point where each side is proven, is described in [protocol.md](protocol.md).
+
+## Who can reach what
+
+- **The client decides what it connects to.** A client only connects to targets in its own `allow` list, checked after host names are resolved. So even someone who takes over the server, or a visitor with `reach`, cannot use the client to reach other machines.
+- **A private service has no port on the server at all.** Only the visitors it lists can reach it.
+- **A visitor reaches only** the services that list it, and clients only through `reach`.
+- **`allow_from` and `deny_from`** are checked on the server before anything enters the tunnel, also for visitors of private services.
+- **The server itself** (`client: self`) only connects to what `self.allow` permits. It never connects to its own listen, WebSocket or metrics addresses, nor to link-local or cloud metadata addresses that `self.allow` does not name on their own.
+
+## Guessing names
+
+Wrong names and wrong secrets get exactly the same answer, after the same amount of work, so nobody can find out which client or visitor names exist. Connections that have not logged in yet are limited in number and time (`limits.max_handshakes`, `limits.handshake_timeout_secs`), and one address cannot take more than its share when they run short.
+
+<details>
+<summary><b>More details</b></summary>
+
+- A visitor that comes through a proxy in front of `websocket.listen` has the proxy's address, and `validate` warns where a service's `allow_from` or `deny_from` relies on it.
+- Unix socket targets need a `unix:` entry in the client's `allow` list. A socket path that is a symbolic link is refused.
+- The lock that stops the same tunnel from running twice lives in a folder every local user can write to, so it also catches copies started by hand. A lock held by another user's process is ignored with a warning, so nobody can keep a service from starting that way.
+- An installed service runs as its own account without login or home folder, from its own copy of the binary and config, and on Linux in a sandbox. See [service.md](service.md).
+- `burrow update` checks every download against the release's `SHA256SUMS` before it is used.
+
+</details>
+
+## burrow admin
+
+The web admin listens on `127.0.0.1` only, needs a one-time token, and can lower admin access but never grant or widen it. See [admin.md](admin.md#security-notes).
