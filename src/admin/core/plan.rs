@@ -300,32 +300,10 @@ pub fn compute(
             &core.live.status(),
             &core.live.sessions(),
             &restart,
+            &applied.renames,
         );
     }
     impacts.extend(kept);
-    for r in &applied.renames {
-        let (Some(section), Some(from)) = (r.path.first(), r.path.get(1)) else {
-            continue;
-        };
-        use burrow_config::{ClientEntry, Entry, ServiceEntry, VisitorEntry};
-        let what = if section == ClientEntry::section() {
-            ClientEntry::ENTITY
-        } else if section == VisitorEntry::section() {
-            VisitorEntry::ENTITY
-        } else {
-            ServiceEntry::ENTITY
-        };
-        impacts.retain(|i| {
-            !(i.code.starts_with("removes-") && i.confirm.as_deref() == Some(from.as_str()))
-                && !(i.code.starts_with("adds-") && i.message.ends_with(&format!(" {}", r.to)))
-        });
-        impacts.push(burrow_admin_proto::plan::Impact {
-            level: burrow_admin_proto::plan::Level::Info,
-            code: "renames".into(),
-            message: format!("renames {what} {from} to {}", r.to),
-            confirm: None,
-        });
-    }
     let fresh_pairs: Vec<(String, String)> = applied
         .fresh
         .iter()
