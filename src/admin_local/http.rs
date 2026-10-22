@@ -1,4 +1,4 @@
-pub const MAX_HEAD: usize = 8 * 1024;
+pub const MAX_HEAD: usize = 64 * 1024;
 
 pub const SECURITY_HEADERS: [(&str, &str); 6] = [
     (

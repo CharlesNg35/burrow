@@ -259,6 +259,7 @@ async fn connection(stream: TcpStream, shared: Arc<Shared>) {
         .timer(TokioTimer::new())
         .header_read_timeout(READ_TIMEOUT)
         .max_buf_size(http::MAX_HEAD)
+        .max_header_size(http::MAX_HEAD)
         .keep_alive(false)
         .title_case_headers(true)
         .auto_date_header(false);
