@@ -44,13 +44,16 @@ pub struct Manifest {
     #[serde(default)]
     pub files: Vec<PathBuf>,
     pub version: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub writable_dir: Option<PathBuf>,
+    pub admin_writable: bool,
 }
 
 impl Manifest {
     pub fn short(&self) -> &str {
         self.name.strip_prefix("burrow-").unwrap_or(&self.name)
+    }
+
+    pub fn folder(&self) -> &Path {
+        self.config.parent().unwrap_or(&self.config)
     }
 
     pub fn command(&self) -> &str {
@@ -92,18 +95,25 @@ pub trait Backend {
             .then(|| format!("its account {} cannot read it", m.account))
     }
     fn secure_file(&self, path: &Path, account: &str) -> Result<(), Failure>;
-    fn writable_folder(&self, dir: &Path, config: &Path, account: &str) -> Result<(), Failure> {
+    fn config_folder(
+        &self,
+        dir: &Path,
+        config: &Path,
+        account: &str,
+        writable: bool,
+    ) -> Result<(), Failure> {
         #[cfg(unix)]
         {
-            system::make_dir(dir, 0o700, Some(account))?;
-            if let Ok((uid, gid)) = system::account_ids(account) {
-                give_history(dir, config, uid, gid);
+            let owner = if writable { account } else { "root" };
+            system::make_dir(dir, if writable { 0o700 } else { 0o755 }, Some(owner))?;
+            if let Ok((uid, gid)) = system::account_ids(owner) {
+                give_history(config, uid, gid);
             }
             Ok(())
         }
         #[cfg(not(unix))]
         {
-            let _ = (account, config);
+            let _ = (account, config, writable);
             std::fs::create_dir_all(dir)
                 .map_err(|e| Failure::new(format!("cannot create {}: {e}", dir.display())))
         }
@@ -280,7 +290,7 @@ fn misfits_of(
     let again = format!(
         "make the change in {} and install it again: {}",
         m.source_config.display(),
-        crate::failure::admin(&install_args(m))
+        crate::failure::admin(&install_args(m, &m.source_config))
     );
     let Uses { listens, files } = uses(loaded);
     let admins = admin_visitors(loaded);
@@ -302,7 +312,7 @@ fn misfits_of(
             .help(again.clone()),
         );
     }
-    if m.writable_dir.is_none()
+    if !m.admin_writable
         && let Some(first) = admins.first()
     {
         out.push(
@@ -312,7 +322,10 @@ fn misfits_of(
                     "visitor {first} has admin access, but {name} was installed without permission to change its config, so burrow admin is read-only"
                 ),
             )
-            .help(again.clone()),
+            .help(format!(
+                "let the service change its config, without moving it: {}",
+                crate::failure::admin(&writable_args(m))
+            )),
         );
     }
     for (field, file) in &files {
@@ -439,7 +452,7 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
             crate::failure::file_reason(&e)
         ))
     })?;
-    let name = service_name(&source, opts.name.as_deref())?;
+    let name = name_for(&source, opts.name.as_deref(), &all_manifests())?;
     let src_text = std::fs::read_to_string(&source).unwrap_or_default();
     let env: BTreeMap<String, String> = match &opts.worker {
         Some(log) => background::take_secrets(log),
@@ -451,6 +464,7 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
     let checked = check_config(&source, &env)?;
     if let Ok(existing) = load_manifest(&name)
         && existing.source_config != source
+        && existing.config != source
     {
         return Err(Failure::usage(format!(
             "{name} is already installed from {}; its config is {}",
@@ -458,8 +472,12 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
             existing.config.display()
         ))
         .hint(format!(
-            "to add this config as another service, rename the file or pass --name, for example: --name {name}-2; to change {name} instead, edit {}",
-            existing.config.display()
+            "to add this config as another service, rename the file or pass --name, for example: --name {name}-2; to change {name} instead, edit {} or install again from it: {}",
+            existing.config.display(),
+            crate::failure::admin(&format!(
+                "service install -c {}",
+                crate::failure::path_arg(&existing.config)
+            ))
         )));
     }
     let account = opts
@@ -471,13 +489,10 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
         .and_then(|e| e.to_str())
         .unwrap_or("yaml");
     let short = name.strip_prefix("burrow-").unwrap_or(&name).to_string();
-    let writable_dir = (checked.role == Role::Server
-        && (opts.admin_writable || !checked.admins.is_empty()))
-    .then(|| platform.config_dir().join(&short));
-    let config = match &writable_dir {
-        Some(dir) => dir.join(format!("server.{ext}")),
-        None => platform.config_dir().join(format!("{short}.{ext}")),
-    };
+    let folder = platform.config_dir().join(&short);
+    let writable =
+        checked.role == Role::Server && (opts.admin_writable || !checked.admins.is_empty());
+    let config = folder.join(format!("{}.{ext}", checked.role.as_str()));
     let env_file = (!env.is_empty()).then(|| platform.config_dir().join(format!("{short}.env")));
     let current = std::env::current_exe()
         .map_err(|e| Failure::new(format!("cannot locate the burrow binary: {e}")))?;
@@ -498,7 +513,7 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
         low_ports,
         files: checked.files.iter().map(|(_, p)| p.clone()).collect(),
         version: env!("CARGO_PKG_VERSION").to_string(),
-        writable_dir: writable_dir.clone(),
+        admin_writable: writable,
     };
     let low: Vec<String> = checked
         .listens
@@ -662,11 +677,9 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
         env: backend.read_env(p),
         binary: kept_binary.clone().map(|kept| (kept, binary.clone())),
     });
-    if let Some(dir) = &writable_dir {
-        backend.writable_folder(dir, &config, &account)?;
-    }
+    backend.config_folder(&folder, &config, &account, writable)?;
     if source != config {
-        if writable_dir.is_some() {
+        if writable {
             match keep_admin_copy(&source, &config)? {
                 Kept::Version => say(
                     out,
@@ -689,8 +702,8 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
         )?;
     }
     backend.secure_file(&config, &account)?;
-    if let Some(dir) = &writable_dir {
-        backend.writable_folder(dir, &config, &account)?;
+    backend.config_folder(&folder, &config, &account, writable)?;
+    if writable {
         let why = match checked.admins.as_slice() {
             [] => "--admin-writable was given".to_string(),
             [one] => format!("visitor {one} has admin access"),
@@ -700,7 +713,7 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
             out,
             format!(
                 "the service may change its config in {} because {why} (burrow admin)",
-                dir.display()
+                folder.display()
             ),
         )?;
     }
@@ -840,6 +853,7 @@ impl Undo {
             steps.push(system::write_file_mode(&p.config, bytes, 0o600));
             steps.push(backend.secure_file(&p.config, &p.account));
         }
+        steps.push(backend.config_folder(p.folder(), &p.config, &p.account, p.admin_writable));
         if p.env_file.is_some() {
             steps.push(backend.write_env(p, &self.env));
         }
@@ -888,7 +902,7 @@ impl Undo {
             ))
             .hint(format!(
                 "install it again from a config that works: {}",
-                crate::failure::admin(&install_args(p))
+                crate::failure::admin(&install_args(p, &p.config))
             )),
         }
     }
@@ -916,39 +930,25 @@ fn release_previous(
             ),
         )?;
     }
-    if let Some(dir) = &old.writable_dir
-        && new.writable_dir.as_ref() != Some(dir)
-        && writable_leftovers(dir, &old.config).is_some()
+    if old.config != new.config
+        && std::fs::symlink_metadata(&old.config).is_ok_and(|m| m.file_type().is_file())
     {
+        let history = admin_history(&old.config);
+        let history = std::fs::symlink_metadata(&history)
+            .is_ok_and(|m| m.is_dir())
+            .then_some(history);
         #[cfg(unix)]
         {
             let _ = system::give_plain_file(&old.config, 0, 0);
-            give_history(dir, &old.config, 0, 0);
+            give_history(&old.config, 0, 0);
         }
-        if !holds_source(dir, &[&old.source_config, &new.source_config]) {
-            say(
-                out,
-                format!(
-                    "note: {} still holds the config and the versions burrow admin kept, secrets included; the service no longer uses it, so delete it with: {}",
-                    dir.display(),
-                    delete_hint(&[], Some(dir))
-                ),
-            )?;
-        }
-    }
-    if old.writable_dir.is_none()
-        && old.config != new.config
-        && std::fs::symlink_metadata(&old.config).is_ok_and(|m| m.file_type().is_file())
-    {
-        #[cfg(unix)]
-        let _ = system::give_plain_file(&old.config, 0, 0);
         if !is_source(&old.config, &[&old.source_config, &new.source_config]) {
             say(
                 out,
                 format!(
                     "note: {} holds the config the service used before, secrets included; the service no longer uses it, so delete it with: {}",
                     old.config.display(),
-                    delete_hint(std::slice::from_ref(&old.config), None)
+                    delete_hint(std::slice::from_ref(&old.config), history.as_deref())
                 ),
             )?;
         }
@@ -1043,13 +1043,9 @@ fn trustworthy(m: &Manifest, file: &Path) -> bool {
     let p = Platform::current();
     let in_dir = |path: &Path, dir: &Path| path.parent() == Some(dir);
     let own_dir = p.config_dir().join(m.short());
-    let config_ok = match &m.writable_dir {
-        None => in_dir(&m.config, &p.config_dir()),
-        Some(dir) => *dir == own_dir && in_dir(&m.config, dir),
-    };
     file.file_stem().is_some_and(|s| *s == *m.name)
         && (m.name == "burrow" || m.name.starts_with("burrow-"))
-        && config_ok
+        && in_dir(&m.config, &own_dir)
         && m.env_file
             .as_deref()
             .is_none_or(|e| in_dir(e, &p.config_dir()))
@@ -1072,7 +1068,7 @@ pub fn exposed_note(m: &Manifest) -> String {
         "users other than root can change {}, so burrow does not run or replace {}; move the service to its own copy with: {}",
         m.binary.parent().unwrap_or(&m.binary).display(),
         m.binary.display(),
-        crate::failure::admin(&install_args(m))
+        crate::failure::admin(&install_args(m, &m.config))
     )
 }
 
@@ -1230,33 +1226,9 @@ fn admin_history(config: &Path) -> PathBuf {
     crate::admin::adapters::history_dir_of(config)
 }
 
-fn writable_leftovers(dir: &Path, config: &Path) -> Option<Vec<PathBuf>> {
-    let real_dir = |p: &Path| std::fs::symlink_metadata(p).is_ok_and(|m| m.is_dir());
-    if !real_dir(dir) {
-        return None;
-    }
-    let history = admin_history(config);
-    if !real_dir(&history) {
-        return Some(Vec::new());
-    }
-    let files = std::fs::read_dir(&history)
-        .map(|entries| {
-            entries
-                .flatten()
-                .map(|e| e.path())
-                .filter(|p| std::fs::symlink_metadata(p).is_ok_and(|m| m.file_type().is_file()))
-                .collect()
-        })
-        .unwrap_or_default();
-    Some(files)
-}
-
 #[cfg(unix)]
-fn give_history(dir: &Path, config: &Path, uid: u32, gid: u32) {
+fn give_history(config: &Path, uid: u32, gid: u32) {
     use rustix::fs::{FileType, Mode, OFlags};
-    if !std::fs::symlink_metadata(dir).is_ok_and(|m| m.is_dir()) {
-        return;
-    }
     let folder = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC;
     if let Ok(history) = rustix::fs::open(admin_history(config), folder, Mode::empty()) {
         let file = OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::CLOEXEC;
@@ -1276,7 +1248,6 @@ fn give_history(dir: &Path, config: &Path, uid: u32, gid: u32) {
         }
         let _ = std::os::unix::fs::fchown(&history, Some(uid), Some(gid));
     }
-    let _ = std::os::unix::fs::lchown(dir, Some(uid), Some(gid));
 }
 
 fn is_source(config: &Path, sources: &[&Path]) -> bool {
@@ -1284,13 +1255,6 @@ fn is_source(config: &Path, sources: &[&Path]) -> bool {
     sources
         .iter()
         .any(|s| system::canonical_or_same(s) == config)
-}
-
-fn holds_source(dir: &Path, sources: &[&Path]) -> bool {
-    let dir = system::canonical_or_same(dir);
-    sources
-        .iter()
-        .any(|s| system::canonical_or_same(s).starts_with(&dir))
 }
 
 fn delete_hint(files: &[PathBuf], folder: Option<&Path>) -> String {
@@ -1327,19 +1291,20 @@ pub fn uninstall(name: Option<&str>, purge: bool, out: &mut dyn Write) -> Result
     );
     let mut kept = Vec::new();
     let mut kept_folder = None;
+    let real_dir = |p: &Path| std::fs::symlink_metadata(p).is_ok_and(|m| m.is_dir());
     if purge {
-        for f in [Some(&m.config), m.env_file.as_ref()].into_iter().flatten() {
-            if std::fs::remove_file(f).is_ok() {
-                say(out, format!("removed {}", f.display()))?;
-            }
-        }
-        if let Some(dir) = &m.writable_dir
-            && std::fs::remove_dir_all(dir).is_ok()
+        if let Some(f) = &m.env_file
+            && std::fs::remove_file(f).is_ok()
         {
+            say(out, format!("removed {}", f.display()))?;
+        }
+        if real_dir(m.folder()) && std::fs::remove_dir_all(m.folder()).is_ok() {
             say(
                 out,
-                format!("removed {} and the versions kept in it", dir.display()),
+                format!("removed {} and the files in it", m.folder().display()),
             )?;
+        } else if std::fs::remove_file(&m.config).is_ok() {
+            say(out, format!("removed {}", m.config.display()))?;
         }
         if logs
             .iter()
@@ -1361,10 +1326,8 @@ pub fn uninstall(name: Option<&str>, purge: bool, out: &mut dyn Write) -> Result
                 .filter(|f| std::fs::symlink_metadata(f).is_ok_and(|m| m.file_type().is_file()))
                 .cloned(),
         );
-        kept_folder = m
-            .writable_dir
-            .clone()
-            .filter(|d| writable_leftovers(d, &m.config).is_some());
+        let _ = std::fs::remove_dir(m.folder());
+        kept_folder = Some(m.folder().to_path_buf()).filter(|d| real_dir(d));
     }
     if m.copied_binary && !others.iter().any(|o| o.binary == m.binary) {
         match std::fs::remove_file(&m.binary) {
@@ -1424,7 +1387,8 @@ pub fn uninstall(name: Option<&str>, purge: bool, out: &mut dyn Write) -> Result
                 let _ = std::os::unix::fs::lchown(d, Some(0), Some(0));
             }
             if let Some(d) = &kept_folder {
-                give_history(d, &m.config, 0, 0);
+                give_history(&m.config, 0, 0);
+                let _ = std::os::unix::fs::lchown(d, Some(0), Some(0));
             }
         }
         match backend.remove_account(&m.account) {
@@ -1542,25 +1506,69 @@ pub fn control_now(action: &str, name: Option<&str>, out: &mut dyn Write) -> Res
     )
 }
 
-fn install_args(m: &Manifest) -> String {
-    let mut args = format!(
-        "service install -c {}",
-        crate::failure::path_arg(&m.source_config)
-    );
-    if service_name(&m.source_config, None).ok().as_deref() != Some(m.name.as_str()) {
+fn install_args(m: &Manifest, from: &Path) -> String {
+    let mut args = format!("service install -c {}", crate::failure::path_arg(from));
+    if from != m.config && service_name(from, None).ok().as_deref() != Some(m.name.as_str()) {
         args.push_str(&format!(" --name {}", m.name));
     }
-    if m.writable_dir.is_some() {
+    if m.admin_writable {
         args.push_str(" --admin-writable");
     }
     args
+}
+
+fn writable_args(m: &Manifest) -> String {
+    install_args(
+        &Manifest {
+            admin_writable: true,
+            ..m.clone()
+        },
+        &m.config,
+    )
+}
+
+pub fn writable_hint(config: &Path) -> String {
+    format!(
+        "install the service again so it may change its config; nothing moves: {}",
+        crate::failure::admin(&format!(
+            "service install -c {} --admin-writable",
+            crate::failure::path_arg(config)
+        ))
+    )
+}
+
+pub fn in_service_folder(config: &Path) -> bool {
+    config.parent().and_then(Path::parent) == Some(Platform::current().config_dir().as_path())
+}
+
+fn name_for(source: &Path, given: Option<&str>, installed: &[Manifest]) -> Result<String, Failure> {
+    let name = service_name(source, given)?;
+    let Some(owner) = installed
+        .iter()
+        .find(|m| system::canonical_or_same(&m.config) == system::canonical_or_same(source))
+    else {
+        return Ok(name);
+    };
+    if given.is_none() || owner.name == name {
+        return Ok(owner.name.clone());
+    }
+    Err(Failure::usage(format!(
+        "{} is the installed config of {}, so it cannot be installed as {name}",
+        source.display(),
+        owner.name
+    ))
+    .hint(format!(
+        "copy it to another folder first, or change {} with: {}",
+        owner.name,
+        crate::failure::admin(&install_args(owner, &owner.config))
+    )))
 }
 
 pub fn status(name: Option<&str>, out: &mut dyn Write) -> Result<u8, Failure> {
     let backend = system::backend()?;
     let m = resolve(name)?;
     let st = backend.status(&m);
-    let reinstall = crate::failure::admin(&install_args(&m));
+    let reinstall = crate::failure::admin(&install_args(&m, &m.config));
     let state = match (st.installed, st.running) {
         (false, _) => format!("not installed in the service manager (run: {reinstall})"),
         (true, true) => "running".to_string(),
@@ -1577,7 +1585,16 @@ pub fn status(name: Option<&str>, out: &mut dyn Write) -> Result<u8, Failure> {
     say(out, format!("  role:    {}", m.role))?;
     say(
         out,
-        format!("  config:  {}{}", m.config.display(), missing(&m.config)),
+        format!(
+            "  config:  {}{}{}",
+            m.config.display(),
+            if m.admin_writable {
+                " (the service may change it, for burrow admin)"
+            } else {
+                ""
+            },
+            missing(&m.config)
+        ),
     )?;
     say(
         out,
@@ -1603,20 +1620,20 @@ pub fn status(name: Option<&str>, out: &mut dyn Write) -> Result<u8, Failure> {
             say(out, format!("    {line}"))?;
         }
     }
-    if let Some(note) = source_note(&m, &reinstall) {
+    if let Some(note) = source_note(&m) {
         say(out, format!("  note:    {note}"))?;
     }
     Ok(u8::from(!st.running))
 }
 
-fn source_note(m: &Manifest, reinstall: &str) -> Option<String> {
+fn source_note(m: &Manifest) -> Option<String> {
     if m.source_config == m.config
         || !m.source_config.exists()
         || !differs(&m.source_config, &m.config)
     {
         return None;
     }
-    Some(if m.writable_dir.is_some() {
+    Some(if m.admin_writable {
         format!(
             "{} is managed by burrow admin; {} was only its first version",
             m.config.display(),
@@ -1624,8 +1641,9 @@ fn source_note(m: &Manifest, reinstall: &str) -> Option<String> {
         )
     } else {
         format!(
-            "{} differs from the installed copy; to use it, run: {reinstall}",
-            m.source_config.display()
+            "{} differs from the installed copy; to use it, run: {}",
+            m.source_config.display(),
+            crate::failure::admin(&install_args(m, &m.source_config))
         )
     })
 }
@@ -1745,27 +1763,10 @@ mod tests {
     }
 
     #[test]
-    fn uninstall_keeps_the_admin_history_with_its_folder() {
+    fn a_delete_hint_names_a_kept_folder_and_not_the_files_in_it() {
         let dir = tempfile::tempdir().unwrap();
         let folder = dir.path().join("e2e-admin");
         let config = folder.join("server.yaml");
-        std::fs::create_dir(&folder).unwrap();
-        std::fs::write(&config, "listen: 1\n").unwrap();
-        assert_eq!(writable_leftovers(&folder, &config), Some(Vec::new()));
-        let history = folder.join(".server.yaml.history");
-        std::fs::create_dir(&history).unwrap();
-        let old = history.join("1-0123456789abcdef.yaml");
-        std::fs::write(&old, "listen: 0\n").unwrap();
-        #[cfg(unix)]
-        std::os::unix::fs::symlink(&config, history.join("2-link.yaml")).unwrap();
-        assert_eq!(writable_leftovers(&folder, &config), Some(vec![old]));
-        assert_eq!(writable_leftovers(&dir.path().join("gone"), &config), None);
-        #[cfg(unix)]
-        {
-            let link = dir.path().join("linked");
-            std::os::unix::fs::symlink(&folder, &link).unwrap();
-            assert_eq!(writable_leftovers(&link, &link.join("server.yaml")), None);
-        }
         let log = dir.path().join("e2e-admin.log");
         let hint = delete_hint(&[config.clone(), log.clone()], Some(&folder));
         let q = |p: &Path| format!("\"{}\"", p.display());
@@ -1830,23 +1831,27 @@ mod tests {
         let m = Manifest {
             config: config.clone(),
             source_config: source.clone(),
-            writable_dir: Some(folder.clone()),
+            admin_writable: true,
             ..record(Platform::Linux)
         };
-        let note = source_note(&m, "sudo burrow service install").unwrap();
+        let note = source_note(&m).unwrap();
         assert!(note.contains("managed by burrow admin"), "{note}");
         assert!(!note.contains("install"), "{note}");
         let fixed = Manifest {
-            writable_dir: None,
+            admin_writable: false,
             ..m.clone()
         };
-        let note = source_note(&fixed, "sudo burrow service install").unwrap();
-        assert!(
-            note.contains("to use it, run: sudo burrow service install"),
-            "{note}"
+        let note = source_note(&fixed).unwrap();
+        let from = format!(
+            "to use it, run: {}",
+            crate::failure::admin(&format!(
+                "service install -c {}",
+                crate::failure::path_arg(&source)
+            ))
         );
+        assert!(note.contains(&from), "{note}");
         std::fs::write(&config, "listen: 1\n").unwrap();
-        assert!(source_note(&m, "x").is_none());
+        assert!(source_note(&m).is_none());
     }
 
     #[cfg(unix)]
@@ -1863,9 +1868,6 @@ mod tests {
         assert_ne!(source, etc.join("burrow/x.yaml"));
         assert!(is_source(&etc.join("burrow/x.yaml"), &[&source]));
         assert!(!is_source(&etc.join("burrow/x/server.yaml"), &[&source]));
-        let inner = system::canonical(&etc.join("burrow/x/server.yaml")).unwrap();
-        assert!(holds_source(&etc.join("burrow/x"), &[&inner]));
-        assert!(!holds_source(&etc.join("burrow/x"), &[&source]));
     }
 
     #[cfg(unix)]
@@ -1962,6 +1964,18 @@ mod tests {
         fn secure_file(&self, _: &Path, _: &str) -> Result<(), Failure> {
             Ok(())
         }
+        fn config_folder(
+            &self,
+            _: &Path,
+            _: &Path,
+            account: &str,
+            writable: bool,
+        ) -> Result<(), Failure> {
+            self.0
+                .borrow_mut()
+                .push(format!("folder writable={writable} {account}"));
+            Ok(())
+        }
         fn prepare_dirs(&self, _: &str) -> Result<(), Failure> {
             Ok(())
         }
@@ -2011,6 +2025,7 @@ mod tests {
             env_file: Some(new_env.clone()),
             account: "new".into(),
             created_account: true,
+            admin_writable: true,
             ..record(Platform::Linux)
         };
         let binary = dir.path().join("burrow");
@@ -2045,6 +2060,7 @@ mod tests {
             *rec.0.borrow(),
             [
                 "stop new",
+                "folder writable=false old",
                 "env 1 old",
                 "install old",
                 "start old",
@@ -2107,7 +2123,7 @@ mod tests {
         Manifest {
             name: "burrow-server".into(),
             role: "server".into(),
-            config: p.config_dir().join("server.yaml"),
+            config: p.config_dir().join("server").join("server.yaml"),
             source_config: PathBuf::from("server.yaml"),
             env_file: Some(p.config_dir().join("server.env")),
             log_file: p.log_file("server"),
@@ -2118,7 +2134,7 @@ mod tests {
             low_ports: false,
             files: Vec::new(),
             version: "0.1.0".into(),
-            writable_dir: None,
+            admin_writable: false,
         }
     }
 
@@ -2213,43 +2229,113 @@ mod tests {
     }
 
     #[test]
-    fn a_writable_config_is_trusted_only_in_its_own_folder() {
+    fn a_config_is_trusted_only_in_the_service_s_own_folder_whether_writable_or_not() {
         let p = Platform::current();
         let file = manifest_path("burrow-server");
         let own = p.config_dir().join("server");
-        let writable = Manifest {
-            config: own.join("server.yaml"),
-            writable_dir: Some(own.clone()),
+        for writable in [false, true] {
+            let m = Manifest {
+                admin_writable: writable,
+                ..record(p)
+            };
+            assert_eq!(m.folder(), own);
+            assert!(trustworthy(&m, &file));
+            let planted = [
+                std::env::temp_dir().join("server").join("server.yaml"),
+                p.config_dir().join("other").join("server.yaml"),
+                p.config_dir().join("server.yaml"),
+                own.join("deeper").join("server.yaml"),
+            ];
+            for config in planted {
+                let m = Manifest {
+                    config,
+                    admin_writable: writable,
+                    ..record(p)
+                };
+                assert!(!trustworthy(&m, &file), "{m:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn the_install_command_for_a_service_is_its_installed_config() {
+        let p = Platform::current();
+        let m = record(p);
+        let config = crate::failure::path_arg(&m.config);
+        assert_eq!(
+            install_args(&m, &m.config),
+            format!("service install -c {config}")
+        );
+        assert_eq!(
+            writable_args(&m),
+            format!("service install -c {config} --admin-writable")
+        );
+        let client = Manifest {
+            name: "burrow-home".into(),
+            role: "client".into(),
+            config: p.config_dir().join("home").join("client.yaml"),
             ..record(p)
         };
-        assert!(trustworthy(&writable, &file));
-        let elsewhere = std::env::temp_dir().join("server");
-        let planted = [
-            Manifest {
-                config: elsewhere.join("server.yaml"),
-                writable_dir: Some(elsewhere.clone()),
-                ..record(p)
-            },
-            Manifest {
-                config: p.config_dir().join("other").join("server.yaml"),
-                writable_dir: Some(p.config_dir().join("other")),
-                ..record(p)
-            },
-            Manifest {
-                config: own.join("server.yaml"),
-                writable_dir: None,
-                ..record(p)
-            },
-        ];
-        for m in planted {
-            assert!(!trustworthy(&m, &file), "{m:?}");
-        }
-        let manifest = serde_json::to_string(&record(p)).unwrap();
-        assert!(
-            !manifest.contains("writable_dir"),
-            "old manifests stay as they were"
+        assert_eq!(
+            install_args(&client, &client.config),
+            format!(
+                "service install -c {}",
+                crate::failure::path_arg(&client.config)
+            )
         );
-        assert!(install_args(&writable).ends_with(" --admin-writable"));
+        assert_eq!(
+            install_args(&client, Path::new("/srv/office.yaml")),
+            "service install -c /srv/office.yaml --name burrow-home"
+        );
+    }
+
+    #[test]
+    fn the_read_only_hint_names_the_command_for_the_installed_config() {
+        let config = Platform::current()
+            .config_dir()
+            .join("edge")
+            .join("server.yaml");
+        assert!(in_service_folder(&config));
+        assert!(!in_service_folder(Path::new("/srv/edge/server.yaml")));
+        assert!(!in_service_folder(
+            &Platform::current().config_dir().join("server.yaml")
+        ));
+        let hint = writable_hint(&config);
+        let command = crate::failure::admin(&format!(
+            "service install -c {} --admin-writable",
+            crate::failure::path_arg(&config)
+        ));
+        assert!(hint.ends_with(&command), "{hint}");
+        assert!(hint.contains("nothing moves"), "{hint}");
+    }
+
+    #[test]
+    fn installing_from_an_installed_config_reinstalls_its_own_service() {
+        let p = Platform::current();
+        let home = Manifest {
+            name: "burrow-home".into(),
+            role: "client".into(),
+            config: p.config_dir().join("home").join("client.yaml"),
+            ..record(p)
+        };
+        let all = [record(p), home.clone()];
+        assert_eq!(name_for(&home.config, None, &all).unwrap(), "burrow-home");
+        assert_eq!(
+            name_for(&home.config, Some("home"), &all).unwrap(),
+            "burrow-home"
+        );
+        let other = name_for(&home.config, Some("office"), &all).unwrap_err();
+        assert!(
+            other
+                .message
+                .contains("is the installed config of burrow-home"),
+            "{}",
+            other.message
+        );
+        assert_eq!(
+            name_for(Path::new("/srv/client.yaml"), None, &all).unwrap(),
+            "burrow-client"
+        );
     }
 
     #[cfg(target_os = "linux")]
@@ -2273,8 +2359,13 @@ mod tests {
         assert_eq!(found[0].code, "service-admin-read-only");
         assert!(!found[0].is_error());
         assert!(found[0].message.contains("visitor ops has admin access"));
+        let help = found[0].help.as_deref().unwrap();
+        assert!(
+            help.contains("service install -c /etc/burrow/server/server.yaml --admin-writable"),
+            "{help}"
+        );
         let writable = Manifest {
-            writable_dir: Some(PathBuf::from("/etc/burrow/server")),
+            admin_writable: true,
             ..m
         };
         assert!(misfits_of(&backend, &writable, &loaded).is_empty());

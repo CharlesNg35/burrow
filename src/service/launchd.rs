@@ -345,7 +345,7 @@ mod tests {
         let m = Manifest {
             name: "burrow-home".into(),
             role: "client".into(),
-            config: "/etc/burrow/home.yaml".into(),
+            config: "/etc/burrow/home/server.yaml".into(),
             source_config: "/Users/me/home.yaml".into(),
             env_file: None,
             log_file: "/var/log/burrow/home/home.log".into(),
@@ -356,7 +356,7 @@ mod tests {
             low_ports: false,
             files: vec![],
             version: "0.1.0".into(),
-            writable_dir: None,
+            admin_writable: false,
         };
         let p = plist(&Manifest {
             env_file: Some("/etc/burrow/home.env".into()),

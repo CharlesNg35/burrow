@@ -245,9 +245,24 @@ try {
   $out = & $Probe e2e-ops.yaml revert $Kept.rev 2>&1 | Out-String
   if ($LASTEXITCODE -ne 0) { Fail "revert to the kept version: $out" }
   if ((Get-Content "$AdminDir\server.yaml" -Raw) -notmatch "changed by hand") { Fail "the revert did not bring back the kept config" }
+  Check "a first install of an admin-writable server works and the service changes its own config"
+
+  $Installed = "$AdminDir\server.yaml"
+  $text = (Get-Content $Installed -Raw) -replace '(?s)\r?\nvisitors:.*$', "`n"
+  Set-Content $Installed $text
+  $out = Burrow service install -c $Installed
+  if (-not (Running burrow-e2e-admin)) { Fail "admin server not running after switching admin writes off: $out" }
+  if ((icacls $AdminDir | Out-String) -match "NT SERVICE\\burrow-e2e-admin:") { Fail "the service account keeps access to its config folder after switching admin writes off: $(icacls $AdminDir | Out-String)" }
+  if ((icacls $Installed | Out-String) -notmatch "NT SERVICE\\burrow-e2e-admin:\(R\)") { Fail "the service account cannot only read its config: $(icacls $Installed | Out-String)" }
+  $out = Burrow service install -c $Installed --admin-writable
+  if (-not (Running burrow-e2e-admin)) { Fail "admin server not running after switching admin writes on: $out" }
+  if ((icacls $AdminDir | Out-String) -notmatch "NT SERVICE\\burrow-e2e-admin:\(OI\)\(CI\)\(M\)") { Fail "the service account may not change its config folder again: $(icacls $AdminDir | Out-String)" }
+  if (-not (Test-Path $Installed)) { Fail "switching admin writes moved the config" }
+  if (@(Get-ChildItem $AdminDir -Filter *.yaml).Count -ne 1) { Fail "switching admin writes left a second config: $(Get-ChildItem $AdminDir | Out-String)" }
+  Check "the installed config switches admin writes off and on in place"
   Burrow service uninstall burrow-e2e-admin --purge | Write-Host
   if (Test-Path $AdminDir) { Fail "$AdminDir still exists" }
-  Check "a first install of an admin-writable server works and the service changes its own config"
+  Check "uninstall --purge removes the config folder"
 
   Write-Host "== uninstall removes everything it created"
   Burrow service uninstall burrow-e2e-visitor --purge | Write-Host
@@ -256,10 +271,10 @@ try {
   Start-Sleep -Seconds 2
   if (Get-Service burrow-e2e-* -ErrorAction SilentlyContinue) { Fail "services still registered" }
   $left = @(
-    "$env:ProgramData\burrow\e2e-server.yaml",
-    "$env:ProgramData\burrow\e2e-client.yaml",
+    "$env:ProgramData\burrow\e2e-server",
+    "$env:ProgramData\burrow\e2e-client",
     "$env:ProgramData\burrow\e2e-client.env",
-    "$env:ProgramData\burrow\e2e-visitor.yaml",
+    "$env:ProgramData\burrow\e2e-visitor",
     "$env:ProgramFiles\burrow\burrow.exe",
     $log
   ) | Where-Object { Test-Path $_ }

@@ -117,8 +117,8 @@ impl Backend for Systemd {
         }
         s.push_str("Restart=on-failure\nRestartSec=5\nRestartPreventExitStatus=2 3\nRestartForceExitStatus=SIGHUP\nLimitNOFILE=1048576\nUMask=0077\n");
         s.push_str(&format!("ReadWritePaths={INSTANCE_DIR}\n"));
-        if let Some(dir) = &m.writable_dir {
-            s.push_str(&format!("ReadWritePaths={}\n", quote(dir)));
+        if m.admin_writable {
+            s.push_str(&format!("ReadWritePaths={}\n", quote(m.folder())));
         }
         s.push_str(&format!(
             "LogsDirectory=burrow/{}\nLogsDirectoryMode=0750\n",
@@ -389,7 +389,7 @@ mod tests {
             let m = Manifest {
                 name: "burrow-home".into(),
                 role: role.into(),
-                config: "/etc/burrow/home.yaml".into(),
+                config: "/etc/burrow/home/server.yaml".into(),
                 source_config: "/home/me/home.yaml".into(),
                 env_file: None,
                 log_file: "/var/log/burrow/home/home.log".into(),
@@ -400,12 +400,12 @@ mod tests {
                 low_ports: false,
                 files: vec![],
                 version: "0.1.0".into(),
-                writable_dir: None,
+                admin_writable: false,
             };
             let unit = Systemd.render(&m);
             assert!(
                 unit.contains(&format!(
-                    "ExecStart=/usr/local/bin/burrow {command} -c /etc/burrow/home.yaml --log-file"
+                    "ExecStart=/usr/local/bin/burrow {command} -c /etc/burrow/home/server.yaml --log-file"
                 )),
                 "{unit}"
             );
@@ -421,7 +421,7 @@ mod tests {
         Manifest {
             name: "burrow-home".into(),
             role: "server".into(),
-            config: "/etc/burrow/home.yaml".into(),
+            config: "/etc/burrow/home/server.yaml".into(),
             source_config: "/home/me/home.yaml".into(),
             env_file: Some("/etc/burrow/home.env".into()),
             log_file: "/var/log/burrow/home/home.log".into(),
@@ -432,7 +432,7 @@ mod tests {
             low_ports: false,
             files: vec![],
             version: "0.1.0".into(),
-            writable_dir: None,
+            admin_writable: false,
         }
     }
 
@@ -445,22 +445,16 @@ mod tests {
     #[test]
     fn a_writable_config_folder_is_the_only_extra_writable_path() {
         let m = Manifest {
-            config: "/etc/burrow/home/server.yaml".into(),
-            writable_dir: Some("/etc/burrow/home".into()),
+            admin_writable: true,
             ..server_manifest()
         };
         let unit = Systemd.render(&m);
-        let expected = GOLDEN_UNIT
-            .replace(
-                "-c /etc/burrow/home.yaml",
-                "-c /etc/burrow/home/server.yaml",
-            )
-            .replace(
-                "ReadWritePaths=/run/burrow-instances\n",
-                "ReadWritePaths=/run/burrow-instances\nReadWritePaths=/etc/burrow/home\n",
-            );
+        let expected = GOLDEN_UNIT.replace(
+            "ReadWritePaths=/run/burrow-instances\n",
+            "ReadWritePaths=/run/burrow-instances\nReadWritePaths=/etc/burrow/home\n",
+        );
         assert_eq!(unit, expected);
     }
 
-    const GOLDEN_UNIT: &str = "[Unit]\nDescription=burrow server \"home\"\nDocumentation=https://github.com/charlesng35/burrow\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nUser=burrow-home\nExecStart=/usr/local/bin/burrow server -c /etc/burrow/home.yaml --log-file /var/log/burrow/home/home.log\nExecReload=/bin/kill -HUP $MAINPID\nEnvironmentFile=/etc/burrow/home.env\nRestart=on-failure\nRestartSec=5\nRestartPreventExitStatus=2 3\nRestartForceExitStatus=SIGHUP\nLimitNOFILE=1048576\nUMask=0077\nReadWritePaths=/run/burrow-instances\nLogsDirectory=burrow/home\nLogsDirectoryMode=0750\nNoNewPrivileges=yes\nProtectSystem=strict\nProtectHome=yes\nPrivateTmp=yes\nPrivateDevices=yes\nDevicePolicy=closed\nPrivateUsers=yes\nProtectClock=yes\nProtectHostname=yes\nProtectKernelTunables=yes\nProtectKernelModules=yes\nProtectKernelLogs=yes\nProtectControlGroups=yes\nProtectProc=invisible\nProcSubset=pid\nRestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK\nRestrictNamespaces=yes\nRestrictRealtime=yes\nRestrictSUIDSGID=yes\nLockPersonality=yes\nMemoryDenyWriteExecute=yes\nRemoveIPC=yes\nSystemCallArchitectures=native\nSystemCallFilter=@system-service\nSystemCallFilter=~@privileged @resources\nSystemCallErrorNumber=EPERM\nCapabilityBoundingSet=\nAmbientCapabilities=\n\n[Install]\nWantedBy=multi-user.target\n";
+    const GOLDEN_UNIT: &str = "[Unit]\nDescription=burrow server \"home\"\nDocumentation=https://github.com/charlesng35/burrow\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nUser=burrow-home\nExecStart=/usr/local/bin/burrow server -c /etc/burrow/home/server.yaml --log-file /var/log/burrow/home/home.log\nExecReload=/bin/kill -HUP $MAINPID\nEnvironmentFile=/etc/burrow/home.env\nRestart=on-failure\nRestartSec=5\nRestartPreventExitStatus=2 3\nRestartForceExitStatus=SIGHUP\nLimitNOFILE=1048576\nUMask=0077\nReadWritePaths=/run/burrow-instances\nLogsDirectory=burrow/home\nLogsDirectoryMode=0750\nNoNewPrivileges=yes\nProtectSystem=strict\nProtectHome=yes\nPrivateTmp=yes\nPrivateDevices=yes\nDevicePolicy=closed\nPrivateUsers=yes\nProtectClock=yes\nProtectHostname=yes\nProtectKernelTunables=yes\nProtectKernelModules=yes\nProtectKernelLogs=yes\nProtectControlGroups=yes\nProtectProc=invisible\nProcSubset=pid\nRestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK\nRestrictNamespaces=yes\nRestrictRealtime=yes\nRestrictSUIDSGID=yes\nLockPersonality=yes\nMemoryDenyWriteExecute=yes\nRemoveIPC=yes\nSystemCallArchitectures=native\nSystemCallFilter=@system-service\nSystemCallFilter=~@privileged @resources\nSystemCallErrorNumber=EPERM\nCapabilityBoundingSet=\nAmbientCapabilities=\n\n[Install]\nWantedBy=multi-user.target\n";
 }
