@@ -210,6 +210,11 @@ impl Edit {
     }
 
     pub fn set_text(&self, path: &[String], text: Option<String>) {
+        let refused = crate::grants::refuses_text(path, text.as_deref());
+        self.refuse(path, refused);
+        if refused {
+            return;
+        }
         self.texts.update(|t| match text {
             Some(x) => {
                 t.insert(path.to_vec(), x);
@@ -267,6 +272,13 @@ impl Edit {
         self.conflict.set(None);
         self.check_error.set(None);
         self.confirms.set(BTreeMap::new());
+        self.clear_refused();
+    }
+
+    fn clear_refused(&self) {
+        if self.refused.with_untracked(|r| !r.is_empty()) {
+            self.refused.set(std::collections::BTreeSet::new());
+        }
     }
 
     pub fn sync_base(&self, values: &Value, rev: &str) {
@@ -275,6 +287,7 @@ impl Edit {
             self.draft.set(Changeset::new(values.clone()));
             self.texts.set(BTreeMap::new());
             self.local.set(BTreeMap::new());
+            self.clear_refused();
             self.plan.set(None);
             if self.conflict_revert.with_untracked(Option::is_none) {
                 self.conflict.set(None);
@@ -298,6 +311,7 @@ impl Edit {
         self.draft.update(|d| d.rebase(state.values.clone()));
         self.base_rev.set(state.rev.clone());
         self.conflict.set(None);
+        self.clear_refused();
         self.changed();
     }
 
@@ -605,6 +619,17 @@ mod tests {
             Outcome::Failed { message, .. } if message.contains("did not finish") && message.contains("nothing was applied")
         ));
         assert!(matches!(revert_outcome(&reload), Outcome::ReloadFailed(_)));
+    }
+
+    #[test]
+    fn a_discard_or_a_fresh_base_clears_the_refused_marks() {
+        let e = Edit::new();
+        e.refused.set([p(&["visitors", "lap", "admin"])].into());
+        e.discard();
+        assert!(e.refused.get_untracked().is_empty());
+        e.refused.set([p(&["visitors", "lap", "admin"])].into());
+        e.sync_base(&json!({"visitors": {}}), "b2s:1");
+        assert!(e.refused.get_untracked().is_empty());
     }
 
     #[test]
