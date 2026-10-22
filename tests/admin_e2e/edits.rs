@@ -397,6 +397,18 @@ fn editors(c: &mut Ctx) -> Flow<'_> {
 
         c.ui.nav("/settings").await;
         edit_mode(c).await;
+        c.ui.wait_for("[data-schema='pool/min_idle'] [data-editor]", SECS)
+            .await;
+        c.ui.fill("#f-pool-min-idle", "100").await;
+        let err = row_error(c, "pool/min_idle").await;
+        assert!(err.contains("max_idle"), "{err}");
+        assert!(
+            !c.ui.enabled("[data-testid=save]").await,
+            "a server error in a setting blocks Add to changes"
+        );
+        c.ui.click("[data-testid=discard-edit]").await;
+        c.ui.wait_gone("[data-testid=save-bar]", SECS).await;
+        edit_mode(c).await;
         c.ui.wait_for("[data-server-address]", SECS).await;
         click_js(c, "[data-server-address] input[value=host]").await;
         c.ui.fill("#f-public-address", "bad host").await;

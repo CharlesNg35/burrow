@@ -429,7 +429,7 @@ pub fn settings_card(c: &SettingsCard) -> AnyView {
     let help = f.node.help.clone();
     let p4 = path.clone();
     let body = move || {
-        if is_set.get() || !optional {
+        if !optional || is_set.get() {
             object_view(&inner_node, p4.clone(), p4.clone(), Vec::new())
         } else {
             view! {
@@ -635,7 +635,7 @@ fn row(f: Field, path: Path, spath: Path, entity: Path) -> AnyView {
         let none_label = node.none_label.clone().unwrap_or_else(|| "Not set".into());
         let (p4, sp4, en4) = (path.clone(), spath.clone(), entity.clone());
         let body = move || {
-            if is_set.get() || !optional {
+            if !optional || is_set.get() {
                 object_view(&n, p4.clone(), sp4.clone(), en4.clone())
             } else {
                 view! { <p class="text-sm text-text-muted" data-testid="not-set">{none_label.clone()}</p> }

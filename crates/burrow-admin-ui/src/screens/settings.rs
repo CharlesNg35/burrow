@@ -77,6 +77,19 @@ pub fn groups(
         .collect()
 }
 
+pub fn setting_errors(diags: &[burrow_admin_proto::diag::Diag]) -> usize {
+    diags
+        .iter()
+        .filter(|d| {
+            d.is_error()
+                && d.path
+                    .as_ref()
+                    .and_then(|p| p.first())
+                    .is_some_and(|k| !crate::route::SECTIONS.contains(&k.as_str()))
+        })
+        .count()
+}
+
 #[component]
 pub fn Settings() -> impl IntoView {
     let s = store();
@@ -163,14 +176,18 @@ pub fn Settings() -> impl IntoView {
         })
     });
     let problems = Signal::derive(move || {
-        e.local.with(|l| {
+        let local = e.local.with(|l| {
             l.keys()
                 .filter(|p| {
                     p.first()
                         .is_some_and(|k| !crate::route::SECTIONS.contains(&k.as_str()))
                 })
                 .count()
-        })
+        });
+        let server = e
+            .plan
+            .with(|p| p.as_ref().map_or(0, |p| setting_errors(&p.diags)));
+        local.max(server)
     });
     let start = move |_| e.start_edit(&[]);
     let close = move || {
@@ -240,7 +257,7 @@ pub fn Settings() -> impl IntoView {
                         }}</span>
                         <span class="ml-auto"></span>
                         <burrow_ui_kit::Button label=Signal::derive(move || if changed.get() == 0 { "Close".to_string() } else { "Discard".to_string() }) variant="ghost" testid="discard-edit" on_click=move |_| close()/>
-                        <burrow_ui_kit::Button label="Add to changes" variant="primary" testid="save" disabled=Signal::derive(move || bad || changed.get() == 0) on_click=move |_| save()/>
+                        <burrow_ui_kit::Button label="Add to changes" variant="primary" testid="save" disabled=Signal::derive(move || bad || changed.get() == 0) reason=Signal::derive(move || if bad { "Fix the problems first".to_string() } else if changed.get() == 0 { "Nothing changed yet".to_string() } else { String::new() }) on_click=move |_| save()/>
                     </div>
                 }
             })}
@@ -250,4 +267,36 @@ pub fn Settings() -> impl IntoView {
     }
     .into_any();
     master_detail(list, detail)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use burrow_admin_proto::diag::{Diag, Severity};
+
+    fn diag(severity: Severity, path: &[&str]) -> Diag {
+        Diag {
+            severity,
+            code: "x".into(),
+            message: "m".into(),
+            path: Some(path.iter().map(|s| s.to_string()).collect()),
+            also: Vec::new(),
+            label: None,
+            help: None,
+            line: None,
+            col: None,
+            before: false,
+        }
+    }
+
+    #[test]
+    fn a_server_error_in_a_setting_blocks_adding_the_settings_to_the_changes() {
+        let diags = [
+            diag(Severity::Error, &["pool", "min_idle"]),
+            diag(Severity::Warning, &["pool", "max_idle"]),
+            diag(Severity::Error, &["services", "web", "bind"]),
+        ];
+        assert_eq!(setting_errors(&diags), 1);
+        assert_eq!(setting_errors(&diags[1..]), 0);
+    }
 }
