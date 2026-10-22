@@ -373,7 +373,9 @@ impl Changeset {
                     .map(|(from, _)| from.clone())
                     .unwrap_or(p)
             })
-            .filter(|p| burrow_config::refs::part_of(&self.base, &self.draft, p, &self.renames).is_none())
+            .filter(|p| {
+                burrow_config::refs::part_of(&self.base, &self.draft, p, &self.renames).is_none()
+            })
             .collect();
         paths.sort();
         paths.dedup();
