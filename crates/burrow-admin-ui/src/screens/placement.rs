@@ -67,7 +67,7 @@ pub fn tabs(section: &str, node: &Node) -> Vec<(&'static str, String)> {
 mod tests {
     use super::*;
     use burrow_admin_proto::schema::SemType;
-    use burrow_config::ServiceEntry;
+    use burrow_config::{Entry, ServiceEntry};
     use burrow_config::admin_schema::AdminSchema;
 
     fn entity_node(root: &Node, section: &str) -> Node {
