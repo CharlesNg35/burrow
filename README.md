@@ -12,21 +12,24 @@
   <a href="#docker"><img src="https://img.shields.io/badge/docker-ghcr.io%2Fcharlesng35%2Fburrow-2496ED?logo=docker&amp;logoColor=white" alt="Docker image"></a>
 </p>
 
-A fast, small, secure reverse tunnel. A client behind NAT connects out to a public server, and the **server's** config decides what gets exposed. Adding or removing a service is a server config edit: no client change, no restart.
+burrow is a fast, small and secure reverse tunnel. It makes an app on a machine behind a router or firewall (NAT) reachable through a public server, without opening any port at home.
 
 ```
-user ──> server:7840 ══ Noise-encrypted TCP or WebSocket ══ client (behind NAT) ──> 127.0.0.1:3000
+user ──> server:7840 ══ encrypted tunnel ══ client (behind NAT) ──> your app on 127.0.0.1:3000
 ```
 
-- TCP and UDP services, port ranges and Unix sockets
-- Private services that only your own machines reach, with `burrow visit` or a SOCKS5 proxy
-- Several clients per service, with failover or load balancing and health checks
-- Services and visitor access on the server machine itself, with `client: self`
-- Per service: allowed source IPs, the real client address for your app, and speed limits
-- Encrypted, with a separate secret per client; a client only reaches what it allows
-- Config changes apply on save, without a restart
-- Works behind nginx, Caddy or Cloudflare when only HTTP(S) is open
-- Runs as a system service on Linux, macOS and Windows, with metrics, `burrow status` and `burrow update`
+The client at home connects out to the server and keeps that connection open. The server's config decides what is exposed.
+
+## Features
+
+- **Fast:** 2.3 times rathole's speed with encryption on, and 13,500 new connections per second.
+- **Light:** 220 MiB of memory for 10,000 open connections, 13 times less than rathole with encryption. One file, nothing else to install.
+- **Secure by default:** everything is encrypted, each machine has its own secret, and a client only reaches what you allow.
+- **Changes apply on save:** edit the config on the server and save. No restart, and no change on the client.
+- **Private services:** reach your home machines from your laptop without putting them on the internet.
+- **Always up:** several clients per service, with failover, load balancing and health checks.
+- **Web admin:** watch traffic and edit the config in your browser.
+- **Runs everywhere:** Linux, macOS, Windows, FreeBSD and Docker, as a system service, even behind an HTTPS-only proxy.
 
 ## Contents
 
@@ -46,34 +49,62 @@ user ──> server:7840 ══ Noise-encrypted TCP or WebSocket ══ client (
 
 ## Quickstart
 
-[Download the latest release](https://github.com/CharlesNg35/burrow/releases/latest) for your system and unpack it (or use the [Docker](#docker) image). On the public server:
+This example makes a web app that runs on port 3000 of your home machine reachable on port 7840 of your server.
+
+**1. Download.** [Get the latest release](https://github.com/CharlesNg35/burrow/releases/latest) for your system on both machines, and unpack it. Docker users: see [Docker](#docker) below.
+
+**2. On the server,** write a config and start it:
 
 ```sh
-./burrow init server                                                  # writes server.yaml
-./burrow server                                                       # runs it
-./burrow client-config --server myserver.example.com -o client.yaml  # the config for your client
+./burrow init server   # writes server.yaml: one client named "home" and one service named "web"
+./burrow server        # runs the server with ./server.yaml
 ```
 
-On the machine behind NAT, download burrow the same way, put `client.yaml` next to it, then:
+The server now waits for clients on TCP port 7835 and will forward port 7840 to the client's port 3000. Open both ports in the server's firewall.
+
+**3. Still on the server,** print the config for the client. Use the server's public name or IP address:
 
 ```sh
-./burrow client
+./burrow client-config --server myserver.example.com -o client.yaml
 ```
 
-The generated server listens for clients on TCP `7835` and exposes `0.0.0.0:7840` → the client's `127.0.0.1:3000`. Edit `services` in `server.yaml` and save; the server reloads by itself. To keep either side running across reboots, install it as a service: `sudo ./burrow service install -c server.yaml` on the server and `sudo ./burrow service install -c client.yaml` on the client (see [Running as a service](#running-as-a-service)).
-
-Other commands:
+**4. On the home machine,** put `client.yaml` next to burrow, then:
 
 ```sh
-./burrow validate -c server.yaml            # check a config without starting (exit 0 valid, 1 invalid, 2 usage)
-./burrow client-config office --server myserver.example.com -o office.yaml   # config for a client added as office: under clients
-./burrow gensecret                          # new 256-bit secret
-./burrow schema server > server.schema.json # JSON Schema for editor completion
-./burrow completions bash                   # shell completions: bash, zsh, fish, powershell, elvish
-./burrow status                             # clients, services and traffic of the running servers (-f to follow)
-./burrow edit                               # open a config in your editor; it is checked, saved and applied
-./burrow update                             # install the latest release
+./burrow client        # runs the client with ./client.yaml
 ```
+
+Now open `http://myserver.example.com:7840`: you see the app from port 3000 of your home machine.
+
+**Next steps:**
+
+- To expose more, add entries under `services` in `server.yaml` and save. The server applies the change by itself, and the client needs no change.
+- To keep burrow running after a reboot, install it as a system service: `sudo ./burrow service install` in the folder that holds the config, on each machine.
+- `./burrow validate` checks a config without starting anything.
+
+<details>
+<summary><b>All commands</b></summary>
+
+```sh
+./burrow init server|client|visitor           # write a new config (asks what it needs)
+./burrow server | client | visit              # run a server, a client or a visitor (-c FILE, or the file in this folder)
+./burrow validate -c server.yaml              # check a config: exit 0 valid, 1 invalid, 2 usage error
+./burrow client-config office -o office.yaml  # the config for client "office" of server.yaml
+./burrow visitor-config laptop -o laptop.yaml # the config for visitor "laptop" of server.yaml
+./burrow gensecret                            # print a new random secret
+./burrow edit                                 # open a config in your editor; it is checked, saved and applied
+./burrow status                               # clients, services and traffic of the servers running here (-f to follow)
+./burrow admin -c ops.yaml                    # the web admin, see docs/admin.md
+./burrow service install                      # run as a system service, see docs/service.md
+./burrow update                               # install the latest release
+./burrow schema server > server.schema.json   # JSON Schema, for completion in your editor
+./burrow completions bash                     # shell completions: bash, zsh, fish, powershell, elvish
+./burrow version
+```
+
+Every command has `--help`. All commands also take `--log-level`, `--log-json`, `-q` (warnings and errors only) and `--log-file FILE` (rotated at 10 MB, 5 old files kept).
+
+</details>
 
 ## Configuration
 
