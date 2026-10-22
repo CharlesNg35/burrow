@@ -67,8 +67,8 @@ pub fn tabs(section: &str, node: &Node) -> Vec<(&'static str, String)> {
 mod tests {
     use super::*;
     use burrow_admin_proto::schema::SemType;
-    use burrow_config::{Entry, ServiceEntry};
     use burrow_config::admin_schema::AdminSchema;
+    use burrow_config::{Entry, ServiceEntry};
 
     fn entity_node(root: &Node, section: &str) -> Node {
         root.at(&[section.to_string(), "*".to_string()])
