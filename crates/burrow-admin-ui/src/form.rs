@@ -46,7 +46,7 @@ pub fn join(p: &[String]) -> String {
     p.join("/")
 }
 
-fn field_id(path: &[String]) -> String {
+pub fn field_id(path: &[String]) -> String {
     format!(
         "f-{}",
         join(path).replace(|c: char| !c.is_ascii_alphanumeric(), "-")
@@ -443,105 +443,6 @@ pub fn settings_card(c: &SettingsCard) -> AnyView {
     .into_any()
 }
 
-pub fn facts(node: &Node, path: Path, spath: Path, skip: &[&str]) -> AnyView {
-    let e = store().edit;
-    let node = inner(node);
-    let mut keys: Vec<&Field> = fields(node)
-        .iter()
-        .filter(|f| !skip.contains(&f.key.as_str()))
-        .filter(|f| !matches!(inner(&f.node).sem, SemType::SecretRef(_)))
-        .filter(|f| merged_into(node, &f.key).is_none())
-        .collect();
-    let groups: Vec<String> = node.groups.iter().map(|g| g.key.clone()).collect();
-    keys.sort_by_key(|f| {
-        let g = groups
-            .iter()
-            .position(|k| *k == f.node.group)
-            .unwrap_or(usize::MAX);
-        let o = layout_order(&spath, &f.node.group)
-            .and_then(|o| o.iter().position(|k| *k == f.key))
-            .unwrap_or(99);
-        (g, o)
-    });
-    let schema = store().schema.get_untracked();
-    let rows = keys
-        .into_iter()
-        .map(|f| {
-            let fpath = child(&path, &f.key);
-            let single = merged_single(node, &f.key).map(|s| child(&path, s));
-            let fnode = f.node.clone();
-            let label = f.node.label.clone();
-            let key = f.key.clone();
-            let visible = {
-                let (node, schema, entity) = (f.node.clone(), schema.clone(), path.clone());
-                Memo::new(move |_| match &schema {
-                    Some(sc) => e.draft.with(|d| field_state(&node, &sc.root, d.draft(), &entity).visible),
-                    None => true,
-                })
-            };
-            view! {
-                <div class="grid grid-cols-[170px_minmax(0,1fr)] items-center gap-4 border-b border-rowline py-2.5 text-[13.5px] last:border-b-0" class:hidden=move || !visible.get() data-fact=key>
-                    <span class="text-text-muted">{label}</span>
-                    <span class="min-w-0">
-                        {move || {
-                            let v = e.value(&fpath).or_else(|| {
-                                single
-                                    .as_ref()
-                                    .and_then(|s| e.value(s))
-                                    .map(|c| Value::Array(vec![c]))
-                            });
-                            if let Some(t) = fact_text(&fnode, v.as_ref()) {
-                                return view! { <span>{t}</span> }.into_any();
-                            }
-                            match ctx_now() {
-                                Some(c) => value_view(&fnode, v.as_ref(), None, &c),
-                                None => ().into_any(),
-                            }
-                        }}
-                    </span>
-                </div>
-            }
-        })
-        .collect_view();
-    view! { <div class="px-4 py-1" data-testid="facts">{rows}</div> }.into_any()
-}
-
-fn fact_text(node: &Node, v: Option<&Value>) -> Option<String> {
-    let n = inner(node);
-    let shown = v.filter(|v| !v.is_null()).or(node.default.as_ref());
-    match &n.sem {
-        SemType::Ref(_) | SemType::RefList(_) => Some(match shown {
-            Some(Value::Array(a)) => a.iter().map(plain).collect::<Vec<_>>().join(", "),
-            Some(x) => plain(x),
-            None => node.none_label.clone().unwrap_or_else(|| "none".into()),
-        }),
-        SemType::Enum(c) => Some(match shown {
-            Some(x) => {
-                let raw = plain(x);
-                c.options
-                    .iter()
-                    .find(|o| o.value == raw)
-                    .map(|o| o.label.clone())
-                    .unwrap_or(raw)
-            }
-            None => node.none_label.clone().unwrap_or_else(|| "not set".into()),
-        }),
-        SemType::Integer(c) => Some(match shown {
-            Some(x) => format!(
-                "{}{}",
-                plain(x),
-                c.unit.as_ref().map(|u| format!(" {u}")).unwrap_or_default()
-            ),
-            None => node
-                .none_label
-                .clone()
-                .unwrap_or_else(|| "unlimited".into())
-                .to_lowercase(),
-        }),
-        _ => None,
-    }
-}
-
 fn layout_order(spath: &[String], group: &str) -> Option<&'static [&'static str]> {
     match (spath.first().map(String::as_str), spath.len(), group) {
         (Some(SERVICES), 2, ServiceEntry::GROUP_WHO) => Some(&[CLIENTS, MODE, HEALTH_CHECK]),
@@ -563,11 +464,26 @@ fn visibility_row(bind: Path, public: RwSignal<bool>) -> AnyView {
     let can = store().can_write_now();
     let kept: StoredValue<Option<Value>> = StoredValue::new(e.peek(&bind));
     let id = format!("{}-visibility", field_id(&bind));
+    let visitors = {
+        let mut p = bind.clone();
+        p.pop();
+        p.push(SERVICE_VISITORS.to_string());
+        p
+    };
+    let none_picked = {
+        let visitors = visitors.clone();
+        Memo::new(move |_| {
+            e.value(&visitors)
+                .is_none_or(|v| v.as_array().is_some_and(Vec::is_empty) || v.is_null())
+        })
+    };
     let control = {
         let bind = bind.clone();
         let id = id.clone();
+        let visitors = visitors.clone();
         move || {
             let bind = bind.clone();
+            let visitors = visitors.clone();
             let on = Signal::derive(move || {
                 if public.get() {
                     "public".to_string()
@@ -578,6 +494,7 @@ fn visibility_row(bind: Path, public: RwSignal<bool>) -> AnyView {
             if !(can && editing.try_get().unwrap_or(false)) {
                 return view! { <div class="flex min-h-[38px] items-center text-[13px]">{move || if public.get() { "Public port" } else { "Private" }}</div> }.into_any();
             }
+            let to_visitors = visitors.clone();
             view! {
                 <div id=id.clone()>
                     <burrow_ui_kit::Segmented
@@ -595,10 +512,23 @@ fn visibility_row(bind: Path, public: RwSignal<bool>) -> AnyView {
                                 kept.set_value(e.peek(&bind));
                                 public.set(false);
                                 e.set(&bind, None);
+                                if none_picked.get_untracked() {
+                                    crate::screens::entity::go_to_field(&visitors);
+                                }
                             }
                         })
                     />
                 </div>
+                {move || (!public.get() && none_picked.get()).then(|| {
+                    let to = to_visitors.clone();
+                    view! {
+                        <p class="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12.5px] text-co-info" data-testid="pick-visitors">
+                            <burrow_ui_kit::Icon name="info" small=true/>
+                            "Private: only the visitors you pick reach it, with burrow visit."
+                            <button type="button" class="cursor-pointer font-semibold text-accent-ink underline underline-offset-2" on:click=move |_| crate::screens::entity::go_to_field(&to)>"Pick visitors"</button>
+                        </p>
+                    }
+                })}
             }
             .into_any()
         }
@@ -795,8 +725,7 @@ fn row(f: Field, path: Path, spath: Path, entity: Path) -> AnyView {
             if lock {
                 return locked_box(node.clone(), path.clone(), id.clone());
             }
-            let look_only = !s.can_write_now() && node.editable.is_yes() && !lock;
-            if (can || look_only) && enabled && editing.try_get().unwrap_or(false) {
+            if can && enabled && editing.try_get().unwrap_or(false) {
                 let fc = FieldCtx {
                     node: node.clone(),
                     path: path.clone(),
@@ -807,14 +736,6 @@ fn row(f: Field, path: Path, spath: Path, entity: Path) -> AnyView {
                     touched,
                     inherited: st.with_untracked(|s| s.default_from.clone()),
                 };
-                if look_only {
-                    return view! {
-                        <div class="pointer-events-none flex flex-wrap items-start gap-2 opacity-55" data-editor="" data-read-only="" inert>
-                            <div class="min-w-0 flex-1">{domain::editor(fc)}</div>
-                        </div>
-                    }
-                    .into_any();
-                }
                 view! {
                     <div class="flex flex-wrap items-start gap-2" data-editor="">
                         <div class="min-w-0 flex-1">{domain::editor(fc)}</div>

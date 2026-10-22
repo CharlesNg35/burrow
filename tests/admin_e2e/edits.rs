@@ -509,21 +509,18 @@ fn lockout(c: &mut Ctx) -> Flow<'_> {
         c.ui.wait_for("[data-testid=read-only-tag]", SECS).await;
         c.ui.nav("/services/web?tab=settings").await;
         c.ui.wait_for("[data-testid=detail]", SECS).await;
-        assert!(
-            c.ui.count("[data-editor]").await > 0,
-            "read access sees the controls in their read-only look"
+        c.ui.wait_text("[data-schema='services/*/target']", "127.0.0.1", SECS)
+            .await;
+        assert_eq!(
+            c.ui.count("[data-editor]").await,
+            0,
+            "read access sees plain values, not controls that invite clicks"
         );
         assert_eq!(
-            c.ui.count("[data-editor]:not([inert])").await,
+            c.ui.count("[data-testid=save-bar]").await,
             0,
-            "every control is inert for read access"
+            "the read-only state is told once, by the header tag"
         );
-        c.ui.wait_text(
-            "[data-testid=save-bar]",
-            "Read-only: changes need write admin",
-            SECS,
-        )
-        .await;
         assert!(
             !c.ui.enabled("[data-testid=edit]").await,
             "Edit is disabled for read access"
@@ -1135,4 +1132,89 @@ fn review_my_draft_opens_the_draft_after_a_revert_conflict_was_viewed() {
         false,
         draft_after_a_viewed_revert_conflict,
     );
+}
+
+fn edit_state(c: &mut Ctx) -> Flow<'_> {
+    Box::pin(async move {
+        open(c, "ops").await;
+        c.ui.nav("/visitors/laptop").await;
+        c.ui.click("[role=tablist] [data-tab=access]").await;
+        c.ui.wait_for("[data-schema='visitors/*/reach']", SECS)
+            .await;
+        assert_eq!(
+            c.ui.count("[data-editor]").await,
+            0,
+            "view mode shows plain values"
+        );
+        assert_eq!(
+            c.ui.count("[role=tablist] [data-tab=settings]").await,
+            0,
+            "no Settings tab repeats the visitor's fields"
+        );
+        c.ui.shot("visitor-access-view").await;
+        edit_mode(c).await;
+        c.ui.fill("#f-visitors-laptop-max-connections", "50").await;
+        wait_checked(c).await;
+        c.ui.click("[data-testid=review-open]").await;
+        c.ui.wait_for("[data-testid=review]", SECS).await;
+        let _: bool =
+            c.ui.eval("(() => { history.back(); return true; })()")
+                .await;
+        c.ui.wait_for("[data-testid=save-bar]", SECS).await;
+        c.ui.wait_for("[role=tablist] [data-tab=access][aria-selected=true]", SECS)
+            .await;
+        let kept: String =
+            c.ui.eval("document.getElementById('f-visitors-laptop-max-connections').value")
+                .await;
+        assert_eq!(kept, "50", "Back returns to the edit with its value");
+        c.ui.shot("edit-kept-after-back").await;
+        c.ui.nav("/services/web").await;
+        c.ui.wait_text("[data-testid=entity-list]", "web", SECS)
+            .await;
+        c.ui.nav("/visitors").await;
+        c.ui.wait_text(
+            "[data-testid=entity-list] [data-row=laptop]",
+            "unsaved",
+            SECS,
+        )
+        .await;
+        c.ui.nav("/visitors/laptop").await;
+        c.ui.wait_for("[data-testid=save-bar]", SECS).await;
+        c.ui.click("[data-testid=discard-edit]").await;
+        c.ui.wait_gone("[data-testid=save-bar]", SECS).await;
+
+        c.ui.nav("/services/web").await;
+        c.ui.click("[role=tablist] [data-tab=settings]").await;
+        edit_mode(c).await;
+        c.ui.choose("f-services-web-bind-visibility", "private")
+            .await;
+        c.ui.wait_for("[data-testid=pick-visitors]", SECS).await;
+        let problems =
+            c.ui.wait_text("[data-testid=form-problems]", "Visitors", SECS)
+                .await;
+        assert!(problems.contains("nobody can reach it"), "{problems}");
+        c.ui.wait_for("[role=tablist] [data-tab=settings] [data-tab-errors]", SECS)
+            .await;
+        c.ui.wait_text(
+            "[data-schema='services/*/visitors']",
+            "nobody can reach it",
+            SECS,
+        )
+        .await;
+        c.ui.shot("private-needs-visitors").await;
+        c.ui.click("[data-testid=form-problems] button").await;
+        c.ui.wait_for(
+            "#f-services-web-visitors:focus, #f-services-web-visitors:focus-within",
+            SECS,
+        )
+        .await;
+        c.ui.click("[data-testid=discard-edit]").await;
+        c.ui.wait_gone("[data-testid=save-bar]", SECS).await;
+        c.ui.assert_no_errors();
+    })
+}
+
+#[test]
+fn edits_survive_navigation_and_problems_show_where_you_edit() {
+    run("edit-state", Options::default(), false, edit_state);
 }

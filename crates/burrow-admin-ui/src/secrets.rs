@@ -62,6 +62,7 @@ pub fn secret_list(path: Path, id: String, max: u32) -> AnyView {
     let e = s.edit;
     let section = path.first().cloned().unwrap_or_default();
     let name = path.get(1).cloned().unwrap_or_default();
+    let schema_path = format!("{section}/*/{}", path.get(2).cloned().unwrap_or_default());
     let p2 = path.clone();
     let list = Memo::new(move |_| rows(e.value(&p2).as_ref()));
     let (sec2, name2) = (section.clone(), name.clone());
@@ -158,7 +159,7 @@ pub fn secret_list(path: Path, id: String, max: u32) -> AnyView {
         }
     };
     view! {
-        <section id=id class="mb-4 rounded-card border border-border bg-surface" data-testid="secrets">
+        <section id=id class="mb-4 rounded-card border border-border bg-surface" data-testid="secrets" data-schema=schema_path>
             <div class="flex items-center gap-3 border-b border-border px-4 py-3">
                 <h2 class="text-[13.5px] font-bold">"Secrets"</h2>
                 <span class="ml-auto"></span>

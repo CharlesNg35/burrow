@@ -37,6 +37,7 @@ fn secret_once(c: &mut Ctx) -> Flow<'_> {
         c.ui.click("[data-testid=create]").await;
         c.ui.wait_for("[data-testid=detail][data-name=lab]", SECS)
             .await;
+        c.ui.click("[data-tab=secrets]").await;
         c.ui.wait_for("[data-testid=secrets] [data-fp]", SECS).await;
         c.ui.shot("new-client-with-a-generated-secret").await;
         wait_checked(c).await;

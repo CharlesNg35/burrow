@@ -297,6 +297,7 @@ pub fn Tabs(
     tabs: Vec<(&'static str, String)>,
     #[prop(into)] active: RwSignal<&'static str>,
     #[prop(optional)] counts: Option<Signal<Vec<String>>>,
+    #[prop(optional, into)] errors: Option<Signal<Vec<usize>>>,
 ) -> impl IntoView {
     view! {
         <div class="mb-4 flex gap-1 border-b border-border" role="tablist">
@@ -315,6 +316,15 @@ pub fn Tabs(
                         >
                             {label}
                             {counts.map(|c| view! { <span class="text-[11px] text-text-faint">{move || c.get().get(i).cloned().unwrap_or_default()}</span> })}
+                            {errors.map(|e| move || {
+                                let n = e.get().get(i).copied().unwrap_or(0);
+                                (n > 0).then(|| view! {
+                                    <span class="ml-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1 text-[10.5px] font-bold text-white dark:text-[#1A0507]" data-tab-errors=n.to_string()>
+                                        {n}
+                                        <span class="sr-only">{if n == 1 { " problem" } else { " problems" }}</span>
+                                    </span>
+                                })
+                            })}
                         </button>
                     }
                 })

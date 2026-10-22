@@ -54,6 +54,7 @@ pub struct Edit {
     pub reset_on_load: RwSignal<bool>,
     pub auto_apply: RwSignal<bool>,
     pub refused: RwSignal<std::collections::BTreeSet<Path>>,
+    pub editing: RwSignal<BTreeMap<Path, Option<Value>>>,
     seq: StoredValue<u64>,
 }
 
@@ -150,6 +151,7 @@ impl Edit {
             reset_on_load: RwSignal::new(false),
             auto_apply: RwSignal::new(false),
             refused: RwSignal::new(std::collections::BTreeSet::new()),
+            editing: RwSignal::new(BTreeMap::new()),
             seq: StoredValue::new(0),
         }
     }
@@ -273,6 +275,52 @@ impl Edit {
         self.check_error.set(None);
         self.confirms.set(BTreeMap::new());
         self.clear_refused();
+        self.clear_edits();
+    }
+
+    pub fn is_editing(&self, entity: &[String]) -> bool {
+        self.editing.with(|m| m.contains_key(entity))
+    }
+
+    pub fn start_edit(&self, entity: &[String]) {
+        if self.editing.with_untracked(|m| m.contains_key(entity)) {
+            return;
+        }
+        let snapshot = self.peek(entity);
+        self.editing.update(|m| {
+            m.insert(entity.to_vec(), snapshot);
+        });
+    }
+
+    pub fn stop_edit(&self, entity: &[String]) {
+        if self.editing.with_untracked(|m| m.contains_key(entity)) {
+            self.editing.update(|m| {
+                m.remove(entity);
+            });
+        }
+    }
+
+    pub fn discard_edit(&self, entity: &[String]) {
+        let Some(snapshot) = self.editing.with_untracked(|m| m.get(entity).cloned()) else {
+            return;
+        };
+        self.set(entity, snapshot);
+        self.stop_edit(entity);
+    }
+
+    pub fn unsaved(&self, entity: &[String]) -> bool {
+        self.editing.with(|m| {
+            m.get(entity).is_some_and(|snap| {
+                self.draft
+                    .with(|d| burrow_admin_proto::value::get(d.draft(), entity) != snap.as_ref())
+            })
+        })
+    }
+
+    fn clear_edits(&self) {
+        if self.editing.with_untracked(|m| !m.is_empty()) {
+            self.editing.set(BTreeMap::new());
+        }
     }
 
     fn clear_refused(&self) {
@@ -288,6 +336,7 @@ impl Edit {
             self.texts.set(BTreeMap::new());
             self.local.set(BTreeMap::new());
             self.clear_refused();
+            self.clear_edits();
             self.plan.set(None);
             if self.conflict_revert.with_untracked(Option::is_none) {
                 self.conflict.set(None);
@@ -630,6 +679,35 @@ mod tests {
         e.refused.set([p(&["visitors", "lap", "admin"])].into());
         e.sync_base(&json!({"visitors": {}}), "b2s:1");
         assert!(e.refused.get_untracked().is_empty());
+    }
+
+    #[test]
+    fn edit_state_is_kept_per_entity_until_saved_discarded_or_reset() {
+        let e = Edit::new();
+        e.sync_base(
+            &json!({"visitors": {"lap": {"max_connections": 5}, "bob": {}}}),
+            "b2s:1",
+        );
+        let lap = p(&["visitors", "lap"]);
+        let bob = p(&["visitors", "bob"]);
+        e.start_edit(&lap);
+        e.start_edit(&bob);
+        assert!(e.is_editing(&lap) && e.is_editing(&bob));
+        e.draft
+            .update(|d| d.set(&p(&["visitors", "lap", "max_connections"]), json!(9)));
+        assert!(e.unsaved(&lap));
+        assert!(!e.unsaved(&bob));
+        e.start_edit(&lap);
+        e.draft
+            .update(|d| d.set(&lap, json!({"max_connections": 5})));
+        assert!(!e.unsaved(&lap), "a second start keeps the first snapshot");
+        e.stop_edit(&bob);
+        assert!(!e.is_editing(&bob));
+        e.discard();
+        assert!(
+            !e.is_editing(&lap),
+            "a discard of the draft ends every edit"
+        );
     }
 
     #[test]

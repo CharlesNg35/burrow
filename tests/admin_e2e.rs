@@ -1023,29 +1023,43 @@ fn schema_walk(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
         open(c, "ops").await;
         let mut seen: Vec<String> = Vec::new();
         let mut unset: Vec<String> = Vec::new();
-        for path in [
-            "/settings",
-            "/clients/office?tab=settings",
-            "/visitors/ops?tab=settings",
-            "/visitors/laptop?tab=settings",
-            "/services/web?tab=settings",
-            "/services/game?tab=settings",
-            "/services/dns?tab=settings",
+        for (path, tabs) in [
+            ("/settings", &[][..]),
+            ("/clients/office", &["settings", "secrets"][..]),
+            ("/visitors/ops", &["access", "secrets"][..]),
+            ("/visitors/laptop", &["access"][..]),
+            ("/services/web", &["settings"][..]),
+            ("/services/game", &["settings"][..]),
+            ("/services/dns", &["settings"][..]),
         ] {
             c.ui.nav(path).await;
-            c.ui.wait_for("[data-schema]", SECS).await;
-            c.ui.shot(&format!(
-                "walk-{}",
-                path.trim_start_matches('/')
-                    .trim_end_matches("?tab=settings")
-                    .replace('/', "-")
-            ))
-            .await;
-            seen.extend(c.ui.all_attrs("[data-schema]", "data-schema").await);
-            unset.extend(
-                c.ui.all_attrs("[data-schema]:has([data-testid=not-set])", "data-schema")
-                    .await,
-            );
+            let steps: Vec<Option<&str>> = if tabs.is_empty() {
+                vec![None]
+            } else {
+                tabs.iter().map(|t| Some(*t)).collect()
+            };
+            for tab in steps {
+                if let Some(t) = tab {
+                    c.ui.click(&format!("[role=tablist] [data-tab={t}]")).await;
+                    c.ui.wait_for(
+                        &format!("[role=tablist] [data-tab={t}][aria-selected=true]"),
+                        SECS,
+                    )
+                    .await;
+                }
+                c.ui.wait_for("[data-schema]", SECS).await;
+                c.ui.shot(&format!(
+                    "walk-{}{}",
+                    path.trim_start_matches('/').replace('/', "-"),
+                    tab.map(|t| format!("-{t}")).unwrap_or_default()
+                ))
+                .await;
+                seen.extend(c.ui.all_attrs("[data-schema]", "data-schema").await);
+                unset.extend(
+                    c.ui.all_attrs("[data-schema]:has([data-testid=not-set])", "data-schema")
+                        .await,
+                );
+            }
         }
         let missing: Vec<&String> = wanted
             .iter()
@@ -1384,4 +1398,69 @@ async fn round_trip(port: u16, bytes: usize) -> std::io::Result<()> {
     a?;
     b.map_err(|_| std::io::Error::other("echo timed out"))??;
     Ok(())
+}
+
+fn visitor_live(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
+    Box::pin(async move {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let echo = echo_server(c.world.ports["echo"]).await;
+        open(c, "ops").await;
+        c.ui.nav("/visitors/laptop").await;
+        c.ui.wait_text(
+            "[data-testid=summary]",
+            "not seen since the server started",
+            SECS,
+        )
+        .await;
+        c.ui.shot("visitor-not-seen-yet").await;
+        let file = c.world.visitor_file("laptop");
+        let (target, local) = (
+            c.world.ports["echo"].to_string(),
+            c.world.ports["forward"].to_string(),
+        );
+        c.world.start(
+            "visit",
+            &[
+                "visit", "-c", &file, "--client", "home", "--target", &target, "--local", &local,
+            ],
+            &[],
+        );
+        let port = c.world.ports["forward"];
+        let mut held = None;
+        for _ in 0..50 {
+            if let Ok(s) = tokio::net::TcpStream::connect(("127.0.0.1", port)).await {
+                held = Some(s);
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        let mut s = held.expect("the visit forward listens");
+        s.write_all(b"ping").await.expect("send through the tunnel");
+        let mut back = [0u8; 4];
+        s.read_exact(&mut back)
+            .await
+            .expect("echo through the tunnel");
+        c.ui.wait_text("[data-testid=summary]", "in use now", SECS)
+            .await;
+        c.ui.wait_for(
+            "[data-testid=entity-list] [data-row=laptop][data-group='In use now']",
+            SECS,
+        )
+        .await;
+        c.ui.shot("visitor-in-use-now").await;
+        drop(s);
+        c.ui.wait_text("[data-testid=summary]", "last used", SECS)
+            .await;
+        c.ui.shot("visitor-last-used").await;
+        c.ui.nav("/").await;
+        c.ui.wait_text("[data-testid=kpi-visitors]", "1 used since start", SECS)
+            .await;
+        echo.abort();
+        c.ui.assert_no_errors();
+    })
+}
+
+#[test]
+fn a_visitor_shows_live_use_while_burrow_visit_carries_a_connection() {
+    run("visitor-live", Options::default(), false, visitor_live);
 }

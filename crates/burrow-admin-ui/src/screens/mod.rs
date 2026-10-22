@@ -5,6 +5,7 @@ pub mod entity;
 pub mod flow;
 mod overview;
 pub mod paths;
+pub mod placement;
 mod settings;
 
 use burrow_config::Protocol;
