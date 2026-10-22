@@ -15,7 +15,7 @@ use crate::route::{self, Link, Route};
 use crate::screens::activity::diff_lines;
 use crate::screens::paths::{self, Problems};
 use crate::screens::{DetailPane, ListPane, Row, master_detail};
-use crate::store::{short_rev, store};
+use crate::store::{Store, short_rev, store};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Group {
@@ -906,6 +906,17 @@ pub fn ReviewPage() -> impl IntoView {
             }
             .into_any();
         }
+        if !revert.get()
+            && let Some((base, now)) = stale(s)
+        {
+            return view! {
+                <Callout tone=Tone::Warning title=format!("Based on rev {}; the file is now rev {}", short_rev(&base), short_rev(&now)) testid="review-stale">
+                    <p class="mb-2.5">"The config changed on the server after you started. Your draft is kept; check it on the new rev to see what it applies."</p>
+                    <Button label=format!("Review my draft on rev {}", short_rev(&now)) variant="primary" icon="refresh" small=true on_click=move |_| recheck(s)/>
+                </Callout>
+            }
+            .into_any();
+        }
         match plan.get() {
             None => view! {
                 <div data-testid="review-loading">
@@ -922,12 +933,50 @@ pub fn ReviewPage() -> impl IntoView {
     master_detail(list, detail)
 }
 
+pub fn stale(s: Store) -> Option<(String, String)> {
+    let e = s.edit;
+    if !e.dirty()
+        || e.review
+            .with(|r| r.as_ref().is_some_and(|r| r.revert_of.is_some()))
+    {
+        return None;
+    }
+    let base = e.base_rev.get();
+    let now = s.state.with(|st| st.as_ref().map(|st| st.rev.clone()))?;
+    (!base.is_empty() && base != now).then_some((base, now))
+}
+
+pub fn recheck(s: Store) {
+    let e = s.edit;
+    let revert = e.conflict_revert.get_untracked();
+    e.conflict_revert.set(None);
+    e.end_conflict();
+    crate::api::request(
+        burrow_admin_proto::msg::req::STATE,
+        burrow_admin_proto::serde_json::json!({}),
+        move |r| {
+            if let Ok(Ok(state)) =
+                r.map(burrow_admin_proto::serde_json::from_value::<burrow_admin_proto::msg::State>)
+            {
+                s.state.set(Some(std::sync::Arc::new(state)));
+                match revert.clone() {
+                    Some(to) => s.edit.open_revert(s, to),
+                    None => {
+                        s.edit.rebase(s);
+                        s.edit.open_review();
+                        route::go_in(s, Route::Review);
+                    }
+                }
+            }
+        },
+    );
+}
+
 #[component]
 pub fn ConflictDialog() -> impl IntoView {
     let s = store();
     let e = s.edit;
-    let open = RwSignal::new(false);
-    Effect::new(move |_| open.set(e.conflict.with(Option::is_some)));
+    let open = e.conflict_open;
     let current = move || {
         e.conflict.with(|c| {
             c.as_ref()
@@ -1019,30 +1068,11 @@ pub fn ConflictDialog() -> impl IntoView {
                 <span class="flex-1"></span>
                 <Button label=Signal::derive(move || format!("View rev {}", current())) variant="secondary" testid="conflict-view" on_click=move |_| {
                     let rev = e.conflict.with_untracked(|c| c.as_ref().map(|c| c.current.clone()));
-                    open.set(false);
                     e.conflict_revert.set(None);
-                    e.conflict.set(None);
+                    e.end_conflict();
                     route::go(Route::Activity(rev));
                 }/>
-                <Button label=Signal::derive(move || format!("Review my draft on rev {}", current())) variant="primary" icon="refresh" testid="conflict-recheck" on_click=move |_| {
-                    e.conflict.set(None);
-                    let revert = e.conflict_revert.get_untracked();
-                    e.conflict_revert.set(None);
-                    let st = s;
-                    crate::api::request(burrow_admin_proto::msg::req::STATE, burrow_admin_proto::serde_json::json!({}), move |r| {
-                        if let Ok(Ok(state)) = r.map(burrow_admin_proto::serde_json::from_value::<burrow_admin_proto::msg::State>) {
-                            st.state.set(Some(std::sync::Arc::new(state)));
-                            match revert.clone() {
-                                Some(to) => st.edit.open_revert(st, to),
-                                None => {
-                                    st.edit.rebase(st);
-                                    st.edit.open_review();
-                                    route::go_in(st, Route::Review);
-                                }
-                            }
-                        }
-                    });
-                }/>
+                <Button label=Signal::derive(move || format!("Review my draft on rev {}", current())) variant="primary" icon="refresh" testid="conflict-recheck" on_click=move |_| recheck(s)/>
             </div>
         </Dialog>
     }

@@ -376,6 +376,22 @@ fn a_changed_file_is_a_conflict_and_nothing_is_written() {
 }
 
 #[test]
+fn a_hand_edit_after_the_state_was_read_is_described_in_the_conflict() {
+    let w = world();
+    let core = core_for(&w.text);
+    let s = session(&w, AdminLevel::Write);
+    let base = core.state(&s).unwrap().rev;
+    let edited = w.text.replace("target: 3000", "target: 3001");
+    core.store.write(&w.text, &edited).unwrap();
+    let e = plan::compute(&core, &s, &base, &[]).err().unwrap();
+    assert_eq!(e.code, ErrorCode::Conflict);
+    let c: burrow_admin_proto::plan::Conflict = serde_json::from_value(e.body).unwrap();
+    assert!(c.known);
+    let theirs: Vec<&str> = c.theirs.iter().map(|t| t.summary.as_str()).collect();
+    assert_eq!(theirs, ["Service web: target 3000 → 3001"]);
+}
+
+#[test]
 fn the_guard_refuses_lockouts() {
     let w = world();
     let core = core_for(&w.text);

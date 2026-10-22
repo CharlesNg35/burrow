@@ -166,15 +166,19 @@ pub fn compute(
     let old_text = core.read()?;
     let current = text::rev(&old_text);
     if current != base {
-        let theirs = core.store.version(base).and_then(|b| {
-            let (_, _, a) = patch::split_text(&b);
-            let (_, _, c) = patch::split_text(&old_text);
-            Some(summary::changes(
-                &tree::parse(&a).ok()?.to_json(),
-                &tree::parse(&c).ok()?.to_json(),
-                &[],
-            ))
-        });
+        let theirs = core
+            .store
+            .version(base)
+            .or_else(|| core.seen_text(base))
+            .and_then(|b| {
+                let (_, _, a) = patch::split_text(&b);
+                let (_, _, c) = patch::split_text(&old_text);
+                Some(summary::changes(
+                    &tree::parse(&a).ok()?.to_json(),
+                    &tree::parse(&c).ok()?.to_json(),
+                    &[],
+                ))
+            });
         let body = Conflict {
             current: current.clone(),
             known: theirs.is_some(),

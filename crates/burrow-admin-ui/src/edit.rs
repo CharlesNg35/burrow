@@ -47,6 +47,7 @@ pub struct Edit {
     pub check_error: RwSignal<Option<String>>,
     pub conflict: RwSignal<Option<Conflict>>,
     pub conflict_revert: RwSignal<Option<String>>,
+    pub conflict_open: RwSignal<bool>,
     pub review: RwSignal<Option<Review>>,
     pub confirms: RwSignal<BTreeMap<String, String>>,
     pub applying: RwSignal<bool>,
@@ -156,6 +157,7 @@ impl Edit {
             check_error: RwSignal::new(None),
             conflict: RwSignal::new(None),
             conflict_revert: RwSignal::new(None),
+            conflict_open: RwSignal::new(false),
             review: RwSignal::new(None),
             confirms: RwSignal::new(BTreeMap::new()),
             applying: RwSignal::new(false),
@@ -289,7 +291,7 @@ impl Edit {
         self.texts.set(BTreeMap::new());
         self.local.set(BTreeMap::new());
         self.plan.set(None);
-        self.conflict.set(None);
+        self.end_conflict();
         self.check_error.set(None);
         self.confirms.set(BTreeMap::new());
         self.clear_refused();
@@ -397,20 +399,40 @@ impl Edit {
             }
             self.plan.set(None);
             if self.conflict_revert.with_untracked(Option::is_none) {
-                self.conflict.set(None);
+                self.end_conflict();
             }
             self.base_rev.set(rev.to_string());
             self.reset_on_load.set(false);
-        } else if self.conflict.get_untracked().is_none() {
-            let theirs = self
-                .draft
-                .with_untracked(|d| changes_between(d.base(), values));
-            self.conflict_revert.set(None);
-            self.conflict.set(Some(Conflict {
-                current: rev.to_string(),
-                known: !theirs.is_empty(),
-                theirs,
-            }));
+        } else if self
+            .conflict
+            .with_untracked(|c| c.as_ref().map(|c| c.current.as_str()) != Some(rev))
+        {
+            if let Some(s) = crate::store::try_store()
+                && s.changed_from.with_untracked(|(old, _)| *old != known)
+            {
+                s.changed_from.set((known, js_sys::Date::now()));
+            }
+            self.plan.set(None);
+            self.revalidate_now();
+        }
+    }
+
+    pub fn raise(&self, c: Conflict, show: bool) {
+        let new = self
+            .conflict
+            .with_untracked(|o| o.as_ref().map(|o| &o.current) != Some(&c.current));
+        self.conflict.set(Some(c));
+        if show || new {
+            self.conflict_open.set(true);
+        }
+    }
+
+    pub fn end_conflict(&self) {
+        if self.conflict.with_untracked(Option::is_some) {
+            self.conflict.set(None);
+        }
+        if self.conflict_open.get_untracked() {
+            self.conflict_open.set(false);
         }
     }
 
@@ -431,7 +453,7 @@ impl Edit {
         };
         self.draft.update(|d| d.rebase(state.values.clone()));
         self.base_rev.set(state.rev.clone());
-        self.conflict.set(None);
+        self.end_conflict();
         self.clear_refused();
         store.changed.set(None);
         self.changed();
@@ -479,7 +501,7 @@ impl Edit {
                 Err(e) => match conflict_of(&e) {
                     Some(c) => {
                         me.conflict_revert.set(None);
-                        me.conflict.set(Some(c));
+                        me.raise(c, false);
                     }
                     None => me.check_error.set(Some(e.message)),
                 },
@@ -547,7 +569,7 @@ impl Edit {
                     Some(c) => {
                         me.review.set(None);
                         me.conflict_revert.set(Some(to.clone()));
-                        me.conflict.set(Some(c));
+                        me.raise(c, true);
                     }
                     None => {
                         me.review.set(None);
@@ -616,7 +638,7 @@ impl Edit {
                     Some(c) => {
                         me.review.set(None);
                         me.conflict_revert.set(review.revert_of.clone());
-                        me.conflict.set(Some(c));
+                        me.raise(c, true);
                         api::load_state(store);
                     }
                     None => {
@@ -650,54 +672,6 @@ pub fn landing(
         }),
         _ => Some(Route::Settings),
     }
-}
-
-pub fn changes_between(old: &Value, new: &Value) -> Vec<burrow_admin_proto::plan::Change> {
-    use burrow_admin_proto::plan::{Change, ChangeKind};
-    let mut paths: Vec<Path> = burrow_admin_logic::changeset::ops_between(old, new)
-        .iter()
-        .filter_map(|o| o.path().cloned())
-        .map(|p| {
-            let entity =
-                crate::route::SECTIONS.contains(&p.first().map(String::as_str).unwrap_or(""));
-            p.into_iter()
-                .take(if entity { 2 } else { 1 })
-                .collect::<Path>()
-        })
-        .collect();
-    paths.sort();
-    paths.dedup();
-    paths
-        .into_iter()
-        .map(|p| {
-            let (a, b) = (
-                burrow_admin_proto::value::get(old, &p),
-                burrow_admin_proto::value::get(new, &p),
-            );
-            let kind = match (a, b) {
-                (None, _) => ChangeKind::Add,
-                (_, None) => ChangeKind::Remove,
-                _ => ChangeKind::Set,
-            };
-            let what = match (p.first(), p.get(1)) {
-                (Some(sec), Some(name)) => {
-                    format!("{} {name}", crate::screens::create::singular(sec))
-                }
-                _ => p.join("."),
-            };
-            let verb = match kind {
-                ChangeKind::Add => "added",
-                ChangeKind::Remove => "removed",
-                _ => "changed",
-            };
-            Change {
-                kind,
-                summary: format!("{what} {verb}"),
-                path: p,
-                part_of: None,
-            }
-        })
-        .collect()
 }
 
 fn related_errors(draft: RwSignal<Changeset>) -> BTreeMap<Path, String> {
@@ -935,26 +909,6 @@ mod tests {
             Some(Route::Settings)
         );
         assert_eq!(landing(&Plan::default(), none), None);
-    }
-
-    #[test]
-    fn a_change_elsewhere_is_listed_by_entity() {
-        let old = json!({"listen": 7835, "clients": {"office": {"max_connections": 5}, "lab": {}}});
-        let new =
-            json!({"listen": 7836, "clients": {"office": {"max_connections": 9}, "home": {}}});
-        let got: Vec<String> = changes_between(&old, &new)
-            .into_iter()
-            .map(|c| c.summary)
-            .collect();
-        assert_eq!(
-            got,
-            [
-                "client home added",
-                "client lab removed",
-                "client office changed",
-                "listen changed"
-            ]
-        );
     }
 
     #[test]

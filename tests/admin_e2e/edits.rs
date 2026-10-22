@@ -461,9 +461,32 @@ fn conflict(c: &mut Ctx) -> Flow<'_> {
         });
         c.ui.wait_for("[data-testid=conflict]", Duration::from_secs(15))
             .await;
+        c.ui.wait_text(
+            "[data-testid=conflict-theirs]",
+            "New client lab (1 secret)",
+            SECS,
+        )
+        .await;
         c.ui.shot("conflict-dialog").await;
-        c.ui.click("[data-testid=conflict-recheck]").await;
+        c.ui.click("[data-testid=conflict] button[aria-label=Close]")
+            .await;
         c.ui.wait_gone("[data-testid=conflict]", SECS).await;
+        tokio::time::sleep(Duration::from_secs(6)).await;
+        assert_eq!(
+            c.ui.count("[data-testid=banner-changed]").await,
+            1,
+            "closing the dialog keeps the banner while the draft is on the old rev"
+        );
+        assert_eq!(
+            c.ui.count("[data-testid=conflict]").await,
+            0,
+            "the closed dialog does not come back on its own"
+        );
+        c.ui.click("[data-testid=review-open]").await;
+        c.ui.wait_for("[data-testid=review-stale]", SECS).await;
+        c.ui.shot("review-on-the-old-rev").await;
+        c.ui.click("[data-testid=review-stale] button").await;
+        c.ui.wait_gone("[data-testid=review-stale]", SECS).await;
         c.ui.wait_for("[data-testid=review]", SECS).await;
         assert_eq!(
             c.ui.count("[data-testid=banner-changed]").await,

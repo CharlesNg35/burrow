@@ -685,29 +685,51 @@ fn Banners() -> impl IntoView {
         })
     };
     let changed = move || {
-        s.changed.get().map(|c| {
-            let by = if c.by.is_empty() || c.by == "file" { "by a hand edit".to_string() } else { format!("by visitor {}", c.by) };
-            view! {
-                <Banner
-                    tone=Tone::Warning
-                    title=format!("Config changed {by}")
-                    message=move || {
-                        let (old, at) = s.changed_from.get();
-                        let when = if s.now.get() - at < 60_000.0 { "noticed just now".to_string() } else { format!("noticed at {}", crate::format::clock(at)) };
-                        if old.is_empty() {
-                            format!("now rev {} · {when}", short_rev(&c.rev))
-                        } else {
-                            format!("rev {} → {} · {when}", short_rev(&old), short_rev(&c.rev))
-                        }
-                    }
-                    testid="banner-changed"
-                >
-                    <Button label="Refresh" small=true on_click=move |_| {
-                        api::load_state(s);
-                        s.changed.set(None);
-                    }/>
-                </Banner>
+        let stale = crate::review::stale(s);
+        let c = s.changed.get();
+        if c.is_none() && stale.is_none() {
+            return None;
+        }
+        let by = match &c {
+            Some(c) if !c.by.is_empty() && c.by != "file" => format!("by visitor {}", c.by),
+            Some(_) => "by a hand edit".to_string(),
+            None => "on the server".to_string(),
+        };
+        let revs = match (&stale, &c) {
+            (Some((base, now)), _) => (base.clone(), now.clone()),
+            (None, Some(c)) => (s.changed_from.get_untracked().0, c.rev.clone()),
+            (None, None) => (String::new(), String::new()),
+        };
+        let action = match stale {
+            Some((_, now)) => view! {
+                <Button label=format!("Review my draft on rev {}", short_rev(&now)) small=true testid="banner-recheck" on_click=move |_| crate::review::recheck(s)/>
             }
+            .into_any(),
+            None => view! {
+                <Button label="Refresh" small=true on_click=move |_| {
+                    api::load_state(s);
+                    s.changed.set(None);
+                }/>
+            }
+            .into_any(),
+        };
+        Some(view! {
+            <Banner
+                tone=Tone::Warning
+                title=format!("Config changed {by}")
+                message=move || {
+                    let (_, at) = s.changed_from.get();
+                    let when = if at == 0.0 || s.now.get() - at < 60_000.0 { "noticed just now".to_string() } else { format!("noticed at {}", crate::format::clock(at)) };
+                    if revs.0.is_empty() {
+                        format!("now rev {} · {when}", short_rev(&revs.1))
+                    } else {
+                        format!("rev {} → {} · {when}", short_rev(&revs.0), short_rev(&revs.1))
+                    }
+                }
+                testid="banner-changed"
+            >
+                {action}
+            </Banner>
         })
     };
     view! {
