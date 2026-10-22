@@ -759,7 +759,7 @@ fn Detail(section: String, name: String) -> impl IntoView {
                             && s.welcome
                                 .with(|w| w.as_ref().is_some_and(|w| w.you.visitor == nm))
                         {
-                            "this admin session is yours".into()
+                            "you, in burrow admin now".into()
                         } else if st.is_some() {
                             format::visitor_use(open, seen)
                         } else {

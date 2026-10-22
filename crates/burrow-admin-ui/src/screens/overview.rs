@@ -916,7 +916,7 @@ pub fn Overview() -> impl IntoView {
                         unit=Signal::derive(move || format!("/ {}", names(&values.get(), VisitorEntry::section()).len()))
                         detail=Signal::derive(move || {
                             let seen = s.status.with(|st| st.as_ref().map(|st| st.visitors.iter().filter(|v| v.open > 0 || v.last_seen_secs.is_some()).count()).unwrap_or(0));
-                            format!("with open connections · {seen} used since start")
+                            format!("{seen} used since start")
                         })
                         testid="kpi-visitors"
                     />
