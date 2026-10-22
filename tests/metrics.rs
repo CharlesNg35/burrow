@@ -222,7 +222,7 @@ async fn a_visitor_shows_when_it_last_used_a_tunnel() {
     let idle = t.server.shared.status();
     let idle = idle.visitors.iter().find(|v| v.name == "idle").unwrap();
     assert_eq!(idle.last_seen_secs, None);
-    let json = serde_json::to_value(&t.server.shared.status()).unwrap();
+    let json = serde_json::to_value(t.server.shared.status()).unwrap();
     assert!(
         json["visitors"]
             .as_array()
