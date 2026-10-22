@@ -149,6 +149,13 @@ pub fn App() -> impl IntoView {
         move || s.now.set(js_sys::Date::now()),
         std::time::Duration::from_millis(1000),
     );
+    for ev in ["focusin", "click", "input", "keyup"] {
+        let cb = wasm_bindgen::closure::Closure::<dyn Fn()>::new(move || {
+            request_animation_frame(screens::clear_of_bar);
+        });
+        let _ = document().add_event_listener_with_callback(ev, cb.as_ref().unchecked_ref());
+        cb.forget();
+    }
     api::connect(s);
     let no_token = Memo::new(move |_| s.conn.get() == Conn::NoToken);
     view! {

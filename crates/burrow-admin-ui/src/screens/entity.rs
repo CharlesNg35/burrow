@@ -541,25 +541,15 @@ fn Detail(section: String, name: String) -> impl IntoView {
     Effect::new(move |_| {
         let on = editing.get();
         let _ = s.editing.try_set(on);
-        if let Some(root) = document().document_element() {
-            use wasm_bindgen::JsCast;
-            if let Ok(h) = root.dyn_into::<web_sys::HtmlElement>() {
-                let _ = h
-                    .style()
-                    .set_property("scroll-padding-bottom", if on { "96px" } else { "" });
-            }
+        if on {
+            request_animation_frame(crate::screens::clear_of_bar);
         }
     });
     {
         let path = path.clone();
         on_cleanup(move || {
             let _ = s.editing.try_set(false);
-            if let Some(root) = document().document_element() {
-                use wasm_bindgen::JsCast;
-                if let Ok(h) = root.dyn_into::<web_sys::HtmlElement>() {
-                    let _ = h.style().remove_property("scroll-padding-bottom");
-                }
-            }
+            request_animation_frame(crate::screens::clear_of_bar);
             if !untrack(|| e.unsaved(&path)) {
                 e.stop_edit(&path);
             }

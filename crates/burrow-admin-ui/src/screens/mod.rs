@@ -394,6 +394,49 @@ pub fn DetailPane(
     }
 }
 
+pub fn clear_of_bar() {
+    use wasm_bindgen::JsCast;
+    let doc = document();
+    let Some(root) = doc
+        .document_element()
+        .and_then(|r| r.dyn_into::<web_sys::HtmlElement>().ok())
+    else {
+        return;
+    };
+    let Some(bar) = doc.query_selector("[data-sticky-bar]").ok().flatten() else {
+        let _ = root.style().remove_property("scroll-padding-bottom");
+        return;
+    };
+    let h = window()
+        .inner_height()
+        .ok()
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0);
+    let top = bar.get_bounding_client_rect().top();
+    let room = (h - top + 16.0).clamp(16.0, h / 2.0);
+    let _ = root
+        .style()
+        .set_property("scroll-padding-bottom", &format!("{room}px"));
+    let Some(active) = doc.active_element() else {
+        return;
+    };
+    if bar.contains(Some(&active)) || active.tag_name() == "BODY" {
+        return;
+    }
+    let row = active
+        .closest("[data-schema]")
+        .ok()
+        .flatten()
+        .filter(|r| r.get_bounding_client_rect().height() < h / 2.0)
+        .unwrap_or(active);
+    let r = row.get_bounding_client_rect();
+    let limit = h - room;
+    if r.bottom() > limit && r.top() < h {
+        let by = (r.bottom() - limit + 8.0).min(r.top() - 80.0).max(0.0);
+        window().scroll_by_with_x_and_y(0.0, by);
+    }
+}
+
 pub fn master_detail(list: AnyView, detail: AnyView) -> AnyView {
     view! {
         <div class="grid min-h-[calc(100vh-var(--hdr-h,64px))] items-start lg:grid-cols-[380px_minmax(0,1fr)] lg:bg-[linear-gradient(to_right,var(--color-surface)_379px,var(--color-border)_379px,var(--color-border)_380px,transparent_380px)]">

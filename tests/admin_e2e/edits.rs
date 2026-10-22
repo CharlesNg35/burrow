@@ -276,6 +276,17 @@ async fn row_error(c: &Ctx, schema: &str) -> String {
     c.ui.text(&css).await
 }
 
+async fn clear_of_bar(c: &Ctx, schema: &str) {
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    let gap: f64 = c
+        .ui
+        .eval(&format!(
+            "(() => {{ const b = document.querySelector('[data-sticky-bar]'); const r = document.querySelector(\"[data-schema='{schema}']\"); return b.getBoundingClientRect().top - r.getBoundingClientRect().bottom; }})()"
+        ))
+        .await;
+    assert!(gap >= 0.0, "the save bar covers {schema} by {gap}px");
+}
+
 async fn row_clean(c: &Ctx, schema: &str) {
     c.ui.wait_gone(&format!("[data-schema='{schema}'] [aria-live] p"), SECS)
         .await;
@@ -399,9 +410,15 @@ fn editors(c: &mut Ctx) -> Flow<'_> {
         edit_mode(c).await;
         c.ui.wait_for("[data-schema='pool/min_idle'] [data-editor]", SECS)
             .await;
+        let _: bool = c
+            .ui
+            .eval("(() => { const b = document.querySelector('[data-sticky-bar]').getBoundingClientRect(); const r = document.querySelector(\"[data-schema='pool/min_idle']\").getBoundingClientRect(); scrollBy(0, r.bottom - b.top - 10); document.getElementById('f-pool-min-idle').focus(); return true; })()")
+            .await;
+        clear_of_bar(c, "pool/min_idle").await;
         c.ui.fill("#f-pool-min-idle", "100").await;
         let err = row_error(c, "pool/min_idle").await;
         assert!(err.contains("max_idle"), "{err}");
+        clear_of_bar(c, "pool/min_idle").await;
         assert!(
             !c.ui.enabled("[data-testid=save]").await,
             "a server error in a setting blocks Add to changes"
@@ -1332,6 +1349,7 @@ fn edit_state(c: &mut Ctx) -> Flow<'_> {
             SECS,
         )
         .await;
+        clear_of_bar(c, "services/*/visitors").await;
         c.ui.fill("#f-services-web-max-connections", "abc").await;
         c.ui.wait_for("[data-testid=form-problems] [data-problem]", SECS)
             .await;
