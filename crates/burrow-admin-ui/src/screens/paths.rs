@@ -453,11 +453,7 @@ pub fn visitor(
                     (true, _) => "you, in burrow admin now".into(),
                     (false, Some(_)) if open > 0 => format!("in use now · {open} open"),
                     (false, Some(v)) => match v.last_seen_secs {
-                        Some(a) => format!(
-                            "last used {} · {} total",
-                            crate::format::ago(a),
-                            crate::format::count(v.total)
-                        ),
+                        Some(a) => format!("seen {} · no open connection", crate::format::ago(a)),
                         None => "not seen since start".into(),
                     },
                     (false, None) if status.is_some() => "not seen since start".into(),

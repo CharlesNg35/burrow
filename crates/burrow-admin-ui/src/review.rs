@@ -678,8 +678,9 @@ fn detail(plan: std::sync::Arc<Plan>, revert: bool) -> AnyView {
                     <Button label="Discard all" variant="ghost" testid="discard" on_click=move |_| {
                         let to = match s.prev.get_untracked() {
                             Route::Detail(sec, name) => {
-                                let from = e.draft.with_untracked(|d| d.renamed_from(&sec, &name));
-                                Route::Detail(sec, from.unwrap_or(name))
+                                let name = e.draft.with_untracked(|d| d.renamed_from(&sec, &name)).unwrap_or(name);
+                                let there = e.draft.with_untracked(|d| get(d.base(), &[sec.clone(), name.clone()]).is_some());
+                                if there { Route::Detail(sec, name) } else { Route::List(sec) }
                             }
                             other => other,
                         };
@@ -793,7 +794,11 @@ pub fn ReviewPage() -> impl IntoView {
             });
             match shown {
                 Some((sec, name)) => route::go(Route::Detail(sec, name)),
-                None => route::go(s.prev.get_untracked()),
+                None => route::go(
+                    e.after_apply
+                        .get_untracked()
+                        .unwrap_or_else(|| s.prev.get_untracked()),
+                ),
             }
         }
         rev
@@ -902,6 +907,15 @@ pub fn ReviewPage() -> impl IntoView {
             }
             .into_any();
         }
+        if !revert.get() && !e.dirty() {
+            return view! {
+                {outcome_view()}
+                <EmptyState icon="check" title="Nothing to apply" message="Your draft has no changes left." testid="review-empty">
+                    <Link to=Route::Overview class=button_class("secondary", false)>"Go to the overview"</Link>
+                </EmptyState>
+            }
+            .into_any();
+        }
         match plan.get() {
             None => view! {
                 <div data-testid="review-loading">
@@ -1000,8 +1014,10 @@ pub fn ConflictDialog() -> impl IntoView {
     let label = "mb-1 text-[11px] font-bold tracking-[0.07em] text-text-faint uppercase";
     view! {
         <Dialog open=open title="The config changed on the server" sub=sub icon="refresh" tone=Tone::Warning wide=true testid="conflict">
-            <h3 class=label>{move || format!("Changed on the server · rev {}", current())}</h3>
-            <ul class="mb-4 text-sm" data-testid="conflict-theirs">{theirs}</ul>
+            {move || e.conflict.with(|c| c.as_ref().is_some_and(|c| !c.theirs.is_empty())).then(|| view! {
+                <h3 class=label>{move || format!("Changed on the server · rev {}", current())}</h3>
+                <ul class="mb-4 text-sm" data-testid="conflict-theirs">{theirs}</ul>
+            })}
             <h3 class=label>{move || format!("Your draft · {} change{}", n_mine(), if n_mine() == 1 { "" } else { "s" })}</h3>
             <ul class="mb-5 text-sm" data-testid="conflict-mine">{mine}</ul>
             <div class="flex flex-wrap items-center gap-2">

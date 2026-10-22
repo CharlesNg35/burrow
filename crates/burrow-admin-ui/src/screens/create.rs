@@ -320,18 +320,23 @@ pub fn NewEntity(
     };
     let sec5 = section.clone();
     let options = Signal::derive(move || services_for(&sec5));
-    let placeholder_max = s.state.with_untracked(|st| {
-        st.as_ref()
-            .filter(|_| what == ClientEntry::ENTITY)
-            .and_then(|st| {
-                ServerConfig::LIMITS
-                    .then(Limits::MAX_CONNECTIONS_PER_CLIENT)
-                    .get(&st.values)
+    let client = what == ClientEntry::ENTITY;
+    let placeholder_max = if client {
+        let n = s
+            .state
+            .with_untracked(|st| {
+                st.as_ref().and_then(|st| {
+                    ServerConfig::LIMITS
+                        .then(Limits::MAX_CONNECTIONS_PER_CLIENT)
+                        .get(&st.values)
+                        .and_then(Value::as_u64)
+                })
             })
-            .and_then(Value::as_u64)
-            .unwrap_or(8192)
-            .to_string()
-    });
+            .unwrap_or(u64::from(Limits::default().max_connections_per_client));
+        format!("Default: {}", crate::format::count(n))
+    } else {
+        "Unlimited".to_string()
+    };
     let crumb = Route::List(section.clone());
     let plural_s = match entity_of_section(&section) {
         Some(Entity::Client) => "Clients",
@@ -401,10 +406,9 @@ pub fn NewEntity(
                         <div>
                             <span class="mb-1.5 flex items-center gap-2 text-sm font-semibold">"Max connections"<span class="font-normal text-text-faint">"· optional"</span></span>
                             <div class="flex items-center gap-2">
-                                <div class="w-36">
-                                    <TextInput id="new-max" value=max on_input=move |t: String| max.set(t) numeric=true placeholder=placeholder_max.clone() suffix="conn."/>
+                                <div class="w-56">
+                                    <TextInput id="new-max" value=max on_input=move |t: String| max.set(t) numeric=true placeholder=placeholder_max.clone() suffix="connections"/>
                                 </div>
-                                <span class="text-xs text-text-muted">"default from limits"</span>
                             </div>
                         </div>
                         <div>

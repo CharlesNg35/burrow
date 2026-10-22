@@ -19,7 +19,7 @@ pub fn ToastHost(
 ) -> impl IntoView {
     view! {
         <div
-            class="fixed right-4 bottom-4 z-50 flex w-[min(380px,calc(100vw-32px))] flex-col gap-2 [body:has([data-sticky-bar])_&]:top-20 [body:has([data-sticky-bar])_&]:bottom-auto"
+            class="pointer-events-none fixed right-4 bottom-4 z-50 flex w-[min(380px,calc(100vw-32px))] flex-col gap-2 [body:has([data-sticky-bar])_&]:bottom-24"
             aria-live="polite"
             data-testid="toasts"
             on:mouseenter=move |_| on_hover.run(true)
@@ -38,7 +38,7 @@ pub fn ToastHost(
                                 <span class=t.tone.text()><Icon name=t.tone.icon()/></span>
                                 <span class="flex-1">{t.text.clone()}</span>
                                 {t.action.clone().map(|a| view! {
-                                    <button type="button" class="cursor-pointer text-sm font-semibold text-accent-ink hover:underline" on:click=move |_| on_action.run(id)>{a}</button>
+                                    <button type="button" class="pointer-events-auto cursor-pointer text-sm font-semibold text-accent-ink hover:underline" on:click=move |_| on_action.run(id)>{a}</button>
                                 })}
                             </div>
                         }

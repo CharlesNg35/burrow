@@ -927,6 +927,7 @@ fn Detail(section: String, name: String) -> impl IntoView {
                 {move || view! { <Tabs tabs=tab_list.get() active=tab counts=tab_counts errors=tab_errors/> }}
                 <div data-testid="detail-settings">
                     {move || (editing.get() && !problems.get().is_empty()).then(|| problem_list(problems.get(), what, nm_p.clone(), tab))}
+                    {move || editing.get().then(apply_notes).flatten()}
                     {tab_body}
                 </div>
             }
@@ -1228,6 +1229,50 @@ fn problems_of(section: &str, entity: &Path) -> Vec<Problem> {
     out
 }
 
+fn apply_notes() -> Option<AnyView> {
+    let e = store().edit;
+    let (refused, warned): (Vec<String>, Vec<String>) = e.plan.with(|p| {
+        p.as_ref()
+            .map(|p| {
+                (
+                    p.refusals.iter().map(|r| r.message.clone()).collect(),
+                    p.impacts
+                        .iter()
+                        .filter(|i| i.level != burrow_admin_proto::plan::Level::Info)
+                        .map(|i| i.message.clone())
+                        .collect(),
+                )
+            })
+            .unwrap_or_default()
+    });
+    if refused.is_empty() && warned.is_empty() {
+        return None;
+    }
+    let capital = |m: &str| {
+        let mut c = m.chars();
+        c.next()
+            .map(|f| f.to_uppercase().chain(c).collect::<String>())
+            .unwrap_or_default()
+    };
+    Some(
+        view! {
+            <div class="mb-4 space-y-2" data-testid="apply-notes">
+                {(!refused.is_empty()).then(|| view! {
+                    <Callout tone=Tone::Danger title="Apply would be refused">
+                        <ul>{refused.iter().map(|m| view! { <li>{format!("{}.", capital(m))}</li> }).collect_view()}</ul>
+                    </Callout>
+                })}
+                {(!warned.is_empty()).then(|| view! {
+                    <Callout tone=Tone::Warning title="When you apply">
+                        <ul>{warned.iter().map(|m| view! { <li>{format!("{}.", capital(m))}</li> }).collect_view()}</ul>
+                    </Callout>
+                })}
+            </div>
+        }
+        .into_any(),
+    )
+}
+
 pub fn go_to_field(path: &[String]) {
     let ids: Vec<String> = (3..=path.len())
         .rev()
@@ -1396,7 +1441,10 @@ fn served(name: &str) -> impl IntoView {
                                         Some(b) => view! { <span class="font-mono text-[13px]">{plain(b)}</span> }.into_any(),
                                         None => view! { <span class="font-mono text-[13px] text-text-faint">"private"</span> }.into_any(),
                                     }}</td>
-                                    <td class="font-mono text-[13px] text-text-muted">{format!("→ {}", ServiceEntry::TARGET.get(&v).map(plain).unwrap_or_default())}</td>
+                                    {
+                                        let t = ServiceEntry::TARGET.get(&v).map(plain).unwrap_or_default();
+                                        view! { <td class="max-w-[260px] truncate font-mono text-[13px] text-text-muted" title=t.clone()>{format!("→ {t}")}</td> }
+                                    }
                                     <td class="text-right tabular-nums">{x.map(|x| x.open).unwrap_or(0)}</td>
                                     <td>{health}</td>
                                 </tr>

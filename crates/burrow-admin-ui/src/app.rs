@@ -173,7 +173,19 @@ pub fn App() -> impl IntoView {
             }
         }}
         <ToastHost
-            toasts=s.toasts
+            toasts=Signal::derive(move || {
+                let on_review = s.route.with(|r| *r == Route::Review);
+                s.toasts
+                    .get()
+                    .into_iter()
+                    .map(|mut t| {
+                        if on_review {
+                            t.action = None;
+                        }
+                        t
+                    })
+                    .collect::<Vec<_>>()
+            })
             on_action=move |_| route::go(Route::Review)
             on_hover=move |h: bool| s.toast_hold.set(h)
         />
@@ -283,6 +295,12 @@ fn Header() -> impl IntoView {
     let retry_open = RwSignal::new(false);
     popover(menu_open, "server-switcher", "server-menu");
     popover(avatar_open, "avatar", "avatar-menu");
+    Effect::new(move |_| {
+        s.route.track();
+        s.search_open.track();
+        avatar_open.set(false);
+        menu_open.set(false);
+    });
     popover(why_open, "read-only-tag", "read-only-why");
     popover(retry_open, "conn-pill", "retry-popover");
     let conn_state = move || {
@@ -395,11 +413,11 @@ fn Header() -> impl IntoView {
                     </div>
                 </Show>
             </div>
-            <nav aria-label="Sections" class="flex gap-0.5 rounded-[11px] border border-hdr-line bg-hdr-raised p-[3px] max-xl:col-span-2 max-xl:row-start-2 max-xl:mb-3 max-xl:justify-self-center max-sm:mb-2 max-sm:max-w-full max-sm:justify-self-stretch max-sm:overflow-x-auto max-sm:rounded-none max-sm:border-0 max-sm:bg-transparent max-sm:p-0 max-sm:[scrollbar-width:none] dark:border-hdr-raised-2">
+            <nav aria-label="Sections" class="flex gap-0.5 rounded-[11px] border border-hdr-line bg-hdr-raised p-[3px] max-xl:col-span-2 max-xl:row-start-2 max-xl:mb-3 max-xl:justify-self-center max-sm:mb-2 max-sm:max-w-full max-sm:justify-self-stretch max-sm:overflow-x-auto max-sm:rounded-none max-sm:border-0 max-sm:bg-transparent max-sm:p-0 max-sm:pr-8 max-sm:[scrollbar-width:none] max-sm:[mask-image:linear-gradient(to_right,black_calc(100%-2rem),transparent)] dark:border-hdr-raised-2">
                 {nav}
             </nav>
             <div class="flex items-center justify-end gap-3" data-testid="header-right">
-                <button type="button" class="flex size-8 cursor-pointer items-center justify-center rounded-lg text-hdr-text outline-none hover:bg-hdr-raised focus-visible:bg-hdr-raised max-sm:hidden" aria-label="Search (/)" title="Search (/)" data-testid="search-open" on:click=move |_| s.search_open.set(true)>
+                <button type="button" class="flex size-8 cursor-pointer items-center justify-center rounded-lg text-hdr-text outline-none hover:bg-hdr-raised focus-visible:bg-hdr-raised" aria-label="Search (/)" title="Search (/)" data-testid="search-open" on:click=move |_| s.search_open.set(true)>
                     <Icon name="search"/>
                 </button>
                 <button
@@ -454,7 +472,7 @@ fn Header() -> impl IntoView {
                         ().into_any()
                     }
                 }}
-                <div class="relative flex items-center gap-2 max-sm:hidden">
+                <div class="relative flex items-center gap-2">
                     <button type="button" class="relative flex size-[30px] cursor-pointer items-center justify-center rounded-full bg-hdr-raised-2 text-xs font-bold text-hdr-on" aria-label=move || format!("Account {}", you.get().map(|y| y.0).unwrap_or_default()) title=conn_line aria-haspopup="true" aria-expanded=move || avatar_open.get().to_string() aria-controls="avatar-menu" id="avatar" data-testid="avatar" on:click=move |_| avatar_open.update(|o| *o = !*o)>
                         {move || you.get().map(|y| initials(&y.0)).unwrap_or_default()}
                         <span class=move || format!("absolute -right-0.5 -bottom-0.5 size-2.5 rounded-full ring-2 ring-hdr {}", dot())></span>

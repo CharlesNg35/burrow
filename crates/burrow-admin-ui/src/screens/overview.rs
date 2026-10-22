@@ -790,7 +790,7 @@ pub fn Overview() -> impl IntoView {
                 }
             })
             .collect_view();
-        view! { <div class="max-sm:hidden"><Table head=vec!["Visitor", "Admin", "Services it may use", ">Open", ">Total", "Last used"] testid="overview-visitors">{rows}</Table></div> {mobile_cards(VisitorEntry::section())} }.into_any()
+        view! { <div class="max-sm:hidden"><Table head=vec!["Visitor", "Admin", "Services it may use", ">Open", ">Total", "Last seen"] testid="overview-visitors">{rows}</Table></div> {mobile_cards(VisitorEntry::section())} }.into_any()
     };
     let kpi_link = "rounded-card no-underline text-text hover:[&>div]:border-border-strong";
     view! {

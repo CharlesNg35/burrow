@@ -744,7 +744,7 @@ fn map_editor(fc: FieldCtx, entity: Option<Entity>, value_node: Node) -> AnyView
                             type="button"
                             class=button_class("ghost", true)
                             aria-label=format!("Remove {k}")
-                            on:click=move |_| e.set(&p, None)
+                            on:click=move |_| e.remove_pruned(&p)
                         >
                             "Remove"
                         </button>

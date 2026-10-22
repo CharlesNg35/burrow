@@ -672,13 +672,17 @@ fn row(f: Field, path: Path, spath: Path, entity: Path) -> AnyView {
     let touched = RwSignal::new(false);
     let id = field_id(&path);
     let msg_id = format!("{id}-msg");
+    let items = matches!(
+        inner(&node).sem,
+        SemType::List(_) | SemType::RefList(_) | SemType::Map(_) | SemType::RefMap(_)
+    );
     let state = {
         let path = path.clone();
         let node = node.clone();
         Signal::derive(move || {
             let s = st.get();
             let server = e.plan.with(|p| {
-                diags_at(p.as_deref(), &path)
+                diags_at(p.as_deref(), &path, items)
                     .into_iter()
                     .map(|d| (d.severity, d.message.clone()))
                     .collect::<Vec<_>>()
@@ -832,7 +836,10 @@ fn reset_button(path: Path) -> impl IntoView {
                             .draft
                             .with_untracked(|d| burrow_admin_proto::value::get(d.base(), &path).cloned());
                         e.local_error(&path, None);
-                        e.set(&path, base);
+                        match base {
+                            Some(b) => e.set(&path, Some(b)),
+                            None => e.remove_pruned(&path),
+                        }
                     }
                 >
                     <burrow_ui_kit::Icon name="revert" small=true/>

@@ -1202,6 +1202,14 @@ fn edit_state(c: &mut Ctx) -> Flow<'_> {
             ["1", "problem"],
             "the tab counts it once"
         );
+        c.ui.click("[data-testid=discard-edit]").await;
+        c.ui.wait_gone("[data-testid=save-bar]", SECS).await;
+        edit_mode(c).await;
+        assert_eq!(
+            c.ui.count("[data-testid=form-problems]").await,
+            0,
+            "a discarded edit leaves no problems behind"
+        );
         c.ui.fill("#f-visitors-laptop-max-connections", "50").await;
         wait_checked(c).await;
         c.ui.click("[data-testid=review-open]").await;

@@ -312,8 +312,17 @@ impl Ui {
                 js_str(css)
             ))
             .await;
-        let el = self.page.find_element(css).await.expect("element");
-        el.type_str(text).await.expect("type");
+        let mut typed = false;
+        for _ in 0..3 {
+            if let Ok(el) = self.page.find_element(css).await
+                && el.type_str(text).await.is_ok()
+            {
+                typed = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        assert!(typed, "could not type into {css}");
         let _: bool = self
             .eval(&format!(
                 "(() => {{ const e = document.querySelector({}); if (e) e.blur(); return true; }})()",

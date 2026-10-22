@@ -55,6 +55,7 @@ pub struct Edit {
     pub auto_apply: RwSignal<bool>,
     pub refused: RwSignal<std::collections::BTreeSet<Path>>,
     pub editing: RwSignal<BTreeMap<Path, Option<Value>>>,
+    pub after_apply: RwSignal<Option<crate::route::Route>>,
     seq: StoredValue<u64>,
 }
 
@@ -69,9 +70,20 @@ fn ops_of(draft: &Changeset, texts: &BTreeMap<Path, String>) -> Vec<Op> {
     ops
 }
 
-pub fn diags_at<'a>(plan: Option<&'a Plan>, path: &[String]) -> Vec<&'a Diag> {
-    plan.map(|p| p.diags.iter().filter(|d| d.concerns(path)).collect())
-        .unwrap_or_default()
+pub fn diags_at<'a>(plan: Option<&'a Plan>, path: &[String], items: bool) -> Vec<&'a Diag> {
+    plan.map(|p| {
+        p.diags
+            .iter()
+            .filter(|d| {
+                if items {
+                    d.within(path)
+                } else {
+                    d.concerns(path)
+                }
+            })
+            .collect()
+    })
+    .unwrap_or_default()
 }
 
 pub fn missing_confirms(plan: &Plan, typed: &BTreeMap<String, String>) -> Vec<String> {
@@ -152,6 +164,7 @@ impl Edit {
             auto_apply: RwSignal::new(false),
             refused: RwSignal::new(std::collections::BTreeSet::new()),
             editing: RwSignal::new(BTreeMap::new()),
+            after_apply: RwSignal::new(None),
             seq: StoredValue::new(0),
         }
     }
@@ -208,6 +221,11 @@ impl Edit {
             return;
         }
         self.draft.update(|d| d.set(path, v.unwrap_or(Value::Null)));
+        self.changed();
+    }
+
+    pub fn remove_pruned(&self, path: &[String]) {
+        self.draft.update(|d| d.remove_pruned(path));
         self.changed();
     }
 
@@ -305,7 +323,30 @@ impl Edit {
         let Some(snapshot) = self.editing.with_untracked(|m| m.get(entity).cloned()) else {
             return;
         };
-        self.set(entity, snapshot);
+        if self
+            .local
+            .with_untracked(|l| l.keys().any(|p| p.starts_with(entity)))
+        {
+            self.local
+                .update(|l| l.retain(|p, _| !p.starts_with(entity)));
+        }
+        if self
+            .refused
+            .with_untracked(|r| r.iter().any(|p| p.starts_with(entity)))
+        {
+            self.refused
+                .update(|r| r.retain(|p| !p.starts_with(entity)));
+        }
+        if self
+            .texts
+            .with_untracked(|t| t.keys().any(|p| p.starts_with(entity)))
+        {
+            self.texts
+                .update(|t| t.retain(|p, _| !p.starts_with(entity)));
+        }
+        if self.peek(entity) != snapshot {
+            self.set(entity, snapshot);
+        }
         self.stop_edit(entity);
     }
 
@@ -361,11 +402,14 @@ impl Edit {
             self.base_rev.set(rev.to_string());
             self.reset_on_load.set(false);
         } else if self.conflict.get_untracked().is_none() {
+            let theirs = self
+                .draft
+                .with_untracked(|d| changes_between(d.base(), values));
             self.conflict_revert.set(None);
             self.conflict.set(Some(Conflict {
                 current: rev.to_string(),
-                theirs: Vec::new(),
-                known: false,
+                known: !theirs.is_empty(),
+                theirs,
             }));
         }
     }
@@ -544,6 +588,13 @@ impl Edit {
             self.base_rev.get_untracked()
         };
         let confirm: Vec<String> = plan.confirms().into_iter().map(str::to_string).collect();
+        let target = if review.revert_of.is_some() {
+            Some(crate::route::Route::Activity(None))
+        } else {
+            self.draft
+                .with_untracked(|d| landing(&plan, |sec, name| d.renamed_to(sec, name)))
+        };
+        self.after_apply.set(target);
         self.applying.set(true);
         self.outcome.set(None);
         let me = *self;
@@ -578,6 +629,74 @@ impl Edit {
             }
         });
     }
+}
+
+pub fn landing(
+    plan: &Plan,
+    renamed: impl Fn(&str, &str) -> Option<String>,
+) -> Option<crate::route::Route> {
+    use crate::route::Route;
+    use burrow_admin_proto::plan::ChangeKind;
+    let head = crate::review::change_groups(plan).into_iter().next()?.head;
+    match head.path.as_slice() {
+        [sec, name] if crate::route::SECTIONS.contains(&sec.as_str()) => Some(match head.kind {
+            ChangeKind::Remove => Route::List(sec.clone()),
+            ChangeKind::Rename => match renamed(sec, name) {
+                Some(to) => Route::Detail(sec.clone(), to),
+                None => Route::List(sec.clone()),
+            },
+            _ => Route::Detail(sec.clone(), name.clone()),
+        }),
+        _ => Some(Route::Settings),
+    }
+}
+
+pub fn changes_between(old: &Value, new: &Value) -> Vec<burrow_admin_proto::plan::Change> {
+    use burrow_admin_proto::plan::{Change, ChangeKind};
+    let mut paths: Vec<Path> = burrow_admin_logic::changeset::ops_between(old, new)
+        .iter()
+        .filter_map(|o| o.path().cloned())
+        .map(|p| {
+            let entity =
+                crate::route::SECTIONS.contains(&p.first().map(String::as_str).unwrap_or(""));
+            p.into_iter()
+                .take(if entity { 2 } else { 1 })
+                .collect::<Path>()
+        })
+        .collect();
+    paths.sort();
+    paths.dedup();
+    paths
+        .into_iter()
+        .map(|p| {
+            let (a, b) = (
+                burrow_admin_proto::value::get(old, &p),
+                burrow_admin_proto::value::get(new, &p),
+            );
+            let kind = match (a, b) {
+                (None, _) => ChangeKind::Add,
+                (_, None) => ChangeKind::Remove,
+                _ => ChangeKind::Set,
+            };
+            let what = match (p.first(), p.get(1)) {
+                (Some(sec), Some(name)) => {
+                    format!("{} {name}", crate::screens::create::singular(sec))
+                }
+                _ => p.join("."),
+            };
+            let verb = match kind {
+                ChangeKind::Add => "added",
+                ChangeKind::Remove => "removed",
+                _ => "changed",
+            };
+            Change {
+                kind,
+                summary: format!("{what} {verb}"),
+                path: p,
+                part_of: None,
+            }
+        })
+        .collect()
 }
 
 fn related_errors(draft: RwSignal<Changeset>) -> BTreeMap<Path, String> {
@@ -779,6 +898,62 @@ mod tests {
             "b2s:3",
         );
         assert!(!e.is_editing(&lap), "an apply ends the edits");
+    }
+
+    #[test]
+    fn after_apply_the_page_shows_what_changed() {
+        use crate::route::Route;
+        use burrow_admin_proto::plan::{Change, ChangeKind};
+        let plan = |kind, path: &[&str]| Plan {
+            changes: vec![Change {
+                kind,
+                path: p(path),
+                summary: String::new(),
+                part_of: None,
+            }],
+            ..Plan::default()
+        };
+        let none = |_: &str, _: &str| None;
+        assert_eq!(
+            landing(&plan(ChangeKind::Add, &["visitors", "phone"]), none),
+            Some(Route::Detail("visitors".into(), "phone".into()))
+        );
+        assert_eq!(
+            landing(&plan(ChangeKind::Remove, &["visitors", "phone"]), none),
+            Some(Route::List("visitors".into()))
+        );
+        assert_eq!(
+            landing(
+                &plan(ChangeKind::Rename, &["clients", "home"]),
+                |_, _| Some("house".into())
+            ),
+            Some(Route::Detail("clients".into(), "house".into()))
+        );
+        assert_eq!(
+            landing(&plan(ChangeKind::Set, &["pool"]), none),
+            Some(Route::Settings)
+        );
+        assert_eq!(landing(&Plan::default(), none), None);
+    }
+
+    #[test]
+    fn a_change_elsewhere_is_listed_by_entity() {
+        let old = json!({"listen": 7835, "clients": {"office": {"max_connections": 5}, "lab": {}}});
+        let new =
+            json!({"listen": 7836, "clients": {"office": {"max_connections": 9}, "home": {}}});
+        let got: Vec<String> = changes_between(&old, &new)
+            .into_iter()
+            .map(|c| c.summary)
+            .collect();
+        assert_eq!(
+            got,
+            [
+                "client home added",
+                "client lab removed",
+                "client office changed",
+                "listen changed"
+            ]
+        );
     }
 
     #[test]

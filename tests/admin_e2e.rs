@@ -1445,7 +1445,7 @@ fn visitor_live(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
         .await;
         c.ui.shot("visitor-in-use-now").await;
         drop(s);
-        c.ui.wait_text("[data-testid=path-diagram]", "last used", SECS)
+        c.ui.wait_text("[data-testid=path-diagram]", "no open connection", SECS)
             .await;
         c.ui.shot("visitor-last-used").await;
         c.ui.nav("/").await;
