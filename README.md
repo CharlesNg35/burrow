@@ -77,8 +77,8 @@ Now open `http://myserver.example.com:7840`: you see the app from port 3000 of y
 **Next steps:**
 
 - To expose more, add entries under `services` in `server.yaml` and save. The server applies the change by itself, and the client needs no change.
-- To keep burrow running after a reboot, install it as a system service: `sudo ./burrow service install` in the folder that holds the config, on each machine.
-- `./burrow validate` checks a config without starting anything.
+- To keep burrow running after a reboot, install it as a system service on each machine: `sudo ./burrow service install -c server.yaml` on the server, `sudo ./burrow service install -c client.yaml` on the client.
+- `./burrow validate -c server.yaml` checks a config without starting anything.
 
 <details>
 <summary><b>All commands</b></summary>
@@ -87,8 +87,8 @@ Now open `http://myserver.example.com:7840`: you see the app from port 3000 of y
 ./burrow init server|client|visitor           # write a new config (asks what it needs)
 ./burrow server | client | visit              # run a server, a client or a visitor (-c FILE, or the file in this folder)
 ./burrow validate -c server.yaml              # check a config: exit 0 valid, 1 invalid, 2 usage error
-./burrow client-config office -o office.yaml  # the config for client "office" of server.yaml
-./burrow visitor-config laptop -o laptop.yaml # the config for visitor "laptop" of server.yaml
+./burrow client-config office --server myserver.example.com -o office.yaml  # the config for client "office" of server.yaml
+./burrow visitor-config laptop --server myserver.example.com -o laptop.yaml # the config for visitor "laptop" of server.yaml
 ./burrow gensecret                            # print a new random secret
 ./burrow edit                                 # open a config in your editor; it is checked, saved and applied
 ./burrow status                               # clients, services and traffic of the servers running here (-f to follow)
@@ -162,8 +162,8 @@ services:
 ```
 
 ```sh
-./burrow visitor-config laptop -o visitor.yaml   # on the server: the config for the laptop
-./burrow visit                                   # on the laptop: 127.0.0.1:5432 now leads to db
+./burrow visitor-config laptop --server myserver.example.com -o visitor.yaml   # on the server: the config for the laptop
+./burrow visit                                                                 # on the laptop: 127.0.0.1:5432 now leads to db
 ```
 
 With `reach`, a visitor can also pick any target on a client by itself, like `ssh -L`. The client's `allow` list must permit those targets too.
@@ -217,8 +217,8 @@ visitors:
 ```
 
 ```sh
-./burrow visitor-config ops-laptop -o ops-laptop.yaml   # on the server
-./burrow admin -c ops-laptop.yaml                       # on your machine: opens the browser
+./burrow visitor-config ops-laptop --server myserver.example.com -o ops-laptop.yaml   # on the server
+./burrow admin -c ops-laptop.yaml                                                     # on your machine: opens the browser
 ```
 
 **Read more:** [docs/admin.md](docs/admin.md)

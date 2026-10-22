@@ -22,10 +22,10 @@ visitors:
 Then, on the server, print the config for that visitor, and copy it to your machine:
 
 ```sh
-burrow visitor-config ops-laptop -o ops-laptop.yaml
+burrow visitor-config ops-laptop --server myserver.example.com -o ops-laptop.yaml
 ```
 
-A visitor with admin access and nothing else gets a config without forwards, and `visitor-config` says to open it with `burrow admin`. You do not need `burrow visit` for it.
+`--server` is the server's public name or IP address; you can leave it out when server.yaml sets `public_address`. A visitor with admin access and nothing else gets a config without forwards, and `visitor-config` says to open it with `burrow admin`. You do not need `burrow visit` for it.
 
 ## Running it
 
@@ -49,7 +49,7 @@ That installed copy is then the config: the file you installed from was only its
 
 ## Locked fields, history and revert
 
-- Some settings are shown but cannot be changed from the UI: `listen`, `websocket`, `insecure_plaintext`, the heartbeat interval and the handshake limits. Change them in server.yaml on the server, then restart. The server refuses changes to them.
+- Some settings are shown but cannot be changed from the UI: `listen`, `websocket`, `insecure_plaintext`, the heartbeat interval and the handshake limits. Change them in server.yaml on the server; `listen` needs a restart, the others apply on save. The server refuses changes to them.
 - Before each change from burrow admin, the previous file is kept beside it in `.server.yaml.history/` (the last 20, mode 0600). Activity lists the versions, and each can be reverted after a review. When that folder cannot be written, the history is kept in memory only.
 - Every change goes through a review page with the diff and its impact before it is applied, and a hand edit made meanwhile shows as a conflict instead of being overwritten.
 

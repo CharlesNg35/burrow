@@ -30,7 +30,7 @@ Every connection between client, server and visitor is encrypted and authenticat
 
 The cipher is ChaCha20-Poly1305 by default. `cipher: aes-gcm` in the client or visitor config uses AES-GCM instead, which is faster on CPUs with AES instructions.
 
-`insecure_plaintext: true` turns off encryption of forwarded data, for example inside a network you trust completely. Logging in still uses the full handshake, so the secret never crosses the network in clear text. It must be set on both the server and the client.
+`insecure_plaintext: true` sends the data of forwarded TCP connections unencrypted between the server and a client that connects over plain TCP, for example inside a network you trust completely. Everything else stays encrypted: logging in still uses the full handshake, so the secret never crosses the network in clear text, and WebSocket links stay encrypted. It must be set on both the server and the client.
 
 The exact protocol, and the point where each side is proven, is described in [protocol.md](protocol.md).
 

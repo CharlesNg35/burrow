@@ -186,6 +186,6 @@ websocket:
 
 Clients use `wss://tunnel.example.com:7837/burrow`. Relative file paths are resolved from the config file's directory. The key must be readable by the user burrow runs as. A renewed certificate is used without a restart; since a renewal writes a new key file, give the service account access again each time, for example with `--deploy-hook "setfacl -m u:burrow:r /etc/letsencrypt/live/tunnel.example.com/privkey.pem"` in certbot.
 
-For a self-signed certificate, copy it to the client and trust it there with `ca: server-cert.pem`. `ca` accepts either a CA that signed the server certificate, or the server certificate itself, which is then pinned: only that exact certificate is accepted.
+For a self-signed certificate, copy it to the client and trust it there with `ca: server-cert.pem`. `ca` takes either a CA that signed the server's certificate, or the server's certificate itself. That exact certificate is then accepted even though no public CA signed it, and certificates signed by public CAs are still accepted too, so `ca` adds trust but does not limit it.
 
 </details>

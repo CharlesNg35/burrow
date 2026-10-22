@@ -37,8 +37,10 @@ services:
 **2. On the server,** print the visitor's config:
 
 ```sh
-./burrow visitor-config laptop -o visitor.yaml
+./burrow visitor-config laptop --server myserver.example.com -o visitor.yaml
 ```
+
+`--server` is the server's public name or IP address, as the visitor reaches it. You can leave it out when server.yaml sets `public_address`.
 
 ```yaml
 # visitor.yaml
@@ -172,9 +174,8 @@ In a browser, set the SOCKS5 proxy to `127.0.0.1`, port `1080`, and turn on "pro
 
   | reason | SOCKS5 reply |
   | --- | --- |
-  | the target is not in `reach`, or not in the client's `allow` list | connection not allowed by ruleset (code 2) |
+  | the target is not in `reach` or not in the client's `allow` list, or the client cannot resolve the host name | connection not allowed by ruleset (code 2) |
   | the client is not connected | network unreachable (code 3) |
-  | the client cannot resolve the host name | host unreachable (code 4) |
   | the target refuses or does not answer | connection refused (code 5) |
   | the client or server is busy, or the request is invalid | general failure (code 1) |
   | the app asks for UDP ASSOCIATE or BIND | command not supported (code 7) |

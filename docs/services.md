@@ -118,7 +118,7 @@ Turn it on only when the target expects it: an app that does not understand the 
 
 ## Several clients
 
-List more than one client under `clients` to keep a service up when a machine goes away. TCP services only.
+List more than one client under `clients` to keep a service up when a machine goes away. This works for TCP and UDP services; `mode: balance` and `health_check` are for TCP services only, so a UDP service uses failover.
 
 ```yaml
 # server.yaml, under services:

@@ -81,7 +81,7 @@ forwards:
 
 Saving a config applies it, on the server, the client and the visitor. You can also send `SIGHUP`, or run `burrow service reload` for an installed service.
 
-- **Server:** services, clients and visitors that changed are updated. Open connections keep running, unless the change takes away their access. A few settings (`listen`, `websocket`, `insecure_plaintext`, `heartbeat.interval_secs`, `limits.handshake_timeout_secs`, `limits.max_handshakes`) need a restart.
+- **Server:** services, clients and visitors that changed are updated. Open connections keep running, unless the change takes away their access. Only a change to `listen` needs a restart.
 - **Client:** a change to `allow`, `server`, `name`, `secret`, `headers`, `ca`, `cipher`, `proxy` or `insecure_plaintext` reconnects it. Other changes apply at once. Open connections keep running, except those whose target the new `allow` no longer permits.
 - **Visitor:** only the forwards that changed are opened or closed.
 
@@ -148,7 +148,7 @@ services:
 | `services.<name>.max_connections` | unlimited | open connections for this TCP service |
 | `self.allow` | none | what the server may connect to for itself, for `client: self` and `reach: self`. See [services.md](services.md#on-the-server-itself) |
 | `metrics.listen` | off | address for Prometheus `/metrics`; a port alone means `127.0.0.1`. See [monitoring.md](monitoring.md) |
-| `insecure_plaintext` | `false` | do not encrypt forwarded TCP data; authentication still runs |
+| `insecure_plaintext` | `false` | send forwarded TCP data unencrypted on raw TCP links to clients; logging in stays encrypted |
 | `heartbeat.interval_secs` | `10` | ping interval; a peer times out after 3 missed pings |
 | `limits.handshake_timeout_secs` | `5` | time a new connection has to authenticate |
 | `limits.max_handshakes` | `256` | connections that have not finished authenticating yet |
@@ -195,7 +195,7 @@ allow:
 | `reconnect.give_up_after_secs` | `0` (never) | exit after this long without a working connection to the server |
 | `reconnect.on_rejected` | `retry` | or `exit` when the server keeps refusing the name or secret for 15 s |
 | `headers` | none | extra HTTP headers for the WebSocket connection, for example an access token |
-| `ca` | none | a CA certificate (PEM) to trust for `wss://`, or the server's own certificate, which is then the only one accepted |
+| `ca` | none | an extra certificate (PEM) to trust for `wss://`: a CA that signed the server's certificate, or the server's own certificate. Certificates from public CAs are still trusted too |
 | `connect_timeout_secs` | `10` | time allowed to connect to the server, 1 to 300 |
 | `tcp`, `udp` | as on the server | `tcp.nodelay`, `tcp.keepalive_secs`, `udp.session_timeout_secs` |
 
