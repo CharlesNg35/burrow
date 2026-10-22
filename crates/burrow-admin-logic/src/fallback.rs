@@ -11,8 +11,6 @@ pub enum Render<'a> {
     Raw,
 }
 
-impl Render<'_> {}
-
 fn fits(sem: &SemType, v: Option<&Value>) -> bool {
     let Some(v) = v.filter(|v| !v.is_null()) else {
         return true;
