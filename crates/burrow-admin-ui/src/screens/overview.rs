@@ -105,33 +105,38 @@ pub fn attention(values: &Value, state: Option<&State>, status: Option<&Status>)
                 .find(|x| x.name == c)
                 .is_some_and(|x| x.connected)
         };
+        let mut by_client: std::collections::BTreeMap<String, Hits> =
+            std::collections::BTreeMap::new();
+        let mut own = Vec::new();
         if let Some(services) = ServiceEntry::entries(values) {
             for (name, svc) in services {
                 let cs = clients_of(svc);
                 let up: Vec<&String> = cs.iter().filter(|c| online(c)).collect();
+                let off: Vec<&String> = cs.iter().filter(|c| !online(c)).collect();
                 let st = status.services.iter().find(|x| &x.name == name);
                 let to = Some(Route::Detail(ServiceEntry::section().into(), name.clone()));
                 if up.is_empty() {
-                    let detail = match cs.as_slice() {
-                        [] => "It has no client.".to_string(),
-                        [c] => match status
-                            .clients
-                            .iter()
-                            .find(|x| &x.name == c)
-                            .and_then(|x| x.left_secs_ago)
-                        {
-                            Some(a) => {
-                                format!("Its only client {c} is offline since {}.", format::span(a))
-                            }
-                            None => format!("Its only client {c} is offline."),
-                        },
-                        many => format!("None of its {} clients is online.", many.len()),
-                    };
-                    out.push(Item {
+                    if let [c] = off.as_slice() {
+                        by_client
+                            .entry((*c).clone())
+                            .or_default()
+                            .0
+                            .push(name.clone());
+                        continue;
+                    }
+                    own.push(Item {
                         key: format!("down:{name}"),
                         tone: Tone::Danger,
                         title: format!("Service {name} is down"),
-                        detail,
+                        detail: if cs.is_empty() {
+                            "It has no client.".to_string()
+                        } else {
+                            format!(
+                                "None of its {} clients is online: {}.",
+                                cs.len(),
+                                cs.join(", ")
+                            )
+                        },
                         to,
                     });
                     continue;
@@ -146,15 +151,21 @@ pub fn attention(values: &Value, state: Option<&State>, status: Option<&Status>)
                     })
                     .unwrap_or_default();
                 if !failing.is_empty() {
-                    out.push(Item {
+                    own.push(Item {
                         key: format!("health:{name}"),
                         tone: Tone::Warning,
                         title: format!("Service {name}: health check failing"),
                         detail: format!("Failing on {}.", failing.join(", ")),
                         to,
                     });
-                } else if up.len() < cs.len() {
-                    out.push(Item {
+                } else if let [c] = off.as_slice() {
+                    by_client.entry((*c).clone()).or_default().1.push((
+                        name.clone(),
+                        up.len(),
+                        cs.len(),
+                    ));
+                } else if !off.is_empty() {
+                    own.push(Item {
                         key: format!("partial:{name}"),
                         tone: Tone::Warning,
                         title: format!(
@@ -164,9 +175,8 @@ pub fn attention(values: &Value, state: Option<&State>, status: Option<&Status>)
                         ),
                         detail: format!(
                             "Offline: {}.",
-                            cs.iter()
-                                .filter(|c| !online(c))
-                                .cloned()
+                            off.iter()
+                                .map(|c| c.as_str())
                                 .collect::<Vec<_>>()
                                 .join(", ")
                         ),
@@ -175,12 +185,76 @@ pub fn attention(values: &Value, state: Option<&State>, status: Option<&Status>)
                 }
             }
         }
+        for (c, (down, partial)) in by_client {
+            let mut parts = Vec::new();
+            if !down.is_empty() {
+                parts.push(format!(
+                    "{} {} down",
+                    and_list(&down),
+                    if down.len() == 1 { "is" } else { "are" }
+                ));
+            }
+            let mut shapes: Vec<(usize, usize)> =
+                partial.iter().map(|(_, u, n)| (*u, *n)).collect();
+            shapes.sort();
+            shapes.dedup();
+            for (u, n) in shapes {
+                let names: Vec<String> = partial
+                    .iter()
+                    .filter(|(_, a, b)| (*a, *b) == (u, n))
+                    .map(|(x, _, _)| x.clone())
+                    .collect();
+                parts.push(format!(
+                    "{} {} on {u} of {n} clients",
+                    and_list(&names),
+                    if names.len() == 1 { "runs" } else { "run" }
+                ));
+            }
+            let when = format::left_of(
+                &c,
+                status
+                    .clients
+                    .iter()
+                    .find(|x| x.name == c)
+                    .and_then(|x| x.left_secs_ago),
+                status.uptime_secs,
+            );
+            out.push(Item {
+                key: format!("client:{c}"),
+                tone: if down.is_empty() {
+                    Tone::Warning
+                } else {
+                    Tone::Danger
+                },
+                title: format!("Client {c} is offline"),
+                detail: format!("{} · {when}", parts.join("; ")),
+                to: Some(Route::Detail(ClientEntry::section().into(), c)),
+            });
+        }
+        out.extend(own);
     }
     out.sort_by_key(|i| rank(i.tone));
     out
 }
 
-pub fn away(values: &Value, status: Option<&Status>) -> Vec<Item> {
+type Hits = (Vec<String>, Vec<(String, usize, usize)>);
+
+fn and_list(names: &[String]) -> String {
+    match names {
+        [] => String::new(),
+        [one] => one.clone(),
+        [first @ .., last] => format!("{} and {last}", first.join(", ")),
+    }
+}
+
+pub fn listed_clients(items: &[Item]) -> Vec<String> {
+    items
+        .iter()
+        .filter_map(|i| i.key.strip_prefix("client:").map(str::to_string))
+        .collect()
+}
+
+pub fn away(values: &Value, status: Option<&Status>, listed: &[String]) -> Vec<Item> {
     let Some(status) = status else {
         return Vec::new();
     };
@@ -188,7 +262,7 @@ pub fn away(values: &Value, status: Option<&Status>) -> Vec<Item> {
         .into_iter()
         .filter_map(|c| {
             let st = status.clients.iter().find(|x| x.name == c);
-            if st.is_some_and(|x| x.connected) {
+            if st.is_some_and(|x| x.connected) || listed.contains(&c) {
                 return None;
             }
             let serves: Vec<String> = ServiceEntry::entries(values)
@@ -500,7 +574,8 @@ fn Attention() -> impl IntoView {
     });
     let away_items = Memo::new(move |_| {
         let v = s.running();
-        away(&v, s.status.get().as_deref())
+        let listed = items.with(|i| listed_clients(i));
+        away(&v, s.status.get().as_deref(), &listed)
     });
     let seen: StoredValue<Vec<String>> = StoredValue::new(Vec::new());
     let announce = RwSignal::new(String::new());
@@ -544,6 +619,7 @@ fn Attention() -> impl IntoView {
         })
     };
     let n_clients = move || names(&s.running(), ClientEntry::section()).len();
+    let above = Memo::new(move |_| items.with(|i| listed_clients(i).len()));
     let away_title: &'static str = "Clients away";
     let away_grow = Signal::derive(move || {
         if away_items.with(Vec::len) >= 2 {
@@ -553,7 +629,7 @@ fn Attention() -> impl IntoView {
         }
     });
     let away_tone = Signal::derive(move || {
-        if away_items.with(Vec::is_empty) {
+        if away_items.with(Vec::is_empty) && above.get() == 0 {
             Tone::Success
         } else {
             Tone::Warning
@@ -563,11 +639,19 @@ fn Attention() -> impl IntoView {
         let n = n_clients();
         if n == 0 {
             "No clients yet".to_string()
+        } else if above.get() > 0 {
+            "No other clients away".to_string()
         } else {
             format!("All {n} clients online")
         }
     });
-    let away_msg = Signal::derive(move || longest().unwrap_or_default());
+    let away_msg = Signal::derive(move || {
+        if above.get() > 0 {
+            "The offline clients above are listed with what they affect.".to_string()
+        } else {
+            longest().unwrap_or_default()
+        }
+    });
     view! {
         <section class="relative rounded-card border border-border bg-surface min-[1200px]:col-span-4" data-testid="attention-card">
             <div class="flex flex-col overflow-hidden rounded-card min-[1200px]:absolute min-[1200px]:inset-0 [&>[data-testid=away]]:border-t [&>[data-testid=away]]:border-border">
@@ -944,31 +1028,34 @@ mod tests {
     }
 
     #[test]
-    fn needs_attention_puts_down_services_first_and_lists_away_clients() {
+    fn needs_attention_groups_by_the_offline_client_and_away_lists_the_rest() {
         let v = json!({
-            "clients": {"a": {}, "b": {}, "c": {}},
+            "clients": {"a": {}, "b": {}, "c": {}, "d": {}},
             "services": {
                 "aa-partial": {"clients": ["a", "b"], "target": "x:1"},
                 "zz-down": {"client": "b", "target": "x:2"},
-                "ok": {"client": "a", "target": "x:3"}
+                "ok": {"client": "a", "target": "x:3"},
+                "both": {"clients": ["c", "d"], "target": "x:4"}
             }
         });
-        let st = status(&["a"], &["b", "c"]);
+        let st = status(&["a"], &["b", "c", "d"]);
         let items = attention(&v, None, Some(&st));
-        assert_eq!(items.len(), 2);
-        assert_eq!(items[0].title, "Service zz-down is down");
-        assert_eq!(items[0].detail, "Its only client b is offline since 2d 0h.");
-        assert_eq!(items[1].tone, Tone::Warning);
-        let a = away(&v, Some(&st));
+        let titles: Vec<&str> = items.iter().map(|i| i.title.as_str()).collect();
+        assert_eq!(titles, ["Client b is offline", "Service both is down"]);
+        assert_eq!(
+            items[0].detail,
+            "zz-down is down; aa-partial runs on 1 of 2 clients · left 2d 0h ago"
+        );
+        assert_eq!(items[0].tone, Tone::Danger);
+        assert_eq!(items[1].detail, "None of its 2 clients is online: c, d.");
+        let listed = listed_clients(&items);
+        assert_eq!(listed, ["b"]);
+        let a = away(&v, Some(&st), &listed);
         assert_eq!(
             a.iter().map(|i| i.title.as_str()).collect::<Vec<_>>(),
-            ["b", "c"]
+            ["c", "d"]
         );
-        assert!(
-            a[0].detail
-                .starts_with("serves aa-partial, zz-down · left ")
-        );
-        assert!(a[1].detail.starts_with("no services · "));
+        assert!(a[0].detail.starts_with("serves both · "), "{}", a[0].detail);
         assert!(attention(&v, None, None).is_empty());
     }
 

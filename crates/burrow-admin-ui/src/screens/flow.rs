@@ -124,7 +124,7 @@ struct Svc {
     badge: Option<String>,
 }
 
-pub fn layout(doc: &Value, status: Option<&Status>, rates: &Rates) -> Chart {
+pub fn layout(doc: &Value, status: Option<&Status>, rates: &Rates, me: Option<&str>) -> Chart {
     let mut svcs: Vec<Svc> = ServiceEntry::entries(doc)
         .map(|m| {
             m.iter()
@@ -228,7 +228,7 @@ pub fn layout(doc: &Value, status: Option<&Status>, rates: &Rates) -> Chart {
             title: "Internet".into(),
             right: String::new(),
             sub: format!(
-                "{} public · {lo} loopback · {} refused",
+                "{} public · {lo} loopback\n{} refused",
                 public.len() - lo,
                 status
                     .map(|s| s.services.iter().map(|x| x.refused).sum::<u64>())
@@ -246,7 +246,12 @@ pub fn layout(doc: &Value, status: Option<&Status>, rates: &Rates) -> Chart {
     if !private.is_empty() {
         let (y, h) = span(&private);
         let active = status
-            .map(|s| s.visitors.iter().filter(|v| v.open > 0).count())
+            .map(|s| {
+                s.visitors
+                    .iter()
+                    .filter(|v| v.open > 0 || me == Some(v.name.as_str()))
+                    .count()
+            })
             .unwrap_or(0);
         nodes.push(Node {
             key: VisitorEntry::section().into(),
@@ -255,10 +260,7 @@ pub fn layout(doc: &Value, status: Option<&Status>, rates: &Rates) -> Chart {
             h,
             title: "Visitors".into(),
             right: String::new(),
-            sub: match active {
-                1 => "1 with an open tunnel".to_string(),
-                n => format!("{n} with open tunnels"),
-            },
+            sub: format!("{active} in use"),
             badge: None,
             health: Health::Unknown,
             dashed: false,
@@ -600,7 +602,7 @@ pub fn FlowModal() -> impl IntoView {
         let doc = s.running();
         let status = s.status.get();
         let rates = s.rates.get();
-        layout(&doc, status.as_deref(), &rates)
+        layout(&doc, status.as_deref(), &rates, s.me().as_deref())
     });
     let panel: NodeRef<html::Div> = NodeRef::new();
     let wrap: NodeRef<html::Div> = NodeRef::new();
@@ -815,7 +817,7 @@ mod tests {
             "clients": {},
             "services": {"own": {"client": "self", "bind": "0.0.0.0:8080", "target": "127.0.0.1:3000"}}
         });
-        let c = layout(&doc, Some(&st), &Rates::default());
+        let c = layout(&doc, Some(&st), &Rates::default(), None);
         assert_eq!(c.problems, 0);
         let target = c.nodes.iter().find(|n| n.key == "target:own").unwrap();
         assert_eq!(target.health, Health::Healthy);
@@ -829,6 +831,35 @@ mod tests {
     }
 
     #[test]
+    fn the_source_nodes_say_their_counts_without_cutting_them() {
+        let doc = json!({
+            "clients": {"a": {}},
+            "visitors": {"v": {}},
+            "services": {
+                "web": {"client": "a", "bind": "0.0.0.0:443", "target": "x:80"},
+                "lo": {"client": "a", "bind": "127.0.0.1:3000", "target": "z:3000"},
+                "db": {"client": "a", "target": "y:5432", "visitors": ["v"]}
+            }
+        });
+        let mut st = status();
+        st.visitors.push(
+            burrow_admin_proto::serde_json::from_value(json!({"name": "v", "open": 0})).unwrap(),
+        );
+        let c = layout(&doc, Some(&st), &Rates::default(), Some("v"));
+        for n in c.nodes.iter().filter(|n| n.col == 0) {
+            let room = ((COLS[0].1 - 18.0) / 5.4) as usize;
+            for line in n.sub.lines() {
+                assert!(line.chars().count() <= room, "{line:?} is cut");
+            }
+        }
+        let visitors = c.nodes.iter().find(|n| n.title == "Visitors").unwrap();
+        assert_eq!(
+            visitors.sub, "1 in use",
+            "your own admin session counts, as on the overview"
+        );
+    }
+
+    #[test]
     fn the_flow_marks_down_services_and_away_clients_as_problems() {
         let doc = json!({
             "clients": {"a": {}, "b": {}},
@@ -838,7 +869,7 @@ mod tests {
                 "lo": {"client": "a", "bind": "127.0.0.1:3000", "target": "z:3000"}
             }
         });
-        let c = layout(&doc, Some(&status()), &Rates::default());
+        let c = layout(&doc, Some(&status()), &Rates::default(), None);
         assert_eq!(c.services, 3);
         assert_eq!(c.problems, 2, "db is down and b is away");
         let order: Vec<&str> = c
@@ -853,7 +884,7 @@ mod tests {
             "public first, then private, each by name"
         );
         let internet = c.nodes.iter().find(|n| n.key == "internet").unwrap();
-        assert_eq!(internet.sub, "1 public · 1 loopback · 0 refused");
+        assert_eq!(internet.sub, "1 public · 1 loopback\n0 refused");
         let db = c.nodes.iter().find(|n| n.key == "target:db").unwrap();
         assert_eq!(db.health, Health::Down);
         assert_eq!(db.sub, "no client online");
@@ -878,7 +909,7 @@ mod tests {
     fn without_status_nothing_is_called_a_problem() {
         let doc =
             json!({"clients": {"a": {}}, "services": {"web": {"client": "a", "target": "x:80"}}});
-        let c = layout(&doc, None, &Rates::default());
+        let c = layout(&doc, None, &Rates::default(), None);
         assert_eq!(c.problems, 0);
         assert!(c.nodes.iter().all(|n| !n.problem));
     }

@@ -486,15 +486,20 @@ fn many_issues(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
 
 #[test]
 fn many_issues_scroll_inside_a_card_as_tall_as_traffic() {
-    let mut extra = String::new();
+    let (mut extra, mut clients) = (String::new(), String::new());
     for i in 0..14 {
+        clients.push_str(&format!(
+            "  spare{i:02}:\n    secret: {}\n",
+            world::secret()
+        ));
         extra.push_str(&format!(
-            "  down{i:02}:\n    client: office\n    target: {}\n    visitors: [laptop]\n",
+            "  down{i:02}:\n    clients: [office, spare{i:02}]\n    target: {}\n    visitors: [laptop]\n",
             9100 + i
         ));
     }
     let opts = Options {
         extra_services: extra,
+        extra_clients: clients,
         ..Options::default()
     };
     run("many-issues", opts, false, many_issues);
