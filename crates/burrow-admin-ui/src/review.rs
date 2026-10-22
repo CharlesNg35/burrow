@@ -347,10 +347,12 @@ fn lockout_path(g: &Guard) -> PathData {
 fn footer_text(g: &Guard) -> String {
     match g.code.as_str() {
         "self-source" if !g.base.is_empty() => format!(
-            "Keep {} in admin_from, or apply from an allowed address.",
+            "Keep {} in Admin only from, or apply from an allowed address.",
             g.base.join(", ")
         ),
-        "self-source" => "Undo the admin_from change, or apply from an allowed address.".into(),
+        "self-source" => {
+            "Undo the Admin only from change, or apply from an allowed address.".into()
+        }
         _ => "Change it back to keep your admin access.".into(),
     }
 }

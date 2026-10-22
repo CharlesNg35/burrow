@@ -229,10 +229,10 @@ pub fn rows_for(section: &str) -> Vec<Row> {
                     .map(|x| (x.health.iter().filter(|h| h.up).count(), x.health.len()));
                 let problem = status.is_some()
                     && (up < cs.len() || health_up.is_some_and(|(u, n)| n > 0 && u < n));
-                let mut tags = vec![(
-                    protocol.to_uppercase(),
-                    if udp { Tone::Violet } else { Tone::Accent },
-                )];
+                let mut tags = Vec::new();
+                if udp {
+                    tags.push((protocol.to_uppercase(), Tone::Violet));
+                }
                 if up == 0 && status.is_some() {
                     tags.push(("✕ Down".into(), Tone::Danger));
                 } else if let Some((u, n)) = health_up.filter(|(u, n)| *n > 0 && u < n) {
@@ -710,24 +710,6 @@ fn Detail(section: String, name: String) -> impl IntoView {
             }
         }
     });
-    let protocol_tag = {
-        let (sec, nm) = (section.clone(), name.clone());
-        move || match sec.as_str() {
-            SERVICES => {
-                let p = ServiceEntry::PROTOCOL
-                    .at(&e.doc(), &nm)
-                    .map(plain)
-                    .unwrap_or_else(|| Protocol::default().wire().into());
-                let tone = if p == Protocol::Udp.wire() {
-                    Tone::Violet
-                } else {
-                    Tone::Accent
-                };
-                view! { <span class=tag_class(tone)>{p.to_uppercase()}</span> }.into_any()
-            }
-            _ => ().into_any(),
-        }
-    };
     let tab_counts = {
         let (sec, nm) = (section.clone(), name.clone());
         Signal::derive(move || {
@@ -968,7 +950,7 @@ fn Detail(section: String, name: String) -> impl IntoView {
             </nav>
             <header class="mb-[22px] flex items-start gap-3.5" class:max-sm:hidden=move || editing.get() class:hidden=move || !exists.get()>
                 <div class="min-w-0 flex-1">
-                    <h1 class="flex items-center gap-2.5 text-[25px] font-bold tracking-[-0.015em]">{title_dot}{name.clone()}{protocol_tag}</h1>
+                    <h1 class="flex items-center gap-2.5 text-[25px] font-bold tracking-[-0.015em]">{title_dot}{name.clone()}</h1>
 
                 </div>
                 <div class="flex items-center gap-2">{head_actions}</div>
@@ -1070,7 +1052,7 @@ fn overview(section: &str, name: &str, stats: bool) -> impl IntoView {
                             <Stat label="Open" value=x.as_ref().map(|x| format::count(x.open)).unwrap_or_else(|| "0".into()) detail=x.as_ref().map(|x| format!("{} total", format::count(x.total))).unwrap_or_default()/>
                             <Stat label="In" value=i unit=iu detail=limit.clone().unwrap_or_else(|| x.as_ref().map(|x| format::bytes(x.bytes_in)).unwrap_or_default())/>
                             <Stat label="Out" value=o unit=ou detail=limit.unwrap_or_else(|| x.as_ref().map(|x| format::bytes(x.bytes_out)).unwrap_or_default())/>
-                            <Stat label="Refused by filters" value=x.as_ref().map(|x| format::count(x.refused)).unwrap_or_else(|| "0".into()) detail="allow_from / deny_from"/>
+                            <Stat label="Refused by filters" value=x.as_ref().map(|x| format::count(x.refused)).unwrap_or_else(|| "0".into()) detail="by the allow and deny lists"/>
                         </Stats>
                     }
                     .into_any();

@@ -144,7 +144,7 @@ pub fn ListCard(row: Row, selected: bool) -> impl IntoView {
                     </span>
                 })}
             </span>
-            <span class="font-mono text-xs whitespace-nowrap text-text-muted">{row.meta.clone()}</span>
+            <span class="font-mono text-xs whitespace-nowrap text-text-muted">{(!selected).then(|| row.meta.clone())}</span>
         </div>
     }
 }

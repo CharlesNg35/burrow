@@ -1322,6 +1322,21 @@ fn edit_state(c: &mut Ctx) -> Flow<'_> {
         c.ui.wait_gone("[data-testid=save-bar]", SECS).await;
 
         c.ui.nav("/services/web").await;
+        c.ui.wait_for(
+            "[data-testid=entity-list] [data-row=web][data-selected]",
+            SECS,
+        )
+        .await;
+        assert_eq!(
+            c.ui.text("main h1").await.trim(),
+            "web",
+            "the protocol is on the path, not repeated by the title"
+        );
+        let meta: String = c
+            .ui
+            .eval("document.querySelector('[data-testid=entity-list] [data-row=web]').lastElementChild.textContent")
+            .await;
+        assert_eq!(meta, "", "the selected row leaves its numbers to the page");
         c.ui.click("[role=tablist] [data-tab=settings]").await;
         edit_mode(c).await;
         c.ui.choose("f-services-web-bind-visibility", "private")
