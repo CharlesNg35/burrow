@@ -587,13 +587,25 @@ pub fn render(s: &Status, paint: Paint, rates: Option<&Rates>) -> String {
         let rows = s
             .visitors
             .iter()
-            .map(|v| vec![cell(&v.name), num(v.open), num(v.total)])
+            .map(|v| {
+                let last = match (v.open, v.last_seen_secs) {
+                    (1.., _) => cell("now"),
+                    (0, Some(ago)) => cell(format!("{} ago", duration(ago))),
+                    (0, None) => toned("not since start", Tone::Dim),
+                };
+                vec![cell(&v.name), last, num(v.open), num(v.total)]
+            })
             .collect();
         table(
             &mut out,
             paint,
             &paint.bold("VISITORS"),
-            &[long("NAME", ALWAYS), col("OPEN", 6), col("TOTAL", 2)],
+            &[
+                long("NAME", ALWAYS),
+                col("LAST USED", 7),
+                col("OPEN", 6),
+                col("TOTAL", 2),
+            ],
             rows,
         );
     }
@@ -711,11 +723,26 @@ mod tests {
                     set_aside: vec![],
                 },
             ],
-            visitors: vec![VisitorStatus {
-                name: "laptop".into(),
-                open: 1,
-                total: 12,
-            }],
+            visitors: vec![
+                VisitorStatus {
+                    name: "laptop".into(),
+                    open: 1,
+                    total: 12,
+                    last_seen_secs: Some(0),
+                },
+                VisitorStatus {
+                    name: "phone".into(),
+                    open: 0,
+                    total: 3,
+                    last_seen_secs: Some(150),
+                },
+                VisitorStatus {
+                    name: "ops".into(),
+                    open: 0,
+                    total: 0,
+                    last_seen_secs: None,
+                },
+            ],
         }
     }
 
@@ -739,8 +766,10 @@ SERVICES
   db: visitors laptop
 
 VISITORS
-  NAME    OPEN  TOTAL
-  laptop     1     12
+  NAME    LAST USED        OPEN  TOTAL
+  laptop  now                 1     12
+  phone   2 min ago           0      3
+  ops     not since start     0      0
 
 2 refused handshakes since start (wrong secret, unknown name or limits)
 "

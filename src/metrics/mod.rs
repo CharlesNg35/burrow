@@ -27,6 +27,35 @@ pub struct ServiceStats {
 #[derive(Debug, Default)]
 pub struct VisitorStats {
     pub total: AtomicU64,
+    last: Mutex<Option<Instant>>,
+}
+
+impl VisitorStats {
+    pub fn seen(&self) {
+        *self.last.lock().unwrap_or_else(|e| e.into_inner()) = Some(Instant::now());
+    }
+
+    pub fn last_seen_secs(&self) -> Option<u64> {
+        self.last
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .map(|t| t.elapsed().as_secs())
+    }
+}
+
+pub struct Seen(Arc<VisitorStats>);
+
+impl Seen {
+    pub fn new(stats: Arc<VisitorStats>) -> Seen {
+        stats.seen();
+        Seen(stats)
+    }
+}
+
+impl Drop for Seen {
+    fn drop(&mut self) {
+        self.0.seen();
+    }
 }
 
 pub struct Metrics {

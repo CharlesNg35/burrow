@@ -176,6 +176,64 @@ async fn visit_bytes_count_payload_only() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_visitor_shows_when_it_last_used_a_tunnel() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let echo = echo_server().await;
+    let secret = Secret::generate();
+    let visitor_secret = Secret::generate();
+    let mut settings = server_settings(vec![secret.clone()]);
+    settings
+        .visitors
+        .insert("laptop".into(), visitor_auth(visitor_secret.clone(), &[]));
+    settings
+        .visitors
+        .insert("idle".into(), visitor_auth(Secret::generate(), &[]));
+    let t = tunnel_with(
+        settings,
+        vec![("web", private_service(echo, &["laptop"]))],
+        |c| c,
+        secret,
+    )
+    .await;
+    let laptop = |s: &burrow::metrics::Status| {
+        s.visitors
+            .iter()
+            .find(|v| v.name == "laptop")
+            .cloned()
+            .unwrap()
+    };
+    let before = laptop(&t.server.shared.status());
+    assert_eq!((before.open, before.last_seen_secs), (0, None));
+    let v = start_visitor(visitor_settings(
+        t.server.addr,
+        visitor_secret,
+        vec![("web", VisitTarget::service("web"))],
+    ));
+    let mut conn = TcpStream::connect(v.addr("web")).await.unwrap();
+    conn.write_all(b"ping").await.unwrap();
+    let mut back = [0u8; 4];
+    conn.read_exact(&mut back).await.unwrap();
+    let open = laptop(&t.server.shared.status());
+    assert_eq!((open.open, open.last_seen_secs), (1, Some(0)));
+    drop(conn);
+    wait_for(|| laptop(&t.server.shared.status()).open == 0).await;
+    let closed = laptop(&t.server.shared.status());
+    assert!(closed.last_seen_secs.is_some_and(|s| s <= 1), "{closed:?}");
+    let idle = t.server.shared.status();
+    let idle = idle.visitors.iter().find(|v| v.name == "idle").unwrap();
+    assert_eq!(idle.last_seen_secs, None);
+    let json = serde_json::to_value(&t.server.shared.status()).unwrap();
+    assert!(
+        json["visitors"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|v| v["name"] == "laptop" && v["last_seen_secs"].is_u64()),
+        "{json}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn plaintext_visit_bytes_count_payload_only() {
     let echo = echo_server().await;
     let secret = Secret::generate();

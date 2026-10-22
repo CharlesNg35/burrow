@@ -97,4 +97,6 @@ pub struct VisitorStatus {
     pub open: u64,
     #[serde(default)]
     pub total: u64,
+    #[serde(default)]
+    pub last_seen_secs: Option<u64>,
 }

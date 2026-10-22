@@ -279,11 +279,9 @@ pub(super) async fn serve(
         return;
     }
     let settings = shared.settings();
-    shared
-        .metrics
-        .visitor(&visitor)
-        .total
-        .fetch_add(1, Ordering::Relaxed);
+    let visitor_stats = shared.metrics.visitor(&visitor);
+    visitor_stats.total.fetch_add(1, Ordering::Relaxed);
+    let _seen = crate::metrics::Seen::new(visitor_stats);
     let stats = grant
         .service
         .as_ref()

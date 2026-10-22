@@ -595,6 +595,7 @@ fn status_json_keeps_its_exact_shape() {
             name: "laptop".into(),
             open: 1,
             total: 5,
+            last_seen_secs: Some(30),
         }],
     };
     let golden = r#"{
@@ -665,7 +666,8 @@ fn status_json_keeps_its_exact_shape() {
     {
       "name": "laptop",
       "open": 1,
-      "total": 5
+      "total": 5,
+      "last_seen_secs": 30
     }
   ]
 }"#;

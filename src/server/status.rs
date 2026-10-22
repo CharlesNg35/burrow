@@ -101,10 +101,14 @@ impl Shared {
         let visitors = settings
             .visitors
             .keys()
-            .map(|name| VisitorStatus {
-                name: name.clone(),
-                open: self.visitor_counts.current(name),
-                total: self.metrics.visitor(name).total.load(Ordering::Relaxed),
+            .map(|name| {
+                let stats = self.metrics.visitor(name);
+                VisitorStatus {
+                    name: name.clone(),
+                    open: self.visitor_counts.current(name),
+                    total: stats.total.load(Ordering::Relaxed),
+                    last_seen_secs: stats.last_seen_secs(),
+                }
             })
             .collect();
         let mut listening = Vec::new();
