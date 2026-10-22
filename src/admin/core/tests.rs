@@ -253,6 +253,15 @@ fn a_renamed_client_keeps_its_place_in_reach_and_the_file_changes_only_the_names
     }];
     let c = plan::compute(&core, &s, &text::rev(&text), &ops).unwrap();
     assert!(c.plan.valid, "{:?}", c.plan.diags);
+    let codes: Vec<&str> = c.plan.impacts.iter().map(|i| i.code.as_str()).collect();
+    assert!(codes.contains(&"renames"), "{codes:?}");
+    assert!(
+        !codes
+            .iter()
+            .any(|c| c.starts_with("removes-") || c.starts_with("adds-")),
+        "a rename is not a removal plus an addition: {codes:?}"
+    );
+    assert!(c.plan.confirms().is_empty(), "nothing to type for a rename");
     assert!(
         c.new_text
             .contains("    reach:\n      home2: any # first\n      office: any\n"),
