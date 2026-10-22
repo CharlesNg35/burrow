@@ -1158,3 +1158,71 @@ fn a_grant_added_by_hand_to_an_invalid_file_is_left_to_the_file() {
     .unwrap();
     assert!(c.plan.refusals.is_empty(), "{:?}", c.plan.refusals);
 }
+
+#[test]
+fn a_plan_tells_new_problems_from_old_ones_and_groups_references_under_their_entity() {
+    let w = world();
+    let lap = Secret::generate();
+    let text = w.text.replace(
+        "\nservices:",
+        &format!(
+            "  lap:\n    secret: {}\n    reach:\n      home: any\n\nservices:\n  db: {{ client: home, bind: 7841, target: 5432 }}",
+            lap.encode()
+        ),
+    );
+    let core = core_for(&text);
+    let s = session(&w, AdminLevel::Write);
+    let office = Secret::generate();
+    let ops = [
+        Op::Add {
+            path: p(&["clients", "office"]),
+            value: json!({"secret": office.encode()}),
+        },
+        Op::Remove {
+            path: p(&["services", "web", "client"]),
+        },
+        Op::Add {
+            path: p(&["services", "web", "clients"]),
+            value: json!(["home", "office"]),
+        },
+        Op::Set {
+            path: p(&["services", "db", "client"]),
+            value: json!("office"),
+        },
+        Op::Add {
+            path: p(&["visitors", "lap", "reach", "office"]),
+            value: json!("any"),
+        },
+    ];
+    let c = plan::compute(&core, &s, &text::rev(&text), &ops).unwrap();
+    assert!(c.plan.valid, "{:?}", c.plan.diags);
+    let old: Vec<String> = c
+        .plan
+        .diags
+        .iter()
+        .filter(|d| d.before)
+        .map(|d| d.path.as_ref().map(|p| p.join(".")).unwrap_or_default())
+        .collect();
+    let new: Vec<String> = c
+        .plan
+        .diags
+        .iter()
+        .filter(|d| !d.before)
+        .map(|d| d.path.as_ref().map(|p| p.join(".")).unwrap_or_default())
+        .collect();
+    assert_eq!(old, ["visitors.lap.reach.home"], "{:?}", c.plan.diags);
+    assert_eq!(new, ["visitors.lap.reach.office"], "{:?}", c.plan.diags);
+    let group = |path: &[&str]| {
+        c.plan
+            .changes
+            .iter()
+            .find(|ch| ch.path == p(path))
+            .unwrap_or_else(|| panic!("{path:?} in {:?}", c.plan.changes))
+            .part_of
+            .clone()
+    };
+    assert_eq!(group(&["clients", "office"]), None);
+    assert_eq!(group(&["services", "web"]), Some(p(&["clients", "office"])));
+    assert_eq!(group(&["visitors", "lap"]), Some(p(&["clients", "office"])));
+    assert_eq!(group(&["services", "db"]), None, "db moves away from home");
+}

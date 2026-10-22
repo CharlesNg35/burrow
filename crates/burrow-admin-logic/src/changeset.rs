@@ -365,7 +365,15 @@ impl Changeset {
             .ops()
             .iter()
             .filter_map(|o| o.path().cloned())
-            .map(|p| p.into_iter().take(2).collect())
+            .map(|p| p.into_iter().take(2).collect::<Path>())
+            .map(|p| {
+                self.renames
+                    .iter()
+                    .find(|(from, to)| p.len() == 2 && from[0] == p[0] && *to == p[1])
+                    .map(|(from, _)| from.clone())
+                    .unwrap_or(p)
+            })
+            .filter(|p| crate::group::part_of(&self.base, &self.draft, p, &self.renames).is_none())
             .collect();
         paths.sort();
         paths.dedup();
@@ -442,6 +450,30 @@ mod tests {
         assert_eq!(c.changed_entities(), 3);
         c.reset();
         assert!(!c.dirty());
+    }
+
+    #[test]
+    fn a_new_client_added_to_services_counts_as_one_change() {
+        let mut c = Changeset::new(json!({"clients": {"home": {}}, "services": {
+            "web": {"client": "home", "target": 80},
+            "db": {"client": "home", "target": 5432}
+        }}));
+        c.set(&p(&["clients", "example"]), json!({}));
+        c.set(&p(&["services", "web", "client"]), Value::Null);
+        c.set(
+            &p(&["services", "web", "clients"]),
+            json!(["home", "example"]),
+        );
+        c.set(&p(&["services", "db", "client"]), Value::Null);
+        c.set(
+            &p(&["services", "db", "clients"]),
+            json!(["home", "example"]),
+        );
+        assert_eq!(c.changed_entities(), 1);
+        c.set(&p(&["services", "db", "target"]), json!(5433));
+        assert_eq!(c.changed_entities(), 2);
+        c.rename(&p(&["clients", "home"]), "house");
+        assert_eq!(c.changed_entities(), 4, "web now carries two changes");
     }
 
     #[test]

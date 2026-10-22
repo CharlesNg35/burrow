@@ -86,6 +86,7 @@ fn fields_changed(
             kind: ChangeKind::Set,
             path,
             summary: format!("{label} {name}: {}", parts.join("; ")),
+            part_of: None,
         });
     }
 }
@@ -110,6 +111,7 @@ pub fn changes(old: &Value, new: &Value, renames: &[Rename]) -> Vec<Change> {
                     r.path[1],
                     r.to
                 ),
+                part_of: None,
             });
         }
     }
@@ -157,6 +159,7 @@ pub fn changes(old: &Value, new: &Value, renames: &[Rename]) -> Vec<Change> {
                             kind: ChangeKind::Add,
                             path,
                             summary: format!("New {kind} {name}{extra}"),
+                            part_of: None,
                         })
                     }
                     Some(before) if before != val => {
@@ -170,6 +173,7 @@ pub fn changes(old: &Value, new: &Value, renames: &[Rename]) -> Vec<Change> {
                     kind: ChangeKind::Remove,
                     path: vec![key.clone(), name.clone()],
                     summary: format!("{} {name} removed", kind[..1].to_uppercase() + &kind[1..]),
+                    part_of: None,
                 });
             }
             continue;
@@ -205,7 +209,15 @@ pub fn changes(old: &Value, new: &Value, renames: &[Rename]) -> Vec<Change> {
             },
             path,
             summary,
+            part_of: None,
         });
+    }
+    let renamed: Vec<(Vec<String>, String)> = renames
+        .iter()
+        .map(|r| (r.path.clone(), r.to.clone()))
+        .collect();
+    for c in out.iter_mut().filter(|c| c.kind == ChangeKind::Set) {
+        c.part_of = burrow_admin_logic::group::part_of(old, new, &c.path, &renamed);
     }
     out
 }

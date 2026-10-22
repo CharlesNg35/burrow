@@ -243,6 +243,7 @@ pub fn compute(
         .map(|n| n.to_json())
         .unwrap_or(Value::Null);
     let running = core.live.settings();
+    let file = check_text(core, &old_text);
     let (mut refusals, mut impacts, mut clash) = (Vec::new(), Vec::new(), Vec::new());
     if let Some(next) = &checked.settings {
         let who = guard::Who {
@@ -251,7 +252,6 @@ pub fn compute(
             secret: &s.secret,
             via_websocket: s.via_websocket,
         };
-        let file = check_text(core, &old_text);
         let base = match (&file.settings, file.valid) {
             (Some(settings), true) => guard::Base::Valid(settings),
             _ => guard::Base::Broken {
@@ -285,6 +285,7 @@ pub fn compute(
                 ),
                 line: None,
                 col: None,
+                before: false,
             });
         }
         let how = applies(core, &raw, &applied.target);
@@ -324,7 +325,20 @@ pub fn compute(
         base: base.to_string(),
         result_rev: text::rev(&new_text),
         valid: checked.valid && clash.is_empty(),
-        diags: checked.diags.into_iter().chain(clash).collect(),
+        diags: checked
+            .diags
+            .into_iter()
+            .chain(clash)
+            .map(|mut d| {
+                d.before = file.diags.iter().any(|o| {
+                    o.severity == d.severity
+                        && o.code == d.code
+                        && o.path == d.path
+                        && o.message == d.message
+                });
+                d
+            })
+            .collect(),
         changes,
         diff,
         impacts,

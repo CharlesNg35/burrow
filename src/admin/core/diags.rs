@@ -115,6 +115,7 @@ impl Mapper {
                 .span
                 .filter(|s| s.start.line > 0)
                 .map(|s| s.start.col as u32),
+            before: false,
         }
     }
 }
