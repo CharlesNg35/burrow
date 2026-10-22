@@ -258,6 +258,22 @@ impl Changeset {
         value::put(&mut self.draft, path, (!value.is_null()).then_some(value));
     }
 
+    pub fn remove_pruned(&mut self, path: &[String]) {
+        self.set(path, Value::Null);
+        for n in (1..path.len()).rev() {
+            let at = &path[..n];
+            let empty = match value::get(&self.draft, at) {
+                Some(Value::Object(m)) => m.is_empty(),
+                Some(Value::Array(a)) => a.is_empty(),
+                _ => false,
+            };
+            if !empty || value::get(&self.base, at).is_some() {
+                break;
+            }
+            value::put(&mut self.draft, at, None);
+        }
+    }
+
     pub fn remove(&mut self, path: &[String]) {
         self.set(path, Value::Null);
     }
@@ -354,6 +370,16 @@ impl Changeset {
                 self.renames.push((path, to));
             }
         }
+    }
+
+    pub fn renamed_to(&self, section: &str, name: &str) -> Option<String> {
+        self.renames
+            .iter()
+            .find(|(from, _)| {
+                from.first().map(String::as_str) == Some(section)
+                    && from.get(1).map(String::as_str) == Some(name)
+            })
+            .map(|(_, to)| to.clone())
     }
 
     pub fn renamed_from(&self, section: &str, name: &str) -> Option<String> {
@@ -462,6 +488,28 @@ mod tests {
     }
 
     #[test]
+    fn removing_the_last_entry_of_a_new_group_leaves_no_empty_group() {
+        let mut c = Changeset::new(json!({"visitors": {"lap": {"secret": "x"}}}));
+        c.set(&p(&["visitors", "lap", "reach", "home"]), json!("any"));
+        assert!(c.dirty());
+        c.remove_pruned(&p(&["visitors", "lap", "reach", "home"]));
+        assert!(!c.dirty(), "{:?}", c.ops());
+        c.set(&p(&["pool", "min_idle"]), json!(8));
+        c.remove_pruned(&p(&["pool", "min_idle"]));
+        assert!(!c.dirty(), "{:?}", c.ops());
+        c.set(&p(&["health_check", "interval_secs"]), json!(5));
+        c.set(&p(&["health_check", "interval_secs"]), Value::Null);
+        assert!(c.dirty(), "clearing a field keeps a group set on purpose");
+        let mut kept = Changeset::new(json!({"pool": {"min_idle": 2}}));
+        kept.remove_pruned(&p(&["pool", "min_idle"]));
+        assert_eq!(
+            kept.draft(),
+            &json!({"pool": {}}),
+            "a group the base has stays"
+        );
+    }
+
+    #[test]
     fn a_new_client_added_to_services_counts_as_one_change() {
         let mut c = Changeset::new(json!({"clients": {"home": {}}, "services": {
             "web": {"client": "home", "target": 80},
@@ -485,6 +533,7 @@ mod tests {
         assert_eq!(c.changed_entities(), 4, "web now carries two changes");
         assert_eq!(c.renamed_from("clients", "house").as_deref(), Some("home"));
         assert_eq!(c.renamed_from("visitors", "house"), None);
+        assert_eq!(c.renamed_to("clients", "home").as_deref(), Some("house"));
     }
 
     #[test]
