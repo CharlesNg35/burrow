@@ -203,6 +203,16 @@ fn apply_now(
     ops: &[Op],
     confirm: &[&str],
 ) -> Result<burrow_admin_proto::plan::Applied, ApiError> {
+    apply_at(core, s, ops, confirm, None)
+}
+
+fn apply_at(
+    core: &Core,
+    s: &Session,
+    ops: &[Op],
+    confirm: &[&str],
+    address: Option<&str>,
+) -> Result<burrow_admin_proto::plan::Applied, ApiError> {
     let base = text::rev(&core.read()?);
     let plan = plan::compute(core, s, &base, ops)?.plan;
     let begun = plan::apply_begin(
@@ -213,6 +223,7 @@ fn apply_now(
             ops: ops.to_vec(),
             plan: plan.plan,
             confirm: confirm.iter().map(|c| c.to_string()).collect(),
+            address: address.map(str::to_string),
         },
     )?;
     plan::finish(
@@ -406,6 +417,7 @@ fn the_guard_refuses_lockouts() {
                 ops: vec![op],
                 plan: c.plan.plan.clone(),
                 confirm: vec!["ops".into()],
+                address: None,
             },
         )
         .err()
@@ -477,6 +489,33 @@ fn secrets_are_revealed_once_and_destructive_changes_need_confirmation() {
         !serde_json::to_string(&h)
             .unwrap()
             .contains(&applied.secrets[0].value)
+    );
+}
+
+#[test]
+fn the_snippets_after_an_apply_use_the_address_the_admin_connected_to() {
+    let w = world();
+    let core = core_for(&w.text);
+    let s = session(&w, AdminLevel::Write);
+    let g = core.generate_secret(&s).unwrap();
+    let ops = [
+        Op::Add {
+            path: p(&["clients", "office"]),
+            value: json!({}),
+        },
+        Op::SecretAdd {
+            path: p(&["clients", "office", "secret"]),
+            handle: g.handle.clone(),
+        },
+    ];
+    let applied = apply_at(&core, &s, &ops, &[], Some("203.0.113.9:7835")).unwrap();
+    let sn = &applied.snippets[0];
+    assert!(sn.server_known);
+    assert_eq!(sn.server, "203.0.113.9:7835");
+    assert!(
+        sn.config.starts_with("server: 203.0.113.9:7835\n"),
+        "{}",
+        sn.config
     );
 }
 
@@ -888,6 +927,7 @@ fn a_rejected_reload_is_reported_with_the_restore() {
             ops: ops.to_vec(),
             plan: plan.plan,
             confirm: Vec::new(),
+            address: None,
         },
     )
     .unwrap();
@@ -998,6 +1038,7 @@ fn a_changing_connection_count_does_not_invalidate_a_reviewed_plan() {
             ops: ops.to_vec(),
             plan: reviewed.plan,
             confirm: vec!["web".into()],
+            address: None,
         },
     );
     assert!(begun.is_ok(), "{:?}", begun.err().map(|e| e.message));

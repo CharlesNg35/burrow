@@ -32,11 +32,12 @@ fn address(
     section: &str,
 ) -> (String, bool, Vec<String>) {
     let mut notes = Vec::new();
-    let wanted = given
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(str::to_string)
-        .or_else(|| settings.public_address.clone());
+    let wanted = settings.public_address.clone().or_else(|| {
+        given
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+    });
     match wanted {
         Some(w) => match burrow_syntax::address::client_address(
             &w,
@@ -173,7 +174,7 @@ pub fn connect_info(core: &Core, _s: &Session, req: &ConnectInfo) -> Result<Snip
     )
 }
 
-pub fn after_apply(core: &Core, c: &Computed) -> Vec<Snippets> {
+pub fn after_apply(core: &Core, c: &Computed, address: Option<&str>) -> Vec<Snippets> {
     let checked = check_text(core, &c.new_text);
     let Some(settings) = checked.settings else {
         return Vec::new();
@@ -187,7 +188,7 @@ pub fn after_apply(core: &Core, c: &Computed) -> Vec<Snippets> {
                 _ => return None,
             };
             let name = f.path.get(1)?;
-            build(&settings, kind, name, None, Some((&f.value, &f.fp))).ok()
+            build(&settings, kind, name, address, Some((&f.value, &f.fp))).ok()
         })
         .collect()
 }

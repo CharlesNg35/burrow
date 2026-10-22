@@ -400,6 +400,7 @@ fn keep_locked(
 pub struct Begun {
     pub computed: Computed,
     pub wrote: bool,
+    pub address: Option<String>,
 }
 
 pub fn apply_begin(
@@ -463,6 +464,7 @@ pub fn apply_begin(
         return Ok(Begun {
             computed,
             wrote: false,
+            address: req.address.clone(),
         });
     }
     core.store.keep(&computed.plan.base, &computed.old_text);
@@ -487,6 +489,7 @@ pub fn apply_begin(
     Ok(Begun {
         computed,
         wrote: true,
+        address: req.address.clone(),
     })
 }
 
@@ -595,7 +598,8 @@ pub fn finish(
                 })
                 .collect();
             s.consume(&handles);
-            let snippets = super::snippets::after_apply(core, &begun.computed);
+            let snippets =
+                super::snippets::after_apply(core, &begun.computed, begun.address.as_deref());
             Ok(Applied {
                 rev: plan.result_rev.clone(),
                 applied: plan.applies.clone(),

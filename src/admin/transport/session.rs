@@ -418,6 +418,7 @@ mod tests {
             ops,
             plan: plan.plan,
             confirm: Vec::new(),
+            address: None,
         })
         .unwrap();
         let e = apply(&cx, body).await.unwrap_err();

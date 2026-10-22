@@ -598,7 +598,8 @@ impl Edit {
         self.applying.set(true);
         self.outcome.set(None);
         let me = *self;
-        let body = json!({ "base": base, "ops": ops, "plan": plan.plan, "confirm": confirm });
+        let address = store.server_addr.get_untracked();
+        let body = json!({ "base": base, "ops": ops, "plan": plan.plan, "confirm": confirm, "address": (!address.is_empty()).then_some(address) });
         api::request(msg::req::APPLY, body, move |r| {
             me.applying.set(false);
             match r {
