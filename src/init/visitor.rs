@@ -393,7 +393,8 @@ pub fn visitor_config(
     let settings = load_server(server_config, env)?;
     let names: Vec<&str> = settings.visitors.keys().map(String::as_str).collect();
     let name = pick_name(VISITOR, name, &names, server_config, server)?;
-    if !reaches_something(&settings, &name) {
+    let admin = settings.visitors[&name].admin.is_some();
+    if !reaches_something(&settings, &name) && !admin {
         return Err(Failure::new(format!(
             "visitor \"{name}\" cannot reach anything in {}",
             server_config.display()
@@ -407,6 +408,12 @@ pub fn visitor_config(
     let server = connect_address(VISITOR, &settings, server, server_config, &mut notes)?;
     let secret_text = secret_text(VISITOR, server_config, &name, &auth.secrets);
     let value = visitor_document(&settings, &name, &server, &secret_text, &mut notes);
+    if admin {
+        notes.push(format!(
+            "visitor \"{name}\" has admin access: open the admin UI with {}",
+            crate::failure::cmd("admin -c FILE")
+        ));
+    }
     Ok(ConfigOutput {
         text: render(&value, format),
         notes,
