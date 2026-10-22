@@ -73,6 +73,7 @@ pub fn secret_list(path: Path, id: String, max: u32) -> AnyView {
         api::request(msg::req::GENERATE_SECRET, json!({}), move |r| {
             if let Ok(Ok(g)) = r.map(serde_json::from_value::<GeneratedSecret>) {
                 e.add_secret(&p, &g.handle, &g.fp);
+                added_outside_edit(s, &p);
             }
         });
     };
@@ -135,7 +136,10 @@ pub fn secret_list(path: Path, id: String, max: u32) -> AnyView {
                                         disabled=using
                                         title=using.then_some("The connected session uses this secret. Rotate first, then remove it once the client uses the new one.")
                                         aria-label=format!("Remove secret {fp}")
-                                        on:click=move |_| e.remove_secret(&p, &fp)
+                                        on:click=move |_| {
+                                            e.remove_secret(&p, &fp);
+                                            added_outside_edit(s, &p);
+                                        }
                                     >
                                         <burrow_ui_kit::Icon name="trash" small=true/>
                                         "Remove"
@@ -301,6 +305,13 @@ pub fn SnippetView(
                 .into_any(),
             }}
         </div>
+    }
+}
+
+fn added_outside_edit(s: crate::store::Store, path: &[String]) {
+    let entity: Vec<String> = path.iter().take(2).cloned().collect();
+    if !s.edit.is_editing(&entity) {
+        s.toast(Tone::Success, "Added to changes", Some("Review"));
     }
 }
 

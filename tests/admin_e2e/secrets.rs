@@ -182,6 +182,8 @@ fn rotation(c: &mut Ctx) -> Flow<'_> {
         c.ui.click("[data-testid=rotate]").await;
         c.ui.wait_for("[data-testid=secrets] li:nth-child(2)", SECS)
             .await;
+        c.ui.wait_text("[data-testid=toast]", "Added to changes", SECS)
+            .await;
         c.ui.shot("rotation-adds-a-second-secret").await;
         review_and_apply(c, "rotation").await;
         c.ui.wait_for("[data-testid=shown-once]", Duration::from_secs(20))
