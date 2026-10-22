@@ -794,9 +794,9 @@ fn map_editor(fc: FieldCtx, entity: Option<Entity>, value_node: Node) -> AnyView
 }
 
 fn any_or_rules(u: &UnionC) -> Option<Node> {
-    let any = u.branches.iter().any(|b| {
-        matches!(&inner(b).sem, SemType::Enum(c) if c.options.iter().any(|o| o.value == ANY))
-    });
+    let any = u.branches.iter().any(
+        |b| matches!(&inner(b).sem, SemType::Enum(c) if c.options.iter().any(|o| o.value == ANY)),
+    );
     let list = u.branches.iter().find_map(|b| match &inner(b).sem {
         SemType::List(c) => Some((*c.item).clone()),
         _ => None,
