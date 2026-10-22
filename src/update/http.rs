@@ -34,48 +34,60 @@ impl Url {
     }
 
     pub fn parse(url: &str) -> Result<Url, String> {
-        let (tls, rest) = if let Some(r) = url.strip_prefix("https://") {
-            (true, r)
-        } else if let Some(r) = url.strip_prefix("http://") {
-            (false, r)
-        } else {
-            return Err(format!("{url} is not an http:// or https:// URL"));
+        let not_http = || format!("{url} is not an http:// or https:// URL");
+        let uri: ::http::Uri = url.parse().map_err(|_| not_http())?;
+        let tls = match uri.scheme() {
+            Some(s) if *s == ::http::uri::Scheme::HTTPS => true,
+            Some(s) if *s == ::http::uri::Scheme::HTTP => false,
+            _ => return Err(not_http()),
         };
-        let (authority, path) = match rest.find('/') {
-            Some(i) => (&rest[..i], &rest[i..]),
-            None => (rest, "/"),
-        };
-        let default = if tls { 443 } else { 80 };
-        let (host, port) = match authority.rsplit_once(':') {
-            Some((h, p)) if !p.contains(']') => (
-                h,
-                p.parse::<u16>()
-                    .map_err(|_| format!("{url} has an invalid port"))?,
-            ),
-            _ => (authority, default),
-        };
-        if host.is_empty() || host.contains('@') {
+        let authority = uri
+            .authority()
+            .filter(|a| !a.as_str().is_empty() && !a.as_str().contains('@'))
+            .ok_or_else(|| format!("{url} has no valid host"))?;
+        let host = authority.host();
+        if host.is_empty() {
             return Err(format!("{url} has no valid host"));
         }
+        let port = match authority.port_u16() {
+            Some(port) => port,
+            None if authority.as_str().len() > host.len() => {
+                return Err(format!("{url} has an invalid port"));
+            }
+            None => {
+                if tls {
+                    443
+                } else {
+                    80
+                }
+            }
+        };
+        let path = match uri.path_and_query().map(|p| p.as_str()) {
+            Some(p) if p.starts_with('/') => p.to_string(),
+            Some(p) => format!("/{p}"),
+            None => "/".to_string(),
+        };
         Ok(Url {
             tls,
             host: host.to_string(),
             port,
-            path: path.to_string(),
+            path,
         })
     }
 
     fn join(&self, location: &str) -> Result<Url, String> {
-        if location.starts_with("http://") || location.starts_with("https://") {
+        let unsupported = || format!("unsupported redirect to {location}");
+        let uri: ::http::Uri = location.parse().map_err(|_| unsupported())?;
+        if uri.scheme().is_some() {
             return Url::parse(location);
         }
-        if !location.starts_with('/') {
-            return Err(format!("unsupported redirect to {location}"));
+        match uri.path_and_query() {
+            Some(p) if uri.authority().is_none() && p.as_str().starts_with('/') => Ok(Url {
+                path: p.as_str().to_string(),
+                ..self.clone()
+            }),
+            _ => Err(unsupported()),
         }
-        Ok(Url {
-            path: location.to_string(),
-            ..self.clone()
-        })
     }
 
     fn authority(&self) -> String {
@@ -400,6 +412,38 @@ mod tests {
     }
 
     #[test]
+    fn urls_at_the_edges_parse_like_http_uri() {
+        let v6 = Url::parse("https://[2001:db8::1]:8443/x?y=1").unwrap();
+        assert_eq!(
+            (v6.host.as_str(), v6.port, v6.path.as_str()),
+            ("[2001:db8::1]", 8443, "/x?y=1")
+        );
+        assert_eq!(v6.authority(), "[2001:db8::1]:8443");
+        assert_eq!(v6.to_string(), "https://[2001:db8::1]:8443/x?y=1");
+        let bare = Url::parse("https://[2001:db8::1]").unwrap();
+        assert_eq!((bare.port, bare.path.as_str()), (443, "/"));
+        assert_eq!(bare.host_header(), "[2001:db8::1]");
+        let upper = Url::parse("HTTPS://GitHub.com/a").unwrap();
+        assert!(upper.tls);
+        assert_eq!(upper.port, 443);
+        assert_eq!(Url::parse("http://h:8080?q").unwrap().path, "/?q");
+        for bad in [
+            "https://x:/",
+            "https://x:http/",
+            "https://x:65536/",
+            "https://u:p@x/",
+            "https://@x/",
+            "https:///x",
+            "https://",
+            "x.example/y",
+            "//x.example/y",
+            "https://x y/",
+        ] {
+            assert!(Url::parse(bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
     fn follows_relative_and_absolute_redirects() {
         let u = Url::parse("https://github.com/a").unwrap();
         assert_eq!(
@@ -411,6 +455,15 @@ mod tests {
             "objects.example.com"
         );
         assert!(u.join("relative").is_err());
+        assert!(u.join("?only=query").is_err());
+        assert!(u.join("ftp://x/y").is_err());
+        let v6 = u.join("http://[::1]:8080/z").unwrap();
+        assert_eq!(
+            (v6.tls, v6.host.as_str(), v6.port, v6.path.as_str()),
+            (false, "[::1]", 8080, "/z")
+        );
+        let moved = Url::parse("https://h:8443/a").unwrap().join("/b").unwrap();
+        assert_eq!(moved.to_string(), "https://h:8443/b");
     }
 
     #[test]
