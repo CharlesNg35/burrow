@@ -540,10 +540,41 @@ pub fn visitor(
     }
 }
 
+pub const PICK_VISITORS: &str = "Pick at least one visitor or switch back to Public port";
+
+pub fn add_blocker(svc: &Value) -> Option<&'static str> {
+    let public = ServiceEntry::BIND.get(svc).is_some_and(|b| !b.is_null());
+    let picked = ServiceEntry::VISITORS
+        .get(svc)
+        .and_then(Value::as_array)
+        .is_some_and(|a| !a.is_empty());
+    (!public && !picked).then_some(PICK_VISITORS)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use burrow_admin_proto::serde_json::json;
+
+    #[test]
+    fn a_private_service_needs_a_visitor_before_it_can_be_added() {
+        assert_eq!(
+            add_blocker(&json!({"client": "a", "target": 80})),
+            Some(PICK_VISITORS)
+        );
+        assert_eq!(
+            add_blocker(&json!({"client": "a", "target": 80, "visitors": []})),
+            Some(PICK_VISITORS)
+        );
+        assert_eq!(
+            add_blocker(&json!({"client": "a", "target": 80, "visitors": ["ops"]})),
+            None
+        );
+        assert_eq!(
+            add_blocker(&json!({"client": "a", "target": 80, "bind": 7840})),
+            None
+        );
+    }
 
     #[test]
     fn a_service_path_reads_the_config_and_marks_problems() {

@@ -1290,6 +1290,14 @@ fn edit_state(c: &mut Ctx) -> Flow<'_> {
             0,
             "the hint asks for visitors; no red error while they are being picked"
         );
+        assert!(
+            !c.ui.enabled("[data-testid=save]").await,
+            "a private service without visitors cannot be added"
+        );
+        assert_eq!(
+            c.ui.text("[data-testid=fields-changed]").await,
+            "Pick at least one visitor or switch back to Public port"
+        );
         c.ui.shot("private-needs-visitors").await;
         c.ui.click("[data-testid=pick-visitors] button").await;
         c.ui.wait_for(
