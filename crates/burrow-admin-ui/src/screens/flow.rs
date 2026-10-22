@@ -310,12 +310,11 @@ pub fn layout(doc: &Value, status: Option<&Status>, rates: &Rates) -> Chart {
                 right: String::new(),
                 sub: match cs {
                     Some(x) if x.connected => format!("{} open · {} idle", x.open, x.idle_channels),
-                    Some(x) => format::left_of(
-                        c,
-                        x.left_secs_ago,
-                        status.map(|s| s.uptime_secs).unwrap_or(0),
-                    ),
-                    None => format::left_of(c, None, status.map(|s| s.uptime_secs).unwrap_or(0)),
+                    Some(x) => match x.left_secs_ago {
+                        Some(a) => format!("left {}", format::ago(a)),
+                        None => "not seen since start".into(),
+                    },
+                    None => "not seen since start".into(),
                 },
                 badge: (status.is_some() && !on)
                     .then(|| format::away_badge(cs.and_then(|x| x.left_secs_ago)).to_string()),
@@ -343,12 +342,16 @@ pub fn layout(doc: &Value, status: Option<&Status>, rates: &Rates) -> Chart {
             y,
             h: 42.0,
             title: s.name.clone(),
-            right: s
-                .bind
-                .as_deref()
-                .map(short_bind)
-                .unwrap_or_else(|| "private".into()),
-            sub: format!("{} · {} open", s.protocol, s.open),
+            right: String::new(),
+            sub: format!(
+                "{} · {} · {} open",
+                s.bind
+                    .as_deref()
+                    .map(short_bind)
+                    .unwrap_or_else(|| "private".into()),
+                s.protocol,
+                s.open
+            ),
             badge: None,
             health: s.health,
             dashed: false,
@@ -382,7 +385,7 @@ pub fn layout(doc: &Value, status: Option<&Status>, rates: &Rates) -> Chart {
                 ServiceEntry::section().into(),
                 s.name.clone(),
             )),
-            tip: format!("Open service {} →", s.name),
+            tip: format!("{} · open service {} →", s.target, s.name),
         };
         let w = weight(s.open);
         let stroke = s.health.stroke();
@@ -477,6 +480,20 @@ pub fn layout(doc: &Value, status: Option<&Status>, rates: &Rates) -> Chart {
     }
 }
 
+fn fit(text: &str, room: usize) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    if chars.len() <= room {
+        return text.to_string();
+    }
+    let keep = room.saturating_sub(1);
+    let head = keep.div_ceil(2);
+    let tail = keep - head;
+    let mut out: String = chars[..head].iter().collect();
+    out.push('…');
+    out.extend(&chars[chars.len() - tail..]);
+    out
+}
+
 fn node_view(
     n: Node,
     only_problems: Signal<bool>,
@@ -513,11 +530,14 @@ fn node_view(
             Health::Degraded => "fill-warning",
             _ => "fill-text-muted",
         };
-        view! { <text x=x + w - 8.0 y=y + 30.0 text-anchor="end" class=format!("text-[10.5px] font-semibold {tone}")>{b}</text> }
+        view! { <text x=x + w - 8.0 y=y + 17.0 text-anchor="end" class=format!("text-[10.5px] font-semibold {tone}")>{b}</text> }
     });
     let dot = (!n.server && n.col == 3 && !n.dashed && n.health == Health::Healthy)
         .then(|| view! { <circle cx=x + 12.0 cy=y + 15.0 r="3.5" class="fill-success"></circle> });
     let tx = if dot.is_some() { x + 21.0 } else { x + 10.0 };
+    let badge_px = n.badge.as_ref().map_or(0.0, |b| b.len() as f64 * 6.5 + 8.0);
+    let room = ((w - (tx - x) - 8.0 - badge_px) / 7.0).max(4.0) as usize;
+    let sub_room = ((w - 18.0) / 6.0).max(4.0) as usize;
     view! {
         <g
             class=cursor
@@ -551,10 +571,10 @@ fn node_view(
                 stroke-dasharray=n.dashed.then_some("4 3")
             ></rect>
             {dot}
-            <text x=tx y=y + 17.0 class=if n.col == 4 { "fill-text font-mono text-[11.5px] font-semibold" } else { "fill-text text-[12px] font-semibold" }>{n.title.clone()}</text>
+            <text x=tx y=y + 17.0 class=if n.col == 4 { "fill-text font-mono text-[11.5px] font-semibold" } else { "fill-text text-[12px] font-semibold" }>{fit(&n.title, room)}</text>
             {(!n.right.is_empty()).then(|| view! { <text x=x + w - 8.0 y=y + 17.0 text-anchor="end" class="fill-text-muted font-mono text-[11px]">{n.right.clone()}</text> })}
             {lines.into_iter().enumerate().map(|(i, l)| view! {
-                <text x=x + 10.0 y=y + 31.0 + i as f64 * 14.0 class="fill-text-muted text-[11px]">{l}</text>
+                <text x=x + 10.0 y=y + 31.0 + i as f64 * 14.0 class="fill-text-muted text-[11px]">{fit(&l, sub_room)}</text>
             }).collect_view()}
             {badge}
         </g>
@@ -729,6 +749,13 @@ pub fn FlowModal() -> impl IntoView {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn long_text_is_cut_in_the_middle() {
+        assert_eq!(fit("short", 10), "short");
+        assert_eq!(fit("unix:/home/ubuntu/app.sock", 12), "unix:/….sock");
+        assert_eq!(fit("unix:/home/ubuntu/app.sock", 12).chars().count(), 12);
+    }
     use burrow_admin_proto::serde_json::json;
     use burrow_admin_proto::status::{ClientStatus, ServiceStatus};
 
@@ -825,10 +852,9 @@ mod tests {
         let b = c.nodes.iter().find(|n| n.key == "client:b").unwrap();
         assert!(b.dashed && b.problem);
         assert_eq!(b.badge.as_deref(), Some("away"));
-        assert_eq!(
-            c.nodes.iter().find(|n| n.key == "port:web").unwrap().right,
-            ":443"
-        );
+        let web = c.nodes.iter().find(|n| n.key == "port:web").unwrap();
+        assert!(web.right.is_empty(), "the bind sits on line 2");
+        assert!(web.sub.starts_with(":443 · "), "{}", web.sub);
         assert_eq!(c.height, TOP + 3.0 * PITCH);
         assert!(c.lines.iter().all(|l| l.d.starts_with('M')));
     }

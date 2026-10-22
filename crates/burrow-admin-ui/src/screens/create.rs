@@ -222,8 +222,8 @@ pub fn NewEntity(
     let sec4 = section.clone();
     let path_data = Signal::derive(move || {
         let n = name.get();
-        let host = crate::app::host_line(s);
-        let first = links.with(|l| l.first().cloned());
+        let host = s.server_name();
+        let picked = links.with(Vec::len);
         let shown = if n.is_empty() {
             format!("new {}", singular(&sec4))
         } else {
@@ -259,11 +259,15 @@ pub fn NewEntity(
                 burrow_ui_kit::Hop {
                     icon: "stack",
                     head: "Services".into(),
-                    value: first.clone().unwrap_or_else(|| "none".into()),
-                    unit: if first.is_some() {
-                        "added below".into()
-                    } else {
+                    value: match picked {
+                        0 => "none".into(),
+                        1 => "1 service".into(),
+                        n => format!("{n} services"),
+                    },
+                    unit: if picked == 0 {
                         "pick below".into()
+                    } else {
+                        String::new()
                     },
                     ..burrow_ui_kit::Hop::default()
                 },

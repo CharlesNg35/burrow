@@ -2,9 +2,7 @@ use burrow_admin_proto::msg::{AdminLevel, FileDiagnostics, UiDiagnostics};
 use burrow_admin_proto::schema::Entity;
 use burrow_admin_proto::serde_json::{self, Value};
 use burrow_config::admin_schema::AdminEnum;
-use burrow_config::{
-    ClientEntry, Entry, ServerConfig, ServiceEntry, VisitorEntry, entity_of_section,
-};
+use burrow_config::{ClientEntry, Entry, ServiceEntry, VisitorEntry, entity_of_section};
 use burrow_ui_kit::{Banner, Button, EmptyState, Icon, Kbd, Skeleton, ToastHost, Tone, copy_text};
 use leptos::prelude::*;
 use wasm_bindgen::JsCast;
@@ -208,22 +206,6 @@ fn initials(name: &str) -> String {
         .to_uppercase()
 }
 
-pub fn host_line(s: Store) -> String {
-    let public = s.state.with(|st| {
-        st.as_ref().and_then(|st| {
-            ServerConfig::PUBLIC_ADDRESS
-                .str(&st.values)
-                .map(str::to_string)
-        })
-    });
-    public
-        .or_else(|| {
-            s.status
-                .with(|st| st.as_ref().and_then(|st| st.listening.first().cloned()))
-        })
-        .unwrap_or_default()
-}
-
 #[component]
 fn Header() -> impl IntoView {
     let s = store();
@@ -324,7 +306,7 @@ fn Header() -> impl IntoView {
                 }
                 .into_any()
             }
-            Conn::Open => view! { <span class="sr-only" data-testid="conn-pill">{move || format!("Connected to {}", host_line(s))}</span> }.into_any(),
+            Conn::Open => view! { <span class="sr-only" data-testid="conn-pill">{move || format!("Connected to {}", s.server_name())}</span> }.into_any(),
             Conn::Connecting => view! { <span class="text-[12.5px] text-hdr-muted" data-testid="conn-pill">"Connecting"</span> }.into_any(),
             other => view! { <span class="flex items-center gap-1.5 text-[12.5px] text-danger" data-testid="conn-pill"><Icon name="wifi-off"/>{other.label()}</span> }.into_any(),
         }
@@ -336,8 +318,8 @@ fn Header() -> impl IntoView {
         _ => "bg-danger",
     };
     let conn_line = move || match s.conn.get() {
-        Conn::Open => format!("Connected to {}", host_line(s)),
-        Conn::Reconnecting { .. } => format!("Reconnecting to {}", host_line(s)),
+        Conn::Open => format!("Connected to {}", s.server_name()),
+        Conn::Reconnecting { .. } => format!("Reconnecting to {}", s.server_name()),
         other => other.label().to_string(),
     };
     let next_theme = move || match theme.get().as_str() {
@@ -672,7 +654,7 @@ fn Banners() -> impl IntoView {
             Some(view! {
                 <Banner
                     tone=Tone::Warning
-                    title=format!("Lost the connection to {}.", host_line(s))
+                    title=format!("Lost the connection to {}.", s.server_name())
                     message=format!("Reconnecting in {left} s · attempt {attempt}. Your {n} pending changes are kept. Values are from {at}.")
                     testid="banner-reconnecting"
                 >
