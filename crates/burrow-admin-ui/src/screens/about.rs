@@ -30,7 +30,14 @@ pub fn About() -> impl IntoView {
         let facts: Vec<(&str, String)> = vec![
             ("Server version", w.server.version.clone()),
             ("Server target", w.server.target.clone()),
-            ("Uptime", format::span(w.server.uptime_secs)),
+            (
+                "Uptime",
+                format::span(
+                    s.status
+                        .with(|x| x.as_ref().map(|x| x.uptime_secs))
+                        .unwrap_or(w.server.uptime_secs),
+                ),
+            ),
             ("burrow admin UI", UI_VERSION.to_string()),
             (
                 "Admin protocol",
