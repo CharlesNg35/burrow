@@ -137,6 +137,7 @@ async fn answer(stream: TcpStream, handler: &Handler) -> std::io::Result<()> {
         .timer(hyper_util::rt::TokioTimer::new())
         .header_read_timeout(READ_TIMEOUT)
         .max_buf_size(4 * MAX_HEAD)
+        .half_close(true)
         .keep_alive(false)
         .title_case_headers(true)
         .auto_date_header(false);
@@ -186,6 +187,29 @@ mod tests {
         assert_eq!(respond(&req("GET", "/"), &empty).0, 404);
         assert_eq!(respond(&req("POST", "/metrics"), &empty).0, 405);
         assert_eq!(respond(&req("PATCH", "/metrics"), &empty).0, 405);
+    }
+
+    #[tokio::test]
+    async fn a_client_that_half_closes_after_its_request_still_gets_the_answer() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = l.local_addr().unwrap();
+        tokio::spawn(serve(l, Arc::new(empty)));
+        for _ in 0..20 {
+            let mut s = TcpStream::connect(addr).await.unwrap();
+            s.write_all(b"GET /metrics HTTP/1.1\r\nHost: x\r\n\r\n")
+                .await
+                .unwrap();
+            s.shutdown().await.unwrap();
+            let mut out = Vec::new();
+            tokio::time::timeout(Duration::from_secs(5), s.read_to_end(&mut out))
+                .await
+                .unwrap()
+                .unwrap();
+            let text = String::from_utf8_lossy(&out);
+            assert!(text.starts_with("HTTP/1.1 200"), "{text}");
+            assert!(text.contains("burrow_uptime_seconds 5"), "{text}");
+        }
     }
 
     #[tokio::test]
