@@ -1281,6 +1281,43 @@ fn edit_state(c: &mut Ctx) -> Flow<'_> {
             0,
             "a discarded edit leaves no problems behind"
         );
+        let reach = "[data-schema='visitors/*/reach']";
+        c.ui.wait_for(
+            &format!("{reach} [data-key=home] input[value=only]:checked"),
+            SECS,
+        )
+        .await;
+        c.ui.wait_for(&format!("{reach} [data-chip='127.0.0.1/32']"), SECS)
+            .await;
+        click_js(c, &format!("{reach} [data-key=home] input[value=any]")).await;
+        c.ui.wait_gone(&format!("{reach} [data-chip]"), SECS).await;
+        wait_checked(c).await;
+        c.ui.shot("reach-any-target").await;
+        click_js(c, &format!("{reach} [data-key=home] input[value=only]")).await;
+        c.ui.fill(
+            &format!("{reach} [data-key=home] input[type=text]"),
+            "127.0.0.1/32:22",
+        )
+        .await;
+        c.ui.press(
+            &format!("{reach} [data-key=home] input[type=text]"),
+            "Enter",
+        )
+        .await;
+        c.ui.wait_for(&format!("{reach} [data-chip='127.0.0.1/32:22']"), SECS)
+            .await;
+        let geo: Vec<f64> = c
+            .ui
+            .eval(&format!("(() => {{ const r = document.querySelector(\"{reach} [data-key=home]\").getBoundingClientRect(); const b = document.querySelector(\"{reach} [data-key=home] button[aria-label='Remove home']\").getBoundingClientRect(); return [r.right, b.right]; }})()"))
+            .await;
+        assert!(
+            geo[1] <= geo[0] + 0.5,
+            "Remove stays inside its row: {geo:?}"
+        );
+        c.ui.shot("reach-only-these").await;
+        c.ui.click("[data-testid=discard-edit]").await;
+        c.ui.wait_gone("[data-testid=save-bar]", SECS).await;
+        edit_mode(c).await;
         c.ui.fill("#f-visitors-laptop-max-connections", "50").await;
         wait_checked(c).await;
         c.ui.click("[data-testid=review-open]").await;

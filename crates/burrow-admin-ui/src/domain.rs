@@ -620,6 +620,7 @@ fn list_editor(fc: FieldCtx, item: Node) -> AnyView {
     let path = fc.path.clone();
     let items = Signal::derive(move || match e.value(&path) {
         Some(Value::Array(a)) => a.iter().map(|x| to_text(Some(x))).collect(),
+        Some(Value::String(s)) if s != ANY => vec![s],
         _ => Vec::<String>::new(),
     });
     let item2 = item.clone();
@@ -757,9 +758,9 @@ fn map_editor(fc: FieldCtx, entity: Option<Entity>, value_node: Node) -> AnyView
                 };
                 let label = k.clone();
                 view! {
-                    <div class="flex flex-wrap items-start gap-2 py-1" data-key=k.clone()>
-                        <span class="w-32 pt-2 font-mono text-sm">{label}</span>
-                        <div class="min-w-0 flex-1">{editor(sub)}</div>
+                    <div class="grid grid-cols-[minmax(0,8rem)_minmax(0,1fr)_auto] items-start gap-2 py-1" data-key=k.clone()>
+                        <span class="truncate pt-2 font-mono text-sm">{label}</span>
+                        <div class="min-w-0">{editor(sub)}</div>
                         <button
                             type="button"
                             class=button_class("ghost", true)
@@ -792,7 +793,68 @@ fn map_editor(fc: FieldCtx, entity: Option<Entity>, value_node: Node) -> AnyView
     .into_any()
 }
 
+fn any_or_rules(u: &UnionC) -> Option<Node> {
+    let any = u.branches.iter().any(|b| {
+        matches!(&inner(b).sem, SemType::Enum(c) if c.options.iter().any(|o| o.value == ANY))
+    });
+    let list = u.branches.iter().find_map(|b| match &inner(b).sem {
+        SemType::List(c) => Some((*c.item).clone()),
+        _ => None,
+    });
+    list.filter(|_| any)
+}
+
+const ANY: &str = "any";
+
+fn any_or_rules_editor(fc: FieldCtx, item: Node) -> AnyView {
+    let e = store().edit;
+    let path = fc.path.clone();
+    let mode = Memo::new(move |_| match e.value(&path) {
+        Some(Value::String(s)) if s == ANY => ANY.to_string(),
+        _ => "only".to_string(),
+    });
+    let p2 = fc.path.clone();
+    let options = vec![
+        (ANY.to_string(), "Any target".to_string(), false),
+        ("only".to_string(), "Only these".to_string(), false),
+    ];
+    let chips = {
+        let fc = fc.clone();
+        move || {
+            (mode.get() == "only").then(|| {
+                view! { <div class="mt-2">{list_editor(fc.clone(), item.clone())}</div> }
+            })
+        }
+    };
+    view! {
+        <div id=fc.id.clone()>
+            <Segmented
+                name=format!("{}-mode", fc.id)
+                options=options
+                value=mode
+                label=fc.node.label.clone()
+                on_change=move |m: String| {
+                    let v = if m == ANY {
+                        Value::String(ANY.into())
+                    } else {
+                        Value::Array(Vec::new())
+                    };
+                    e.set(&p2, Some(v));
+                }
+            />
+            {move || (mode.get() == ANY).then(|| view! {
+                <p class="mt-1.5 text-xs text-text-muted">"Whatever the client's own allow list permits."</p>
+            })}
+            {chips}
+        </div>
+    }
+    .into_any()
+}
+
 fn union_editor(fc: FieldCtx, u: UnionC) -> AnyView {
+    if let Some(item) = any_or_rules(&u) {
+        return any_or_rules_editor(fc, item);
+    }
     let e = store().edit;
     let bool_branch = u
         .branches
