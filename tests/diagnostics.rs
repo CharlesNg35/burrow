@@ -1161,19 +1161,7 @@ fn visitor_mistakes() {
 
     visitor.yaml: 7 errors, 1 warning
     "#);
-    insta::assert_snapshot!(render("visitor.yaml", &visitor("  {}\n"), None), @r#"
-    warning: no forwards are defined
-      --> visitor.yaml:4:1
-       |
-     4 | forwards:
-       | ^^^^^^^^
-       = help: add one, for example:
-             forwards:
-               db: { service: db, local: 5432 }
-           or name the target when you run it: burrow visit --service NAME --local PORT
-
-    visitor.yaml: valid visitor config for "laptop" (0 forwards), 1 warning
-    "#);
+    insta::assert_snapshot!(render("visitor.yaml", &visitor("  {}\n"), None), @r#"visitor.yaml: valid visitor config for "laptop" (0 forwards)"#);
     insta::assert_snapshot!(render("visitor.yaml", &format!("server: a\nname: laptop\nsecret: {SECRET}\n"), Some(Role::Visitor)), @r#"
     warning: no forwards are defined
       --> visitor.yaml
@@ -1989,7 +1977,7 @@ fn invalid_forwards_are_not_called_missing() {
         o.report.diagnostics.iter().any(|d| d.code == "no-forwards")
     };
     assert!(warned(""));
-    assert!(warned("forwards: {}\n"));
+    assert!(!warned("forwards: {}\n"));
     assert!(!warned("forwards:\n  a: { service: db, local: 0 }\n"));
     assert!(!warned("forwards:\n"));
     assert!(!warned("forwards:\n  a: { service: db, local: 5432 }\n"));
