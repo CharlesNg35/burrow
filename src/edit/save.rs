@@ -119,7 +119,7 @@ fn spare_prefix(name: &str) -> String {
 }
 
 pub fn spare_next_to(path: &Path) -> Option<std::path::PathBuf> {
-    let real = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let real = dunce::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     let name = real.file_name()?.to_str()?;
     let folder = real
         .parent()
@@ -181,13 +181,14 @@ mod tests {
 
     #[test]
     fn a_leftover_spare_is_found_next_to_its_config() {
-        let dir = tempfile::tempdir().unwrap();
-        let config = dir.path().join("server.yaml");
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = dunce::canonicalize(tmp.path()).unwrap();
+        let config = dir.join("server.yaml");
         std::fs::write(&config, "x").unwrap();
         assert_eq!(spare_next_to(&config), None);
-        std::fs::write(dir.path().join(".other.yaml.burrow-edit-7"), "x").unwrap();
+        std::fs::write(dir.join(".other.yaml.burrow-edit-7"), "x").unwrap();
         assert_eq!(spare_next_to(&config), None);
-        let spare = dir.path().join(".server.yaml.burrow-edit-42");
+        let spare = dir.join(".server.yaml.burrow-edit-42");
         std::fs::write(&spare, "listen: 7835\n").unwrap();
         assert_eq!(spare_next_to(&config), Some(spare));
     }
@@ -209,7 +210,7 @@ mod tests {
         std::fs::write(&spare, "listen: 7835\n").unwrap();
         assert_eq!(
             spare_next_to(&link),
-            Some(std::fs::canonicalize(&spare).unwrap())
+            Some(dunce::canonicalize(&spare).unwrap())
         );
     }
 
