@@ -520,7 +520,14 @@ pub fn start_visitor(settings: VisitorSettings) -> RunningVisitor {
     start_visitor_with(settings, false)
 }
 
-pub fn start_visitor_with(settings: VisitorSettings, reloads: bool) -> RunningVisitor {
+pub fn start_visitor_with(mut settings: VisitorSettings, reloads: bool) -> RunningVisitor {
+    if ws_mode()
+        && let burrow_syntax::endpoint::Endpoint::Tcp { host_port } = &settings.endpoint
+    {
+        let url = format!("ws://{host_port}/burrow");
+        settings.endpoint = burrow_syntax::endpoint::Endpoint::parse(&url).unwrap();
+        settings.server = url;
+    }
     let names: Vec<String> = settings.forwards.keys().cloned().collect();
     let visitor = burrow::visitor::Visitor::bind(settings).expect("visitor binds");
     let addrs = names
