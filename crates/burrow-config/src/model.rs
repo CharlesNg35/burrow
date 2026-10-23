@@ -217,6 +217,8 @@ pub struct ClientEntry {
     #[schemars(range(min = 1))]
     #[admin(
         ty = integer(unit = "connections"),
+        label = "Max connections on this server",
+        help = "Connections this server forwards to the client at once. The client has its own limit too, max_connections in its client.yaml",
         none_label = "Server default",
         default_from("/limits/max_connections_per_client"),
         advanced

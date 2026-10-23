@@ -55,7 +55,7 @@ pub fn limit_tag(
         .iter()
         .any(|c| c.name == client && c.at_limit)
         .then_some((
-            "at limit",
+            "at limit · max_connections in client.yaml",
             "In the last minute this client refused new connections because it reached its max_connections. Raise max_connections in its client.yaml.",
         ))
 }
@@ -157,7 +157,10 @@ mod tests {
             busy_total: 9,
             ..ClientStatus::default()
         });
-        assert_eq!(limit_tag(Some(&st), "home").map(|t| t.0), Some("at limit"));
+        assert_eq!(
+            limit_tag(Some(&st), "home").map(|t| t.0),
+            Some("at limit · max_connections in client.yaml")
+        );
         assert_eq!(limit_tag(Some(&st), "office"), None);
         assert_eq!(limit_tag(Some(&st), "lab"), None);
         assert_eq!(limit_tag(None, "home"), None);

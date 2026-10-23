@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:a19ccd3d6ac6673f",
+  "hash": "b2s:fc4525ab43f345d1",
   "root": {
     "label": "Server",
     "sem": {
@@ -185,8 +185,8 @@
                     {
                       "key": "max_connections",
                       "node": {
-                        "label": "Max connections",
-                        "help": "Maximum concurrent forwarded connections for this client",
+                        "label": "Max connections on this server",
+                        "help": "Connections this server forwards to the client at once. The client has its own limit too, max_connections in its client.yaml",
                         "sem": {
                           "t": "optional",
                           "inner": {

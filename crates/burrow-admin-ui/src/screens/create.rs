@@ -408,7 +408,7 @@ pub fn NewEntity(
                             <span class="text-[12.5px] text-text-muted">"Both optional."</span>
                         </div>
                         <div>
-                            <span class="mb-1.5 flex items-center gap-2 text-sm font-semibold">"Max connections"<span class="font-normal text-text-faint">"· optional"</span></span>
+                            <span class="mb-1.5 flex items-center gap-2 text-sm font-semibold">{if what == ClientEntry::ENTITY { "Max connections on this server" } else { "Max connections" }}<span class="font-normal text-text-faint">"· optional"</span></span>
                             <div class="flex items-center gap-2">
                                 <div class="w-56">
                                     <TextInput id="new-max" value=max on_input=move |t: String| max.set(t) numeric=true placeholder=placeholder_max.clone() suffix="connections"/>
