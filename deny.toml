@@ -21,6 +21,9 @@ allow = [
     "Zlib",
     "CDLA-Permissive-2.0",
 ]
+exceptions = [
+    { crate = "option-ext", allow = ["MPL-2.0"] },
+]
 
 [bans]
 multiple-versions = "warn"
