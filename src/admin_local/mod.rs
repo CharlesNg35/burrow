@@ -41,6 +41,12 @@ pub struct Options {
     pub ui_dir: Option<PathBuf>,
 }
 
+impl Options {
+    pub fn shows_link(&self) -> bool {
+        self.print_url || self.open || self.url_file.is_some()
+    }
+}
+
 struct Shared {
     port: u16,
     prefix: String,
@@ -510,6 +516,22 @@ pub fn announce(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_url_file_counts_as_showing_the_link() {
+        let opts = |print_url, open, url_file: Option<&str>| Options {
+            port: None,
+            open,
+            print_url,
+            url_file: url_file.map(PathBuf::from),
+            idle_exit: Duration::from_secs(1),
+            ui_dir: None,
+        };
+        assert!(!opts(false, false, None).shows_link());
+        assert!(opts(true, false, None).shows_link());
+        assert!(opts(false, true, None).shows_link());
+        assert!(opts(false, false, Some("url.txt")).shows_link());
+    }
 
     #[test]
     fn the_websocket_accept_key_follows_rfc_6455() {

@@ -228,7 +228,7 @@ pub fn admin(path: &Path, env: Env, opts: crate::admin_local::Options) -> Result
             opts.port,
             sess.port,
             burrow_syntax::ports::ADMIN_PORT,
-            opts.print_url || opts.open,
+            opts.shows_link(),
         )
         .await?;
         if let Some(note) = note {
