@@ -470,6 +470,11 @@ pub fn visitor(
                     (false, None) if status.is_some() => unseen(name),
                     _ => String::new(),
                 },
+                dot: Some(if this_session || open > 0 {
+                    Tone::Success
+                } else {
+                    Tone::Neutral
+                }),
                 state: HopState::Current,
                 ..Hop::default()
             },
@@ -555,6 +560,25 @@ pub fn add_blocker(svc: &Value) -> Option<&'static str> {
 mod tests {
     use super::*;
     use burrow_admin_proto::serde_json::json;
+
+    #[test]
+    fn a_visitor_never_seen_has_a_hollow_dot_and_one_in_use_a_green_one() {
+        let doc = json!({"visitors": {"v": {}}});
+        let mut st: Status = burrow_admin_proto::serde_json::from_value(json!({
+            "version": "0.1.0", "uptime_secs": 10, "listening": [], "handshakes_refused": 0, "udp_peers": 0,
+            "clients": [], "services": [], "visitors": [{"name": "v", "open": 0}]
+        }))
+        .unwrap();
+        assert_eq!(
+            visitor("v", &doc, Some(&st), None).hops[0].dot,
+            Some(Tone::Neutral)
+        );
+        st.visitors[0].open = 1;
+        assert_eq!(
+            visitor("v", &doc, Some(&st), None).hops[0].dot,
+            Some(Tone::Success)
+        );
+    }
 
     #[test]
     fn a_private_service_needs_a_visitor_before_it_can_be_added() {
