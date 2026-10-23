@@ -159,24 +159,34 @@ fn closed(store: Store, e: &CloseEvent) {
     );
 }
 
+type Handler = Closure<dyn FnMut(JsValue)>;
+
+thread_local! {
+    static PROBE: RefCell<Option<(Handler, Handler)>> = const { RefCell::new(None) };
+}
+
 fn probe(store: Store) {
     let url = format!("{}/api", crate::route::run_prefix());
-    let answered: Closure<dyn FnMut(JsValue)> = Closure::once(move |r: JsValue| {
-        let status = js_sys::Reflect::get(&r, &JsValue::from_str("status"))
-            .ok()
-            .and_then(|s| s.as_f64())
-            .unwrap_or(0.0);
-        let _ = store.admin_down.try_set(false);
-        if status == 404.0 {
-            let _ = store.conn.try_set(Conn::Ended);
-        }
+    PROBE.with(|p| {
+        let mut p = p.borrow_mut();
+        let (answered, unreachable) = p.get_or_insert_with(|| {
+            let answered: Handler = Closure::new(move |r: JsValue| {
+                let status = js_sys::Reflect::get(&r, &JsValue::from_str("status"))
+                    .ok()
+                    .and_then(|s| s.as_f64())
+                    .unwrap_or(0.0);
+                let _ = store.admin_down.try_set(false);
+                if status == 404.0 {
+                    let _ = store.conn.try_set(Conn::Ended);
+                }
+            });
+            let unreachable: Handler = Closure::new(move |_: JsValue| {
+                let _ = store.admin_down.try_set(true);
+            });
+            (answered, unreachable)
+        });
+        let _ = window().fetch_with_str(&url).then2(answered, unreachable);
     });
-    let unreachable: Closure<dyn FnMut(JsValue)> = Closure::once(move |_: JsValue| {
-        let _ = store.admin_down.try_set(true);
-    });
-    let _ = window().fetch_with_str(&url).then2(&answered, &unreachable);
-    answered.forget();
-    unreachable.forget();
 }
 
 pub fn reconnect(store: Store) {
