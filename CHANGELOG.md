@@ -13,12 +13,12 @@ Stability and usability fixes.
   - The session (token, path and port) is kept for 12 hours per visitor config in a file only you can read, so an open tab reconnects after a restart and no second tab opens.
   - A tab whose session ended says so instead of retrying forever, and the first load retries a busy server.
 - **Admin UI:**
-  - A rename says what it disrupts and asks for confirmation when something is connected.
-  - Help gives example values again, and visitor reach has a proper editor.
-  - View mode shows plain values, and errors show at the field.
+  - Help gives example values again.
   - The overview counts, traffic readout, client details, TCP/UDP tags and open counts are back.
+  - Port fields show what is saved, settings show their full key, and a review marks what a path was before.
   - The Connect tab links to the download and uses `./burrow`.
-  - A UDP service can clear values it does not use, and pickers open upward when there is no room below.
+  - A UDP service can clear values it does not use, and the reach editor keeps its rules when switched back and forth.
+  - Pickers open upward when there is no room below.
 - **Messages and docs:**
   - A DNS lookup that times out is named as DNS.
   - An unset secret variable's hint says the value must match the server's.

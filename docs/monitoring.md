@@ -25,7 +25,7 @@ A server installed as a service needs `sudo` (an administrator terminal on Windo
 
 ```
 $ sudo burrow status
-burrow 0.1.0  ·  up 3 d 4 h  ·  clients on tcp 0.0.0.0:7835
+burrow 0.1.1  ·  up 3 d 4 h  ·  clients on tcp 0.0.0.0:7835
 
 CLIENTS  1/2 connected
   NAME    STATE      SINCE           FROM            OPEN  IDLE
