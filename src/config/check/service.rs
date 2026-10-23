@@ -51,15 +51,25 @@ pub(super) fn check_service<'a>(
         }
     };
     if svc.bind.is_none() && svc.visitors.is_empty() && !spans.has_value(&path("bind")) {
-        out.push(
+        let port = burrow_syntax::ports::FIRST_SERVICE_PORT;
+        let d = if svc.protocol == Protocol::Udp {
+            Diagnostic::error(
+                "unreachable-service",
+                format!("service \"{name}\" is udp and has no \"bind\", so nobody can reach it"),
+            )
+            .label("no bind")
+            .help(format!(
+                "add \"bind: {port}\" to expose it publicly; visitors can only reach tcp services"
+            ))
+        } else {
             Diagnostic::error(
                 "unreachable-service",
                 format!("service \"{name}\" has no \"bind\" and no \"visitors\", so nobody can reach it"),
             )
-            .at(spans.key(&["services", name]))
             .label("no bind and no visitors")
-            .help(format!("add \"bind: {}\" to expose it publicly, or \"visitors: [NAME]\" for visitors using burrow visit", burrow_syntax::ports::FIRST_SERVICE_PORT)),
-        );
+            .help(format!("add \"bind: {port}\" to expose it publicly, or \"visitors: [NAME]\" for visitors using burrow visit"))
+        };
+        out.push(d.at(spans.key(&["services", name])));
     }
     let target = check_target(name, svc, spans, out);
     if let (Some((_, bind_ports)), Some((_, target_ports))) = (bind, &target)

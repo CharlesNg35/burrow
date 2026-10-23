@@ -147,11 +147,7 @@ fn closed(store: Store, e: &CloseEvent) {
         *a
     });
     store.conn.set(Conn::Reconnecting { attempt });
-    let delay = if store.admin_down.get_untracked() {
-        if attempt > GONE_AFTER { 10_000 } else { 2000 }
-    } else {
-        (1000 * u64::from(attempt.min(5))) as u32
-    };
+    let delay = retry_delay(store.admin_down.get_untracked(), attempt);
     store.retry_at.set(now_ms() + f64::from(delay));
     set_timeout(
         move || connect(store),
@@ -165,7 +161,19 @@ thread_local! {
     static PROBE: RefCell<Option<(Handler, Handler)>> = const { RefCell::new(None) };
 }
 
-pub const GONE_AFTER: u32 = 15;
+const GONE_AFTER: u32 = 150;
+
+pub fn gone_a_while(attempt: u32) -> bool {
+    attempt > GONE_AFTER
+}
+
+pub fn retry_delay(admin_down: bool, attempt: u32) -> u32 {
+    if admin_down {
+        if gone_a_while(attempt) { 10_000 } else { 2000 }
+    } else {
+        1000 * attempt.min(5)
+    }
+}
 
 fn probe(store: Store) {
     let url = format!("{}/api", crate::route::run_prefix());
@@ -412,6 +420,25 @@ pub fn load_history(store: Store) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_tab_keeps_retrying_every_2_s_for_5_minutes_after_burrow_admin_stops() {
+        let mut waited = 0;
+        let mut attempt = 0;
+        while waited < 300_000 {
+            attempt += 1;
+            assert!(
+                !gone_a_while(attempt),
+                "attempt {attempt} after {waited} ms"
+            );
+            assert_eq!(retry_delay(true, attempt), 2000);
+            waited += retry_delay(true, attempt);
+        }
+        assert!(gone_a_while(attempt + 1));
+        assert_eq!(retry_delay(true, attempt + 1), 10_000);
+        assert_eq!(retry_delay(false, 1), 1000);
+        assert_eq!(retry_delay(false, 200), 5000);
+    }
 
     #[test]
     fn refusals_while_reconnecting_keep_trying_or_mean_revoked() {

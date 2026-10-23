@@ -10,6 +10,19 @@ const TMPFILES: &str = "/etc/tmpfiles.d/burrow.conf";
 
 pub struct Systemd;
 
+const NO_LOGIN: [&str; 3] = ["/usr/sbin/nologin", "/sbin/nologin", "/bin/false"];
+const NO_HOME: &str = "/nonexistent";
+const COMMENT: &str = "burrow tunnel";
+
+fn made_by_ensure_account(entry: &str, account: &str) -> bool {
+    let fields: Vec<&str> = entry.trim_end().split(':').collect();
+    matches!(
+        fields.as_slice(),
+        [name, _, _, _, comment, home, shell]
+            if *name == account && *comment == COMMENT && *home == NO_HOME && NO_LOGIN.contains(shell)
+    )
+}
+
 impl Systemd {
     pub fn detect() -> Result<Systemd, Failure> {
         if Path::new("/run/systemd/system").is_dir() {
@@ -148,7 +161,7 @@ impl Backend for Systemd {
         if account == "root" || run_ok("id", &["-u", account]) {
             return Ok(false);
         }
-        let shell = ["/usr/sbin/nologin", "/sbin/nologin", "/bin/false"]
+        let shell = NO_LOGIN
             .into_iter()
             .find(|p| Path::new(p).exists())
             .unwrap_or("/bin/false");
@@ -159,11 +172,11 @@ impl Backend for Systemd {
                 "--user-group",
                 "--no-create-home",
                 "--home-dir",
-                "/nonexistent",
+                NO_HOME,
                 "--shell",
                 shell,
                 "--comment",
-                "burrow tunnel",
+                COMMENT,
                 account,
             ],
         )
@@ -171,6 +184,10 @@ impl Backend for Systemd {
             f.hint("burrow creates the account with useradd; create it yourself or pass --run-as")
         })?;
         Ok(true)
+    }
+
+    fn made_for_burrow(&self, account: &str) -> bool {
+        run("getent", &["passwd", account]).is_ok_and(|e| made_by_ensure_account(&e, account))
     }
 
     fn remove_account(&self, account: &str) -> Result<(), Failure> {
@@ -373,6 +390,26 @@ impl Backend for Systemd {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_an_account_shaped_like_the_one_burrow_creates_counts_as_burrows() {
+        let ours = "burrow:x:998:998:burrow tunnel:/nonexistent:/usr/sbin/nologin\n";
+        assert!(made_by_ensure_account(ours, "burrow"));
+        assert!(made_by_ensure_account(
+            "burrow:x:998:998:burrow tunnel:/nonexistent:/bin/false",
+            "burrow"
+        ));
+        assert!(!made_by_ensure_account(ours, "other"));
+        for theirs in [
+            "burrow:x:1001:1001:Burrow User:/home/burrow:/bin/bash",
+            "burrow:x:998:998:burrow tunnel:/home/burrow:/usr/sbin/nologin",
+            "burrow:x:998:998:burrow tunnel:/nonexistent:/bin/sh",
+            "burrow:x:998:998::/nonexistent:/usr/sbin/nologin",
+            "",
+        ] {
+            assert!(!made_by_ensure_account(theirs, "burrow"), "{theirs}");
+        }
+    }
 
     #[test]
     fn the_environment_file_reads_back_what_was_written() {

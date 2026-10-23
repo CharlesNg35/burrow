@@ -1114,6 +1114,45 @@ fn visitor_config_gives_reach_a_socks_proxy_and_ranges_a_local_range() {
 }
 
 #[test]
+fn a_client_config_lists_ipv4_before_ipv6_and_unix_sockets_last() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("server.yaml");
+    let secret = burrow::secret::Secret::generate().encode();
+    std::fs::write(
+        &path,
+        format!(
+            "listen: 7835\nclients:\n  home:\n    secret: {secret}\nservices:\n  a:\n    client: home\n    bind: 5433\n    target: unix:/run/a.sock\n  b:\n    client: home\n    bind: 5434\n    target: \"[2001:db8::5]:443\"\n  c:\n    client: home\n    bind: 5435\n    target: 10.0.0.9:22\n  d:\n    client: home\n    bind: 5436\n    target: \"[2001:db8::4]:8443\"\n  e:\n    client: home\n    bind: 5437\n    target: 10.0.0.8:80\n"
+        ),
+    )
+    .unwrap();
+    let text = client_config(
+        Some("home"),
+        &path,
+        Some("t.example"),
+        Format::Yaml,
+        &ProcessEnv,
+    )
+    .unwrap()
+    .text;
+    let allow: Vec<&str> = text
+        .lines()
+        .filter_map(|l| l.trim().strip_prefix("- "))
+        .map(|l| l.trim_matches(['"', '\'']))
+        .collect();
+    assert_eq!(
+        allow,
+        [
+            "10.0.0.8/32:80",
+            "10.0.0.9/32:22",
+            "[2001:db8::4/128]:8443",
+            "[2001:db8::5/128]:443",
+            "unix:/run/a.sock",
+        ],
+        "{text}"
+    );
+}
+
+#[test]
 fn client_config_allows_ranges_sockets_and_shared_services() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("server.yaml");

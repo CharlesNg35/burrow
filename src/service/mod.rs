@@ -79,6 +79,9 @@ pub trait Backend {
     fn ensure_account(&self, account: &str) -> Result<bool, Failure>;
     fn remove_account(&self, account: &str) -> Result<(), Failure>;
     fn can_read(&self, account: &str, path: &Path) -> bool;
+    fn made_for_burrow(&self, _account: &str) -> bool {
+        false
+    }
     fn low_ports(&self, _m: &Manifest) -> bool {
         true
     }
@@ -639,10 +642,13 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
         )?;
     }
     let manifest = Manifest {
-        created_account: created
-            || previous
-                .as_ref()
-                .is_some_and(|p| p.created_account && p.account == account),
+        created_account: burrows_account(
+            created,
+            &account,
+            &platform.default_account(&name),
+            previous.as_ref(),
+            || backend.made_for_burrow(&account),
+        ),
         ..manifest
     };
     for (field, file) in &checked.files {
@@ -781,53 +787,16 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
         say(out, format!("note: {note}"))?;
     }
     let arg = name_arg(&name, all_manifests().len(), stray::strays().len());
-    if opts.start && !already_running(&*backend, &manifest, &arg, out)? {
-        let started = backend.start(&manifest);
-        again.manifest = None;
-        if started.is_ok() {
-            std::thread::sleep(std::time::Duration::from_millis(1500));
-        }
-        let st = backend.status(&manifest);
-        if let Some(undo) = undo.filter(|_| started.is_err() || !st.running) {
-            let why = match started {
-                Err(f) => f.message,
-                Ok(()) => st.detail.clone(),
-            };
-            return Err(undo.put_back(&*backend, &manifest, &why, save_manifest, out));
-        }
-        started?;
-        if st.running {
-            say(
-                out,
-                format!(
-                    "started {name}{}",
-                    st.pid.map(|p| format!(" (pid {p})")).unwrap_or_default()
-                ),
-            )?;
-        } else {
-            say(
-                out,
-                format!("warning: {name} is not running: {}", st.detail),
-            )?;
-            match backend
-                .journal_hint(&manifest)
-                .filter(|_| !manifest.log_file.exists())
-            {
-                Some(journal) => say(
-                    out,
-                    format!(
-                        "  it wrote no log yet, so it may never have started; see the service manager's reason with: {journal}"
-                    ),
-                )?,
-                None => say(
-                    out,
-                    format!(
-                        "  see why with: {}",
-                        crate::failure::admin(&format!("service logs{arg}"))
-                    ),
-                )?,
-            }
-        }
+    if opts.start {
+        start_installed(
+            &*backend,
+            &manifest,
+            &arg,
+            &mut again,
+            undo,
+            save_manifest,
+            out,
+        )?;
     }
     if let Some(p) = &previous {
         release_previous(&*backend, p, &manifest, out)?;
@@ -859,6 +828,18 @@ fn name_arg(name: &str, managed: usize, strays: usize) -> String {
     }
 }
 
+fn burrows_account(
+    created: bool,
+    account: &str,
+    default: &str,
+    previous: Option<&Manifest>,
+    made_for_burrow: impl FnOnce() -> bool,
+) -> bool {
+    created
+        || previous.is_some_and(|p| p.created_account && p.account == account)
+        || (account == default && made_for_burrow())
+}
+
 fn take_over(stray: Option<&stray::Stray>, config: &Path) -> Result<Option<String>, Failure> {
     let Some(s) = stray else {
         return Ok(None);
@@ -874,6 +855,68 @@ fn take_over(stray: Option<&stray::Stray>, config: &Path) -> Result<Option<Strin
         ),
         None => replaced,
     }))
+}
+
+fn start_installed(
+    backend: &dyn Backend,
+    manifest: &Manifest,
+    arg: &str,
+    again: &mut StartAgain,
+    undo: Option<Undo>,
+    save: impl Fn(&Manifest) -> Result<(), Failure>,
+    out: &mut dyn Write,
+) -> Result<(), Failure> {
+    if already_running(backend, manifest, arg, out)? {
+        return Ok(());
+    }
+    let started = backend.start(manifest);
+    again.manifest = None;
+    if started.is_ok() {
+        std::thread::sleep(std::time::Duration::from_millis(1500));
+    }
+    let st = backend.status(manifest);
+    if let Some(undo) = undo.filter(|_| started.is_err() || !st.running) {
+        let why = match started {
+            Err(f) => f.message,
+            Ok(()) => st.detail.clone(),
+        };
+        return Err(undo.put_back(backend, manifest, &why, save, out));
+    }
+    started?;
+    if st.running {
+        say(
+            out,
+            format!(
+                "started {}{}",
+                manifest.name,
+                st.pid.map(|p| format!(" (pid {p})")).unwrap_or_default()
+            ),
+        )?;
+    } else {
+        say(
+            out,
+            format!("warning: {} is not running: {}", manifest.name, st.detail),
+        )?;
+        match backend
+            .journal_hint(manifest)
+            .filter(|_| !manifest.log_file.exists())
+        {
+            Some(journal) => say(
+                out,
+                format!(
+                    "  it wrote no log yet, so it may never have started; see the service manager's reason with: {journal}"
+                ),
+            )?,
+            None => say(
+                out,
+                format!(
+                    "  see why with: {}",
+                    crate::failure::admin(&format!("service logs{arg}"))
+                ),
+            )?,
+        }
+    }
+    Ok(())
 }
 
 fn already_running(
@@ -2126,7 +2169,11 @@ mod tests {
         let m = record(Platform::Linux);
         let rec = Recorder(Default::default(), true);
         let mut out = Vec::new();
-        assert!(already_running(&rec, &m, "", &mut out).unwrap());
+        let mut again = StartAgain {
+            backend: &rec,
+            manifest: None,
+        };
+        start_installed(&rec, &m, "", &mut again, None, |_| Ok(()), &mut out).unwrap();
         let out = String::from_utf8(out).unwrap();
         assert!(
             out.starts_with("warning: burrow-server was already running and was not restarted"),
@@ -2137,8 +2184,45 @@ mod tests {
         assert!(rec.0.borrow().is_empty());
         let stopped = Recorder(Default::default(), false);
         let mut out = Vec::new();
-        assert!(!already_running(&stopped, &m, "", &mut out).unwrap());
-        assert!(out.is_empty());
+        let mut again = StartAgain {
+            backend: &stopped,
+            manifest: None,
+        };
+        start_installed(&stopped, &m, "", &mut again, None, |_| Ok(()), &mut out).unwrap();
+        let out = String::from_utf8(out).unwrap();
+        assert_eq!(*stopped.0.borrow(), ["start burrow"]);
+        assert!(
+            out.starts_with("warning: burrow-server is not running"),
+            "{out}"
+        );
+        assert!(!out.contains("already running"), "{out}");
+    }
+
+    #[test]
+    fn an_install_records_burrows_own_account_that_an_earlier_install_left_behind() {
+        let p = Platform::Linux;
+        let ours = p.default_account("burrow-server");
+        let (shaped, other) = (|| true, || false);
+        let previous = Manifest {
+            created_account: true,
+            ..record(p)
+        };
+        let elsewhere = Manifest {
+            account: "www".into(),
+            ..previous.clone()
+        };
+        assert!(burrows_account(true, &ours, &ours, None, other));
+        assert!(burrows_account(false, &ours, &ours, Some(&previous), other));
+        assert!(burrows_account(false, &ours, &ours, None, shaped));
+        assert!(!burrows_account(false, &ours, &ours, None, other));
+        assert!(!burrows_account(false, "www", &ours, None, shaped));
+        assert!(!burrows_account(
+            false,
+            &ours,
+            &ours,
+            Some(&elsewhere),
+            other
+        ));
     }
 
     #[test]

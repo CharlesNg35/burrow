@@ -224,9 +224,13 @@ pub fn admin(path: &Path, env: Env, opts: crate::admin_local::Options) -> Result
             }
             None => session::Session::fresh(),
         };
-        let (listener, note) =
-            crate::admin_local::listen_near(opts.port, sess.port, burrow_syntax::ports::ADMIN_PORT)
-                .await?;
+        let (listener, note) = crate::admin_local::listen_near(
+            opts.port,
+            sess.port,
+            burrow_syntax::ports::ADMIN_PORT,
+            opts.print_url || opts.open,
+        )
+        .await?;
         if let Some(note) = note {
             crate::say_errln!("{note}");
         }

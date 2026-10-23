@@ -8,6 +8,28 @@ use crate::failure::Failure;
 
 pub struct Launchd;
 
+const NO_LOGIN: &str = "/usr/bin/false";
+const NO_HOME: &str = "/var/empty";
+const COMMENT: &str = "burrow tunnel";
+
+fn made_by_ensure_account(dscl: &str) -> bool {
+    let mut values = BTreeMap::new();
+    let mut last = None;
+    for line in dscl.lines() {
+        if let Some(more) = line.strip_prefix(' ') {
+            if let Some(k) = last {
+                values.insert(k, more.trim());
+            }
+        } else if let Some((k, v)) = line.split_once(':') {
+            values.insert(k.trim(), v.trim());
+            last = Some(k.trim());
+        }
+    }
+    values.get("UserShell") == Some(&NO_LOGIN)
+        && values.get("NFSHomeDirectory") == Some(&NO_HOME)
+        && values.get("RealName") == Some(&COMMENT)
+}
+
 fn label(m: &Manifest) -> String {
     format!("com.github.charlesng35.{}", m.name)
 }
@@ -127,9 +149,9 @@ impl Backend for Launchd {
             &[".", "-create", &user],
             &[".", "-create", &user, "UniqueID", &id],
             &[".", "-create", &user, "PrimaryGroupID", &id],
-            &[".", "-create", &user, "UserShell", "/usr/bin/false"],
-            &[".", "-create", &user, "NFSHomeDirectory", "/var/empty"],
-            &[".", "-create", &user, "RealName", "burrow tunnel"],
+            &[".", "-create", &user, "UserShell", NO_LOGIN],
+            &[".", "-create", &user, "NFSHomeDirectory", NO_HOME],
+            &[".", "-create", &user, "RealName", COMMENT],
             &[".", "-create", &user, "IsHidden", "1"],
         ];
         for args in steps {
@@ -141,6 +163,21 @@ impl Backend for Launchd {
             }
         }
         Ok(true)
+    }
+
+    fn made_for_burrow(&self, account: &str) -> bool {
+        run(
+            "dscl",
+            &[
+                ".",
+                "-read",
+                &format!("/Users/{account}"),
+                "UserShell",
+                "NFSHomeDirectory",
+                "RealName",
+            ],
+        )
+        .is_ok_and(|t| made_by_ensure_account(&t))
     }
 
     fn remove_account(&self, account: &str) -> Result<(), Failure> {
@@ -352,6 +389,25 @@ impl Backend for Launchd {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_an_account_shaped_like_the_one_burrow_creates_counts_as_burrows() {
+        assert!(made_by_ensure_account(
+            "NFSHomeDirectory: /var/empty\nRealName:\n burrow tunnel\nUserShell: /usr/bin/false\n"
+        ));
+        assert!(made_by_ensure_account(
+            "NFSHomeDirectory: /var/empty\nRealName: burrow tunnel\nUserShell: /usr/bin/false\n"
+        ));
+        for theirs in [
+            "NFSHomeDirectory: /Users/burrow\nRealName:\n burrow tunnel\nUserShell: /usr/bin/false\n",
+            "NFSHomeDirectory: /var/empty\nRealName:\n Burrow\nUserShell: /usr/bin/false\n",
+            "NFSHomeDirectory: /var/empty\nRealName:\n burrow tunnel\nUserShell: /bin/zsh\n",
+            "NFSHomeDirectory: /var/empty\nUserShell: /usr/bin/false\n",
+            "",
+        ] {
+            assert!(!made_by_ensure_account(theirs), "{theirs}");
+        }
+    }
 
     #[test]
     fn plist_runs_the_service_account_and_escapes_values() {

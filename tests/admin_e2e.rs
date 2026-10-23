@@ -1531,16 +1531,17 @@ fn admin_session(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
         );
         c.ui.shot("old-tab-reconnected").await;
         c.world.stop("admin-ops");
-        let banner =
-            c.ui.wait_text(
-                "[data-testid=banner-reconnecting]",
-                "open the link it printed",
-                Duration::from_secs(50),
-            )
-            .await;
+        c.ui.wait_text(
+            "[data-testid=banner-reconnecting]",
+            "burrow admin is not running",
+            Duration::from_secs(20),
+        )
+        .await;
+        tokio::time::sleep(Duration::from_secs(45)).await;
+        let banner = c.ui.text("[data-testid=banner-reconnecting]").await;
         assert!(
-            !banner.contains("this tab reconnects") && !banner.contains("0 pending"),
-            "after a while the tab stops promising to reconnect: {banner}"
+            banner.contains("this tab reconnects") && !banner.contains("0 pending"),
+            "45 s after burrow admin stopped the tab still retries every 2 s: {banner}"
         );
         c.ui.shot("admin-gone-for-a-while").await;
         let logged = c.ui.take_errors();
@@ -1550,6 +1551,14 @@ fn admin_session(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
         );
         let _ = std::fs::remove_file(c.world.file("url-ops"));
         c.world.open_admin_on("ops", port);
+        world::wait_until(
+            "the reconnect note after a long outage",
+            Duration::from_secs(10),
+            || {
+                std::fs::read_to_string(&log)
+                    .is_ok_and(|t| t.contains("reconnected in your open browser tab"))
+            },
+        );
         let token = url.split("#token=").nth(1).unwrap().to_string();
         let foreign = url.replace(&token, &"0".repeat(64));
         c.ui.goto("about:blank").await;
