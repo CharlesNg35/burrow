@@ -1398,6 +1398,12 @@ fn edit_state(c: &mut Ctx) -> Flow<'_> {
             SECS,
         )
         .await;
+        c.ui.nav("/visitors/ops").await;
+        c.ui.wait_for("main h1 [data-testid=you-tag]", SECS).await;
+        assert!(
+            c.ui.text("main h1").await.contains("admin · write"),
+            "the visitor title says its admin level and that it is you"
+        );
         c.ui.nav("/clients/home").await;
         let row =
             c.ui.wait_text("[data-testid=entity-list] [data-row=home]", " · for ", SECS)

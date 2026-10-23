@@ -740,6 +740,21 @@ fn Detail(section: String, name: String) -> impl IntoView {
                 };
                 view! { <span class=tag_class(tone)>{p.to_uppercase()}</span> }.into_any()
             }
+            VISITORS => {
+                let admin = VisitorEntry::ADMIN.at(&e.doc(), &nm).map(plain);
+                let me = s
+                    .welcome
+                    .with(|w| w.as_ref().is_some_and(|w| w.you.visitor == nm));
+                view! {
+                    {admin.map(|a| {
+                        let write = a == burrow_config::admin_schema::AdminEnum::wire(&burrow_admin_proto::msg::AdminLevel::Write);
+                        let tone = if write { Tone::Danger } else { Tone::Accent };
+                        view! { <span class=tag_class(tone) data-testid="admin-tag"><Icon name=if write { "shield" } else { "eye" } small=true/>{format!("admin · {a}")}</span> }
+                    })}
+                    {me.then(|| view! { <span class=tag_class(Tone::Neutral) data-testid="you-tag">"you"</span> })}
+                }
+                .into_any()
+            }
             _ => ().into_any(),
         }
     };
