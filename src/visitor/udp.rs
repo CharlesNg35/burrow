@@ -130,11 +130,28 @@ pub(super) async fn serve(
         stall: crate::forward::VISIT_REPLY,
     };
     let mut backoff = Backoff::new(Duration::from_millis(100), Duration::from_secs(5));
+    let mut sweep = tokio::time::interval(front::SWEEP);
+    sweep.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     loop {
-        if let Err(e) = front.socket.readable().await {
-            debug!("forward \"{name}\": UDP receive error: {e}");
-            tokio::time::sleep(Duration::from_millis(100)).await;
-            continue;
+        let waiting = !peers.lock().expect("peers lock").is_empty();
+        tokio::select! {
+            r = front.socket.readable() => {
+                if let Err(e) = r {
+                    debug!("forward \"{name}\": UDP receive error: {e}");
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                    continue;
+                }
+            }
+            _ = sweep.tick(), if waiting => {
+                let timeout = live.borrow().settings.udp_session_timeout;
+                let left = {
+                    let mut p = peers.lock().expect("peers lock");
+                    p.expire(timeout);
+                    p.len()
+                };
+                front.gauge.set(left);
+                continue;
+            }
         }
         let (first, from) = match receive_from(&front.socket, &name) {
             Received::Datagram(data, from) => (data, from),

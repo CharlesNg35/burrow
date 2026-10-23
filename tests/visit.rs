@@ -1212,6 +1212,32 @@ async fn a_udp_forward_reaches_a_private_udp_service_and_closes_when_idle() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_udp_forward_forgets_its_peers_after_the_server_closes_the_visit_first() {
+    let s = udp_setup(|srv, _| srv.udp_session_timeout = Duration::from_secs(1)).await;
+    let v = s.udp_visitor(
+        vec![("dns", VisitTarget::service("dns"))],
+        |v| v.udp_session_timeout = Duration::from_secs(8),
+        false,
+    );
+    let at = v.addr("dns");
+    let one = udp_bind().await;
+    assert!(udp_echoes_from(&one, at, b"once").await);
+    let sent = std::time::Instant::now();
+    assert_eq!(v.udp_peers.load(std::sync::atomic::Ordering::Acquire), 1);
+    let shared = s.tunnel.server.shared.clone();
+    wait_long(|| shared.status().visitors[0].open == 0).await;
+    assert!(
+        sent.elapsed() < Duration::from_secs(8),
+        "the server closed the visit before the visitor's own timeout"
+    );
+    wait_long(|| v.udp_peers.load(std::sync::atomic::Ordering::Acquire) == 0).await;
+    assert!(
+        udp_echoes_from(&one, at, b"again").await,
+        "the next datagram opens a new visit"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_udp_forward_reaches_a_target_through_reach() {
     let s = udp_setup(|srv, _| {
         srv.visitors.get_mut("laptop").unwrap().reach =

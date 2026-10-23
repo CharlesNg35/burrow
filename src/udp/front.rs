@@ -11,6 +11,8 @@ use crate::protocol::{MAX_DATAGRAM, decode_datagram, encode_datagram};
 
 pub type Peers = Arc<Mutex<PeerTable<SocketAddr>>>;
 
+pub const SWEEP: Duration = Duration::from_secs(5);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Ending {
     Done,
@@ -97,7 +99,7 @@ pub async fn run<C: PeerCount, M: Meter, H: Hooks>(
     });
 
     let mut back = AbortOnDrop(back);
-    let mut sweep = tokio::time::interval(Duration::from_secs(5));
+    let mut sweep = tokio::time::interval(SWEEP);
     let mut buf = vec![0u8; 65536];
     let mut rec = Vec::with_capacity(65536);
     let stall = front.stall;
