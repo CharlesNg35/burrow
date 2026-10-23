@@ -887,7 +887,39 @@ pub struct VisitorConfig {
     #[schemars(
         description = "UDP forwards: how long a local UDP peer is kept without traffic, and how many peers each forward port keeps"
     )]
-    pub udp: UdpOptions,
+    pub udp: VisitorUdpOptions,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields, default)]
+pub struct VisitorUdpOptions {
+    #[cfg_attr(
+        feature = "json-schema",
+        schemars(
+            description = "A local UDP peer of a UDP forward that sends and gets nothing for this long is forgotten",
+            range(min = 1)
+        )
+    )]
+    pub session_timeout_secs: u32,
+    #[cfg_attr(
+        feature = "json-schema",
+        schemars(
+            description = "Most UDP peers each port of a UDP forward keeps at once; a datagram from a new peer beyond it is dropped",
+            range(min = 1, max = 1000000)
+        )
+    )]
+    pub max_peers: u32,
+}
+
+impl Default for VisitorUdpOptions {
+    fn default() -> Self {
+        let server = UdpOptions::default();
+        VisitorUdpOptions {
+            session_timeout_secs: server.session_timeout_secs,
+            max_peers: server.max_peers,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1099,6 +1131,8 @@ mod tests {
     fn udp_peers_are_kept_two_minutes_by_default_as_rfc_4787_req_5_asks() {
         assert_eq!(UdpOptions::default().session_timeout_secs, 120);
         assert_eq!(ClientUdpOptions::default().session_timeout_secs, 120);
+        assert_eq!(VisitorUdpOptions::default().session_timeout_secs, 120);
+        assert_eq!(VisitorUdpOptions::default().max_peers, 4096);
         let set: UdpOptions = serde_json::from_value(json!({"max_peers": 7})).unwrap();
         assert_eq!(set.session_timeout_secs, 120);
     }

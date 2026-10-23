@@ -265,10 +265,10 @@ fn mismatch(
     let service = fetched.grants.services.iter().find(|s| &s.name == name)?;
     match (service.protocol, protocol) {
         (Protocol::Udp, Protocol::Tcp) => Some(format!(
-            "service \"{name}\" is a udp service on the server; add \"protocol: udp\" to this forward in visitor.yaml (or --udp)"
+            "service \"{name}\" is a udp service on the server; add \"protocol: udp\" to this forward in visitor.yaml (or pass --udp)"
         )),
         (Protocol::Tcp, Protocol::Udp) => Some(format!(
-            "service \"{name}\" is a tcp service on the server; remove \"protocol: udp\" from this forward in visitor.yaml (or --udp)"
+            "service \"{name}\" is a tcp service on the server; remove \"protocol: udp\" from this forward in visitor.yaml (or leave out --udp)"
         )),
         _ => None,
     }
@@ -492,8 +492,10 @@ mod tests {
         let dns = VisitTarget::service("dns");
         let add = mismatch(&fetched(Protocol::Udp, false), &dns, Protocol::Tcp).unwrap();
         assert!(add.contains("add \"protocol: udp\""), "{add}");
+        assert!(add.ends_with("(or pass --udp)"), "{add}");
         let remove = mismatch(&fetched(Protocol::Tcp, false), &dns, Protocol::Udp).unwrap();
         assert!(remove.contains("remove \"protocol: udp\""), "{remove}");
+        assert!(remove.ends_with("(or leave out --udp)"), "{remove}");
         assert_eq!(
             mismatch(&fetched(Protocol::Udp, false), &dns, Protocol::Udp),
             None

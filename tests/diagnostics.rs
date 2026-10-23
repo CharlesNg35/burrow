@@ -609,6 +609,14 @@ fn json_output_shape() {
 }
 
 #[test]
+fn the_visitor_udp_options_speak_of_forward_ports() {
+    let s = burrow::config::load::schema_json(Role::Visitor).to_string();
+    assert!(s.contains("each port of a UDP forward"), "{s}");
+    assert!(!s.contains("service port"), "{s}");
+    assert!(s.contains("1000000"), "max_peers keeps its range: {s}");
+}
+
+#[test]
 fn schema_matches_model_fields() {
     let s = burrow::config::load::schema_json(Role::Server);
     let props: Vec<&str> = s["properties"]
