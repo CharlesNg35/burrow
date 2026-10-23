@@ -36,7 +36,12 @@ pub fn dir() -> Option<PathBuf> {
     #[cfg(unix)]
     {
         let sudo_uid = std::env::var("SUDO_UID").ok().and_then(|u| u.parse().ok());
-        not_for_sudo(dir, rustix::process::geteuid().as_raw(), sudo_uid)
+        for_sudo(
+            dir,
+            rustix::process::geteuid().as_raw(),
+            sudo_uid,
+            root_home,
+        )
     }
     #[cfg(not(unix))]
     {
@@ -45,15 +50,43 @@ pub fn dir() -> Option<PathBuf> {
 }
 
 #[cfg(unix)]
-fn not_for_sudo(dir: PathBuf, euid: u32, sudo_uid: Option<u32>) -> Option<PathBuf> {
+fn root_home() -> Option<PathBuf> {
+    nix::unistd::User::from_uid(nix::unistd::Uid::from_raw(0))
+        .ok()
+        .flatten()
+        .map(|u| u.dir)
+        .filter(|d| d.is_absolute())
+}
+
+#[cfg(unix)]
+fn in_home(home: &Path) -> PathBuf {
+    let base = if cfg!(target_os = "macos") {
+        home.join("Library").join("Application Support")
+    } else {
+        home.join(".local").join("state")
+    };
+    base.join("burrow").join("admin-sessions")
+}
+
+#[cfg(unix)]
+fn for_sudo(
+    dir: PathBuf,
+    euid: u32,
+    sudo_uid: Option<u32>,
+    root_home: impl FnOnce() -> Option<PathBuf>,
+) -> Option<PathBuf> {
     use std::os::unix::fs::MetadataExt;
     let Some(user) = sudo_uid.filter(|u| euid == 0 && *u != 0) else {
         return Some(dir);
     };
-    let theirs = dir
-        .ancestors()
-        .any(|a| std::fs::metadata(a).is_ok_and(|m| m.uid() == user));
-    (!theirs).then_some(dir)
+    let theirs = |d: &Path| {
+        d.ancestors()
+            .any(|a| std::fs::metadata(a).is_ok_and(|m| m.uid() == user))
+    };
+    if !theirs(&dir) {
+        return Some(dir);
+    }
+    root_home().map(|h| in_home(&h)).filter(|d| !theirs(d))
 }
 
 fn file_for(dir: &Path, config: &Path) -> PathBuf {
@@ -220,25 +253,37 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn under_sudo_no_session_is_kept_in_the_folder_of_the_user_who_ran_it() {
+    fn under_sudo_the_session_is_kept_in_roots_home_and_never_in_the_users() {
         let me = rustix::process::getuid().as_raw();
         if me == 0 {
             return;
         }
         let home = tempfile::tempdir().unwrap();
         let store = home.path().join(".local/state/burrow/admin-sessions");
-        assert_eq!(not_for_sudo(store.clone(), 0, Some(me)), None);
+        let root = PathBuf::from("/burrow-absent-root-home");
+        let roots = || Some(PathBuf::from("/burrow-absent-root-home"));
+        let in_root = for_sudo(store.clone(), 0, Some(me), roots).unwrap();
+        assert!(in_root.starts_with(&root), "{}", in_root.display());
+        assert!(
+            in_root.ends_with("burrow/admin-sessions"),
+            "{}",
+            in_root.display()
+        );
+        assert_eq!(for_sudo(store.clone(), 0, Some(me), || None), None);
+        let theirs = || Some(home.path().to_path_buf());
+        assert_eq!(for_sudo(store.clone(), 0, Some(me), theirs), None);
         assert_eq!(
-            not_for_sudo(store.clone(), 0, Some(me + 1)),
+            for_sudo(store.clone(), 0, Some(me + 1), roots),
             Some(store.clone())
         );
-        assert_eq!(not_for_sudo(store.clone(), 0, None), Some(store.clone()));
+        assert_eq!(for_sudo(store.clone(), 0, None, roots), Some(store.clone()));
         assert_eq!(
-            not_for_sudo(store.clone(), me, Some(me)),
+            for_sudo(store.clone(), me, Some(me), roots),
             Some(store.clone())
         );
-        let roots = PathBuf::from("/burrow-absent-root-home/admin-sessions");
-        assert_eq!(not_for_sudo(roots.clone(), 0, Some(me)), Some(roots));
+        assert!(root_home().is_some_and(|h| h.is_absolute()));
+        let kept = root.join("admin-sessions");
+        assert_eq!(for_sudo(kept.clone(), 0, Some(me), || None), Some(kept));
     }
 
     #[test]
