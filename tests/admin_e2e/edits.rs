@@ -1088,6 +1088,13 @@ fn locked_fields(c: &mut Ctx) -> Flow<'_> {
         );
         edit_mode(c).await;
         assert!(
+            c.ui.text("[data-schema=listen]")
+                .await
+                .contains("Change this in server.yaml"),
+            "a locked address keeps its help while editing: {}",
+            c.ui.text("[data-schema=listen]").await
+        );
+        assert!(
             c.ui.count("[data-schema=public_address] input").await > 0,
             "unlocked fields are editable in edit mode"
         );

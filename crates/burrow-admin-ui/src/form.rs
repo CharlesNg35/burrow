@@ -829,7 +829,7 @@ fn row(f: Field, path: Path, spath: Path, entity: Path) -> AnyView {
                     id=id.clone()
                     label=label.clone()
                     help=help.clone()
-                    hide_help=Signal::derive(move || saved_line && editing.try_get().unwrap_or(false))
+                    hide_help=Signal::derive(move || saved_line && !lock && editing.try_get().unwrap_or(false))
                     path=jp.clone()
                     schema_path=js.clone()
                     key_hint=key_hint.clone()
