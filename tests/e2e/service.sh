@@ -17,6 +17,13 @@ PIDS=()
 
 cleanup() {
   set +e
+  if [ "$(uname -s)" = Linux ]; then
+    sudo "$B" service uninstall burrow-e2e-oldunit --purge >/dev/null 2>&1
+    sudo systemctl disable --now burrow-e2e-oldunit burrow-e2e-other >/dev/null 2>&1
+    sudo rm -f /etc/systemd/system/burrow-e2e-oldunit.service /etc/systemd/system/burrow-e2e-other.service \
+      "$STATE/services/burrow-e2e-oldunit.json" /etc/burrow/e2e-oldunit.yaml
+    sudo systemctl daemon-reload
+  fi
   sudo "$B" service uninstall burrow-e2e-visitor --purge >/dev/null 2>&1
   sudo "$B" service uninstall burrow-e2e-admin --purge >/dev/null 2>&1
   sudo "$B" service uninstall burrow-e2e-inplace --purge >/dev/null 2>&1
@@ -25,13 +32,6 @@ cleanup() {
   sudo rm -rf /etc/burrow/e2e-rootadmin
   sudo "$B" service uninstall burrow-e2e-client --purge >/dev/null 2>&1
   sudo "$B" service uninstall burrow-e2e-server --purge >/dev/null 2>&1
-  if [ "$(uname -s)" = Linux ]; then
-    sudo "$B" service uninstall burrow-e2e-oldunit --purge >/dev/null 2>&1
-    sudo systemctl disable --now burrow-e2e-oldunit burrow-e2e-other >/dev/null 2>&1
-    sudo rm -f /etc/systemd/system/burrow-e2e-oldunit.service /etc/systemd/system/burrow-e2e-other.service \
-      "$STATE/services/burrow-e2e-oldunit.json" /etc/burrow/e2e-oldunit.yaml
-    sudo systemctl daemon-reload
-  fi
   for p in "${PIDS[@]}"; do kill "$p" 2>/dev/null; done
   [ -n "${SOCK_PID:-}" ] && sudo kill "$SOCK_PID" 2>/dev/null
   sudo rm -rf "${SOCK_DIR:-/nonexistent-burrow}"
