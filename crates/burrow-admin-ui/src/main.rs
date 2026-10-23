@@ -18,5 +18,8 @@ mod store;
 
 fn main() {
     console_error_panic_hook::set_once();
+    if let Some(boot) = leptos::prelude::document().get_element_by_id("boot") {
+        boot.remove();
+    }
     leptos::mount::mount_to_body(app::App);
 }
