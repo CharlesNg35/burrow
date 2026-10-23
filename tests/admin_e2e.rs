@@ -1700,42 +1700,84 @@ fn an_old_tab_reconnects_to_the_next_burrow_admin_and_a_foreign_one_is_told_it_e
 fn old_server(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
     Box::pin(async move {
         open(c, "ops").await;
-        let note =
-            c.ui.wait_text("[data-testid=old-server]", "v0.1.0", SECS)
-                .await;
+        let ui = env!("CARGO_PKG_VERSION");
+        let item = "[data-testid=attention] li[data-item=old-server]";
+        let text = c.ui.wait_text(item, "v0.1.0", SECS).await;
         assert!(
-            note.contains("sudo burrow update") && note.contains(env!("CARGO_PKG_VERSION")),
-            "{note}"
+            text.contains(&format!("older than this burrow admin (v{ui})"))
+                && text.contains("sudo burrow update"),
+            "{text}"
         );
-        c.ui.shot("older-server-notice").await;
+        assert_eq!(
+            c.ui.eval::<String>(&format!(
+                "document.querySelector('{item}').getAttribute('data-tone')"
+            ))
+            .await,
+            "warning"
+        );
+        let rows = c.ui.count("[data-testid=attention] li").await;
+        let badge: String =
+            c.ui.eval(
+                "document.querySelector('[data-testid=attention] [data-testid=count]').textContent",
+            )
+            .await;
+        assert_eq!(
+            badge,
+            rows.to_string(),
+            "the older server counts in Needs attention"
+        );
+        assert_eq!(
+            c.ui.count("[data-testid=old-server]").await,
+            0,
+            "no banner under the header"
+        );
+        c.ui.shot("older-server-attention").await;
         c.ui.nav("/about").await;
         c.ui.wait_text("[data-testid=about]", "older than this burrow admin", SECS)
             .await;
         c.ui.shot("older-server-about").await;
-        c.ui.nav("/").await;
-        c.ui.click("[data-testid=old-server-dismiss]").await;
-        c.ui.wait_gone("[data-testid=old-server]", SECS).await;
-        let here: String = c.ui.eval("location.href").await;
-        c.ui.goto("about:blank").await;
-        c.ui.goto(&here).await;
-        c.ui.wait_for("[data-testid=overview]", SECS).await;
+        c.ui.assert_no_errors();
+    })
+}
+
+fn same_version_server(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
+    Box::pin(async move {
+        open(c, "ops").await;
+        c.ui.wait_for("[data-testid=attention] [data-testid=count]", SECS)
+            .await;
         tokio::time::sleep(Duration::from_millis(800)).await;
         assert_eq!(
-            c.ui.count("[data-testid=old-server]").await,
+            c.ui.count("[data-testid=attention] li[data-item=old-server]")
+                .await,
             0,
-            "a dismissed notice stays away for this server version"
+            "a server on this burrow admin's version needs no update"
         );
+        c.ui.nav("/about").await;
+        let about =
+            c.ui.wait_text("[data-testid=about]", env!("CARGO_PKG_VERSION"), SECS)
+                .await;
+        assert!(!about.contains("older than this burrow admin"), "{about}");
         c.ui.assert_no_errors();
     })
 }
 
 #[test]
-fn an_older_server_is_pointed_out_until_dismissed() {
+fn an_older_server_needs_attention_until_it_is_updated() {
     let opts = Options {
         server_env: vec![("BURROW_ADMIN_TEST_VERSION".into(), "0.1.0".into())],
         ..Options::default()
     };
     run("old-server", opts, true, old_server);
+}
+
+#[test]
+fn a_server_on_the_same_version_needs_no_update() {
+    run(
+        "same-version",
+        Options::default(),
+        true,
+        same_version_server,
+    );
 }
 
 #[test]

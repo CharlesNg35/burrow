@@ -617,50 +617,14 @@ fn Section(
     }
 }
 
-const DISMISSED_KEY: &str = "burrow-admin-old-server-dismissed";
-
-pub fn older_server_version() -> Option<String> {
-    let v = store()
-        .welcome
-        .with(|w| w.as_ref().map(|w| w.server.version.clone()))?;
-    burrow_admin_logic::version::server_is_older(&v, env!("CARGO_PKG_VERSION")).then_some(v)
-}
-
-#[component]
-fn OldServer() -> impl IntoView {
-    let storage = window().local_storage().ok().flatten();
-    let dismissed = RwSignal::new(
-        storage
-            .as_ref()
-            .and_then(|st| st.get_item(DISMISSED_KEY).ok().flatten())
-            .unwrap_or_default(),
-    );
-    move || {
-        let v = older_server_version()?;
-        (dismissed.get() != v).then(|| {
-            let ui = env!("CARGO_PKG_VERSION");
-            let dismiss = {
-                let v = v.clone();
-                move |_| {
-                    if let Some(st) = window().local_storage().ok().flatten() {
-                        let _ = st.set_item(DISMISSED_KEY, &v);
-                    }
-                    dismissed.set(v.clone());
-                }
-            };
-            view! {
-                <div class="mb-5 flex flex-wrap items-start gap-3 rounded-[10px] border border-accent/30 bg-accent-weak px-3.5 py-3 text-[13px] text-co-info" role="status" data-testid="old-server">
-                    <span class="mt-0.5"><Icon name="info" small=true/></span>
-                    <p class="min-w-0 flex-1">
-                        {format!("This server runs burrow v{v}; this burrow admin is v{ui}. Update the server to get the newest settings and help: on the server, run ")}
-                        <code class="font-mono">"sudo burrow update"</code>
-                        ". It restarts an installed service; restart a server you run by hand."
-                    </p>
-                    <button type="button" class=button_class("ghost", true) data-testid="old-server-dismiss" on:click=dismiss>"Dismiss"</button>
-                </div>
-            }
-        })
-    }
+pub fn old_server_item(server: &str, ui: &str) -> Option<Item> {
+    burrow_admin_logic::version::server_is_older(server, ui).then(|| Item {
+        key: "old-server".into(),
+        tone: Tone::Warning,
+        title: format!("This server runs burrow v{server}, older than this burrow admin (v{ui})"),
+        detail: "Update it for the newest settings and help: run sudo burrow update on the server; restart a server you run by hand.".into(),
+        to: Some(Route::About),
+    })
 }
 
 #[component]
@@ -670,7 +634,12 @@ fn Attention() -> impl IntoView {
         let v = s.running();
         let st = s.state.get();
         let status = s.status.get();
-        attention(&v, st.as_deref(), status.as_deref())
+        let mut items = attention(&v, st.as_deref(), status.as_deref());
+        items.extend(s.welcome.with(|w| {
+            w.as_ref()
+                .and_then(|w| old_server_item(&w.server.version, env!("CARGO_PKG_VERSION")))
+        }));
+        items
     });
     let away_items = Memo::new(move |_| {
         let v = s.running();
@@ -982,7 +951,6 @@ pub fn Overview() -> impl IntoView {
                     <Kbd text="F"/>
                 </button>
             </header>
-            <OldServer/>
             <div class="grid grid-cols-2 gap-4 md:grid-cols-6 xl:grid-cols-12">
                 <Link to=Route::List(ClientEntry::section().into()) class=format!("md:col-span-2 {kpi_link}") testid="kpi-clients-link">
                     <Kpi
@@ -1118,6 +1086,24 @@ mod tests {
             });
         }
         st
+    }
+
+    #[test]
+    fn an_older_server_needs_attention_until_it_is_updated() {
+        let item = old_server_item("0.1.0", "0.1.2").expect("an older server is an item");
+        assert_eq!(item.tone, Tone::Warning);
+        assert_eq!(
+            item.title,
+            "This server runs burrow v0.1.0, older than this burrow admin (v0.1.2)"
+        );
+        assert_eq!(
+            item.detail,
+            "Update it for the newest settings and help: run sudo burrow update on the server; restart a server you run by hand."
+        );
+        assert_eq!(item.to, Some(Route::About));
+        assert_eq!(old_server_item("0.1.2", "0.1.2"), None);
+        assert_eq!(old_server_item("0.1.3", "0.1.2"), None);
+        assert_eq!(old_server_item("garbage", "0.1.2"), None);
     }
 
     #[test]
