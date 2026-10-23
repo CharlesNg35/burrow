@@ -11,6 +11,12 @@ UDP for visitors, and limits you can set and see.
   - Needs a v0.1.2 server; against an older one, `init visitor` lists TCP services only and keeps your UDP forwards. Clients need no update.
 - **The SOCKS5 forward carries UDP** (UDP ASSOCIATE, such as DNS through the proxy). It takes datagrams only from the app that asked, drops fragments, checks each destination against `reach` and `allow`, and ends with the app's TCP connection.
 - **burrow admin:** a private UDP service can be added once it lists visitors, and the visitor page tags its UDP services.
+- **burrow admin help and pickers:**
+  - Every field has help, and every address, list, path and rate field shows one short example, such as `certs/fullchain.pem` for a TLS certificate.
+  - In a picker, "New visitor" (or client, or service) keeps the list open with the name box focused, so you can type the name and press Enter.
+  - A TLS key file path is shown as written instead of being masked as a secret.
+  - A locked address field keeps its help while editing.
+- **An older server shows in Needs attention** in `burrow admin`, with how to update it, and About marks its version.
 
 - **`max_connections` in client.yaml** (default 16384, 1 to 1000000): the most connections open through a client at once. A saved change applies at once without a reconnect, and open connections keep running when it is lowered. If the open file limit is too small for it, the client lowers it, with one warning at start and after each change when you set the value yourself.
 - **UDP peer limits:** `max_udp_peers` in client.yaml (default 8192) and `udp.max_peers` in server.yaml (default 4096 per service port, editable in the admin UI), 1 to 1000000, applied at once like `max_connections`; the client's `max_udp_peers` is also lowered to fit the open file limit. A client now follows the server's per-port limit instead of its own fixed 4096.
@@ -20,6 +26,10 @@ UDP for visitors, and limits you can set and see.
 - The `burrow admin` note for a moved port says "taken" only when the port is in use, gives the real error otherwise, and says "open the new link" only when a link is shown.
 - `sudo burrow admin` keeps its admin session in root's own home instead of the user's, so later runs without sudo keep their session, and sudo runs still reconnect their open tab.
 - An open admin tab keeps retrying every 2 s for 5 minutes after `burrow admin` stops (was 30 s), so a restarted `burrow admin` reconnects it instead of opening a second tab.
+- A service install that takes over an older unit gives its old config and record files back to root, and uninstall does the same for older records, before the service account is removed, so no file stays owned by an account that no longer exists.
+- A UDP datagram too large for one tunnel record is dropped with a debug log line instead of silently.
+- The admin UI names the limit a client hit (`max_connections` in client.yaml), and calls the server's per-client field "Max connections on this server".
+- `burrow admin --url-file` says to open the new link when its port moved.
 - The last `burrow service uninstall` removes burrow's own service account also after an install found it left behind by an earlier install, such as after taking over a stopped unit; it is still kept while another service or unit uses it.
 
 ## [0.1.1]
