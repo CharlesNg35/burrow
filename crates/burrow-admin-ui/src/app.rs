@@ -286,8 +286,14 @@ fn Header() -> impl IntoView {
     Effect::new(move |_| {
         s.route.track();
         request_animation_frame(|| {
-            if let Ok(Some(el)) = document()
-                .query_selector("nav[aria-label=Sections] [aria-current=page]")
+            let overflows = document()
+                .query_selector("nav[aria-label=Sections]")
+                .ok()
+                .flatten()
+                .is_some_and(|n| n.scroll_width() > n.client_width());
+            if overflows
+                && let Ok(Some(el)) =
+                    document().query_selector("nav[aria-label=Sections] [aria-current=page]")
             {
                 let opts = web_sys::ScrollIntoViewOptions::new();
                 opts.set_block(web_sys::ScrollLogicalPosition::Nearest);
