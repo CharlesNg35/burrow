@@ -438,7 +438,7 @@ pub fn Fact(
 pub fn Stats(#[prop(optional)] testid: &'static str, children: Children) -> impl IntoView {
     view! {
         <div
-            class="mb-[22px] grid grid-cols-2 overflow-hidden rounded-card border border-border bg-surface md:grid-cols-4 [&>*]:border-border [&>*]:px-4 [&>*]:py-3.5 [&>*:not(:last-child)]:border-r"
+            class="mb-[22px] grid grid-cols-2 overflow-hidden rounded-card border border-border bg-surface md:grid-cols-4 [&>*]:border-border [&>*]:px-4 [&>*]:py-3.5 [&>*:not(:last-child)]:border-r max-md:[&>*:nth-child(even)]:border-r-0 max-md:[&>*:nth-child(n+3)]:border-t"
             data-testid=(!testid.is_empty()).then_some(testid)
         >
             {children()}

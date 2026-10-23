@@ -443,9 +443,11 @@ pub fn Entities(section: String, selected: Option<String>) -> impl IntoView {
             match sel_name.clone() {
                 Some(name) => view! { <Detail section=sec name=name/> }.into_any(),
                 None => view! {
-                    <DetailPane>
-                        <EmptyState icon="stack" title=pick message="Or add a new one."/>
-                    </DetailPane>
+                    <div class="max-lg:hidden">
+                        <DetailPane>
+                            <EmptyState icon="stack" title=pick message="Or add a new one."/>
+                        </DetailPane>
+                    </div>
                 }
                 .into_any(),
             }

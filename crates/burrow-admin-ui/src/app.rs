@@ -283,6 +283,19 @@ fn Header() -> impl IntoView {
             "ok".to_string()
         }
     });
+    Effect::new(move |_| {
+        s.route.track();
+        request_animation_frame(|| {
+            if let Ok(Some(el)) = document()
+                .query_selector("nav[aria-label=Sections] [aria-current=page]")
+            {
+                let opts = web_sys::ScrollIntoViewOptions::new();
+                opts.set_block(web_sys::ScrollLogicalPosition::Nearest);
+                opts.set_inline(web_sys::ScrollLogicalPosition::Center);
+                el.scroll_into_view_with_scroll_into_view_options(&opts);
+            }
+        });
+    });
     let read_only = Memo::new(move |_| s.conn.get() == Conn::Open && !s.can_write());
     let why_open = RwSignal::new(false);
     let retry_open = RwSignal::new(false);
