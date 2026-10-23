@@ -235,10 +235,16 @@ pub fn plan(
         if kept.iter().any(|f| covers(f, &s.name, Some(s.protocol))) {
             continue;
         }
-        let first = match s.port {
-            0 => 10000,
-            p if p < 1024 => p + 10000,
-            p => p,
+        let moved = existing.values().find(|f| {
+            matches!(&f.to, VisitTarget::Service { name, .. } if name == &s.name)
+                && f.protocol != s.protocol
+                && f.ports.max(1) == s.ports
+        });
+        let first = match (moved, s.port) {
+            (Some(f), _) => f.local.port(),
+            (None, 0) => 10000,
+            (None, p) if p < 1024 => p + 10000,
+            (None, p) => p,
         };
         let Some(local) = spaces.of(s.protocol).free(first, s.ports) else {
             out.unplaced.push(s.name.clone());
@@ -372,7 +378,27 @@ mod tests {
         assert_eq!(now_tcp.added, vec!["dns"]);
         assert_eq!(
             now_tcp.forwards["dns"],
-            json!({ "service": "dns", "local": 10053 })
+            json!({ "service": "dns", "local": 5353 }),
+            "the forward keeps its local port in the other protocol when it is free"
+        );
+        let mut tcp = BTreeMap::new();
+        tcp.insert(
+            "dns".to_string(),
+            Forward::single(at(5353), VisitTarget::service("dns")),
+        );
+        tcp.insert(
+            "other".to_string(),
+            Forward::udp(at(5353), VisitTarget::service("other")),
+        );
+        let g = udp(
+            grants(&[("dns", 53, 1), ("other", 53, 1)], &[]),
+            &["dns", "other"],
+        );
+        let busy = plan(&g, &tcp);
+        assert_eq!(
+            busy.forwards["dns"],
+            json!({ "service": "dns", "protocol": "udp", "local": 5354 }),
+            "a port the other protocol already uses moves to the next free one"
         );
     }
 
