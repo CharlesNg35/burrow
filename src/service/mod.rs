@@ -562,7 +562,12 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
     }
 
     system::require_admin()?;
-    let replaced = take_over(stray::named(&name).as_ref(), &config)?;
+    let taken = take_over(stray::named(&name).as_ref(), &config)?;
+    let old_files: Vec<PathBuf> = taken
+        .iter()
+        .flat_map(Takeover::old_files)
+        .chain(stray::leftovers(Some(&name)))
+        .collect();
     let operation = system::operation(out)?;
     let previous = load_manifest(&name).ok();
     let was_running = previous.as_ref().is_some_and(|p| backend.status(p).running);
@@ -783,7 +788,18 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
             manifest.role
         ),
     )?;
-    if let Some(note) = &replaced {
+    let mut own = own_logs(&manifest.log_file);
+    own.push(config.clone());
+    own.extend(manifest.env_file.clone());
+    let given = give_old_files(&old_files, &account, &own);
+    if let Some(t) = &taken {
+        say(out, format!("note: {}", t.note(&given)))?;
+    }
+    if let Some(note) = given_note(
+        &name,
+        &given,
+        taken.as_ref().and_then(|t| t.old_config.as_ref()),
+    ) {
         say(out, format!("note: {note}"))?;
     }
     let arg = name_arg(&name, all_manifests().len(), stray::strays().len());
@@ -840,21 +856,90 @@ fn burrows_account(
         || (account == default && made_for_burrow())
 }
 
-fn take_over(stray: Option<&stray::Stray>, config: &Path) -> Result<Option<String>, Failure> {
+#[derive(Debug)]
+struct Takeover {
+    label: String,
+    old_config: Option<PathBuf>,
+}
+
+impl Takeover {
+    fn old_files(&self) -> Vec<PathBuf> {
+        self.old_config.iter().cloned().collect()
+    }
+
+    fn note(&self, given: &[PathBuf]) -> String {
+        let replaced = format!("replaced {}, which burrow had no record of", self.label);
+        match &self.old_config {
+            Some(old) if given.contains(old) => format!(
+                "{replaced}; its old config was left as it was, now owned by root: {}",
+                old.display()
+            ),
+            Some(old) => format!(
+                "{replaced}; its old config was left as it was: {}",
+                old.display()
+            ),
+            None => replaced,
+        }
+    }
+}
+
+fn take_over(stray: Option<&stray::Stray>, config: &Path) -> Result<Option<Takeover>, Failure> {
     let Some(s) = stray else {
         return Ok(None);
     };
     if s.running {
         return Err(s.failure());
     }
-    let replaced = format!("replaced {}, which burrow had no record of", s.label);
-    Ok(Some(match s.config.as_deref().filter(|c| *c != config) {
-        Some(old) => format!(
-            "{replaced}; its old config was left as it was: {}",
-            old.display()
-        ),
-        None => replaced,
+    Ok(Some(Takeover {
+        label: s.label.clone(),
+        old_config: s.config.clone().filter(|c| c != config),
     }))
+}
+
+fn given_note(name: &str, given: &[PathBuf], shown: Option<&PathBuf>) -> Option<String> {
+    let rest: Vec<String> = given
+        .iter()
+        .filter(|p| Some(*p) != shown)
+        .map(|p| p.display().to_string())
+        .collect();
+    (!rest.is_empty()).then(|| {
+        format!(
+            "gave {}, left by an older install of {name}, to root, since the service does not use {}",
+            rest.join(", "),
+            if rest.len() == 1 { "it" } else { "them" }
+        )
+    })
+}
+
+fn give_old_files(files: &[PathBuf], account: &str, keep: &[PathBuf]) -> Vec<PathBuf> {
+    #[cfg(unix)]
+    {
+        let Ok((uid, _)) = system::account_ids(account) else {
+            return Vec::new();
+        };
+        let mut given: Vec<PathBuf> = Vec::new();
+        for f in files {
+            if uid != 0
+                && !keep.contains(f)
+                && !given.contains(f)
+                && system::give_back(f, uid, 0, 0).unwrap_or(false)
+            {
+                given.push(f.clone());
+            }
+        }
+        given
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (files, account, keep);
+        Vec::new()
+    }
+}
+
+fn own_logs(log: &Path) -> Vec<PathBuf> {
+    std::iter::once(log.to_path_buf())
+        .chain((1..=crate::logfile::KEEP).map(|n| PathBuf::from(format!("{}.{n}", log.display()))))
+        .collect()
 }
 
 fn start_installed(
@@ -1512,6 +1597,22 @@ pub fn uninstall(name: Option<&str>, purge: bool, out: &mut dyn Write) -> Result
                 give_history(&m.config, 0, 0);
                 let _ = std::os::unix::fs::lchown(d, Some(0), Some(0));
             }
+        }
+        let given = give_old_files(&stray::leftovers(None), &m.account, &[]);
+        if !given.is_empty() {
+            say(
+                out,
+                format!(
+                    "gave {} to root before removing service account {}, since an older install left {} owned by it",
+                    given
+                        .iter()
+                        .map(|p| p.display().to_string())
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                    m.account,
+                    if given.len() == 1 { "it" } else { "them" }
+                ),
+            )?;
         }
         match backend.remove_account(&m.account) {
             Ok(()) => say(out, format!("removed service account {}", m.account))?,
@@ -2242,21 +2343,35 @@ mod tests {
             pid: None,
             ..s.clone()
         };
+        let taken = take_over(Some(&stopped), new).unwrap().unwrap();
         assert_eq!(
-            take_over(Some(&stopped), new).unwrap().as_deref(),
-            Some(
-                "replaced burrow-client.service, which burrow had no record of; its old config was left as it was: /etc/burrow/client.yaml"
-            )
+            taken.note(&[]),
+            "replaced burrow-client.service, which burrow had no record of; its old config was left as it was: /etc/burrow/client.yaml"
         );
+        let old = PathBuf::from("/etc/burrow/client.yaml");
+        assert_eq!(
+            taken.note(std::slice::from_ref(&old)),
+            "replaced burrow-client.service, which burrow had no record of; its old config was left as it was, now owned by root: /etc/burrow/client.yaml"
+        );
+        assert_eq!(taken.old_files(), vec![old.clone()]);
         let in_place = stray::Stray {
             config: Some(new.to_path_buf()),
             ..stopped.clone()
         };
+        let taken = take_over(Some(&in_place), new).unwrap().unwrap();
         assert_eq!(
-            take_over(Some(&in_place), new).unwrap().as_deref(),
-            Some("replaced burrow-client.service, which burrow had no record of")
+            taken.note(&[]),
+            "replaced burrow-client.service, which burrow had no record of"
         );
-        assert_eq!(take_over(None, new).unwrap(), None);
+        assert!(taken.old_files().is_empty());
+        assert!(take_over(None, new).unwrap().is_none());
+        let env = PathBuf::from("/etc/burrow/client.env");
+        assert_eq!(given_note("burrow-client", &[old.clone(), env.clone()], Some(&old)), Some("gave /etc/burrow/client.env, left by an older install of burrow-client, to root, since the service does not use it".to_string()));
+        assert_eq!(
+            given_note("burrow-client", std::slice::from_ref(&old), Some(&old)),
+            None
+        );
+        assert_eq!(given_note("burrow-client", &[], None), None);
     }
 
     #[test]

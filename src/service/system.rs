@@ -609,6 +609,21 @@ pub fn give_plain_file(path: &Path, uid: u32, gid: u32) -> std::io::Result<bool>
 }
 
 #[cfg(unix)]
+pub fn give_back(path: &Path, from: u32, uid: u32, gid: u32) -> std::io::Result<bool> {
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(path)?;
+    let meta = file.metadata()?;
+    if !meta.is_file() || meta.nlink() != 1 || meta.uid() != from {
+        return Ok(false);
+    }
+    std::os::unix::fs::fchown(&file, Some(uid), Some(gid))?;
+    Ok(true)
+}
+
+#[cfg(unix)]
 pub fn make_dir(path: &Path, mode: u32, owner: Option<&str>) -> Result<(), Failure> {
     use std::os::unix::fs::PermissionsExt;
     std::fs::create_dir_all(path)
@@ -842,6 +857,28 @@ pub(crate) mod tests {
                 .success()
         );
         assert!(!give_plain_file(&fifo, uid, gid).unwrap());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn only_a_plain_file_the_account_owns_is_given_back() {
+        use std::os::unix::fs::MetadataExt;
+        let dir = tempfile::tempdir().unwrap();
+        let plain = dir.path().join("old.yaml");
+        std::fs::write(&plain, "x").unwrap();
+        let (uid, gid) = {
+            let m = std::fs::metadata(&plain).unwrap();
+            (m.uid(), m.gid())
+        };
+        assert!(!give_back(&plain, uid + 1, uid, gid).unwrap());
+        assert!(give_back(&plain, uid, uid, gid).unwrap());
+        let linked = dir.path().join("linked.yaml");
+        std::fs::hard_link(&plain, &linked).unwrap();
+        assert!(!give_back(&linked, uid, uid, gid).unwrap());
+        let symlink = dir.path().join("link.yaml");
+        std::os::unix::fs::symlink(&plain, &symlink).unwrap();
+        assert!(give_back(&symlink, uid, uid, gid).is_err());
+        assert!(give_back(&dir.path().join("missing"), uid, uid, gid).is_err());
     }
 
     #[test]
