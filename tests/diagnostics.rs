@@ -2050,9 +2050,12 @@ fn a_connection_limit_on_a_udp_service_is_refused() {
         None,
     );
     assert!(
-        shown.contains("max_connections only works for tcp services"),
+        shown.contains(
+            "max_connections only works for tcp services; for UDP, udp.max_peers limits the peers of each port"
+        ),
         "{shown}"
     );
+    assert!(!shown.contains("4096"), "{shown}");
     assert!(!shown.contains("valid server config"), "{shown}");
 }
 

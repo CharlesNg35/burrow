@@ -130,7 +130,7 @@ pub(super) fn check_service<'a>(
             "max_connections" => (
                 svc.max_connections.is_some(),
                 "max-connections-tcp-only",
-                "max_connections only works for tcp services; UDP peers are limited to 4096 per port",
+                "max_connections only works for tcp services; for UDP, udp.max_peers limits the peers of each port",
             ),
             "mode" => (
                 svc.mode == Mode::Balance && clients.len() > 1,
