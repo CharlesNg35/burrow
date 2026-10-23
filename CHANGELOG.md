@@ -8,6 +8,11 @@ Limits you can set and see.
 - **UDP peer limits:** `max_udp_peers` in client.yaml (default 8192) and `udp.max_peers` in server.yaml (default 4096 per service port, editable in the admin UI), 1 to 1000000, with the same rules as `max_connections`. A client now follows the server's per-port limit instead of its own fixed 4096.
 - **Seeing a limit:** a client at its `max_connections` logs one warning a minute with the number of refused connections, the server's log points to the client's `max_connections`, `burrow status` and the admin UI mark the client "at limit", and `burrow_client_busy_total` counts those refusals per client.
 - **Running at scale** in docs/monitoring.md: memory per connection, the limits to raise, and the Linux limits that run out first.
+- `burrow validate` and burrow admin tell a UDP service with no `bind` to add a public port, instead of suggesting visitors.
+- The `burrow admin` note for a moved port says "taken" only when the port is in use, gives the real error otherwise, and says "open the new link" only when a link is shown.
+- `sudo burrow admin` keeps its admin session in root's own home instead of the user's, so later runs without sudo keep their session, and sudo runs still reconnect their open tab.
+- An open admin tab keeps retrying every 2 s for 5 minutes after `burrow admin` stops (was 30 s), so a restarted `burrow admin` reconnects it instead of opening a second tab.
+- `burrow service uninstall --purge` removes burrow's own service account after an install found it left behind by an earlier install, such as after taking over a stopped unit; it is still kept while another service or unit uses it.
 
 ## [0.1.1]
 
