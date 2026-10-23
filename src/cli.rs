@@ -581,12 +581,10 @@ pub fn service_word(e: &clap::Error) -> Option<crate::failure::Failure> {
     ["install", "uninstall", "start", "stop", "restart", "logs"]
         .contains(&word.as_str())
         .then(|| {
-            crate::failure::Failure::usage(format!("burrow {word} is not a command")).hint(
-                format!(
-                    "for a service, run: {}",
-                    crate::failure::admin(&format!("service {word}"))
-                ),
-            )
+            crate::failure::Failure::usage(format!("burrow {word} is not a command")).hint(format!(
+                "for a service, run: {}",
+                crate::failure::admin(&format!("service {word}"))
+            ))
         })
 }
 

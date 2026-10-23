@@ -36,7 +36,8 @@ impl std::fmt::Display for LookupTimedOut {
 impl std::error::Error for LookupTimedOut {}
 
 pub fn lookup_timed_out(e: &io::Error) -> bool {
-    e.get_ref().is_some_and(|inner| inner.is::<LookupTimedOut>())
+    e.get_ref()
+        .is_some_and(|inner| inner.is::<LookupTimedOut>())
 }
 
 pub async fn dial_tcp(
