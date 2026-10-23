@@ -76,14 +76,14 @@ With `--service`, `--client` or `--socks`, the forwards in the config are not st
 <details>
 <summary><b>Without access to the server's config</b></summary>
 
-`./burrow init visitor` asks for the server's address, the visitor's name and its secret. It then asks the server what this visitor may use, and writes the forwards for it:
+`./burrow init visitor` asks for the server's address, the visitor's name and its secret. It then asks the server what this visitor may use, and writes the forwards for it, with `protocol: udp` for UDP services and free local ports checked for that protocol:
 
 ```sh
 ./burrow init visitor            # writes visitor.yaml
 ./burrow init visitor --update   # later: ask the server again and update the forwards
 ```
 
-`--update` shows the changes and asks before writing. It keeps your local ports and the rest of the file.
+`--update` shows the changes and asks before writing: new grants are added, revoked ones removed, and kept forwards keep their local ports and names, TCP and UDP alike. It keeps the rest of the file. A server older than v0.1.2 lists only its TCP services; `--update` then says so and leaves your UDP forwards as they are.
 
 </details>
 

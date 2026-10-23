@@ -2,7 +2,15 @@
 
 ## [0.1.2]
 
-Limits you can set and see.
+UDP for visitors, and limits you can set and see.
+
+- **Visitors reach UDP services:**
+  - A private UDP service may list `visitors`, and a forward with `protocol: udp` (or `burrow visit --udp`) carries its datagrams, port ranges included.
+  - `reach` now covers UDP as well as TCP for the same addresses and ports, so an existing `reach` grant also allows UDP to them; the client's `allow` list still decides.
+  - `init visitor`, `--update`, `visitor-config` and the admin UI's Connect tab write `protocol: udp` forwards with free UDP ports; a forward whose protocol does not match its service is told which one to set.
+  - Needs a v0.1.2 server; against an older one, `init visitor` lists TCP services only and keeps your UDP forwards. Clients need no update.
+- **The SOCKS5 forward carries UDP** (UDP ASSOCIATE, such as DNS through the proxy). It takes datagrams only from the app that asked, drops fragments, checks each destination against `reach` and `allow`, and ends with the app's TCP connection.
+- **burrow admin:** a private UDP service can be added once it lists visitors, and the visitor page tags its UDP services.
 
 - **`max_connections` in client.yaml** (default 16384, 1 to 1000000): the most connections open through a client at once. A saved change applies at once without a reconnect, and open connections keep running when it is lowered. If the open file limit is too small for it, the client lowers it, with one warning at start and after each change when you set the value yourself.
 - **UDP peer limits:** `max_udp_peers` in client.yaml (default 8192) and `udp.max_peers` in server.yaml (default 4096 per service port, editable in the admin UI), 1 to 1000000, applied at once like `max_connections`; the client's `max_udp_peers` is also lowered to fit the open file limit. A client now follows the server's per-port limit instead of its own fixed 4096.

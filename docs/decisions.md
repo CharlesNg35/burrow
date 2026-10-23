@@ -128,7 +128,7 @@ Some services should not be public at all: a database, SSH, an admin page. frp (
 - **One channel per local connection**, with the same handshake as data channels. A visitor keeps no long-lived connection, so it has nothing to reconnect, and the server keeps no state for an idle visitor. The cost is one handshake per connection plus one round trip, because the visitor waits for the server's answer before sending data so that a refusal always carries its reason. The server also decrypts and re-encrypts every record between the two channels: on one loopback machine a visit carries 7.8 Gbit/s on one stream and 22.7 Gbit/s on four, against 12.9 and 35.0 for a public service.
 - **`local` defaults to `127.0.0.1`,** unlike `bind` on the server: anyone who can reach a forward uses the visitor's access, so sharing it with a network has to be written out, and `validate` warns about `0.0.0.0`.
 - **Reload revokes**: open visits re-check their request when the config changes, as a removed client's connections do.
-- **TCP only** for now. UDP visitors would need a peer table on the visitor side as well, and can come later.
+- **TCP and UDP** since v0.1.2: see D42.
 
 ## D23. Port ranges are one service
 
@@ -154,7 +154,7 @@ The metrics endpoint is off unless `metrics.listen` is set, defaults to `127.0.0
 
 ## D28. A SOCKS5 forward for visitors
 
-`reach` lets a visitor pick any target its client allows, but one forward per target is tedious. A SOCKS5 forward (`socks: true`, or `visit --socks`) reads the target from each SOCKS request and sends it as a normal reach request, so the server and the client's allow list decide exactly as before. Only CONNECT without authentication is supported: the listener is on `127.0.0.1` by default, like any forward.
+`reach` lets a visitor pick any target its client allows, but one forward per target is tedious. A SOCKS5 forward (`socks: true`, or `visit --socks`) reads the target from each SOCKS request and sends it as a normal reach request, so the server and the client's allow list decide exactly as before. CONNECT and, since v0.1.2, UDP ASSOCIATE are supported, without authentication: the listener is on `127.0.0.1` by default, like any forward. See D42 for UDP.
 
 ## D29. Our own updater instead of a crate
 
@@ -212,3 +212,37 @@ A browser tab used to outlive its `burrow admin`: the next run made a new token 
 ## D41. macOS builds signed with burrow's own certificate
 
 With the macOS application firewall on, a program that listens is allowed or blocked by its code signature. An unsigned build only has an ad-hoc signature tied to its exact bytes, so every `burrow update` looked like a new program: the firewall asked again, and on a Mac with nobody logged in it blocked the updated service silently and kept it blocked (measured on macOS 14). Release builds are therefore signed in CI with one self-signed code-signing certificate (`scripts/macos-signing-cert.sh`, repository secrets `MACOS_CERTIFICATE` and `MACOS_CERTIFICATE_PASSWORD`) and the fixed identifier `com.github.charlesng35.burrow`; the firewall then asks once per install path and keeps the answer across updates. A tagged release fails rather than publish an unsigned macOS build. The certificate must never be replaced, or every Mac asks again. It does not make Gatekeeper trust a browser download; that needs a paid Apple Developer ID and notarization, which can be added later without changing this identity's role.
+
+## D42. UDP for visitors, and SOCKS5 UDP ASSOCIATE
+
+A visitor reaches private UDP services and UDP targets in `reach`, with the same server-side checks as TCP. The client is unchanged, so v0.1.0 and v0.1.1 clients serve UDP visits.
+
+- **The data path:**
+  - A UDP forward has one socket per local port. Its first datagram opens one visit channel (VisitRequest flag bit 1, protocol.md section 9). The channel carries the records of a UDP service (`peer:u32 || datagram`), with peer ids chosen by the visitor and passed on unchanged.
+  - The server admits at most `udp.max_peers` peer ids per visit, takes the service's bandwidth only for admitted datagrams and drops what is over the rate (D26), and follows a service's clients with the same failover as TCP (D25).
+  - The visitor closes the channel once its peers have expired, and the server closes a visit with no datagram either way for `udp.session_timeout_secs`. An idle visitor keeps no server state (D22).
+  - A reload closes a visit that is no longer granted, and a UDP service visit whose target changed. TCP connections keep running in that case; the next datagram opens a new UDP visit to the new target.
+  - The socket-to-channel loop is shared with public UDP services (`src/udp/front.rs`).
+- **Protocol is explicit.** A forward has `protocol: tcp|udp`, like a service, and is never inferred. The visitor binds before it talks to the server, and a wrong guess would bind the wrong socket. A mismatch is answered `4 invalid`, and `burrow visit` asks for the grants to say which protocol to set. A server older than v0.1.2 answers `4 invalid` to the UDP flag and to `0x21 0x01` (checked against v0.1.1). `init visitor` then falls back to TCP-only grants and keeps existing UDP forwards. A v0.1.2 server whose grants do not fit in one answer gives the same `4 invalid`, so the message names both causes.
+- **`reach` stays address-only and covers TCP and UDP**, like a client's `allow` list and a service's `allow_from`. A `reach` grant gives the same addresses and ports over both protocols, so an existing grant now also allows UDP to them; the client's `allow` list still has the final say. A per-protocol rule or an opt-in flag would add config for little gain: `reach: any` already gives arbitrary TCP. `validate` says "over TCP or UDP" in its `reach: any` warning.
+- **`self`** follows D38 for UDP through the same gate: the server's own TCP listen, WebSocket and metrics ports stay TCP-only refusals, and link-local and metadata addresses need `self.allow` to name them. A `unix:` target is refused for UDP (`4 invalid`) before any client sees it.
+- **Limits and timers:**
+  - `udp.session_timeout_secs` now defaults to 120 s on the server, client and visitor (was 60 s). RFC 4787 section 4.3, REQ-5, says a NAT UDP mapping "MUST NOT expire in less than two minutes", except for some well-known ports, and recommends five minutes or more (REQ-5c). RFC 4787 is updated by RFC 6888 and RFC 7857, and neither changes REQ-5. The cost is that peers that change source port per request, such as DNS, are held longer: at the default `max_udp_peers` 8192, a client drops new peers above about 68 such queries per second, instead of 136. The value stays configurable.
+  - Mappings are refreshed by outbound traffic, which REQ-6 requires.
+  - Following RFC 8085, datagrams are never fragmented or queued without bound. The largest datagram is 65515 bytes and larger ones are dropped with a debug line. Over-rate datagrams are dropped, not delayed. Every queue is bounded: per channel, per SOCKS destination, and 1 MiB per SOCKS association.
+  - A UDP visit counts as one connection of the visitor and of the client. The service's `max_connections` stays TCP-only.
+- **Spoofed sources:** a UDP forward or SOCKS relay listening off loopback accepts any source address, as UDP has no handshake, so a forged one can fill `udp.max_peers` and send replies elsewhere. docs/visitors.md says to keep `local` on 127.0.0.1 unless the network is trusted. Popular tools accept the same risk for UDP listeners.
+- **SOCKS5 UDP ASSOCIATE** follows RFC 1928:
+  - §4 and §6: the relay port is bound on the address the app connected to, made plain IPv4 when the forward listens on a dual-stack `[::]`. The reply gives that relay address in BND.ADDR and BND.PORT. A v4-mapped address cannot be used by an IPv4 app, and fails where IPv6 sockets are IPv6-only by default: Windows sets IPV6_V6ONLY by default (Microsoft Learn, "Dual-Stack Sockets"), and FreeBSD has `net.inet6.ip6.v6only` on by default (inet6(4)).
+  - §7: datagrams from any source other than the app are dropped. The relay admits the IP address of the app's TCP connection only, and an address named in the request on another host is ignored, so the relay cannot be aimed at a third party. A port named in the request must match; otherwise the first sender's port is locked in.
+  - §7: fragmentation is optional, and an implementation without it MUST drop FRAG not 0, so it is dropped with a debug line.
+  - Replies carry the header the app sent, so a host name stays a host name; the client resolves names (D28).
+  - Each destination gets its own visit (kind 2), so the client stays unchanged and `reach` and `allow` decide per destination. There are at most 64 destinations and 1 MiB of waiting datagrams per association.
+  - The association ends when its TCP connection closes (§6), and also after `udp.session_timeout_secs` with no datagram.
+  - Header parsing is strict (reserved bytes 0, ATYP 1, 3 or 4, exact lengths, a valid host:port, port not 0) and has its own fuzz target, `socks_udp_header`.
+- **No SOCKS crate:**
+  - `socks5-proto` (0.4.1) and `socks5-impl` (0.10.3) are GPL-3.0-or-later, which our MIT licence and deny.toml exclude.
+  - `socksv5` (0.3.1) has had no release since 2022-12-08.
+  - `fast-socks5` (1.0.0, MIT, maintained) would replace only about 40 lines of UDP header parsing. It would also add a second socket2 (0.5) and a typestate server that does not fit our refusal handling.
+  - So burrow keeps its own strict, fuzzed parser, as it did for CONNECT. This should be revisited if fast-socks5 offers standalone parsers that do not need its server.
+  - Sources: crates.io and docs.rs pages of each crate, checked 2026-10-23.

@@ -195,6 +195,13 @@ forwards:
 
 `./burrow visit db --local 5433` runs one forward on another port, `./burrow init visitor --update` refreshes the forwards after the server changed, and `sudo ./burrow service install -c visitor.yaml` keeps the visitor running.
 
+A private UDP service works the same way: its forward has `protocol: udp`, which `init visitor` and `visitor-config` write for you.
+
+```yaml
+# visitor.yaml, under forwards:
+dns: { service: dns, protocol: udp, local: 5353 }   # or: ./burrow visit --udp --service dns --local 5353
+```
+
 With `reach`, a visitor can also pick any target on a client by itself, like `ssh -L`. The client's `allow` list must permit those targets too.
 
 ```yaml
