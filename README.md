@@ -49,7 +49,7 @@ The client at home connects out to the server and keeps that connection open. Th
 
 This example makes a web app that runs on port 3000 of your home machine reachable on port 7840 of your server.
 
-**1. Download.** [Get the latest release](https://github.com/CharlesNg35/burrow/releases/latest) for your system on both machines, and unpack it. A Docker image is available too (see Running as a service below).
+**1. Download.** [Get the latest release](https://github.com/CharlesNg35/burrow/releases/latest) for your system on both machines, and unpack it. On macOS, a browser download must be allowed once: see [docs/service.md](docs/service.md#linux-macos-and-windows-details). A Docker image is available too (see Running as a service below).
 
 **2. On the server,** write a config and start it:
 
