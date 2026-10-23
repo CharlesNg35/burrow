@@ -677,7 +677,21 @@ fn list_editor(fc: FieldCtx, item: Node) -> AnyView {
     .into_any()
 }
 
+fn without_port(text: &str) -> &str {
+    if let Some(rest) = text.strip_prefix('[') {
+        return rest.split(']').next().unwrap_or(rest);
+    }
+    match text.rsplit_once(':') {
+        Some((head, _)) if !head.contains(':') => head,
+        _ => text,
+    }
+}
+
 pub fn cidr_size(text: &str) -> String {
+    if text.starts_with("unix:") {
+        return String::new();
+    }
+    let text = without_port(text);
     let (addr, bits) = match text.split_once('/') {
         Some((a, b)) => (a, b.parse::<u32>().ok()),
         None => (text, None),
@@ -965,4 +979,21 @@ pub fn health_box(node: Node, path: Path, spath: Path, entity: Path) -> AnyView 
         })
     })
     .into_any()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_rule_with_a_port_is_sized_by_its_network() {
+        assert_eq!(cidr_size("10.0.0.0/8"), "16.8 M addresses");
+        assert_eq!(cidr_size("10.0.0.0/8:22"), "16.8 M addresses");
+        assert_eq!(cidr_size("192.168.1.0/24:8000-8010"), "256 addresses");
+        assert_eq!(cidr_size("192.168.1.10:22"), "single address");
+        assert_eq!(cidr_size("192.168.1.10"), "single address");
+        assert_eq!(cidr_size("[fd00::/64]:443"), "/64 network");
+        assert_eq!(cidr_size("fd00::/64"), "/64 network");
+        assert_eq!(cidr_size("unix:/run/app.sock"), "");
+    }
 }
