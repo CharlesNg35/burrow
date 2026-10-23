@@ -677,7 +677,7 @@ fn Banners() -> impl IntoView {
             let left = ((s.retry_at.get() - s.now.get()) / 1000.0).ceil().max(0.0) as u64;
             let n = s.edit.pending();
             let at = format::clock(s.values_at.get());
-            let (title, why) = if s.admin_down.get() && attempt > api::GONE_AFTER {
+            let (title, why) = if s.admin_down.get() && api::gone_a_while(attempt) {
                 (
                     "burrow admin is not running here.".to_string(),
                     "If burrow admin started again, open the link it printed or run burrow admin. "
