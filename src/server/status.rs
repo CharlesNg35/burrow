@@ -6,6 +6,15 @@ use crate::metrics::{ClientStatus, HealthStatus, ServiceStatus, SetAside, Status
 use burrow_config::SELF;
 
 impl Shared {
+    fn busy_of(&self, name: &str) -> ClientStatus {
+        let (busy_total, at_limit) = self.metrics.busy(name);
+        ClientStatus {
+            busy_total,
+            at_limit,
+            ..ClientStatus::default()
+        }
+    }
+
     pub fn status(&self) -> Status {
         let settings = self.settings();
         let sessions = self.sessions.lock().expect("sessions lock").clone();
@@ -22,6 +31,7 @@ impl Shared {
                     idle_channels: s.idle_count() as u64,
                     left_secs_ago: None,
                     local: false,
+                    ..self.busy_of(name)
                 },
                 None => ClientStatus {
                     name: name.clone(),
@@ -32,6 +42,7 @@ impl Shared {
                     idle_channels: 0,
                     left_secs_ago: self.metrics.left_secs_ago(name),
                     local: false,
+                    ..self.busy_of(name)
                 },
             })
             .collect();
@@ -45,6 +56,7 @@ impl Shared {
                 idle_channels: 0,
                 left_secs_ago: None,
                 local: true,
+                ..self.busy_of(SELF)
             });
         }
         let services = settings

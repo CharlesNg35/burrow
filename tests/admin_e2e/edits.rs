@@ -468,6 +468,34 @@ fn editors(c: &mut Ctx) -> Flow<'_> {
             text.contains("public_address: tunnel.example.net"),
             "{text}"
         );
+
+        c.ui.nav("/settings").await;
+        let peers = "[data-schema='udp/max_peers']";
+        let help = c.ui.wait_text(peers, "Max UDP peers per port", SECS).await;
+        assert!(
+            help.contains("For example 20000; the default is 4096"),
+            "{help}"
+        );
+        edit_mode(c).await;
+        c.ui.wait_for(&format!("{peers} [data-editor]"), SECS).await;
+        let _: bool = c
+            .ui
+            .eval("(() => { const b = document.querySelector('[data-sticky-bar]').getBoundingClientRect(); const r = document.querySelector(\"[data-schema='udp/max_peers']\").getBoundingClientRect(); scrollBy(0, r.bottom - b.top - 10); document.getElementById('f-udp-max-peers').focus(); return true; })()")
+            .await;
+        clear_of_bar(c, "udp/max_peers").await;
+        c.ui.fill("#f-udp-max-peers", "0").await;
+        let err = row_error(c, "udp/max_peers").await;
+        assert!(!err.is_empty(), "0 peers is refused inline");
+        c.ui.fill("#f-udp-max-peers", "1000001").await;
+        let err = row_error(c, "udp/max_peers").await;
+        assert!(!err.is_empty(), "more than 1000000 peers is refused inline");
+        c.ui.fill("#f-udp-max-peers", "20000").await;
+        row_clean(c, "udp/max_peers").await;
+        c.ui.shot("udp-max-peers").await;
+        open_review(c, "review-of-udp-max-peers").await;
+        applied(c, "udp-max-peers-applied").await;
+        let text = c.world.config();
+        assert!(text.contains("max_peers: 20000"), "{text}");
         c.ui.assert_no_errors();
     })
 }

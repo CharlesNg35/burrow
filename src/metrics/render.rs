@@ -88,6 +88,19 @@ pub fn prometheus(s: &Status) -> String {
     }
 
     f.head(
+        "burrow_client_busy_total",
+        "counter",
+        "Connections the client answered busy, at its max_connections",
+    );
+    for c in &s.clients {
+        f.line(
+            "burrow_client_busy_total",
+            &[("client", &c.name)],
+            c.busy_total,
+        );
+    }
+
+    f.head(
         "burrow_service_connections_open",
         "gauge",
         "Connections currently open to the service",
@@ -223,6 +236,7 @@ mod tests {
                     idle_channels: 4,
                     left_secs_ago: None,
                     local: false,
+                    ..ClientStatus::default()
                 },
                 ClientStatus {
                     name: "office".into(),
@@ -233,6 +247,7 @@ mod tests {
                     idle_channels: 0,
                     left_secs_ago: Some(300),
                     local: false,
+                    ..ClientStatus::default()
                 },
             ],
             services: vec![ServiceStatus {

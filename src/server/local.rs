@@ -5,7 +5,7 @@ use std::time::Duration;
 use tokio::sync::watch;
 
 use crate::allowlist::Gate;
-use crate::client::data::{Dialing, Dials, Rules, Slots, connection_cap, serve_local};
+use crate::client::data::{Dialing, Dials, Open, Rules, fitted, serve_local};
 use crate::config::settings::ServerSettings;
 use crate::handshake::Channel;
 use crate::protocol::TOKEN_LEN;
@@ -22,7 +22,7 @@ impl Dials for Arc<Dialing> {
 
 pub(crate) struct SelfDialer {
     rules: Arc<watch::Sender<Arc<Dialing>>>,
-    connections: Arc<Slots>,
+    open: Open,
     token: Mutex<[u8; TOKEN_LEN]>,
     resolver: Arc<dyn Resolver>,
 }
@@ -35,9 +35,13 @@ impl SelfDialer {
     ) -> SelfDialer {
         SelfDialer {
             rules: Arc::new(watch::Sender::new(Arc::new(dialing(settings, own)))),
-            connections: Arc::new(Slots::new(connection_cap(
-                burrow_config::CLIENT_MAX_CONNECTIONS,
-            ))),
+            open: Open::new(
+                fitted(
+                    burrow_config::CLIENT_MAX_CONNECTIONS,
+                    burrow_config::CLIENT_MAX_UDP_PEERS,
+                ),
+                true,
+            ),
             token: Mutex::new(fresh_token()),
             resolver,
         }
@@ -58,7 +62,7 @@ impl SelfDialer {
     pub(crate) fn open(&self) -> Channel {
         let (near, far) = crate::transport::local::pair();
         tokio::spawn(serve_local(
-            Rules(self.rules.clone(), self.connections.clone()),
+            Rules(self.rules.clone(), self.open.clone()),
             self.resolver.clone(),
             far,
         ));

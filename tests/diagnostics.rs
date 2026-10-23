@@ -515,7 +515,7 @@ fn json_secret_line_hidden() {
        |
      1 | {"server": "a:1", "name": "home", "secret": **********************************************, "alow": []}
        |                                                                                             ^^^^^^ unknown field
-       = help: did you mean "allow"? valid fields: server, name, secret, allow, allow_all, insecure_plaintext, headers, ca, cipher, proxy, reconnect, connect_timeout_secs, max_connections, tcp, udp
+       = help: did you mean "allow"? valid fields: server, name, secret, allow, allow_all, insecure_plaintext, headers, ca, cipher, proxy, reconnect, connect_timeout_secs, max_connections, max_udp_peers, tcp, udp
 
     client.json: 1 error, 1 warning
     "#);
@@ -2077,6 +2077,58 @@ fn a_client_connection_limit_outside_1_to_1000000_is_refused_with_the_range_and_
             client(good).contains("valid client config"),
             "{}",
             client(good)
+        );
+    }
+}
+
+#[test]
+fn udp_peer_limits_outside_1_to_1000000_are_refused_with_the_range_and_default() {
+    let client = |v: &str| {
+        render(
+            "client.yaml",
+            &format!(
+                "server: example.com\nname: home\nsecret: {SECRET}\nallow: [127.0.0.0/8]\nmax_udp_peers: {v}\n"
+            ),
+            None,
+        )
+    };
+    let server = |v: &str| {
+        render(
+            "server.yaml",
+            &format!("udp:\n  max_peers: {v}\n{}", server("  {}\n")),
+            None,
+        )
+    };
+    for bad in ["0", "-1", "1000001", "lots", "1.5"] {
+        let shown = client(bad);
+        assert!(
+            shown.contains("error: \"max_udp_peers\" in client config must be"),
+            "{shown}"
+        );
+        assert!(
+            shown.contains("help: use a value between 1 and 1000000; the default is 8192"),
+            "{shown}"
+        );
+        let shown = server(bad);
+        assert!(
+            shown.contains("error: \"max_peers\" in \"udp\" must be"),
+            "{shown}"
+        );
+        assert!(
+            shown.contains("help: use a value between 1 and 1000000; the default is 4096"),
+            "{shown}"
+        );
+    }
+    for good in ["1", "1000000"] {
+        assert!(
+            client(good).contains("valid client config"),
+            "{}",
+            client(good)
+        );
+        assert!(
+            server(good).contains("valid server config"),
+            "{}",
+            server(good)
         );
     }
 }

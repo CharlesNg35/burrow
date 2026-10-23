@@ -34,6 +34,7 @@ pub struct ServerSettings {
     pub pool_max_idle: usize,
     pub tcp: SocketTuning,
     pub udp_session_timeout: Duration,
+    pub udp_max_peers: usize,
     pub metrics: Option<SocketAddr>,
     pub self_allow: Option<AllowList>,
 }
@@ -279,6 +280,7 @@ pub struct ClientSettings {
     pub tcp: SocketTuning,
     pub udp_session_timeout: Duration,
     pub max_connections: u32,
+    pub max_udp_peers: u32,
 }
 
 #[derive(Clone, PartialEq)]

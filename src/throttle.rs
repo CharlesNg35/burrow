@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 pub struct Throttle {
     state: Mutex<Option<(Instant, Duration)>>,
     skipped: AtomicUsize,
+    first: Duration,
 }
 
 impl Default for Throttle {
@@ -18,9 +19,18 @@ impl Throttle {
     const LONGEST: Duration = Duration::from_secs(60);
 
     pub const fn new() -> Self {
+        Throttle::starting(Self::EVERY)
+    }
+
+    pub const fn per_minute() -> Self {
+        Throttle::starting(Self::LONGEST)
+    }
+
+    const fn starting(first: Duration) -> Self {
         Throttle {
             state: Mutex::new(None),
             skipped: AtomicUsize::new(0),
+            first,
         }
     }
 
@@ -28,7 +38,23 @@ impl Throttle {
         self.allow_at(Instant::now())
     }
 
+    pub fn count(&self) -> Option<usize> {
+        self.count_at(Instant::now())
+    }
+
     fn allow_at(&self, now: Instant) -> Option<String> {
+        let (skipped, since) = self.open_at(now)?;
+        Some(match (skipped, since) {
+            (0, _) | (_, None) => String::new(),
+            (n, Some(since)) => format!(" ({n} more like this in the last {})", shown(since)),
+        })
+    }
+
+    fn count_at(&self, now: Instant) -> Option<usize> {
+        self.open_at(now).map(|(skipped, _)| skipped + 1)
+    }
+
+    fn open_at(&self, now: Instant) -> Option<(usize, Option<Duration>)> {
         let mut state = self.state.lock().expect("throttle lock");
         let (since, every) = match *state {
             Some((last, every)) if now < last + every => {
@@ -38,14 +64,11 @@ impl Throttle {
             Some((last, every)) if now < last + every * 2 => {
                 (Some(now - last), (every * 6).min(Self::LONGEST))
             }
-            Some((last, _)) => (Some(now - last), Self::EVERY),
-            None => (None, Self::EVERY),
+            Some((last, _)) => (Some(now - last), self.first),
+            None => (None, self.first),
         };
         *state = Some((now, every));
-        Some(match (self.skipped.swap(0, Ordering::Relaxed), since) {
-            (0, _) | (_, None) => String::new(),
-            (n, Some(since)) => format!(" ({n} more like this in the last {})", shown(since)),
-        })
+        Some((self.skipped.swap(0, Ordering::Relaxed), since))
     }
 }
 
@@ -90,5 +113,18 @@ mod tests {
         now += Duration::from_secs(200);
         t.allow_at(now);
         assert_eq!(every(&t), Duration::from_secs(10));
+    }
+
+    #[test]
+    fn a_per_minute_count_says_how_many_happened_since_the_last_line() {
+        let t = Throttle::per_minute();
+        let start = Instant::now();
+        assert_eq!(t.count_at(start), Some(1));
+        for s in 1..60 {
+            assert_eq!(t.count_at(start + Duration::from_secs(s)), None);
+        }
+        assert_eq!(t.count_at(start + Duration::from_secs(60)), Some(60));
+        assert_eq!(t.count_at(start + Duration::from_secs(90)), None);
+        assert_eq!(t.count_at(start + Duration::from_secs(400)), Some(2));
     }
 }

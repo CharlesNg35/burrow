@@ -14,7 +14,6 @@ use crate::forward::ForwardError;
 use crate::protocol::{Connect, Status, decode_datagram, encode_datagram};
 use burrow_config::Protocol;
 
-pub const MAX_PEERS: usize = 4096;
 const MAX_DATAGRAM: usize = crate::noise::MAX_PLAINTEXT - 4;
 
 #[derive(Default)]
@@ -25,12 +24,12 @@ struct Peers {
 }
 
 impl Peers {
-    fn id_for(&mut self, addr: SocketAddr) -> Option<u32> {
+    fn id_for(&mut self, addr: SocketAddr, most: impl FnOnce() -> usize) -> Option<u32> {
         if let Some((id, seen)) = self.by_addr.get_mut(&addr) {
             *seen = Instant::now();
             return Some(*id);
         }
-        if self.by_addr.len() >= MAX_PEERS {
+        if self.by_addr.len() >= most() {
             return None;
         }
         self.next = self.next.wrapping_add(1);
@@ -156,6 +155,9 @@ pub async fn udp_service(
         match relay(&shared, port, &session, socket.clone(), ch, config.clone()).await {
             Ok(()) => {}
             Err(Some(status)) => {
+                if status == Status::Busy {
+                    shared.metrics.client_busy(session.name());
+                }
                 log_status(
                     &format!("service \"{name}\""),
                     session.name(),
@@ -303,7 +305,11 @@ async fn relay(
                 let (id, count, before) = {
                     let mut p = peers.lock().expect("peers lock");
                     let before = p.len();
-                    (p.id_for(from), p.len(), before)
+                    (
+                        p.id_for(from, || shared.settings().udp_max_peers),
+                        p.len(),
+                        before,
+                    )
                 };
                 if count > before {
                     stats.total.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -312,7 +318,10 @@ async fn relay(
                 let Some(id) = id else {
                     static FULL: crate::throttle::Throttle = crate::throttle::Throttle::new();
                     if let Some(more) = FULL.allow() {
-                        warn!("service \"{name}\": too many UDP peers ({MAX_PEERS}), dropping datagram from {from}{more}");
+                        warn!(
+                            "service \"{name}\": udp.max_peers {} reached, dropping datagram from {from}; raise udp.max_peers in server.yaml{more}",
+                            shared.settings().udp_max_peers
+                        );
                     }
                     continue;
                 };
@@ -378,5 +387,32 @@ async fn relay(
             _ = session.closed() => break Ok(()),
             _ = stop.changed() => break Ok(()),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn at(port: u16) -> SocketAddr {
+        SocketAddr::from(([127, 0, 0, 1], port))
+    }
+
+    #[test]
+    fn the_peer_cap_is_read_for_each_new_peer_and_never_drops_known_ones() {
+        let mut p = Peers::default();
+        assert!(p.id_for(at(1), || 2).is_some());
+        assert!(p.id_for(at(2), || 2).is_some());
+        assert!(p.id_for(at(3), || 2).is_none());
+        assert!(p.id_for(at(3), || 3).is_some());
+        assert!(p.id_for(at(4), || 1).is_none());
+        for known in 1..=3 {
+            assert!(p.id_for(at(known), || 1).is_some());
+        }
+        assert_eq!(p.len(), 3);
+        p.expire(Duration::ZERO);
+        assert_eq!(p.len(), 0);
+        assert!(p.id_for(at(5), || 1).is_some());
+        assert!(p.id_for(at(6), || 1).is_none());
     }
 }

@@ -58,6 +58,7 @@ pub fn server_settings(secrets: Vec<Secret>) -> ServerSettings {
         pool_max_idle: 64,
         tcp: tuning(),
         udp_session_timeout: Duration::from_secs(30),
+        udp_max_peers: 4096,
         metrics: None,
         self_allow: None,
     }
@@ -97,6 +98,7 @@ pub fn client_settings(server: SocketAddr, secret: Secret) -> ClientSettings {
         tcp: tuning(),
         udp_session_timeout: Duration::from_secs(30),
         max_connections: 16384,
+        max_udp_peers: 8192,
     }
 }
 

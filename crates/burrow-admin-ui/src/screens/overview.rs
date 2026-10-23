@@ -1067,6 +1067,7 @@ mod tests {
                 idle_channels: 0,
                 left_secs_ago: (!on).then_some(172_800),
                 local: false,
+                ..ClientStatus::default()
             });
         }
         st

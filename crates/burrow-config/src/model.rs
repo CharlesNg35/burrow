@@ -722,11 +722,40 @@ pub struct UdpOptions {
         help = "A UDP peer that sends nothing for this long is forgotten"
     )]
     pub session_timeout_secs: u32,
+    #[schemars(
+        description = "Most UDP peers one service port keeps at once; a datagram from a new peer beyond it is dropped",
+        range(min = 1, max = 1000000),
+        extend("x-show-default" = true)
+    )]
+    #[admin(
+        ty = integer(unit = "peers"),
+        label = "Max UDP peers per port",
+        help = "Most UDP peers one service port keeps at once; a datagram from a new peer beyond it is dropped. For example 20000; the default is 4096",
+        applies = live
+    )]
+    pub max_peers: u32,
 }
 
 impl Default for UdpOptions {
     fn default() -> Self {
         UdpOptions {
+            session_timeout_secs: 60,
+            max_peers: 4096,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields, default)]
+pub struct ClientUdpOptions {
+    #[cfg_attr(feature = "json-schema", schemars(range(min = 1)))]
+    pub session_timeout_secs: u32,
+}
+
+impl Default for ClientUdpOptions {
+    fn default() -> Self {
+        ClientUdpOptions {
             session_timeout_secs: 60,
         }
     }
@@ -791,10 +820,20 @@ pub struct ClientConfig {
         extend("default" = CLIENT_MAX_CONNECTIONS, "x-show-default" = true)
     )]
     pub max_connections: u32,
+    #[serde(
+        default = "default_client_max_udp_peers",
+        skip_serializing_if = "is_default_client_max_udp_peers"
+    )]
+    #[schemars(
+        description = "Most UDP peers open through this client at once, across all UDP services; a datagram from a new peer beyond it is dropped. Lowered automatically when the open file limit is too small",
+        range(min = 1, max = 1000000),
+        extend("default" = CLIENT_MAX_UDP_PEERS, "x-show-default" = true)
+    )]
+    pub max_udp_peers: u32,
     #[serde(default, skip_serializing_if = "is_default")]
     pub tcp: TcpOptions,
     #[serde(default, skip_serializing_if = "is_default")]
-    pub udp: UdpOptions,
+    pub udp: ClientUdpOptions,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, AdminSchema)]
@@ -948,6 +987,15 @@ fn is_default_connect_timeout(v: &u32) -> bool {
 }
 
 pub const CLIENT_MAX_CONNECTIONS: u32 = 16384;
+pub const CLIENT_MAX_UDP_PEERS: u32 = 8192;
+
+fn default_client_max_udp_peers() -> u32 {
+    CLIENT_MAX_UDP_PEERS
+}
+
+fn is_default_client_max_udp_peers(v: &u32) -> bool {
+    *v == CLIENT_MAX_UDP_PEERS
+}
 
 fn default_client_max_connections() -> u32 {
     CLIENT_MAX_CONNECTIONS
@@ -1000,5 +1048,37 @@ mod tests {
         let two: ClientConfig = serde_json::from_value(set).unwrap();
         assert_eq!(two.max_connections, 2);
         assert_eq!(serde_json::to_value(&two).unwrap()["max_connections"], 2);
+    }
+
+    #[test]
+    fn a_client_keeps_8192_udp_peers_unless_told_otherwise() {
+        let base = json!({"server": "tunnel.example.com", "name": "home", "secret": "x"});
+        let plain: ClientConfig = serde_json::from_value(base.clone()).unwrap();
+        assert_eq!(plain.max_udp_peers, 8192);
+        assert!(
+            serde_json::to_value(&plain)
+                .unwrap()
+                .get("max_udp_peers")
+                .is_none()
+        );
+        let mut set = base;
+        set["max_udp_peers"] = json!(3);
+        let three: ClientConfig = serde_json::from_value(set).unwrap();
+        assert_eq!(three.max_udp_peers, 3);
+        assert_eq!(serde_json::to_value(&three).unwrap()["max_udp_peers"], 3);
+        let udp: Result<ClientConfig, _> = serde_json::from_value(
+            json!({"server": "a", "name": "b", "secret": "c", "udp": {"max_peers": 5}}),
+        );
+        assert!(udp.is_err());
+    }
+
+    #[test]
+    fn a_server_keeps_4096_udp_peers_per_port_unless_told_otherwise() {
+        let plain = UdpOptions::default();
+        assert_eq!(plain.max_peers, 4096);
+        let set: UdpOptions = serde_json::from_value(json!({"max_peers": 7})).unwrap();
+        assert_eq!(set.max_peers, 7);
+        assert_eq!(set.session_timeout_secs, 60);
+        assert_eq!(serde_json::to_value(&set).unwrap()["max_peers"], 7);
     }
 }

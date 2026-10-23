@@ -51,7 +51,7 @@ pub(crate) trait Dials: Send + Sync + 'static {
 
 pub(crate) struct Rules<W>(
     pub(crate) Arc<tokio::sync::watch::Sender<W>>,
-    pub(crate) Arc<Slots>,
+    pub(crate) Open,
 );
 
 impl<W> Clone for Rules<W> {
@@ -66,7 +66,6 @@ impl<W: Dials> Rules<W> {
     }
 }
 
-const MAX_PEERS: usize = 4096;
 const IDLE_CHANNEL_LIMIT: Duration = Duration::from_secs(90);
 
 struct Peer {
@@ -77,9 +76,22 @@ struct Peer {
     _slot: Slot,
 }
 
-const MAX_OPEN_PEERS: usize = 8192;
-static OPEN_PEERS: std::sync::LazyLock<Arc<Slots>> =
-    std::sync::LazyLock::new(|| Arc::new(Slots::new(MAX_OPEN_PEERS)));
+#[derive(Clone)]
+pub(crate) struct Open {
+    pub(crate) connections: Arc<Slots>,
+    pub(crate) peers: Arc<Slots>,
+    pub(crate) local: bool,
+}
+
+impl Open {
+    pub(crate) fn new((connections, peers): (usize, usize), local: bool) -> Open {
+        Open {
+            connections: Arc::new(Slots::new(connections)),
+            peers: Arc::new(Slots::new(peers)),
+            local,
+        }
+    }
+}
 
 static OPEN_FILES: AtomicU64 = AtomicU64::new(u64::MAX);
 
@@ -117,44 +129,57 @@ impl Slots {
 pub(crate) const MAX_WAITING: usize = 4096;
 pub(crate) static WAITING_CAP: AtomicUsize = AtomicUsize::new(MAX_WAITING);
 
-fn caps(open_files: u64, connections: usize) -> (usize, usize, usize) {
+fn caps(open_files: u64, connections: usize, peers: usize) -> (usize, usize, usize) {
     let budget = usize::try_from(open_files.saturating_sub(512)).unwrap_or(usize::MAX);
     let fit = |share: usize, cap: usize| (budget / 8).saturating_mul(share).max(64).min(cap);
-    (
-        fit(3, connections),
-        fit(1, MAX_OPEN_PEERS),
-        fit(1, MAX_WAITING),
-    )
+    (fit(3, connections), fit(1, peers), fit(1, MAX_WAITING))
 }
 
 #[cfg(unix)]
 pub(crate) fn fit_to_open_files(limit: u64) {
     OPEN_FILES.store(limit, Ordering::Relaxed);
-    let (_, peers, waiting) = caps(limit, 0);
-    OPEN_PEERS.limit(peers);
+    let (_, _, waiting) = caps(limit, 0, 0);
     WAITING_CAP.store(waiting, Ordering::Relaxed);
 }
 
-pub(crate) fn connection_cap(configured: u32) -> usize {
-    caps(
+fn wide(n: u32) -> usize {
+    usize::try_from(n).unwrap_or(usize::MAX)
+}
+
+pub(crate) fn fitted(connections: u32, peers: u32) -> (usize, usize) {
+    let (connections, peers, _) = caps(
         OPEN_FILES.load(Ordering::Relaxed),
-        usize::try_from(configured).unwrap_or(usize::MAX),
-    )
-    .0
+        wide(connections),
+        wide(peers),
+    );
+    (connections, peers)
 }
 
 pub(crate) fn client_connection_cap(configured: u32) -> usize {
-    let cap = connection_cap(configured);
-    if let Some(lowered) = lowered(configured, cap, OPEN_FILES.load(Ordering::Relaxed)) {
+    warned("max_connections", configured, fitted(configured, 1).0)
+}
+
+pub(crate) fn client_peer_cap(configured: u32) -> usize {
+    warned("max_udp_peers", configured, fitted(1, configured).1)
+}
+
+fn warned(key: &str, configured: u32, cap: usize) -> usize {
+    if let Some(lowered) = lowered(key, configured, cap, OPEN_FILES.load(Ordering::Relaxed)) {
         warn!("{lowered}");
     }
     cap
 }
 
-fn lowered(configured: u32, cap: usize, open_files: u64) -> Option<String> {
-    (cap < usize::try_from(configured).unwrap_or(usize::MAX)).then(|| {
+const SERVICE_OPEN_FILES: u32 = if cfg!(target_os = "macos") {
+    10240
+} else {
+    1048576
+};
+
+fn lowered(key: &str, configured: u32, cap: usize, open_files: u64) -> Option<String> {
+    (cap < wide(configured)).then(|| {
         format!(
-            "max_connections {configured} is lowered to {cap} by the open file limit ({open_files}); raise the limit with ulimit -n, or install burrow as a service, which sets 1048576"
+            "{key} {configured} is lowered to {cap} by the open file limit ({open_files}); raise the limit with ulimit -n, or install burrow as a service, which sets {SERVICE_OPEN_FILES}"
         )
     })
 }
@@ -373,14 +398,19 @@ async fn connected<W: Dials>(
             return;
         }
     };
-    let Some(_slot) = live.1.take() else {
-        static FULL: Throttle = Throttle::new();
-        if let Some(more) = FULL.allow() {
-            warn!(
-                "{}: {} connections are open through this client, so a new one was refused{more}",
-                label(&connect),
-                live.1.most()
-            );
+    let Some(_slot) = live.1.connections.take() else {
+        static FULL: Throttle = Throttle::per_minute();
+        if let Some(refused) = FULL.count() {
+            let most = live.1.connections.most();
+            if live.1.local {
+                warn!(
+                    "{most} connections from this server to its own targets are open; new ones are answered busy until some close ({refused} refused in the last minute)"
+                );
+            } else {
+                warn!(
+                    "max_connections {most} reached; new connections are answered busy until some close ({refused} refused in the last minute); raise max_connections in client.yaml"
+                );
+            }
         }
         refuse(ch, Status::Busy).await;
         return;
@@ -798,22 +828,19 @@ async fn udp<W: Dials>(
         let (sock, seen) = match existing {
             Some(p) => p,
             None => {
-                if peers.lock().expect("peers lock").len() >= MAX_PEERS {
-                    static FULL: Throttle = Throttle::new();
-                    if let Some(more) = FULL.allow() {
-                        warn!(
-                            "UDP to {target}: {MAX_PEERS} peers are open, so a datagram from a new one was dropped; a udp.session_timeout_secs shorter than the server's frees them sooner{more}"
-                        );
-                    }
-                    continue;
-                }
-                let Some(slot) = OPEN_PEERS.take() else {
-                    static ALL: Throttle = Throttle::new();
-                    if let Some(more) = ALL.allow() {
-                        warn!(
-                            "UDP to {target}: {} peers are open across all UDP services, so a datagram from a new one was dropped{more}",
-                            OPEN_PEERS.most()
-                        );
+                let Some(slot) = live.1.peers.take() else {
+                    static ALL: Throttle = Throttle::per_minute();
+                    if let Some(dropped) = ALL.count() {
+                        let most = live.1.peers.most();
+                        if live.1.local {
+                            warn!(
+                                "{most} UDP peers from this server to its own targets are open; datagrams from new ones are dropped until some expire ({dropped} dropped in the last minute)"
+                            );
+                        } else {
+                            warn!(
+                                "max_udp_peers {most} reached; datagrams from new UDP peers are dropped until some expire ({dropped} dropped in the last minute); raise max_udp_peers in client.yaml"
+                            );
+                        }
                     }
                     continue;
                 };
@@ -898,37 +925,53 @@ mod tests {
 
     #[test]
     fn connection_and_peer_caps_fit_the_open_file_limit() {
-        let (connections, peers, waiting) = caps(10240, 16384);
+        let (connections, peers, waiting) = caps(10240, 16384, 8192);
         assert!(
             waiting + connections * 2 + peers <= 10240 - 512,
             "{waiting} {connections} {peers}"
         );
-        let most = (16384, MAX_OPEN_PEERS, MAX_WAITING);
-        assert_eq!(caps(1 << 20, 16384), most);
-        assert_eq!(caps(256, 16384), (64, 64, 64));
-        assert_eq!(caps(u64::MAX, 16384), most);
+        let most = (16384, 8192, MAX_WAITING);
+        assert_eq!(caps(1 << 20, 16384, 8192), most);
+        assert_eq!(caps(256, 16384, 8192), (64, 64, 64));
+        assert_eq!(caps(u64::MAX, 16384, 8192), most);
     }
 
     #[test]
     fn the_configured_connection_cap_is_lowered_by_the_open_file_limit_and_never_raised() {
-        assert_eq!(caps(10240, 16384).0, 3648);
-        assert_eq!(caps(10240, 100).0, 100);
-        assert_eq!(caps(10240, 5000).0, 3648);
-        assert_eq!(caps(1 << 20, 50000).0, 50000);
-        assert_eq!(caps(256, 2).0, 2);
-        assert_eq!(caps(256, 100).0, 64);
-        assert_eq!(caps(u64::MAX, 1).0, 1);
+        assert_eq!(caps(10240, 16384, 8192).0, 3648);
+        assert_eq!(caps(10240, 100, 8192).0, 100);
+        assert_eq!(caps(10240, 5000, 8192).0, 3648);
+        assert_eq!(caps(1 << 20, 50000, 8192).0, 50000);
+        assert_eq!(caps(256, 2, 8192).0, 2);
+        assert_eq!(caps(256, 100, 8192).0, 64);
+        assert_eq!(caps(u64::MAX, 1, 8192).0, 1);
+    }
+
+    #[test]
+    fn the_configured_udp_peer_cap_is_lowered_by_the_open_file_limit_and_never_raised() {
+        assert_eq!(caps(10240, 16384, 8192).1, 1216);
+        assert_eq!(caps(10240, 16384, 100).1, 100);
+        assert_eq!(caps(1 << 20, 16384, 50000).1, 50000);
+        assert_eq!(caps(256, 16384, 3).1, 3);
+        assert_eq!(caps(256, 16384, 100).1, 64);
+        assert_eq!(caps(u64::MAX, 16384, 1).1, 1);
     }
 
     #[test]
     fn a_lowered_cap_names_both_values_the_limit_and_the_way_out() {
         assert_eq!(
-            lowered(16384, 3648, 10240).as_deref(),
-            Some(
-                "max_connections 16384 is lowered to 3648 by the open file limit (10240); raise the limit with ulimit -n, or install burrow as a service, which sets 1048576"
-            )
+            lowered("max_connections", 16384, 3648, 10240),
+            Some(format!(
+                "max_connections 16384 is lowered to 3648 by the open file limit (10240); raise the limit with ulimit -n, or install burrow as a service, which sets {SERVICE_OPEN_FILES}"
+            ))
         );
-        assert_eq!(lowered(100, 100, 10240), None);
+        assert_eq!(lowered("max_connections", 100, 100, 10240), None);
+        assert_eq!(
+            lowered("max_udp_peers", 8192, 1216, 10240),
+            Some(format!(
+                "max_udp_peers 8192 is lowered to 1216 by the open file limit (10240); raise the limit with ulimit -n, or install burrow as a service, which sets {SERVICE_OPEN_FILES}"
+            ))
+        );
     }
 
     #[test]

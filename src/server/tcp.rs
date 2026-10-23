@@ -217,7 +217,7 @@ pub(super) fn log_status(label: &str, client: &str, target: &str, st: Status) {
         }
         Status::Busy => {
             warn!(
-                "{label}: client \"{client}\" has too many connections open to take another{more}"
+                "{label}: client \"{client}\" answered busy: it has reached its max_connections; raise max_connections in its client.yaml{more}"
             )
         }
         Status::Forbidden | Status::Offline => {

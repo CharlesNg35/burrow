@@ -82,7 +82,7 @@ forwards:
 Saving a config applies it, on the server, the client and the visitor. You can also send `SIGHUP`, or run `burrow service reload` for an installed service.
 
 - **Server:** services, clients and visitors that changed are updated. Open connections keep running, unless the change takes away their access. Only a change to `listen` needs a restart.
-- **Client:** a change to `allow`, `server`, `name`, `secret`, `headers`, `ca`, `cipher`, `proxy` or `insecure_plaintext` reconnects it. Other changes apply at once, `max_connections` included: a new limit counts for new connections. Open connections keep running, except those whose target the new `allow` no longer permits.
+- **Client:** a change to `allow`, `server`, `name`, `secret`, `headers`, `ca`, `cipher`, `proxy` or `insecure_plaintext` reconnects it. Other changes apply at once, `max_connections` and `max_udp_peers` included: a new limit counts for new connections and new UDP peers. Open connections keep running, except those whose target the new `allow` no longer permits.
 - **Visitor:** only the forwards that changed are opened or closed.
 
 Files are also checked again every 30 seconds, so changes through a Docker file mount or a network share are applied too.
@@ -158,6 +158,7 @@ services:
 | `tcp.nodelay` | `true` | send small writes at once (TCP_NODELAY) |
 | `tcp.keepalive_secs` | `30` | TCP keepalive idle time; `0` turns it off |
 | `udp.session_timeout_secs` | `60` | a UDP peer that sends nothing for this long is forgotten |
+| `udp.max_peers` | `4096` | most UDP peers one service port keeps at once, 1 to 1000000; a datagram from a new peer beyond it is dropped. A change applies at once to new peers |
 
 </details>
 
@@ -198,6 +199,7 @@ allow:
 | `ca` | none | an extra certificate (PEM) to trust for `wss://`: a CA that signed the server's certificate, or the server's own certificate. Certificates from public CAs are still trusted too |
 | `connect_timeout_secs` | `10` | time allowed to connect to the server, 1 to 300 |
 | `max_connections` | `16384` | most connections open through this client at once, 1 to 1000000; beyond it the server gets busy. Lowered automatically when the open file limit is too small, with a warning. Each idle connection uses about 15 KB on the client, so 100000 is about 1.5 GB |
+| `max_udp_peers` | `8192` | most UDP peers open through this client at once, across all UDP services, 1 to 1000000; a datagram from a new peer beyond it is dropped. Each peer uses one socket on the client, so it is lowered like `max_connections` |
 | `tcp`, `udp` | as on the server | `tcp.nodelay`, `tcp.keepalive_secs`, `udp.session_timeout_secs` |
 
 By default a client keeps retrying until it is stopped, and follows a server that moved to a new address.

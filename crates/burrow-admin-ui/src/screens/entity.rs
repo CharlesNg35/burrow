@@ -727,7 +727,8 @@ fn Detail(section: String, name: String) -> impl IntoView {
     });
     let protocol_tag = {
         let (sec, nm) = (section.clone(), name.clone());
-        move || match sec.as_str() {
+        move || {
+            match sec.as_str() {
             SERVICES => {
                 let p = ServiceEntry::PROTOCOL
                     .at(&e.doc(), &nm)
@@ -755,7 +756,15 @@ fn Detail(section: String, name: String) -> impl IntoView {
                 }
                 .into_any()
             }
+            CLIENTS => s
+                .status
+                .with(|st| format::limit_tag(st.as_deref(), &nm))
+                .map(|(text, why)| {
+                    view! { <span class=tag_class(Tone::Warning) title=why data-testid="limit-tag">{text}</span> }
+                })
+                .into_any(),
             _ => ().into_any(),
+        }
         }
     };
     let tab_counts = {

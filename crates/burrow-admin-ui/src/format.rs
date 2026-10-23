@@ -46,6 +46,20 @@ pub fn visitor_use_short(open: u64, last_seen_secs: Option<u64>) -> String {
     }
 }
 
+pub fn limit_tag(
+    status: Option<&burrow_admin_proto::status::Status>,
+    client: &str,
+) -> Option<(&'static str, &'static str)> {
+    status?
+        .clients
+        .iter()
+        .any(|c| c.name == client && c.at_limit)
+        .then_some((
+            "at limit",
+            "In the last minute this client refused new connections because it reached its max_connections. Raise max_connections in its client.yaml.",
+        ))
+}
+
 pub fn away_badge(left_secs_ago: Option<u64>) -> &'static str {
     if left_secs_ago.is_some() {
         "away"
@@ -125,6 +139,29 @@ pub fn clock(ms: f64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_a_client_that_answered_busy_recently_is_tagged_at_limit() {
+        use burrow_admin_proto::status::{ClientStatus, Status};
+        let mut st = Status::default();
+        st.clients.push(ClientStatus {
+            name: "home".into(),
+            connected: true,
+            at_limit: true,
+            busy_total: 3,
+            ..ClientStatus::default()
+        });
+        st.clients.push(ClientStatus {
+            name: "office".into(),
+            connected: true,
+            busy_total: 9,
+            ..ClientStatus::default()
+        });
+        assert_eq!(limit_tag(Some(&st), "home").map(|t| t.0), Some("at limit"));
+        assert_eq!(limit_tag(Some(&st), "office"), None);
+        assert_eq!(limit_tag(Some(&st), "lab"), None);
+        assert_eq!(limit_tag(None, "home"), None);
+    }
 
     #[test]
     fn a_client_added_after_the_server_started_is_not_called_unseen_since_start() {

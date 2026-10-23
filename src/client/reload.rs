@@ -55,6 +55,7 @@ pub fn compare(old: &ClientSettings, new: &ClientSettings) -> Changes {
         tcp,
         udp_session_timeout,
         max_connections,
+        max_udp_peers,
     } = new;
     let reconnect = [
         (*server != old.server || *endpoint != old.endpoint, "server"),
@@ -86,6 +87,7 @@ pub fn compare(old: &ClientSettings, new: &ClientSettings) -> Changes {
         (*tcp != old.tcp, "tcp"),
         (*udp_session_timeout != old.udp_session_timeout, "udp"),
         (*max_connections != old.max_connections, "max_connections"),
+        (*max_udp_peers != old.max_udp_peers, "max_udp_peers"),
     ];
     let names = |fields: &[(bool, &'static str)]| {
         fields
@@ -134,6 +136,7 @@ pub(crate) mod tests {
             },
             udp_session_timeout: Duration::from_secs(60),
             max_connections: 16384,
+            max_udp_peers: 8192,
         }
     }
 
@@ -145,11 +148,17 @@ pub(crate) mod tests {
         new.connect_timeout = Duration::from_secs(5);
         new.reconnect_max = Duration::from_secs(60);
         new.max_connections = 3;
+        new.max_udp_peers = 4;
         assert_eq!(
             compare(&old, &new),
             Changes {
                 reconnect: vec![],
-                live: vec!["reconnect", "connect_timeout_secs", "max_connections"],
+                live: vec![
+                    "reconnect",
+                    "connect_timeout_secs",
+                    "max_connections",
+                    "max_udp_peers"
+                ],
             }
         );
         new.allow = AllowList::Rules(vec!["10.0.0.0/8".parse().unwrap()]);

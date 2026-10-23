@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:4546813f60ce7356",
+  "hash": "b2s:a19ccd3d6ac6673f",
   "root": {
     "label": "Server",
     "sem": {
@@ -1131,6 +1131,21 @@
                       "min": 1
                     },
                     "default": 60
+                  }
+                },
+                {
+                  "key": "max_peers",
+                  "node": {
+                    "label": "Max UDP peers per port",
+                    "help": "Most UDP peers one service port keeps at once; a datagram from a new peer beyond it is dropped. For example 20000; the default is 4096",
+                    "sem": {
+                      "t": "integer",
+                      "min": 1,
+                      "max": 1000000,
+                      "unit": "peers"
+                    },
+                    "default": 4096,
+                    "applies": "live"
                   }
                 }
               ]

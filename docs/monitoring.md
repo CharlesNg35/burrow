@@ -55,6 +55,7 @@ In a terminal, the tables have borders and colors, and fit the window's width.
 
 - **OPEN:** connections open now. **TOTAL:** connections since the server started.
 - **IDLE:** channels the client keeps open in advance, so a new connection starts at once.
+- **at limit** after a client's state: in the last minute the client refused new connections because it reached its `max_connections`. In `--json`, `at_limit` is true, and `busy_total` counts those refusals since the server started.
 - **REFUSED:** connections the service refused: a blocked source address, a limit, or no client to serve it.
 - **IN:** bytes from users to the target. **OUT:** bytes back to users.
 - **LAST USED** of a visitor: `now` while it has connections open, otherwise how long ago it last opened or closed one, or a running `burrow visit` or `burrow init visitor` last checked in (`2 min ago`), or `not since start` when it has not used the server since the server started. In `--json` it is `last_seen_secs`: the seconds since then, or `null` when not since start.
@@ -96,6 +97,7 @@ Keep `listen` on `127.0.0.1` unless a firewall limits who can connect: anyone wh
 | `burrow_udp_peers` | gauge | | UDP peers with an open session |
 | `burrow_client_connected` | gauge | `client` | 1 when connected |
 | `burrow_client_connections_open` | gauge | `client` | |
+| `burrow_client_busy_total` | counter | `client` | connections the client answered busy because it reached its `max_connections` |
 | `burrow_service_connections_open`, `_total` | gauge, counter | `service` | |
 | `burrow_service_refused_total` | counter | `service` | source address, limits, or no client |
 | `burrow_service_bytes_total` | counter | `service`, `direction` | `in` from users to the target, `out` back |
