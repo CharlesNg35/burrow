@@ -46,6 +46,16 @@ impl<K: Copy + Eq + Hash> PeerTable<K> {
         Some(key)
     }
 
+    pub fn refresh(&mut self, key: &K) -> bool {
+        match self.by_key.get_mut(key) {
+            Some((_, seen)) => {
+                *seen = Instant::now();
+                true
+            }
+            None => false,
+        }
+    }
+
     pub fn len(&self) -> usize {
         self.by_key.len()
     }
@@ -158,6 +168,8 @@ mod tests {
         assert_eq!(p.touch(b), Some(80));
         assert_eq!(p.len(), 1);
         assert!(!p.is_empty());
+        assert!(p.refresh(&80));
+        assert!(!p.refresh(&70));
     }
 
     #[test]

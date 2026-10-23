@@ -697,3 +697,70 @@ async fn a_config_that_does_not_use_self_does_not_list_it() {
     let srv = start_server(settings).await;
     assert!(srv.shared.status().clients.iter().all(|c| c.name != "self"));
 }
+
+async fn self_udp_visits(
+    reach: AllowList,
+    allow: &[&str],
+    echo: SocketAddr,
+) -> (RunningServer, Secret) {
+    logs();
+    let secret = Secret::generate();
+    let mut svc = on_self(echo, Protocol::Udp);
+    svc.bind = None;
+    svc.visitors = vec!["laptop".into()];
+    let mut settings = self_settings(vec![("dns", svc)]);
+    settings.self_allow = Some(rules(allow));
+    let mut auth = visitor_auth(secret.clone(), &[]);
+    auth.reach.insert("self".into(), reach);
+    settings.visitors.insert("laptop".into(), auth);
+    (start_server(settings).await, secret)
+}
+
+fn on_self_target(target: String) -> VisitTarget {
+    VisitTarget::Client {
+        client: "self".into(),
+        target,
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn udp_visits_reach_self_inside_reach_and_self_allow() {
+    let echo = udp_echo_server().await;
+    let (srv, secret) = self_udp_visits(rules(&["127.0.0.0/8"]), &["127.0.0.0/8"], echo).await;
+    let mut by_service = udp_visit(srv.addr, secret.clone(), VisitTarget::service("dns"))
+        .await
+        .ok()
+        .unwrap();
+    assert!(by_service.echoes(1, b"service on self").await);
+    let mut by_reach = udp_visit(srv.addr, secret.clone(), on_self_target(echo.to_string()))
+        .await
+        .ok()
+        .unwrap();
+    assert!(by_reach.echoes(1, b"reach to self").await);
+    assert_eq!(
+        udp_visit(srv.addr, secret, on_self_target("10.1.2.3:53".into()))
+            .await
+            .err(),
+        Some(Some(burrow::protocol::Status::Forbidden))
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn udp_visits_on_self_never_reach_link_local_or_metadata_addresses() {
+    let echo = udp_echo_server().await;
+    let (srv, secret) = self_udp_visits(AllowList::All, &["0.0.0.0/0"], echo).await;
+    for target in ["169.254.169.254:53", "100.100.100.200:53"] {
+        assert_eq!(
+            udp_visit(srv.addr, secret.clone(), on_self_target(target.into()))
+                .await
+                .err(),
+            Some(Some(burrow::protocol::Status::Denied)),
+            "{target}"
+        );
+    }
+    let mut fine = udp_visit(srv.addr, secret, on_self_target(echo.to_string()))
+        .await
+        .ok()
+        .unwrap();
+    assert!(fine.echoes(1, b"allowed").await);
+}
