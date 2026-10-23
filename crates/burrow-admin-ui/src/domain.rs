@@ -145,6 +145,11 @@ fn by_sem(fc: FieldCtx, sem: &SemType) -> AnyView {
                     } else {
                         inner_node.label.clone()
                     },
+                    help: if inner_node.help.is_empty() {
+                        fc.node.help.clone()
+                    } else {
+                        inner_node.help.clone()
+                    },
                     ..inner_node.clone()
                 },
                 ..fc
