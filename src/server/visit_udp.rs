@@ -12,7 +12,7 @@ use super::visit::Grant;
 use crate::forward::{ForwardError, Opened};
 use crate::handshake::Channel;
 use crate::metrics::ServiceStats;
-use crate::protocol::{Connect, Status, VisitRequest, decode_datagram};
+use crate::protocol::{Connect, Status, VisitRequest, VisitTarget, decode_datagram};
 use crate::ratelimit::Limit;
 use crate::secret::Secret;
 use crate::throttle::Throttle;
@@ -193,7 +193,6 @@ async fn relay(
             if !meter.take_in(payload.len()) {
                 continue;
             }
-            meter.count_in(payload.len());
             let admitted = {
                 let mut p = peers.lock().expect("peers lock");
                 let before = p.table.len();
@@ -221,6 +220,7 @@ async fn relay(
                 }
                 continue;
             }
+            meter.count_in(payload.len());
             match tokio::time::timeout(stall, cwriter.send(&mut cwr, rec)).await {
                 Ok(Ok(())) => {}
                 _ => return,
@@ -281,9 +281,25 @@ async fn relay(
                     info!("{label} may no longer reach {}, closing its UDP visit", visit.grant.target);
                     break;
                 }
+                if let Some(name) = moved(shared, visit) {
+                    info!("{label}: UDP visit to service \"{name}\" closed: its target changed");
+                    break;
+                }
             }
             _ = session.closed() => break,
             _ = stop.changed() => break,
         }
     }
+}
+
+fn moved<'a>(shared: &Shared, visit: &'a Visit<'_>) -> Option<&'a str> {
+    let VisitTarget::Service { name, index } = &visit.request.to else {
+        return None;
+    };
+    let now = shared
+        .settings()
+        .services
+        .get(name)
+        .map(|svc| svc.target_at(*index));
+    (now.as_deref() != Some(visit.grant.target.as_str())).then_some(name.as_str())
 }

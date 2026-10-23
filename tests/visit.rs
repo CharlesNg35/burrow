@@ -923,7 +923,13 @@ async fn udp_max_peers_caps_each_visit_and_keeps_known_peers() {
     let mut v = s.udp(VisitTarget::service("dns")).await.ok().unwrap();
     assert!(v.echoes(1, b"a").await);
     assert!(v.echoes(2, b"b").await);
+    let counted = s.dns_status().bytes_in;
     assert!(!v.echoes(3, b"c").await, "a third peer is dropped");
+    assert_eq!(
+        s.dns_status().bytes_in,
+        counted,
+        "datagrams dropped at udp.max_peers are not counted as traffic"
+    );
     assert!(v.echoes(1, b"a again").await);
     assert_eq!(s.tunnel.server.shared.udp_peers(), 2);
 }
@@ -1084,4 +1090,46 @@ async fn hand_built_v011_requests_keep_working() {
     let old = burrow::protocol::Grants::decode(&grants).unwrap();
     assert_eq!(old.services.len(), 1);
     assert_eq!(old.services[0].name, "db");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_udp_visit_closes_when_its_service_target_changes() {
+    let mut settings = None;
+    let s = udp_setup(|srv, _| {
+        settings = Some(srv.clone());
+    })
+    .await;
+    let mut v = s.udp(VisitTarget::service("dns")).await.ok().unwrap();
+    assert!(v.echoes(1, b"before").await);
+    let mut reach = settings.clone().unwrap();
+    reach.visitors.get_mut("laptop").unwrap().reach = [("home".to_string(), AllowList::All)].into();
+    s.tunnel.server.reload(reach.clone()).await;
+    let mut by_reach = s.udp(s.reach()).await.ok().unwrap();
+    assert!(v.echoes(1, b"same target").await);
+    let fresh = udp_echo_server().await;
+    let mut next = reach;
+    next.services
+        .insert("dns".into(), private_udp_service(fresh, &["laptop"]));
+    s.tunnel.server.reload(next).await;
+    assert!(
+        v.closed_within(Duration::from_secs(5)).await,
+        "a UDP visit to a service whose target changed is closed"
+    );
+    assert!(
+        by_reach.echoes(1, b"reach is unaffected").await,
+        "a reach visit keeps its own target"
+    );
+    let mut again = s.udp(VisitTarget::service("dns")).await.ok().unwrap();
+    assert!(again.echoes(1, b"after").await);
+    let got = s
+        .tunnel
+        .server
+        .shared
+        .status()
+        .services
+        .into_iter()
+        .find(|x| x.name == "dns")
+        .unwrap()
+        .target;
+    assert_eq!(got, fresh.to_string());
 }
