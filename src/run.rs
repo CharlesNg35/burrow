@@ -229,10 +229,9 @@ pub fn admin(path: &Path, env: Env, opts: crate::admin_local::Options) -> Result
         }
         let stop = stop_on_signal(None);
         let dir = crate::instance::default_dir();
-        let mut launch = None;
+        let launch = std::cell::RefCell::new(None);
         let mut out = std::io::stdout();
         let keep = store.map(|dir| session::Keep { dir, config });
-        let mut failed = None;
         crate::admin_local::serve_session(
             listener,
             &settings,
@@ -244,38 +243,36 @@ pub fn admin(path: &Path, env: Env, opts: crate::admin_local::Options) -> Result
                 if let Some(file) = &opts.url_file {
                     crate::admin_local::launch::write_url_file(file, &running.url)?;
                 }
+                if opts.open {
+                    let f = crate::admin_local::launch::write(&dir, &running.url).map_err(|e| {
+                        e.hint("run with --no-open --print-url to open the link by hand")
+                    })?;
+                    *launch.borrow_mut() = Some(f);
+                }
                 Ok(())
             },
             |running, reconnected| {
                 if reconnected {
+                    let link = if opts.print_url {
+                        format!(": {}", running.url)
+                    } else {
+                        String::new()
+                    };
                     let _ = writeln!(
                         out,
-                        "burrow admin for {} (visitor \"{}\") listens on http://{}\nthe admin UI reconnected in your open browser tab: {}\nstop it with Ctrl-C",
-                        settings.server, settings.name, running.addr, running.url
+                        "burrow admin for {} (visitor \"{}\") listens on http://{}\nthe admin UI reconnected in your open browser tab{link}\nstop it with Ctrl-C",
+                        settings.server, settings.name, running.addr
                     );
                     return;
                 }
-                let mut opened = false;
-                if opts.open {
-                    match crate::admin_local::launch::write(&dir, &running.url) {
-                        Ok(f) => {
-                            opened = crate::admin_local::launch::open_browser(f.path());
-                            launch = Some(f);
-                        }
-                        Err(e) => {
-                            failed = Some(
-                                e.hint("run with --no-open --print-url to open the link by hand"),
-                            )
-                        }
-                    }
-                }
+                let opened = launch
+                    .borrow()
+                    .as_ref()
+                    .is_some_and(|f| crate::admin_local::launch::open_browser(f.path()));
                 crate::admin_local::announce(&mut out, &settings, running, &opts, opened);
             },
         )
         .await?;
-        if let Some(f) = failed {
-            return Err(f);
-        }
         drop(launch);
         Ok(0)
     })

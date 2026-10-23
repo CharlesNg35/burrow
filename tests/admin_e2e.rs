@@ -1519,6 +1519,11 @@ fn admin_session(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
             std::fs::read_to_string(&log)
                 .is_ok_and(|t| t.contains("reconnected in your open browser tab"))
         });
+        let printed = std::fs::read_to_string(&log).unwrap_or_default();
+        assert!(
+            !printed.contains("#token="),
+            "without --print-url the token is never printed: {printed}"
+        );
         c.ui.shot("old-tab-reconnected").await;
         let token = url.split("#token=").nth(1).unwrap().to_string();
         let foreign = url.replace(&token, &"0".repeat(64));
