@@ -66,7 +66,7 @@ The server now waits for clients on TCP port 7835 and will forward port 7840 to 
 ./burrow client-config --server myserver.example.com -o client.yaml
 ```
 
-It looks like this. On a machine without access to the server's files, `./burrow init client` asks for the same values and writes it:
+It looks like this. On a machine without access to the server's files, `./burrow init client` asks for the server, the name and the secret and writes a similar file, which allows `127.0.0.0/8` until you narrow it:
 
 ```yaml
 # client.yaml
