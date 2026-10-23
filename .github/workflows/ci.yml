@@ -40,7 +40,7 @@ jobs:
       - name: Integration tests over WebSocket
         env:
           BURROW_TEST_TRANSPORT: ws
-        run: cargo test --locked --test integration --test reconnect --test visit --test ranges --test failover --test socks --test proxy_protocol --test sources --test admin --test admin_keepalive --test self_target
+        run: cargo test --locked --test integration --test reconnect --test visit --test ranges --test failover --test socks --test proxy_protocol --test sources --test admin --test admin_keepalive --test self_target --test fetch
       - name: Install and run as a systemd service
         env:
           BURROW_E2E_PROFILE: dev

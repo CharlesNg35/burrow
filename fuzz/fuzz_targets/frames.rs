@@ -1,12 +1,12 @@
 #![no_main]
 
-use burrow_config::Cipher;
 use burrow::noise::{Initiator, Responder};
 use burrow::protocol::{
     ClientMsg, Connect, Grants, Hello, ServerMsg, Status, VisitRequest, decode_datagram,
 };
 use burrow::record::RecordReader;
 use burrow::secret::Secret;
+use burrow_config::Cipher;
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {
