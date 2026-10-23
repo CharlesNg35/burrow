@@ -622,7 +622,7 @@ pub fn old_server_item(server: &str, ui: &str) -> Option<Item> {
         key: "old-server".into(),
         tone: Tone::Warning,
         title: format!("This server runs burrow v{server}, older than this burrow admin (v{ui})"),
-        detail: "Update it for the newest settings and help: run sudo burrow update on the server; restart a server you run by hand.".into(),
+        detail: "Update it for the newest settings and help: run burrow update on the server as root or administrator, or pull the new image for Docker; restart a server you run by hand.".into(),
         to: Some(Route::About),
     })
 }
@@ -1098,7 +1098,7 @@ mod tests {
         );
         assert_eq!(
             item.detail,
-            "Update it for the newest settings and help: run sudo burrow update on the server; restart a server you run by hand."
+            "Update it for the newest settings and help: run burrow update on the server as root or administrator, or pull the new image for Docker; restart a server you run by hand."
         );
         assert_eq!(item.to, Some(Route::About));
         assert_eq!(old_server_item("0.1.2", "0.1.2"), None);

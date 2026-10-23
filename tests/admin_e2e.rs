@@ -1705,7 +1705,7 @@ fn old_server(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
         let text = c.ui.wait_text(item, "v0.1.0", SECS).await;
         assert!(
             text.contains(&format!("older than this burrow admin (v{ui})"))
-                && text.contains("sudo burrow update"),
+                && text.contains("burrow update on the server as root or administrator"),
             "{text}"
         );
         assert_eq!(
