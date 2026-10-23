@@ -21,6 +21,7 @@ Stability and usability fixes.
   - A UDP service can clear values it does not use, and the reach editor keeps its rules when switched back and forth.
   - Pickers open upward when there is no room below.
   - A private UDP service says it needs a public port, since visitors cannot use UDP services.
+- **macOS builds are signed** with burrow's own certificate, so with the macOS firewall on, burrow is asked about once and keeps that answer across `burrow update` (before, every update was asked again, or silently blocked on a Mac with nobody logged in).
 - **`burrow edit`:** a stop signal (Ctrl-C, kill) in the first moments, before the editor opens, no longer ends burrow without removing its private copy; it now says nothing was changed and cleans up.
 - **Messages and docs:**
   - A DNS lookup that times out is named as DNS.

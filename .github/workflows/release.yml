@@ -102,6 +102,44 @@ jobs:
       - name: Build (native)
         if: ${{ !matrix.zig }}
         run: cargo build --locked --release --target ${{ matrix.target }}
+      - name: Sign (macOS)
+        if: contains(matrix.target, 'apple-darwin')
+        env:
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+        run: |
+          bin="target/${{ matrix.target }}/release/burrow"
+          if [ -z "$MACOS_CERTIFICATE" ]; then
+            if [ "$PUBLISH" = "true" ]; then
+              echo "::error::MACOS_CERTIFICATE is not set: a release must be signed, or the macOS firewall asks again after every update"
+              exit 1
+            fi
+            echo "::warning::MACOS_CERTIFICATE is not set: ad-hoc signature only"
+            codesign --force --sign - --identifier com.github.charlesng35.burrow "$bin"
+            exit 0
+          fi
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          keychain_password="$(uuidgen)"
+          p12="$RUNNER_TEMP/signing.p12"
+          echo "$MACOS_CERTIFICATE" | base64 --decode > "$p12"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security import "$p12" -k "$keychain" -P "$MACOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain" > /dev/null
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          rm -f "$p12"
+          identity="$(security find-identity -p codesigning "$keychain" | awk '/^ *[0-9]+\)/ { print $2; exit }')"
+          if [ -z "$identity" ]; then
+            echo "::error::MACOS_CERTIFICATE holds no code-signing identity"
+            exit 1
+          fi
+          codesign --force --timestamp --options runtime --identifier com.github.charlesng35.burrow --sign "$identity" --keychain "$keychain" "$bin"
+          codesign --verify --strict --verbose=2 "$bin"
+          requirement="$(codesign --display --requirements - "$bin" 2>&1)"
+          echo "$requirement"
+          grep -q 'identifier "com.github.charlesng35.burrow" and certificate root = H"' <<<"$requirement"
+          security delete-keychain "$keychain"
       - name: Run the built binary
         if: matrix.runs
         shell: bash

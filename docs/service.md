@@ -160,6 +160,8 @@ The unit is sandboxed: a read-only system, no home folders, no new privileges, a
 
 launchd restarts the job after a failure, at most once every 10 seconds.
 
+The macOS builds are signed with burrow's own certificate, so the macOS firewall, when it is on, asks once whether burrow may accept incoming connections and keeps that answer across `burrow update`. A file downloaded with a browser is marked as quarantined and macOS refuses to open it at first; allow it under System Settings, Privacy & Security, or remove the mark with `xattr -d com.apple.quarantine burrow`. Downloading with `curl` or updating with `burrow update` sets no such mark.
+
 </details>
 
 <details>
