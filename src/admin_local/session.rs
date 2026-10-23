@@ -104,11 +104,19 @@ pub fn save(dir: &Path, config: &Path, s: &Session, port: u16, now: u64) -> std:
 fn make_private_dir(dir: &Path) -> std::io::Result<()> {
     #[cfg(unix)]
     {
-        use std::os::unix::fs::DirBuilderExt;
+        use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
         std::fs::DirBuilder::new()
             .recursive(true)
             .mode(0o700)
-            .create(dir)
+            .create(dir)?;
+        let meta = std::fs::symlink_metadata(dir)?;
+        if meta.is_dir()
+            && meta.uid() == rustix::process::geteuid().as_raw()
+            && meta.mode() & 0o077 != 0
+        {
+            std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
+        }
+        Ok(())
     }
     #[cfg(not(unix))]
     {
@@ -150,6 +158,12 @@ mod tests {
     fn the_session_file_is_private_and_a_broken_one_is_ignored() {
         let home = tempfile::tempdir().unwrap();
         let store = home.path().join("admin");
+        std::fs::create_dir(&store).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&store, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
         let ops = config(home.path(), "ops.yaml");
         let s = load(&store, &ops, 5);
         save(&store, &ops, &s, 4000, 5).unwrap();
