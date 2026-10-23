@@ -402,14 +402,6 @@ fn Header() -> impl IntoView {
                 <button type="button" class="flex min-w-0 cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 hover:bg-hdr-raised" aria-haspopup="true" aria-expanded=move || menu_open.get().to_string() aria-controls="server-menu" id="server-switcher" data-testid="server-switcher" title=move || s.status.with(|x| x.as_ref().map(|x| x.listening.join(", ")).unwrap_or_default()) on:click=move |_| menu_open.update(|o| *o = !*o)>
                     <span class="flex min-w-0 flex-col text-left">
                         <span class="truncate font-semibold text-hdr-on" data-testid="server-line">{move || s.server_name()}</span>
-                        <span class="truncate text-[11px] text-hdr-muted sm:hidden">{move || {
-                            let v = s.welcome.with(|w| w.as_ref().map(|w| w.server.version.clone()).unwrap_or_default());
-                            let up = s.status.with(|st| st.as_ref().map(|st| crate::format::span(st.uptime_secs)));
-                            match up {
-                                Some(u) => format!("v{v} · up {u}"),
-                                None => format!("v{v}"),
-                            }
-                        }}</span>
                     </span>
                     <Icon name="chevron-down" small=true/>
                 </button>

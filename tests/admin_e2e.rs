@@ -595,6 +595,11 @@ fn list_scrolls(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
             .eval("(() => { window.scrollTo(0, 400); return document.scrollingElement.scrollTop; })()")
             .await;
         assert!(stacked > 0.0, "on a phone the list scrolls with the page");
+        let switcher = c.ui.text("[data-testid=server-switcher]").await;
+        assert!(
+            !switcher.contains(" up "),
+            "the header shows only the server name on a phone: {switcher}"
+        );
         c.ui.viewport(1440, 900).await;
         c.ui.assert_no_errors();
     })
