@@ -431,9 +431,9 @@ pub fn clear_of_bar() {
         .filter(|r| r.get_bounding_client_rect().height() < h / 2.0)
         .unwrap_or(active);
     let r = row.get_bounding_client_rect();
-    let limit = h - room;
+    let limit = top;
     if r.bottom() > limit && r.top() < h {
-        let by = (r.bottom() - limit + 8.0).min(r.top() - 80.0).max(0.0);
+        let by = (r.bottom() - limit + 12.0).min(r.top() - 80.0).max(0.0);
         window().scroll_by_with_x_and_y(0.0, by);
     }
 }

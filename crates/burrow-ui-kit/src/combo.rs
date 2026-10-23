@@ -48,6 +48,8 @@ fn dot_class(tone: Option<Tone>) -> &'static str {
     }
 }
 
+const POPOVER_ROOM: f64 = 240.0;
+
 #[component]
 pub fn Combobox(
     #[prop(into)] id: String,
@@ -187,29 +189,32 @@ pub fn Combobox(
         }
     };
     let input_id = id.clone();
+    let up = RwSignal::new(false);
     {
-        let lid = list_id.clone();
+        let id = id.clone();
         Effect::new(move |_| {
             if !open.get() {
                 return;
             }
-            let lid = lid.clone();
-            request_animation_frame(move || {
-                let Some(pop) = document()
-                    .get_element_by_id(&lid)
-                    .and_then(|l| l.parent_element())
-                else {
-                    return;
-                };
-                let h = window()
-                    .inner_height()
-                    .ok()
-                    .and_then(|v| v.as_f64())
-                    .unwrap_or(0.0);
-                if pop.get_bounding_client_rect().bottom() > h {
-                    pop.scroll_into_view_with_bool(false);
-                }
-            });
+            let Some(field) = document().get_element_by_id(&id) else {
+                return;
+            };
+            let h = window()
+                .inner_height()
+                .ok()
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.0);
+            let floor = document()
+                .query_selector("[data-sticky-bar]")
+                .ok()
+                .flatten()
+                .map(|b| b.get_bounding_client_rect().top())
+                .filter(|t| *t > 0.0 && *t < h)
+                .unwrap_or(h);
+            let r = field.get_bounding_client_rect();
+            let below = floor - r.bottom();
+            let above = r.top() - 72.0;
+            up.set(below < POPOVER_ROOM && above > below);
         });
     }
     let lid = list_id.clone();
@@ -303,7 +308,7 @@ pub fn Combobox(
                 />
             </div>
             <Show when=move || open.get()>
-                <div class="absolute top-full left-0 z-30 mt-1 w-[min(470px,100%)] min-w-64 rounded-[10px] border border-border-strong bg-surface p-[5px] shadow-overlay dark:bg-surface-2">
+                <div class=move || format!("absolute left-0 z-30 w-[min(470px,100%)] min-w-64 rounded-[10px] border border-border-strong bg-surface p-[5px] shadow-overlay dark:bg-surface-2 {}", if up.get() { "bottom-full mb-1" } else { "top-full mt-1" })>
                     {(!header.is_empty()).then(|| view! { <div class="px-2.5 pt-1.5 pb-1 text-2xs font-bold tracking-[0.08em] text-text-faint uppercase">{header.clone()}</div> })}
                     <ul id=list_id.clone() role="listbox" aria-multiselectable=multi.then_some("true") class="max-h-72 overflow-y-auto">
                         {rows.clone()}
