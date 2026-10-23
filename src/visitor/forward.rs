@@ -6,7 +6,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{Semaphore, mpsc};
 use tracing::{debug, info, warn};
 
-use super::socks::{self, Reply};
+use super::socks::{self, Asked, Reply};
 use crate::client::reconnect::Backoff;
 use crate::config::settings::VisitorSettings;
 use crate::dialer::{DialError, Dialer};
@@ -173,7 +173,7 @@ fn told_app(reply: Reply) -> String {
     )
 }
 
-fn socks_target_ok(target: &str) -> bool {
+pub(super) fn socks_target_ok(target: &str) -> bool {
     target.len() <= crate::config::check::MAX_TARGET_LEN
         && !target.starts_with(crate::config::check::unix::PREFIX)
         && crate::config::check::parse_host_port(target).is_ok()
@@ -291,6 +291,7 @@ pub(super) async fn visit(
     settings: Arc<VisitorSettings>,
     opening: Arc<Slots>,
     conn: Incoming,
+    live: tokio::sync::watch::Receiver<super::Live>,
 ) {
     let Incoming {
         name,
@@ -303,10 +304,22 @@ pub(super) async fn visit(
     let to = match (socks, to) {
         (true, VisitTarget::Client { client, .. }) => {
             match tokio::time::timeout(SOCKS_TIMEOUT, socks::request(&mut stream)).await {
-                Ok(Ok(target)) if socks_target_ok(&target) => {
+                Ok(Ok(Asked::Connect(target))) if socks_target_ok(&target) => {
                     VisitTarget::Client { client, target }
                 }
-                Ok(Ok(target)) => {
+                Ok(Ok(Asked::Associate(hint))) => {
+                    super::socks_udp::associate(super::socks_udp::Association {
+                        name,
+                        client,
+                        stream,
+                        peer,
+                        hint,
+                        live,
+                    })
+                    .await;
+                    return;
+                }
+                Ok(Ok(Asked::Connect(target))) => {
                     debug!(%peer, "forward \"{name}\": SOCKS target {target:?} is not a valid host:port");
                     let _ = socks::reply(&mut stream, Reply::HostUnreachable).await;
                     return;
@@ -574,9 +587,13 @@ mod tests {
             peer,
         };
         let full = Arc::new(Slots::new(0));
+        let (_live, live) = tokio::sync::watch::channel(super::super::Live {
+            dialer: dialer.clone(),
+            settings: settings.clone(),
+        });
         tokio::time::timeout(
             OPEN_PATIENCE + settings.connect_timeout + Duration::from_secs(3),
-            visit(dialer, settings, full, conn),
+            visit(dialer, settings, full, conn, live),
         )
         .await
         .expect("the connection gives up waiting");

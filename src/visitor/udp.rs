@@ -136,7 +136,7 @@ pub(super) async fn serve(
             tokio::time::sleep(Duration::from_millis(100)).await;
             continue;
         }
-        let Some((first, from)) = receive(&front.socket, &name) else {
+        let Some((first, from)) = receive_from(&front.socket, &name) else {
             continue;
         };
         if first.len() > MAX_DATAGRAM {
@@ -222,7 +222,7 @@ thread_local! {
     static RECEIVE: std::cell::RefCell<Vec<u8>> = std::cell::RefCell::new(vec![0u8; 65536]);
 }
 
-fn receive(socket: &UdpSocket, name: &str) -> Option<(Vec<u8>, SocketAddr)> {
+pub(super) fn receive_from(socket: &UdpSocket, name: &str) -> Option<(Vec<u8>, SocketAddr)> {
     RECEIVE.with(|buf| {
         let mut buf = buf.borrow_mut();
         match socket.try_recv_from(&mut buf) {

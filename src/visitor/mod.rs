@@ -1,5 +1,6 @@
 mod forward;
 mod socks;
+pub mod socks_udp;
 mod udp;
 
 use std::net::SocketAddr;
@@ -392,6 +393,7 @@ impl Visitor {
                         self.settings.clone(),
                         opening.clone(),
                         conn,
+                        self.live.subscribe(),
                     ));
                 }
                 Some(_) = open.join_next(), if !open.is_empty() => {}

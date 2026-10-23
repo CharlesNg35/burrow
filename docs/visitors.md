@@ -167,7 +167,8 @@ In a browser, set the SOCKS5 proxy to `127.0.0.1`, port `1080`, and turn on "pro
 <details>
 <summary><b>What the SOCKS5 proxy supports</b></summary>
 
-- **TCP only.** The proxy supports the CONNECT command, which is what apps use to open a TCP connection. UDP ASSOCIATE (UDP through the proxy) and BIND are not supported, because visitors are TCP only. A tool that tests UDP reports that the proxy does not support UDP; that is expected. Set the app to use the proxy for TCP only.
+- **TCP and UDP.** The proxy supports CONNECT, which apps use for TCP, and UDP ASSOCIATE, which apps use for UDP such as DNS. BIND is not supported.
+- **UDP ASSOCIATE** opens a UDP relay port next to the proxy, on the address the app connected to, and tells the app where it is. The relay takes datagrams only from the app: from the address it named in its request, or, when it named none, from the first sender with the IP address of the app's TCP connection, and drops all others. The association ends when the app closes its TCP connection to the proxy, or after `udp.session_timeout_secs` without a datagram. Each destination gets its own channel to the server, checked against `reach` and the client's `allow` list like a TCP target, with at most 64 destinations per association. Fragmented datagrams (FRAG not 0) are dropped, as SOCKS5 allows; apps rarely send them.
 - **No user name or password.** The proxy listens on `127.0.0.1` by default, so only your own machine reaches it. An app that insists on a user name and password is refused.
 - **Targets:** IPv4 and IPv6 addresses, and host names. A host name is resolved by the client.
 - When a target cannot be reached, the app gets a standard SOCKS5 error:
@@ -178,7 +179,7 @@ In a browser, set the SOCKS5 proxy to `127.0.0.1`, port `1080`, and turn on "pro
   | the client is not connected | network unreachable (code 3) |
   | the target refuses or does not answer | connection refused (code 5) |
   | the client or server is busy, or the request is invalid | general failure (code 1) |
-  | the app asks for UDP ASSOCIATE or BIND | command not supported (code 7) |
+  | the app asks for BIND | command not supported (code 7) |
   | the app offers only a user name and password | no acceptable methods |
 
 </details>
@@ -188,7 +189,7 @@ In a browser, set the SOCKS5 proxy to `127.0.0.1`, port `1080`, and turn on "pro
 Some apps show only a vague error, such as "code -1", whatever went wrong. Look at the visitor's log: it says what the app asked for and which SOCKS5 reply it got.
 
 - **Most often, the target is not allowed.** The app gets "connection not allowed by ruleset" (code 2). Add the target to the client's `allow` list, and to the visitor's `reach` if you use rules there. The client's log names the exact rule to add. Some apps look up a host name themselves and send its IP address, so it is that address that must be allowed.
-- **A test of UDP fails.** That is expected: visitors are TCP only, so UDP ASSOCIATE gets "command not supported" (code 7). TCP through the proxy still works.
+- **UDP gets no answer.** UDP has no error replies, so a datagram to a target that is not allowed is dropped. The visitor's log says why (for example, outside `reach`), and a server older than v0.1.2 carries no UDP for visitors.
 - **The app asks for a user name and password.** Set it to no authentication.
 
 ## UDP forwards
