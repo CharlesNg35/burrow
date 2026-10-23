@@ -96,6 +96,7 @@ pub fn client_settings(server: SocketAddr, secret: Secret) -> ClientSettings {
         connect_timeout: Duration::from_secs(2),
         tcp: tuning(),
         udp_session_timeout: Duration::from_secs(30),
+        max_connections: 16384,
     }
 }
 

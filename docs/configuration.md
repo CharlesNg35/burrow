@@ -82,7 +82,7 @@ forwards:
 Saving a config applies it, on the server, the client and the visitor. You can also send `SIGHUP`, or run `burrow service reload` for an installed service.
 
 - **Server:** services, clients and visitors that changed are updated. Open connections keep running, unless the change takes away their access. Only a change to `listen` needs a restart.
-- **Client:** a change to `allow`, `server`, `name`, `secret`, `headers`, `ca`, `cipher`, `proxy` or `insecure_plaintext` reconnects it. Other changes apply at once. Open connections keep running, except those whose target the new `allow` no longer permits.
+- **Client:** a change to `allow`, `server`, `name`, `secret`, `headers`, `ca`, `cipher`, `proxy` or `insecure_plaintext` reconnects it. Other changes apply at once, `max_connections` included: a new limit counts for new connections. Open connections keep running, except those whose target the new `allow` no longer permits.
 - **Visitor:** only the forwards that changed are opened or closed.
 
 Files are also checked again every 30 seconds, so changes through a Docker file mount or a network share are applied too.
@@ -197,6 +197,7 @@ allow:
 | `headers` | none | extra HTTP headers for the WebSocket connection, for example an access token |
 | `ca` | none | an extra certificate (PEM) to trust for `wss://`: a CA that signed the server's certificate, or the server's own certificate. Certificates from public CAs are still trusted too |
 | `connect_timeout_secs` | `10` | time allowed to connect to the server, 1 to 300 |
+| `max_connections` | `16384` | most connections open through this client at once, 1 to 1000000; beyond it the server gets busy. Lowered automatically when the open file limit is too small, with a warning. Each idle connection uses about 15 KB on the client, so 100000 is about 1.5 GB |
 | `tcp`, `udp` | as on the server | `tcp.nodelay`, `tcp.keepalive_secs`, `udp.session_timeout_secs` |
 
 By default a client keeps retrying until it is stopped, and follows a server that moved to a new address.

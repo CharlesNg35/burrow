@@ -150,6 +150,7 @@ pub fn check_client(
         connect_timeout: Duration::from_secs(cfg.connect_timeout_secs.into()),
         tcp: tuning(&cfg.tcp),
         udp_session_timeout: Duration::from_secs(cfg.udp.session_timeout_secs.into()),
+        max_connections: cfg.max_connections,
     })
 }
 

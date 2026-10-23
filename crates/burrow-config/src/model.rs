@@ -781,6 +781,16 @@ pub struct ClientConfig {
     )]
     #[schemars(range(min = 1, max = 300))]
     pub connect_timeout_secs: u32,
+    #[serde(
+        default = "default_client_max_connections",
+        skip_serializing_if = "is_default_client_max_connections"
+    )]
+    #[schemars(
+        description = "Most connections open through this client at once; beyond it the server gets busy. Lowered automatically when the open file limit is too small",
+        range(min = 1, max = 1000000),
+        extend("default" = CLIENT_MAX_CONNECTIONS, "x-show-default" = true)
+    )]
+    pub max_connections: u32,
     #[serde(default, skip_serializing_if = "is_default")]
     pub tcp: TcpOptions,
     #[serde(default, skip_serializing_if = "is_default")]
@@ -937,6 +947,16 @@ fn is_default_connect_timeout(v: &u32) -> bool {
     *v == default_connect_timeout()
 }
 
+pub const CLIENT_MAX_CONNECTIONS: u32 = 16384;
+
+fn default_client_max_connections() -> u32 {
+    CLIENT_MAX_CONNECTIONS
+}
+
+fn is_default_client_max_connections(v: &u32) -> bool {
+    *v == CLIENT_MAX_CONNECTIONS
+}
+
 fn is_false(v: &bool) -> bool {
     !v
 }
@@ -962,5 +982,23 @@ mod tests {
             assert_eq!(serde_json::to_value(l).unwrap(), json!(o.value));
         }
         assert_eq!(AdminLevel::from_wire("owner"), None);
+    }
+
+    #[test]
+    fn a_client_keeps_16384_connections_unless_told_otherwise() {
+        let base = json!({"server": "tunnel.example.com", "name": "home", "secret": "x"});
+        let plain: ClientConfig = serde_json::from_value(base.clone()).unwrap();
+        assert_eq!(plain.max_connections, 16384);
+        assert!(
+            serde_json::to_value(&plain)
+                .unwrap()
+                .get("max_connections")
+                .is_none()
+        );
+        let mut set = base;
+        set["max_connections"] = json!(2);
+        let two: ClientConfig = serde_json::from_value(set).unwrap();
+        assert_eq!(two.max_connections, 2);
+        assert_eq!(serde_json::to_value(&two).unwrap()["max_connections"], 2);
     }
 }

@@ -146,7 +146,7 @@ impl<'a> Checker<'a> {
                 self.prune.push(ctx.path());
                 return;
             }
-            self.type_error(&types, node, ctx);
+            self.type_error(&types, node, ctx, bounds_help(schema));
             return;
         }
         match &node.value {
@@ -200,7 +200,7 @@ impl<'a> Checker<'a> {
         if candidates.is_empty() {
             let mut all: Vec<&str> = branches.iter().flat_map(|b| types_of(b)).collect();
             all.dedup();
-            self.type_error(&all, node, ctx);
+            self.type_error(&all, node, ctx, None);
             return;
         }
         let mut best: Option<(Vec<Diagnostic>, Vec<Vec<String>>)> = None;
@@ -228,7 +228,7 @@ impl<'a> Checker<'a> {
     fn enumeration(&mut self, values: &'a [J], node: &'a Node, ctx: &Ctx<'a>) {
         let options: Vec<&str> = values.iter().filter_map(J::as_str).collect();
         let Some(given) = node.as_str() else {
-            self.type_error(&["string"], node, ctx);
+            self.type_error(&["string"], node, ctx, None);
             return;
         };
         if options.contains(&given) {
@@ -360,7 +360,8 @@ impl<'a> Checker<'a> {
             } else {
                 (
                     format!("between {min} and {max}"),
-                    format!("use a value between {min} and {max}"),
+                    bounds_help(schema)
+                        .unwrap_or_else(|| format!("use a value between {min} and {max}")),
                 )
             };
             self.diagnostics.push(
@@ -380,7 +381,7 @@ impl<'a> Checker<'a> {
         }
     }
 
-    fn type_error(&mut self, types: &[&str], node: &Node, ctx: &Ctx<'a>) {
+    fn type_error(&mut self, types: &[&str], node: &Node, ctx: &Ctx<'a>, bounds: Option<String>) {
         let want = types
             .iter()
             .filter(|t| **t != "null")
@@ -391,7 +392,7 @@ impl<'a> Checker<'a> {
             ("reach", Value::Seq(_)) => {
                 "write it as a mapping of client names, for example: reach: { home: any }".into()
             }
-            _ => type_help(types, node),
+            _ => type_help(types, node, bounds),
         };
         self.diagnostics.push(
             Diagnostic::error(
@@ -475,7 +476,7 @@ fn type_name(t: &str) -> &'static str {
     }
 }
 
-fn type_help(types: &[&str], node: &Node) -> String {
+fn type_help(types: &[&str], node: &Node, bounds: Option<String>) -> String {
     let quoted = node.quoted;
     match (&node.value, types) {
         (Value::Str(s), t) if t.contains(&"integer") && quoted && s.parse::<i64>().is_ok() => {
@@ -511,15 +512,27 @@ fn type_help(types: &[&str], node: &Node) -> String {
             "write it as a list, for example: [a, b] or lines starting with \"- \"".into()
         }
         (_, t) if t.contains(&"string") => "wrap the value in quotes".into(),
-        _ => format!(
-            "expected {}",
-            types
-                .iter()
-                .map(|t| type_name(t))
-                .collect::<Vec<_>>()
-                .join(" or ")
-        ),
+        _ => bounds.unwrap_or_else(|| {
+            format!(
+                "expected {}",
+                types
+                    .iter()
+                    .map(|t| type_name(t))
+                    .collect::<Vec<_>>()
+                    .join(" or ")
+            )
+        }),
     }
+}
+
+fn bounds_help(schema: &J) -> Option<String> {
+    schema.get("x-show-default")?;
+    let min = schema.get("minimum")?.as_i64()?;
+    let max = schema.get("maximum")?.as_i64()?;
+    let default = schema.get("default")?.as_i64()?;
+    Some(format!(
+        "use a value between {min} and {max}; the default is {default}"
+    ))
 }
 
 fn format_bounds(format: Option<&str>) -> (i64, i64) {

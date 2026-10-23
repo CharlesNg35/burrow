@@ -49,11 +49,14 @@ pub(crate) trait Dials: Send + Sync + 'static {
     fn dialing(&self) -> Arc<Dialing>;
 }
 
-pub(crate) struct Rules<W>(pub(crate) Arc<tokio::sync::watch::Sender<W>>);
+pub(crate) struct Rules<W>(
+    pub(crate) Arc<tokio::sync::watch::Sender<W>>,
+    pub(crate) Arc<Slots>,
+);
 
 impl<W> Clone for Rules<W> {
     fn clone(&self) -> Self {
-        Rules(self.0.clone())
+        Rules(self.0.clone(), self.1.clone())
     }
 }
 
@@ -75,48 +78,50 @@ struct Peer {
 }
 
 const MAX_OPEN_PEERS: usize = 8192;
-static OPEN_PEERS: Slots = Slots::new(MAX_OPEN_PEERS);
+static OPEN_PEERS: std::sync::LazyLock<Arc<Slots>> =
+    std::sync::LazyLock::new(|| Arc::new(Slots::new(MAX_OPEN_PEERS)));
 
-const MAX_OPEN_CONNECTIONS: usize = 16384;
-static OPEN_CONNECTIONS: Slots = Slots::new(MAX_OPEN_CONNECTIONS);
+static OPEN_FILES: AtomicU64 = AtomicU64::new(u64::MAX);
 
-struct Slots {
+pub(crate) struct Slots {
     open: AtomicUsize,
     max: AtomicUsize,
 }
 
 impl Slots {
-    const fn new(max: usize) -> Slots {
+    pub(crate) fn new(max: usize) -> Slots {
         Slots {
             open: AtomicUsize::new(0),
             max: AtomicUsize::new(max),
         }
     }
 
-    fn take(&'static self) -> Option<Slot> {
-        let max = self.most();
+    fn take(self: &Arc<Self>) -> Option<Slot> {
         self.open
             .try_update(Ordering::AcqRel, Ordering::Acquire, |n| {
-                (n < max).then_some(n + 1)
+                (n < self.most()).then_some(n + 1)
             })
             .ok()
-            .map(|_| Slot(self))
+            .map(|_| Slot(self.clone()))
     }
 
     fn most(&self) -> usize {
-        self.max.load(Ordering::Relaxed)
+        self.max.load(Ordering::Acquire)
+    }
+
+    pub(crate) fn limit(&self, max: usize) {
+        self.max.store(max, Ordering::Release);
     }
 }
 
 pub(crate) const MAX_WAITING: usize = 4096;
 pub(crate) static WAITING_CAP: AtomicUsize = AtomicUsize::new(MAX_WAITING);
 
-#[cfg(any(unix, test))]
-fn caps(open_files: u64) -> (usize, usize, usize) {
+fn caps(open_files: u64, connections: usize) -> (usize, usize, usize) {
     let budget = usize::try_from(open_files.saturating_sub(512)).unwrap_or(usize::MAX);
-    let fit = |share: usize, cap: usize| (budget / 8).saturating_mul(share).clamp(64, cap);
+    let fit = |share: usize, cap: usize| (budget / 8).saturating_mul(share).max(64).min(cap);
     (
-        fit(3, MAX_OPEN_CONNECTIONS),
+        fit(3, connections),
         fit(1, MAX_OPEN_PEERS),
         fit(1, MAX_WAITING),
     )
@@ -124,13 +129,37 @@ fn caps(open_files: u64) -> (usize, usize, usize) {
 
 #[cfg(unix)]
 pub(crate) fn fit_to_open_files(limit: u64) {
-    let (connections, peers, waiting) = caps(limit);
-    OPEN_CONNECTIONS.max.store(connections, Ordering::Relaxed);
-    OPEN_PEERS.max.store(peers, Ordering::Relaxed);
+    OPEN_FILES.store(limit, Ordering::Relaxed);
+    let (_, peers, waiting) = caps(limit, 0);
+    OPEN_PEERS.limit(peers);
     WAITING_CAP.store(waiting, Ordering::Relaxed);
 }
 
-struct Slot(&'static Slots);
+pub(crate) fn connection_cap(configured: u32) -> usize {
+    caps(
+        OPEN_FILES.load(Ordering::Relaxed),
+        usize::try_from(configured).unwrap_or(usize::MAX),
+    )
+    .0
+}
+
+pub(crate) fn client_connection_cap(configured: u32) -> usize {
+    let cap = connection_cap(configured);
+    if let Some(lowered) = lowered(configured, cap, OPEN_FILES.load(Ordering::Relaxed)) {
+        warn!("{lowered}");
+    }
+    cap
+}
+
+fn lowered(configured: u32, cap: usize, open_files: u64) -> Option<String> {
+    (cap < usize::try_from(configured).unwrap_or(usize::MAX)).then(|| {
+        format!(
+            "max_connections {configured} is lowered to {cap} by the open file limit ({open_files}); raise the limit with ulimit -n, or install burrow as a service, which sets 1048576"
+        )
+    })
+}
+
+struct Slot(Arc<Slots>);
 
 impl Drop for Slot {
     fn drop(&mut self) {
@@ -344,13 +373,13 @@ async fn connected<W: Dials>(
             return;
         }
     };
-    let Some(_slot) = OPEN_CONNECTIONS.take() else {
+    let Some(_slot) = live.1.take() else {
         static FULL: Throttle = Throttle::new();
         if let Some(more) = FULL.allow() {
             warn!(
                 "{}: {} connections are open through this client, so a new one was refused{more}",
                 label(&connect),
-                OPEN_CONNECTIONS.most()
+                live.1.most()
             );
         }
         refuse(ch, Status::Busy).await;
@@ -869,15 +898,74 @@ mod tests {
 
     #[test]
     fn connection_and_peer_caps_fit_the_open_file_limit() {
-        let (connections, peers, waiting) = caps(10240);
+        let (connections, peers, waiting) = caps(10240, 16384);
         assert!(
             waiting + connections * 2 + peers <= 10240 - 512,
             "{waiting} {connections} {peers}"
         );
-        let most = (MAX_OPEN_CONNECTIONS, MAX_OPEN_PEERS, MAX_WAITING);
-        assert_eq!(caps(1 << 20), most);
-        assert_eq!(caps(256), (64, 64, 64));
-        assert_eq!(caps(u64::MAX), most);
+        let most = (16384, MAX_OPEN_PEERS, MAX_WAITING);
+        assert_eq!(caps(1 << 20, 16384), most);
+        assert_eq!(caps(256, 16384), (64, 64, 64));
+        assert_eq!(caps(u64::MAX, 16384), most);
+    }
+
+    #[test]
+    fn the_configured_connection_cap_is_lowered_by_the_open_file_limit_and_never_raised() {
+        assert_eq!(caps(10240, 16384).0, 3648);
+        assert_eq!(caps(10240, 100).0, 100);
+        assert_eq!(caps(10240, 5000).0, 3648);
+        assert_eq!(caps(1 << 20, 50000).0, 50000);
+        assert_eq!(caps(256, 2).0, 2);
+        assert_eq!(caps(256, 100).0, 64);
+        assert_eq!(caps(u64::MAX, 1).0, 1);
+    }
+
+    #[test]
+    fn a_lowered_cap_names_both_values_the_limit_and_the_way_out() {
+        assert_eq!(
+            lowered(16384, 3648, 10240).as_deref(),
+            Some(
+                "max_connections 16384 is lowered to 3648 by the open file limit (10240); raise the limit with ulimit -n, or install burrow as a service, which sets 1048576"
+            )
+        );
+        assert_eq!(lowered(100, 100, 10240), None);
+    }
+
+    #[test]
+    fn slots_never_pass_the_cap_while_it_changes_and_count_back_to_zero() {
+        let slots = Arc::new(Slots::new(10));
+        let peak = Arc::new(AtomicUsize::new(0));
+        let workers: Vec<_> = (0..8)
+            .map(|_| {
+                let (slots, peak) = (slots.clone(), peak.clone());
+                std::thread::spawn(move || {
+                    let mut held = Vec::new();
+                    for i in 0..2000 {
+                        if let Some(s) = slots.take() {
+                            held.push(s);
+                        }
+                        peak.fetch_max(slots.open.load(Ordering::Acquire), Ordering::AcqRel);
+                        if i % 7 == 0 {
+                            held.clear();
+                        }
+                    }
+                })
+            })
+            .collect();
+        for i in 0..2000 {
+            slots.limit(if i % 2 == 0 { 50 } else { 3 });
+        }
+        for w in workers {
+            w.join().unwrap();
+        }
+        assert!(peak.load(Ordering::Acquire) <= 50);
+        assert_eq!(slots.open.load(Ordering::Acquire), 0);
+        slots.limit(2);
+        let two = (slots.take(), slots.take());
+        assert!(two.0.is_some() && two.1.is_some());
+        assert!(slots.take().is_none());
+        drop(two);
+        assert_eq!(slots.open.load(Ordering::Acquire), 0);
     }
 
     #[test]
@@ -890,7 +978,7 @@ mod tests {
 
     #[test]
     fn udp_peers_across_all_services_share_one_limit() {
-        let slots: &'static Slots = Box::leak(Box::new(Slots::new(2)));
+        let slots = Arc::new(Slots::new(2));
         let first = slots.take().unwrap();
         let _second = slots.take().unwrap();
         assert!(slots.take().is_none());

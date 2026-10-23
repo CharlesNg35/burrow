@@ -278,6 +278,7 @@ pub struct ClientSettings {
     pub connect_timeout: Duration,
     pub tcp: SocketTuning,
     pub udp_session_timeout: Duration,
+    pub max_connections: u32,
 }
 
 #[derive(Clone, PartialEq)]
