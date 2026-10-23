@@ -190,9 +190,6 @@ async fn relay(
             let Ok((id, payload)) = decode_datagram(rec) else {
                 return;
             };
-            if !meter.take_in(payload.len()) {
-                continue;
-            }
             let admitted = {
                 let mut p = peers.lock().expect("peers lock");
                 let before = p.table.len();
@@ -218,6 +215,9 @@ async fn relay(
                         shared.settings().udp_max_peers
                     );
                 }
+                continue;
+            }
+            if !meter.take_in(payload.len()) {
                 continue;
             }
             meter.count_in(payload.len());

@@ -1384,3 +1384,26 @@ async fn burrow_visit_udp_forwards_a_service_named_on_the_command_line() {
         assert!(err.contains(says), "{args:?}: {err}");
     }
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn datagrams_dropped_at_the_peer_cap_use_none_of_the_bandwidth() {
+    let s = udp_setup(|srv, _| {
+        srv.udp_max_peers = 1;
+        srv.services.get_mut("dns").unwrap().bandwidth = Some(1000);
+    })
+    .await;
+    let mut v = s.udp(VisitTarget::service("dns")).await.ok().unwrap();
+    assert!(v.echoes(1, b"admitted").await);
+    let big = vec![3u8; 1000];
+    for _ in 0..100 {
+        v.send(2, &big).await;
+    }
+    let mut back = 0;
+    for _ in 0..8 {
+        v.send(1, &big).await;
+    }
+    while let Got::Datagram(1, _) = v.next(Duration::from_secs(1)).await {
+        back += 1;
+    }
+    assert_eq!(back, 8, "the admitted peer still has the whole burst");
+}
