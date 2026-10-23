@@ -21,6 +21,7 @@ Stability and usability fixes.
   - A UDP service can clear values it does not use, and the reach editor keeps its rules when switched back and forth.
   - Pickers open upward when there is no room below.
   - A private UDP service says it needs a public port, since visitors cannot use UDP services.
+- **`burrow edit`:** a stop signal (Ctrl-C, kill) in the first moments, before the editor opens, no longer ends burrow without removing its private copy; it now says nothing was changed and cleans up.
 - **Messages and docs:**
   - A DNS lookup that times out is named as DNS.
   - An unset secret variable's hint says the value must match the server's.
