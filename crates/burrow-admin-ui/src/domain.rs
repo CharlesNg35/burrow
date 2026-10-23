@@ -728,10 +728,16 @@ fn map_editor(fc: FieldCtx, entity: Option<Entity>, value_node: Node) -> AnyView
     let candidates = Signal::derive(move || {
         let used = keys.get();
         let mut o = vec![(String::new(), "Add…".to_string())];
+        let self_ready = burrow_config::ServerConfig::SELF
+            .then(burrow_config::SelfEntry::ALLOW)
+            .get(&e.doc())
+            .and_then(Value::as_array)
+            .is_some_and(|a| !a.is_empty());
         o.extend(
             reserved
                 .iter()
                 .filter(|n| !used.contains(n))
+                .filter(|n| n.as_str() != burrow_config::SELF || self_ready)
                 .map(|n| (n.clone(), format!("{THIS_SERVER} · {n}"))),
         );
         if let Some(ent) = &ent {
@@ -837,6 +843,7 @@ fn any_or_rules_editor(fc: FieldCtx, item: Node) -> AnyView {
         _ => "only".to_string(),
     });
     let p2 = fc.path.clone();
+    let kept: StoredValue<Option<Value>> = StoredValue::new(None);
     let options = vec![
         (ANY.to_string(), "Any target".to_string(), false),
         ("only".to_string(), "Only these".to_string(), false),
@@ -858,9 +865,10 @@ fn any_or_rules_editor(fc: FieldCtx, item: Node) -> AnyView {
                 label=fc.node.label.clone()
                 on_change=move |m: String| {
                     let v = if m == ANY {
+                        kept.set_value(e.peek(&p2).filter(|v| v.as_str() != Some(ANY)));
                         Value::String(ANY.into())
                     } else {
-                        Value::Array(Vec::new())
+                        kept.get_value().unwrap_or(Value::Array(Vec::new()))
                     };
                     e.set(&p2, Some(v));
                 }
