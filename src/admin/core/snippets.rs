@@ -66,24 +66,29 @@ fn commands(kind: &str, name: &str, server: &str, file: &str) -> Vec<Command> {
         line,
     };
     let client = kind == ClientEntry::ENTITY;
-    let run = if client {
-        format!("burrow client -c {file}")
-    } else {
-        format!("burrow visit -c {file}")
-    };
     let mut out = Vec::new();
     for os in ["linux", "macos", "windows"] {
+        let bin = if os == "windows" {
+            r".\burrow.exe"
+        } else {
+            "./burrow"
+        };
         out.push(cmd(
             os,
             "Write the config (asks for the secret)",
-            format!("burrow init {kind} --server {server} --name {name}"),
+            format!("{bin} init {kind} --server {server} --name {name}"),
         ));
-        out.push(cmd(os, "Run it", run.clone()));
+        let run = if client {
+            format!("{bin} client -c {file}")
+        } else {
+            format!("{bin} visit -c {file}")
+        };
+        out.push(cmd(os, "Run it", run));
         if client {
             let install = if os == "windows" {
-                format!("burrow service install -c {file}")
+                format!("{bin} service install -c {file}")
             } else {
-                format!("sudo burrow service install -c {file}")
+                format!("sudo {bin} service install -c {file}")
             };
             let label = if os == "windows" {
                 "Install as a service (administrator PowerShell)"

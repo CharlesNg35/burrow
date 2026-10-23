@@ -585,11 +585,11 @@ fn a_new_client_comes_with_ready_snippets_and_later_only_with_a_placeholder() {
     );
     assert!(!sn.env_config.contains(&value));
     assert!(sn.commands.iter().any(|c| c.os == "linux"
-        && c.line == "burrow init client --server tunnel.example.com:7835 --name office"));
+        && c.line == "./burrow init client --server tunnel.example.com:7835 --name office"));
     assert!(
         sn.commands
             .iter()
-            .any(|c| c.os == "windows" && c.line == "burrow service install -c client.yaml")
+            .any(|c| c.os == "windows" && c.line == r".\burrow.exe service install -c client.yaml")
     );
 
     let later = snippets::connect_info(
