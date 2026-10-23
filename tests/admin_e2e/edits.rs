@@ -1400,16 +1400,23 @@ fn edit_state(c: &mut Ctx) -> Flow<'_> {
             SECS,
         )
         .await;
-        assert_eq!(
-            c.ui.text("main h1").await.trim(),
-            "web",
-            "the protocol is on the path, not repeated by the title"
+        assert!(
+            c.ui.text("main h1").await.contains("TCP"),
+            "the page title carries the protocol tag"
         );
         let meta: String = c
             .ui
             .eval("document.querySelector('[data-testid=entity-list] [data-row=web]').lastElementChild.textContent")
             .await;
-        assert_eq!(meta, "", "the selected row leaves its numbers to the page");
+        assert_eq!(
+            meta, "0 open",
+            "every row shows its open count, the active one too"
+        );
+        let tags = c.ui.text("[data-testid=entity-list] [data-row=web]").await;
+        assert!(
+            tags.contains("TCP"),
+            "TCP rows are tagged like UDP ones: {tags}"
+        );
         c.ui.click("[role=tablist] [data-tab=settings]").await;
         let protocol = c.ui.text("[data-schema='services/*/protocol']").await;
         assert!(

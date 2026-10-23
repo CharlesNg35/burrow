@@ -443,6 +443,11 @@ pub fn visitor(
         })
         .unwrap_or_default();
     let down = services.iter().filter(|(_, up)| !up).count();
+    let admin_from: Vec<String> = entry
+        .and_then(|x| VisitorEntry::ADMIN_FROM.get(x))
+        .and_then(Value::as_array)
+        .map(|a| a.iter().map(plain).collect())
+        .unwrap_or_default();
     let this_session = me.is_some_and(|(n, _)| n == name);
     let reach_none = entry
         .and_then(|x| VisitorEntry::REACH.get(x))
@@ -473,7 +478,13 @@ pub fn visitor(
                 head: "Server".into(),
                 value: "this server".into(),
                 dot: Some(Tone::Success),
-                unit: "checks access".into(),
+                unit: match entry.and_then(|x| VisitorEntry::ADMIN.get(x)).map(plain) {
+                    Some(_) if !admin_from.is_empty() => {
+                        format!("admin from {}", admin_from.join(", "))
+                    }
+                    Some(_) => "admin from any address".into(),
+                    None => "checks access".into(),
+                },
                 ..Hop::default()
             },
             Hop {
@@ -491,7 +502,7 @@ pub fn visitor(
                 } else {
                     HopState::Normal
                 },
-                badge: None,
+                badge: (down > 0).then(|| (format!("{down} down"), Tone::Danger)),
                 mono: false,
             },
         ],
