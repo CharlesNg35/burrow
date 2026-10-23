@@ -66,6 +66,17 @@ The server now waits for clients on TCP port 7835 and will forward port 7840 to 
 ./burrow client-config --server myserver.example.com -o client.yaml
 ```
 
+It looks like this. On a machine without access to the server's files, `./burrow init client` asks for the same values and writes it:
+
+```yaml
+# client.yaml
+server: myserver.example.com:7835
+name: home
+secret: xPq+8DyLJNJL3x+HW8cx1Ssad1JarllpDFUdYnbV8qQ=   # the same secret as clients.home in server.yaml
+allow:
+  - 127.0.0.1/32:3000   # the targets this client lets the server reach
+```
+
 **4. On the home machine,** put `client.yaml` next to burrow, then:
 
 ```sh
@@ -161,10 +172,28 @@ services:
     visitors: [laptop]
 ```
 
+```
+your laptop: 127.0.0.1:5432 ══ server ══ client (behind NAT) ──> 127.0.0.1:5432
+```
+
+Make the laptop's config on the server, or on the laptop itself with only the server's address, the visitor's name and its secret:
+
 ```sh
-./burrow visitor-config laptop --server myserver.example.com -o visitor.yaml   # on the server: the config for the laptop
+./burrow visitor-config laptop --server myserver.example.com -o visitor.yaml   # on the server
+./burrow init visitor                                                          # or on the laptop: asks the server what laptop may use
 ./burrow visit                                                                 # on the laptop: 127.0.0.1:5432 now leads to db
 ```
+
+```yaml
+# visitor.yaml
+server: myserver.example.com
+name: laptop
+secret: ${LAPTOP_SECRET}
+forwards:
+  db: { service: db, local: 5432 }   # a port alone means 127.0.0.1
+```
+
+`./burrow visit db --local 5433` runs one forward on another port, `./burrow init visitor --update` refreshes the forwards after the server changed, and `sudo ./burrow service install -c visitor.yaml` keeps the visitor running.
 
 With `reach`, a visitor can also pick any target on a client by itself, like `ssh -L`. The client's `allow` list must permit those targets too.
 
@@ -182,7 +211,20 @@ visitors:
 ./burrow visit --client home --target 192.168.150.44:22 --local 2222   # a machine on the client's network
 ./burrow visit --client home --target 192.168.150.3:3000 --local 3000  # a web app there; then open http://localhost:3000
 ./burrow visit --client home --socks 1080                              # a SOCKS5 proxy into the client's network (TCP only)
+curl --socks5-hostname 127.0.0.1:1080 http://nas.local:5000            # then any app can use it
 ```
+
+The same forwards in `visitor.yaml`:
+
+```yaml
+# visitor.yaml
+forwards:
+  ssh:   { client: home, target: 22, local: 2222 }
+  nas:   { client: home, target: 192.168.150.44:22, local: 2223 }
+  socks: { client: home, socks: true, local: 1080 }
+```
+
+`reach: { home: any }` allows any target the client allows; `validate` reminds you to keep the client's `allow` list narrow then.
 
 **Read more:** [docs/visitors.md](docs/visitors.md), with the server.yaml and visitor.yaml for each of these.
 
