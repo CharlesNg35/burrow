@@ -57,7 +57,7 @@ In a terminal, the tables have borders and colors, and fit the window's width.
 - **IDLE:** channels the client keeps open in advance, so a new connection starts at once.
 - **REFUSED:** connections the service refused: a blocked source address, a limit, or no client to serve it.
 - **IN:** bytes from users to the target. **OUT:** bytes back to users.
-- **LAST USED** of a visitor: `now` while it has connections open, otherwise how long ago it last opened or closed one (`2 min ago`), or `not since start` when it has not used the server since the server started. In `--json` it is `last_seen_secs`: the seconds since then, or `null` when not since start.
+- **LAST USED** of a visitor: `now` while it has connections open, otherwise how long ago it last opened or closed one, or a running `burrow visit` last checked in (`2 min ago`), or `not since start` when it has not used the server since the server started. In `--json` it is `last_seen_secs`: the seconds since then, or `null` when not since start.
 - **CLIENTS** of a service: whether each client can serve it now. `failing` or `refused` means the client could not reach the target or its `allow` list refused it, so it is skipped for a while.
 - **refused handshakes:** connections that failed to log in, because of a wrong secret, an unknown name or a limit.
 
