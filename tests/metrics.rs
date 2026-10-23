@@ -559,6 +559,7 @@ async fn a_client_answering_busy_is_marked_at_limit_and_counted() {
     let shared = t.server.shared.clone();
     wait_for(|| shared.status().clients[0].busy_total == 2).await;
     assert!(t.server.shared.status().clients[0].at_limit);
+    wait_for(|| shared.status().services[0].refused == 2).await;
     let text = http_get(t.server.metrics.unwrap(), "/metrics");
     assert!(
         text.contains("burrow_client_busy_total{client=\"home\"} 2"),

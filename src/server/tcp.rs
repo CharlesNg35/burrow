@@ -151,6 +151,18 @@ async fn visit(
             break outcome;
         }
     };
+    if matches!(
+        &outcome,
+        Outcome::Done {
+            result: Err(ForwardError::Status(Status::Busy)),
+            ..
+        } | Outcome::Refused {
+            error: ForwardError::Status(Status::Busy),
+            ..
+        }
+    ) {
+        refuse();
+    }
     if matches!(outcome, Outcome::Done { result: Err(_), .. }) {
         let _ = socket2::SockRef::from(&visitor).set_linger(Some(Duration::ZERO));
     }
@@ -215,14 +227,36 @@ pub(super) fn log_status(label: &str, client: &str, target: &str, st: Status) {
         Status::Invalid => {
             warn!("{label}: client \"{client}\" rejected the target {target} as invalid{more}")
         }
-        Status::Busy => {
-            warn!(
-                "{label}: client \"{client}\" answered busy: it has reached its max_connections; raise max_connections in its client.yaml{more}"
-            )
-        }
+        Status::Busy => warn!("{label}: {}{more}", busy(client)),
         Status::Forbidden | Status::Offline => {
             warn!("{label}: client \"{client}\" sent an unexpected reply{more}")
         }
         Status::Ok => {}
+    }
+}
+
+fn busy(client: &str) -> String {
+    if client == burrow_config::SELF {
+        "this server has too many connections open to its own targets to take another; the open file limit sets how many".into()
+    } else {
+        format!(
+            "client \"{client}\" answered busy: it has reached its max_connections; raise max_connections in its client.yaml"
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::busy;
+
+    #[test]
+    fn a_busy_reply_points_to_the_limit_that_was_hit() {
+        assert_eq!(
+            busy("home"),
+            "client \"home\" answered busy: it has reached its max_connections; raise max_connections in its client.yaml"
+        );
+        let own = busy(burrow_config::SELF);
+        assert!(!own.contains("client.yaml"), "{own}");
+        assert!(own.contains("own targets"), "{own}");
     }
 }
