@@ -734,10 +734,10 @@ fn row(f: Field, path: Path, spath: Path, entity: Path) -> AnyView {
         let msg_id = msg_id.clone();
         move || {
             let enabled = st.with(|s| s.enabled);
-            if lock {
+            if lock && editing.try_get().unwrap_or(false) {
                 return locked_box(node.clone(), path.clone(), id.clone());
             }
-            if can && enabled && editing.try_get().unwrap_or(false) {
+            if !lock && can && enabled && editing.try_get().unwrap_or(false) {
                 let fc = FieldCtx {
                     node: node.clone(),
                     path: path.clone(),

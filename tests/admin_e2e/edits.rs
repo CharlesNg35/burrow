@@ -1020,6 +1020,11 @@ fn locked_fields(c: &mut Ctx) -> Flow<'_> {
                 0,
                 "{field} has no input"
             );
+            assert_eq!(
+                c.ui.count(&format!("{row} [data-locked]")).await,
+                0,
+                "{field} reads as a plain value in view mode, not a box"
+            );
             let text =
                 c.ui.wait_text(&row, "Change this in server.yaml (burrow edit)", SECS)
                     .await;
