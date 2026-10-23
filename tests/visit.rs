@@ -1047,3 +1047,41 @@ async fn a_udp_visit_moves_to_the_next_client_when_one_refuses() {
     assert_eq!(dns.set_aside[0].client, "office");
     assert!(dns.set_aside[0].refused);
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hand_built_v011_requests_keep_working() {
+    let s = udp_setup(|_, _| {}).await;
+    let send = |bytes: Vec<u8>| {
+        let server = s.tunnel.server.addr;
+        let secret = s.visitor_secret.clone();
+        async move {
+            let dialer = Dialer::visitor(&visitor_settings(server, secret, vec![]));
+            let mut ch = dialer
+                .open(ChannelKind::Visit, Hello::Visit { version: 1 })
+                .await
+                .ok()
+                .unwrap();
+            ch.writer.send(&mut ch.stream, &bytes).await.unwrap();
+            ch.reader
+                .recv(&mut ch.stream)
+                .await
+                .unwrap()
+                .unwrap()
+                .to_vec()
+        }
+    };
+    assert_eq!(
+        send(vec![0x20, 1, 1, 2, b'd', b'b', 0, 0]).await,
+        vec![Status::Ok as u8]
+    );
+    assert_eq!(
+        send(vec![0x20, 1, 1, 3, b'd', b'n', b's', 0, 0]).await,
+        vec![Status::Invalid as u8],
+        "a v0.1.1 visitor asking for a UDP service over TCP"
+    );
+    let grants = send(vec![0x21]).await;
+    assert_eq!(grants[0], 0x22);
+    let old = burrow::protocol::Grants::decode(&grants).unwrap();
+    assert_eq!(old.services.len(), 1);
+    assert_eq!(old.services[0].name, "db");
+}
