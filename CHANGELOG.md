@@ -9,7 +9,6 @@ Limits you can set and see.
 - **Seeing a limit:** a client at its `max_connections` logs at most one warning a minute with the number refused since the last one, the server's log points to the client's `max_connections`, `burrow status` and the admin UI mark the client "at limit", the service's REFUSED count includes those refusals, and `burrow_client_busy_total` counts them per client.
 - **UDP peers are kept 2 minutes** without traffic by default (`udp.session_timeout_secs`, was 60 s) on the server, the client and the visitor, the least RFC 4787 asks of a NAT, so quiet UDP flows such as games and VPNs keep their mapping.
 - **Running at scale** in docs/monitoring.md: memory per connection, the limits to raise, and the Linux limits that run out first.
-- `burrow validate` and burrow admin tell a UDP service with no `bind` to add a public port, instead of suggesting visitors.
 - The `burrow admin` note for a moved port says "taken" only when the port is in use, gives the real error otherwise, and says "open the new link" only when a link is shown.
 - `sudo burrow admin` keeps its admin session in root's own home instead of the user's, so later runs without sudo keep their session, and sudo runs still reconnect their open tab.
 - An open admin tab keeps retrying every 2 s for 5 minutes after `burrow admin` stops (was 30 s), so a restarted `burrow admin` reconnects it instead of opening a second tab.
