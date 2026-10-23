@@ -12,7 +12,7 @@ A visitor can use:
 - **[any target on a client](#any-target-on-a-client)** you allow with `reach`, like `ssh -L`;
 - **[a SOCKS5 proxy](#a-socks5-proxy-into-a-client)** into a client, so each app picks its own target.
 
-Visitors are TCP only. UDP services cannot be reached by a visitor.
+A forward carries TCP by default, or UDP with `protocol: udp`: to a private UDP service, or to a UDP target on a client through `reach`. See [UDP forwards](#udp-forwards).
 
 A visitor can also be used for the web admin only. See [admin.md](admin.md).
 
@@ -191,9 +191,20 @@ Some apps show only a vague error, such as "code -1", whatever went wrong. Look 
 - **A test of UDP fails.** That is expected: visitors are TCP only, so UDP ASSOCIATE gets "command not supported" (code 7). TCP through the proxy still works.
 - **The app asks for a user name and password.** Set it to no authentication.
 
+## UDP forwards
+
+```yaml
+# visitor.yaml, under forwards:
+dns: { service: dns, protocol: udp, local: 5353 }
+```
+
+`protocol` must match the service's protocol on the server; if it does not, `burrow visit` says which one to set. For a quick try, `burrow visit --udp --service dns --local 5353` does the same without a config. A TCP and a UDP forward may use the same local port number. The first datagram opens one channel to the server for each local port; it closes once no local peer has sent or received anything for `udp.session_timeout_secs` (2 minutes by default), and the next datagram opens it again. A port keeps at most `udp.max_peers` local peers (4096). A server older than v0.1.2 cannot carry UDP for visitors.
+
+A UDP forward that listens on an address other than 127.0.0.1 accepts datagrams from any source address, including forged ones, since UDP has no handshake: anyone on that network can fill its `udp.max_peers` and make it send replies to an address of their choice. Keep `local` on 127.0.0.1 unless the network is trusted.
+
 ## Port ranges
 
-A forward can open a range of local ports, for a private TCP service with a port range on the server. Both ranges must have the same size.
+A forward can open a range of local ports, for a private TCP or UDP service with a port range on the server. Both ranges must have the same size.
 
 ```yaml
 # visitor.yaml, under forwards:
