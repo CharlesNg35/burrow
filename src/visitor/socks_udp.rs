@@ -208,8 +208,13 @@ pub(super) async fn associate(a: Association) {
                 if r.is_err() {
                     break;
                 }
-                let Some((datagram, from)) = super::udp::receive_from(&relay, &name) else {
-                    continue;
+                let (datagram, from) = match super::udp::receive_from(&relay, &name) {
+                    super::udp::Received::Datagram(data, from) => (data, from),
+                    super::udp::Received::Nothing => continue,
+                    super::udp::Received::Failed => {
+                        tokio::time::sleep(super::udp::RECEIVE_ERROR_PAUSE).await;
+                        continue;
+                    }
                 };
                 if !expected.admits(from, locked) {
                     static FOREIGN: Throttle = Throttle::new();

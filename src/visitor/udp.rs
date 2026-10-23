@@ -136,8 +136,13 @@ pub(super) async fn serve(
             tokio::time::sleep(Duration::from_millis(100)).await;
             continue;
         }
-        let Some((first, from)) = receive_from(&front.socket, &name) else {
-            continue;
+        let (first, from) = match receive_from(&front.socket, &name) {
+            Received::Datagram(data, from) => (data, from),
+            Received::Nothing => continue,
+            Received::Failed => {
+                tokio::time::sleep(RECEIVE_ERROR_PAUSE).await;
+                continue;
+            }
         };
         if first.len() > MAX_DATAGRAM {
             front::too_large(from, first.len());
@@ -222,16 +227,24 @@ thread_local! {
     static RECEIVE: std::cell::RefCell<Vec<u8>> = std::cell::RefCell::new(vec![0u8; 65536]);
 }
 
-pub(super) fn receive_from(socket: &UdpSocket, name: &str) -> Option<(Vec<u8>, SocketAddr)> {
+pub(super) enum Received {
+    Datagram(Vec<u8>, SocketAddr),
+    Nothing,
+    Failed,
+}
+
+pub(super) fn receive_from(socket: &UdpSocket, name: &str) -> Received {
     RECEIVE.with(|buf| {
         let mut buf = buf.borrow_mut();
         match socket.try_recv_from(&mut buf) {
-            Ok((n, from)) => Some((buf[..n].to_vec(), from)),
-            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => None,
+            Ok((n, from)) => Received::Datagram(buf[..n].to_vec(), from),
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => Received::Nothing,
             Err(e) => {
                 debug!("forward \"{name}\": UDP receive error: {e}");
-                None
+                Received::Failed
             }
         }
     })
 }
+
+pub(super) const RECEIVE_ERROR_PAUSE: Duration = Duration::from_millis(100);
