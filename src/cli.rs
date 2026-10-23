@@ -318,7 +318,10 @@ pub struct AdminArgs {
     pub port: Option<u16>,
     #[arg(long, help = "Do not open the browser")]
     pub no_open: bool,
-    #[arg(long, help = "Print the link with its token, which is kept for up to 12 hours per visitor config")]
+    #[arg(
+        long,
+        help = "Print the link with its token, which is kept for up to 12 hours per visitor config"
+    )]
     pub print_url: bool,
     #[arg(
         long,
