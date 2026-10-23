@@ -25,6 +25,13 @@ cleanup() {
   sudo rm -rf /etc/burrow/e2e-rootadmin
   sudo "$B" service uninstall burrow-e2e-client --purge >/dev/null 2>&1
   sudo "$B" service uninstall burrow-e2e-server --purge >/dev/null 2>&1
+  if [ "$(uname -s)" = Linux ]; then
+    sudo "$B" service uninstall burrow-e2e-oldunit --purge >/dev/null 2>&1
+    sudo systemctl disable --now burrow-e2e-oldunit burrow-e2e-other >/dev/null 2>&1
+    sudo rm -f /etc/systemd/system/burrow-e2e-oldunit.service /etc/systemd/system/burrow-e2e-other.service \
+      "$STATE/services/burrow-e2e-oldunit.json" /etc/burrow/e2e-oldunit.yaml
+    sudo systemctl daemon-reload
+  fi
   for p in "${PIDS[@]}"; do kill "$p" 2>/dev/null; done
   [ -n "${SOCK_PID:-}" ] && sudo kill "$SOCK_PID" 2>/dev/null
   sudo rm -rf "${SOCK_DIR:-/nonexistent-burrow}"
@@ -205,6 +212,46 @@ echo "$out" | grep -q "restarted burrow-e2e-client, burrow-e2e-server, burrow-e2
 for _ in $(seq 1 100); do "$LOADGEN" latency --addr 127.0.0.1:27940 --count 10 >/dev/null 2>&1 && break; sleep 0.2; done
 "$LOADGEN" latency --addr 127.0.0.1:27940 --count 200 >/dev/null || fail "no traffic after update"
 check "update: $(echo "$out" | head -1)"
+
+if [ "$(uname -s)" = Linux ]; then
+  echo "== a burrow unit burrow has no record of is named, and taken over only once stopped"
+  BIN="$(sudo "$B" service status burrow-e2e-server | sed -n 's/^ *binary: *\([^ ]*\).*/\1/p')"
+  "$B" init server -o e2e-oldunit.yaml >/dev/null
+  sed -i.bak 's/0.0.0.0:7835/127.0.0.1:27936/; s/0.0.0.0:7840/127.0.0.1:27946/' e2e-oldunit.yaml
+  sudo install -m 600 e2e-oldunit.yaml /etc/burrow/e2e-oldunit.yaml
+  printf '[Service]\nExecStart=%s server -c /etc/burrow/e2e-oldunit.yaml\n[Install]\nWantedBy=multi-user.target\n' "$BIN" \
+    | sudo tee /etc/systemd/system/burrow-e2e-oldunit.service >/dev/null
+  printf '{"name":"burrow-e2e-oldunit","role":"server","config":"/etc/burrow/e2e-oldunit.yaml","source_config":"/root/e2e-oldunit.yaml","env_file":null,"log_file":"","binary":"%s","copied_binary":true,"account":"root","created_account":false,"low_ports":false,"files":[],"version":"0.1.0"}\n' "$BIN" \
+    | sudo tee "$STATE/services/burrow-e2e-oldunit.json" >/dev/null
+  printf '[Service]\nExecStart=/bin/sleep 100000\n' | sudo tee /etc/systemd/system/burrow-e2e-other.service >/dev/null
+  sudo systemctl daemon-reload
+  sudo systemctl start burrow-e2e-oldunit burrow-e2e-other
+  for _ in $(seq 1 50); do (exec 3<>/dev/tcp/127.0.0.1/27936) 2>/dev/null && break; sleep 0.2; done
+  OLDPID="$(systemctl show -p MainPID --value burrow-e2e-oldunit)"
+  out="$(sudo "$B" service list 2>&1)"
+  echo "$out" | grep -Eq "^burrow-e2e-oldunit +\? +running +not managed by this burrow" || fail "list does not name the unit: $out"
+  echo "$out" | grep -q "burrow-e2e-other" && fail "list claims a unit that does not run burrow: $out"
+  out="$(sudo "$B" service status burrow-e2e-oldunit 2>&1)" && fail "status of an unmanaged unit succeeded: $out"
+  echo "$out" | grep -q "burrow-e2e-oldunit.service is running, but burrow has no usable record of it" || fail "status: $out"
+  echo "$out" | grep -q "take it over: sudo systemctl stop burrow-e2e-oldunit, then sudo .*service install -c /etc/burrow/e2e-oldunit.yaml$" || fail "status hint: $out"
+  out="$(sudo "$B" service update 2>&1)" || fail "update: $out"
+  echo "$out" | grep -q "note: burrow-e2e-oldunit.service (running) was not updated or restarted" || fail "update does not name the unit: $out"
+  if out="$(sudo "$B" service install -c /etc/burrow/e2e-oldunit.yaml 2>&1)"; then fail "install over a running unmanaged unit succeeded: $out"; fi
+  echo "$out" | grep -q "burrow-e2e-oldunit.service is running, but burrow has no usable record of it" || fail "install refusal: $out"
+  [ "$(systemctl show -p MainPID --value burrow-e2e-oldunit)" = "$OLDPID" ] || fail "the refused install restarted the unit"
+  grep -q "/etc/burrow/e2e-oldunit.yaml" /etc/systemd/system/burrow-e2e-oldunit.service || fail "the refused install changed the unit"
+  sudo systemctl stop burrow-e2e-oldunit
+  out="$(sudo "$B" service install -c /etc/burrow/e2e-oldunit.yaml 2>&1)" || fail "install over a stopped unmanaged unit: $out"
+  echo "$out" | grep -q "note: replaced burrow-e2e-oldunit.service, which burrow had no record of; its old config was left as it was: /etc/burrow/e2e-oldunit.yaml" || fail "takeover note: $out"
+  echo "$out" | grep -q "started burrow-e2e-oldunit" || fail "takeover did not start: $out"
+  running burrow-e2e-oldunit || fail "the taken-over unit does not run"
+  sudo "$B" service list | grep -Eq "^burrow-e2e-oldunit +server +running +/etc/burrow/e2e-oldunit/server.yaml" || fail "list after takeover: $(sudo "$B" service list)"
+  sudo "$B" service uninstall burrow-e2e-oldunit --purge >/dev/null || fail "uninstall of the taken-over unit"
+  sudo systemctl stop burrow-e2e-other
+  sudo rm -f /etc/systemd/system/burrow-e2e-other.service /etc/burrow/e2e-oldunit.yaml
+  sudo systemctl daemon-reload
+  check "an unmanaged unit is named, refused while running, and taken over once stopped"
+fi
 
 echo "== commands that restart services finish even when the session that started them is killed"
 tree() {
