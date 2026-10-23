@@ -1104,6 +1104,13 @@ async fn a_udp_visit_closes_when_its_service_target_changes() {
     let mut reach = settings.clone().unwrap();
     reach.visitors.get_mut("laptop").unwrap().reach = [("home".to_string(), AllowList::All)].into();
     s.tunnel.server.reload(reach.clone()).await;
+    let shared = s.tunnel.server.shared.clone();
+    wait_for(|| {
+        shared.settings_snapshot().visitors["laptop"]
+            .reach
+            .contains_key("home")
+    })
+    .await;
     let mut by_reach = s.udp(s.reach()).await.ok().unwrap();
     assert!(v.echoes(1, b"same target").await);
     let fresh = udp_echo_server().await;
