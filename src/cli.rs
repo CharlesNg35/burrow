@@ -594,12 +594,22 @@ pub fn service_word(
         .skip(1)
         .map(|a| format!(" {}", crate::failure::arg(&a.to_string_lossy())))
         .collect();
+    let supported = cfg!(any(target_os = "linux", target_os = "macos", windows));
     Some(
-        crate::failure::Failure::usage(format!("burrow {word} is not a command")).hint(format!(
+        crate::failure::Failure::usage(format!("burrow {word} is not a command"))
+            .hint(service_word_hint(word, &rest, supported)),
+    )
+}
+
+fn service_word_hint(word: &str, rest: &str, supported: bool) -> String {
+    if supported {
+        format!(
             "for a service, run: {}",
             crate::failure::admin(&format!("service {word}{rest}"))
-        )),
-    )
+        )
+    } else {
+        "burrow cannot manage services on this operating system; run burrow server or burrow client under your own service manager".to_string()
+    }
 }
 
 #[cfg(test)]
@@ -650,6 +660,10 @@ mod tests {
                 crate::failure::arg("my home.yaml")
             ))
         );
+        assert!(
+            service_word_hint("stop", " home", false).starts_with("burrow cannot manage services"),
+        );
+        assert!(service_word_hint("stop", " home", true).contains("service stop home"));
         for args in [&["burrow", "instal"][..], &["burrow", "service", "frob"]] {
             assert!(parse(args).is_none(), "{args:?}");
         }
