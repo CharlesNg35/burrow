@@ -686,6 +686,47 @@ async fn an_oversized_message_closes_the_session() {
 }
 
 #[tokio::test]
+async fn burrow_admin_stops_at_once_when_it_cannot_write_the_launch_page() {
+    let w = world().await;
+    let dir = tempfile::tempdir().unwrap();
+    let server = if common::ws_mode() {
+        format!("ws://{}/burrow", w.addr)
+    } else {
+        w.addr.to_string()
+    };
+    let config = dir.path().join("visitor.yaml");
+    burrow::instance::write_private(
+        &config,
+        &format!("server: {server}\nname: ops\nsecret: {}\n", w.ops.encode()),
+    )
+    .unwrap();
+    let blocker = dir.path().join("a-file");
+    std::fs::write(&blocker, "x").unwrap();
+    let sessions = dir.path().join("sessions");
+    let started = std::time::Instant::now();
+    let run = tokio::task::spawn_blocking(move || {
+        std::process::Command::new(env!("CARGO_BIN_EXE_burrow"))
+            .arg("admin")
+            .arg("-c")
+            .arg(&config)
+            .args(["--port", "0", "--idle-exit", "60s"])
+            .env("BURROW_INSTANCE_DIR", blocker.join("x"))
+            .env("BURROW_ADMIN_SESSION_DIR", &sessions)
+            .output()
+    });
+    let out = tokio::time::timeout(Duration::from_secs(30), run)
+        .await
+        .expect("burrow admin stopped long before its idle exit")
+        .unwrap()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(1), "{stderr}");
+    assert!(stderr.contains("private launch file"), "{stderr}");
+    assert!(started.elapsed() < Duration::from_secs(30));
+    let _ = w.stop.send(true);
+}
+
+#[tokio::test]
 async fn burrow_admin_stops_at_once_when_it_cannot_write_the_url_file() {
     let w = world().await;
     let dir = tempfile::tempdir().unwrap();
@@ -701,6 +742,7 @@ async fn burrow_admin_stops_at_once_when_it_cannot_write_the_url_file() {
     )
     .unwrap();
     let missing = dir.path().join("no-such-dir").join("url.txt");
+    let sessions = dir.path().join("admin-sessions");
     let started = std::time::Instant::now();
     let run = tokio::task::spawn_blocking(move || {
         std::process::Command::new(env!("CARGO_BIN_EXE_burrow"))
@@ -717,6 +759,7 @@ async fn burrow_admin_stops_at_once_when_it_cannot_write_the_url_file() {
                 "--url-file",
             ])
             .arg(&missing)
+            .env("BURROW_ADMIN_SESSION_DIR", sessions)
             .output()
     });
     let out = tokio::time::timeout(Duration::from_secs(30), run)
@@ -747,6 +790,8 @@ impl AdminRun {
             "--idle-exit",
             "30s",
         ]);
+        let sessions = config.parent().unwrap_or(config).join("admin-sessions");
+        cmd.env("BURROW_ADMIN_SESSION_DIR", sessions);
         if let Some(p) = port {
             cmd.args(["--port", p]);
         }
@@ -832,7 +877,10 @@ async fn burrow_admin_listens_on_7839_unless_it_is_taken_or_a_port_is_given() {
     tokio::task::spawn_blocking(move || {
         let held = std::net::TcpListener::bind("127.0.0.1:7839").unwrap();
         let fallback = AdminRun::start(&config2, None);
-        let seen = fallback.until(|l| l.contains("token="));
+        let mut seen = fallback.until(|l| l.contains("token="));
+        if !seen.iter().any(|l| l.contains("port 7839 is in use")) {
+            seen.extend(fallback.until(|l| l.contains("port 7839 is in use")));
+        }
         assert!(
             seen.iter().any(|l| l.contains("port 7839 is in use")),
             "{seen:?}"

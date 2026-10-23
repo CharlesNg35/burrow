@@ -385,14 +385,16 @@ pub fn Table(
                             .map(|h| {
                                 let right = h.starts_with('>');
                                 let shrink = h.starts_with('_');
-                                let text = h.trim_start_matches(['>', '_']);
+                                let wide_only = h.starts_with('~');
+                                let text = h.trim_start_matches(['>', '_', '~']);
                                 view! {
                                     <th
                                         scope="col"
                                         class=format!(
-                                            "border-b border-border px-4 py-[9px] text-[11px] font-bold tracking-[0.07em] whitespace-nowrap text-text-faint uppercase {}{}",
+                                            "border-b border-border px-4 py-[9px] text-[11px] font-bold tracking-[0.07em] whitespace-nowrap text-text-faint uppercase {}{}{}",
                                             if right { "text-right" } else { "text-left" },
-                                            if shrink { " w-px" } else { "" }
+                                            if shrink { " w-px" } else { "" },
+                                            if wide_only { " max-sm:hidden" } else { "" }
                                         )
                                     >
                                         {text}
@@ -438,7 +440,7 @@ pub fn Fact(
 pub fn Stats(#[prop(optional)] testid: &'static str, children: Children) -> impl IntoView {
     view! {
         <div
-            class="mb-[22px] grid grid-cols-2 overflow-hidden rounded-card border border-border bg-surface md:grid-cols-4 [&>*]:border-border [&>*]:px-4 [&>*]:py-3.5 [&>*:not(:last-child)]:border-r"
+            class="mb-[22px] grid grid-cols-2 overflow-hidden rounded-card border border-border bg-surface md:grid-cols-4 [&>*]:border-border [&>*]:px-4 [&>*]:py-3.5 [&>*:not(:last-child)]:border-r max-md:[&>*:nth-child(even)]:border-r-0 max-md:[&>*:nth-child(n+3)]:border-t"
             data-testid=(!testid.is_empty()).then_some(testid)
         >
             {children()}

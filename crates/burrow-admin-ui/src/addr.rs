@@ -137,11 +137,11 @@ pub fn addr_editor(fc: FieldCtx, kind: Kind) -> AnyView {
     });
     let stored = {
         let path = fc.path.clone();
-        move || {
+        Signal::derive(move || {
             e.value(&path)
                 .map(|v| to_text(Some(&v)))
                 .unwrap_or_default()
-        }
+        })
     };
     let fc_id = fc.id.clone();
     let host_control = move || match &kind {
@@ -359,12 +359,11 @@ pub fn addr_editor(fc: FieldCtx, kind: Kind) -> AnyView {
         <div data-addr="">
             {mode}
             {move || if unix_mode.get() { unix().into_any() } else { network().into_any() }}
-            <span class="hidden" data-testid="stored-as" data-stored=stored></span>
-            {(ranges && max.is_some()).then(|| view! {
-                <Show when=move || range_on.get()>
-                    <p class="mt-1.5 text-xs text-text-muted">{max.map(|m| format!("A range has at most {m} ports."))}</p>
-                </Show>
-            })}
+            <p class="mt-1.5 text-xs text-text-muted" data-testid="stored-as" data-stored=stored>
+                "Saved as "
+                <code class="font-mono">{stored}</code>
+                {(ranges && max.is_some()).then(|| max.map(|m| format!(" · up to {m} ports")))}
+            </p>
         </div>
     }
     .into_any()

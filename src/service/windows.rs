@@ -493,6 +493,10 @@ impl Backend for WindowsService {
         self.start(m)
     }
 
+    fn manual_stop(&self, name: &str) -> String {
+        format!("Stop-Service {name} (as administrator)")
+    }
+
     fn status(&self, m: &Manifest) -> Status {
         let Ok(service) = open(m) else {
             return Status {

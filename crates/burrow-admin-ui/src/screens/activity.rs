@@ -282,7 +282,7 @@ pub fn Activity(selected: Option<String>) -> impl IntoView {
             groups=Vec::new()
             rows=rows
             selected=Signal::stored(sel)
-            empty=("No changes yet".to_string(), "Changes made through burrow admin and hand edits of server.yaml show up here.".to_string())
+            empty=(String::new(), String::new())
             on_action=on_action
             no_counts=true
             testid="activity"
@@ -300,7 +300,7 @@ pub fn Activity(selected: Option<String>) -> impl IntoView {
             let at = selected.as_ref().and_then(|r| h.iter().position(|e| &e.rev == r));
             match at {
                 Some(i) => view! { <Version entry=h[i].clone() newer=h[..i].to_vec()/> }.into_any(),
-                None => view! { <EmptyState icon="history" title="Pick a version on the left" message="Each one shows what changed and can be reverted."/> }.into_any(),
+                None => view! { <div class="max-lg:hidden"><EmptyState icon="history" title="Pick a version on the left" message="Each one shows what changed and can be reverted."/></div> }.into_any(),
             }
         }
     }

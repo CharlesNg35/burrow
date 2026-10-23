@@ -27,7 +27,7 @@ pub struct ServerConfig {
     #[schemars(
         description = "Where the server waits for clients: ip:port like 0.0.0.0:7835, or a port alone for 0.0.0.0 (all IPv4 addresses)"
     )]
-    #[admin(help = "Where the server waits for clients",
+    #[admin(help = "Where the server waits for clients, for example 0.0.0.0:7835, or just a port such as 7835 for every IPv4 address",
         label = "Listen address",
         group = listener,
         applies = restart,
@@ -39,7 +39,7 @@ pub struct ServerConfig {
     #[schemars(
         description = "How clients reach this server: a host name or IP (the port comes from listen), host:port, or a wss:// URL; client-config writes it into client configs"
     )]
-    #[admin(help = "How clients reach this server; the connect commands and client configs made here use it",
+    #[admin(help = "How clients reach this server, for example tunnel.example.com or tunnel.example.com:7835, or a wss:// URL such as wss://tunnel.example.com/burrow when WebSocket is on; the connect commands and client configs made here use it",
         ty = server_address,
         group = listener,
         applies = live,
@@ -197,7 +197,7 @@ pub struct SelfEntry {
     #[schemars(
         description = "What this server may dial for itself: CIDR, optionally with :port or :lo-hi, or unix:/path; link-local and metadata addresses only when listed one by one"
     )]
-    #[admin(help = "Addresses this server may reach itself, with optional ports, or Unix sockets; link-local and cloud metadata addresses only when listed one by one", ty = list(cidr_rule), label = "Allowed targets", empty_label = "Nothing")]
+    #[admin(help = "Addresses this server may reach itself, with optional ports, or Unix sockets, for example 10.0.0.0/8, 192.168.1.10:22 or unix:/run/app.sock; link-local and cloud metadata addresses only when listed one by one", ty = list(cidr_rule), label = "Allowed targets", empty_label = "Nothing")]
     pub allow: Vec<String>,
 }
 
@@ -244,7 +244,7 @@ pub struct VisitorEntry {
     #[schemars(
         description = "Clients this visitor may reach directly, with the targets it may pick there: any (whatever the client's allow list permits), or rules in allow-list syntax that narrow it, for example home: any, office: 192.168.150.0/25 or lab: [10.0.0.0/8:22, unix:/run/app.sock]"
     )]
-    #[admin(help = "Clients this visitor may reach directly, and which targets there: any target the client allows, or only the ones listed",
+    #[admin(help = "Clients this visitor may reach directly, and which targets there: any target the client allows, or only the ones listed, for example 192.168.150.0/25 or 10.0.0.5:22",
         ty = ref_map(client, reserved = "self"),
         label = "Direct access to clients",
         group = access,
@@ -278,7 +278,7 @@ pub struct VisitorEntry {
     #[schemars(
         description = "Admin access only from these source IPs or CIDRs, for example [203.0.113.0/24]; any address when empty"
     )]
-    #[admin(help = "Admin access only from these addresses or networks; any address when empty",
+    #[admin(help = "Admin access only from these addresses or networks, for example 203.0.113.0/24 or 10.0.0.0/8; any address when empty",
         ty = list(cidr),
         label = "Admin only from",
         group = admin,
@@ -380,7 +380,7 @@ pub struct ServiceEntry {
     #[schemars(
         description = "Several clients that can each reach the target, instead of client; see mode"
     )]
-    #[admin(help = "Clients that can each reach the target; Mode says how one is picked", ty = ref_list(client, ordered, reserved = "self"), group = who, one_of = "who")]
+    #[admin(help = "Clients that can each reach the target; with two or more, Mode appears to choose how one is picked", ty = ref_list(client, ordered, reserved = "self"), group = who, one_of = "who")]
     pub clients: Vec<String>,
     #[serde(default, skip_serializing_if = "is_default")]
     #[schemars(
@@ -402,7 +402,7 @@ pub struct ServiceEntry {
     #[schemars(
         description = "Public address on the server: a port, or ip:port; leave it out for a private service that only visitors reach"
     )]
-    #[admin(help = "The address and port the server opens for this service",
+    #[admin(help = "The address and port the server opens for this service, for example 8080 or 127.0.0.1:8080",
         ty = ip_port(ranges, max_range = 1000),
         label = "Public address",
         group = exposure,
@@ -413,7 +413,7 @@ pub struct ServiceEntry {
     #[schemars(
         description = "host:port as seen from the client, or a port alone for 127.0.0.1 on the client"
     )]
-    #[admin(help = "Where the client connects, as seen from the client; a port alone means the client itself",
+    #[admin(help = "Where the client connects, as seen from the client, for example 127.0.0.1:3000 or 10.0.0.5:22; a port alone means the client itself",
         ty = target(ranges, unix),
         label = "Target on the client",
         group = exposure,
@@ -448,11 +448,11 @@ pub struct ServiceEntry {
     #[schemars(
         description = "Only these source IPs or CIDRs may connect, for example [203.0.113.0/24]; everyone when empty"
     )]
-    #[admin(help = "Only these addresses or networks may connect", ty = list(cidr), group = access, empty_label = "Empty means everyone may connect")]
+    #[admin(help = "Only these addresses or networks may connect, for example 203.0.113.0/24 or 10.0.0.0/8", ty = list(cidr), group = access, empty_label = "Empty means everyone may connect")]
     pub allow_from: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[schemars(description = "Source IPs or CIDRs that may never connect")]
-    #[admin(help = "Addresses or networks that may never connect",
+    #[admin(help = "Addresses or networks that may never connect, for example 198.51.100.7 or 198.51.100.0/24",
         ty = list(cidr),
         group = access,
         empty_label = "No addresses denied",
@@ -475,7 +475,7 @@ pub struct ServiceEntry {
     #[schemars(
         description = "Speed limit for each direction, shared by all connections of this service, for example 40mbit or 5MB (per second)"
     )]
-    #[admin(help = "Speed limit in each direction, shared by all connections of this service",
+    #[admin(help = "Speed limit in each direction, shared by all connections of this service, for example 40mbit or 5MB per second",
         ty = rate,
         label = "Speed limit",
         group = traffic,

@@ -1,6 +1,6 @@
 [package]
 name = "burrow"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 description = "Fast, secure, lightweight reverse tunnel"
 license = "MIT"
@@ -29,6 +29,7 @@ burrow-config = { path = "crates/burrow-config", features = ["json-schema"] }
 burrow-syntax = { path = "crates/burrow-syntax" }
 base64 = "0.23.1"
 blake2 = "0.10.6"
+dirs = "6"
 bytes = "1.12.1"
 clap = { version = "4.6.7", features = ["derive", "env"] }
 clap_complete = "4.6.11"
@@ -49,6 +50,7 @@ percent-encoding = "2.3.2"
 saphyr-parser = "0.2.2"
 schemars = "1.2.3"
 semver = "1.0.28"
+shlex = "2.0.1"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.154", features = ["preserve_order"] }
 sha2 = "0.10.9"

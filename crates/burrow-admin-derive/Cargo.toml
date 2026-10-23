@@ -1,6 +1,6 @@
 [package]
 name = "burrow-admin-derive"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 description = "#[derive(AdminSchema)] for the burrow config model"
 license = "MIT"

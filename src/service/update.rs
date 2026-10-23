@@ -124,10 +124,10 @@ fn plan(
         None => all.clone(),
     };
     if targets.is_empty() {
-        return Err(Failure::new("no burrow service is installed").hint(format!(
-            "install one with: {}",
-            crate::failure::admin("service install")
-        )));
+        return Err(super::stray::none_usable(&super::stray::strays()));
+    }
+    if name.is_none() {
+        super::note_strays(out)?;
     }
     group(&targets, &all, me, mine, force, out)
 }

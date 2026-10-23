@@ -162,6 +162,15 @@ fn socks_target_ok(target: &str) -> bool {
         && crate::config::check::parse_host_port(target).is_ok()
 }
 
+fn not_ready(why: &str) -> String {
+    let until = if why.ends_with("(DNS)") {
+        "it resolves"
+    } else {
+        "the server is reachable"
+    };
+    format!("{why}; the forwards will work once {until}")
+}
+
 pub(super) async fn check(dialer: Arc<Dialer>, forwards: Vec<(String, VisitTarget)>) {
     let mut ready = true;
     for (name, to) in forwards {
@@ -175,7 +184,7 @@ pub(super) async fn check(dialer: Arc<Dialer>, forwards: Vec<(String, VisitTarge
                 return;
             }
             Err(DialError::Lost(why) | DialError::Unreachable(why)) => {
-                warn!("{why}; the forwards will work once the server is reachable");
+                warn!("{}", not_ready(&why));
                 return;
             }
         };
@@ -372,6 +381,18 @@ pub(super) async fn visit(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_first_check_says_what_the_forwards_wait_for() {
+        assert_eq!(
+            not_ready("could not look up tunnel.example.com within 10 s (DNS)"),
+            "could not look up tunnel.example.com within 10 s (DNS); the forwards will work once it resolves"
+        );
+        assert_eq!(
+            not_ready("server unreachable at tunnel.example.com:7835 (connection refused)"),
+            "server unreachable at tunnel.example.com:7835 (connection refused); the forwards will work once the server is reachable"
+        );
+    }
 
     #[test]
     fn a_socks_refusal_names_the_reply_the_app_got() {

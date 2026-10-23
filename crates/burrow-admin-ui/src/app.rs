@@ -283,6 +283,25 @@ fn Header() -> impl IntoView {
             "ok".to_string()
         }
     });
+    Effect::new(move |_| {
+        s.route.track();
+        request_animation_frame(|| {
+            let overflows = document()
+                .query_selector("nav[aria-label=Sections]")
+                .ok()
+                .flatten()
+                .is_some_and(|n| n.scroll_width() > n.client_width());
+            if overflows
+                && let Ok(Some(el)) =
+                    document().query_selector("nav[aria-label=Sections] [aria-current=page]")
+            {
+                let opts = web_sys::ScrollIntoViewOptions::new();
+                opts.set_block(web_sys::ScrollLogicalPosition::Nearest);
+                opts.set_inline(web_sys::ScrollLogicalPosition::Center);
+                el.scroll_into_view_with_scroll_into_view_options(&opts);
+            }
+        });
+    });
     let read_only = Memo::new(move |_| s.conn.get() == Conn::Open && !s.can_write());
     let why_open = RwSignal::new(false);
     let retry_open = RwSignal::new(false);
@@ -383,14 +402,6 @@ fn Header() -> impl IntoView {
                 <button type="button" class="flex min-w-0 cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 hover:bg-hdr-raised" aria-haspopup="true" aria-expanded=move || menu_open.get().to_string() aria-controls="server-menu" id="server-switcher" data-testid="server-switcher" title=move || s.status.with(|x| x.as_ref().map(|x| x.listening.join(", ")).unwrap_or_default()) on:click=move |_| menu_open.update(|o| *o = !*o)>
                     <span class="flex min-w-0 flex-col text-left">
                         <span class="truncate font-semibold text-hdr-on" data-testid="server-line">{move || s.server_name()}</span>
-                        <span class="truncate text-[11px] text-hdr-muted sm:hidden">{move || {
-                            let v = s.welcome.with(|w| w.as_ref().map(|w| w.server.version.clone()).unwrap_or_default());
-                            let up = s.status.with(|st| st.as_ref().map(|st| crate::format::span(st.uptime_secs)));
-                            match up {
-                                Some(u) => format!("v{v} · up {u}"),
-                                None => format!("v{v}"),
-                            }
-                        }}</span>
                     </span>
                     <Icon name="chevron-down" small=true/>
                 </button>
@@ -531,7 +542,7 @@ fn Body() -> impl IntoView {
     let dim = Memo::new(move |_| {
         matches!(
             s.conn.get(),
-            Conn::Reconnecting { .. } | Conn::Closed { .. }
+            Conn::Reconnecting { .. } | Conn::Closed { .. } | Conn::Ended
         )
     });
     move || {
@@ -550,6 +561,12 @@ fn Body() -> impl IntoView {
                     <EmptyState icon="lock" title="Your admin access was removed" message=format!("The server closed this session: {reason}")>
                         <p class="text-sm text-text-muted">"Ask a write admin, then run burrow admin again."</p>
                     </EmptyState>
+                </div>
+            }
+            .into_any(),
+            Conn::Ended if !loaded.get() => view! {
+                <div class="mx-auto max-w-2xl p-8" data-testid="ended">
+                    <EmptyState icon="wifi-off" title="This tab's admin session ended" message="Run burrow admin again; it opens a new tab."/>
                 </div>
             }
             .into_any(),
@@ -660,11 +677,33 @@ fn Banners() -> impl IntoView {
             let left = ((s.retry_at.get() - s.now.get()) / 1000.0).ceil().max(0.0) as u64;
             let n = s.edit.pending();
             let at = format::clock(s.values_at.get());
+            let (title, why) = if s.admin_down.get() && attempt > api::GONE_AFTER {
+                (
+                    "burrow admin is not running here.".to_string(),
+                    "If burrow admin started again, open the link it printed or run burrow admin. "
+                        .to_string(),
+                )
+            } else if s.admin_down.get() {
+                (
+                    "burrow admin is not running.".to_string(),
+                    "Start it again and this tab reconnects. ".to_string(),
+                )
+            } else {
+                (
+                    format!("Lost the connection to {}.", s.server_name()),
+                    String::new(),
+                )
+            };
+            let kept = match n {
+                0 => String::new(),
+                1 => " Your 1 pending change is kept.".to_string(),
+                n => format!(" Your {n} pending changes are kept."),
+            };
             Some(view! {
                 <Banner
                     tone=Tone::Warning
-                    title=format!("Lost the connection to {}.", s.server_name())
-                    message=format!("Reconnecting in {left} s · attempt {attempt}. Your {n} pending changes are kept. Values are from {at}.")
+                    title=title
+                    message=format!("{why}Reconnecting in {left} s · attempt {attempt}.{kept} Values are from {at}.")
                     testid="banner-reconnecting"
                 >
                     <Button label="Retry now" small=true on_click=move |_| api::reconnect(s)/>
@@ -673,13 +712,18 @@ fn Banners() -> impl IntoView {
         }
         _ => None,
     };
-    let closed = move || match s.conn.get() {
+    let closed = move || {
+        match s.conn.get() {
+        Conn::Ended if s.state.with(Option::is_some) => Some(view! {
+            <Banner tone=Tone::Warning title="This tab's admin session ended." message="Run burrow admin again; it opens a new tab." testid="banner-ended"/>
+        }.into_any()),
         Conn::Closed { message } => Some(view! {
             <Banner tone=Tone::Danger title="Disconnected; showing the last known state" message=message testid="banner-closed">
                 <Button label="Reconnect" small=true on_click=move |_| api::reconnect(s)/>
             </Banner>
-        }),
+        }.into_any()),
         _ => None,
+    }
     };
     let broken = move || {
         s.state.get().filter(|st| !st.running.ok).map(|st| {

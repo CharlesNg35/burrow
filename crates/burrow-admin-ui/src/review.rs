@@ -235,7 +235,7 @@ fn service_paths(
                         } else {
                             HopState::Normal
                         };
-                        if h.value != was.value && h.head == was.head {
+                        if h.value != was.value && h.icon == was.icon {
                             h.badge = Some((format!("was {}", was.value), Tone::Neutral));
                         }
                     }
@@ -1159,6 +1159,16 @@ mod tests {
         assert_eq!(web.hops[1].state, HopState::Added);
         assert_eq!(web.hops[1].badge.as_ref().unwrap().0, "was 0.0.0.0:443");
         assert_eq!(web.hops[3].state, HopState::Normal);
+        let joined = json!({"services": {"web": {"clients": ["a", "b"], "bind": "0.0.0.0:443", "target": "x:80"}}});
+        let base =
+            json!({"services": {"web": {"client": "a", "bind": "0.0.0.0:443", "target": "x:80"}}});
+        let p = service_paths(&base, &joined, None, &[]);
+        let clients = p[0].1.hops.iter().find(|h| h.icon == "monitor").unwrap();
+        assert_eq!(
+            clients.badge.as_ref().map(|b| b.0.as_str()),
+            Some("was a"),
+            "a hop that becomes plural still says what it was"
+        );
     }
 
     #[test]

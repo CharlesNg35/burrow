@@ -443,6 +443,11 @@ pub fn visitor(
         })
         .unwrap_or_default();
     let down = services.iter().filter(|(_, up)| !up).count();
+    let admin_from: Vec<String> = entry
+        .and_then(|x| VisitorEntry::ADMIN_FROM.get(x))
+        .and_then(Value::as_array)
+        .map(|a| a.iter().map(plain).collect())
+        .unwrap_or_default();
     let this_session = me.is_some_and(|(n, _)| n == name);
     let reach_none = entry
         .and_then(|x| VisitorEntry::REACH.get(x))
@@ -465,6 +470,11 @@ pub fn visitor(
                     (false, None) if status.is_some() => unseen(name),
                     _ => String::new(),
                 },
+                dot: Some(if this_session || open > 0 {
+                    Tone::Success
+                } else {
+                    Tone::Neutral
+                }),
                 state: HopState::Current,
                 ..Hop::default()
             },
@@ -473,7 +483,13 @@ pub fn visitor(
                 head: "Server".into(),
                 value: "this server".into(),
                 dot: Some(Tone::Success),
-                unit: "checks access".into(),
+                unit: match entry.and_then(|x| VisitorEntry::ADMIN.get(x)).map(plain) {
+                    Some(_) if !admin_from.is_empty() => {
+                        format!("admin from {}", admin_from.join(", "))
+                    }
+                    Some(_) => "admin from any address".into(),
+                    None => "checks access".into(),
+                },
                 ..Hop::default()
             },
             Hop {
@@ -491,7 +507,7 @@ pub fn visitor(
                 } else {
                     HopState::Normal
                 },
-                badge: None,
+                badge: (down > 0).then(|| (format!("{down} down"), Tone::Danger)),
                 mono: false,
             },
         ],
@@ -531,8 +547,21 @@ pub fn visitor(
 
 pub const PICK_VISITORS: &str = "Pick at least one visitor or switch back to Public port";
 
+pub const UDP_NEEDS_PORT: &str = "A UDP service needs a public port";
+
+pub fn udp(svc: &Value) -> bool {
+    ServiceEntry::PROTOCOL
+        .get(svc)
+        .and_then(Value::as_str)
+        .and_then(Protocol::from_wire)
+        == Some(Protocol::Udp)
+}
+
 pub fn add_blocker(svc: &Value) -> Option<&'static str> {
     let public = ServiceEntry::BIND.get(svc).is_some_and(|b| !b.is_null());
+    if !public && udp(svc) {
+        return Some(UDP_NEEDS_PORT);
+    }
     let picked = ServiceEntry::VISITORS
         .get(svc)
         .and_then(Value::as_array)
@@ -544,6 +573,25 @@ pub fn add_blocker(svc: &Value) -> Option<&'static str> {
 mod tests {
     use super::*;
     use burrow_admin_proto::serde_json::json;
+
+    #[test]
+    fn a_visitor_never_seen_has_a_hollow_dot_and_one_in_use_a_green_one() {
+        let doc = json!({"visitors": {"v": {}}});
+        let mut st: Status = burrow_admin_proto::serde_json::from_value(json!({
+            "version": "0.1.0", "uptime_secs": 10, "listening": [], "handshakes_refused": 0, "udp_peers": 0,
+            "clients": [], "services": [], "visitors": [{"name": "v", "open": 0}]
+        }))
+        .unwrap();
+        assert_eq!(
+            visitor("v", &doc, Some(&st), None).hops[0].dot,
+            Some(Tone::Neutral)
+        );
+        st.visitors[0].open = 1;
+        assert_eq!(
+            visitor("v", &doc, Some(&st), None).hops[0].dot,
+            Some(Tone::Success)
+        );
+    }
 
     #[test]
     fn a_private_service_needs_a_visitor_before_it_can_be_added() {
@@ -562,6 +610,16 @@ mod tests {
         assert_eq!(
             add_blocker(&json!({"client": "a", "target": 80, "bind": 7840})),
             None
+        );
+        assert_eq!(
+            add_blocker(&json!({"client": "a", "target": 53, "protocol": "udp"})),
+            Some(UDP_NEEDS_PORT)
+        );
+        assert_eq!(
+            add_blocker(
+                &json!({"client": "a", "target": 53, "protocol": "udp", "visitors": ["ops"]})
+            ),
+            Some(UDP_NEEDS_PORT)
         );
     }
 

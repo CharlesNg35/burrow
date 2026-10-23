@@ -292,6 +292,19 @@ impl Backend for Launchd {
         run("launchctl", &["kill", "SIGHUP", &target(m)]).map(drop)
     }
 
+    fn units(&self) -> Vec<super::stray::Unit> {
+        super::stray::read_units(
+            Path::new("/Library/LaunchDaemons"),
+            "com.github.charlesng35.",
+            ".plist",
+            super::stray::launchd_job,
+        )
+    }
+
+    fn manual_stop(&self, name: &str) -> String {
+        format!("sudo launchctl bootout system/com.github.charlesng35.{name}")
+    }
+
     fn status(&self, m: &Manifest) -> Status {
         let installed = plist_path(m).exists();
         let Ok(text) = run("launchctl", &["print", &target(m)]) else {

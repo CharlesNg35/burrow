@@ -13,6 +13,21 @@ use crate::config::{Format, Role};
 use crate::failure::Failure;
 use crate::prompt::Prompter;
 
+fn allow_order(entry: &str) -> (u8, Option<IpAddr>, u32, String) {
+    let (addr, port) = entry.rsplit_once(':').unwrap_or((entry, ""));
+    let ip = addr
+        .trim_start_matches('[')
+        .split('/')
+        .next()
+        .and_then(|a| a.trim_end_matches(']').parse::<IpAddr>().ok());
+    let first = port
+        .split('-')
+        .next()
+        .and_then(|p| p.parse::<u32>().ok())
+        .unwrap_or(0);
+    (u8::from(ip.is_none()), ip, first, entry.to_string())
+}
+
 pub fn client_value(server: &str, name: &str, secret_text: &str, allow: &[String]) -> Value {
     json!({
         "server": server,
@@ -112,6 +127,7 @@ pub fn client_document(
             }
         }
     }
+    allow.sort_by_key(|e| allow_order(e));
     if allow.is_empty() {
         notes.push("no IP targets found for this client; edit \"allow\" before starting it".into());
     }

@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.1.1]
+
+Stability and usability fixes.
+
+- **Service management:**
+  - A burrow service that this burrow has no usable record of, installed by an older layout or by hand, is no longer invisible. `burrow service list`, `status` and `update` name it with the commands that take it over, and a command without a name asks which service it means.
+  - `service install` refuses to replace such a service while it runs, never reports a service it did not restart as started, and names the service holding a busy port.
+  - Uninstalling the last managed service keeps the binary, the service account and the runtime folder setup while such a service still uses them.
+  - `burrow install`, `uninstall`, `start`, `stop`, `restart` and `logs` point to `burrow service ...`.
+- **`burrow admin`:**
+  - The session (token, path and port) is kept for 12 hours per visitor config in a file only you can read, so an open tab reconnects after a restart and no second tab opens.
+  - If the last session's port is taken, it says so and names the port it moved to.
+  - A tab whose session ended says so instead of retrying forever, and the first load retries a busy server.
+- **Admin UI:**
+  - Help gives example values again.
+  - The overview counts, traffic readout, client details, TCP/UDP tags and open counts are back.
+  - Port fields show what is saved, settings show their full key, and a review marks what a path was before.
+  - The Connect tab links to the download and uses `./burrow`.
+  - A UDP service can clear values it does not use, and the reach editor keeps its rules when switched back and forth.
+  - Pickers open upward when there is no room below.
+  - A private UDP service says it needs a public port, since visitors cannot use UDP services.
+- **Messages and docs:**
+  - A DNS lookup that times out is named as DNS.
+  - An unset secret variable's hint says the value must match the server's.
+  - Generated client allow lists are sorted.
+  - The README shows client.yaml, visitor.yaml and the init commands again.
+
 ## [0.1.0]
 
 First release.

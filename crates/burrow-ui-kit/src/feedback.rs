@@ -75,7 +75,7 @@ pub fn EmptyState(
             {(!icon.is_empty()).then(|| view! { <div class="mb-2 flex justify-center text-text-faint"><Icon name=icon large=true/></div> })}
             <div class="text-md font-semibold">{title}</div>
             <p class="mx-auto mt-1 mb-4 max-w-prose text-sm text-text-muted">{message}</p>
-            {children.map(|c| c())}
+            {children.map(|c| view! { <div class="flex flex-wrap items-center justify-center gap-2">{c()}</div> })}
         </div>
     }
 }

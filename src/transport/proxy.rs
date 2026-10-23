@@ -8,6 +8,38 @@ use super::resolve::Resolver;
 use super::tcp::connect_any;
 use crate::proxy::{ProxyConfig, ProxyKind};
 
+#[derive(Debug)]
+pub struct LookupTimedOut {
+    host: String,
+    after: Duration,
+}
+
+impl LookupTimedOut {
+    pub fn new(host_port: &str, after: Duration) -> LookupTimedOut {
+        let host = burrow_syntax::hostport::parse_host_port(host_port)
+            .map_or_else(|_| host_port.to_string(), |(host, _)| host);
+        LookupTimedOut { host, after }
+    }
+}
+
+impl std::fmt::Display for LookupTimedOut {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let after = if self.after.subsec_nanos() == 0 {
+            format!("{} s", self.after.as_secs())
+        } else {
+            format!("{} ms", self.after.as_millis())
+        };
+        write!(f, "could not look up {} within {after} (DNS)", self.host)
+    }
+}
+
+impl std::error::Error for LookupTimedOut {}
+
+pub fn lookup_timed_out(e: &io::Error) -> bool {
+    e.get_ref()
+        .is_some_and(|inner| inner.is::<LookupTimedOut>())
+}
+
 pub async fn dial_tcp(
     target: &str,
     proxy: Option<&ProxyConfig>,
@@ -30,10 +62,7 @@ pub async fn dial_tcp_ordered(
             tokio::time::timeout(timeout, resolver.resolve(&host))
                 .await
                 .map_err(|_| {
-                    io::Error::new(
-                        io::ErrorKind::TimedOut,
-                        format!("looking up {host} timed out"),
-                    )
+                    io::Error::new(io::ErrorKind::TimedOut, LookupTimedOut::new(&host, timeout))
                 })?
         }
     };
@@ -212,10 +241,12 @@ mod lookup_tests {
         .await
         .unwrap_err();
         assert_eq!(err.kind(), io::ErrorKind::TimedOut);
-        assert!(
-            err.to_string()
-                .contains("looking up myserver.example.com:7835")
+        assert_eq!(
+            err.to_string(),
+            "could not look up myserver.example.com within 200 ms (DNS)"
         );
+        assert!(lookup_timed_out(&err));
+        assert!(!lookup_timed_out(&io::Error::from(io::ErrorKind::TimedOut)));
         assert!(started.elapsed() < Duration::from_secs(2));
     }
 }

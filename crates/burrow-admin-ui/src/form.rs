@@ -485,6 +485,14 @@ fn visibility_row(bind: Path, public: RwSignal<bool>) -> AnyView {
                 .is_none_or(|v| v.as_array().is_some_and(Vec::is_empty) || v.is_null())
         })
     };
+    let is_udp = {
+        let mut svc = bind.clone();
+        svc.pop();
+        Memo::new(move |_| {
+            e.value(&svc)
+                .is_some_and(|v| crate::screens::paths::udp(&v))
+        })
+    };
     let control = {
         let bind = bind.clone();
         let id = id.clone();
@@ -527,7 +535,13 @@ fn visibility_row(bind: Path, public: RwSignal<bool>) -> AnyView {
                         })
                     />
                 </div>
-                {move || (!public.get() && none_picked.get()).then(|| {
+                {move || (!public.get() && is_udp.get()).then(|| view! {
+                    <p class="mt-2 flex items-center gap-2 text-[12.5px] text-co-info" data-testid="udp-needs-port">
+                        <burrow_ui_kit::Icon name="info" small=true/>
+                        {crate::screens::paths::UDP_NEEDS_PORT}
+                    </p>
+                })}
+                {move || (!public.get() && !is_udp.get() && none_picked.get()).then(|| {
                     let to = to_visitors.clone();
                     view! {
                         <p class="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12.5px] text-co-info" data-testid="pick-visitors">
@@ -734,10 +748,10 @@ fn row(f: Field, path: Path, spath: Path, entity: Path) -> AnyView {
         let msg_id = msg_id.clone();
         move || {
             let enabled = st.with(|s| s.enabled);
-            if lock {
+            if lock && editing.try_get().unwrap_or(false) {
                 return locked_box(node.clone(), path.clone(), id.clone());
             }
-            if can && enabled && editing.try_get().unwrap_or(false) {
+            if !lock && can && enabled && editing.try_get().unwrap_or(false) {
                 let fc = FieldCtx {
                     node: node.clone(),
                     path: path.clone(),
@@ -766,8 +780,22 @@ fn row(f: Field, path: Path, spath: Path, entity: Path) -> AnyView {
                     p
                 });
                 let inherited = st.with_untracked(|s| s.default_from.clone());
+                let clear = {
+                    let path = path.clone();
+                    move || {
+                        let reason =
+                            st.with(|s| (!s.enabled).then(|| s.disabled_reason.clone()).flatten())?;
+                        (can && editing.try_get().unwrap_or(false) && e.value(&path).is_some()).then(|| {
+                            let path = path.clone();
+                            let label = format!("Clear ({})", reason.replace("do not support", "do not use"));
+                            view! {
+                                <button type="button" class=burrow_ui_kit::button_class("ghost", true) data-testid="clear-unused" on:click=move |_| e.set(&path, None)>{label}</button>
+                            }
+                        })
+                    }
+                };
                 view! {
-                    <div class="flex min-h-[38px] items-center text-[13px]" id=id.clone()>
+                    <div class="flex min-h-[38px] flex-wrap items-center gap-3 text-[13px]" id=id.clone()>
                         {move || {
                             let v = e.value(&path).or_else(|| {
                                 single
@@ -780,6 +808,7 @@ fn row(f: Field, path: Path, spath: Path, entity: Path) -> AnyView {
                                 None => ().into_any(),
                             }
                         }}
+                        {clear}
                     </div>
                 }
                 .into_any()
@@ -793,13 +822,17 @@ fn row(f: Field, path: Path, spath: Path, entity: Path) -> AnyView {
         node.help.clone()
     };
     let key_hint = if show_keys {
-        spath.last().cloned().unwrap_or_default()
+        spath.join(".\u{200b}")
     } else if matches!(inner(&node).sem, SemType::List(_)) {
         f.key.clone()
     } else {
         String::new()
     };
     let wide = node.wide.unwrap_or_else(|| is_wide(&node));
+    let saved_line = matches!(
+        inner(&node).sem,
+        SemType::IpPort(_) | SemType::PortRange(_) | SemType::Target(_)
+    );
     let visible = Memo::new(move |_| st.with(|s| s.visible));
     let (jp, js) = (join(&path), join(&spath));
     (move || {
@@ -810,6 +843,7 @@ fn row(f: Field, path: Path, spath: Path, entity: Path) -> AnyView {
                     id=id.clone()
                     label=label.clone()
                     help=help.clone()
+                    hide_help=Signal::derive(move || saved_line && editing.try_get().unwrap_or(false))
                     path=jp.clone()
                     schema_path=js.clone()
                     key_hint=key_hint.clone()

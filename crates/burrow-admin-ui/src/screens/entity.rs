@@ -119,6 +119,19 @@ pub fn rows_for(section: &str) -> Vec<Row> {
                     },
                     line2: if pending.is_some() {
                         "Draft · not applied yet".into()
+                    } else if on {
+                        let host = c
+                            .as_ref()
+                            .and_then(|c| c.from.clone())
+                            .map(|f| f.rsplit_once(':').map(|(h, _)| h.to_string()).unwrap_or(f))
+                            .unwrap_or_default();
+                        let since =
+                            format::span(c.as_ref().and_then(|c| c.connected_secs).unwrap_or(0));
+                        if host.is_empty() {
+                            format!("for {since} · {serves}")
+                        } else {
+                            format!("{host} · for {since} · {serves}")
+                        }
                     } else {
                         serves
                     },
@@ -229,10 +242,10 @@ pub fn rows_for(section: &str) -> Vec<Row> {
                     .map(|x| (x.health.iter().filter(|h| h.up).count(), x.health.len()));
                 let problem = status.is_some()
                     && (up < cs.len() || health_up.is_some_and(|(u, n)| n > 0 && u < n));
-                let mut tags = Vec::new();
-                if udp {
-                    tags.push((protocol.to_uppercase(), Tone::Violet));
-                }
+                let mut tags = vec![(
+                    protocol.to_uppercase(),
+                    if udp { Tone::Violet } else { Tone::Accent },
+                )];
                 if up == 0 && status.is_some() {
                     tags.push(("✕ Down".into(), Tone::Danger));
                 } else if let Some((u, n)) = health_up.filter(|(u, n)| *n > 0 && u < n) {
@@ -443,9 +456,11 @@ pub fn Entities(section: String, selected: Option<String>) -> impl IntoView {
             match sel_name.clone() {
                 Some(name) => view! { <Detail section=sec name=name/> }.into_any(),
                 None => view! {
-                    <DetailPane>
-                        <EmptyState icon="stack" title=pick message="Or add a new one."/>
-                    </DetailPane>
+                    <div class="max-lg:hidden">
+                        <DetailPane>
+                            <EmptyState icon="stack" title=pick message="Or add a new one."/>
+                        </DetailPane>
+                    </div>
                 }
                 .into_any(),
             }
@@ -710,6 +725,39 @@ fn Detail(section: String, name: String) -> impl IntoView {
             }
         }
     });
+    let protocol_tag = {
+        let (sec, nm) = (section.clone(), name.clone());
+        move || match sec.as_str() {
+            SERVICES => {
+                let p = ServiceEntry::PROTOCOL
+                    .at(&e.doc(), &nm)
+                    .map(plain)
+                    .unwrap_or_else(|| Protocol::default().wire().into());
+                let tone = if p == Protocol::Udp.wire() {
+                    Tone::Violet
+                } else {
+                    Tone::Accent
+                };
+                view! { <span class=tag_class(tone)>{p.to_uppercase()}</span> }.into_any()
+            }
+            VISITORS => {
+                let admin = VisitorEntry::ADMIN.at(&e.doc(), &nm).map(plain);
+                let me = s
+                    .welcome
+                    .with(|w| w.as_ref().is_some_and(|w| w.you.visitor == nm));
+                view! {
+                    {admin.map(|a| {
+                        let write = a == burrow_config::admin_schema::AdminEnum::wire(&burrow_admin_proto::msg::AdminLevel::Write);
+                        let tone = if write { Tone::Danger } else { Tone::Accent };
+                        view! { <span class=tag_class(tone) data-testid="admin-tag"><Icon name=if write { "shield" } else { "eye" } small=true/>{format!("admin · {a}")}</span> }
+                    })}
+                    {me.then(|| view! { <span class=tag_class(Tone::Neutral) data-testid="you-tag">"you"</span> })}
+                }
+                .into_any()
+            }
+            _ => ().into_any(),
+        }
+    };
     let tab_counts = {
         let (sec, nm) = (section.clone(), name.clone());
         Signal::derive(move || {
@@ -950,7 +998,7 @@ fn Detail(section: String, name: String) -> impl IntoView {
             </nav>
             <header class="mb-[22px] flex items-start gap-3.5" class:max-sm:hidden=move || editing.get() class:hidden=move || !exists.get()>
                 <div class="min-w-0 flex-1">
-                    <h1 class="flex items-center gap-2.5 text-[25px] font-bold tracking-[-0.015em]">{title_dot}{name.clone()}</h1>
+                    <h1 class="flex items-center gap-2.5 text-[25px] font-bold tracking-[-0.015em]">{title_dot}{name.clone()}{protocol_tag}</h1>
 
                 </div>
                 <div class="flex items-center gap-2">{head_actions}</div>
@@ -1073,13 +1121,13 @@ fn overview(section: &str, name: &str, stats: bool) -> impl IntoView {
                         view! {
                             <tr data-row=c.clone()>
                                 <th scope="row"><StatusDot on=on text=label/></th>
-                                <td class="font-mono text-[13px] text-text-muted">{cs.and_then(|y| y.from).unwrap_or_else(|| "offline".into())}</td>
+                                <td class="font-mono text-[13px] text-text-muted max-sm:hidden">{cs.and_then(|y| y.from).unwrap_or_else(|| "offline".into())}</td>
                                 <td>{match h {
                                     Some(true) => view! { <span class=tag_class(Tone::Success)>"up"</span> }.into_any(),
                                     Some(false) => view! { <span class=tag_class(Tone::Danger)>"down"</span> }.into_any(),
                                     None => view! { <span class="text-text-faint">"not checked"</span> }.into_any(),
                                 }}</td>
-                                <td>{set}</td>
+                                <td class="max-sm:hidden">{set}</td>
                             </tr>
                         }
                     })
@@ -1103,7 +1151,7 @@ fn overview(section: &str, name: &str, stats: bool) -> impl IntoView {
                 view! {
                     <div class="mb-4">
                         <Card title="Health per client" sub=mode flush=true testid="health">
-                            <Table head=vec!["Client", "Connected from", "Health", "Set aside"]>{rows}</Table>
+                            <Table head=vec!["Client", "~Connected from", "Health", "~Set aside"]>{rows}</Table>
                         </Card>
                     </div>
                 }

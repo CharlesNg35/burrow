@@ -97,10 +97,18 @@ fn secret_once(c: &mut Ctx) -> Flow<'_> {
         let commands = c.ui.text("[data-testid=snippet-commands]").await;
         assert!(
             commands.contains(&format!(
-                "burrow init client --server {} --name lab",
+                "./burrow init client --server {} --name lab",
                 c.world.server_addr()
             )),
             "{commands}"
+        );
+        assert_eq!(
+            c.ui.attr_of("[data-testid=download]", "href").await,
+            "https://github.com/CharlesNg35/burrow/releases/latest"
+        );
+        assert_eq!(
+            c.ui.attr_of("[data-testid=download]", "target").await,
+            "_blank"
         );
         c.ui.shot("connection-commands").await;
         c.ui.click("[data-testid=shown-once] [data-tab=env]").await;

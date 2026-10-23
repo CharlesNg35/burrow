@@ -84,7 +84,7 @@ fn gzip(dir: &Path, name: &str) -> Result<(), String> {
 
 fn index_html(css: &str, css_sri: &str, boot: &str, boot_sri: &str) -> String {
     format!(
-        "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<meta name=\"referrer\" content=\"no-referrer\">\n<title>burrow admin</title>\n<link rel=\"icon\" href=\"data:,\">\n<link rel=\"stylesheet\" href=\"/{css}\" integrity=\"{css_sri}\">\n<script type=\"module\" src=\"/{boot}\" integrity=\"{boot_sri}\"></script>\n</head>\n<body></body>\n</html>\n"
+        "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<meta name=\"referrer\" content=\"no-referrer\">\n<title>burrow admin</title>\n<link rel=\"icon\" href=\"data:,\">\n<link rel=\"stylesheet\" href=\"/{css}\" integrity=\"{css_sri}\">\n<script type=\"module\" src=\"/{boot}\" integrity=\"{boot_sri}\"></script>\n</head>\n<body><p id=\"boot\" class=\"p-8 text-sm text-text-muted\">Loading burrow admin…</p></body>\n</html>\n"
     )
 }
 
@@ -396,6 +396,12 @@ mod tests {
         ));
         assert!(!html.contains("<style"));
         assert_eq!(html.matches("<script").count(), 1);
+        assert!(
+            html.contains(
+                "<p id=\"boot\" class=\"p-8 text-sm text-text-muted\">Loading burrow admin…</p>"
+            ),
+            "the page says it is loading before the WebAssembly starts"
+        );
         assert_eq!(hashed("app.js", b"x", false), "app.js");
         assert!(hashed("app.js", b"x", true).starts_with("app-"));
     }

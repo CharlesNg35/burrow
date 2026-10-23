@@ -245,7 +245,7 @@ fn unset_env() {
        |
      4 |     secret: ${MISSING_SECRET}
        |             ^^^^^^^^^^^^^^^^^ referenced here
-       = help: set it before starting burrow, for example: export MISSING_SECRET="$(burrow gensecret)"
+       = help: set it before starting burrow, for example: export MISSING_SECRET="..."; a secret has the same value in server.yaml and in the client's or visitor's file (make a new one with: burrow gensecret)
 
     error: environment variable "MISSING_TARGET" is not set
       --> server.yaml:9:13

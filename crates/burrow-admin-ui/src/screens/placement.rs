@@ -189,4 +189,78 @@ mod tests {
             .collect();
         assert!(wrong.is_empty(), "{wrong:#?}");
     }
+
+    fn walk(key: &str, n: &Node, out: &mut Vec<(String, Node)>) {
+        out.push((key.to_string(), n.clone()));
+        match &n.sem {
+            SemType::Object(o) => o
+                .fields
+                .iter()
+                .for_each(|f| walk(&format!("{key}.{}", f.key), &f.node, out)),
+            SemType::Map(m) => walk(&format!("{key}.*"), &m.value, out),
+            SemType::RefMap(m) => walk(&format!("{key}.*"), &m.value, out),
+            SemType::Optional(o) => {
+                let mut inner = Vec::new();
+                walk(key, &o.inner, &mut inner);
+                out.extend(inner.into_iter().skip(1));
+            }
+            _ => {}
+        }
+    }
+
+    fn wants_example(n: &Node) -> bool {
+        let inner = |n: &Node| match &n.sem {
+            SemType::Optional(o) => o.inner.sem.clone(),
+            s => s.clone(),
+        };
+        match inner(n) {
+            SemType::IpPort(_) | SemType::Target(_) | SemType::ServerAddress | SemType::Rate => {
+                true
+            }
+            SemType::List(l) => matches!(l.item.sem, SemType::Cidr | SemType::CidrRule),
+            SemType::RefMap(m) => matches!(m.value.sem, SemType::Union(_)),
+            _ => false,
+        }
+    }
+
+    #[test]
+    fn address_and_list_fields_show_an_example() {
+        let root = <burrow_config::ServerConfig as AdminSchema>::node();
+        let mut all = Vec::new();
+        walk("", &root, &mut all);
+        let missing: Vec<String> = all
+            .iter()
+            .filter(|(_, n)| wants_example(n))
+            .filter(|(_, n)| !n.help.contains("for example"))
+            .map(|(k, n)| format!("{k}: {}", n.help))
+            .collect();
+        assert!(
+            all.iter().filter(|(_, n)| wants_example(n)).count() > 8,
+            "the walk finds the address fields"
+        );
+        assert!(missing.is_empty(), "{missing:#?}");
+    }
+
+    #[test]
+    fn help_examples_hold_for_every_server() {
+        let root = <burrow_config::ServerConfig as AdminSchema>::node();
+        let public = root.at(&["public_address".to_string()]).unwrap();
+        assert!(
+            public.help.contains("when WebSocket is on"),
+            "{}",
+            public.help
+        );
+        let clients = root
+            .at(&[
+                "services".to_string(),
+                "*".to_string(),
+                "clients".to_string(),
+            ])
+            .unwrap();
+        assert!(
+            clients.help.contains("with two or more"),
+            "{}",
+            clients.help
+        );
+    }
 }

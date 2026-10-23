@@ -221,6 +221,9 @@ pub async fn open_review(c: &mut Ctx, step: &str) {
 }
 
 pub async fn applied(c: &mut Ctx, step: &str) {
+    c.ui.wait_for("[data-testid=apply]:not([disabled])", SECS)
+        .await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
     c.ui.click("[data-testid=apply]").await;
     c.ui.wait_text(
         "[data-testid=toasts]",
@@ -271,7 +274,7 @@ fn dashboard(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
     Box::pin(async move {
         let echo = echo_server(c.world.ports["echo"]).await;
         open(c, "ops").await;
-        c.ui.wait_text("[data-testid=kpi-clients]", "online now", SECS)
+        c.ui.wait_text("[data-testid=kpi-clients]", "1 away", SECS)
             .await;
         c.ui.wait_text("[data-testid=conn-pill]", "Connected", SECS)
             .await;
@@ -592,6 +595,11 @@ fn list_scrolls(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
             .eval("(() => { window.scrollTo(0, 400); return document.scrollingElement.scrollTop; })()")
             .await;
         assert!(stacked > 0.0, "on a phone the list scrolls with the page");
+        let switcher = c.ui.text("[data-testid=server-switcher]").await;
+        assert!(
+            !switcher.contains(" up "),
+            "the header shows only the server name on a phone: {switcher}"
+        );
         c.ui.viewport(1440, 900).await;
         c.ui.assert_no_errors();
     })
@@ -1478,6 +1486,94 @@ fn visitor_live(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
         echo.abort();
         c.ui.assert_no_errors();
     })
+}
+
+fn admin_session(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
+    Box::pin(async move {
+        let port = world::free_port();
+        let url = c.world.open_admin_on("ops", port);
+        c.ui.goto(&url).await;
+        c.ui.wait_text("[data-testid=conn-pill]", "Connected to", SECS)
+            .await;
+        c.ui.wait_gone("[data-testid=loading]", Duration::from_secs(20))
+            .await;
+        c.world.stop("admin-ops");
+        c.ui.wait_text(
+            "[data-testid=banner-reconnecting]",
+            "burrow admin is not running",
+            Duration::from_secs(20),
+        )
+        .await;
+        c.ui.shot("admin-not-running").await;
+        let log = c.world.file("admin-ops.log");
+        let _ = std::fs::remove_file(c.world.file("url-ops"));
+        let again = c.world.open_admin_on("ops", port);
+        assert_eq!(
+            again, url,
+            "the next run for the same config reuses the session"
+        );
+        c.ui.wait_text(
+            "[data-testid=conn-pill]",
+            "Connected to",
+            Duration::from_secs(20),
+        )
+        .await;
+        c.ui.wait_gone("[data-testid=banner-reconnecting]", SECS)
+            .await;
+        world::wait_until("the reconnect note", Duration::from_secs(10), || {
+            std::fs::read_to_string(&log)
+                .is_ok_and(|t| t.contains("reconnected in your open browser tab"))
+        });
+        let printed = std::fs::read_to_string(&log).unwrap_or_default();
+        assert!(
+            !printed.contains("#token="),
+            "without --print-url the token is never printed: {printed}"
+        );
+        c.ui.shot("old-tab-reconnected").await;
+        c.world.stop("admin-ops");
+        let banner =
+            c.ui.wait_text(
+                "[data-testid=banner-reconnecting]",
+                "open the link it printed",
+                Duration::from_secs(50),
+            )
+            .await;
+        assert!(
+            !banner.contains("this tab reconnects") && !banner.contains("0 pending"),
+            "after a while the tab stops promising to reconnect: {banner}"
+        );
+        c.ui.shot("admin-gone-for-a-while").await;
+        let logged = c.ui.take_errors();
+        assert!(
+            !logged.iter().any(|l| l.contains("not sent")),
+            "no console noise while disconnected: {logged:?}"
+        );
+        let _ = std::fs::remove_file(c.world.file("url-ops"));
+        c.world.open_admin_on("ops", port);
+        let token = url.split("#token=").nth(1).unwrap().to_string();
+        let foreign = url.replace(&token, &"0".repeat(64));
+        c.ui.goto("about:blank").await;
+        c.ui.goto(&foreign).await;
+        c.ui.wait_text(
+            "[data-testid=ended]",
+            "This tab's admin session ended",
+            SECS,
+        )
+        .await;
+        tokio::time::sleep(Duration::from_secs(3)).await;
+        assert_eq!(
+            c.ui.count("[data-testid=banner-reconnecting]").await,
+            0,
+            "an ended session does not retry"
+        );
+        c.ui.shot("admin-session-ended").await;
+        c.ui.take_errors();
+    })
+}
+
+#[test]
+fn an_old_tab_reconnects_to_the_next_burrow_admin_and_a_foreign_one_is_told_it_ended() {
+    run("admin-session", Options::default(), false, admin_session);
 }
 
 #[test]

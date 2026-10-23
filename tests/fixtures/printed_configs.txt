@@ -14,9 +14,9 @@ server: tunnel.example.com:7835
 name: office
 secret: ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8=
 allow:
+  - 10.0.0.5/32:5432
   - 127.0.0.1/32:8080-8082
   - "[::1/128]:8080-8082"
-  - 10.0.0.5/32:5432
 --- notes
 
 === client office Yaml Some("ws://tunnel.example.com/burrow")
@@ -81,9 +81,9 @@ error: Failure { message: "invalid --server: the server has no websocket section
   "name": "office",
   "secret": "ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8=",
   "allow": [
+    "10.0.0.5/32:5432",
     "127.0.0.1/32:8080-8082",
-    "[::1/128]:8080-8082",
-    "10.0.0.5/32:5432"
+    "[::1/128]:8080-8082"
   ]
 }
 --- notes

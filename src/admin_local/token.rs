@@ -8,6 +8,10 @@ impl Token {
         Token(hex::encode(bytes))
     }
 
+    pub fn from_stored(t: String) -> Token {
+        Token(t)
+    }
+
     pub fn as_str(&self) -> &str {
         &self.0
     }

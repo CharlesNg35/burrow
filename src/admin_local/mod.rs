@@ -3,6 +3,7 @@ pub mod bridge;
 pub mod find;
 pub mod http;
 pub mod launch;
+pub mod session;
 pub mod token;
 
 use std::io::Write;
@@ -276,27 +277,54 @@ async fn connection(stream: TcpStream, shared: Arc<Shared>) {
 pub struct Running {
     pub addr: SocketAddr,
     pub url: String,
+    pub reused: bool,
 }
 
 pub async fn listen(
     port: Option<u16>,
     default: u16,
 ) -> Result<(TcpListener, Option<String>), Failure> {
+    listen_near(port, None, default).await
+}
+
+pub async fn listen_near(
+    port: Option<u16>,
+    last: Option<u16>,
+    default: u16,
+) -> Result<(TcpListener, Option<String>), Failure> {
     if let Some(p) = port {
         return Ok((bind(p).await?, None));
     }
-    let why = match TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], default))).await {
-        Ok(l) => return Ok((l, None)),
-        Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
-            format!("port {default} is in use")
+    let mut moved = None;
+    if let Some(p) = last.filter(|p| *p != default) {
+        match TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], p))).await {
+            Ok(l) => return Ok((l, None)),
+            Err(_) => moved = Some(p),
         }
-        Err(e) => format!("cannot use port {default} ({e})"),
+    }
+    let (l, note) = match TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], default))).await {
+        Ok(l) => (l, None),
+        Err(e) => {
+            let why = if e.kind() == std::io::ErrorKind::AddrInUse {
+                format!("port {default} is in use")
+            } else {
+                format!("cannot use port {default} ({e})")
+            };
+            let l = bind(0).await?;
+            let note = l
+                .local_addr()
+                .ok()
+                .map(|a| format!("{why}; the UI is on 127.0.0.1:{}", a.port()));
+            (l, note)
+        }
     };
-    let l = bind(0).await?;
-    let note = l
-        .local_addr()
-        .ok()
-        .map(|a| format!("{why}; the UI is on 127.0.0.1:{}", a.port()));
+    let note = match (moved, l.local_addr()) {
+        (Some(p), Ok(a)) => Some(format!(
+            "port {p} of your last session is taken; the UI is on 127.0.0.1:{} (open the new link)",
+            a.port()
+        )),
+        _ => note,
+    };
     Ok((l, note))
 }
 
@@ -313,24 +341,69 @@ pub async fn serve(
     listener: TcpListener,
     settings: &VisitorSettings,
     opts: &Options,
+    stop: watch::Receiver<bool>,
+    ready: impl FnOnce(&Running) -> Result<(), Failure>,
+) -> Result<(), Failure> {
+    serve_session(
+        listener,
+        settings,
+        opts,
+        session::Session::fresh(),
+        None,
+        stop,
+        ready,
+        |_, _| {},
+    )
+    .await
+}
+
+pub const RECONNECT_GRACE: Duration = Duration::from_secs(3);
+const TOUCH_EVERY: Duration = Duration::from_secs(60);
+
+#[allow(clippy::too_many_arguments)]
+pub async fn serve_session(
+    listener: TcpListener,
+    settings: &VisitorSettings,
+    opts: &Options,
+    session: session::Session,
+    keep: Option<session::Keep>,
     mut stop: watch::Receiver<bool>,
     ready: impl FnOnce(&Running) -> Result<(), Failure>,
+    then: impl FnOnce(&Running, bool),
 ) -> Result<(), Failure> {
     let addr = listener
         .local_addr()
         .map_err(|e| Failure::new(format!("cannot read the local address: {e}")))?;
-    let token = Token::generate();
-    let prefix = http::run_prefix();
+    let reused = session.reused && session.port == Some(addr.port());
+    let touch = |s: &session::Session| -> Option<tokio::task::JoinHandle<()>> {
+        let k = keep.as_ref()?;
+        let (dir, config, s, port) = (k.dir.clone(), k.config.clone(), s.clone(), addr.port());
+        Some(tokio::task::spawn_blocking(move || {
+            if let Err(e) = session::save(&dir, &config, &s, port, session::now()) {
+                debug!("cannot keep the admin session in {}: {e}", dir.display());
+            }
+        }))
+    };
+    let last_touch = |s: &session::Session| {
+        let pending = touch(s);
+        async move {
+            if let Some(p) = pending {
+                let _ = p.await;
+            }
+        }
+    };
+    touch(&session);
     let url = format!(
-        "http://127.0.0.1:{}{prefix}/#token={}",
+        "http://127.0.0.1:{}{}/#token={}",
         addr.port(),
-        token.as_str()
+        session.prefix,
+        session.token.as_str()
     );
     let (changed, mut watch_changes) = watch::channel(0u64);
     let shared = Arc::new(Shared {
         port: addr.port(),
-        prefix,
-        token,
+        prefix: session.prefix.clone(),
+        token: session.token.clone(),
         dialer: Arc::new(Dialer::visitor(settings)),
         visitor: settings.name.clone(),
         server: settings.server.clone(),
@@ -338,7 +411,18 @@ pub async fn serve(
         connected: AtomicUsize::new(0),
         changed,
     });
-    ready(&Running { addr, url })?;
+    let running = Running { addr, url, reused };
+    ready(&running)?;
+    let mut then = Some(then);
+    let grace = tokio::time::Instant::now() + RECONNECT_GRACE;
+    if !reused && let Some(f) = then.take() {
+        f(&running, false);
+    }
+    let mut touched = tokio::time::Instant::now();
+    let mut refresh = tokio::time::interval_at(
+        tokio::time::Instant::now() + session::REFRESH_EVERY,
+        session::REFRESH_EVERY,
+    );
     let open = Arc::new(Semaphore::new(MAX_OPEN));
     let mut idle_since = tokio::time::Instant::now();
     loop {
@@ -361,6 +445,25 @@ pub async fn serve(
             _ = watch_changes.changed() => {
                 if shared.connected.load(Ordering::Acquire) == 0 {
                     idle_since = tokio::time::Instant::now();
+                } else {
+                    if let Some(f) = then.take() {
+                        f(&running, true);
+                    }
+                    if touched.elapsed() >= TOUCH_EVERY {
+                        touched = tokio::time::Instant::now();
+                        touch(&session);
+                    }
+                }
+            }
+            _ = refresh.tick() => {
+                if shared.connected.load(Ordering::Acquire) > 0 {
+                    touched = tokio::time::Instant::now();
+                    touch(&session);
+                }
+            }
+            _ = tokio::time::sleep_until(grace), if then.is_some() => {
+                if let Some(f) = then.take() {
+                    f(&running, false);
                 }
             }
             _ = tokio::time::sleep(idle_left), if shared.connected.load(Ordering::Acquire) == 0 => {
@@ -368,9 +471,13 @@ pub async fn serve(
                     "no browser was connected for {}; burrow admin stopped (run it again, or pass a longer --idle-exit)",
                     crate::client::reconnect::human(opts.idle_exit)
                 );
+                last_touch(&session).await;
                 return Ok(());
             }
-            _ = stop.changed() => return Ok(()),
+            _ = stop.changed() => {
+                last_touch(&session).await;
+                return Ok(());
+            }
         }
     }
 }
@@ -424,6 +531,27 @@ mod tests {
         assert_eq!(
             accept_key(&req(Some("dGhlIHNhbXBsZSBub25jZQ=="), "8")),
             None
+        );
+    }
+
+    #[tokio::test]
+    async fn a_taken_session_port_is_named_when_the_ui_moves() {
+        let held = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let last = held.local_addr().unwrap().port();
+        let free = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let default = free.local_addr().unwrap().port();
+        drop(free);
+        let (l, note) = listen_near(None, Some(last), default).await.unwrap();
+        let got = l.local_addr().unwrap().port();
+        assert_ne!(got, last);
+        assert_eq!(
+            note.as_deref(),
+            Some(
+                format!(
+                    "port {last} of your last session is taken; the UI is on 127.0.0.1:{got} (open the new link)"
+                )
+                .as_str()
+            )
         );
     }
 

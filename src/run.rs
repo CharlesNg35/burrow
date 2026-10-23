@@ -213,30 +213,68 @@ pub fn admin(path: &Path, env: Env, opts: crate::admin_local::Options) -> Result
     };
     drive(async move {
         crate::admin_local::check_access(&settings).await?;
+        use crate::admin_local::session;
+        use std::io::Write;
+        let store = session::dir();
+        let config = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+        let sess = match &store {
+            Some(d) => {
+                session::sweep(d, session::now());
+                session::load(d, &config, session::now())
+            }
+            None => session::Session::fresh(),
+        };
         let (listener, note) =
-            crate::admin_local::listen(opts.port, burrow_syntax::ports::ADMIN_PORT).await?;
+            crate::admin_local::listen_near(opts.port, sess.port, burrow_syntax::ports::ADMIN_PORT)
+                .await?;
         if let Some(note) = note {
             crate::say_errln!("{note}");
         }
         let stop = stop_on_signal(None);
         let dir = crate::instance::default_dir();
-        let mut launch = None;
+        let launch = std::cell::RefCell::new(None);
         let mut out = std::io::stdout();
-        crate::admin_local::serve(listener, &settings, &opts, stop, |running| {
-            if let Some(file) = &opts.url_file {
-                crate::admin_local::launch::write_url_file(file, &running.url)?;
-            }
-            let mut opened = false;
-            if opts.open {
-                let f = crate::admin_local::launch::write(&dir, &running.url).map_err(|e| {
-                    e.hint("run with --no-open --print-url to open the link by hand")
-                })?;
-                opened = crate::admin_local::launch::open_browser(f.path());
-                launch = Some(f);
-            }
-            crate::admin_local::announce(&mut out, &settings, running, &opts, opened);
-            Ok(())
-        })
+        let keep = store.map(|dir| session::Keep { dir, config });
+        crate::admin_local::serve_session(
+            listener,
+            &settings,
+            &opts,
+            sess,
+            keep,
+            stop,
+            |running| {
+                if let Some(file) = &opts.url_file {
+                    crate::admin_local::launch::write_url_file(file, &running.url)?;
+                }
+                if opts.open {
+                    let f = crate::admin_local::launch::write(&dir, &running.url).map_err(|e| {
+                        e.hint("run with --no-open --print-url to open the link by hand")
+                    })?;
+                    *launch.borrow_mut() = Some(f);
+                }
+                Ok(())
+            },
+            |running, reconnected| {
+                if reconnected {
+                    let link = if opts.print_url {
+                        format!(": {}", running.url)
+                    } else {
+                        String::new()
+                    };
+                    let _ = writeln!(
+                        out,
+                        "burrow admin for {} (visitor \"{}\") listens on http://{}\nthe admin UI reconnected in your open browser tab{link}\nstop it with Ctrl-C",
+                        settings.server, settings.name, running.addr
+                    );
+                    return;
+                }
+                let opened = launch
+                    .borrow()
+                    .as_ref()
+                    .is_some_and(|f| crate::admin_local::launch::open_browser(f.path()));
+                crate::admin_local::announce(&mut out, &settings, running, &opts, opened);
+            },
+        )
         .await?;
         drop(launch);
         Ok(0)

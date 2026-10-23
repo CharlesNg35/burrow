@@ -313,12 +313,15 @@ pub struct AdminArgs {
     pub service: Option<String>,
     #[arg(
         long,
-        help = "Local port on 127.0.0.1 for the UI; 7839 when free, otherwise any free port; 0 always picks a free one"
+        help = "Local port on 127.0.0.1 for the UI; the kept session's port or 7839 when free, otherwise any free port; 0 always picks a free one"
     )]
     pub port: Option<u16>,
     #[arg(long, help = "Do not open the browser")]
     pub no_open: bool,
-    #[arg(long, help = "Print the link with its one-time token")]
+    #[arg(
+        long,
+        help = "Print the link with its token, which is kept for up to 12 hours per visitor config"
+    )]
     pub print_url: bool,
     #[arg(
         long,
@@ -569,6 +572,46 @@ pub struct ExportArgs {
     pub format: Option<FileFormat>,
 }
 
+pub fn service_word(
+    e: &clap::Error,
+    args: &[std::ffi::OsString],
+) -> Option<crate::failure::Failure> {
+    if e.kind() != clap::error::ErrorKind::InvalidSubcommand {
+        return None;
+    }
+    let Some(clap::error::ContextValue::String(word)) =
+        e.get(clap::error::ContextKind::InvalidSubcommand)
+    else {
+        return None;
+    };
+    if !["install", "uninstall", "start", "stop", "restart", "logs"].contains(&word.as_str()) {
+        return None;
+    }
+    let rest: String = args
+        .iter()
+        .skip(1)
+        .skip_while(|a| a.to_str() != Some(word.as_str()))
+        .skip(1)
+        .map(|a| format!(" {}", crate::failure::arg(&a.to_string_lossy())))
+        .collect();
+    let supported = cfg!(any(target_os = "linux", target_os = "macos", windows));
+    Some(
+        crate::failure::Failure::usage(format!("burrow {word} is not a command"))
+            .hint(service_word_hint(word, &rest, supported)),
+    )
+}
+
+fn service_word_hint(word: &str, rest: &str, supported: bool) -> String {
+    if supported {
+        format!(
+            "for a service, run: {}",
+            crate::failure::admin(&format!("service {word}{rest}"))
+        )
+    } else {
+        "burrow cannot manage services on this operating system; run burrow server or burrow client under your own service manager".to_string()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -590,6 +633,40 @@ mod tests {
                 digits.parse().ok()
             })
             .collect()
+    }
+
+    #[test]
+    fn service_words_used_alone_point_to_the_service_command() {
+        let parse = |args: &[&str]| {
+            let e = Cli::try_parse_from(args).unwrap_err();
+            let args: Vec<std::ffi::OsString> = args.iter().map(Into::into).collect();
+            service_word(&e, &args)
+        };
+        for word in ["install", "uninstall", "start", "stop", "restart", "logs"] {
+            let f = parse(&["burrow", word]).unwrap_or_else(|| panic!("{word}"));
+            assert_eq!(f.message, format!("burrow {word} is not a command"));
+            let hint = f.hint.unwrap();
+            assert!(hint.contains(&format!("burrow service {word}")), "{hint}");
+        }
+        let hint = |args: &[&str]| parse(args).unwrap().hint.unwrap();
+        assert!(hint(&["burrow", "stop", "home"]).contains("burrow service stop home"));
+        assert!(
+            hint(&["burrow", "--log-level", "debug", "logs", "home", "-n", "3"])
+                .contains("burrow service logs home -n 3")
+        );
+        assert!(
+            hint(&["burrow", "install", "-c", "my home.yaml"]).contains(&format!(
+                "burrow service install -c {}",
+                crate::failure::arg("my home.yaml")
+            ))
+        );
+        assert!(
+            service_word_hint("stop", " home", false).starts_with("burrow cannot manage services"),
+        );
+        assert!(service_word_hint("stop", " home", true).contains("service stop home"));
+        for args in [&["burrow", "instal"][..], &["burrow", "service", "frob"]] {
+            assert!(parse(args).is_none(), "{args:?}");
+        }
     }
 
     #[test]
@@ -626,7 +703,7 @@ mod tests {
             ("default 127.0.0.1:", WS_PORT),
             ("for example 127.0.0.1:", WS_PORT),
             ("or 0.0.0.0:", WSS_PORT),
-            ("UI; ", ADMIN_PORT),
+            ("session's port or ", ADMIN_PORT),
         ] {
             let found = numbers_after(&text, before);
             assert!(!found.is_empty(), "no text names a port after {before:?}");

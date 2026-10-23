@@ -121,17 +121,20 @@ fn expand_str(
 }
 
 fn set_hint(name: &str, secret: bool) -> String {
-    let value = match (secret, cfg!(windows)) {
-        (true, false) => format!("\"$({})\"", crate::failure::cmd("gensecret")),
-        (true, true) => format!("({})", crate::failure::cmd("gensecret")),
-        (false, _) => "\"...\"".to_string(),
-    };
     let set = if cfg!(windows) {
-        format!("$env:{name} = {value}")
+        format!("$env:{name} = \"...\"")
     } else {
-        format!("export {name}={value}")
+        format!("export {name}=\"...\"")
     };
-    format!("set it before starting burrow, for example: {set}")
+    let hint = format!("set it before starting burrow, for example: {set}");
+    if secret {
+        format!(
+            "{hint}; a secret has the same value in server.yaml and in the client's or visitor's file (make a new one with: {})",
+            crate::failure::cmd("gensecret")
+        )
+    } else {
+        hint
+    }
 }
 
 fn sub_span(src: &str, span: Span, token: &str) -> Span {

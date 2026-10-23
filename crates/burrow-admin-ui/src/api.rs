@@ -10,6 +10,7 @@ use burrow_admin_proto::serde_json::{self, Value, json};
 use burrow_admin_proto::status::Status;
 use leptos::prelude::*;
 use wasm_bindgen::JsCast;
+use wasm_bindgen::JsValue;
 use wasm_bindgen::prelude::Closure;
 use web_sys::{CloseEvent, MessageEvent, WebSocket};
 
@@ -55,6 +56,9 @@ fn token() -> Option<String> {
 }
 
 pub fn connect(store: Store) {
+    if store.conn.get_untracked() == Conn::Ended {
+        return;
+    }
     let Some(token) = token() else {
         store.conn.set(Conn::NoToken);
         return;
@@ -129,29 +133,62 @@ fn closed(store: Store, e: &CloseEvent) {
     fail_pending();
     let was = store.conn.get_untracked();
     match was {
-        Conn::Refused { .. } | Conn::Revoked { .. } | Conn::Closed { .. } => return,
+        Conn::Refused { .. } | Conn::Revoked { .. } | Conn::Closed { .. } | Conn::Ended => return,
         _ => {}
     }
     if e.code() == 1008 {
-        store.conn.set(Conn::Closed {
-            message:
-                "burrow admin did not accept this page's sign-in. Open it again from the terminal."
-                    .into(),
-        });
+        store.conn.set(Conn::Ended);
         return;
     }
+    probe(store);
     let attempt = ATTEMPT.with(|a| {
         let mut a = a.borrow_mut();
         *a += 1;
         *a
     });
     store.conn.set(Conn::Reconnecting { attempt });
-    let delay = (1000 * u64::from(attempt.min(5))) as u32;
+    let delay = if store.admin_down.get_untracked() {
+        if attempt > GONE_AFTER { 10_000 } else { 2000 }
+    } else {
+        (1000 * u64::from(attempt.min(5))) as u32
+    };
     store.retry_at.set(now_ms() + f64::from(delay));
     set_timeout(
         move || connect(store),
         std::time::Duration::from_millis(u64::from(delay)),
     );
+}
+
+type Handler = Closure<dyn FnMut(JsValue)>;
+
+thread_local! {
+    static PROBE: RefCell<Option<(Handler, Handler)>> = const { RefCell::new(None) };
+}
+
+pub const GONE_AFTER: u32 = 15;
+
+fn probe(store: Store) {
+    let url = format!("{}/api", crate::route::run_prefix());
+    PROBE.with(|p| {
+        let mut p = p.borrow_mut();
+        let (answered, unreachable) = p.get_or_insert_with(|| {
+            let answered: Handler = Closure::new(move |r: JsValue| {
+                let status = js_sys::Reflect::get(&r, &JsValue::from_str("status"))
+                    .ok()
+                    .and_then(|s| s.as_f64())
+                    .unwrap_or(0.0);
+                let _ = store.admin_down.try_set(false);
+                if status == 404.0 {
+                    let _ = store.conn.try_set(Conn::Ended);
+                }
+            });
+            let unreachable: Handler = Closure::new(move |_: JsValue| {
+                let _ = store.admin_down.try_set(true);
+            });
+            (answered, unreachable)
+        });
+        let _ = window().fetch_with_str(&url).then2(answered, unreachable);
+    });
 }
 
 pub fn reconnect(store: Store) {
@@ -180,7 +217,6 @@ pub fn request(t: &str, body: Value, done: impl FnOnce(Reply) + 'static) {
         }
     });
     if let Some(f) = done {
-        leptos::logging::warn!("burrow admin: request {t} not sent, no connection");
         set_timeout(
             move || {
                 f(Err(ErrorBody {
@@ -299,6 +335,7 @@ fn after_refusal(now: &Conn, reason: String, message: String) -> Conn {
     match now {
         Conn::Revoked { .. } => now.clone(),
         Conn::Reconnecting { .. } if reason == "unreachable" || reason == "busy" => now.clone(),
+        _ if reason == "unreachable" || reason == "busy" => Conn::Reconnecting { attempt: 0 },
         Conn::Reconnecting { .. } if reason == "forbidden" => Conn::Revoked { reason: message },
         _ => Conn::Refused { reason, message },
     }
@@ -392,5 +429,12 @@ mod tests {
             after_refusal(&Conn::Connecting, "forbidden".into(), "y".into()),
             Conn::Refused { .. }
         ));
+        for transient in ["unreachable", "busy"] {
+            assert_eq!(
+                after_refusal(&Conn::Connecting, transient.into(), "timed out".into()),
+                Conn::Reconnecting { attempt: 0 },
+                "a slow or busy server on the first try is retried, not final"
+            );
+        }
     }
 }

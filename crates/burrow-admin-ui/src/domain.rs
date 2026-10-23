@@ -145,6 +145,11 @@ fn by_sem(fc: FieldCtx, sem: &SemType) -> AnyView {
                     } else {
                         inner_node.label.clone()
                     },
+                    help: if inner_node.help.is_empty() {
+                        fc.node.help.clone()
+                    } else {
+                        inner_node.help.clone()
+                    },
                     ..inner_node.clone()
                 },
                 ..fc
@@ -391,7 +396,11 @@ fn enum_editor(fc: FieldCtx, c: EnumC) -> AnyView {
     let locked = move || off.with(|o| !o.is_empty()).then(in_the_file);
     let help = {
         let c = c.clone();
+        let field_help = !fc.node.help.is_empty();
         move || {
+            if field_help {
+                return None;
+            }
             let v = value.get();
             c.options
                 .iter()
@@ -668,7 +677,21 @@ fn list_editor(fc: FieldCtx, item: Node) -> AnyView {
     .into_any()
 }
 
+fn without_port(text: &str) -> &str {
+    if let Some(rest) = text.strip_prefix('[') {
+        return rest.split(']').next().unwrap_or(rest);
+    }
+    match text.rsplit_once(':') {
+        Some((head, _)) if !head.contains(':') => head,
+        _ => text,
+    }
+}
+
 pub fn cidr_size(text: &str) -> String {
+    if text.starts_with("unix:") {
+        return String::new();
+    }
+    let text = without_port(text);
     let (addr, bits) = match text.split_once('/') {
         Some((a, b)) => (a, b.parse::<u32>().ok()),
         None => (text, None),
@@ -705,10 +728,16 @@ fn map_editor(fc: FieldCtx, entity: Option<Entity>, value_node: Node) -> AnyView
     let candidates = Signal::derive(move || {
         let used = keys.get();
         let mut o = vec![(String::new(), "Add…".to_string())];
+        let self_ready = burrow_config::ServerConfig::SELF
+            .then(burrow_config::SelfEntry::ALLOW)
+            .get(&e.doc())
+            .and_then(Value::as_array)
+            .is_some_and(|a| !a.is_empty());
         o.extend(
             reserved
                 .iter()
                 .filter(|n| !used.contains(n))
+                .filter(|n| n.as_str() != burrow_config::SELF || self_ready)
                 .map(|n| (n.clone(), format!("{THIS_SERVER} · {n}"))),
         );
         if let Some(ent) = &ent {
@@ -814,6 +843,7 @@ fn any_or_rules_editor(fc: FieldCtx, item: Node) -> AnyView {
         _ => "only".to_string(),
     });
     let p2 = fc.path.clone();
+    let kept: StoredValue<Option<Value>> = StoredValue::new(None);
     let options = vec![
         (ANY.to_string(), "Any target".to_string(), false),
         ("only".to_string(), "Only these".to_string(), false),
@@ -835,9 +865,10 @@ fn any_or_rules_editor(fc: FieldCtx, item: Node) -> AnyView {
                 label=fc.node.label.clone()
                 on_change=move |m: String| {
                     let v = if m == ANY {
+                        kept.set_value(e.peek(&p2).filter(|v| v.as_str() != Some(ANY)));
                         Value::String(ANY.into())
                     } else {
-                        Value::Array(Vec::new())
+                        kept.get_value().unwrap_or(Value::Array(Vec::new()))
                     };
                     e.set(&p2, Some(v));
                 }
@@ -956,4 +987,21 @@ pub fn health_box(node: Node, path: Path, spath: Path, entity: Path) -> AnyView 
         })
     })
     .into_any()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_rule_with_a_port_is_sized_by_its_network() {
+        assert_eq!(cidr_size("10.0.0.0/8"), "16.8 M addresses");
+        assert_eq!(cidr_size("10.0.0.0/8:22"), "16.8 M addresses");
+        assert_eq!(cidr_size("192.168.1.0/24:8000-8010"), "256 addresses");
+        assert_eq!(cidr_size("192.168.1.10:22"), "single address");
+        assert_eq!(cidr_size("192.168.1.10"), "single address");
+        assert_eq!(cidr_size("[fd00::/64]:443"), "/64 network");
+        assert_eq!(cidr_size("fd00::/64"), "/64 network");
+        assert_eq!(cidr_size("unix:/run/app.sock"), "");
+    }
 }

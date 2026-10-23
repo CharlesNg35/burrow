@@ -100,6 +100,13 @@ fn add_service(c: &mut Ctx) -> Flow<'_> {
             &format!("127.0.0.1:{}-{}", public, public + 2),
         )
         .await;
+        let row = c.ui.text("[data-schema='services/*/bind']").await;
+        assert!(
+            row.contains("Saved as")
+                && row.contains("up to 1000 ports")
+                && !row.contains("for example"),
+            "one line says how it is saved instead of a second help line: {row}"
+        );
         c.ui.wait_text(
             "[data-schema='services/*/target']",
             "2 ports here, but bind has 3",
@@ -568,6 +575,13 @@ fn lockout(c: &mut Ctx) -> Flow<'_> {
         c.ui.click("[data-testid=more]").await;
         c.ui.click("[data-testid=delete]").await;
         wait_checked(c).await;
+        c.ui.nav("/visitors/ops").await;
+        c.ui.wait_for("[data-testid=undo-remove]", SECS).await;
+        let gap: f64 = c
+            .ui
+            .eval("(() => { const a = document.querySelector('[data-testid=undo-remove]').getBoundingClientRect(); const b = document.querySelector('[data-testid=detail-missing] a').getBoundingClientRect(); return b.left >= a.right ? b.left - a.right : b.top - a.bottom; })()")
+            .await;
+        assert!(gap >= 6.0, "buttons side by side keep a gap: {gap}");
         c.ui.shot("ops-deleted-in-draft").await;
         open_review(c, "deleting-myself").await;
         refused(c, "self-removed", "refused-self-removed").await;
@@ -1013,6 +1027,11 @@ fn locked_fields(c: &mut Ctx) -> Flow<'_> {
                 0,
                 "{field} has no input"
             );
+            assert_eq!(
+                c.ui.count(&format!("{row} [data-locked]")).await,
+                0,
+                "{field} reads as a plain value in view mode, not a box"
+            );
             let text =
                 c.ui.wait_text(&row, "Change this in server.yaml (burrow edit)", SECS)
                     .await;
@@ -1304,6 +1323,14 @@ fn edit_state(c: &mut Ctx) -> Flow<'_> {
         wait_checked(c).await;
         c.ui.shot("reach-any-target").await;
         click_js(c, &format!("{reach} [data-key=home] input[value=only]")).await;
+        c.ui.wait_for(&format!("{reach} [data-chip='127.0.0.1/32']"), SECS)
+            .await;
+        assert_eq!(
+            c.ui.count("#f-visitors-laptop-reach-add option[value=self]")
+                .await,
+            0,
+            "this server is not offered while it has no allowed targets"
+        );
         c.ui.fill(
             &format!("{reach} [data-key=home] input[type=text]"),
             "127.0.0.1/32:22",
@@ -1379,7 +1406,28 @@ fn edit_state(c: &mut Ctx) -> Flow<'_> {
             SECS,
         )
         .await;
+        c.ui.nav("/visitors/ops").await;
+        c.ui.wait_for("main h1 [data-testid=you-tag]", SECS).await;
+        edit_mode(c).await;
+        let admin = c.ui.text("[data-schema='visitors/*/admin']").await;
+        assert!(
+            admin.matches("burrow admin").count() == 1 && !admin.contains("Everything read gives"),
+            "the admin field explains itself once: {admin}"
+        );
+        c.ui.click("[data-testid=discard-edit]").await;
+        c.ui.wait_gone("[data-testid=save-bar]", SECS).await;
+        assert!(
+            c.ui.text("main h1").await.contains("admin · write"),
+            "the visitor title says its admin level and that it is you"
+        );
         c.ui.nav("/clients/home").await;
+        let row =
+            c.ui.wait_text("[data-testid=entity-list] [data-row=home]", " · for ", SECS)
+                .await;
+        assert!(
+            row.contains("127.0.0.1"),
+            "an online client row says where from and for how long: {row}"
+        );
         edit_mode(c).await;
         assert!(
             !c.ui.enabled("[data-testid=save]").await,
@@ -1400,16 +1448,23 @@ fn edit_state(c: &mut Ctx) -> Flow<'_> {
             SECS,
         )
         .await;
-        assert_eq!(
-            c.ui.text("main h1").await.trim(),
-            "web",
-            "the protocol is on the path, not repeated by the title"
+        assert!(
+            c.ui.text("main h1").await.contains("TCP"),
+            "the page title carries the protocol tag"
         );
         let meta: String = c
             .ui
             .eval("document.querySelector('[data-testid=entity-list] [data-row=web]').lastElementChild.textContent")
             .await;
-        assert_eq!(meta, "", "the selected row leaves its numbers to the page");
+        assert_eq!(
+            meta, "0 open",
+            "every row shows its open count, the active one too"
+        );
+        let tags = c.ui.text("[data-testid=entity-list] [data-row=web]").await;
+        assert!(
+            tags.contains("TCP"),
+            "TCP rows are tagged like UDP ones: {tags}"
+        );
         c.ui.click("[role=tablist] [data-tab=settings]").await;
         let protocol = c.ui.text("[data-schema='services/*/protocol']").await;
         assert!(
@@ -1477,6 +1532,79 @@ fn edit_state(c: &mut Ctx) -> Flow<'_> {
             "a toast sits above the review's action bar: {gap}"
         );
         c.ui.shot("toast-above-the-action-bar").await;
+
+        c.ui.nav("/services/web?tab=settings").await;
+        edit_mode(c).await;
+        c.ui.fill("#f-services-web-max-connections", "9").await;
+        wait_checked(c).await;
+        c.ui.choose("f-services-web-protocol", "udp").await;
+        let clear = "[data-schema='services/*/max_connections'] [data-testid=clear-unused]";
+        c.ui.wait_for(clear, SECS).await;
+        assert!(
+            c.ui.text(clear)
+                .await
+                .contains("UDP services do not use this"),
+            "a value the protocol cannot use can be cleared in place"
+        );
+        c.ui.click(clear).await;
+        c.ui.wait_gone(clear, SECS).await;
+        wait_checked(c).await;
+        assert_eq!(c.ui.count("[data-testid=form-problems]").await, 0);
+        c.ui.click("[data-testid=discard-edit]").await;
+        c.ui.wait_gone("[data-testid=save-bar]", SECS).await;
+
+        c.ui.viewport(420, 700).await;
+        c.ui.nav("/visitors").await;
+        c.ui.click("[data-testid=new]").await;
+        c.ui.wait_for("#new-links", SECS).await;
+        let placeholder: String =
+            c.ui.eval("document.getElementById('new-links').placeholder")
+                .await;
+        assert!(!placeholder.is_empty(), "the picker says what it is for");
+        let before: f64 = c
+            .ui
+            .eval("(() => { scrollTo(0, 0); const r = document.getElementById('new-links').getBoundingClientRect(); const b = document.querySelector('[data-sticky-bar]').getBoundingClientRect(); scrollBy(0, r.bottom - b.top + 8); return scrollY; })()")
+            .await;
+        let _: bool = c
+            .ui
+            .eval("(() => { const e = document.getElementById('new-links'); e.focus(); e.click(); return true; })()")
+            .await;
+        c.ui.wait_for("[role=listbox]", SECS).await;
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        let seen: Vec<f64> = c
+            .ui
+            .eval("(() => { const l = document.querySelector('[role=listbox]').parentElement.getBoundingClientRect(); const b = document.querySelector('[data-sticky-bar]').getBoundingClientRect(); return [l.top, l.bottom, b.top, scrollY]; })()")
+            .await;
+        assert!(
+            (seen[3] - before).abs() < 1.0,
+            "opening the picker does not scroll the page: {before} then {seen:?}"
+        );
+        assert!(
+            seen[0] >= 0.0 && seen[1] <= seen[2] + 0.5,
+            "the open list fits between the top and the save bar: {seen:?}"
+        );
+        assert_eq!(
+            c.ui.count("[role=listbox]").await,
+            1,
+            "the picker stays open after the click"
+        );
+        c.ui.click("[role=listbox] [role=option]").await;
+        c.ui.wait_for("#new-links-chips [data-chip], [data-chip]", SECS)
+            .await;
+        c.ui.shot("new-visitor-picker-short-window").await;
+        c.ui.press("#new-links", "Escape").await;
+        c.ui.click("[data-testid=create-cancel]").await;
+        c.ui.nav("/services/web").await;
+        c.ui.wait_for("[data-testid=health] table", SECS).await;
+        let wide: bool = c
+            .ui
+            .eval("(() => { const w = document.querySelector('[data-testid=health] table').parentElement; return w.scrollWidth > w.clientWidth + 1; })()")
+            .await;
+        assert!(
+            !wide,
+            "Health per client fits a narrow screen without scrolling sideways"
+        );
+        c.ui.viewport(1440, 900).await;
         c.ui.assert_no_errors();
     })
 }

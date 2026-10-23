@@ -391,6 +391,9 @@ pub fn run(opts: &Options, out: &mut dyn Write) -> Result<u8, Failure> {
             format!("updated {} {mine} -> {}", me.display(), asset.version),
         )?;
     }
+    if managed.is_empty() {
+        service::note_strays(out)?;
+    }
     if !managed.is_empty() && !admin_rights {
         say(
             out,

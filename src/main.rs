@@ -29,8 +29,17 @@ fn format(f: FileFormat) -> Format {
 }
 
 fn main() -> ExitCode {
-    let cli = Cli::parse();
     let err_style = Style::detect(std::io::stderr().is_terminal());
+    let cli = match Cli::try_parse() {
+        Ok(cli) => cli,
+        Err(e) => match burrow::cli::service_word(&e, &std::env::args_os().collect::<Vec<_>>()) {
+            Some(f) => {
+                burrow::say_errln!("{}", f.render(err_style));
+                return ExitCode::from(f.exit);
+            }
+            None => e.exit(),
+        },
+    };
     match run(cli) {
         Ok(code) => ExitCode::from(code),
         Err(f) => {

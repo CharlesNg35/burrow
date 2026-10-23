@@ -26,7 +26,7 @@ The install copies burrow and the config to system folders (see [below](#where-t
 <details>
 <summary><b>What <code>install</code> does, step by step</b></summary>
 
-- **Checks first.** It checks the config, and that every port it listens on is free. If another program holds a port, it names it (`tcp port 7840 (service "web") is already in use by nginx (pid 812)`) and changes nothing.
+- **Checks first.** It checks the config, and that every port it listens on is free. If another program holds a port, it names it (`tcp port 7840 (service "web") is already in use by nginx (pid 812)`), or the burrow service that holds it, and changes nothing.
 - **Copies the config** into the service's own folder, readable only by the service. `burrow service status` tells you when the file you installed from has changed since.
 - **Copies the binary** to `/usr/local/bin/burrow` (`%ProgramFiles%\burrow\burrow.exe` on Windows), creating the folder if needed. So the service never depends on the folder you downloaded burrow to. If other users can change `/usr/local/bin`, the service gets its own copy in a folder only root can change. Installing again from the same file copies nothing new.
 - **Runs the service under its own account,** without login or home folder: `burrow` on Linux, `_burrow` on macOS, the virtual account `NT SERVICE\burrow-<name>` on Windows. `--run-as USER` picks another existing account. On Linux, a port below 1024 gets only the one permission it needs (`CAP_NET_BIND_SERVICE`).
@@ -59,6 +59,13 @@ sudo burrow status -f                  # live clients and traffic of a server, s
 ```
 
 With one burrow service installed, the commands find it by themselves. With several, add its name: `burrow service status burrow-home`.
+
+**A burrow unit burrow has no record of**, such as one installed by an older burrow or written by hand, is listed as `not managed by this burrow`, and burrow leaves it alone. `burrow service status <name>` gives the exact commands to take it over: stop it, then install from its config. `install` refuses to replace such a unit while it runs:
+
+```sh
+sudo systemctl stop burrow-client
+sudo burrow service install -c /etc/burrow/client.yaml
+```
 
 ## Where the files go
 
