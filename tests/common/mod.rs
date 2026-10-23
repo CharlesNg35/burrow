@@ -152,10 +152,7 @@ pub async fn start_server(settings: ServerSettings) -> RunningServer {
     };
     let ws_addr = server.websocket_addr();
     let metrics = server.metrics_addr();
-    let ws_settings = settings_ws.map(|mut w| {
-        w.listen = ws_addr.expect("websocket bound");
-        w
-    });
+    let ws_settings = settings_ws;
     let addr = server
         .local_addr()
         .or(ws_addr)
