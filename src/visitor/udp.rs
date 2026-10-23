@@ -129,20 +129,18 @@ pub(super) async fn serve(
         meter: Arc::new(Unmetered),
         stall: crate::forward::VISIT_REPLY,
     };
-    let mut buf = vec![0u8; 65536];
-    let mut rec = Vec::with_capacity(65536);
     let mut backoff = Backoff::new(Duration::from_millis(100), Duration::from_secs(5));
     loop {
-        let (n, from) = match front.socket.recv_from(&mut buf).await {
-            Ok(v) => v,
-            Err(e) => {
-                debug!("forward \"{name}\": UDP receive error: {e}");
-                tokio::time::sleep(Duration::from_millis(100)).await;
-                continue;
-            }
+        if let Err(e) = front.socket.readable().await {
+            debug!("forward \"{name}\": UDP receive error: {e}");
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            continue;
+        }
+        let Some((first, from)) = receive(&front.socket, &name) else {
+            continue;
         };
-        if n > MAX_DATAGRAM {
-            front::too_large(from, n);
+        if first.len() > MAX_DATAGRAM {
+            front::too_large(from, first.len());
             continue;
         }
         let (id, count) = {
@@ -192,7 +190,8 @@ pub(super) async fn serve(
                 continue;
             }
         };
-        encode_datagram(id, &buf[..n], &mut rec);
+        let mut rec = Vec::with_capacity(4 + first.len());
+        encode_datagram(id, &first, &mut rec);
         if link.writer.send(&mut link.wr, &rec).await.is_err() {
             tokio::time::sleep(backoff.next_delay()).await;
             continue;
@@ -217,4 +216,22 @@ pub(super) async fn serve(
             backoff.reset();
         }
     }
+}
+
+thread_local! {
+    static RECEIVE: std::cell::RefCell<Vec<u8>> = std::cell::RefCell::new(vec![0u8; 65536]);
+}
+
+fn receive(socket: &UdpSocket, name: &str) -> Option<(Vec<u8>, SocketAddr)> {
+    RECEIVE.with(|buf| {
+        let mut buf = buf.borrow_mut();
+        match socket.try_recv_from(&mut buf) {
+            Ok((n, from)) => Some((buf[..n].to_vec(), from)),
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => None,
+            Err(e) => {
+                debug!("forward \"{name}\": UDP receive error: {e}");
+                None
+            }
+        }
+    })
 }
