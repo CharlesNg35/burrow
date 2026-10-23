@@ -569,6 +569,27 @@ pub struct ExportArgs {
     pub format: Option<FileFormat>,
 }
 
+pub fn service_word(e: &clap::Error) -> Option<crate::failure::Failure> {
+    if e.kind() != clap::error::ErrorKind::InvalidSubcommand {
+        return None;
+    }
+    let Some(clap::error::ContextValue::String(word)) =
+        e.get(clap::error::ContextKind::InvalidSubcommand)
+    else {
+        return None;
+    };
+    ["install", "uninstall", "start", "stop", "restart", "logs"]
+        .contains(&word.as_str())
+        .then(|| {
+            crate::failure::Failure::usage(format!("burrow {word} is not a command")).hint(
+                format!(
+                    "for a service, run: {}",
+                    crate::failure::admin(&format!("service {word}"))
+                ),
+            )
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
