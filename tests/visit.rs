@@ -885,6 +885,13 @@ async fn reload_closes_revoked_udp_visits() {
     let mut back = settings;
     back.visitors.get_mut("laptop").unwrap().reach = [("home".to_string(), AllowList::All)].into();
     s.tunnel.server.reload(back.clone()).await;
+    let shared = s.tunnel.server.shared.clone();
+    wait_for(|| {
+        shared.settings_snapshot().services["dns"]
+            .visitors
+            .contains(&"laptop".to_string())
+    })
+    .await;
     let mut open = s.udp(VisitTarget::service("dns")).await.ok().unwrap();
     assert!(open.echoes(1, b"again").await);
     back.services
@@ -1272,7 +1279,6 @@ async fn a_udp_forward_dials_with_the_reloaded_secret() {
     next.forwards
         .insert("dns".into(), udp_forward(at, VisitTarget::service("dns")));
     v.reload.as_ref().unwrap().send(next).await.unwrap();
-    tokio::time::sleep(Duration::from_millis(300)).await;
     let mut only_new = both;
     only_new.visitors.get_mut("laptop").unwrap().secrets = vec![fresh];
     s.tunnel.server.reload(only_new).await;

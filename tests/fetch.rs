@@ -537,7 +537,7 @@ async fn init_visitor_against_a_server_older_than_v012_lists_tcp_and_keeps_udp_f
     assert!(!yaml.contains("gone"), "{yaml}");
 }
 
-fn visit_log(w: &World, config: &str) -> String {
+fn visit_log(w: &World, config: &str, expect: &[&str]) -> String {
     std::fs::write(w.path("visitor.yaml"), config).unwrap();
     #[cfg(unix)]
     {
@@ -557,10 +557,32 @@ fn visit_log(w: &World, config: &str) -> String {
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
-    std::thread::sleep(std::time::Duration::from_secs(3));
+    let stderr = child.stderr.take().unwrap();
+    let seen = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+    let into = seen.clone();
+    let reader = std::thread::spawn(move || {
+        use std::io::BufRead;
+        for line in std::io::BufReader::new(stderr)
+            .lines()
+            .map_while(Result::ok)
+        {
+            let mut all = into.lock().unwrap();
+            all.push_str(&line);
+            all.push('\n');
+        }
+    });
+    let started = std::time::Instant::now();
+    while started.elapsed() < std::time::Duration::from_secs(20)
+        && !expect.iter().all(|e| seen.lock().unwrap().contains(e))
+    {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
     let _ = child.kill();
-    let out = child.wait_with_output().unwrap();
-    String::from_utf8_lossy(&out.stderr).into_owned()
+    let _ = child.wait();
+    let _ = reader.join();
+    std::sync::Arc::try_unwrap(seen)
+        .map(|m| m.into_inner().unwrap())
+        .unwrap_or_default()
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -574,11 +596,9 @@ async fn a_udp_forward_to_a_server_older_than_v012_says_the_server_needs_updatin
             w.visitor.encode(),
             free_port()
         ),
+        &[OLDER],
     );
-    assert!(
-        log.contains("forward \"dns\": the server is older than v0.1.2"),
-        "{log}"
-    );
+    assert!(log.contains(OLDER), "{log}");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -596,15 +616,14 @@ async fn a_forward_with_the_wrong_protocol_is_told_which_one_the_service_has() {
             free_port(),
             free_port()
         ),
+        &[ADD, REMOVE],
     );
-    assert!(
-        log.contains(
-            "forward \"dns\": service \"dns\" is a udp service on the server; add \"protocol: udp\""
-        ),
-        "{log}"
-    );
-    assert!(
-        log.contains("forward \"db\": service \"db\" is a tcp service on the server; remove \"protocol: udp\""),
-        "{log}"
-    );
+    assert!(log.contains(ADD), "{log}");
+    assert!(log.contains(REMOVE), "{log}");
 }
+
+const OLDER: &str = "forward \"dns\": the server is older than v0.1.2";
+const ADD: &str =
+    "forward \"dns\": service \"dns\" is a udp service on the server; add \"protocol: udp\"";
+const REMOVE: &str =
+    "forward \"db\": service \"db\" is a tcp service on the server; remove \"protocol: udp\"";
