@@ -187,6 +187,31 @@ pub fn Combobox(
         }
     };
     let input_id = id.clone();
+    {
+        let lid = list_id.clone();
+        Effect::new(move |_| {
+            if !open.get() {
+                return;
+            }
+            let lid = lid.clone();
+            request_animation_frame(move || {
+                let Some(pop) = document()
+                    .get_element_by_id(&lid)
+                    .and_then(|l| l.parent_element())
+                else {
+                    return;
+                };
+                let h = window()
+                    .inner_height()
+                    .ok()
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0);
+                if pop.get_bounding_client_rect().bottom() > h {
+                    pop.scroll_into_view_with_bool(false);
+                }
+            });
+        });
+    }
     let lid = list_id.clone();
     let act_id = {
         let id = id.clone();

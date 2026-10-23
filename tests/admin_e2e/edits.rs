@@ -1491,6 +1491,38 @@ fn edit_state(c: &mut Ctx) -> Flow<'_> {
             "a toast sits above the review's action bar: {gap}"
         );
         c.ui.shot("toast-above-the-action-bar").await;
+
+        c.ui.viewport(1440, 640).await;
+        c.ui.nav("/visitors").await;
+        c.ui.click("[data-testid=new]").await;
+        c.ui.wait_for("#new-links", SECS).await;
+        let placeholder: String =
+            c.ui.eval("document.getElementById('new-links').placeholder")
+                .await;
+        assert!(!placeholder.is_empty(), "the picker says what it is for");
+        let _: bool = c
+            .ui
+            .eval("(() => { scrollTo(0, 0); const r = document.getElementById('new-links').getBoundingClientRect(); const b = document.querySelector('[data-sticky-bar]').getBoundingClientRect(); scrollBy(0, r.bottom - b.top - 14); return true; })()")
+            .await;
+        c.ui.click("#new-links").await;
+        c.ui.wait_for("[role=listbox]", SECS).await;
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        let seen: Vec<f64> = c
+            .ui
+            .eval("(() => { const l = document.querySelector('[role=listbox]').parentElement.getBoundingClientRect(); const b = document.querySelector('[data-sticky-bar]').getBoundingClientRect(); return [l.bottom, innerHeight, l.top, b.top]; })()")
+            .await;
+        assert!(
+            seen[0] <= seen[1] + 0.5,
+            "the open picker fits in the window: {seen:?}"
+        );
+        assert_eq!(
+            c.ui.count("[role=listbox]").await,
+            1,
+            "the picker stays open after the click"
+        );
+        c.ui.shot("new-visitor-picker-short-window").await;
+        c.ui.press("#new-links", "Escape").await;
+        c.ui.viewport(1440, 900).await;
         c.ui.assert_no_errors();
     })
 }
