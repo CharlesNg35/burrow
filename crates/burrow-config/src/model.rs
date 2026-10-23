@@ -142,7 +142,9 @@ pub struct WebSocketConfig {
     #[admin(label = "Listen address")]
     pub listen: Bind,
     #[serde(default = "default_ws_path")]
-    #[schemars(description = "URL path clients connect to")]
+    #[schemars(
+        description = "URL path clients connect to, for example /burrow or /tunnel; it is the path in the clients' wss:// address"
+    )]
     #[admin(ty = url_path)]
     pub path: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -180,10 +182,14 @@ pub fn default_ws_path() -> String {
 #[serde(deny_unknown_fields)]
 #[admin(label = "TLS files")]
 pub struct TlsFiles {
-    #[schemars(description = "Certificate chain PEM file, relative to the config file")]
+    #[schemars(
+        description = "Certificate chain PEM file, relative to the config file, for example /etc/letsencrypt/live/tunnel.example.com/fullchain.pem or certs/fullchain.pem"
+    )]
     #[admin(ty = path(must_exist, relative_to = "config"), label = "Certificate file")]
     pub cert: String,
-    #[schemars(description = "Private key PEM file, relative to the config file")]
+    #[schemars(
+        description = "Private key PEM file, relative to the config file, for example /etc/letsencrypt/live/tunnel.example.com/privkey.pem or certs/privkey.pem"
+    )]
     #[admin(ty = path(must_exist, relative_to = "config"), label = "Private key file")]
     pub key: String,
 }
@@ -424,7 +430,10 @@ pub struct ServiceEntry {
     )]
     pub target: Target,
     #[serde(default, skip_serializing_if = "is_default")]
-    #[admin(group = exposure)]
+    #[admin(
+        help = "TCP for most services, such as web, SSH or databases; UDP for services such as DNS, WireGuard or game servers",
+        group = exposure
+    )]
     pub protocol: Protocol,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(description = "Maximum concurrent connections for this service")]
@@ -669,7 +678,11 @@ pub struct Pool {
     )]
     pub min_idle: u32,
     #[schemars(range(min = 1, max = 4096))]
-    #[admin(ty = integer(unit = "channels"), label = "Max idle channels")]
+    #[admin(
+        ty = integer(unit = "channels"),
+        label = "Max idle channels",
+        help = "Most data channels each client keeps ready: the pool grows toward it when connections find it empty, and shrinks back by one each idle minute"
+    )]
     pub max_idle: u32,
 }
 

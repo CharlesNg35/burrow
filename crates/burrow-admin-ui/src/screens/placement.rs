@@ -214,9 +214,17 @@ mod tests {
             s => s.clone(),
         };
         match inner(n) {
-            SemType::IpPort(_) | SemType::Target(_) | SemType::ServerAddress | SemType::Rate => {
-                true
-            }
+            SemType::IpPort(_)
+            | SemType::Target(_)
+            | SemType::ServerAddress
+            | SemType::Rate
+            | SemType::Text(_)
+            | SemType::Ip(_)
+            | SemType::Host
+            | SemType::PortRange(_)
+            | SemType::Size(_)
+            | SemType::Path(_)
+            | SemType::UrlPath => true,
             SemType::List(l) => matches!(l.item.sem, SemType::Cidr | SemType::CidrRule),
             SemType::RefMap(m) => matches!(m.value.sem, SemType::Union(_)),
             _ => false,
@@ -238,6 +246,36 @@ mod tests {
             all.iter().filter(|(_, n)| wants_example(n)).count() > 8,
             "the walk finds the address fields"
         );
+        assert!(missing.is_empty(), "{missing:#?}");
+    }
+
+    #[test]
+    fn every_server_field_has_help() {
+        fn fields(key: &str, n: &Node, out: &mut Vec<String>) {
+            let n = match &n.sem {
+                SemType::Optional(o) => &o.inner,
+                _ => n,
+            };
+            match &n.sem {
+                SemType::Object(o) => o.fields.iter().for_each(|f| {
+                    let at = format!("{key}.{}", f.key);
+                    let section = match &f.node.sem {
+                        SemType::Optional(o) => matches!(o.inner.sem, SemType::Object(_)),
+                        s => matches!(s, SemType::Object(_)),
+                    };
+                    if !section && f.node.help.trim().is_empty() {
+                        out.push(at.clone());
+                    }
+                    fields(&at, &f.node, out);
+                }),
+                SemType::Map(m) => fields(&format!("{key}.*"), &m.value, out),
+                SemType::RefMap(m) => fields(&format!("{key}.*"), &m.value, out),
+                _ => {}
+            }
+        }
+        let root = <burrow_config::ServerConfig as AdminSchema>::node();
+        let mut missing = Vec::new();
+        fields("", &root, &mut missing);
         assert!(missing.is_empty(), "{missing:#?}");
     }
 

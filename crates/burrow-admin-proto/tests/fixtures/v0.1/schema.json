@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:5f55ca83e5a035d7",
+  "hash": "b2s:1ae8026ccadd71a1",
   "root": {
     "label": "Server",
     "sem": {
@@ -74,7 +74,7 @@
                       "key": "path",
                       "node": {
                         "label": "Path",
-                        "help": "URL path clients connect to",
+                        "help": "URL path clients connect to, for example /burrow or /tunnel; it is the path in the clients' wss:// address",
                         "sem": {
                           "t": "url_path"
                         },
@@ -97,7 +97,7 @@
                                   "key": "cert",
                                   "node": {
                                     "label": "Certificate file",
-                                    "help": "Certificate chain PEM file, relative to the config file",
+                                    "help": "Certificate chain PEM file, relative to the config file, for example /etc/letsencrypt/live/tunnel.example.com/fullchain.pem or certs/fullchain.pem",
                                     "sem": {
                                       "t": "path",
                                       "must_exist": true,
@@ -110,7 +110,7 @@
                                   "key": "key",
                                   "node": {
                                     "label": "Private key file",
-                                    "help": "Private key PEM file, relative to the config file",
+                                    "help": "Private key PEM file, relative to the config file, for example /etc/letsencrypt/live/tunnel.example.com/privkey.pem or certs/privkey.pem",
                                     "sem": {
                                       "t": "path",
                                       "must_exist": true,
@@ -702,6 +702,7 @@
                       "key": "protocol",
                       "node": {
                         "label": "Protocol",
+                        "help": "TCP for most services, such as web, SSH or databases; UDP for services such as DNS, WireGuard or game servers",
                         "sem": {
                           "t": "enum",
                           "options": [
@@ -1042,6 +1043,7 @@
                   "key": "max_idle",
                   "node": {
                     "label": "Max idle channels",
+                    "help": "Most data channels each client keeps ready: the pool grows toward it when connections find it empty, and shrinks back by one each idle minute",
                     "sem": {
                       "t": "integer",
                       "min": 1,
