@@ -1480,6 +1480,69 @@ fn visitor_live(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
     })
 }
 
+fn admin_session(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
+    Box::pin(async move {
+        let port = world::free_port();
+        let url = c.world.open_admin_on("ops", port);
+        c.ui.goto(&url).await;
+        c.ui.wait_text("[data-testid=conn-pill]", "Connected to", SECS)
+            .await;
+        c.ui.wait_gone("[data-testid=loading]", Duration::from_secs(20))
+            .await;
+        c.world.stop("admin-ops");
+        c.ui.wait_text(
+            "[data-testid=banner-reconnecting]",
+            "burrow admin is not running",
+            Duration::from_secs(20),
+        )
+        .await;
+        c.ui.shot("admin-not-running").await;
+        let log = c.world.file("admin-ops.log");
+        let _ = std::fs::remove_file(c.world.file("url-ops"));
+        let again = c.world.open_admin_on("ops", port);
+        assert_eq!(
+            again, url,
+            "the next run for the same config reuses the session"
+        );
+        c.ui.wait_text(
+            "[data-testid=conn-pill]",
+            "Connected to",
+            Duration::from_secs(20),
+        )
+        .await;
+        c.ui.wait_gone("[data-testid=banner-reconnecting]", SECS)
+            .await;
+        world::wait_until("the reconnect note", Duration::from_secs(10), || {
+            std::fs::read_to_string(&log)
+                .is_ok_and(|t| t.contains("reconnected in your open browser tab"))
+        });
+        c.ui.shot("old-tab-reconnected").await;
+        let token = url.split("#token=").nth(1).unwrap().to_string();
+        let foreign = url.replace(&token, &"0".repeat(64));
+        c.ui.goto("about:blank").await;
+        c.ui.goto(&foreign).await;
+        c.ui.wait_text(
+            "[data-testid=ended]",
+            "This tab's admin session ended",
+            SECS,
+        )
+        .await;
+        tokio::time::sleep(Duration::from_secs(3)).await;
+        assert_eq!(
+            c.ui.count("[data-testid=banner-reconnecting]").await,
+            0,
+            "an ended session does not retry"
+        );
+        c.ui.shot("admin-session-ended").await;
+        c.ui.take_errors();
+    })
+}
+
+#[test]
+fn an_old_tab_reconnects_to_the_next_burrow_admin_and_a_foreign_one_is_told_it_ended() {
+    run("admin-session", Options::default(), false, admin_session);
+}
+
 #[test]
 fn a_visitor_shows_live_use_while_burrow_visit_carries_a_connection() {
     run("visitor-live", Options::default(), false, visitor_live);

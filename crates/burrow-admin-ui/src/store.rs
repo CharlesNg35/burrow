@@ -20,13 +20,14 @@ pub enum Conn {
     Refused { reason: String, message: String },
     Closed { message: String },
     Revoked { reason: String },
+    Ended,
 }
 
 impl Conn {
     pub fn is_final(&self) -> bool {
         matches!(
             self,
-            Conn::Revoked { .. } | Conn::Refused { .. } | Conn::NoToken
+            Conn::Revoked { .. } | Conn::Refused { .. } | Conn::NoToken | Conn::Ended
         )
     }
 
@@ -39,6 +40,7 @@ impl Conn {
             Conn::Refused { .. } => "Refused",
             Conn::Closed { .. } => "Disconnected",
             Conn::Revoked { .. } => "Access revoked",
+            Conn::Ended => "Session ended",
         }
     }
 }
@@ -62,6 +64,7 @@ pub struct Store {
     pub editing: RwSignal<bool>,
     pub values_at: RwSignal<f64>,
     pub retry_at: RwSignal<f64>,
+    pub admin_down: RwSignal<bool>,
     pub now: RwSignal<f64>,
     pub history: RwSignal<Option<Vec<AuditEntry>>>,
     pub changed: RwSignal<Option<ConfigEvent>>,
@@ -94,6 +97,7 @@ impl Store {
             editing: RwSignal::new(false),
             values_at: RwSignal::new(0.0),
             retry_at: RwSignal::new(0.0),
+            admin_down: RwSignal::new(false),
             now: RwSignal::new(js_sys::Date::now()),
             history: RwSignal::new(None),
             changed: RwSignal::new(None),

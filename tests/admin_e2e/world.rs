@@ -187,6 +187,7 @@ impl World {
         cmd.args(args)
             .current_dir(self.dir.path())
             .env("BURROW_INSTANCE_DIR", self.file(&format!("inst-{name}")))
+            .env("BURROW_ADMIN_SESSION_DIR", self.file("admin-sessions"))
             .stdin(Stdio::null())
             .stdout(out)
             .stderr(err);

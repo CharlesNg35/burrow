@@ -3,6 +3,7 @@ pub mod bridge;
 pub mod find;
 pub mod http;
 pub mod launch;
+pub mod session;
 pub mod token;
 
 use std::io::Write;
@@ -276,14 +277,28 @@ async fn connection(stream: TcpStream, shared: Arc<Shared>) {
 pub struct Running {
     pub addr: SocketAddr,
     pub url: String,
+    pub reused: bool,
 }
 
 pub async fn listen(
     port: Option<u16>,
     default: u16,
 ) -> Result<(TcpListener, Option<String>), Failure> {
+    listen_near(port, None, default).await
+}
+
+pub async fn listen_near(
+    port: Option<u16>,
+    last: Option<u16>,
+    default: u16,
+) -> Result<(TcpListener, Option<String>), Failure> {
     if let Some(p) = port {
         return Ok((bind(p).await?, None));
+    }
+    if let Some(p) = last.filter(|p| *p != default)
+        && let Ok(l) = TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], p))).await
+    {
+        return Ok((l, None));
     }
     let why = match TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], default))).await {
         Ok(l) => return Ok((l, None)),
@@ -313,24 +328,59 @@ pub async fn serve(
     listener: TcpListener,
     settings: &VisitorSettings,
     opts: &Options,
+    stop: watch::Receiver<bool>,
+    ready: impl FnOnce(&Running) -> Result<(), Failure>,
+) -> Result<(), Failure> {
+    serve_session(
+        listener,
+        settings,
+        opts,
+        session::Session::fresh(),
+        None,
+        stop,
+        ready,
+        |_, _| {},
+    )
+    .await
+}
+
+pub const RECONNECT_GRACE: Duration = Duration::from_secs(3);
+const TOUCH_EVERY: Duration = Duration::from_secs(60);
+
+#[allow(clippy::too_many_arguments)]
+pub async fn serve_session(
+    listener: TcpListener,
+    settings: &VisitorSettings,
+    opts: &Options,
+    session: session::Session,
+    keep: Option<session::Keep>,
     mut stop: watch::Receiver<bool>,
     ready: impl FnOnce(&Running) -> Result<(), Failure>,
+    then: impl FnOnce(&Running, bool),
 ) -> Result<(), Failure> {
     let addr = listener
         .local_addr()
         .map_err(|e| Failure::new(format!("cannot read the local address: {e}")))?;
-    let token = Token::generate();
-    let prefix = http::run_prefix();
+    let reused = session.reused && session.port == Some(addr.port());
+    let touch = |s: &session::Session| {
+        if let Some(k) = &keep
+            && let Err(e) = session::save(&k.dir, &k.config, s, addr.port(), session::now())
+        {
+            debug!("cannot keep the admin session in {}: {e}", k.dir.display());
+        }
+    };
+    touch(&session);
     let url = format!(
-        "http://127.0.0.1:{}{prefix}/#token={}",
+        "http://127.0.0.1:{}{}/#token={}",
         addr.port(),
-        token.as_str()
+        session.prefix,
+        session.token.as_str()
     );
     let (changed, mut watch_changes) = watch::channel(0u64);
     let shared = Arc::new(Shared {
         port: addr.port(),
-        prefix,
-        token,
+        prefix: session.prefix.clone(),
+        token: session.token.clone(),
         dialer: Arc::new(Dialer::visitor(settings)),
         visitor: settings.name.clone(),
         server: settings.server.clone(),
@@ -338,7 +388,14 @@ pub async fn serve(
         connected: AtomicUsize::new(0),
         changed,
     });
-    ready(&Running { addr, url })?;
+    let running = Running { addr, url, reused };
+    ready(&running)?;
+    let mut then = Some(then);
+    let grace = tokio::time::Instant::now() + RECONNECT_GRACE;
+    if !reused && let Some(f) = then.take() {
+        f(&running, false);
+    }
+    let mut touched = tokio::time::Instant::now();
     let open = Arc::new(Semaphore::new(MAX_OPEN));
     let mut idle_since = tokio::time::Instant::now();
     loop {
@@ -361,6 +418,19 @@ pub async fn serve(
             _ = watch_changes.changed() => {
                 if shared.connected.load(Ordering::Acquire) == 0 {
                     idle_since = tokio::time::Instant::now();
+                } else {
+                    if let Some(f) = then.take() {
+                        f(&running, true);
+                    }
+                    if touched.elapsed() >= TOUCH_EVERY {
+                        touched = tokio::time::Instant::now();
+                        touch(&session);
+                    }
+                }
+            }
+            _ = tokio::time::sleep_until(grace), if then.is_some() => {
+                if let Some(f) = then.take() {
+                    f(&running, false);
                 }
             }
             _ = tokio::time::sleep(idle_left), if shared.connected.load(Ordering::Acquire) == 0 => {
@@ -370,7 +440,10 @@ pub async fn serve(
                 );
                 return Ok(());
             }
-            _ = stop.changed() => return Ok(()),
+            _ = stop.changed() => {
+                touch(&session);
+                return Ok(());
+            }
         }
     }
 }

@@ -29,6 +29,7 @@ burrow-config = { path = "crates/burrow-config", features = ["json-schema"] }
 burrow-syntax = { path = "crates/burrow-syntax" }
 base64 = "0.23.1"
 blake2 = "0.10.6"
+dirs = "6"
 bytes = "1.12.1"
 clap = { version = "4.6.7", features = ["derive", "env"] }
 clap_complete = "4.6.11"
