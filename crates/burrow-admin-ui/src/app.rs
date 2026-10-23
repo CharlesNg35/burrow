@@ -685,7 +685,13 @@ fn Banners() -> impl IntoView {
             let left = ((s.retry_at.get() - s.now.get()) / 1000.0).ceil().max(0.0) as u64;
             let n = s.edit.pending();
             let at = format::clock(s.values_at.get());
-            let (title, why) = if s.admin_down.get() {
+            let (title, why) = if s.admin_down.get() && attempt > api::GONE_AFTER {
+                (
+                    "burrow admin is not running here.".to_string(),
+                    "If burrow admin started again, open the link it printed or run burrow admin. "
+                        .to_string(),
+                )
+            } else if s.admin_down.get() {
                 (
                     "burrow admin is not running.".to_string(),
                     "Start it again and this tab reconnects. ".to_string(),
@@ -696,11 +702,16 @@ fn Banners() -> impl IntoView {
                     String::new(),
                 )
             };
+            let kept = match n {
+                0 => String::new(),
+                1 => " Your 1 pending change is kept.".to_string(),
+                n => format!(" Your {n} pending changes are kept."),
+            };
             Some(view! {
                 <Banner
                     tone=Tone::Warning
                     title=title
-                    message=format!("{why}Reconnecting in {left} s · attempt {attempt}. Your {n} pending changes are kept. Values are from {at}.")
+                    message=format!("{why}Reconnecting in {left} s · attempt {attempt}.{kept} Values are from {at}.")
                     testid="banner-reconnecting"
                 >
                     <Button label="Retry now" small=true on_click=move |_| api::reconnect(s)/>

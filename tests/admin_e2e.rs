@@ -1525,6 +1525,26 @@ fn admin_session(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
             "without --print-url the token is never printed: {printed}"
         );
         c.ui.shot("old-tab-reconnected").await;
+        c.world.stop("admin-ops");
+        let banner =
+            c.ui.wait_text(
+                "[data-testid=banner-reconnecting]",
+                "open the link it printed",
+                Duration::from_secs(50),
+            )
+            .await;
+        assert!(
+            !banner.contains("this tab reconnects") && !banner.contains("0 pending"),
+            "after a while the tab stops promising to reconnect: {banner}"
+        );
+        c.ui.shot("admin-gone-for-a-while").await;
+        let logged = c.ui.take_errors();
+        assert!(
+            !logged.iter().any(|l| l.contains("not sent")),
+            "no console noise while disconnected: {logged:?}"
+        );
+        let _ = std::fs::remove_file(c.world.file("url-ops"));
+        c.world.open_admin_on("ops", port);
         let token = url.split("#token=").nth(1).unwrap().to_string();
         let foreign = url.replace(&token, &"0".repeat(64));
         c.ui.goto("about:blank").await;

@@ -204,7 +204,7 @@ impl World {
     }
 
     pub fn stop(&mut self, name: &str) {
-        if let Some(p) = self.procs.iter_mut().find(|p| p.name == name) {
+        for p in self.procs.iter_mut().filter(|p| p.name == name) {
             terminate(&mut p.child);
         }
     }

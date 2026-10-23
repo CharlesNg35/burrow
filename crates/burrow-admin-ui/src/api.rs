@@ -148,7 +148,7 @@ fn closed(store: Store, e: &CloseEvent) {
     });
     store.conn.set(Conn::Reconnecting { attempt });
     let delay = if store.admin_down.get_untracked() {
-        2000
+        if attempt > GONE_AFTER { 10_000 } else { 2000 }
     } else {
         (1000 * u64::from(attempt.min(5))) as u32
     };
@@ -164,6 +164,8 @@ type Handler = Closure<dyn FnMut(JsValue)>;
 thread_local! {
     static PROBE: RefCell<Option<(Handler, Handler)>> = const { RefCell::new(None) };
 }
+
+pub const GONE_AFTER: u32 = 15;
 
 fn probe(store: Store) {
     let url = format!("{}/api", crate::route::run_prefix());
@@ -215,7 +217,6 @@ pub fn request(t: &str, body: Value, done: impl FnOnce(Reply) + 'static) {
         }
     });
     if let Some(f) = done {
-        leptos::logging::warn!("burrow admin: request {t} not sent, no connection");
         set_timeout(
             move || {
                 f(Err(ErrorBody {
