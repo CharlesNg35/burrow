@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Duration;
 
 use tokio::io::AsyncReadExt;
@@ -24,6 +24,50 @@ use burrow_config::Protocol;
 
 pub const MAX_DESTINATIONS: usize = 64;
 const QUEUE: usize = 64;
+pub const QUEUED_BYTES: usize = 1 << 20;
+
+struct Budget {
+    used: AtomicUsize,
+    cap: usize,
+}
+
+impl Budget {
+    fn new(cap: usize) -> Budget {
+        Budget {
+            used: AtomicUsize::new(0),
+            cap,
+        }
+    }
+}
+
+struct Queued {
+    data: Vec<u8>,
+    budget: Arc<Budget>,
+}
+
+impl Queued {
+    fn new(data: Vec<u8>, budget: &Arc<Budget>) -> Option<Queued> {
+        let n = data.len();
+        budget
+            .used
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |used| {
+                (used + n <= budget.cap).then_some(used + n)
+            })
+            .ok()?;
+        Some(Queued {
+            data,
+            budget: budget.clone(),
+        })
+    }
+}
+
+impl Drop for Queued {
+    fn drop(&mut self) {
+        self.budget
+            .used
+            .fetch_sub(self.data.len(), Ordering::AcqRel);
+    }
+}
 const PEER: u32 = 1;
 const SWEEP: Duration = Duration::from_secs(5);
 const RETRY: Duration = Duration::from_secs(5);
@@ -104,7 +148,7 @@ pub(super) struct Association {
 }
 
 struct Destination {
-    tx: mpsc::Sender<Vec<u8>>,
+    tx: mpsc::Sender<Queued>,
     done: Arc<AtomicBool>,
     seen: tokio::time::Instant,
     ended: Option<tokio::time::Instant>,
@@ -148,6 +192,7 @@ pub(super) async fn associate(a: Association) {
     let expected = Source::new(hint, peer.ip());
     let mut locked: Option<SocketAddr> = None;
     let mut destinations: HashMap<String, Destination> = HashMap::new();
+    let budget = Arc::new(Budget::new(QUEUED_BYTES));
     let mut control = [0u8; 512];
     let mut sweep = tokio::time::interval(SWEEP);
     let mut last = tokio::time::Instant::now();
@@ -223,7 +268,17 @@ pub(super) async fn associate(a: Association) {
                 }
                 if let Some(d) = destinations.get_mut(&header.target) {
                     d.seen = now;
-                    let _ = d.tx.try_send(header.data.to_vec());
+                    match Queued::new(header.data.to_vec(), &budget) {
+                        Some(q) => {
+                            let _ = d.tx.try_send(q);
+                        }
+                        None => {
+                            static OVER: Throttle = Throttle::new();
+                            if let Some(more) = OVER.allow() {
+                                debug!("forward \"{name}\": a SOCKS app has {QUEUED_BYTES} bytes of UDP waiting for the server; dropping a datagram{more}");
+                            }
+                        }
+                    }
                 }
             }
             _ = sweep.tick() => {
@@ -292,7 +347,7 @@ struct Target {
     name: String,
     to: VisitTarget,
     head: Vec<u8>,
-    rx: mpsc::Receiver<Vec<u8>>,
+    rx: mpsc::Receiver<Queued>,
     relay: Arc<UdpSocket>,
     app: SocketAddr,
     live: watch::Receiver<Live>,
@@ -318,7 +373,7 @@ async fn run_destination(
     name: &str,
     to: &VisitTarget,
     head: &[u8],
-    rx: &mut mpsc::Receiver<Vec<u8>>,
+    rx: &mut mpsc::Receiver<Queued>,
     relay: &UdpSocket,
     app: SocketAddr,
     live: &watch::Receiver<Live>,
@@ -373,8 +428,9 @@ async fn run_destination(
     let stall = crate::forward::VISIT_REPLY;
     let up = async {
         let mut rec = Vec::new();
-        while let Some(data) = rx.recv().await {
-            encode_datagram(PEER, &data, &mut rec);
+        while let Some(queued) = rx.recv().await {
+            encode_datagram(PEER, &queued.data, &mut rec);
+            drop(queued);
             match tokio::time::timeout(stall, writer.send(&mut wr, &rec)).await {
                 Ok(Ok(())) => {}
                 _ => return,
@@ -441,6 +497,24 @@ mod tests {
             parse(&datagram(3, &literal, 53, b"")).unwrap().target,
             "[::1]:53"
         );
+    }
+
+    #[test]
+    fn queued_datagrams_of_an_association_share_one_byte_budget() {
+        let budget = Arc::new(Budget::new(1000));
+        let a = Queued::new(vec![0; 600], &budget).unwrap();
+        assert!(
+            Queued::new(vec![0; 600], &budget).is_none(),
+            "over the budget"
+        );
+        let b = Queued::new(vec![0; 400], &budget).unwrap();
+        assert!(Queued::new(vec![0; 1], &budget).is_none());
+        drop(a);
+        let c = Queued::new(vec![0; 600], &budget).unwrap();
+        assert_eq!(c.data.len(), 600);
+        drop((b, c));
+        assert_eq!(budget.used.load(Ordering::Acquire), 0);
+        assert_eq!(QUEUED_BYTES, 1 << 20);
     }
 
     #[test]
