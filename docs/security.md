@@ -59,4 +59,4 @@ Wrong names and wrong secrets get exactly the same answer, after the same amount
 
 ## burrow admin
 
-The web admin listens on `127.0.0.1` only, needs a one-time token, and can lower admin access but never grant or widen it. See [admin.md](admin.md#security-notes).
+The web admin listens on `127.0.0.1` only, needs a random token that only you can read, and can lower admin access but never grant or widen it. See [admin.md](admin.md#security-notes).
