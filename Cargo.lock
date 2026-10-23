@@ -324,7 +324,7 @@ checksum = "72f5acc6cb2ba439de613abc23857ec3d78374d8ed5ac84e9d11336e87da8649"
 
 [[package]]
 name = "burrow"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "arbtest",
  "base64 0.23.1",
@@ -385,7 +385,7 @@ dependencies = [
 
 [[package]]
 name = "burrow-admin-derive"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -394,7 +394,7 @@ dependencies = [
 
 [[package]]
 name = "burrow-admin-logic"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "burrow-admin-proto",
  "burrow-config",
@@ -403,7 +403,7 @@ dependencies = [
 
 [[package]]
 name = "burrow-admin-proto"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "schemars",
  "serde",
@@ -412,7 +412,7 @@ dependencies = [
 
 [[package]]
 name = "burrow-admin-ui"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "burrow-admin-logic",
  "burrow-admin-proto",
@@ -428,7 +428,7 @@ dependencies = [
 
 [[package]]
 name = "burrow-config"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "burrow-admin-derive",
  "burrow-admin-proto",
@@ -438,11 +438,11 @@ dependencies = [
 
 [[package]]
 name = "burrow-syntax"
-version = "0.1.1"
+version = "0.1.2"
 
 [[package]]
 name = "burrow-ui-kit"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "js-sys",
  "leptos",

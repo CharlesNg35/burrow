@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.1.2]
+
+Limits you can set and see.
+
+- **`max_connections` in client.yaml** (default 16384, 1 to 1000000): the most connections open through a client at once. A saved change applies at once without a reconnect, and open connections keep running when it is lowered. If the open file limit is too small for it, the client lowers it and logs one warning, at start and after each change.
+- **UDP peer limits:** `max_udp_peers` in client.yaml (default 8192) and `udp.max_peers` in server.yaml (default 4096 per service port, editable in the admin UI), 1 to 1000000, with the same rules as `max_connections`. A client now follows the server's per-port limit instead of its own fixed 4096.
+- **Seeing a limit:** a client at its `max_connections` logs one warning a minute with the number of refused connections, the server's log points to the client's `max_connections`, `burrow status` and the admin UI mark the client "at limit", and `burrow_client_busy_total` counts those refusals per client.
+- **Running at scale** in docs/monitoring.md: memory per connection, the limits to raise, and the Linux limits that run out first.
+
 ## [0.1.1]
 
 Stability and usability fixes.
