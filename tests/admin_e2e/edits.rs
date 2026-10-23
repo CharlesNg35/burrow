@@ -963,7 +963,7 @@ fn revert_conflict(c: &mut Ctx) -> Flow<'_> {
         c.world
             .hand_edit(|t| t.replace("target: 4002", "target: 4003"));
         c.ui.wait_for("[data-testid=banner-changed]", SECS).await;
-        c.ui.click("[data-testid=apply]").await;
+        click_js(c, "[data-testid=apply]").await;
         c.ui.wait_for("[data-testid=conflict]", SECS).await;
         c.ui.shot("revert-against-a-changed-file").await;
         c.ui.click("[data-testid=conflict-recheck]").await;
@@ -1238,7 +1238,7 @@ fn draft_after_a_viewed_revert_conflict(c: &mut Ctx) -> Flow<'_> {
         c.world
             .hand_edit(|t| t.replace("target: 4002", "target: 4003"));
         c.ui.wait_for("[data-testid=banner-changed]", SECS).await;
-        c.ui.click("[data-testid=apply]").await;
+        click_js(c, "[data-testid=apply]").await;
         c.ui.wait_for("[data-testid=conflict]", SECS).await;
         c.ui.click("[data-testid=conflict-view]").await;
         c.ui.wait_gone("[data-testid=conflict]", SECS).await;
