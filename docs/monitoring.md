@@ -106,6 +106,53 @@ Keep `listen` on `127.0.0.1` unless a firewall limits who can connect: anyone wh
 
 </details>
 
+## Running at scale
+
+burrow handles many connections at once. Measured on Linux with idle connections:
+
+| | memory per idle connection | 100,000 idle connections |
+| --- | --- | --- |
+| server | about 9 KB | 895 MiB |
+| clients | about 15 KB | 1.5 GiB across 8 clients |
+
+The 100,000 connections opened in 5 seconds.
+
+**Limits per client.** A client keeps at most `max_connections` (16384) connections and `max_udp_peers` (8192) UDP peers open at once, and the server keeps at most `limits.max_connections_per_client` (8192) connections per client. Beyond these limits new connections are refused, and datagrams from new UDP peers are dropped; open connections keep running. When a client refuses connections at its `max_connections`, `burrow status` shows it as `at limit` and the client logs a warning at most once a minute. Raise the limits in client.yaml and server.yaml; a saved file applies at once:
+
+```yaml
+# client.yaml
+max_connections: 50000
+```
+
+```yaml
+# server.yaml
+limits:
+  max_connections_per_client: 50000
+```
+
+**Several clients.** For very large loads, run several clients for the same services, on one machine or several. The server spreads connections across them (see `mode` in [services.md](services.md)), and each client has its own limits.
+
+**Linux limits.** These run out before burrow's memory does:
+
+- **Connection tracking:** each tunnelled connection uses about 3 entries (user to server, server to client, client to the app). The default table often holds 262144. Check and raise it:
+
+  ```
+  sysctl net.netfilter.nf_conntrack_max
+  sudo sysctl -w net.netfilter.nf_conntrack_max=1048576
+  ```
+
+  When it is full, the kernel logs "nf_conntrack: table full, dropping packet" and new connections time out.
+- **Local ports:** a machine opens about 28,000 connections to one address and port from one source address. On the client, this limits connections to one target. Widen the range:
+
+  ```
+  sysctl net.ipv4.ip_local_port_range
+  sudo sysctl -w net.ipv4.ip_local_port_range="1024 65535"
+  ```
+
+- **Open files:** every connection uses open files on the server and the client. `burrow service install` sets 1048576 on Linux. When you run burrow by hand, raise it first, for example `ulimit -n 1048576`. If the limit is too small for `max_connections` or `max_udp_peers`, the client lowers them and logs a warning at start.
+
+To keep a `sysctl -w` change after a reboot, put the same line, without `sudo sysctl -w`, in a file such as `/etc/sysctl.d/90-burrow.conf`.
+
 ## Logs
 
 burrow logs to the terminal by default. These options work with every command:
