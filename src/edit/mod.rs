@@ -152,9 +152,19 @@ fn edit(
     let text = loop {
         let started = Instant::now();
         let text = {
+            let quiet = editor::Quiet::new();
             let draft = Draft::new(name, &opened)
                 .map_err(|e| Failure::new(format!("cannot make a private copy to edit: {e}")))?;
-            if let Err(mut f) = open(draft.path()) {
+            let stopped = || Err(Failure::new("stopped while editing; nothing was changed"));
+            let opened_now = if quiet.stopped() {
+                stopped()
+            } else {
+                match open(draft.path()) {
+                    _ if quiet.stopped() => stopped(),
+                    r => r,
+                }
+            };
+            if let Err(mut f) = opened_now {
                 if opened != before {
                     let kept = draft.keep();
                     let saved = format!("your edited version is kept in {}", kept.display());

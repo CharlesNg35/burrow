@@ -83,7 +83,6 @@ pub fn open(editor: &[String], file: &Path) -> Result<(), Failure> {
         Failure::usage(format!("cannot start the editor {program}: {e}"))
             .hint("pick another with --editor, for example: --editor nano")
     })?;
-    let quiet = Quiet::new();
     let status = Command::new(resolved)
         .args(args)
         .arg(file)
@@ -92,9 +91,6 @@ pub fn open(editor: &[String], file: &Path) -> Result<(), Failure> {
             Failure::usage(format!("cannot start the editor {program}: {e}"))
                 .hint("pick another with --editor, for example: --editor nano")
         })?;
-    if quiet.stopped() {
-        return Err(Failure::new("stopped while editing; nothing was changed"));
-    }
     if !status.success() {
         return Err(Failure::new(format!(
             "the editor {program} exited with {status}; nothing was changed"
@@ -104,14 +100,14 @@ pub fn open(editor: &[String], file: &Path) -> Result<(), Failure> {
 }
 
 #[cfg(unix)]
-struct Quiet {
+pub(super) struct Quiet {
     stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
     outside: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 #[cfg(unix)]
 impl Quiet {
-    fn new() -> Quiet {
+    pub(super) fn new() -> Quiet {
         use signal_hook::consts::{SIGHUP, SIGINT, SIGQUIT, SIGTERM};
         use std::sync::Arc;
         use std::sync::atomic::{AtomicBool, Ordering};
@@ -136,7 +132,7 @@ impl Quiet {
         }
     }
 
-    fn stopped(&self) -> bool {
+    pub(super) fn stopped(&self) -> bool {
         self.stop.load(std::sync::atomic::Ordering::SeqCst)
     }
 }
@@ -150,7 +146,7 @@ impl Drop for Quiet {
 }
 
 #[cfg(windows)]
-struct Quiet {
+pub(super) struct Quiet {
     _keys: Option<(
         tokio::runtime::Runtime,
         tokio::signal::windows::CtrlC,
@@ -160,7 +156,7 @@ struct Quiet {
 
 #[cfg(windows)]
 impl Quiet {
-    fn new() -> Quiet {
+    pub(super) fn new() -> Quiet {
         let keys = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
@@ -177,21 +173,21 @@ impl Quiet {
         Quiet { _keys: keys }
     }
 
-    fn stopped(&self) -> bool {
+    pub(super) fn stopped(&self) -> bool {
         false
     }
 }
 
 #[cfg(not(any(unix, windows)))]
-struct Quiet;
+pub(super) struct Quiet;
 
 #[cfg(not(any(unix, windows)))]
 impl Quiet {
-    fn new() -> Quiet {
+    pub(super) fn new() -> Quiet {
         Quiet
     }
 
-    fn stopped(&self) -> bool {
+    pub(super) fn stopped(&self) -> bool {
         false
     }
 }
