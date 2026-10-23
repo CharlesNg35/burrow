@@ -212,6 +212,22 @@ pub(super) async fn check(dialer: Arc<Dialer>, forwards: Vec<(String, VisitTarge
         };
         match ask(ch, &request).await {
             Some(Status::Ok) => {}
+            Some(Status::Invalid) => {
+                ready = false;
+                let why = match crate::init::fetch::ask(&dialer).await {
+                    Ok(fetched) => mismatch(&fetched, &request.to, protocol),
+                    Err(_) => None,
+                };
+                warn!(
+                    "forward \"{name}\": {}",
+                    why.unwrap_or_else(|| explain(
+                        Status::Invalid,
+                        &request.to,
+                        &dialer.name,
+                        protocol
+                    ))
+                );
+            }
             Some(st) => {
                 ready = false;
                 warn!(
@@ -230,6 +246,31 @@ pub(super) async fn check(dialer: Arc<Dialer>, forwards: Vec<(String, VisitTarge
             "the server at {} accepts visitor \"{}\"; forwards are ready",
             dialer.server, dialer.name
         );
+    }
+}
+
+fn mismatch(
+    fetched: &crate::init::fetch::Fetched,
+    to: &VisitTarget,
+    protocol: Protocol,
+) -> Option<String> {
+    if fetched.tcp_only && protocol == Protocol::Udp {
+        return Some(
+            "the server is older than v0.1.2, which carries UDP for visitors; update it with burrow update, or remove this forward".into(),
+        );
+    }
+    let VisitTarget::Service { name, .. } = to else {
+        return None;
+    };
+    let service = fetched.grants.services.iter().find(|s| &s.name == name)?;
+    match (service.protocol, protocol) {
+        (Protocol::Udp, Protocol::Tcp) => Some(format!(
+            "service \"{name}\" is a udp service on the server; add \"protocol: udp\" to this forward in visitor.yaml (or --udp)"
+        )),
+        (Protocol::Tcp, Protocol::Udp) => Some(format!(
+            "service \"{name}\" is a tcp service on the server; remove \"protocol: udp\" from this forward in visitor.yaml (or --udp)"
+        )),
+        _ => None,
     }
 }
 
@@ -430,6 +471,35 @@ mod tests {
         };
         let reach = explain(Status::Invalid, &reach, "laptop", Protocol::Udp);
         assert!(reach.contains("older than v0.1.2"), "{reach}");
+    }
+
+    #[test]
+    fn a_protocol_mismatch_names_the_fix_and_an_old_server_says_so() {
+        use crate::init::fetch::Fetched;
+        use crate::protocol::{GrantedService, Grants};
+        let fetched = |protocol, tcp_only| Fetched {
+            grants: Grants {
+                services: vec![GrantedService {
+                    name: "dns".into(),
+                    protocol,
+                    port: 53,
+                    ports: 1,
+                }],
+                clients: vec![],
+            },
+            tcp_only,
+        };
+        let dns = VisitTarget::service("dns");
+        let add = mismatch(&fetched(Protocol::Udp, false), &dns, Protocol::Tcp).unwrap();
+        assert!(add.contains("add \"protocol: udp\""), "{add}");
+        let remove = mismatch(&fetched(Protocol::Tcp, false), &dns, Protocol::Udp).unwrap();
+        assert!(remove.contains("remove \"protocol: udp\""), "{remove}");
+        assert_eq!(
+            mismatch(&fetched(Protocol::Udp, false), &dns, Protocol::Udp),
+            None
+        );
+        let old = mismatch(&fetched(Protocol::Tcp, true), &dns, Protocol::Udp).unwrap();
+        assert!(old.contains("older than v0.1.2"), "{old}");
     }
 
     #[test]

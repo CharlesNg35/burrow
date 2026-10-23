@@ -1337,3 +1337,38 @@ fn a_long_client_name_still_gives_a_valid_visitor_config() {
             .render_text(burrow::diagnostics::Style { color: false })
     );
 }
+
+#[test]
+fn visitor_config_writes_protocol_udp_for_udp_services() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = visitors_server(
+        dir.path(),
+        "  laptop:\n    secret: @SECRET@\n",
+        "  dns: { client: home, protocol: udp, target: 5353, visitors: [laptop] }\n  mdns: { client: home, target: 5353, visitors: [laptop] }\n  game: { client: home, protocol: udp, target: 27015-27016, visitors: [laptop] }\n",
+    );
+    let out = burrow::init::visitor_config(None, &path, None, Format::Yaml, &ProcessEnv).unwrap();
+    insta::assert_snapshot!(out.text.lines().filter(|l| !l.starts_with("secret:")).collect::<Vec<_>>().join("\n"), @"
+    server: tunnel.example.com:7835
+    name: laptop
+    forwards:
+      dns:
+        service: dns
+        protocol: udp
+        local: 5353
+      game:
+        service: game
+        protocol: udp
+        local: 27015-27016
+      mdns:
+        service: mdns
+        local: 5353
+    ");
+    let written = dir.path().join("visitor.yaml");
+    std::fs::write(&written, &out.text).unwrap();
+    let Loaded::Visitor(v, _) = load(&written) else {
+        panic!("not a visitor config")
+    };
+    assert_eq!(v.forwards["dns"].protocol, burrow_config::Protocol::Udp);
+    assert_eq!(v.forwards["game"].protocol, burrow_config::Protocol::Udp);
+    assert_eq!(v.forwards["mdns"].protocol, burrow_config::Protocol::Tcp);
+}

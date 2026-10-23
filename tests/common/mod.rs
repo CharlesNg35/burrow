@@ -694,3 +694,32 @@ pub fn private_udp_service(target: SocketAddr, visitors: &[&str]) -> Service {
         ..service(target, Protocol::Udp)
     }
 }
+
+pub async fn old_server(secret: Secret, grants_v1: Vec<u8>) -> SocketAddr {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        while let Ok((s, _)) = listener.accept().await {
+            let (secret, grants_v1) = (secret.clone(), grants_v1.clone());
+            tokio::spawn(async move {
+                let Ok(acc) = burrow::handshake::accept(s.into(), |_, _| vec![secret]).await else {
+                    return;
+                };
+                let mut ch = acc.channel;
+                let Ok(Some(req)) = ch.reader.recv(&mut ch.stream).await else {
+                    return;
+                };
+                let answer = match req {
+                    [0x21] => grants_v1,
+                    [0x20, 0 | 1, ..] => vec![0],
+                    _ => vec![4],
+                };
+                let _ = ch.writer.send(&mut ch.stream, &answer).await;
+                let _ =
+                    tokio::time::timeout(Duration::from_secs(2), ch.reader.recv(&mut ch.stream))
+                        .await;
+            });
+        }
+    });
+    addr
+}
