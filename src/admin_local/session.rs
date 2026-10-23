@@ -290,6 +290,9 @@ mod tests {
     #[test]
     fn a_file_the_sweep_cannot_delete_does_not_stop_the_start() {
         use std::os::unix::fs::PermissionsExt;
+        if rustix::process::geteuid().is_root() {
+            return;
+        }
         let home = tempfile::tempdir().unwrap();
         let store = home.path().join("admin");
         std::fs::create_dir(&store).unwrap();
