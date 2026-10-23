@@ -256,7 +256,7 @@ fn mismatch(
 ) -> Option<String> {
     if fetched.tcp_only && protocol == Protocol::Udp {
         return Some(
-            "the server is older than v0.1.2, which carries UDP for visitors; update it with burrow update, or remove this forward".into(),
+            "the server is older than v0.1.2, which carries UDP for visitors (update it with burrow update, or remove this forward), or it lists more services than fit in one answer and this service is not a udp service there".into(),
         );
     }
     let VisitTarget::Service { name, .. } = to else {
@@ -500,6 +500,10 @@ mod tests {
         );
         let old = mismatch(&fetched(Protocol::Tcp, true), &dns, Protocol::Udp).unwrap();
         assert!(old.contains("older than v0.1.2"), "{old}");
+        assert!(
+            old.contains("more services than fit in one answer"),
+            "{old}"
+        );
     }
 
     #[test]

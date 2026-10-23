@@ -510,6 +510,11 @@ async fn init_visitor_against_a_server_older_than_v012_lists_tcp_and_keeps_udp_f
     ]);
     assert!(out.status.success(), "{}", text(&out));
     assert!(text(&out).contains("older than v0.1.2"), "{}", text(&out));
+    assert!(
+        text(&out).contains("or lists more services than fit in one answer"),
+        "{}",
+        text(&out)
+    );
     let path = w.path("visitor.yaml");
     let yaml = read(&path);
     assert!(yaml.contains("  db:\n    service: db\n"), "{yaml}");

@@ -25,7 +25,7 @@ pub struct Fetched {
     pub tcp_only: bool,
 }
 
-pub const OLD_SERVER_NOTE: &str = "the server is older than v0.1.2, so it listed its TCP services only; UDP forwards were kept as they are";
+pub const OLD_SERVER_NOTE: &str = "the server is older than v0.1.2, or lists more services than fit in one answer, so it listed its TCP services only; UDP forwards were kept as they are";
 
 pub fn grants(settings: &VisitorSettings) -> Result<Fetched, NotAsked> {
     let rt = tokio::runtime::Builder::new_current_thread()
