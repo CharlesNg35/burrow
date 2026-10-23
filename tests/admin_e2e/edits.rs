@@ -1565,6 +1565,17 @@ fn edit_state(c: &mut Ctx) -> Flow<'_> {
             .await;
         c.ui.shot("new-visitor-picker-short-window").await;
         c.ui.press("#new-links", "Escape").await;
+        c.ui.click("[data-testid=create-cancel]").await;
+        c.ui.nav("/services/web").await;
+        c.ui.wait_for("[data-testid=health] table", SECS).await;
+        let wide: bool = c
+            .ui
+            .eval("(() => { const w = document.querySelector('[data-testid=health] table').parentElement; return w.scrollWidth > w.clientWidth + 1; })()")
+            .await;
+        assert!(
+            !wide,
+            "Health per client fits a narrow screen without scrolling sideways"
+        );
         c.ui.viewport(1440, 900).await;
         c.ui.assert_no_errors();
     })

@@ -385,14 +385,16 @@ pub fn Table(
                             .map(|h| {
                                 let right = h.starts_with('>');
                                 let shrink = h.starts_with('_');
-                                let text = h.trim_start_matches(['>', '_']);
+                                let wide_only = h.starts_with('~');
+                                let text = h.trim_start_matches(['>', '_', '~']);
                                 view! {
                                     <th
                                         scope="col"
                                         class=format!(
-                                            "border-b border-border px-4 py-[9px] text-[11px] font-bold tracking-[0.07em] whitespace-nowrap text-text-faint uppercase {}{}",
+                                            "border-b border-border px-4 py-[9px] text-[11px] font-bold tracking-[0.07em] whitespace-nowrap text-text-faint uppercase {}{}{}",
                                             if right { "text-right" } else { "text-left" },
-                                            if shrink { " w-px" } else { "" }
+                                            if shrink { " w-px" } else { "" },
+                                            if wide_only { " max-sm:hidden" } else { "" }
                                         )
                                     >
                                         {text}

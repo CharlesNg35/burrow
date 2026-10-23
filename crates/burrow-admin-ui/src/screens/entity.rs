@@ -1121,13 +1121,13 @@ fn overview(section: &str, name: &str, stats: bool) -> impl IntoView {
                         view! {
                             <tr data-row=c.clone()>
                                 <th scope="row"><StatusDot on=on text=label/></th>
-                                <td class="font-mono text-[13px] text-text-muted">{cs.and_then(|y| y.from).unwrap_or_else(|| "offline".into())}</td>
+                                <td class="font-mono text-[13px] text-text-muted max-sm:hidden">{cs.and_then(|y| y.from).unwrap_or_else(|| "offline".into())}</td>
                                 <td>{match h {
                                     Some(true) => view! { <span class=tag_class(Tone::Success)>"up"</span> }.into_any(),
                                     Some(false) => view! { <span class=tag_class(Tone::Danger)>"down"</span> }.into_any(),
                                     None => view! { <span class="text-text-faint">"not checked"</span> }.into_any(),
                                 }}</td>
-                                <td>{set}</td>
+                                <td class="max-sm:hidden">{set}</td>
                             </tr>
                         }
                     })
@@ -1151,7 +1151,7 @@ fn overview(section: &str, name: &str, stats: bool) -> impl IntoView {
                 view! {
                     <div class="mb-4">
                         <Card title="Health per client" sub=mode flush=true testid="health">
-                            <Table head=vec!["Client", "Connected from", "Health", "Set aside"]>{rows}</Table>
+                            <Table head=vec!["Client", "~Connected from", "Health", "~Set aside"]>{rows}</Table>
                         </Card>
                     </div>
                 }
