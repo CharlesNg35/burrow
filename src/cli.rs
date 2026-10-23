@@ -614,6 +614,21 @@ mod tests {
     }
 
     #[test]
+    fn service_words_used_alone_point_to_the_service_command() {
+        for word in ["install", "uninstall", "start", "stop", "restart", "logs"] {
+            let e = Cli::try_parse_from(["burrow", word, "-c", "x.yaml"]).unwrap_err();
+            let f = service_word(&e).unwrap_or_else(|| panic!("{word}: {e}"));
+            assert_eq!(f.message, format!("burrow {word} is not a command"));
+            let hint = f.hint.unwrap();
+            assert!(hint.contains(&format!("burrow service {word}")), "{hint}");
+        }
+        for args in [vec!["burrow", "instal"], vec!["burrow", "service", "frob"]] {
+            let e = Cli::try_parse_from(args).unwrap_err();
+            assert!(service_word(&e).is_none(), "{e}");
+        }
+    }
+
+    #[test]
     fn help_and_schema_text_name_burrow_s_ports_by_their_constants() {
         let mut text = String::new();
         help_of(&mut Cli::command(), &mut text);
