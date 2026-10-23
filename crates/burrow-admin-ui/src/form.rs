@@ -766,8 +766,22 @@ fn row(f: Field, path: Path, spath: Path, entity: Path) -> AnyView {
                     p
                 });
                 let inherited = st.with_untracked(|s| s.default_from.clone());
+                let clear = {
+                    let path = path.clone();
+                    move || {
+                        let reason =
+                            st.with(|s| (!s.enabled).then(|| s.disabled_reason.clone()).flatten())?;
+                        (can && editing.try_get().unwrap_or(false) && e.value(&path).is_some()).then(|| {
+                            let path = path.clone();
+                            let label = format!("Clear ({})", reason.replace("do not support", "do not use"));
+                            view! {
+                                <button type="button" class=burrow_ui_kit::button_class("ghost", true) data-testid="clear-unused" on:click=move |_| e.set(&path, None)>{label}</button>
+                            }
+                        })
+                    }
+                };
                 view! {
-                    <div class="flex min-h-[38px] items-center text-[13px]" id=id.clone()>
+                    <div class="flex min-h-[38px] flex-wrap items-center gap-3 text-[13px]" id=id.clone()>
                         {move || {
                             let v = e.value(&path).or_else(|| {
                                 single
@@ -780,6 +794,7 @@ fn row(f: Field, path: Path, spath: Path, entity: Path) -> AnyView {
                                 None => ().into_any(),
                             }
                         }}
+                        {clear}
                     </div>
                 }
                 .into_any()

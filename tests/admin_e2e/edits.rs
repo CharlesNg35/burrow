@@ -1533,6 +1533,26 @@ fn edit_state(c: &mut Ctx) -> Flow<'_> {
         );
         c.ui.shot("toast-above-the-action-bar").await;
 
+        c.ui.nav("/services/web?tab=settings").await;
+        edit_mode(c).await;
+        c.ui.fill("#f-services-web-max-connections", "9").await;
+        wait_checked(c).await;
+        c.ui.choose("f-services-web-protocol", "udp").await;
+        let clear = "[data-schema='services/*/max_connections'] [data-testid=clear-unused]";
+        c.ui.wait_for(clear, SECS).await;
+        assert!(
+            c.ui.text(clear)
+                .await
+                .contains("UDP services do not use this"),
+            "a value the protocol cannot use can be cleared in place"
+        );
+        c.ui.click(clear).await;
+        c.ui.wait_gone(clear, SECS).await;
+        wait_checked(c).await;
+        assert_eq!(c.ui.count("[data-testid=form-problems]").await, 0);
+        c.ui.click("[data-testid=discard-edit]").await;
+        c.ui.wait_gone("[data-testid=save-bar]", SECS).await;
+
         c.ui.viewport(420, 700).await;
         c.ui.nav("/visitors").await;
         c.ui.click("[data-testid=new]").await;
