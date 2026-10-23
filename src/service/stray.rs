@@ -21,6 +21,7 @@ pub struct Stray {
     pub stop: String,
 }
 
+#[cfg(any(target_os = "linux", target_os = "macos", test))]
 pub fn burrow_command(args: &[String]) -> Option<Option<PathBuf>> {
     let program = args.first()?;
     let file = program.rsplit(['/', '\\']).next().unwrap_or(program);
@@ -42,6 +43,7 @@ pub fn burrow_command(args: &[String]) -> Option<Option<PathBuf>> {
     Some(None)
 }
 
+#[cfg(any(target_os = "linux", test))]
 pub fn systemd_unit(text: &str) -> Option<Option<PathBuf>> {
     let line = text
         .lines()
@@ -72,6 +74,7 @@ fn unxml(s: &str) -> String {
         .replace("&amp;", "&")
 }
 
+#[cfg(any(target_os = "linux", target_os = "macos", test))]
 pub fn read_units(
     dir: &Path,
     prefix: &str,
