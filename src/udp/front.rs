@@ -37,8 +37,20 @@ pub trait Hooks {
     fn full(&self, from: SocketAddr);
     fn stalled(&self, stall: Duration);
     fn recv_error(&self, e: &std::io::Error);
+    fn oversized(&self, from: SocketAddr, n: usize) {
+        too_large(from, n);
+    }
     fn lost(&self) -> impl Future<Output = ()>;
     fn interrupt(&mut self) -> impl Future<Output = Interrupt>;
+}
+
+pub fn too_large(from: SocketAddr, n: usize) {
+    static LARGE: crate::throttle::Throttle = crate::throttle::Throttle::new();
+    if let Some(more) = LARGE.allow() {
+        tracing::debug!(
+            "dropped a UDP datagram of {n} bytes from {from}: the tunnel carries at most {MAX_DATAGRAM} bytes per datagram{more}"
+        );
+    }
 }
 
 pub struct Front<C: PeerCount, M: Meter> {
@@ -99,7 +111,11 @@ pub async fn run<C: PeerCount, M: Meter, H: Hooks>(
                         continue;
                     }
                 };
-                if n > MAX_DATAGRAM || !hooks.admit(from) {
+                if n > MAX_DATAGRAM {
+                    hooks.oversized(from, n);
+                    continue;
+                }
+                if !hooks.admit(from) {
                     continue;
                 }
                 if !front.meter.take_in(n) {
@@ -199,6 +215,7 @@ mod tests {
     struct Test {
         refused: SocketAddr,
         end: tokio::sync::mpsc::Receiver<Interrupt>,
+        big: Arc<AtomicUsize>,
     }
 
     impl Hooks for Test {
@@ -214,6 +231,9 @@ mod tests {
         fn full(&self, _: SocketAddr) {}
         fn stalled(&self, _: Duration) {}
         fn recv_error(&self, _: &std::io::Error) {}
+        fn oversized(&self, _: SocketAddr, n: usize) {
+            self.big.store(n, Ordering::Release);
+        }
         async fn lost(&self) {
             std::future::pending::<()>().await
         }
@@ -258,6 +278,7 @@ mod tests {
         let mut hooks = Test {
             refused: refused.local_addr().unwrap(),
             end,
+            big: Arc::new(AtomicUsize::new(0)),
         };
         let running = tokio::spawn(async move {
             let ending = run(&mut front, link, &mut hooks).await;
@@ -339,6 +360,7 @@ mod tests {
         let mut hooks = Test {
             refused: "127.0.0.1:1".parse().unwrap(),
             end,
+            big: Arc::new(AtomicUsize::new(0)),
         };
         drop(far);
         let ending =
@@ -346,5 +368,59 @@ mod tests {
                 .await
                 .unwrap();
         assert_eq!(ending, Ending::Broken);
+    }
+
+    #[tokio::test]
+    async fn a_datagram_too_large_for_one_record_is_reported_and_dropped() {
+        let Ok(socket) = UdpSocket::bind("[::1]:0").await else {
+            return;
+        };
+        let socket = Arc::new(socket);
+        let at = socket.local_addr().unwrap();
+        let sender = UdpSocket::bind("[::1]:0").await.unwrap();
+        let (near, mut far) = pair();
+        let crate::handshake::Channel {
+            stream,
+            writer,
+            reader,
+        } = near;
+        let (rd, wr) = stream.into_split();
+        let link = Link {
+            reader,
+            rd,
+            writer,
+            wr,
+        };
+        let mut front = Front {
+            socket,
+            peers: Arc::new(Mutex::new(PeerTable::default())),
+            gauge: PeerGauge::new(Count(Arc::new(AtomicUsize::new(0)))),
+            meter: Arc::new(Tally::default()),
+            stall: Duration::from_secs(5),
+        };
+        let (_tx, end) = tokio::sync::mpsc::channel(1);
+        let big = Arc::new(AtomicUsize::new(0));
+        let mut hooks = Test {
+            refused: "[::1]:1".parse().unwrap(),
+            end,
+            big: big.clone(),
+        };
+        let running = tokio::spawn(async move { run(&mut front, link, &mut hooks).await });
+        let too_big = vec![1u8; MAX_DATAGRAM + 5];
+        if sender.send_to(&too_big, at).await.is_err() {
+            running.abort();
+            return;
+        }
+        sender.send_to(b"small", at).await.unwrap();
+        let rec = far
+            .reader
+            .recv(&mut far.stream)
+            .await
+            .unwrap()
+            .unwrap()
+            .to_vec();
+        assert_eq!(decode_datagram(&rec).unwrap().1, b"small");
+        assert_eq!(big.load(Ordering::Acquire), MAX_DATAGRAM + 5);
+        running.abort();
     }
 }

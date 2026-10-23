@@ -142,6 +142,7 @@ pub(super) async fn serve(
             }
         };
         if n > MAX_DATAGRAM {
+            front::too_large(from, n);
             continue;
         }
         let (id, count) = {
