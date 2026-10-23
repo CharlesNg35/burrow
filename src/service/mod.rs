@@ -591,9 +591,7 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
         backend.stop(p)?;
     }
 
-    if let Some(identity) = &checked.identity
-        && let Err(e) = crate::instance::acquire(identity, &source)
-    {
+    if let Some(e) = checked.identity.as_ref().and_then(crate::instance::held) {
         return Err(Failure::new(format!("cannot install: {}", e.message)).hint(
             "stop the burrow process that is running outside the service first, then install again",
         ));

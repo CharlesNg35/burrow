@@ -521,6 +521,14 @@ fn already_running(identity: &Identity, lock: &Path) -> Failure {
     Failure::new(format!("{} is already running{who}", identity.describe())).hint(hint)
 }
 
+pub fn held(identity: &Identity) -> Option<Failure> {
+    held_in(&dirs_with(&default_dir()), identity)
+}
+
+pub fn held_in(dirs: &[PathBuf], identity: &Identity) -> Option<Failure> {
+    dirs.iter().find_map(|dir| held_elsewhere(dir, identity))
+}
+
 fn held_elsewhere(dir: &Path, identity: &Identity) -> Option<Failure> {
     let path = dir.join(format!("{}.lock", identity.key()));
     let file = no_follow(OpenOptions::new().read(true))
@@ -843,6 +851,26 @@ mod tests {
                 false
             }
         })
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_install_check_only_reads_the_lock_folders() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = dir.path().join("server.yaml");
+        let id = Identity::server(&cfg);
+        let missing = dir.path().join("missing");
+        let used = dir.path().join("used");
+        std::fs::create_dir(&used).unwrap();
+        let dirs = [missing.clone(), used.clone()];
+        assert!(held_in(&dirs, &id).is_none());
+        assert!(!missing.exists());
+        assert_eq!(std::fs::read_dir(&used).unwrap().count(), 0);
+        let lock = acquire_in(&used, &id, &cfg).unwrap();
+        let f = held_in(&dirs, &id).expect("a held lock is found");
+        assert!(f.message.contains("is already running"), "{}", f.message);
+        drop(lock);
+        assert!(held_in(&dirs, &id).is_none());
     }
 
     #[cfg(unix)]
