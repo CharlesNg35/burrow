@@ -79,6 +79,9 @@ pub trait Backend {
     fn ensure_account(&self, account: &str) -> Result<bool, Failure>;
     fn remove_account(&self, account: &str) -> Result<(), Failure>;
     fn can_read(&self, account: &str, path: &Path) -> bool;
+    fn made_for_burrow(&self, _account: &str) -> bool {
+        false
+    }
     fn low_ports(&self, _m: &Manifest) -> bool {
         true
     }
@@ -639,10 +642,13 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
         )?;
     }
     let manifest = Manifest {
-        created_account: created
-            || previous
-                .as_ref()
-                .is_some_and(|p| p.created_account && p.account == account),
+        created_account: burrows_account(
+            created,
+            &account,
+            &platform.default_account(&name),
+            previous.as_ref(),
+            || backend.made_for_burrow(&account),
+        ),
         ..manifest
     };
     for (field, file) in &checked.files {
@@ -857,6 +863,18 @@ fn name_arg(name: &str, managed: usize, strays: usize) -> String {
     } else {
         format!(" {name}")
     }
+}
+
+fn burrows_account(
+    created: bool,
+    account: &str,
+    default: &str,
+    previous: Option<&Manifest>,
+    made_for_burrow: impl FnOnce() -> bool,
+) -> bool {
+    created
+        || previous.is_some_and(|p| p.created_account && p.account == account)
+        || (account == default && made_for_burrow())
 }
 
 fn take_over(stray: Option<&stray::Stray>, config: &Path) -> Result<Option<String>, Failure> {
@@ -2139,6 +2157,33 @@ mod tests {
         let mut out = Vec::new();
         assert!(!already_running(&stopped, &m, "", &mut out).unwrap());
         assert!(out.is_empty());
+    }
+
+    #[test]
+    fn an_install_records_burrows_own_account_that_an_earlier_install_left_behind() {
+        let p = Platform::Linux;
+        let ours = p.default_account("burrow-server");
+        let (shaped, other) = (|| true, || false);
+        let previous = Manifest {
+            created_account: true,
+            ..record(p)
+        };
+        let elsewhere = Manifest {
+            account: "www".into(),
+            ..previous.clone()
+        };
+        assert!(burrows_account(true, &ours, &ours, None, other));
+        assert!(burrows_account(false, &ours, &ours, Some(&previous), other));
+        assert!(burrows_account(false, &ours, &ours, None, shaped));
+        assert!(!burrows_account(false, &ours, &ours, None, other));
+        assert!(!burrows_account(false, "www", &ours, None, shaped));
+        assert!(!burrows_account(
+            false,
+            &ours,
+            &ours,
+            Some(&elsewhere),
+            other
+        ));
     }
 
     #[test]
