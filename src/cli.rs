@@ -689,7 +689,7 @@ mod tests {
             ("default 127.0.0.1:", WS_PORT),
             ("for example 127.0.0.1:", WS_PORT),
             ("or 0.0.0.0:", WSS_PORT),
-            ("UI; ", ADMIN_PORT),
+            ("session's port or ", ADMIN_PORT),
         ] {
             let found = numbers_after(&text, before);
             assert!(!found.is_empty(), "no text names a port after {before:?}");
