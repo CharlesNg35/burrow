@@ -324,6 +324,7 @@ fn after_refusal(now: &Conn, reason: String, message: String) -> Conn {
     match now {
         Conn::Revoked { .. } => now.clone(),
         Conn::Reconnecting { .. } if reason == "unreachable" || reason == "busy" => now.clone(),
+        _ if reason == "unreachable" || reason == "busy" => Conn::Reconnecting { attempt: 0 },
         Conn::Reconnecting { .. } if reason == "forbidden" => Conn::Revoked { reason: message },
         _ => Conn::Refused { reason, message },
     }
@@ -417,5 +418,12 @@ mod tests {
             after_refusal(&Conn::Connecting, "forbidden".into(), "y".into()),
             Conn::Refused { .. }
         ));
+        for transient in ["unreachable", "busy"] {
+            assert_eq!(
+                after_refusal(&Conn::Connecting, transient.into(), "timed out".into()),
+                Conn::Reconnecting { attempt: 0 },
+                "a slow or busy server on the first try is retried, not final"
+            );
+        }
     }
 }
