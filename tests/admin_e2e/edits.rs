@@ -1400,6 +1400,14 @@ fn edit_state(c: &mut Ctx) -> Flow<'_> {
         .await;
         c.ui.nav("/visitors/ops").await;
         c.ui.wait_for("main h1 [data-testid=you-tag]", SECS).await;
+        edit_mode(c).await;
+        let admin = c.ui.text("[data-schema='visitors/*/admin']").await;
+        assert!(
+            admin.matches("burrow admin").count() == 1 && !admin.contains("Everything read gives"),
+            "the admin field explains itself once: {admin}"
+        );
+        c.ui.click("[data-testid=discard-edit]").await;
+        c.ui.wait_gone("[data-testid=save-bar]", SECS).await;
         assert!(
             c.ui.text("main h1").await.contains("admin · write"),
             "the visitor title says its admin level and that it is you"

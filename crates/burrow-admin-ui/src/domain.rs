@@ -391,7 +391,11 @@ fn enum_editor(fc: FieldCtx, c: EnumC) -> AnyView {
     let locked = move || off.with(|o| !o.is_empty()).then(in_the_file);
     let help = {
         let c = c.clone();
+        let field_help = !fc.node.help.is_empty();
         move || {
+            if field_help {
+                return None;
+            }
             let v = value.get();
             c.options
                 .iter()
