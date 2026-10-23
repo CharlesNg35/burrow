@@ -235,7 +235,7 @@ if [ "$(uname -s)" = Linux ]; then
   echo "$out" | grep -q "burrow-e2e-oldunit.service is running, but burrow has no usable record of it" || fail "status: $out"
   echo "$out" | grep -q "take it over: sudo systemctl stop burrow-e2e-oldunit, then sudo .*service install -c /etc/burrow/e2e-oldunit.yaml$" || fail "status hint: $out"
   out="$(sudo "$B" service update 2>&1)" || fail "update: $out"
-  echo "$out" | grep -q "note: burrow-e2e-oldunit.service (running) was not updated or restarted" || fail "update does not name the unit: $out"
+  echo "$out" | grep -q "note: burrow-e2e-oldunit.service (running) was not restarted" || fail "update does not name the unit: $out"
   if out="$(sudo "$B" service install -c /etc/burrow/e2e-oldunit.yaml 2>&1)"; then fail "install over a running unmanaged unit succeeded: $out"; fi
   echo "$out" | grep -q "burrow-e2e-oldunit.service is running, but burrow has no usable record of it" || fail "install refusal: $out"
   [ "$(systemctl show -p MainPID --value burrow-e2e-oldunit)" = "$OLDPID" ] || fail "the refused install restarted the unit"

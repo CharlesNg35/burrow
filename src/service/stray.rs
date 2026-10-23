@@ -259,7 +259,7 @@ impl Stray {
         say(
             out,
             format!(
-                "note: {} ({}) was not updated or restarted, because burrow has no usable record of it; take it over: {}",
+                "note: {} ({}) was not restarted, because burrow has no usable record of it; take it over: {}",
                 self.label,
                 self.state(),
                 self.steps()
@@ -576,7 +576,7 @@ mod tests {
         let out = String::from_utf8(out).unwrap();
         assert!(
             out.starts_with(
-                "note: burrow-client.service (running) was not updated or restarted, because burrow has no usable record of it; take it over: sudo systemctl stop burrow-client, then sudo "
+                "note: burrow-client.service (running) was not restarted, because burrow has no usable record of it; take it over: sudo systemctl stop burrow-client, then sudo "
             ),
             "{out}"
         );
