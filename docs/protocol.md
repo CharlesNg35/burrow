@@ -138,7 +138,7 @@ With `health_check`, the server also opens connections of its own: every interva
 
 **TCP**: after Connect/Status both directions carry stream records, each ending with the end-of-stream record. Half-close is preserved: the EOF record makes the receiver `shutdown(Write)` its socket while the other direction keeps flowing.
 
-**UDP**: each record is `peer:u32 || datagram` (at most 65515 bytes). The server assigns a peer id per sender address. The client keeps one connected UDP socket per peer id. Both sides expire peers after `udp.session_timeout_secs` of silence, with at most 4096 peers per service port. Each port of a UDP range keeps one data channel while its relay runs.
+**UDP**: each record is `peer:u32 || datagram` (at most 65515 bytes). The server assigns a peer id per sender address. The client keeps one connected UDP socket per peer id. Both sides expire peers after `udp.session_timeout_secs` of silence. The server keeps at most `udp.max_peers` peers per service port (4096 by default), and a client at most its `max_udp_peers` in all. Each port of a UDP range keeps one data channel while its relay runs.
 
 **insecure_plaintext**: the handshake, hello, Connect and Status are still encrypted records. After them, TCP data channels carry raw bytes (TCP FIN carries half-close). UDP stays encrypted.
 
