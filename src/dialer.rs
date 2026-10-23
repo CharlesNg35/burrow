@@ -159,11 +159,7 @@ impl Dialer {
         )
         .await
         .map_err(|e| {
-            let why = format!(
-                "server unreachable at {}{via} ({})",
-                self.server,
-                io_reason(&e)
-            );
+            let why = unreachable_reason(&self.server, &via, &e);
             if e.kind() == std::io::ErrorKind::ConnectionAborted {
                 DialError::Lost(why)
             } else {
@@ -284,9 +280,42 @@ fn tls_reason(e: &std::io::Error, role: &str) -> String {
     }
 }
 
+fn unreachable_reason(server: &str, via: &str, e: &std::io::Error) -> String {
+    if crate::transport::proxy::lookup_timed_out(e) {
+        io_reason(e)
+    } else {
+        format!("server unreachable at {server}{via} ({})", io_reason(e))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_lookup_that_timed_out_is_named_as_dns() {
+        let lookup = std::io::Error::new(
+            std::io::ErrorKind::TimedOut,
+            crate::transport::proxy::LookupTimedOut::new(
+                "tunnel.example.com:7835",
+                std::time::Duration::from_secs(10),
+            ),
+        );
+        assert_eq!(
+            unreachable_reason("tunnel.example.com:7835", "", &lookup),
+            "could not look up tunnel.example.com within 10 s (DNS)"
+        );
+        let refused = std::io::Error::from(std::io::ErrorKind::ConnectionRefused);
+        assert_eq!(
+            unreachable_reason("tunnel.example.com:7835", "", &refused),
+            "server unreachable at tunnel.example.com:7835 (connection refused)"
+        );
+        let slow = std::io::Error::from(std::io::ErrorKind::TimedOut);
+        assert_eq!(
+            unreachable_reason("tunnel.example.com:7835", "", &slow),
+            "server unreachable at tunnel.example.com:7835 (timed out)"
+        );
+    }
 
     #[test]
     fn a_failing_address_goes_last_and_a_working_one_first() {
