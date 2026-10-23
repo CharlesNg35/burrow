@@ -1,7 +1,5 @@
-use std::collections::HashMap;
-use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use tokio::net::UdpSocket;
 use tokio::sync::watch;
@@ -12,97 +10,12 @@ use super::{Shared, TakeError};
 use crate::config::settings::Service;
 use crate::forward::ForwardError;
 use crate::protocol::{Connect, MAX_DATAGRAM, Status, decode_datagram, encode_datagram};
+use crate::udp::peers::{AbortOnDrop, PeerCount, PeerGauge, PeerTable};
 use burrow_config::Protocol;
 
-#[derive(Default)]
-struct Peers {
-    by_addr: HashMap<SocketAddr, (u32, Instant)>,
-    by_id: HashMap<u32, SocketAddr>,
-    next: u32,
-}
-
-impl Peers {
-    fn id_for(&mut self, addr: SocketAddr, most: impl FnOnce() -> usize) -> Option<u32> {
-        if let Some((id, seen)) = self.by_addr.get_mut(&addr) {
-            *seen = Instant::now();
-            return Some(*id);
-        }
-        if self.by_addr.len() >= most() {
-            return None;
-        }
-        self.next = self.next.wrapping_add(1);
-        while self.by_id.contains_key(&self.next) {
-            self.next = self.next.wrapping_add(1);
-        }
-        let id = self.next;
-        self.by_addr.insert(addr, (id, Instant::now()));
-        self.by_id.insert(id, addr);
-        Some(id)
-    }
-
-    fn touch(&mut self, id: u32) -> Option<SocketAddr> {
-        let addr = *self.by_id.get(&id)?;
-        if let Some((_, seen)) = self.by_addr.get_mut(&addr) {
-            *seen = Instant::now();
-        }
-        Some(addr)
-    }
-
-    fn len(&self) -> usize {
-        self.by_addr.len()
-    }
-
-    fn expire(&mut self, timeout: Duration) {
-        self.retain_where(|_, seen| seen.elapsed() < timeout);
-    }
-
-    fn retain(&mut self, keep: impl Fn(SocketAddr) -> bool) {
-        self.retain_where(|addr, _| keep(addr));
-    }
-
-    fn retain_where(&mut self, keep: impl Fn(SocketAddr, Instant) -> bool) {
-        let by_id = &mut self.by_id;
-        self.by_addr.retain(|addr, (id, seen)| {
-            let kept = keep(*addr, *seen);
-            if !kept {
-                by_id.remove(id);
-            }
-            kept
-        });
-    }
-}
-
-struct AbortOnDrop(tokio::task::JoinHandle<()>);
-
-impl Drop for AbortOnDrop {
-    fn drop(&mut self) {
-        self.0.abort();
-    }
-}
-
-struct PeerGauge {
-    shared: Arc<Shared>,
-    counted: usize,
-}
-
-impl PeerGauge {
-    fn set(&mut self, now: usize) {
-        if now > self.counted {
-            self.shared
-                .udp_peers
-                .fetch_add(now - self.counted, std::sync::atomic::Ordering::AcqRel);
-        } else {
-            self.shared
-                .udp_peers
-                .fetch_sub(self.counted - now, std::sync::atomic::Ordering::AcqRel);
-        }
-        self.counted = now;
-    }
-}
-
-impl Drop for PeerGauge {
-    fn drop(&mut self) {
-        self.set(0);
+impl PeerCount for Arc<Shared> {
+    fn peers(&self) -> &std::sync::atomic::AtomicUsize {
+        &self.udp_peers
     }
 }
 
@@ -238,7 +151,7 @@ async fn relay(
         session.name()
     );
 
-    let peers = Arc::new(Mutex::new(Peers::default()));
+    let peers = Arc::new(Mutex::new(PeerTable::default()));
     let back_peers = peers.clone();
     let back_socket = socket.clone();
     let limit = shared.limit(name);
@@ -270,10 +183,7 @@ async fn relay(
     });
 
     let mut back = AbortOnDrop(back);
-    let mut gauge = PeerGauge {
-        shared: shared.clone(),
-        counted: 0,
-    };
+    let mut gauge = PeerGauge::new(shared.clone());
     let mut sweep = tokio::time::interval(Duration::from_secs(5));
     let mut repick = tokio::time::interval(Duration::from_secs(1));
     let mut buf = vec![0u8; 65536];
@@ -385,32 +295,5 @@ async fn relay(
             _ = session.closed() => break Ok(()),
             _ = stop.changed() => break Ok(()),
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn at(port: u16) -> SocketAddr {
-        SocketAddr::from(([127, 0, 0, 1], port))
-    }
-
-    #[test]
-    fn the_peer_cap_is_read_for_each_new_peer_and_never_drops_known_ones() {
-        let mut p = Peers::default();
-        assert!(p.id_for(at(1), || 2).is_some());
-        assert!(p.id_for(at(2), || 2).is_some());
-        assert!(p.id_for(at(3), || 2).is_none());
-        assert!(p.id_for(at(3), || 3).is_some());
-        assert!(p.id_for(at(4), || 1).is_none());
-        for known in 1..=3 {
-            assert!(p.id_for(at(known), || 1).is_some());
-        }
-        assert_eq!(p.len(), 3);
-        p.expire(Duration::ZERO);
-        assert_eq!(p.len(), 0);
-        assert!(p.id_for(at(5), || 1).is_some());
-        assert!(p.id_for(at(6), || 1).is_none());
     }
 }
