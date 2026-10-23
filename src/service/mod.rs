@@ -610,6 +610,7 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
                 pid,
                 name: m.name,
                 managed: true,
+                stop: None,
             })
         });
         let strays = stray::strays().into_iter().filter_map(|s| {
@@ -617,6 +618,7 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
                 pid,
                 name: s.label,
                 managed: false,
+                stop: Some(s.stop),
             })
         });
         managed.chain(strays).collect()

@@ -7,6 +7,7 @@ pub struct PortUser {
     pub pid: u32,
     pub name: String,
     pub managed: bool,
+    pub stop: Option<String>,
 }
 
 pub fn check_free(
@@ -47,9 +48,14 @@ pub fn check_free(
                     "{busy} by {program} (pid {pid}), from {} (not a service burrow manages)",
                     u.name
                 ))
-                .hint(format!(
-                    "pick another port in the config, or stop that program; see: {see}"
-                )),
+                .hint(match &u.stop {
+                    Some(stop) => {
+                        format!("pick another port in the config, or stop it first: {stop}")
+                    }
+                    None => {
+                        format!("pick another port in the config, or stop that program; see: {see}")
+                    }
+                }),
                 (owner, _) => Failure::new(format!(
                     "{busy}{}",
                     owner
@@ -212,6 +218,7 @@ mod tests {
                         "burrow-server.service".into()
                     },
                     managed,
+                    stop: (!managed).then(|| "sudo systemctl stop burrow-server".to_string()),
                 }]
             }
         };
@@ -226,6 +233,12 @@ mod tests {
         let hint = err.hint.unwrap();
         assert!(hint.contains("service stop burrow-server"), "{hint}");
         let err = check_free(Protocol::Tcp, addr, "listen", &user(false)).unwrap_err();
+        assert_eq!(
+            err.hint.as_deref(),
+            Some(
+                "pick another port in the config, or stop it first: sudo systemctl stop burrow-server"
+            )
+        );
         assert!(
             err.message.ends_with(&format!(
                 "(pid {me}), from burrow-server.service (not a service burrow manages)"
