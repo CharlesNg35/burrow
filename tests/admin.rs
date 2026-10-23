@@ -742,6 +742,7 @@ async fn burrow_admin_stops_at_once_when_it_cannot_write_the_url_file() {
     )
     .unwrap();
     let missing = dir.path().join("no-such-dir").join("url.txt");
+    let sessions = dir.path().join("admin-sessions");
     let started = std::time::Instant::now();
     let run = tokio::task::spawn_blocking(move || {
         std::process::Command::new(env!("CARGO_BIN_EXE_burrow"))
@@ -758,6 +759,7 @@ async fn burrow_admin_stops_at_once_when_it_cannot_write_the_url_file() {
                 "--url-file",
             ])
             .arg(&missing)
+            .env("BURROW_ADMIN_SESSION_DIR", sessions)
             .output()
     });
     let out = tokio::time::timeout(Duration::from_secs(30), run)
@@ -788,6 +790,8 @@ impl AdminRun {
             "--idle-exit",
             "30s",
         ]);
+        let sessions = config.parent().unwrap_or(config).join("admin-sessions");
+        cmd.env("BURROW_ADMIN_SESSION_DIR", sessions);
         if let Some(p) = port {
             cmd.args(["--port", p]);
         }
