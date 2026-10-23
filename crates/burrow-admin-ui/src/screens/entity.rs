@@ -119,6 +119,19 @@ pub fn rows_for(section: &str) -> Vec<Row> {
                     },
                     line2: if pending.is_some() {
                         "Draft · not applied yet".into()
+                    } else if on {
+                        let host = c
+                            .as_ref()
+                            .and_then(|c| c.from.clone())
+                            .map(|f| f.rsplit_once(':').map(|(h, _)| h.to_string()).unwrap_or(f))
+                            .unwrap_or_default();
+                        let since =
+                            format::span(c.as_ref().and_then(|c| c.connected_secs).unwrap_or(0));
+                        if host.is_empty() {
+                            format!("for {since} · {serves}")
+                        } else {
+                            format!("{host} · for {since} · {serves}")
+                        }
                     } else {
                         serves
                     },

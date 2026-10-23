@@ -1392,6 +1392,13 @@ fn edit_state(c: &mut Ctx) -> Flow<'_> {
         )
         .await;
         c.ui.nav("/clients/home").await;
+        let row =
+            c.ui.wait_text("[data-testid=entity-list] [data-row=home]", " · for ", SECS)
+                .await;
+        assert!(
+            row.contains("127.0.0.1"),
+            "an online client row says where from and for how long: {row}"
+        );
         edit_mode(c).await;
         assert!(
             !c.ui.enabled("[data-testid=save]").await,
