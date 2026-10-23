@@ -239,6 +239,63 @@ pub fn attention(values: &Value, state: Option<&State>, status: Option<&Status>)
 
 type Hits = (Vec<String>, Vec<(String, usize, usize)>);
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Problem {
+    Down,
+    Partial,
+    Health,
+}
+
+pub fn service_problems(values: &Value, status: Option<&Status>) -> Vec<(String, Problem)> {
+    let Some(status) = status else {
+        return Vec::new();
+    };
+    let online = |c: &str| {
+        status
+            .clients
+            .iter()
+            .find(|x| x.name == c)
+            .is_some_and(|x| x.connected)
+    };
+    let mut out: Vec<(String, Problem)> = ServiceEntry::entries(values)
+        .map(|m| {
+            m.iter()
+                .filter_map(|(name, svc)| {
+                    let cs = clients_of(svc);
+                    let up = cs.iter().filter(|c| online(c)).count();
+                    let failing = status
+                        .services
+                        .iter()
+                        .find(|x| &x.name == name)
+                        .is_some_and(|x| x.health.iter().any(|h| !h.up));
+                    let p = if up == 0 {
+                        Problem::Down
+                    } else if failing {
+                        Problem::Health
+                    } else if up < cs.len() {
+                        Problem::Partial
+                    } else {
+                        return None;
+                    };
+                    Some((name.clone(), p))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    out.sort_by(|a, b| a.0.cmp(&b.0));
+    out
+}
+
+pub fn healthy_detail(p: &[(String, Problem)]) -> String {
+    match p {
+        [] => "all up".into(),
+        [(n, Problem::Down)] => format!("{n} is down"),
+        [(n, Problem::Health)] => format!("{n} fails its health check"),
+        [(n, Problem::Partial)] => format!("{n} runs on fewer clients"),
+        many => format!("{} with problems", many.len()),
+    }
+}
+
 fn and_list(names: &[String]) -> String {
     match names {
         [] => String::new(),
@@ -247,14 +304,7 @@ fn and_list(names: &[String]) -> String {
     }
 }
 
-pub fn listed_clients(items: &[Item]) -> Vec<String> {
-    items
-        .iter()
-        .filter_map(|i| i.key.strip_prefix("client:").map(str::to_string))
-        .collect()
-}
-
-pub fn away(values: &Value, status: Option<&Status>, listed: &[String]) -> Vec<Item> {
+pub fn away(values: &Value, status: Option<&Status>) -> Vec<Item> {
     let Some(status) = status else {
         return Vec::new();
     };
@@ -262,7 +312,7 @@ pub fn away(values: &Value, status: Option<&Status>, listed: &[String]) -> Vec<I
         .into_iter()
         .filter_map(|c| {
             let st = status.clients.iter().find(|x| x.name == c);
-            if st.is_some_and(|x| x.connected) || listed.contains(&c) {
+            if st.is_some_and(|x| x.connected) {
                 return None;
             }
             let serves: Vec<String> = ServiceEntry::entries(values)
@@ -426,9 +476,13 @@ fn Traffic() -> impl IntoView {
                 />
             </div>
             <div class="flex flex-wrap items-end gap-6 px-4 pt-3">
-                <div class="flex items-center gap-4 text-xs text-text-muted" data-testid="traffic-legend">
-                    <span class="flex items-center gap-1.5"><span class="h-0.5 w-3.5 rounded bg-accent"></span>"In"</span>
-                    <span class="flex items-center gap-1.5"><span class="h-0.5 w-3.5 rounded bg-udp"></span>"Out"</span>
+                <div data-testid="traffic-in">
+                    <div class="flex items-center gap-1.5 text-xs text-text-muted"><span class="h-0.5 w-3.5 rounded bg-accent"></span>"In"</div>
+                    <div class="text-2xl font-bold tabular-nums">{move || now(false).0}<small class="ml-1 text-[13px] font-medium text-text-muted">{move || now(false).1}</small></div>
+                </div>
+                <div data-testid="traffic-out">
+                    <div class="flex items-center gap-1.5 text-xs text-text-muted"><span class="h-0.5 w-3.5 rounded bg-udp"></span>"Out"</div>
+                    <div class="text-2xl font-bold tabular-nums">{move || now(true).0}<small class="ml-1 text-[13px] font-medium text-text-muted">{move || now(true).1}</small></div>
                 </div>
                 <div class="ml-auto text-right text-[11.5px] text-text-muted" data-testid="traffic-note">
                     <div>{move || format!("{} · Mbit/s", if service.get().is_empty() { "all services".to_string() } else { service.get() })}</div>
@@ -574,8 +628,7 @@ fn Attention() -> impl IntoView {
     });
     let away_items = Memo::new(move |_| {
         let v = s.running();
-        let listed = items.with(|i| listed_clients(i));
-        away(&v, s.status.get().as_deref(), &listed)
+        away(&v, s.status.get().as_deref())
     });
     let seen: StoredValue<Vec<String>> = StoredValue::new(Vec::new());
     let announce = RwSignal::new(String::new());
@@ -619,7 +672,6 @@ fn Attention() -> impl IntoView {
         })
     };
     let n_clients = move || names(&s.running(), ClientEntry::section()).len();
-    let above = Memo::new(move |_| items.with(|i| listed_clients(i).len()));
     let away_title: &'static str = "Clients away";
     let away_grow = Signal::derive(move || {
         if away_items.with(Vec::len) >= 2 {
@@ -629,7 +681,7 @@ fn Attention() -> impl IntoView {
         }
     });
     let away_tone = Signal::derive(move || {
-        if away_items.with(Vec::is_empty) && above.get() == 0 {
+        if away_items.with(Vec::is_empty) {
             Tone::Success
         } else {
             Tone::Warning
@@ -639,19 +691,11 @@ fn Attention() -> impl IntoView {
         let n = n_clients();
         if n == 0 {
             "No clients yet".to_string()
-        } else if above.get() > 0 {
-            "No other clients away".to_string()
         } else {
             format!("All {n} clients online")
         }
     });
-    let away_msg = Signal::derive(move || {
-        if above.get() > 0 {
-            "The offline clients above are listed with what they affect.".to_string()
-        } else {
-            longest().unwrap_or_default()
-        }
-    });
+    let away_msg = Signal::derive(move || longest().unwrap_or_default());
     view! {
         <section class="relative rounded-card border border-border bg-surface min-[1200px]:col-span-4" data-testid="attention-card">
             <div class="flex flex-col overflow-hidden rounded-card min-[1200px]:absolute min-[1200px]:inset-0 [&>[data-testid=away]]:border-t [&>[data-testid=away]]:border-border">
@@ -722,20 +766,28 @@ pub fn Overview() -> impl IntoView {
         let up = n.iter().filter(|c| online(c)).count();
         (up, n.len())
     });
+    let counts = Signal::derive(move || {
+        let v = values.get();
+        let (up, n) = clients_now.get();
+        let vis = names(&v, VisitorEntry::section()).len();
+        let active = s.status.with(|st| {
+            st.as_ref()
+                .map(|st| st.visitors.iter().filter(|x| s.in_use(x)).count())
+                .unwrap_or(0)
+        });
+        vec![
+            names(&v, ServiceEntry::section()).len().to_string(),
+            format!("{up}/{n}"),
+            format!("{active}/{vis}"),
+        ]
+    });
     let down = Signal::derive(move || {
         let v = values.get();
         let st = s.status.get();
-        let svcs = names(&v, ServiceEntry::section());
-        let bad: Vec<String> = attention(&v, None, st.as_deref())
-            .into_iter()
-            .filter(|i| {
-                i.key.starts_with("down:")
-                    || i.key.starts_with("health:")
-                    || i.key.starts_with("partial:")
-            })
-            .filter_map(|i| i.key.split_once(':').map(|(_, n)| n.to_string()))
-            .collect();
-        (svcs.len(), bad)
+        (
+            names(&v, ServiceEntry::section()).len(),
+            service_problems(&v, st.as_deref()),
+        )
     });
     let sub = move || {
         let st = s.status.get();
@@ -891,7 +943,7 @@ pub fn Overview() -> impl IntoView {
                         icon="monitor"
                         value=Signal::derive(move || clients_now.get().0.to_string())
                         unit=Signal::derive(move || format!("/ {}", clients_now.get().1))
-                        detail=Signal::derive(move || { let (u, n) = clients_now.get(); if u == n { "all connected".to_string() } else { "online now".to_string() } })
+                        detail=Signal::derive(move || { let (u, n) = clients_now.get(); if u == n { "all connected".to_string() } else { format!("{} away", n - u) } })
                         testid="kpi-clients"
                     />
                 </Link>
@@ -899,17 +951,9 @@ pub fn Overview() -> impl IntoView {
                     <Kpi
                         label="Services healthy"
                         icon="stack"
-                        value=Signal::derive(move || { let (n, bad) = down.get(); let b: std::collections::BTreeSet<_> = bad.into_iter().collect(); (n - b.len().min(n)).to_string() })
+                        value=Signal::derive(move || { let (n, bad) = down.get(); (n - bad.len().min(n)).to_string() })
                         unit=Signal::derive(move || format!("/ {}", down.get().0))
-                        detail=Signal::derive(move || {
-                            let (_, bad) = down.get();
-                            let b: std::collections::BTreeSet<_> = bad.into_iter().collect();
-                            match b.len() {
-                                0 => "all up".to_string(),
-                                1 => "1 with a problem".to_string(),
-                                n => format!("{n} with problems"),
-                            }
-                        })
+                        detail=Signal::derive(move || healthy_detail(&down.get().1))
                         testid="kpi-services"
                     />
                 </Link>
@@ -970,6 +1014,7 @@ pub fn Overview() -> impl IntoView {
                         <PillTabs
                             tabs=vec![(ServiceEntry::section(), "Services".into()), (ClientEntry::section(), "Clients".into()), (VisitorEntry::section(), "Visitors".into())]
                             active=tab
+                            counts=counts
                             on_change=Callback::new(move |t: &'static str| {
                                 tab.set(t);
                                 route::set_query("tab", t);
@@ -1048,15 +1093,39 @@ mod tests {
         );
         assert_eq!(items[0].tone, Tone::Danger);
         assert_eq!(items[1].detail, "None of its 2 clients is online: c, d.");
-        let listed = listed_clients(&items);
-        assert_eq!(listed, ["b"]);
-        let a = away(&v, Some(&st), &listed);
+        let a = away(&v, Some(&st));
         assert_eq!(
             a.iter().map(|i| i.title.as_str()).collect::<Vec<_>>(),
-            ["c", "d"]
+            ["b", "c", "d"],
+            "every offline client is listed in Clients away"
         );
-        assert!(a[0].detail.starts_with("serves both · "), "{}", a[0].detail);
+        assert!(a[1].detail.starts_with("serves both · "), "{}", a[1].detail);
         assert!(attention(&v, None, None).is_empty());
+    }
+
+    #[test]
+    fn services_healthy_counts_services_whose_client_is_offline() {
+        let v = json!({
+            "clients": {"a": {}, "b": {}},
+            "services": {
+                "web": {"client": "a", "target": "x:1"},
+                "backup": {"client": "b", "target": "x:2"},
+                "both": {"clients": ["a", "b"], "target": "x:3"}
+            }
+        });
+        let st = status(&["a"], &["b"]);
+        let p = service_problems(&v, Some(&st));
+        assert_eq!(
+            p,
+            [
+                ("backup".to_string(), Problem::Down),
+                ("both".to_string(), Problem::Partial)
+            ]
+        );
+        assert_eq!(healthy_detail(&p), "2 with problems");
+        assert_eq!(healthy_detail(&p[..1]), "backup is down");
+        assert_eq!(healthy_detail(&p[1..]), "both runs on fewer clients");
+        assert_eq!(healthy_detail(&[]), "all up");
     }
 
     #[test]
