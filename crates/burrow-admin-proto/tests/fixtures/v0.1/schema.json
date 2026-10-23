@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:f7db35e243cc8fb3",
+  "hash": "b2s:5218c0e80b56a89a",
   "root": {
     "label": "Server",
     "sem": {
@@ -10,7 +10,7 @@
           "key": "listen",
           "node": {
             "label": "Listen address",
-            "help": "Where the server waits for clients",
+            "help": "Where the server waits for clients, for example 0.0.0.0:7835, or just a port such as 7835 for every IPv4 address",
             "sem": {
               "t": "optional",
               "inner": {
@@ -31,7 +31,7 @@
           "key": "public_address",
           "node": {
             "label": "Public address",
-            "help": "How clients reach this server; the connect commands and client configs made here use it",
+            "help": "How clients reach this server, for example tunnel.example.com, tunnel.example.com:7835 or wss://tunnel.example.com/burrow; the connect commands and client configs made here use it",
             "sem": {
               "t": "optional",
               "inner": {
@@ -253,7 +253,7 @@
                       "key": "reach",
                       "node": {
                         "label": "Direct access to clients",
-                        "help": "Clients this visitor may reach directly, and which targets there: any target the client allows, or only the ones listed",
+                        "help": "Clients this visitor may reach directly, and which targets there: any target the client allows, or only the ones listed, for example 192.168.150.0/25 or 10.0.0.5:22",
                         "sem": {
                           "t": "ref_map",
                           "entity": "client",
@@ -356,7 +356,7 @@
                       "key": "admin_from",
                       "node": {
                         "label": "Admin only from",
-                        "help": "Admin access only from these addresses or networks; any address when empty",
+                        "help": "Admin access only from these addresses or networks, for example 203.0.113.0/24 or 10.0.0.0/8; any address when empty",
                         "sem": {
                           "t": "list",
                           "item": {
@@ -420,7 +420,7 @@
                       "key": "allow",
                       "node": {
                         "label": "Allowed targets",
-                        "help": "Addresses this server may reach itself, with optional ports, or Unix sockets; link-local and cloud metadata addresses only when listed one by one",
+                        "help": "Addresses this server may reach itself, with optional ports, or Unix sockets, for example 10.0.0.0/8, 192.168.1.10:22 or unix:/run/app.sock; link-local and cloud metadata addresses only when listed one by one",
                         "sem": {
                           "t": "list",
                           "item": {
@@ -646,7 +646,7 @@
                       "key": "bind",
                       "node": {
                         "label": "Public address",
-                        "help": "The address and port the server opens for this service",
+                        "help": "The address and port the server opens for this service, for example 8080 or 127.0.0.1:8080",
                         "sem": {
                           "t": "optional",
                           "inner": {
@@ -675,7 +675,7 @@
                       "key": "target",
                       "node": {
                         "label": "Target on the client",
-                        "help": "Where the client connects, as seen from the client; a port alone means the client itself",
+                        "help": "Where the client connects, as seen from the client, for example 127.0.0.1:3000 or 10.0.0.5:22; a port alone means the client itself",
                         "sem": {
                           "t": "target",
                           "ranges": true,
@@ -798,7 +798,7 @@
                       "key": "allow_from",
                       "node": {
                         "label": "Allow from",
-                        "help": "Only these addresses or networks may connect",
+                        "help": "Only these addresses or networks may connect, for example 203.0.113.0/24 or 10.0.0.0/8",
                         "sem": {
                           "t": "list",
                           "item": {
@@ -815,7 +815,7 @@
                       "key": "deny_from",
                       "node": {
                         "label": "Deny from",
-                        "help": "Addresses or networks that may never connect",
+                        "help": "Addresses or networks that may never connect, for example 198.51.100.7 or 198.51.100.0/24",
                         "sem": {
                           "t": "list",
                           "item": {
@@ -874,7 +874,7 @@
                       "key": "bandwidth",
                       "node": {
                         "label": "Speed limit",
-                        "help": "Speed limit in each direction, shared by all connections of this service",
+                        "help": "Speed limit in each direction, shared by all connections of this service, for example 40mbit or 5MB per second",
                         "sem": {
                           "t": "optional",
                           "inner": {
