@@ -2,6 +2,8 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use tracing::debug;
+
 use super::token::Token;
 
 pub const KEEP_SECS: u64 = 12 * 3600;
@@ -71,20 +73,60 @@ pub fn now() -> u64 {
         .unwrap_or(0)
 }
 
+fn live(text: &str, now: u64) -> Option<Stored> {
+    serde_json::from_str::<Stored>(text)
+        .ok()
+        .filter(|s| valid(s) && now.saturating_sub(s.used) < KEEP_SECS && s.used <= now + 60)
+}
+
+pub fn sweep(dir: &Path, now: u64) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if !(name.starts_with("session-") && name.ends_with(".json")) {
+            continue;
+        }
+        let Ok(meta) = std::fs::symlink_metadata(&path) else {
+            continue;
+        };
+        if !meta.file_type().is_file() {
+            continue;
+        }
+        let text = match std::fs::read_to_string(&path) {
+            Ok(t) => t,
+            Err(e) => {
+                debug!("cannot read the admin session {}: {e}", path.display());
+                continue;
+            }
+        };
+        if live(&text, now).is_some() {
+            continue;
+        }
+        if let Err(e) = std::fs::remove_file(&path) {
+            debug!(
+                "cannot delete the old admin session {}: {e}",
+                path.display()
+            );
+        }
+    }
+}
+
 pub fn load(dir: &Path, config: &Path, now: u64) -> Session {
     let fresh = Session::fresh;
     let Ok(text) = std::fs::read_to_string(file_for(dir, config)) else {
         return fresh();
     };
-    match serde_json::from_str::<Stored>(&text) {
-        Ok(s) if valid(&s) && now.saturating_sub(s.used) < KEEP_SECS && s.used <= now + 60 => {
-            Session {
-                token: Token::from_stored(s.token),
-                prefix: s.prefix,
-                port: Some(s.port),
-                reused: true,
-            }
-        }
+    match live(&text, now) {
+        Some(s) => Session {
+            token: Token::from_stored(s.token),
+            prefix: s.prefix,
+            port: Some(s.port),
+            reused: true,
+        },
         _ => fresh(),
     }
 }
@@ -187,5 +229,76 @@ mod tests {
             std::fs::write(&file, broken).unwrap();
             assert!(!load(&store, &ops, 5).reused, "{broken}");
         }
+    }
+
+    #[test]
+    fn the_sweep_deletes_only_expired_or_broken_session_files() {
+        let home = tempfile::tempdir().unwrap();
+        let store = home.path().join("admin");
+        let now = 100_000;
+        let ops = config(home.path(), "ops.yaml");
+        let other = config(home.path(), "other.yaml");
+        save(&store, &ops, &Session::fresh(), 4000, now - KEEP_SECS - 1).unwrap();
+        save(&store, &other, &Session::fresh(), 4001, now - 10).unwrap();
+        let expired = file_for(&store, &ops);
+        let fresh = file_for(&store, &other);
+        let future = store.join("session-future.json");
+        let text = std::fs::read_to_string(&fresh).unwrap();
+        std::fs::write(
+            &future,
+            text.replace(
+                &format!("\"used\":{}", now - 10),
+                &format!("\"used\":{}", now + 61),
+            ),
+        )
+        .unwrap();
+        let broken = store.join("session-broken.json");
+        std::fs::write(&broken, "not json").unwrap();
+        let empty = store.join("session-empty.json");
+        std::fs::write(&empty, "").unwrap();
+        let unrelated = store.join("notes.json");
+        std::fs::write(&unrelated, "not json").unwrap();
+        let folder = store.join("session-folder.json");
+        std::fs::create_dir(&folder).unwrap();
+        #[cfg(unix)]
+        let link = {
+            let outside = home.path().join("outside.json");
+            std::fs::write(&outside, "not json").unwrap();
+            let link = store.join("session-link.json");
+            std::os::unix::fs::symlink(&outside, &link).unwrap();
+            (link, outside)
+        };
+        sweep(&store, now);
+        for gone in [&expired, &future, &broken, &empty] {
+            assert!(!gone.exists(), "{} should be deleted", gone.display());
+        }
+        for kept in [&fresh, &unrelated, &folder] {
+            assert!(kept.exists(), "{} should stay", kept.display());
+        }
+        #[cfg(unix)]
+        {
+            assert!(
+                std::fs::symlink_metadata(&link.0).is_ok(),
+                "a symlink is never touched"
+            );
+            assert!(link.1.exists(), "nothing outside the folder is touched");
+        }
+        assert!(load(&store, &other, now).reused);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_file_the_sweep_cannot_delete_does_not_stop_the_start() {
+        use std::os::unix::fs::PermissionsExt;
+        let home = tempfile::tempdir().unwrap();
+        let store = home.path().join("admin");
+        std::fs::create_dir(&store).unwrap();
+        std::fs::write(store.join("session-broken.json"), "not json").unwrap();
+        std::fs::set_permissions(&store, std::fs::Permissions::from_mode(0o500)).unwrap();
+        sweep(&store, 5);
+        let ops = config(home.path(), "ops.yaml");
+        assert!(!load(&store, &ops, 5).reused);
+        std::fs::set_permissions(&store, std::fs::Permissions::from_mode(0o700)).unwrap();
+        assert!(store.join("session-broken.json").exists());
     }
 }
