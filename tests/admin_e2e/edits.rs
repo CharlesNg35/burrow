@@ -568,6 +568,13 @@ fn lockout(c: &mut Ctx) -> Flow<'_> {
         c.ui.click("[data-testid=more]").await;
         c.ui.click("[data-testid=delete]").await;
         wait_checked(c).await;
+        c.ui.nav("/visitors/ops").await;
+        c.ui.wait_for("[data-testid=undo-remove]", SECS).await;
+        let gap: f64 = c
+            .ui
+            .eval("(() => { const a = document.querySelector('[data-testid=undo-remove]').getBoundingClientRect(); const b = document.querySelector('[data-testid=detail-missing] a').getBoundingClientRect(); return b.left >= a.right ? b.left - a.right : b.top - a.bottom; })()")
+            .await;
+        assert!(gap >= 6.0, "buttons side by side keep a gap: {gap}");
         c.ui.shot("ops-deleted-in-draft").await;
         open_review(c, "deleting-myself").await;
         refused(c, "self-removed", "refused-self-removed").await;
