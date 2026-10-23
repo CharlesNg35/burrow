@@ -1349,6 +1349,7 @@ pub fn uninstall(name: Option<&str>, purge: bool, out: &mut dyn Write) -> Result
     let _ = std::fs::remove_file(manifest_path(&m.name));
     say(out, format!("removed service {}", m.name))?;
     let others = all_manifests();
+    let strays = stray::strays();
     let mut logs = vec![m.log_file.clone()];
     logs.extend(
         (1..=crate::logfile::KEEP).map(|n| PathBuf::from(format!("{}.{n}", m.log_file.display()))),
@@ -1393,7 +1394,10 @@ pub fn uninstall(name: Option<&str>, purge: bool, out: &mut dyn Write) -> Result
         let _ = std::fs::remove_dir(m.folder());
         kept_folder = Some(m.folder().to_path_buf()).filter(|d| real_dir(d));
     }
-    if m.copied_binary && !others.iter().any(|o| o.binary == m.binary) {
+    let last_binary_user = m.copied_binary && !others.iter().any(|o| o.binary == m.binary);
+    if let Some(note) = stray::keeps(&strays, m.binary.display()).filter(|_| last_binary_user) {
+        say(out, note)?;
+    } else if last_binary_user {
         match std::fs::remove_file(&m.binary) {
             Ok(()) => {
                 let _ = std::fs::remove_file(m.binary.with_extension("previous"));
@@ -1437,7 +1441,12 @@ pub fn uninstall(name: Option<&str>, purge: bool, out: &mut dyn Write) -> Result
         save_manifest(&heir)?;
     }
     let mut account_left = None;
-    if m.created_account && !others.iter().any(|o| o.account == m.account) {
+    let last_account_user = m.created_account && !others.iter().any(|o| o.account == m.account);
+    if let Some(note) = stray::keeps(&strays, format!("service account {}", m.account))
+        .filter(|_| last_account_user)
+    {
+        say(out, note)?;
+    } else if last_account_user {
         #[cfg(unix)]
         {
             let dir = m

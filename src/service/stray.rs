@@ -286,6 +286,15 @@ pub fn none_usable(strays: &[Stray]) -> Failure {
     }
 }
 
+pub fn keeps(strays: &[Stray], what: impl std::fmt::Display) -> Option<String> {
+    let labels: Vec<&str> = strays.iter().map(|s| s.label.as_str()).collect();
+    match labels.as_slice() {
+        [] => None,
+        [one] => Some(format!("kept {what}: {one} still uses it")),
+        many => Some(format!("kept {what}: {} still use it", many.join(", "))),
+    }
+}
+
 pub fn pick(all: Vec<Manifest>, strays: &[Stray]) -> Result<Manifest, Failure> {
     match (all.as_slice(), strays) {
         ([one], []) => Ok(one.clone()),
@@ -572,6 +581,27 @@ mod tests {
             "{out}"
         );
         assert_eq!(out.matches("burrow-client.service").count(), 1, "{out}");
+    }
+
+    #[test]
+    fn what_a_stray_may_still_use_is_kept_and_named() {
+        let bin = Path::new("/usr/local/bin/burrow");
+        assert_eq!(keeps(&[], bin.display()), None);
+        assert_eq!(
+            keeps(&[stray("burrow-stray", true, None)], bin.display()).as_deref(),
+            Some("kept /usr/local/bin/burrow: burrow-stray.service still uses it")
+        );
+        assert_eq!(
+            keeps(
+                &[
+                    stray("burrow-a", false, None),
+                    stray("burrow-b", true, None)
+                ],
+                "service account burrow"
+            )
+            .as_deref(),
+            Some("kept service account burrow: burrow-a.service, burrow-b.service still use it")
+        );
     }
 
     #[test]

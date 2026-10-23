@@ -269,7 +269,9 @@ impl Backend for Systemd {
         }
         run("systemctl", &["daemon-reload"])?;
         let _ = run("systemctl", &["reset-failed", &m.name]);
-        if super::all_manifests().iter().all(|o| o.name == m.name) {
+        if super::all_manifests().iter().all(|o| o.name == m.name)
+            && super::stray::strays().is_empty()
+        {
             let _ = std::fs::remove_file(TMPFILES);
         }
         Ok(())
