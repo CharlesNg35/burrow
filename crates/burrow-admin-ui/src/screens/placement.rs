@@ -240,4 +240,27 @@ mod tests {
         );
         assert!(missing.is_empty(), "{missing:#?}");
     }
+
+    #[test]
+    fn help_examples_hold_for_every_server() {
+        let root = <burrow_config::ServerConfig as AdminSchema>::node();
+        let public = root.at(&["public_address".to_string()]).unwrap();
+        assert!(
+            public.help.contains("when WebSocket is on"),
+            "{}",
+            public.help
+        );
+        let clients = root
+            .at(&[
+                "services".to_string(),
+                "*".to_string(),
+                "clients".to_string(),
+            ])
+            .unwrap();
+        assert!(
+            clients.help.contains("with two or more"),
+            "{}",
+            clients.help
+        );
+    }
 }

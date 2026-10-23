@@ -39,7 +39,7 @@ pub struct ServerConfig {
     #[schemars(
         description = "How clients reach this server: a host name or IP (the port comes from listen), host:port, or a wss:// URL; client-config writes it into client configs"
     )]
-    #[admin(help = "How clients reach this server, for example tunnel.example.com, tunnel.example.com:7835 or wss://tunnel.example.com/burrow; the connect commands and client configs made here use it",
+    #[admin(help = "How clients reach this server, for example tunnel.example.com or tunnel.example.com:7835, or a wss:// URL such as wss://tunnel.example.com/burrow when WebSocket is on; the connect commands and client configs made here use it",
         ty = server_address,
         group = listener,
         applies = live,
@@ -380,7 +380,7 @@ pub struct ServiceEntry {
     #[schemars(
         description = "Several clients that can each reach the target, instead of client; see mode"
     )]
-    #[admin(help = "Clients that can each reach the target; Mode says how one is picked", ty = ref_list(client, ordered, reserved = "self"), group = who, one_of = "who")]
+    #[admin(help = "Clients that can each reach the target; with two or more, Mode appears to choose how one is picked", ty = ref_list(client, ordered, reserved = "self"), group = who, one_of = "who")]
     pub clients: Vec<String>,
     #[serde(default, skip_serializing_if = "is_default")]
     #[schemars(

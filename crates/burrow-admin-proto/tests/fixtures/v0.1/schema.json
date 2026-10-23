@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:5218c0e80b56a89a",
+  "hash": "b2s:4546813f60ce7356",
   "root": {
     "label": "Server",
     "sem": {
@@ -31,7 +31,7 @@
           "key": "public_address",
           "node": {
             "label": "Public address",
-            "help": "How clients reach this server, for example tunnel.example.com, tunnel.example.com:7835 or wss://tunnel.example.com/burrow; the connect commands and client configs made here use it",
+            "help": "How clients reach this server, for example tunnel.example.com or tunnel.example.com:7835, or a wss:// URL such as wss://tunnel.example.com/burrow when WebSocket is on; the connect commands and client configs made here use it",
             "sem": {
               "t": "optional",
               "inner": {
@@ -491,7 +491,7 @@
                       "key": "clients",
                       "node": {
                         "label": "Clients",
-                        "help": "Clients that can each reach the target; Mode says how one is picked",
+                        "help": "Clients that can each reach the target; with two or more, Mode appears to choose how one is picked",
                         "sem": {
                           "t": "ref_list",
                           "entity": "client",
