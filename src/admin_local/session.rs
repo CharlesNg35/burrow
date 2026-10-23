@@ -28,7 +28,7 @@ pub fn dir() -> Option<PathBuf> {
     }
     dirs::state_dir()
         .or_else(dirs::data_local_dir)
-        .map(|d| d.join("burrow").join("admin"))
+        .map(|d| d.join("burrow").join("admin-sessions"))
 }
 
 fn file_for(dir: &Path, config: &Path) -> PathBuf {
