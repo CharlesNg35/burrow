@@ -1677,3 +1677,90 @@ fn edit_state(c: &mut Ctx) -> Flow<'_> {
 fn edits_survive_navigation_and_problems_show_where_you_edit() {
     run("edit-state", Options::default(), false, edit_state);
 }
+
+async fn create_in_picker(c: &mut Ctx, field: &str, name: &str, by_button: bool) {
+    c.ui.click(&format!("#{field}")).await;
+    c.ui.wait_for("[role=listbox]", SECS).await;
+    c.ui.click("[data-testid=combo-new]").await;
+    c.ui.wait_for("[data-testid=combo-new-name]", SECS).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(
+        c.ui.count("[role=listbox]").await,
+        1,
+        "{field}: the list stays open after New"
+    );
+    let focused: String =
+        c.ui.eval("(document.activeElement && document.activeElement.dataset.testid) || ''")
+            .await;
+    assert_eq!(
+        focused, "combo-new-name",
+        "{field}: the name input has the focus"
+    );
+    let placeholder: String =
+        c.ui.eval("document.querySelector('[data-testid=combo-new-name]').placeholder")
+            .await;
+    assert!(
+        !placeholder.is_empty(),
+        "{field}: the name input says what it is for"
+    );
+    c.ui.shot(&format!("{field}-new-name")).await;
+    let el =
+        c.ui.page
+            .find_element("[data-testid=combo-new-name]")
+            .await
+            .expect("name input");
+    el.type_str(name).await.expect("type the name");
+    if by_button {
+        c.ui.click("[data-testid=combo-create]").await;
+    } else {
+        el.press_key("Enter").await.expect("Enter");
+    }
+    c.ui.wait_for(&format!("[data-chip='{name}']"), SECS).await;
+    assert_eq!(
+        c.ui.count("[data-testid=combo-new-name]").await,
+        0,
+        "{field}: the name input goes once the item is made"
+    );
+    c.ui.shot(&format!("{field}-created")).await;
+}
+
+fn picker_create(c: &mut Ctx) -> Flow<'_> {
+    Box::pin(async move {
+        open(c, "ops").await;
+        c.ui.nav("/services/web?tab=settings").await;
+        edit_mode(c).await;
+        create_in_picker(c, "f-services-web-visitors", "tablet", false).await;
+        create_in_picker(c, "f-services-web-clients", "edge", true).await;
+        c.ui.click("#f-services-web-visitors").await;
+        c.ui.wait_for("[role=listbox]", SECS).await;
+        c.ui.click("[data-testid=combo-new]").await;
+        c.ui.wait_for("[data-testid=combo-new-name]", SECS).await;
+        let _: bool = c
+            .ui
+            .eval("(() => { document.querySelector('[data-testid=combo-new-name]').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); return true; })()")
+            .await;
+        c.ui.wait_gone("[data-testid=combo-new-name]", SECS).await;
+        assert_eq!(
+            c.ui.count("[role=listbox]").await,
+            1,
+            "Escape leaves New first"
+        );
+        c.ui.press("#f-services-web-visitors", "Escape").await;
+        c.ui.wait_gone("[role=listbox]", SECS).await;
+        c.ui.click("#f-services-web-visitors").await;
+        c.ui.wait_for("[role=listbox]", SECS).await;
+        assert_eq!(
+            c.ui.count("[data-testid=combo-new-name]").await,
+            0,
+            "a reopened list starts without the name input"
+        );
+        c.ui.click("main h1").await;
+        c.ui.wait_gone("[role=listbox]", SECS).await;
+        c.ui.assert_no_errors();
+    })
+}
+
+#[test]
+fn a_new_visitor_or_client_is_made_from_its_picker_without_closing_it() {
+    run("picker-create", Options::default(), false, picker_create);
+}
