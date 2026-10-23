@@ -364,6 +364,27 @@ fn errors_land_on_their_field() {
 }
 
 #[test]
+fn a_private_udp_service_shows_its_error_at_the_bind_field() {
+    let w = world();
+    let core = core_for(&w.text);
+    let s = session(&w, AdminLevel::Write);
+    let base = text::rev(&w.text);
+    let ops = [Op::Add {
+        path: p(&["services", "dns"]),
+        value: json!({"client": "home", "protocol": "udp", "target": 53}),
+    }];
+    let c = plan::compute(&core, &s, &base, &ops).unwrap();
+    let d = c
+        .plan
+        .diags
+        .iter()
+        .find(|d| d.code == "unreachable-service")
+        .expect("a private udp service is an error");
+    assert!(d.concerns(&p(&["services", "dns", "bind"])), "{d:?}");
+    assert!(!d.concerns(&p(&["services", "dns", "visitors"])), "{d:?}");
+}
+
+#[test]
 fn a_changed_file_is_a_conflict_and_nothing_is_written() {
     let w = world();
     let core = core_for(&w.text);

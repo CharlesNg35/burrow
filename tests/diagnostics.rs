@@ -1068,6 +1068,24 @@ fn visitor_mistakes_in_the_server_config() {
     "#);
 }
 
+#[test]
+fn a_private_udp_service_is_told_to_take_a_public_port() {
+    let src = visitors_server(
+        "  laptop:\n    secret: ${HOME_SECRET}\n",
+        "  web: { client: home, bind: 7840, target: 80, visitors: [laptop] }\n  dns: { client: home, protocol: udp, target: 53 }\n",
+    );
+    insta::assert_snapshot!(render("server.yaml", &src, None), @r#"
+    error: service "dns" is udp and has no "bind", so nobody can reach it
+      --> server.yaml:10:3
+       |
+    10 |   dns: { client: home, protocol: udp, target: 53 }
+       |   ^^^ no bind
+       = help: add "bind: 7840" to expose it publicly; visitors can only reach tcp services
+
+    server.yaml: 1 error, 0 warnings
+    "#);
+}
+
 fn visitor(forwards: &str) -> String {
     format!("server: tunnel.example.com\nname: laptop\nsecret: {SECRET}\nforwards:\n{forwards}")
 }
