@@ -760,7 +760,7 @@ fn Detail(section: String, name: String) -> impl IntoView {
                 .status
                 .with(|st| format::limit_tag(st.as_deref(), &nm))
                 .map(|(text, why)| {
-                    view! { <span class=tag_class(Tone::Warning) title=why data-testid="limit-tag">{text}</span> }
+                    view! { <span class=wrapping_tag(Tone::Warning) title=why data-testid="limit-tag">{text}</span> }
                 })
                 .into_any(),
             _ => ().into_any(),
@@ -1007,7 +1007,7 @@ fn Detail(section: String, name: String) -> impl IntoView {
             </nav>
             <header class="mb-[22px] flex items-start gap-3.5" class:max-sm:hidden=move || editing.get() class:hidden=move || !exists.get()>
                 <div class="min-w-0 flex-1">
-                    <h1 class="flex items-center gap-2.5 text-[25px] font-bold tracking-[-0.015em]">{title_dot}{name.clone()}{protocol_tag}</h1>
+                    <h1 class="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[25px] font-bold tracking-[-0.015em]">{title_dot}{name.clone()}{protocol_tag}</h1>
 
                 </div>
                 <div class="flex items-center gap-2">{head_actions}</div>
@@ -1048,6 +1048,12 @@ fn since_date(secs: u64) -> String {
         d.get_hours(),
         d.get_minutes()
     )
+}
+
+fn wrapping_tag(tone: Tone) -> String {
+    tag_class(tone)
+        .replace("h-[18px]", "min-h-[18px] max-w-full py-px leading-tight")
+        .replace("whitespace-nowrap", "whitespace-normal")
 }
 
 fn overview(section: &str, name: &str, stats: bool) -> impl IntoView {
@@ -1497,5 +1503,19 @@ fn served(name: &str) -> impl IntoView {
             </div>
         }
         .into_any()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_limit_tag_wraps_instead_of_running_under_the_buttons() {
+        let class = wrapping_tag(Tone::Warning);
+        assert!(class.contains("whitespace-normal"), "{class}");
+        assert!(class.contains("max-w-full"), "{class}");
+        assert!(!class.contains("whitespace-nowrap"), "{class}");
+        assert!(!class.contains(" h-[18px]"), "{class}");
     }
 }

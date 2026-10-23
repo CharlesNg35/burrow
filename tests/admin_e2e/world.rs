@@ -241,8 +241,12 @@ impl World {
     }
 
     pub fn start_client(&mut self, name: &str) {
+        self.start_client_with(name, "");
+    }
+
+    pub fn start_client_with(&mut self, name: &str, extra: &str) {
         let yaml = format!(
-            "server: {}\nname: {name}\nsecret: {}\nallow: [127.0.0.1/32]\n",
+            "server: {}\nname: {name}\nsecret: {}\nallow: [127.0.0.1/32]\n{extra}",
             self.server_addr(),
             self.secrets[name]
         );

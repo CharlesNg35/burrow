@@ -425,6 +425,66 @@ fn e8_a_newer_server_field_renders_through_its_fallback() {
     run("e8-fallback", opts, true, fallback);
 }
 
+fn at_limit(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
+    Box::pin(async move {
+        c.world.start_client_with("home", "max_connections: 1\n");
+        c.world.wait_client("home", true);
+        world::wait_until("home answering busy", Duration::from_secs(20), || {
+            c.world.status().is_some_and(|s| {
+                s["clients"].as_array().is_some_and(|l| {
+                    l.iter()
+                        .any(|c| c["name"] == "home" && c["at_limit"] == true)
+                })
+            })
+        });
+        open(c, "ops").await;
+        for (w, h) in [(1440, 900), (420, 900), (320, 800)] {
+            c.ui.viewport(w, h).await;
+            c.ui.nav("/clients/home").await;
+            c.ui.wait_text(
+                "[data-testid=limit-tag]",
+                "at limit · max_connections in client.yaml",
+                SECS,
+            )
+            .await;
+            tokio::time::sleep(Duration::from_millis(300)).await;
+            let clear: Vec<f64> = c
+                .ui
+                .eval("(() => { const t = document.querySelector('[data-testid=limit-tag]').getBoundingClientRect(); const overlaps = [...document.querySelectorAll('header [data-testid=edit], header button')].filter(b => { const r = b.getBoundingClientRect(); return r.width > 0 && t.left < r.right && r.left < t.right && t.top < r.bottom && r.top < t.bottom; }).length; return [overlaps, t.right, document.documentElement.clientWidth, t.width, document.querySelector('[data-testid=limit-tag]').scrollWidth]; })()")
+                .await;
+            assert_eq!(
+                clear[0], 0.0,
+                "at {w} px the limit tag runs under a button: {clear:?}"
+            );
+            assert!(
+                clear[1] <= clear[2],
+                "at {w} px the limit tag runs off the screen: {clear:?}"
+            );
+            assert!(
+                clear[4] <= clear[3] + 1.0,
+                "at {w} px the limit tag text is cut off: {clear:?}"
+            );
+            c.ui.shot(&format!("at-limit-{w}")).await;
+        }
+        c.ui.viewport(1440, 900).await;
+        c.ui.assert_no_errors();
+    })
+}
+
+#[test]
+fn a_client_at_its_limit_says_which_limit_without_overlapping_the_buttons() {
+    let opts = Options {
+        clients: Some(Vec::new()),
+        extra_services: format!(
+            "  dns1: {{ client: home, protocol: udp, bind: 127.0.0.1:{}, target: 53 }}\n  dns2: {{ client: home, protocol: udp, bind: 127.0.0.1:{}, target: 54 }}\n",
+            world::free_port(),
+            world::free_port()
+        ),
+        ..Options::default()
+    };
+    run("at-limit", opts, false, at_limit);
+}
+
 fn many_issues(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
     Box::pin(async move {
         open(c, "ops").await;
