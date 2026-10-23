@@ -559,6 +559,7 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
     }
 
     system::require_admin()?;
+    let replaced = take_over(stray::named(&name).as_ref(), &config)?;
     let operation = system::operation(out)?;
     let previous = load_manifest(&name).ok();
     let was_running = previous.as_ref().is_some_and(|p| backend.status(p).running);
@@ -757,12 +758,15 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
             manifest.role
         ),
     )?;
+    if let Some(note) = &replaced {
+        say(out, format!("note: {note}"))?;
+    }
     let arg = if all_manifests().len() <= 1 {
         String::new()
     } else {
         format!(" {name}")
     };
-    if opts.start {
+    if opts.start && !already_running(&*backend, &manifest, &arg, out)? {
         let started = backend.start(&manifest);
         again.manifest = None;
         if started.is_ok() {
@@ -830,6 +834,45 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
         ),
     )?;
     Ok(())
+}
+
+fn take_over(stray: Option<&stray::Stray>, config: &Path) -> Result<Option<String>, Failure> {
+    let Some(s) = stray else {
+        return Ok(None);
+    };
+    if s.running {
+        return Err(s.failure());
+    }
+    let replaced = format!("replaced {}, which burrow had no record of", s.label);
+    Ok(Some(match s.config.as_deref().filter(|c| *c != config) {
+        Some(old) => format!(
+            "{replaced}; its old config was left as it was: {}",
+            old.display()
+        ),
+        None => replaced,
+    }))
+}
+
+fn already_running(
+    backend: &dyn Backend,
+    m: &Manifest,
+    arg: &str,
+    out: &mut dyn Write,
+) -> Result<bool, Failure> {
+    let st = backend.status(m);
+    if !st.running {
+        return Ok(false);
+    }
+    say(
+        out,
+        format!(
+            "warning: {} was already running and was not restarted, so it still runs its previous setup{}; restart it with: {}",
+            m.name,
+            st.pid.map(|p| format!(" (pid {p})")).unwrap_or_default(),
+            crate::failure::admin(&format!("service restart{arg}"))
+        ),
+    )?;
+    Ok(true)
 }
 
 struct StartAgain<'a> {
@@ -2037,6 +2080,60 @@ mod tests {
                 detail: String::new(),
             }
         }
+    }
+
+    #[test]
+    fn an_install_never_says_it_started_a_service_that_was_already_running() {
+        let m = record(Platform::Linux);
+        let rec = Recorder(Default::default(), true);
+        let mut out = Vec::new();
+        assert!(already_running(&rec, &m, "", &mut out).unwrap());
+        let out = String::from_utf8(out).unwrap();
+        assert!(
+            out.starts_with("warning: burrow-server was already running and was not restarted"),
+            "{out}"
+        );
+        assert!(out.contains("service restart"), "{out}");
+        assert!(!out.contains("started burrow-server"), "{out}");
+        assert!(rec.0.borrow().is_empty());
+        let stopped = Recorder(Default::default(), false);
+        let mut out = Vec::new();
+        assert!(!already_running(&stopped, &m, "", &mut out).unwrap());
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn an_install_refuses_a_running_unit_it_has_no_record_of_and_replaces_a_stopped_one() {
+        let s = stray::Stray {
+            name: "burrow-client".into(),
+            label: "burrow-client.service".into(),
+            config: Some(PathBuf::from("/etc/burrow/client.yaml")),
+            running: true,
+            pid: Some(42),
+            stop: "sudo systemctl stop burrow-client".into(),
+        };
+        let new = Path::new("/etc/burrow/client/client.yaml");
+        assert_eq!(take_over(Some(&s), new).unwrap_err(), s.failure());
+        let stopped = stray::Stray {
+            running: false,
+            pid: None,
+            ..s.clone()
+        };
+        assert_eq!(
+            take_over(Some(&stopped), new).unwrap().as_deref(),
+            Some(
+                "replaced burrow-client.service, which burrow had no record of; its old config was left as it was: /etc/burrow/client.yaml"
+            )
+        );
+        let in_place = stray::Stray {
+            config: Some(new.to_path_buf()),
+            ..stopped.clone()
+        };
+        assert_eq!(
+            take_over(Some(&in_place), new).unwrap().as_deref(),
+            Some("replaced burrow-client.service, which burrow had no record of")
+        );
+        assert_eq!(take_over(None, new).unwrap(), None);
     }
 
     #[test]
