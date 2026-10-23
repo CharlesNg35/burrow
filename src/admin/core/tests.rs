@@ -536,6 +536,41 @@ fn the_snippets_after_an_apply_use_the_address_the_admin_connected_to() {
 }
 
 #[test]
+fn a_client_config_lists_its_allowed_targets_in_address_order() {
+    let w = world();
+    let text = w.text.replace(
+        "  web: { client: home, bind: 7840, target: 3000 }\n",
+        "  web: { client: home, bind: 7840, target: 3000 }\n  a: { client: home, bind: 7841, target: 10.0.0.9:22 }\n  b: { client: home, bind: 7842, target: 10.0.0.10:80 }\n  c: { client: home, bind: 7843, target: 10.0.0.9:8 }\n",
+    );
+    let core = core_for(&text);
+    let s = session(&w, AdminLevel::Write);
+    let sn = snippets::connect_info(
+        &core,
+        &s,
+        &ConnectInfo {
+            kind: "client".into(),
+            name: "home".into(),
+            address: None,
+        },
+    )
+    .unwrap();
+    let allow: Vec<&str> = sn
+        .config
+        .lines()
+        .filter_map(|l| l.trim().strip_prefix("- "))
+        .collect();
+    assert_eq!(
+        allow,
+        [
+            "10.0.0.9/32:8",
+            "10.0.0.9/32:22",
+            "10.0.0.10/32:80",
+            "127.0.0.1/32:3000"
+        ]
+    );
+}
+
+#[test]
 fn a_new_client_comes_with_ready_snippets_and_later_only_with_a_placeholder() {
     let w = world();
     let core = core_for(&w.text.replace(
