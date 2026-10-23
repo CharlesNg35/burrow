@@ -459,7 +459,7 @@ pub struct InitArgs {
     #[arg(
         long,
         conflicts_with_all = ["force", "server", "name", "secret", "env_secret"],
-        help = "Visitor only: ask the server again what this visitor may use, TCP and UDP, and update the forwards of visitor.yaml (or -o FILE): adds new grants, removes revoked ones, keeps your local ports"
+        help = "Visitor only: ask the server again what this visitor may use, TCP and UDP, and update the forwards of visitor.yaml (or -o FILE): adds new grants, removes revoked ones, kept forwards keep their local ports"
     )]
     pub update: bool,
     #[arg(

@@ -219,7 +219,7 @@ A visitor reaches private UDP services and UDP targets in `reach`, with the same
 
 - **The data path:**
   - A UDP forward has one socket per local port. Its first datagram opens one visit channel (VisitRequest flag bit 1, protocol.md section 9). The channel carries the records of a UDP service (`peer:u32 || datagram`), with peer ids chosen by the visitor and passed on unchanged.
-  - The server admits at most `udp.max_peers` peer ids per visit, takes the service's bandwidth only for admitted datagrams and drops what is over the rate (D26), and follows a service's clients with the same failover as TCP (D25).
+  - The server admits at most `udp.max_peers` peer ids per visit, takes the service's bandwidth (D26) for a visitor's datagram only once it is admitted and for every reply, as on the public UDP relay, drops what is over the rate, and follows a service's clients with the same failover as TCP (D25).
   - The visitor closes the channel once its peers have expired, and the server closes a visit with no datagram either way for `udp.session_timeout_secs`. An idle visitor keeps no server state (D22).
   - A reload closes a visit that is no longer granted, and a UDP service visit whose target changed. TCP connections keep running in that case; the next datagram opens a new UDP visit to the new target.
   - The socket-to-channel loop is shared with public UDP services (`src/udp/front.rs`).
