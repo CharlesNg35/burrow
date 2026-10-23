@@ -39,7 +39,7 @@ pub struct ServerConfig {
     #[schemars(
         description = "How clients reach this server: a host name or IP (the port comes from listen), host:port, or a wss:// URL; client-config writes it into client configs"
     )]
-    #[admin(help = "How clients reach this server, for example tunnel.example.com or tunnel.example.com:7835, or a wss:// URL such as wss://tunnel.example.com/burrow when WebSocket is on; the connect commands and client configs made here use it",
+    #[admin(help = "How clients reach this server, for example tunnel.example.com, or wss://tunnel.example.com/burrow when WebSocket is on; connect commands made here use it",
         ty = server_address,
         group = listener,
         applies = live,
@@ -142,9 +142,7 @@ pub struct WebSocketConfig {
     #[admin(label = "Listen address")]
     pub listen: Bind,
     #[serde(default = "default_ws_path")]
-    #[schemars(
-        description = "URL path clients connect to, for example /burrow or /tunnel; it is the path in the clients' wss:// address"
-    )]
+    #[schemars(description = "URL path clients connect to, for example /burrow")]
     #[admin(ty = url_path)]
     pub path: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -183,12 +181,12 @@ pub fn default_ws_path() -> String {
 #[admin(label = "TLS files")]
 pub struct TlsFiles {
     #[schemars(
-        description = "Certificate chain PEM file, relative to the config file, for example /etc/letsencrypt/live/tunnel.example.com/fullchain.pem or certs/fullchain.pem"
+        description = "Certificate chain PEM file, relative to the config file, for example certs/fullchain.pem"
     )]
     #[admin(ty = path(must_exist, relative_to = "config"), label = "Certificate file")]
     pub cert: String,
     #[schemars(
-        description = "Private key PEM file, relative to the config file, for example /etc/letsencrypt/live/tunnel.example.com/privkey.pem or certs/privkey.pem"
+        description = "Private key PEM file, relative to the config file, for example certs/privkey.pem"
     )]
     #[admin(ty = path(must_exist, relative_to = "config"), label = "Private key file")]
     pub key: String,
@@ -203,7 +201,7 @@ pub struct SelfEntry {
     #[schemars(
         description = "What this server may dial for itself: CIDR, optionally with :port or :lo-hi, or unix:/path; link-local and metadata addresses only when listed one by one"
     )]
-    #[admin(help = "Addresses this server may reach itself, with optional ports, or Unix sockets, for example 10.0.0.0/8, 192.168.1.10:22 or unix:/run/app.sock; link-local and cloud metadata addresses only when listed one by one", ty = list(cidr_rule), label = "Allowed targets", empty_label = "Nothing")]
+    #[admin(help = "Addresses this server may reach itself, for example 10.0.0.0/8, 192.168.1.10:22 or unix:/run/app.sock; link-local and cloud metadata addresses only when listed one by one", ty = list(cidr_rule), label = "Allowed targets", empty_label = "Nothing")]
     pub allow: Vec<String>,
 }
 
@@ -252,7 +250,7 @@ pub struct VisitorEntry {
     #[schemars(
         description = "Clients this visitor may reach directly, over TCP and UDP, with the targets it may pick there: any (whatever the client's allow list permits), or rules in allow-list syntax that narrow it, for example home: any, office: 192.168.150.0/25 or lab: [10.0.0.0/8:22, unix:/run/app.sock]"
     )]
-    #[admin(help = "Clients this visitor may reach directly, over TCP and UDP, and which targets there: any target the client allows, or only the ones listed, for example 192.168.150.0/25 or 10.0.0.5:22",
+    #[admin(help = "Clients this visitor may reach directly, over TCP and UDP: any target the client allows, or only those listed, for example 10.0.0.5:22 or 192.168.150.0/25",
         ty = ref_map(client, reserved = "self"),
         label = "Direct access to clients",
         group = access,
@@ -431,7 +429,7 @@ pub struct ServiceEntry {
     pub target: Target,
     #[serde(default, skip_serializing_if = "is_default")]
     #[admin(
-        help = "TCP for most services, such as web, SSH or databases; UDP for services such as DNS, WireGuard or game servers",
+        help = "TCP for most services; UDP for DNS, WireGuard or game servers",
         group = exposure
     )]
     pub protocol: Protocol,
@@ -681,7 +679,7 @@ pub struct Pool {
     #[admin(
         ty = integer(unit = "channels"),
         label = "Max idle channels",
-        help = "Most data channels each client keeps ready: the pool grows toward it when connections find it empty, and shrinks back by one each idle minute"
+        help = "Most data channels each client keeps ready; the pool grows toward it when busy and shrinks when idle"
     )]
     pub max_idle: u32,
 }

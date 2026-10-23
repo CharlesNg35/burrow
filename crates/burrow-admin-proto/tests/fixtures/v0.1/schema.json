@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:1ae8026ccadd71a1",
+  "hash": "b2s:42f7ee516cc36411",
   "root": {
     "label": "Server",
     "sem": {
@@ -31,7 +31,7 @@
           "key": "public_address",
           "node": {
             "label": "Public address",
-            "help": "How clients reach this server, for example tunnel.example.com or tunnel.example.com:7835, or a wss:// URL such as wss://tunnel.example.com/burrow when WebSocket is on; the connect commands and client configs made here use it",
+            "help": "How clients reach this server, for example tunnel.example.com, or wss://tunnel.example.com/burrow when WebSocket is on; connect commands made here use it",
             "sem": {
               "t": "optional",
               "inner": {
@@ -74,7 +74,7 @@
                       "key": "path",
                       "node": {
                         "label": "Path",
-                        "help": "URL path clients connect to, for example /burrow or /tunnel; it is the path in the clients' wss:// address",
+                        "help": "URL path clients connect to, for example /burrow",
                         "sem": {
                           "t": "url_path"
                         },
@@ -97,7 +97,7 @@
                                   "key": "cert",
                                   "node": {
                                     "label": "Certificate file",
-                                    "help": "Certificate chain PEM file, relative to the config file, for example /etc/letsencrypt/live/tunnel.example.com/fullchain.pem or certs/fullchain.pem",
+                                    "help": "Certificate chain PEM file, relative to the config file, for example certs/fullchain.pem",
                                     "sem": {
                                       "t": "path",
                                       "must_exist": true,
@@ -110,7 +110,7 @@
                                   "key": "key",
                                   "node": {
                                     "label": "Private key file",
-                                    "help": "Private key PEM file, relative to the config file, for example /etc/letsencrypt/live/tunnel.example.com/privkey.pem or certs/privkey.pem",
+                                    "help": "Private key PEM file, relative to the config file, for example certs/privkey.pem",
                                     "sem": {
                                       "t": "path",
                                       "must_exist": true,
@@ -253,7 +253,7 @@
                       "key": "reach",
                       "node": {
                         "label": "Direct access to clients",
-                        "help": "Clients this visitor may reach directly, over TCP and UDP, and which targets there: any target the client allows, or only the ones listed, for example 192.168.150.0/25 or 10.0.0.5:22",
+                        "help": "Clients this visitor may reach directly, over TCP and UDP: any target the client allows, or only those listed, for example 10.0.0.5:22 or 192.168.150.0/25",
                         "sem": {
                           "t": "ref_map",
                           "entity": "client",
@@ -420,7 +420,7 @@
                       "key": "allow",
                       "node": {
                         "label": "Allowed targets",
-                        "help": "Addresses this server may reach itself, with optional ports, or Unix sockets, for example 10.0.0.0/8, 192.168.1.10:22 or unix:/run/app.sock; link-local and cloud metadata addresses only when listed one by one",
+                        "help": "Addresses this server may reach itself, for example 10.0.0.0/8, 192.168.1.10:22 or unix:/run/app.sock; link-local and cloud metadata addresses only when listed one by one",
                         "sem": {
                           "t": "list",
                           "item": {
@@ -702,7 +702,7 @@
                       "key": "protocol",
                       "node": {
                         "label": "Protocol",
-                        "help": "TCP for most services, such as web, SSH or databases; UDP for services such as DNS, WireGuard or game servers",
+                        "help": "TCP for most services; UDP for DNS, WireGuard or game servers",
                         "sem": {
                           "t": "enum",
                           "options": [
@@ -1043,7 +1043,7 @@
                   "key": "max_idle",
                   "node": {
                     "label": "Max idle channels",
-                    "help": "Most data channels each client keeps ready: the pool grows toward it when connections find it empty, and shrinks back by one each idle minute",
+                    "help": "Most data channels each client keeps ready; the pool grows toward it when busy and shrinks when idle",
                     "sem": {
                       "t": "integer",
                       "min": 1,
