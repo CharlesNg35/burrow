@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:42f7ee516cc36411",
+  "hash": "b2s:fadfc66cb326946c",
   "root": {
     "label": "Server",
     "sem": {
@@ -987,7 +987,7 @@
                   "key": "max_connections_per_client",
                   "node": {
                     "label": "Max connections per client",
-                    "help": "Concurrent forwarded connections of one client, unless the client sets its own",
+                    "help": "Connections this server forwards to one client at once, unless that client has its own Max connections on this server",
                     "sem": {
                       "t": "integer",
                       "min": 1,

@@ -280,6 +280,23 @@ mod tests {
     }
 
     #[test]
+    fn the_per_client_limit_names_the_client_field_that_overrides_it() {
+        let root = <burrow_config::ServerConfig as AdminSchema>::node();
+        let at = |p: &[&str]| {
+            root.at(&p.iter().map(|s| s.to_string()).collect::<Vec<_>>())
+                .unwrap()
+        };
+        let limit = at(&["limits", "max_connections_per_client"]);
+        let own = at(&["clients", "*", "max_connections"]);
+        let label = own.label.clone();
+        assert!(
+            limit.help.contains(&format!("its own {label}")),
+            "{} / {label}",
+            limit.help
+        );
+    }
+
+    #[test]
     fn help_examples_hold_for_every_server() {
         let root = <burrow_config::ServerConfig as AdminSchema>::node();
         let public = root.at(&["public_address".to_string()]).unwrap();

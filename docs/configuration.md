@@ -152,7 +152,7 @@ services:
 | `heartbeat.interval_secs` | `10` | ping interval; a peer times out after 3 missed pings |
 | `limits.handshake_timeout_secs` | `5` | time a new connection has to authenticate |
 | `limits.max_handshakes` | `256` | connections that have not finished authenticating yet |
-| `limits.max_connections_per_client` | `8192` | open forwarded connections per client, unless the client sets its own |
+| `limits.max_connections_per_client` | `8192` | open forwarded connections per client, unless `clients.<name>.max_connections` sets its own |
 | `limits.max_pending` | `512` | connections waiting for a free channel, per client |
 | `pool.min_idle` / `pool.max_idle` | `4` / `64` | channels each client keeps open in advance, so a new connection starts at once |
 | `tcp.nodelay` | `true` | send small writes at once (TCP_NODELAY) |

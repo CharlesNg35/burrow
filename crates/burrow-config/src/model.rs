@@ -642,7 +642,7 @@ pub struct Limits {
     #[schemars(range(min = 1))]
     #[admin(
         ty = integer(unit = "connections"),
-        help = "Concurrent forwarded connections of one client, unless the client sets its own",
+        help = "Connections this server forwards to one client at once, unless that client has its own Max connections on this server",
         applies = live
     )]
     pub max_connections_per_client: u32,
