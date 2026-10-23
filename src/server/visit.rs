@@ -230,8 +230,9 @@ pub(super) async fn serve(
     };
     let request = match request {
         Ok(r)
-            if r.check
-                || !matches!(&r.to, VisitTarget::Client { target, .. } if target.is_empty()) =>
+            if r.protocol == Protocol::Tcp
+                && (r.check
+                    || !matches!(&r.to, VisitTarget::Client { target, .. } if target.is_empty())) =>
         {
             r
         }

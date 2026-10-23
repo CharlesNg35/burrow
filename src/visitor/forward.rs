@@ -188,7 +188,11 @@ pub(super) async fn check(dialer: Arc<Dialer>, forwards: Vec<(String, VisitTarge
                 return;
             }
         };
-        let request = VisitRequest { check: true, to };
+        let request = VisitRequest {
+            check: true,
+            protocol: burrow_config::Protocol::Tcp,
+            to,
+        };
         match ask(ch, &request).await {
             Some(Status::Ok) => {}
             Some(st) => {
@@ -270,6 +274,7 @@ pub(super) async fn visit(
     };
     let Ok(request) = (VisitRequest {
         check: false,
+        protocol: burrow_config::Protocol::Tcp,
         to: to.clone(),
     })
     .encode() else {

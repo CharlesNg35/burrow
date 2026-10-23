@@ -310,6 +310,7 @@ mod tests {
                 .iter()
                 .map(|(n, port, ports)| GrantedService {
                     name: n.to_string(),
+                    protocol: burrow_config::Protocol::Tcp,
                     port: *port,
                     ports: *ports,
                 })

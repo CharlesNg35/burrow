@@ -1,16 +1,16 @@
 use crate::config::check::parse_host_port;
 use crate::config::settings::ServerSettings;
 use crate::protocol::{GrantedClient, GrantedService, Grants};
-use burrow_config::Protocol;
 
 pub fn for_visitor(settings: &ServerSettings, visitor: &str) -> Option<Grants> {
     let auth = settings.visitors.get(visitor)?;
     let services = settings
         .services
         .iter()
-        .filter(|(_, s)| s.protocol == Protocol::Tcp && s.visitors.iter().any(|v| v == visitor))
+        .filter(|(_, s)| s.visitors.iter().any(|v| v == visitor))
         .map(|(name, s)| GrantedService {
             name: name.clone(),
+            protocol: s.protocol,
             port: parse_host_port(&s.target).map_or(0, |(_, p)| p),
             ports: s.ports.max(1),
         })

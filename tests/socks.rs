@@ -266,6 +266,7 @@ fn long_targets_survive_the_wire() {
     };
     let req = burrow::protocol::VisitRequest {
         check: false,
+        protocol: burrow_config::Protocol::Tcp,
         to: to.clone(),
     };
     let bytes = std::panic::catch_unwind(|| req.encode());

@@ -147,11 +147,14 @@ With `health_check`, the server also opens connections of its own: every interva
 After the hello, the visitor sends one request record without waiting for a reply:
 
 ```
-VisitRequest = 0x20 check:u8 kind:u8 ...
+VisitRequest = 0x20 flags:u8 kind:u8 ...
+  flags bit 0: check; bit 1: UDP (else TCP); other bits must be 0
   kind 1: service:str8 index:u16     a service that lists this visitor in "visitors";
                                      index picks a port of a port range, 0 for one port
   kind 2: client:str8 target:str8    any target on a client, if the visitor has reach for it
 ```
+
+A TCP request has the same bytes as in burrow v0.1.0 and v0.1.1. A server older than v0.1.2 answers `4 invalid` to a request with the UDP bit set.
 
 Names follow the rules of section 3. The server reads the request, a record of at most 512 bytes, within the same `limits.handshake_timeout_secs` deadline and while it still counts against `limits.max_handshakes`, then checks it against its current config:
 
@@ -171,7 +174,13 @@ Instead of a VisitRequest, the visitor may send the single byte `0x21` to ask wh
 Grants = 0x22 services:u16 (name:str8 port:u16 ports:u16)* clients:u16 (name:str8 count:u8 reach:str8* known:u8 [count:u8 rule:str8*])*
 ```
 
-`services` are the TCP services that list the visitor, wherever it asks from (`allow_from`/`deny_from` apply when it connects), with the target's port (0 for a Unix socket) and the size of their range (at most 1000); `clients` are the clients in its `reach`, each with the visitor's rules for it (none for `any`) and, for `any` only, the Allow list of their current session when `known` is 1. If the answer does not fit in one record, the server leaves out the Allow lists, and answers `4 invalid` if it still does not fit. `burrow init visitor` uses it to write the forwards, and `--update` to refresh them.
+The two bytes `0x21 0x01` ask the same question and get the same answer with each service's protocol (0 tcp, 1 udp), so it also lists UDP services:
+
+```
+GrantsV2 = 0x25 services:u16 (name:str8 protocol:u8 port:u16 ports:u16)* clients:u16 (...as in Grants)
+```
+
+A server older than v0.1.2 answers `4 invalid` to `0x21 0x01`; a visitor then asks again with `0x21` and gets TCP services only. `services` in Grants (`0x22`) are the TCP services that list the visitor (in GrantsV2, its TCP and UDP services), wherever it asks from (`allow_from`/`deny_from` apply when it connects), with the target's port (0 for a Unix socket) and the size of their range (at most 1000); `clients` are the clients in its `reach`, each with the visitor's rules for it (none for `any`) and, for `any` only, the Allow list of their current session when `known` is 1. If the answer does not fit in one record, the server leaves out the Allow lists, and answers `4 invalid` if it still does not fit. `burrow init visitor` uses it to write the forwards, and `--update` to refresh them.
 
 A visitor's SOCKS5 forward reads the target from the SOCKS request (CONNECT only, no authentication, IPv4, IPv6 or a host name) and sends it as kind 2. It answers the SOCKS client only after the server's Status, mapping refusals to SOCKS reply codes.
 

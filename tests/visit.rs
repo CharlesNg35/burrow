@@ -91,7 +91,13 @@ async fn ask(
     ch.writer
         .send(
             &mut ch.stream,
-            &VisitRequest { check, to }.encode().unwrap(),
+            &VisitRequest {
+                check,
+                protocol: burrow_config::Protocol::Tcp,
+                to,
+            }
+            .encode()
+            .unwrap(),
         )
         .await
         .unwrap();
