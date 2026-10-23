@@ -488,6 +488,8 @@ pub fn visitor_settings(
         proxy: None,
         connect_timeout: Duration::from_secs(2),
         tcp: tuning(),
+        udp_session_timeout: Duration::from_secs(30),
+        udp_max_peers: 4096,
         forwards: forwards
             .into_iter()
             .map(|(n, to)| {
@@ -504,6 +506,8 @@ pub struct RunningVisitor {
     pub addrs: BTreeMap<String, SocketAddr>,
     pub stop: watch::Sender<bool>,
     pub task: JoinHandle<()>,
+    pub udp_peers: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    pub reload: Option<mpsc::Sender<VisitorSettings>>,
 }
 
 impl RunningVisitor {
@@ -513,15 +517,65 @@ impl RunningVisitor {
 }
 
 pub fn start_visitor(settings: VisitorSettings) -> RunningVisitor {
+    start_visitor_with(settings, false)
+}
+
+pub fn start_visitor_with(settings: VisitorSettings, reloads: bool) -> RunningVisitor {
     let names: Vec<String> = settings.forwards.keys().cloned().collect();
     let visitor = burrow::visitor::Visitor::bind(settings).expect("visitor binds");
     let addrs = names
         .iter()
         .map(|n| (n.clone(), visitor.local_addr(n).unwrap()))
         .collect();
+    let udp_peers = visitor.udp_peers();
+    let (visitor, reload) = if reloads {
+        let (tx, rx) = mpsc::channel(4);
+        (visitor.with_reloads(rx), Some(tx))
+    } else {
+        (visitor, None)
+    };
     let (stop, stop_rx) = watch::channel(false);
     let task = tokio::spawn(visitor.run(stop_rx));
-    RunningVisitor { addrs, stop, task }
+    RunningVisitor {
+        addrs,
+        stop,
+        task,
+        udp_peers,
+        reload,
+    }
+}
+
+pub fn udp_forward(local: SocketAddr, to: VisitTarget) -> Forward {
+    Forward::udp(local, to)
+}
+
+pub async fn udp_echoes_at(addr: SocketAddr, payload: &[u8]) -> bool {
+    let s = udp_bind().await;
+    udp_echoes_from(&s, addr, payload).await
+}
+
+pub async fn udp_echoes_from(s: &UdpSocket, addr: SocketAddr, payload: &[u8]) -> bool {
+    let mut buf = vec![0u8; 65536];
+    for _ in 0..10 {
+        let _ = s.send_to(payload, addr).await;
+        let deadline = tokio::time::Instant::now() + Duration::from_millis(500);
+        while let Ok(Ok((n, _))) = tokio::time::timeout_at(deadline, s.recv_from(&mut buf)).await {
+            if &buf[..n] == payload {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+pub async fn wait_long<F: FnMut() -> bool>(mut f: F) {
+    for _ in 0..1500 {
+        if f() {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    panic!("condition not reached in 30 s");
 }
 
 pub struct UdpVisit {

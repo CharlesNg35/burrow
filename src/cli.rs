@@ -409,6 +409,12 @@ pub struct VisitArgs {
         help = "Local port to listen on (127.0.0.1), or ip:port"
     )]
     pub local: Option<String>,
+    #[arg(
+        long,
+        conflicts_with_all = ["socks", "forward"],
+        help = "Carry UDP: listen on a local UDP port for --service or --client --target"
+    )]
+    pub udp: bool,
 }
 
 #[derive(Debug, Args)]

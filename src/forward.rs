@@ -15,7 +15,7 @@ use crate::record::{
 };
 use crate::transport::{Conn, ReadHalf, WriteHalf};
 
-const VISIT_REPLY: Duration = Duration::from_secs(45);
+pub(crate) const VISIT_REPLY: Duration = Duration::from_secs(45);
 
 const KEEP_EARLY: usize = 64 * 1024;
 

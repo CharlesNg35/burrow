@@ -883,6 +883,11 @@ pub struct VisitorConfig {
     pub connect_timeout_secs: u32,
     #[serde(default, skip_serializing_if = "is_default")]
     pub tcp: TcpOptions,
+    #[serde(default, skip_serializing_if = "is_default")]
+    #[schemars(
+        description = "UDP forwards: how long a local UDP peer is kept without traffic, and how many peers each forward port keeps"
+    )]
+    pub udp: UdpOptions,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -919,6 +924,14 @@ pub struct ForwardEntry {
         )
     )]
     pub socks: bool,
+    #[serde(default, skip_serializing_if = "is_default")]
+    #[cfg_attr(
+        feature = "json-schema",
+        schemars(
+            description = "tcp or udp; must match the service's protocol on the server, and reach covers both"
+        )
+    )]
+    pub protocol: Protocol,
     #[cfg_attr(
         feature = "json-schema",
         schemars(

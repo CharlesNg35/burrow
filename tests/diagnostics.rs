@@ -1088,6 +1088,52 @@ fn a_private_udp_service_with_visitors_is_valid() {
     insta::assert_snapshot!(render("server.yaml", &src, None), @"server.yaml: valid server config (1 client, 1 visitor, 2 services)");
 }
 
+#[test]
+fn udp_forwards_in_a_visitor_config() {
+    insta::assert_snapshot!(render("visitor.yaml", &visitor(
+        "  dns: { service: dns, protocol: udp, local: 5353 }\n  db: { service: db, local: 5353 }\n  dup: { service: x, protocol: udp, local: 5353 }\n  proxy: { client: home, socks: true, protocol: udp, local: 1080 }\n  sock: { client: home, target: \"unix:/run/a.sock\", protocol: udp, local: 9 }\n"
+    ), None), @r#"
+    error: forward "dup" listens on 127.0.0.1:5353, already used by forward "dns"
+      --> visitor.yaml:7:44
+       |
+     7 |   dup: { service: x, protocol: udp, local: 5353 }
+       |                                            ^^^^ address already used
+       = help: pick a different local port for one of the forwards
+
+    error: forward "proxy" is a SOCKS proxy, which listens on tcp
+      --> visitor.yaml:8:49
+       |
+     8 |   proxy: { client: home, socks: true, protocol: udp, local: 1080 }
+       |                                                 ^^^ udp with socks: true
+       = help: remove "protocol: udp", or use a forward with service, or client and target, for UDP
+
+    error: forward "sock" is udp, but its target is a Unix socket, which carries tcp only
+      --> visitor.yaml:9:63
+       |
+     9 |   sock: { client: home, target: "unix:/run/a.sock", protocol: udp, local: 9 }
+       |                                                               ^^^ udp to a Unix socket
+       = help: remove "protocol: udp", or use a host:port target
+
+    visitor.yaml: 3 errors, 0 warnings
+    "#);
+    insta::assert_snapshot!(render("visitor.yaml", &format!(
+        "{}udp:\n  session_timeout_secs: 120\n  max_peers: 100\n",
+        visitor("  dns: { service: dns, protocol: udp, local: 5353 }\n  lan: { client: home, target: \"10.0.0.1:27015-27016\", protocol: udp, local: 27015-27016 }\n")
+    ), None), @r#"visitor.yaml: valid visitor config for "laptop" (2 forwards)"#);
+    insta::assert_snapshot!(render("visitor.yaml", &visitor(
+        "  dns: { service: dns, protocol: sctp, local: 5353 }\n"
+    ), None), @r#"
+    error: unknown protocol "sctp" in forward "dns"
+      --> visitor.yaml:5:34
+       |
+     5 |   dns: { service: dns, protocol: sctp, local: 5353 }
+       |                                  ^^^^ not a valid protocol
+       = help: valid values: tcp, udp
+
+    visitor.yaml: 1 error, 0 warnings
+    "#);
+}
+
 fn visitor(forwards: &str) -> String {
     format!("server: tunnel.example.com\nname: laptop\nsecret: {SECRET}\nforwards:\n{forwards}")
 }

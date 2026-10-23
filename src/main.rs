@@ -193,6 +193,26 @@ fn visit_pick(args: burrow::cli::VisitArgs) -> Result<burrow::visitor::Pick, Fai
             burrow::failure::cmd("visit --client home --socks 1080")
         )));
     }
+    if args.udp && args.service.is_none() && args.target.is_none() {
+        return Err(Failure::usage(
+            "--udp needs --service NAME or --client NAME --target HOST:PORT, with --local PORT",
+        )
+        .hint(format!(
+            "for example: {}",
+            burrow::failure::cmd("visit --udp --service dns --local 5353")
+        )));
+    }
+    if args.udp
+        && args
+            .target
+            .as_deref()
+            .is_some_and(|t| burrow::config::check::unix::path_of(t).is_some())
+    {
+        return Err(
+            Failure::usage("--udp cannot reach a Unix socket, which carries tcp only")
+                .hint("give --target as host:port, or leave out --udp"),
+        );
+    }
     let adhoc = match (args.service, args.client, args.target) {
         (Some(service), _, _) => {
             name_ok("--service", &service)?;
@@ -230,7 +250,15 @@ fn visit_pick(args: burrow::cli::VisitArgs) -> Result<burrow::visitor::Pick, Fai
         _ => None,
     };
     Ok(match (adhoc, args.forward, local) {
-        (Some(to), _, Some(local)) => Pick::Adhoc { to, local },
+        (Some(to), _, Some(local)) => Pick::Adhoc {
+            to,
+            local,
+            protocol: if args.udp {
+                burrow_config::Protocol::Udp
+            } else {
+                burrow_config::Protocol::Tcp
+            },
+        },
         (Some(_), _, None) => {
             return Err(Failure::usage("--service and --client need --local PORT"));
         }

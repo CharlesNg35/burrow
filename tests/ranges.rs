@@ -213,6 +213,7 @@ impl Visits {
                 ports,
                 to,
                 socks: false,
+                protocol: Protocol::Tcp,
             },
         );
         start_visitor(settings)
@@ -428,5 +429,33 @@ async fn a_udp_visit_reaches_each_port_of_a_private_udp_range() {
     };
     for i in 0..3 {
         assert_eq!(v.udp_lands_on(direct.at(i)).await, Ok(target + i));
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_udp_forward_range_reaches_each_port_of_a_private_udp_range() {
+    let target = tagged_udp_targets(3).await;
+    let v = udp_visits(target, 3).await;
+    let local = free_range(3);
+    let mut settings = visitor_settings(v.server, v.visitor_secret.clone(), vec![]);
+    settings.forwards.insert(
+        "game".into(),
+        Forward {
+            ports: 3,
+            ..udp_forward(
+                SocketAddr::from(([127, 0, 0, 1], local)),
+                VisitTarget::service("game"),
+            )
+        },
+    );
+    let _visitor = start_visitor(settings);
+    for i in 0..3 {
+        let at = SocketAddr::from(([127, 0, 0, 1], local + i));
+        assert_eq!(
+            udp_lands_on(at).await,
+            Some(target + i),
+            "local port {}",
+            local + i
+        );
     }
 }

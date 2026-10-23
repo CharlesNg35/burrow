@@ -14,6 +14,7 @@ use crate::forward::{ForwardError, pump_tcp, request_visit};
 use crate::protocol::{ChannelKind, Hello, Status, VERSION, VisitRequest, VisitTarget};
 use crate::throttle::Throttle;
 use crate::transport::tcp::tune;
+use burrow_config::Protocol;
 
 const OPEN_PATIENCE: Duration = Duration::from_secs(5);
 const SOCKS_TIMEOUT: Duration = Duration::from_secs(10);
@@ -96,14 +97,19 @@ pub(super) async fn accept(
     }
 }
 
-fn rejected(dialer: &Dialer) -> String {
+pub(super) fn rejected(dialer: &Dialer) -> String {
     format!(
         "the server {} refused the handshake: wrong secret or unknown visitor name \"{}\" (check the name and secret against the server config, or print a new visitor config on the server with: burrow visitor-config {} -o visitor.yaml)",
         dialer.server, dialer.name, dialer.name
     )
 }
 
-fn explain(status: Status, to: &VisitTarget, visitor: &str) -> String {
+pub(super) fn explain(
+    status: Status,
+    to: &VisitTarget,
+    visitor: &str,
+    protocol: Protocol,
+) -> String {
     let goal = match to {
         VisitTarget::Service { name, .. } => format!("service \"{name}\""),
         VisitTarget::Client { target, .. } => target.clone(),
@@ -143,6 +149,17 @@ fn explain(status: Status, to: &VisitTarget, visitor: &str) -> String {
             "the server refused port {} of service \"{name}\": the service has fewer ports than this forward's local range, or its client rejected the target",
             index + 1
         ),
+        (Status::Invalid, VisitTarget::Service { name, .. }) if protocol == Protocol::Udp => {
+            format!(
+                "the server refused UDP for service \"{name}\": it is a tcp service there (remove \"protocol: udp\" from this forward), or the server is older than v0.1.2, which carries UDP for visitors"
+            )
+        }
+        (Status::Invalid, VisitTarget::Service { name, .. }) => format!(
+            "the server refused service \"{name}\" as invalid: if it is a udp service there, add \"protocol: udp\" to this forward"
+        ),
+        (Status::Invalid, _) if protocol == Protocol::Udp => format!(
+            "the server refused UDP to {goal}: the server is older than v0.1.2, which carries UDP for visitors, or the target is not a valid host:port"
+        ),
         (Status::Invalid, _) => format!("the request for {goal} was rejected as invalid"),
         (Status::Ok, _) => String::new(),
     }
@@ -171,9 +188,9 @@ fn not_ready(why: &str) -> String {
     format!("{why}; the forwards will work once {until}")
 }
 
-pub(super) async fn check(dialer: Arc<Dialer>, forwards: Vec<(String, VisitTarget)>) {
+pub(super) async fn check(dialer: Arc<Dialer>, forwards: Vec<(String, VisitTarget, Protocol)>) {
     let mut ready = true;
-    for (name, to) in forwards {
+    for (name, to, protocol) in forwards {
         let ch = match dialer
             .open(ChannelKind::Visit, Hello::Visit { version: VERSION })
             .await
@@ -190,7 +207,7 @@ pub(super) async fn check(dialer: Arc<Dialer>, forwards: Vec<(String, VisitTarge
         };
         let request = VisitRequest {
             check: true,
-            protocol: burrow_config::Protocol::Tcp,
+            protocol,
             to,
         };
         match ask(ch, &request).await {
@@ -199,7 +216,7 @@ pub(super) async fn check(dialer: Arc<Dialer>, forwards: Vec<(String, VisitTarge
                 ready = false;
                 warn!(
                     "forward \"{name}\": {}",
-                    explain(st, &request.to, &dialer.name)
+                    explain(st, &request.to, &dialer.name, protocol)
                 );
             }
             None => {
@@ -274,7 +291,7 @@ pub(super) async fn visit(
     };
     let Ok(request) = (VisitRequest {
         check: false,
-        protocol: burrow_config::Protocol::Tcp,
+        protocol: Protocol::Tcp,
         to: to.clone(),
     })
     .encode() else {
@@ -371,7 +388,7 @@ pub(super) async fn visit(
             if let Some(more) = REFUSED.allow() {
                 warn!(
                     "forward \"{name}\": {}{}{more}",
-                    explain(st, &to, &dialer.name),
+                    explain(st, &to, &dialer.name, Protocol::Tcp),
                     told.map(told_app).unwrap_or_default()
                 );
             }
@@ -397,6 +414,22 @@ mod tests {
             not_ready("server unreachable at tunnel.example.com:7835 (connection refused)"),
             "server unreachable at tunnel.example.com:7835 (connection refused); the forwards will work once the server is reachable"
         );
+    }
+
+    #[test]
+    fn an_invalid_answer_names_the_protocol_fix_or_an_old_server() {
+        let dns = VisitTarget::service("dns");
+        let udp = explain(Status::Invalid, &dns, "laptop", Protocol::Udp);
+        assert!(udp.contains("remove \"protocol: udp\""), "{udp}");
+        assert!(udp.contains("older than v0.1.2"), "{udp}");
+        let tcp = explain(Status::Invalid, &dns, "laptop", Protocol::Tcp);
+        assert!(tcp.contains("add \"protocol: udp\""), "{tcp}");
+        let reach = VisitTarget::Client {
+            client: "home".into(),
+            target: "10.0.0.1:53".into(),
+        };
+        let reach = explain(Status::Invalid, &reach, "laptop", Protocol::Udp);
+        assert!(reach.contains("older than v0.1.2"), "{reach}");
     }
 
     #[test]

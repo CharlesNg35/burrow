@@ -86,7 +86,7 @@ pub async fn request<S: AsyncRead + AsyncWrite + Unpin>(s: &mut S) -> io::Result
             2 => "BIND".to_string(),
             3 => {
                 return Err(unsupported(format!(
-                    "the app asked for UDP ASSOCIATE, but visitors carry TCP only, so it was told: {}; TCP through this proxy still works",
+                    "the app asked for UDP ASSOCIATE, which this SOCKS proxy does not carry, so it was told: {}; TCP through it still works, and a forward with \"protocol: udp\" carries UDP",
                     Reply::CommandNotSupported.meaning()
                 )));
             }
@@ -191,7 +191,7 @@ mod tests {
         let e = got.unwrap_err();
         assert_eq!(e.kind(), io::ErrorKind::Unsupported);
         assert!(e.to_string().contains("UDP ASSOCIATE"), "{e}");
-        assert!(e.to_string().contains("TCP only"), "{e}");
+        assert!(e.to_string().contains("\"protocol: udp\""), "{e}");
         let (got, answer) = ask(&[5, 1, 2]).await;
         assert_eq!(answer, [5, 0xff]);
         let e = got.unwrap_err();

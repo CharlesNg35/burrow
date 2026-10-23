@@ -213,6 +213,8 @@ pub struct VisitorSettings {
     pub proxy: Option<ProxyConfig>,
     pub connect_timeout: Duration,
     pub tcp: SocketTuning,
+    pub udp_session_timeout: Duration,
+    pub udp_max_peers: usize,
     pub forwards: BTreeMap<String, Forward>,
 }
 
@@ -222,6 +224,7 @@ pub struct Forward {
     pub ports: u16,
     pub to: VisitTarget,
     pub socks: bool,
+    pub protocol: Protocol,
 }
 
 impl Forward {
@@ -231,6 +234,14 @@ impl Forward {
             ports: 1,
             to,
             socks: false,
+            protocol: Protocol::Tcp,
+        }
+    }
+
+    pub fn udp(local: SocketAddr, to: VisitTarget) -> Self {
+        Forward {
+            protocol: Protocol::Udp,
+            ..Forward::single(local, to)
         }
     }
 
@@ -243,6 +254,7 @@ impl Forward {
                 target: String::new(),
             },
             socks: true,
+            protocol: Protocol::Tcp,
         }
     }
 

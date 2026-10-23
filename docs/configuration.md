@@ -129,8 +129,8 @@ services:
 | `clients.<name>.secret` | required | a 256-bit secret (base64 or hex), or a list of up to 4 while you change it |
 | `clients.<name>.max_connections` | `limits.max_connections_per_client` | open forwarded connections for this client |
 | `visitors.<name>.secret` | required | like a client secret |
-| `visitors.<name>.reach` | none | clients this visitor may reach directly: `CLIENT: any`, or rules like `CLIENT: [192.168.1.0/24:22]`. See [visitors.md](visitors.md) |
-| `visitors.<name>.max_connections` | unlimited | open connections for this visitor |
+| `visitors.<name>.reach` | none | clients this visitor may reach directly, over TCP and UDP: `CLIENT: any`, or rules like `CLIENT: [192.168.1.0/24:22]`. See [visitors.md](visitors.md) |
+| `visitors.<name>.max_connections` | unlimited | open connections for this visitor; a UDP visit counts as one, whatever its number of peers |
 | `visitors.<name>.admin` | none | `read` or `write`: may use `burrow admin`. See [admin.md](admin.md) |
 | `visitors.<name>.admin_from` | any address | source IPs or CIDRs that admin access is limited to |
 | `services.<name>.client` | required (or `clients`) | the client that reaches the target; `self` for the server itself |
@@ -140,7 +140,7 @@ services:
 | `services.<name>.target` | required | host:port as seen from the client, a port alone (`127.0.0.1`), a range like `30000-30010`, or `unix:/path` |
 | `services.<name>.bind` | none (private) | public port, range or ip:port on the server; a port alone means `0.0.0.0` |
 | `services.<name>.protocol` | `tcp` | `tcp` or `udp` |
-| `services.<name>.visitors` | none | visitors that may reach this service (TCP services only) |
+| `services.<name>.visitors` | none | visitors that may reach this service, TCP or UDP |
 | `services.<name>.allow_from` | everyone | only these source IPs or CIDRs may connect |
 | `services.<name>.deny_from` | nobody | these source IPs or CIDRs may never connect |
 | `services.<name>.proxy_protocol` | off | `v1` or `v2`: send the real client address to the target |
@@ -217,6 +217,7 @@ forwards:
   db:  { service: db, local: 5432 }                # a private service
   ssh: { client: home, target: 22, local: 2222 }   # a target on a client (needs reach)
   lan: { client: home, socks: true, local: 1080 }  # a SOCKS5 proxy into a client (needs reach)
+  dns: { service: dns, protocol: udp, local: 5353 } # a private UDP service
 ```
 
 Each forward opens a local port on the visitor's machine. See [visitors.md](visitors.md) for what each kind does.
@@ -232,6 +233,9 @@ Each forward opens a local port on the visitor's machine. See [visitors.md](visi
 | `forwards.<name>.target` | | with `client`: host:port as seen from the client, or a port alone for `127.0.0.1` there |
 | `forwards.<name>.socks` | `false` | with `client`: a SOCKS5 proxy, where each connection names its own target |
 | `forwards.<name>.local` | required | where to listen on this machine: a port alone for `127.0.0.1`, ip:port, or a range |
+| `forwards.<name>.protocol` | `tcp` | `tcp` or `udp`; must match the service's protocol on the server. A TCP and a UDP forward may use the same port number. A SOCKS forward and a `unix:` target are TCP only |
+| `udp.session_timeout_secs` | `60` | a local UDP peer of a UDP forward that sends and gets nothing for this long is forgotten; the forward closes its channel to the server once it has no peers left |
+| `udp.max_peers` | `4096` | most UDP peers one port of a UDP forward keeps at once; a datagram from a new peer beyond it is dropped |
 | `headers`, `ca`, `cipher`, `proxy`, `connect_timeout_secs`, `tcp` | | as in client.yaml |
 
 </details>
