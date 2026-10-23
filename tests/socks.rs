@@ -516,9 +516,8 @@ async fn silent(app: &tokio::net::UdpSocket, relay: SocketAddr, datagram: &[u8])
         if !datagram.is_empty() {
             app.send_to(datagram, relay).await.unwrap();
         }
-        if tokio::time::timeout(Duration::from_millis(400), app.recv_from(&mut buf))
-            .await
-            .is_ok()
+        if let Ok(Ok(_)) =
+            tokio::time::timeout(Duration::from_millis(400), app.recv_from(&mut buf)).await
         {
             return false;
         }
