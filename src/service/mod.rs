@@ -778,11 +778,7 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
     if let Some(note) = &replaced {
         say(out, format!("note: {note}"))?;
     }
-    let arg = if all_manifests().len() <= 1 {
-        String::new()
-    } else {
-        format!(" {name}")
-    };
+    let arg = name_arg(&name, all_manifests().len(), stray::strays().len());
     if opts.start && !already_running(&*backend, &manifest, &arg, out)? {
         let started = backend.start(&manifest);
         again.manifest = None;
@@ -851,6 +847,14 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
         ),
     )?;
     Ok(())
+}
+
+fn name_arg(name: &str, managed: usize, strays: usize) -> String {
+    if managed + strays <= 1 {
+        String::new()
+    } else {
+        format!(" {name}")
+    }
 }
 
 fn take_over(stray: Option<&stray::Stray>, config: &Path) -> Result<Option<String>, Failure> {
@@ -2106,6 +2110,13 @@ mod tests {
                 detail: String::new(),
             }
         }
+    }
+
+    #[test]
+    fn the_hints_after_an_install_name_the_service_when_anything_else_is_installed() {
+        assert_eq!(name_arg("burrow-home", 1, 0), "");
+        assert_eq!(name_arg("burrow-home", 2, 0), " burrow-home");
+        assert_eq!(name_arg("burrow-home", 1, 1), " burrow-home");
     }
 
     #[test]
