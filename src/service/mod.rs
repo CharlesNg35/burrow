@@ -604,8 +604,25 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
             "stop the burrow process that is running outside the service first, then install again",
         ));
     }
+    let users = || {
+        let managed = all_manifests().into_iter().filter_map(|m| {
+            backend.status(&m).pid.map(|pid| ports::PortUser {
+                pid,
+                name: m.name,
+                managed: true,
+            })
+        });
+        let strays = stray::strays().into_iter().filter_map(|s| {
+            s.pid.map(|pid| ports::PortUser {
+                pid,
+                name: s.label,
+                managed: false,
+            })
+        });
+        managed.chain(strays).collect()
+    };
     for (proto, addr, label) in &checked.listens {
-        ports::check_free(*proto, *addr, label)?;
+        ports::check_free(*proto, *addr, label, &users)?;
     }
 
     let created = backend.ensure_account(&account)?;
