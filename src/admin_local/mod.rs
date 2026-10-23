@@ -284,46 +284,47 @@ pub async fn listen(
     port: Option<u16>,
     default: u16,
 ) -> Result<(TcpListener, Option<String>), Failure> {
-    listen_near(port, None, default).await
+    listen_near(port, None, default, false).await
 }
 
 pub async fn listen_near(
     port: Option<u16>,
     last: Option<u16>,
     default: u16,
+    link: bool,
 ) -> Result<(TcpListener, Option<String>), Failure> {
     if let Some(p) = port {
         return Ok((bind(p).await?, None));
     }
+    let local = |p: u16| SocketAddr::from(([127, 0, 0, 1], p));
     let mut moved = None;
     if let Some(p) = last.filter(|p| *p != default) {
-        match TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], p))).await {
+        match TcpListener::bind(local(p)).await {
             Ok(l) => return Ok((l, None)),
-            Err(_) => moved = Some(p),
+            Err(e) => moved = Some((p, e)),
         }
     }
-    let (l, note) = match TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], default))).await {
+    let (l, failed) = match TcpListener::bind(local(default)).await {
         Ok(l) => (l, None),
-        Err(e) => {
-            let why = if e.kind() == std::io::ErrorKind::AddrInUse {
-                format!("port {default} is in use")
-            } else {
-                format!("cannot use port {default} ({e})")
-            };
-            let l = bind(0).await?;
-            let note = l
-                .local_addr()
-                .ok()
-                .map(|a| format!("{why}; the UI is on 127.0.0.1:{}", a.port()));
-            (l, note)
-        }
+        Err(e) => (bind(0).await?, Some((default, e))),
     };
-    let note = match (moved, l.local_addr()) {
-        (Some(p), Ok(a)) => Some(format!(
-            "port {p} of your last session is taken; the UI is on 127.0.0.1:{} (open the new link)",
-            a.port()
-        )),
-        _ => note,
+    let note = match (moved.or(failed), l.local_addr()) {
+        (Some((p, e)), Ok(a)) => {
+            let kept = last == Some(p);
+            let whose = if kept { " of your last session" } else { "" };
+            let why = match e.kind() {
+                std::io::ErrorKind::AddrInUse if kept => format!("port {p}{whose} is taken"),
+                std::io::ErrorKind::AddrInUse => format!("port {p} is in use"),
+                _ => format!("cannot use port {p}{whose} ({e})"),
+            };
+            let then = match (kept, link) {
+                (false, _) => "",
+                (true, true) => " (open the new link)",
+                (true, false) => " (run with --print-url to see the new link)",
+            };
+            Some(format!("{why}; the UI is on 127.0.0.1:{}{then}", a.port()))
+        }
+        _ => None,
     };
     Ok((l, note))
 }
@@ -534,14 +535,18 @@ mod tests {
         );
     }
 
+    fn free_port() -> u16 {
+        let free = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        free.local_addr().unwrap().port()
+    }
+
     #[tokio::test]
     async fn a_taken_session_port_is_named_when_the_ui_moves() {
         let held = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let last = held.local_addr().unwrap().port();
-        let free = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let default = free.local_addr().unwrap().port();
-        drop(free);
-        let (l, note) = listen_near(None, Some(last), default).await.unwrap();
+        let (l, note) = listen_near(None, Some(last), free_port(), true)
+            .await
+            .unwrap();
         let got = l.local_addr().unwrap().port();
         assert_ne!(got, last);
         assert_eq!(
@@ -553,6 +558,55 @@ mod tests {
                 .as_str()
             )
         );
+        let (l, note) = listen_near(None, Some(last), free_port(), false)
+            .await
+            .unwrap();
+        let got = l.local_addr().unwrap().port();
+        assert_eq!(
+            note.as_deref(),
+            Some(
+                format!(
+                    "port {last} of your last session is taken; the UI is on 127.0.0.1:{got} (run with --print-url to see the new link)"
+                )
+                .as_str()
+            )
+        );
+    }
+
+    #[tokio::test]
+    async fn a_taken_session_port_on_the_default_is_named_like_any_other() {
+        let held = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let busy = held.local_addr().unwrap().port();
+        let (l, note) = listen_near(None, Some(busy), busy, true).await.unwrap();
+        let got = l.local_addr().unwrap().port();
+        assert_ne!(got, busy);
+        assert_eq!(
+            note.as_deref(),
+            Some(
+                format!(
+                    "port {busy} of your last session is taken; the UI is on 127.0.0.1:{got} (open the new link)"
+                )
+                .as_str()
+            )
+        );
+    }
+
+    #[tokio::test]
+    async fn a_session_port_that_cannot_be_used_gives_the_real_reason() {
+        if std::net::TcpListener::bind("127.0.0.1:1").is_ok() {
+            return;
+        }
+        let (l, note) = listen_near(None, Some(1), free_port(), true).await.unwrap();
+        let got = l.local_addr().unwrap().port();
+        let note = note.unwrap();
+        assert!(
+            note.starts_with("cannot use port 1 of your last session (")
+                && note.ends_with(&format!(
+                    "); the UI is on 127.0.0.1:{got} (open the new link)"
+                )),
+            "{note}"
+        );
+        assert!(!note.contains("taken"), "{note}");
     }
 
     #[tokio::test]
