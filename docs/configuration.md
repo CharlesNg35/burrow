@@ -198,7 +198,7 @@ allow:
 | `headers` | none | extra HTTP headers for the WebSocket connection, for example an access token |
 | `ca` | none | an extra certificate (PEM) to trust for `wss://`: a CA that signed the server's certificate, or the server's own certificate. Certificates from public CAs are still trusted too |
 | `connect_timeout_secs` | `10` | time allowed to connect to the server, 1 to 300 |
-| `max_connections` | `16384` | most connections open through this client at once, 1 to 1000000; beyond it the server gets busy. Lowered automatically when the open file limit is too small, with a warning. Each idle connection uses about 15 KB on the client, so 100000 is about 1.5 GB |
+| `max_connections` | `16384` | most connections open through this client at once, 1 to 1000000; beyond it the server gets busy. Each UDP service also holds one of them for its relay. Lowered automatically when the open file limit is too small, with a warning. Each idle connection uses about 15 KB on the client, so 100000 is about 1.5 GB |
 | `max_udp_peers` | `8192` | most UDP peers open through this client at once, across all UDP services, 1 to 1000000; a datagram from a new peer beyond it is dropped. Each peer uses one socket on the client, so it is lowered like `max_connections` |
 | `tcp`, `udp` | as on the server | `tcp.nodelay`, `tcp.keepalive_secs`, `udp.session_timeout_secs` |
 

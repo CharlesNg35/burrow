@@ -25,7 +25,7 @@ A server installed as a service needs `sudo` (an administrator terminal on Windo
 
 ```
 $ sudo burrow status
-burrow 0.1.1  ·  up 3 d 4 h  ·  clients on tcp 0.0.0.0:7835
+burrow 0.1.2  ·  up 3 d 4 h  ·  clients on tcp 0.0.0.0:7835
 
 CLIENTS  1/2 connected
   NAME    STATE      SINCE           FROM            OPEN  IDLE
@@ -56,7 +56,7 @@ In a terminal, the tables have borders and colors, and fit the window's width.
 - **OPEN:** connections open now. **TOTAL:** connections since the server started.
 - **IDLE:** channels the client keeps open in advance, so a new connection starts at once.
 - **at limit** after a client's state: in the last minute the client refused new connections because it reached its `max_connections`. In `--json`, `at_limit` is true, and `busy_total` counts those refusals since the server started.
-- **REFUSED:** connections the service refused: a blocked source address, a limit, or no client to serve it.
+- **REFUSED:** connections the service refused: a blocked source address, a limit (the service's own, or a client that answered busy at its `max_connections`), or no client to serve it.
 - **IN:** bytes from users to the target. **OUT:** bytes back to users.
 - **LAST USED** of a visitor: `now` while it has connections open, otherwise how long ago it last opened or closed one, or a running `burrow visit` or `burrow init visitor` last checked in (`2 min ago`), or `not since start` when it has not used the server since the server started. In `--json` it is `last_seen_secs`: the seconds since then, or `null` when not since start.
 - **CLIENTS** of a service: whether each client can serve it now. `failing` or `refused` means the client could not reach the target or its `allow` list refused it, so it is skipped for a while.
@@ -117,7 +117,7 @@ burrow handles many connections at once. Measured on Linux with idle connections
 
 The 100,000 connections opened in 5 seconds.
 
-**Limits per client.** A client keeps at most `max_connections` (16384) connections and `max_udp_peers` (8192) UDP peers open at once, and the server keeps at most `limits.max_connections_per_client` (8192) connections per client. Beyond these limits new connections are refused, and datagrams from new UDP peers are dropped; open connections keep running. When a client refuses connections at its `max_connections`, `burrow status` shows it as `at limit` and the client logs a warning at most once a minute. Raise the limits in client.yaml and server.yaml; a saved file applies at once:
+**Limits per client.** A client keeps at most `max_connections` (16384) connections and `max_udp_peers` (8192) UDP peers open at once, and the server keeps at most `limits.max_connections_per_client` (8192) connections per client. Beyond these limits new connections are refused, and datagrams from new UDP peers are dropped; open connections keep running. When a client refuses connections at its `max_connections`, `burrow status` shows it as `at limit` and the client logs a warning at most once a minute. Raise the limits in client.yaml and server.yaml; a saved file applies at once. Above about 28,000 connections through one client, also widen the local port range (see below):
 
 ```yaml
 # client.yaml
@@ -134,7 +134,7 @@ limits:
 
 **Linux limits.** These run out before burrow's memory does:
 
-- **Connection tracking:** each tunnelled connection uses about 3 entries (user to server, server to client, client to the app). The default table often holds 262144. Check and raise it:
+- **Connection tracking:** each tunnelled connection is 3 TCP connections: user to server, client to server, and client to the app. With the server and the client on one machine, that machine tracks all 3; on separate machines, each tracks about 2. The default table often holds 262144. Check and raise it:
 
   ```
   sysctl net.netfilter.nf_conntrack_max
@@ -142,14 +142,14 @@ limits:
   ```
 
   When it is full, the kernel logs "nf_conntrack: table full, dropping packet" and new connections time out.
-- **Local ports:** a machine opens about 28,000 connections to one address and port from one source address. On the client, this limits connections to one target. Widen the range:
+- **Local ports:** a machine opens about 28,000 connections from one source address to one address and port. Every connection through a client also needs a channel from the client to the server's address, so one client keeps at most about 28,000 connections open, whatever their targets. Widen the range, or spread the load over several clients on other machines or with other server addresses:
 
   ```
   sysctl net.ipv4.ip_local_port_range
   sudo sysctl -w net.ipv4.ip_local_port_range="1024 65535"
   ```
 
-- **Open files:** every connection uses open files on the server and the client. `burrow service install` sets 1048576 on Linux. When you run burrow by hand, raise it first, for example `ulimit -n 1048576`. If the limit is too small for `max_connections` or `max_udp_peers`, the client lowers them and logs a warning at start.
+- **Open files:** every connection uses open files on the server and the client. burrow raises its own limit to the hard limit at start, so the hard limit is what counts. `burrow service install` sets 1048576 on Linux. For a burrow you run by hand, raising the hard limit needs root: set `nofile` in `/etc/security/limits.conf`, or `LimitNOFILE=` in your own systemd unit. If the limit is too small, the client lowers `max_connections` and `max_udp_peers` to fit; it logs a warning when it lowers a value you set.
 
 To keep a `sysctl -w` change after a reboot, put the same line, without `sudo sysctl -w`, in a file such as `/etc/sysctl.d/90-burrow.conf`.
 
