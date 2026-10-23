@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:cfddf8c932cd73a2",
+  "hash": "b2s:d7eb0c0fe21ddf66",
   "root": {
     "label": "Server",
     "sem": {
@@ -1111,7 +1111,7 @@
                       "unit": "secs",
                       "min": 1
                     },
-                    "default": 60
+                    "default": 120
                   }
                 },
                 {

@@ -134,7 +134,7 @@ pub(crate) mod tests {
                 nodelay: true,
                 keepalive: None,
             },
-            udp_session_timeout: Duration::from_secs(60),
+            udp_session_timeout: Duration::from_secs(120),
             max_connections: Limit::default_of(16384),
             max_udp_peers: Limit::default_of(8192),
         }

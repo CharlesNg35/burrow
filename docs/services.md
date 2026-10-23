@@ -56,7 +56,7 @@ dns:
   target: 192.168.1.1:53
 ```
 
-A UDP peer that sends nothing for 60 seconds is forgotten (`udp.session_timeout_secs`). A UDP service follows its target to a new address when the target's DNS name changes.
+A UDP peer that sends nothing for 2 minutes is forgotten (`udp.session_timeout_secs`). A UDP service follows its target to a new address when the target's DNS name changes.
 
 ## Port ranges
 

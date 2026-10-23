@@ -740,7 +740,7 @@ pub struct UdpOptions {
 impl Default for UdpOptions {
     fn default() -> Self {
         UdpOptions {
-            session_timeout_secs: 60,
+            session_timeout_secs: 120,
             max_peers: 4096,
         }
     }
@@ -757,7 +757,7 @@ pub struct ClientUdpOptions {
 impl Default for ClientUdpOptions {
     fn default() -> Self {
         ClientUdpOptions {
-            session_timeout_secs: 60,
+            session_timeout_secs: 120,
         }
     }
 }
@@ -1092,7 +1092,14 @@ mod tests {
         assert_eq!(plain.max_peers, 4096);
         let set: UdpOptions = serde_json::from_value(json!({"max_peers": 7})).unwrap();
         assert_eq!(set.max_peers, 7);
-        assert_eq!(set.session_timeout_secs, 60);
         assert_eq!(serde_json::to_value(&set).unwrap()["max_peers"], 7);
+    }
+
+    #[test]
+    fn udp_peers_are_kept_two_minutes_by_default_as_rfc_4787_req_5_asks() {
+        assert_eq!(UdpOptions::default().session_timeout_secs, 120);
+        assert_eq!(ClientUdpOptions::default().session_timeout_secs, 120);
+        let set: UdpOptions = serde_json::from_value(json!({"max_peers": 7})).unwrap();
+        assert_eq!(set.session_timeout_secs, 120);
     }
 }

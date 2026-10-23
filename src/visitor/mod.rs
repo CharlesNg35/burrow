@@ -569,7 +569,7 @@ mod tests {
                 nodelay: true,
                 keepalive: None,
             },
-            udp_session_timeout: std::time::Duration::from_secs(60),
+            udp_session_timeout: std::time::Duration::from_secs(120),
             udp_max_peers: 4096,
             forwards: [
                 ("db".to_string(), forward(5432, VisitTarget::service("db"))),

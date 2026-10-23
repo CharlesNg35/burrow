@@ -157,7 +157,7 @@ services:
 | `pool.min_idle` / `pool.max_idle` | `4` / `64` | channels each client keeps open in advance, so a new connection starts at once |
 | `tcp.nodelay` | `true` | send small writes at once (TCP_NODELAY) |
 | `tcp.keepalive_secs` | `30` | TCP keepalive idle time; `0` turns it off |
-| `udp.session_timeout_secs` | `60` | a UDP peer that sends nothing for this long is forgotten |
+| `udp.session_timeout_secs` | `120` | a UDP peer that sends nothing for this long is forgotten. Two minutes is the least a NAT should keep a UDP mapping (RFC 4787); a shorter value frees peers sooner for traffic like DNS, where each query may come from a new port |
 | `udp.max_peers` | `4096` | most UDP peers one service port keeps at once, 1 to 1000000; a datagram from a new peer beyond it is dropped. A change applies at once to new peers |
 
 </details>
@@ -234,7 +234,7 @@ Each forward opens a local port on the visitor's machine. See [visitors.md](visi
 | `forwards.<name>.socks` | `false` | with `client`: a SOCKS5 proxy, where each connection names its own target |
 | `forwards.<name>.local` | required | where to listen on this machine: a port alone for `127.0.0.1`, ip:port, or a range |
 | `forwards.<name>.protocol` | `tcp` | `tcp` or `udp`; must match the service's protocol on the server. A TCP and a UDP forward may use the same port number. A SOCKS forward and a `unix:` target are TCP only |
-| `udp.session_timeout_secs` | `60` | a local UDP peer of a UDP forward that sends and gets nothing for this long is forgotten; the forward closes its channel to the server once it has no peers left |
+| `udp.session_timeout_secs` | `120` | a local UDP peer of a UDP forward that sends and gets nothing for this long is forgotten; the forward closes its channel to the server once it has no peers left |
 | `udp.max_peers` | `4096` | most UDP peers one port of a UDP forward keeps at once; a datagram from a new peer beyond it is dropped |
 | `headers`, `ca`, `cipher`, `proxy`, `connect_timeout_secs`, `tcp` | | as in client.yaml |
 
