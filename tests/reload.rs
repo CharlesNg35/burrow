@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use burrow::allowlist::AllowList;
 use burrow::client::{Client, State};
-use burrow::config::settings::{ClientSettings, Forward, VisitorSettings};
+use burrow::config::settings::{ClientSettings, Forward, Limit, VisitorSettings};
 use burrow::protocol::VisitTarget;
 use burrow::secret::Secret;
 use burrow_config::Protocol;
@@ -742,15 +742,19 @@ async fn a_client_warns_once_per_change_when_the_open_file_limit_lowers_its_limi
     let config = dir.path().join("client.yaml");
     write(&config, &yaml("max_connections: 1000\n"));
     let client = Running::start_with_open_files(1024, "client", &config, locks.path());
-    let first = format!(
-        "max_connections 1000 is lowered to 192 by the open file limit (1024); raise the limit with ulimit -n, or install burrow as a service, which sets {}",
-        if cfg!(target_os = "macos") {
-            10240
-        } else {
-            1048576
-        }
+    let first = "max_connections 1000 is lowered to 192 by the open file limit (1024); ";
+    assert!(client.logged(first).await, "{}", client.log());
+    let service = if cfg!(target_os = "macos") {
+        "install burrow as a service, which sets 10240"
+    } else {
+        "install burrow as a service, which sets 1048576"
+    };
+    assert!(
+        client.log().lines().any(|l| l.contains(first)
+            && (l.contains(service) || !cfg!(any(target_os = "linux", target_os = "macos")))),
+        "{}",
+        client.log()
     );
-    assert!(client.logged(&first).await, "{}", client.log());
     let shared = server.shared.clone();
     wait_for(|| shared.idle_channels("home") >= 1).await;
     assert!(eventually(web).await, "{}", client.log());
@@ -789,8 +793,15 @@ async fn a_client_warns_once_per_change_when_the_open_file_limit_lowers_its_limi
     write(&config, &yaml("max_connections: 2\nmax_udp_peers: 100\n"));
     assert!(
         client
-            .logged("config reloaded: connect_timeout_secs, max_connections, max_udp_peers applied")
+            .logged("max_udp_peers 100 is lowered to 64 by the open file limit (1024)")
             .await,
+        "{}",
+        client.log()
+    );
+    assert!(
+        client.log().contains(
+            "config reloaded: connect_timeout_secs, max_connections, max_udp_peers applied"
+        ),
         "{}",
         client.log()
     );
@@ -806,17 +817,16 @@ async fn a_client_warns_once_per_change_when_the_open_file_limit_lowers_its_limi
         "{log}"
     );
     assert_eq!(
-        log.matches("max_udp_peers 8192 is lowered to 64 by the open file limit (1024)")
-            .count(),
-        1,
-        "{log}"
+        log.matches("max_udp_peers 8192").count(),
+        0,
+        "the default max_udp_peers is lowered quietly: {log}"
     );
     assert_eq!(
         log.matches("max_udp_peers 100 is lowered to 64").count(),
         1,
         "{log}"
     );
-    assert_eq!(log.matches("is lowered to").count(), 4, "{log}");
+    assert_eq!(log.matches("is lowered to").count(), 3, "{log}");
     assert!(
         log.contains("must be between 1 and 1000000, found 0"),
         "{log}"
@@ -892,16 +902,21 @@ async fn opens_exactly(addr: SocketAddr, n: usize) -> Vec<TcpStream> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn the_client_max_connections_follows_reloads_without_cutting_open_connections() {
-    let mut t = Live::start_both("127.0.0.0/8", |_| {}, |c| c.max_connections = 2).await;
+    let mut t = Live::start_both(
+        "127.0.0.0/8",
+        |_| {},
+        |c| c.max_connections = Limit::written(2),
+    )
+    .await;
     let web = t.web();
     let before = t.connected_secs();
     let mut open = opens_exactly(web, 2).await;
 
-    t.change(|s| s.max_connections = 3).await;
+    t.change(|s| s.max_connections = Limit::written(3)).await;
     tokio::time::sleep(Duration::from_millis(300)).await;
     open.extend(opens_exactly(web, 1).await);
 
-    t.change(|s| s.max_connections = 1).await;
+    t.change(|s| s.max_connections = Limit::written(1)).await;
     tokio::time::sleep(Duration::from_millis(300)).await;
     for conn in &mut open {
         assert!(
@@ -926,7 +941,7 @@ async fn the_client_max_connections_follows_reloads_without_cutting_open_connect
     drop(one);
     wait_for(|| shared.status().clients[0].open == 0).await;
 
-    t.change(|s| s.max_connections = 3).await;
+    t.change(|s| s.max_connections = Limit::written(3)).await;
     tokio::time::sleep(Duration::from_millis(300)).await;
     let _three = opens_exactly(web, 3).await;
     assert!(
@@ -951,7 +966,12 @@ async fn parallel_opens_during_a_max_connections_reload_stay_under_the_cap_and_l
             },
         );
     }
-    let mut t = Live::start_both("127.0.0.0/8", |_| {}, |c| c.max_connections = 20).await;
+    let mut t = Live::start_both(
+        "127.0.0.0/8",
+        |_| {},
+        |c| c.max_connections = Limit::written(20),
+    )
+    .await;
     let web = t.web();
     let burst = |n: usize| {
         (0..n)
@@ -964,7 +984,7 @@ async fn parallel_opens_during_a_max_connections_reload_stay_under_the_cap_and_l
     }
     assert!(held.len() <= 20, "{} got through a limit of 20", held.len());
     let second = burst(150);
-    t.change(|s| s.max_connections = 40).await;
+    t.change(|s| s.max_connections = Limit::written(40)).await;
     let third = burst(150);
     for task in second.into_iter().chain(third) {
         held.extend(task.await.unwrap());
@@ -1020,7 +1040,7 @@ async fn with_dns(
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn the_client_max_udp_peers_follows_reloads_without_dropping_known_peers() {
-    let (mut t, dns) = with_dns(|_| {}, |c| c.max_udp_peers = 2).await;
+    let (mut t, dns) = with_dns(|_| {}, |c| c.max_udp_peers = Limit::written(2)).await;
     let (a, b, c, d, e) = (
         udp_peer(dns).await,
         udp_peer(dns).await,
@@ -1034,13 +1054,13 @@ async fn the_client_max_udp_peers_follows_reloads_without_dropping_known_peers()
         "a third peer got through max_udp_peers 2"
     );
 
-    t.change(|s| s.max_udp_peers = 3).await;
+    t.change(|s| s.max_udp_peers = Limit::written(3)).await;
     assert!(
         answers(&c, 25).await,
         "raising max_udp_peers did not let a peer in"
     );
 
-    t.change(|s| s.max_udp_peers = 1).await;
+    t.change(|s| s.max_udp_peers = Limit::written(1)).await;
     tokio::time::sleep(Duration::from_millis(300)).await;
     for known in [&a, &b, &c] {
         assert!(
@@ -1066,7 +1086,8 @@ async fn the_client_max_udp_peers_follows_reloads_without_dropping_known_peers()
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn the_server_udp_max_peers_follows_reloads_without_dropping_known_peers() {
     let (t, dns) = with_dns(|s| s.udp_max_peers = 2, |_| {}).await;
-    let (a, b, c, d) = (
+    let (a, b, c, d, e) = (
+        udp_peer(dns).await,
         udp_peer(dns).await,
         udp_peer(dns).await,
         udp_peer(dns).await,
@@ -1087,7 +1108,7 @@ async fn the_server_udp_max_peers_follows_reloads_without_dropping_known_peers()
     );
 
     next.udp_max_peers = 1;
-    t.server.reload(next).await;
+    t.server.reload(next.clone()).await;
     tokio::time::sleep(Duration::from_millis(300)).await;
     for known in [&a, &b, &c] {
         assert!(
@@ -1100,6 +1121,30 @@ async fn the_server_udp_max_peers_follows_reloads_without_dropping_known_peers()
         "a lowered udp.max_peers let a new peer in"
     );
     assert_eq!(t.server.shared.status().udp_peers, 3);
+
+    next.udp_session_timeout = Duration::from_secs(2);
+    t.server.reload(next).await;
+    let shared = t.server.shared.clone();
+    for _ in 0..150 {
+        if shared.status().udp_peers == 0 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    assert_eq!(
+        shared.status().udp_peers,
+        0,
+        "the known peers did not expire"
+    );
+    assert!(
+        answers(&d, 25).await,
+        "no new peer got in after the others expired"
+    );
+    assert!(
+        !answers(&e, 3).await,
+        "a second new peer got through the lowered udp.max_peers 1"
+    );
+    assert_eq!(shared.status().udp_peers, 1);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -1116,7 +1161,7 @@ async fn parallel_udp_peers_during_a_max_udp_peers_reload_stay_under_the_cap() {
             },
         );
     }
-    let (mut t, dns) = with_dns(|_| {}, |c| c.max_udp_peers = 20).await;
+    let (mut t, dns) = with_dns(|_| {}, |c| c.max_udp_peers = Limit::written(20)).await;
     let burst = |n: usize| {
         (0..n)
             .map(|_| {
@@ -1137,7 +1182,7 @@ async fn parallel_udp_peers_during_a_max_udp_peers_reload_stay_under_the_cap() {
         admitted.len()
     );
     let second = burst(150);
-    t.change(|s| s.max_udp_peers = 40).await;
+    t.change(|s| s.max_udp_peers = Limit::written(40)).await;
     let third = burst(150);
     for task in second.into_iter().chain(third) {
         admitted.extend(task.await.unwrap());

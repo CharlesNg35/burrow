@@ -38,8 +38,8 @@ impl Throttle {
         self.allow_at(Instant::now())
     }
 
-    pub fn count(&self) -> Option<usize> {
-        self.count_at(Instant::now())
+    pub fn counted(&self, what: &str) -> Option<String> {
+        self.counted_at(Instant::now(), what)
     }
 
     fn allow_at(&self, now: Instant) -> Option<String> {
@@ -50,8 +50,11 @@ impl Throttle {
         })
     }
 
-    fn count_at(&self, now: Instant) -> Option<usize> {
-        self.open_at(now).map(|(skipped, _)| skipped + 1)
+    fn counted_at(&self, now: Instant, what: &str) -> Option<String> {
+        self.open_at(now).map(|(skipped, since)| match since {
+            None => String::new(),
+            Some(_) => format!(" ({} {what} since the last warning)", skipped + 1),
+        })
     }
 
     fn open_at(&self, now: Instant) -> Option<(usize, Option<Duration>)> {
@@ -119,12 +122,19 @@ mod tests {
     fn a_per_minute_count_says_how_many_happened_since_the_last_line() {
         let t = Throttle::per_minute();
         let start = Instant::now();
-        assert_eq!(t.count_at(start), Some(1));
+        let at = |s: u64| t.counted_at(start + Duration::from_secs(s), "refused");
+        assert_eq!(at(0).as_deref(), Some(""));
         for s in 1..60 {
-            assert_eq!(t.count_at(start + Duration::from_secs(s)), None);
+            assert_eq!(at(s), None);
         }
-        assert_eq!(t.count_at(start + Duration::from_secs(60)), Some(60));
-        assert_eq!(t.count_at(start + Duration::from_secs(90)), None);
-        assert_eq!(t.count_at(start + Duration::from_secs(400)), Some(2));
+        assert_eq!(
+            at(60).as_deref(),
+            Some(" (60 refused since the last warning)")
+        );
+        assert_eq!(at(90), None);
+        assert_eq!(
+            at(400).as_deref(),
+            Some(" (2 refused since the last warning)")
+        );
     }
 }

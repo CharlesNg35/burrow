@@ -13,7 +13,7 @@ use std::time::Duration;
 use burrow::allowlist::{AllowList, Rule};
 use burrow::client::{Client, State};
 use burrow::config::settings::{
-    ClientAuth, ClientSettings, Forward, ServerSettings, Service, SocketTuning, VisitorAuth,
+    ClientAuth, ClientSettings, Forward, Limit, ServerSettings, Service, SocketTuning, VisitorAuth,
     VisitorSettings,
 };
 use burrow::protocol::VisitTarget;
@@ -97,8 +97,8 @@ pub fn client_settings(server: SocketAddr, secret: Secret) -> ClientSettings {
         connect_timeout: Duration::from_secs(2),
         tcp: tuning(),
         udp_session_timeout: Duration::from_secs(30),
-        max_connections: 16384,
-        max_udp_peers: 8192,
+        max_connections: Limit::default_of(16384),
+        max_udp_peers: Limit::default_of(8192),
     }
 }
 

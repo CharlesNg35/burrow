@@ -279,8 +279,30 @@ pub struct ClientSettings {
     pub connect_timeout: Duration,
     pub tcp: SocketTuning,
     pub udp_session_timeout: Duration,
-    pub max_connections: u32,
-    pub max_udp_peers: u32,
+    pub max_connections: Limit,
+    pub max_udp_peers: Limit,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Limit {
+    pub value: u32,
+    pub written: bool,
+}
+
+impl Limit {
+    pub fn default_of(value: u32) -> Limit {
+        Limit {
+            value,
+            written: false,
+        }
+    }
+
+    pub fn written(value: u32) -> Limit {
+        Limit {
+            value,
+            written: true,
+        }
+    }
 }
 
 #[derive(Clone, PartialEq)]

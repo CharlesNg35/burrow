@@ -10,7 +10,7 @@ use tracing::{debug, info, warn};
 
 use crate::allowlist::{AllowList, Gate, Refusal};
 use crate::config::check::{parse_host_port, unix};
-use crate::config::settings::{ClientSettings, SocketTuning};
+use crate::config::settings::{ClientSettings, Limit, SocketTuning};
 use crate::failure::io_reason;
 use crate::forward::{client_tcp, refuse};
 use crate::handshake::Channel;
@@ -155,33 +155,44 @@ pub(crate) fn fitted(connections: u32, peers: u32) -> (usize, usize) {
     (connections, peers)
 }
 
-pub(crate) fn client_connection_cap(configured: u32) -> usize {
-    warned("max_connections", configured, fitted(configured, 1).0)
+pub(crate) fn client_connection_cap(configured: Limit) -> usize {
+    warned("max_connections", configured, fitted(configured.value, 1).0)
 }
 
-pub(crate) fn client_peer_cap(configured: u32) -> usize {
-    warned("max_udp_peers", configured, fitted(1, configured).1)
+pub(crate) fn client_peer_cap(configured: Limit) -> usize {
+    warned("max_udp_peers", configured, fitted(1, configured.value).1)
 }
 
-fn warned(key: &str, configured: u32, cap: usize) -> usize {
+fn warned(key: &str, configured: Limit, cap: usize) -> usize {
     if let Some(lowered) = lowered(key, configured, cap, OPEN_FILES.load(Ordering::Relaxed)) {
         warn!("{lowered}");
     }
     cap
 }
 
-const SERVICE_OPEN_FILES: u32 = if cfg!(target_os = "macos") {
-    10240
-} else {
-    1048576
-};
-
-fn lowered(key: &str, configured: u32, cap: usize, open_files: u64) -> Option<String> {
-    (cap < wide(configured)).then(|| {
+fn lowered(key: &str, configured: Limit, cap: usize, open_files: u64) -> Option<String> {
+    let value = configured.value;
+    (configured.written && cap < wide(value)).then(|| {
         format!(
-            "{key} {configured} is lowered to {cap} by the open file limit ({open_files}); raise the limit with ulimit -n, or install burrow as a service, which sets {SERVICE_OPEN_FILES}"
+            "{key} {value} is lowered to {cap} by the open file limit ({open_files}); {}",
+            way_out(key, cap, open_files)
         )
     })
+}
+
+fn way_out(key: &str, cap: usize, open_files: u64) -> String {
+    let fewer = format!("set {key} to {cap} or less to silence this, or run several clients");
+    if cfg!(target_os = "macos") {
+        if open_files < 10240 {
+            "install burrow as a service, which sets 10240, the most macOS allows".into()
+        } else {
+            format!("10240 is the most macOS allows; {fewer}")
+        }
+    } else if cfg!(target_os = "linux") && open_files < 1048576 {
+        "raise the hard limit as root (limits.conf, or LimitNOFILE in a systemd unit), or install burrow as a service, which sets 1048576".into()
+    } else {
+        format!("raise the hard limit as root, or {fewer}")
+    }
 }
 
 struct Slot(Arc<Slots>);
@@ -400,15 +411,15 @@ async fn connected<W: Dials>(
     };
     let Some(_slot) = live.1.connections.take() else {
         static FULL: Throttle = Throttle::per_minute();
-        if let Some(refused) = FULL.count() {
+        if let Some(refused) = FULL.counted("refused") {
             let most = live.1.connections.most();
             if live.1.local {
                 warn!(
-                    "{most} connections from this server to its own targets are open; new ones are answered busy until some close ({refused} refused in the last minute)"
+                    "{most} connections from this server to its own targets are open; new ones are answered busy until some close{refused}"
                 );
             } else {
                 warn!(
-                    "max_connections {most} reached; new connections are answered busy until some close ({refused} refused in the last minute); raise max_connections in client.yaml"
+                    "max_connections {most} reached; new connections are answered busy until some close{refused}; raise max_connections in client.yaml"
                 );
             }
         }
@@ -830,15 +841,15 @@ async fn udp<W: Dials>(
             None => {
                 let Some(slot) = live.1.peers.take() else {
                     static ALL: Throttle = Throttle::per_minute();
-                    if let Some(dropped) = ALL.count() {
+                    if let Some(dropped) = ALL.counted("dropped") {
                         let most = live.1.peers.most();
                         if live.1.local {
                             warn!(
-                                "{most} UDP peers from this server to its own targets are open; datagrams from new ones are dropped until some expire ({dropped} dropped in the last minute)"
+                                "{most} UDP peers from this server to its own targets are open; datagrams from new ones are dropped until some expire{dropped}"
                             );
                         } else {
                             warn!(
-                                "max_udp_peers {most} reached; datagrams from new UDP peers are dropped until some expire ({dropped} dropped in the last minute); raise max_udp_peers in client.yaml"
+                                "max_udp_peers {most} reached; datagrams from new UDP peers are dropped until some expire{dropped}; raise max_udp_peers in client.yaml"
                             );
                         }
                     }
@@ -959,56 +970,99 @@ mod tests {
 
     #[test]
     fn a_lowered_cap_names_both_values_the_limit_and_the_way_out() {
-        assert_eq!(
-            lowered("max_connections", 16384, 3648, 10240),
-            Some(format!(
-                "max_connections 16384 is lowered to 3648 by the open file limit (10240); raise the limit with ulimit -n, or install burrow as a service, which sets {SERVICE_OPEN_FILES}"
-            ))
-        );
-        assert_eq!(lowered("max_connections", 100, 100, 10240), None);
-        assert_eq!(
-            lowered("max_udp_peers", 8192, 1216, 10240),
-            Some(format!(
-                "max_udp_peers 8192 is lowered to 1216 by the open file limit (10240); raise the limit with ulimit -n, or install burrow as a service, which sets {SERVICE_OPEN_FILES}"
-            ))
+        let written = |n| Limit::written(n);
+        let start = "max_connections 16384 is lowered to 3648 by the open file limit (10240); ";
+        let told = lowered("max_connections", written(16384), 3648, 10240).unwrap();
+        assert!(told.starts_with(start), "{told}");
+        let way = &told[start.len()..];
+        if cfg!(target_os = "macos") {
+            assert_eq!(
+                way,
+                "10240 is the most macOS allows; set max_connections to 3648 or less to silence this, or run several clients"
+            );
+        } else if cfg!(target_os = "linux") {
+            assert_eq!(
+                way,
+                "raise the hard limit as root (limits.conf, or LimitNOFILE in a systemd unit), or install burrow as a service, which sets 1048576"
+            );
+        } else {
+            assert_eq!(
+                way,
+                "raise the hard limit as root, or set max_connections to 3648 or less to silence this, or run several clients"
+            );
+        }
+        assert_eq!(lowered("max_connections", written(100), 100, 10240), None);
+        assert!(
+            lowered("max_udp_peers", written(8192), 1216, 10240)
+                .unwrap()
+                .starts_with(
+                    "max_udp_peers 8192 is lowered to 1216 by the open file limit (10240); "
+                )
         );
     }
 
     #[test]
+    fn a_default_limit_is_lowered_without_a_warning() {
+        assert_eq!(
+            lowered("max_connections", Limit::default_of(16384), 3648, 10240),
+            None
+        );
+        assert_eq!(
+            lowered("max_udp_peers", Limit::default_of(8192), 64, 1024),
+            None
+        );
+    }
+
+    #[test]
+    fn the_service_is_suggested_only_where_it_would_raise_the_limit() {
+        let way = |files| way_out("max_connections", 64, files);
+        if cfg!(target_os = "macos") {
+            assert!(way(256).contains("install burrow as a service, which sets 10240"));
+            assert!(!way(10240).contains("service"));
+        } else if cfg!(target_os = "linux") {
+            assert!(way(1024).contains("install burrow as a service, which sets 1048576"));
+            assert!(!way(1048576).contains("service"));
+        } else {
+            assert!(!way(1024).contains("service"));
+        }
+    }
+
+    #[test]
     fn slots_never_pass_the_cap_while_it_changes_and_count_back_to_zero() {
-        let slots = Arc::new(Slots::new(10));
-        let peak = Arc::new(AtomicUsize::new(0));
-        let workers: Vec<_> = (0..8)
-            .map(|_| {
-                let (slots, peak) = (slots.clone(), peak.clone());
-                std::thread::spawn(move || {
-                    let mut held = Vec::new();
-                    for i in 0..2000 {
-                        if let Some(s) = slots.take() {
-                            held.push(s);
-                        }
-                        peak.fetch_max(slots.open.load(Ordering::Acquire), Ordering::AcqRel);
-                        if i % 7 == 0 {
-                            held.clear();
-                        }
-                    }
-                })
-            })
-            .collect();
-        for i in 0..2000 {
-            slots.limit(if i % 2 == 0 { 50 } else { 3 });
+        let slots = Arc::new(Slots::new(16384));
+        for cap in [4, 1, 7, 2] {
+            slots.limit(cap);
+            for _ in 0..50 {
+                let start = Arc::new(std::sync::Barrier::new(8));
+                let workers: Vec<_> = (0..8)
+                    .map(|_| {
+                        let (slots, start) = (slots.clone(), start.clone());
+                        std::thread::spawn(move || {
+                            start.wait();
+                            (0..cap + 2)
+                                .filter_map(|_| slots.take())
+                                .collect::<Vec<_>>()
+                        })
+                    })
+                    .collect();
+                let held: Vec<Slot> = workers
+                    .into_iter()
+                    .flat_map(|w| w.join().unwrap())
+                    .collect();
+                assert_eq!(held.len(), cap, "racing takes passed a cap of {cap}");
+                assert_eq!(slots.open.load(Ordering::Acquire), cap);
+            }
+            assert_eq!(slots.open.load(Ordering::Acquire), 0);
         }
-        for w in workers {
-            w.join().unwrap();
-        }
-        assert!(peak.load(Ordering::Acquire) <= 50);
-        assert_eq!(slots.open.load(Ordering::Acquire), 0);
         slots.limit(2);
         let two = (slots.take(), slots.take());
         assert!(two.0.is_some() && two.1.is_some());
         assert!(slots.take().is_none());
+        slots.limit(1);
+        assert!(slots.take().is_none());
         drop(two);
         assert_eq!(slots.open.load(Ordering::Acquire), 0);
+        assert!(slots.take().is_some());
     }
 
     #[test]

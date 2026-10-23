@@ -539,7 +539,7 @@ async fn a_client_answering_busy_is_marked_at_limit_and_counted() {
         settings,
         vec![("web", service(echo, Protocol::Tcp))],
         |mut c| {
-            c.max_connections = 1;
+            c.max_connections = burrow::config::settings::Limit::written(1);
             c
         },
         secret,
