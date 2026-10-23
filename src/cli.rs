@@ -569,7 +569,10 @@ pub struct ExportArgs {
     pub format: Option<FileFormat>,
 }
 
-pub fn service_word(e: &clap::Error) -> Option<crate::failure::Failure> {
+pub fn service_word(
+    e: &clap::Error,
+    args: &[std::ffi::OsString],
+) -> Option<crate::failure::Failure> {
     if e.kind() != clap::error::ErrorKind::InvalidSubcommand {
         return None;
     }
@@ -578,14 +581,22 @@ pub fn service_word(e: &clap::Error) -> Option<crate::failure::Failure> {
     else {
         return None;
     };
-    ["install", "uninstall", "start", "stop", "restart", "logs"]
-        .contains(&word.as_str())
-        .then(|| {
-            crate::failure::Failure::usage(format!("burrow {word} is not a command")).hint(format!(
-                "for a service, run: {}",
-                crate::failure::admin(&format!("service {word}"))
-            ))
-        })
+    if !["install", "uninstall", "start", "stop", "restart", "logs"].contains(&word.as_str()) {
+        return None;
+    }
+    let rest: String = args
+        .iter()
+        .skip(1)
+        .skip_while(|a| a.to_str() != Some(word.as_str()))
+        .skip(1)
+        .map(|a| format!(" {}", crate::failure::arg(&a.to_string_lossy())))
+        .collect();
+    Some(
+        crate::failure::Failure::usage(format!("burrow {word} is not a command")).hint(format!(
+            "for a service, run: {}",
+            crate::failure::admin(&format!("service {word}{rest}"))
+        )),
+    )
 }
 
 #[cfg(test)]
@@ -613,16 +624,31 @@ mod tests {
 
     #[test]
     fn service_words_used_alone_point_to_the_service_command() {
+        let parse = |args: &[&str]| {
+            let e = Cli::try_parse_from(args).unwrap_err();
+            let args: Vec<std::ffi::OsString> = args.iter().map(Into::into).collect();
+            service_word(&e, &args)
+        };
         for word in ["install", "uninstall", "start", "stop", "restart", "logs"] {
-            let e = Cli::try_parse_from(["burrow", word, "-c", "x.yaml"]).unwrap_err();
-            let f = service_word(&e).unwrap_or_else(|| panic!("{word}: {e}"));
+            let f = parse(&["burrow", word]).unwrap_or_else(|| panic!("{word}"));
             assert_eq!(f.message, format!("burrow {word} is not a command"));
             let hint = f.hint.unwrap();
             assert!(hint.contains(&format!("burrow service {word}")), "{hint}");
         }
-        for args in [vec!["burrow", "instal"], vec!["burrow", "service", "frob"]] {
-            let e = Cli::try_parse_from(args).unwrap_err();
-            assert!(service_word(&e).is_none(), "{e}");
+        let hint = |args: &[&str]| parse(args).unwrap().hint.unwrap();
+        assert!(hint(&["burrow", "stop", "home"]).contains("burrow service stop home"));
+        assert!(
+            hint(&["burrow", "--log-level", "debug", "logs", "home", "-n", "3"])
+                .contains("burrow service logs home -n 3")
+        );
+        assert!(
+            hint(&["burrow", "install", "-c", "my home.yaml"]).contains(&format!(
+                "burrow service install -c {}",
+                crate::failure::arg("my home.yaml")
+            ))
+        );
+        for args in [&["burrow", "instal"][..], &["burrow", "service", "frob"]] {
+            assert!(parse(args).is_none(), "{args:?}");
         }
     }
 
