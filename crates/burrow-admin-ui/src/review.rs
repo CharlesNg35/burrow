@@ -1160,7 +1160,8 @@ mod tests {
         assert_eq!(web.hops[1].badge.as_ref().unwrap().0, "was 0.0.0.0:443");
         assert_eq!(web.hops[3].state, HopState::Normal);
         let joined = json!({"services": {"web": {"clients": ["a", "b"], "bind": "0.0.0.0:443", "target": "x:80"}}});
-        let base = json!({"services": {"web": {"client": "a", "bind": "0.0.0.0:443", "target": "x:80"}}});
+        let base =
+            json!({"services": {"web": {"client": "a", "bind": "0.0.0.0:443", "target": "x:80"}}});
         let p = service_paths(&base, &joined, None, &[]);
         let clients = p[0].1.hops.iter().find(|h| h.icon == "monitor").unwrap();
         assert_eq!(
