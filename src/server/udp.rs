@@ -10,6 +10,7 @@ use super::{Shared, TakeError};
 use crate::config::settings::Service;
 use crate::forward::ForwardError;
 use crate::protocol::{Connect, MAX_DATAGRAM, Status, decode_datagram, encode_datagram};
+use crate::udp::link::{Link, Opening, open_udp};
 use crate::udp::peers::{AbortOnDrop, PeerCount, PeerGauge, PeerTable};
 use burrow_config::Protocol;
 
@@ -105,27 +106,23 @@ async fn relay(
     mut config: watch::Receiver<Service>,
 ) -> Result<(), Option<Status>> {
     let Port { name, svc, target } = port;
-    let crate::handshake::Channel {
-        stream,
-        mut writer,
-        mut reader,
-    } = ch;
-    let (mut rd, mut wr) = stream.into_split();
     let connect = Connect {
         protocol: Protocol::Udp,
         service: name.to_string(),
         target: target.to_string(),
         only: None,
     };
-    writer
-        .send(&mut wr, &connect.encode())
-        .await
-        .map_err(|_| None)?;
     let wait = shared.settings().heartbeat_interval * 3;
-    let status = match tokio::time::timeout(wait, reader.recv(&mut rd)).await {
-        Ok(Ok(Some(b))) => Status::decode(b).map_err(|_| None)?,
-        Ok(_) => return Err(None),
-        Err(_) => {
+    let Link {
+        mut reader,
+        mut rd,
+        mut writer,
+        mut wr,
+    } = match open_udp(ch, &connect.encode(), wait).await {
+        Ok(link) => link,
+        Err(Opening::Lost) => return Err(None),
+        Err(Opening::Refused(status)) => return Err(Some(status)),
+        Err(Opening::Silent) => {
             static SILENT: crate::throttle::Throttle = crate::throttle::Throttle::new();
             if let Some(more) = SILENT.allow() {
                 warn!(
@@ -140,9 +137,6 @@ async fn relay(
             return Err(None);
         }
     };
-    if status != Status::Ok {
-        return Err(Some(status));
-    }
     if svc.clients.len() > 1 {
         shared.accepted(name, session.name(), target);
     }
