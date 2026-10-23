@@ -566,8 +566,10 @@ pub async fn udp_echoes_from(s: &UdpSocket, addr: SocketAddr, payload: &[u8]) ->
     for _ in 0..10 {
         let _ = s.send_to(payload, addr).await;
         let deadline = tokio::time::Instant::now() + Duration::from_millis(500);
-        while let Ok(Ok((n, _))) = tokio::time::timeout_at(deadline, s.recv_from(&mut buf)).await {
-            if &buf[..n] == payload {
+        while let Ok(got) = tokio::time::timeout_at(deadline, s.recv_from(&mut buf)).await {
+            if let Ok((n, _)) = got
+                && &buf[..n] == payload
+            {
                 return true;
             }
         }
