@@ -221,6 +221,9 @@ pub async fn open_review(c: &mut Ctx, step: &str) {
 }
 
 pub async fn applied(c: &mut Ctx, step: &str) {
+    c.ui.wait_for("[data-testid=apply]:not([disabled])", SECS)
+        .await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
     c.ui.click("[data-testid=apply]").await;
     c.ui.wait_text(
         "[data-testid=toasts]",
