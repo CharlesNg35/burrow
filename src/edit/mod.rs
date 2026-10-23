@@ -155,11 +155,14 @@ fn edit(
             let quiet = editor::Quiet::new();
             let draft = Draft::new(name, &opened)
                 .map_err(|e| Failure::new(format!("cannot make a private copy to edit: {e}")))?;
-            let opened_now = match open(draft.path()) {
-                _ if quiet.stopped() => {
-                    Err(Failure::new("stopped while editing; nothing was changed"))
+            let stopped = || Err(Failure::new("stopped while editing; nothing was changed"));
+            let opened_now = if quiet.stopped() {
+                stopped()
+            } else {
+                match open(draft.path()) {
+                    _ if quiet.stopped() => stopped(),
+                    r => r,
                 }
-                r => r,
             };
             if let Err(mut f) = opened_now {
                 if opened != before {
