@@ -1098,6 +1098,11 @@ fn locked_fields(c: &mut Ctx) -> Flow<'_> {
             c.ui.count("[data-schema=public_address] input").await > 0,
             "unlocked fields are editable in edit mode"
         );
+        let public = c.ui.text("[data-schema=public_address]").await;
+        assert!(
+            public.contains("when WebSocket is on; connect commands made here use it"),
+            "the public address keeps its whole help while editing: {public}"
+        );
         assert!(
             c.ui.count("[data-schema='limits/max_pending'] input").await > 0,
             "the rest of limits stays editable"
