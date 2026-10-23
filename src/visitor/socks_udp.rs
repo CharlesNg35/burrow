@@ -123,11 +123,12 @@ pub(super) async fn associate(a: Association) {
     let Ok(local) = stream.local_addr() else {
         return;
     };
-    let relay = match bind_udp_now(SocketAddr::new(local.ip(), 0)) {
+    let near = canonical(local.ip());
+    let relay = match bind_udp_now(SocketAddr::new(near, 0)) {
         Ok(s) => Arc::new(s),
         Err(e) => {
             warn!("forward \"{name}\": cannot open a UDP relay port for a SOCKS app: {e}");
-            let _ = reply_bound(&mut stream, Reply::Failure, SocketAddr::new(local.ip(), 0)).await;
+            let _ = reply_bound(&mut stream, Reply::Failure, SocketAddr::new(near, 0)).await;
             return;
         }
     };
@@ -141,6 +142,9 @@ pub(super) async fn associate(a: Association) {
         return;
     }
     debug!(%peer, "forward \"{name}\": UDP ASSOCIATE relay on {bound}");
+    if let Some(named) = hint.ip.filter(|ip| canonical(*ip) != canonical(peer.ip())) {
+        debug!(%peer, "forward \"{name}\": the SOCKS app named {named} as its UDP source; only its own address {} is admitted", peer.ip());
+    }
     let expected = Source::new(hint, peer.ip());
     let mut locked: Option<SocketAddr> = None;
     let mut destinations: HashMap<String, Destination> = HashMap::new();
@@ -249,7 +253,7 @@ struct Source {
 impl Source {
     fn new(hint: Hint, peer: IpAddr) -> Source {
         Source {
-            ip: canonical(hint.ip.unwrap_or(peer)),
+            ip: canonical(peer),
             port: (hint.port != 0).then_some(hint.port),
         }
     }
@@ -457,9 +461,20 @@ mod tests {
             },
             peer,
         );
-        assert!(named.admits(at("10.0.0.7:5000"), None));
-        assert!(!named.admits(at("10.0.0.7:5001"), None));
-        assert!(!named.admits(at("127.0.0.1:5000"), None));
+        assert!(
+            !named.admits(at("10.0.0.7:5000"), None),
+            "a named address other than the app's own is never admitted"
+        );
+        assert!(named.admits(at("127.0.0.1:5000"), None));
+        assert!(!named.admits(at("127.0.0.1:5001"), None));
+        let own = Source::new(
+            Hint {
+                ip: Some("::ffff:127.0.0.1".parse().unwrap()),
+                port: 0,
+            },
+            peer,
+        );
+        assert!(own.admits(at("127.0.0.1:9"), None));
     }
 
     #[test]

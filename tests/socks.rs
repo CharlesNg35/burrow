@@ -44,6 +44,15 @@ async fn proxy_with(
     allow: Vec<&str>,
     edit: impl FnOnce(&mut burrow::config::settings::ServerSettings),
 ) -> Proxy {
+    proxy_at(reach, allow, edit, "127.0.0.1:0").await
+}
+
+async fn proxy_at(
+    reach: &[&str],
+    allow: Vec<&str>,
+    edit: impl FnOnce(&mut burrow::config::settings::ServerSettings),
+    local: &str,
+) -> Proxy {
     let secret = Secret::generate();
     let visitor_secret = Secret::generate();
     let mut server = server_settings(vec![secret.clone()]);
@@ -65,7 +74,7 @@ async fn proxy_with(
     let mut settings = visitor_settings(tunnel.server.addr, visitor_secret, vec![]);
     settings.forwards.insert(
         "home".into(),
-        Forward::socks("127.0.0.1:0".parse().unwrap(), "home".into()),
+        Forward::socks(local.parse().unwrap(), "home".into()),
     );
     let visitor = start_visitor(settings);
     Proxy {
@@ -560,4 +569,36 @@ async fn udp_through_socks_stays_inside_reach_and_the_client_allow_list() {
         inside,
         "the association keeps working"
     );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_ipv4_app_gets_an_ipv4_relay_from_a_dual_stack_socks_forward() {
+    if std::net::TcpListener::bind("[::]:0").is_err() {
+        return;
+    }
+    let echo = udp_echo_server().await;
+    let p = proxy_at(&["home"], vec!["127.0.0.0/8"], |_| {}, "[::]:0").await;
+    let at = SocketAddr::from(([127, 0, 0, 1], p.addr.port()));
+    let (_control, relay) = associate(at).await;
+    assert_eq!(relay.ip(), std::net::Ipv4Addr::LOCALHOST);
+    let app = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let out = wrapped(0, echo, b"dual stack");
+    assert_eq!(answer(&app, relay, &out).await.unwrap(), out);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_named_source_on_another_host_is_never_admitted() {
+    let echo = udp_echo_server().await;
+    let p = proxy(&["home"], vec!["127.0.0.0/8"]).await;
+    let app = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let port = app.local_addr().unwrap().port();
+    let (_control, relay) = associate_from(p.addr, SocketAddr::from(([127, 0, 0, 2], port))).await;
+    let out = wrapped(0, echo, b"from the app's own address");
+    assert_eq!(
+        answer(&app, relay, &out).await.unwrap(),
+        out,
+        "the app's own address with the named port is admitted"
+    );
+    let other = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    assert_eq!(answer(&other, relay, &out).await, None);
 }
