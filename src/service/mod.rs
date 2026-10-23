@@ -1,6 +1,7 @@
 mod background;
 mod logview;
 pub(crate) mod ports;
+mod stray;
 pub(crate) mod system;
 mod update;
 
@@ -131,6 +132,12 @@ pub trait Backend {
     fn status(&self, m: &Manifest) -> Status;
     fn journal_hint(&self, _m: &Manifest) -> Option<String> {
         None
+    }
+    fn units(&self) -> Vec<stray::Unit> {
+        Vec::new()
+    }
+    fn manual_stop(&self, name: &str) -> String {
+        format!("stop {name} in the service manager")
     }
 }
 
@@ -1187,27 +1194,16 @@ pub fn resolve(name: Option<&str>) -> Result<Manifest, Failure> {
         } else {
             format!("burrow-{n}")
         };
-        return load_manifest(&full);
+        return load_manifest(&full).map_err(|f| stray::named(&full).map_or(f, |s| s.failure()));
     }
-    let all = all_manifests();
-    match all.as_slice() {
-        [one] => Ok(one.clone()),
-        [] => Err(Failure::new("no burrow service is installed").hint(format!(
-            "install one with: {}",
-            crate::failure::admin("service install")
-        ))),
-        many => Err(
-            Failure::usage("more than one burrow service is installed; say which one").hint(
-                format!(
-                    "installed: {}",
-                    many.iter()
-                        .map(|m| m.name.as_str())
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                ),
-            ),
-        ),
+    stray::pick(all_manifests(), &stray::strays())
+}
+
+pub fn note_strays(out: &mut dyn Write) -> Result<(), Failure> {
+    for s in stray::strays() {
+        s.note(out)?;
     }
+    Ok(())
 }
 
 fn p_log_dir() -> PathBuf {
@@ -1710,7 +1706,8 @@ fn missing(p: &Path) -> &'static str {
 pub fn list(out: &mut dyn Write) -> Result<(), Failure> {
     let backend = system::backend()?;
     let all = all_manifests();
-    if all.is_empty() {
+    let strays = stray::strays();
+    if all.is_empty() && strays.is_empty() {
         return say(out, "no burrow services installed");
     }
     for m in all {
@@ -1725,6 +1722,9 @@ pub fn list(out: &mut dyn Write) -> Result<(), Failure> {
                 m.config.display()
             ),
         )?;
+    }
+    for s in strays {
+        say(out, s.line())?;
     }
     Ok(())
 }

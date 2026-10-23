@@ -294,6 +294,19 @@ impl Backend for Systemd {
         run("systemctl", &["reload", &m.name]).map(drop)
     }
 
+    fn units(&self) -> Vec<super::stray::Unit> {
+        super::stray::read_units(
+            Path::new("/etc/systemd/system"),
+            "",
+            ".service",
+            super::stray::systemd_unit,
+        )
+    }
+
+    fn manual_stop(&self, name: &str) -> String {
+        format!("sudo systemctl stop {name}")
+    }
+
     fn journal_hint(&self, m: &Manifest) -> Option<String> {
         Some(format!("sudo journalctl -u {} -n 50", m.name))
     }
