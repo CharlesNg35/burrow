@@ -364,7 +364,7 @@ impl Secrets {
 #[serde(deny_unknown_fields)]
 #[admin(
     entity = service,
-    tcp_only(mode, health_check, max_connections, visitors, proxy_protocol),
+    tcp_only(mode, health_check, max_connections, proxy_protocol),
     label = "Service",
     groups(
         who = "Where it runs | Clients that reach the target.",
@@ -442,7 +442,6 @@ pub struct ServiceEntry {
         group = access,
         empty_label = "No visitors",
         inverse(entity = visitor, label = "Services it may use"),
-        options_filter(eq(protocol, "tcp")),
         narrow
     )]
     pub visitors: Vec<String>,

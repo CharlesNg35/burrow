@@ -364,7 +364,7 @@ fn errors_land_on_their_field() {
 }
 
 #[test]
-fn a_private_udp_service_shows_its_error_at_the_bind_field() {
+fn a_udp_service_with_neither_bind_nor_visitors_shows_its_error_at_visitors_like_tcp() {
     let w = world();
     let core = core_for(&w.text);
     let s = session(&w, AdminLevel::Write);
@@ -379,9 +379,21 @@ fn a_private_udp_service_shows_its_error_at_the_bind_field() {
         .diags
         .iter()
         .find(|d| d.code == "unreachable-service")
-        .expect("a private udp service is an error");
-    assert!(d.concerns(&p(&["services", "dns", "bind"])), "{d:?}");
-    assert!(!d.concerns(&p(&["services", "dns", "visitors"])), "{d:?}");
+        .expect("a udp service nobody can reach is an error");
+    assert!(d.concerns(&p(&["services", "dns", "visitors"])), "{d:?}");
+    let ops = [Op::Add {
+        path: p(&["services", "dns"]),
+        value: json!({"client": "home", "protocol": "udp", "target": 53, "visitors": ["ops"]}),
+    }];
+    let c = plan::compute(&core, &s, &base, &ops).unwrap();
+    assert!(
+        c.plan
+            .diags
+            .iter()
+            .all(|d| d.severity != burrow_admin_proto::diag::Severity::Error),
+        "a private udp service with visitors is valid: {:?}",
+        c.plan.diags
+    );
 }
 
 #[test]

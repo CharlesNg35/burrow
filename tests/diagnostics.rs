@@ -998,7 +998,7 @@ fn private_services_and_visitors() {
         "  web: { client: home, bind: 7840, target: 3000, visitors: [laptop] }\n  db: { client: home, target: 5432, visitors: [laptop] }\n",
     );
     insta::assert_snapshot!(render("server.yaml", &src, None), @r#"
-    warning: visitor "laptop" may reach any target that client "home" allows
+    warning: visitor "laptop" may reach any target that client "home" allows, over TCP or UDP
       --> server.yaml:9:7
        |
      9 |       home: any
@@ -1050,13 +1050,6 @@ fn visitor_mistakes_in_the_server_config() {
        |                                                ^^^^^ no visitor with this name
        = help: did you mean "laptop"? defined visitors: laptop, idle
 
-    error: service "dns" is udp, but visitors can only reach tcp services
-      --> server.yaml:14:61
-       |
-    14 |   dns: { client: home, protocol: udp, target: 53, visitors: [laptop] }
-       |                                                             ^^^^^^^^^
-       = help: remove "visitors", or use a tcp service
-
     error: service "nobody" has no "bind" and no "visitors", so nobody can reach it
       --> server.yaml:15:3
        |
@@ -1064,26 +1057,35 @@ fn visitor_mistakes_in_the_server_config() {
        |   ^^^^^^ no bind and no visitors
        = help: add "bind: 7840" to expose it publicly, or "visitors: [NAME]" for visitors using burrow visit
 
-    server.yaml: 5 errors, 1 warning
+    server.yaml: 4 errors, 1 warning
     "#);
 }
 
 #[test]
-fn a_private_udp_service_is_told_to_take_a_public_port() {
+fn a_udp_service_with_neither_bind_nor_visitors_is_told_to_add_one() {
     let src = visitors_server(
         "  laptop:\n    secret: ${HOME_SECRET}\n",
         "  web: { client: home, bind: 7840, target: 80, visitors: [laptop] }\n  dns: { client: home, protocol: udp, target: 53 }\n",
     );
     insta::assert_snapshot!(render("server.yaml", &src, None), @r#"
-    error: service "dns" is udp and has no "bind", so nobody can reach it
+    error: service "dns" has no "bind" and no "visitors", so nobody can reach it
       --> server.yaml:10:3
        |
     10 |   dns: { client: home, protocol: udp, target: 53 }
-       |   ^^^ no bind
-       = help: add "bind: 7840" to expose it publicly; visitors can only reach tcp services
+       |   ^^^ no bind and no visitors
+       = help: add "bind: 7840" to expose it publicly, or "visitors: [NAME]" for visitors using burrow visit
 
     server.yaml: 1 error, 0 warnings
     "#);
+}
+
+#[test]
+fn a_private_udp_service_with_visitors_is_valid() {
+    let src = visitors_server(
+        "  laptop:\n    secret: ${HOME_SECRET}\n",
+        "  dns: { client: home, protocol: udp, target: 53, visitors: [laptop] }\n  game: { client: home, protocol: udp, target: 27015-27016, visitors: [laptop] }\n",
+    );
+    insta::assert_snapshot!(render("server.yaml", &src, None), @"server.yaml: valid server config (1 client, 1 visitor, 2 services)");
 }
 
 fn visitor(forwards: &str) -> String {
@@ -2494,7 +2496,7 @@ fn reach_any_to_self_is_warned_like_any_client() {
         None,
     );
     insta::assert_snapshot!(text, @r#"
-    warning: visitor "laptop" may reach any target that client "self" allows
+    warning: visitor "laptop" may reach any target that client "self" allows, over TCP or UDP
       --> server.yaml:12:14
        |
     12 |     reach: { self: any }

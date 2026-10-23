@@ -51,25 +51,15 @@ pub(super) fn check_service<'a>(
         }
     };
     if svc.bind.is_none() && svc.visitors.is_empty() && !spans.has_value(&path("bind")) {
-        let port = burrow_syntax::ports::FIRST_SERVICE_PORT;
-        let d = if svc.protocol == Protocol::Udp {
-            Diagnostic::error(
-                "unreachable-service",
-                format!("service \"{name}\" is udp and has no \"bind\", so nobody can reach it"),
-            )
-            .label("no bind")
-            .help(format!(
-                "add \"bind: {port}\" to expose it publicly; visitors can only reach tcp services"
-            ))
-        } else {
+        out.push(
             Diagnostic::error(
                 "unreachable-service",
                 format!("service \"{name}\" has no \"bind\" and no \"visitors\", so nobody can reach it"),
             )
+            .at(spans.key(&["services", name]))
             .label("no bind and no visitors")
-            .help(format!("add \"bind: {port}\" to expose it publicly, or \"visitors: [NAME]\" for visitors using burrow visit"))
-        };
-        out.push(d.at(spans.key(&["services", name])));
+            .help(format!("add \"bind: {}\" to expose it publicly, or \"visitors: [NAME]\" for visitors using burrow visit", burrow_syntax::ports::FIRST_SERVICE_PORT)),
+        );
     }
     let target = check_target(name, svc, spans, out);
     if let (Some((_, bind_ports)), Some((_, target_ports))) = (bind, &target)
@@ -132,11 +122,6 @@ pub(super) fn check_service<'a>(
     for field in ServiceEntry::TCP_ONLY {
         let generic = format!("{field} only works for tcp services");
         let (set, code, why) = match *field {
-            "visitors" => (
-                !svc.visitors.is_empty(),
-                "visitors-tcp-only",
-                "visitors can only reach tcp services",
-            ),
             "proxy_protocol" => (
                 svc.proxy_protocol.is_some(),
                 "proxy-protocol-tcp-only",

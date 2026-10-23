@@ -36,7 +36,7 @@ mod tests {
     fn a_visitor_sees_every_service_it_is_granted_wherever_it_asks_from() {
         let s = || crate::secret::Secret::generate().encode();
         let yaml = format!(
-            "listen: 7835\nclients:\n  home: {{ secret: {} }}\n  office: {{ secret: {} }}\nvisitors:\n  laptop: {{ secret: {}, reach: {{ home: any }} }}\n  other: {{ secret: {} }}\nservices:\n  db: {{ client: home, target: 5432, visitors: [laptop] }}\n  lan: {{ client: home, target: 22, visitors: [laptop], allow_from: [10.0.0.0/8] }}\n  theirs: {{ client: office, target: 80, visitors: [other] }}\n  udp: {{ client: home, protocol: udp, bind: 5353, target: 53 }}\n",
+            "listen: 7835\nclients:\n  home: {{ secret: {} }}\n  office: {{ secret: {} }}\nvisitors:\n  laptop: {{ secret: {}, reach: {{ home: any }} }}\n  other: {{ secret: {} }}\nservices:\n  db: {{ client: home, target: 5432, visitors: [laptop] }}\n  lan: {{ client: home, target: 22, visitors: [laptop], allow_from: [10.0.0.0/8] }}\n  theirs: {{ client: office, target: 80, visitors: [other] }}\n  udp: {{ client: home, protocol: udp, bind: 5353, target: 53 }}\n  dns: {{ client: home, protocol: udp, target: 53, visitors: [laptop] }}\n",
             s(),
             s(),
             s(),
@@ -57,11 +57,18 @@ mod tests {
         let names = |g: &Grants| {
             g.services
                 .iter()
-                .map(|s| s.name.clone())
+                .map(|s| (s.name.clone(), s.protocol))
                 .collect::<Vec<_>>()
         };
         let laptop = for_visitor(&settings, "laptop").unwrap();
-        assert_eq!(names(&laptop), vec!["db", "lan"]);
+        assert_eq!(
+            names(&laptop),
+            vec![
+                ("db".to_string(), burrow_config::Protocol::Tcp),
+                ("dns".to_string(), burrow_config::Protocol::Udp),
+                ("lan".to_string(), burrow_config::Protocol::Tcp)
+            ]
+        );
         assert_eq!(laptop.clients.len(), 1);
         assert_eq!(laptop.clients[0].name, "home");
         assert!(for_visitor(&settings, "nobody").is_none());

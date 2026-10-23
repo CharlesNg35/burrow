@@ -1,5 +1,5 @@
 use burrow_admin_proto::diag::{Diag, Severity};
-use burrow_config::{Entry, Protocol, ServiceEntry};
+use burrow_config::{Entry, ServiceEntry};
 
 use crate::config::tree::{Node, Span, Value};
 use crate::diagnostics::{Diagnostic, mask_text};
@@ -57,7 +57,7 @@ fn quoted_names(text: &str, after: &str) -> Vec<String> {
     out
 }
 
-fn also(d: &Diagnostic, path: Option<&[String]>, udp: &[String]) -> Vec<Vec<String>> {
+fn also(d: &Diagnostic, path: Option<&[String]>) -> Vec<Vec<String>> {
     match d.code {
         "duplicate-bind" => quoted_names(&d.message, "service ")
             .into_iter()
@@ -66,11 +66,7 @@ fn also(d: &Diagnostic, path: Option<&[String]>, udp: &[String]) -> Vec<Vec<Stri
             .collect(),
         "unreachable-service" => match path {
             Some([section, name]) if section == ServiceEntry::section() => {
-                if udp.contains(name) {
-                    vec![ServiceEntry::BIND.of(name)]
-                } else {
-                    vec![ServiceEntry::VISITORS.of(name)]
-                }
+                vec![ServiceEntry::VISITORS.of(name)]
             }
             _ => Vec::new(),
         },
@@ -80,7 +76,6 @@ fn also(d: &Diagnostic, path: Option<&[String]>, udp: &[String]) -> Vec<Vec<Stri
 
 pub struct Mapper {
     places: Vec<Place>,
-    udp: Vec<String>,
 }
 
 impl Mapper {
@@ -89,24 +84,7 @@ impl Mapper {
         if let Some(r) = root {
             collect(r, &mut Vec::new(), &mut places);
         }
-        let udp = match root
-            .and_then(|r| r.get(ServiceEntry::section()))
-            .map(|s| &s.value)
-        {
-            Some(Value::Map(services)) => services
-                .iter()
-                .filter(|e| {
-                    e.value
-                        .get(ServiceEntry::PROTOCOL.key())
-                        .and_then(Node::as_str)
-                        .and_then(Protocol::from_wire)
-                        == Some(Protocol::Udp)
-                })
-                .map(|e| e.key.clone())
-                .collect(),
-            _ => Vec::new(),
-        };
-        Mapper { places, udp }
+        Mapper { places }
     }
 
     fn path_at(&self, at: usize) -> Option<Vec<String>> {
@@ -123,7 +101,7 @@ impl Mapper {
             .span
             .filter(|s| s.start.line > 0)
             .and_then(|s| self.path_at(s.start.offset));
-        let also = also(d, path.as_deref(), &self.udp);
+        let also = also(d, path.as_deref());
         Diag {
             severity: match d.severity {
                 crate::diagnostics::Severity::Error => Severity::Error,

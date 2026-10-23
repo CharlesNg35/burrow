@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:fc4525ab43f345d1",
+  "hash": "b2s:cfddf8c932cd73a2",
   "root": {
     "label": "Server",
     "sem": {
@@ -771,25 +771,6 @@
                             "entity": "visitor",
                             "field": "visitors",
                             "label": "Services it may use"
-                          },
-                          {
-                            "r": "options_filter",
-                            "cond": {
-                              "eq": [
-                                "protocol",
-                                "tcp"
-                              ]
-                            }
-                          },
-                          {
-                            "r": "enabled_if",
-                            "cond": {
-                              "eq": [
-                                "protocol",
-                                "tcp"
-                              ]
-                            },
-                            "reason": "UDP services do not support this"
                           }
                         ]
                       }

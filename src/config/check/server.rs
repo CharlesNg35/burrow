@@ -144,7 +144,7 @@ pub fn check_server(
                 Diagnostic::warning(
                     "reach-any",
                     format!(
-                        "visitor \"{name}\" may reach any target that client \"{client}\" allows"
+                        "visitor \"{name}\" may reach any target that client \"{client}\" allows, over TCP or UDP"
                     ),
                 )
                 .at(spans.key(&["visitors", name, "reach", client]))
