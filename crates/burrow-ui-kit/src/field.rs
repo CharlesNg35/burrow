@@ -32,6 +32,7 @@ pub fn FieldRow(
     #[prop(into)] id: String,
     #[prop(into)] label: String,
     #[prop(optional, into)] help: String,
+    #[prop(optional, into)] hide_help: Signal<bool>,
     #[prop(optional, into)] path: String,
     #[prop(optional, into)] schema_path: String,
     #[prop(optional, into)] key_hint: String,
@@ -83,7 +84,7 @@ pub fn FieldRow(
             .or(s.info.map(|m| line("info", "text-accent-ink", m)))
     };
     let help_text = move || {
-        (has_help && state.with(|s| s.error.is_none())).then(|| {
+        (has_help && !hide_help.get() && state.with(|s| s.error.is_none())).then(|| {
             let help = help.clone();
             let id = help_id.clone();
             view! { <p class="mt-1.5 text-xs text-text-muted" id=id>{help}</p> }
@@ -101,7 +102,7 @@ pub fn FieldRow(
                 <label class="text-sm font-semibold" for=id.clone() id=format!("{id}-label")>
                     {label}
                 </label>
-                {(!key_hint.is_empty()).then(|| view! { <span class="font-mono text-xs whitespace-nowrap text-text-faint">{key_hint}</span> })}
+                {(!key_hint.is_empty()).then(|| view! { <span class="font-mono text-xs break-words text-text-faint">{key_hint}</span> })}
                 {badges
                     .into_iter()
                     .map(|(text, tone)| view! { <span class=tag_class(tone)>{text}</span> })

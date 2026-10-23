@@ -100,6 +100,13 @@ fn add_service(c: &mut Ctx) -> Flow<'_> {
             &format!("127.0.0.1:{}-{}", public, public + 2),
         )
         .await;
+        let row = c.ui.text("[data-schema='services/*/bind']").await;
+        assert!(
+            row.contains("Saved as")
+                && row.contains("up to 1000 ports")
+                && !row.contains("for example"),
+            "one line says how it is saved instead of a second help line: {row}"
+        );
         c.ui.wait_text(
             "[data-schema='services/*/target']",
             "2 ports here, but bind has 3",

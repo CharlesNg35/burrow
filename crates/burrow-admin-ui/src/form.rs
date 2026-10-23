@@ -793,13 +793,17 @@ fn row(f: Field, path: Path, spath: Path, entity: Path) -> AnyView {
         node.help.clone()
     };
     let key_hint = if show_keys {
-        spath.last().cloned().unwrap_or_default()
+        spath.join(".\u{200b}")
     } else if matches!(inner(&node).sem, SemType::List(_)) {
         f.key.clone()
     } else {
         String::new()
     };
     let wide = node.wide.unwrap_or_else(|| is_wide(&node));
+    let saved_line = matches!(
+        inner(&node).sem,
+        SemType::IpPort(_) | SemType::PortRange(_) | SemType::Target(_)
+    );
     let visible = Memo::new(move |_| st.with(|s| s.visible));
     let (jp, js) = (join(&path), join(&spath));
     (move || {
@@ -810,6 +814,7 @@ fn row(f: Field, path: Path, spath: Path, entity: Path) -> AnyView {
                     id=id.clone()
                     label=label.clone()
                     help=help.clone()
+                    hide_help=Signal::derive(move || saved_line && editing.try_get().unwrap_or(false))
                     path=jp.clone()
                     schema_path=js.clone()
                     key_hint=key_hint.clone()
