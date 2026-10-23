@@ -26,12 +26,34 @@ struct Stored {
 }
 
 pub fn dir() -> Option<PathBuf> {
-    if let Some(d) = std::env::var_os("BURROW_ADMIN_SESSION_DIR") {
-        return Some(PathBuf::from(d));
+    let dir = match std::env::var_os("BURROW_ADMIN_SESSION_DIR") {
+        Some(d) => PathBuf::from(d),
+        None => dirs::state_dir()
+            .or_else(dirs::data_local_dir)?
+            .join("burrow")
+            .join("admin-sessions"),
+    };
+    #[cfg(unix)]
+    {
+        let sudo_uid = std::env::var("SUDO_UID").ok().and_then(|u| u.parse().ok());
+        not_for_sudo(dir, rustix::process::geteuid().as_raw(), sudo_uid)
     }
-    dirs::state_dir()
-        .or_else(dirs::data_local_dir)
-        .map(|d| d.join("burrow").join("admin-sessions"))
+    #[cfg(not(unix))]
+    {
+        Some(dir)
+    }
+}
+
+#[cfg(unix)]
+fn not_for_sudo(dir: PathBuf, euid: u32, sudo_uid: Option<u32>) -> Option<PathBuf> {
+    use std::os::unix::fs::MetadataExt;
+    let Some(user) = sudo_uid.filter(|u| euid == 0 && *u != 0) else {
+        return Some(dir);
+    };
+    let theirs = dir
+        .ancestors()
+        .any(|a| std::fs::metadata(a).is_ok_and(|m| m.uid() == user));
+    (!theirs).then_some(dir)
 }
 
 fn file_for(dir: &Path, config: &Path) -> PathBuf {
@@ -194,6 +216,29 @@ mod tests {
         assert_ne!(late.token.as_str(), first.token.as_str());
         let other = config(home.path(), "other.yaml");
         assert!(!load(&store, &other, 1000).reused, "one session per config");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn under_sudo_no_session_is_kept_in_the_folder_of_the_user_who_ran_it() {
+        let me = rustix::process::getuid().as_raw();
+        if me == 0 {
+            return;
+        }
+        let home = tempfile::tempdir().unwrap();
+        let store = home.path().join(".local/state/burrow/admin-sessions");
+        assert_eq!(not_for_sudo(store.clone(), 0, Some(me)), None);
+        assert_eq!(
+            not_for_sudo(store.clone(), 0, Some(me + 1)),
+            Some(store.clone())
+        );
+        assert_eq!(not_for_sudo(store.clone(), 0, None), Some(store.clone()));
+        assert_eq!(
+            not_for_sudo(store.clone(), me, Some(me)),
+            Some(store.clone())
+        );
+        let roots = PathBuf::from("/burrow-absent-root-home/admin-sessions");
+        assert_eq!(not_for_sudo(roots.clone(), 0, Some(me)), Some(roots));
     }
 
     #[test]
