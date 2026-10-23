@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use super::token::Token;
 
 pub const KEEP_SECS: u64 = 12 * 3600;
+pub const REFRESH_EVERY: std::time::Duration = std::time::Duration::from_secs(600);
 
 #[derive(Debug, Clone)]
 pub struct Session {

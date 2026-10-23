@@ -362,11 +362,21 @@ pub async fn serve_session(
         .local_addr()
         .map_err(|e| Failure::new(format!("cannot read the local address: {e}")))?;
     let reused = session.reused && session.port == Some(addr.port());
-    let touch = |s: &session::Session| {
-        if let Some(k) = &keep
-            && let Err(e) = session::save(&k.dir, &k.config, s, addr.port(), session::now())
-        {
-            debug!("cannot keep the admin session in {}: {e}", k.dir.display());
+    let touch = |s: &session::Session| -> Option<tokio::task::JoinHandle<()>> {
+        let k = keep.as_ref()?;
+        let (dir, config, s, port) = (k.dir.clone(), k.config.clone(), s.clone(), addr.port());
+        Some(tokio::task::spawn_blocking(move || {
+            if let Err(e) = session::save(&dir, &config, &s, port, session::now()) {
+                debug!("cannot keep the admin session in {}: {e}", dir.display());
+            }
+        }))
+    };
+    let last_touch = |s: &session::Session| {
+        let pending = touch(s);
+        async move {
+            if let Some(p) = pending {
+                let _ = p.await;
+            }
         }
     };
     touch(&session);
@@ -396,6 +406,10 @@ pub async fn serve_session(
         f(&running, false);
     }
     let mut touched = tokio::time::Instant::now();
+    let mut refresh = tokio::time::interval_at(
+        tokio::time::Instant::now() + session::REFRESH_EVERY,
+        session::REFRESH_EVERY,
+    );
     let open = Arc::new(Semaphore::new(MAX_OPEN));
     let mut idle_since = tokio::time::Instant::now();
     loop {
@@ -428,6 +442,12 @@ pub async fn serve_session(
                     }
                 }
             }
+            _ = refresh.tick() => {
+                if shared.connected.load(Ordering::Acquire) > 0 {
+                    touched = tokio::time::Instant::now();
+                    touch(&session);
+                }
+            }
             _ = tokio::time::sleep_until(grace), if then.is_some() => {
                 if let Some(f) = then.take() {
                     f(&running, false);
@@ -438,10 +458,11 @@ pub async fn serve_session(
                     "no browser was connected for {}; burrow admin stopped (run it again, or pass a longer --idle-exit)",
                     crate::client::reconnect::human(opts.idle_exit)
                 );
+                last_touch(&session).await;
                 return Ok(());
             }
             _ = stop.changed() => {
-                touch(&session);
+                last_touch(&session).await;
                 return Ok(());
             }
         }
