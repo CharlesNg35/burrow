@@ -11,10 +11,8 @@ use super::tcp::log_status;
 use super::{Shared, TakeError};
 use crate::config::settings::Service;
 use crate::forward::ForwardError;
-use crate::protocol::{Connect, Status, decode_datagram, encode_datagram};
+use crate::protocol::{Connect, MAX_DATAGRAM, Status, decode_datagram, encode_datagram};
 use burrow_config::Protocol;
-
-const MAX_DATAGRAM: usize = crate::noise::MAX_PLAINTEXT - 4;
 
 #[derive(Default)]
 struct Peers {

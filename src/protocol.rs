@@ -705,6 +705,8 @@ impl VisitRequest {
     }
 }
 
+pub const MAX_DATAGRAM: usize = crate::noise::MAX_PLAINTEXT - 4;
+
 pub fn encode_datagram(peer: u32, payload: &[u8], out: &mut Vec<u8>) {
     out.clear();
     out.extend_from_slice(&peer.to_be_bytes());
@@ -720,6 +722,16 @@ pub fn decode_datagram(b: &[u8]) -> Result<(u32, &[u8]), DecodeError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_datagram_with_its_peer_id_fills_one_record_at_most() {
+        assert_eq!(MAX_DATAGRAM, 65515);
+        let mut rec = Vec::new();
+        encode_datagram(7, &vec![1u8; MAX_DATAGRAM], &mut rec);
+        assert_eq!(rec.len(), crate::noise::MAX_PLAINTEXT);
+        let (id, payload) = decode_datagram(&rec).unwrap();
+        assert_eq!((id, payload.len()), (7, MAX_DATAGRAM));
+    }
 
     #[test]
     fn a_grants_answer_rejects_what_cannot_be_true() {

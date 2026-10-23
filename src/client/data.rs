@@ -15,7 +15,8 @@ use crate::failure::io_reason;
 use crate::forward::{client_tcp, refuse};
 use crate::handshake::Channel;
 use crate::protocol::{
-    Connect, KEEPALIVE_RECORD, STALE_RECORD, ServiceInfo, Status, decode_datagram, encode_datagram,
+    Connect, KEEPALIVE_RECORD, MAX_DATAGRAM, STALE_RECORD, ServiceInfo, Status, decode_datagram,
+    encode_datagram,
 };
 use crate::throttle::Throttle;
 use crate::transport::resolve::Resolver;
@@ -230,8 +231,6 @@ async fn connected_socket(target: SocketAddr) -> std::io::Result<Arc<UdpSocket>>
     Ok(Arc::new(sock))
 }
 
-const MAX_REPLY: usize = crate::noise::MAX_PLAINTEXT - 4;
-
 thread_local! {
     static RECEIVE: std::cell::RefCell<Vec<u8>> = std::cell::RefCell::new(vec![0u8; 65536]);
 }
@@ -285,11 +284,11 @@ async fn peer_replies<W: Dials>(
                 let Some(datagram) = receive(&sock) else {
                     continue;
                 };
-                if datagram.len() > MAX_REPLY {
+                if datagram.len() > MAX_DATAGRAM {
                     static LARGE: Throttle = Throttle::new();
                     if let Some(more) = LARGE.allow() {
                         warn!(
-                            "UDP reply of {} bytes from {} dropped: the tunnel carries at most {MAX_REPLY} bytes per datagram{more}",
+                            "UDP reply of {} bytes from {} dropped: the tunnel carries at most {MAX_DATAGRAM} bytes per datagram{more}",
                             datagram.len(),
                             sock.peer_addr()
                                 .map_or_else(|_| "the target".to_string(), |a| a.to_string())
