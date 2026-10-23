@@ -198,7 +198,7 @@ impl Core {
         let name_hint = settings.public_address.clone().unwrap_or_default();
         Welcome {
             server: ServerInfo {
-                version: env!("CARGO_PKG_VERSION").into(),
+                version: crate::admin::hooks::version(env!("CARGO_PKG_VERSION")),
                 target: env!("BURROW_TARGET").into(),
                 uptime_secs: self.started.elapsed().as_secs(),
                 name_hint,

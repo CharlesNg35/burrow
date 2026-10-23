@@ -28,7 +28,12 @@ const CRATE_DEPS: &[(&str, &[&str], &[&str])] = &[
     ),
     (
         "burrow-admin-logic",
-        &["burrow-admin-proto", "burrow-config", "burrow-syntax"],
+        &[
+            "burrow-admin-proto",
+            "burrow-config",
+            "burrow-syntax",
+            "semver",
+        ],
         &[],
     ),
     (

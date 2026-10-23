@@ -9,6 +9,7 @@ pub mod input;
 pub mod rates;
 pub mod relations;
 pub mod tree;
+pub mod version;
 
 #[cfg(test)]
 mod testing;

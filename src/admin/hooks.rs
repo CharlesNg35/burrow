@@ -3,6 +3,14 @@ use burrow_config::{ServerConfig, ServiceEntry, VisitorEntry};
 use serde_json::json;
 
 pub const SCHEMA_ENV: &str = "BURROW_ADMIN_TEST_SCHEMA";
+pub const VERSION_ENV: &str = "BURROW_ADMIN_TEST_VERSION";
+
+pub fn version(v: &str) -> String {
+    if !cfg!(feature = "admin-test-hooks") {
+        return v.to_string();
+    }
+    std::env::var(VERSION_ENV).unwrap_or_else(|_| v.to_string())
+}
 
 pub fn schema(s: Schema) -> Schema {
     if !cfg!(feature = "admin-test-hooks") {

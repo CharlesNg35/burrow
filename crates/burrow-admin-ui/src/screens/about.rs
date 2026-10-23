@@ -28,7 +28,17 @@ pub fn About() -> impl IntoView {
                 .unwrap_or_else(|| "no".into())
         };
         let facts: Vec<(&str, String)> = vec![
-            ("Server version", w.server.version.clone()),
+            (
+                "Server version",
+                if burrow_admin_logic::version::server_is_older(&w.server.version, UI_VERSION) {
+                    format!(
+                        "{} · older than this burrow admin, update the server",
+                        w.server.version
+                    )
+                } else {
+                    w.server.version.clone()
+                },
+            ),
             ("Server target", w.server.target.clone()),
             (
                 "Uptime",

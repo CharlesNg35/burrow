@@ -1697,6 +1697,47 @@ fn an_old_tab_reconnects_to_the_next_burrow_admin_and_a_foreign_one_is_told_it_e
     run("admin-session", Options::default(), false, admin_session);
 }
 
+fn old_server(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
+    Box::pin(async move {
+        open(c, "ops").await;
+        let note =
+            c.ui.wait_text("[data-testid=old-server]", "v0.1.0", SECS)
+                .await;
+        assert!(
+            note.contains("sudo burrow update") && note.contains(env!("CARGO_PKG_VERSION")),
+            "{note}"
+        );
+        c.ui.shot("older-server-notice").await;
+        c.ui.nav("/about").await;
+        c.ui.wait_text("[data-testid=about]", "older than this burrow admin", SECS)
+            .await;
+        c.ui.shot("older-server-about").await;
+        c.ui.nav("/").await;
+        c.ui.click("[data-testid=old-server-dismiss]").await;
+        c.ui.wait_gone("[data-testid=old-server]", SECS).await;
+        let here: String = c.ui.eval("location.href").await;
+        c.ui.goto("about:blank").await;
+        c.ui.goto(&here).await;
+        c.ui.wait_for("[data-testid=overview]", SECS).await;
+        tokio::time::sleep(Duration::from_millis(800)).await;
+        assert_eq!(
+            c.ui.count("[data-testid=old-server]").await,
+            0,
+            "a dismissed notice stays away for this server version"
+        );
+        c.ui.assert_no_errors();
+    })
+}
+
+#[test]
+fn an_older_server_is_pointed_out_until_dismissed() {
+    let opts = Options {
+        server_env: vec![("BURROW_ADMIN_TEST_VERSION".into(), "0.1.0".into())],
+        ..Options::default()
+    };
+    run("old-server", opts, true, old_server);
+}
+
 #[test]
 fn a_visitor_shows_live_use_while_burrow_visit_carries_a_connection() {
     run("visitor-live", Options::default(), false, visitor_live);

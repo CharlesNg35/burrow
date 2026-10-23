@@ -10,3 +10,4 @@ publish = false
 burrow-admin-proto = { path = "../burrow-admin-proto" }
 burrow-config = { path = "../burrow-config" }
 burrow-syntax = { path = "../burrow-syntax" }
+semver = "1.0.28"

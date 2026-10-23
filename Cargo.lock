@@ -400,6 +400,7 @@ dependencies = [
  "burrow-admin-proto",
  "burrow-config",
  "burrow-syntax",
+ "semver",
 ]
 
 [[package]]
