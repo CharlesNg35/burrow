@@ -228,18 +228,21 @@ impl Stray {
         crate::failure::admin(&format!("service install -c {config}{name}"))
     }
 
-    pub fn failure(&self) -> Failure {
-        let steps = if self.running {
+    fn steps(&self) -> String {
+        if self.running {
             format!("{}, then {}", self.stop, self.install())
         } else {
             self.install()
-        };
+        }
+    }
+
+    pub fn failure(&self) -> Failure {
         Failure::new(format!(
             "{} is {}, but burrow has no usable record of it (installed by an older burrow or by hand)",
             self.label,
             self.state()
         ))
-        .hint(format!("take it over: {steps}"))
+        .hint(format!("take it over: {}", self.steps()))
     }
 
     pub fn line(&self) -> String {
@@ -253,14 +256,13 @@ impl Stray {
     }
 
     pub fn note(&self, out: &mut dyn Write) -> Result<(), Failure> {
-        let f = self.failure();
         say(
             out,
             format!(
-                "note: {} was left as it is: {}; {}",
+                "note: {} ({}) was not updated or restarted, because burrow has no usable record of it; take it over: {}",
                 self.label,
-                f.message,
-                f.hint.unwrap_or_default()
+                self.state(),
+                self.steps()
             ),
         )
     }
@@ -554,6 +556,22 @@ mod tests {
             f.hint.unwrap(),
             "installed: burrow-server, burrow-client (not managed by this burrow)"
         );
+    }
+
+    #[test]
+    fn an_update_notes_a_stray_it_left_alone_once() {
+        let mut out = Vec::new();
+        stray("burrow-client", true, Some("/etc/burrow/client.yaml"))
+            .note(&mut out)
+            .unwrap();
+        let out = String::from_utf8(out).unwrap();
+        assert!(
+            out.starts_with(
+                "note: burrow-client.service (running) was not updated or restarted, because burrow has no usable record of it; take it over: sudo systemctl stop burrow-client, then sudo "
+            ),
+            "{out}"
+        );
+        assert_eq!(out.matches("burrow-client.service").count(), 1, "{out}");
     }
 
     #[test]
