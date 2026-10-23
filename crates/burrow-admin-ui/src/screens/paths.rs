@@ -547,21 +547,8 @@ pub fn visitor(
 
 pub const PICK_VISITORS: &str = "Pick at least one visitor or switch back to Public port";
 
-pub const UDP_NEEDS_PORT: &str = "A UDP service needs a public port";
-
-pub fn udp(svc: &Value) -> bool {
-    ServiceEntry::PROTOCOL
-        .get(svc)
-        .and_then(Value::as_str)
-        .and_then(Protocol::from_wire)
-        == Some(Protocol::Udp)
-}
-
 pub fn add_blocker(svc: &Value) -> Option<&'static str> {
     let public = ServiceEntry::BIND.get(svc).is_some_and(|b| !b.is_null());
-    if !public && udp(svc) {
-        return Some(UDP_NEEDS_PORT);
-    }
     let picked = ServiceEntry::VISITORS
         .get(svc)
         .and_then(Value::as_array)
@@ -594,7 +581,7 @@ mod tests {
     }
 
     #[test]
-    fn a_private_service_needs_a_visitor_before_it_can_be_added() {
+    fn a_private_service_of_either_protocol_needs_a_visitor_before_it_can_be_added() {
         assert_eq!(
             add_blocker(&json!({"client": "a", "target": 80})),
             Some(PICK_VISITORS)
@@ -613,13 +600,17 @@ mod tests {
         );
         assert_eq!(
             add_blocker(&json!({"client": "a", "target": 53, "protocol": "udp"})),
-            Some(UDP_NEEDS_PORT)
+            Some(PICK_VISITORS)
         );
         assert_eq!(
             add_blocker(
                 &json!({"client": "a", "target": 53, "protocol": "udp", "visitors": ["ops"]})
             ),
-            Some(UDP_NEEDS_PORT)
+            None
+        );
+        assert_eq!(
+            add_blocker(&json!({"client": "a", "target": 53, "protocol": "udp", "bind": 5353})),
+            None
         );
     }
 

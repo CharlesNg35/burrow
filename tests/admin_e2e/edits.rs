@@ -1578,6 +1578,42 @@ fn edit_state(c: &mut Ctx) -> Flow<'_> {
         c.ui.wait_gone(clear, SECS).await;
         wait_checked(c).await;
         assert_eq!(c.ui.count("[data-testid=form-problems]").await, 0);
+        c.ui.choose("f-services-web-bind-visibility", "private")
+            .await;
+        c.ui.wait_for("[data-testid=pick-visitors]", SECS).await;
+        wait_checked(c).await;
+        tokio::time::sleep(Duration::from_millis(600)).await;
+        assert_eq!(
+            c.ui.count("[data-testid=form-problems]").await,
+            0,
+            "a private UDP service asks for visitors like a TCP one, with no red error"
+        );
+        assert_eq!(
+            c.ui.text("[data-testid=fields-changed]").await,
+            "Pick at least one visitor or switch back to Public port"
+        );
+        c.ui.shot("private-udp-needs-visitors").await;
+        c.ui.click("[data-testid=pick-visitors] button").await;
+        c.ui.wait_for(
+            "#f-services-web-visitors:focus, #f-services-web-visitors:focus-within",
+            SECS,
+        )
+        .await;
+        clear_of_bar(c, "services/*/visitors").await;
+        let _: bool = c
+            .ui
+            .eval("(() => { const f = document.getElementById('f-services-web-visitors'); const i = f.matches('input') ? f : f.querySelector('input'); i.focus(); i.click(); return true; })()")
+            .await;
+        c.ui.wait_for("[role=listbox] [role=option]", SECS).await;
+        c.ui.click("[role=listbox] [role=option]").await;
+        c.ui.wait_for("[data-chip]", SECS).await;
+        wait_checked(c).await;
+        assert_eq!(c.ui.count("[data-testid=form-problems]").await, 0);
+        assert!(
+            c.ui.enabled("[data-testid=save]").await,
+            "a private UDP service with a visitor can be added"
+        );
+        c.ui.shot("private-udp-with-a-visitor").await;
         c.ui.click("[data-testid=discard-edit]").await;
         c.ui.wait_gone("[data-testid=save-bar]", SECS).await;
 
