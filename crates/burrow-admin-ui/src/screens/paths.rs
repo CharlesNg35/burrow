@@ -424,7 +424,7 @@ pub fn visitor(
     let v = status.and_then(|s| s.visitors.iter().find(|v| v.name == name));
     let open = v.map(|v| v.open).unwrap_or(0);
     let entry = VisitorEntry::entry(doc, name);
-    let services: Vec<(String, bool)> = ServiceEntry::entries(doc)
+    let services: Vec<(String, bool, bool)> = ServiceEntry::entries(doc)
         .map(|m| {
             m.iter()
                 .filter(|(_, s)| {
@@ -437,12 +437,14 @@ pub fn visitor(
                     (
                         n.clone(),
                         status.is_none_or(|st| clients_of(s).iter().any(|c| online(Some(st), c))),
+                        udp(s),
                     )
                 })
                 .collect()
         })
         .unwrap_or_default();
-    let down = services.iter().filter(|(_, up)| !up).count();
+    let down = services.iter().filter(|(_, up, _)| !up).count();
+    let udp_count = services.iter().filter(|(_, _, u)| *u).count();
     let admin_from: Vec<String> = entry
         .and_then(|x| VisitorEntry::ADMIN_FROM.get(x))
         .and_then(Value::as_array)
@@ -501,7 +503,11 @@ pub fn visitor(
                 } else {
                     Tone::Success
                 }),
-                unit: String::new(),
+                unit: if udp_count > 0 {
+                    format!("{} TCP · {udp_count} UDP", services.len() - udp_count)
+                } else {
+                    String::new()
+                },
                 state: if down > 0 {
                     HopState::Warn
                 } else {
@@ -543,6 +549,14 @@ pub fn visitor(
             services.len()
         ),
     }
+}
+
+pub fn udp(svc: &Value) -> bool {
+    ServiceEntry::PROTOCOL
+        .get(svc)
+        .and_then(Value::as_str)
+        .and_then(Protocol::from_wire)
+        == Some(Protocol::Udp)
 }
 
 pub const PICK_VISITORS: &str = "Pick at least one visitor or switch back to Public port";
@@ -657,6 +671,42 @@ mod tests {
         assert_eq!(p.hops[1].unit, "TCP");
         assert_eq!(port_count(Some(&json!("unix:/run/x.sock"))), 1);
         assert_eq!(port_count(Some(&json!(7840))), 1);
+    }
+
+    #[test]
+    fn a_private_udp_service_goes_from_its_visitors_through_the_server() {
+        let none = Problems {
+            source: None,
+            clients: None,
+            ports: None,
+        };
+        let dns =
+            json!({"client": "a", "protocol": "udp", "target": 53, "visitors": ["lap", "ops"]});
+        let p = service("dns", &dns, None, &none, false, &[]);
+        assert_eq!(p.hops[0].head, "Visitors");
+        assert_eq!(p.hops[0].value, "lap · ops");
+        assert_eq!(p.hops[1].value, "private");
+        assert_eq!(p.hops[1].unit, "UDP");
+    }
+
+    #[test]
+    fn a_visitor_path_counts_its_tcp_and_udp_services() {
+        let doc = json!({
+            "visitors": {"lap": {}},
+            "services": {
+                "db": {"client": "a", "target": 5432, "visitors": ["lap"]},
+                "dns": {"client": "a", "protocol": "udp", "target": 53, "visitors": ["lap"]},
+                "game": {"client": "a", "protocol": "udp", "target": 27015, "visitors": ["lap"]}
+            }
+        });
+        let p = visitor("lap", &doc, None, None);
+        assert_eq!(p.hops[2].value, "3 services");
+        assert_eq!(p.hops[2].unit, "1 TCP · 2 UDP");
+        let tcp_only = json!({
+            "visitors": {"lap": {}},
+            "services": {"db": {"client": "a", "target": 5432, "visitors": ["lap"]}}
+        });
+        assert_eq!(visitor("lap", &tcp_only, None, None).hops[2].unit, "");
     }
 
     #[test]

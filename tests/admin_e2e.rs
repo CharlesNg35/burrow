@@ -425,6 +425,58 @@ fn e8_a_newer_server_field_renders_through_its_fallback() {
     run("e8-fallback", opts, true, fallback);
 }
 
+fn private_udp(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
+    Box::pin(async move {
+        open(c, "ops").await;
+        c.ui.nav("/services/dns").await;
+        c.ui.wait_for("[data-testid=path-diagram]", SECS).await;
+        let path = c.ui.text("[data-testid=path-diagram]").await.to_lowercase();
+        assert!(
+            path.contains("visitors") && path.contains("laptop") && path.contains("udp"),
+            "a private UDP service starts at its visitors: {path}"
+        );
+        assert_eq!(c.ui.count("[data-testid=form-problems]").await, 0);
+        assert!(
+            !c.ui.text("main").await.contains("needs a public port"),
+            "a private UDP service with visitors is fine"
+        );
+        c.ui.shot("private-udp-service").await;
+        c.ui.nav("/visitors/laptop").await;
+        c.ui.wait_for("[data-testid=may-use]", SECS).await;
+        let may = c.ui.text("[data-testid=may-use]").await;
+        assert!(
+            may.contains("dns") && may.contains("UDP") && may.contains("ssh"),
+            "the visitor page lists its UDP services with a tag: {may}"
+        );
+        let path = c.ui.text("[data-testid=path-diagram]").await;
+        assert!(path.contains("1 TCP · 1 UDP"), "{path}");
+        c.ui.shot("visitor-with-a-udp-service").await;
+        c.ui.click("[role=tablist] [data-tab=connect]").await;
+        c.ui.wait_for("[data-testid=connect] [data-testid=snippets]", SECS)
+            .await;
+        c.ui.click("[data-testid=connect] [data-tab=file]").await;
+        c.ui.wait_for("[data-testid=snippet-file]", SECS).await;
+        let snippet = c.ui.text("[data-testid=snippet-file]").await;
+        assert!(
+            snippet.contains("protocol: udp"),
+            "the Connect snippet writes a UDP forward: {snippet}"
+        );
+        c.ui.shot("connect-with-a-udp-forward").await;
+        c.ui.assert_no_errors();
+    })
+}
+
+#[test]
+fn a_private_udp_service_with_visitors_reads_right_everywhere() {
+    let opts = Options {
+        extra_services:
+            "  dns:\n    client: home\n    protocol: udp\n    target: 53\n    visitors: [laptop]\n"
+                .into(),
+        ..Options::default()
+    };
+    run("private-udp", opts, false, private_udp);
+}
+
 fn at_limit(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
     Box::pin(async move {
         c.world.start_client_with("home", "max_connections: 1\n");

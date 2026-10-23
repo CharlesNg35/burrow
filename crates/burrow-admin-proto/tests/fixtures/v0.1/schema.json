@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:d7eb0c0fe21ddf66",
+  "hash": "b2s:5f55ca83e5a035d7",
   "root": {
     "label": "Server",
     "sem": {
@@ -253,7 +253,7 @@
                       "key": "reach",
                       "node": {
                         "label": "Direct access to clients",
-                        "help": "Clients this visitor may reach directly, and which targets there: any target the client allows, or only the ones listed, for example 192.168.150.0/25 or 10.0.0.5:22",
+                        "help": "Clients this visitor may reach directly, over TCP and UDP, and which targets there: any target the client allows, or only the ones listed, for example 192.168.150.0/25 or 10.0.0.5:22",
                         "sem": {
                           "t": "ref_map",
                           "entity": "client",

@@ -244,9 +244,9 @@ pub struct VisitorEntry {
     pub secret: Secrets,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     #[schemars(
-        description = "Clients this visitor may reach directly, with the targets it may pick there: any (whatever the client's allow list permits), or rules in allow-list syntax that narrow it, for example home: any, office: 192.168.150.0/25 or lab: [10.0.0.0/8:22, unix:/run/app.sock]"
+        description = "Clients this visitor may reach directly, over TCP and UDP, with the targets it may pick there: any (whatever the client's allow list permits), or rules in allow-list syntax that narrow it, for example home: any, office: 192.168.150.0/25 or lab: [10.0.0.0/8:22, unix:/run/app.sock]"
     )]
-    #[admin(help = "Clients this visitor may reach directly, and which targets there: any target the client allows, or only the ones listed, for example 192.168.150.0/25 or 10.0.0.5:22",
+    #[admin(help = "Clients this visitor may reach directly, over TCP and UDP, and which targets there: any target the client allows, or only the ones listed, for example 192.168.150.0/25 or 10.0.0.5:22",
         ty = ref_map(client, reserved = "self"),
         label = "Direct access to clients",
         group = access,

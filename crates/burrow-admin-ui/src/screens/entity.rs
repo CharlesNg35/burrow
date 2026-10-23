@@ -1392,7 +1392,7 @@ fn visitor_overview(name: &str) -> impl IntoView {
     move || {
         let doc = s.edit.doc();
         let st = s.status.get();
-        let may: Vec<(String, Option<bool>)> = ServiceEntry::entries(&doc)
+        let may: Vec<(String, Option<bool>, bool)> = ServiceEntry::entries(&doc)
             .map(|m| {
                 m.iter()
                     .filter(|(_, x)| {
@@ -1407,7 +1407,7 @@ fn visitor_overview(name: &str) -> impl IntoView {
                                 .iter()
                                 .any(|c| st.clients.iter().any(|y| &y.name == c && y.connected))
                         });
-                        (n.clone(), up)
+                        (n.clone(), up, crate::screens::paths::udp(x))
                     })
                     .collect()
             })
@@ -1425,7 +1425,7 @@ fn visitor_overview(name: &str) -> impl IntoView {
         } else {
             view! {
                 <div class="flex flex-wrap gap-2 px-4 py-3">
-                    {may.into_iter().map(|(n, up)| {
+                    {may.into_iter().map(|(n, up, udp)| {
                         let (dot, state) = match up {
                             Some(true) => ("bg-success", "a client is online"),
                             Some(false) => ("bg-transparent ring-[1.5px] ring-text-faint ring-inset", "no client online"),
@@ -1435,6 +1435,7 @@ fn visitor_overview(name: &str) -> impl IntoView {
                             <Link to=Route::Detail(ServiceEntry::section().into(), n.clone()) class="inline-flex h-[26px] items-center gap-1.5 rounded-sm bg-surface-3 px-2 text-[12.5px] font-semibold text-text no-underline ring-1 ring-border ring-inset hover:ring-border-strong">
                                 <span class=format!("size-2 rounded-full {dot}") aria-hidden="true"></span>
                                 {n.clone()}
+                                {udp.then(|| view! { <span class=tag_class(Tone::Violet)>"UDP"</span> })}
                                 <span class="sr-only">{format!(", {state}")}</span>
                             </Link>
                         }
