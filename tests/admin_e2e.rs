@@ -516,6 +516,22 @@ fn at_limit(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
                 clear[4] <= clear[3] + 1.0,
                 "at {w} px the limit tag text is cut off: {clear:?}"
             );
+            let sideways: Vec<String> = c
+                .ui
+                .eval("[...document.querySelectorAll('[data-testid=served] *')].filter(e => e.offsetParent !== null && ['auto', 'scroll'].includes(getComputedStyle(e).overflowX) && e.scrollWidth > e.clientWidth + 1).map(e => e.className)")
+                .await;
+            assert!(
+                sideways.is_empty(),
+                "at {w} px the services home serves scroll sideways: {sideways:?}"
+            );
+            let targets: Vec<bool> = c
+                .ui
+                .eval("[...document.querySelectorAll('[data-testid=served] [data-target]')].filter(e => e.offsetParent !== null).map(e => { const r = e.getBoundingClientRect(); return r.width > 0 && r.right <= document.documentElement.clientWidth; })")
+                .await;
+            assert!(
+                !targets.is_empty() && targets.iter().all(|t| *t),
+                "at {w} px every served target shows on screen: {targets:?}"
+            );
             c.ui.shot(&format!("at-limit-{w}")).await;
         }
         c.ui.viewport(1440, 900).await;

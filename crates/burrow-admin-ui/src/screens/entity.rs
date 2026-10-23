@@ -1472,9 +1472,29 @@ fn served(name: &str) -> impl IntoView {
         if rows.is_empty() {
             return view! { <div class="mb-4"><EmptyState title="Serves no services" message="Pick this client in a service to publish one of its ports."/></div> }.into_any();
         }
+        let names: Vec<String> = rows.iter().map(|(n, _)| n.clone()).collect();
+        let targets: std::collections::BTreeMap<String, String> = rows
+            .iter()
+            .map(|(n, v)| {
+                (
+                    n.clone(),
+                    ServiceEntry::TARGET.get(v).map(plain).unwrap_or_default(),
+                )
+            })
+            .collect();
+        let cards = rows_for(ServiceEntry::section())
+            .into_iter()
+            .filter(|r| names.contains(&r.key))
+            .map(|r| {
+                let t = targets.get(&r.key).cloned().unwrap_or_default();
+                view! { <div data-target=t><crate::screens::ListCard row=r selected=false/></div> }
+            })
+            .collect_view();
         view! {
             <div class="mb-4">
                 <Card title="Services it serves" flush=true testid="served">
+                    <div class="pt-2 pb-1 sm:hidden" data-testid="served-cards">{cards}</div>
+                    <div class="max-sm:hidden">
                     <Table head=vec!["Service", "_", "Public", "Target", ">Open", "_Health"]>
                         {rows.into_iter().map(|(n, v)| {
                             let x = st.as_ref().and_then(|x| x.services.iter().find(|c| c.name == n)).cloned();
@@ -1492,7 +1512,7 @@ fn served(name: &str) -> impl IntoView {
                                     }}</td>
                                     {
                                         let t = ServiceEntry::TARGET.get(&v).map(plain).unwrap_or_default();
-                                        view! { <td class="max-w-[260px] truncate font-mono text-[13px] text-text-muted" title=t.clone()>{format!("→ {t}")}</td> }
+                                        view! { <td class="max-w-[260px] truncate font-mono text-[13px] text-text-muted" title=t.clone() data-target=t.clone()>{format!("→ {t}")}</td> }
                                     }
                                     <td class="text-right tabular-nums">{x.map(|x| x.open).unwrap_or(0)}</td>
                                     <td>{health}</td>
@@ -1500,6 +1520,7 @@ fn served(name: &str) -> impl IntoView {
                             }
                         }).collect_view()}
                     </Table>
+                    </div>
                 </Card>
             </div>
         }
