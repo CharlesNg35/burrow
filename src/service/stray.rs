@@ -511,14 +511,13 @@ mod tests {
             f.message,
             "burrow-client.service is running, but burrow has no usable record of it (installed by an older burrow or by hand)"
         );
-        let hint = f.hint.unwrap();
-        assert!(
-            hint.starts_with("take it over: sudo systemctl stop burrow-client, then sudo "),
-            "{hint}"
-        );
-        assert!(
-            hint.ends_with("service install -c /etc/burrow/client.yaml"),
-            "{hint}"
+        let admin = crate::failure::admin;
+        assert_eq!(
+            f.hint.unwrap(),
+            format!(
+                "take it over: sudo systemctl stop burrow-client, then {}",
+                admin("service install -c /etc/burrow/client.yaml")
+            )
         );
         let f = stray("burrow-home", false, Some("/etc/burrow/home/client.yaml")).failure();
         assert!(
@@ -529,12 +528,14 @@ mod tests {
         let hint = f.hint.unwrap();
         assert!(!hint.contains("systemctl"), "{hint}");
         assert!(
-            hint.ends_with("service install -c /etc/burrow/home/client.yaml --name home"),
+            hint.ends_with(&admin(
+                "service install -c /etc/burrow/home/client.yaml --name home"
+            )),
             "{hint}"
         );
         let hint = stray("burrow-hand", false, None).failure().hint.unwrap();
         assert!(
-            hint.ends_with("service install -c CONFIG --name hand"),
+            hint.ends_with(&admin("service install -c CONFIG --name hand")),
             "{hint}"
         );
     }
@@ -575,9 +576,10 @@ mod tests {
             .unwrap();
         let out = String::from_utf8(out).unwrap();
         assert!(
-            out.starts_with(
-                "note: burrow-client.service (running) was not restarted, because burrow has no usable record of it; take it over: sudo systemctl stop burrow-client, then sudo "
-            ),
+            out.starts_with(&format!(
+                "note: burrow-client.service (running) was not restarted, because burrow has no usable record of it; take it over: sudo systemctl stop burrow-client, then {}",
+                crate::failure::admin("service install -c /etc/burrow/client.yaml")
+            )),
             "{out}"
         );
         assert_eq!(out.matches("burrow-client.service").count(), 1, "{out}");
