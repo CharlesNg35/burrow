@@ -11,6 +11,7 @@ Stability and usability fixes.
   - `burrow install`, `uninstall`, `start`, `stop`, `restart` and `logs` point to `burrow service ...`.
 - **`burrow admin`:**
   - The session (token, path and port) is kept for 12 hours per visitor config in a file only you can read, so an open tab reconnects after a restart and no second tab opens.
+  - If the last session's port is taken, it says so and names the port it moved to.
   - A tab whose session ended says so instead of retrying forever, and the first load retries a busy server.
 - **Admin UI:**
   - Help gives example values again.
@@ -19,6 +20,7 @@ Stability and usability fixes.
   - The Connect tab links to the download and uses `./burrow`.
   - A UDP service can clear values it does not use, and the reach editor keeps its rules when switched back and forth.
   - Pickers open upward when there is no room below.
+  - A private UDP service says it needs a public port, since visitors cannot use UDP services.
 - **Messages and docs:**
   - A DNS lookup that times out is named as DNS.
   - An unset secret variable's hint says the value must match the server's.
