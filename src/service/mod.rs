@@ -1,5 +1,6 @@
 mod background;
 mod logview;
+pub(crate) mod ports;
 mod stray;
 pub(crate) mod system;
 mod update;
@@ -561,18 +562,15 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
     }
     let users = || {
         let managed = all_manifests().into_iter().filter_map(|m| {
-            backend
-                .status(&m)
-                .pid
-                .map(|pid| crate::base::ports::PortUser {
-                    pid,
-                    name: m.name,
-                    managed: true,
-                    stop: None,
-                })
+            backend.status(&m).pid.map(|pid| ports::PortUser {
+                pid,
+                name: m.name,
+                managed: true,
+                stop: None,
+            })
         });
         let strays = stray::strays().into_iter().filter_map(|s| {
-            s.pid.map(|pid| crate::base::ports::PortUser {
+            s.pid.map(|pid| ports::PortUser {
                 pid,
                 name: s.label,
                 managed: false,
@@ -582,7 +580,7 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
         managed.chain(strays).collect()
     };
     for (proto, addr, label) in &checked.listens {
-        crate::base::ports::check_free(*proto, *addr, label, &users)?;
+        ports::check_free(*proto, *addr, label, &users)?;
     }
 
     let created = backend.ensure_account(&account)?;
