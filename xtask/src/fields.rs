@@ -136,11 +136,20 @@ fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) {
 }
 
 pub fn problems(root: &Path) -> Result<Vec<String>, String> {
+    problems_under(root, FIELD_FREE)
+}
+
+fn problems_under(root: &Path, dirs: &[&str]) -> Result<Vec<String>, String> {
     let keys = keys();
     let mut out = Vec::new();
-    for dir in FIELD_FREE {
+    for dir in dirs {
         let mut files = Vec::new();
         rust_files(&root.join(dir), &mut files);
+        if files.is_empty() {
+            out.push(format!(
+                "{dir} has no Rust files to scan for field names; update FIELD_FREE in xtask/src/fields.rs"
+            ));
+        }
         files.sort();
         for f in files {
             let name = f.file_name().and_then(|n| n.to_str()).unwrap_or_default();
@@ -173,6 +182,21 @@ mod tests {
             assert!(k.contains(key), "{key}");
         }
         assert!(!k.contains("online"));
+    }
+
+    #[test]
+    fn a_field_free_folder_with_no_files_is_a_problem() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("root");
+        let found = problems_under(root, &["src/no-such-folder"]).unwrap();
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert!(found[0].starts_with("src/no-such-folder has no Rust files"));
+        for dir in FIELD_FREE {
+            let mut files = Vec::new();
+            rust_files(&root.join(dir), &mut files);
+            assert!(!files.is_empty(), "{dir}");
+        }
     }
 
     #[test]
