@@ -23,7 +23,10 @@ pub(super) fn check_https(
     spans: &Spans,
     out: &mut Vec<Diagnostic>,
 ) -> Option<SocketAddr> {
-    let web = cfg.web.as_ref()?;
+    let written = cfg.web.is_some() || spans.is_null(&["web"]);
+    if !written {
+        return None;
+    }
     if !BUILT_WITH_WEB {
         out.push(
             Diagnostic::error(
@@ -35,7 +38,7 @@ pub(super) fn check_https(
         );
         return None;
     }
-    let Some(given) = &web.https else {
+    let Some(given) = cfg.web.as_ref().and_then(|w| w.https.as_ref()) else {
         out.push(
             Diagnostic::error(
                 "web-port",

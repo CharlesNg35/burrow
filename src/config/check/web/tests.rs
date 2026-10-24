@@ -280,3 +280,12 @@ fn the_tunnel_messages_of_section_5_3() {
         ]
     );
 }
+
+#[test]
+fn an_empty_web_key_needs_its_port_too() {
+    let e = one_error(&format!("listen: 7835\nweb:\n{NAS}"));
+    assert_eq!(
+        e,
+        "web needs a port: https for HTTPS sites, like https: 443 (plain HTTP sites on web.http are not in this build yet)"
+    );
+}
