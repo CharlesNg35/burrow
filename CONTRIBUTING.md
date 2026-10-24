@@ -24,7 +24,7 @@ The `burrow` crate is built in layers, from the bottom up:
 | roles | dialing, forwarding, UDP relays, the server, the client, the visitor |
 | ops | services, instances, update, edit, init, status, admin, the CLI |
 
-- A lower layer never imports a higher one, and no two modules import each other.
+- A lower layer never imports a higher one, and no two units import each other. A unit is a module listed in `xtask/src/layers.rs`.
 - Each crate in `crates/` has a fixed list of crates it may depend on.
 - A new module gets its row in `xtask/src/layers.rs`, and a new crate in `xtask/src/arch.rs`, in the same change.
 
