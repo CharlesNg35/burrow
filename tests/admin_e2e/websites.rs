@@ -226,6 +226,12 @@ fn certificates(c: &mut Ctx) -> Flow<'_> {
             "{text}"
         );
         assert!(text.contains("in "), "the expiry is shown: {text}");
+        c.ui.wait_text(
+            "[data-testid=overview-tabs]",
+            "portal",
+            std::time::Duration::from_millis(1500),
+        )
+        .await;
         both_widths(c, "overview-certificates").await;
         c.ui.assert_no_errors();
     })

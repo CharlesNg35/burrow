@@ -311,6 +311,12 @@ pub async fn run(
                     let _ = send(ev, heard + silence).await;
                     break "revoked";
                 }
+                if config_events
+                    && let Some(ev) = config_event(&hub, &mut last_rev).await
+                    && !send(ev, heard + silence).await
+                {
+                    break "closed";
+                }
             }
             _ = file_check.tick(), if config_events => {
                 if let Some(ev) = config_event(&hub, &mut last_rev).await
