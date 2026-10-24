@@ -1,6 +1,7 @@
 mod attention;
 mod page;
 mod tables;
+mod web;
 
 use burrow_admin_logic::rates::{axis_max, mbit};
 use burrow_admin_proto::diag::Severity;

@@ -174,11 +174,9 @@ fn entity_facet(sec: &str, n: &str, v: &Value, status: Option<&Status>) -> Strin
                 ),
             }
         }
-        Some(Entity::Service) => ServiceEntry::BIND
-            .get(v)
-            .filter(|b| !b.is_null())
-            .map(crate::form::plain)
-            .unwrap_or_else(|| "private".into()),
+        Some(Entity::Service) => {
+            burrow_admin_logic::web::exposure(v).unwrap_or_else(|| "private".into())
+        }
         _ => VisitorEntry::ADMIN
             .get(v)
             .map(|a| format!("admin · {}", crate::form::plain(a)))

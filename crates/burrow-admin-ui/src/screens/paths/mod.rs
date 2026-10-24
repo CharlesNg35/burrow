@@ -57,13 +57,17 @@ pub fn client(name: &str, doc: &Value, status: Option<&Status>, listen: &str) ->
             m.iter()
                 .filter(|(_, v)| clients_of(v).iter().any(|x| x == name))
                 .map(|(n, v)| {
-                    let at = ServiceEntry::BIND.get(v).filter(|b| !b.is_null()).map(|b| {
-                        let t = plain(b);
-                        match t.rsplit_once(':') {
-                            Some((_, p)) => format!(":{p}"),
-                            None => format!(":{t}"),
-                        }
-                    });
+                    let at = ServiceEntry::BIND
+                        .get(v)
+                        .filter(|b| !b.is_null())
+                        .map(|b| {
+                            let t = plain(b);
+                            match t.rsplit_once(':') {
+                                Some((_, p)) => format!(":{p}"),
+                                None => format!(":{t}"),
+                            }
+                        })
+                        .or_else(|| burrow_admin_logic::web::exposure(v));
                     (n.clone(), at.unwrap_or_else(|| "private".into()))
                 })
                 .collect()
@@ -296,7 +300,7 @@ pub fn udp(svc: &Value) -> bool {
 pub const PICK_VISITORS: &str = "Pick at least one visitor or switch back to Public port";
 
 pub fn add_blocker(svc: &Value) -> Option<&'static str> {
-    let public = ServiceEntry::BIND.get(svc).is_some_and(|b| !b.is_null());
+    let public = burrow_admin_logic::web::is_public(svc);
     let picked = ServiceEntry::VISITORS
         .get(svc)
         .and_then(Value::as_array)
@@ -345,6 +349,11 @@ mod tests {
         assert_eq!(
             add_blocker(&json!({"client": "a", "target": 80, "bind": 7840})),
             None
+        );
+        assert_eq!(
+            add_blocker(&json!({"client": "a", "target": 443, "web": "nas.example.com"})),
+            None,
+            "a website is reached by its name"
         );
         assert_eq!(
             add_blocker(&json!({"client": "a", "target": 53, "protocol": "udp"})),

@@ -22,6 +22,19 @@ pub(super) fn visibility_row(bind: Path, public: RwSignal<bool>) -> AnyView {
         p.push(SERVICE_VISITORS.to_string());
         p
     };
+    let website = {
+        let mut p = bind.clone();
+        p.pop();
+        p.push(burrow_config::ServiceEntry::WEB.key().to_string());
+        Memo::new(move |_| e.value(&p).is_some_and(|v| !v.is_null()))
+    };
+    let private_label = move || {
+        if website.get() {
+            "Website only"
+        } else {
+            "Private"
+        }
+    };
     let none_picked = {
         let visitors = visitors.clone();
         Memo::new(move |_| {
@@ -44,7 +57,7 @@ pub(super) fn visibility_row(bind: Path, public: RwSignal<bool>) -> AnyView {
                 }
             });
             if !(can && editing.try_get().unwrap_or(false)) {
-                return view! { <div class="flex min-h-[38px] items-center text-[13px]">{move || if public.get() { "Public port" } else { "Private" }}</div> }.into_any();
+                return view! { <div class="flex min-h-[38px] items-center text-[13px]">{move || if public.get() { "Public port" } else { private_label() }}</div> }.into_any();
             }
             let to_visitors = visitors.clone();
             view! {
@@ -52,7 +65,7 @@ pub(super) fn visibility_row(bind: Path, public: RwSignal<bool>) -> AnyView {
                     <burrow_ui_kit::Segmented
                         name=id.clone()
                         label="Visibility"
-                        options=vec![("public".to_string(), "Public port".to_string(), false), ("private".to_string(), "Private".to_string(), false)]
+                        options=vec![("public".to_string(), "Public port".to_string(), false), ("private".to_string(), private_label().to_string(), false)]
                         value=on
                         on_change=Callback::new(move |v: String| {
                             if v == "public" {
@@ -64,14 +77,14 @@ pub(super) fn visibility_row(bind: Path, public: RwSignal<bool>) -> AnyView {
                                 kept.set_value(e.peek(&bind));
                                 public.set(false);
                                 e.set(&bind, None);
-                                if none_picked.get_untracked() {
+                                if none_picked.get_untracked() && !website.get_untracked() {
                                     crate::screens::entity::go_to_field(&visitors);
                                 }
                             }
                         })
                     />
                 </div>
-                {move || (!public.get() && none_picked.get()).then(|| {
+                {move || (!public.get() && none_picked.get() && !website.get()).then(|| {
                     let to = to_visitors.clone();
                     view! {
                         <p class="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12.5px] text-co-info" data-testid="pick-visitors">

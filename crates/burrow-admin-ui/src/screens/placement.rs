@@ -204,6 +204,11 @@ mod tests {
                 walk(key, &o.inner, &mut inner);
                 out.extend(inner.into_iter().skip(1));
             }
+            SemType::Union(u) => u.branches.iter().for_each(|b| {
+                let mut inner = Vec::new();
+                walk(key, b, &mut inner);
+                out.extend(inner.into_iter().skip(1));
+            }),
             _ => {}
         }
     }
@@ -226,10 +231,30 @@ mod tests {
             | SemType::Size(_)
             | SemType::Path(_)
             | SemType::UrlPath => true,
-            SemType::List(l) => matches!(l.item.sem, SemType::Cidr | SemType::CidrRule),
+            SemType::List(l) => matches!(
+                l.item.sem,
+                SemType::Cidr | SemType::CidrRule | SemType::HostName(_)
+            ),
+            SemType::Union(u) => u
+                .branches
+                .iter()
+                .any(|b| matches!(b.sem, SemType::HostName(_))),
             SemType::RefMap(m) => matches!(m.value.sem, SemType::Union(_)),
             _ => false,
         }
+    }
+
+    #[test]
+    fn the_walk_reaches_the_fields_inside_a_union() {
+        let root = <burrow_config::ServerConfig as AdminSchema>::node();
+        let mut all = Vec::new();
+        walk("", &root, &mut all);
+        let hosts = all
+            .iter()
+            .find(|(k, _)| k == ".services.*.web.hosts")
+            .map(|(_, n)| n.clone())
+            .expect("the hosts of a website's settings are walked");
+        assert!(wants_example(&hosts) && hosts.help.contains("for example"));
     }
 
     #[test]
@@ -271,6 +296,7 @@ mod tests {
                 }),
                 SemType::Map(m) => fields(&format!("{key}.*"), &m.value, out),
                 SemType::RefMap(m) => fields(&format!("{key}.*"), &m.value, out),
+                SemType::Union(u) => u.branches.iter().for_each(|b| fields(key, b, out)),
                 _ => {}
             }
         }

@@ -24,6 +24,8 @@ mod secrets;
 mod sheet;
 #[path = "admin_e2e/ui.rs"]
 mod ui;
+#[path = "admin_e2e/websites.rs"]
+mod websites;
 #[path = "admin_e2e/world.rs"]
 mod world;
 

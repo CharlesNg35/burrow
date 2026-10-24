@@ -154,10 +154,7 @@ fn services_for(section: &str) -> Vec<burrow_ui_kit::ComboOption> {
                     burrow_ui_kit::ComboOption {
                         value: n.clone(),
                         label: n.clone(),
-                        facet: ServiceEntry::BIND
-                            .get(v)
-                            .filter(|b| !b.is_null())
-                            .map(crate::form::plain)
+                        facet: burrow_admin_logic::web::exposure(v)
                             .unwrap_or_else(|| "private".into()),
                         dot: up.map(|u| {
                             if u {

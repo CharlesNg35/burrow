@@ -17,7 +17,7 @@ pub fn service(
 ) -> PathData {
     let st = status.and_then(|s| s.services.iter().find(|x| x.name == name));
     let open = st.map(|x| x.open).unwrap_or(0);
-    let public = ServiceEntry::BIND.get(svc).is_some_and(|b| !b.is_null());
+    let public = burrow_admin_logic::web::is_public(svc);
     let source = source_hop(svc, public, problems);
     let server = server_hop(svc, public, st.is_some());
     let clients = clients_of(svc);
@@ -76,10 +76,10 @@ pub fn service(
     };
     let target_hop = target_hop(svc, problems, up, on_server, &clients);
     let mut edges = service_edges(svc, problems, up, health_on, clients.len() > 1);
-    let kind = if public {
-        "Public port"
-    } else {
-        "Private service"
+    let kind = match (bound(svc), public) {
+        (true, _) => "Public port",
+        (false, true) => "Website",
+        (false, false) => "Private service",
     };
     if on_server {
         let mode = edges.remove(1);
@@ -163,12 +163,40 @@ fn source_hop(svc: &Value, public: bool, problems: &Problems) -> Hop {
     }
 }
 
+fn bound(svc: &Value) -> bool {
+    ServiceEntry::BIND.get(svc).is_some_and(|b| !b.is_null())
+}
+
+fn website_hop(names: &[String], protocol: String, running: bool) -> Hop {
+    Hop {
+        icon: "box",
+        head: "Server".into(),
+        value: names.join(", "),
+        mono: true,
+        dot: Some(if running {
+            Tone::Success
+        } else {
+            Tone::Neutral
+        }),
+        unit: match names.len() {
+            1 => format!("by name on the HTTPS port · {protocol}"),
+            n => format!("{n} names on the HTTPS port · {protocol}"),
+        },
+        state: HopState::Current,
+        badge: None,
+    }
+}
+
 fn server_hop(svc: &Value, public: bool, running: bool) -> Hop {
     let protocol = ServiceEntry::PROTOCOL
         .get(svc)
         .map(plain)
         .unwrap_or_else(|| Protocol::default().wire().into())
         .to_uppercase();
+    let names = burrow_admin_logic::web::hosts(svc);
+    if !bound(svc) && !names.is_empty() {
+        return website_hop(&names, protocol, running);
+    }
     let ports = port_count(ServiceEntry::BIND.get(svc)).max(1);
     Hop {
         icon: "box",

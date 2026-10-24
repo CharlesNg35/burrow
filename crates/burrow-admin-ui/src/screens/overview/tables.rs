@@ -44,8 +44,8 @@ pub(super) fn services_table(s: Store, values: Memo<Value>) -> AnyView {
                 <tr data-row=name.clone()>
                     <th scope="row"><Link to=Route::Detail(ServiceEntry::section().into(), name.clone()) class="text-text no-underline hover:underline">{label}</Link></th>
                     <td><span class=tag_class(if protocol == Protocol::Udp.wire() { Tone::Violet } else { Tone::Accent })>{protocol.to_uppercase()}</span></td>
-                    <td>{match ServiceEntry::BIND.get(svc).filter(|b| !b.is_null()) {
-                        Some(b) => view! { <span class="font-mono text-[13px]">{plain(b)}</span> }.into_any(),
+                    <td>{match burrow_admin_logic::web::exposure(svc) {
+                        Some(b) => view! { <span class="font-mono text-[13px]">{b}</span> }.into_any(),
                         None => view! { <span class="text-text-faint">"private"</span> }.into_any(),
                     }}</td>
                     <td class="font-mono text-[13px] text-text-muted">{ServiceEntry::TARGET.get(svc).map(plain).unwrap_or_default()}</td>

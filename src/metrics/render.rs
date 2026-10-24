@@ -290,6 +290,7 @@ mod tests {
                     },
                 ],
                 set_aside: vec![],
+                web: vec![],
             }],
             visitors: vec![VisitorStatus {
                 name: "lap\"top".into(),

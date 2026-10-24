@@ -13,6 +13,7 @@ pub mod rates;
 pub mod relations;
 pub mod tree;
 pub mod version;
+pub mod web;
 
 #[cfg(test)]
 mod testing;

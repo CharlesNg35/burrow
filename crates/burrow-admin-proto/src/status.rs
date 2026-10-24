@@ -80,6 +80,8 @@ pub struct ServiceStatus {
     pub health: Vec<HealthStatus>,
     #[serde(default)]
     pub set_aside: Vec<SetAside>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub web: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]

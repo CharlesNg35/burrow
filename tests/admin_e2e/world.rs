@@ -83,6 +83,7 @@ pub struct Options {
     pub clients: Option<Vec<&'static str>>,
     pub extra_services: String,
     pub extra_clients: String,
+    pub extra_top: String,
 }
 
 pub fn wait_until(what: &str, timeout: Duration, mut ok: impl FnMut() -> bool) {
@@ -108,7 +109,7 @@ impl World {
             ports: BTreeMap::new(),
             secrets: BTreeMap::new(),
         };
-        for k in ["listen", "web", "echo", "forward", "game"] {
+        for k in ["listen", "web", "echo", "forward", "game", "https"] {
             w.ports.insert(k, free_port());
         }
         for n in ["home", "office", "ops", "viewer", "laptop", "plain", "boss"] {
@@ -119,7 +120,7 @@ impl World {
         let yaml = format!(
             "# server.yaml for the burrow admin end-to-end tests\n\
              # comments here must survive every change made through the admin UI\n\
-             listen: 127.0.0.1:{listen}\npublic_address: 127.0.0.1:{listen}\n\n\
+             listen: 127.0.0.1:{listen}\npublic_address: 127.0.0.1:{listen}\n{extra_top}\n\
              clients:\n  # the home box\n  home:\n    secret: {home}\n  office:\n    secret: {office}\n    max_connections: 100\n{extra_clients}\n\
              visitors:\n  ops:\n    secret: {ops} # the admin\n    admin: write\n    admin_from: [127.0.0.1/32]\n  viewer:\n    secret: {viewer}\n    admin: read\n  laptop:\n    secret: {laptop}\n    reach:\n      home: [127.0.0.1/32]\n  plain:\n    secret: {plain}\n  boss:\n    secret: {boss}\n    admin: write\n\n\
              services:\n  web: {{ client: home, bind: 127.0.0.1:{web}, target: {echo} }} # keep this comment\n  ssh:\n    client: home\n    target: 22\n    visitors: [laptop]\n{extra}",
@@ -135,6 +136,9 @@ impl World {
             boss = s["boss"],
             extra = opts.extra_services,
             extra_clients = opts.extra_clients,
+            extra_top = opts
+                .extra_top
+                .replace("HTTPS_PORT", &p["https"].to_string()),
         );
         w.write("server.yaml", &yaml);
         let env: Vec<(&str, &str)> = opts

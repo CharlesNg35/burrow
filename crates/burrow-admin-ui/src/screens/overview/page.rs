@@ -13,6 +13,7 @@ use crate::store::{Store, store};
 
 use super::attention::Attention;
 use super::tables::{clients_table, services_table, visitors_table};
+use super::web::Websites;
 use super::{Problem, chart, healthy_detail, names, service_problems};
 
 #[component]
@@ -223,6 +224,7 @@ pub fn Overview() -> impl IntoView {
                         }}
                     </div>
                 </section>
+                <Websites/>
             </div>
         </div>
     }

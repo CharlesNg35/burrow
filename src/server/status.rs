@@ -107,6 +107,12 @@ impl Shared {
                     bytes_out: stats.traffic.outbound.load(Ordering::Relaxed),
                     health,
                     set_aside,
+                    web: settings
+                        .web
+                        .as_ref()
+                        .and_then(|w| w.site_of(name))
+                        .map(|s| s.hosts.clone())
+                        .unwrap_or_default(),
                 }
             })
             .collect();

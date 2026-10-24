@@ -173,7 +173,7 @@ pub(super) fn service_row(
         .as_ref()
         .and_then(|st| st.services.iter().find(|c| &c.name == name))
         .cloned();
-    let public = ServiceEntry::BIND.get(v).is_some_and(|b| !b.is_null());
+    let public = burrow_admin_logic::web::is_public(v);
     let protocol = ServiceEntry::PROTOCOL
         .get(v)
         .map(plain)
@@ -215,11 +215,7 @@ pub(super) fn service_row(
             .unwrap_or_default(),
         line2: format!(
             "{} → {}",
-            if public {
-                plain(ServiceEntry::BIND.get(v).unwrap_or(&Value::Null))
-            } else {
-                "private".into()
-            },
+            burrow_admin_logic::web::exposure(v).unwrap_or_else(|| "private".into()),
             plain(ServiceEntry::TARGET.get(v).unwrap_or(&Value::Null))
         ),
         tags,

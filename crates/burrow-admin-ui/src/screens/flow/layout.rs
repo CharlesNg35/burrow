@@ -69,6 +69,7 @@ pub(super) fn short_bind(bind: &str) -> String {
 pub(super) struct Svc {
     pub(super) name: String,
     pub(super) bind: Option<String>,
+    pub(super) web: Vec<String>,
     pub(super) target: String,
     pub(super) protocol: String,
     pub(super) clients: Vec<String>,
@@ -175,6 +176,7 @@ fn services(doc: &Value, status: Option<&Status>, rates: &Rates) -> Vec<Svc> {
                             .get(v)
                             .filter(|b| !b.is_null())
                             .map(plain),
+                        web: burrow_admin_logic::web::hosts(v),
                         target: ServiceEntry::TARGET.get(v).map(plain).unwrap_or_default(),
                         protocol: ServiceEntry::PROTOCOL
                             .get(v)

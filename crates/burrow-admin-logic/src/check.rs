@@ -259,16 +259,26 @@ fn check_ref_list(c: &RefListC, v: &Value) -> Result<(), String> {
     Ok(())
 }
 
+fn shape_fits(b: &Node, v: &Value) -> bool {
+    match (&crate::tree::inner(b).sem, v) {
+        (SemType::Object(_), Value::Object(_)) | (SemType::List(_), Value::Array(_)) => true,
+        (SemType::Object(_) | SemType::List(_), _) => false,
+        (_, Value::Object(_) | Value::Array(_)) => false,
+        _ => true,
+    }
+}
+
 fn check_union(u: &UnionC, v: &Value) -> Result<(), String> {
     if u.branches.is_empty() || u.branches.iter().any(|b| check(b, v).is_ok()) {
-        Ok(())
-    } else {
-        u.branches
-            .iter()
-            .map(|b| check(b, v))
-            .find_map(Result::err)
-            .map_or(Ok(()), Err)
+        return Ok(());
     }
+    let fitting = u.branches.iter().find(|b| shape_fits(b, v));
+    fitting
+        .into_iter()
+        .chain(u.branches.iter())
+        .map(|b| check(b, v))
+        .find_map(Result::err)
+        .map_or(Ok(()), Err)
 }
 
 fn check_object(o: &ObjectC, v: &Value) -> Result<(), String> {
@@ -426,6 +436,27 @@ mod tests {
         bad(SemType::ServerAddress, json!("x:99999"));
         bad(SemType::ServerAddress, json!("wss://"));
         bad(SemType::ServerAddress, json!("https://x"));
+    }
+
+    #[test]
+    fn a_union_names_the_problem_of_the_branch_the_value_looks_like() {
+        let names = SemType::Union(burrow_admin_proto::schema::UnionC {
+            branches: vec![
+                Node::new(SemType::HostName(Default::default())),
+                Node::new(SemType::List(burrow_admin_proto::schema::ListC {
+                    item: Box::new(Node::new(SemType::HostName(Default::default()))),
+                    max_items: None,
+                })),
+            ],
+        });
+        assert!(
+            bad(
+                names.clone(),
+                json!(["ok.example.com", "https://x.example.com"])
+            )
+            .contains("the name alone")
+        );
+        assert!(bad(names, json!("*.com")).contains("too wide"));
     }
 
     #[test]

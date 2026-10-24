@@ -304,8 +304,8 @@ pub(super) fn served(name: &str) -> impl IntoView {
                                 <tr data-row=n.clone()>
                                     <th scope="row"><Link to=Route::Detail(ServiceEntry::section().into(), n.clone()) class="font-semibold text-text no-underline hover:underline">{label}</Link></th>
                                     <td><span class=tag_class(if protocol == Protocol::Udp.wire() { Tone::Violet } else { Tone::Accent })>{protocol.to_uppercase()}</span></td>
-                                    <td>{match ServiceEntry::BIND.get(&v).filter(|b| !b.is_null()) {
-                                        Some(b) => view! { <span class="font-mono text-[13px]">{plain(b)}</span> }.into_any(),
+                                    <td>{match burrow_admin_logic::web::exposure(&v) {
+                                        Some(b) => view! { <span class="font-mono text-[13px]">{b}</span> }.into_any(),
                                         None => view! { <span class="font-mono text-[13px] text-text-faint">"private"</span> }.into_any(),
                                     }}</td>
                                     {

@@ -593,6 +593,7 @@ fn status_json_keeps_its_exact_shape() {
                 client: "office".into(),
                 refused: true,
             }],
+            web: vec![],
         }],
         visitors: vec![VisitorStatus {
             name: "laptop".into(),
