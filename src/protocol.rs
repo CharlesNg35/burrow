@@ -1,5 +1,5 @@
-use crate::config::check::MAX_NAME_LEN;
 use burrow_config::{Cipher, Protocol};
+use burrow_syntax::name::MAX_NAME_LEN;
 
 pub const MAGIC: [u8; 4] = *b"BRW1";
 pub const VERSION: u8 = 1;
@@ -86,7 +86,7 @@ impl Preamble {
 
     pub fn from_parts(kind: ChannelKind, flags: u8, name: &[u8]) -> Result<Self, DecodeError> {
         let name = std::str::from_utf8(name).map_err(|_| DecodeError::BadName)?;
-        if !crate::config::check::valid_name(name) {
+        if !burrow_syntax::name::valid_name(name) {
             return Err(DecodeError::BadName);
         }
         Ok(Preamble {
@@ -168,7 +168,7 @@ impl<'a> Reader<'a> {
 
     fn name(&mut self) -> Result<String, DecodeError> {
         let n = self.short_str()?;
-        if crate::config::check::valid_name(&n) {
+        if burrow_syntax::name::valid_name(&n) {
             Ok(n)
         } else {
             Err(DecodeError::BadName)
@@ -508,7 +508,7 @@ impl VisitTarget {
             },
             VisitTarget::Client { client, target } => VisitTarget::Client {
                 client: client.clone(),
-                target: crate::config::check::ports::port_at(target, offset),
+                target: burrow_syntax::ports::port_at(target, offset),
             },
         }
     }
@@ -634,7 +634,7 @@ impl Grants {
                 };
                 let (port, ports) = (r.u16()?, r.u16()?);
                 if ports == 0
-                    || ports > crate::config::check::ports::MAX_RANGE
+                    || ports > burrow_syntax::ports::MAX_RANGE
                     || u32::from(port) + u32::from(ports) > 65536
                 {
                     return Err(DecodeError::TooLong);
@@ -725,7 +725,7 @@ impl VisitRequest {
         };
         let name = |r: &mut Reader| {
             let n = r.short_str()?;
-            if crate::config::check::valid_name(&n) {
+            if burrow_syntax::name::valid_name(&n) {
                 Ok(n)
             } else {
                 Err(DecodeError::BadName)

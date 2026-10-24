@@ -567,7 +567,7 @@ mod tests {
             cipher: burrow_config::Cipher::Chachapoly,
             proxy: None,
             connect_timeout: std::time::Duration::from_secs(1),
-            tcp: crate::config::settings::SocketTuning {
+            tcp: crate::transport::tcp::SocketTuning {
                 nodelay: true,
                 keepalive: None,
             },

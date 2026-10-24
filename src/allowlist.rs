@@ -75,7 +75,7 @@ impl AllowList {
 
     pub fn permits_socket(&self, path: &str) -> bool {
         match self {
-            AllowList::All => crate::config::check::unix::check_path(path).is_ok(),
+            AllowList::All => burrow_syntax::unix::check_path(path).is_ok(),
             AllowList::Rules(rules) => rules.iter().any(|r| r.matches_socket(path)),
         }
     }

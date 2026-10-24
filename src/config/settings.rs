@@ -6,15 +6,10 @@ use crate::allowlist::{AllowList, Cidr, Sources};
 use crate::protocol::VisitTarget;
 use crate::proxy::ProxyConfig;
 use crate::secret::Secret;
+use crate::transport::tcp::SocketTuning;
 use burrow_admin_proto::msg::AdminLevel;
 use burrow_config::{Cipher, Mode, Protocol};
 use burrow_syntax::endpoint::Endpoint;
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct SocketTuning {
-    pub nodelay: bool,
-    pub keepalive: Option<Duration>,
-}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ServerSettings {

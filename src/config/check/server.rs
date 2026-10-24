@@ -10,11 +10,11 @@ use super::super::tree::{Node, Span, Value};
 use super::ports::ranges_conflict;
 use super::service::{Taken, check_service};
 use super::{
-    MAX_SECRETS_PER_CLIENT, Spans, binds_conflict, name_error, parse_bind, parse_local,
-    secret_error, tuning, valid_name,
+    Spans, binds_conflict, name_error, parse_bind, parse_local, secret_error, tuning, valid_name,
 };
 use crate::allowlist::AllowList;
 use crate::diagnostics::Diagnostic;
+use crate::noise::MAX_SECRETS_PER_CLIENT;
 use crate::secret::Secret;
 use crate::suggest::{closest, quoted_list};
 use burrow_config::SELF;

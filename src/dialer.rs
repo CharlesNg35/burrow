@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use tokio_rustls::TlsConnector;
 
-use crate::config::settings::{ClientSettings, SocketTuning, VisitorSettings};
+use crate::config::settings::{ClientSettings, VisitorSettings};
 use crate::failure::io_reason;
 use crate::handshake::{Channel, ClientHandshakeError, initiate};
 use crate::protocol::{ChannelKind, Hello, Preamble};
@@ -13,7 +13,7 @@ use crate::proxy::ProxyConfig;
 use crate::secret::Secret;
 use crate::transport::proxy::dial_tcp_ordered;
 use crate::transport::resolve::{self, Resolver};
-use crate::transport::tcp::tune;
+use crate::transport::tcp::{SocketTuning, tune};
 use crate::transport::ws::{self, Carrier};
 use crate::transport::{Conn, tls};
 use burrow_config::Cipher;

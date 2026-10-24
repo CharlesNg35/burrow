@@ -15,13 +15,12 @@ use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::time::Duration;
 
-use super::settings::SocketTuning;
 use super::tree::{Node, Span, Value};
 use crate::diagnostics::Diagnostic;
 use crate::secret::SecretError;
+use crate::transport::tcp::SocketTuning;
 use burrow_config::{Bind, TcpOptions};
 
-pub const MAX_SECRETS_PER_CLIENT: usize = 4;
 pub use burrow_syntax::hostport::{MAX_TARGET_LEN, parse_host_port};
 pub use burrow_syntax::name::{MAX_NAME_LEN, valid_name};
 use burrow_syntax::ports::SENSITIVE_PORTS;

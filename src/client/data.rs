@@ -10,7 +10,7 @@ use tracing::{debug, info, warn};
 
 use crate::allowlist::{AllowList, Gate, Refusal};
 use crate::config::check::{parse_host_port, unix};
-use crate::config::settings::{ClientSettings, Limit, SocketTuning};
+use crate::config::settings::{ClientSettings, Limit};
 use crate::failure::io_reason;
 use crate::forward::{client_tcp, refuse};
 use crate::handshake::Channel;
@@ -20,7 +20,7 @@ use crate::protocol::{
 };
 use crate::throttle::Throttle;
 use crate::transport::resolve::Resolver;
-use crate::transport::tcp::{connect_any, tune};
+use crate::transport::tcp::{SocketTuning, connect_any, tune};
 use burrow_config::Protocol;
 
 #[derive(Clone, PartialEq)]

@@ -121,7 +121,7 @@ where
     let mut head = [0u8; PREAMBLE_FIXED];
     stream.read_exact(&mut head).await?;
     let (kind, flags, name_len) = Preamble::decode_fixed(&head)?;
-    let mut rest = [0u8; crate::config::check::MAX_NAME_LEN + MSG1_LEN];
+    let mut rest = [0u8; burrow_syntax::name::MAX_NAME_LEN + MSG1_LEN];
     let rest = &mut rest[..name_len + MSG1_LEN];
     stream.read_exact(rest).await?;
     let (name, msg1) = rest.split_at(name_len);

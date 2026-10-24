@@ -5,7 +5,11 @@ use std::time::Duration;
 use socket2::{SockRef, TcpKeepalive};
 use tokio::net::{TcpListener, TcpSocket, TcpStream};
 
-use crate::config::settings::SocketTuning;
+#[derive(Debug, Clone, PartialEq)]
+pub struct SocketTuning {
+    pub nodelay: bool,
+    pub keepalive: Option<Duration>,
+}
 
 pub const LISTEN_BACKLOG: u32 = 4096;
 

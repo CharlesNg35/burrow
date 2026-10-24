@@ -137,7 +137,7 @@ async fn http_connect(s: &mut TcpStream, target: &str, p: &ProxyConfig) -> io::R
 }
 
 async fn socks5_connect(s: &mut TcpStream, target: &str, p: &ProxyConfig) -> io::Result<()> {
-    let (host, port) = crate::config::check::parse_host_port(target).map_err(proxy_err)?;
+    let (host, port) = burrow_syntax::hostport::parse_host_port(target).map_err(proxy_err)?;
     let methods: &[u8] = if p.auth.is_some() {
         &[5, 2, 0, 2]
     } else {

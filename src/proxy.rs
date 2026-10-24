@@ -48,7 +48,7 @@ impl ProxyConfig {
         {
             return Err("proxy user name and password must be at most 255 bytes".into());
         }
-        crate::config::check::parse_host_port(hostport)?;
+        burrow_syntax::hostport::parse_host_port(hostport)?;
         Ok(ProxyConfig {
             kind,
             addr: hostport.to_string(),
