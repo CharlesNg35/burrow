@@ -1,0 +1,120 @@
+use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
+
+use blake2::{Blake2s256, Digest};
+
+use super::{Manifest, Platform, all_manifests};
+
+static CHOSEN: OnceLock<PathBuf> = OnceLock::new();
+
+pub fn choose_state_dir(dir: PathBuf) {
+    let _ = CHOSEN.set(dir);
+}
+
+pub fn service_state_dir(short: &str) -> PathBuf {
+    let p = Platform::current();
+    p.state_dir()
+        .parent()
+        .map_or_else(|| PathBuf::from("/var/lib/burrow"), Path::to_path_buf)
+        .join(short)
+}
+
+pub fn state_dir_for(config: &Path) -> PathBuf {
+    if let Some(d) = CHOSEN.get() {
+        return d.clone();
+    }
+    let config = crate::base::fs::canonical_or_same(config);
+    if let Some(m) = installed_for(&config, &all_manifests()) {
+        return service_state_dir(m.short());
+    }
+    own_state_dir(&config, dirs::state_dir().or_else(dirs::data_local_dir))
+}
+
+fn installed_for<'a>(config: &Path, manifests: &'a [Manifest]) -> Option<&'a Manifest> {
+    manifests.iter().find(|m| {
+        m.role == "server"
+            && [&m.config, &m.source_config]
+                .iter()
+                .any(|c| crate::base::fs::canonical_or_same(c) == config)
+    })
+}
+
+fn own_state_dir(config: &Path, base: Option<PathBuf>) -> PathBuf {
+    let digest = Blake2s256::new()
+        .chain_update(config.to_string_lossy().as_bytes())
+        .finalize();
+    let stem = config
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("server");
+    let folder = format!("{stem}-{}", hex::encode(&digest[..4]));
+    base.unwrap_or_else(|| config.parent().unwrap_or(Path::new(".")).to_path_buf())
+        .join("burrow")
+        .join("servers")
+        .join(folder)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn manifest(name: &str, role: &str, config: &str, source: &str) -> Manifest {
+        Manifest {
+            name: name.into(),
+            role: role.into(),
+            config: config.into(),
+            source_config: source.into(),
+            env_file: None,
+            log_file: PathBuf::new(),
+            binary: PathBuf::new(),
+            copied_binary: false,
+            account: "burrow-home".into(),
+            created_account: false,
+            low_ports: false,
+            files: Vec::new(),
+            version: String::new(),
+            admin_writable: false,
+        }
+    }
+
+    #[test]
+    fn a_server_run_by_hand_keeps_its_state_in_the_users_state_folder_per_config() {
+        let base = Some(PathBuf::from("/home/u/.local/state"));
+        let a = own_state_dir(Path::new("/etc/burrow/server.yaml"), base.clone());
+        let b = own_state_dir(Path::new("/srv/other/server.yaml"), base);
+        assert!(
+            a.starts_with("/home/u/.local/state/burrow/servers"),
+            "{a:?}"
+        );
+        assert!(
+            a.file_name()
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .starts_with("server-")
+        );
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn an_installed_server_config_uses_its_services_folder() {
+        let list = vec![
+            manifest(
+                "burrow-lap",
+                "visitor",
+                "/etc/burrow/home/server.yaml",
+                "/x",
+            ),
+            manifest(
+                "burrow-home",
+                "server",
+                "/etc/burrow/home/server.yaml",
+                "/root/server.yaml",
+            ),
+        ];
+        let found = installed_for(Path::new("/root/server.yaml"), &list).unwrap();
+        assert_eq!(found.short(), "home");
+        assert!(installed_for(Path::new("/elsewhere.yaml"), &list).is_none());
+        assert!(service_state_dir("home").ends_with("burrow/home") || cfg!(windows));
+    }
+}

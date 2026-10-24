@@ -47,6 +47,7 @@ pub struct LetsEncrypt {
     pub directory: String,
     pub ca: Option<PathBuf>,
     pub profile: Option<String>,
+    pub state_dir: Option<PathBuf>,
 }
 
 impl WebSettings {

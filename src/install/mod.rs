@@ -1,4 +1,5 @@
 mod platform;
+mod state;
 pub(crate) mod trust;
 
 use std::path::{Path, PathBuf};
@@ -9,6 +10,7 @@ use crate::base::failure::Failure;
 use trust::binary_trusted;
 
 pub use platform::Platform;
+pub use state::{choose_state_dir, service_state_dir, state_dir_for};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Manifest {

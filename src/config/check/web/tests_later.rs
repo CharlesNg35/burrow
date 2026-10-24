@@ -19,23 +19,11 @@ fn codes(rest: &str) -> Vec<(&'static str, String)> {
 
 #[test]
 fn every_web_key_of_a_later_phase_is_refused_with_its_own_code() {
-    let cases = [
-        (
-            WEB_HTTPS_REDIRECT,
-            "https_redirect: false",
-            "web.https_redirect",
-        ),
-        (
-            WEB_LETSENCRYPT,
-            "letsencrypt: { email: ops@example.com, directory: staging }",
-            "web.letsencrypt",
-        ),
-        (
-            WEB_CERTIFICATES,
-            "certificates: [{ hosts: [nas.example.com], cert: c.pem, key: k.pem }]",
-            "web.certificates",
-        ),
-    ];
+    let cases = [(
+        WEB_HTTPS_REDIRECT,
+        "https_redirect: false",
+        "web.https_redirect",
+    )];
     for (code, yaml, key) in cases {
         let got = codes(&format!(
             "listen: 7835\nweb:\n  https: 443\n  {yaml}\n{NAS}"

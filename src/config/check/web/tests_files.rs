@@ -66,3 +66,40 @@ fn a_certificate_rewritten_in_place_makes_the_settings_differ() {
         "a file that went away counts too"
     );
 }
+
+#[test]
+fn a_server_with_letsencrypt_loads_with_its_state_folder_and_one_without_has_none() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("server.yaml");
+    let text = |le: &str| {
+        format!(
+            "clients:\n  home: {{ secret: \"{}\" }}\nlisten: 7835\nweb:\n  https: 443\n{le}services:\n  nas: {{ client: home, target: 443, web: {{ hosts: [nas.example.com], tls: passthrough }} }}\n",
+            super::tests::SECRET
+        )
+    };
+    std::fs::write(&path, text("  letsencrypt: { email: ops@example.com }\n")).unwrap();
+    let env = crate::config::env::Env::default();
+    let o = crate::config::load_file(&path, Some(crate::config::Role::Server), &env).unwrap();
+    let errors: Vec<_> = o
+        .report
+        .diagnostics
+        .iter()
+        .filter(|d| d.is_error())
+        .collect();
+    assert!(errors.is_empty(), "{errors:#?}");
+    let Some(crate::config::Loaded::Server(s, _)) = o.loaded else {
+        panic!("a server config");
+    };
+    let le = s.web.unwrap().letsencrypt.unwrap();
+    assert_eq!(le.state_dir, Some(crate::install::state_dir_for(&path)));
+    assert!(
+        !le.state_dir.unwrap().exists(),
+        "nothing is made before it is needed"
+    );
+    std::fs::write(&path, text("")).unwrap();
+    let o = crate::config::load_file(&path, Some(crate::config::Role::Server), &env).unwrap();
+    let Some(crate::config::Loaded::Server(s, _)) = o.loaded else {
+        panic!("a server config");
+    };
+    assert!(s.web.unwrap().letsencrypt.is_none());
+}

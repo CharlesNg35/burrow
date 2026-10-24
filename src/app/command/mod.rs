@@ -283,8 +283,12 @@ fn run(cli: Cli) -> Result<u8, Failure> {
         Command::Service { action } => service(action, logging),
         Command::Admin(args) => admin(args),
         Command::Server(args) => {
-            let env = run_env(args.env_file.as_deref())?;
-            crate::app::run::server(&config_path(args.config, Some(Role::Server))?, logging, env)
+            if let Some(dir) = args.state_dir {
+                crate::install::choose_state_dir(dir);
+            }
+            let env = run_env(args.run.env_file.as_deref())?;
+            let path = config_path(args.run.config, Some(Role::Server))?;
+            crate::app::run::server(&path, logging, env)
         }
         Command::Client(args) => {
             let env = run_env(args.env_file.as_deref())?;

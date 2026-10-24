@@ -70,6 +70,18 @@ pub struct RunArgs {
 }
 
 #[derive(Debug, Args)]
+pub struct ServerArgs {
+    #[command(flatten)]
+    pub run: RunArgs,
+    #[arg(
+        long,
+        value_name = "DIR",
+        help = "Folder for the Let's Encrypt account and certificates (web.letsencrypt); burrow service install sets it"
+    )]
+    pub state_dir: Option<PathBuf>,
+}
+
+#[derive(Debug, Args)]
 pub struct AdminArgs {
     #[arg(
         short,

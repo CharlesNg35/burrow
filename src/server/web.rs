@@ -180,8 +180,11 @@ fn cert_settings(s: &ServerSettings, web: &WebSettings) -> CertSettings {
             ca: l.ca.clone(),
             email: l.email.clone(),
             profile: l.profile.clone(),
-            state_dir: None,
-            challenges: std::iter::once(burrow_web::tls::CertCheck::Tls)
+            state_dir: l.state_dir.clone(),
+            challenges: web
+                .https
+                .map(|_| burrow_web::tls::CertCheck::Tls)
+                .into_iter()
                 .chain(web.http.map(|_| burrow_web::tls::CertCheck::Http))
                 .collect(),
             fallback_directory: (l.directory == burrow_web::tls::acme::LETSENCRYPT_PRODUCTION)

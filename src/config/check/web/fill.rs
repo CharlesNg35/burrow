@@ -79,6 +79,7 @@ pub(in crate::config::check) fn settings(
         email: l.email.trim().to_string(),
         directory: directory_url(l.directory.as_ref()),
         ca: l.ca.as_ref().map(|c| base_dir.join(c)),
+        state_dir: None,
         profile: l
             .profile
             .as_deref()

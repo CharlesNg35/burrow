@@ -4,8 +4,8 @@ mod service;
 use std::path::PathBuf;
 
 pub use args::{
-    AdminArgs, ClientConfigArgs, EditArgs, ExportArgs, InitArgs, RunArgs, StatusArgs, UpdateArgs,
-    ValidateArgs, VisitArgs, VisitorConfigArgs, parse_duration,
+    AdminArgs, ClientConfigArgs, EditArgs, ExportArgs, InitArgs, RunArgs, ServerArgs, StatusArgs,
+    UpdateArgs, ValidateArgs, VisitArgs, VisitorConfigArgs, parse_duration,
 };
 use clap::{Parser, Subcommand, ValueEnum};
 pub use service::{
@@ -78,7 +78,7 @@ pub const ADMIN_COMMAND: &str = "admin";
 #[derive(Debug, Subcommand)]
 pub enum Command {
     #[command(about = "Run the public server")]
-    Server(RunArgs),
+    Server(ServerArgs),
     #[command(about = "Run the client behind NAT")]
     Client(RunArgs),
     #[command(about = "Forward local ports to private services through the server")]
