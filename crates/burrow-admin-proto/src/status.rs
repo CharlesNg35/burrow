@@ -22,6 +22,16 @@ pub struct Status {
     pub web: Option<crate::web::WebSummary>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub certificates: Vec<CertStatus>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub acme: Option<AcmeStatus>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct AcmeStatus {
+    pub directory: String,
+    #[serde(default)]
+    pub account: Option<String>,
+    pub state_dir: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -124,6 +134,10 @@ pub struct CertStatus {
     pub next_renewal: Option<u64>,
     #[serde(default)]
     pub last_error: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub explanation: Option<String>,
+    #[serde(default)]
+    pub failures: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -171,6 +185,8 @@ mod tests {
             expires: Some(1_800_000_000),
             next_renewal: None,
             last_error: Some("rate limited".into()),
+            explanation: Some("https://example.com/why".into()),
+            failures: 3,
         };
         let v = serde_json::to_value(&c).unwrap();
         assert_eq!(v["source"]["kind"], "lets_encrypt");
@@ -178,8 +194,18 @@ mod tests {
             v["state"],
             serde_json::json!({"kind": "failing", "reason": "rate limited"})
         );
-        assert_eq!(serde_json::from_value::<CertStatus>(v).unwrap(), c);
+        assert_eq!(serde_json::from_value::<CertStatus>(v.clone()).unwrap(), c);
+        assert_eq!(v["failures"], 3);
+        assert_eq!(v["explanation"], "https://example.com/why");
         let empty = serde_json::to_value(Status::default()).unwrap();
-        assert!(empty.get("certificates").is_none());
+        assert!(empty.get("certificates").is_none() && empty.get("acme").is_none());
+        let acme = AcmeStatus {
+            directory: "https://acme-v02.api.letsencrypt.org/directory".into(),
+            account: Some("https://acme-v02.api.letsencrypt.org/acme/acct/1".into()),
+            state_dir: "/var/lib/burrow/home".into(),
+        };
+        let v = serde_json::to_value(&acme).unwrap();
+        assert_eq!(v["state_dir"], "/var/lib/burrow/home");
+        assert_eq!(serde_json::from_value::<AcmeStatus>(v).unwrap(), acme);
     }
 }

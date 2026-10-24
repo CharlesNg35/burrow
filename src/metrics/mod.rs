@@ -145,5 +145,6 @@ impl Metrics {
 }
 
 pub use burrow_admin_proto::status::{
-    ClientStatus, HealthStatus, ServiceStatus, SetAside, Status, VisitorStatus,
+    AcmeStatus, CertSourceStatus, CertStateStatus, CertStatus, ClientStatus, HealthStatus,
+    ServiceStatus, SetAside, Status, VisitorStatus,
 };

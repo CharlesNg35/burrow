@@ -129,29 +129,8 @@ impl Shared {
                 }
             })
             .collect();
-        let mut listening = Vec::new();
-        if let Some(l) = settings.listen {
-            listening.push(format!("clients on tcp {l}"));
-        }
-        match settings.websocket.as_ref() {
-            Some(ws) if ws.host.is_some() => {
-                if let Some(url) = ws.shared_url() {
-                    listening.push(format!("clients on {url} (the web port)"));
-                }
-            }
-            Some(ws) => {
-                let scheme = if ws.tls.is_some() { "wss" } else { "ws" };
-                listening.push(format!("clients on {scheme}://{}{}", ws.listen, ws.path));
-            }
-            None => {}
-        }
-        if let Some(web) = &settings.web {
-            listening.extend(web.https.map(|a| format!("websites on https {a}")));
-            listening.extend(web.http.map(|a| format!("websites on http {a}")));
-        }
-        if let Some(m) = settings.metrics {
-            listening.push(format!("metrics on http://{m}/metrics"));
-        }
+        let listening = listening(&settings);
+        let (certificates, acme) = self.certificates_of(&settings);
         Status {
             version: env!("CARGO_PKG_VERSION").to_string(),
             uptime_secs: self.metrics.uptime_secs(),
@@ -162,7 +141,59 @@ impl Shared {
             services,
             visitors,
             web: crate::config::web_summary::summary(&settings),
-            certificates: Vec::new(),
+            certificates,
+            acme,
         }
+    }
+}
+
+fn listening(settings: &crate::config::settings::ServerSettings) -> Vec<String> {
+    let mut listening = Vec::new();
+    if let Some(l) = settings.listen {
+        listening.push(format!("clients on tcp {l}"));
+    }
+    match settings.websocket.as_ref() {
+        Some(ws) if ws.host.is_some() => {
+            if let Some(url) = ws.shared_url() {
+                listening.push(format!("clients on {url} (the web port)"));
+            }
+        }
+        Some(ws) => {
+            let scheme = if ws.tls.is_some() { "wss" } else { "ws" };
+            listening.push(format!("clients on {scheme}://{}{}", ws.listen, ws.path));
+        }
+        None => {}
+    }
+    if let Some(web) = &settings.web {
+        listening.extend(web.https.map(|a| format!("websites on https {a}")));
+        listening.extend(web.http.map(|a| format!("websites on http {a}")));
+    }
+    if let Some(m) = settings.metrics {
+        listening.push(format!("metrics on http://{m}/metrics"));
+    }
+    listening
+}
+
+impl Shared {
+    #[cfg(feature = "web")]
+    fn certificates_of(
+        &self,
+        settings: &crate::config::settings::ServerSettings,
+    ) -> (
+        Vec<crate::metrics::CertStatus>,
+        Option<crate::metrics::AcmeStatus>,
+    ) {
+        self.certificate_lines(settings)
+    }
+
+    #[cfg(not(feature = "web"))]
+    fn certificates_of(
+        &self,
+        _: &crate::config::settings::ServerSettings,
+    ) -> (
+        Vec<crate::metrics::CertStatus>,
+        Option<crate::metrics::AcmeStatus>,
+    ) {
+        (Vec::new(), None)
     }
 }

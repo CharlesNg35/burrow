@@ -173,6 +173,7 @@ mod tests {
             visitors: vec![],
             web: None,
             certificates: Vec::new(),
+            acme: None,
         }
     }
 

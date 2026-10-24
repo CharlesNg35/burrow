@@ -354,6 +354,8 @@ impl Server {
                 crate::wire::transport::resolve::system(),
             )),
             metrics: crate::metrics::Metrics::default(),
+            #[cfg(feature = "web")]
+            certs: burrow_web::tls::Store::new(),
         });
         let mut services = HashMap::new();
         for (name, svc) in &settings.services {

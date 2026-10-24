@@ -2,7 +2,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use burrow_web::tls::{Certificates, Store};
+use burrow_web::tls::Certificates;
 use burrow_web::{Listeners, Proxy, ProxySettings};
 use tokio::net::TcpListener;
 use tracing::{error, info};
@@ -93,7 +93,7 @@ impl WebTask {
         };
         let listeners = bind_ports(ports)?;
         Ok(Some(
-            WebTask::start(shared, listeners, p, Store::new()).await,
+            WebTask::start(shared, listeners, p, shared.certs.clone()).await,
         ))
     }
 
@@ -171,10 +171,7 @@ impl Server {
     }
 
     fn web_certs(&self) -> Arc<dyn Certificates> {
-        self.web.as_ref().map_or_else(
-            || Store::new() as Arc<dyn Certificates>,
-            |t| t.proxy.certificates(),
-        )
+        self.shared.certs.clone()
     }
 
     pub(in crate::server) async fn apply_web(
@@ -193,6 +190,10 @@ impl Server {
         let Some((p, ports)) = p.and_then(|p| Ports::of(&p).map(|ports| (p, ports))) else {
             if self.web.is_some() {
                 self.stop_web().await;
+                self.shared
+                    .certs
+                    .apply(&burrow_web::CertSettings::default(), &[])
+                    .await;
                 info!("web proxy stopped");
             }
             return;

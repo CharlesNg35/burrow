@@ -2,6 +2,8 @@
 
 #[path = "web/by_path.rs"]
 mod by_path;
+#[path = "web/certs.rs"]
+mod certs;
 mod common;
 #[path = "web/ends.rs"]
 mod ends;

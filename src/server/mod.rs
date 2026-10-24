@@ -1,4 +1,6 @@
 pub mod admin_hook;
+#[cfg(feature = "web")]
+mod certs;
 mod control;
 mod fields;
 mod health;
@@ -70,6 +72,8 @@ pub struct Shared {
     turns: Mutex<HashMap<String, usize>>,
     local: Arc<local::SelfDialer>,
     pub(crate) metrics: crate::metrics::Metrics,
+    #[cfg(feature = "web")]
+    certs: Arc<burrow_web::tls::Store>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

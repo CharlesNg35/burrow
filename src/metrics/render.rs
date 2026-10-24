@@ -41,7 +41,44 @@ pub fn prometheus(s: &Status) -> String {
     client_families(&mut f, s);
     service_families(&mut f, s);
     visitor_families(&mut f, s);
+    certificate_families(&mut f, s);
     out
+}
+
+fn certificate_families(f: &mut Family, s: &Status) {
+    use burrow_admin_proto::status::CertSourceStatus as Source;
+    let served: Vec<_> = s
+        .certificates
+        .iter()
+        .filter(|c| !matches!(c.source, Source::Passthrough | Source::Plain))
+        .collect();
+    if served.is_empty() {
+        return;
+    }
+    f.head(
+        "burrow_certificate_expiry_timestamp_seconds",
+        "gauge",
+        "When the certificate served for a web name expires, in Unix seconds.",
+    );
+    for c in served.iter().filter(|c| c.expires.is_some()) {
+        f.line(
+            "burrow_certificate_expiry_timestamp_seconds",
+            &[("name", &c.name)],
+            c.expires.unwrap_or_default(),
+        );
+    }
+    f.head(
+        "burrow_certificate_failures_total",
+        "counter",
+        "Failed attempts to get or renew the certificate for a web name since the server started.",
+    );
+    for c in &served {
+        f.line(
+            "burrow_certificate_failures_total",
+            &[("name", &c.name)],
+            c.failures,
+        );
+    }
 }
 
 fn server_families(f: &mut Family, s: &Status) {
@@ -231,6 +268,7 @@ pub fn bytes(n: u64) -> String {
 mod tests {
     use super::super::*;
     use super::*;
+    use burrow_admin_proto::status::CertSourceStatus;
 
     fn sample() -> Status {
         Status {
@@ -299,7 +337,45 @@ mod tests {
                 last_seen_secs: Some(0),
             }],
             web: None,
-            certificates: Vec::new(),
+            certificates: vec![
+                cert(
+                    "blog.example.com",
+                    CertSourceStatus::LetsEncrypt {
+                        directory: "d".into(),
+                    },
+                    Some(1_800_000_000),
+                    2,
+                ),
+                cert("nas.example.com", CertSourceStatus::Passthrough, None, 0),
+                cert(
+                    "new.example.com",
+                    CertSourceStatus::LetsEncrypt {
+                        directory: "d".into(),
+                    },
+                    None,
+                    0,
+                ),
+            ],
+            acme: None,
+        }
+    }
+
+    fn cert(
+        name: &str,
+        source: CertSourceStatus,
+        expires: Option<u64>,
+        failures: u64,
+    ) -> CertStatus {
+        CertStatus {
+            name: name.into(),
+            source,
+            check: None,
+            state: burrow_admin_proto::status::CertStateStatus::Ok,
+            expires,
+            next_renewal: None,
+            last_error: None,
+            explanation: None,
+            failures,
         }
     }
 
@@ -313,12 +389,21 @@ mod tests {
             "burrow_service_client_up{service=\"web\",client=\"office\"} 0",
             "burrow_visitor_connections_total{visitor=\"lap\\\"top\"} 12",
             "# TYPE burrow_service_connections_total counter",
+            "burrow_certificate_expiry_timestamp_seconds{name=\"blog.example.com\"} 1800000000",
+            "burrow_certificate_failures_total{name=\"blog.example.com\"} 2",
+            "burrow_certificate_failures_total{name=\"new.example.com\"} 0",
+            "# TYPE burrow_certificate_failures_total counter",
         ] {
             assert!(
                 text.lines().any(|l| l == line),
                 "missing {line:?} in\n{text}"
             );
         }
+        assert!(
+            !text.contains("nas.example.com"),
+            "passthrough names have no certificate of burrow's"
+        );
+        assert!(!text.contains("expiry_timestamp_seconds{name=\"new.example.com\""));
         for l in text.lines().filter(|l| !l.starts_with('#')) {
             let value = l.rsplit(' ').next().unwrap();
             assert!(value.parse::<u64>().is_ok(), "{l}");
