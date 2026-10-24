@@ -18,24 +18,8 @@ use burrow_config::Protocol;
 impl Server {
     pub(super) async fn apply(&mut self, next: ServerSettings) {
         let current = self.shared.settings();
-        if next.listen != current.listen {
-            let clash = current.listen_clash(&next).map(|c| (c.what, c.kept));
-            if let Some((what, kept)) = clash {
-                let why = format!(
-                    "{what} uses {kept}, which this server keeps listening on until it restarts"
-                );
-                error!("reload rejected: {why}; keeping the current config");
-                self.shared.report_apply(Some(why), Vec::new(), Vec::new());
-                return;
-            }
-            let show =
-                |a: Option<SocketAddr>| a.map_or_else(|| "off".to_string(), |a| a.to_string());
-            warn!(
-                "changing \"listen\" from {} to {} needs a restart; keeping {}",
-                show(current.listen),
-                show(next.listen),
-                show(current.listen)
-            );
+        if self.listen_change_refused(&current, &next) {
+            return;
         }
         let mut next = next;
         next.listen = current.listen;
@@ -59,6 +43,38 @@ impl Server {
         self.shared.prune_standing(&next);
         self.shared.reloaded.send_modify(|n| *n += 1);
 
+        self.apply_endpoints(&current, &mut next).await;
+        let mut released = self.stop_moving_services(&next).await;
+        let unbound = self.bind_services(&current, &next, &mut released).await;
+        log_former_private_services(&current, &next);
+        self.update_sessions(&current, &next);
+        self.report_reload(&changed, &next, unbound);
+    }
+
+    fn listen_change_refused(&self, current: &ServerSettings, next: &ServerSettings) -> bool {
+        if next.listen != current.listen {
+            let clash = current.listen_clash(next).map(|c| (c.what, c.kept));
+            if let Some((what, kept)) = clash {
+                let why = format!(
+                    "{what} uses {kept}, which this server keeps listening on until it restarts"
+                );
+                error!("reload rejected: {why}; keeping the current config");
+                self.shared.report_apply(Some(why), Vec::new(), Vec::new());
+                return true;
+            }
+            let show =
+                |a: Option<SocketAddr>| a.map_or_else(|| "off".to_string(), |a| a.to_string());
+            warn!(
+                "changing \"listen\" from {} to {} needs a restart; keeping {}",
+                show(current.listen),
+                show(next.listen),
+                show(current.listen)
+            );
+        }
+        false
+    }
+
+    async fn apply_endpoints(&mut self, current: &ServerSettings, next: &mut ServerSettings) {
         if next.websocket != current.websocket {
             let before = (
                 self.websocket_addr(),
@@ -86,7 +102,12 @@ impl Server {
                 *self.shared.settings.write().expect("settings lock") = Arc::new(next.clone());
             }
         }
+    }
 
+    async fn stop_moving_services(
+        &mut self,
+        next: &ServerSettings,
+    ) -> Vec<(Protocol, SocketAddr, u16)> {
         let moving: Vec<String> = self
             .services
             .iter()
@@ -100,7 +121,6 @@ impl Server {
             .map(|(k, _)| k.clone())
             .collect();
         let mut released: Vec<(Protocol, SocketAddr, u16)> = Vec::new();
-        let mut unbound: Vec<String> = Vec::new();
         for name in moving {
             if let Some(t) = self.services.remove(&name) {
                 if let Some(b) = t.service.bind {
@@ -117,6 +137,16 @@ impl Server {
                 }
             }
         }
+        released
+    }
+
+    async fn bind_services(
+        &mut self,
+        current: &ServerSettings,
+        next: &ServerSettings,
+        released: &mut Vec<(Protocol, SocketAddr, u16)>,
+    ) -> Vec<String> {
+        let mut unbound: Vec<String> = Vec::new();
         for (name, svc) in &next.services {
             if svc.bind.is_none() {
                 if current
@@ -178,16 +208,10 @@ impl Server {
             }
         }
 
-        for (name, svc) in &current.services {
-            match next.services.get(name) {
-                None if svc.bind.is_none() => info!("service \"{name}\" removed"),
-                Some(n) if svc.bind.is_none() && n.bind.is_some() => {
-                    info!("service \"{name}\" is now public")
-                }
-                _ => {}
-            }
-        }
+        unbound
+    }
 
+    fn update_sessions(&self, current: &ServerSettings, next: &ServerSettings) {
         let sessions: Vec<Arc<ClientSession>> = self
             .shared
             .sessions
@@ -224,11 +248,19 @@ impl Server {
                     .retain(|_, v| !Arc::ptr_eq(v, &s));
                 continue;
             }
-            s.reconfigure(&Shared::pool_config(&next));
+            s.reconfigure(&Shared::pool_config(next));
             let _ = s
                 .control
                 .try_send(ServerMsg::Services(next.services_for(&s.name)));
         }
+    }
+
+    fn report_reload(
+        &mut self,
+        changed: &[(&'static str, fields::Applied)],
+        next: &ServerSettings,
+        unbound: Vec<String>,
+    ) {
         let (c, v) = (next.clients.len(), next.services.len());
         let names: Vec<&str> = changed.iter().map(|(name, _)| *name).collect();
         let what = if names.is_empty() {
@@ -403,5 +435,17 @@ impl Server {
             }
         }
         self.metrics.as_ref().and(current)
+    }
+}
+
+fn log_former_private_services(current: &ServerSettings, next: &ServerSettings) {
+    for (name, svc) in &current.services {
+        match next.services.get(name) {
+            None if svc.bind.is_none() => info!("service \"{name}\" removed"),
+            Some(n) if svc.bind.is_none() && n.bind.is_some() => {
+                info!("service \"{name}\" is now public")
+            }
+            _ => {}
+        }
     }
 }
