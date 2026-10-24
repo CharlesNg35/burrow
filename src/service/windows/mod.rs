@@ -1,27 +1,26 @@
+mod acl;
+mod dispatch;
+
 use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
-use std::sync::atomic::{AtomicU8, Ordering};
 use std::time::{Duration, Instant};
 
-use windows_service::define_windows_service;
 use windows_service::service::{
-    Service, ServiceAccess, ServiceAction, ServiceActionType, ServiceControl, ServiceControlAccept,
-    ServiceDependency, ServiceErrorControl, ServiceExitCode, ServiceFailureActions,
-    ServiceFailureResetPeriod, ServiceInfo, ServiceStartType, ServiceState, ServiceStatus,
-    ServiceType,
+    Service, ServiceAccess, ServiceAction, ServiceActionType, ServiceDependency,
+    ServiceErrorControl, ServiceExitCode, ServiceFailureActions, ServiceFailureResetPeriod,
+    ServiceInfo, ServiceStartType, ServiceState, ServiceStatus, ServiceType,
 };
-use windows_service::service_control_handler::{self, ServiceControlHandlerResult};
-use windows_service::service_dispatcher;
 use windows_service::service_manager::{ServiceManager, ServiceManagerAccess};
 
 use super::{Backend, Manifest, Platform, Status};
-use crate::app::run::{Hosted, Logging};
 use crate::base::failure::Failure;
-use crate::base::process::run;
-use crate::config::env::Env;
+use acl::{
+    TRUSTED_OWNERS, broad, grant, grant_dirs, holds_only_hand_run_folders, icacls, is_link,
+    owner_and_me, revoke,
+};
+pub use dispatch::dispatch;
 
 const SYSTEM: &str = "*S-1-5-18";
 const ADMINS: &str = "*S-1-5-32-544";
@@ -75,99 +74,6 @@ fn info(m: &Manifest) -> ServiceInfo {
         account_name: account,
         account_password: None,
     }
-}
-
-fn icacls(path: &Path, args: &[&str]) -> Result<(), Failure> {
-    let p = path.to_string_lossy();
-    let mut all = vec![p.as_ref()];
-    all.extend_from_slice(args);
-    run("icacls", &all).map(drop)
-}
-
-const TRUSTED_OWNERS: [&str; 3] = [
-    "S-1-5-32-544",
-    "S-1-5-18",
-    "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464",
-];
-
-fn owner_and_me(path: &Path) -> Option<(String, String)> {
-    let script = format!(
-        "'{{0}} {{1}}' -f (Get-Acl -LiteralPath '{}').GetOwner([System.Security.Principal.SecurityIdentifier]).Value, [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value",
-        path.display().to_string().replace('\'', "''")
-    );
-    let exe = std::env::var_os("SystemRoot")
-        .map_or_else(|| PathBuf::from(r"C:\Windows"), PathBuf::from)
-        .join(r"System32\WindowsPowerShell\v1.0\powershell.exe");
-    let out = std::process::Command::new(exe)
-        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
-        .env_remove("PSModulePath")
-        .output()
-        .ok()?;
-    if !out.status.success() {
-        return None;
-    }
-    let out = String::from_utf8_lossy(&out.stdout);
-    let (owner, me) = out.trim().split_once(' ')?;
-    (owner.starts_with("S-1-") && me.starts_with("S-1-"))
-        .then(|| (owner.to_string(), me.to_string()))
-}
-
-fn holds_only_hand_run_folders(root: &Path) -> bool {
-    std::fs::read_dir(root).is_ok_and(|entries| {
-        entries.flatten().all(|e| {
-            e.file_type().is_ok_and(|t| t.is_dir())
-                && matches!(e.file_name().to_str(), Some("instances" | "jobs"))
-        })
-    })
-}
-
-fn is_link(path: &Path) -> bool {
-    use std::os::windows::fs::MetadataExt;
-    const REPARSE_POINT: u32 = 0x400;
-    std::fs::symlink_metadata(path).is_ok_and(|m| m.file_attributes() & REPARSE_POINT != 0)
-}
-
-fn grant(path: &Path, account: &str, rights: &str) -> Result<(), Failure> {
-    if system_account(account) || !path.exists() {
-        return Ok(());
-    }
-    icacls(path, &["/grant", &format!("{account}:{rights}")])
-}
-
-fn revoke(path: &Path, account: &str) -> Result<(), Failure> {
-    if system_account(account) || !path.exists() || is_link(path) {
-        return Ok(());
-    }
-    icacls(path, &["/remove:g", account])
-}
-
-fn broad(account: &str) -> bool {
-    let name = account.trim().trim_start_matches('*').to_ascii_lowercase();
-    let name = name.rsplit('\\').next().unwrap_or(&name);
-    [
-        "everyone",
-        "users",
-        "authenticated users",
-        "guests",
-        "interactive",
-        "network",
-        "anonymous logon",
-        "s-1-1-0",
-        "s-1-5-2",
-        "s-1-5-4",
-        "s-1-5-7",
-        "s-1-5-11",
-        "s-1-5-32-545",
-        "s-1-5-32-546",
-    ]
-    .contains(&name)
-}
-
-fn grant_dirs(account: &str) -> Result<(), Failure> {
-    let p = Platform::Windows;
-    grant(&p.state_dir(), account, "(OI)(CI)RX")?;
-    grant(&p.log_dir(), account, "(OI)(CI)M")?;
-    grant(&crate::instance::default_dir(), account, "(OI)(CI)M")
 }
 
 fn wait_for(
@@ -536,84 +442,6 @@ impl Backend for WindowsService {
         }
     }
 }
-
-static NAME: OnceLock<String> = OnceLock::new();
-static EXIT: AtomicU8 = AtomicU8::new(0);
-
-define_windows_service!(ffi_service_main, service_main);
-
-pub fn dispatch(name: &str) -> Result<u8, Failure> {
-    let _ = NAME.set(name.to_string());
-    service_dispatcher::start(name, ffi_service_main).map_err(|e| {
-        scm_error("talk to the Windows service manager", e).hint(format!(
-            "this command is run by Windows; start the service with: {}",
-            crate::base::failure::admin(&format!("service start {name}"))
-        ))
-    })?;
-    Ok(EXIT.load(Ordering::SeqCst))
-}
-
-fn service_main(_args: Vec<OsString>) {
-    let name = NAME.get().cloned().unwrap_or_default();
-    let (tx, rx) = tokio::sync::watch::channel(false);
-    let handler = move |control| match control {
-        ServiceControl::Stop | ServiceControl::Shutdown | ServiceControl::Preshutdown => {
-            let _ = tx.send(true);
-            ServiceControlHandlerResult::NoError
-        }
-        ServiceControl::Interrogate => ServiceControlHandlerResult::NoError,
-        _ => ServiceControlHandlerResult::NotImplemented,
-    };
-    let Ok(handle) = service_control_handler::register(&name, handler) else {
-        return;
-    };
-    let report = |state: ServiceState, code: u8| {
-        let _ = handle.set_service_status(ServiceStatus {
-            service_type: ServiceType::OWN_PROCESS,
-            current_state: state,
-            controls_accepted: if state == ServiceState::Running {
-                ServiceControlAccept::STOP | ServiceControlAccept::SHUTDOWN
-            } else {
-                ServiceControlAccept::empty()
-            },
-            exit_code: if code == 0 {
-                ServiceExitCode::NO_ERROR
-            } else {
-                ServiceExitCode::ServiceSpecific(code.into())
-            },
-            checkpoint: 0,
-            wait_hint: Duration::from_secs(10),
-            process_id: None,
-        });
-    };
-    report(ServiceState::Running, 0);
-    let code = match serve(&name, rx) {
-        Ok(c) => c,
-        Err(f) => f.exit,
-    };
-    EXIT.store(code, Ordering::SeqCst);
-    report(ServiceState::Stopped, code);
-}
-
-fn serve(name: &str, stop: tokio::sync::watch::Receiver<bool>) -> Result<u8, Failure> {
-    let m = super::load_manifest(name)?;
-    crate::instance::running_as_service();
-    let logging = Logging {
-        level: tracing::Level::INFO,
-        json: false,
-        file: Some(m.log_file.clone()),
-    };
-    let hosted = Hosted {
-        stop: Some(stop),
-        env: Env::with(read_env(m.env_file.as_ref())),
-    };
-    match m.role.as_str() {
-        "server" => crate::app::run::server_until(&m.config, logging, Some(hosted)),
-        "visitor" => crate::app::run::visit_until(&m.config, logging, Some(hosted)),
-        _ => crate::app::run::client_until(&m.config, logging, Some(hosted)),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
