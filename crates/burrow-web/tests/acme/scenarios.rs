@@ -149,6 +149,11 @@ pub async fn all(p: Pebble) {
     profiles(&ctx).await;
     fallback_directory(&ctx).await;
     authz_reuse(&ctx).await;
+    let Ctx { p, r, .. } = ctx;
+    drop(r);
+    p.run_pebble(&["PEBBLE_AUTHZREUSE=0"]).await;
+    let root = p.root().await;
+    super::listener::through_the_web_listener(&p, &root).await;
 }
 
 async fn tls_alpn(ctx: &Ctx, state: &Path) {
