@@ -161,7 +161,7 @@ web:
 ```
 
 - **Writing `letsencrypt:` with an email accepts Let's Encrypt's terms** (<https://letsencrypt.org/repository/>). Let's Encrypt stopped sending expiry emails in June 2025; burrow shows the state of every certificate in `burrow status`, the admin UI and its metrics instead.
-- **How Let's Encrypt checks a name:** over TLS on port 443 when `web.https` is 443, else over HTTP on port 80 when `web.http` is 80. Each name needs one of them reachable from the internet, also from several places, so a firewall that allows only some countries or addresses breaks the check.
+- **How Let's Encrypt checks a name:** over TLS on port 443 when `web.https` is 443, else over HTTP on port 80 when `web.http` is 80. Each name needs one of them reachable from the internet, also from several places, so a firewall that allows only some countries or addresses breaks the check. A site's `challenge: tls`, `challenge: http` or `challenge: dns` picks the check (`websocket.challenge` for the tunnel's name); validate refuses a check whose port is not there, `http` or `tls` for a wildcard, and `dns` for an IP address.
 - **Wildcards** need a DNS check, and DNS checks come in a later phase: use your own file for them.
 - **Many sites under one domain** are best served by one wildcard certificate, like `*.example.com`: today as your own file in `web.certificates` (see the recipe below), and from Let's Encrypt with a DNS check once that phase lands.
 - **IP addresses** get Let's Encrypt's short-lived certificates (about 6 days), renewed after half their life.
@@ -342,6 +342,8 @@ server: wss://tunnel.example.com/burrow
 | `https_redirect: false` on passthrough | `services.nas.web.https_redirect: false: burrow cannot serve plain HTTP for a passthrough service (the app keeps its own TLS); only the redirect is possible` |
 | an HTTPS name with no certificate | `host "blog.example.com" (service "blog") has no certificate; add web.letsencrypt for automatic certificates, tls: {cert, key} on service "blog", or an entry in web.certificates whose hosts lists it` |
 | Let's Encrypt cannot check a name | `blog.example.com (service "blog") cannot be checked by Let's Encrypt: open http: 80, or list a file for it in web.certificates (DNS checks come in a later phase)` |
+| a check without its port | `services.blog.web.challenge: http needs web.http on port 80: Let's Encrypt fetches a file there; add http: 80, or use challenge: tls or dns` |
+| a check where no certificate is ordered | `services.nas.web.challenge: the app keeps its own certificate (tls: passthrough); remove challenge` |
 | an entry in `web.certificates` without its files | `web.certificates[0] needs hosts, cert and key: hosts names which names use the file, cert and key are the files` |
 | a wildcard from Let's Encrypt | `services.apps.web.hosts: "*.apps.example.com" needs DNS-01 (...); DNS checks come in a later phase, so add a certificate file under web.certificates or tls` |
 | a name in two certificate entries | `host "files.example.com" is listed in web.certificates[0] and [2]; list it in one entry only` |

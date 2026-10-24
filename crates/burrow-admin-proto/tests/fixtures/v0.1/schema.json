@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:49e6fefe598deb24",
+  "hash": "b2s:813a5a721306378a",
   "root": {
     "label": "Server",
     "sem": {
@@ -162,6 +162,40 @@
                         },
                         "default": 25,
                         "advanced": true
+                      }
+                    },
+                    {
+                      "key": "challenge",
+                      "node": {
+                        "label": "Let's Encrypt check",
+                        "help": "How Let's Encrypt checks the tunnel's own name, for example http behind a proxy that does the HTTPS",
+                        "sem": {
+                          "t": "optional",
+                          "inner": {
+                            "sem": {
+                              "t": "enum",
+                              "options": [
+                                {
+                                  "value": "tls",
+                                  "label": "TLS",
+                                  "help": "Let's Encrypt connects to the HTTPS port; needs web.https on 443"
+                                },
+                                {
+                                  "value": "http",
+                                  "label": "HTTP",
+                                  "help": "Let's Encrypt fetches a file over plain HTTP; needs web.http on 80"
+                                },
+                                {
+                                  "value": "dns",
+                                  "label": "DNS",
+                                  "help": "Let's Encrypt reads a DNS record; DNS checks come in a later phase"
+                                }
+                              ]
+                            }
+                          }
+                        },
+                        "advanced": true,
+                        "none_label": "Automatic"
                       }
                     }
                   ]
@@ -1339,6 +1373,61 @@
                                             }
                                           },
                                           "none_label": "As the web proxy says",
+                                          "relations": [
+                                            {
+                                              "r": "visible_if",
+                                              "cond": {
+                                                "all": [
+                                                  {
+                                                    "ne": [
+                                                      "tls",
+                                                      "passthrough"
+                                                    ]
+                                                  },
+                                                  {
+                                                    "ne": [
+                                                      "tls",
+                                                      "off"
+                                                    ]
+                                                  }
+                                                ]
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      {
+                                        "key": "challenge",
+                                        "node": {
+                                          "label": "Let's Encrypt check",
+                                          "help": "How Let's Encrypt checks that the names are yours: over HTTP for a site behind Cloudflare's proxy, for example; automatic tries TLS on port 443 first, then HTTP on port 80",
+                                          "sem": {
+                                            "t": "optional",
+                                            "inner": {
+                                              "sem": {
+                                                "t": "enum",
+                                                "options": [
+                                                  {
+                                                    "value": "tls",
+                                                    "label": "TLS",
+                                                    "help": "Let's Encrypt connects to the HTTPS port; needs web.https on 443"
+                                                  },
+                                                  {
+                                                    "value": "http",
+                                                    "label": "HTTP",
+                                                    "help": "Let's Encrypt fetches a file over plain HTTP; needs web.http on 80"
+                                                  },
+                                                  {
+                                                    "value": "dns",
+                                                    "label": "DNS",
+                                                    "help": "Let's Encrypt reads a DNS record; DNS checks come in a later phase"
+                                                  }
+                                                ]
+                                              }
+                                            }
+                                          },
+                                          "advanced": true,
+                                          "none_label": "Automatic",
                                           "relations": [
                                             {
                                               "r": "visible_if",

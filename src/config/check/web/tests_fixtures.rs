@@ -123,7 +123,10 @@ fn examples_2_and_3_wait_for_dns_checks_until_p6_flips_them_to_clean() {
         pinned(EXAMPLE_2),
         [
             pair("unknown-field", "unknown field \"dns\" in \"letsencrypt\""),
-            pair("unknown-field", "unknown field \"challenge\" in \"web\""),
+            pair(
+                "challenge-dns",
+                "services.lab.web.challenge: dns checks \"lab.example.net\" through a DNS record; DNS checks come in a later phase",
+            ),
         ],
         "P6 adds these keys and turns example 2 into a clean fixture"
     );
@@ -132,12 +135,8 @@ fn examples_2_and_3_wait_for_dns_checks_until_p6_flips_them_to_clean() {
         [
             pair("unknown-field", "unknown field \"dns\" in \"letsencrypt\""),
             pair(
-                "no-check",
-                "websocket.host \"tunnel.example.com\" cannot be checked: open http: 80, or give websocket.tls files (DNS checks come in a later phase)"
-            ),
-            pair(
-                "unknown-field",
-                "unknown field \"challenge\" in \"websocket\""
+                "challenge-dns",
+                "websocket.challenge: dns checks \"tunnel.example.com\" through a DNS record; DNS checks come in a later phase",
             ),
         ],
         "P6 adds these keys and turns example 3 into a clean fixture"

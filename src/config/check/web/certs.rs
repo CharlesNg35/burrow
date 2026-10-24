@@ -1,10 +1,11 @@
 use std::net::SocketAddr;
 
 use super::Spans;
+use super::challenge::{self, Who};
 use crate::config::diagnostics::Diagnostic;
 use crate::config::tree::Span;
 use burrow_config::{Protocol, ServerConfig, ServiceWeb, SiteTls, TlsMode};
-use burrow_syntax::web::{CheckPorts, NoCheck, SingleLabel, checks_for, entry_for, host_name};
+use burrow_syntax::web::{SingleLabel, entry_for, host_name};
 
 struct Sources<'a> {
     entries: Vec<&'a [String]>,
@@ -43,21 +44,6 @@ fn takes_auto(web: &ServiceWeb) -> bool {
     matches!(web.tls(), None | Some(SiteTls::Mode(TlsMode::Auto)))
 }
 
-const FORWARDING: &str = "Let's Encrypt checks port 443 or port 80; if a router forwards them to other ports, burrow cannot see that, so forward port 80 to web.http too, or give certificate files";
-
-const LATER: &str = "DNS checks come in a later phase";
-
-fn check(
-    host: &str,
-    (https, http): (Option<SocketAddr>, Option<SocketAddr>),
-) -> Result<(), NoCheck> {
-    let ports = CheckPorts {
-        https: https.map(|a| a.port()),
-        http: http.map(|a| a.port()),
-    };
-    checks_for(host, ports, false, false).map(drop)
-}
-
 pub(in crate::config::check) fn check_sources(
     cfg: &ServerConfig,
     ports: (Option<SocketAddr>, Option<SocketAddr>),
@@ -65,6 +51,7 @@ pub(in crate::config::check) fn check_sources(
     out: &mut Vec<Diagnostic>,
 ) {
     check_entries(cfg, spans, out);
+    challenge::unused_site(cfg, spans, out);
     if ports.0.is_none() {
         return;
     }
@@ -88,21 +75,16 @@ pub(in crate::config::check) fn check_sources(
                 out.push(no_certificate(name, &host, at));
                 continue;
             }
-            match check(&host, ports) {
-                Ok(()) => {}
-                Err(NoCheck::NoPort) => out.push(
-                    Diagnostic::error(
-                        "no-check",
-                        format!(
-                            "{host} (service \"{name}\") cannot be checked by Let's Encrypt: open http: 80, or list a file for it in web.certificates ({LATER})"
-                        ),
-                    )
-                    .at(at)
-                    .help(FORWARDING),
-                ),
-                Err(NoCheck::DnsNotSet | NoCheck::DnsForIp) => {
-                    out.push(wildcard_needs_dns(name, &host, at));
-                }
+            let kind = match web {
+                ServiceWeb::Site(site) => site.challenge,
+                _ => None,
+            };
+            if let Some(d) = challenge::check(Who::Site(name), &host, ports, kind, at)
+                && !out
+                    .iter()
+                    .any(|o| o.code == d.code && o.message == d.message)
+            {
+                out.push(d);
             }
         }
     }
@@ -117,19 +99,6 @@ fn no_certificate(name: &str, host: &str, at: Span) -> Diagnostic {
     )
     .at(at)
     .help("for example letsencrypt: {email: ops@example.com} under web")
-}
-
-fn wildcard_needs_dns(name: &str, host: &str, at: Span) -> Diagnostic {
-    Diagnostic::error(
-        "wildcard-needs-dns",
-        format!(
-            "services.{name}.web.hosts: \"{host}\" needs DNS-01 (Let's Encrypt gives wildcard certificates only through DNS); {LATER}, so add a certificate file under web.certificates or tls"
-        ),
-    )
-    .at(at)
-    .help(format!(
-        "for example certificates: [{{hosts: [\"{host}\"], cert: certs/wild.pem, key: certs/wild.key}}] under web"
-    ))
 }
 
 fn check_entries(cfg: &ServerConfig, spans: &Spans, out: &mut Vec<Diagnostic>) {
@@ -180,22 +149,16 @@ pub(in crate::config::check) fn tunnel_has_source(
     out: &mut Vec<Diagnostic>,
 ) {
     let sources = Sources::of(cfg);
+    let kind = cfg.websocket.as_ref().and_then(|w| w.challenge);
     if own_file || sources.lists(host) {
+        if kind.is_some() {
+            out.push(challenge::unused_tunnel(spans, false));
+        }
         return;
     }
     if sources.letsencrypt {
-        if check(host, ports).is_err() {
-            out.push(
-                Diagnostic::error(
-                    "no-check",
-                    format!(
-                        "websocket.host \"{host}\" cannot be checked: open http: 80, or give websocket.tls files ({LATER})"
-                    ),
-                )
-                .at(spans.value(&["websocket", "host"]))
-                .help(FORWARDING),
-            );
-        }
+        let at = spans.value(&["websocket", "host"]);
+        out.extend(challenge::check(Who::Tunnel, host, ports, kind, at));
         return;
     }
     out.push(

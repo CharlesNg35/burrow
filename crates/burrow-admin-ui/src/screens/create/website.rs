@@ -216,7 +216,7 @@ pub fn NewWebsite(open: RwSignal<bool>, draft_name: RwSignal<String>) -> impl In
             && let Some(n) = names
                 .get()
                 .into_iter()
-                .find(|n| checks_for(n, p.get().numbers, false, false).is_err())
+                .find(|n| checks_for(n, p.get().numbers, false, None).is_err())
         {
             return Some(format!(
                 "Let's Encrypt cannot check {n}: its checks reach only ports 443 and 80; open port 80 in server.yaml, or choose another HTTPS option"

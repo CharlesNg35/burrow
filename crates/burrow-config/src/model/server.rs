@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::admin_schema::AdminSchema;
 
+use super::ChallengeKind;
 use super::{
     Bind, ClientEntry, Heartbeat, Limits, Pool, ServiceEntry, TcpOptions, UdpOptions, VisitorEntry,
     WebConfig, is_default, is_false,
@@ -189,6 +190,17 @@ pub struct WebSocketConfig {
     #[schemars(range(min = 5, max = 30))]
     #[admin(label = "Keepalive", advanced)]
     pub keepalive_secs: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        description = "How Let's Encrypt checks the tunnel's own name when it shares web.https: tls, http or dns; automatic when not set"
+    )]
+    #[admin(
+        label = "Let's Encrypt check",
+        help = "How Let's Encrypt checks the tunnel's own name, for example http behind a proxy that does the HTTPS",
+        none_label = "Automatic",
+        advanced
+    )]
+    pub challenge: Option<ChallengeKind>,
 }
 
 fn default_ws_keepalive() -> u32 {
