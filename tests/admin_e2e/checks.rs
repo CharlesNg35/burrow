@@ -3,7 +3,11 @@ use std::path::PathBuf;
 use serde_json::Value;
 
 pub fn baselines_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/admin_e2e/baselines")
+    std::env::var_os("BURROW_E2E_BASELINES")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/admin_e2e/baselines")
+        })
 }
 
 pub enum Baseline {

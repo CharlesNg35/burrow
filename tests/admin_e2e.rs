@@ -848,6 +848,12 @@ fn screens(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
                 .await;
             assert!(!overflow, "{name} scrolls sideways at 390 px");
         }
+        for (path, name) in MAIN_SCREENS {
+            c.ui.nav(path).await;
+            c.ui.wait_gone("[aria-busy=true]", SECS).await;
+            c.ui.shot(&format!("{name}-phone")).await;
+            baseline(c, &format!("{name}-phone")).await;
+        }
         c.ui.nav("/services/web").await;
         c.ui.click("[data-testid=edit]").await;
         c.ui.wait_for("[data-testid=save-bar]", SECS).await;
