@@ -60,6 +60,16 @@ impl Shared {
         clear
     }
 
+    #[cfg(feature = "web")]
+    pub(crate) fn still_on_web(&self, service: &str, host: &str) -> Result<(), String> {
+        let settings = self.settings();
+        let site = settings.web.as_ref().and_then(|w| w.site_of(service));
+        match site {
+            Some(s) if s.hosts.iter().any(|h| burrow_syntax::web::covers(h, host)) => Ok(()),
+            _ => Err(format!("\"{host}\" no longer leads to it on the web proxy")),
+        }
+    }
+
     pub(crate) fn still_open(
         &self,
         service: &str,

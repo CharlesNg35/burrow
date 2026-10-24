@@ -108,6 +108,7 @@ pub struct RunningServer {
     pub addr: SocketAddr,
     pub metrics: Option<SocketAddr>,
     pub ws_addr: Option<SocketAddr>,
+    pub web_addr: Option<SocketAddr>,
     pub services: BTreeMap<String, SocketAddr>,
     pub reload_tx: mpsc::Sender<ServerSettings>,
     pub ws_settings: Option<burrow::config::settings::WebSocketSettings>,
@@ -154,11 +155,13 @@ pub async fn start_server(settings: ServerSettings) -> RunningServer {
         }
     };
     let ws_addr = server.websocket_addr();
+    let web_addr = server.web_addr();
     let metrics = server.metrics_addr();
     let ws_settings = settings_ws;
     let addr = server
         .local_addr()
         .or(ws_addr)
+        .or(web_addr)
         .expect("server has a listener");
     let services = names
         .iter()
@@ -172,6 +175,7 @@ pub async fn start_server(settings: ServerSettings) -> RunningServer {
         addr,
         metrics,
         ws_addr,
+        web_addr,
         ws_settings,
         services,
         reload_tx,

@@ -47,6 +47,8 @@ impl ServiceTask {
 pub(super) struct Wanted {
     pub(super) websocket: Option<WebSocketSettings>,
     pub(super) metrics: Option<SocketAddr>,
+    #[cfg(feature = "web")]
+    pub(super) web: Option<crate::config::settings::WebSettings>,
 }
 
 pub(super) struct MetricsTask {
@@ -320,7 +322,7 @@ impl Server {
             ),
             None => None,
         };
-        let ws_listener = match &settings.websocket {
+        let ws_listener = match settings.websocket.as_ref().filter(|w| w.host.is_none()) {
             Some(ws) => Some(WsListener::bind(ws)?),
             None => None,
         };
@@ -362,6 +364,7 @@ impl Server {
             services.insert(name.clone(), spawn_service(&shared, name, svc, bound));
         }
         let websocket = ws_listener.map(|l| WsTask::start(&shared, l));
+        let web = super::web::WebTask::bind(&shared, &settings)?;
         let health = tokio::spawn(health::run(shared.clone()));
         let metrics = metrics_listener.map(|l| MetricsTask::start(&shared, l));
         let server = Server {
@@ -370,6 +373,7 @@ impl Server {
             shared,
             listener,
             websocket,
+            web,
             services,
             shutdown_tx,
             wanted: Wanted::default(),
@@ -383,6 +387,7 @@ impl Server {
             self.local_addr(),
             self.websocket_addr(),
             self.metrics_addr(),
+            self.web_addr(),
         ]
         .into_iter()
         .flatten()

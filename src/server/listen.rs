@@ -42,6 +42,11 @@ impl WsRoute {
             tls,
         })
     }
+
+    #[cfg(feature = "web")]
+    pub fn acceptor(&self) -> Option<TlsAcceptor> {
+        self.tls.clone()
+    }
 }
 
 pub struct WsListener {
@@ -240,27 +245,89 @@ async fn handle_ws(
             debug!(%peer, "websocket upgrade refused: {e:?}");
         })
     };
-    match tokio::time::timeout_at(deadline.into(), upgrade).await {
+    let upgraded = tokio::time::timeout_at(deadline.into(), upgrade).await;
+    upgraded_ws(
+        shared,
+        upgraded,
+        ws.settings.keepalive,
+        peer,
+        permit,
+        deadline,
+    )
+    .await;
+}
+
+async fn upgraded_ws(
+    shared: Arc<Shared>,
+    upgraded: Result<Result<ws::WsConn, ()>, tokio::time::error::Elapsed>,
+    keepalive: std::time::Duration,
+    peer: SocketAddr,
+    permit: Permit,
+    deadline: Instant,
+) {
+    let refused = || {
+        shared.rejected.fetch_add(1, Ordering::Relaxed);
+        shared
+            .metrics
+            .handshakes_refused
+            .fetch_add(1, Ordering::Relaxed);
+    };
+    match upgraded {
         Ok(Ok(mut conn)) => {
-            conn.keep_alive(ws.settings.keepalive);
+            conn.keep_alive(keepalive);
             authenticate(shared, Conn::from(conn), peer, permit, deadline).await
         }
-        Ok(Err(())) => {
-            shared.rejected.fetch_add(1, Ordering::Relaxed);
-            shared
-                .metrics
-                .handshakes_refused
-                .fetch_add(1, Ordering::Relaxed);
-        }
+        Ok(Err(())) => refused(),
         Err(_) => {
-            shared.rejected.fetch_add(1, Ordering::Relaxed);
-            shared
-                .metrics
-                .handshakes_refused
-                .fetch_add(1, Ordering::Relaxed);
+            refused();
             debug!(%peer, "websocket upgrade timed out");
         }
     }
+}
+
+#[cfg(feature = "web")]
+pub async fn handle_web_tunnel(shared: Arc<Shared>, conn: burrow_proxy::TunnelConn<Permit>) {
+    let burrow_proxy::TunnelConn {
+        io,
+        upgraded,
+        path,
+        peer,
+        local,
+        deadline,
+        permit,
+    } = conn;
+    let Some(ws) = shared
+        .settings()
+        .websocket
+        .clone()
+        .filter(|w| w.host.is_some())
+    else {
+        return;
+    };
+    let carrier = Carrier::Accepted(Box::new(ws::Accepted {
+        io: Box::new(io),
+        local,
+    }));
+    let upgrade = async {
+        if upgraded {
+            return (path == ws.path)
+                .then(|| ws::serve_upgraded(carrier))
+                .ok_or(());
+        }
+        ws::accept(carrier, &ws.path).await.map_err(|e| {
+            debug!(%peer, "websocket upgrade on the web proxy port refused: {e:?}");
+        })
+    };
+    let upgraded = tokio::time::timeout_at(deadline, upgrade).await;
+    upgraded_ws(
+        shared,
+        upgraded,
+        ws.keepalive,
+        peer,
+        permit,
+        deadline.into_std(),
+    )
+    .await;
 }
 
 fn secrets_for(shared: &Shared, kind: ChannelKind, name: &str) -> Vec<Secret> {

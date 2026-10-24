@@ -17,6 +17,12 @@ mod udp;
 mod via;
 mod visit;
 mod visit_udp;
+#[cfg(feature = "web")]
+mod web;
+#[cfg(not(feature = "web"))]
+mod web_off;
+#[cfg(not(feature = "web"))]
+use web_off as web;
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -307,6 +313,7 @@ pub struct Server {
     metrics: Option<MetricsTask>,
     listener: Option<TcpListener>,
     websocket: Option<WsTask>,
+    web: Option<web::WebTask>,
     services: HashMap<String, ServiceTask>,
     shutdown_tx: watch::Sender<bool>,
     wanted: Wanted,

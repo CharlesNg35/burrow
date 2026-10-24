@@ -32,6 +32,10 @@ impl Server {
                 ws.listener.url_hint()
             );
         }
+        if let Some(url) = s.websocket.as_ref().and_then(|w| w.shared_url()) {
+            info!("listening for WebSocket clients on {url}, beside the websites");
+        }
+        self.log_web();
         if let Some(m) = &self.metrics {
             info!("metrics on http://{}/metrics", m.addr);
         }
@@ -130,7 +134,11 @@ impl Server {
             self.metrics = Some(m);
             next.metrics = Some(want);
         }
-        if next.websocket != settings.websocket || next.metrics != settings.metrics {
+        let web_moved = self.web_waiting(&mut next).await;
+        if web_moved && next.websocket.as_ref().is_some_and(|w| w.host.is_some()) {
+            self.shared.close_websocket_clients();
+        }
+        if next.websocket != settings.websocket || next.metrics != settings.metrics || web_moved {
             *self.shared.settings.write().expect("settings lock") = Arc::new(next);
         }
     }
@@ -145,6 +153,7 @@ impl Server {
         if let Some(ws) = self.websocket.take() {
             ws.task.abort();
         }
+        self.stop_web().await;
         for (_, t) in self.services.drain() {
             for task in &t.tasks {
                 task.abort();

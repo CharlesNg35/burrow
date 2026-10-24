@@ -66,6 +66,8 @@ pub(super) async fn tcp_service(
 
 pub(super) enum Door {
     Bind,
+    #[cfg(feature = "web")]
+    Web(String),
 }
 
 pub(super) struct Entry {
@@ -173,6 +175,8 @@ pub(super) async fn visit<V: Split>(
                 shared.still_open(&name, client, peer.ip(), index, public_of(&svc, &door))?;
                 match &door {
                     Door::Bind => Ok(()),
+                    #[cfg(feature = "web")]
+                    Door::Web(host) => shared.still_on_web(&name, host),
                 }
             };
             if let Err(why) = still_open() {
@@ -242,6 +246,8 @@ fn first_bytes(
 fn public_of(svc: &Service, door: &Door) -> Option<(Protocol, SocketAddr)> {
     match door {
         Door::Bind => svc.bind.map(|b| (svc.protocol, b)),
+        #[cfg(feature = "web")]
+        Door::Web(_) => None,
     }
 }
 

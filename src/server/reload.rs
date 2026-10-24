@@ -24,8 +24,10 @@ impl Server {
         let mut next = next;
         next.listen = current.listen;
         self.wanted = Wanted {
-            websocket: next.websocket.clone(),
+            websocket: own_listener(&next),
             metrics: next.metrics,
+            #[cfg(feature = "web")]
+            web: next.web.clone(),
         };
         let changed = fields::changed(&current, &next);
         for (name, _) in changed
@@ -75,25 +77,27 @@ impl Server {
     }
 
     async fn apply_endpoints(&mut self, current: &ServerSettings, next: &mut ServerSettings) {
-        if next.websocket != current.websocket {
-            let before = (
-                self.websocket_addr(),
-                current.websocket.as_ref().map(|w| w.path.clone()),
-            );
-            let kept = self
-                .apply_websocket(current.websocket.as_ref(), next.websocket.as_ref())
-                .await;
-            if kept != next.websocket {
-                next.websocket = kept;
-                *self.shared.settings.write().expect("settings lock") = Arc::new(next.clone());
+        let before = self.tunnel_at(current);
+        let mut released = Vec::new();
+        let ws_first = next.web.as_ref().is_some_and(|w| {
+            self.websocket_addr()
+                .is_some_and(|a| crate::config::check::binds_conflict(a, w.https))
+        });
+        if ws_first {
+            self.apply_own_websocket(current, next, &mut released).await;
+        }
+        if next.web.is_some() || self.web_addr().is_some() {
+            if let Some(a) = self.web_addr().filter(|_| next.web.is_none()) {
+                released.push(a);
             }
-            let after = (
-                self.websocket_addr(),
-                next.websocket.as_ref().map(|w| w.path.clone()),
-            );
-            if before != after {
-                self.shared.close_websocket_clients();
-            }
+            self.apply_web(next, &released).await;
+            *self.shared.settings.write().expect("settings lock") = Arc::new(next.clone());
+        }
+        if !ws_first {
+            self.apply_own_websocket(current, next, &mut released).await;
+        }
+        if before != self.tunnel_at(next) {
+            self.shared.close_websocket_clients();
         }
         if next.metrics != current.metrics {
             let kept = self.apply_metrics(current.metrics, next.metrics).await;
@@ -102,6 +106,47 @@ impl Server {
                 *self.shared.settings.write().expect("settings lock") = Arc::new(next.clone());
             }
         }
+    }
+
+    fn tunnel_at(
+        &self,
+        s: &ServerSettings,
+    ) -> (Option<SocketAddr>, Option<String>, Option<String>) {
+        let ws = s.websocket.as_ref();
+        let shared = ws.is_some_and(|w| w.host.is_some());
+        let addr = if shared {
+            self.web_addr()
+        } else {
+            self.websocket_addr()
+        };
+        (
+            addr,
+            ws.map(|w| w.path.clone()),
+            ws.and_then(|w| w.host.clone()),
+        )
+    }
+
+    async fn apply_own_websocket(
+        &mut self,
+        current: &ServerSettings,
+        next: &mut ServerSettings,
+        released: &mut Vec<SocketAddr>,
+    ) {
+        let (now, wanted) = (own_listener(current), own_listener(next));
+        if now == wanted {
+            return;
+        }
+        if let Some(a) = self.websocket_addr() {
+            released.push(a);
+        }
+        let kept = self
+            .apply_websocket(now.as_ref(), wanted.as_ref(), released)
+            .await;
+        if next.websocket.as_ref().is_some_and(|w| w.host.is_some()) || kept == next.websocket {
+            return;
+        }
+        next.websocket = kept;
+        *self.shared.settings.write().expect("settings lock") = Arc::new(next.clone());
     }
 
     async fn stop_moving_services(
@@ -295,6 +340,7 @@ impl Server {
         &mut self,
         current: Option<&WebSocketSettings>,
         next: Option<&WebSocketSettings>,
+        released: &[SocketAddr],
     ) -> Option<WebSocketSettings> {
         let same_socket = self.websocket.is_some()
             && matches!((current, next), (Some(c), Some(n)) if c.listen == n.listen);
@@ -320,9 +366,10 @@ impl Server {
             },
             (Some(n), false) => {
                 let conflicts = |a| crate::config::check::binds_conflict(a, n.listen);
-                let freed = self.websocket.is_some()
+                let freed = (self.websocket.is_some()
                     && (current.is_some_and(|c| conflicts(c.listen))
-                        || self.websocket_addr().is_some_and(conflicts));
+                        || self.websocket_addr().is_some_and(conflicts)))
+                    || released.iter().any(|a| conflicts(*a));
                 if freed {
                     self.stop_websocket().await;
                 }
@@ -436,6 +483,10 @@ impl Server {
         }
         self.metrics.as_ref().and(current)
     }
+}
+
+pub(super) fn own_listener(s: &ServerSettings) -> Option<WebSocketSettings> {
+    s.websocket.clone().filter(|w| w.host.is_none())
 }
 
 fn log_former_private_services(current: &ServerSettings, next: &ServerSettings) {
