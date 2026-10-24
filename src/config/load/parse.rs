@@ -49,23 +49,7 @@ pub fn load_str_in(
     let mut root = match tree::parse(src) {
         Ok(n) => n,
         Err(errors) => {
-            for e in errors {
-                let line = src
-                    .lines()
-                    .nth(e.span.start.line.saturating_sub(1))
-                    .unwrap_or("");
-                let help = if unquoted_variable_in_flow(line) {
-                    "a ${VAR} inside { ... } must be quoted, like \"${VAR}\""
-                } else {
-                    "check the indentation and the \"key: value\" structure around this line"
-                };
-                report.push(
-                    Diagnostic::error("syntax", e.message)
-                        .at(e.span)
-                        .label("here")
-                        .help(help),
-                );
-            }
+            syntax_errors(src, errors, &mut report);
             hide_secret_lines(&mut report);
             report.mask_tokens = true;
             return fail(report, role);
@@ -74,39 +58,11 @@ pub fn load_str_in(
     report.masked = secret_spans(&root);
 
     let detected = detect_role(&root);
-    if let (Some(wanted), Some(found)) = (role, detected) {
-        let clear = match (wanted, found) {
-            (Role::Server, other) => other != Role::Server,
-            (_, Role::Server) => true,
-            (Role::Client, Role::Visitor) => true,
-            _ => false,
-        };
-        if clear {
-            let run = match found {
-                Role::Server => "server",
-                Role::Client => "client",
-                Role::Visitor => "visit",
-            };
-            report.push(
-                Diagnostic::error(
-                    "wrong-role",
-                    format!(
-                        "{name} is a {} config, not a {} config",
-                        found.as_str(),
-                        wanted.as_str()
-                    ),
-                )
-                .without_snippet()
-                .help(format!(
-                    "run it with: {}",
-                    crate::base::failure::cmd(&format!(
-                        "{run} -c {}",
-                        crate::base::failure::arg(name)
-                    ))
-                )),
-            );
-            return fail(report, Some(wanted));
-        }
+    if let (Some(wanted), Some(found)) = (role, detected)
+        && let Some(d) = wrong_role(name, wanted, found)
+    {
+        report.push(d);
+        return fail(report, Some(wanted));
     }
     let role = match role.or(detected) {
         Some(r) => r,
@@ -163,61 +119,15 @@ pub fn load_str_in(
 
     let mut loaded = None;
     if semantic {
-        let spans = Spans::new(&root);
-        let mut sem = Vec::new();
-        let json = pruned.to_json();
-        match role {
-            Role::Server => match serde_json::from_value::<ServerConfig>(json) {
-                Ok(cfg) => {
-                    if let Some(s) = check_server(&cfg, &spans, base_dir, &mut sem) {
-                        loaded = Some(Loaded::Server(Box::new(s), Box::new(cfg)));
-                    }
-                }
-                Err(e) => {
-                    if structural_ok {
-                        sem.push(internal(e));
-                    }
-                }
-            },
-            Role::Client => match serde_json::from_value::<ClientConfig>(json) {
-                Ok(cfg) => {
-                    if let Some(s) = check_client(&cfg, &spans, base_dir, &mut sem) {
-                        loaded = Some(Loaded::Client(Box::new(s), Box::new(cfg)));
-                    }
-                }
-                Err(e) => {
-                    if structural_ok {
-                        sem.push(internal(e));
-                    }
-                }
-            },
-            Role::Visitor => match serde_json::from_value::<VisitorConfig>(json) {
-                Ok(cfg) => {
-                    if let Some(s) = check_visitor(&cfg, &spans, base_dir, &mut sem) {
-                        loaded = Some(Loaded::Visitor(Box::new(s), Box::new(cfg)));
-                    }
-                }
-                Err(e) => {
-                    if structural_ok {
-                        sem.push(internal(e));
-                    }
-                }
-            },
-        }
-        let raw_len = |key: &str| match root.get(key).map(|n| &n.value) {
-            Some(Value::Map(m)) => m.len(),
-            _ => 0,
-        };
-        for d in sem {
-            let hidden = d
-                .span
-                .is_some_and(|s| env_spans.iter().any(|e| within(s, *e)))
-                || (d.code == "no-services" && raw_len("services") > 0)
-                || (d.code == "no-clients" && raw_len("clients") > 0);
-            if !hidden {
-                report.push(d);
-            }
-        }
+        loaded = check_semantics(
+            role,
+            &root,
+            pruned,
+            structural_ok,
+            base_dir,
+            &env_spans,
+            &mut report,
+        );
     }
 
     if report.has_errors() {
@@ -229,6 +139,126 @@ pub fn load_str_in(
         role: Some(role),
         loaded,
     }
+}
+
+fn syntax_errors(src: &str, errors: Vec<tree::ParseError>, report: &mut Report) {
+    for e in errors {
+        let line = src
+            .lines()
+            .nth(e.span.start.line.saturating_sub(1))
+            .unwrap_or("");
+        let help = if unquoted_variable_in_flow(line) {
+            "a ${VAR} inside { ... } must be quoted, like \"${VAR}\""
+        } else {
+            "check the indentation and the \"key: value\" structure around this line"
+        };
+        report.push(
+            Diagnostic::error("syntax", e.message)
+                .at(e.span)
+                .label("here")
+                .help(help),
+        );
+    }
+}
+
+fn wrong_role(name: &str, wanted: Role, found: Role) -> Option<Diagnostic> {
+    let clear = match (wanted, found) {
+        (Role::Server, other) => other != Role::Server,
+        (_, Role::Server) => true,
+        (Role::Client, Role::Visitor) => true,
+        _ => false,
+    };
+    if !clear {
+        return None;
+    }
+    let run = match found {
+        Role::Server => "server",
+        Role::Client => "client",
+        Role::Visitor => "visit",
+    };
+    Some(
+        Diagnostic::error(
+            "wrong-role",
+            format!(
+                "{name} is a {} config, not a {} config",
+                found.as_str(),
+                wanted.as_str()
+            ),
+        )
+        .without_snippet()
+        .help(format!(
+            "run it with: {}",
+            crate::base::failure::cmd(&format!("{run} -c {}", crate::base::failure::arg(name)))
+        )),
+    )
+}
+
+fn check_semantics(
+    role: Role,
+    root: &Node,
+    pruned: Node,
+    structural_ok: bool,
+    base_dir: &Path,
+    env_spans: &[Span],
+    report: &mut Report,
+) -> Option<Loaded> {
+    let mut loaded = None;
+    let spans = Spans::new(root);
+    let mut sem = Vec::new();
+    let json = pruned.to_json();
+    match role {
+        Role::Server => match serde_json::from_value::<ServerConfig>(json) {
+            Ok(cfg) => {
+                if let Some(s) = check_server(&cfg, &spans, base_dir, &mut sem) {
+                    loaded = Some(Loaded::Server(Box::new(s), Box::new(cfg)));
+                }
+            }
+            Err(e) => {
+                if structural_ok {
+                    sem.push(internal(e));
+                }
+            }
+        },
+        Role::Client => match serde_json::from_value::<ClientConfig>(json) {
+            Ok(cfg) => {
+                if let Some(s) = check_client(&cfg, &spans, base_dir, &mut sem) {
+                    loaded = Some(Loaded::Client(Box::new(s), Box::new(cfg)));
+                }
+            }
+            Err(e) => {
+                if structural_ok {
+                    sem.push(internal(e));
+                }
+            }
+        },
+        Role::Visitor => match serde_json::from_value::<VisitorConfig>(json) {
+            Ok(cfg) => {
+                if let Some(s) = check_visitor(&cfg, &spans, base_dir, &mut sem) {
+                    loaded = Some(Loaded::Visitor(Box::new(s), Box::new(cfg)));
+                }
+            }
+            Err(e) => {
+                if structural_ok {
+                    sem.push(internal(e));
+                }
+            }
+        },
+    }
+    let raw_len = |key: &str| match root.get(key).map(|n| &n.value) {
+        Some(Value::Map(m)) => m.len(),
+        _ => 0,
+    };
+    for d in sem {
+        let hidden = d
+            .span
+            .is_some_and(|s| env_spans.iter().any(|e| within(s, *e)))
+            || (d.code == "no-services" && raw_len("services") > 0)
+            || (d.code == "no-clients" && raw_len("clients") > 0);
+        if !hidden {
+            report.push(d);
+        }
+    }
+    loaded
 }
 
 fn fill_root_placeholders(node: &mut Node, role: Role) {
