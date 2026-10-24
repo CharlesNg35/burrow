@@ -57,6 +57,18 @@ jobs:
           BURROW_E2E_PROFILE: dev
         run: bash tests/e2e/service.sh
 
+  pebble:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - name: Pull Pebble 2.10.1 and pebble-challtestsrv 2.10.1
+        run: docker pull ghcr.io/letsencrypt/pebble:2.10.1 && docker pull ghcr.io/letsencrypt/pebble-challtestsrv:2.10.1
+      - name: Certificates from Let's Encrypt's test server, Pebble
+        env:
+          BURROW_PEBBLE: "1"
+        run: cargo test --locked -p burrow-web --test acme -- --nocapture
+
   platforms:
     strategy:
       fail-fast: false
