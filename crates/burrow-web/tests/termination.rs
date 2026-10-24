@@ -59,3 +59,40 @@ async fn a_websocket_passes_through_termination_with_small_and_large_frames() {
     assert_eq!(&*got.into_payload(), big.as_slice());
     ws.close().await.unwrap();
 }
+
+#[tokio::test]
+async fn one_port_passes_one_name_through_and_terminates_another() {
+    let (nas, mut sni) = backend("nas", &["nas.example.com"]).await;
+    let app = http_backend().await;
+    let (up, _) = Fake::new(4);
+    up.serve("nas", nas);
+    up.serve("blog", app.addr);
+    let proxy = start(
+        |s| {
+            s.sites = vec![
+                site("nas", &["nas.example.com"]),
+                https_site("blog", &["blog.example.com"]),
+            ]
+        },
+        up,
+    )
+    .await;
+    let addr = proxy.https_addr().unwrap();
+    let mut t = tls(addr, "nas.example.com").await.unwrap();
+    assert_eq!(ask(&mut t, b"ping").await.unwrap(), b"nas:ping");
+    assert_eq!(
+        sni.recv().await.unwrap().as_deref(),
+        Some("nas.example.com"),
+        "the app's own TLS saw the visitor's hello"
+    );
+    let r = over_tls(
+        addr,
+        "blog.example.com",
+        "GET /after-peek HTTP/1.1\r\nHost: blog.example.com\r\nConnection: close\r\n\r\n",
+    )
+    .await;
+    assert!(
+        r.starts_with("HTTP/1.1 200") && r.contains("GET /after-peek\n"),
+        "{r}"
+    );
+}
