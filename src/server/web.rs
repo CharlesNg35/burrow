@@ -1,25 +1,18 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::time::Duration;
 
 use burrow_web::{
-    AcmeSettings, BoxIo, CertSettings, CertSource, Proxy, ProxySettings, Refused, SharedFile, Site,
+    AcmeSettings, BoxIo, CertSettings, CertSource, ProxySettings, Refused, SharedFile, Site,
     SiteTls, TunnelConn, TunnelMode, TunnelSettings, Upstream, Visitor,
 };
-use tokio::net::{TcpListener, TcpStream};
-use tracing::{debug, error, info};
+use tokio::net::TcpStream;
+use tracing::debug;
 
+use super::Shared;
 use super::listen::Permit;
 use super::tcp::{Door, Entry, Refusal, admit, visit};
-use super::{FREED_TRIES, Server, Shared, bind_error};
 use crate::base::failure::Failure;
 use crate::config::settings::{ServerSettings, WebSettings, WebTls};
-use burrow_config::Protocol;
-
-pub(super) struct WebTask {
-    proxy: Proxy<Doorway>,
-    https: SocketAddr,
-}
 
 pub(super) struct Doorway(Arc<Shared>);
 
@@ -171,203 +164,6 @@ fn cert_settings(s: &ServerSettings, web: &WebSettings) -> CertSettings {
     }
 }
 
-pub(super) fn bind_web(addr: SocketAddr) -> Result<TcpListener, Failure> {
-    crate::wire::transport::tcp::bind_tcp(addr)
-        .map_err(|e| bind_error("the web proxy's HTTPS port", Protocol::Tcp, addr, &e))
-}
+mod task;
 
-impl WebTask {
-    pub(super) async fn bind(
-        shared: &Arc<Shared>,
-        s: &ServerSettings,
-    ) -> Result<Option<WebTask>, Failure> {
-        let Some((p, https)) = with_https(proxy_settings(s)?) else {
-            return Ok(None);
-        };
-        let listener = bind_web(https)?;
-        Ok(Some(WebTask::start(shared, listener, p).await))
-    }
-
-    async fn start(shared: &Arc<Shared>, listener: TcpListener, p: ProxySettings) -> WebTask {
-        let https = p.https.unwrap_or_else(|| listener_addr(&listener));
-        let listeners = burrow_web::Listeners {
-            https: Some(listener),
-            http: None,
-        };
-        let up = Arc::new(Doorway(shared.clone()));
-        let proxy = Proxy::start(listeners, p, up, burrow_web::tls::Store::new()).await;
-        WebTask { proxy, https }
-    }
-
-    pub(super) fn addr(&self) -> SocketAddr {
-        self.proxy.https_addr().unwrap_or(self.https)
-    }
-
-    pub(super) async fn stop(self) {
-        self.proxy.stop().await;
-    }
-}
-
-fn with_https(p: Option<ProxySettings>) -> Option<(ProxySettings, SocketAddr)> {
-    p.and_then(|p| p.https.map(|h| (p, h)))
-}
-
-fn listener_addr(l: &TcpListener) -> SocketAddr {
-    l.local_addr()
-        .unwrap_or_else(|_| SocketAddr::from(([0, 0, 0, 0], 0)))
-}
-
-async fn bind_web_with_retry(addr: SocketAddr, tries: usize) -> Result<TcpListener, Failure> {
-    let mut last = None;
-    for _ in 0..tries {
-        match bind_web(addr) {
-            Ok(l) => return Ok(l),
-            Err(f) => last = Some(f),
-        }
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
-    Err(last.expect("at least one attempt"))
-}
-
-impl Server {
-    pub fn web_addr(&self) -> Option<SocketAddr> {
-        self.web.as_ref().map(WebTask::addr)
-    }
-
-    pub(super) fn log_web(&self) {
-        if let (Some(t), Some(web)) = (&self.web, &self.shared.settings().web) {
-            let names: usize = web.sites.values().map(|s| s.hosts.len()).sum();
-            info!(
-                "web proxy on {} ({names} {} passed through{})",
-                t.addr(),
-                crate::config::diagnostics::plural(names, "name"),
-                web.tunnel
-                    .as_ref()
-                    .map_or_else(String::new, |h| format!("; the tunnel on {h}"))
-            );
-        }
-    }
-
-    pub(super) async fn stop_web(&mut self) {
-        if let Some(t) = self.web.take() {
-            t.stop().await;
-        }
-    }
-
-    pub(super) async fn apply_web(&mut self, next: &mut ServerSettings, released: &[SocketAddr]) {
-        let p = match proxy_settings(next) {
-            Ok(p) => p,
-            Err(f) => {
-                error!("{}; the web proxy keeps its current settings", f.message);
-                next.web = self.shared.settings().web.clone();
-                return;
-            }
-        };
-        let Some((p, https)) = with_https(p) else {
-            if self.web.is_some() {
-                self.stop_web().await;
-                info!("web proxy stopped");
-            }
-            return;
-        };
-        if let Some(t) = self.web.as_ref().filter(|t| t.https == https) {
-            let before = t.proxy.table();
-            t.proxy.apply(&p).await;
-            if *before != *t.proxy.table() {
-                info!("web proxy updated");
-            }
-            return;
-        }
-        let conflicts = |a: SocketAddr| crate::config::check::binds_conflict(a, https);
-        let freed = self
-            .web
-            .as_ref()
-            .is_some_and(|t| conflicts(t.https) || conflicts(t.addr()))
-            || released.iter().any(|a| conflicts(*a));
-        let old = match self.web.as_ref() {
-            Some(t) if freed => {
-                let was = t.https;
-                self.stop_web().await;
-                Some(was)
-            }
-            Some(t) => Some(t.https),
-            None => None,
-        };
-        match bind_web_with_retry(https, if freed { FREED_TRIES } else { 1 }).await {
-            Ok(l) => {
-                self.stop_web().await;
-                let t = WebTask::start(&self.shared, l, p).await;
-                info!("web proxy now on {}", t.addr());
-                self.web = Some(t);
-            }
-            Err(f) => self.keep_web(next, old, freed, p, &f.message).await,
-        }
-    }
-
-    async fn keep_web(
-        &mut self,
-        next: &mut ServerSettings,
-        old: Option<SocketAddr>,
-        freed: bool,
-        mut p: ProxySettings,
-        why: &str,
-    ) {
-        let Some(old) = old else {
-            error!(
-                "{why}; the web proxy stays off and tries again every {}s",
-                super::BIND_RETRY.as_secs()
-            );
-            next.web = None;
-            return;
-        };
-        p.https = Some(old);
-        if let Some(web) = next.web.as_mut() {
-            web.https = Some(old);
-        }
-        if !freed && let Some(t) = &self.web {
-            t.proxy.apply(&p).await;
-            error!("{why}; the web proxy stays on {}", t.addr());
-            return;
-        }
-        match bind_web_with_retry(old, FREED_TRIES).await {
-            Ok(l) => {
-                let t = WebTask::start(&self.shared, l, p).await;
-                error!("{why}; the web proxy stays on {}", t.addr());
-                self.web = Some(t);
-            }
-            Err(f) => {
-                error!(
-                    "{why}, and its previous address is no longer free either ({}); websites cannot be reached until the config is fixed or the server restarts",
-                    f.message
-                );
-                next.web = None;
-            }
-        }
-    }
-
-    pub(super) async fn web_waiting(&mut self, next: &mut ServerSettings) -> bool {
-        let Some(want) = self.wanted.web.clone() else {
-            return false;
-        };
-        if next.web.as_ref().is_some_and(|w| w.https == want.https) && self.web.is_some() {
-            return false;
-        }
-        let mut wanted = next.clone();
-        wanted.web = Some(want.clone());
-        let Some(want) = want.https else {
-            return false;
-        };
-        let Ok(Some(p)) = proxy_settings(&wanted) else {
-            return false;
-        };
-        let Ok(l) = bind_web(want) else {
-            return false;
-        };
-        self.stop_web().await;
-        let t = WebTask::start(&self.shared, l, p).await;
-        info!("web proxy could listen now: {}", t.addr());
-        self.web = Some(t);
-        *next = wanted;
-        true
-    }
-}
+pub(super) use task::WebTask;

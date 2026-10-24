@@ -2,7 +2,6 @@ use super::Spans;
 use crate::config::diagnostics::Diagnostic;
 use burrow_config::{ServerConfig, ServiceWeb, WebConfig};
 
-pub(super) const WEB_HTTP: &str = "web-http-port-later";
 pub(super) const WEB_HTTPS_REDIRECT: &str = "web-https-redirect-later";
 pub(super) const WEB_LETSENCRYPT: &str = "web-letsencrypt-later";
 pub(super) const WEB_CERTIFICATES: &str = "web-certificates-later";
@@ -10,9 +9,8 @@ pub(super) const WEB_REQUEST_HEADER_TIMEOUT: &str = "web-request-header-timeout-
 pub(super) const WEB_IDLE_TIMEOUT: &str = "web-idle-timeout-later";
 pub(super) const SITE_HTTPS_REDIRECT: &str = "site-https-redirect-later";
 
-fn top_level(web: &WebConfig) -> [(&'static str, &'static str, bool); 6] {
+fn top_level(web: &WebConfig) -> [(&'static str, &'static str, bool); 5] {
     [
-        (WEB_HTTP, "http", web.http.is_some()),
         (
             WEB_HTTPS_REDIRECT,
             "https_redirect",
@@ -63,8 +61,4 @@ pub(super) fn refuse(cfg: &ServerConfig, spans: &Spans, out: &mut Vec<Diagnostic
             out.push(not_yet(SITE_HTTPS_REDIRECT, &key, spans.key(&path)));
         }
     }
-}
-
-pub(super) fn http_written(cfg: &ServerConfig, spans: &Spans) -> bool {
-    cfg.web.as_ref().is_some_and(|w| w.http.is_some()) || spans.has(&["web", "http"])
 }

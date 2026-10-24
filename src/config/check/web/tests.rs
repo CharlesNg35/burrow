@@ -105,10 +105,10 @@ fn a_site_that_needs_https_from_burrow_is_refused_until_burrow_can_serve_it() {
 }
 
 #[test]
-fn every_final_tls_form_parses_and_only_passthrough_is_served_in_this_build() {
+fn every_final_tls_form_parses_and_only_automatic_certificates_wait_for_a_later_build() {
     let site = |tls: &str| {
         format!(
-            "listen: 7835\nweb: {{ https: 443 }}\nservices:\n  blog:\n    client: home\n    target: 8080\n    web: {{ hosts: [blog.example.com], tls: {tls} }}\n"
+            "listen: 7835\nweb: {{ https: 443, http: 80 }}\nservices:\n  blog:\n    client: home\n    target: 8080\n    web: {{ hosts: [blog.example.com], tls: {tls} }}\n"
         )
     };
     let https_later = "services.blog.web.tls: burrow cannot serve HTTPS for websites in this build yet; use tls: passthrough";
@@ -119,27 +119,73 @@ fn every_final_tls_form_parses_and_only_passthrough_is_served_in_this_build() {
         auto.iter().any(|m| m.contains("has no certificate")),
         "{auto:#?}"
     );
-    assert_eq!(
-        one_error(&site("{ cert: certs/blog.pem, key: certs/blog.key }")),
-        https_later
-    );
-    assert_eq!(
-        one_error(&site("off")),
-        "services.blog.web.tls: plain HTTP websites need web.http, which this build does not have yet; use tls: passthrough"
-    );
-    assert!(errors(&load(&site("passthrough"))).is_empty());
+    for served in [
+        "passthrough",
+        "off",
+        "{ cert: certs/blog.pem, key: certs/blog.key }",
+    ] {
+        let found = errors(&load(&site(served)));
+        assert!(
+            found.iter().all(|e| !e.contains("in this build yet")),
+            "{served}: {found:?}"
+        );
+    }
     let half = errors(&load(&site("{ cert: certs/blog.pem }")));
     assert!(half.iter().any(|e| e.contains("key")), "{half:?}");
     let wrong = errors(&load(&site("sometimes")));
     assert!(!wrong.is_empty(), "an unknown word is refused");
 }
 
+const NEEDS_A_PORT: &str = "web needs a port: https for HTTPS sites, like https: 443, or http for plain HTTP sites, like http: 80";
+
 #[test]
-fn web_needs_its_https_port_in_this_build() {
-    let e = one_error(&format!("listen: 7835\nweb: {{}}\n{NAS}"));
+fn web_needs_an_https_or_an_http_port() {
     assert_eq!(
-        e,
-        "web needs a port: https for HTTPS sites, like https: 443 (plain HTTP sites on web.http are not in this build yet)"
+        one_error(&format!("listen: 7835\nweb: {{}}\n{NAS}")),
+        NEEDS_A_PORT
+    );
+}
+
+#[test]
+fn a_server_with_only_web_http_serves_every_site_as_plain_http() {
+    let s = settings(load(
+        "listen: 7835\nweb: { http: 80 }\nservices:\n  wiki:\n    client: home\n    target: 3000\n    web: wiki.lan.example.com\n",
+    ));
+    let web = s.web.unwrap();
+    assert_eq!(web.https, None);
+    assert_eq!(web.http, Some("[::]:80".parse().unwrap()));
+    let wiki = web.site_of("wiki").unwrap();
+    assert_eq!(wiki.tls, crate::config::settings::WebTls::Off);
+    assert!(!wiki.https_redirect);
+}
+
+#[test]
+fn web_http_must_not_share_a_port_with_another_listener() {
+    for (yaml, want) in [
+        (
+            "web: { https: 8443, http: 8443 }",
+            "web.http [::]:8443 is also web.https [::]:8443",
+        ),
+        (
+            "web: { http: 7835 }",
+            "web.http [::]:7835 is also the control port (listen 0.0.0.0:7835)",
+        ),
+        (
+            "web: { https: 443, http: 8080 }\nwebsocket: { listen: 8080 }",
+            "web.http [::]:8080 is also websocket.listen 0.0.0.0:8080",
+        ),
+    ] {
+        let found = errors(&load(&format!("listen: 7835\n{yaml}\n{NAS}")));
+        assert!(found.iter().any(|e| e == want), "{yaml}: {found:?}");
+    }
+    let bound = errors(&load(
+        "listen: 7835\nweb: { http: 8080 }\nservices:\n  db:\n    client: home\n    target: 5432\n    bind: 8080\n",
+    ));
+    assert!(
+        bound
+            .iter()
+            .any(|e| e.contains("the web proxy's HTTP port")),
+        "{bound:?}"
     );
 }
 
@@ -296,10 +342,9 @@ fn the_tunnel_messages_of_section_5_3() {
 
 #[test]
 fn an_empty_web_key_needs_its_port_too() {
-    let e = one_error(&format!("listen: 7835\nweb:\n{NAS}"));
     assert_eq!(
-        e,
-        "web needs a port: https for HTTPS sites, like https: 443 (plain HTTP sites on web.http are not in this build yet)"
+        one_error(&format!("listen: 7835\nweb:\n{NAS}")),
+        NEEDS_A_PORT
     );
 }
 

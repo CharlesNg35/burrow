@@ -318,3 +318,57 @@ pub async fn clean_answer(s: &mut TcpStream) -> String {
         .expect("a normal close, not a reset");
     String::from_utf8_lossy(&got).into_owned()
 }
+
+pub async fn http_app() -> SocketAddr {
+    let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = l.local_addr().unwrap();
+    tokio::spawn(async move {
+        while let Ok((mut s, _)) = l.accept().await {
+            tokio::spawn(async move {
+                let mut head = Vec::new();
+                let mut one = [0u8; 1];
+                loop {
+                    head.clear();
+                    while !head.ends_with(b"\r\n\r\n") {
+                        match s.read(&mut one).await {
+                            Ok(1) => head.push(one[0]),
+                            _ => return,
+                        }
+                    }
+                    let text = String::from_utf8_lossy(&head).to_ascii_lowercase();
+                    let reply = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{text}",
+                        text.len()
+                    );
+                    if s.write_all(reply.as_bytes()).await.is_err() {
+                        return;
+                    }
+                }
+            });
+        }
+    });
+    addr
+}
+
+pub fn plain_server(secret: &Secret, sites: &[(&str, Service, &[&str])]) -> ServerSettings {
+    let mut s = web_server(secret, sites);
+    let web = s.web.as_mut().unwrap();
+    web.https = None;
+    web.http = Some(
+        format!("127.0.0.1:{}", crate::common::free_port())
+            .parse()
+            .unwrap(),
+    );
+    for site in web.sites.values_mut() {
+        site.tls = burrow::config::settings::WebTls::Off;
+        site.https_redirect = false;
+    }
+    s
+}
+
+pub async fn plain_get(addr: SocketAddr, host: &str, path: &str) -> String {
+    let mut s = TcpStream::connect(addr).await.unwrap();
+    let req = format!("GET {path} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n");
+    s.write_all(req.as_bytes()).await.unwrap();
+    clean_answer(&mut s).await
+}

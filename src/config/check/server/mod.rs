@@ -28,12 +28,13 @@ pub fn check_server(
 
     let listen = check_listen(cfg, spans, out);
     let https = super::web::check_https(cfg, listen, spans, out);
-    let http = super::web::check_http(cfg, listen, spans, out);
+    let http = super::web::check_http(cfg, listen, https, spans, out);
     let mut websocket = cfg
         .websocket
         .as_ref()
         .and_then(|ws| check_websocket(ws, listen, spans, base_dir, out));
     super::web::share_tunnel(cfg, https, websocket.as_mut(), spans, out);
+    super::web::http_beside_websocket(http, websocket.as_ref(), spans, out);
 
     check_public_address(cfg, listen, websocket.as_ref(), spans, out);
 
@@ -45,9 +46,10 @@ pub fn check_server(
 
     let visitors = check_visitors(cfg, self_allow.as_ref(), spans, &mut seen, out);
 
-    let (services, taken) = check_all_services(cfg, listen, websocket.as_ref(), https, spans, out);
+    let (services, taken) =
+        check_all_services(cfg, listen, websocket.as_ref(), (https, http), spans, out);
     let tunnel = websocket.as_ref().and_then(|w| w.host.as_deref());
-    let sites = super::web::check_sites(cfg, https, tunnel, spans, base_dir, out);
+    let sites = super::web::check_sites(cfg, (https, http), tunnel, spans, base_dir, out);
 
     warn_proxied_sources(websocket.as_ref(), &services, spans, out);
 
@@ -63,6 +65,7 @@ pub fn check_server(
         (websocket.as_ref().map(|w| w.listen), "websocket.listen"),
         (metrics, "metrics.listen"),
         (https, "web.https"),
+        (http, "web.http"),
     ]
     .into_iter()
     .filter_map(|(a, what)| a.map(|a| (a, what)))
@@ -301,7 +304,7 @@ fn check_all_services<'a>(
     cfg: &'a ServerConfig,
     listen: Option<SocketAddr>,
     websocket: Option<&crate::config::settings::WebSocketSettings>,
-    https: Option<SocketAddr>,
+    (https, http): (Option<SocketAddr>, Option<SocketAddr>),
     spans: &Spans,
     out: &mut Vec<Diagnostic>,
 ) -> (
@@ -321,6 +324,7 @@ fn check_all_services<'a>(
         listen,
         websocket: websocket.filter(|w| w.host.is_none()).map(|w| w.listen),
         web: https,
+        web_http: http,
         binds: Vec::new(),
     };
     for (name, svc) in &cfg.services {
@@ -469,6 +473,7 @@ fn check_metrics(
         (taken.listen, "the control port (listen)".to_string()),
         (taken.websocket, "websocket.listen".to_string()),
         (taken.web, "web.https".to_string()),
+        (taken.web_http, "web.http".to_string()),
     ]
     .into_iter()
     .filter_map(|(a, what)| a.map(|a| (a, 1, what)))

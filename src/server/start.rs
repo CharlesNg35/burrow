@@ -388,6 +388,7 @@ impl Server {
             self.websocket_addr(),
             self.metrics_addr(),
             self.web_addr(),
+            self.web_http_addr(),
         ]
         .into_iter()
         .flatten()

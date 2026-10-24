@@ -21,6 +21,10 @@ impl Server {
         self.web.as_ref().map(|t| match *t {})
     }
 
+    pub fn web_http_addr(&self) -> Option<SocketAddr> {
+        self.web.as_ref().map(|t| match *t {})
+    }
+
     pub(super) fn log_web(&self) {}
 
     pub(super) async fn stop_web(&mut self) {}

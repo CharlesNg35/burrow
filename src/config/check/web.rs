@@ -41,14 +41,16 @@ pub(super) fn check_https(
     }
     later::refuse(cfg, spans, out);
     let Some(given) = cfg.web.as_ref().and_then(|w| w.https.as_ref()) else {
-        if !later::http_written(cfg, spans) {
+        let http =
+            cfg.web.as_ref().is_some_and(|w| w.http.is_some()) || spans.has(&["web", "http"]);
+        if !http {
             out.push(
                 Diagnostic::error(
                     "web-port",
-                    "web needs a port: https for HTTPS sites, like https: 443 (plain HTTP sites on web.http are not in this build yet)",
+                    "web needs a port: https for HTTPS sites, like https: 443, or http for plain HTTP sites, like http: 80",
                 )
                 .at(spans.key(&["web"]))
-                .help("add https: 443 under web"),
+                .help("add https: 443 or http: 80 under web"),
             );
         }
         return None;
@@ -59,11 +61,46 @@ pub(super) fn check_https(
 pub(super) fn check_http(
     cfg: &ServerConfig,
     listen: Option<SocketAddr>,
+    https: Option<SocketAddr>,
     spans: &Spans,
     out: &mut Vec<Diagnostic>,
 ) -> Option<SocketAddr> {
     let given = cfg.web.as_ref().and_then(|w| w.http.as_ref())?;
-    web_port(&Port::HTTP, given, listen, spans, out)
+    let addr = web_port(&Port::HTTP, given, listen, spans, out)?;
+    if let Some(h) = https.filter(|h| binds_conflict(*h, addr)) {
+        out.push(
+            Diagnostic::error(
+                "duplicate-bind",
+                format!("web.http {addr} is also web.https {h}"),
+            )
+            .at(spans.value(&["web", "http"]))
+            .label("already used by web.https")
+            .help("use two ports, like https: 443 and http: 80"),
+        );
+        return None;
+    }
+    Some(addr)
+}
+
+pub(super) fn http_beside_websocket(
+    http: Option<SocketAddr>,
+    ws: Option<&WebSocketSettings>,
+    spans: &Spans,
+    out: &mut Vec<Diagnostic>,
+) {
+    if let (Some(h), Some(ws)) = (http, ws)
+        && binds_conflict(h, ws.listen)
+    {
+        out.push(
+            Diagnostic::error(
+                "duplicate-bind",
+                format!("web.http {h} is also websocket.listen {}", ws.listen),
+            )
+            .at(spans.value(&["web", "http"]))
+            .label("already used by websocket.listen")
+            .help("the tunnel can share only web.https; use another port for one of them"),
+        );
+    }
 }
 
 struct Port {
@@ -239,7 +276,7 @@ pub(super) fn share_tunnel(
 
 pub(super) fn check_sites(
     cfg: &ServerConfig,
-    https: Option<SocketAddr>,
+    (https, http): (Option<SocketAddr>, Option<SocketAddr>),
     tunnel: Option<&str>,
     spans: &Spans,
     base_dir: &Path,
@@ -269,10 +306,10 @@ pub(super) fn check_sites(
             );
             continue;
         }
-        if https.is_none() || svc.protocol != Protocol::Tcp {
+        if (https.is_none() && http.is_none()) || svc.protocol != Protocol::Tcp {
             continue;
         }
-        if let Some(d) = tls_later(name, web, spans) {
+        if let Some(d) = tls_later(name, web, https.is_some(), spans) {
             out.push(d);
             continue;
         }
@@ -293,35 +330,19 @@ pub(super) fn check_sites(
     sites
 }
 
-fn tls_later(name: &str, web: &ServiceWeb, spans: &Spans) -> Option<Diagnostic> {
-    let (code, why, at) = match web.tls() {
-        Some(SiteTls::Mode(TlsMode::Passthrough)) => return None,
-        Some(SiteTls::Mode(TlsMode::Off)) => (
-            "web-http-later",
-            "plain HTTP websites need web.http, which this build does not have yet",
-            spans.value(&["services", name, "web", "tls"]),
-        ),
-        Some(SiteTls::Files(_)) => (
-            "web-tls-files-later",
-            "burrow cannot serve HTTPS for websites in this build yet",
-            spans.value(&["services", name, "web", "tls"]),
-        ),
-        Some(SiteTls::Mode(TlsMode::Auto)) => (
-            "web-https-later",
-            "burrow cannot serve HTTPS for websites in this build yet",
-            spans.value(&["services", name, "web", "tls"]),
-        ),
-        None => (
-            "web-https-later",
-            "burrow cannot serve HTTPS for websites in this build yet",
-            spans.value(&["services", name, "web"]),
-        ),
+fn tls_later(name: &str, web: &ServiceWeb, https: bool, spans: &Spans) -> Option<Diagnostic> {
+    let at = match web.tls() {
+        Some(SiteTls::Mode(TlsMode::Auto)) => spans.value(&["services", name, "web", "tls"]),
+        None if https => spans.value(&["services", name, "web"]),
+        _ => return None,
     };
     let key = if web.tls().is_some() { ".tls" } else { "" };
     Some(
         Diagnostic::error(
-            code,
-            format!("services.{name}.web{key}: {why}; use tls: passthrough"),
+            "web-https-later",
+            format!(
+                "services.{name}.web{key}: burrow cannot serve HTTPS for websites in this build yet; use tls: passthrough"
+            ),
         )
         .at(at)
         .help(format!(

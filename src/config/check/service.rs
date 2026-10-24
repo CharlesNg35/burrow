@@ -14,6 +14,7 @@ pub(super) struct Taken<'a> {
     pub listen: Option<SocketAddr>,
     pub websocket: Option<SocketAddr>,
     pub web: Option<SocketAddr>,
+    pub web_http: Option<SocketAddr>,
     pub binds: Vec<(SocketAddr, u16, Protocol, &'a str)>,
 }
 
@@ -428,6 +429,11 @@ fn check_bind<'a>(
             taken.web,
             "the web proxy's HTTPS port",
             "same as \"web.https\"",
+        ),
+        (
+            taken.web_http,
+            "the web proxy's HTTP port",
+            "same as \"web.http\"",
         ),
     ] {
         if let Some(l) = listener

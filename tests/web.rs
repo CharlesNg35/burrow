@@ -7,6 +7,8 @@ mod ends;
 mod kit;
 #[path = "web/passthrough.rs"]
 mod passthrough;
+#[path = "web/plain.rs"]
+mod plain;
 #[path = "web/reload.rs"]
 mod reload;
 #[path = "web/tunnel.rs"]

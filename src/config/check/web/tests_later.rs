@@ -20,7 +20,6 @@ fn codes(rest: &str) -> Vec<(&'static str, String)> {
 #[test]
 fn every_web_key_of_a_later_phase_is_refused_with_its_own_code() {
     let cases = [
-        (WEB_HTTP, "http: 80", "web.http"),
         (
             WEB_HTTPS_REDIRECT,
             "https_redirect: false",
@@ -73,24 +72,6 @@ fn a_site_that_sets_its_own_redirect_is_refused_until_it_is_served() {
             "services.nas.web.https_redirect: not in this build yet".to_string()
         )]
     );
-}
-
-#[test]
-fn a_web_with_only_a_plain_http_port_gives_one_error_for_that_port() {
-    let got = codes(&format!("listen: 7835\nweb: {{ http: 80 }}\n{NAS}"));
-    assert_eq!(got.len(), 1, "{got:?}");
-    assert_eq!(got[0].0, WEB_HTTP);
-}
-
-#[test]
-fn a_site_with_its_own_certificate_file_has_its_own_code() {
-    let nas = NAS.replace(
-        "tls: passthrough",
-        "tls: { cert: certs/nas.pem, key: certs/nas.key }",
-    );
-    let got = codes(&format!("listen: 7835\nweb: {{ https: 443 }}\n{nas}"));
-    assert_eq!(got.len(), 1, "{got:?}");
-    assert_eq!(got[0].0, "web-tls-files-later");
 }
 
 #[test]
