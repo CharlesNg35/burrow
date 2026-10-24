@@ -142,6 +142,67 @@ async fn peer_replies<W: Dials>(
     }
 }
 
+fn resolve_again<W: Dials>(
+    live: &Rules<W>,
+    resolver: &Arc<dyn Resolver>,
+    connect: &Connect,
+    resolved: &Arc<Mutex<(SocketAddr, Instant)>>,
+    resolving: &Arc<std::sync::atomic::AtomicBool>,
+) {
+    let (live, resolver, connect) = (live.clone(), resolver.clone(), connect.clone());
+    let (resolved, resolving) = (resolved.clone(), resolving.clone());
+    tokio::spawn(async move {
+        let found = permitted(&live.now(), &resolver, &connect).await;
+        let mut current = resolved.lock().expect("resolved lock");
+        *current = match found {
+            Ok(addrs)
+                if addrs.contains(&current.0)
+                    && current.0.is_ipv4() == preferred(&addrs).is_ipv4() =>
+            {
+                (current.0, Instant::now())
+            }
+            Ok(addrs) => (preferred(&addrs), Instant::now()),
+            Err(_) => (current.0, Instant::now()),
+        };
+        resolving.store(false, Ordering::Release);
+    });
+}
+
+fn existing_peer(
+    peers: &Mutex<HashMap<u32, Peer>>,
+    id: u32,
+    target: SocketAddr,
+    epoch: Instant,
+) -> Option<(Arc<UdpSocket>, Arc<AtomicU64>)> {
+    let mut map = peers.lock().expect("peers lock");
+    if map.get(&id).is_some_and(|p| p.to != target)
+        && let Some(moved) = map.remove(&id)
+    {
+        moved.task.abort();
+    }
+    map.get(&id).map(|p| {
+        p.seen
+            .store(epoch.elapsed().as_millis() as u64, Ordering::Relaxed);
+        (p.sock.clone(), p.seen.clone())
+    })
+}
+
+fn warn_peers_full<W: Dials>(live: &Rules<W>) {
+    static ALL: Throttle = Throttle::per_minute();
+    if let Some(dropped) = ALL.counted("dropped") {
+        let most = live.1.peers.most();
+        if live.1.local {
+            warn!(
+                "{most} UDP peers from this server to its own targets are open; datagrams from new ones are dropped until some expire{dropped}"
+            );
+        } else {
+            warn!(
+                "max_udp_peers {most} reached; datagrams from new UDP peers are dropped until some expire{dropped}; raise max_udp_peers in client.yaml"
+            );
+        }
+    }
+}
+
 pub(super) async fn udp<W: Dials>(
     live: Rules<W>,
     resolver: Arc<dyn Resolver>,
@@ -185,54 +246,14 @@ pub(super) async fn udp<W: Dials>(
         };
         let (target, at) = *resolved.lock().expect("resolved lock");
         if at.elapsed() >= RESOLVE_AGAIN && !resolving.swap(true, Ordering::AcqRel) {
-            let (live, resolver, connect) = (live.clone(), resolver.clone(), connect.clone());
-            let (resolved, resolving) = (resolved.clone(), resolving.clone());
-            tokio::spawn(async move {
-                let found = permitted(&live.now(), &resolver, &connect).await;
-                let mut current = resolved.lock().expect("resolved lock");
-                *current = match found {
-                    Ok(addrs)
-                        if addrs.contains(&current.0)
-                            && current.0.is_ipv4() == preferred(&addrs).is_ipv4() =>
-                    {
-                        (current.0, Instant::now())
-                    }
-                    Ok(addrs) => (preferred(&addrs), Instant::now()),
-                    Err(_) => (current.0, Instant::now()),
-                };
-                resolving.store(false, Ordering::Release);
-            });
+            resolve_again(&live, &resolver, &connect, &resolved, &resolving);
         }
-        let existing = {
-            let mut map = peers.lock().expect("peers lock");
-            if map.get(&id).is_some_and(|p| p.to != target)
-                && let Some(moved) = map.remove(&id)
-            {
-                moved.task.abort();
-            }
-            map.get(&id).map(|p| {
-                p.seen
-                    .store(epoch.elapsed().as_millis() as u64, Ordering::Relaxed);
-                (p.sock.clone(), p.seen.clone())
-            })
-        };
+        let existing = existing_peer(&peers, id, target, epoch);
         let (sock, seen) = match existing {
             Some(p) => p,
             None => {
                 let Some(slot) = live.1.peers.take() else {
-                    static ALL: Throttle = Throttle::per_minute();
-                    if let Some(dropped) = ALL.counted("dropped") {
-                        let most = live.1.peers.most();
-                        if live.1.local {
-                            warn!(
-                                "{most} UDP peers from this server to its own targets are open; datagrams from new ones are dropped until some expire{dropped}"
-                            );
-                        } else {
-                            warn!(
-                                "max_udp_peers {most} reached; datagrams from new UDP peers are dropped until some expire{dropped}; raise max_udp_peers in client.yaml"
-                            );
-                        }
-                    }
+                    warn_peers_full(&live);
                     continue;
                 };
                 let sock = match connected_socket(target).await {
