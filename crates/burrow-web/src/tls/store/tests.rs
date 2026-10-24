@@ -279,7 +279,9 @@ async fn apply_reads_files_off_the_async_workers() {
         tokio::spawn(async move { store.apply(&CertSettings::default(), &names).await })
     };
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-    let ran = tokio::spawn(async { std::time::Instant::now() }).await.unwrap();
+    let ran = tokio::spawn(async { std::time::Instant::now() })
+        .await
+        .unwrap();
     applying.await.unwrap();
     let written = writer.join().unwrap();
     assert!(ran < written, "a task ran while the file was being read");
