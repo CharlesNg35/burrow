@@ -179,5 +179,6 @@ pub(super) fn check_websocket(
         path: ws.path.clone(),
         tls,
         keepalive: Duration::from_secs(ws.keepalive_secs.into()),
+        host: None,
     })
 }

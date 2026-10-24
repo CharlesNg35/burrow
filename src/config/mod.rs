@@ -12,5 +12,6 @@ pub mod schema;
 pub mod settings;
 pub mod tree;
 pub mod validate;
+pub mod web_summary;
 
 pub use load::{Format, Loaded, Outcome, Role, load_file, load_str};

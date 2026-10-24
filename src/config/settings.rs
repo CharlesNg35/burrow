@@ -32,6 +32,25 @@ pub struct ServerSettings {
     pub udp_max_peers: usize,
     pub metrics: Option<SocketAddr>,
     pub self_allow: Option<AllowList>,
+    pub web: Option<WebSettings>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WebSettings {
+    pub https: SocketAddr,
+    pub sites: BTreeMap<String, WebSite>,
+    pub tunnel: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WebSite {
+    pub hosts: Vec<String>,
+}
+
+impl WebSettings {
+    pub fn site_of(&self, service: &str) -> Option<&WebSite> {
+        self.sites.get(service)
+    }
 }
 
 pub struct ListenClash {
@@ -318,9 +337,21 @@ pub struct WebSocketSettings {
     pub path: String,
     pub tls: Option<TlsMaterial>,
     pub keepalive: std::time::Duration,
+    pub host: Option<String>,
 }
 
 impl WebSocketSettings {
+    pub fn shared_url(&self) -> Option<String> {
+        let host = self.host.clone()?;
+        let url = Endpoint::WebSocket {
+            tls: true,
+            host,
+            port: self.listen.port(),
+            path: self.path.clone(),
+        };
+        Some(url.to_string())
+    }
+
     pub fn shape(&self) -> burrow_syntax::address::WsShape<'_> {
         burrow_syntax::address::WsShape {
             listen: self.listen,
@@ -343,6 +374,7 @@ impl std::fmt::Debug for WebSocketSettings {
         f.debug_struct("WebSocketSettings")
             .field("listen", &self.listen)
             .field("path", &self.path)
+            .field("host", &self.host)
             .field(
                 "tls",
                 &self.tls.as_ref().map(|t| (&t.cert_path, &t.key_path)),

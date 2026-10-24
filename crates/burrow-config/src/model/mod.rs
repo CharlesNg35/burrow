@@ -3,6 +3,7 @@ mod entries;
 mod options;
 mod server;
 mod visitor;
+mod web;
 
 pub use client::{
     CLIENT_MAX_CONNECTIONS, CLIENT_MAX_UDP_PEERS, Cipher, ClientConfig, OnRejected, Reconnect,
@@ -16,6 +17,7 @@ pub use server::{
     MetricsConfig, SelfEntry, ServerConfig, TlsFiles, WebSocketConfig, default_ws_path,
 };
 pub use visitor::{ForwardEntry, VisitorConfig, VisitorUdpOptions};
+pub use web::{ServiceWeb, WebConfig, WebSite, WebTls};
 
 fn is_false(v: &bool) -> bool {
     !v

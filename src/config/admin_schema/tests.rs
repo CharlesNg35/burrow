@@ -193,6 +193,7 @@ fn relations_agree_with_validation() {
         "max_connections" => "    max_connections: 5\n    client: home\n",
         "visitors" => "    visitors: [laptop]\n    client: home\n",
         "proxy_protocol" => "    proxy_protocol: v1\n    client: home\n",
+        "web" => "    web: { hosts: [nas.example.com], tls: passthrough }\n    client: home\n",
         other => panic!("no sample for tcp-only field {other}"),
     };
     let mut checked = 0;

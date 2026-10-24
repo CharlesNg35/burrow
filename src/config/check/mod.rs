@@ -6,6 +6,7 @@ mod server;
 mod service;
 pub mod unix;
 mod visitor;
+mod web;
 
 pub use client::check_client;
 pub use server::{check_refs, check_server};

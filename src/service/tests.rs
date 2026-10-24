@@ -591,6 +591,12 @@ fn an_edit_the_installed_unit_cannot_run_is_named_with_the_way_out() {
         ..m.clone()
     };
     assert!(misfits_of(&backend, &allowed, &server("443")).is_empty());
+    let web = load(format!(
+        "listen: 7835\nclients:\n  home: {{ secret: {secret} }}\nweb: {{ https: 443 }}\nservices:\n  nas: {{ client: home, target: 443, web: {{ hosts: [nas.example.com], tls: passthrough }} }}\n"
+    ));
+    let low = misfits_of(&backend, &m, &web);
+    assert_eq!(low.len(), 1, "web.https counts as a low port");
+    assert!(low[0].message.contains("port 443"), "{}", low[0].message);
     let home = backend.cannot_use(&m, Path::new("/home/someone/ca.pem"));
     assert!(home.unwrap().contains("home folder"));
     assert!(

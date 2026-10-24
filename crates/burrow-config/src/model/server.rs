@@ -6,7 +6,7 @@ use crate::admin_schema::AdminSchema;
 
 use super::{
     Bind, ClientEntry, Heartbeat, Limits, Pool, ServiceEntry, TcpOptions, UdpOptions, VisitorEntry,
-    is_default, is_false,
+    WebConfig, is_default, is_false,
 };
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, AdminSchema)]
@@ -18,6 +18,7 @@ use super::{
     groups(
         listener = "Listener",
         websocket = "WebSocket",
+        web = "Web proxy | One HTTPS port for websites and TLS services, told apart by name.",
         entities = "Clients, visitors and services",
         local = "This server | What this server may dial for itself, for services with client: self and reach: self.",
         limits = "Limits",
@@ -62,6 +63,18 @@ pub struct ServerConfig {
         locked
     )]
     pub websocket: Option<WebSocketConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        description = "The web proxy: one HTTPS port for websites and TLS services by name; off unless set"
+    )]
+    #[admin(
+        label = "Web proxy",
+        group = web,
+        applies = reload,
+        none_label = "Off",
+        locked
+    )]
+    pub web: Option<WebConfig>,
     #[serde(default)]
     #[schemars(description = "Clients allowed to connect, keyed by client name")]
     #[admin(help = "Clients allowed to connect", ty = map(client), group = entities, applies = reload)]
@@ -149,6 +162,17 @@ pub struct WebSocketConfig {
     #[schemars(description = "URL path clients connect to, for example /burrow")]
     #[admin(ty = url_path)]
     pub path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        description = "The name that leads to the tunnel when websocket.listen is the same port as web.https, for example tunnel.example.com"
+    )]
+    #[admin(
+        ty = host_name,
+        label = "Name on the HTTPS port",
+        help = "The name that leads to the tunnel when it shares the web proxy's HTTPS port, for example tunnel.example.com",
+        none_label = "Not shared"
+    )]
+    pub host: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
         description = "Serve wss:// directly with these PEM files instead of behind a TLS proxy"

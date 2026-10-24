@@ -40,6 +40,7 @@ fn ws_server(secret: &Secret, path: &str, tls: Option<&Cert>) -> ServerSettings 
             key_pem: zeroize::Zeroizing::new(c.key_pem.clone().into_bytes()),
         }),
         keepalive: Duration::from_secs(25),
+        host: None,
     });
     s
 }

@@ -9,7 +9,7 @@ use burrow_admin_proto::ops::Op;
 use burrow_admin_proto::schema::{Node, SemType};
 use burrow_config::{
     ClientEntry, HealthCheck, Limits, MetricsConfig, SelfEntry, ServerConfig, ServiceEntry,
-    TcpOptions, UdpOptions, VisitorEntry,
+    TcpOptions, UdpOptions, VisitorEntry, WebSite,
 };
 use serde_json::{Value, json};
 
@@ -67,6 +67,7 @@ fn cases(sem: &SemType) -> Cases {
         SemType::Cidr => Cases::Values(cidr_cases()),
         SemType::CidrRule => Cases::Values(cidr_rule_cases()),
         SemType::Union(_) => Cases::Values(union_cases()),
+        SemType::HostName(_) => Cases::Values(host_name_cases()),
         SemType::UrlPath | SemType::Path(_) => Cases::Locked,
         SemType::SecretRef(_) => Cases::ServerGenerated,
         SemType::Object(_)
@@ -79,7 +80,6 @@ fn cases(sem: &SemType) -> Cases {
         | SemType::Port
         | SemType::PortRange(_)
         | SemType::Host
-        | SemType::HostName(_)
         | SemType::Size(_)
         | SemType::Name(_)
         | SemType::Unknown(_) => Cases::NotInTheServerSchema,
@@ -328,6 +328,25 @@ fn cidr_rule_cases() -> Vec<Case> {
     )
 }
 
+fn host_name_cases() -> Vec<Case> {
+    let mut hosts = ServiceEntry::WEB.of("nas");
+    hosts.extend(WebSite::HOSTS.rel());
+    items(
+        hosts,
+        &[
+            json!("a.example.com"),
+            json!("*.apps.example.com"),
+            json!("203.0.113.10"),
+            json!("2001:db8::1"),
+            json!("https://a.example.com"),
+            json!("*.com"),
+            json!("nas"),
+            json!(""),
+            json!("a_b.example.com"),
+        ],
+    )
+}
+
 fn union_cases() -> Vec<Case> {
     let mut c = at(
         ServiceEntry::HEALTH_CHECK.of("web"),
@@ -370,14 +389,20 @@ fn base() -> (super::tests::World, String) {
         crate::wire::secret::Secret::generate(),
         crate::wire::secret::Secret::generate(),
     );
-    let text = w.text.replace(
-        "\nvisitors:",
-        &format!(
-            "  office:\n    secret: {}\n\nvisitors:\n  lap:\n    secret: {}",
-            office.encode(),
-            lap.encode()
-        ),
-    );
+    let text = w
+        .text
+        .replace(
+            "\nvisitors:",
+            &format!(
+                "  office:\n    secret: {}\n\nvisitors:\n  lap:\n    secret: {}",
+                office.encode(),
+                lap.encode()
+            ),
+        )
+        .replace(
+            "\nservices:\n",
+            "\nweb:\n  https: 8443\n\nservices:\n  nas: { client: home, target: 443, web: { hosts: [nas.example.com], tls: passthrough } }\n",
+        );
     (w, text)
 }
 

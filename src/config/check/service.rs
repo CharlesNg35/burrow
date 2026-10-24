@@ -13,6 +13,7 @@ use burrow_config::{HealthCheck, HealthCheckSetting, Mode, Protocol, ServiceEntr
 pub(super) struct Taken<'a> {
     pub listen: Option<SocketAddr>,
     pub websocket: Option<SocketAddr>,
+    pub web: Option<SocketAddr>,
     pub binds: Vec<(SocketAddr, u16, Protocol, &'a str)>,
 }
 
@@ -50,17 +51,7 @@ pub(super) fn check_service<'a>(
             None
         }
     };
-    if svc.bind.is_none() && svc.visitors.is_empty() && !spans.has_value(&path("bind")) {
-        out.push(
-            Diagnostic::error(
-                "unreachable-service",
-                format!("service \"{name}\" has no \"bind\" and no \"visitors\", so nobody can reach it"),
-            )
-            .at(spans.key(&["services", name]))
-            .label("no bind and no visitors")
-            .help(format!("add \"bind: {}\" to expose it publicly, or \"visitors: [NAME]\" for visitors using burrow visit", burrow_syntax::ports::FIRST_SERVICE_PORT)),
-        );
-    }
+    check_reachable(name, svc, spans, out);
     let target = check_target(name, svc, spans, out);
     if let (Some((_, bind_ports)), Some((_, target_ports))) = (bind, &target)
         && bind_ports != *target_ports
@@ -85,73 +76,11 @@ pub(super) fn check_service<'a>(
         allow: parse_sources(name, "allow_from", &svc.allow_from, spans, out),
         deny: parse_sources(name, "deny_from", &svc.deny_from, spans, out),
     };
-    let mut listed = Vec::new();
-    for (i, v) in svc.visitors.iter().enumerate() {
-        if listed.contains(v) {
-            let at = i.to_string();
-            out.push(
-                Diagnostic::error(
-                    "duplicate-visitor",
-                    format!("service \"{name}\" lists visitor \"{v}\" twice"),
-                )
-                .at(spans.value(&["services", name, "visitors", &at]))
-                .help("list each visitor once"),
-            );
-            continue;
-        }
-        listed.push(v.clone());
-    }
-    let bandwidth = match svc
-        .bandwidth
-        .as_deref()
-        .map(crate::policy::ratelimit::parse_rate)
-    {
-        None => None,
-        Some(Ok(rate)) => Some(rate),
-        Some(Err(e)) => {
-            out.push(
-                Diagnostic::error(
-                    "invalid-bandwidth",
-                    format!("invalid bandwidth for service \"{name}\": {e}"),
-                )
-                .at(spans.value(&path("bandwidth")))
-                .label("expected a rate like 40mbit")
-                .help("use a number with kbit, mbit or gbit (bits per second), or kb, mb or gb (bytes per second), for example 40mbit"),
-            );
-            None
-        }
-    };
+    let listed = listed_visitors(name, svc, spans, out);
+    let bandwidth = bandwidth(name, svc, spans, out);
     let clients = check_clients(name, svc, spans, out);
     let health = health(svc);
-    for field in ServiceEntry::TCP_ONLY {
-        let generic = format!("{field} only works for tcp services");
-        let (set, code, why) = match *field {
-            "proxy_protocol" => (
-                svc.proxy_protocol.is_some(),
-                "proxy-protocol-tcp-only",
-                "proxy_protocol only works for tcp services",
-            ),
-            "max_connections" => (
-                svc.max_connections.is_some(),
-                "max-connections-tcp-only",
-                "max_connections only works for tcp services; for UDP, udp.max_peers limits the peers of each port",
-            ),
-            "mode" => (
-                svc.mode == Mode::Balance && clients.len() > 1,
-                "balance-tcp-only",
-                "mode balance only works for tcp services",
-            ),
-            "health_check" => (
-                health.is_some(),
-                "health-check-tcp-only",
-                "health_check only works for tcp services",
-            ),
-            other => (is_set(svc, other), "tcp-only", generic.as_str()),
-        };
-        if set {
-            tcp_only(name, svc, field, code, why, spans, out);
-        }
-    }
+    check_tcp_only(name, svc, clients.len(), health.is_some(), spans, out);
     let (target, ports) = target?;
     if svc.bind.is_some() && bind.is_none() {
         return None;
@@ -170,6 +99,119 @@ pub(super) fn check_service<'a>(
         proxy_protocol: svc.proxy_protocol,
         bandwidth,
     })
+}
+
+fn check_reachable(name: &str, svc: &ServiceEntry, spans: &Spans, out: &mut Vec<Diagnostic>) {
+    let path = |f: &'static str| ["services", name, f];
+    if svc.bind.is_none()
+        && svc.visitors.is_empty()
+        && svc.web.is_none()
+        && !spans.has_value(&path("bind"))
+        && !spans.has_value(&path("web"))
+    {
+        out.push(
+            Diagnostic::error(
+                "unreachable-service",
+                format!("service \"{name}\" has no \"bind\" and no \"visitors\", so nobody can reach it"),
+            )
+            .at(spans.key(&["services", name]))
+            .label("no bind and no visitors")
+            .help(format!("add \"bind: {}\" to expose it publicly, or \"visitors: [NAME]\" for visitors using burrow visit", burrow_syntax::ports::FIRST_SERVICE_PORT)),
+        );
+    }
+}
+
+fn listed_visitors(
+    name: &str,
+    svc: &ServiceEntry,
+    spans: &Spans,
+    out: &mut Vec<Diagnostic>,
+) -> Vec<String> {
+    let mut listed = Vec::new();
+    for (i, v) in svc.visitors.iter().enumerate() {
+        if listed.contains(v) {
+            let at = i.to_string();
+            out.push(
+                Diagnostic::error(
+                    "duplicate-visitor",
+                    format!("service \"{name}\" lists visitor \"{v}\" twice"),
+                )
+                .at(spans.value(&["services", name, "visitors", &at]))
+                .help("list each visitor once"),
+            );
+            continue;
+        }
+        listed.push(v.clone());
+    }
+    listed
+}
+
+fn bandwidth(
+    name: &str,
+    svc: &ServiceEntry,
+    spans: &Spans,
+    out: &mut Vec<Diagnostic>,
+) -> Option<u64> {
+    let path = |f: &'static str| ["services", name, f];
+    match svc
+        .bandwidth
+        .as_deref()
+        .map(crate::policy::ratelimit::parse_rate)
+    {
+        None => None,
+        Some(Ok(rate)) => Some(rate),
+        Some(Err(e)) => {
+            out.push(
+                Diagnostic::error(
+                    "invalid-bandwidth",
+                    format!("invalid bandwidth for service \"{name}\": {e}"),
+                )
+                .at(spans.value(&path("bandwidth")))
+                .label("expected a rate like 40mbit")
+                .help("use a number with kbit, mbit or gbit (bits per second), or kb, mb or gb (bytes per second), for example 40mbit"),
+            );
+            None
+        }
+    }
+}
+
+fn check_tcp_only(
+    name: &str,
+    svc: &ServiceEntry,
+    clients: usize,
+    health: bool,
+    spans: &Spans,
+    out: &mut Vec<Diagnostic>,
+) {
+    for field in ServiceEntry::TCP_ONLY {
+        let generic = format!("{field} only works for tcp services");
+        let (set, code, why) = match *field {
+            "proxy_protocol" => (
+                svc.proxy_protocol.is_some(),
+                "proxy-protocol-tcp-only",
+                "proxy_protocol only works for tcp services",
+            ),
+            "max_connections" => (
+                svc.max_connections.is_some(),
+                "max-connections-tcp-only",
+                "max_connections only works for tcp services; for UDP, udp.max_peers limits the peers of each port",
+            ),
+            "mode" => (
+                svc.mode == Mode::Balance && clients > 1,
+                "balance-tcp-only",
+                "mode balance only works for tcp services",
+            ),
+            "health_check" => (
+                health,
+                "health-check-tcp-only",
+                "health_check only works for tcp services",
+            ),
+            other => (is_set(svc, other), "tcp-only", generic.as_str()),
+        };
+        if set {
+            tcp_only(name, svc, field, code, why, spans, out);
+        }
+    }
 }
 
 fn check_clients(
@@ -375,6 +417,11 @@ fn check_bind<'a>(
             "same as \"websocket.listen\"",
         ),
         (taken.listen, "the control port", "same as \"listen\""),
+        (
+            taken.web,
+            "the web proxy's HTTPS port",
+            "same as \"web.https\"",
+        ),
     ] {
         if let Some(l) = listener
             && protocol == Protocol::Tcp

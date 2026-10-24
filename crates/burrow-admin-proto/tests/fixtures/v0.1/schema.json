@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:fadfc66cb326946c",
+  "hash": "b2s:8a3f4a2ebfcb2f13",
   "root": {
     "label": "Server",
     "sem": {
@@ -82,6 +82,27 @@
                       }
                     },
                     {
+                      "key": "host",
+                      "node": {
+                        "label": "Name on the HTTPS port",
+                        "help": "The name that leads to the tunnel when it shares the web proxy's HTTPS port, for example tunnel.example.com",
+                        "sem": {
+                          "t": "optional",
+                          "inner": {
+                            "sem": {
+                              "t": "host_name",
+                              "fallback": [
+                                {
+                                  "t": "text"
+                                }
+                              ]
+                            }
+                          }
+                        },
+                        "none_label": "Not shared"
+                      }
+                    },
+                    {
                       "key": "tls",
                       "node": {
                         "label": "TLS",
@@ -147,6 +168,42 @@
             },
             "applies": "reload",
             "group": "websocket",
+            "locked": true,
+            "none_label": "Off"
+          }
+        },
+        {
+          "key": "web",
+          "node": {
+            "label": "Web proxy",
+            "help": "The web proxy: one HTTPS port for websites and TLS services by name; off unless set",
+            "sem": {
+              "t": "optional",
+              "inner": {
+                "label": "Web proxy",
+                "sem": {
+                  "t": "object",
+                  "fields": [
+                    {
+                      "key": "https",
+                      "node": {
+                        "label": "HTTPS port",
+                        "help": "The port where websites and TLS services are reached by name, for example 443; a port alone listens on IPv4 and IPv6, 0.0.0.0:443 on IPv4 only",
+                        "sem": {
+                          "t": "ip_port",
+                          "ranges": false,
+                          "default_ip": "::"
+                        },
+                        "required": true,
+                        "locked": true
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "applies": "reload",
+            "group": "web",
             "locked": true,
             "none_label": "Off"
           }
@@ -869,6 +926,114 @@
                         "wide": true,
                         "none_label": "Unlimited"
                       }
+                    },
+                    {
+                      "key": "web",
+                      "node": {
+                        "label": "Website",
+                        "help": "Names that lead to this service on the web proxy's HTTPS port, for example nas.example.com",
+                        "sem": {
+                          "t": "optional",
+                          "inner": {
+                            "sem": {
+                              "t": "union",
+                              "branches": [
+                                {
+                                  "sem": {
+                                    "t": "host_name",
+                                    "fallback": [
+                                      {
+                                        "t": "text"
+                                      }
+                                    ]
+                                  }
+                                },
+                                {
+                                  "sem": {
+                                    "t": "list",
+                                    "item": {
+                                      "sem": {
+                                        "t": "host_name",
+                                        "fallback": [
+                                          {
+                                            "t": "text"
+                                          }
+                                        ]
+                                      }
+                                    }
+                                  }
+                                },
+                                {
+                                  "label": "Website settings",
+                                  "sem": {
+                                    "t": "object",
+                                    "fields": [
+                                      {
+                                        "key": "hosts",
+                                        "node": {
+                                          "label": "Host names",
+                                          "help": "Names that lead to this service, for example nas.example.com, *.apps.example.com or 203.0.113.10",
+                                          "sem": {
+                                            "t": "list",
+                                            "item": {
+                                              "sem": {
+                                                "t": "host_name",
+                                                "fallback": [
+                                                  {
+                                                    "t": "text"
+                                                  }
+                                                ]
+                                              }
+                                            }
+                                          },
+                                          "required": true
+                                        }
+                                      },
+                                      {
+                                        "key": "tls",
+                                        "node": {
+                                          "label": "TLS",
+                                          "help": "Passthrough leaves TLS to the app: it keeps its own certificate, and burrow only reads the name",
+                                          "sem": {
+                                            "t": "optional",
+                                            "inner": {
+                                              "sem": {
+                                                "t": "enum",
+                                                "options": [
+                                                  {
+                                                    "value": "passthrough",
+                                                    "label": "Passthrough",
+                                                    "help": "The app keeps its own TLS; burrow only reads the name"
+                                                  }
+                                                ]
+                                              }
+                                            }
+                                          },
+                                          "none_label": "burrow handles HTTPS"
+                                        }
+                                      }
+                                    ]
+                                  }
+                                }
+                              ]
+                            }
+                          }
+                        },
+                        "group": "website",
+                        "none_label": "Not a website",
+                        "relations": [
+                          {
+                            "r": "enabled_if",
+                            "cond": {
+                              "eq": [
+                                "protocol",
+                                "tcp"
+                              ]
+                            },
+                            "reason": "UDP services do not support this"
+                          }
+                        ]
+                      }
                     }
                   ]
                 },
@@ -882,6 +1047,11 @@
                     "key": "exposure",
                     "label": "Exposure",
                     "sub": "What opens on the server, and where it leads."
+                  },
+                  {
+                    "key": "website",
+                    "label": "Website",
+                    "sub": "Names that lead to this service on the web proxy's HTTPS port."
                   },
                   {
                     "key": "access",
@@ -1181,6 +1351,11 @@
       {
         "key": "websocket",
         "label": "WebSocket"
+      },
+      {
+        "key": "web",
+        "label": "Web proxy",
+        "sub": "One HTTPS port for websites and TLS services, told apart by name."
       },
       {
         "key": "entities",

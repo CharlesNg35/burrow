@@ -62,6 +62,7 @@ pub fn server_settings(secrets: Vec<Secret>) -> ServerSettings {
         udp_max_peers: 4096,
         metrics: None,
         self_allow: None,
+        web: None,
     }
 }
 
@@ -130,6 +131,7 @@ fn as_websocket(mut settings: ServerSettings) -> ServerSettings {
             path: "/burrow".into(),
             tls: None,
             keepalive: Duration::from_secs(25),
+            host: None,
         });
     }
     settings

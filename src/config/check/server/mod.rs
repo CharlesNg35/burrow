@@ -27,10 +27,12 @@ pub fn check_server(
     let errors_before = out.iter().filter(|d| d.is_error()).count();
 
     let listen = check_listen(cfg, spans, out);
-    let websocket = cfg
+    let https = super::web::check_https(cfg, listen, spans, out);
+    let mut websocket = cfg
         .websocket
         .as_ref()
         .and_then(|ws| check_websocket(ws, listen, spans, base_dir, out));
+    super::web::share_tunnel(cfg, https, websocket.as_mut(), spans, out);
 
     check_public_address(cfg, listen, websocket.as_ref(), spans, out);
 
@@ -42,7 +44,9 @@ pub fn check_server(
 
     let visitors = check_visitors(cfg, self_allow.as_ref(), spans, &mut seen, out);
 
-    let (services, taken) = check_all_services(cfg, listen, websocket.as_ref(), spans, out);
+    let (services, taken) = check_all_services(cfg, listen, websocket.as_ref(), https, spans, out);
+    let tunnel = websocket.as_ref().and_then(|w| w.host.as_deref());
+    let sites = super::web::check_sites(cfg, https, tunnel, spans, out);
 
     warn_proxied_sources(websocket.as_ref(), &services, spans, out);
 
@@ -57,6 +61,7 @@ pub fn check_server(
         (listen, "listen"),
         (websocket.as_ref().map(|w| w.listen), "websocket.listen"),
         (metrics, "metrics.listen"),
+        (https, "web.https"),
     ]
     .into_iter()
     .filter_map(|(a, what)| a.map(|a| (a, what)))
@@ -87,8 +92,10 @@ pub fn check_server(
     }
     Some(ServerSettings {
         listen,
-        public_address: cfg.public_address.clone(),
-        websocket,
+        public_address: cfg
+            .public_address
+            .clone()
+            .or_else(|| websocket.as_ref().and_then(|w| w.shared_url())),
         clients,
         visitors,
         services,
@@ -105,6 +112,8 @@ pub fn check_server(
         udp_max_peers: cfg.udp.max_peers as usize,
         metrics,
         self_allow,
+        web: super::web::settings(https, sites, websocket.as_ref()),
+        websocket,
     })
 }
 
@@ -291,6 +300,7 @@ fn check_all_services<'a>(
     cfg: &'a ServerConfig,
     listen: Option<SocketAddr>,
     websocket: Option<&crate::config::settings::WebSocketSettings>,
+    https: Option<SocketAddr>,
     spans: &Spans,
     out: &mut Vec<Diagnostic>,
 ) -> (
@@ -308,7 +318,8 @@ fn check_all_services<'a>(
     let mut services = BTreeMap::new();
     let mut taken = Taken {
         listen,
-        websocket: websocket.map(|w| w.listen),
+        websocket: websocket.filter(|w| w.host.is_none()).map(|w| w.listen),
+        web: https,
         binds: Vec::new(),
     };
     for (name, svc) in &cfg.services {
@@ -456,6 +467,7 @@ fn check_metrics(
     let clash = [
         (taken.listen, "the control port (listen)".to_string()),
         (taken.websocket, "websocket.listen".to_string()),
+        (taken.web, "web.https".to_string()),
     ]
     .into_iter()
     .filter_map(|(a, what)| a.map(|a| (a, 1, what)))

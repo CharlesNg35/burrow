@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::admin_schema::AdminSchema;
 
-use super::is_default;
+use super::{ServiceWeb, is_default};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, AdminSchema)]
 #[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
@@ -170,11 +170,12 @@ impl Secrets {
 #[serde(deny_unknown_fields)]
 #[admin(
     entity = service,
-    tcp_only(mode, health_check, max_connections, proxy_protocol),
+    tcp_only(mode, health_check, max_connections, proxy_protocol, web),
     label = "Service",
     groups(
         who = "Where it runs | Clients that reach the target.",
         exposure = "Exposure | What opens on the server, and where it leads.",
+        website = "Website | Names that lead to this service on the web proxy's HTTPS port.",
         access = "Access | Who may connect.",
         traffic = "Traffic | Limits and what the target sees."
     )
@@ -293,6 +294,17 @@ pub struct ServiceEntry {
         wide
     )]
     pub bandwidth: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        description = "Make this service a website on the web proxy: a host name, a list of them, or {hosts, tls}"
+    )]
+    #[admin(
+        label = "Website",
+        help = "Names that lead to this service on the web proxy's HTTPS port, for example nas.example.com",
+        group = website,
+        none_label = "Not a website"
+    )]
+    pub web: Option<ServiceWeb>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, AdminSchema)]
