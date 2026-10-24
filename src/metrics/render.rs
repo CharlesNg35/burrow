@@ -37,6 +37,14 @@ impl Family<'_> {
 pub fn prometheus(s: &Status) -> String {
     let mut out = String::new();
     let mut f = Family { out: &mut out };
+    server_families(&mut f, s);
+    client_families(&mut f, s);
+    service_families(&mut f, s);
+    visitor_families(&mut f, s);
+    out
+}
+
+fn server_families(f: &mut Family, s: &Status) {
     f.head(
         "burrow_info",
         "gauge",
@@ -61,7 +69,9 @@ pub fn prometheus(s: &Status) -> String {
         "UDP peers with an open session",
     )
     .line("burrow_udp_peers", &[], s.udp_peers);
+}
 
+fn client_families(f: &mut Family, s: &Status) {
     f.head(
         "burrow_client_connected",
         "gauge",
@@ -99,7 +109,9 @@ pub fn prometheus(s: &Status) -> String {
             c.busy_total,
         );
     }
+}
 
+fn service_families(f: &mut Family, s: &Status) {
     f.head(
         "burrow_service_connections_open",
         "gauge",
@@ -167,7 +179,9 @@ pub fn prometheus(s: &Status) -> String {
             );
         }
     }
+}
 
+fn visitor_families(f: &mut Family, s: &Status) {
     f.head(
         "burrow_visitor_connections_open",
         "gauge",
@@ -192,7 +206,6 @@ pub fn prometheus(s: &Status) -> String {
             v.total,
         );
     }
-    out
 }
 
 pub fn duration(secs: u64) -> String {
