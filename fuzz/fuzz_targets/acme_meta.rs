@@ -70,7 +70,7 @@ fn names(data: &[u8]) {
         let name = challenge::reverse_name(ip);
         assert!(name.ends_with(".in-addr.arpa") || name.ends_with(".ip6.arpa"));
     }
-    let _ = storage::group_dir(std::path::Path::new("/state"), &text)
+    let _ = storage::cert_dir(std::path::Path::new("/state"), &[text.to_string()])
         .strip_prefix("/state/certs")
         .expect("inside the state folder");
 }

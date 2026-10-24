@@ -96,18 +96,18 @@ impl Acme {
         let Some(state) = plan.settings.state_dir.clone() else {
             return;
         };
-        let missing: Vec<(String, Vec<String>)> = plan
+        let missing: Vec<Vec<String>> = plan
             .groups
-            .iter()
-            .filter(|(_, names)| names.iter().any(|n| self.certificate(n).is_none()))
-            .map(|(g, n)| (g.clone(), n.clone()))
+            .values()
+            .filter(|names| names.iter().any(|n| self.certificate(n).is_none()))
+            .cloned()
             .collect();
         let directory = plan.settings.directory_url.clone();
         let loaded = tokio::task::spawn_blocking(move || {
             missing
                 .into_iter()
-                .filter_map(|(g, names)| {
-                    let held = Held::stored(&state, &g, &directory)?;
+                .filter_map(|names| {
+                    let held = Held::find(&state, &directory, &names, now_secs())?;
                     Some((names, held))
                 })
                 .collect::<Vec<_>>()
@@ -163,7 +163,7 @@ async fn run(acme: Arc<Acme>, mut rx: watch::Receiver<Plan>) {
         }
         if now_secs() >= swept + SWEEP_EVERY {
             swept = now_secs();
-            sweep(&plan, swept).await;
+            sweep(&plan, &groups, swept).await;
         }
         let due = groups.iter().map(|(name, g)| (g.due(), name.clone())).min();
         let wait = due
@@ -200,8 +200,8 @@ async fn sync(groups: &mut BTreeMap<String, Group>, plan: &Plan) {
             None => {
                 let stored = match &state {
                     Some(s) => {
-                        let (s, n, d) = (s.clone(), name.clone(), directory.clone());
-                        tokio::task::spawn_blocking(move || Held::stored(&s, &n, &d))
+                        let (s, n, d) = (s.clone(), names.clone(), directory.clone());
+                        tokio::task::spawn_blocking(move || Held::find(&s, &d, &n, now_secs()))
                             .await
                             .ok()
                             .flatten()
@@ -214,14 +214,14 @@ async fn sync(groups: &mut BTreeMap<String, Group>, plan: &Plan) {
     }
 }
 
-async fn sweep(plan: &Plan, now: u64) {
+async fn sweep(plan: &Plan, groups: &BTreeMap<String, Group>, now: u64) {
     let Some(state) = plan.settings.state_dir.clone() else {
         return;
     };
-    let kept: Vec<PathBuf> = plan
-        .groups
-        .keys()
-        .map(|g| storage::group_dir(&state, g))
+    let kept: Vec<PathBuf> = groups
+        .values()
+        .flat_map(Group::in_use)
+        .map(|names| storage::cert_dir(&state, &names))
         .collect();
     let _ = tokio::task::spawn_blocking(move || storage::sweep(&state, &kept, now)).await;
 }

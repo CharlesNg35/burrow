@@ -106,13 +106,17 @@ async fn served(ctx: &Ctx, name: &str) -> Option<CertificateDer<'static>> {
     (ok == b"ok").then_some(leaf)
 }
 
-fn stored_pem(state: &Path, group: &str) -> String {
-    std::fs::read_to_string(state.join("certs").join(group).join("cert.pem")).unwrap()
+fn a_dir(state: &Path) -> std::path::PathBuf {
+    burrow_web::tls::acme::storage::cert_dir(state, &["a.test".to_string()])
 }
 
-fn stored_leaf(state: &Path, group: &str) -> CertificateDer<'static> {
+fn stored_pem(state: &Path) -> String {
+    std::fs::read_to_string(a_dir(state).join("cert.pem")).unwrap()
+}
+
+fn stored_leaf(state: &Path) -> CertificateDer<'static> {
     use tokio_rustls::rustls::pki_types::pem::PemObject;
-    CertificateDer::from_pem_slice(stored_pem(state, group).as_bytes()).unwrap()
+    CertificateDer::from_pem_slice(stored_pem(state).as_bytes()).unwrap()
 }
 
 fn copy_dir(from: &Path, to: &Path) {
@@ -140,6 +144,7 @@ pub async fn all(p: Pebble) {
     fallback_to_http(&ctx).await;
     ip_address(&ctx).await;
     restart_offline(&ctx, state.path()).await;
+    restart_and_rename_order_nothing(&ctx, state.path()).await;
     let before = tempfile::tempdir().unwrap();
     copy_dir(state.path(), before.path());
     ari_replaces(&ctx, state.path()).await;
@@ -178,19 +183,15 @@ async fn tls_alpn(ctx: &Ctx, state: &Path) {
         served(ctx, "a.test").await.is_some(),
         "served and checked against Pebble's root"
     );
-    for f in [
-        "certs/blog/cert.pem",
-        "certs/blog/key.pem",
-        "certs/blog/meta.json",
-    ] {
-        assert!(state.join(f).exists(), "{f}");
+    for f in ["cert.pem", "key.pem", "meta.json"] {
+        assert!(a_dir(state).join(f).exists(), "{f}");
     }
     let accounts: Vec<_> = std::fs::read_dir(state.join("acme")).unwrap().collect();
     assert_eq!(accounts.len(), 1, "one account for the directory");
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let mode = std::fs::metadata(state.join("certs/blog/key.pem"))
+        let mode = std::fs::metadata(a_dir(state).join("key.pem"))
             .unwrap()
             .permissions()
             .mode();
@@ -238,7 +239,7 @@ async fn ip_address(ctx: &Ctx) {
 }
 
 async fn restart_offline(ctx: &Ctx, state: &Path) {
-    let before = stored_leaf(state, "blog");
+    let before = stored_leaf(state);
     ctx.p.pause(true).await;
     let s = settings(ctx, state, &[CertCheck::Tls], None);
     let store = open_store(ctx, &s, &names("blog", &["a.test"])).await;
@@ -251,15 +252,37 @@ async fn restart_offline(ctx: &Ctx, state: &Path) {
     ctx.p.pause(false).await;
 }
 
+async fn restart_and_rename_order_nothing(ctx: &Ctx, state: &Path) {
+    let before = stored_leaf(state);
+    let issued = std::fs::read_to_string(a_dir(state).join("meta.json")).unwrap();
+    let count = burrow_web::tls::acme::storage::all(state).len();
+    for group in ["blog", "blog-renamed", "another-service"] {
+        let s = settings(ctx, state, &[CertCheck::Tls], None);
+        let store = open_store(ctx, &s, &names(group, &["a.test"])).await;
+        tokio::time::sleep(Duration::from_secs(3)).await;
+        let st = status_of(&store, "a.test");
+        assert_eq!(st.phase, CertPhase::Ok, "{group}: {st:#?}");
+        assert_eq!(served(ctx, "a.test").await, Some(before.clone()), "{group}");
+    }
+    assert_eq!(
+        burrow_web::tls::acme::storage::all(state).len(),
+        count,
+        "no new certificate"
+    );
+    assert_eq!(
+        std::fs::read_to_string(a_dir(state).join("meta.json")).unwrap(),
+        issued,
+        "the stored certificate was not replaced"
+    );
+}
+
 async fn restart_renewing(
     ctx: &Ctx,
     state: &Path,
     answer: &str,
 ) -> (Arc<Store>, CertificateDer<'static>) {
-    let before = stored_leaf(state, "blog");
-    ctx.p
-        .set_renewal_info(&stored_pem(state, "blog"), answer)
-        .await;
+    let before = stored_leaf(state);
+    ctx.p.set_renewal_info(&stored_pem(state), answer).await;
     let s = settings(ctx, state, &[CertCheck::Tls], None);
     let store = open_store(ctx, &s, &names("blog", &["a.test"])).await;
     (store, before)
@@ -283,10 +306,10 @@ async fn ari_replaces(ctx: &Ctx, state: &Path) {
 }
 
 async fn already_replaced(ctx: &Ctx, state: &Path) {
-    let old_pem = stored_pem(state, "blog");
+    let old_pem = stored_pem(state);
     let (store, _) = restart_renewing(ctx, state, PAST).await;
     let start = Instant::now();
-    while stored_pem(state, "blog") == old_pem {
+    while stored_pem(state) == old_pem {
         assert!(
             start.elapsed() < Duration::from_secs(90),
             "{:#?}",

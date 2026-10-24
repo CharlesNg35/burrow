@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use super::*;
 
 fn s(v: &[&str]) -> Vec<String> {
@@ -72,10 +74,20 @@ fn a_stored_certificate_is_used_only_for_the_directory_that_issued_it() {
             issued: 1,
         },
     };
-    storage::save(&storage::group_dir(state.path(), "blog"), &stored).unwrap();
-    assert!(Held::stored(state.path(), "blog", "https://acme.test/dir").is_some());
-    assert!(Held::stored(state.path(), "blog", super::super::LETSENCRYPT_STAGING).is_none());
-    assert!(Held::stored(state.path(), "shop", "https://acme.test/dir").is_none());
+    let blog = s(&["blog.example.com"]);
+    storage::save(&storage::cert_dir(state.path(), &blog), &stored).unwrap();
+    let now = now_secs();
+    assert!(Held::find(state.path(), "https://acme.test/dir", &blog, now).is_some());
+    assert!(Held::find(state.path(), super::super::LETSENCRYPT_STAGING, &blog, now).is_none());
+    assert!(
+        Held::find(
+            state.path(),
+            "https://acme.test/dir",
+            &s(&["shop.example.com"]),
+            now
+        )
+        .is_none()
+    );
 }
 
 #[test]
@@ -127,5 +139,47 @@ fn a_profile_the_service_does_not_offer_is_told_apart_from_other_failures() {
         g.view(&[]).code,
         None,
         "a code without a failure is not shown"
+    );
+}
+
+fn save_pair(state: &Path, names: &[&str], days: i64) -> String {
+    let (chain_pem, key_pem) = pem_pair(names, days);
+    let stored = storage::Stored {
+        chain_pem: chain_pem.clone(),
+        key_pem,
+        meta: storage::Meta {
+            directory: "https://acme.test/dir".into(),
+            names: s(names),
+            issued: 1,
+        },
+    };
+    storage::save(&storage::cert_dir(state, &s(names)), &stored).unwrap();
+    chain_pem
+}
+
+#[test]
+fn a_stored_certificate_is_found_by_its_names_whoever_ordered_it() {
+    let state = tempfile::tempdir().unwrap();
+    let dir = "https://acme.test/dir";
+    let now = now_secs();
+    let both = save_pair(state.path(), &["a.example.com", "b.example.com"], 90);
+    let found = |names: &[&str]| Held::find(state.path(), dir, &s(names), now);
+    for names in [
+        &["b.example.com"][..],
+        &["a.example.com"],
+        &["b.example.com", "a.example.com"],
+    ] {
+        let h = found(names).expect("covered by the stored pair");
+        assert_eq!(h.names, s(&["a.example.com", "b.example.com"]), "{names:?}");
+    }
+    assert!(found(&["c.example.com"]).is_none());
+    let only_a = save_pair(state.path(), &["a.example.com"], 30);
+    let h = found(&["a.example.com"]).unwrap();
+    assert_eq!(h.names, s(&["a.example.com"]), "an exact set wins");
+    assert_ne!(only_a, both);
+    save_pair(state.path(), &["old.example.com"], -1);
+    assert!(
+        found(&["old.example.com"]).is_none(),
+        "an expired one is not used"
     );
 }

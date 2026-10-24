@@ -49,12 +49,18 @@ impl Held {
         })
     }
 
-    pub fn stored(state: &Path, group: &str, directory: &str) -> Option<Held> {
-        let s = storage::load(&storage::group_dir(state, group))?;
-        if s.meta.directory != directory {
-            return None;
-        }
-        Held::parse(&s.chain_pem, &s.key_pem, &s.meta.names).ok()
+    pub fn covers(&self, names: &[String]) -> bool {
+        names.iter().all(|n| files::covers(&self.key, n))
+    }
+
+    pub fn find(state: &Path, directory: &str, names: &[String], now: u64) -> Option<Held> {
+        let wanted = storage::name_set(names);
+        storage::all(state)
+            .into_iter()
+            .filter(|(_, s)| s.meta.directory == directory)
+            .filter_map(|(_, s)| Held::parse(&s.chain_pem, &s.key_pem, &s.meta.names).ok())
+            .filter(|h| h.not_after > now && h.covers(names))
+            .max_by_key(|h| (storage::name_set(&h.names) == wanted, h.not_after))
     }
 
     fn short_lived(&self) -> bool {
@@ -108,6 +114,12 @@ impl Group {
         }
     }
 
+    pub fn in_use(&self) -> Vec<Vec<String>> {
+        std::iter::once(self.names.clone())
+            .chain(self.held.as_ref().map(|h| h.names.clone()))
+            .collect()
+    }
+
     pub fn due(&self) -> u64 {
         self.staging_at.map_or(self.next, |s| s.min(self.next))
     }
@@ -116,7 +128,7 @@ impl Group {
         match &self.held {
             None => true,
             Some(h) => {
-                h.names != self.names
+                !h.covers(&self.names)
                     || h.not_after <= now
                     || self.planned.is_some_and(|p| p <= now)
             }
@@ -308,7 +320,7 @@ impl Worker {
         let replaces = g
             .held
             .as_ref()
-            .filter(|h| h.names == g.names && h.not_after > now_secs())
+            .filter(|h| h.names.iter().any(|n| g.names.contains(n)) && h.not_after > now_secs())
             .and_then(|h| h.ari_id.as_deref())
             .and_then(cert_id);
         let mut last: Option<Failed> = None;
@@ -365,7 +377,7 @@ impl Worker {
                     issued: now_secs(),
                 },
             };
-            let dir = storage::group_dir(&state, name);
+            let dir = storage::cert_dir(&state, &g.names);
             let saved = tokio::task::spawn_blocking(move || storage::save(&dir, &stored)).await;
             if !matches!(saved, Ok(Ok(()))) {
                 error!(

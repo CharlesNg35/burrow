@@ -28,23 +28,47 @@ pub fn account_dir(state: &Path, directory: &str) -> PathBuf {
     state.join("acme").join(hex)
 }
 
-pub fn group_dir(state: &Path, group: &str) -> PathBuf {
-    let clean: String = group
+pub fn name_set(names: &[String]) -> Vec<String> {
+    let mut set: Vec<String> = names.iter().map(|n| n.to_ascii_lowercase()).collect();
+    set.sort();
+    set.dedup();
+    set
+}
+
+pub fn cert_dir(state: &Path, names: &[String]) -> PathBuf {
+    let set = name_set(names);
+    let digest = ring::digest::digest(&ring::digest::SHA256, set.join("\n").as_bytes());
+    let hex: String = digest.as_ref()[..6]
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    let first: String = set
+        .first()
+        .map(String::as_str)
+        .unwrap_or("none")
         .chars()
+        .take(64)
         .map(|c| {
-            if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.') {
+            if c.is_ascii_alphanumeric() || matches!(c, '-' | '.') {
                 c
             } else {
                 '_'
             }
         })
         .collect();
-    let clean = if clean.chars().all(|c| c == '.') {
-        format!("_{clean}")
-    } else {
-        clean
+    state.join("certs").join(format!("{first}-{hex}"))
+}
+
+pub fn all(state: &Path) -> Vec<(PathBuf, Stored)> {
+    let Ok(entries) = std::fs::read_dir(state.join("certs")) else {
+        return Vec::new();
     };
-    state.join("certs").join(clean)
+    entries
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| std::fs::symlink_metadata(p).is_ok_and(|m| m.is_dir()))
+        .filter_map(|p| load(&p).map(|s| (p, s)))
+        .collect()
 }
 
 pub fn make_dir(dir: &Path) -> std::io::Result<()> {
@@ -136,7 +160,7 @@ mod tests {
     #[test]
     fn a_certificate_is_saved_privately_and_read_back() {
         let state = tempfile::tempdir().unwrap();
-        let dir = group_dir(state.path(), "blog");
+        let dir = cert_dir(state.path(), &["blog.example.com".into()]);
         save(&dir, &stored(&["blog.example.com"])).unwrap();
         let back = load(&dir).unwrap();
         assert_eq!(back.meta, stored(&["blog.example.com"]).meta);
@@ -156,15 +180,26 @@ mod tests {
     }
 
     #[test]
-    fn folder_names_stay_inside_the_state_folder() {
+    fn a_certificate_folder_is_named_by_its_names_in_any_order() {
         let s = Path::new("/state");
-        assert_eq!(group_dir(s, "blog"), Path::new("/state/certs/blog"));
-        assert_eq!(group_dir(s, "../x"), Path::new("/state/certs/.._x"));
-        assert_eq!(group_dir(s, ".."), Path::new("/state/certs/_.."));
+        let names = |v: &[&str]| v.iter().map(|n| n.to_string()).collect::<Vec<_>>();
+        let ab = cert_dir(s, &names(&["b.example.com", "A.example.com"]));
         assert_eq!(
-            group_dir(s, "websocket.host"),
-            Path::new("/state/certs/websocket.host")
+            ab,
+            cert_dir(
+                s,
+                &names(&["a.example.com", "b.example.com", "a.example.com"])
+            )
         );
+        assert_ne!(ab, cert_dir(s, &names(&["a.example.com"])));
+        assert!(
+            ab.to_string_lossy()
+                .starts_with("/state/certs/a.example.com-"),
+            "{ab:?}"
+        );
+        let odd = cert_dir(s, &names(&["*.example.com", "../x"]));
+        assert_eq!(odd.parent(), Some(Path::new("/state/certs")));
+        assert!(!odd.file_name().unwrap().to_str().unwrap().contains('/'));
         let a = account_dir(s, "https://acme-v02.api.letsencrypt.org/directory");
         let b = account_dir(s, "https://acme-staging-v02.api.letsencrypt.org/directory");
         assert_ne!(a, b);
@@ -172,12 +207,10 @@ mod tests {
     }
 
     #[test]
-    fn a_removed_service_keeps_its_certificate_for_30_days() {
+    fn an_unused_certificate_is_kept_for_30_days() {
         let state = tempfile::tempdir().unwrap();
-        let (blog, gone) = (
-            group_dir(state.path(), "blog"),
-            group_dir(state.path(), "gone"),
-        );
+        let dir = |n: &str| cert_dir(state.path(), &[n.to_string()]);
+        let (blog, gone) = (dir("blog.example.com"), dir("gone.example.com"));
         save(&blog, &stored(&["blog.example.com"])).unwrap();
         save(&gone, &stored(&["gone.example.com"])).unwrap();
         let day = 24 * 3600;
@@ -191,5 +224,6 @@ mod tests {
         sweep(state.path(), std::slice::from_ref(&blog), 160 * day);
         assert!(!gone.exists());
         assert!(load(&blog).is_some());
+        assert_eq!(all(state.path()).len(), 1);
     }
 }
