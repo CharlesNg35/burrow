@@ -204,3 +204,25 @@ async fn a_tunnel_channel_on_the_web_port_ends_with_tls_close_notify() {
         "the data channel must end with a WebSocket close and TLS close_notify, not {end:?}"
     );
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_web_block_without_sites_serves_the_tunnel_and_closes_other_names() {
+    logs();
+    let echo = echo_server().await;
+    let secret = Secret::generate();
+    let tunnel_cert = cert(&["localhost"]);
+    let mut s = web_server(&secret, &[]);
+    s.services.insert("db".into(), service(echo, Protocol::Tcp));
+    s.web.as_mut().unwrap().https = Some(format!("127.0.0.1:{}", free_port()).parse().unwrap());
+    share_tunnel(&mut s, "localhost", &tunnel_cert);
+    let srv = start_server(s).await;
+    let web = srv.web_addr.expect("the web port runs without sites");
+    let url = format!("wss://localhost:{}/burrow", web.port());
+    let mut cli = start_client(wss_client(&url, secret, &tunnel_cert)).await;
+    wait_state(&mut cli.state, State::Connected).await;
+    let shared = srv.shared.clone();
+    wait_for(|| shared.idle_channels("home") >= 1).await;
+    let data = pattern(1 << 16, 8);
+    assert_eq!(roundtrip(srv.services["db"], &data).await, data);
+    assert!(closed(web, "other.example.com").await);
+}

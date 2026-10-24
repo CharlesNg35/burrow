@@ -79,3 +79,18 @@ async fn a_client_over_plain_ws_takes_its_path_on_a_plain_sites_name() {
     );
     assert!(r.contains("get /index http/1.1"), "{r}");
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_plain_web_block_without_sites_serves_the_tunnel_on_port_80() {
+    let echo = echo_server().await;
+    let secret = Secret::generate();
+    let mut s = plain_server(&secret, &[]);
+    s.services.insert("db".into(), service(echo, Protocol::Tcp));
+    tunnel_on_http(&mut s, "localhost");
+    let http = s.web.as_ref().unwrap().http.unwrap();
+    let (srv, _cli) = connected_over_ws(s, secret).await;
+    let data = pattern(1 << 16, 9);
+    assert_eq!(roundtrip(srv.services["db"], &data).await, data);
+    let r = plain_get(http, "other.example.com", "/").await;
+    assert!(r.starts_with("HTTP/1.1 404"), "{r}");
+}
