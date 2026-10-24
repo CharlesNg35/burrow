@@ -5,6 +5,7 @@ use super::{Ctx, SECS, applied, edit_mode, open, open_review, run, wait_checked}
 const WEB_TOP: &str = "web:\n  https: 127.0.0.1:HTTPS_PORT\n";
 const NAS: &str = "  nas:\n    client: home\n    target: 192.168.1.20:443\n    web:\n      hosts: [nas.example.com, \"*.nas.example.com\"]\n      tls: passthrough\n";
 const SITE: &str = "services/*/web";
+const SITE_TLS: &str = "services/*/web/tls";
 
 fn opts() -> Options {
     Options {
@@ -40,7 +41,7 @@ async fn read_only_pages(c: &mut Ctx) {
     both_widths(c, "settings-web-proxy").await;
     edit_mode(c).await;
     assert_eq!(
-        c.ui.count("[data-schema=web] input").await,
+        c.ui.count("[data-schema='web/https'] input").await,
         0,
         "the web proxy's port is changed in server.yaml only"
     );
@@ -58,7 +59,7 @@ async fn read_only_pages(c: &mut Ctx) {
     both_widths(c, "service-nas-path").await;
     c.ui.click("[role=tablist] [data-tab=settings]").await;
     c.ui.wait_text(
-        &format!("[data-schema='{SITE}']"),
+        &format!("[data-schema='{SITE_TLS}']"),
         "The app does its own HTTPS",
         SECS,
     )
@@ -86,7 +87,7 @@ fn websites(c: &mut Ctx) -> Flow<'_> {
         c.ui.click("[data-chip='https://bad.example.com'] button")
             .await;
         row_clean(c, SITE).await;
-        click_js(c, "[data-schema='services/*/web'] input[value=auto]").await;
+        click_js(c, "[data-schema='services/*/web/tls'] input[value=auto]").await;
         wait_checked(c).await;
         let err = row_error(c, SITE).await;
         assert!(err.contains("choose The app does its own HTTPS"), "{err}");
@@ -100,9 +101,9 @@ fn websites(c: &mut Ctx) -> Flow<'_> {
             "a problem found by the server blocks the save like a local one"
         );
         both_widths(c, "nas-https-not-yet").await;
-        click_js(c, "[data-schema='services/*/web'] input[value=off]").await;
+        click_js(c, "[data-schema='services/*/web/tls'] input[value=off]").await;
         wait_checked(c).await;
-        let err = row_error(c, SITE).await;
+        let err = row_error(c, SITE_TLS).await;
         assert!(
             err.contains("plain HTTP websites are not in this build yet"),
             "{err}"
@@ -110,11 +111,15 @@ fn websites(c: &mut Ctx) -> Flow<'_> {
         both_widths(c, "nas-plain-http-not-yet").await;
         let files_off: bool = c
             .ui
-            .eval("(() => { const i = document.querySelector(\"[data-schema='services/*/web'] input[value=files]\"); return !!i && i.disabled; })()")
+            .eval("(() => { const i = document.querySelector(\"[data-schema='services/*/web/tls'] input[value=files]\"); return !!i && i.disabled; })()")
             .await;
         assert!(files_off, "own certificate files are set in server.yaml");
-        click_js(c, "[data-schema='services/*/web'] input[value=passthrough]").await;
-        row_clean(c, SITE).await;
+        click_js(
+            c,
+            "[data-schema='services/*/web/tls'] input[value=passthrough]",
+        )
+        .await;
+        row_clean(c, SITE_TLS).await;
         open_review(c, "nas-review").await;
         applied(c, "nas-applied").await;
         let text = c.world.config();
@@ -128,9 +133,13 @@ fn websites(c: &mut Ctx) -> Flow<'_> {
         c.ui.wait_for("[data-testid=website-editor]", SECS).await;
         both_widths(c, "web-not-a-website").await;
         add_name(c, "f-services-web-web-hosts", "app.example.com").await;
-        click_js(c, "[data-schema='services/*/web'] input[value=passthrough]").await;
+        click_js(
+            c,
+            "[data-schema='services/*/web/tls'] input[value=passthrough]",
+        )
+        .await;
         wait_checked(c).await;
-        row_clean(c, SITE).await;
+        row_clean(c, SITE_TLS).await;
         both_widths(c, "web-made-a-website").await;
         open_review(c, "web-review").await;
         applied(c, "web-applied").await;

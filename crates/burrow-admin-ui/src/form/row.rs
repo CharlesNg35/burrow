@@ -216,6 +216,7 @@ fn field_state_of(p: &Parts, touched: RwSignal<bool>, items: bool) -> Signal<Fie
     let (path, node) = (&p.path, &p.node);
     let path = path.clone();
     let node = node.clone();
+    let site = matches!(&inner(&node).sem, SemType::Union(u) if u.branches.iter().any(|b| matches!(inner(b).sem, SemType::HostName(_))));
     Signal::derive(move || {
         let s = st.get();
         let picked = touched.get();
@@ -223,6 +224,7 @@ fn field_state_of(p: &Parts, touched: RwSignal<bool>, items: bool) -> Signal<Fie
             diags_at(p.as_deref(), &path, items)
                 .into_iter()
                 .filter(|d| picked || d.code != UNREACHABLE)
+                .filter(|d| !site || !in_own_row(d.path.as_deref(), &path))
                 .map(|d| {
                     (
                         d.severity,
@@ -258,6 +260,12 @@ fn field_state_of(p: &Parts, touched: RwSignal<bool>, items: bool) -> Signal<Fie
             modified: e.draft.with(|d| d.modified(&path)),
         }
     })
+}
+
+fn in_own_row(at: Option<&[String]>, site: &[String]) -> bool {
+    at.and_then(|p| p.strip_prefix(site))
+        .and_then(<[String]>::first)
+        .is_some_and(|k| k != burrow_config::WebSite::HOSTS.key() && k.parse::<usize>().is_err())
 }
 
 fn field_body(

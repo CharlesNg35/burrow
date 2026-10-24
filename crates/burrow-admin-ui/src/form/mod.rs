@@ -40,6 +40,8 @@ const BANDWIDTH: &str = ServiceEntry::BANDWIDTH.key();
 const MAX_CONNECTIONS: &str = ServiceEntry::MAX_CONNECTIONS.key();
 const PROXY_PROTOCOL: &str = ServiceEntry::PROXY_PROTOCOL.key();
 const ADMIN: &str = VisitorEntry::ADMIN.key();
+const WEB: &str = ServiceEntry::WEB.key();
+const SITE_HOSTS: &str = burrow_config::WebSite::HOSTS.key();
 const ADMIN_FROM: &str = VisitorEntry::ADMIN_FROM.key();
 
 const MAX_TEXT: usize = 4096;
@@ -177,7 +179,11 @@ impl Section<'_> {
             {
                 rows.push(visibility_row(child(path, BIND), public));
             }
-            let (fp, fs) = (child(path, &f.key), child(spath, &f.key));
+            let (fp, fs) = (under(path, &f.key), under(spath, &f.key));
+            if f.key.contains('/') {
+                rows.push(site_row((*f).clone(), fp, fs, entity.clone()));
+                continue;
+            }
             match (f.key.as_str(), self.public) {
                 (BIND, Some(public)) => {
                     let (f, entity) = ((*f).clone(), entity.clone());
@@ -201,6 +207,51 @@ impl Section<'_> {
     }
 }
 
+fn under(base: &[String], key: &str) -> Path {
+    let mut p = base.to_vec();
+    p.extend(key.split('/').map(str::to_string));
+    p
+}
+
+fn site_fields(node: &Node, skip: &[&str]) -> Vec<Field> {
+    let Some(web) = fields(node).iter().find(|f| f.key == WEB) else {
+        return Vec::new();
+    };
+    if skip.contains(&WEB) {
+        return Vec::new();
+    }
+    let SemType::Union(u) = &inner(&web.node).sem else {
+        return Vec::new();
+    };
+    u.branches
+        .iter()
+        .flat_map(|b| fields(b).iter())
+        .filter(|g| g.key != SITE_HOSTS)
+        .map(|g| Field {
+            key: format!("{WEB}/{}", g.key),
+            node: Node {
+                group: web.node.group.clone(),
+                ..g.node.clone()
+            },
+        })
+        .collect()
+}
+
+fn site_row(f: Field, path: Path, spath: Path, entity: Path) -> AnyView {
+    let e = store().edit;
+    let site = path[..path.len() - 1].to_vec();
+    let named = Memo::new(move |_| {
+        e.value(&site)
+            .is_some_and(|v| !burrow_admin_logic::web::names(&v).is_empty())
+    });
+    (move || {
+        named
+            .get()
+            .then(|| row(f.clone(), path.clone(), spath.clone(), entity.clone()))
+    })
+    .into_any()
+}
+
 pub(crate) fn object_view_marked(
     node: &Node,
     path: Path,
@@ -217,9 +268,15 @@ pub(crate) fn object_view_marked(
         .map(|g| (g.key.clone(), g.label.clone(), g.sub.clone()))
         .collect();
     let service = ServiceEntry::is_entry(&spath);
+    let site = if service {
+        site_fields(node, skip)
+    } else {
+        Vec::new()
+    };
     let all: Vec<&Field> = fields(node)
         .iter()
         .filter(|f| !skip.contains(&f.key.as_str()) && merged_into(node, &f.key).is_none())
+        .chain(site.iter())
         .collect();
     for f in &all {
         if !groups.iter().any(|(k, _, _)| *k == f.node.group) {
@@ -260,7 +317,7 @@ pub(crate) fn object_view_marked(
                 let more = More {
                     fields: advanced
                         .iter()
-                        .map(|f| ((*f).clone(), child(&path, &f.key)))
+                        .map(|f| ((*f).clone(), under(&path, &f.key)))
                         .collect(),
                     spath: spath.clone(),
                     group: key.clone(),

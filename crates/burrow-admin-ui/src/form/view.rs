@@ -305,6 +305,22 @@ fn map_view(c: &MapC, v: &Value, ctx: &Ctx) -> AnyView {
 fn union_view(u: &UnionC, v: &Value, ctx: &Ctx) -> AnyView {
     if u.branches
         .iter()
+        .any(|b| matches!(inner(b).sem, SemType::HostName(_)))
+        && v.is_object()
+    {
+        let names = burrow_admin_logic::web::names(v);
+        let list = Value::Array(names.into_iter().map(Value::String).collect());
+        let branch = u
+            .branches
+            .iter()
+            .find(|b| matches!(inner(b).sem, SemType::List(_)));
+        return match branch {
+            Some(b) => value_view(b, Some(&list), None, ctx),
+            None => mono(&list),
+        };
+    }
+    if u.branches
+        .iter()
         .any(|b| matches!(inner(b).sem, SemType::Bool))
         && !matches!(v, Value::String(_))
     {

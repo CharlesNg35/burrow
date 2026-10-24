@@ -254,8 +254,11 @@ pub(super) fn union_editor(fc: FieldCtx, u: UnionC) -> AnyView {
     if let Some(item) = any_or_rules(&u) {
         return any_or_rules_editor(fc, item);
     }
+    if super::website::is_site_tls(&fc) {
+        return super::website::tls_editor(fc);
+    }
     if let Some(item) = super::website::host_item(&u) {
-        return super::website::website_editor(fc, u, item);
+        return super::website::website_editor(fc, item);
     }
     let e = store().edit;
     let bool_branch = u

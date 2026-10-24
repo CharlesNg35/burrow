@@ -102,7 +102,50 @@ pub(super) fn yaml_editor(fc: FieldCtx) -> AnyView {
     .into_any()
 }
 
+const INHERIT: &str = "inherit";
+
+fn tri_options(none_label: &str) -> Vec<(String, String, bool)> {
+    let mut out = vec![(INHERIT.to_string(), none_label.to_string(), false)];
+    for (v, l) in [("true", "Yes"), ("false", "No")] {
+        if l != none_label {
+            out.push((v.to_string(), l.to_string(), false));
+        }
+    }
+    out
+}
+
+fn tri_value(none_label: &str, v: Option<&Value>) -> String {
+    match v.and_then(Value::as_bool) {
+        Some(true) if none_label != "Yes" => "true".into(),
+        Some(false) if none_label != "No" => "false".into(),
+        _ => INHERIT.into(),
+    }
+}
+
+fn tri_editor(fc: FieldCtx, none_label: String) -> AnyView {
+    let e = store().edit;
+    let path = fc.path.clone();
+    let label = none_label.clone();
+    let value = Signal::derive(move || tri_value(&label, e.value(&path).as_ref()));
+    let p2 = fc.path.clone();
+    view! {
+        <div id=fc.id.clone()>
+            <Segmented
+                name=format!("{}-choice", fc.id)
+                options=tri_options(&none_label)
+                value=value
+                label=fc.node.label.clone()
+                on_change=move |m: String| e.set(&p2, m.parse::<bool>().ok().map(Value::Bool))
+            />
+        </div>
+    }
+    .into_any()
+}
+
 pub(super) fn bool_editor(fc: FieldCtx) -> AnyView {
+    if let Some(none) = fc.node.none_label.clone().filter(|_| !fc.node.required) {
+        return tri_editor(fc, none);
+    }
     let e = store().edit;
     let path = fc.path.clone();
     let default = fc
@@ -246,4 +289,32 @@ pub(super) fn enum_editor(fc: FieldCtx, c: EnumC) -> AnyView {
         view! { <Select id=fc.id.clone() options=opts value=value on_change=set/> }.into_any()
     };
     view! { <div id=if c.options.len() + usize::from(optional) <= 4 { Some(fc.id.clone()) } else { None }>{control}{locked}{help}</div> }.into_any()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use burrow_admin_proto::serde_json::json;
+
+    #[test]
+    fn an_optional_yes_or_no_offers_its_unset_meaning_first_without_repeating_it() {
+        let labels = |n: &str| {
+            tri_options(n)
+                .into_iter()
+                .map(|(v, l, _)| format!("{v}={l}"))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            labels("As the web proxy says"),
+            ["inherit=As the web proxy says", "true=Yes", "false=No"]
+        );
+        assert_eq!(labels("Yes"), ["inherit=Yes", "false=No"]);
+        assert_eq!(tri_value("Yes", Some(&json!(true))), "inherit");
+        assert_eq!(tri_value("Yes", Some(&json!(false))), "false");
+        assert_eq!(
+            tri_value("As the web proxy says", Some(&json!(true))),
+            "true"
+        );
+        assert_eq!(tri_value("As the web proxy says", None), "inherit");
+    }
 }

@@ -12,6 +12,7 @@ use burrow_admin_proto::msg::{ErrorBody, ErrorCode};
 use burrow_admin_proto::ops::Op;
 use burrow_admin_proto::plan::{Applied, Conflict, Plan, Refusal, ReloadFailed};
 use burrow_admin_proto::serde_json::{self, Value};
+use burrow_config::{Entry, ServiceEntry};
 use leptos::prelude::*;
 
 use diags::related_errors;
@@ -305,6 +306,17 @@ impl Edit {
     }
 
     pub fn set(&self, path: &[String], v: Option<Value>) {
+        if let [section, name, web, key] = path
+            && section == ServiceEntry::SECTION
+            && web == ServiceEntry::WEB.key()
+        {
+            let site = [section.clone(), name.clone(), web.clone()];
+            let now = self.peek(&site);
+            return self.set(
+                &site,
+                burrow_admin_logic::web::with_field(now.as_ref(), key, v),
+            );
+        }
         let refused = crate::grants::refuses(path, v.as_ref());
         self.refuse(path, refused);
         if refused {
