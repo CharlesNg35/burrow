@@ -118,32 +118,7 @@ pub async fn follow_nudged<S: Watched>(
     else {
         return;
     };
-    let t = trig_tx.clone();
-    tokio::spawn(async move {
-        let mut every = tokio::time::interval(RECHECK);
-        every.tick().await;
-        loop {
-            every.tick().await;
-            if let Err(mpsc::error::TrySendError::Closed(_)) = t.try_send("recheck") {
-                return;
-            }
-        }
-    });
-    #[cfg(unix)]
-    {
-        let t = trig_tx.clone();
-        tokio::spawn(async move {
-            use tokio::signal::unix::{SignalKind, signal};
-            let Ok(mut hup) = signal(SignalKind::hangup()) else {
-                return;
-            };
-            while hup.recv().await.is_some() {
-                if t.send("SIGHUP").await.is_err() {
-                    return;
-                }
-            }
-        });
-    }
+    spawn_triggers(&trig_tx);
     let mut rejected: Option<String> = None;
     let mut seen = Vec::new();
     let _ = trig_tx.try_send("file changed");
@@ -159,21 +134,7 @@ pub async fn follow_nudged<S: Watched>(
                 "admin"
             }
         };
-        if first != "admin" {
-            tokio::time::sleep(Duration::from_millis(200)).await;
-        }
-        let mut asked = first == "SIGHUP" || first == "admin";
-        let mut event = first == "file changed";
-        while let Ok(more) = trig.try_recv() {
-            asked |= more == "SIGHUP";
-            event |= more == "file changed";
-        }
-        if let Some(rx) = nudges.as_mut() {
-            while let Ok(n) = rx.try_recv() {
-                waiting.push(n.reply);
-                asked = true;
-            }
-        }
+        let (asked, event) = gather(first, &mut trig, &mut nudges, &mut waiting).await;
         let outcome = 'step: {
             let why = if first == "admin" {
                 "burrow admin"
@@ -228,12 +189,14 @@ pub async fn follow_nudged<S: Watched>(
                     outcome.report.error_count(),
                     crate::config::diagnostics::plural(outcome.report.error_count(), "error")
                 );
-                let report = outcome.report.render_text(style);
-                if asked || rejected.as_ref() != Some(&report) {
-                    crate::say_err!("{report}");
-                    error!("reload ({why}) rejected: {text}; keeping the current config");
-                }
-                rejected = Some(report);
+                rejected = Some(say_rejected_report(
+                    &outcome.report,
+                    style,
+                    &text,
+                    why,
+                    asked,
+                    rejected.as_ref(),
+                ));
                 seen = Vec::new();
                 break 'step Some(ReloadOutcome::Rejected(text));
             }
@@ -291,6 +254,75 @@ pub async fn follow_nudged<S: Watched>(
             let _ = r.send(outcome.clone());
         }
     }
+}
+
+fn spawn_triggers(trig_tx: &mpsc::Sender<&'static str>) {
+    let t = trig_tx.clone();
+    tokio::spawn(async move {
+        let mut every = tokio::time::interval(RECHECK);
+        every.tick().await;
+        loop {
+            every.tick().await;
+            if let Err(mpsc::error::TrySendError::Closed(_)) = t.try_send("recheck") {
+                return;
+            }
+        }
+    });
+    #[cfg(unix)]
+    {
+        let t = trig_tx.clone();
+        tokio::spawn(async move {
+            use tokio::signal::unix::{SignalKind, signal};
+            let Ok(mut hup) = signal(SignalKind::hangup()) else {
+                return;
+            };
+            while hup.recv().await.is_some() {
+                if t.send("SIGHUP").await.is_err() {
+                    return;
+                }
+            }
+        });
+    }
+}
+
+async fn gather(
+    first: &str,
+    trig: &mut mpsc::Receiver<&'static str>,
+    nudges: &mut Option<mpsc::Receiver<Nudge>>,
+    waiting: &mut Vec<tokio::sync::oneshot::Sender<ReloadOutcome>>,
+) -> (bool, bool) {
+    if first != "admin" {
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+    let mut asked = first == "SIGHUP" || first == "admin";
+    let mut event = first == "file changed";
+    while let Ok(more) = trig.try_recv() {
+        asked |= more == "SIGHUP";
+        event |= more == "file changed";
+    }
+    if let Some(rx) = nudges.as_mut() {
+        while let Ok(n) = rx.try_recv() {
+            waiting.push(n.reply);
+            asked = true;
+        }
+    }
+    (asked, event)
+}
+
+fn say_rejected_report(
+    report: &crate::config::diagnostics::Report,
+    style: Style,
+    text: &str,
+    why: &str,
+    asked: bool,
+    rejected: Option<&String>,
+) -> String {
+    let report = report.render_text(style);
+    if asked || rejected != Some(&report) {
+        crate::say_err!("{report}");
+        error!("reload ({why}) rejected: {text}; keeping the current config");
+    }
+    report
 }
 
 fn fingerprint(files: &[PathBuf]) -> Vec<(PathBuf, Option<u64>)> {
