@@ -253,6 +253,16 @@ async fn greet<U: Upstream>(
             return None;
         }
     };
+    if crate::terminate::wants_challenge(&hello.alpn)
+        && let Some(key) = hello
+            .name
+            .as_deref()
+            .and_then(|n| shared.certs.alpn_challenge(n))
+    {
+        debug!(%peer, name = ?hello.name, "web: answering a TLS-ALPN-01 challenge");
+        crate::terminate::answer_challenge(key, stream, hello.bytes, accepted + handshake).await;
+        return None;
+    }
     let table = shared.table();
     let Some((host, kind)) = table.pick(hello.name.as_deref(), local.ip()) else {
         debug!(%peer, name = ?hello.name, "web: unknown name, closing");

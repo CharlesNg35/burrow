@@ -77,13 +77,17 @@ impl rustls::client::danger::ServerCertVerifier for AnyCert {
 }
 
 pub fn connector() -> TlsConnector {
+    connector_alpn(&[b"http/1.1"])
+}
+
+pub fn connector_alpn(alpn: &[&[u8]]) -> TlsConnector {
     let mut config = ClientConfig::builder_with_provider(provider())
         .with_safe_default_protocol_versions()
         .unwrap()
         .dangerous()
         .with_custom_certificate_verifier(Arc::new(AnyCert))
         .with_no_client_auth();
-    config.alpn_protocols = vec![b"http/1.1".to_vec()];
+    config.alpn_protocols = alpn.iter().map(|p| p.to_vec()).collect();
     TlsConnector::from(Arc::new(config))
 }
 

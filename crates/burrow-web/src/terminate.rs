@@ -11,6 +11,7 @@ use crate::io::{BoxIo, Prefixed};
 use crate::tls::{Certificates, Fixed};
 
 pub const HTTP_1_1: &[u8] = b"http/1.1";
+pub const ACME_TLS: &[u8] = b"acme-tls/1";
 
 fn config(resolver: Arc<dyn ResolvesServerCert>, alpn: &[u8]) -> Arc<ServerConfig> {
     let provider = Arc::new(rustls::crypto::ring::default_provider());
@@ -60,5 +61,22 @@ pub(crate) async fn accept(
             debug!(?peer, "web: TLS handshake timed out");
             None
         }
+    }
+}
+
+pub(crate) fn wants_challenge(alpn: &[Vec<u8>]) -> bool {
+    matches!(alpn, [only] if only.as_slice() == ACME_TLS)
+}
+
+pub(crate) async fn answer_challenge(
+    key: Arc<rustls::sign::CertifiedKey>,
+    io: TcpStream,
+    hello: Vec<u8>,
+    deadline: Instant,
+) {
+    let acceptor = TlsAcceptor::from(config(Arc::new(Fixed::new(key)), ACME_TLS));
+    if let Some(mut tls) = accept(acceptor, Prefixed::new(hello, io), deadline).await {
+        let _ =
+            tokio::time::timeout_at(deadline, tokio::io::AsyncWriteExt::shutdown(&mut tls)).await;
     }
 }
