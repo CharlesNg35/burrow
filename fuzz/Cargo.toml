@@ -17,6 +17,8 @@ burrow-syntax = { path = "../crates/burrow-syntax" }
 burrow-web = { path = "../crates/burrow-web" }
 tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring", "logging", "tls12"] }
 serde_json = { version = "1", features = ["preserve_order"] }
+http = "1"
+instant-acme = { version = "=0.8.5", default-features = false, features = ["ring", "rcgen", "time"] }
 tokio = { version = "1", features = ["rt", "io-util"] }
 
 [[bin]]
@@ -81,6 +83,13 @@ bench = false
 [[bin]]
 name = "proxy_header"
 path = "fuzz_targets/proxy_header.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "acme_meta"
+path = "fuzz_targets/acme_meta.rs"
 test = false
 doc = false
 bench = false
