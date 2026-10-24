@@ -192,116 +192,12 @@ pub fn ListPane(
         let next = (at + delta).clamp(0, list.len() as i32 - 1) as usize;
         route::go(list[next].to.clone());
     };
-    let new_button = on_new.zip(new_label).map(|(cb, label)| {
-        view! {
-            <button
-                type="button"
-                class="ml-auto flex size-[30px] cursor-pointer items-center justify-center rounded-md bg-accent text-on-accent hover:brightness-95 dark:hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-55"
-                aria-label=label
-                disabled=new_disabled
-                title=new_disabled.then_some("Adding needs write admin.")
-                data-testid="new"
-                on:click=move |_| cb.run(())
-            >
-                <Icon name="plus"/>
-            </button>
-        }
-    });
-    let chips = filters
-        .into_iter()
-        .map(|(key, label)| {
-            view! {
-                <button
-                    type="button"
-                    class="h-6 cursor-pointer rounded-full border px-2.5 text-xs whitespace-nowrap aria-pressed:border-accent-line aria-pressed:bg-accent-weak aria-pressed:text-accent-ink"
-                    class:border-border=move || filter.get() != key
-                    class:text-text-muted=move || filter.get() != key
-                    aria-pressed=move || (filter.get() == key).to_string()
-                    data-filter=key
-                    on:click=move |_| filter.set(key)
-                >
-                    {label}
-                    {move || {
-                        let n = rows.with(|r| r.iter().filter(|x| !x.key.starts_with("__") && (key == "all" || x.filters.contains(&key))).count());
-                        (!no_counts && key != "all" && n > 0 && Protocol::from_wire(key).is_none()).then(|| format!(" {n}"))
-                    }}
-                </button>
-            }
-        })
-        .collect_view();
+    let new_button = new_button(on_new, new_label, new_disabled);
+    let chips = filter_chips(filters, filter, rows, no_counts);
     let list_ref: NodeRef<leptos::html::Div> = NodeRef::new();
-    Effect::new(move |_| {
-        selected.track();
-        visible.track();
-        request_animation_frame(move || {
-            use wasm_bindgen::JsCast;
-            let Some(list) = list_ref.try_get_untracked().flatten() else {
-                return;
-            };
-            let list: web_sys::HtmlElement = list.into();
-            let Some(el) = list
-                .query_selector("[data-selected=true]")
-                .ok()
-                .flatten()
-                .and_then(|e| e.dyn_into::<web_sys::HtmlElement>().ok())
-            else {
-                return;
-            };
-            let (top, h) = (el.offset_top(), el.offset_height());
-            let (st, ch) = (list.scroll_top(), list.client_height());
-            if top < st {
-                list.set_scroll_top((top - 8).max(0));
-            } else if top + h > st + ch {
-                list.set_scroll_top(top + h - ch + 8);
-            }
-        });
-    });
-    let body = move || {
-        let list = visible.get();
-        if list.is_empty() {
-            return match &empty {
-                Some((t, _)) if t.is_empty() => ().into_any(),
-                Some((t, m)) if rows.with(Vec::is_empty) => view! { <EmptyState icon=empty_icon.unwrap_or("plus") title=t.clone() message=m.clone() testid="list-empty"/> }.into_any(),
-                _ => view! { <p class="px-4 py-6 text-sm text-text-muted">"Nothing matches."</p> }.into_any(),
-            };
-        }
-        let sel = selected.get();
-        let mut gs: Vec<String> = groups.iter().map(|g| g.to_string()).collect();
-        for r in &list {
-            if !gs.contains(&r.group) {
-                gs.push(r.group.clone());
-            }
-        }
-        let shown = gs
-            .iter()
-            .filter(|g| list.iter().any(|r| &r.group == *g))
-            .count();
-        gs.into_iter()
-            .filter_map(|g| {
-                let in_group: Vec<Row> = list.iter().filter(|r| r.group == g).cloned().collect();
-                (!in_group.is_empty()).then(|| {
-                    let n = in_group.len();
-                    view! {
-                        {(!g.is_empty()).then(|| view! {
-                            <div class=format!("flex justify-between px-4 pt-3.5 pb-1.5 {LABEL}")>
-                                <span>{g.clone()}</span>
-                                {(shown > 1 && !no_counts).then(|| view! { <span>{n}</span> })}
-                            </div>
-                        })}
-                        {in_group.into_iter().map(|r| {
-                            let on = sel.as_deref() == Some(r.key.as_str());
-                            if compact {
-                                view! { <TocRow row=r selected=on/> }.into_any()
-                            } else {
-                                view! { <ListCard row=r selected=on/> }.into_any()
-                            }
-                        }).collect_view()}
-                    }
-                })
-            })
-            .collect_view()
-            .into_any()
-    };
+    keep_selected_in_view(list_ref, selected, visible);
+    let look = Look { no_counts, compact };
+    let body = list_body(visible, rows, selected, empty, empty_icon, groups, look);
     view! {
         <aside
             class=move || format!("flex flex-col border-r border-border bg-surface lg:sticky lg:top-[var(--hdr-h,64px)] lg:h-[calc(100vh-var(--hdr-h,64px))]{}", if selected.get().is_some() { " max-lg:hidden" } else { "" })
@@ -372,6 +268,155 @@ pub fn ListPane(
                 {body}
             </div>
         </aside>
+    }
+}
+
+#[derive(Clone, Copy)]
+struct Look {
+    no_counts: bool,
+    compact: bool,
+}
+
+fn new_button(
+    on_new: Option<Callback<()>>,
+    new_label: Option<String>,
+    new_disabled: bool,
+) -> Option<impl IntoView> {
+    on_new.zip(new_label).map(|(cb, label)| {
+        view! {
+            <button
+                type="button"
+                class="ml-auto flex size-[30px] cursor-pointer items-center justify-center rounded-md bg-accent text-on-accent hover:brightness-95 dark:hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-55"
+                aria-label=label
+                disabled=new_disabled
+                title=new_disabled.then_some("Adding needs write admin.")
+                data-testid="new"
+                on:click=move |_| cb.run(())
+            >
+                <Icon name="plus"/>
+            </button>
+        }
+    })
+}
+
+fn filter_chips(
+    filters: Vec<(&'static str, String)>,
+    filter: RwSignal<&'static str>,
+    rows: Signal<Vec<Row>>,
+    no_counts: bool,
+) -> impl IntoView {
+    filters
+        .into_iter()
+        .map(|(key, label)| {
+            view! {
+                <button
+                    type="button"
+                    class="h-6 cursor-pointer rounded-full border px-2.5 text-xs whitespace-nowrap aria-pressed:border-accent-line aria-pressed:bg-accent-weak aria-pressed:text-accent-ink"
+                    class:border-border=move || filter.get() != key
+                    class:text-text-muted=move || filter.get() != key
+                    aria-pressed=move || (filter.get() == key).to_string()
+                    data-filter=key
+                    on:click=move |_| filter.set(key)
+                >
+                    {label}
+                    {move || {
+                        let n = rows.with(|r| r.iter().filter(|x| !x.key.starts_with("__") && (key == "all" || x.filters.contains(&key))).count());
+                        (!no_counts && key != "all" && n > 0 && Protocol::from_wire(key).is_none()).then(|| format!(" {n}"))
+                    }}
+                </button>
+            }
+        })
+        .collect_view()
+}
+
+fn keep_selected_in_view(
+    list_ref: NodeRef<leptos::html::Div>,
+    selected: Signal<Option<String>>,
+    visible: Memo<Vec<Row>>,
+) {
+    Effect::new(move |_| {
+        selected.track();
+        visible.track();
+        request_animation_frame(move || {
+            use wasm_bindgen::JsCast;
+            let Some(list) = list_ref.try_get_untracked().flatten() else {
+                return;
+            };
+            let list: web_sys::HtmlElement = list.into();
+            let Some(el) = list
+                .query_selector("[data-selected=true]")
+                .ok()
+                .flatten()
+                .and_then(|e| e.dyn_into::<web_sys::HtmlElement>().ok())
+            else {
+                return;
+            };
+            let (top, h) = (el.offset_top(), el.offset_height());
+            let (st, ch) = (list.scroll_top(), list.client_height());
+            if top < st {
+                list.set_scroll_top((top - 8).max(0));
+            } else if top + h > st + ch {
+                list.set_scroll_top(top + h - ch + 8);
+            }
+        });
+    });
+}
+
+fn list_body(
+    visible: Memo<Vec<Row>>,
+    rows: Signal<Vec<Row>>,
+    selected: Signal<Option<String>>,
+    empty: Option<(String, String)>,
+    empty_icon: Option<&'static str>,
+    groups: Vec<&'static str>,
+    look: Look,
+) -> impl Fn() -> AnyView {
+    let Look { no_counts, compact } = look;
+    move || {
+        let list = visible.get();
+        if list.is_empty() {
+            return match &empty {
+                Some((t, _)) if t.is_empty() => ().into_any(),
+                Some((t, m)) if rows.with(Vec::is_empty) => view! { <EmptyState icon=empty_icon.unwrap_or("plus") title=t.clone() message=m.clone() testid="list-empty"/> }.into_any(),
+                _ => view! { <p class="px-4 py-6 text-sm text-text-muted">"Nothing matches."</p> }.into_any(),
+            };
+        }
+        let sel = selected.get();
+        let mut gs: Vec<String> = groups.iter().map(|g| g.to_string()).collect();
+        for r in &list {
+            if !gs.contains(&r.group) {
+                gs.push(r.group.clone());
+            }
+        }
+        let shown = gs
+            .iter()
+            .filter(|g| list.iter().any(|r| &r.group == *g))
+            .count();
+        gs.into_iter()
+            .filter_map(|g| {
+                let in_group: Vec<Row> = list.iter().filter(|r| r.group == g).cloned().collect();
+                (!in_group.is_empty()).then(|| {
+                    let n = in_group.len();
+                    view! {
+                        {(!g.is_empty()).then(|| view! {
+                            <div class=format!("flex justify-between px-4 pt-3.5 pb-1.5 {LABEL}")>
+                                <span>{g.clone()}</span>
+                                {(shown > 1 && !no_counts).then(|| view! { <span>{n}</span> })}
+                            </div>
+                        })}
+                        {in_group.into_iter().map(|r| {
+                            let on = sel.as_deref() == Some(r.key.as_str());
+                            if compact {
+                                view! { <TocRow row=r selected=on/> }.into_any()
+                            } else {
+                                view! { <ListCard row=r selected=on/> }.into_any()
+                            }
+                        }).collect_view()}
+                    }
+                })
+            })
+            .collect_view()
+            .into_any()
     }
 }
 
