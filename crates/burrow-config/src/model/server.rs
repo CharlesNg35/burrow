@@ -107,23 +107,24 @@ pub struct ServerConfig {
         group = security,
         applies = live,
         danger_when_set,
-        locked
+        locked,
+        advanced
     )]
     pub insecure_plaintext: bool,
     #[serde(default, skip_serializing_if = "is_default")]
-    #[admin(group = network, applies = live)]
+    #[admin(group = network, applies = live, advanced)]
     pub heartbeat: Heartbeat,
     #[serde(default, skip_serializing_if = "is_default")]
-    #[admin(group = limits)]
+    #[admin(group = limits, advanced)]
     pub limits: Limits,
     #[serde(default, skip_serializing_if = "is_default")]
-    #[admin(label = "Pool of idle channels", group = network, applies = reload)]
+    #[admin(label = "Pool of idle channels", group = network, applies = reload, advanced)]
     pub pool: Pool,
     #[serde(default, skip_serializing_if = "is_default")]
-    #[admin(label = "TCP", group = network, applies = live)]
+    #[admin(label = "TCP", group = network, applies = live, advanced)]
     pub tcp: TcpOptions,
     #[serde(default, skip_serializing_if = "is_default")]
-    #[admin(label = "UDP", group = network, applies = live)]
+    #[admin(label = "UDP", group = network, applies = live, advanced)]
     pub udp: UdpOptions,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(description = "Serve Prometheus metrics at /metrics; off unless set")]

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:f15a4413ed208e92",
+  "hash": "b2s:7906c1ecb6104371",
   "root": {
     "label": "Server",
     "sem": {
@@ -662,6 +662,7 @@
                           }
                         },
                         "group": "admin",
+                        "advanced": true,
                         "reduce_only": true,
                         "empty_label": "Any address",
                         "relations": [
@@ -1033,6 +1034,7 @@
                           }
                         },
                         "group": "traffic",
+                        "advanced": true,
                         "none_label": "Unlimited",
                         "relations": [
                           {
@@ -1162,6 +1164,7 @@
                           }
                         },
                         "group": "traffic",
+                        "advanced": true,
                         "wide": true,
                         "none_label": "Unlimited"
                       }
@@ -1388,6 +1391,7 @@
             "default": false,
             "applies": "live",
             "group": "security",
+            "advanced": true,
             "danger_when_set": true,
             "locked": true
           }
@@ -1417,7 +1421,8 @@
               ]
             },
             "applies": "live",
-            "group": "network"
+            "group": "network",
+            "advanced": true
           }
         },
         {
@@ -1491,7 +1496,8 @@
                 }
               ]
             },
-            "group": "limits"
+            "group": "limits",
+            "advanced": true
           }
         },
         {
@@ -1532,7 +1538,8 @@
               ]
             },
             "applies": "reload",
-            "group": "network"
+            "group": "network",
+            "advanced": true
           }
         },
         {
@@ -1569,7 +1576,8 @@
               ]
             },
             "applies": "live",
-            "group": "network"
+            "group": "network",
+            "advanced": true
           }
         },
         {
@@ -1610,7 +1618,8 @@
               ]
             },
             "applies": "live",
-            "group": "network"
+            "group": "network",
+            "advanced": true
           }
         },
         {

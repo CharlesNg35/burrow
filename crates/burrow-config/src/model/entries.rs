@@ -92,7 +92,8 @@ pub struct VisitorEntry {
         group = admin,
         visible_if(set(admin)),
         empty_label = "Any address",
-        reduce_only
+        reduce_only,
+        advanced
     )]
     pub admin_from: Vec<String>,
 }
@@ -242,7 +243,8 @@ pub struct ServiceEntry {
     #[admin(
         ty = integer(unit = "connections"),
         group = traffic,
-        none_label = "Unlimited"
+        none_label = "Unlimited",
+        advanced
     )]
     pub max_connections: Option<u32>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -291,7 +293,8 @@ pub struct ServiceEntry {
         label = "Speed limit",
         group = traffic,
         none_label = "Unlimited",
-        wide
+        wide,
+        advanced
     )]
     pub bandwidth: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

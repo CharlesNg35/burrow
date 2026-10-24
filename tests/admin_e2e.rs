@@ -14,6 +14,8 @@ mod edits;
 mod guards;
 #[path = "admin_e2e/header.rs"]
 mod header;
+#[path = "admin_e2e/more.rs"]
+mod more;
 #[path = "admin_e2e/reverts.rs"]
 mod reverts;
 #[path = "admin_e2e/screens.rs"]
