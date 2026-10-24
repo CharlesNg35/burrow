@@ -40,7 +40,7 @@ fn proxy_protocol_needs_tcp() {
        |
     18 |     proxy_protocol: v1
        |                     ^^
-       = help: remove "proxy_protocol", or use a tcp service
+       = help: remove proxy_protocol:, or set protocol: tcp
 
     server.yaml: 1 error, 0 warnings
     "#);
@@ -295,14 +295,14 @@ fn several_clients() {
        |
     22 |     mode: balance
        |           ^^^^^^^
-       = help: remove "mode", or use a tcp service
+       = help: remove mode:, or set protocol: tcp
 
     error: service "d" is udp, but health_check only works for tcp services
       --> server.yaml:23:19
        |
     23 |     health_check: true
        |                   ^^^^
-       = help: remove "health_check", or use a tcp service
+       = help: remove health_check:, or set protocol: tcp
 
     error: unknown mode "random" in service "e"
       --> server.yaml:29:11

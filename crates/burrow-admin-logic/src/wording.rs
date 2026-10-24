@@ -1,5 +1,6 @@
 pub const WEB_HTTPS_LATER: &str = "web-https-later";
 pub const WEB_HTTP_LATER: &str = "web-http-later";
+pub const WEB_TCP_ONLY: &str = "web-tcp-only";
 
 fn key_path(head: &str) -> bool {
     head.contains('.')
@@ -14,6 +15,10 @@ pub fn shown(code: &str, message: &str) -> String {
     }
     if code == WEB_HTTP_LATER {
         return "plain HTTP websites are not in this build yet; under HTTPS, choose The app does its own HTTPS".into();
+    }
+    if code == WEB_TCP_ONLY {
+        return "a website only works for TCP services; set Protocol to TCP, or remove the website"
+            .into();
     }
     match message.split_once(": ") {
         Some((head, rest)) if key_path(head) => rest.to_string(),
@@ -48,6 +53,13 @@ mod tests {
         assert_eq!(
             shown("x", "invalid bind address for service \"web\": bad"),
             "invalid bind address for service \"web\": bad"
+        );
+        assert_eq!(
+            shown(
+                WEB_TCP_ONLY,
+                "service \"dns\" is udp, but web only works for tcp services; remove web:, or set protocol: tcp"
+            ),
+            "a website only works for TCP services; set Protocol to TCP, or remove the website"
         );
         assert!(
             shown(WEB_HTTPS_LATER, "services.nas.web: ... tls: passthrough")

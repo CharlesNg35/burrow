@@ -180,7 +180,10 @@ fn web_is_for_tcp_services_and_its_port_is_taken_from_others() {
     let udp = one_error(
         "listen: 7835\nweb: { https: 443 }\nservices:\n  dns:\n    client: home\n    target: 53\n    protocol: udp\n    web: { hosts: [dns.example.com], tls: passthrough }\n",
     );
-    assert!(udp.contains("web only works for tcp services"), "{udp}");
+    assert_eq!(
+        udp,
+        "service \"dns\" is udp, but web only works for tcp services; remove web:, or set protocol: tcp"
+    );
     let bind = one_error(&format!(
         "listen: 7835\nweb: {{ https: 8443 }}\n{NAS}  other:\n    client: home\n    bind: 8443\n    target: 80\n"
     ));

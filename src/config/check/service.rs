@@ -206,6 +206,11 @@ fn check_tcp_only(
                 "health-check-tcp-only",
                 "health_check only works for tcp services",
             ),
+            "web" => (
+                is_set(svc, "web"),
+                "web-tcp-only",
+                "web only works for tcp services; remove web:, or set protocol: tcp",
+            ),
             other => (is_set(svc, other), "tcp-only", generic.as_str()),
         };
         if set {
@@ -299,14 +304,16 @@ fn tcp_only(
     out: &mut Vec<Diagnostic>,
 ) {
     if svc.protocol != Protocol::Tcp {
-        out.push(
-            Diagnostic::error(
-                code,
-                format!("service \"{name}\" is {}, but {why}", svc.protocol.wire()),
-            )
-            .at(spans.value(&["services", name, field]))
-            .help(format!("remove \"{field}\", or use a tcp service")),
-        );
+        let d = Diagnostic::error(
+            code,
+            format!("service \"{name}\" is {}, but {why}", svc.protocol.wire()),
+        )
+        .at(spans.value(&["services", name, field]));
+        out.push(if code == "web-tcp-only" {
+            d
+        } else {
+            d.help(format!("remove {field}:, or set protocol: tcp"))
+        });
     }
 }
 

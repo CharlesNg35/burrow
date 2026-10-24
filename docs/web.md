@@ -138,7 +138,7 @@ server: wss://tunnel.example.com/burrow
 | `websocket.host` without sharing | `websocket.host is only used when websocket.listen is the same port as web.https; ...` |
 | the tunnel's name is a passthrough site | `websocket.host "nas.example.com" is a passthrough site; burrow cannot see its requests` |
 | the tunnel's name has no certificate | `websocket.host "tunnel.example.com" has no certificate; add websocket.tls with its cert and key` |
-| a UDP service with `web` | `service "dns" is udp, but web only works for tcp services` |
+| a UDP service with `web` | `service "dns" is udp, but web only works for tcp services; remove web:, or set protocol: tcp` |
 | another listener on the same port | `web.https [::]:443 is also the control port (listen ...)`, or the service or metrics port it clashes with |
 
 ## Limits
