@@ -134,8 +134,38 @@ pub fn build(
     {
         checks.push(check(ty, &m, span));
     }
-    let (min, max) = range;
     let sem = match name {
+        "object" | "map" | "ref_map" => composite_sem(name, args, ty, span, &mut checks, errors),
+        "list" => list_sem(args, ty, &m, span, &mut checks, errors),
+        "union" | "union_" => union_sem(args, ty, &m, span, &mut checks, errors),
+        _ => Sem::Type(scalar_sem(name, args, ty, range, span, errors)),
+    };
+    let sem = match sem {
+        Sem::Type(sem) => sem,
+        Sem::Node(node) => return Built { node, checks },
+    };
+    Built {
+        node: quote!(#p::Node::new(#sem)),
+        checks,
+    }
+}
+
+enum Sem {
+    Type(TokenStream),
+    Node(TokenStream),
+}
+
+fn scalar_sem(
+    name: &str,
+    args: &[Term],
+    ty: Option<&syn::Type>,
+    range: (Option<i64>, Option<i64>),
+    span: Span,
+    errors: &mut Errors,
+) -> TokenStream {
+    let p = crate::p();
+    let (min, max) = range;
+    match name {
         "text" => {
             let max_len = opt_int(Term::value(args, "max_len").and_then(Term::as_int));
             let hint = opt_str(Term::value(args, "pattern_hint").and_then(Term::as_str));
@@ -233,6 +263,20 @@ pub fn build(
             let rel = opt_str(Term::value(args, "relative_to").and_then(Term::as_str));
             quote!(#p::SemType::Path(#p::PathC { must_exist: #must, relative_to: #rel }))
         }
+        _ => unreachable!("marker() covers every name"),
+    }
+}
+
+fn composite_sem(
+    name: &str,
+    args: &[Term],
+    ty: Option<&syn::Type>,
+    span: Span,
+    checks: &mut Vec<TokenStream>,
+    errors: &mut Errors,
+) -> Sem {
+    let p = crate::p();
+    Sem::Type(match name {
         "object" => {
             let explicit = Term::positional(args).first().and_then(|a| match a {
                 Term::Type(t, _) => Some((**t).clone()),
@@ -241,10 +285,7 @@ pub fn build(
             match explicit.as_ref().or(ty) {
                 Some(ty) => {
                     let ty = ty.clone();
-                    return Built {
-                        node: quote!(<#ty as #p::AdminSchema>::node()),
-                        checks,
-                    };
+                    return Sem::Node(quote!(<#ty as #p::AdminSchema>::node()));
                 }
                 None => {
                     errors.push(span, "`object` needs a type here: object(TypeName)");
@@ -288,59 +329,69 @@ pub fn build(
             let reserved = reserved(args);
             quote!(#p::SemType::RefMap(#p::RefMapC { entity: #e, value: ::std::boxed::Box::new(#value), reserved: #reserved }))
         }
-        "list" => {
-            let item_ty = ty.and_then(|t| strip(t, "Vec"));
-            if let Some(ty) = ty {
-                checks.push(check(ty, &m, span));
-            }
-            let Some(item) = Term::positional(args).first().copied() else {
-                errors.push(span, "`list` needs an item type: list(cidr)");
-                return Built {
-                    node: quote!(#p::Node::default()),
-                    checks,
-                };
-            };
-            let b = build(item, item_ty, (None, None), errors);
-            checks.extend(b.checks);
-            let max_items = opt_int(Term::value(args, "max").and_then(Term::as_int));
-            let item_node = b.node;
-            quote!(#p::SemType::List(#p::ListC { item: ::std::boxed::Box::new(#item_node), max_items: #max_items }))
-        }
-        "union" | "union_" => {
-            let branches: Vec<&Term> = Term::positional(args);
-            if branches.is_empty() {
-                match ty {
-                    Some(ty) => {
-                        checks.push(check(ty, &m, span));
-                        return Built {
-                            node: quote!(<#ty as #p::AdminSchema>::node()),
-                            checks,
-                        };
-                    }
-                    None => {
-                        errors.push(span, "`union` needs branches: union(bool, object(T))");
-                        quote!(#p::SemType::Bool)
-                    }
-                }
-            } else {
-                if let Some(ty) = ty {
-                    checks.push(check(ty, &m, span));
-                }
-                let nodes: Vec<TokenStream> = branches
-                    .iter()
-                    .map(|b| {
-                        let built = build(b, None, (None, None), errors);
-                        checks.extend(built.checks);
-                        built.node
-                    })
-                    .collect();
-                quote!(#p::SemType::Union(#p::UnionC { branches: ::std::vec![#(#nodes),*] }))
-            }
-        }
-        _ => unreachable!("marker() covers every name"),
-    };
-    Built {
-        node: quote!(#p::Node::new(#sem)),
-        checks,
+        _ => unreachable!("composite_sem covers object, map and ref_map"),
+    })
+}
+
+fn list_sem(
+    args: &[Term],
+    ty: Option<&syn::Type>,
+    m: &syn::Ident,
+    span: Span,
+    checks: &mut Vec<TokenStream>,
+    errors: &mut Errors,
+) -> Sem {
+    let p = crate::p();
+    let item_ty = ty.and_then(|t| strip(t, "Vec"));
+    if let Some(ty) = ty {
+        checks.push(check(ty, m, span));
     }
+    let Some(item) = Term::positional(args).first().copied() else {
+        errors.push(span, "`list` needs an item type: list(cidr)");
+        return Sem::Node(quote!(#p::Node::default()));
+    };
+    let b = build(item, item_ty, (None, None), errors);
+    checks.extend(b.checks);
+    let max_items = opt_int(Term::value(args, "max").and_then(Term::as_int));
+    let item_node = b.node;
+    Sem::Type(
+        quote!(#p::SemType::List(#p::ListC { item: ::std::boxed::Box::new(#item_node), max_items: #max_items })),
+    )
+}
+
+fn union_sem(
+    args: &[Term],
+    ty: Option<&syn::Type>,
+    m: &syn::Ident,
+    span: Span,
+    checks: &mut Vec<TokenStream>,
+    errors: &mut Errors,
+) -> Sem {
+    let p = crate::p();
+    let branches: Vec<&Term> = Term::positional(args);
+    Sem::Type(if branches.is_empty() {
+        match ty {
+            Some(ty) => {
+                checks.push(check(ty, m, span));
+                return Sem::Node(quote!(<#ty as #p::AdminSchema>::node()));
+            }
+            None => {
+                errors.push(span, "`union` needs branches: union(bool, object(T))");
+                quote!(#p::SemType::Bool)
+            }
+        }
+    } else {
+        if let Some(ty) = ty {
+            checks.push(check(ty, m, span));
+        }
+        let nodes: Vec<TokenStream> = branches
+            .iter()
+            .map(|b| {
+                let built = build(b, None, (None, None), errors);
+                checks.extend(built.checks);
+                built.node
+            })
+            .collect();
+        quote!(#p::SemType::Union(#p::UnionC { branches: ::std::vec![#(#nodes),*] }))
+    })
 }
