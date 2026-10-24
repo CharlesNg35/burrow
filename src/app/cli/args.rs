@@ -316,6 +316,12 @@ pub struct InitArgs {
         help = "Server: private key for --ws-tls-cert (PEM)"
     )]
     pub ws_tls_key: Option<String>,
+    #[arg(
+        long,
+        value_name = "ADDRESS",
+        help = "Server: Let's Encrypt contact; with --ws and --server NAME the tunnel shares port 443 with an automatic certificate (accepts Let's Encrypt's terms)"
+    )]
+    pub email: Option<String>,
 }
 
 #[derive(Debug, Args)]

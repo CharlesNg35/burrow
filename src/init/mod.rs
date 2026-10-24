@@ -4,6 +4,7 @@ mod plan;
 mod server;
 mod splice;
 mod visitor;
+mod web;
 
 pub use client::{client_config, client_document, client_value, init_client};
 pub use export::ConfigOutput;
@@ -41,6 +42,7 @@ pub struct InitOptions {
     pub secret: Option<String>,
     pub env_secret: Option<String>,
     pub websocket: Option<WebSocketInit>,
+    pub email: Option<String>,
     pub update: bool,
     pub yes: bool,
 }

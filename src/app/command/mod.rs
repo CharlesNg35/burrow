@@ -369,6 +369,7 @@ fn init(args: crate::app::cli::InitArgs) -> Result<u8, Failure> {
         env_secret: args.env_secret,
         update: args.update,
         yes: args.yes,
+        email: args.email,
         websocket: (args.ws
             || args.ws_listen.is_some()
             || args.ws_path.is_some()

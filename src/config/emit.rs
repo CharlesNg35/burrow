@@ -76,7 +76,7 @@ pub(crate) fn scalar_str(s: &str) -> String {
             .next()
             .is_some_and(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '/' | '+'))
         && s.chars().all(|c| {
-            c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '/' | '+' | '=' | '-' | ':')
+            c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '/' | '+' | '=' | '-' | ':' | '@')
         })
         && !s.ends_with(':')
         && !matches!(
@@ -108,6 +108,12 @@ pub(crate) fn scalar_str(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_email_is_written_plain_and_a_leading_at_sign_is_quoted() {
+        assert_eq!(scalar_str("ops@example.com"), "ops@example.com");
+        assert_eq!(scalar_str("@home"), "\"@home\"");
+    }
     use crate::config::tree;
 
     #[test]

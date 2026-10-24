@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 use super::client::client_value;
 use super::{
     DEFAULT_CLIENT_NAME, InitOptions, WebSocketChoice, WebSocketInit, check_env_name, check_name,
-    default_listen, default_service_bind, resolve_output, write_new,
+    default_listen, default_service_bind, resolve_output, web, write_new,
 };
 use crate::base::failure::Failure;
 use crate::config::emit::render;
@@ -55,16 +55,31 @@ fn websocket_server_value(client: &str, secret_text: &str, ws: &WebSocketChoice)
     })
 }
 
+fn service(client: &str) -> Value {
+    json!({ "client": client, "bind": default_service_bind(), "target": "127.0.0.1:3000" })
+}
+
 pub fn init_server(opts: &InitOptions, out: &mut dyn Write) -> Result<PathBuf, Failure> {
     let (path, format) = resolve_output(Role::Server, opts)?;
     let client = opts.client_name.as_deref().unwrap_or(DEFAULT_CLIENT_NAME);
     check_name("--client-name", client)?;
-    let ws = opts
-        .websocket
-        .as_ref()
-        .map(WebSocketInit::resolve)
-        .transpose()?;
+    if opts.email.is_some() && opts.websocket.is_none() {
+        return Err(
+            Failure::usage("--email is for a tunnel with an automatic certificate")
+                .hint("add --ws and --server tunnel.example.com"),
+        );
+    }
+    let tunnel = web::tunnel_choice(opts)?;
+    let ws = match tunnel {
+        Some(_) => None,
+        None => opts
+            .websocket
+            .as_ref()
+            .map(WebSocketInit::resolve)
+            .transpose()?,
+    };
     let client_server = match &opts.server {
+        Some(_) if let Some(t) = &tunnel => Some(format!("wss://{}{}", t.host, t.path)),
         Some(s) if ws.is_none() && s.contains("://") => {
             return Err(
                 Failure::usage("--server is a URL but the server config is TCP")
@@ -95,13 +110,14 @@ pub fn init_server(opts: &InitOptions, out: &mut dyn Write) -> Result<PathBuf, F
         }
         None => secret.encode(),
     };
-    let value = match &ws {
-        Some(ws) => websocket_server_value(client, &secret_text, ws),
-        None => server_value(client, &secret_text),
+    let value = match (&tunnel, &ws) {
+        (Some(t), _) => web::tunnel_value(t, client, &secret_text, service(client)),
+        (None, Some(ws)) => websocket_server_value(client, &secret_text, ws),
+        (None, None) => server_value(client, &secret_text),
     };
     let value = match &opts.server {
-        Some(address) => with_public_address(value, address.trim()),
-        None => value,
+        Some(address) if tunnel.is_none() => with_public_address(value, address.trim()),
+        _ => value,
     };
     write_new(&path, &render(&value, format), opts.force)?;
 
@@ -119,6 +135,9 @@ pub fn init_server(opts: &InitOptions, out: &mut dyn Write) -> Result<PathBuf, F
             path.display()
         ),
     )?;
+    if let Some(t) = &tunnel {
+        w(out, web::tunnel_note(t))?;
+    }
     if let Some(ws) = &ws {
         let note = match &ws.tls {
             Some((cert, key)) => format!(

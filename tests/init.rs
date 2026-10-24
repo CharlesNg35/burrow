@@ -7,6 +7,8 @@ mod outputs;
 mod server_init;
 #[path = "init/visitor_config.rs"]
 mod visitor_config;
+#[path = "init/web_init.rs"]
+mod web_init;
 
 use std::path::Path;
 
