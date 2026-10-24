@@ -17,9 +17,12 @@ burrow-syntax = { path = "../crates/burrow-syntax" }
 burrow-web = { path = "../crates/burrow-web" }
 tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring", "logging", "tls12"] }
 serde_json = { version = "1", features = ["preserve_order"] }
-http = "1"
 instant-acme = { version = "=0.8.5", default-features = false, features = ["ring", "rcgen", "time"] }
-tokio = { version = "1", features = ["rt", "io-util"] }
+tokio = { version = "1", features = ["rt", "io-util", "net", "time"] }
+hyper = { version = "1.12.0", default-features = false, features = ["http1", "server"] }
+hyper-util = { version = "0.1.21", default-features = false, features = ["tokio"] }
+http-body-util = "0.1.5"
+http = "1.5.0"
 
 [[bin]]
 name = "handshake"
@@ -90,6 +93,20 @@ bench = false
 [[bin]]
 name = "acme_meta"
 path = "fuzz_targets/acme_meta.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "http_edge"
+path = "fuzz_targets/http_edge.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "host_header"
+path = "fuzz_targets/host_header.rs"
 test = false
 doc = false
 bench = false
