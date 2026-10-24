@@ -1,5 +1,5 @@
 //! The wire layer: secrets, the Noise handshake, records, the protocol messages and the transports.
-//! It may use base only; it must not depend on config, roles or ops.
+//! It may use base and the shared burrow-config enums; it must not depend on the config module, roles or ops.
 
 pub mod handshake;
 pub mod noise;
