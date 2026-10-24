@@ -14,10 +14,10 @@ use crate::config::Format;
 use crate::config::settings::ServerSettings;
 use crate::edit::save::{Refused, write_back};
 use crate::metrics::Status;
-use crate::protocol::Status as Answer;
 use crate::server::Shared;
 use crate::throttle::Throttle;
-use crate::transport::Channel;
+use crate::wire::protocol::Status as Answer;
+use crate::wire::transport::Channel;
 use burrow_admin_proto::msg::AdminLevel;
 
 const KEEP: usize = 20;
@@ -437,7 +437,7 @@ pub fn hub(
 struct SettingsAccess {
     shared: Arc<Shared>,
     visitor: String,
-    secret: crate::secret::Secret,
+    secret: crate::wire::secret::Secret,
     peer: SocketAddr,
     level: AdminLevel,
 }
@@ -616,8 +616,8 @@ mod tests {
 
     #[tokio::test]
     async fn a_refusal_to_a_websocket_peer_that_never_closes_gives_up() {
-        let (ours, _held) = crate::transport::testing::held_websocket().await;
-        let mut ch = crate::transport::testing::sealed(ours);
+        let (ours, _held) = crate::wire::transport::testing::held_websocket().await;
+        let mut ch = crate::wire::transport::testing::sealed(ours);
         tokio::time::timeout(
             crate::forward::ANSWER_TIMEOUT + std::time::Duration::from_secs(3),
             answer(&mut ch, &[&[Answer::Forbidden as u8]]),

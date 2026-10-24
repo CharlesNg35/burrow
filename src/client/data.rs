@@ -13,14 +13,14 @@ use crate::base::failure::io_reason;
 use crate::config::check::{parse_host_port, unix};
 use crate::config::settings::{ClientSettings, Limit};
 use crate::forward::{client_tcp, refuse};
-use crate::protocol::{
+use crate::throttle::Throttle;
+use crate::wire::protocol::{
     Connect, KEEPALIVE_RECORD, MAX_DATAGRAM, STALE_RECORD, ServiceInfo, Status, decode_datagram,
     encode_datagram,
 };
-use crate::throttle::Throttle;
-use crate::transport::Channel;
-use crate::transport::resolve::Resolver;
-use crate::transport::tcp::{SocketTuning, connect_any, tune};
+use crate::wire::transport::Channel;
+use crate::wire::transport::resolve::Resolver;
+use crate::wire::transport::tcp::{SocketTuning, connect_any, tune};
 use burrow_config::Protocol;
 
 #[derive(Clone, PartialEq)]
@@ -226,7 +226,7 @@ async fn connected_socket(target: SocketAddr) -> std::io::Result<Arc<UdpSocket>>
     } else {
         (std::net::Ipv6Addr::UNSPECIFIED, 0).into()
     };
-    let sock = crate::transport::udp::bind_udp(bind).await?;
+    let sock = crate::wire::transport::udp::bind_udp(bind).await?;
     sock.connect(target).await?;
     Ok(Arc::new(sock))
 }
@@ -399,7 +399,7 @@ async fn connected<W: Dials>(
     live: Rules<W>,
     resolver: Arc<dyn Resolver>,
     ch: Channel,
-    first: Result<Connect, crate::protocol::DecodeError>,
+    first: Result<Connect, crate::wire::protocol::DecodeError>,
 ) {
     let connect = match first {
         Ok(c) => c,
@@ -1081,7 +1081,7 @@ mod tests {
         drop(first);
         assert!(slots.take().is_some());
     }
-    use crate::transport::resolve::Resolved;
+    use crate::wire::transport::resolve::Resolved;
 
     struct Hanging;
 
@@ -1091,7 +1091,7 @@ mod tests {
                 if host_port.starts_with("hang.test:") {
                     std::future::pending::<()>().await;
                 }
-                crate::transport::resolve::resolve(host_port).await
+                crate::wire::transport::resolve::resolve(host_port).await
             })
         }
     }

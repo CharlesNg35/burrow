@@ -11,8 +11,8 @@ use super::{
     valid_name,
 };
 use crate::diagnostics::Diagnostic;
-use crate::protocol::VisitTarget;
-use crate::secret::Secret;
+use crate::wire::protocol::VisitTarget;
+use crate::wire::secret::Secret;
 use burrow_config::{ForwardEntry, Protocol, VisitorConfig};
 
 pub fn check_visitor(

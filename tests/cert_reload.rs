@@ -8,9 +8,9 @@ use burrow::config::env::ProcessEnv;
 use burrow::config::{Loaded, Role, load_file};
 use burrow::reload::{accept, follow};
 use burrow::run::Env;
-use burrow::secret::Secret;
 use burrow::server::Server;
-use burrow::transport::tls;
+use burrow::wire::secret::Secret;
+use burrow::wire::transport::tls;
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, watch};
 

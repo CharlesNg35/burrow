@@ -13,7 +13,7 @@ struct Setup {
 fn setup() -> Setup {
     let dir = tempfile::tempdir().unwrap();
     let locks = tempfile::tempdir().unwrap();
-    let secret = burrow::secret::Secret::generate().encode();
+    let secret = burrow::wire::secret::Secret::generate().encode();
     let cfg = format!(
         "listen: 127.0.0.1:{}\nclients:\n  home:\n    secret: {secret}\nservices:\n  web:\n    client: home\n    bind: 127.0.0.1:{}\n    target: 127.0.0.1:3000\n",
         free_port(),
@@ -85,7 +85,7 @@ fn config_is_found_in_the_current_folder() {
 #[test]
 fn an_ad_hoc_visit_does_not_warn_that_the_file_has_no_forwards() {
     let s = setup();
-    let secret = burrow::secret::Secret::generate().encode();
+    let secret = burrow::wire::secret::Secret::generate().encode();
     std::fs::write(
         s.dir.path().join("visitor.yaml"),
         format!("server: 127.0.0.1:1\nname: laptop\nsecret: {secret}\n"),
@@ -115,7 +115,7 @@ fn an_ad_hoc_visit_does_not_warn_that_the_file_has_no_forwards() {
 #[test]
 fn init_refuses_flags_that_are_not_for_the_role() {
     let s = setup();
-    let secret = burrow::secret::Secret::generate().encode();
+    let secret = burrow::wire::secret::Secret::generate().encode();
     let cases: [(&[&str], &str); 4] = [
         (
             &["init", "server", "--name", "x", "-o", "a.yaml"],
@@ -226,7 +226,7 @@ fn hints_quote_a_config_path_with_a_space() {
 #[test]
 fn the_server_says_which_service_targets_a_client_does_not_allow() {
     let s = setup();
-    let secret = burrow::secret::Secret::generate().encode();
+    let secret = burrow::wire::secret::Secret::generate().encode();
     let port = free_port();
     std::fs::write(
         s.dir.path().join("server.yaml"),

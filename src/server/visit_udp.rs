@@ -11,13 +11,13 @@ use super::via::Via;
 use super::visit::Grant;
 use crate::forward::{ForwardError, Opened};
 use crate::metrics::ServiceStats;
-use crate::protocol::{Connect, Status, VisitRequest, VisitTarget, decode_datagram};
 use crate::ratelimit::Limit;
-use crate::secret::Secret;
 use crate::throttle::Throttle;
-use crate::transport::Channel;
 use crate::udp::link::{Link, Opening, open_udp};
 use crate::udp::peers::{PeerGauge, PeerTable};
+use crate::wire::protocol::{Connect, Status, VisitRequest, VisitTarget, decode_datagram};
+use crate::wire::secret::Secret;
+use crate::wire::transport::Channel;
 use burrow_config::Protocol;
 
 const SWEEP: Duration = Duration::from_secs(5);

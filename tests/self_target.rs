@@ -7,8 +7,8 @@ use std::time::{Duration, Instant};
 use burrow::allowlist::{AllowList, Rule};
 use burrow::client::State;
 use burrow::config::settings::{Health, ServerSettings, Service};
-use burrow::protocol::VisitTarget;
-use burrow::secret::Secret;
+use burrow::wire::protocol::VisitTarget;
+use burrow::wire::secret::Secret;
 use burrow_config::Protocol;
 use common::*;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
@@ -741,7 +741,7 @@ async fn udp_visits_reach_self_inside_reach_and_self_allow() {
         udp_visit(srv.addr, secret, on_self_target("10.1.2.3:53".into()))
             .await
             .err(),
-        Some(Some(burrow::protocol::Status::Forbidden))
+        Some(Some(burrow::wire::protocol::Status::Forbidden))
     );
 }
 
@@ -754,7 +754,7 @@ async fn udp_visits_on_self_never_reach_link_local_or_metadata_addresses() {
             udp_visit(srv.addr, secret.clone(), on_self_target(target.into()))
                 .await
                 .err(),
-            Some(Some(burrow::protocol::Status::Denied)),
+            Some(Some(burrow::wire::protocol::Status::Denied)),
             "{target}"
         );
     }

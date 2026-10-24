@@ -6,7 +6,7 @@ use serde_json::{Map, Value, json};
 
 use crate::allowlist::Rule;
 use crate::config::settings::Forward;
-use crate::protocol::{Grants, VisitTarget};
+use crate::wire::protocol::{Grants, VisitTarget};
 use burrow_config::Protocol;
 
 #[derive(Debug, Default, PartialEq)]
@@ -73,7 +73,7 @@ impl Ports {
             return true;
         };
         *probed[port].get_or_insert_with(|| {
-            crate::transport::udp::std_socket((Ipv4Addr::LOCALHOST, port as u16).into(), kind)
+            crate::wire::transport::udp::std_socket((Ipv4Addr::LOCALHOST, port as u16).into(), kind)
                 .is_ok()
         })
     }
@@ -473,7 +473,7 @@ mod tests {
             json!({ "client": "home", "target": "127.0.0.1:30000-30010", "local": "30000-30010" })
         );
     }
-    use crate::protocol::{GrantedClient, GrantedService};
+    use crate::wire::protocol::{GrantedClient, GrantedService};
     use std::net::SocketAddr;
 
     fn grants(services: &[(&str, u16, u16)], clients: &[&str]) -> Grants {

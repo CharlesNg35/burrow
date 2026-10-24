@@ -7,7 +7,7 @@ use tokio::net::UdpSocket;
 
 use super::link::Link;
 use super::peers::{AbortOnDrop, PeerCount, PeerGauge, PeerTable};
-use crate::protocol::{MAX_DATAGRAM, decode_datagram, encode_datagram};
+use crate::wire::protocol::{MAX_DATAGRAM, decode_datagram, encode_datagram};
 
 pub type Peers = Arc<Mutex<PeerTable<SocketAddr>>>;
 
@@ -178,7 +178,7 @@ pub async fn run<C: PeerCount, M: Meter, H: Hooks>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::transport::local::pair;
+    use crate::wire::transport::local::pair;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     struct Count(Arc<AtomicUsize>);
@@ -255,7 +255,7 @@ mod tests {
         let refused = UdpSocket::bind("127.0.0.1:0").await.unwrap();
         let extra = UdpSocket::bind("127.0.0.1:0").await.unwrap();
         let (near, mut far) = pair();
-        let crate::transport::Channel {
+        let crate::wire::transport::Channel {
             stream,
             writer,
             reader,
@@ -339,7 +339,7 @@ mod tests {
     async fn a_broken_link_ends_the_front_as_broken() {
         let socket = Arc::new(UdpSocket::bind("127.0.0.1:0").await.unwrap());
         let (near, far) = pair();
-        let crate::transport::Channel {
+        let crate::wire::transport::Channel {
             stream,
             writer,
             reader,
@@ -381,7 +381,7 @@ mod tests {
         let at = socket.local_addr().unwrap();
         let sender = UdpSocket::bind("[::1]:0").await.unwrap();
         let (near, mut far) = pair();
-        let crate::transport::Channel {
+        let crate::wire::transport::Channel {
             stream,
             writer,
             reader,

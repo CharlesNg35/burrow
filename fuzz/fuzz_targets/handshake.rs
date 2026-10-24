@@ -1,13 +1,13 @@
 #![no_main]
 
 use burrow_config::Cipher;
-use burrow::noise::{Initiator, MSG1_LEN, MSG2_LEN, Responder};
-use burrow::protocol::{PREAMBLE_FIXED, Preamble};
-use burrow::secret::Secret;
+use burrow::wire::noise::{Initiator, MSG1_LEN, MSG2_LEN, Responder};
+use burrow::wire::protocol::{PREAMBLE_FIXED, Preamble};
+use burrow::wire::secret::Secret;
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {
-    let _ = burrow::transport::ws::route(data, "/burrow");
+    let _ = burrow::wire::transport::ws::route(data, "/burrow");
     if let Ok(text) = std::str::from_utf8(data) {
         if let Ok(e) = burrow_syntax::endpoint::Endpoint::parse(text) {
             let _ = burrow_syntax::endpoint::Endpoint::parse(&e.to_string())

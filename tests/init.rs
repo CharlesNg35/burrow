@@ -118,7 +118,7 @@ fn client_init_needs_flags_without_tty() {
     assert!(err.message.contains("missing client name"));
     assert!(!path.exists());
 
-    let secret = burrow::secret::Secret::generate();
+    let secret = burrow::wire::secret::Secret::generate();
     let full = InitOptions {
         name: Some("home".into()),
         secret: Some(secret.encode()),
@@ -144,7 +144,7 @@ impl Prompter for Answers {
 fn client_init_prompts_only_for_missing() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("client.yaml");
-    let secret = burrow::secret::Secret::generate().encode();
+    let secret = burrow::wire::secret::Secret::generate().encode();
     let leaked: &'static str = Box::leak(secret.into_boxed_str());
     let mut p = Answers(vec!["home", leaked], Vec::new());
     let opts = InitOptions {
@@ -394,7 +394,7 @@ fn server_with(dir: &Path, top: &str, clients: &[&str]) -> std::path::PathBuf {
     for c in clients {
         text.push_str(&format!(
             "  {c}:\n    secret: {}\n",
-            burrow::secret::Secret::generate().encode()
+            burrow::wire::secret::Secret::generate().encode()
         ));
     }
     text.push_str(&format!(
@@ -613,7 +613,7 @@ fn init_accepts_a_host_without_port() {
             output: Some(client.clone()),
             server: Some("myserver.example.com".into()),
             name: Some("home".into()),
-            secret: Some(burrow::secret::Secret::generate().encode()),
+            secret: Some(burrow::wire::secret::Secret::generate().encode()),
             ..Default::default()
         },
         &mut NoPrompt,
@@ -740,7 +740,7 @@ fn client_config_allows_mapped_ipv6_targets_as_ipv4() {
         &path,
         format!(
             "listen: 0.0.0.0:7835\nclients:\n  home:\n    secret: {}\nservices:\n  web: {{client: home, bind: 7840, target: \"[::ffff:127.0.0.1]:3000\"}}\n",
-            burrow::secret::Secret::generate().encode()
+            burrow::wire::secret::Secret::generate().encode()
         ),
     )
     .unwrap();
@@ -800,7 +800,7 @@ fn client_config_explains_a_missing_or_empty_server_config() {
 fn visitor_init_asks_for_what_is_missing_and_validates() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("visitor.yaml");
-    let secret = burrow::secret::Secret::generate().encode();
+    let secret = burrow::wire::secret::Secret::generate().encode();
     let leaked: &'static str = Box::leak(secret.into_boxed_str());
     let mut p = Answers(vec!["laptop", leaked], Vec::new());
     let opts = InitOptions {
@@ -849,7 +849,7 @@ fn visitor_init_asks_for_what_is_missing_and_validates() {
 
 fn visitors_server(dir: &Path, visitors: &str, services: &str) -> std::path::PathBuf {
     let path = dir.join("server.yaml");
-    let s = || burrow::secret::Secret::generate().encode();
+    let s = || burrow::wire::secret::Secret::generate().encode();
     let mut visitors = visitors.to_string();
     while let Some(i) = visitors.find("@SECRET@") {
         visitors.replace_range(i..i + "@SECRET@".len(), &s());
@@ -1024,7 +1024,8 @@ fn visitor_config_keeps_an_env_secret() {
         "  db: { client: home, target: 5432, visitors: [laptop] }\n",
     );
     let env = |name: &str| {
-        (name == "BURROW_TEST_LAPTOP_SECRET").then(|| burrow::secret::Secret::generate().encode())
+        (name == "BURROW_TEST_LAPTOP_SECRET")
+            .then(|| burrow::wire::secret::Secret::generate().encode())
     };
     let out = burrow::init::visitor_config(None, &path, None, Format::Yaml, &env).unwrap();
     assert!(
@@ -1117,7 +1118,7 @@ fn visitor_config_gives_reach_a_socks_proxy_and_ranges_a_local_range() {
 fn a_client_config_lists_ipv4_before_ipv6_and_unix_sockets_last() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("server.yaml");
-    let secret = burrow::secret::Secret::generate().encode();
+    let secret = burrow::wire::secret::Secret::generate().encode();
     std::fs::write(
         &path,
         format!(
@@ -1156,8 +1157,8 @@ fn a_client_config_lists_ipv4_before_ipv6_and_unix_sockets_last() {
 fn client_config_allows_ranges_sockets_and_shared_services() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("server.yaml");
-    let secret = burrow::secret::Secret::generate().encode();
-    let other = burrow::secret::Secret::generate().encode();
+    let secret = burrow::wire::secret::Secret::generate().encode();
+    let other = burrow::wire::secret::Secret::generate().encode();
     std::fs::write(
         &path,
         format!(
@@ -1201,7 +1202,7 @@ fn client_config_allows_ranges_sockets_and_shared_services() {
 fn visitor_config_keeps_a_service_named_like_the_socks_forward() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("server.yaml");
-    let s = || burrow::secret::Secret::generate().encode();
+    let s = || burrow::wire::secret::Secret::generate().encode();
     std::fs::write(
         &path,
         format!(
@@ -1228,7 +1229,7 @@ fn visitor_config_keeps_a_service_named_like_the_socks_forward() {
 
 fn server(dir: &Path, client: &str, services: &str) -> std::path::PathBuf {
     let path = dir.join("server.yaml");
-    let s = || burrow::secret::Secret::generate().encode();
+    let s = || burrow::wire::secret::Secret::generate().encode();
     std::fs::write(
         &path,
         format!(
@@ -1266,7 +1267,7 @@ fn the_socks_forward_never_replaces_a_service_forward() {
     assert!(
         v.forwards
             .values()
-            .any(|f| f.to == burrow::protocol::VisitTarget::service("home-socks")),
+            .any(|f| f.to == burrow::wire::protocol::VisitTarget::service("home-socks")),
         "the home-socks service lost its forward:\n{text}"
     );
 }

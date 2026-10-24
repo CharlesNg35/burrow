@@ -13,13 +13,13 @@ use super::Live;
 use super::forward::{explain, rejected};
 use super::socks::{Hint, Reply, reply_bound};
 use crate::dialer::DialError;
-use crate::protocol::{
-    ChannelKind, Hello, VERSION, VisitRequest, VisitTarget, decode_datagram, encode_datagram,
-};
 use crate::throttle::Throttle;
-use crate::transport::udp::bind_udp_now;
 use crate::udp::link::{Opening, open_udp};
 use crate::udp::peers::AbortOnDrop;
+use crate::wire::protocol::{
+    ChannelKind, Hello, VERSION, VisitRequest, VisitTarget, decode_datagram, encode_datagram,
+};
+use crate::wire::transport::udp::bind_udp_now;
 use burrow_config::Protocol;
 
 pub const MAX_DESTINATIONS: usize = 64;

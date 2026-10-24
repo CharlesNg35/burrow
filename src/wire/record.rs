@@ -3,7 +3,7 @@ use std::io;
 
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
-use crate::noise::{MAX_PLAINTEXT, MAX_RECORD, Opener, Sealer, TAG_LEN};
+use crate::wire::noise::{MAX_PLAINTEXT, MAX_RECORD, Opener, Sealer, TAG_LEN};
 
 pub const SMALL: usize = 512;
 pub const CHUNK: usize = MAX_PLAINTEXT;
@@ -381,8 +381,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::noise::{Initiator, Responder};
-    use crate::secret::Secret;
+    use crate::wire::noise::{Initiator, Responder};
+    use crate::wire::secret::Secret;
     use burrow_config::Cipher;
 
     fn pair() -> ((RecordWriter, RecordReader), (RecordWriter, RecordReader)) {

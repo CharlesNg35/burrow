@@ -6,7 +6,7 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::net::TcpStream;
 use tokio::net::tcp as tokio_tcp;
 
-use crate::record::{RecordReader, RecordWriter};
+use crate::wire::record::{RecordReader, RecordWriter};
 
 macro_rules! delegate_read {
     ($ty:ty, $($variant:ident),+) => {
@@ -183,8 +183,9 @@ impl From<ws::WsConn> for Conn {
 
 #[cfg(test)]
 pub(crate) mod testing {
-    pub(crate) async fn held_websocket() -> (crate::transport::Conn, crate::transport::Conn) {
-        use crate::transport::ws::{Carrier, accept, connect};
+    pub(crate) async fn held_websocket()
+    -> (crate::wire::transport::Conn, crate::wire::transport::Conn) {
+        use crate::wire::transport::ws::{Carrier, accept, connect};
         use burrow_syntax::endpoint::Endpoint;
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
@@ -208,9 +209,9 @@ pub(crate) mod testing {
         (ours.into(), theirs.into())
     }
 
-    pub(crate) fn sealed(stream: crate::transport::Conn) -> crate::transport::Channel {
-        use crate::noise::{Initiator, Responder};
-        let s = crate::secret::Secret::generate();
+    pub(crate) fn sealed(stream: crate::wire::transport::Conn) -> crate::wire::transport::Channel {
+        use crate::wire::noise::{Initiator, Responder};
+        let s = crate::wire::secret::Secret::generate();
         let (_, m1) = Initiator::start(burrow_config::Cipher::Chachapoly, &s, b"t");
         let r = Responder::accept(
             burrow_config::Cipher::Chachapoly,
@@ -221,10 +222,10 @@ pub(crate) mod testing {
         .unwrap();
         let (session, _) = r.reply().unwrap();
         let (sealer, opener) = session.split();
-        crate::transport::Channel {
+        crate::wire::transport::Channel {
             stream,
-            writer: crate::record::RecordWriter::new(sealer),
-            reader: crate::record::RecordReader::new(opener),
+            writer: crate::wire::record::RecordWriter::new(sealer),
+            reader: crate::wire::record::RecordReader::new(opener),
         }
     }
 }

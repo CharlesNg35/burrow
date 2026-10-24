@@ -11,9 +11,9 @@ use super::Shared;
 use super::route::{Outcome, Tries, Way};
 use crate::config::settings::Service;
 use crate::forward::{ForwardError, Meter, Opened, Opening, open_tcp};
-use crate::protocol::{Connect, Status};
-use crate::proxy_protocol::header;
-use crate::transport::tcp::tune;
+use crate::wire::protocol::{Connect, Status};
+use crate::wire::proxy_protocol::header;
+use crate::wire::transport::tcp::tune;
 use burrow_config::Protocol;
 
 pub(super) async fn tcp_service(
@@ -26,7 +26,7 @@ pub(super) async fn tcp_service(
     loop {
         let (visitor, peer) = match listener.accept().await {
             Ok(v) => v,
-            Err(e) if crate::transport::tcp::gone_before_accept(&e) => {
+            Err(e) if crate::wire::transport::tcp::gone_before_accept(&e) => {
                 debug!("service \"{name}\": a connection was gone before it was accepted: {e}");
                 continue;
             }

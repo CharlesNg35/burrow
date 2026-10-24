@@ -10,7 +10,7 @@ use super::ports::LiveSession;
 use crate::config::patch::Rename;
 use crate::config::settings::{ServerSettings, Service};
 use crate::metrics::Status;
-use crate::secret::Secret;
+use crate::wire::secret::Secret;
 use burrow_admin_proto::msg::AdminLevel;
 use burrow_config::{SELF, ServerConfig};
 

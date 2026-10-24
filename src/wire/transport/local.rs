@@ -1,11 +1,9 @@
-use crate::noise::Session;
-use crate::record::{RecordReader, RecordWriter};
-use crate::transport::Channel;
-use crate::transport::Conn;
+use crate::wire::noise::{InMemory, Session};
+use crate::wire::record::{RecordReader, RecordWriter};
+use crate::wire::transport::Channel;
+use crate::wire::transport::Conn;
 
 const PIPE: usize = 32 * 1024;
-
-pub struct InMemory(());
 
 pub fn pair() -> (Channel, Channel) {
     let (near, far) = tokio::io::duplex(PIPE);
@@ -28,7 +26,7 @@ mod tests {
     #[tokio::test]
     async fn records_cross_an_in_memory_pair_both_ways() {
         let (mut a, mut b) = pair();
-        let big = vec![7u8; crate::noise::MAX_PLAINTEXT];
+        let big = vec![7u8; crate::wire::noise::MAX_PLAINTEXT];
         a.writer.send(&mut a.stream, b"connect").await.unwrap();
         let sent = tokio::spawn(async move {
             a.writer.send(&mut a.stream, &big).await.unwrap();
@@ -46,7 +44,7 @@ mod tests {
             .unwrap()
             .unwrap()
             .to_vec();
-        assert_eq!(got.len(), crate::noise::MAX_PLAINTEXT);
+        assert_eq!(got.len(), crate::wire::noise::MAX_PLAINTEXT);
         assert_eq!(b.reader.recv(&mut b.stream).await.unwrap(), Some(&[][..]));
         let mut a = sent.await.unwrap();
         b.writer.send(&mut b.stream, &[0]).await.unwrap();
@@ -70,10 +68,10 @@ mod tests {
         let mut out = [0u8; 64];
         let (mut clear, _) = Session::in_memory(&InMemory(())).split();
         let n = clear.seal(b"hello", &mut out);
-        let s = crate::secret::Secret::generate();
+        let s = crate::wire::secret::Secret::generate();
         let (init, m1) =
-            crate::noise::Initiator::start(burrow_config::Cipher::Chachapoly, &s, b"p");
-        let r = crate::noise::Responder::accept(
+            crate::wire::noise::Initiator::start(burrow_config::Cipher::Chachapoly, &s, b"p");
+        let r = crate::wire::noise::Responder::accept(
             burrow_config::Cipher::Chachapoly,
             std::slice::from_ref(&s),
             b"p",

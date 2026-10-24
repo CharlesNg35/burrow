@@ -185,7 +185,7 @@ fn accept_key<B>(req: &Request<B>) -> Option<String> {
             }
         })
     };
-    if !has("upgrade", crate::transport::ws::UPGRADE_TOKEN, true)
+    if !has("upgrade", crate::wire::transport::ws::UPGRADE_TOKEN, true)
         || !has("connection", "upgrade", false)
         || !has("sec-websocket-version", "13", true)
     {
@@ -243,7 +243,7 @@ fn handle(req: Request<Incoming>, shared: &Arc<Shared>, bridge: &Bridge) -> Resp
             }
             Response::builder()
                 .status(101)
-                .header("Upgrade", crate::transport::ws::UPGRADE_TOKEN)
+                .header("Upgrade", crate::wire::transport::ws::UPGRADE_TOKEN)
                 .header("Connection", "Upgrade")
                 .header("Sec-WebSocket-Accept", accept)
                 .body(http::Body::default())

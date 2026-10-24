@@ -535,7 +535,10 @@ fn fill_root_placeholders(node: &mut Node, role: Role) {
         vec![
             ("server", text("placeholder.invalid:1".into())),
             ("name", text("placeholder".into())),
-            ("secret", text(crate::secret::Secret::generate().encode())),
+            (
+                "secret",
+                text(crate::wire::secret::Secret::generate().encode()),
+            ),
         ]
     };
     let placeholders: Vec<(&str, Value)> = match role {

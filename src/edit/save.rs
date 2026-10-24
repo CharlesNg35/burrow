@@ -320,8 +320,9 @@ mod tests {
         let nothing = |_: &str| None;
         let bad = check(&path, Format::Yaml, Role::Client, "nmae: home\n", &nothing);
         assert!(bad.report.has_errors());
-        let env =
-            |k: &str| (k == "HOME_SECRET").then(|| crate::secret::Secret::generate().encode());
+        let env = |k: &str| {
+            (k == "HOME_SECRET").then(|| crate::wire::secret::Secret::generate().encode())
+        };
         let good = check(
             &path,
             Format::Yaml,

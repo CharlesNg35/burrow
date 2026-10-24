@@ -3,7 +3,7 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
-use crate::protocol::Status;
+use crate::wire::protocol::Status;
 
 const VERSION: u8 = 5;
 const NO_AUTH: u8 = 0;

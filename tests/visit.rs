@@ -6,8 +6,8 @@ use std::time::Duration;
 use burrow::allowlist::{AllowList, Rule};
 use burrow::config::settings::ServerSettings;
 use burrow::dialer::{DialError, Dialer};
-use burrow::protocol::{ChannelKind, Hello, Status, VisitRequest, VisitTarget};
-use burrow::secret::Secret;
+use burrow::wire::protocol::{ChannelKind, Hello, Status, VisitRequest, VisitTarget};
+use burrow::wire::secret::Secret;
 use common::*;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -500,13 +500,13 @@ async fn oversized_requests_are_dropped_without_a_reply() {
 
 struct SlowName;
 
-impl burrow::transport::resolve::Resolver for SlowName {
-    fn resolve<'a>(&'a self, host_port: &'a str) -> burrow::transport::resolve::Resolved<'a> {
+impl burrow::wire::transport::resolve::Resolver for SlowName {
+    fn resolve<'a>(&'a self, host_port: &'a str) -> burrow::wire::transport::resolve::Resolved<'a> {
         Box::pin(async move {
             if host_port.starts_with("slow.test:") {
                 tokio::time::sleep(Duration::from_secs(5)).await;
             }
-            burrow::transport::resolve::resolve(host_port).await
+            burrow::wire::transport::resolve::resolve(host_port).await
         })
     }
 }
@@ -970,7 +970,7 @@ async fn udp_visits_over_the_bandwidth_limit_are_dropped() {
     assert!(back > 0 && back < 50, "{back} of 100 came back");
 }
 
-async fn grants_for(s: &Setup, request: &[u8]) -> Option<burrow::protocol::Grants> {
+async fn grants_for(s: &Setup, request: &[u8]) -> Option<burrow::wire::protocol::Grants> {
     let dialer = Dialer::visitor(&visitor_settings(
         s.tunnel.server.addr,
         s.visitor_secret.clone(),
@@ -982,16 +982,16 @@ async fn grants_for(s: &Setup, request: &[u8]) -> Option<burrow::protocol::Grant
         .ok()?;
     ch.writer.send(&mut ch.stream, request).await.ok()?;
     let rec = ch.reader.recv(&mut ch.stream).await.ok()??.to_vec();
-    burrow::protocol::Grants::decode(&rec).ok()
+    burrow::wire::protocol::Grants::decode(&rec).ok()
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn grants_list_udp_services_only_when_asked_with_protocols() {
     let s = udp_setup(|_, _| {}).await;
-    let old = grants_for(&s, &burrow::protocol::GRANTS_REQUEST)
+    let old = grants_for(&s, &burrow::wire::protocol::GRANTS_REQUEST)
         .await
         .unwrap();
-    let names = |g: &burrow::protocol::Grants| {
+    let names = |g: &burrow::wire::protocol::Grants| {
         g.services
             .iter()
             .map(|s| (s.name.clone(), s.protocol))
@@ -1001,7 +1001,7 @@ async fn grants_list_udp_services_only_when_asked_with_protocols() {
         names(&old),
         vec![("db".to_string(), burrow_config::Protocol::Tcp)]
     );
-    let new = grants_for(&s, &burrow::protocol::GRANTS_REQUEST_V2)
+    let new = grants_for(&s, &burrow::wire::protocol::GRANTS_REQUEST_V2)
         .await
         .unwrap();
     assert_eq!(
@@ -1094,7 +1094,7 @@ async fn hand_built_v011_requests_keep_working() {
     );
     let grants = send(vec![0x21]).await;
     assert_eq!(grants[0], 0x22);
-    let old = burrow::protocol::Grants::decode(&grants).unwrap();
+    let old = burrow::wire::protocol::Grants::decode(&grants).unwrap();
     assert_eq!(old.services.len(), 1);
     assert_eq!(old.services[0].name, "db");
 }

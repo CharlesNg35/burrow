@@ -137,8 +137,8 @@ fn export(
 }
 
 fn visit_pick(args: burrow::cli::VisitArgs) -> Result<burrow::visitor::Pick, Failure> {
-    use burrow::protocol::VisitTarget;
     use burrow::visitor::Pick;
+    use burrow::wire::protocol::VisitTarget;
     use burrow_config::{Bind, Target};
     let local = match &args.local {
         Some(l) => Some(
@@ -391,7 +391,7 @@ fn run(cli: Cli) -> Result<u8, Failure> {
         Command::Gensecret => {
             print(&format!(
                 "{}\n",
-                burrow::secret::Secret::generate().encode()
+                burrow::wire::secret::Secret::generate().encode()
             ))?;
             Ok(0)
         }

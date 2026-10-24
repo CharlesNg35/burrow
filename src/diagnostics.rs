@@ -112,7 +112,7 @@ fn mask_secret_tokens(line: &mut [char]) {
             i += 1;
         }
         let token: String = line[start..i].iter().collect();
-        if crate::secret::Secret::parse(&token).is_ok() {
+        if crate::wire::secret::Secret::parse(&token).is_ok() {
             line[start..i].iter_mut().for_each(|c| *c = '*');
         }
     }

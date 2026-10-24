@@ -13,7 +13,7 @@ use crate::admin::core::{self, ApiError, Session};
 use crate::admin::{Hub, MAX_INFLIGHT, Seat};
 use crate::reload::{Nudge, ReloadOutcome};
 use crate::server::ApplyReport;
-use crate::transport::Channel;
+use crate::wire::transport::Channel;
 
 const IDLE: Duration = Duration::from_secs(30 * 60);
 const RELOAD_WAIT: Duration = Duration::from_secs(15);
@@ -162,8 +162,8 @@ async fn handle(cx: Arc<Ctx>, req: Request) -> Value {
 
 async fn writer_task(
     mut rx: mpsc::Receiver<Out>,
-    mut writer: crate::record::RecordWriter,
-    mut wr: crate::transport::OwnedWriteHalf,
+    mut writer: crate::wire::record::RecordWriter,
+    mut wr: crate::wire::transport::OwnedWriteHalf,
     ping: Duration,
 ) {
     use tokio::io::AsyncWriteExt;

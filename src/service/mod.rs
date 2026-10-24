@@ -2403,7 +2403,7 @@ mod tests {
     #[cfg(target_os = "linux")]
     #[test]
     fn an_edit_the_installed_unit_cannot_run_is_named_with_the_way_out() {
-        let secret = crate::secret::Secret::generate().encode();
+        let secret = crate::wire::secret::Secret::generate().encode();
         let load = |text: String| {
             let nothing = |_: &str| None;
             let o = crate::config::load_str(
@@ -2603,7 +2603,7 @@ mod tests {
     #[cfg(target_os = "linux")]
     #[test]
     fn an_admin_visitor_on_a_read_only_install_is_named() {
-        let secret = |_| crate::secret::Secret::generate().encode();
+        let secret = |_| crate::wire::secret::Secret::generate().encode();
         let text = format!(
             "listen: 7835\nclients:\n  home: {{ secret: {} }}\nvisitors:\n  ops: {{ secret: {}, admin: write }}\nservices:\n  web: {{ client: home, bind: 8080, target: 80 }}\n",
             secret(0),

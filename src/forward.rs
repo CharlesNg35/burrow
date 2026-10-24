@@ -7,13 +7,13 @@ use tokio::io::{AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpStream;
 
 use crate::metrics::{Counted, Traffic};
-use crate::protocol::Status;
 use crate::ratelimit::{Limit, Throttled};
-use crate::record::{
+use crate::wire::protocol::Status;
+use crate::wire::record::{
     CHUNK, RecordReader, RecordWriter, SMALL, open_pump, raw_pump, relay_pump, seal_pump,
 };
-use crate::transport::Channel;
-use crate::transport::{Conn, ReadHalf, WriteHalf};
+use crate::wire::transport::Channel;
+use crate::wire::transport::{Conn, ReadHalf, WriteHalf};
 
 pub(crate) const VISIT_REPLY: Duration = Duration::from_secs(45);
 
@@ -64,9 +64,9 @@ impl<T: Linger + ?Sized> Linger for &mut T {
     }
 }
 
-impl Linger for crate::transport::WriteHalf<'_> {
+impl Linger for crate::wire::transport::WriteHalf<'_> {
     fn close_normally(&self) {
-        if let crate::transport::WriteHalf::Tcp(w) = self {
+        if let crate::wire::transport::WriteHalf::Tcp(w) = self {
             let _ = socket2::SockRef::from(w.as_ref()).set_linger(None);
         }
     }
@@ -174,7 +174,7 @@ impl From<io::Error> for ForwardError {
 
 async fn send_prefix(
     stream: &mut Conn,
-    writer: &mut crate::record::RecordWriter,
+    writer: &mut crate::wire::record::RecordWriter,
     prefix: &[u8],
     plaintext: bool,
 ) -> io::Result<()> {
@@ -768,8 +768,8 @@ pub async fn send_and_close(mut ch: Channel, bytes: &[u8]) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::noise::{Initiator, Responder};
-    use crate::secret::Secret;
+    use crate::wire::noise::{Initiator, Responder};
+    use crate::wire::secret::Secret;
     use burrow_config::Cipher;
     use std::time::Instant;
     use tokio::net::TcpListener;
@@ -793,7 +793,7 @@ mod tests {
         let r = Responder::accept(Cipher::Chachapoly, std::slice::from_ref(&s), b"t", &m1).unwrap();
         let (theirs, m2) = r.reply().unwrap();
         let ours = init.finish(&m2).unwrap();
-        let make = |stream, session: crate::noise::Session| {
+        let make = |stream, session: crate::wire::noise::Session| {
             let (sealer, opener) = session.split();
             Channel {
                 stream: Conn::Tcp(stream),

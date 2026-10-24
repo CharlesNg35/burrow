@@ -6,7 +6,7 @@ use tokio::net::TcpStream;
 
 use super::resolve::Resolver;
 use super::tcp::connect_any;
-use crate::proxy::{ProxyConfig, ProxyKind};
+use crate::wire::proxy::{ProxyConfig, ProxyKind};
 
 #[derive(Debug)]
 pub struct LookupTimedOut {
@@ -219,7 +219,7 @@ async fn socks5_connect(s: &mut TcpStream, target: &str, p: &ProxyConfig) -> io:
 #[cfg(test)]
 mod lookup_tests {
     use super::*;
-    use crate::transport::resolve::Resolved;
+    use crate::wire::transport::resolve::Resolved;
 
     struct Silent;
 

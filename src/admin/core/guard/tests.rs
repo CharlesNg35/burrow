@@ -450,8 +450,8 @@ fn a_grant_brings_no_impact_since_it_is_refused() {
 #[test]
 fn services_that_only_change_target_or_clients_share_one_impact() {
     let (a, b) = (
-        crate::secret::Secret::generate().encode(),
-        crate::secret::Secret::generate().encode(),
+        crate::wire::secret::Secret::generate().encode(),
+        crate::wire::secret::Secret::generate().encode(),
     );
     let head = format!(
         "listen: 7835\nclients:\n  a:\n    secret: {a}\n  b:\n    secret: {b}\nservices:\n"
@@ -482,9 +482,9 @@ fn renamed(section: &str, from: &str, to: &str) -> Rename {
 
 fn twins() -> (String, String) {
     let (c, v, o) = (
-        crate::secret::Secret::generate().encode(),
-        crate::secret::Secret::generate().encode(),
-        crate::secret::Secret::generate().encode(),
+        crate::wire::secret::Secret::generate().encode(),
+        crate::wire::secret::Secret::generate().encode(),
+        crate::wire::secret::Secret::generate().encode(),
     );
     (
         format!(

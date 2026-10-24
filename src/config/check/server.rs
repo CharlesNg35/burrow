@@ -15,8 +15,8 @@ use super::{
 use crate::allowlist::AllowList;
 use crate::base::suggest::{closest, quoted_list};
 use crate::diagnostics::Diagnostic;
-use crate::noise::MAX_SECRETS_PER_CLIENT;
-use crate::secret::Secret;
+use crate::wire::noise::MAX_SECRETS_PER_CLIENT;
+use crate::wire::secret::Secret;
 use burrow_config::SELF;
 use burrow_config::{Bind, Protocol, Secrets, ServerConfig, WebSocketConfig};
 
@@ -229,15 +229,17 @@ pub fn check_server(
         let list = super::super::settings::services_for(&services, name);
         let (count, size) = (
             list.len(),
-            crate::protocol::ServerMsg::Services(list).encode().len(),
+            crate::wire::protocol::ServerMsg::Services(list)
+                .encode()
+                .len(),
         );
-        if size > crate::noise::MAX_PLAINTEXT {
+        if size > crate::wire::noise::MAX_PLAINTEXT {
             out.push(
                 Diagnostic::error(
                     "too-many-services",
                     format!(
                         "client \"{name}\" serves {count} services, too many to send it in one message ({size} bytes, the limit is {})",
-                        crate::noise::MAX_PLAINTEXT
+                        crate::wire::noise::MAX_PLAINTEXT
                     ),
                 )
                 .at(spans.key(&["clients", name]))
@@ -579,7 +581,7 @@ fn check_websocket(
         let cert = read(&t.cert, "cert", out);
         let key = read(&t.key, "key", out);
         let ((cert_path, cert_pem), (key_path, key_pem)) = (cert?, key?);
-        if let Err(e) = crate::transport::tls::acceptor(&cert_pem, &key_pem) {
+        if let Err(e) = crate::wire::transport::tls::acceptor(&cert_pem, &key_pem) {
             out.push(
                 Diagnostic::error("tls-file", format!("websocket TLS files are not usable: {e}"))
                     .at(spans.value(&["websocket", "tls"]))
@@ -738,14 +740,14 @@ fn check_reach(
         );
         return None;
     }
-    if entries.len() > crate::protocol::MAX_ALLOW_RULES {
+    if entries.len() > crate::wire::protocol::MAX_ALLOW_RULES {
         out.push(
             Diagnostic::error(
                 "invalid-reach",
                 format!(
                     "reach for client \"{client}\" of visitor \"{visitor}\" has {} rules, the limit is {}",
                     entries.len(),
-                    crate::protocol::MAX_ALLOW_RULES
+                    crate::wire::protocol::MAX_ALLOW_RULES
                 ),
             )
             .at(spans.value(&["visitors", visitor, "reach", client]))

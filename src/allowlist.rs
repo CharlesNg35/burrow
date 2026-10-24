@@ -38,7 +38,7 @@ impl AllowList {
     }
 
     pub fn describe(&self) -> Vec<String> {
-        let max = crate::protocol::MAX_ALLOW_RULES;
+        let max = crate::wire::protocol::MAX_ALLOW_RULES;
         match self {
             AllowList::All => vec!["any".into()],
             AllowList::Rules(rules) => {
@@ -249,7 +249,7 @@ mod tests {
             .map(|i| format!("10.{i}.0.0/16").parse().unwrap())
             .collect();
         let told = AllowList::Rules(rules).describe();
-        assert_eq!(told.len(), crate::protocol::MAX_ALLOW_RULES);
+        assert_eq!(told.len(), crate::wire::protocol::MAX_ALLOW_RULES);
         assert_eq!(told.last().unwrap(), "and 37 more");
         assert_eq!(AllowList::All.describe(), vec!["any"]);
     }

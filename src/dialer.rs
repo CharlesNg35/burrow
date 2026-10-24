@@ -7,15 +7,15 @@ use tokio_rustls::TlsConnector;
 
 use crate::base::failure::io_reason;
 use crate::config::settings::{ClientSettings, VisitorSettings};
-use crate::handshake::{ClientHandshakeError, initiate};
-use crate::protocol::{ChannelKind, Hello, Preamble};
-use crate::proxy::ProxyConfig;
-use crate::secret::Secret;
-use crate::transport::proxy::dial_tcp_ordered;
-use crate::transport::resolve::{self, Resolver};
-use crate::transport::tcp::{SocketTuning, tune};
-use crate::transport::ws::{self, Carrier};
-use crate::transport::{Channel, Conn, tls};
+use crate::wire::handshake::{ClientHandshakeError, initiate};
+use crate::wire::protocol::{ChannelKind, Hello, Preamble};
+use crate::wire::proxy::ProxyConfig;
+use crate::wire::secret::Secret;
+use crate::wire::transport::proxy::dial_tcp_ordered;
+use crate::wire::transport::resolve::{self, Resolver};
+use crate::wire::transport::tcp::{SocketTuning, tune};
+use crate::wire::transport::ws::{self, Carrier};
+use crate::wire::transport::{Channel, Conn, tls};
 use burrow_config::Cipher;
 use burrow_syntax::endpoint::Endpoint;
 
@@ -281,7 +281,7 @@ fn tls_reason(e: &std::io::Error, role: &str) -> String {
 }
 
 fn unreachable_reason(server: &str, via: &str, e: &std::io::Error) -> String {
-    if crate::transport::proxy::lookup_timed_out(e) {
+    if crate::wire::transport::proxy::lookup_timed_out(e) {
         io_reason(e)
     } else {
         format!("server unreachable at {server}{via} ({})", io_reason(e))
@@ -296,7 +296,7 @@ mod tests {
     fn a_lookup_that_timed_out_is_named_as_dns() {
         let lookup = std::io::Error::new(
             std::io::ErrorKind::TimedOut,
-            crate::transport::proxy::LookupTimedOut::new(
+            crate::wire::transport::proxy::LookupTimedOut::new(
                 "tunnel.example.com:7835",
                 std::time::Duration::from_secs(10),
             ),

@@ -302,7 +302,7 @@ fn settings_of(
 }
 
 fn allow_notes(
-    grants: &crate::protocol::Grants,
+    grants: &crate::wire::protocol::Grants,
     planned: &super::plan::Plan,
 ) -> BTreeMap<String, String> {
     planned

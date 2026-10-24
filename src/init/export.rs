@@ -5,7 +5,7 @@ use crate::config::env::EnvSource;
 use crate::config::settings::ServerSettings;
 use crate::config::tree::{self, Value as TreeValue};
 use crate::config::{Loaded, Role, load_file};
-use crate::secret::Secret;
+use crate::wire::secret::Secret;
 
 #[derive(Clone, Copy)]
 pub(super) struct Kind {

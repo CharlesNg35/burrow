@@ -114,7 +114,7 @@ impl Hub {
 
 pub struct Opened {
     pub visitor: String,
-    pub secret: crate::secret::Secret,
+    pub secret: crate::wire::secret::Secret,
     pub peer: SocketAddr,
     pub via_websocket: bool,
 }

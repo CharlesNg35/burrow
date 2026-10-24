@@ -16,10 +16,10 @@ use crate::base::failure::Failure;
 use crate::config::check::ports::show_addr;
 use crate::config::settings::{Forward, VisitorSettings};
 use crate::dialer::Dialer;
-use crate::protocol::VisitTarget;
-use crate::transport::resolve::Resolver;
-use crate::transport::tcp::bind_tcp;
-use crate::transport::udp::bind_udp_now;
+use crate::wire::protocol::VisitTarget;
+use crate::wire::transport::resolve::Resolver;
+use crate::wire::transport::tcp::bind_tcp;
+use crate::wire::transport::udp::bind_udp_now;
 use burrow_config::Protocol;
 
 const MAX_OPENING: usize = 32;
@@ -563,11 +563,11 @@ mod tests {
             ca_pem: None,
             ca_file: None,
             name: "laptop".into(),
-            secret: crate::secret::Secret::generate(),
+            secret: crate::wire::secret::Secret::generate(),
             cipher: burrow_config::Cipher::Chachapoly,
             proxy: None,
             connect_timeout: std::time::Duration::from_secs(1),
-            tcp: crate::transport::tcp::SocketTuning {
+            tcp: crate::wire::transport::tcp::SocketTuning {
                 nodelay: true,
                 keepalive: None,
             },
@@ -597,7 +597,7 @@ mod tests {
         let mut new = old.clone();
         new.forwards.clear();
         assert!(connection_changes(&old, &new).is_empty());
-        new.secret = crate::secret::Secret::generate();
+        new.secret = crate::wire::secret::Secret::generate();
         new.connect_timeout = std::time::Duration::from_secs(9);
         new.tcp.nodelay = false;
         assert_eq!(

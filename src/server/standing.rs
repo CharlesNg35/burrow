@@ -7,7 +7,7 @@ use super::Shared;
 use super::via::Via;
 use crate::config::settings::ServerSettings;
 use crate::forward::ForwardError;
-use crate::protocol::{Status, TOKEN_LEN};
+use crate::wire::protocol::{Status, TOKEN_LEN};
 
 const FIRST_WAIT: Duration = Duration::from_secs(10);
 const LONGEST_WAIT: Duration = Duration::from_secs(60);

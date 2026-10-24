@@ -18,7 +18,7 @@ use crate::base::failure::Failure;
 use crate::base::prompt::Prompter;
 use crate::config::check::valid_name;
 use crate::config::{Format, Role};
-use crate::secret::Secret;
+use crate::wire::secret::Secret;
 use burrow_syntax::endpoint::Endpoint;
 use burrow_syntax::ports::{FIRST_SERVICE_PORT, SERVER_PORT, WS_PORT, WSS_PORT};
 

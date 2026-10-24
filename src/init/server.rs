@@ -11,7 +11,7 @@ use super::{
 use crate::base::failure::Failure;
 use crate::config::emit::render;
 use crate::config::{Format, Role};
-use crate::secret::Secret;
+use crate::wire::secret::Secret;
 
 pub fn server_value(client: &str, secret_text: &str) -> Value {
     json!({

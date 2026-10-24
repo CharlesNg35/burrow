@@ -3,7 +3,7 @@ use std::sync::Arc;
 use snow::params::NoiseParams;
 use snow::{Builder, HandshakeState, StatelessTransportState};
 
-use crate::secret::Secret;
+use crate::wire::secret::Secret;
 use burrow_config::Cipher;
 
 pub const MAX_SECRETS_PER_CLIENT: usize = 4;
@@ -109,6 +109,8 @@ impl Responder {
     }
 }
 
+pub struct InMemory(pub(in crate::wire) ());
+
 #[derive(Clone)]
 enum Keys {
     Noise(Arc<StatelessTransportState>),
@@ -130,7 +132,7 @@ impl Session {
         })
     }
 
-    pub fn in_memory(_proof: &crate::transport::local::InMemory) -> Session {
+    pub fn in_memory(_proof: &InMemory) -> Session {
         Session {
             keys: Keys::InMemory,
         }

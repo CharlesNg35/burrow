@@ -5,7 +5,7 @@ use std::process::{Command, Output, Stdio};
 
 use burrow::allowlist::AllowList;
 use burrow::client::State;
-use burrow::secret::Secret;
+use burrow::wire::secret::Secret;
 use common::*;
 
 struct World {
@@ -480,8 +480,8 @@ async fn init_visitor_writes_udp_forwards_and_update_adds_keeps_and_removes_them
 }
 
 async fn old(w: &World) -> std::net::SocketAddr {
-    let grants = burrow::protocol::Grants {
-        services: vec![burrow::protocol::GrantedService {
+    let grants = burrow::wire::protocol::Grants {
+        services: vec![burrow::wire::protocol::GrantedService {
             name: "db".into(),
             protocol: burrow_config::Protocol::Tcp,
             port: 5432,

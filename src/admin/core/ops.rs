@@ -256,7 +256,7 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    struct Cx(crate::secret::Secret);
+    struct Cx(crate::wire::secret::Secret);
 
     impl Context for Cx {
         fn secret(&self, handle: &str) -> Option<(String, String)> {
@@ -276,8 +276,8 @@ mod tests {
 
     #[test]
     fn ops_edit_the_raw_tree() {
-        let cx = Cx(crate::secret::Secret::generate());
-        let old = crate::secret::Secret::generate();
+        let cx = Cx(crate::wire::secret::Secret::generate());
+        let old = crate::wire::secret::Secret::generate();
         let raw = json!({"clients": {"home": {"secret": old.encode()}}, "services": {"web": {"client": "home", "target": 1}}, "visitors": {"v": {"secret": "x", "reach": {"home": "any"}}}});
         let out = apply(
             &raw,
@@ -377,7 +377,7 @@ mod tests {
             std::thread::Builder::new()
                 .stack_size(256 * 1024)
                 .spawn(move || {
-                    let cx = Cx(crate::secret::Secret::generate());
+                    let cx = Cx(crate::wire::secret::Secret::generate());
                     let ops = [
                         Op::Set {
                             path: path.clone(),

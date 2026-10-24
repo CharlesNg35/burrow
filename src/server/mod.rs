@@ -28,8 +28,8 @@ use tracing::{debug, error, info, warn};
 use crate::base::failure::Failure;
 use crate::config::settings::WebSocketSettings;
 use crate::config::settings::{ServerSettings, Service};
-use crate::protocol::{ByeReason, ServerMsg};
 use crate::ratelimit::Limit;
+use crate::wire::protocol::{ByeReason, ServerMsg};
 use burrow_config::Protocol;
 use listen::WsListener;
 pub use session::{ClientSession, PoolConfig, TakeError};
@@ -108,7 +108,7 @@ impl Shared {
         self.client_counts.enter(client)
     }
 
-    pub(crate) fn allows(&self, client: &str, secret: &crate::secret::Secret) -> bool {
+    pub(crate) fn allows(&self, client: &str, secret: &crate::wire::secret::Secret) -> bool {
         self.settings()
             .clients
             .get(client)
@@ -357,7 +357,7 @@ impl MetricsTask {
 }
 
 fn bind_metrics(addr: SocketAddr) -> Result<TcpListener, Failure> {
-    crate::transport::tcp::bind_tcp(addr)
+    crate::wire::transport::tcp::bind_tcp(addr)
         .map_err(|e| bind_error("the metrics endpoint", Protocol::Tcp, addr, &e))
 }
 
@@ -388,8 +388,8 @@ async fn take_channel(
     session: &via::Via,
     label: &str,
     peer: SocketAddr,
-) -> Result<crate::transport::Channel, crate::protocol::Status> {
-    use crate::protocol::Status;
+) -> Result<crate::wire::transport::Channel, crate::wire::protocol::Status> {
+    use crate::wire::protocol::Status;
     match tokio::time::timeout(TAKE_TIMEOUT, session.take()).await {
         Ok(Ok(ch)) => Ok(ch),
         Ok(Err(TakeError::TooManyPending)) => {
@@ -473,10 +473,10 @@ async fn bind_service(name: &str, svc: &Service) -> Result<Vec<(u16, Bound)>, Fa
     let mut bound = Vec::new();
     for (index, addr) in svc.binds() {
         let b = match svc.protocol {
-            Protocol::Tcp => crate::transport::tcp::bind_tcp(addr)
+            Protocol::Tcp => crate::wire::transport::tcp::bind_tcp(addr)
                 .map(Bound::Tcp)
                 .map_err(|e| bind_error(&what, Protocol::Tcp, addr, &e))?,
-            Protocol::Udp => crate::transport::udp::bind_udp(addr)
+            Protocol::Udp => crate::wire::transport::udp::bind_udp(addr)
                 .await
                 .map(Bound::Udp)
                 .map_err(|e| bind_error(&what, Protocol::Udp, addr, &e))?,
@@ -490,7 +490,7 @@ impl Server {
     pub async fn bind(settings: ServerSettings) -> Result<Server, Failure> {
         let listener = match settings.listen {
             Some(addr) => Some(
-                crate::transport::tcp::bind_tcp(addr)
+                crate::wire::transport::tcp::bind_tcp(addr)
                     .map_err(|e| bind_error("the control port", Protocol::Tcp, addr, &e))?,
             ),
             None => None,
@@ -524,7 +524,7 @@ impl Server {
             local: Arc::new(local::SelfDialer::new(
                 &settings,
                 Vec::new(),
-                crate::transport::resolve::system(),
+                crate::wire::transport::resolve::system(),
             )),
             metrics: crate::metrics::Metrics::default(),
         });
@@ -633,7 +633,7 @@ impl Server {
                             listen::handle_tcp(shared, stream, peer, permit).await;
                         });
                     }
-                    Err(e) if crate::transport::tcp::gone_before_accept(&e) => {
+                    Err(e) if crate::wire::transport::tcp::gone_before_accept(&e) => {
                         debug!("a connection was gone before it was accepted: {e}");
                     }
                     Err(e) => {

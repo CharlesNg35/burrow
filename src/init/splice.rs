@@ -22,7 +22,7 @@ pub fn allow_note(client: &str, allow: &Option<Vec<String>>) -> String {
     clean(&note)
 }
 
-pub fn reach_note(client: &crate::protocol::GrantedClient) -> String {
+pub fn reach_note(client: &crate::wire::protocol::GrantedClient) -> String {
     if client.reach.is_empty() {
         return allow_note(&client.name, &client.allow);
     }
@@ -271,7 +271,7 @@ mod tests {
     }
 
     fn check(text: &str) {
-        let secret = crate::secret::Secret::generate().encode();
+        let secret = crate::wire::secret::Secret::generate().encode();
         let env = |k: &str| match k {
             "S" => Some(secret.clone()),
             "P" => Some("2222".to_string()),

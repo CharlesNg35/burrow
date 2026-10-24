@@ -106,8 +106,8 @@ pub(crate) mod tests {
     use super::*;
     use crate::allowlist::AllowList;
     use crate::config::settings::Limit;
-    use crate::secret::Secret;
-    use crate::transport::tcp::SocketTuning;
+    use crate::wire::secret::Secret;
+    use crate::wire::transport::tcp::SocketTuning;
     use burrow_config::Cipher;
     use burrow_syntax::endpoint::Endpoint;
     use std::time::Duration;

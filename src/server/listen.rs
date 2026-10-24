@@ -14,12 +14,12 @@ use super::control::control_session;
 use super::{Shared, bind_error};
 use crate::base::failure::Failure;
 use crate::config::settings::WebSocketSettings;
-use crate::handshake::{AcceptError, accept};
-use crate::protocol::{ChannelKind, Hello, VERSION};
-use crate::secret::Secret;
-use crate::transport::tcp::{bind_tcp, tune};
-use crate::transport::ws::{self, Carrier};
-use crate::transport::{Conn, tls};
+use crate::wire::handshake::{AcceptError, accept};
+use crate::wire::protocol::{ChannelKind, Hello, VERSION};
+use crate::wire::secret::Secret;
+use crate::wire::transport::tcp::{bind_tcp, tune};
+use crate::wire::transport::ws::{self, Carrier};
+use crate::wire::transport::{Conn, tls};
 
 pub struct WsRoute {
     pub settings: WebSocketSettings,
@@ -179,7 +179,7 @@ pub async fn ws_accept_loop(shared: Arc<Shared>, ws: Arc<WsListener>) {
     loop {
         let (stream, peer) = match ws.listener.accept().await {
             Ok(v) => v,
-            Err(e) if crate::transport::tcp::gone_before_accept(&e) => {
+            Err(e) if crate::wire::transport::tcp::gone_before_accept(&e) => {
                 debug!("websocket: a connection was gone before it was accepted: {e}");
                 continue;
             }
@@ -331,7 +331,7 @@ async fn authenticate(
                     let mut ch = acc.channel;
                     let _ = ch
                         .writer
-                        .send(&mut ch.stream, &[crate::protocol::STALE_RECORD])
+                        .send(&mut ch.stream, &[crate::wire::protocol::STALE_RECORD])
                         .await;
                     let _ = ch.stream.flush().await;
                     let _ = ch.stream.finish().await;

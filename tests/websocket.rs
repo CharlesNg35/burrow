@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use burrow::client::State;
 use burrow::config::settings::{ClientSettings, ServerSettings, TlsMaterial, WebSocketSettings};
-use burrow::secret::Secret;
+use burrow::wire::secret::Secret;
 use burrow_config::Protocol;
 use burrow_syntax::endpoint::Endpoint;
 use common::*;
@@ -151,7 +151,7 @@ async fn tls_terminating_proxy(
 ) {
     let (ended, ends) = tokio::sync::mpsc::unbounded_channel();
     let acceptor =
-        burrow::transport::tls::acceptor(cert.cert_pem.as_bytes(), cert.key_pem.as_bytes())
+        burrow::wire::transport::tls::acceptor(cert.cert_pem.as_bytes(), cert.key_pem.as_bytes())
             .unwrap();
     let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = l.local_addr().unwrap();
@@ -490,8 +490,11 @@ fn dialer_for(url: &str, ca: Option<&Cert>) -> burrow::dialer::Dialer {
 }
 
 async fn dial(d: &burrow::dialer::Dialer) -> burrow::dialer::DialError {
-    let hello = burrow::protocol::Hello::Visit { version: 1 };
-    match d.open(burrow::protocol::ChannelKind::Visit, hello).await {
+    let hello = burrow::wire::protocol::Hello::Visit { version: 1 };
+    match d
+        .open(burrow::wire::protocol::ChannelKind::Visit, hello)
+        .await
+    {
         Ok(_) => panic!("the dial should fail"),
         Err(e) => e,
     }
@@ -632,7 +635,7 @@ async fn a_tcp_client_at_the_websocket_port_is_told_to_use_a_websocket_url() {
         return;
     }
     use burrow::dialer::{DialError, Dialer};
-    use burrow::protocol::{ChannelKind, Hello};
+    use burrow::wire::protocol::{ChannelKind, Hello};
     let secret = Secret::generate();
     let srv = start_server(ws_server(&secret, "/burrow", None)).await;
     let ws = srv.ws_addr.unwrap();

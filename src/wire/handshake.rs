@@ -2,11 +2,11 @@ use std::io;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-use crate::noise::{Initiator, MSG1_LEN, MSG2_LEN, Responder};
-use crate::protocol::{ChannelKind, DecodeError, Hello, PREAMBLE_FIXED, Preamble};
-use crate::record::{RecordReader, RecordWriter};
-use crate::secret::Secret;
-use crate::transport::{Channel, Conn};
+use crate::wire::noise::{Initiator, MSG1_LEN, MSG2_LEN, Responder};
+use crate::wire::protocol::{ChannelKind, DecodeError, Hello, PREAMBLE_FIXED, Preamble};
+use crate::wire::record::{RecordReader, RecordWriter};
+use crate::wire::secret::Secret;
+use crate::wire::transport::{Channel, Conn};
 
 const MAX_SMALL_RECORD: usize = 256;
 pub const REFUSED: u8 = 0x00;
@@ -160,7 +160,7 @@ pub async fn read_small(
     let mut hdr = [0u8; 2];
     stream.read_exact(&mut hdr).await?;
     let len = u16::from_be_bytes(hdr) as usize;
-    if !(crate::noise::TAG_LEN..=max).contains(&len) {
+    if !(crate::wire::noise::TAG_LEN..=max).contains(&len) {
         return Err(AcceptError::Decode(DecodeError::TooLong));
     }
     let mut body = [0u8; MAX_REQUEST_RECORD];
@@ -196,7 +196,7 @@ mod tests {
                 name: "home".into(),
             };
             let hello = Hello::Control {
-                version: crate::protocol::VERSION,
+                version: crate::wire::protocol::VERSION,
                 instance: [0u8; 16],
             };
             initiate(stream.into(), &preamble, &Secret::generate(), &hello).await

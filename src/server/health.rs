@@ -7,7 +7,7 @@ use tracing::{info, warn};
 
 use super::Shared;
 use crate::config::settings::Health;
-use crate::protocol::{Connect, Status};
+use crate::wire::protocol::{Connect, Status};
 use burrow_config::Protocol;
 
 const TICK: Duration = Duration::from_millis(250);
@@ -149,7 +149,7 @@ async fn probe(shared: &Shared, service: &str, client: &str, target: &str) -> Re
         .get(service)
         .and_then(|s| s.proxy_protocol)
     {
-        let header = crate::proxy_protocol::local(version);
+        let header = crate::wire::proxy_protocol::local(version);
         let sent = if raw {
             ch.stream.write_all(&header).await
         } else {

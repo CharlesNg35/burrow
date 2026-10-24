@@ -576,7 +576,7 @@ impl Grants {
 
     fn fitting(&self, v2: bool) -> Result<Vec<u8>, DecodeError> {
         let full = self.encode_all(v2)?;
-        if full.len() <= crate::noise::MAX_PLAINTEXT {
+        if full.len() <= crate::wire::noise::MAX_PLAINTEXT {
             return Ok(full);
         }
         let mut lean = self.clone();
@@ -584,7 +584,7 @@ impl Grants {
             c.allow = None;
         }
         let lean = lean.encode_all(v2)?;
-        if lean.len() <= crate::noise::MAX_PLAINTEXT {
+        if lean.len() <= crate::wire::noise::MAX_PLAINTEXT {
             return Ok(lean);
         }
         Err(DecodeError::TooLong)
@@ -751,7 +751,7 @@ impl VisitRequest {
     }
 }
 
-pub const MAX_DATAGRAM: usize = crate::noise::MAX_PLAINTEXT - 4;
+pub const MAX_DATAGRAM: usize = crate::wire::noise::MAX_PLAINTEXT - 4;
 
 pub fn encode_datagram(peer: u32, payload: &[u8], out: &mut Vec<u8>) {
     out.clear();
@@ -774,7 +774,7 @@ mod tests {
         assert_eq!(MAX_DATAGRAM, 65515);
         let mut rec = Vec::new();
         encode_datagram(7, &vec![1u8; MAX_DATAGRAM], &mut rec);
-        assert_eq!(rec.len(), crate::noise::MAX_PLAINTEXT);
+        assert_eq!(rec.len(), crate::wire::noise::MAX_PLAINTEXT);
         let (id, payload) = decode_datagram(&rec).unwrap();
         assert_eq!((id, payload.len()), (7, MAX_DATAGRAM));
     }

@@ -56,7 +56,7 @@ pub fn head_of<B>(req: &::http::Request<B>) -> Result<Head, Reject> {
         upgrade: h
             .get_all("upgrade")
             .iter()
-            .any(|v| text(v).eq_ignore_ascii_case(crate::transport::ws::UPGRADE_TOKEN)),
+            .any(|v| text(v).eq_ignore_ascii_case(crate::wire::transport::ws::UPGRADE_TOKEN)),
         gzip: h
             .get_all("accept-encoding")
             .iter()

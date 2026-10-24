@@ -24,7 +24,7 @@ use burrow_config::{ClientEntry, Entry, Protocol, ServerConfig, ServiceEntry, Vi
 use serde_json::Value;
 use zeroize::Zeroizing;
 
-use crate::secret::Secret;
+use crate::wire::secret::Secret;
 use ports::{Env, Live, Store};
 
 pub const MAX_PENDING_SECRETS: usize = 16;

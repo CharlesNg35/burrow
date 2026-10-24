@@ -16,10 +16,10 @@ use burrow::config::settings::{
     ClientAuth, ClientSettings, Forward, Limit, ServerSettings, Service, VisitorAuth,
     VisitorSettings,
 };
-use burrow::protocol::VisitTarget;
-use burrow::secret::Secret;
 use burrow::server::Server;
-use burrow::transport::tcp::SocketTuning;
+use burrow::wire::protocol::VisitTarget;
+use burrow::wire::secret::Secret;
+use burrow::wire::transport::tcp::SocketTuning;
 use burrow_config::{Cipher, Protocol};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UdpSocket;
@@ -236,7 +236,7 @@ pub async fn wait_for<F: FnMut() -> bool>(mut f: F) {
 }
 
 pub async fn echo_server() -> SocketAddr {
-    let l = burrow::transport::tcp::bind_tcp("127.0.0.1:0".parse().unwrap()).unwrap();
+    let l = burrow::wire::transport::tcp::bind_tcp("127.0.0.1:0".parse().unwrap()).unwrap();
     let addr = l.local_addr().unwrap();
     tokio::spawn(async move {
         loop {
@@ -586,7 +586,7 @@ pub async fn wait_long<F: FnMut() -> bool>(mut f: F) {
 }
 
 pub struct UdpVisit {
-    pub ch: burrow::transport::Channel,
+    pub ch: burrow::wire::transport::Channel,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -600,7 +600,7 @@ pub async fn udp_visit(
     server: SocketAddr,
     secret: Secret,
     to: VisitTarget,
-) -> Result<UdpVisit, Option<burrow::protocol::Status>> {
+) -> Result<UdpVisit, Option<burrow::wire::protocol::Status>> {
     udp_visit_with(server, secret, false, to).await
 }
 
@@ -609,8 +609,8 @@ pub async fn udp_visit_with(
     secret: Secret,
     check: bool,
     to: VisitTarget,
-) -> Result<UdpVisit, Option<burrow::protocol::Status>> {
-    use burrow::protocol::{ChannelKind, Hello, Status, VisitRequest};
+) -> Result<UdpVisit, Option<burrow::wire::protocol::Status>> {
+    use burrow::wire::protocol::{ChannelKind, Hello, Status, VisitRequest};
     let dialer = burrow::dialer::Dialer::visitor(&visitor_settings(server, secret, vec![]));
     let mut ch = dialer
         .open(ChannelKind::Visit, Hello::Visit { version: 1 })
@@ -638,7 +638,7 @@ pub async fn udp_visit_with(
 impl UdpVisit {
     pub async fn send(&mut self, peer: u32, payload: &[u8]) {
         let mut rec = Vec::new();
-        burrow::protocol::encode_datagram(peer, payload, &mut rec);
+        burrow::wire::protocol::encode_datagram(peer, payload, &mut rec);
         self.ch
             .writer
             .send(&mut self.ch.stream, &rec)
@@ -653,7 +653,7 @@ impl UdpVisit {
     pub async fn next(&mut self, within: Duration) -> Got {
         match tokio::time::timeout(within, self.ch.reader.recv(&mut self.ch.stream)).await {
             Err(_) => Got::Silent,
-            Ok(Ok(Some(rec))) => match burrow::protocol::decode_datagram(rec) {
+            Ok(Ok(Some(rec))) => match burrow::wire::protocol::decode_datagram(rec) {
                 Ok((id, payload)) => Got::Datagram(id, payload.to_vec()),
                 Err(_) => Got::Closed,
             },
@@ -709,7 +709,8 @@ pub async fn old_server(secret: Secret, grants_v1: Vec<u8>) -> SocketAddr {
         while let Ok((s, _)) = listener.accept().await {
             let (secret, grants_v1) = (secret.clone(), grants_v1.clone());
             tokio::spawn(async move {
-                let Ok(acc) = burrow::handshake::accept(s.into(), |_, _| vec![secret]).await else {
+                let Ok(acc) = burrow::wire::handshake::accept(s.into(), |_, _| vec![secret]).await
+                else {
                     return;
                 };
                 let mut ch = acc.channel;

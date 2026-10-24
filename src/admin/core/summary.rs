@@ -290,7 +290,7 @@ mod tests {
 
     #[test]
     fn secrets_in_the_wrong_shape_stay_out_of_summaries() {
-        let s = crate::secret::Secret::generate().encode();
+        let s = crate::wire::secret::Secret::generate().encode();
         let old =
             json!({"clients": {"home": {"secret": "A"}}, "visitors": {"ops": {"secret": "B"}}});
         let new = json!({

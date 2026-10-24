@@ -12,11 +12,11 @@ use super::{Shared, TakeError};
 use crate::config::settings::Service;
 use crate::forward::ForwardError;
 use crate::metrics::ServiceStats;
-use crate::protocol::{Connect, Status};
 use crate::ratelimit::Limit;
 use crate::udp::front::{self, Ending, Front, Hooks, Interrupt, Meter};
 use crate::udp::link::{Opening, open_udp};
 use crate::udp::peers::{PeerCount, PeerGauge, PeerTable};
+use crate::wire::protocol::{Connect, Status};
 use burrow_config::Protocol;
 
 impl PeerCount for Arc<Shared> {
@@ -107,7 +107,7 @@ async fn relay(
     port: Port<'_>,
     session: &super::via::Via,
     socket: Arc<UdpSocket>,
-    ch: crate::transport::Channel,
+    ch: crate::wire::transport::Channel,
     config: watch::Receiver<Service>,
 ) -> Result<(), Option<Status>> {
     let Port { name, svc, target } = port;

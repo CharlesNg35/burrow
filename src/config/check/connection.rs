@@ -3,7 +3,7 @@ use std::path::Path;
 
 use super::Spans;
 use crate::diagnostics::Diagnostic;
-use crate::proxy::ProxyConfig;
+use crate::wire::proxy::ProxyConfig;
 use burrow_syntax::endpoint::Endpoint;
 
 const RESERVED_HEADERS: &[&str] = &[
@@ -108,7 +108,7 @@ pub fn check_connection(
             } else {
                 "tls-file"
             };
-            match read.and_then(|pem| crate::transport::tls::parse_certs(&pem).map(|_| pem)) {
+            match read.and_then(|pem| crate::wire::transport::tls::parse_certs(&pem).map(|_| pem)) {
                 Ok(pem) => {
                     if !tls && endpoint.is_some() {
                         out.push(

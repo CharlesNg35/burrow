@@ -3,7 +3,7 @@ use std::time::Duration;
 use crate::base::failure::Failure;
 use crate::config::settings::VisitorSettings;
 use crate::dialer::{DialError, Dialer};
-use crate::protocol::{
+use crate::wire::protocol::{
     ChannelKind, GRANTS_REQUEST, GRANTS_REQUEST_V2, Grants, Hello, Status, VERSION,
 };
 

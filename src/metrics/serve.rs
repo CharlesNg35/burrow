@@ -29,7 +29,7 @@ pub async fn serve_with(listener: TcpListener, handler: Handler) {
     loop {
         let (stream, peer) = match listener.accept().await {
             Ok(v) => v,
-            Err(e) if crate::transport::tcp::gone_before_accept(&e) => {
+            Err(e) if crate::wire::transport::tcp::gone_before_accept(&e) => {
                 debug!("metrics: a connection was gone before it was accepted: {e}");
                 continue;
             }

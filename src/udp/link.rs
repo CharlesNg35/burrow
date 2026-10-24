@@ -1,9 +1,9 @@
 use std::time::Duration;
 
-use crate::protocol::Status;
-use crate::record::{RecordReader, RecordWriter};
-use crate::transport::Channel;
-use crate::transport::{OwnedReadHalf, OwnedWriteHalf};
+use crate::wire::protocol::Status;
+use crate::wire::record::{RecordReader, RecordWriter};
+use crate::wire::transport::Channel;
+use crate::wire::transport::{OwnedReadHalf, OwnedWriteHalf};
 
 pub struct Link {
     pub reader: RecordReader,
@@ -49,7 +49,7 @@ pub async fn open_udp(ch: Channel, request: &[u8], wait: Duration) -> Result<Lin
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::transport::local::pair;
+    use crate::wire::transport::local::pair;
 
     const WAIT: Duration = Duration::from_secs(5);
 

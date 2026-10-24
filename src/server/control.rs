@@ -6,8 +6,8 @@ use tokio::sync::mpsc;
 use tracing::{info, warn};
 
 use super::{ClientSession, Shared, TICK};
-use crate::handshake::Accepted;
-use crate::protocol::{ByeReason, ClientMsg, ServerMsg, TOKEN_LEN};
+use crate::wire::handshake::Accepted;
+use crate::wire::protocol::{ByeReason, ClientMsg, ServerMsg, TOKEN_LEN};
 
 pub(super) async fn control_session(
     shared: Arc<Shared>,

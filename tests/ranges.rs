@@ -4,8 +4,8 @@ use std::net::SocketAddr;
 use std::time::Duration;
 
 use burrow::config::settings::{Forward, Service};
-use burrow::protocol::VisitTarget;
-use burrow::secret::Secret;
+use burrow::wire::protocol::VisitTarget;
+use burrow::wire::secret::Secret;
 use burrow_config::Protocol;
 use common::*;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -393,7 +393,10 @@ async fn udp_visits(target: u16, ports: u16) -> Visits {
 }
 
 impl Visits {
-    async fn udp_lands_on(&self, to: VisitTarget) -> Result<u16, Option<burrow::protocol::Status>> {
+    async fn udp_lands_on(
+        &self,
+        to: VisitTarget,
+    ) -> Result<u16, Option<burrow::wire::protocol::Status>> {
         let mut v = udp_visit(self.server, self.visitor_secret.clone(), to).await?;
         for _ in 0..10 {
             v.send(9, b"hello").await;
@@ -421,7 +424,7 @@ async fn a_udp_visit_reaches_each_port_of_a_private_udp_range() {
     }
     assert_eq!(
         v.udp_lands_on(VisitTarget::service("game").at(3)).await,
-        Err(Some(burrow::protocol::Status::Invalid))
+        Err(Some(burrow::wire::protocol::Status::Invalid))
     );
     let direct = VisitTarget::Client {
         client: "home".into(),

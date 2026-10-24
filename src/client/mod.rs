@@ -13,11 +13,11 @@ use tracing::{debug, error, info, warn};
 use crate::base::failure::io_reason;
 use crate::config::settings::ClientSettings;
 use crate::dialer::{DialError, Dialer};
-use crate::protocol::{
+use crate::wire::protocol::{
     ByeReason, ChannelKind, ClientMsg, Hello, ServerMsg, ServiceInfo, TOKEN_LEN, VERSION,
 };
-use crate::transport::Channel;
-use crate::transport::resolve::Resolver;
+use crate::wire::transport::Channel;
+use crate::wire::transport::resolve::Resolver;
 use reconnect::{Backoff, Outage, Report, human};
 
 const STABLE_AFTER: Duration = Duration::from_secs(10);
@@ -84,7 +84,7 @@ pub struct Client {
     halt: watch::Sender<bool>,
     outage: Arc<Mutex<Outage>>,
     reloads: Option<mpsc::Receiver<ClientSettings>>,
-    instance: [u8; crate::protocol::TOKEN_LEN],
+    instance: [u8; crate::wire::protocol::TOKEN_LEN],
     welcomed: Arc<Mutex<Option<Instant>>>,
 }
 
@@ -124,7 +124,7 @@ async fn next_reload(reloads: &mut Option<mpsc::Receiver<ClientSettings>>) -> Cl
 impl Client {
     pub fn new(settings: ClientSettings) -> Self {
         let (state, _) = watch::channel(State::Connecting);
-        let resolver = crate::transport::resolve::system();
+        let resolver = crate::wire::transport::resolve::system();
         let open = data::Open::new(
             (
                 data::client_connection_cap(settings.max_connections),
@@ -142,7 +142,7 @@ impl Client {
             outage: Arc::new(Mutex::new(Outage::default())),
             reloads: None,
             instance: {
-                let mut id = [0u8; crate::protocol::TOKEN_LEN];
+                let mut id = [0u8; crate::wire::protocol::TOKEN_LEN];
                 getrandom::fill(&mut id).expect("operating system random source is available");
                 id
             },

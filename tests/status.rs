@@ -6,7 +6,7 @@ use std::process::{Child, Command, Output, Stdio};
 use std::time::Duration;
 
 use burrow::metrics::Status;
-use burrow::secret::Secret;
+use burrow::wire::secret::Secret;
 
 const BIN: &str = env!("CARGO_BIN_EXE_burrow");
 

@@ -1149,7 +1149,7 @@ fn visitor(forwards: &str) -> String {
 #[test]
 fn valid_visitor() {
     use burrow::config::Loaded;
-    use burrow::protocol::VisitTarget;
+    use burrow::wire::protocol::VisitTarget;
     let src = visitor(
         "  db: { service: db, local: 5432 }\n  ssh: { client: home, target: 22, local: \"2222\" }\n",
     );

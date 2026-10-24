@@ -11,9 +11,9 @@ use crate::client::reconnect::Backoff;
 use crate::config::settings::VisitorSettings;
 use crate::dialer::{DialError, Dialer};
 use crate::forward::{ForwardError, pump_tcp, request_visit};
-use crate::protocol::{ChannelKind, Hello, Status, VERSION, VisitRequest, VisitTarget};
 use crate::throttle::Throttle;
-use crate::transport::tcp::tune;
+use crate::wire::protocol::{ChannelKind, Hello, Status, VERSION, VisitRequest, VisitTarget};
+use crate::wire::transport::tcp::tune;
 use burrow_config::Protocol;
 
 const OPEN_PATIENCE: Duration = Duration::from_secs(5);
@@ -71,7 +71,7 @@ pub(super) async fn accept(
     loop {
         let (stream, peer) = match listener.accept().await {
             Ok(v) => v,
-            Err(e) if crate::transport::tcp::gone_before_accept(&e) => {
+            Err(e) if crate::wire::transport::tcp::gone_before_accept(&e) => {
                 debug!("forward \"{name}\": a connection was gone before it was accepted: {e}");
                 continue;
             }
@@ -274,7 +274,7 @@ fn mismatch(
     }
 }
 
-async fn ask(mut ch: crate::transport::Channel, request: &VisitRequest) -> Option<Status> {
+async fn ask(mut ch: crate::wire::transport::Channel, request: &VisitRequest) -> Option<Status> {
     ch.writer
         .send(&mut ch.stream, &request.encode().ok()?)
         .await
@@ -489,7 +489,7 @@ mod tests {
     #[test]
     fn a_protocol_mismatch_names_the_fix_and_an_old_server_says_so() {
         use crate::init::fetch::Fetched;
-        use crate::protocol::{GrantedService, Grants};
+        use crate::wire::protocol::{GrantedService, Grants};
         let fetched = |protocol, tcp_only| Fetched {
             grants: Grants {
                 services: vec![GrantedService {

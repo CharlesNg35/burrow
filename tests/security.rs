@@ -6,9 +6,9 @@ use std::net::SocketAddr;
 use std::time::{Duration, Instant};
 
 use burrow::client::State;
-use burrow::noise::{Initiator, MSG2_LEN};
-use burrow::protocol::{ChannelKind, Hello, Preamble};
-use burrow::secret::Secret;
+use burrow::wire::noise::{Initiator, MSG2_LEN};
+use burrow::wire::protocol::{ChannelKind, Hello, Preamble};
+use burrow::wire::secret::Secret;
 use burrow_config::{Cipher, Protocol};
 use common::*;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -175,7 +175,7 @@ async fn data_channel_with_wrong_token_is_not_pooled() {
         plaintext: false,
         name: "home".into(),
     };
-    let ch = burrow::handshake::initiate(
+    let ch = burrow::wire::handshake::initiate(
         s.into(),
         &p,
         &secret,
@@ -191,7 +191,7 @@ async fn data_channel_with_wrong_token_is_not_pooled() {
         .unwrap()
         .unwrap()
         .map(<[u8]>::to_vec);
-    assert_eq!(first, Some(vec![burrow::protocol::STALE_RECORD]));
+    assert_eq!(first, Some(vec![burrow::wire::protocol::STALE_RECORD]));
     let then = tokio::time::timeout(Duration::from_secs(3), ch.reader.recv(&mut ch.stream))
         .await
         .unwrap();
@@ -263,7 +263,7 @@ fn secrets_never_appear_in_debug_output() {
     let settings = client_settings("127.0.0.1:1".parse().unwrap(), s.clone());
     let dbg = format!("{settings:?}");
     assert!(!dbg.contains(&s.encode()));
-    let proxy = burrow::proxy::ProxyConfig::parse("socks5://user:hunter2@p:1080").unwrap();
+    let proxy = burrow::wire::proxy::ProxyConfig::parse("socks5://user:hunter2@p:1080").unwrap();
     assert!(!format!("{proxy:?}").contains("hunter2"));
 }
 
@@ -278,7 +278,7 @@ async fn silent_client_is_closed_after_heartbeat_timeout() {
         plaintext: false,
         name: "home".into(),
     };
-    let mut ch = burrow::handshake::initiate(
+    let mut ch = burrow::wire::handshake::initiate(
         s.into(),
         &p,
         &secret,
@@ -341,7 +341,7 @@ async fn hello_must_match_the_channel_kind() {
             plaintext: false,
             name: "home".into(),
         };
-        if let Ok(mut ch) = burrow::handshake::initiate(s.into(), &p, &secret, &hello).await {
+        if let Ok(mut ch) = burrow::wire::handshake::initiate(s.into(), &p, &secret, &hello).await {
             let mut buf = [0u8; 8];
             let n = tokio::time::timeout(Duration::from_secs(3), ch.stream.read(&mut buf))
                 .await
@@ -412,7 +412,7 @@ async fn a_secret_removed_during_a_handshake_does_not_open_a_session() {
     };
     let late = tokio::spawn(async move {
         let s = TcpStream::connect(via).await.unwrap();
-        burrow::handshake::initiate(
+        burrow::wire::handshake::initiate(
             s.into(),
             &p,
             &old,
@@ -439,7 +439,7 @@ async fn a_secret_removed_during_a_handshake_does_not_open_a_session() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_server_cannot_make_a_client_open_unbounded_data_channels() {
-    use burrow::protocol::ServerMsg;
+    use burrow::wire::protocol::ServerMsg;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
     if ws_mode() {
@@ -457,7 +457,8 @@ async fn a_server_cannot_make_a_client_open_unbounded_data_channels() {
             };
             let (count, known) = (count.clone(), known.clone());
             tokio::spawn(async move {
-                let Ok(acc) = burrow::handshake::accept(s.into(), |_, _| vec![known]).await else {
+                let Ok(acc) = burrow::wire::handshake::accept(s.into(), |_, _| vec![known]).await
+                else {
                     return;
                 };
                 let mut ch = acc.channel;
@@ -493,7 +494,7 @@ async fn a_server_cannot_make_a_client_open_unbounded_data_channels() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_replaced_control_connection_is_closed_even_if_its_peer_keeps_talking() {
-    use burrow::protocol::ClientMsg;
+    use burrow::wire::protocol::ClientMsg;
     if ws_mode() {
         return;
     }
@@ -507,7 +508,7 @@ async fn a_replaced_control_connection_is_closed_even_if_its_peer_keeps_talking(
             name: "home".into(),
         };
         let s = TcpStream::connect(srv.addr).await.unwrap();
-        burrow::handshake::initiate(
+        burrow::wire::handshake::initiate(
             s.into(),
             &p,
             &secret,

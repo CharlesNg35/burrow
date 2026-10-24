@@ -1,6 +1,6 @@
 use blake2::Digest;
 
-use crate::secret::Secret;
+use crate::wire::secret::Secret;
 
 pub fn rev(text: &str) -> String {
     let digest = blake2::Blake2s256::digest(text.as_bytes());

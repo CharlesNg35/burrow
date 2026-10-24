@@ -3,10 +3,10 @@ use std::net::SocketAddr;
 use std::time::Duration;
 
 use crate::allowlist::{AllowList, Cidr, Sources};
-use crate::protocol::VisitTarget;
-use crate::proxy::ProxyConfig;
-use crate::secret::Secret;
-use crate::transport::tcp::SocketTuning;
+use crate::wire::protocol::VisitTarget;
+use crate::wire::proxy::ProxyConfig;
+use crate::wire::secret::Secret;
+use crate::wire::transport::tcp::SocketTuning;
 use burrow_admin_proto::msg::AdminLevel;
 use burrow_config::{Cipher, Mode, Protocol};
 use burrow_syntax::endpoint::Endpoint;
@@ -41,7 +41,7 @@ pub struct ListenClash {
 }
 
 impl ServerSettings {
-    pub fn services_for(&self, client: &str) -> Vec<crate::protocol::ServiceInfo> {
+    pub fn services_for(&self, client: &str) -> Vec<crate::wire::protocol::ServiceInfo> {
         services_for(&self.services, client)
     }
 
@@ -83,11 +83,11 @@ impl ServerSettings {
 pub fn services_for(
     services: &BTreeMap<String, Service>,
     client: &str,
-) -> Vec<crate::protocol::ServiceInfo> {
+) -> Vec<crate::wire::protocol::ServiceInfo> {
     services
         .iter()
         .filter(|(_, svc)| svc.clients.iter().any(|c| c == client))
-        .map(|(name, svc)| crate::protocol::ServiceInfo {
+        .map(|(name, svc)| crate::wire::protocol::ServiceInfo {
             name: name.clone(),
             protocol: svc.protocol,
             bind_port: svc.bind.map_or(0, |b| b.port()),
@@ -357,7 +357,7 @@ mod tests {
     use crate::config::{Format, Loaded, Role, load_str};
 
     fn settings(text: &str) -> ServerSettings {
-        let secret = crate::secret::Secret::generate().encode();
+        let secret = crate::wire::secret::Secret::generate().encode();
         let text = text.replace("SECRET", &secret);
         let nothing = |_: &str| None;
         match load_str("s.yaml", &text, Format::Yaml, Some(Role::Server), &nothing).loaded {

@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use burrow::client::State;
-use burrow::secret::Secret;
+use burrow::wire::secret::Secret;
 use burrow_config::Protocol;
 use common::*;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -452,7 +452,7 @@ async fn churn_returns_internal_state_to_baseline() {
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "heavy: run with --ignored"]
 async fn visitor_churn_returns_to_baseline() {
-    use burrow::protocol::VisitTarget;
+    use burrow::wire::protocol::VisitTarget;
     logs();
     let rounds = env_u64("BURROW_CHURN_ROUNDS", 20);
     let per_round = env_u64("BURROW_CHURN_CONNS", 2000) as usize;
@@ -537,7 +537,7 @@ async fn visitor_churn_returns_to_baseline() {
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "heavy: run with --ignored"]
 async fn self_churn_returns_to_baseline() {
-    use burrow::protocol::VisitTarget;
+    use burrow::wire::protocol::VisitTarget;
     logs();
     let rounds = env_u64("BURROW_CHURN_ROUNDS", 20);
     let per_round = env_u64("BURROW_CHURN_CONNS", 2000) as usize;
@@ -651,7 +651,7 @@ async fn self_churn_returns_to_baseline() {
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "heavy: run with --ignored"]
 async fn visitor_udp_churn_returns_to_baseline() {
-    use burrow::protocol::VisitTarget;
+    use burrow::wire::protocol::VisitTarget;
     logs();
     let rounds = env_u64("BURROW_CHURN_ROUNDS", 10);
     let peers = env_u64("BURROW_CHURN_PEERS", 300) as usize;

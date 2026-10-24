@@ -20,7 +20,7 @@ pub fn check_free(
         Protocol::Tcp => socket2::Type::STREAM,
         Protocol::Udp => socket2::Type::DGRAM,
     };
-    let result = crate::transport::udp::std_socket(addr, kind).map(drop);
+    let result = crate::wire::transport::udp::std_socket(addr, kind).map(drop);
     match result {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {

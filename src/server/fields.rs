@@ -93,7 +93,7 @@ mod tests {
     fn settings() -> ServerSettings {
         let yaml = format!(
             "listen: 127.0.0.1:7835\nclients:\n  home:\n    secret: {}\nservices:\n  web: {{ client: home, bind: 7840, target: 3000 }}\n",
-            crate::secret::Secret::generate().encode()
+            crate::wire::secret::Secret::generate().encode()
         );
         let nothing = |_: &str| None;
         match load_str(
@@ -147,7 +147,7 @@ mod tests {
                     s.visitors.insert(
                         "laptop".into(),
                         crate::config::settings::VisitorAuth {
-                            secrets: vec![crate::secret::Secret::generate()],
+                            secrets: vec![crate::wire::secret::Secret::generate()],
                             reach: Default::default(),
                             max_connections: None,
                             admin: None,

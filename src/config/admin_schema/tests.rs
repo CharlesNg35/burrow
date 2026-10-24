@@ -101,7 +101,7 @@ fn children<'a>(node: &'a Node, path: &mut Vec<String>, out: &mut Vec<(Vec<Strin
 }
 
 fn base(service: &str) -> String {
-    let s = || crate::secret::Secret::generate().encode();
+    let s = || crate::wire::secret::Secret::generate().encode();
     format!(
         "listen: 127.0.0.1:7835\nclients:\n  home:\n    secret: {}\n  office:\n    secret: {}\nvisitors:\n  laptop:\n    secret: {}\n    reach: {{ home: any }}\nservices:\n  web:\n{service}",
         s(),

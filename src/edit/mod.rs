@@ -333,7 +333,7 @@ mod tests {
     fn good() -> String {
         format!(
             "server: example.com\nname: home\nsecret: {}\nallow: [127.0.0.0/8]\n",
-            crate::secret::Secret::generate().encode()
+            crate::wire::secret::Secret::generate().encode()
         )
     }
 
@@ -478,7 +478,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let good = format!(
             r#"{{"server": "example.com", "name": "home", "secret": "{}", "allow": ["127.0.0.0/8"]}}"#,
-            crate::secret::Secret::generate().encode()
+            crate::wire::secret::Secret::generate().encode()
         );
         let f = config(dir.path(), "client.json", &good);
         let wrong = good.replace("\"name\"", "\"nmae\"");

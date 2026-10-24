@@ -326,8 +326,8 @@ fn walk<'a>(n: &'a Node, out: &mut Vec<&'a SemType>) {
 fn base() -> (super::tests::World, String) {
     let w = world();
     let (office, lap) = (
-        crate::secret::Secret::generate(),
-        crate::secret::Secret::generate(),
+        crate::wire::secret::Secret::generate(),
+        crate::wire::secret::Secret::generate(),
     );
     let text = w.text.replace(
         "\nvisitors:",

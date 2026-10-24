@@ -12,10 +12,10 @@ use crate::config::check::{MAX_TARGET_LEN, parse_host_port};
 use crate::forward::{ForwardError, Meter, Opened, Opening, relay, reply};
 use burrow_config::Protocol;
 
-use crate::handshake::{Accepted, MAX_REQUEST_RECORD, read_small};
-use crate::protocol::{Connect, Status, VisitRequest, VisitTarget};
-use crate::secret::Secret;
 use crate::throttle::Throttle;
+use crate::wire::handshake::{Accepted, MAX_REQUEST_RECORD, read_small};
+use crate::wire::protocol::{Connect, Status, VisitRequest, VisitTarget};
+use crate::wire::secret::Secret;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Grant {
@@ -168,7 +168,7 @@ async fn answer_grants(
     shared: &Shared,
     visitor: &str,
     secret: &Secret,
-    channel: crate::transport::Channel,
+    channel: crate::wire::transport::Channel,
     with_protocols: bool,
 ) {
     let settings = shared.settings();
@@ -236,11 +236,11 @@ pub(super) async fn serve(
     .await;
     drop(permit);
     let request = match first {
-        Ok(Ok(b)) if b[..] == crate::protocol::GRANTS_REQUEST => {
+        Ok(Ok(b)) if b[..] == crate::wire::protocol::GRANTS_REQUEST => {
             answer_grants(&shared, &visitor, &secret, channel, false).await;
             return;
         }
-        Ok(Ok(b)) if b[..] == crate::protocol::GRANTS_REQUEST_V2 => {
+        Ok(Ok(b)) if b[..] == crate::wire::protocol::GRANTS_REQUEST_V2 => {
             answer_grants(&shared, &visitor, &secret, channel, true).await;
             return;
         }
@@ -390,7 +390,7 @@ pub(super) async fn serve(
         service.and_then(|(_, svc)| svc.proxy_protocol),
         channel.stream.local_addr(),
     ) {
-        (Some(version), Ok(local)) => crate::proxy_protocol::header(version, peer, local),
+        (Some(version), Ok(local)) => crate::wire::proxy_protocol::header(version, peer, local),
         _ => Vec::new(),
     };
     let opening = Opening {
@@ -453,7 +453,7 @@ pub(super) async fn serve(
 }
 
 async fn answer(
-    channel: crate::transport::Channel,
+    channel: crate::wire::transport::Channel,
     outcome: Outcome,
     grant: &Grant,
     label: &str,

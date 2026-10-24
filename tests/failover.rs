@@ -9,9 +9,9 @@ use burrow::allowlist::AllowList;
 use burrow::client::{Client, State};
 use burrow::config::settings::{ClientAuth, Health, ServerSettings, Service};
 use burrow::metrics::SetAside;
-use burrow::protocol::VisitTarget;
-use burrow::secret::Secret;
-use burrow::transport::resolve::{Resolved, Resolver};
+use burrow::wire::protocol::VisitTarget;
+use burrow::wire::secret::Secret;
+use burrow::wire::transport::resolve::{Resolved, Resolver};
 use burrow_config::{Mode, Protocol};
 use common::*;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -28,7 +28,7 @@ impl Resolver for Local {
             if host_port == TARGET {
                 Ok(vec![self.0])
             } else {
-                burrow::transport::resolve::resolve(host_port).await
+                burrow::wire::transport::resolve::resolve(host_port).await
             }
         })
     }
@@ -40,7 +40,7 @@ impl Resolver for OnceElsewhere {
     fn resolve<'a>(&'a self, host_port: &'a str) -> Resolved<'a> {
         Box::pin(async move {
             if host_port != TARGET {
-                return burrow::transport::resolve::resolve(host_port).await;
+                return burrow::wire::transport::resolve::resolve(host_port).await;
             }
             if self.1.swap(false, std::sync::atomic::Ordering::AcqRel) {
                 return Ok(vec![SocketAddr::new([10, 0, 0, 1].into(), self.0.port())]);
@@ -56,7 +56,7 @@ impl Resolver for Slow {
     fn resolve<'a>(&'a self, host_port: &'a str) -> Resolved<'a> {
         Box::pin(async move {
             if host_port != TARGET {
-                return burrow::transport::resolve::resolve(host_port).await;
+                return burrow::wire::transport::resolve::resolve(host_port).await;
             }
             tokio::time::sleep(Duration::from_secs(5)).await;
             Ok(vec![self.0])
@@ -669,13 +669,13 @@ async fn adding_a_backup_client_keeps_open_visits() {
 
 struct Fixed(SocketAddr);
 
-impl burrow::transport::resolve::Resolver for Fixed {
-    fn resolve<'a>(&'a self, host_port: &'a str) -> burrow::transport::resolve::Resolved<'a> {
+impl burrow::wire::transport::resolve::Resolver for Fixed {
+    fn resolve<'a>(&'a self, host_port: &'a str) -> burrow::wire::transport::resolve::Resolved<'a> {
         Box::pin(async move {
             if host_port.starts_with("app.test:") {
                 Ok(vec![self.0])
             } else {
-                burrow::transport::resolve::resolve(host_port).await
+                burrow::wire::transport::resolve::resolve(host_port).await
             }
         })
     }
@@ -1017,7 +1017,7 @@ async fn deaf_client(
     secret: Secret,
     channels: usize,
 ) -> JoinHandle<()> {
-    use burrow::protocol::{ChannelKind, ClientMsg, Hello, Preamble, ServerMsg, Status};
+    use burrow::wire::protocol::{ChannelKind, ClientMsg, Hello, Preamble, ServerMsg, Status};
     let pre = |kind| Preamble {
         kind,
         cipher: burrow_config::Cipher::Chachapoly,
@@ -1025,7 +1025,7 @@ async fn deaf_client(
         name: name.to_string(),
     };
     let s = TcpStream::connect(server).await.unwrap();
-    let mut control = burrow::handshake::initiate(
+    let mut control = burrow::wire::handshake::initiate(
         s.into(),
         &pre(ChannelKind::Control),
         &secret,
@@ -1050,7 +1050,7 @@ async fn deaf_client(
     let mut held = Vec::new();
     for _ in 0..channels {
         let s = TcpStream::connect(server).await.unwrap();
-        let ch = burrow::handshake::initiate(
+        let ch = burrow::wire::handshake::initiate(
             s.into(),
             &pre(ChannelKind::Data),
             &secret,
@@ -1208,11 +1208,11 @@ async fn a_health_probe_given_up_in_plaintext_leaves_no_target_connection_behind
 
 struct Moving(SocketAddr, SocketAddr, Arc<std::sync::atomic::AtomicBool>);
 
-impl burrow::transport::resolve::Resolver for Moving {
-    fn resolve<'a>(&'a self, host_port: &'a str) -> burrow::transport::resolve::Resolved<'a> {
+impl burrow::wire::transport::resolve::Resolver for Moving {
+    fn resolve<'a>(&'a self, host_port: &'a str) -> burrow::wire::transport::resolve::Resolved<'a> {
         Box::pin(async move {
             if !host_port.starts_with("app.test:") {
-                return burrow::transport::resolve::resolve(host_port).await;
+                return burrow::wire::transport::resolve::resolve(host_port).await;
             }
             if self.2.load(std::sync::atomic::Ordering::Relaxed) {
                 Ok(vec![self.1])
@@ -1268,11 +1268,11 @@ async fn a_steady_udp_sender_follows_its_target_to_a_new_address() {
 
 struct Rotating(SocketAddr, SocketAddr, std::sync::atomic::AtomicUsize);
 
-impl burrow::transport::resolve::Resolver for Rotating {
-    fn resolve<'a>(&'a self, host_port: &'a str) -> burrow::transport::resolve::Resolved<'a> {
+impl burrow::wire::transport::resolve::Resolver for Rotating {
+    fn resolve<'a>(&'a self, host_port: &'a str) -> burrow::wire::transport::resolve::Resolved<'a> {
         Box::pin(async move {
             if !host_port.starts_with("app.test:") {
-                return burrow::transport::resolve::resolve(host_port).await;
+                return burrow::wire::transport::resolve::resolve(host_port).await;
             }
             if self
                 .2
@@ -1324,11 +1324,11 @@ async fn a_steady_udp_sender_stays_put_while_round_robin_dns_rotates() {
 
 struct Phased(SocketAddr, SocketAddr, Arc<std::sync::atomic::AtomicUsize>);
 
-impl burrow::transport::resolve::Resolver for Phased {
-    fn resolve<'a>(&'a self, host_port: &'a str) -> burrow::transport::resolve::Resolved<'a> {
+impl burrow::wire::transport::resolve::Resolver for Phased {
+    fn resolve<'a>(&'a self, host_port: &'a str) -> burrow::wire::transport::resolve::Resolved<'a> {
         Box::pin(async move {
             if !host_port.starts_with("app.test:") {
-                return burrow::transport::resolve::resolve(host_port).await;
+                return burrow::wire::transport::resolve::resolve(host_port).await;
             }
             match self.2.load(std::sync::atomic::Ordering::Relaxed) {
                 1 => Ok(vec![self.1]),
