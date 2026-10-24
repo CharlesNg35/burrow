@@ -500,7 +500,7 @@ listen: 127.0.0.1:27944
 clients:
   home: { secret: $("$B" gensecret) }
 web:
-  https: 127.0.0.1:443
+  https: 443
   letsencrypt: { email: ops@example.com, directory: "https://127.0.0.1:9/dir" }
 services:
   site: { client: home, target: 127.0.0.1:19100, web: acme.example.com }

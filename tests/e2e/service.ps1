@@ -268,7 +268,7 @@ try {
 
   Write-Host "== a server with Let's Encrypt keeps its account and certificates in its own folder"
   $AcmeSecret = (& $B gensecret | Out-String).Trim()
-  Set-Content e2e-acme.yaml "listen: 127.0.0.1:27944`nclients:`n  home: { secret: $AcmeSecret }`nweb:`n  https: 127.0.0.1:443`n  letsencrypt: { email: ops@example.com, directory: `"https://127.0.0.1:9/dir`" }`nservices:`n  site: { client: home, target: 127.0.0.1:19100, web: acme.example.com }"
+  Set-Content e2e-acme.yaml "listen: 127.0.0.1:27944`nclients:`n  home: { secret: $AcmeSecret }`nweb:`n  https: 443`n  letsencrypt: { email: ops@example.com, directory: `"https://127.0.0.1:9/dir`" }`nservices:`n  site: { client: home, target: 127.0.0.1:19100, web: acme.example.com }"
   $out = Burrow service install -c e2e-acme.yaml
   if (-not (Running burrow-e2e-acme)) { Fail "the server with letsencrypt is not running: $out" }
   $AcmeDir = "$env:ProgramData\burrow\services\e2e-acme"
