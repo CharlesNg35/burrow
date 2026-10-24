@@ -111,7 +111,7 @@ async fn a_wildcard_site_takes_one_label_and_an_exact_site_wins() {
 #[tokio::test]
 async fn a_refused_open_closes_the_visitor() {
     let (up, _) = Fake::new(4);
-    *up.refuse.lock().unwrap() = Some(burrow_proxy::Refused::Full);
+    *up.refuse.lock().unwrap() = Some(burrow_web::Refused::Full);
     let proxy = start(
         |s| s.sites = vec![site("nas", &["nas.example.com"])],
         up.clone(),
@@ -161,7 +161,7 @@ async fn hosts_added_and_removed_take_effect_for_new_connections() {
     let mut kept = tls(addr, "nas.example.com").await.unwrap();
     assert_eq!(ask(&mut kept, b"a").await.unwrap(), b"nas:a");
     assert!(closed_without_tls(addr, "git.example.com").await);
-    let mut next = burrow_proxy::ProxySettings::new(addr);
+    let mut next = burrow_web::ProxySettings::new(addr);
     next.sites = vec![site("git", &["git.example.com"])];
     proxy.apply(&next);
     let mut g = tls(addr, "git.example.com").await.unwrap();

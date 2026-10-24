@@ -1,5 +1,5 @@
 [package]
-name = "burrow-proxy"
+name = "burrow-web"
 version = "0.1.2"
 edition = "2024"
 description = "The burrow web proxy: one HTTPS port for passthrough sites and the tunnel"

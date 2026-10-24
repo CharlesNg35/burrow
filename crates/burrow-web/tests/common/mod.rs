@@ -5,7 +5,7 @@ use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use burrow_proxy::{BoxIo, ProxySettings, Refused, Site, TunnelConn, Upstream, Visitor};
+use burrow_web::{BoxIo, ProxySettings, Refused, Site, TunnelConn, Upstream, Visitor};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc};
@@ -228,11 +228,11 @@ pub fn site(service: &str, hosts: &[&str]) -> Site {
 pub async fn start(
     settings: impl FnOnce(&mut ProxySettings),
     up: Arc<Fake>,
-) -> burrow_proxy::Proxy<Fake> {
+) -> burrow_web::Proxy<Fake> {
     let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let mut s = ProxySettings::new(l.local_addr().unwrap());
     settings(&mut s);
-    burrow_proxy::Proxy::start(l, s, up)
+    burrow_web::Proxy::start(l, s, up)
 }
 
 pub async fn ask<S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin>(

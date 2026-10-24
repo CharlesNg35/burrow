@@ -332,8 +332,8 @@ dependencies = [
  "burrow-admin-logic",
  "burrow-admin-proto",
  "burrow-config",
- "burrow-proxy",
  "burrow-syntax",
+ "burrow-web",
  "bytes",
  "chromiumoxide",
  "clap",
@@ -440,7 +440,21 @@ dependencies = [
 ]
 
 [[package]]
-name = "burrow-proxy"
+name = "burrow-syntax"
+version = "0.1.2"
+
+[[package]]
+name = "burrow-ui-kit"
+version = "0.1.2"
+dependencies = [
+ "js-sys",
+ "leptos",
+ "wasm-bindgen",
+ "web-sys",
+]
+
+[[package]]
+name = "burrow-web"
 version = "0.1.2"
 dependencies = [
  "base64 0.23.1",
@@ -457,20 +471,6 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "tracing",
-]
-
-[[package]]
-name = "burrow-syntax"
-version = "0.1.2"
-
-[[package]]
-name = "burrow-ui-kit"
-version = "0.1.2"
-dependencies = [
- "js-sys",
- "leptos",
- "wasm-bindgen",
- "web-sys",
 ]
 
 [[package]]

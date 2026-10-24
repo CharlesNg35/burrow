@@ -20,7 +20,7 @@ members = [
     "crates/burrow-admin-derive",
     "crates/burrow-ui-kit",
     "crates/burrow-admin-ui",
-    "crates/burrow-proxy",
+    "crates/burrow-web",
     "xtask",
 ]
 
@@ -33,7 +33,7 @@ workspace = true
 [dependencies]
 burrow-admin-proto = { path = "crates/burrow-admin-proto" }
 burrow-config = { path = "crates/burrow-config", features = ["json-schema"] }
-burrow-proxy = { path = "crates/burrow-proxy", optional = true }
+burrow-web = { path = "crates/burrow-web", optional = true }
 burrow-syntax = { path = "crates/burrow-syntax" }
 base64 = "0.23.1"
 blake2 = "0.10.6"
@@ -107,7 +107,7 @@ serde_json = "1.0.154"
 [features]
 default = ["ring", "web"]
 ring = ["snow/ring-accelerated"]
-web = ["dep:burrow-proxy"]
+web = ["dep:burrow-web"]
 admin-test-hooks = []
 
 [profile.release]

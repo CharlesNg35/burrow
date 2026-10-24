@@ -364,7 +364,7 @@ async fn a_client_that_never_answers_nor_reads_is_given_up_in_time() {
 async fn a_pipe_visitor_carries_bytes_both_ways_through_a_sealed_channel() {
     let (a, b) = tcp_pair().await;
     let (ours, mut theirs) = channels(a, b);
-    let (mut visitor, mut user) = burrow_proxy::pipe();
+    let (mut visitor, mut user) = burrow_web::pipe();
     user.write_all(b"hello").await.unwrap();
     let open = tokio::spawn(async move {
         let mut early = Early::default();

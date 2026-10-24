@@ -2,7 +2,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use burrow_proxy::{
+use burrow_web::{
     BoxIo, Proxy, ProxySettings, Refused, Site, TunnelConn, TunnelMode, TunnelSettings, Upstream,
     Visitor,
 };
@@ -50,7 +50,7 @@ impl Upstream for Doorway {
             Refusal::Full => Refused::Full,
             Refusal::NoClient => Refused::NoClient,
         })?;
-        let (ours, theirs) = burrow_proxy::pipe();
+        let (ours, theirs) = burrow_web::pipe();
         let entry = Entry {
             peer: from.addr,
             local: Some(from.local),

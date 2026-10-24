@@ -24,7 +24,7 @@ const CRATE_DEPS: &[(&str, &[&str], &[&str])] = &[
             "burrow-ui-kit",
             "burrow-admin-logic",
             "burrow-admin-ui",
-            "burrow-proxy",
+            "burrow-web",
         ],
     ),
     (
@@ -35,7 +35,7 @@ const CRATE_DEPS: &[(&str, &[&str], &[&str])] = &[
             "burrow-syntax",
             "semver",
         ],
-        &["burrow-proxy"],
+        &["burrow-web"],
     ),
     (
         "burrow-ui-kit",
@@ -44,7 +44,7 @@ const CRATE_DEPS: &[(&str, &[&str], &[&str])] = &[
             "burrow-admin-proto",
             "burrow-syntax",
             "burrow-admin-logic",
-            "burrow-proxy",
+            "burrow-web",
         ],
     ),
     (
@@ -62,10 +62,10 @@ const CRATE_DEPS: &[(&str, &[&str], &[&str])] = &[
             "burrow-syntax",
             "console_error_panic_hook",
         ],
-        &["serde_json", "burrow-proxy"],
+        &["serde_json", "burrow-web"],
     ),
     (
-        "burrow-proxy",
+        "burrow-web",
         &[
             "base64",
             "burrow-syntax",
@@ -202,7 +202,7 @@ mod tests {
         );
         assert_eq!(dep_problems("burrow-config", &["serde", "tokio"]).len(), 1);
         assert_eq!(dep_problems("burrow-config", &["burrow"]).len(), 1);
-        assert!(dep_problems("burrow-proxy", &["tokio", "hyper", "burrow-syntax"]).is_empty());
+        assert!(dep_problems("burrow-web", &["tokio", "hyper", "burrow-syntax"]).is_empty());
         for never in [
             "burrow",
             "burrow-config",
@@ -210,8 +210,8 @@ mod tests {
             "burrow-ui-kit",
         ] {
             assert_eq!(
-                dep_problems("burrow-proxy", &[never]),
-                [format!("crate burrow-proxy must not depend on {never}")]
+                dep_problems("burrow-web", &[never]),
+                [format!("crate burrow-web must not depend on {never}")]
             );
         }
         for ui in [
@@ -221,8 +221,8 @@ mod tests {
             "burrow-admin-ui",
         ] {
             assert_eq!(
-                dep_problems(ui, &["burrow-proxy"]),
-                [format!("crate {ui} must not depend on burrow-proxy")]
+                dep_problems(ui, &["burrow-web"]),
+                [format!("crate {ui} must not depend on burrow-web")]
             );
         }
     }

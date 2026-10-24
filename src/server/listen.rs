@@ -286,8 +286,8 @@ async fn upgraded_ws(
 }
 
 #[cfg(feature = "web")]
-pub async fn handle_web_tunnel(shared: Arc<Shared>, conn: burrow_proxy::TunnelConn<Permit>) {
-    let burrow_proxy::TunnelConn {
+pub async fn handle_web_tunnel(shared: Arc<Shared>, conn: burrow_web::TunnelConn<Permit>) {
+    let burrow_web::TunnelConn {
         io,
         upgraded,
         path,

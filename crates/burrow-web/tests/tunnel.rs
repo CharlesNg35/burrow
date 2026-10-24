@@ -2,7 +2,7 @@ mod common;
 
 use std::time::Duration;
 
-use burrow_proxy::{TunnelMode, TunnelSettings};
+use burrow_web::{TunnelMode, TunnelSettings};
 use common::*;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
