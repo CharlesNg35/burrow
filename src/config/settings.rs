@@ -96,6 +96,12 @@ impl ServerSettings {
                     .filter(|m| conflicts(*m))
                     .map(|_| clash(&["metrics", "listen"], "metrics.listen".into()))
             })
+            .or_else(|| {
+                next.web
+                    .as_ref()
+                    .filter(|w| conflicts(w.https))
+                    .map(|_| clash(&["web", "https"], "web.https".into()))
+            })
     }
 }
 
@@ -425,6 +431,16 @@ mod tests {
             "listen: 7836\nmetrics: { listen: 0.0.0.0:7835 }",
         ));
         assert_eq!(old.listen_clash(&metrics).unwrap().what, "metrics.listen");
+        if cfg!(feature = "web") {
+            let web = settings(
+                &base.replace("listen: 7835", "listen: 7836\nweb: { https: 0.0.0.0:7835 }"),
+            );
+            let c = old.listen_clash(&web).unwrap();
+            assert_eq!(
+                (c.what.as_str(), c.path.clone()),
+                ("web.https", vec!["web".to_string(), "https".to_string()])
+            );
+        }
         let udp = settings(&base.replace("listen: 7835", "listen: 7836").replace(
             "bind: 7840, target: 80",
             "bind: 7835, target: 80, protocol: udp",
