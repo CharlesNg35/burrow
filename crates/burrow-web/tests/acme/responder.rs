@@ -15,6 +15,7 @@ use tokio_rustls::rustls::{self, ServerConfig};
 pub struct Responder {
     pub current: Arc<RwLock<Arc<Store>>>,
     pub refuse_tls_check: Arc<AtomicBool>,
+    pub https_in_front: Arc<AtomicBool>,
     tasks: Vec<tokio::task::JoinHandle<()>>,
 }
 
@@ -37,10 +38,35 @@ fn config(resolver: Arc<dyn ResolvesServerCert>, alpn: &[u8]) -> Arc<ServerConfi
     Arc::new(c)
 }
 
-async fn tls_conn(store: Arc<Store>, refuse: bool, tcp: TcpStream) {
+fn front_config() -> Arc<ServerConfig> {
+    let key = rcgen::KeyPair::generate().unwrap();
+    let cert = rcgen::CertificateParams::new(vec!["cdn.example.net".to_string()])
+        .unwrap()
+        .self_signed(&key)
+        .unwrap();
+    let provider = Arc::new(rustls::crypto::ring::default_provider());
+    let c = ServerConfig::builder_with_provider(provider)
+        .with_safe_default_protocol_versions()
+        .unwrap()
+        .with_no_client_auth()
+        .with_single_cert(
+            vec![cert.der().clone()],
+            tokio_rustls::rustls::pki_types::PrivateKeyDer::try_from(key.serialize_der()).unwrap(),
+        )
+        .unwrap();
+    Arc::new(c)
+}
+
+async fn tls_conn(store: Arc<Store>, refuse: bool, front: bool, tcp: TcpStream) {
     let Ok(start) = LazyConfigAcceptor::new(Acceptor::default(), tcp).await else {
         return;
     };
+    if front {
+        if let Ok(mut tls) = start.into_stream(front_config()).await {
+            let _ = tls.shutdown().await;
+        }
+        return;
+    }
     let hello = start.client_hello();
     let alpn: Vec<Vec<u8>> = hello
         .alpn()
@@ -101,13 +127,15 @@ async fn http_conn(store: Arc<Store>, tcp: TcpStream) {
 pub async fn start(store: Arc<Store>, tls_port: u16, http_port: u16) -> Responder {
     let current = Arc::new(RwLock::new(store));
     let refuse = Arc::new(AtomicBool::new(false));
+    let front = Arc::new(AtomicBool::new(false));
     let tls = TcpListener::bind(("127.0.0.1", tls_port)).await.unwrap();
     let http = TcpListener::bind(("127.0.0.1", http_port)).await.unwrap();
-    let (c1, r1) = (current.clone(), refuse.clone());
+    let (c1, r1, f1) = (current.clone(), refuse.clone(), front.clone());
     let t1 = tokio::spawn(async move {
         while let Ok((tcp, _)) = tls.accept().await {
             let store = c1.read().unwrap().clone();
-            tokio::spawn(tls_conn(store, r1.load(Ordering::SeqCst), tcp));
+            let (r, f) = (r1.load(Ordering::SeqCst), f1.load(Ordering::SeqCst));
+            tokio::spawn(tls_conn(store, r, f, tcp));
         }
     });
     let c2 = current.clone();
@@ -120,6 +148,7 @@ pub async fn start(store: Arc<Store>, tls_port: u16, http_port: u16) -> Responde
     Responder {
         current,
         refuse_tls_check: refuse,
+        https_in_front: front,
         tasks: vec![t1, t2],
     }
 }
@@ -127,6 +156,10 @@ pub async fn start(store: Arc<Store>, tls_port: u16, http_port: u16) -> Responde
 impl Responder {
     pub fn serve(&self, store: Arc<Store>) {
         *self.current.write().unwrap() = store;
+    }
+
+    pub fn https_in_front(&self, on: bool) {
+        self.https_in_front.store(on, Ordering::SeqCst);
     }
 
     pub fn refuse_tls(&self, on: bool) {

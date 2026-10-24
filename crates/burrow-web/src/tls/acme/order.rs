@@ -152,7 +152,12 @@ async fn check_errors(order: &mut instant_acme::Order) -> Option<String> {
     while let Some(Ok(a)) = auths.next().await {
         for c in &a.challenges {
             if let Some(p) = &c.error {
-                out.push(format!("{}: {}", a.identifier(), problem_text(p)));
+                let name = a.identifier().to_string();
+                let mut text = format!("{name}: {}", problem_text(p));
+                if let Some(h) = super::hint(&name, p) {
+                    text.push_str(&format!("; {h}"));
+                }
+                out.push(text);
             }
         }
     }

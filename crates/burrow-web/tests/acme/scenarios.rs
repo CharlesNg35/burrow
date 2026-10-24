@@ -155,6 +155,8 @@ pub async fn all(p: Pebble) {
     profiles(&ctx).await;
     the_guard_stops_an_order_loop(&ctx).await;
     the_everyday_example_gets_its_own_certificate(&ctx).await;
+    https_in_front_falls_back_to_http_at_once_and_is_remembered(&ctx).await;
+    https_in_front_with_443_only_backs_off_and_keeps_the_old(&ctx).await;
     an_added_name_reorders_once_and_a_removed_name_orders_nothing(&ctx).await;
     fallback_directory(&ctx).await;
     authz_reuse(&ctx).await;
@@ -405,6 +407,81 @@ async fn the_everyday_example_gets_its_own_certificate(ctx: &Ctx) {
     let stored = burrow_web::tls::acme::storage::all(state.path());
     assert_eq!(stored.len(), 1);
     assert_eq!(stored[0].1.meta.names, ["shop.test"], "its own certificate");
+}
+
+async fn https_in_front_falls_back_to_http_at_once_and_is_remembered(ctx: &Ctx) {
+    let state = tempfile::tempdir().unwrap();
+    let both = settings(ctx, state.path(), &[CertCheck::Tls, CertCheck::Http], None);
+    ctx.r.https_in_front(true);
+    let start = Instant::now();
+    let store = open_store(ctx, &both, &names("cdn", &["cdn.test"])).await;
+    let st = until(&store, "cdn.test", "issued", |s| s.phase == CertPhase::Ok).await;
+    ctx.r.https_in_front(false);
+    assert_eq!(st.check, Some(CertCheck::Http), "{st:#?}");
+    assert!(
+        start.elapsed() < Duration::from_secs(45),
+        "at once, not after a backoff"
+    );
+    drop(store);
+    let dir = burrow_web::tls::acme::storage::cert_dir(state.path(), &["cdn.test".to_string()]);
+    let pem = std::fs::read_to_string(dir.join("cert.pem")).unwrap();
+    ctx.p.set_renewal_info(&pem, PAST).await;
+    let before = orders(state.path());
+    let store = open_store(ctx, &both, &names("cdn", &["cdn.test"])).await;
+    let start = Instant::now();
+    while orders(state.path()) == before {
+        assert!(
+            start.elapsed() < Duration::from_secs(90),
+            "{:#?}",
+            store.status()
+        );
+        tokio::time::sleep(Duration::from_millis(300)).await;
+    }
+    let st = until(&store, "cdn.test", "renewed", |s| s.phase == CertPhase::Ok).await;
+    assert_eq!(
+        st.check,
+        Some(CertCheck::Http),
+        "the remembered check is tried first"
+    );
+}
+
+async fn https_in_front_with_443_only_backs_off_and_keeps_the_old(ctx: &Ctx) {
+    let state = tempfile::tempdir().unwrap();
+    let tls_only = settings(ctx, state.path(), &[CertCheck::Tls], None);
+    let store = open_store(ctx, &tls_only, &names("wiki", &["wiki.test"])).await;
+    until(&store, "wiki.test", "issued", |s| s.phase == CertPhase::Ok).await;
+    let old = served(ctx, "wiki.test").await.unwrap();
+    drop(store);
+    let dir = burrow_web::tls::acme::storage::cert_dir(state.path(), &["wiki.test".to_string()]);
+    let pem = std::fs::read_to_string(dir.join("cert.pem")).unwrap();
+    ctx.p.set_renewal_info(&pem, PAST).await;
+    ctx.r.https_in_front(true);
+    let store = open_store(ctx, &tls_only, &names("wiki", &["wiki.test"])).await;
+    let st = until(&store, "wiki.test", "the blocked check", |s| {
+        matches!(s.phase, CertPhase::Failing { .. })
+    })
+    .await;
+    ctx.r.https_in_front(false);
+    let e = st.last_error.clone().unwrap();
+    assert!(
+        e.contains("ALPN") && e.contains("acme-tls/1"),
+        "the CA's text: {e}"
+    );
+    assert!(
+        e.contains("something in front of this server answers HTTPS for wiki.test (a CDN like Cloudflare?); open http: 80 and use challenge: http, or use challenge: dns"),
+        "{e}"
+    );
+    let now = burrow_web::tls::now_secs();
+    assert!(
+        st.next_renewal.unwrap() >= now + 50,
+        "the normal backoff: {st:#?}"
+    );
+    ctx.r.serve(store.clone());
+    assert_eq!(
+        served(ctx, "wiki.test").await,
+        Some(old),
+        "the old certificate keeps serving"
+    );
 }
 
 fn orders(state: &Path) -> usize {

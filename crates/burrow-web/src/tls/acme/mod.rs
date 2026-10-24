@@ -1,10 +1,10 @@
 pub mod account;
 pub mod challenge;
 mod group;
-mod learned;
 pub mod guard;
 pub mod http;
 mod job;
+mod learned;
 mod manager;
 pub mod order;
 pub mod schedule;
@@ -79,6 +79,38 @@ pub fn checks_for_all(settings: &crate::AcmeSettings, names: &[String]) -> Vec<C
         .collect()
 }
 
+pub fn hint(name: &str, p: &instant_acme::Problem) -> Option<String> {
+    let detail = p.detail.as_deref().unwrap_or_default().to_ascii_lowercase();
+    let kind = p.r#type.as_deref().map(short_type);
+    let in_front = match kind {
+        Some("tls") => true,
+        Some("connection" | "dns") => false,
+        _ => detail.contains("alpn") && detail.contains("acme-tls/1"),
+    };
+    if in_front {
+        return Some(format!(
+            "something in front of this server answers HTTPS for {name} (a CDN like Cloudflare?); open http: 80 and use challenge: http, or use challenge: dns"
+        ));
+    }
+    let unreachable = match kind {
+        Some("connection" | "dns") => true,
+        _ => [
+            "timeout",
+            "connection refused",
+            "no valid a",
+            "nxdomain",
+            "no route",
+        ]
+        .iter()
+        .any(|w| detail.contains(w)),
+    };
+    unreachable.then(|| {
+        format!(
+            "{name} may not be reachable from the internet; for internal names use challenge: dns"
+        )
+    })
+}
+
 pub fn problem_text(p: &instant_acme::Problem) -> String {
     let mut out = p.detail.clone().unwrap_or_else(|| "the CA refused".into());
     if let Some(t) = &p.r#type {
@@ -142,6 +174,48 @@ mod tests {
             dns: false,
             fallback_directory: None,
         }
+    }
+
+    fn problem(kind: &str, detail: &str) -> instant_acme::Problem {
+        serde_json::from_value(serde_json::json!({
+            "type": format!("urn:ietf:params:acme:error:{kind}"), "detail": detail, "status": 400
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn a_check_blocked_in_front_or_an_unreachable_name_gets_its_hint() {
+        let alpn = problem(
+            "tls",
+            "Cannot negotiate ALPN protocol \"acme-tls/1\" for tls-alpn-01 challenge",
+        );
+        assert_eq!(
+            hint("wiki.example.com", &alpn).unwrap(),
+            "something in front of this server answers HTTPS for wiki.example.com (a CDN like Cloudflare?); open http: 80 and use challenge: http, or use challenge: dns"
+        );
+        for p in [
+            problem("connection", "127.0.0.1: Connection refused"),
+            problem("dns", "DNS problem: NXDOMAIN looking up A for nas.lan"),
+            problem(
+                "unauthorized",
+                "Fetching http://x/.well-known/acme-challenge/t: Timeout during connect",
+            ),
+        ] {
+            assert_eq!(
+                hint("nas.lan.example.com", &p).unwrap(),
+                "nas.lan.example.com may not be reachable from the internet; for internal names use challenge: dns"
+            );
+        }
+        assert_eq!(
+            hint(
+                "a.example.com",
+                &problem(
+                    "unauthorized",
+                    "The key authorization file from the server did not match"
+                )
+            ),
+            None
+        );
     }
 
     #[test]
