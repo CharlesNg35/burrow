@@ -183,3 +183,56 @@ fn a_stored_certificate_is_found_by_its_names_whoever_ordered_it() {
         "an expired one is not used"
     );
 }
+
+fn offline_plan(state: &Path, names: &[&str]) -> Plan {
+    Plan {
+        settings: crate::AcmeSettings {
+            directory_url: "https://acme.test/dir".into(),
+            ca: None,
+            email: "ops@example.com".into(),
+            profile: None,
+            state_dir: Some(state.to_path_buf()),
+            challenges: vec![CertCheck::Tls],
+            fallback_directory: None,
+        },
+        groups: [("moved".to_string(), s(names))].into_iter().collect(),
+    }
+}
+
+#[tokio::test]
+async fn before_any_order_a_stored_certificate_that_covers_the_names_is_used() {
+    let state = tempfile::tempdir().unwrap();
+    save_pair(state.path(), &["a.example.com", "b.example.com"], 90);
+    let acme = Arc::new(Acme::default());
+    let mut worker = Worker::new(acme.clone());
+    worker.adopt(&offline_plan(state.path(), &["b.example.com"]));
+    let mut g = Group::new(s(&["b.example.com"]), None);
+    worker.step("moved", &mut g).await;
+    assert!(
+        g.last_error.is_none(),
+        "nothing was ordered: {:?}",
+        g.last_error
+    );
+    assert!(acme.certificate("b.example.com").is_some());
+    assert_eq!(g.view(&[]).phase, CertPhase::Ok);
+}
+
+#[tokio::test]
+async fn a_certificate_due_for_renewal_is_not_reused_for_itself() {
+    let state = tempfile::tempdir().unwrap();
+    save_pair(state.path(), &["a.example.com"], 2);
+    let acme = Arc::new(Acme::default());
+    let mut worker = Worker::new(acme.clone());
+    worker.adopt(&offline_plan(state.path(), &["a.example.com"]));
+    let held = Held::find(
+        state.path(),
+        "https://acme.test/dir",
+        &s(&["a.example.com"]),
+        now_secs(),
+    );
+    assert!(held.is_some());
+    let mut g = Group::new(s(&["a.example.com"]), held);
+    g.planned = Some(now_secs() - 1);
+    worker.step("moved", &mut g).await;
+    assert!(g.last_error.is_some(), "the renewal was tried");
+}

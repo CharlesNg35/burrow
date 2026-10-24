@@ -54,12 +54,34 @@ impl Held {
     }
 
     pub fn find(state: &Path, directory: &str, names: &[String], now: u64) -> Option<Held> {
+        Held::best(state, directory, names, |h| h.not_after > now)
+    }
+
+    pub fn reusable(
+        state: &Path,
+        directory: &str,
+        names: &[String],
+        now: u64,
+        not: Option<&Held>,
+    ) -> Option<Held> {
+        Held::best(state, directory, names, |h| {
+            now < schedule::renew_at(h.not_before, h.not_after)
+                && not.is_none_or(|n| n.key.cert[0] != h.key.cert[0])
+        })
+    }
+
+    fn best(
+        state: &Path,
+        directory: &str,
+        names: &[String],
+        keep: impl Fn(&Held) -> bool,
+    ) -> Option<Held> {
         let wanted = storage::name_set(names);
         storage::all(state)
             .into_iter()
             .filter(|(_, s)| s.meta.directory == directory)
             .filter_map(|(_, s)| Held::parse(&s.chain_pem, &s.key_pem, &s.meta.names).ok())
-            .filter(|h| h.not_after > now && h.covers(names))
+            .filter(|h| h.covers(names) && keep(h))
             .max_by_key(|h| (storage::name_set(&h.names) == wanted, h.not_after))
     }
 
@@ -231,6 +253,9 @@ impl Worker {
                 return;
             }
         }
+        if self.reuse(g).await {
+            return;
+        }
         g.running = true;
         self.acme.publish(name, g.view(self.checks()));
         let result = self.order(g).await;
@@ -245,6 +270,41 @@ impl Worker {
                 self.failed(name, g, text, wait);
             }
         }
+    }
+
+    async fn reuse(&mut self, g: &mut Group) -> bool {
+        let Some(plan) = &self.plan else {
+            return false;
+        };
+        let Some(state) = plan.settings.state_dir.clone() else {
+            return false;
+        };
+        let (directory, names, held) = (
+            plan.settings.directory_url.clone(),
+            g.names.clone(),
+            g.held.clone(),
+        );
+        let found = tokio::task::spawn_blocking(move || {
+            Held::reusable(&state, &directory, &names, now_secs(), held.as_ref())
+        })
+        .await
+        .ok()
+        .flatten();
+        let Some(h) = found else {
+            return false;
+        };
+        info!(
+            "certificate for {}: a stored certificate for {} covers it, so nothing is ordered",
+            g.names.join(", "),
+            h.names.join(", ")
+        );
+        self.acme.serve(&g.names, &h.key);
+        g.held = Some(h);
+        g.planned = None;
+        g.failures = 0;
+        g.last_error = None;
+        g.next = now_secs();
+        true
     }
 
     async fn ari(&mut self, g: &mut Group) {
