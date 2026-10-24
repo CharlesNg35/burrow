@@ -1,3 +1,4 @@
+mod certs;
 mod table;
 
 use std::collections::HashMap;
@@ -122,6 +123,7 @@ pub fn render(s: &Status, paint: Paint, rates: Option<&Rates>) -> String {
     render_services(&mut out, s, paint, rates);
     render_visitors(&mut out, s, paint);
     render_web(&mut out, s, paint);
+    certs::render_certs(&mut out, s, paint, certs::now());
     render_footer(&mut out, s, paint);
     out
 }
@@ -354,11 +356,14 @@ fn render_web(out: &mut String, s: &Status, paint: Paint) {
         .iter()
         .map(|t| vec![cell(&t.url), cell("tunnel"), toned("burrow", Tone::Dim)])
         .collect();
-    rows.extend(
-        web.hosts
-            .iter()
-            .map(|h| vec![cell(&h.name), cell(&h.kind), cell(&h.service)]),
-    );
+    rows.extend(web.hosts.iter().map(|h| {
+        let kind = if h.unencrypted() {
+            toned(format!("{}, unencrypted", h.kind), Tone::Warn)
+        } else {
+            cell(&h.kind)
+        };
+        vec![cell(&h.name), kind, cell(&h.service)]
+    }));
     if rows.is_empty() {
         let _ = writeln!(out, "\n{}", paint.dim(&web.lines().join("\n")));
         return;
@@ -397,3 +402,6 @@ fn render_footer(out: &mut String, s: &Status, paint: Paint) {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod tests_certs;
