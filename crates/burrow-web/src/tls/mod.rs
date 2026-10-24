@@ -19,7 +19,7 @@ pub type Applying<'a> = Pin<Box<dyn Future<Output = ()> + Send + 'a>>;
 
 pub use fixed::Fixed;
 pub use select::{TUNNEL_GROUP, cert_names};
-pub use store::Store;
+pub use store::{Store, now_secs};
 
 pub trait Certificates: ResolvesServerCert + Send + Sync + 'static {
     fn state(&self, name: &str) -> CertState;

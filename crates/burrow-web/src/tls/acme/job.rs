@@ -186,10 +186,7 @@ impl Worker {
             .state_dir
             .clone()
             .ok_or("burrow has no state folder for certificates")?;
-        let ca = (directory == plan.settings.directory_url)
-            .then(|| plan.settings.ca.clone())
-            .flatten();
-        let client = Client::new(ca.as_deref(), Limits::default())?;
+        let client = Client::new(plan.settings.ca.as_deref(), Limits::default())?;
         let opened = super::account::open(&client, &state, directory, &plan.settings.email).await?;
         if opened.created {
             info!(
@@ -440,8 +437,14 @@ impl Worker {
         else {
             return;
         };
-        let Ok((account, _)) = self.account(&directory).await else {
-            return;
+        let account = match self.account(&directory).await {
+            Ok((a, _)) => a,
+            Err(e) => {
+                g.fallback_note = Some(format!(
+                    "the test service {directory} could not be reached: {e}"
+                ));
+                return;
+            }
         };
         let ask = Ask {
             names: &g.names,
