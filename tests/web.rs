@@ -1,6 +1,8 @@
 #![cfg(feature = "web")]
 
 mod common;
+#[path = "web/ends.rs"]
+mod ends;
 #[path = "web/kit.rs"]
 mod kit;
 #[path = "web/passthrough.rs"]

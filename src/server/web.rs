@@ -51,6 +51,7 @@ impl Upstream for Doorway {
             Refusal::NoClient => Refused::NoClient,
         })?;
         let (ours, theirs) = burrow_web::pipe();
+        theirs.set_reset(true);
         let entry = Entry {
             peer: from.addr,
             local: Some(from.local),

@@ -26,6 +26,15 @@ pub enum IncomingWrite<'a> {
     Web(tokio::io::WriteHalf<&'a mut burrow_web::Pipe>),
 }
 
+impl Incoming {
+    pub fn finished_cleanly(&self) {
+        #[cfg(feature = "web")]
+        if let Incoming::Web(p) = self {
+            p.set_reset(false);
+        }
+    }
+}
+
 impl Split for Incoming {
     type Read<'a> = IncomingRead<'a>;
     type Write<'a> = IncomingWrite<'a>;

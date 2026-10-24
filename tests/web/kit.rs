@@ -251,3 +251,57 @@ pub async fn closed(addr: SocketAddr, name: &str) -> bool {
         Err(_) => panic!("{addr}: the connection is still open after 5 s; it must close quickly"),
     }
 }
+
+pub fn client_hello(name: &str) -> Vec<u8> {
+    let config = ClientConfig::builder_with_provider(provider())
+        .with_safe_default_protocol_versions()
+        .unwrap()
+        .dangerous()
+        .with_custom_certificate_verifier(Arc::new(AnyCert))
+        .with_no_client_auth();
+    let name = ServerName::try_from(name.to_string()).unwrap();
+    let mut conn = rustls::ClientConnection::new(Arc::new(config), name).unwrap();
+    let mut out = Vec::new();
+    while conn.wants_write() {
+        conn.write_tls(&mut out).unwrap();
+    }
+    out
+}
+
+pub async fn counting_backend() -> SocketAddr {
+    let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = l.local_addr().unwrap();
+    tokio::spawn(async move {
+        while let Ok((mut s, _)) = l.accept().await {
+            tokio::spawn(async move {
+                let mut all = Vec::new();
+                if s.read_to_end(&mut all).await.is_ok() {
+                    let _ = s.write_all(format!("got {}", all.len()).as_bytes()).await;
+                    let _ = s.shutdown().await;
+                }
+            });
+        }
+    });
+    addr
+}
+
+pub async fn reset_quickly(s: &mut TcpStream) -> bool {
+    let mut buf = [0u8; 256];
+    loop {
+        match tokio::time::timeout(Duration::from_secs(5), s.read(&mut buf)).await {
+            Ok(Ok(0)) => return false,
+            Ok(Ok(_)) => continue,
+            Ok(Err(e)) => return e.kind() == std::io::ErrorKind::ConnectionReset,
+            Err(_) => panic!("the connection is still open after 5 s; it must be reset quickly"),
+        }
+    }
+}
+
+pub async fn clean_answer(s: &mut TcpStream) -> String {
+    let mut got = Vec::new();
+    tokio::time::timeout(Duration::from_secs(5), s.read_to_end(&mut got))
+        .await
+        .expect("an answer within 5 s")
+        .expect("a normal close, not a reset");
+    String::from_utf8_lossy(&got).into_owned()
+}

@@ -216,8 +216,10 @@ pub(super) async fn visit(
     ) {
         refuse();
     }
-    if matches!(outcome, Outcome::Done { result: Err(_), .. }) {
-        visitor.reset_on_close(true);
+    match &outcome {
+        Outcome::Done { result: Ok(()), .. } => visitor.finished_cleanly(),
+        Outcome::Done { result: Err(_), .. } => visitor.reset_on_close(true),
+        _ => {}
     }
     log_outcome(&shared, &label, &target, peer, outcome, refuse);
 }

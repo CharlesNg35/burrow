@@ -1,7 +1,7 @@
 use std::io;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::task::{Context, Poll, ready};
 use std::time::Duration;
 
@@ -99,18 +99,18 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for Prefixed<S> {
 
 pub const PIPE_BUFFER: usize = 64 * 1024;
 
+const RESET: u8 = 1;
+const DROPPED: u8 = 2;
+
 pub struct Pipe {
     inner: DuplexStream,
-    mine: Arc<AtomicBool>,
-    theirs: Arc<AtomicBool>,
+    mine: Arc<AtomicU8>,
+    theirs: Arc<AtomicU8>,
 }
 
 pub fn pipe() -> (Pipe, Pipe) {
     let (a, b) = tokio::io::duplex(PIPE_BUFFER);
-    let (ra, rb) = (
-        Arc::new(AtomicBool::new(false)),
-        Arc::new(AtomicBool::new(false)),
-    );
+    let (ra, rb) = (Arc::new(AtomicU8::new(0)), Arc::new(AtomicU8::new(0)));
     (
         Pipe {
             inner: a,
@@ -127,7 +127,21 @@ pub fn pipe() -> (Pipe, Pipe) {
 
 impl Pipe {
     pub fn set_reset(&self, reset: bool) {
-        self.mine.store(reset, Ordering::Release);
+        if reset {
+            self.mine.fetch_or(RESET, Ordering::AcqRel);
+        } else {
+            self.mine.fetch_and(!RESET, Ordering::AcqRel);
+        }
+    }
+
+    fn peer_reset(&self) -> bool {
+        self.theirs.load(Ordering::Acquire) == RESET | DROPPED
+    }
+}
+
+impl Drop for Pipe {
+    fn drop(&mut self) {
+        self.mine.fetch_or(DROPPED, Ordering::AcqRel);
     }
 }
 
@@ -146,8 +160,7 @@ impl AsyncRead for Pipe {
         let me = self.get_mut();
         let before = buf.filled().len();
         ready!(Pin::new(&mut me.inner).poll_read(cx, buf))?;
-        if buf.filled().len() == before && buf.remaining() > 0 && me.theirs.load(Ordering::Acquire)
-        {
+        if buf.filled().len() == before && buf.remaining() > 0 && me.peer_reset() {
             return Poll::Ready(Err(io::ErrorKind::ConnectionReset.into()));
         }
         Poll::Ready(Ok(()))
@@ -161,7 +174,7 @@ impl AsyncWrite for Pipe {
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
         let me = self.get_mut();
-        if me.theirs.load(Ordering::Acquire) {
+        if me.peer_reset() {
             return Poll::Ready(Err(io::ErrorKind::ConnectionReset.into()));
         }
         Pin::new(&mut me.inner).poll_write(cx, buf)
@@ -220,6 +233,27 @@ mod tests {
         assert_eq!(
             b.write(b"late").await.unwrap_err().kind(),
             io::ErrorKind::ConnectionReset
+        );
+    }
+
+    #[tokio::test]
+    async fn a_reset_flagged_end_that_only_shuts_down_is_a_clean_half_close() {
+        let (mut a, mut b) = pipe();
+        a.set_reset(true);
+        a.write_all(b"answer").await.unwrap();
+        a.shutdown().await.unwrap();
+        let mut got = Vec::new();
+        b.read_to_end(&mut got).await.unwrap();
+        assert_eq!(got, b"answer");
+        b.write_all(b"still heard").await.unwrap();
+        let mut heard = [0u8; 11];
+        a.read_exact(&mut heard).await.unwrap();
+        assert_eq!(&heard, b"still heard");
+        drop(a);
+        assert_eq!(
+            b.write(b"late").await.unwrap_err().kind(),
+            io::ErrorKind::ConnectionReset,
+            "dropping it later is a reset"
         );
     }
 
