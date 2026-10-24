@@ -32,10 +32,15 @@ pub(super) fn site(
         .https_redirect()
         .or(cfg.web.as_ref().and_then(|w| w.https_redirect))
         .unwrap_or(tls != WebTls::Off);
+    let challenge = match web {
+        ServiceWeb::Site(s) => super::challenge::choice(s.challenge),
+        _ => None,
+    };
     WebSite {
         hosts,
         tls,
         https_redirect,
+        challenge,
     }
 }
 
@@ -63,6 +68,7 @@ pub(in crate::config::check) fn settings(
     let mut s = WebSettings::on((https, http));
     s.sites = sites;
     s.tunnel = websocket.and_then(|w| w.host.clone());
+    s.tunnel_challenge = super::challenge::choice(cfg.websocket.as_ref().and_then(|w| w.challenge));
     s.request_header_timeout = secs(web.request_header_timeout_secs, s.request_header_timeout);
     s.idle_timeout = secs(web.idle_timeout_secs, s.idle_timeout);
     s.certificates = web

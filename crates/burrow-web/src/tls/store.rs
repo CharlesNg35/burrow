@@ -128,7 +128,11 @@ impl Store {
             .acme
             .clone()
             .filter(|_| !groups.is_empty())
-            .map(|settings| Plan { settings, groups });
+            .map(|acme| Plan {
+                settings: acme,
+                groups,
+                choices: settings.choices.clone(),
+            });
         let Some(plan) = plan else {
             let stopped = self.manager.lock().expect("manager lock").take();
             drop(stopped);
@@ -215,10 +219,10 @@ impl Store {
                     origin: None,
                     acme: true,
                     group: n.group.clone(),
-                    error: settings
-                        .acme
-                        .as_ref()
-                        .and_then(|a| super::acme::checks_of(a, &n.name).err()),
+                    error: settings.acme.as_ref().and_then(|a| {
+                        super::acme::checks_of(a, &n.name, settings.choices.get(&n.group).copied())
+                            .err()
+                    }),
                     expires: None,
                 },
                 Choice::Missing(why) => Slot {

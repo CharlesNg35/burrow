@@ -120,6 +120,7 @@ pub struct CertSettings {
     pub shared: Vec<SharedFile>,
     pub tunnel_file: Option<(PathBuf, PathBuf)>,
     pub acme: Option<AcmeSettings>,
+    pub choices: std::collections::BTreeMap<String, burrow_syntax::web::Challenge>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

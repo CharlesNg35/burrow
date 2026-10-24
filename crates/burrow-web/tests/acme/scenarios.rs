@@ -156,6 +156,7 @@ pub async fn all(p: Pebble) {
     the_guard_stops_an_order_loop(&ctx).await;
     the_everyday_example_gets_its_own_certificate(&ctx).await;
     https_in_front_falls_back_to_http_at_once_and_is_remembered(&ctx).await;
+    a_chosen_check_is_the_only_one_tried(&ctx).await;
     https_in_front_with_443_only_backs_off_and_keeps_the_old(&ctx).await;
     an_added_name_reorders_once_and_a_removed_name_orders_nothing(&ctx).await;
     fallback_directory(&ctx).await;
@@ -443,6 +444,27 @@ async fn https_in_front_falls_back_to_http_at_once_and_is_remembered(ctx: &Ctx) 
         Some(CertCheck::Http),
         "the remembered check is tried first"
     );
+}
+
+async fn a_chosen_check_is_the_only_one_tried(ctx: &Ctx) {
+    use burrow_syntax::web::Challenge;
+    for (choice, want) in [
+        (Challenge::Http, CertCheck::Http),
+        (Challenge::Tls, CertCheck::Tls),
+    ] {
+        let state = tempfile::tempdir().unwrap();
+        let mut s = settings(ctx, state.path(), &[CertCheck::Tls, CertCheck::Http], None);
+        s.choices.insert("chosen".into(), choice);
+        ctx.r.https_in_front(choice == Challenge::Http);
+        let store = open_store(ctx, &s, &names("chosen", &["chosen.test"])).await;
+        let st = until(&store, "chosen.test", "issued", |s| {
+            s.phase == CertPhase::Ok
+        })
+        .await;
+        ctx.r.https_in_front(false);
+        assert_eq!(st.check, Some(want), "{st:#?}");
+        assert_eq!(st.failures, 0, "{choice:?}: no other check was tried first");
+    }
 }
 
 async fn https_in_front_with_443_only_backs_off_and_keeps_the_old(ctx: &Ctx) {

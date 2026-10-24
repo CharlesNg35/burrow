@@ -339,7 +339,7 @@ async fn a_name_lets_encrypt_cannot_check_orders_nothing_and_says_why_unless_a_s
     assert_eq!(store.state("x.example.com"), CertState::Failing);
     let st = &store.status()[0];
     assert!(
-        matches!(&st.phase, CertPhase::Failing { reason } if reason.contains("port 443")),
+        matches!(&st.phase, CertPhase::Failing { reason } if reason.contains("cannot be checked by Let's Encrypt: open http: 80")),
         "{st:#?}"
     );
     assert!(store.queue().is_empty(), "nothing is ordered");

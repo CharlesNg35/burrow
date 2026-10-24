@@ -103,3 +103,28 @@ fn a_server_with_letsencrypt_loads_with_its_state_folder_and_one_without_has_non
     };
     assert!(s.web.unwrap().letsencrypt.is_none());
 }
+
+#[test]
+fn a_sites_and_the_tunnels_chosen_check_reach_the_settings() {
+    let cfg: ServerConfig = serde_json::from_value(json!({
+        "web": {"https": 443, "http": 80, "letsencrypt": {"email": "ops@example.com"}},
+        "websocket": {"listen": 443, "host": "tunnel.example.com", "challenge": "tls"},
+        "services": {"blog": {"client": "home", "target": 80, "web": {
+            "hosts": ["blog.example.com"], "challenge": "http"
+        }}}
+    }))
+    .unwrap();
+    let dir = Path::new("/etc/burrow");
+    let web = cfg.services["blog"].web.as_ref().unwrap();
+    let blog = super::fill::site(&cfg, web, vec!["blog.example.com".into()], dir);
+    assert_eq!(blog.challenge, Some(burrow_syntax::web::Challenge::Http));
+    let s = super::fill::settings(
+        &cfg,
+        (Some("[::]:443".parse().unwrap()), None),
+        Default::default(),
+        None,
+        dir,
+    )
+    .unwrap();
+    assert_eq!(s.tunnel_challenge, Some(burrow_syntax::web::Challenge::Tls));
+}

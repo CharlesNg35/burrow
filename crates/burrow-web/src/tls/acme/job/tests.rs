@@ -201,6 +201,7 @@ fn offline_plan(state: &Path, names: &[&str]) -> Plan {
             fallback_directory: None,
         },
         groups: [("moved".to_string(), s(names))].into_iter().collect(),
+        choices: Default::default(),
     }
 }
 

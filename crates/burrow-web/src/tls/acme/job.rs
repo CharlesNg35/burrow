@@ -35,10 +35,10 @@ impl Worker {
         self.plan = Some(plan.clone());
     }
 
-    pub fn checks(&self, names: &[String]) -> Vec<CertCheck> {
-        self.plan
-            .as_ref()
-            .map_or_else(Vec::new, |p| super::checks_for_all(&p.settings, names))
+    pub fn checks(&self, group: &str, names: &[String]) -> Vec<CertCheck> {
+        self.plan.as_ref().map_or_else(Vec::new, |p| {
+            super::checks_for_all(&p.settings, names, p.choices.get(group).copied())
+        })
     }
 
     pub fn forget_accounts(&mut self) {
@@ -89,8 +89,9 @@ impl Worker {
             return;
         }
         g.running = true;
-        self.acme.publish(name, g.view(&self.checks(&g.names)));
-        let result = self.order(g).await;
+        self.acme
+            .publish(name, g.view(&self.checks(name, &g.names)));
+        let result = self.order(name, g).await;
         g.running = false;
         match result {
             Ok(held) => {
@@ -187,6 +188,7 @@ impl Worker {
 
     async fn order(
         &mut self,
+        name: &str,
         g: &Group,
     ) -> Result<(Held, CertCheck, Issued), (String, Option<std::time::Duration>)> {
         let plan = self
@@ -197,7 +199,8 @@ impl Worker {
         let (account, client) = self.account(&directory).await.map_err(|e| (e, None))?;
         let profile = profile_for(&account, &g.names, plan.settings.profile.as_deref())
             .map_err(|e| (e, None))?;
-        let mut checks = super::checks_for_all(&plan.settings, &g.names);
+        let mut checks =
+            super::checks_for_all(&plan.settings, &g.names, plan.choices.get(name).copied());
         let learned = self.learned(&g.names, &checks).await;
         if let Some(c) = learned.or(g.check)
             && let Some(i) = checks.iter().position(|x| *x == c)
@@ -413,7 +416,10 @@ impl Worker {
 
     async fn staging(&mut self, name: &str, g: &mut Group) {
         g.staging_at = None;
-        let Some(check) = g.check.or_else(|| self.checks(&g.names).first().copied()) else {
+        let Some(check) = g
+            .check
+            .or_else(|| self.checks(name, &g.names).first().copied())
+        else {
             return;
         };
         let Some(directory) = self

@@ -18,6 +18,7 @@ use crate::tls::{CertCheck, CertPhase};
 pub struct Plan {
     pub settings: AcmeSettings,
     pub groups: BTreeMap<String, Vec<String>>,
+    pub choices: BTreeMap<String, burrow_syntax::web::Challenge>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -188,7 +189,7 @@ async fn run(acme: Arc<Acme>, mut rx: watch::Receiver<Plan>) {
         worker.adopt(&plan);
         sync(&mut groups, &plan).await;
         for (name, g) in &groups {
-            acme.publish(name, g.view(&worker.checks(g.names())));
+            acme.publish(name, g.view(&worker.checks(name, g.names())));
         }
         if now_secs() >= swept + SWEEP_EVERY {
             swept = now_secs();
@@ -206,7 +207,7 @@ async fn run(acme: Arc<Acme>, mut rx: watch::Receiver<Plan>) {
                     && let Some(g) = groups.get_mut(&name)
                 {
                     worker.step(&name, g).await;
-                    acme.publish(&name, g.view(&worker.checks(g.names())));
+                    acme.publish(&name, g.view(&worker.checks(&name, g.names())));
                 }
             }
             changed = rx.changed() => {
@@ -225,7 +226,9 @@ fn orderable(plan: &Plan) -> BTreeMap<String, Vec<String>> {
         .map(|(g, names)| {
             let ok: Vec<String> = names
                 .iter()
-                .filter(|n| super::checks_of(&plan.settings, n).is_ok())
+                .filter(|n| {
+                    super::checks_of(&plan.settings, n, plan.choices.get(g).copied()).is_ok()
+                })
                 .cloned()
                 .collect();
             (g.clone(), ok)

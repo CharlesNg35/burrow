@@ -193,6 +193,15 @@ fn cert_settings(s: &ServerSettings, web: &WebSettings) -> CertSettings {
             })
             .collect(),
         tunnel_file,
+        choices: web
+            .sites
+            .iter()
+            .filter_map(|(name, site)| site.challenge.map(|c| (name.clone(), c)))
+            .chain(
+                web.tunnel_challenge
+                    .map(|c| (burrow_web::tls::TUNNEL_GROUP.to_string(), c)),
+            )
+            .collect(),
         acme: web.letsencrypt.as_ref().map(|l| AcmeSettings {
             directory_url: l.directory.clone(),
             ca: l.ca.clone(),

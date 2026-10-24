@@ -135,6 +135,7 @@ mod tests {
                 dns: false,
                 fallback_directory: None,
             }),
+            ..CertSettings::default()
         }
     }
 

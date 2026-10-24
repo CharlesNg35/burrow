@@ -43,12 +43,18 @@ fn short_type(t: &str) -> &str {
     t.strip_prefix("urn:ietf:params:acme:error:").unwrap_or(t)
 }
 
-pub fn checks_of(settings: &crate::AcmeSettings, name: &str) -> Result<Vec<CertCheck>, String> {
+const LATER: &str = "DNS checks come in a later phase";
+
+pub fn checks_of(
+    settings: &crate::AcmeSettings,
+    name: &str,
+    choice: Option<burrow_syntax::web::Challenge>,
+) -> Result<Vec<CertCheck>, String> {
     use burrow_syntax::web::{Check, NoCheck, checks_for};
-    match checks_for(name, settings.check_ports, settings.dns, false) {
-        Ok(list) if list.contains(&Check::Dns) => Err(format!(
-            "\"{name}\" needs a DNS check (DNS checks come in a later phase)"
-        )),
+    match checks_for(name, settings.check_ports, settings.dns, choice) {
+        Ok(list) if list.contains(&Check::Dns) => {
+            Err(format!("\"{name}\" needs a DNS check ({LATER})"))
+        }
         Ok(list) => Ok(list
             .into_iter()
             .map(|c| match c {
@@ -57,21 +63,32 @@ pub fn checks_of(settings: &crate::AcmeSettings, name: &str) -> Result<Vec<CertC
             })
             .collect()),
         Err(NoCheck::NoPort) => Err(format!(
-            "Let's Encrypt cannot check \"{name}\": it connects only to port 443 (web.https) or port 80 (web.http)"
+            "{name} cannot be checked by Let's Encrypt: open http: 80, or list a file for it in web.certificates ({LATER})"
         )),
         Err(NoCheck::DnsForIp) => Err(format!(
-            "\"{name}\" is an IP address, which Let's Encrypt checks only over TLS or HTTP"
+            "\"{name}\" is an IP address; Let's Encrypt checks IP addresses only over HTTP or TLS, not DNS"
         )),
-        Err(NoCheck::DnsNotSet) => Err(format!(
-            "\"{name}\" needs a DNS check (DNS checks come in a later phase)"
+        Err(NoCheck::DnsNotSet) => Err(format!("\"{name}\" needs a DNS check ({LATER})")),
+        Err(NoCheck::NoHttpPort) => Err(format!(
+            "{name}: http needs web.http on port 80: Let's Encrypt fetches a file there; add http: 80, or use challenge: tls or dns"
+        )),
+        Err(NoCheck::NoTlsPort) => Err(format!(
+            "{name}: tls needs web.https on port 443: Let's Encrypt connects there; use https: 443, or use challenge: http or dns"
+        )),
+        Err(NoCheck::WildcardNotDns) => Err(format!(
+            "\"{name}\" is a wildcard, and Let's Encrypt gives wildcards only through DNS checks; use challenge: dns ({LATER}), or give a wildcard file in web.certificates"
         )),
     }
 }
 
-pub fn checks_for_all(settings: &crate::AcmeSettings, names: &[String]) -> Vec<CertCheck> {
+pub fn checks_for_all(
+    settings: &crate::AcmeSettings,
+    names: &[String],
+    choice: Option<burrow_syntax::web::Challenge>,
+) -> Vec<CertCheck> {
     let each: Vec<Vec<CertCheck>> = names
         .iter()
-        .filter_map(|n| checks_of(settings, n).ok())
+        .filter_map(|n| checks_of(settings, n, choice).ok())
         .collect();
     [CertCheck::Tls, CertCheck::Http]
         .into_iter()
@@ -222,21 +239,40 @@ mod tests {
     fn the_runtime_takes_each_names_checks_from_the_shared_rule() {
         use crate::tls::CertCheck::{Http, Tls};
         let both = le(Some(443), Some(80));
-        assert_eq!(checks_of(&both, "a.example.com"), Ok(vec![Tls, Http]));
+        assert_eq!(checks_of(&both, "a.example.com", None), Ok(vec![Tls, Http]));
         assert_eq!(
-            checks_of(&le(Some(8443), Some(80)), "a.example.com"),
+            checks_of(&le(Some(8443), Some(80)), "a.example.com", None),
             Ok(vec![Http])
         );
-        assert_eq!(checks_of(&both, "203.0.113.10"), Ok(vec![Tls, Http]));
-        let off = checks_of(&le(Some(8443), None), "a.example.com").unwrap_err();
-        assert!(off.contains("port 443") && off.contains("port 80"), "{off}");
-        let wild = checks_of(&both, "*.example.com").unwrap_err();
+        assert_eq!(checks_of(&both, "203.0.113.10", None), Ok(vec![Tls, Http]));
+        let off = checks_of(&le(Some(8443), None), "a.example.com", None).unwrap_err();
+        assert!(off.contains("open http: 80"), "{off}");
+        use burrow_syntax::web::Challenge;
+        assert_eq!(
+            checks_of(&both, "a.example.com", Some(Challenge::Http)),
+            Ok(vec![Http])
+        );
+        assert_eq!(
+            checks_of(&both, "a.example.com", Some(Challenge::Tls)),
+            Ok(vec![Tls])
+        );
+        let no80 =
+            checks_of(&le(Some(443), None), "a.example.com", Some(Challenge::Http)).unwrap_err();
+        assert!(no80.contains("http needs web.http on port 80"), "{no80}");
+        let wild = checks_of(&both, "*.example.com", None).unwrap_err();
         assert!(
             wild.ends_with("(DNS checks come in a later phase)"),
             "{wild}"
         );
         let names = vec!["a.example.com".to_string(), "b.example.com".to_string()];
-        assert_eq!(checks_for_all(&both, &names), vec![Tls, Http]);
-        assert_eq!(checks_for_all(&le(None, Some(80)), &names), vec![Http]);
+        assert_eq!(checks_for_all(&both, &names, None), vec![Tls, Http]);
+        assert_eq!(
+            checks_for_all(&le(None, Some(80)), &names, None),
+            vec![Http]
+        );
+        assert_eq!(
+            checks_for_all(&both, &names, Some(burrow_syntax::web::Challenge::Http)),
+            vec![Http]
+        );
     }
 }

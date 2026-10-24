@@ -14,6 +14,7 @@ pub struct WebSettings {
     pub http: Option<SocketAddr>,
     pub sites: BTreeMap<String, WebSite>,
     pub tunnel: Option<String>,
+    pub tunnel_challenge: Option<burrow_syntax::web::Challenge>,
     pub request_header_timeout: Duration,
     pub idle_timeout: Duration,
     pub certificates: Vec<CertFile>,
@@ -26,6 +27,7 @@ pub struct WebSite {
     pub hosts: Vec<String>,
     pub tls: WebTls,
     pub https_redirect: bool,
+    pub challenge: Option<burrow_syntax::web::Challenge>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -63,6 +65,7 @@ impl WebSettings {
             http: ports.1,
             sites: BTreeMap::new(),
             tunnel: None,
+            tunnel_challenge: None,
             request_header_timeout: REQUEST_HEADER_TIMEOUT,
             idle_timeout: IDLE_TIMEOUT,
             certificates: Vec::new(),
@@ -96,6 +99,7 @@ impl WebSite {
             hosts,
             tls: WebTls::Passthrough,
             https_redirect: true,
+            challenge: None,
         }
     }
 }
