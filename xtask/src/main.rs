@@ -5,6 +5,7 @@ mod arch;
 mod e2e;
 mod fields;
 mod size;
+mod surface;
 mod tools;
 mod ui;
 
@@ -24,9 +25,10 @@ fn main() -> ExitCode {
         Some("tools") => tools::main(&root, &args[1..]),
         Some("ui") => ui::main(&root, &args[1..]),
         Some("e2e") => e2e::main(&root, &args[1..]),
+        Some("surface") => surface::main(&root, &args[1..]),
         Some("size") => size::run(&root, args.iter().any(|a| a == "--budget")),
         _ => Err(
-            "usage: cargo xtask <arch-check | tools [--no-chrome] | ui [--release | --watch] | size [--budget] | e2e [flow-filter] [--jobs N] [--update-baselines]>"
+            "usage: cargo xtask <arch-check | tools [--no-chrome] | ui [--release | --watch] | size [--budget] | surface [--out FILE] [--check FILE] | e2e [flow-filter] [--jobs N] [--update-baselines]>"
                 .to_string(),
         ),
     };
