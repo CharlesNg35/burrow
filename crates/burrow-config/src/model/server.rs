@@ -212,12 +212,20 @@ pub struct TlsFiles {
     #[schemars(
         description = "Certificate chain PEM file, relative to the config file, for example certs/fullchain.pem"
     )]
-    #[admin(ty = path(must_exist, relative_to = "config"), label = "Certificate file")]
+    #[admin(
+        ty = path(must_exist, relative_to = "config"),
+        label = "Certificate file",
+        locked
+    )]
     pub cert: String,
     #[schemars(
         description = "Private key PEM file, relative to the config file, for example certs/privkey.pem"
     )]
-    #[admin(ty = path(must_exist, relative_to = "config"), label = "Private key file")]
+    #[admin(
+        ty = path(must_exist, relative_to = "config"),
+        label = "Private key file",
+        locked
+    )]
     pub key: String,
 }
 

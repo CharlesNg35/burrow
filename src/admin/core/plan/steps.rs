@@ -53,20 +53,94 @@ pub(super) fn parse_current(src: &str) -> Result<Value, ApiError> {
         .map(|t| t.to_json())
 }
 
+fn locked_error(locked: Vec<String>) -> ApiError {
+    ApiError::new(
+        ErrorCode::LockedField,
+        format!(
+            "{} is locked: change it in server.yaml on the server, then restart",
+            locked.join(".")
+        ),
+    )
+    .with(serde_json::to_value(LockedField { path: locked }).unwrap_or_default())
+}
+
 pub(super) fn refuse_locked(core: &Core, ops_list: &[Op]) -> Result<(), ApiError> {
-    if let Some(locked) = ops_list
+    match ops_list
         .iter()
         .filter_map(|o| o.path())
         .find_map(|p| core.schema.locked_at(p))
     {
-        return Err(ApiError::new(
-            ErrorCode::LockedField,
-            format!(
-                "{} is locked: change it in server.yaml on the server, then restart",
-                locked.join(".")
-            ),
-        )
-        .with(serde_json::to_value(LockedField { path: locked }).unwrap_or_default()));
+        Some(locked) => Err(locked_error(locked)),
+        None => Ok(()),
+    }
+}
+
+fn expand(pattern: &[String], doc: &Value, at: &mut Vec<String>, out: &mut Vec<Vec<String>>) {
+    let Some((first, rest)) = pattern.split_first() else {
+        out.push(at.clone());
+        return;
+    };
+    let keys: Vec<String> = match (first.as_str(), doc) {
+        (burrow_admin_proto::schema::ANY, Value::Object(m)) => m.keys().cloned().collect(),
+        (burrow_admin_proto::schema::ANY, Value::Array(a)) => {
+            (0..a.len()).map(|i| i.to_string()).collect()
+        }
+        (burrow_admin_proto::schema::ANY, _) => Vec::new(),
+        (key, _) => vec![key.to_string()],
+    };
+    for k in keys {
+        let Some(next) = burrow_admin_proto::value::get(doc, std::slice::from_ref(&k)) else {
+            continue;
+        };
+        at.push(k);
+        expand(rest, next, at, out);
+        at.pop();
+    }
+}
+
+fn wildcard_locks(
+    schema: &burrow_admin_proto::schema::Schema,
+    docs: [&Value; 2],
+) -> Vec<Vec<String>> {
+    let mut out = Vec::new();
+    for l in schema.locked_paths() {
+        if !l.iter().any(|s| s == burrow_admin_proto::schema::ANY) {
+            continue;
+        }
+        for doc in docs {
+            expand(&l, doc, &mut Vec::new(), &mut out);
+        }
+    }
+    out.sort();
+    out.dedup();
+    out
+}
+
+fn renamed_from(path: &[String], renames: &[patch::Rename]) -> Vec<String> {
+    for r in renames {
+        let Some((_, parent)) = r.path.split_last() else {
+            continue;
+        };
+        if path.len() > parent.len() && path.starts_with(parent) && path[parent.len()] == r.to {
+            let mut from = r.path.clone();
+            from.extend_from_slice(&path[parent.len() + 1..]);
+            return from;
+        }
+    }
+    path.to_vec()
+}
+
+pub(super) fn refuse_changed_locks(
+    schema: &burrow_admin_proto::schema::Schema,
+    (before, after): (&Value, &Value),
+    renames: &[patch::Rename],
+) -> Result<(), ApiError> {
+    for path in wildcard_locks(schema, [before, after]) {
+        let then = burrow_admin_proto::value::get(after, &path);
+        let was = burrow_admin_proto::value::get(before, &renamed_from(&path, renames));
+        if then.is_some() && then != was {
+            return Err(locked_error(path));
+        }
     }
     Ok(())
 }
@@ -282,7 +356,16 @@ fn keep_locked(
 ) -> (Value, Vec<burrow_admin_proto::plan::Impact>) {
     let mut out = target.clone();
     let mut notes = Vec::new();
-    for path in schema.locked_paths() {
+    let plain = schema
+        .locked_paths()
+        .into_iter()
+        .filter(|l| !l.iter().any(|s| s == burrow_admin_proto::schema::ANY));
+    let entries = wildcard_locks(schema, [current, target])
+        .into_iter()
+        .filter(|p| {
+            burrow_admin_proto::value::get(target, &p[..p.len() - 1]).is_some_and(Value::is_object)
+        });
+    for path in plain.chain(entries) {
         let now = burrow_admin_proto::value::get(current, &path).cloned();
         let then = burrow_admin_proto::value::get(target, &path).cloned();
         if now == then {

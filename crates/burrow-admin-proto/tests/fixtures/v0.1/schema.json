@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:6f936b4f36ae7231",
+  "hash": "b2s:094627ac446471a0",
   "root": {
     "label": "Server",
     "sem": {
@@ -124,7 +124,8 @@
                                       "must_exist": true,
                                       "relative_to": "config"
                                     },
-                                    "required": true
+                                    "required": true,
+                                    "locked": true
                                   }
                                 },
                                 {
@@ -137,7 +138,8 @@
                                       "must_exist": true,
                                       "relative_to": "config"
                                     },
-                                    "required": true
+                                    "required": true,
+                                    "locked": true
                                   }
                                 }
                               ]
@@ -1296,7 +1298,8 @@
                                                               "must_exist": true,
                                                               "relative_to": "config"
                                                             },
-                                                            "required": true
+                                                            "required": true,
+                                                            "locked": true
                                                           }
                                                         },
                                                         {
@@ -1309,7 +1312,8 @@
                                                               "must_exist": true,
                                                               "relative_to": "config"
                                                             },
-                                                            "required": true
+                                                            "required": true,
+                                                            "locked": true
                                                           }
                                                         }
                                                       ]

@@ -173,6 +173,8 @@ fn locked_fields_are_refused_even_from_a_crafted_client() {
             p(&["listen"]),
             p(&["websocket"]),
             p(&["web"]),
+            p(&["services", "*", "web", "tls", "cert"]),
+            p(&["services", "*", "web", "tls", "key"]),
             p(&["insecure_plaintext"]),
             p(&["heartbeat", "interval_secs"]),
             p(&["limits", "handshake_timeout_secs"]),

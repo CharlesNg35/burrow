@@ -27,20 +27,36 @@ impl Schema {
     pub fn locked_paths(&self) -> Vec<Path> {
         fn walk(n: &Node, at: &mut Path, out: &mut Vec<Path>) {
             if n.locked {
-                out.push(at.clone());
+                if !out.contains(at) {
+                    out.push(at.clone());
+                }
                 return;
             }
-            let fields = match &n.sem {
-                SemType::Object(o) => &o.fields,
-                SemType::Optional(o) => {
-                    return walk(&o.inner, at, out);
+            match &n.sem {
+                SemType::Object(o) => {
+                    for f in &o.fields {
+                        at.push(f.key.clone());
+                        walk(&f.node, at, out);
+                        at.pop();
+                    }
                 }
-                _ => return,
-            };
-            for f in fields {
-                at.push(f.key.clone());
-                walk(&f.node, at, out);
-                at.pop();
+                SemType::Optional(o) => walk(&o.inner, at, out),
+                SemType::Union(u) => {
+                    for b in &u.branches {
+                        walk(b, at, out);
+                    }
+                }
+                SemType::Map(MapC { value, .. }) | SemType::RefMap(RefMapC { value, .. }) => {
+                    at.push(ANY.into());
+                    walk(value, at, out);
+                    at.pop();
+                }
+                SemType::List(l) => {
+                    at.push(ANY.into());
+                    walk(&l.item, at, out);
+                    at.pop();
+                }
+                _ => {}
             }
         }
         let mut out = Vec::new();
@@ -72,10 +88,17 @@ impl Schema {
     }
 
     pub fn locked_at(&self, path: &[String]) -> Option<Path> {
-        self.locked_paths()
-            .into_iter()
-            .find(|l| path.starts_with(l) || (l.starts_with(path) && !path.is_empty()))
+        self.locked_paths().into_iter().find(|l| {
+            under_lock(l, path)
+                || (!path.is_empty() && !l.iter().any(|s| s == ANY) && l.starts_with(path))
+        })
     }
+}
+
+pub const ANY: &str = "*";
+
+pub fn under_lock(lock: &[String], path: &[String]) -> bool {
+    lock.len() <= path.len() && lock.iter().zip(path).all(|(l, p)| l == ANY || l == p)
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

@@ -17,7 +17,10 @@ use super::diags::Mapper;
 use super::ops::{self, Fresh};
 use super::{ApiError, Core, Session, text};
 pub use apply::{Begun, ReloadResult, apply_begin, finish, restore};
-use steps::{Draft, assemble, conflict, judge, new_document, parse_current, refuse_locked};
+use steps::{
+    Draft, assemble, conflict, judge, new_document, parse_current, refuse_changed_locks,
+    refuse_locked,
+};
 
 pub struct Checked {
     pub raw: Option<Value>,
@@ -181,6 +184,7 @@ pub fn compute(
     let new_raw = tree::parse(&patch::split_text(&new_text).2)
         .map(|n| n.to_json())
         .unwrap_or(Value::Null);
+    refuse_changed_locks(&core.schema, (&raw, &new_raw), &applied.renames)?;
     let running = core.live.settings();
     let file = check_text(core, &old_text);
     let d = Draft {
