@@ -174,32 +174,7 @@ struct Running {
 const USAGE: &str = "usage: cargo xtask e2e [flow-filter] [--jobs N] [--update-baselines]";
 
 pub fn main(root: &Path, args: &[String]) -> Result<(), String> {
-    let mut update = false;
-    let mut filter = None;
-    let mut asked = None;
-    let mut rest = args.iter();
-    while let Some(a) = rest.next() {
-        match a.as_str() {
-            "--update-baselines" => update = true,
-            "--jobs" => {
-                let n = rest.next().ok_or_else(|| USAGE.to_string())?;
-                asked = Some(parse_jobs(n)?);
-            }
-            other if other.starts_with("--jobs=") => {
-                asked = Some(parse_jobs(&other["--jobs=".len()..])?);
-            }
-            other if other.starts_with("--") => {
-                return Err(format!("unknown option {other}; {USAGE}"));
-            }
-            other => filter = Some(other),
-        }
-    }
-    if asked.is_none()
-        && let Ok(n) = std::env::var("E2E_JOBS")
-        && !n.trim().is_empty()
-    {
-        asked = Some(parse_jobs(n.trim())?);
-    }
+    let (update, filter, asked) = parse_args(args)?;
     let cap = match (update, asked) {
         (true, _) => 1,
         (false, Some(n)) => n,
@@ -246,28 +221,7 @@ pub fn main(root: &Path, args: &[String]) -> Result<(), String> {
     let mut last_check = Instant::now() - STEP;
     let mut waiting_for = String::new();
     while !pending.is_empty() || !running.is_empty() {
-        let mut i = 0;
-        while i < running.len() {
-            match running[i].child.try_wait() {
-                Ok(Some(status)) => {
-                    let r = running.swap_remove(i);
-                    let secs = r.since.elapsed().as_secs();
-                    if status.success() {
-                        println!("ok      {} ({secs} s)", r.name);
-                    } else {
-                        println!("FAILED  {} ({secs} s), log: {}", r.name, r.log.display());
-                        let text = std::fs::read_to_string(&r.log).unwrap_or_default();
-                        let tail: Vec<&str> = text.lines().rev().take(25).collect();
-                        for l in tail.into_iter().rev() {
-                            println!("        {l}");
-                        }
-                        failed.push(r.name);
-                    }
-                }
-                Ok(None) => i += 1,
-                Err(e) => return Err(format!("waiting for {}: {e}", running[i].name)),
-            }
-        }
+        reap(&mut running, &mut failed)?;
         let first = running.is_empty() && peak == 0;
         if !pending.is_empty() && (first || last_check.elapsed() >= STEP) {
             last_check = Instant::now();
@@ -286,26 +240,7 @@ pub fn main(root: &Path, args: &[String]) -> Result<(), String> {
                     Ok(()) => {
                         pending.pop_front();
                         println!("{}: starting {name}", describe(running.len(), load));
-                        let log = logs.join(format!("{}.log", name.replace("::", "-")));
-                        let out =
-                            File::create(&log).map_err(|e| format!("{}: {e}", log.display()))?;
-                        let err = out.try_clone().map_err(|e| e.to_string())?;
-                        let mut cmd = Command::new(&exe);
-                        cmd.current_dir(root)
-                            .args(flow_args(&name))
-                            .env_remove("BURROW_E2E_FRESH")
-                            .stdout(out)
-                            .stderr(err);
-                        if update {
-                            cmd.env("BURROW_E2E_UPDATE_BASELINES", "1");
-                        }
-                        let child = cmd.spawn().map_err(|e| format!("{}: {e}", exe.display()))?;
-                        running.push(Running {
-                            name,
-                            child,
-                            log,
-                            since: Instant::now(),
-                        });
+                        running.push(spawn_flow(root, &exe, &logs, name, update)?);
                         peak = peak.max(running.len());
                         started_flows += 1;
                         waiting_for.clear();
@@ -335,6 +270,91 @@ pub fn main(root: &Path, args: &[String]) -> Result<(), String> {
         return Err(format!("the admin e2e flows failed: {}", failed.join(", ")));
     }
     Ok(())
+}
+
+fn parse_args(args: &[String]) -> Result<(bool, Option<&str>, Option<usize>), String> {
+    let mut update = false;
+    let mut filter = None;
+    let mut asked = None;
+    let mut rest = args.iter();
+    while let Some(a) = rest.next() {
+        match a.as_str() {
+            "--update-baselines" => update = true,
+            "--jobs" => {
+                let n = rest.next().ok_or_else(|| USAGE.to_string())?;
+                asked = Some(parse_jobs(n)?);
+            }
+            other if other.starts_with("--jobs=") => {
+                asked = Some(parse_jobs(&other["--jobs=".len()..])?);
+            }
+            other if other.starts_with("--") => {
+                return Err(format!("unknown option {other}; {USAGE}"));
+            }
+            other => filter = Some(other),
+        }
+    }
+    if asked.is_none()
+        && let Ok(n) = std::env::var("E2E_JOBS")
+        && !n.trim().is_empty()
+    {
+        asked = Some(parse_jobs(n.trim())?);
+    }
+    Ok((update, filter, asked))
+}
+
+fn reap(running: &mut Vec<Running>, failed: &mut Vec<String>) -> Result<(), String> {
+    let mut i = 0;
+    while i < running.len() {
+        match running[i].child.try_wait() {
+            Ok(Some(status)) => {
+                let r = running.swap_remove(i);
+                let secs = r.since.elapsed().as_secs();
+                if status.success() {
+                    println!("ok      {} ({secs} s)", r.name);
+                } else {
+                    println!("FAILED  {} ({secs} s), log: {}", r.name, r.log.display());
+                    let text = std::fs::read_to_string(&r.log).unwrap_or_default();
+                    let tail: Vec<&str> = text.lines().rev().take(25).collect();
+                    for l in tail.into_iter().rev() {
+                        println!("        {l}");
+                    }
+                    failed.push(r.name);
+                }
+            }
+            Ok(None) => i += 1,
+            Err(e) => return Err(format!("waiting for {}: {e}", running[i].name)),
+        }
+    }
+
+    Ok(())
+}
+
+fn spawn_flow(
+    root: &Path,
+    exe: &Path,
+    logs: &Path,
+    name: String,
+    update: bool,
+) -> Result<Running, String> {
+    let log = logs.join(format!("{}.log", name.replace("::", "-")));
+    let out = File::create(&log).map_err(|e| format!("{}: {e}", log.display()))?;
+    let err = out.try_clone().map_err(|e| e.to_string())?;
+    let mut cmd = Command::new(exe);
+    cmd.current_dir(root)
+        .args(flow_args(&name))
+        .env_remove("BURROW_E2E_FRESH")
+        .stdout(out)
+        .stderr(err);
+    if update {
+        cmd.env("BURROW_E2E_UPDATE_BASELINES", "1");
+    }
+    let child = cmd.spawn().map_err(|e| format!("{}: {e}", exe.display()))?;
+    Ok(Running {
+        name,
+        child,
+        log,
+        since: Instant::now(),
+    })
 }
 
 #[cfg(test)]
