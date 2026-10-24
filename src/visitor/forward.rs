@@ -214,7 +214,7 @@ pub(super) async fn check(dialer: Arc<Dialer>, forwards: Vec<(String, VisitTarge
             Some(Status::Ok) => {}
             Some(Status::Invalid) => {
                 ready = false;
-                let why = match crate::init::fetch::ask(&dialer).await {
+                let why = match crate::dialer::fetch::ask(&dialer).await {
                     Ok(fetched) => mismatch(&fetched, &request.to, protocol),
                     Err(_) => None,
                 };
@@ -250,7 +250,7 @@ pub(super) async fn check(dialer: Arc<Dialer>, forwards: Vec<(String, VisitTarge
 }
 
 fn mismatch(
-    fetched: &crate::init::fetch::Fetched,
+    fetched: &crate::dialer::fetch::Fetched,
     to: &VisitTarget,
     protocol: Protocol,
 ) -> Option<String> {
@@ -488,7 +488,7 @@ mod tests {
 
     #[test]
     fn a_protocol_mismatch_names_the_fix_and_an_old_server_says_so() {
-        use crate::init::fetch::Fetched;
+        use crate::dialer::fetch::Fetched;
         use crate::wire::protocol::{GrantedService, Grants};
         let fetched = |protocol, tcp_only| Fetched {
             grants: Grants {

@@ -58,7 +58,7 @@ pub fn init_visitor(
             return say(out, &later(&why)).map(|()| path);
         }
     };
-    let fetched = match super::fetch::grants(&settings) {
+    let fetched = match crate::dialer::fetch::grants(&settings) {
         Ok(g) => g,
         Err(n) if !n.rejected => {
             write_new(&path, &bare, opts.force)?;
@@ -102,7 +102,7 @@ pub fn init_visitor(
         text.push_str(&format!("{line}\n"));
     }
     if fetched.tcp_only {
-        text.push_str(&format!("  {}\n", super::fetch::OLD_SERVER_NOTE));
+        text.push_str(&format!("  {}\n", crate::dialer::fetch::OLD_SERVER_NOTE));
     }
     text.push_str(&format!(
         "run them with: {}",
@@ -133,11 +133,11 @@ fn update_visitor(
         ))
     })?;
     let settings = settings_of(&path, &text, format)?;
-    let fetched = super::fetch::grants(&settings).map_err(Failure::from)?;
+    let fetched = crate::dialer::fetch::grants(&settings).map_err(Failure::from)?;
     let grants = fetched.grants;
     let planned = super::plan::plan(&grants, &settings.forwards, true, fetched.tcp_only);
     let old_server = if fetched.tcp_only {
-        format!("\n{}", super::fetch::OLD_SERVER_NOTE)
+        format!("\n{}", crate::dialer::fetch::OLD_SERVER_NOTE)
     } else {
         String::new()
     };
