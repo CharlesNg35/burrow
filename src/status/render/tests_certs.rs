@@ -71,7 +71,12 @@ fn each_certificate_shows_its_source_state_expiry_and_next_renewal() {
         directory: "https://acme-v02.api.letsencrypt.org/directory".into(),
         account: Some("https://acme-v02.api.letsencrypt.org/acme/acct/42".into()),
         state_dir: "/var/lib/burrow/server".into(),
-        queue: Vec::new(),
+        queue: vec![burrow_admin_proto::status::CertOrderStatus {
+            service: "wiki".into(),
+            names: vec!["wiki.example.com".into()],
+            at: NOW + 600,
+            running: false,
+        }],
     });
     let text = shown(&s);
     assert!(text.contains("CERTIFICATES"), "{text}");
@@ -99,6 +104,10 @@ fn each_certificate_shows_its_source_state_expiry_and_next_renewal() {
     );
     assert!(
         text.contains("wiki.example.com: the DNS name does not exist (3 failures); see https://letsencrypt.org/docs/x"),
+        "{text}"
+    );
+    assert!(
+        text.contains("Certificate orders, one at a time:\n  wiki (wiki.example.com): next try "),
         "{text}"
     );
     assert!(

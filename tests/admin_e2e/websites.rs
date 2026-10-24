@@ -290,6 +290,10 @@ fn profile_link(c: &mut Ctx) -> Flow<'_> {
         let item = "[data-testid=attention] [data-item='cert:blog.example.com']";
         let text = c.ui.wait_text(item, "cannot be renewed", SECS).await;
         assert!(text.contains("does not offer the profile"), "{text}");
+        let orders =
+            c.ui.wait_text("[data-testid=cert-orders]", "blog", SECS)
+                .await;
+        assert!(orders.contains("next try"), "{orders}");
         c.ui.shot("profile-needs-attention").await;
         c.ui.click(&format!("{item} a")).await;
         c.ui.wait_for("[data-testid=settings]", SECS).await;

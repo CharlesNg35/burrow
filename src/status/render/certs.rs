@@ -102,6 +102,14 @@ pub(super) fn render_certs(out: &mut String, s: &Status, paint: Paint, now: u64)
         }
         let _ = writeln!(out, "{}", paint.tone(&paint.clip(&line), Tone::Bad));
     }
+    let queue = s.acme.as_ref().map_or(&[][..], |a| a.queue.as_slice());
+    if !queue.is_empty() {
+        let _ = writeln!(out, "Certificate orders, one at a time:");
+        for o in queue {
+            let line = format!("  {}", burrow_admin_proto::date::order_line(o, now));
+            let _ = writeln!(out, "{}", paint.clip(&line));
+        }
+    }
     if let Some(acme) = &s.acme {
         let mut line = match &acme.account {
             Some(a) => format!("Let's Encrypt account {a}"),

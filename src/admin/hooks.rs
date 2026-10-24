@@ -34,6 +34,14 @@ pub fn status(mut s: crate::metrics::Status) -> crate::metrics::Status {
             explanation: None,
             failures: 1,
         });
+        let acme = s.acme.get_or_insert_with(Default::default);
+        acme.queue
+            .push(burrow_admin_proto::status::CertOrderStatus {
+                service: "blog".into(),
+                names: vec![std::env::var(CERT_ENV).unwrap_or_default()],
+                at: 4_102_444_800,
+                running: false,
+            });
     }
     s
 }

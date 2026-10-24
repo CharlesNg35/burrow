@@ -104,12 +104,45 @@ pub(super) fn Certificates() -> impl IntoView {
                 </p>
             }
         });
+        let queue = status
+            .acme
+            .as_ref()
+            .map(|a| a.queue.clone())
+            .unwrap_or_default();
+        let orders = (!queue.is_empty()).then(|| {
+            let items = queue
+                .into_iter()
+                .map(|o| {
+                    let when = if o.running {
+                        "ordering now".to_string()
+                    } else if o.at <= now {
+                        "next in line".to_string()
+                    } else {
+                        format!("next try {}", crate::format::relative(o.at))
+                    };
+                    view! {
+                        <li class="flex flex-wrap gap-x-2 px-4 py-1.5 text-[13px]" data-order=o.service.clone()>
+                            <span class="font-semibold">{o.service.clone()}</span>
+                            <span class="font-mono text-text-muted">{o.names.join(", ")}</span>
+                            <span class="ml-auto">{when}</span>
+                        </li>
+                    }
+                })
+                .collect_view();
+            view! {
+                <div class="border-t border-border py-2" data-testid="cert-orders">
+                    <p class="px-4 pb-1 text-xs font-semibold text-text-muted">"Certificate orders, one at a time"</p>
+                    <ul>{items}</ul>
+                </div>
+            }
+        });
         Some(view! {
             <section class="col-span-2 rounded-card border border-border bg-surface md:col-span-6 xl:col-span-12" data-testid="certs-card">
                 <header class="border-b border-border px-4 py-3">
                     <h2 class="text-sm font-semibold">"Certificates"</h2>
                 </header>
                 {table(&status, now)}
+                {orders}
                 {account}
             </section>
         })
