@@ -1,5 +1,7 @@
 #![cfg(feature = "web")]
 
+#[path = "web/by_path.rs"]
+mod by_path;
 mod common;
 #[path = "web/ends.rs"]
 mod ends;

@@ -269,14 +269,30 @@ pub(super) fn share_tunnel(
             return;
         }
     };
-    certs::tunnel_has_source(cfg, &host, ws.tls.is_some(), spans, out);
+    if !on_terminated_site(cfg, &host) {
+        certs::tunnel_has_source(cfg, &host, ws.tls.is_some(), spans, out);
+    }
     ws.host = Some(host);
+}
+
+pub(super) fn on_terminated_site(cfg: &ServerConfig, host: &str) -> bool {
+    let https = cfg.web.as_ref().is_some_and(|w| w.https.is_some());
+    cfg.services
+        .values()
+        .filter_map(|s| s.web.as_ref())
+        .any(|web| {
+            Served::of(web, https) == Served::Terminated
+                && web
+                    .hosts()
+                    .iter()
+                    .any(|h| host_name(h, SingleLabel::Refused).is_ok_and(|h| h == host))
+        })
 }
 
 pub(super) fn check_sites(
     cfg: &ServerConfig,
     (https, http): (Option<SocketAddr>, Option<SocketAddr>),
-    tunnel: Option<&str>,
+    tunnel: Option<(&str, &str)>,
     spans: &Spans,
     base_dir: &Path,
     out: &mut Vec<Diagnostic>,
@@ -320,7 +336,11 @@ pub(super) fn check_sites(
                 ServiceWeb::Site(_) => spans.value(&["services", name, "web", "hosts", &i]),
             }
         };
-        let place = Place { name, at: &item };
+        let place = Place {
+            name,
+            at: &item,
+            served: Served::of(web, https.is_some()),
+        };
         if let Some(hosts) = check_hosts(&place, web.hosts(), &mut owners, tunnel, out) {
             sites.insert(name.clone(), fill::site(cfg, web, hosts, base_dir));
         }
@@ -370,13 +390,63 @@ fn no_web_proxy_for_sites(cfg: &ServerConfig, spans: &Spans, out: &mut Vec<Diagn
 struct Place<'a> {
     name: &'a str,
     at: &'a dyn Fn(usize) -> Span,
+    served: Served,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Served {
+    Passthrough,
+    Plain,
+    Terminated,
+}
+
+impl Served {
+    fn of(web: &ServiceWeb, https: bool) -> Served {
+        match web.tls() {
+            Some(SiteTls::Mode(TlsMode::Passthrough)) => Served::Passthrough,
+            Some(SiteTls::Mode(TlsMode::Off)) => Served::Plain,
+            None if !https => Served::Plain,
+            _ => Served::Terminated,
+        }
+    }
+}
+
+fn tunnel_on_site(place: &Place<'_>, host: &str, path: &str) -> Option<Diagnostic> {
+    let own = "give the tunnel its own name, like tunnel.example.com";
+    match place.served {
+        Served::Passthrough => Some(
+            Diagnostic::error(
+                "tunnel-host",
+                format!("websocket.host \"{host}\" is a passthrough site; burrow cannot see its requests"),
+            )
+            .help(own),
+        ),
+        Served::Plain => Some(
+            Diagnostic::error(
+                "tunnel-host",
+                format!("websocket.host \"{host}\" is a plain-HTTP site (tls: off); the tunnel needs HTTPS"),
+            )
+            .help(own),
+        ),
+        Served::Terminated if path == "/" => Some(
+            Diagnostic::error(
+                "tunnel-path",
+                format!(
+                    "websocket.path \"{path}\" on \"{host}\" is also served by service \"{}\"; give the tunnel another path",
+                    place.name
+                ),
+            )
+            .help("for example path: /burrow under websocket"),
+        ),
+        Served::Terminated => None,
+    }
 }
 
 fn check_hosts(
     place: &Place<'_>,
     given: &[String],
     owners: &mut BTreeMap<String, String>,
-    tunnel: Option<&str>,
+    tunnel: Option<(&str, &str)>,
     out: &mut Vec<Diagnostic>,
 ) -> Option<Vec<String>> {
     let name = place.name;
@@ -430,17 +500,10 @@ fn check_hosts(
             );
             continue;
         }
-        if tunnel == Some(host.as_str()) {
-            out.push(
-                Diagnostic::error(
-                    "tunnel-host",
-                    format!(
-                        "websocket.host \"{host}\" is a passthrough site; burrow cannot see its requests"
-                    ),
-                )
-                .at(at)
-                .help("give the tunnel its own name, like tunnel.example.com"),
-            );
+        if let Some((_, path)) = tunnel.filter(|(t, _)| *t == host)
+            && let Some(d) = tunnel_on_site(place, &host, path)
+        {
+            out.push(d.at(at));
             continue;
         }
         hosts.push(host);
@@ -464,6 +527,12 @@ mod tests_files;
 
 #[cfg(all(test, feature = "web"))]
 mod tests_keys;
+
+#[cfg(all(test, feature = "web"))]
+mod tests_settings;
+
+#[cfg(all(test, feature = "web"))]
+mod tests_tunnel;
 
 #[cfg(all(test, not(feature = "web")))]
 mod tests_without_web;

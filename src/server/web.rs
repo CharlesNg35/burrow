@@ -137,10 +137,22 @@ pub(super) fn proxy_settings(s: &ServerSettings) -> Result<Option<ProxySettings>
         p.tunnel = Some(TunnelSettings {
             host: host.clone(),
             path: ws.path.clone(),
-            mode: TunnelMode::OwnName,
+            mode: tunnel_mode(web, host),
         });
     }
     Ok(Some(p))
+}
+
+fn tunnel_mode(web: &WebSettings, host: &str) -> TunnelMode {
+    let on_site = web.sites.values().any(|site| {
+        matches!(site.tls, WebTls::Auto | WebTls::Files { .. })
+            && site.hosts.iter().any(|h| h == host)
+    });
+    if on_site {
+        TunnelMode::ByPath
+    } else {
+        TunnelMode::OwnName
+    }
 }
 
 fn site_tls(tls: &WebTls) -> SiteTls {
