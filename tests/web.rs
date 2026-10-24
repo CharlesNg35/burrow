@@ -11,5 +11,7 @@ mod passthrough;
 mod plain;
 #[path = "web/reload.rs"]
 mod reload;
+#[path = "web/sites.rs"]
+mod sites;
 #[path = "web/tunnel.rs"]
 mod tunnel;
