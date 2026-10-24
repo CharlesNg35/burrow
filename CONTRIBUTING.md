@@ -48,5 +48,5 @@ The `burrow` crate is built in layers, from the bottom up:
 - No backward compatibility shims or migrations, unless a release says otherwise.
 - New features are off unless they are written in the config, and `burrow validate` shows what will happen.
 - Use a well-tested library instead of writing your own. For a large dependency, measure the size it adds first.
-- When unsure about a protocol, an OS or a library, check the official docs (RFCs, crate docs, man pages) and cite them in `docs/decisions.md`.
+- Every implementation follows current best practice, not older patterns. Before you build on a protocol, an OS behaviour, a library API or a security choice, confirm the current recommendation in the official docs (RFCs and their errata, crate docs, man pages, vendor docs) with a web search. Do the same whenever you are unsure, and cite the source in `docs/decisions.md` or the commit notes. Never guess.
 - A simplification must not remove a feature, useful UI information or a documentation example.
