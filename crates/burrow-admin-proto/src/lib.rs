@@ -11,6 +11,7 @@ pub mod plan;
 pub mod schema;
 pub mod status;
 pub mod value;
+pub mod web;
 
 pub use serde_json;
 

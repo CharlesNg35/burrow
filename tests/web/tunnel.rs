@@ -33,6 +33,7 @@ async fn shared_server() -> (RunningServer, Secret, Cert, Cert, std::net::Socket
         &[("nas", site(&["home"], nas), &["nas.example.com"])],
     );
     s.services.insert("db".into(), service(echo, Protocol::Tcp));
+    s.web.as_mut().unwrap().https = format!("127.0.0.1:{}", free_port()).parse().unwrap();
     share_tunnel(&mut s, "localhost", &tunnel_cert);
     let srv = start_server(s).await;
     assert_eq!(srv.ws_addr, None, "the tunnel has no listener of its own");
@@ -53,6 +54,18 @@ async fn a_client_over_wss_shares_the_https_port_with_passthrough_sites() {
     let mut a = visit(web, "nas.example.com", &nas_cert).await.unwrap();
     assert_eq!(ask(&mut a, b"side").await.unwrap(), b"nas:side");
     assert_eq!(srv.shared.session_names(), ["home"]);
+    let status = srv.shared.status();
+    let summary = status.web.expect("the status has the web summary");
+    assert_eq!(summary.tunnel.unwrap().url, url);
+    assert_eq!(summary.hosts[0].name, "nas.example.com");
+    assert!(
+        status
+            .listening
+            .iter()
+            .any(|l| l.contains("(the web port)")),
+        "{:?}",
+        status.listening
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

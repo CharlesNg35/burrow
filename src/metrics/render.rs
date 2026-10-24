@@ -297,6 +297,7 @@ mod tests {
                 total: 12,
                 last_seen_secs: Some(0),
             }],
+            web: None,
         }
     }
 

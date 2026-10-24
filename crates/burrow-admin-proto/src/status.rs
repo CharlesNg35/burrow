@@ -18,6 +18,8 @@ pub struct Status {
     pub services: Vec<ServiceStatus>,
     #[serde(default)]
     pub visitors: Vec<VisitorStatus>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub web: Option<crate::web::WebSummary>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]

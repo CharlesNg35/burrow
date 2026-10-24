@@ -127,9 +127,20 @@ impl Shared {
         if let Some(l) = settings.listen {
             listening.push(format!("clients on tcp {l}"));
         }
-        if let Some(ws) = &settings.websocket {
-            let scheme = if ws.tls.is_some() { "wss" } else { "ws" };
-            listening.push(format!("clients on {scheme}://{}{}", ws.listen, ws.path));
+        match settings.websocket.as_ref() {
+            Some(ws) if ws.host.is_some() => {
+                if let Some(url) = ws.shared_url() {
+                    listening.push(format!("clients on {url} (the web port)"));
+                }
+            }
+            Some(ws) => {
+                let scheme = if ws.tls.is_some() { "wss" } else { "ws" };
+                listening.push(format!("clients on {scheme}://{}{}", ws.listen, ws.path));
+            }
+            None => {}
+        }
+        if let Some(web) = &settings.web {
+            listening.push(format!("websites on https {}", web.https));
         }
         if let Some(m) = settings.metrics {
             listening.push(format!("metrics on http://{m}/metrics"));
@@ -143,6 +154,7 @@ impl Shared {
             clients,
             services,
             visitors,
+            web: crate::config::web_summary::summary(&settings),
         }
     }
 }

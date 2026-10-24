@@ -82,7 +82,7 @@ pub fn render_text(outcome: &Outcome, strict: bool, style: Style) -> String {
     s.push_str(&summary_line(outcome, strict));
     s.push('\n');
     if let Some(web) = web_summary(outcome) {
-        s.push_str(&web.text());
+        s.push_str(&crate::config::web_summary::text(&web));
     }
     s
 }

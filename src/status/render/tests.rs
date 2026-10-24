@@ -112,6 +112,7 @@ pub(crate) fn sample() -> Status {
                 last_seen_secs: None,
             },
         ],
+        web: None,
     }
 }
 
@@ -419,4 +420,42 @@ fn follow_adds_rates() {
     let text = render(&after, Paint::PLAIN, Some(&r));
     assert!(text.contains("CONN/S"), "{text}");
     assert!(text.contains("10.0  1.5 MB/s"), "{text}");
+}
+
+#[test]
+fn websites_are_listed_with_the_tunnel_first() {
+    use burrow_admin_proto::web::{HostLine, TunnelLine, WebSummary};
+    let mut s = sample();
+    s.web = Some(WebSummary {
+        https: "[::]:443".into(),
+        addresses: "IPv4 and IPv6".into(),
+        shared_with_tunnel: true,
+        tunnel: Some(TunnelLine {
+            url: "wss://tunnel.example.com/burrow".into(),
+            certificate: String::new(),
+        }),
+        hosts: vec![HostLine {
+            name: "nas.example.com".into(),
+            kind: "passthrough".into(),
+            certificate: String::new(),
+            service: "nas".into(),
+        }],
+    });
+    let text = render(&s, Paint::PLAIN, None);
+    let at = text.find("WEBSITES").expect("a websites table");
+    let rest = &text[at..];
+    let tunnel = rest.find("wss://tunnel.example.com/burrow").unwrap();
+    let nas = rest.find("nas.example.com").unwrap();
+    assert!(tunnel < nas, "{rest}");
+    assert!(
+        rest.contains("passthrough") && rest.contains("nas"),
+        "{rest}"
+    );
+    s.web.as_mut().unwrap().hosts.clear();
+    s.web.as_mut().unwrap().tunnel = None;
+    let empty = render(&s, Paint::PLAIN, None);
+    assert!(
+        empty.contains("no names yet: every connection is closed"),
+        "{empty}"
+    );
 }

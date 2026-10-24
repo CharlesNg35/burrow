@@ -171,6 +171,7 @@ mod tests {
             clients: vec![],
             services: vec![],
             visitors: vec![],
+            web: None,
         }
     }
 

@@ -600,6 +600,7 @@ fn status_json_keeps_its_exact_shape() {
             total: 5,
             last_seen_secs: Some(30),
         }],
+        web: None,
     };
     let golden = r#"{
   "version": "0.1.0",

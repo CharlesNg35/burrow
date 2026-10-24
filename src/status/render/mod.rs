@@ -121,6 +121,7 @@ pub fn render(s: &Status, paint: Paint, rates: Option<&Rates>) -> String {
     render_clients(&mut out, s, paint);
     render_services(&mut out, s, paint, rates);
     render_visitors(&mut out, s, paint);
+    render_web(&mut out, s, paint);
     render_footer(&mut out, s, paint);
     out
 }
@@ -342,6 +343,37 @@ fn render_visitors(out: &mut String, s: &Status, paint: Paint) {
             rows,
         );
     }
+}
+
+fn render_web(out: &mut String, s: &Status, paint: Paint) {
+    let Some(web) = &s.web else {
+        return;
+    };
+    let mut rows: Vec<Vec<Cell>> = web
+        .tunnel
+        .iter()
+        .map(|t| vec![cell(&t.url), cell("tunnel"), toned("burrow", Tone::Dim)])
+        .collect();
+    rows.extend(
+        web.hosts
+            .iter()
+            .map(|h| vec![cell(&h.name), cell(&h.kind), cell(&h.service)]),
+    );
+    if rows.is_empty() {
+        let _ = writeln!(out, "\n{}", paint.dim(&web.lines().join("\n")));
+        return;
+    }
+    table(
+        out,
+        paint,
+        &paint.bold("WEBSITES"),
+        &[
+            long("NAME", ALWAYS),
+            col("KIND", 5),
+            long("SERVICE", ALWAYS),
+        ],
+        rows,
+    );
 }
 
 fn render_footer(out: &mut String, s: &Status, paint: Paint) {
