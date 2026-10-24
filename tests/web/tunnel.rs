@@ -107,6 +107,7 @@ async fn overload_and_failed_tunnel_handshakes_on_the_web_port_are_counted() {
     let shared = srv.shared.clone();
     wait_for(|| shared.status().handshakes_refused >= before + 4).await;
     drop(silent);
+    free_again(&srv, web).await;
     let after_flood = srv.shared.status().handshakes_refused;
     let mut bad = tokio::net::TcpStream::connect(web).await.unwrap();
     bad.write_all(&client_hello("localhost")).await.unwrap();
@@ -114,8 +115,41 @@ async fn overload_and_failed_tunnel_handshakes_on_the_web_port_are_counted() {
         .await
         .unwrap();
     let mut buf = [0u8; 64];
-    let _ = tokio::time::timeout(Duration::from_secs(5), bad.read(&mut buf)).await;
+    let answered = tokio::time::timeout(Duration::from_secs(5), bad.read(&mut buf)).await;
+    assert!(
+        matches!(answered, Ok(Ok(n)) if n > 0 && buf[0] == 0x16),
+        "the server took part in the handshake, so this is a failed handshake, not an overload: {answered:?}"
+    );
     wait_for(|| shared.status().handshakes_refused > after_flood).await;
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert_eq!(
+        srv.shared.status().handshakes_refused,
+        after_flood + 1,
+        "the failed TLS handshake is counted once, and nothing else was refused"
+    );
+}
+
+async fn free_again(srv: &RunningServer, web: std::net::SocketAddr) {
+    let opened = || {
+        let status = srv.shared.status();
+        status
+            .services
+            .iter()
+            .find(|s| s.name == "nas")
+            .map_or(0, |s| s.total)
+    };
+    for _ in 0..100 {
+        let before = opened();
+        let mut probe = tokio::net::TcpStream::connect(web).await.unwrap();
+        let _ = probe.write_all(&client_hello("nas.example.com")).await;
+        for _ in 0..50 {
+            if opened() > before {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }
+    panic!("the pending slots never freed after the flood closed");
 }
 
 async fn reencrypting_relay(
