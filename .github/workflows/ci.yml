@@ -28,6 +28,11 @@ jobs:
       - run: cargo clippy --locked --all-targets --features admin-test-hooks -- -D warnings
       - run: cargo xtask arch-check
       - run: cargo test --locked -p xtask
+      - name: Format and lint the fuzz targets
+        working-directory: fuzz
+        env:
+          RUSTUP_TOOLCHAIN: 1.99.0
+        run: cargo fmt --check && cargo clippy --all-targets -- -D warnings
 
   test:
     runs-on: ubuntu-latest
