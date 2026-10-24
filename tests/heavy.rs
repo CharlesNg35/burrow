@@ -707,6 +707,14 @@ async fn visitor_udp_churn_returns_to_baseline() {
         for t in tasks {
             t.await.unwrap();
         }
+        assert!(
+            v.udp_peers.load(Ordering::Acquire) > 0,
+            "round {round}: the visitor's UDP forward holds its peers while they are active"
+        );
+        assert!(
+            srv.shared.udp_peers() > 0,
+            "round {round}: the server holds the visit's UDP peers while they are active"
+        );
         let mut control = TcpStream::connect(lan).await.unwrap();
         control.write_all(&[5, 1, 0]).await.unwrap();
         let mut chosen = [0u8; 2];
