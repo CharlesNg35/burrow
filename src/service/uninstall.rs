@@ -122,6 +122,10 @@ pub fn uninstall(name: Option<&str>, purge: bool, out: &mut dyn Write) -> Result
         heir.created_account = true;
         save_manifest(&heir)?;
     }
+    #[cfg(unix)]
+    if let Some(d) = state.as_deref().filter(|_| !purge) {
+        system::own_tree(d, 0, 0);
+    }
     let mut account_left = None;
     let last_account_user = m.created_account && !others.iter().any(|o| o.account == m.account);
     if let Some(note) = stray::keeps(&strays, format!("service account {}", m.account))
@@ -131,10 +135,6 @@ pub fn uninstall(name: Option<&str>, purge: bool, out: &mut dyn Write) -> Result
     } else if last_account_user {
         #[cfg(unix)]
         give_kept_to_root(&m, &kept, kept_folder.as_deref());
-        #[cfg(unix)]
-        if let Some(d) = state.as_deref().filter(|_| !purge) {
-            system::own_tree(d, 0, 0);
-        }
         account_left = remove_service_account(&*backend, &m, out)?;
     }
     if !kept.is_empty() || kept_folder.is_some() {
