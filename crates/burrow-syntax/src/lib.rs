@@ -1,3 +1,6 @@
+//! The value syntaxes of burrow configs: addresses, ports, targets, rules, rates and durations.
+//! It must not depend on any other crate.
+
 #![forbid(unsafe_code)]
 
 pub mod address;

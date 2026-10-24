@@ -1,3 +1,6 @@
+//! The burrow admin web UI, a Leptos app compiled to WebAssembly.
+//! It talks to burrow admin through burrow-admin-proto and must not use serde_json directly.
+
 #![forbid(unsafe_code)]
 
 mod addr;

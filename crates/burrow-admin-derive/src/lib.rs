@@ -1,3 +1,6 @@
+//! The AdminSchema derive macro, which builds the admin schema from the attributes of the config model.
+//! It may depend only on proc-macro2, quote and syn.
+
 #![forbid(unsafe_code)]
 
 mod enums;

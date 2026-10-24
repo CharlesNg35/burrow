@@ -1,3 +1,6 @@
+//! The burrow admin protocol: messages, frames, plans and the schema shared by the server and the admin UI.
+//! It may depend only on serde, serde_json and schemars, never on burrow or the UI crates.
+
 #![forbid(unsafe_code)]
 
 pub mod diag;

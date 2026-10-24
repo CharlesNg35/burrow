@@ -1,3 +1,6 @@
+//! The burrow config model: the server, client and visitor files, their typed field paths and their admin schema.
+//! It must not depend on burrow, tokio or the UI crates.
+
 #![forbid(unsafe_code)]
 
 extern crate self as burrow_config;

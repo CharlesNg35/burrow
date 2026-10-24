@@ -1,3 +1,6 @@
+//! Project tasks for cargo xtask: architecture checks, the UI build, e2e flows, sizes, tools and the surface snapshot.
+//! It is a developer tool; nothing in burrow or crates/ may depend on it.
+
 #![forbid(unsafe_code)]
 #![allow(clippy::disallowed_macros)]
 

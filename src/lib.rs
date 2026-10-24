@@ -1,3 +1,7 @@
+//! burrow, a fast and secure reverse tunnel, as a library built in layers: base, wire, config, roles and ops.
+//! Each layer imports only the layers below it; xtask/src/layers.rs lists the layer of every module.
+//! It must not depend on the admin UI crates, which are WebAssembly only.
+
 #![forbid(unsafe_code)]
 
 extern crate self as burrow;
