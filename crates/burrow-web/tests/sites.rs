@@ -292,3 +292,34 @@ async fn an_upgraded_connection_is_not_closed_for_being_quiet() {
     t.read_exact(&mut got).await.unwrap();
     assert_eq!(&got, b"still");
 }
+
+#[tokio::test]
+async fn a_browser_without_a_tls_name_reaches_the_ip_site_it_dialled_over_https() {
+    let app = http_backend().await;
+    let (up, _) = Fake::new(4);
+    up.serve("kiosk", app.addr);
+    let proxy = start(
+        |s| s.sites = vec![https_site("kiosk", &["127.0.0.1"])],
+        up.clone(),
+    )
+    .await;
+    let addr = proxy.https_addr().unwrap();
+    let r = over_tls(
+        addr,
+        "127.0.0.1",
+        "GET / HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n",
+    )
+    .await;
+    assert!(r.starts_with("HTTP/1.1 200"), "{r}");
+    assert!(
+        r.contains("x-forwarded-proto: https\n"),
+        "served as HTTPS, not plain: {r}"
+    );
+    let r = over_tls(
+        addr,
+        "127.0.0.1",
+        "GET / HTTP/1.1\r\nHost: other.example.com\r\nConnection: close\r\n\r\n",
+    )
+    .await;
+    assert!(r.starts_with("HTTP/1.1 421"), "{r}");
+}
