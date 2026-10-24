@@ -325,7 +325,7 @@ impl Backend for WindowsService {
         if instances.starts_with(&root) {
             icacls(&instances, &["/grant", &format!("{USERS}:(OI)(CI)M")])?;
         }
-        for m in crate::service::all_manifests() {
+        for m in crate::install::all_manifests() {
             if !broad(&m.account) {
                 grant_dirs(&m.account)?;
             }
@@ -671,10 +671,10 @@ mod tests {
     #[test]
     fn only_burrow_under_program_files_is_trusted() {
         let pf = PathBuf::from(std::env::var_os("ProgramFiles").unwrap());
-        assert!(crate::service::system::trusted_binary(
+        assert!(crate::install::trust::trusted_binary(
             &pf.join("Tools").join("burrow.exe")
         ));
-        assert!(!crate::service::system::trusted_binary(
+        assert!(!crate::install::trust::trusted_binary(
             &pf.join("Tools").join("setup.exe")
         ));
         let around = pf
@@ -682,9 +682,9 @@ mod tests {
             .join("Users")
             .join("Public")
             .join("burrow.exe");
-        assert!(!crate::service::system::trusted_binary(&around));
+        assert!(!crate::install::trust::trusted_binary(&around));
         let windows = PathBuf::from(std::env::var_os("SystemRoot").unwrap());
-        assert!(!crate::service::system::trusted_binary(
+        assert!(!crate::install::trust::trusted_binary(
             &windows.join("Temp").join("burrow.exe")
         ));
     }

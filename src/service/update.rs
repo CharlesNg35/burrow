@@ -402,8 +402,8 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn a_service_whose_bin_folder_users_can_now_change_is_not_updated_in_place() {
-        let usual = crate::service::Platform::current().binary_path();
-        crate::service::system::tests::as_if_users_can_change(usual.parent().unwrap(), || {
+        let usual = crate::install::Platform::current().binary_path();
+        crate::install::trust::tests::as_if_users_can_change(usual.parent().unwrap(), || {
             let all = [service("burrow-x", &usual)];
             let mut out = Vec::new();
             let swaps = group(

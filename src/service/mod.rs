@@ -16,53 +16,15 @@ use std::io::Write;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 
-use serde::{Deserialize, Serialize};
-
 use crate::base::failure::Failure;
 use crate::base::style::Style;
 use crate::config::{Loaded, Role, load_file};
+use crate::install::{Manifest, Platform, all_manifests, load_manifest, manifest_path};
 use crate::instance::Identity;
 use burrow_config::Protocol;
 
-pub use system::{Platform, binary_version, copy_file, is_admin};
+pub use system::{binary_version, copy_file, is_admin};
 pub use update::{update, update_from, worker as update_worker};
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Manifest {
-    pub name: String,
-    pub role: String,
-    pub config: PathBuf,
-    pub source_config: PathBuf,
-    pub env_file: Option<PathBuf>,
-    #[serde(default)]
-    pub log_file: PathBuf,
-    pub binary: PathBuf,
-    pub copied_binary: bool,
-    pub account: String,
-    pub created_account: bool,
-    pub low_ports: bool,
-    #[serde(default)]
-    pub files: Vec<PathBuf>,
-    pub version: String,
-    pub admin_writable: bool,
-}
-
-impl Manifest {
-    pub fn short(&self) -> &str {
-        self.name.strip_prefix("burrow-").unwrap_or(&self.name)
-    }
-
-    pub fn folder(&self) -> &Path {
-        self.config.parent().unwrap_or(&self.config)
-    }
-
-    pub fn command(&self) -> &str {
-        match self.role.as_str() {
-            "visitor" => "visit",
-            role => role,
-        }
-    }
-}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Status {
@@ -1255,32 +1217,9 @@ impl Drop for FreshAccount<'_> {
     }
 }
 
-pub fn manifest_path(name: &str) -> PathBuf {
-    Platform::current().state_dir().join(format!("{name}.json"))
-}
-
-fn trustworthy(m: &Manifest, file: &Path) -> bool {
-    let p = Platform::current();
-    let in_dir = |path: &Path, dir: &Path| path.parent() == Some(dir);
-    let own_dir = p.config_dir().join(m.short());
-    file.file_stem().is_some_and(|s| *s == *m.name)
-        && (m.name == "burrow" || m.name.starts_with("burrow-"))
-        && in_dir(&m.config, &own_dir)
-        && m.env_file
-            .as_deref()
-            .is_none_or(|e| in_dir(e, &p.config_dir()))
-        && (m.log_file.as_os_str().is_empty() || m.log_file == p.log_file(m.short()))
-        && (binary_trusted(m, p) || m.binary == p.binary_path())
-}
-
-fn binary_trusted(m: &Manifest, p: Platform) -> bool {
-    m.binary == p.service_binary()
-        || ((cfg!(not(windows)) || !m.copied_binary) && system::trusted_binary(&m.binary))
-}
-
 pub fn exposed(m: &Manifest) -> bool {
     let p = Platform::current();
-    m.binary == p.binary_path() && !binary_trusted(m, p)
+    m.binary == p.binary_path() && !crate::install::trust::binary_trusted(m, p)
 }
 
 pub fn exposed_note(m: &Manifest) -> String {
@@ -1300,34 +1239,6 @@ pub fn recorded_version(m: &Manifest) -> String {
     }
 }
 
-fn read_manifest(path: &Path) -> Result<Manifest, String> {
-    let text = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
-    let m: Manifest = serde_json::from_str(&text).map_err(|e| format!("damaged: {e}"))?;
-    if trustworthy(&m, path) {
-        Ok(m)
-    } else {
-        Err("it points outside burrow's own folders, so it was not written by burrow".into())
-    }
-}
-
-pub fn load_manifest(name: &str) -> Result<Manifest, Failure> {
-    let path = manifest_path(name);
-    if !path.exists() {
-        return Err(
-            Failure::new(format!("no burrow service named {name}")).hint(format!(
-                "see the installed ones with: {}",
-                crate::base::failure::cmd("service list")
-            )),
-        );
-    }
-    read_manifest(&path).map_err(|why| {
-        Failure::new(format!("ignoring {}: {why}", path.display())).hint(format!(
-            "delete it as an administrator if you did not create it: {}",
-            path.display()
-        ))
-    })
-}
-
 fn save_manifest(m: &Manifest) -> Result<(), Failure> {
     let path = manifest_path(&m.name);
     if let Some(dir) = path.parent() {
@@ -1336,13 +1247,6 @@ fn save_manifest(m: &Manifest) -> Result<(), Failure> {
     }
     let text = serde_json::to_string_pretty(m).expect("manifest serializes");
     system::write_file(&path, text.as_bytes())
-}
-
-pub fn any_installed() -> bool {
-    std::fs::read_dir(Platform::current().state_dir()).is_ok_and(|dir| {
-        dir.flatten()
-            .any(|e| e.path().extension().is_some_and(|x| x == "json"))
-    })
 }
 
 pub struct Installed {
@@ -1367,29 +1271,11 @@ pub fn env_of(m: &Manifest) -> BTreeMap<String, String> {
     system::backend().map(|b| b.read_env(m)).unwrap_or_default()
 }
 
-pub fn services_hidden() -> bool {
-    let dir = Platform::current().state_dir();
-    dir.exists() && std::fs::read_dir(&dir).is_err()
-}
-
 pub fn saved_env(name: &str) -> BTreeMap<String, String> {
     match (system::backend(), load_manifest(name)) {
         (Ok(b), Ok(m)) => b.read_env(&m),
         _ => BTreeMap::new(),
     }
-}
-
-pub fn all_manifests() -> Vec<Manifest> {
-    let Ok(dir) = std::fs::read_dir(Platform::current().state_dir()) else {
-        return Vec::new();
-    };
-    let mut list: Vec<Manifest> = dir
-        .flatten()
-        .filter(|e| e.path().extension().is_some_and(|x| x == "json"))
-        .filter_map(|e| read_manifest(&e.path()).ok())
-        .collect();
-    list.sort_by(|a, b| a.name.cmp(&b.name));
-    list
 }
 
 pub fn resolve(name: Option<&str>) -> Result<Manifest, Failure> {
@@ -1768,20 +1654,6 @@ fn writable_args(m: &Manifest) -> String {
     )
 }
 
-pub fn writable_hint(config: &Path) -> String {
-    format!(
-        "install the service again so it may change its config; nothing moves: {}",
-        crate::base::failure::admin(&format!(
-            "service install -c {} --admin-writable",
-            crate::base::failure::path_arg(config)
-        ))
-    )
-}
-
-pub fn in_service_folder(config: &Path) -> bool {
-    config.parent().and_then(Path::parent) == Some(Platform::current().config_dir().as_path())
-}
-
 fn name_for(source: &Path, given: Option<&str>, installed: &[Manifest]) -> Result<String, Failure> {
     let name = service_name(source, given)?;
     let Some(owner) = installed.iter().find(|m| {
@@ -1993,6 +1865,7 @@ pub fn run_service(name: &str) -> Result<u8, Failure> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::install::{in_service_folder, trustworthy, writable_hint};
 
     #[test]
     fn an_installed_config_that_cannot_be_read_is_not_called_different() {
@@ -2179,7 +2052,7 @@ mod tests {
     fn a_trusted_binary_elsewhere_is_never_used_in_place() {
         let trusted = Path::new("/usr/bin/true");
         assert!(
-            system::trusted_binary(trusted),
+            crate::install::trust::trusted_binary(trusted),
             "/usr/bin/true is root-only here"
         );
         let p = Platform::current();
@@ -2786,7 +2659,7 @@ mod tests {
     fn a_record_whose_bin_folder_users_can_now_change_is_managed_but_its_binary_never_runs() {
         let p = Platform::current();
         let usual = p.binary_path();
-        system::tests::as_if_users_can_change(usual.parent().unwrap(), || {
+        crate::install::trust::tests::as_if_users_can_change(usual.parent().unwrap(), || {
             assert_ne!(p.service_binary(), usual);
             let file = manifest_path("burrow-server");
             let installed = Manifest {

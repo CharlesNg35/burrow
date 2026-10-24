@@ -50,7 +50,7 @@ fn choose(
     match (target, found) {
         (Some(t), _) => pick::by_target(found, t),
         (None, []) => {
-            let hint = if crate::service::services_hidden() {
+            let hint = if crate::install::services_hidden() {
                 format!(
                     "the installed services are only visible to an administrator: {}",
                     admin("edit")

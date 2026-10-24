@@ -667,7 +667,7 @@ fn trusted_owner(uid: u32, config: &Path) -> bool {
     let me = rustix::process::geteuid().as_raw();
     uid == 0
         || uid == me
-        || crate::service::all_manifests().iter().any(|m| {
+        || crate::install::all_manifests().iter().any(|m| {
             (m.created_account || crate::base::fs::canonical_or_same(&m.config) == config)
                 && crate::base::process::account_ids(&m.account).is_ok_and(|(id, _)| id == uid)
         })

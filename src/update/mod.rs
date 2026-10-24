@@ -7,7 +7,8 @@ use std::path::{Path, PathBuf};
 use sha2::{Digest, Sha256};
 
 use crate::base::failure::{Failure, admin, cmd};
-use crate::service::{self, Manifest, parse_version};
+use crate::install::Manifest;
+use crate::service::{self, parse_version};
 
 const MAX_SUMS: usize = 1024 * 1024;
 const MAX_ASSET: usize = 256 * 1024 * 1024;
@@ -288,7 +289,7 @@ pub fn run(opts: &Options, out: &mut dyn Write) -> Result<u8, Failure> {
     }
     if let Some(line) = current.filter(|_| !opts.force) {
         let me = service::this_binary()?;
-        let installed = service::all_manifests();
+        let installed = crate::install::all_manifests();
         let behind: Vec<&Manifest> = installed
             .iter()
             .filter(|m| m.copied_binary && m.binary != me)
@@ -319,7 +320,7 @@ pub fn run(opts: &Options, out: &mut dyn Write) -> Result<u8, Failure> {
     }
 
     let me = service::this_binary()?;
-    let installed = service::all_manifests();
+    let installed = crate::install::all_manifests();
     let managed: Vec<&Manifest> = installed.iter().filter(|m| m.copied_binary).collect();
     let foreign = installed.iter().any(|m| !m.copied_binary && m.binary == me);
     let me_is_service = managed.iter().any(|m| m.binary == me);

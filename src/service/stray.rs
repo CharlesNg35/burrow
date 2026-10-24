@@ -1,8 +1,9 @@
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use super::{Manifest, all_manifests, read_manifest, say, service_name, system};
+use super::{say, service_name, system};
 use crate::base::failure::Failure;
+use crate::install::{Manifest, all_manifests, read_manifest};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Unit {
@@ -210,14 +211,14 @@ pub fn leftovers_in(dir: &Path, name: Option<&str>) -> Vec<PathBuf> {
 }
 
 pub fn leftovers(name: Option<&str>) -> Vec<PathBuf> {
-    leftovers_in(&system::Platform::current().state_dir(), name)
+    leftovers_in(&crate::install::Platform::current().state_dir(), name)
 }
 
 pub fn strays() -> Vec<Stray> {
     let Ok(backend) = system::backend() else {
         return Vec::new();
     };
-    let records = unusable_records(&system::Platform::current().state_dir());
+    let records = unusable_records(&crate::install::Platform::current().state_dir());
     merge(&all_manifests(), records, backend.units())
         .into_iter()
         .filter_map(|u| {

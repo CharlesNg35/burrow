@@ -33,6 +33,7 @@ pub mod edit;
 pub mod forward;
 pub mod handshake;
 pub mod init;
+pub mod install;
 pub mod instance;
 pub mod metrics;
 pub mod noise;

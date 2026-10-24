@@ -268,7 +268,7 @@ impl Store for FileStore {
             Err(e) => {
                 let ro = e.raw_os_error() == Some(30);
                 let installed = std::env::var_os("INVOCATION_ID").is_some()
-                    || crate::service::in_service_folder(&self.path);
+                    || crate::install::in_service_folder(&self.path);
                 Err(WhyNot {
                     code: if ro {
                         "read-only-fs".into()
@@ -288,7 +288,7 @@ impl Store for FileStore {
                         )
                     },
                     hint: if installed || ro {
-                        crate::service::writable_hint(&self.path)
+                        crate::install::writable_hint(&self.path)
                     } else {
                         format!(
                             "give the account the server runs as write access to {}",

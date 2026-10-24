@@ -566,7 +566,7 @@ fn admin(args: burrow::cli::AdminArgs) -> Result<u8, Failure> {
         .next();
     let services: Vec<Installed> =
         if args.config.is_none() && (here.is_none() || args.service.is_some()) {
-            burrow::service::all_manifests()
+            burrow::install::all_manifests()
                 .into_iter()
                 .filter(|m| m.role == "visitor")
                 .map(|m| Installed {

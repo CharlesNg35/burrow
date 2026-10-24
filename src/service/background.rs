@@ -5,8 +5,9 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
-use super::{Platform, say, this_binary};
+use super::{say, this_binary};
 use crate::base::failure::Failure;
+use crate::install::Platform;
 
 const DONE: char = '\u{1}';
 

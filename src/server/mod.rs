@@ -425,7 +425,7 @@ pub fn bind_error(what: &str, proto: Protocol, addr: SocketAddr, e: &std::io::Er
     match e.kind() {
         std::io::ErrorKind::AddrInUse => {
             let find = crate::base::ports::inspect_hint(proto, addr.port());
-            let hint = if crate::service::any_installed() {
+            let hint = if crate::install::any_installed() {
                 format!(
                     "a burrow service is installed here and may be using it, see: {}; otherwise find what uses it with: {find}",
                     crate::base::failure::cmd("service list")
@@ -1283,7 +1283,7 @@ mod tests {
         );
         assert_eq!(
             hint.contains("burrow service list"),
-            crate::service::any_installed(),
+            crate::install::any_installed(),
             "{hint}"
         );
         let udp = bind_error("service \"dns\"", Protocol::Udp, addr, &busy)
