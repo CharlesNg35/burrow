@@ -122,7 +122,7 @@ services:
 | --- | --- | --- |
 | `listen` | none | where the server waits for clients: ip:port, or a port alone for `0.0.0.0:port`. Needs `listen`, `websocket` or both |
 | `public_address` | none | how clients reach this server: host, host:port or a `wss://` URL. `client-config` and `visitor-config` write it into the configs they print |
-| `websocket.listen` | none | accept clients over WebSocket on this address; a port alone means `0.0.0.0`. See [websocket.md](websocket.md) |
+| `websocket.listen` | none | accept clients over WebSocket on this address; a port alone means `0.0.0.0`, or, when it shares the port of a bare `web.https`, every IPv4 and IPv6 address (`[::]`) like `web.https`. See [websocket.md](websocket.md) and [web.md](web.md#the-tunnel-on-the-same-port) |
 | `websocket.path` | `/burrow` | URL path for WebSocket clients |
 | `websocket.host` | none | the tunnel's name when `websocket.listen` is the same port as `web.https`; required then. See [web.md](web.md#the-tunnel-on-the-same-port) |
 | `websocket.tls.cert` / `key` | none | serve `wss://` directly with these PEM files |
