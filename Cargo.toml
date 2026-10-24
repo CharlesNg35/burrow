@@ -20,6 +20,7 @@ members = [
     "crates/burrow-admin-derive",
     "crates/burrow-ui-kit",
     "crates/burrow-admin-ui",
+    "crates/burrow-proxy",
     "xtask",
 ]
 

@@ -24,6 +24,7 @@ const CRATE_DEPS: &[(&str, &[&str], &[&str])] = &[
             "burrow-ui-kit",
             "burrow-admin-logic",
             "burrow-admin-ui",
+            "burrow-proxy",
         ],
     ),
     (
@@ -34,12 +35,17 @@ const CRATE_DEPS: &[(&str, &[&str], &[&str])] = &[
             "burrow-syntax",
             "semver",
         ],
-        &[],
+        &["burrow-proxy"],
     ),
     (
         "burrow-ui-kit",
         &["leptos", "wasm-bindgen", "web-sys", "js-sys"],
-        &["burrow-admin-proto", "burrow-syntax", "burrow-admin-logic"],
+        &[
+            "burrow-admin-proto",
+            "burrow-syntax",
+            "burrow-admin-logic",
+            "burrow-proxy",
+        ],
     ),
     (
         "burrow-admin-ui",
@@ -56,7 +62,34 @@ const CRATE_DEPS: &[(&str, &[&str], &[&str])] = &[
             "burrow-syntax",
             "console_error_panic_hook",
         ],
-        &["serde_json"],
+        &["serde_json", "burrow-proxy"],
+    ),
+    (
+        "burrow-proxy",
+        &[
+            "base64",
+            "burrow-syntax",
+            "bytes",
+            "http",
+            "http-body-util",
+            "hyper",
+            "hyper-util",
+            "ppp",
+            "ring",
+            "socket2",
+            "tokio",
+            "tokio-rustls",
+            "tracing",
+        ],
+        &[
+            "burrow",
+            "burrow-config",
+            "burrow-admin-proto",
+            "burrow-admin-derive",
+            "burrow-admin-logic",
+            "burrow-admin-ui",
+            "burrow-ui-kit",
+        ],
     ),
 ];
 
@@ -169,5 +202,28 @@ mod tests {
         );
         assert_eq!(dep_problems("burrow-config", &["serde", "tokio"]).len(), 1);
         assert_eq!(dep_problems("burrow-config", &["burrow"]).len(), 1);
+        assert!(dep_problems("burrow-proxy", &["tokio", "hyper", "burrow-syntax"]).is_empty());
+        for never in [
+            "burrow",
+            "burrow-config",
+            "burrow-admin-proto",
+            "burrow-ui-kit",
+        ] {
+            assert_eq!(
+                dep_problems("burrow-proxy", &[never]),
+                [format!("crate burrow-proxy must not depend on {never}")]
+            );
+        }
+        for ui in [
+            "burrow-config",
+            "burrow-admin-logic",
+            "burrow-ui-kit",
+            "burrow-admin-ui",
+        ] {
+            assert_eq!(
+                dep_problems(ui, &["burrow-proxy"]),
+                [format!("crate {ui} must not depend on burrow-proxy")]
+            );
+        }
     }
 }

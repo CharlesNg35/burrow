@@ -1,0 +1,29 @@
+[package]
+name = "burrow-proxy"
+version = "0.1.2"
+edition = "2024"
+description = "The burrow web proxy: one HTTPS port for passthrough sites and the tunnel"
+license = "MIT"
+publish = false
+
+[dependencies]
+base64 = "0.23.1"
+burrow-syntax = { path = "../burrow-syntax" }
+bytes = "1.12.1"
+http = "1.5.0"
+http-body-util = "0.1.5"
+hyper = { version = "1.12.0", default-features = false, features = ["http1", "server"] }
+hyper-util = { version = "0.1.21", default-features = false, features = ["tokio"] }
+ppp = "2.3.0"
+ring = "0.17.14"
+socket2 = "0.6.5"
+tokio = { version = "1.53.3", features = ["net", "io-util", "time", "sync", "rt", "macros"] }
+tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring", "logging", "tls12"] }
+tracing = "0.1.44"
+
+[dev-dependencies]
+rcgen = { version = "0.14.10", default-features = false, features = ["ring", "pem", "crypto"] }
+tokio = { version = "1.53.3", features = ["rt-multi-thread"] }
+
+[lints]
+workspace = true

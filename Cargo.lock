@@ -439,6 +439,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "burrow-proxy"
+version = "0.1.2"
+dependencies = [
+ "base64 0.23.1",
+ "burrow-syntax",
+ "bytes",
+ "http",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "ppp",
+ "rcgen",
+ "ring",
+ "socket2",
+ "tokio",
+ "tokio-rustls",
+ "tracing",
+]
+
+[[package]]
 name = "burrow-syntax"
 version = "0.1.2"
 
@@ -2220,6 +2240,15 @@ name = "powerfmt"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4a6394b9e965e73d0a289ee54f589087e2c676aedf60885baf52c76b771e4958"
+
+[[package]]
+name = "ppp"
+version = "2.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1a7a2049cd2570bd67bf0228e86bf850f8ceb5190a345c471d03a909da6049e0"
+dependencies = [
+ "thiserror 1.0.69",
+]
 
 [[package]]
 name = "ppv-lite86"
