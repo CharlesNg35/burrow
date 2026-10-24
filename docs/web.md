@@ -131,7 +131,7 @@ server: wss://tunnel.example.com/burrow
 | `web` has no port | `web needs a port: https for HTTPS sites, like https: 443 (plain HTTP sites on web.http are not in this build yet)` |
 | a website with `tls: auto` (or no `tls`) or `{cert, key}` | `services.blog.web.tls: burrow cannot serve HTTPS for websites in this build yet; use tls: passthrough` |
 | a website with `tls: off` | `services.blog.web.tls: plain HTTP websites need web.http, which this build does not have yet; use tls: passthrough` |
-| a name that is not a host name | `services.nas.web.hosts: "https://nas.example.com" is not a host name; write the name alone, like nas.example.com` |
+| a name that is not a host name | `services.nas.web.hosts: "https://nas.example.com" is not a host name; write the name alone, like blog.example.com` |
 | a wildcard that is too wide | `services.apps.web.hosts: "*.com" is too wide; a wildcard needs a parent name, like *.example.com` |
 | one name in two services | `host "nas.example.com" is used by services "nas" and "nas2"; each host name leads to one service` |
 | the tunnel shares the port but has no name | `websocket.host is required when websocket.listen is the same port as web.https (443): ...` |
