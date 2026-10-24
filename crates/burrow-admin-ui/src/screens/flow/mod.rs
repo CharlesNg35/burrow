@@ -125,6 +125,66 @@ struct Svc {
 }
 
 pub fn layout(doc: &Value, status: Option<&Status>, rates: &Rates, me: Option<&str>) -> Chart {
+    let svcs = services(doc, status, rates);
+    let client_names: Vec<String> = ClientEntry::names(doc);
+    let rows = svcs.len().max(client_names.len()).max(2);
+    let height = TOP + rows as f64 * PITCH;
+    let mut nodes = sources(&svcs, status, me);
+    let mut lines = Vec::new();
+    let offline: Vec<&String> = client_names
+        .iter()
+        .filter(|c| {
+            status.is_some()
+                && !status
+                    .and_then(|s| s.clients.iter().find(|x| &x.name == *c))
+                    .is_some_and(|x| x.connected)
+        })
+        .collect();
+    nodes.push(server_node(&svcs, status, rates, rows));
+    let client_nodes = client_nodes(&client_names, &svcs, status, rows);
+    for (i, s) in svcs.iter().enumerate() {
+        let (port, target) = service_nodes(i, s, &nodes, &client_nodes, status, &mut lines);
+        nodes.push(port);
+        nodes.push(target);
+    }
+    client_lines(&client_nodes, status, &mut lines);
+    let problems = svcs.iter().filter(|s| problem_svc(s)).count() + offline.len();
+    nodes.extend(client_nodes);
+    let alt = format!(
+        "Flow of {} services through the server to {} clients; {} problems",
+        svcs.len(),
+        client_names.len(),
+        problems
+    );
+    Chart {
+        nodes,
+        lines,
+        height,
+        problems,
+        services: svcs.len(),
+        alt,
+    }
+}
+
+fn row_y(i: usize) -> f64 {
+    TOP + i as f64 * PITCH + 6.0
+}
+
+fn mid(n: &Node) -> f64 {
+    n.y + n.h / 2.0
+}
+
+fn span(idx: &[usize]) -> (f64, f64) {
+    let a = row_y(*idx.first().unwrap_or(&0));
+    let b = row_y(*idx.last().unwrap_or(&0)) + 42.0;
+    (a, (b - a).max(42.0))
+}
+
+fn problem_svc(s: &Svc) -> bool {
+    matches!(s.health, Health::Down | Health::Degraded)
+}
+
+fn services(doc: &Value, status: Option<&Status>, rates: &Rates) -> Vec<Svc> {
     let mut svcs: Vec<Svc> = ServiceEntry::entries(doc)
         .map(|m| {
             m.iter()
@@ -186,34 +246,17 @@ pub fn layout(doc: &Value, status: Option<&Status>, rates: &Rates, me: Option<&s
             .cmp(&b.bind.is_none())
             .then_with(|| a.name.cmp(&b.name))
     });
-    let client_names: Vec<String> = ClientEntry::names(doc);
-    let rows = svcs.len().max(client_names.len()).max(2);
-    let height = TOP + rows as f64 * PITCH;
-    let row_y = |i: usize| TOP + i as f64 * PITCH + 6.0;
-    let mid = |n: &Node| n.y + n.h / 2.0;
+    svcs
+}
+
+fn sources(svcs: &[Svc], status: Option<&Status>, me: Option<&str>) -> Vec<Node> {
     let mut nodes = Vec::new();
-    let mut lines = Vec::new();
     let public: Vec<usize> = (0..svcs.len())
         .filter(|i| svcs[*i].bind.is_some())
         .collect();
     let private: Vec<usize> = (0..svcs.len())
         .filter(|i| svcs[*i].bind.is_none())
         .collect();
-    let span = |idx: &[usize]| {
-        let a = row_y(*idx.first().unwrap_or(&0));
-        let b = row_y(*idx.last().unwrap_or(&0)) + 42.0;
-        (a, (b - a).max(42.0))
-    };
-    let offline: Vec<&String> = client_names
-        .iter()
-        .filter(|c| {
-            status.is_some()
-                && !status
-                    .and_then(|s| s.clients.iter().find(|x| &x.name == *c))
-                    .is_some_and(|x| x.connected)
-        })
-        .collect();
-    let problem_svc = |s: &Svc| matches!(s.health, Health::Down | Health::Degraded);
     if !public.is_empty() {
         let lo = public
             .iter()
@@ -270,9 +313,13 @@ pub fn layout(doc: &Value, status: Option<&Status>, rates: &Rates, me: Option<&s
             tip: "Open visitors →".into(),
         });
     }
+    nodes
+}
+
+fn server_node(svcs: &[Svc], status: Option<&Status>, rates: &Rates, rows: usize) -> Node {
     let total_open: u64 = svcs.iter().map(|s| s.open).sum();
     let (rate, unit) = human_bits(rates.total.bytes_in);
-    let server = Node {
+    Node {
         key: "server".into(),
         col: 2,
         y: TOP + 6.0,
@@ -298,11 +345,16 @@ pub fn layout(doc: &Value, status: Option<&Status>, rates: &Rates, me: Option<&s
         problem: false,
         to: None,
         tip: String::new(),
-    };
-    let server_left = COLS[2].0;
-    let server_right = COLS[2].0 + COLS[2].1;
-    nodes.push(server);
-    let client_nodes: Vec<Node> = client_names
+    }
+}
+
+fn client_nodes(
+    client_names: &[String],
+    svcs: &[Svc],
+    status: Option<&Status>,
+    rows: usize,
+) -> Vec<Node> {
+    client_names
         .iter()
         .enumerate()
         .map(|(j, c)| {
@@ -342,116 +394,129 @@ pub fn layout(doc: &Value, status: Option<&Status>, rates: &Rates, me: Option<&s
                 tip: format!("Open client {c} →"),
             }
         })
-        .collect();
-    for (i, s) in svcs.iter().enumerate() {
-        let y = row_y(i);
-        let problem = problem_svc(s);
-        let port = Node {
-            key: format!("port:{}", s.name),
-            col: 1,
-            y,
-            h: 42.0,
-            title: s.name.clone(),
-            right: String::new(),
-            sub: format!(
-                "{} · {} · {} open",
-                s.bind
-                    .as_deref()
-                    .map(short_bind)
-                    .unwrap_or_else(|| "private".into()),
-                s.protocol,
-                s.open
-            ),
-            badge: None,
-            health: s.health,
-            dashed: false,
-            server: false,
-            problem,
-            to: Some(Route::Detail(
-                ServiceEntry::section().into(),
-                s.name.clone(),
-            )),
-            tip: format!("Open service {} →", s.name),
-        };
-        let (r, u) = human_bits(s.rate);
-        let target = Node {
-            key: format!("target:{}", s.name),
-            col: 4,
-            y,
-            h: 42.0,
-            title: s.target.clone(),
-            right: String::new(),
-            sub: if s.health == Health::Down {
-                "no client online".into()
-            } else {
-                format!("{} open · {r} {u}", s.open)
-            },
-            badge: s.badge.clone(),
-            health: s.health,
-            dashed: false,
-            server: false,
-            problem,
-            to: Some(Route::Detail(
-                ServiceEntry::section().into(),
-                s.name.clone(),
-            )),
-            tip: format!("{} · open service {} →", s.target, s.name),
-        };
-        let w = weight(s.open);
-        let stroke = s.health.stroke();
-        if let Some(src) = nodes.iter().find(|n| {
-            n.col == 0
-                && n.key
-                    == if s.bind.is_some() {
-                        "internet"
-                    } else {
-                        VisitorEntry::section()
-                    }
-        }) {
-            lines.push(Line {
-                d: curve(COLS[0].0 + COLS[0].1, mid(src), COLS[1].0, mid(&port)),
-                width: w,
-                stroke,
-                dashed: false,
-                problem,
-            });
-        }
+        .collect()
+}
+
+fn service_nodes(
+    i: usize,
+    s: &Svc,
+    nodes: &[Node],
+    client_nodes: &[Node],
+    status: Option<&Status>,
+    lines: &mut Vec<Line>,
+) -> (Node, Node) {
+    let server_left = COLS[2].0;
+    let server_right = COLS[2].0 + COLS[2].1;
+    let y = row_y(i);
+    let problem = problem_svc(s);
+    let port = Node {
+        key: format!("port:{}", s.name),
+        col: 1,
+        y,
+        h: 42.0,
+        title: s.name.clone(),
+        right: String::new(),
+        sub: format!(
+            "{} · {} · {} open",
+            s.bind
+                .as_deref()
+                .map(short_bind)
+                .unwrap_or_else(|| "private".into()),
+            s.protocol,
+            s.open
+        ),
+        badge: None,
+        health: s.health,
+        dashed: false,
+        server: false,
+        problem,
+        to: Some(Route::Detail(
+            ServiceEntry::section().into(),
+            s.name.clone(),
+        )),
+        tip: format!("Open service {} →", s.name),
+    };
+    let (r, u) = human_bits(s.rate);
+    let target = Node {
+        key: format!("target:{}", s.name),
+        col: 4,
+        y,
+        h: 42.0,
+        title: s.target.clone(),
+        right: String::new(),
+        sub: if s.health == Health::Down {
+            "no client online".into()
+        } else {
+            format!("{} open · {r} {u}", s.open)
+        },
+        badge: s.badge.clone(),
+        health: s.health,
+        dashed: false,
+        server: false,
+        problem,
+        to: Some(Route::Detail(
+            ServiceEntry::section().into(),
+            s.name.clone(),
+        )),
+        tip: format!("{} · open service {} →", s.target, s.name),
+    };
+    let w = weight(s.open);
+    let stroke = s.health.stroke();
+    if let Some(src) = nodes.iter().find(|n| {
+        n.col == 0
+            && n.key
+                == if s.bind.is_some() {
+                    "internet"
+                } else {
+                    VisitorEntry::section()
+                }
+    }) {
         lines.push(Line {
-            d: curve(COLS[1].0 + COLS[1].1, mid(&port), server_left, mid(&port)),
+            d: curve(COLS[0].0 + COLS[0].1, mid(src), COLS[1].0, mid(&port)),
             width: w,
             stroke,
             dashed: false,
             problem,
         });
-        for c in &s.clients {
-            let local = status
-                .and_then(|st| st.clients.iter().find(|x| &x.name == c))
-                .is_some_and(|x| x.local);
-            if local {
-                lines.push(Line {
-                    d: curve(server_right, mid(&port), COLS[4].0, mid(&target)),
-                    width: w,
-                    stroke,
-                    dashed: false,
-                    problem,
-                });
-                continue;
-            }
-            if let Some(cn) = client_nodes.iter().find(|n| n.key == format!("client:{c}")) {
-                let off = cn.dashed;
-                lines.push(Line {
-                    d: curve(COLS[3].0 + COLS[3].1, mid(cn), COLS[4].0, mid(&target)),
-                    width: 1.4,
-                    stroke: if off { "stroke-text-faint" } else { stroke },
-                    dashed: off,
-                    problem: problem || off,
-                });
-            }
-        }
-        nodes.push(port);
-        nodes.push(target);
     }
-    for cn in &client_nodes {
+    lines.push(Line {
+        d: curve(COLS[1].0 + COLS[1].1, mid(&port), server_left, mid(&port)),
+        width: w,
+        stroke,
+        dashed: false,
+        problem,
+    });
+    for c in &s.clients {
+        let local = status
+            .and_then(|st| st.clients.iter().find(|x| &x.name == c))
+            .is_some_and(|x| x.local);
+        if local {
+            lines.push(Line {
+                d: curve(server_right, mid(&port), COLS[4].0, mid(&target)),
+                width: w,
+                stroke,
+                dashed: false,
+                problem,
+            });
+            continue;
+        }
+        if let Some(cn) = client_nodes.iter().find(|n| n.key == format!("client:{c}")) {
+            let off = cn.dashed;
+            lines.push(Line {
+                d: curve(COLS[3].0 + COLS[3].1, mid(cn), COLS[4].0, mid(&target)),
+                width: 1.4,
+                stroke: if off { "stroke-text-faint" } else { stroke },
+                dashed: off,
+                problem: problem || off,
+            });
+        }
+    }
+    (port, target)
+}
+
+fn client_lines(client_nodes: &[Node], status: Option<&Status>, lines: &mut Vec<Line>) {
+    let server_right = COLS[2].0 + COLS[2].1;
+    for cn in client_nodes {
         let open = status
             .and_then(|st| {
                 st.clients
@@ -471,22 +536,6 @@ pub fn layout(doc: &Value, status: Option<&Status>, rates: &Rates, me: Option<&s
             dashed: cn.dashed,
             problem: cn.problem,
         });
-    }
-    let problems = svcs.iter().filter(|s| problem_svc(s)).count() + offline.len();
-    nodes.extend(client_nodes);
-    let alt = format!(
-        "Flow of {} services through the server to {} clients; {} problems",
-        svcs.len(),
-        client_names.len(),
-        problems
-    );
-    Chart {
-        nodes,
-        lines,
-        height,
-        problems,
-        services: svcs.len(),
-        alt,
     }
 }
 
