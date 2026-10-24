@@ -140,3 +140,30 @@ async fn a_terminated_name_added_live_is_served_while_an_open_connection_keeps_w
         1
     );
 }
+
+#[tokio::test]
+async fn a_hello_without_alpn_still_reaches_a_terminated_site() {
+    let app = http_backend().await;
+    let (up, _) = Fake::new(4);
+    up.serve("blog", app.addr);
+    let proxy = start(
+        |s| s.sites = vec![https_site("blog", &["blog.example.com"])],
+        up,
+    )
+    .await;
+    let tcp = tokio::net::TcpStream::connect(proxy.https_addr().unwrap())
+        .await
+        .unwrap();
+    let name = tokio_rustls::rustls::pki_types::ServerName::try_from("blog.example.com").unwrap();
+    let mut t = connector_alpn(&[]).connect(name, tcp).await.unwrap();
+    assert_eq!(t.get_ref().1.alpn_protocol(), None);
+    let r = exchange(
+        &mut t,
+        b"GET /old HTTP/1.1\r\nHost: blog.example.com\r\nConnection: close\r\n\r\n",
+    )
+    .await;
+    assert!(
+        r.starts_with("HTTP/1.1 200") && r.contains("GET /old\n"),
+        "{r}"
+    );
+}
