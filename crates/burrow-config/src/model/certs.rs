@@ -38,6 +38,17 @@ pub struct LetsEncrypt {
         locked
     )]
     pub ca: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        description = "The certificate profile to ask the CA for, for example shortlived for 6-day certificates; IP addresses always use shortlived; the CA's default when not set"
+    )]
+    #[admin(
+        label = "Certificate profile",
+        help = "The kind of certificate to ask for, for example shortlived for 6-day certificates; IP addresses always use it",
+        none_label = "The service's default",
+        advanced
+    )]
+    pub profile: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, AdminSchema)]

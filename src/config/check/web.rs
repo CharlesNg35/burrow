@@ -444,6 +444,9 @@ mod tests_certs;
 mod tests_files;
 
 #[cfg(all(test, feature = "web"))]
+mod tests_keys;
+
+#[cfg(all(test, feature = "web"))]
 mod tests_later;
 
 #[cfg(all(test, not(feature = "web")))]

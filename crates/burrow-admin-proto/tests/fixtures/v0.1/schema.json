@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:7906c1ecb6104371",
+  "hash": "b2s:6f936b4f36ae7231",
   "root": {
     "label": "Server",
     "sem": {
@@ -321,6 +321,23 @@
                                     "advanced": true,
                                     "locked": true,
                                     "none_label": "The public CAs"
+                                  }
+                                },
+                                {
+                                  "key": "profile",
+                                  "node": {
+                                    "label": "Certificate profile",
+                                    "help": "The kind of certificate to ask for, for example shortlived for 6-day certificates; IP addresses always use it",
+                                    "sem": {
+                                      "t": "optional",
+                                      "inner": {
+                                        "sem": {
+                                          "t": "text"
+                                        }
+                                      }
+                                    },
+                                    "advanced": true,
+                                    "none_label": "The service's default"
                                   }
                                 }
                               ]

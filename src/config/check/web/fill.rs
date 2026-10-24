@@ -79,6 +79,12 @@ pub(in crate::config::check) fn settings(
         email: l.email.trim().to_string(),
         directory: directory_url(l.directory.as_ref()),
         ca: l.ca.as_ref().map(|c| base_dir.join(c)),
+        profile: l
+            .profile
+            .as_deref()
+            .map(str::trim)
+            .filter(|p| !p.is_empty())
+            .map(str::to_string),
     });
     s.file_digest = crate::config::settings::digest_of(&s.cert_files());
     Some(s)

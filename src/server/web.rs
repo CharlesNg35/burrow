@@ -160,7 +160,7 @@ fn cert_settings(s: &ServerSettings, web: &WebSettings) -> CertSettings {
             directory_url: l.directory.clone(),
             ca: l.ca.clone(),
             email: l.email.clone(),
-            profile: None,
+            profile: l.profile.clone(),
             state_dir: None,
             challenges: std::iter::once(burrow_web::tls::CertCheck::Tls)
                 .chain(web.http.map(|_| burrow_web::tls::CertCheck::Http))
