@@ -7,7 +7,7 @@ These rules apply to all code in this repository, now and in the future. `cargo 
 - A source file has at most 600 lines of code, not counting its inline test module. Aim for under 400.
 - An inline test module has at most 300 lines. A longer one moves to a sibling `tests.rs`.
 - A test file has at most 1000 lines. A longer one becomes a folder.
-- A function has at most 150 lines.
+- A function has at most 150 lines; CI rejects longer ones. Aim for 100 or less in new code, and bring an older function under 100 when you change it.
 - Split by responsibility: one clear job per file, not many tiny files.
 - Write new code within these limits from the start, instead of splitting it later.
 
