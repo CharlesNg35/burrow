@@ -4,10 +4,18 @@ mod access;
 mod checks;
 #[path = "admin_e2e/dashboard.rs"]
 mod dashboard;
+#[path = "admin_e2e/edit_state.rs"]
+mod edit_state;
+#[path = "admin_e2e/editors.rs"]
+mod editors;
 #[path = "admin_e2e/edits.rs"]
 mod edits;
+#[path = "admin_e2e/guards.rs"]
+mod guards;
 #[path = "admin_e2e/header.rs"]
 mod header;
+#[path = "admin_e2e/reverts.rs"]
+mod reverts;
 #[path = "admin_e2e/screens.rs"]
 mod screens;
 #[path = "admin_e2e/secrets.rs"]
