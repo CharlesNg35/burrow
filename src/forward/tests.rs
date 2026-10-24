@@ -358,3 +358,62 @@ async fn a_client_that_never_answers_nor_reads_is_given_up_in_time() {
         upload.abort();
     }
 }
+
+#[cfg(feature = "web")]
+#[tokio::test]
+async fn a_pipe_visitor_carries_bytes_both_ways_through_a_sealed_channel() {
+    let (a, b) = tcp_pair().await;
+    let (ours, mut theirs) = channels(a, b);
+    let (mut visitor, mut user) = burrow_proxy::pipe();
+    user.write_all(b"hello").await.unwrap();
+    let open = tokio::spawn(async move {
+        let mut early = Early::default();
+        early.last_try();
+        let opening = Opening {
+            first: b"connect",
+            prefix: b"PROXY ",
+            plaintext: false,
+            reply_timeout: Duration::from_secs(5),
+        };
+        open_tcp(
+            ours,
+            &mut visitor,
+            &opening,
+            Meter::default(),
+            &mut early,
+            || {},
+        )
+        .await
+    });
+    async fn next(ch: &mut Channel) -> Option<Vec<u8>> {
+        ch.reader
+            .recv(&mut ch.stream)
+            .await
+            .unwrap()
+            .map(<[u8]>::to_vec)
+    }
+    assert_eq!(next(&mut theirs).await.as_deref(), Some(&b"connect"[..]));
+    assert_eq!(next(&mut theirs).await.as_deref(), Some(&b"PROXY "[..]));
+    assert_eq!(next(&mut theirs).await.as_deref(), Some(&b"hello"[..]));
+    theirs
+        .writer
+        .send(&mut theirs.stream, &[Status::Ok as u8])
+        .await
+        .unwrap();
+    theirs
+        .writer
+        .send(&mut theirs.stream, b"world")
+        .await
+        .unwrap();
+    let mut got = [0u8; 5];
+    user.read_exact(&mut got).await.unwrap();
+    assert_eq!(&got, b"world");
+    user.shutdown().await.unwrap();
+    assert_eq!(next(&mut theirs).await.as_deref(), Some(&b""[..]));
+    theirs.writer.send(&mut theirs.stream, &[]).await.unwrap();
+    let opened = tokio::time::timeout(Duration::from_secs(5), open)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(matches!(opened, Opened::Done(Ok(()))));
+}

@@ -3,14 +3,14 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::TcpListener;
 use tokio::sync::watch;
 use tracing::{debug, info, warn};
 
 use super::Shared;
 use super::route::{Outcome, Tries, Way};
 use crate::config::settings::Service;
-use crate::forward::{ForwardError, Meter, Opened, Opening, open_tcp};
+use crate::forward::{ForwardError, Meter, Opened, Opening, Split, open_tcp};
 use crate::wire::protocol::{Connect, Status};
 use crate::wire::proxy_protocol::header;
 use crate::wire::transport::tcp::tune;
@@ -49,51 +49,97 @@ pub(super) async fn tcp_service(
         let shared = shared.clone();
         let name = name.clone();
         tokio::spawn(async move {
-            visit(shared, name, svc, visitor, peer, index).await;
+            let Ok(admitted) = admit(&shared, &name, &svc, peer, index) else {
+                return;
+            };
+            tune(&visitor, &shared.settings().tcp);
+            let entry = Entry {
+                peer,
+                local: visitor.local_addr().ok(),
+                index,
+                door: Door::Bind,
+            };
+            visit(shared, name, svc, visitor, entry, admitted).await;
         });
     }
 }
 
-async fn visit(
+pub(super) enum Door {
+    Bind,
+}
+
+pub(super) struct Entry {
+    pub peer: SocketAddr,
+    pub local: Option<SocketAddr>,
+    pub index: u16,
+    pub door: Door,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Refusal {
+    Full,
+    NoClient,
+}
+
+pub(super) struct Admitted {
+    stats: Arc<crate::metrics::ServiceStats>,
+    clients: Vec<super::via::Via>,
+    _guard: super::CountGuard,
+    _tracked: super::ActiveConn,
+}
+
+pub(super) fn admit(
+    shared: &Arc<Shared>,
+    name: &str,
+    svc: &Service,
+    peer: SocketAddr,
+    index: u16,
+) -> Result<Admitted, Refusal> {
+    let stats = shared.metrics.service(name);
+    stats.total.fetch_add(1, Ordering::Relaxed);
+    let (guard, n) = shared.service_counts.enter(name);
+    if svc.max_connections.is_some_and(|m| n >= m) {
+        shared.rejected.fetch_add(1, Ordering::Relaxed);
+        stats.refused.fetch_add(1, Ordering::Relaxed);
+        debug!(%peer, "service \"{name}\" is at its connection limit");
+        return Err(Refusal::Full);
+    }
+    let clients = shared.route(name, svc, &svc.target_at(index));
+    if clients.is_empty() {
+        stats.refused.fetch_add(1, Ordering::Relaxed);
+        debug!(%peer, "service \"{name}\": no client is connected, dropping visitor");
+        return Err(Refusal::NoClient);
+    }
+    Ok(Admitted {
+        stats,
+        clients,
+        _guard: guard,
+        _tracked: shared.track(),
+    })
+}
+
+pub(super) async fn visit<V: Split>(
     shared: Arc<Shared>,
     name: String,
     svc: Service,
-    mut visitor: TcpStream,
-    peer: SocketAddr,
-    index: u16,
+    mut visitor: V,
+    entry: Entry,
+    admitted: Admitted,
 ) {
     let settings = shared.settings();
+    let Entry {
+        peer,
+        local,
+        index,
+        door,
+    } = entry;
     let target = svc.target_at(index);
-    let stats = shared.metrics.service(&name);
-    stats.total.fetch_add(1, Ordering::Relaxed);
-    let refuse = || stats.refused.fetch_add(1, Ordering::Relaxed);
-    let (_guard, n) = shared.service_counts.enter(&name);
-    if svc.max_connections.is_some_and(|m| n >= m) {
-        shared.rejected.fetch_add(1, Ordering::Relaxed);
-        refuse();
-        debug!(%peer, "service \"{name}\" is at its connection limit");
-        return;
-    }
-    let clients = shared.route(&name, &svc, &target);
-    if clients.is_empty() {
-        refuse();
-        debug!(%peer, "service \"{name}\": no client is connected, dropping visitor");
-        return;
-    }
-    let _tracked = shared.track();
-    tune(&visitor, &settings.tcp);
-    let label = format!("service \"{name}\"");
-    let first = Connect {
-        protocol: Protocol::Tcp,
-        service: name.clone(),
-        target: target.clone(),
-        only: None,
-    }
-    .encode();
-    let prefix = match (svc.proxy_protocol, visitor.local_addr()) {
-        (Some(version), Ok(local)) => header(version, peer, local),
-        _ => Vec::new(),
+    let stats = admitted.stats.clone();
+    let refuse = || {
+        stats.refused.fetch_add(1, Ordering::Relaxed);
     };
+    let label = format!("service \"{name}\"");
+    let (first, prefix) = first_bytes(&name, &target, &svc, peer, local);
     let opening = Opening {
         first: &first,
         prefix: &prefix,
@@ -112,7 +158,7 @@ async fn visit(
         peer,
         several: svc.clients.len() > 1,
     };
-    let mut tries = Tries::new(&shared, &way, clients);
+    let mut tries = Tries::new(&shared, &way, admitted.clients.clone());
     let outcome = loop {
         let Some((session, ch)) = tries.next().await else {
             break tries.outcome();
@@ -120,12 +166,14 @@ async fn visit(
         let opened = 'attempt: {
             let client = session.name();
             let mut reloads = shared.reloads();
-            let public = svc.bind.map(|b| (svc.protocol, b));
-            let still_open = || match shared.still_open(&name, client, peer.ip(), index, public) {
-                _ if !session.admitted(&shared) => {
-                    Err(format!("client \"{client}\" is no longer allowed"))
+            let still_open = || {
+                if !session.admitted(&shared) {
+                    return Err(format!("client \"{client}\" is no longer allowed"));
                 }
-                r => r,
+                shared.still_open(&name, client, peer.ip(), index, public_of(&svc, &door))?;
+                match &door {
+                    Door::Bind => Ok(()),
+                }
             };
             if let Err(why) = still_open() {
                 debug!(%peer, "service \"{name}\": {why}, closing");
@@ -165,28 +213,64 @@ async fn visit(
         refuse();
     }
     if matches!(outcome, Outcome::Done { result: Err(_), .. }) {
-        let _ = socket2::SockRef::from(&visitor).set_linger(Some(Duration::ZERO));
+        visitor.reset_on_close(true);
     }
+    log_outcome(&shared, &label, &target, peer, outcome, refuse);
+}
+
+fn first_bytes(
+    name: &str,
+    target: &str,
+    svc: &Service,
+    peer: SocketAddr,
+    local: Option<SocketAddr>,
+) -> (Vec<u8>, Vec<u8>) {
+    let first = Connect {
+        protocol: Protocol::Tcp,
+        service: name.to_string(),
+        target: target.to_string(),
+        only: None,
+    }
+    .encode();
+    let prefix = match (svc.proxy_protocol, local) {
+        (Some(version), Some(local)) => header(version, peer, local),
+        _ => Vec::new(),
+    };
+    (first, prefix)
+}
+
+fn public_of(svc: &Service, door: &Door) -> Option<(Protocol, SocketAddr)> {
+    match door {
+        Door::Bind => svc.bind.map(|b| (svc.protocol, b)),
+    }
+}
+
+fn log_outcome(
+    shared: &Shared,
+    label: &str,
+    target: &str,
+    peer: SocketAddr,
+    outcome: Outcome,
+    refuse: impl Fn(),
+) {
     match outcome {
-        Outcome::Done { result: Ok(()), .. } => {
-            debug!(%peer, "service \"{name}\": connection closed")
-        }
+        Outcome::Done { result: Ok(()), .. } => debug!(%peer, "{label}: connection closed"),
         Outcome::Done {
             result: Err(ForwardError::Io(e)),
             ..
-        } => debug!(%peer, "service \"{name}\": connection ended: {e}"),
+        } => debug!(%peer, "{label}: connection ended: {e}"),
         Outcome::Done {
             client,
             result: Err(error),
-        } => log_refusal(&label, &client, &target, &error),
-        Outcome::Refused { client, error } => log_refusal(&label, &client, &target, &error),
+        } => log_refusal(label, &client, target, &error),
+        Outcome::Refused { client, error } => log_refusal(label, &client, target, &error),
         Outcome::Full(client) => {
             debug!(%peer, "client \"{client}\" is at its connection limit");
             shared.rejected.fetch_add(1, Ordering::Relaxed);
             refuse();
         }
         Outcome::Unavailable(_) => {}
-        Outcome::Gone(Some(e)) => debug!(%peer, "service \"{name}\": connection ended: {e}"),
+        Outcome::Gone(Some(e)) => debug!(%peer, "{label}: connection ended: {e}"),
         Outcome::Gone(None) => {}
     }
 }

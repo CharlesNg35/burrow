@@ -332,6 +332,7 @@ dependencies = [
  "burrow-admin-logic",
  "burrow-admin-proto",
  "burrow-config",
+ "burrow-proxy",
  "burrow-syntax",
  "bytes",
  "chromiumoxide",

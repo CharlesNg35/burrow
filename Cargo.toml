@@ -33,6 +33,7 @@ workspace = true
 [dependencies]
 burrow-admin-proto = { path = "crates/burrow-admin-proto" }
 burrow-config = { path = "crates/burrow-config", features = ["json-schema"] }
+burrow-proxy = { path = "crates/burrow-proxy", optional = true }
 burrow-syntax = { path = "crates/burrow-syntax" }
 base64 = "0.23.1"
 blake2 = "0.10.6"
@@ -104,8 +105,9 @@ hex = "0.4.3"
 serde_json = "1.0.154"
 
 [features]
-default = ["ring"]
+default = ["ring", "web"]
 ring = ["snow/ring-accelerated"]
+web = ["dep:burrow-proxy"]
 admin-test-hooks = []
 
 [profile.release]
