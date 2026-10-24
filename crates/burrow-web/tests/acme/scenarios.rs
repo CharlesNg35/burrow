@@ -152,6 +152,7 @@ pub async fn all(p: Pebble) {
     ari_malformed_and_explained(&ctx, state.path()).await;
     failure_keeps_the_old(&ctx, state.path()).await;
     profiles(&ctx).await;
+    the_guard_stops_an_order_loop(&ctx).await;
     fallback_directory(&ctx).await;
     authz_reuse(&ctx).await;
     let Ctx { p, r, .. } = ctx;
@@ -385,6 +386,28 @@ async fn profiles(ctx: &Ctx) {
         e.contains("does not offer the profile \"nope\"") && e.contains("shortlived"),
         "{e}"
     );
+}
+
+async fn the_guard_stops_an_order_loop(ctx: &Ctx) {
+    use burrow_web::tls::acme::{guard, storage};
+    let state = tempfile::tempdir().unwrap();
+    let j = vec!["j.test".to_string()];
+    let path = guard::path(state.path(), DIRECTORY);
+    let now = burrow_web::tls::now_secs();
+    for i in 0..4 {
+        guard::record(&path, &j, false, now - 3600 + i).unwrap();
+    }
+    let s = settings(ctx, state.path(), &[CertCheck::Tls], None);
+    let store = open_store(ctx, &s, &names("looping", &["j.test"])).await;
+    let st = until(&store, "j.test", "the guard", |s| {
+        matches!(s.phase, CertPhase::Failing { .. })
+    })
+    .await;
+    let e = st.last_error.clone().unwrap();
+    assert!(e.contains("burrow orders the next one after"), "{e}");
+    assert!(st.next_renewal.unwrap() >= now + 6 * 24 * 3600, "{st:#?}");
+    assert!(storage::all(state.path()).is_empty(), "nothing was ordered");
+    assert_eq!(guard::load(&path).len(), 4);
 }
 
 async fn fallback_directory(ctx: &Ctx) {

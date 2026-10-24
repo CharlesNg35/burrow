@@ -1,190 +1,20 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::path::Path;
 use std::sync::Arc;
 
 use instant_acme::{Account, CertificateIdentifier};
-use tokio_rustls::rustls::pki_types::pem::PemObject;
-use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer};
-use tokio_rustls::rustls::sign::CertifiedKey;
 use tracing::{error, info, warn};
 
+pub use super::group::{Group, Held};
 use super::http::{Client, Limits};
-use super::manager::{Acme, GroupView, Plan};
+use super::manager::{Acme, Plan};
 use super::order::{Ask, Failed, Issued, issue};
 use super::{Problemish, schedule, storage};
+use crate::tls::CertCheck;
 use crate::tls::store::now_secs;
-use crate::tls::{CertCheck, CertPhase, files, x509};
 
 const ARI_RECHECK: u64 = 6 * 3600;
 const STAGING_DELAY: u64 = 30;
-
-#[derive(Debug, Clone)]
-pub struct Held {
-    pub key: Arc<CertifiedKey>,
-    pub names: Vec<String>,
-    pub not_before: u64,
-    pub not_after: u64,
-    pub ari_id: Option<String>,
-}
-
-impl Held {
-    pub fn parse(chain_pem: &str, key_pem: &str, names: &[String]) -> Result<Held, String> {
-        let chain = CertificateDer::pem_slice_iter(chain_pem.as_bytes())
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| format!("the CA sent an unreadable chain: {e}"))?;
-        let key = PrivateKeyDer::from_pem_slice(key_pem.as_bytes())
-            .map_err(|e| format!("the new key is unreadable: {e}"))?;
-        let key = Arc::new(files::certified(chain, key)?);
-        if let Some(n) = names.iter().find(|n| !files::covers(&key, n)) {
-            return Err(format!("the new certificate does not cover \"{n}\""));
-        }
-        let facts = x509::facts(&key.cert[0]).ok_or("the new certificate has no readable dates")?;
-        Ok(Held {
-            key,
-            names: names.to_vec(),
-            not_before: facts.not_before,
-            not_after: facts.not_after,
-            ari_id: facts.ari_id,
-        })
-    }
-
-    pub fn covers(&self, names: &[String]) -> bool {
-        names.iter().all(|n| files::covers(&self.key, n))
-    }
-
-    pub fn find(state: &Path, directory: &str, names: &[String], now: u64) -> Option<Held> {
-        Held::best(state, directory, names, |h| h.not_after > now)
-    }
-
-    pub fn reusable(
-        state: &Path,
-        directory: &str,
-        names: &[String],
-        now: u64,
-        not: Option<&Held>,
-    ) -> Option<Held> {
-        Held::best(state, directory, names, |h| {
-            now < schedule::renew_at(h.not_before, h.not_after)
-                && not.is_none_or(|n| n.key.cert[0] != h.key.cert[0])
-        })
-    }
-
-    fn best(
-        state: &Path,
-        directory: &str,
-        names: &[String],
-        keep: impl Fn(&Held) -> bool,
-    ) -> Option<Held> {
-        let wanted = storage::name_set(names);
-        storage::all(state)
-            .into_iter()
-            .filter(|(_, s)| s.meta.directory == directory)
-            .filter_map(|(_, s)| Held::parse(&s.chain_pem, &s.key_pem, &s.meta.names).ok())
-            .filter(|h| h.covers(names) && keep(h))
-            .max_by_key(|h| (storage::name_set(&h.names) == wanted, h.not_after))
-    }
-
-    fn short_lived(&self) -> bool {
-        schedule::short_lived(self.not_before, self.not_after)
-    }
-}
-
-#[derive(Debug)]
-pub struct Group {
-    names: Vec<String>,
-    held: Option<Held>,
-    next: u64,
-    planned: Option<u64>,
-    failures: u32,
-    total: u64,
-    last_error: Option<String>,
-    code: Option<&'static str>,
-    explanation: Option<String>,
-    check: Option<CertCheck>,
-    staging_at: Option<u64>,
-    prod_failed_at: Option<u64>,
-    fallback_note: Option<String>,
-    running: bool,
-}
-
-impl Group {
-    pub fn new(names: Vec<String>, held: Option<Held>) -> Group {
-        Group {
-            names,
-            held,
-            next: now_secs(),
-            planned: None,
-            failures: 0,
-            total: 0,
-            last_error: None,
-            code: None,
-            explanation: None,
-            check: None,
-            staging_at: None,
-            prod_failed_at: None,
-            fallback_note: None,
-            running: false,
-        }
-    }
-
-    pub fn rename(&mut self, names: &[String]) {
-        if self.names != names {
-            self.names = names.to_vec();
-            self.next = now_secs();
-            self.failures = 0;
-        }
-    }
-
-    pub fn in_use(&self) -> Vec<Vec<String>> {
-        std::iter::once(self.names.clone())
-            .chain(self.held.as_ref().map(|h| h.names.clone()))
-            .collect()
-    }
-
-    pub fn due(&self) -> u64 {
-        self.staging_at.map_or(self.next, |s| s.min(self.next))
-    }
-
-    fn needs_order(&self, now: u64) -> bool {
-        match &self.held {
-            None => true,
-            Some(h) => {
-                !h.covers(&self.names)
-                    || h.not_after <= now
-                    || self.planned.is_some_and(|p| p <= now)
-            }
-        }
-    }
-
-    pub fn view(&self, checks: &[CertCheck]) -> GroupView {
-        let reason = || self.last_error.clone().unwrap_or_default();
-        let phase = match (&self.held, &self.last_error, self.running) {
-            (_, _, true) if self.held.is_some() => CertPhase::Renewing,
-            (None, None, _) => CertPhase::Pending,
-            (_, Some(_), _) => CertPhase::Failing { reason: reason() },
-            (Some(_), None, _) => CertPhase::Ok,
-        };
-        let last_error = match (&self.last_error, &self.fallback_note) {
-            (Some(e), Some(n)) => Some(format!("{e}; {n}")),
-            (e, _) => e.clone(),
-        };
-        GroupView {
-            names: self.names.clone(),
-            check: self.check.or_else(|| checks.first().copied()),
-            phase,
-            expires: self.held.as_ref().map(|h| h.not_after),
-            next_renewal: Some(match &self.held {
-                Some(_) if self.last_error.is_none() => self.planned.unwrap_or(self.next),
-                _ => self.next,
-            }),
-            last_error,
-            code: self.last_error.as_ref().and(self.code),
-            explanation: self.explanation.clone(),
-            failures: self.total,
-        }
-    }
-}
 
 pub struct Worker {
     acme: Arc<Acme>,
@@ -387,6 +217,9 @@ impl Worker {
         for check in checks {
             let mut with = replaces.clone();
             loop {
+                if with.is_none() {
+                    self.guard(&g.names).await?;
+                }
                 let ask = Ask {
                     names: &g.names,
                     check,
@@ -394,7 +227,10 @@ impl Worker {
                     replaces: with.clone(),
                 };
                 match issue(&account, &self.acme.challenges, ask).await {
-                    Ok(issued) => return held_of(&issued, &g.names, check).map_err(|e| (e, None)),
+                    Ok(issued) => {
+                        self.note_issued(&g.names, with.is_some()).await;
+                        return held_of(&issued, &g.names, check).map_err(|e| (e, None));
+                    }
                     Err(f)
                         if with.is_some()
                             && matches!(
@@ -421,6 +257,45 @@ impl Worker {
             last.map_or_else(|| "the order failed".into(), |f| f.text),
             None,
         ))
+    }
+
+    fn guard_path(&self) -> Option<std::path::PathBuf> {
+        let p = self.plan.as_ref()?;
+        Some(super::guard::path(
+            p.settings.state_dir.as_ref()?,
+            &p.settings.directory_url,
+        ))
+    }
+
+    async fn guard(&self, names: &[String]) -> Result<(), (String, Option<std::time::Duration>)> {
+        let Some(path) = self.guard_path() else {
+            return Ok(());
+        };
+        let list = tokio::task::spawn_blocking(move || super::guard::load(&path))
+            .await
+            .unwrap_or_default();
+        let now = now_secs();
+        match super::guard::next_allowed(&list, names, now) {
+            None => Ok(()),
+            Some(next) => Err((
+                super::guard::refusal(names, next),
+                Some(std::time::Duration::from_secs(next.saturating_sub(now))),
+            )),
+        }
+    }
+
+    async fn note_issued(&self, names: &[String], ari: bool) {
+        let Some(path) = self.guard_path() else {
+            return;
+        };
+        let names = names.to_vec();
+        let saved = tokio::task::spawn_blocking(move || {
+            super::guard::record(&path, &names, ari, now_secs())
+        })
+        .await;
+        if !matches!(saved, Ok(Ok(()))) {
+            warn!("the list of issued certificates could not be saved in the state folder");
+        }
     }
 
     async fn done(&mut self, name: &str, g: &mut Group, held: (Held, CertCheck, Issued)) {

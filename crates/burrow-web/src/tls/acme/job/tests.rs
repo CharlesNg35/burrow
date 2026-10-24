@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use super::*;
+use crate::tls::CertPhase;
 
 fn s(v: &[&str]) -> Vec<String> {
     v.iter().map(|x| x.to_string()).collect()
