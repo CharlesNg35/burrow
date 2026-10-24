@@ -347,6 +347,13 @@ fn new_website(c: &mut Ctx) -> Flow<'_> {
             .await;
         let service = c.ui.text("[data-testid=new-website-service]").await;
         assert!(service.contains("\"shop\""), "{service}");
+        c.ui.wait_text("[data-testid=entity-list] [data-row=__new]", "shop", SECS)
+            .await;
+        let server = c.ui.text("[data-testid=new-website-path]").await;
+        assert!(
+            server.contains("HTTPS 127.0.0.1:"),
+            "the web port, not the tunnel's: {server}"
+        );
         both_widths(c, "new-website").await;
         c.ui.click("[data-testid=create]").await;
         c.ui.wait_for("[data-testid=entity-list] [data-row=shop]", SECS)
@@ -383,6 +390,11 @@ fn new_website_web_off(c: &mut Ctx) -> Flow<'_> {
         );
         add_name(c, "new-website-names", "shop.example.com").await;
         assert!(!c.ui.enabled("[data-testid=create]").await);
+        assert_eq!(
+            c.ui.count("[data-testid=new-website-problem]").await,
+            0,
+            "the callout says it once"
+        );
         both_widths(c, "new-website-web-off").await;
         c.ui.assert_no_errors();
     })

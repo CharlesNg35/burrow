@@ -28,12 +28,37 @@ struct Ports {
     numbers: CheckPorts,
 }
 
+fn shown_port(v: Option<&Value>) -> String {
+    match v {
+        Some(Value::Number(n)) => n.to_string(),
+        Some(Value::String(s)) => s.clone(),
+        _ => String::new(),
+    }
+}
+
 fn port_of(v: &Value) -> Option<u16> {
     match v {
         Value::Number(n) => n.as_u64().and_then(|p| u16::try_from(p).ok()),
         Value::String(s) => s.rsplit(':').next().and_then(|p| p.trim().parse().ok()),
         _ => None,
     }
+}
+
+fn web_port(plain: bool) -> String {
+    store().edit.draft.with(|d| {
+        let web = ServerConfig::WEB.get(d.draft());
+        let (scheme, field) = if plain {
+            ("HTTP", web.and_then(|w| WebConfig::HTTP.get(w)))
+        } else {
+            ("HTTPS", web.and_then(|w| WebConfig::HTTPS.get(w)))
+        };
+        let port = shown_port(field);
+        if port.is_empty() {
+            String::new()
+        } else {
+            format!("{scheme} {port}")
+        }
+    })
 }
 
 fn ports() -> Memo<Ports> {
@@ -138,7 +163,7 @@ fn site_value(names: &[String], client: &str, target: &str, tls: &str) -> Value 
 }
 
 #[component]
-pub fn NewWebsite(open: RwSignal<bool>) -> impl IntoView {
+pub fn NewWebsite(open: RwSignal<bool>, draft_name: RwSignal<String>) -> impl IntoView {
     let s = store();
     let e = s.edit;
     let p = ports();
@@ -158,6 +183,14 @@ pub fn NewWebsite(open: RwSignal<bool>) -> impl IntoView {
         host_name(&t, single).err()
     });
     let service = Memo::new(move |_| service_name(&names.get(), &taken(ServiceEntry::section())));
+    Effect::new(move |_| {
+        let n = if names.with(Vec::is_empty) {
+            String::new()
+        } else {
+            service.get()
+        };
+        draft_name.set(n);
+    });
     let asks_email = Memo::new(move |_| {
         tls.get() == AUTO
             && e.draft.with(|d| {
@@ -218,11 +251,12 @@ pub fn NewWebsite(open: RwSignal<bool>) -> impl IntoView {
             );
         }
         open.set(false);
+        draft_name.set(String::new());
         go(Route::Detail(ServiceEntry::section().into(), name));
     };
     let diagram = Signal::derive(move || {
         let c = client.get().first().cloned().unwrap_or_default();
-        path(&names.get(), &c, &target.get(), &s.server_name())
+        path(&names.get(), &c, &target.get(), &web_port(plain.get()))
     });
     view! {
         <div data-testid="new-website">
@@ -246,7 +280,7 @@ pub fn NewWebsite(open: RwSignal<bool>) -> impl IntoView {
             <PathDiagram data=diagram testid="new-website-path"/>
             {steps(names, check_name, client, target, tls, p)}
             {move || asks_email.get().then(|| email_step(email))}
-            {move || problem.get().filter(|_| !names.with(Vec::is_empty)).map(|m| view! {
+            {move || problem.get().filter(|_| p.get().on && !names.with(Vec::is_empty)).map(|m| view! {
                 <p class="mb-2 flex items-center gap-1.5 text-sm text-danger" data-testid="new-website-problem">
                     <burrow_ui_kit::Icon name="alert-circle" small=true/>
                     {m}
@@ -255,7 +289,7 @@ pub fn NewWebsite(open: RwSignal<bool>) -> impl IntoView {
             <div class="sticky bottom-4 z-20 mt-6 flex flex-wrap items-center gap-3 rounded-card border border-border bg-surface px-4 py-3 shadow-overlay" data-sticky-bar="">
                 <span class="text-sm text-text-muted" data-testid="new-website-service">{move || format!("Service \"{}\"", service.get())}</span>
                 <span class="ml-auto"></span>
-                <Button label="Cancel" variant="ghost" testid="create-cancel" on_click=move |_| open.set(false)/>
+                <Button label="Cancel" variant="ghost" testid="create-cancel" on_click=move |_| { open.set(false); draft_name.set(String::new()); }/>
                 <Button
                     label="Add to changes"
                     variant="primary"
@@ -327,7 +361,7 @@ fn steps(
                 {move || view! {
                     <Segmented name="new-website-tls" options=tls_options(p.get()) value=Signal::derive(move || tls.get()) label="HTTPS" on_change=move |m: String| tls.set(m)/>
                 }}
-                <p class="mt-1.5 text-xs text-text-muted">"Automatic gets a certificate for every name; your own certificate files are set in server.yaml under web.certificates. A choice needs its port: HTTPS on web.https, plain HTTP on web.http."</p>
+                <p class="mt-1.5 text-xs text-text-muted">"Automatic gets a certificate for every name. Your own certificate files are set in server.yaml (burrow edit). Each choice needs the web proxy's HTTPS or HTTP port to be on."</p>
             </div>
         </section>
     }

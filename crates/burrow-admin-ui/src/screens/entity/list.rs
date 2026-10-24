@@ -194,7 +194,7 @@ pub fn Entities(section: String, selected: Option<String>) -> impl IntoView {
                             "stack"
                         },
                         dot: Some(Tone::Accent),
-                        title: if site.get() {
+                        title: if site.get() && n.is_empty() {
                             "new website".to_string()
                         } else if n.is_empty() {
                             format!("new {what}")
@@ -245,7 +245,7 @@ pub fn Entities(section: String, selected: Option<String>) -> impl IntoView {
         {move || {
             let (sec, pick) = (sec_new.clone(), pick.clone());
             if adding.get() && site.get() {
-                return view! { <DetailPane><NewWebsite open=adding/></DetailPane> }.into_any();
+                return view! { <DetailPane><NewWebsite open=adding draft_name=draft_name/></DetailPane> }.into_any();
             }
             if adding.get() {
                 return view! { <DetailPane><NewEntity section=sec open=adding draft_name=draft_name/></DetailPane> }.into_any();
