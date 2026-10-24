@@ -497,8 +497,28 @@ fn check_hosts(
     let before = out.len();
     for (i, text) in given.iter().enumerate() {
         let at = (place.at)(i);
-        let host = match host_name(text, SingleLabel::Refused) {
+        let single = if matches!(place.served, Served::Plain) {
+            SingleLabel::Allowed
+        } else {
+            SingleLabel::Refused
+        };
+        let host = match host_name(text, single) {
             Ok(h) => h,
+            Err(_) if host_name(text, SingleLabel::Allowed).is_ok() => {
+                out.push(
+                    Diagnostic::error(
+                        "single-label-host",
+                        format!(
+                            "services.{name}.web.hosts: \"{}\" is a single-label name; HTTPS finds sites by their full name, so use a full name like {}.home.example.com, or set tls: off to serve it as plain HTTP",
+                            text.trim(),
+                            text.trim().to_lowercase()
+                        ),
+                    )
+                    .at(at)
+                    .help("browsers send only full names when they connect, and public CAs issue certificates for full names only"),
+                );
+                continue;
+            }
             Err(e) => {
                 out.push(
                     Diagnostic::error("invalid-host", format!("services.{name}.web.hosts: {e}"))

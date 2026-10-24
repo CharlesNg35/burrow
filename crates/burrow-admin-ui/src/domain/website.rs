@@ -3,7 +3,8 @@ use burrow_admin_logic::tree::inner;
 use burrow_admin_logic::web::{names, tls_of, website};
 use burrow_admin_proto::schema::{Node, ObjectC, SemType, UnionC};
 use burrow_admin_proto::serde_json::Value;
-use burrow_config::{Entry, ServerConfig, ServiceEntry, WebSite};
+use burrow_config::{Entry, ServerConfig, ServiceEntry, WebConfig, WebSite};
+use burrow_syntax::web::{SingleLabel, host_name};
 use burrow_ui_kit::{ChipInput, Segmented};
 use leptos::prelude::*;
 
@@ -13,6 +14,7 @@ use super::FieldCtx;
 
 const AUTO: &str = "auto";
 const FILES: &str = "files";
+const OFF: &str = "off";
 const FILES_LABEL: &str = "My own certificate file";
 
 pub(super) fn host_item(u: &UnionC) -> Option<Node> {
@@ -139,20 +141,39 @@ fn web_off() -> impl IntoView {
     }
 }
 
+fn name_problem(item: &Node, text: &str, plain: bool) -> Option<String> {
+    if plain && host_name(text, SingleLabel::Allowed).is_ok() {
+        return None;
+    }
+    check(item, &Value::String(text.to_string())).err()
+}
+
 pub(super) fn website_editor(fc: FieldCtx, item: Node) -> AnyView {
     let e = store().edit;
     let path = fc.path.clone();
     let value = Memo::new(move |_| e.value(&path));
     let items = Signal::derive(move || value.get().as_ref().map(names).unwrap_or_default());
+    let plain = Memo::new(move |_| {
+        let https = e.draft.with(|d| {
+            ServerConfig::WEB
+                .get(d.draft())
+                .is_some_and(|w| WebConfig::HTTPS.get(w).is_some_and(|h| !h.is_null()))
+        });
+        let tls = value.get().as_ref().and_then(tls_of).cloned();
+        match tls {
+            Some(t) => t == Value::String(OFF.into()),
+            None => !https,
+        }
+    });
     let one = item.clone();
-    let check_one = Callback::new(move |t: String| check(&one, &Value::String(t)).err());
+    let check_one = Callback::new(move |t: String| name_problem(&one, &t, plain.get_untracked()));
     let on_names = {
         let fc = fc.clone();
         move |list: Vec<String>| {
             fc.touched.set(true);
             let bad = list
                 .iter()
-                .find_map(|n| check(&item, &Value::String(n.clone())).err());
+                .find_map(|n| name_problem(&item, n, plain.get_untracked()));
             e.local_error(&fc.path, bad);
             let now = value.get_untracked();
             let tls = now.as_ref().and_then(tls_of).cloned();

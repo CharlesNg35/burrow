@@ -131,3 +131,26 @@ fn an_https_site_that_also_answers_plain_http_needs_the_http_port() {
     );
     assert!(found(&ok, "redirect-needs-http").is_empty());
 }
+
+#[test]
+fn a_single_label_name_is_for_plain_http_sites_only() {
+    let site = |ports: &str, tls: &str| {
+        format!(
+            "listen: 7835\nweb: {{ {ports} }}\nservices:\n  nas:\n    client: home\n    target: 5000\n    web: {{ hosts: [nas]{tls} }}\n"
+        )
+    };
+    assert!(super::tests::errors(&load(&site("http: 80", ""))).is_empty());
+    assert!(super::tests::errors(&load(&site("https: 443, http: 80", ", tls: off"))).is_empty());
+    for (ports, tls) in [
+        ("https: 443, http: 80", ""),
+        ("https: 443", ", tls: passthrough"),
+    ] {
+        assert_eq!(
+            found(&site(ports, tls), "single-label-host"),
+            [
+                "services.nas.web.hosts: \"nas\" is a single-label name; HTTPS finds sites by their full name, so use a full name like nas.home.example.com, or set tls: off to serve it as plain HTTP"
+            ],
+            "{ports}{tls}"
+        );
+    }
+}
