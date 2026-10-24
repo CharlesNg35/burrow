@@ -23,6 +23,7 @@ pub(crate) struct Conn {
     pub local: SocketAddr,
     pub name: Option<String>,
     pub ups: Upstreams,
+    pub activity: Arc<Activity>,
 }
 
 impl Conn {
@@ -32,6 +33,7 @@ impl Conn {
             local,
             name,
             ups: Upstreams::default(),
+            activity: Activity::new(),
         }
     }
 }
@@ -39,7 +41,7 @@ impl Conn {
 pub(crate) async fn serve<U: Upstream>(shared: Arc<Shared<U>>, io: BoxIo, conn: Conn) {
     let conn = Arc::new(conn);
     let timeouts = shared.timeouts();
-    let activity = Activity::new();
+    let activity = conn.activity.clone();
     let io: BoxIo = Box::new(Watched::new(io, activity.clone()));
     let service = {
         let (shared, conn, activity) = (shared.clone(), conn.clone(), activity.clone());

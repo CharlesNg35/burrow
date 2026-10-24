@@ -22,7 +22,7 @@ use std::time::Duration;
 
 use tokio::net::TcpStream;
 
-pub use io::{BoxIo, Io, Pipe, Prefixed, pipe};
+pub use io::{BoxIo, Ending, Io, Pipe, Prefixed, pipe};
 pub use listen::{Listeners, Proxy};
 pub use permit::source_key;
 
@@ -166,6 +166,32 @@ pub enum Refused {
     Full,
     NoClient,
     Gone,
+    Down,
+    Denied,
+    Unreachable,
+}
+
+impl Refused {
+    const ALL: [Refused; 7] = [
+        Refused::NotAllowed,
+        Refused::Full,
+        Refused::NoClient,
+        Refused::Gone,
+        Refused::Down,
+        Refused::Denied,
+        Refused::Unreachable,
+    ];
+
+    fn code(self) -> u8 {
+        Refused::ALL
+            .iter()
+            .position(|r| *r == self)
+            .map_or(0, |i| u8::try_from(i + 1).unwrap_or(0))
+    }
+
+    fn from_code(code: u8) -> Option<Refused> {
+        Refused::ALL.get(usize::from(code).checked_sub(1)?).copied()
+    }
 }
 
 pub struct TunnelConn<P> {

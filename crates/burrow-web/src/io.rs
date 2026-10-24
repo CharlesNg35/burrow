@@ -10,6 +10,19 @@ use tokio::net::TcpStream;
 
 pub trait Io: AsyncRead + AsyncWrite + Unpin + Send + 'static {
     fn reset_on_close(&self) {}
+
+    fn ending(&self) -> Option<Ending> {
+        None
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Ending(Arc<AtomicU8>);
+
+impl Ending {
+    pub fn refused(&self) -> Option<crate::Refused> {
+        crate::Refused::from_code(self.0.load(Ordering::Acquire))
+    }
 }
 
 pub type BoxIo = Box<dyn Io>;
@@ -17,6 +30,10 @@ pub type BoxIo = Box<dyn Io>;
 impl Io for BoxIo {
     fn reset_on_close(&self) {
         (**self).reset_on_close();
+    }
+
+    fn ending(&self) -> Option<Ending> {
+        (**self).ending()
     }
 }
 
@@ -106,21 +123,25 @@ pub struct Pipe {
     inner: DuplexStream,
     mine: Arc<AtomicU8>,
     theirs: Arc<AtomicU8>,
+    reason: Arc<AtomicU8>,
 }
 
 pub fn pipe() -> (Pipe, Pipe) {
     let (a, b) = tokio::io::duplex(PIPE_BUFFER);
     let (ra, rb) = (Arc::new(AtomicU8::new(0)), Arc::new(AtomicU8::new(0)));
+    let reason = Arc::new(AtomicU8::new(0));
     (
         Pipe {
             inner: a,
             mine: ra.clone(),
             theirs: rb.clone(),
+            reason: reason.clone(),
         },
         Pipe {
             inner: b,
             mine: rb,
             theirs: ra,
+            reason,
         },
     )
 }
@@ -132,6 +153,10 @@ impl Pipe {
         } else {
             self.mine.fetch_and(!RESET, Ordering::AcqRel);
         }
+    }
+
+    pub fn refuse(&self, why: crate::Refused) {
+        self.reason.store(why.code(), Ordering::Release);
     }
 
     fn peer_reset(&self) -> bool {
@@ -148,6 +173,10 @@ impl Drop for Pipe {
 impl Io for Pipe {
     fn reset_on_close(&self) {
         self.set_reset(true);
+    }
+
+    fn ending(&self) -> Option<Ending> {
+        Some(Ending(self.reason.clone()))
     }
 }
 
@@ -255,6 +284,17 @@ mod tests {
             io::ErrorKind::ConnectionReset,
             "dropping it later is a reset"
         );
+    }
+
+    #[test]
+    fn the_reason_one_end_gives_for_refusing_is_read_on_the_other() {
+        let (a, b) = pipe();
+        let ending = Io::ending(&a).unwrap();
+        assert_eq!(ending.refused(), None);
+        for why in crate::Refused::ALL {
+            b.refuse(why);
+            assert_eq!(ending.refused(), Some(why));
+        }
     }
 
     #[tokio::test]

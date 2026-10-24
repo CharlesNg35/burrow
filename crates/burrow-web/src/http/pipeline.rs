@@ -55,6 +55,7 @@ pub(crate) async fn handle<U: Upstream>(
                 },
                 https: conn.name.is_some(),
                 response_header: shared.timeouts().response_header,
+                activity: &conn.activity,
             };
             forward(shared.up.as_ref(), &conn.ups, req, f).await
         }

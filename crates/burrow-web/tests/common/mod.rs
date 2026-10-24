@@ -144,7 +144,15 @@ pub struct Tunneled {
     pub local: SocketAddr,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum Script {
+    RefuseLater(Refused),
+    Reset,
+    DieMidResponse,
+}
+
 pub struct Fake {
+    pub script: Mutex<Option<Script>>,
     pub backends: Mutex<HashMap<String, SocketAddr>>,
     pub visitors: Mutex<Vec<(String, Visitor)>>,
     pub refuse: Mutex<Option<Refused>>,
@@ -156,6 +164,7 @@ impl Fake {
     pub fn new(slots: usize) -> (Arc<Fake>, mpsc::UnboundedReceiver<Tunneled>) {
         let (tx, rx) = mpsc::unbounded_channel();
         let fake = Fake {
+            script: Mutex::default(),
             backends: Mutex::default(),
             visitors: Mutex::default(),
             refuse: Mutex::default(),
@@ -179,6 +188,9 @@ impl Upstream for Fake {
     async fn open(&self, service: &str, from: &Visitor) -> Result<BoxIo, Refused> {
         if let Some(r) = *self.refuse.lock().unwrap() {
             return Err(r);
+        }
+        if let Some(script) = *self.script.lock().unwrap() {
+            return Ok(Box::new(scripted(script)));
         }
         self.visitors
             .lock()
@@ -220,6 +232,27 @@ impl Upstream for Fake {
         let _ = io.write_all(&out).await;
         let _ = io.shutdown().await;
     }
+}
+
+fn scripted(script: Script) -> burrow_web::Pipe {
+    let (ours, theirs) = burrow_web::pipe();
+    tokio::spawn(async move {
+        let mut theirs = theirs;
+        let mut buf = vec![0u8; 4096];
+        let _ = theirs.read(&mut buf).await;
+        match script {
+            Script::RefuseLater(why) => theirs.refuse(why),
+            Script::Reset => {}
+            Script::DieMidResponse => {
+                let _ = theirs
+                    .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\npartial")
+                    .await;
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        }
+        theirs.set_reset(true);
+    });
+    ours
 }
 
 pub fn site(service: &str, hosts: &[&str]) -> Site {

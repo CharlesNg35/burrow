@@ -1,7 +1,7 @@
 use std::io;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::task::{Context, Poll};
 use std::time::Duration;
 
@@ -14,6 +14,7 @@ pub(crate) struct Activity {
     start: Instant,
     last_ms: AtomicU64,
     busy: AtomicUsize,
+    failed: AtomicBool,
 }
 
 pub(crate) struct Busy(Arc<Activity>);
@@ -31,7 +32,12 @@ impl Activity {
             start: Instant::now(),
             last_ms: AtomicU64::new(0),
             busy: AtomicUsize::new(0),
+            failed: AtomicBool::new(false),
         })
+    }
+
+    pub(crate) fn fail(&self) {
+        self.failed.store(true, Ordering::Release);
     }
 
     fn touch(&self) {
@@ -69,6 +75,14 @@ impl Watched {
     pub(crate) fn new(inner: BoxIo, activity: Arc<Activity>) -> Watched {
         activity.touch();
         Watched { inner, activity }
+    }
+}
+
+impl Drop for Watched {
+    fn drop(&mut self) {
+        if self.activity.failed.load(Ordering::Acquire) {
+            self.inner.reset_on_close();
+        }
     }
 }
 
