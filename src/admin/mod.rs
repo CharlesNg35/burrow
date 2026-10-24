@@ -4,7 +4,6 @@ pub mod hooks;
 pub mod transport;
 
 use std::collections::HashMap;
-use std::net::SocketAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -110,11 +109,4 @@ impl Hub {
             .filter(|(r, _)| r == rev)
             .map(|(_, v)| v.clone())
     }
-}
-
-pub struct Opened {
-    pub visitor: String,
-    pub secret: crate::wire::secret::Secret,
-    pub peer: SocketAddr,
-    pub via_websocket: bool,
 }

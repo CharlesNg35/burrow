@@ -1,21 +1,24 @@
 use std::collections::BTreeMap;
+use std::future::Future;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
+use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 
 use burrow_admin_proto::frame::{self, AdminOpen};
 use tracing::{debug, warn};
 
+use super::Hub;
 use super::core::ports::{Live, LiveSession, Store, Version, WhyNot, WriteError};
 use super::core::{Core, Session, text};
 use super::transport::{self, Access};
-use super::{Hub, Opened};
 use crate::config::Format;
 use crate::config::save::{Refused, write_back};
 use crate::config::settings::ServerSettings;
 use crate::metrics::Status;
 use crate::policy::throttle::Throttle;
 use crate::server::Shared;
+use crate::server::admin_hook::{AdminHook, Opened, answer};
 use crate::wire::protocol::Status as Answer;
 use crate::wire::transport::Channel;
 use burrow_admin_proto::msg::AdminLevel;
@@ -467,19 +470,25 @@ impl Access for SettingsAccess {
     }
 }
 
-async fn answer(ch: &mut Channel, records: &[&[u8]]) {
-    use tokio::io::AsyncWriteExt;
-    let sent = async {
-        for r in records {
-            ch.writer.send(&mut ch.stream, r).await?;
-        }
-        ch.writer.send(&mut ch.stream, &[]).await?;
-        ch.stream.shutdown().await
-    };
-    let _ = tokio::time::timeout(crate::forward::ANSWER_TIMEOUT, sent).await;
+impl AdminHook for Hub {
+    fn serve(
+        self: Arc<Self>,
+        shared: Arc<Shared>,
+        channel: Channel,
+        open: AdminOpen,
+        opened: Opened,
+    ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
+        Box::pin(serve(self, shared, channel, open, opened))
+    }
 }
 
-pub async fn serve(shared: Arc<Shared>, mut channel: Channel, first: &[u8], opened: Opened) {
+async fn serve(
+    hub: Arc<Hub>,
+    shared: Arc<Shared>,
+    mut channel: Channel,
+    open: AdminOpen,
+    opened: Opened,
+) {
     static REFUSED: Throttle = Throttle::new();
     let Opened {
         visitor,
@@ -487,21 +496,6 @@ pub async fn serve(shared: Arc<Shared>, mut channel: Channel, first: &[u8], open
         peer,
         via_websocket,
     } = opened;
-    let Ok(open) = AdminOpen::decode(first) else {
-        answer(&mut channel, &[&[Answer::Invalid as u8]]).await;
-        return;
-    };
-    let Some(hub) = shared.admin() else {
-        answer(
-            &mut channel,
-            &[
-                &[Answer::Invalid as u8],
-                b"this server runs without a config file, so it has nothing to administer",
-            ],
-        )
-        .await;
-        return;
-    };
     let settings = shared.current_settings();
     let level = settings
         .visitors

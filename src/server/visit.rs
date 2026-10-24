@@ -245,13 +245,13 @@ pub(super) async fn serve(
             return;
         }
         Ok(Ok(b)) if burrow_admin_proto::frame::AdminOpen::is_admin_open(&b) => {
-            let opened = crate::admin::Opened {
+            let opened = super::admin_hook::Opened {
                 visitor,
                 secret,
                 peer,
                 via_websocket: channel.stream.is_websocket(),
             };
-            crate::admin::adapters::serve(shared, channel, &b, opened).await;
+            super::admin_hook::serve(shared, channel, &b, opened).await;
             return;
         }
         Ok(Ok(b)) => VisitRequest::decode(&b),

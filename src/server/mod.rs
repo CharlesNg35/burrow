@@ -1,3 +1,4 @@
+pub mod admin_hook;
 mod control;
 mod fields;
 mod health;
@@ -50,7 +51,7 @@ pub struct Shared {
     shutdown: watch::Receiver<bool>,
     reloaded: watch::Sender<u64>,
     applied: watch::Sender<ApplyReport>,
-    admin: std::sync::OnceLock<Arc<crate::admin::Hub>>,
+    admin: std::sync::OnceLock<Arc<dyn admin_hook::AdminHook>>,
     service_counts: Counts,
     visitor_counts: Counts,
     client_counts: Counts,
@@ -177,11 +178,11 @@ impl Shared {
             .collect()
     }
 
-    pub fn set_admin(&self, hub: Arc<crate::admin::Hub>) {
+    pub fn set_admin(&self, hub: Arc<dyn admin_hook::AdminHook>) {
         let _ = self.admin.set(hub);
     }
 
-    pub(crate) fn admin(&self) -> Option<Arc<crate::admin::Hub>> {
+    pub(crate) fn admin(&self) -> Option<Arc<dyn admin_hook::AdminHook>> {
         self.admin.get().cloned()
     }
 
