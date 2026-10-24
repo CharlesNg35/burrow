@@ -72,6 +72,56 @@ fn the_crate_has_no_other_name() {
 }
 
 #[test]
+fn a_member_takes_the_workspace_lints_as_they_are() {
+    let ok = "[package]\nname = \"a\"\n\n[lints]\nworkspace = true\n\n[dependencies]\n";
+    assert!(member_lint_problems("a/Cargo.toml", ok).is_empty());
+    for bad in [
+        "[package]\nname = \"a\"\n",
+        "[lints]\nworkspace = true\nclippy.too_many_lines = \"allow\"\n",
+        "[lints]\nworkspace = true\n\n[lints.clippy]\ntoo_many_lines = \"allow\"\n",
+        "[lints.clippy]\ntoo_many_lines = \"allow\"\n",
+        "[lints]\nworkspace = false\n",
+    ] {
+        assert_eq!(member_lint_problems("a/Cargo.toml", bad).len(), 1, "{bad}");
+    }
+}
+
+#[test]
+fn the_root_keeps_the_threshold_and_the_deny() {
+    let cargo =
+        "[workspace.lints.clippy]\ntoo_many_lines = \"deny\"\n\n[lints]\nworkspace = true\n";
+    let clippy = "disallowed-macros = []\ntoo-many-lines-threshold = 150\n";
+    assert!(root_problems(cargo, clippy).is_empty());
+    assert_eq!(
+        root_problems(cargo, "too-many-lines-threshold = 200\n").len(),
+        1
+    );
+    let warn = "[workspace.lints.clippy]\ntoo_many_lines = \"warn\"\n";
+    assert_eq!(root_problems(warn, clippy).len(), 1);
+    assert_eq!(root_problems("", "").len(), 2);
+}
+
+#[test]
+fn members_come_from_the_workspace_list() {
+    let cargo = "[workspace]\nmembers = [\n    \".\",\n    \"crates/a\",\n    \"xtask\",\n]\n";
+    assert_eq!(members(cargo), [".", "crates/a", "xtask"]);
+}
+
+#[test]
+fn flags_that_loosen_clippy_are_found() {
+    for bad in [
+        "rustflags = [\"-A\", \"clippy::all\"]\nRUSTFLAGS: -A clippy::too_many_lines",
+        "run: cargo clippy -- -D warnings -Aclippy::too_many_lines",
+        "run: cargo clippy -- --allow clippy::all",
+        "run: cargo clippy -- -W clippy::too_many_lines",
+    ] {
+        assert!(!flag_problems("ci.yml", bad).is_empty(), "{bad}");
+    }
+    let ok = "run: cargo clippy --locked --workspace --all-targets -- -D warnings\n";
+    assert!(flag_problems("ci.yml", ok).is_empty());
+}
+
+#[test]
 fn the_tree_keeps_its_lint_rules() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()

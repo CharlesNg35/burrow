@@ -1,8 +1,20 @@
 use std::path::Path;
+use std::process::Command;
 
 use crate::shape::lex;
 
+pub const THRESHOLD: &str = "too-many-lines-threshold = 150";
 pub const SILENCED: &[&str] = &["too_many_lines", "pedantic", "all"];
+pub const FLAG_OVERRIDES: &[&str] = &[
+    "-A clippy",
+    "-Aclippy",
+    "--allow clippy",
+    "--allow=clippy",
+    "-W clippy::too_many_lines",
+    "-Wclippy::too_many_lines",
+    "--warn clippy::too_many_lines",
+    "--warn=clippy::too_many_lines",
+];
 
 #[derive(Debug, Clone, PartialEq)]
 struct Tok {
@@ -144,13 +156,122 @@ pub fn alias_problems(path: &str, src: &str) -> Vec<String> {
     out
 }
 
+fn section<'a>(toml: &'a str, header: &str) -> Option<Vec<&'a str>> {
+    let mut lines = toml.lines().map(str::trim);
+    lines.find(|l| *l == header)?;
+    Some(
+        lines
+            .take_while(|l| !l.starts_with('['))
+            .filter(|l| !l.is_empty())
+            .collect(),
+    )
+}
+
+pub fn members(root_toml: &str) -> Vec<String> {
+    let Some(start) = root_toml.find("members = [") else {
+        return Vec::new();
+    };
+    let rest = &root_toml[start + "members = [".len()..];
+    rest[..rest.find(']').unwrap_or(rest.len())]
+        .split(',')
+        .map(|m| m.trim().trim_matches('"').to_string())
+        .filter(|m| !m.is_empty())
+        .collect()
+}
+
+pub fn member_lint_problems(path: &str, toml: &str) -> Vec<String> {
+    let headers: Vec<&str> = toml
+        .lines()
+        .map(str::trim)
+        .filter(|l| l.starts_with("[lints"))
+        .collect();
+    let plain =
+        headers == ["[lints]"] && section(toml, "[lints]") == Some(vec!["workspace = true"]);
+    if plain {
+        Vec::new()
+    } else {
+        vec![format!(
+            "{path}: the [lints] table must be exactly `workspace = true`, so the workspace lints apply"
+        )]
+    }
+}
+
+pub fn root_problems(cargo: &str, clippy: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    if !clippy.lines().any(|l| l.trim() == THRESHOLD) {
+        out.push(format!("clippy.toml must say `{THRESHOLD}`"));
+    }
+    let deny = section(cargo, "[workspace.lints.clippy]")
+        .is_some_and(|s| s.contains(&"too_many_lines = \"deny\""));
+    if !deny {
+        out.push(
+            "Cargo.toml must set too_many_lines = \"deny\" in [workspace.lints.clippy]".into(),
+        );
+    }
+    out
+}
+
+pub fn flag_problems(path: &str, text: &str) -> Vec<String> {
+    let plain: String = text
+        .chars()
+        .filter(|c| !matches!(c, '"' | '\'' | ','))
+        .collect();
+    let plain = plain.split_whitespace().collect::<Vec<_>>().join(" ");
+    FLAG_OVERRIDES
+        .iter()
+        .filter(|f| plain.contains(*f))
+        .map(|f| format!("{path}: `{f}` would loosen the clippy rules"))
+        .collect()
+}
+
+fn listed(root: &Path) -> Vec<String> {
+    let run = |args: &[&str]| {
+        Command::new("git")
+            .args(args)
+            .current_dir(root)
+            .output()
+            .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+            .unwrap_or_default()
+    };
+    let mut files: Vec<String> = run(&["ls-files"])
+        .lines()
+        .chain(run(&["ls-files", "--others", "--exclude-standard"]).lines())
+        .map(str::to_string)
+        .collect();
+    files.sort();
+    files.dedup();
+    files
+}
+
 pub fn problems(root: &Path) -> Result<Vec<String>, String> {
+    let read = |p: &str| std::fs::read_to_string(root.join(p)).unwrap_or_default();
     let mut out = Vec::new();
     for path in crate::shape::tracked(root)? {
-        let src = std::fs::read_to_string(root.join(&path)).unwrap_or_default();
+        let src = read(&path);
         out.extend(silenced_problems(&path, &src));
         if path.starts_with("src/") {
             out.extend(alias_problems(&path, &src));
+        }
+    }
+    let cargo = read("Cargo.toml");
+    out.extend(root_problems(&cargo, &read("clippy.toml")));
+    for m in members(&cargo) {
+        let path = if m == "." {
+            "Cargo.toml".to_string()
+        } else {
+            format!("{m}/Cargo.toml")
+        };
+        out.extend(member_lint_problems(&path, &read(&path)));
+    }
+    for f in listed(root) {
+        let name = f.rsplit('/').next().unwrap_or(&f);
+        if (name == "clippy.toml" || name == ".clippy.toml") && f != "clippy.toml" {
+            out.push(format!("{f}: only the repo root may have a clippy.toml"));
+        }
+        let config = f == ".cargo/config.toml" || f == ".cargo/config";
+        let workflow = f.starts_with(".github/workflows/");
+        if config || workflow {
+            out.extend(flag_problems(&f, &read(&f)));
         }
     }
     Ok(out)
