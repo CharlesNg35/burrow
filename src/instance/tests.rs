@@ -1,4 +1,3 @@
-
 use super::lock::held_elsewhere;
 #[cfg(unix)]
 use super::lock::planted;

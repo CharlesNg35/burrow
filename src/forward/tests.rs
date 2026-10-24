@@ -1,4 +1,3 @@
-
 use super::*;
 use crate::wire::noise::{Initiator, Responder};
 use crate::wire::record::{RecordReader, RecordWriter};

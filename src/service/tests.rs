@@ -1,4 +1,3 @@
-
 #[cfg(target_os = "linux")]
 use super::checks::misfits_of;
 use super::checks::needs_low_ports;
