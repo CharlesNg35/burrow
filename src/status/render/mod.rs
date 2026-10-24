@@ -117,6 +117,15 @@ fn speed(bytes_per_sec: f64) -> Cell {
 
 pub fn render(s: &Status, paint: Paint, rates: Option<&Rates>) -> String {
     let mut out = String::new();
+    render_head(&mut out, s, paint);
+    render_clients(&mut out, s, paint);
+    render_services(&mut out, s, paint, rates);
+    render_visitors(&mut out, s, paint);
+    render_footer(&mut out, s, paint);
+    out
+}
+
+fn render_head(out: &mut String, s: &Status, paint: Paint) {
     let title = format!("burrow {}", s.version);
     let up = format!("up {}", duration(s.uptime_secs));
     let dot = paint.tone("  ·  ", Tone::Dim);
@@ -141,7 +150,9 @@ pub fn render(s: &Status, paint: Paint, rates: Option<&Rates>) -> String {
             let _ = writeln!(out, "{}", paint.clip(l));
         }
     }
+}
 
+fn render_clients(out: &mut String, s: &Status, paint: Paint) {
     let remote = s.clients.iter().filter(|c| !c.local).count();
     let connected = s.clients.iter().filter(|c| c.connected && !c.local).count();
     let rows = s
@@ -180,7 +191,7 @@ pub fn render(s: &Status, paint: Paint, rates: Option<&Rates>) -> String {
         .collect();
     let all_in = connected == remote;
     table(
-        &mut out,
+        out,
         paint,
         &format!(
             "{}  {}",
@@ -200,7 +211,9 @@ pub fn render(s: &Status, paint: Paint, rates: Option<&Rates>) -> String {
         ],
         rows,
     );
+}
 
+fn render_services(out: &mut String, s: &Status, paint: Paint, rates: Option<&Rates>) {
     if !s.services.is_empty() {
         let totals = if rates.is_some() { 4 } else { 6 };
         let mut cols = vec![
@@ -294,13 +307,15 @@ pub fn render(s: &Status, paint: Paint, rates: Option<&Rates>) -> String {
                 row
             })
             .collect();
-        table(&mut out, paint, &paint.bold("SERVICES"), &cols, rows);
+        table(out, paint, &paint.bold("SERVICES"), &cols, rows);
         for n in notes {
             let note = paint.clip(&format!("  {n}"));
             let _ = writeln!(out, "{}", paint.tone(&note, Tone::Dim));
         }
     }
+}
 
+fn render_visitors(out: &mut String, s: &Status, paint: Paint) {
     if !s.visitors.is_empty() {
         let rows = s
             .visitors
@@ -315,7 +330,7 @@ pub fn render(s: &Status, paint: Paint, rates: Option<&Rates>) -> String {
             })
             .collect();
         table(
-            &mut out,
+            out,
             paint,
             &paint.bold("VISITORS"),
             &[
@@ -327,7 +342,9 @@ pub fn render(s: &Status, paint: Paint, rates: Option<&Rates>) -> String {
             rows,
         );
     }
+}
 
+fn render_footer(out: &mut String, s: &Status, paint: Paint) {
     let mut footer = Vec::new();
     match s.udp_peers {
         0 => {}
@@ -344,7 +361,7 @@ pub fn render(s: &Status, paint: Paint, rates: Option<&Rates>) -> String {
         let line = paint.clip(&footer.join("  ·  "));
         let _ = writeln!(out, "\n{}", paint.tone(&line, Tone::Dim));
     }
-    out
 }
+
 #[cfg(test)]
 mod tests;
