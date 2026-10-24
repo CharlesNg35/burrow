@@ -50,6 +50,24 @@ VISITORS
 
 In a terminal, the tables have borders and colors, and fit the window's width.
 
+With the web proxy on, `burrow status` also lists the websites and the certificates burrow serves:
+
+```text
+WEBSITES
+  NAME                  KIND                     SERVICE
+  blog.example.com      HTTPS                    blog
+  dash.lan.example.com  plain HTTP, unencrypted  dashboard
+
+CERTIFICATES
+  NAME              SOURCE                    STATE    EXPIRES   NEXT RENEWAL
+  blog.example.com  Let's Encrypt, TLS check  ok       in 59 d   in 29 d
+Certificate orders, one at a time:
+  wiki (wiki.example.com): next try 25 Oct 2026 14:05 UTC
+Let's Encrypt account https://acme-v02.api.letsencrypt.org/acme/acct/123, kept in /var/lib/burrow/home
+```
+
+A failing certificate gets a line with the reason, and a link when Let's Encrypt gives one. The admin UI shows the same on its Overview, and lists failing, expired and soon expiring certificates under Needs attention. See [web.md](web.md#when-a-certificate-fails) for what to check.
+
 <details>
 <summary><b>What the columns mean</b></summary>
 
@@ -84,6 +102,8 @@ scrape_configs:
       - targets: ["127.0.0.1:9100"]
 ```
 
+Let's Encrypt no longer sends expiry emails, so alert on certificates yourself, for example when `burrow_certificate_expiry_timestamp_seconds - time()` drops below 14 days.
+
 Keep `listen` on `127.0.0.1` unless a firewall limits who can connect: anyone who reaches it sees the names of your clients, services and visitors, and their traffic.
 
 <details>
@@ -103,6 +123,8 @@ Keep `listen` on `127.0.0.1` unless a firewall limits who can connect: anyone wh
 | `burrow_service_bytes_total` | counter | `service`, `direction` | `in` from users to the target, `out` back |
 | `burrow_service_client_up` | gauge | `service`, `client` | health check result, with `health_check` only |
 | `burrow_visitor_connections_open`, `_total` | gauge, counter | `visitor` | |
+| `burrow_certificate_expiry_timestamp_seconds` | gauge | `name` | when the certificate served for a web name expires, in Unix seconds |
+| `burrow_certificate_failures_total` | counter | `name` | failed tries to get or renew a web name's certificate since the server started |
 
 </details>
 

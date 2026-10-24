@@ -57,6 +57,14 @@ Wrong names and wrong secrets get exactly the same answer, after the same amount
 
 </details>
 
+## Websites
+
+- **HTTPS ends at the server** for websites burrow serves with `tls: auto` or its own files: the server decrypts the request, and it travels to the client inside the tunnel's own encryption. With `tls: passthrough` the server never sees the content; the app keeps its own certificate.
+- **Plain HTTP sites are unencrypted** between the visitor and the server. `burrow validate` and the admin UI mark each one; keep them on networks you trust.
+- **The app learns the visitor's address** from `X-Forwarded-For` and `X-Real-IP`, which burrow sets and replaces, so a visitor cannot forge them.
+- **Certificates and keys** from Let's Encrypt live in a folder only the service account can read (0700, files 0600). Your own key files must be readable by the account burrow runs as.
+- **The admin UI cannot open ports or read files:** `web.https`, `web.http` and every certificate and key path are changed in server.yaml only. See [web.md](web.md).
+
 ## burrow admin
 
 The web admin listens on `127.0.0.1` only, needs a random token that only you can read, and can lower admin access but never grant or widen it. See [admin.md](admin.md#security-notes).
