@@ -3,7 +3,7 @@ use std::sync::Arc;
 use tokio_rustls::rustls::server::{ClientHello, ResolvesServerCert};
 use tokio_rustls::rustls::sign::CertifiedKey;
 
-use super::{CertName, CertState, CertStatus, Certificates};
+use super::{Applying, CertName, CertState, CertStatus, Certificates};
 use crate::CertSettings;
 
 #[derive(Debug)]
@@ -40,7 +40,9 @@ impl Certificates for Fixed {
         None
     }
 
-    fn apply(&self, _settings: &CertSettings, _names: &[CertName]) {}
+    fn apply<'a>(&'a self, _settings: &'a CertSettings, _names: &'a [CertName]) -> Applying<'a> {
+        Box::pin(async {})
+    }
 
     fn status(&self) -> Vec<CertStatus> {
         Vec::new()

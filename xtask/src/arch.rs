@@ -81,6 +81,7 @@ const CRATE_DEPS: &[(&str, &[&str], &[&str])] = &[
             "tokio",
             "tokio-rustls",
             "tracing",
+            "x509-cert",
         ],
         &[
             "burrow",

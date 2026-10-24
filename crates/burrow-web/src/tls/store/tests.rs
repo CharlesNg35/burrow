@@ -119,14 +119,16 @@ async fn each_name_is_served_the_file_the_selection_order_gives_it() {
     let (sc, sk) = write_pair(dir.path(), "star", &["*.example.com", "other.example.org"]);
     let settings = shared(&["*.example.com"], &sc, &sk);
     let store = Store::new();
-    store.apply(
-        &settings,
-        &[
-            named("blog.example.com", own(&oc, &ok), "blog"),
-            named("*.example.com", CertSource::Auto, "apps"),
-            named("other.example.org", CertSource::Auto, "other"),
-        ],
-    );
+    store
+        .apply(
+            &settings,
+            &[
+                named("blog.example.com", own(&oc, &ok), "blog"),
+                named("*.example.com", CertSource::Auto, "apps"),
+                named("other.example.org", CertSource::Auto, "other"),
+            ],
+        )
+        .await;
     assert_eq!(
         served(store.clone(), "blog.example.com").await,
         Some(leaf(&oc))
@@ -162,10 +164,12 @@ async fn a_file_that_does_not_cover_its_name_is_never_served() {
     let dir = tempfile::tempdir().unwrap();
     let (c, k) = write_pair(dir.path(), "own", &["blog.example.com"]);
     let store = Store::new();
-    store.apply(
-        &CertSettings::default(),
-        &[named("www.example.com", own(&c, &k), "blog")],
-    );
+    store
+        .apply(
+            &CertSettings::default(),
+            &[named("www.example.com", own(&c, &k), "blog")],
+        )
+        .await;
     assert_eq!(served(store.clone(), "www.example.com").await, None);
     assert_eq!(store.state("www.example.com"), CertState::Failing);
     let reason = format!("{} does not cover \"www.example.com\"", c.display());
@@ -179,7 +183,7 @@ async fn a_changed_file_is_served_after_apply_and_a_broken_one_keeps_the_last_go
     let first = leaf(&c);
     let names = [named("blog.example.com", own(&c, &k), "blog")];
     let store = Store::new();
-    store.apply(&CertSettings::default(), &names);
+    store.apply(&CertSettings::default(), &names).await;
     assert_eq!(
         served(store.clone(), "blog.example.com").await,
         Some(first.clone())
@@ -187,13 +191,13 @@ async fn a_changed_file_is_served_after_apply_and_a_broken_one_keeps_the_last_go
     write_pair(dir.path(), "own", &["blog.example.com"]);
     let second = leaf(&c);
     assert_ne!(first, second);
-    store.apply(&CertSettings::default(), &names);
+    store.apply(&CertSettings::default(), &names).await;
     assert_eq!(
         served(store.clone(), "blog.example.com").await,
         Some(second.clone())
     );
     std::fs::write(&k, "half written").unwrap();
-    store.apply(&CertSettings::default(), &names);
+    store.apply(&CertSettings::default(), &names).await;
     assert_eq!(
         served(store.clone(), "blog.example.com").await,
         Some(second)
@@ -218,12 +222,66 @@ async fn the_tunnel_name_reports_its_websocket_file_and_removed_names_are_droppe
         own(&c, &k),
         super::super::select::TUNNEL_GROUP,
     );
-    store.apply(&CertSettings::default(), &[tunnel]);
+    store.apply(&CertSettings::default(), &[tunnel]).await;
     assert_eq!(
         store.status()[0].origin,
         CertOrigin::TunnelFile { path: c.clone() }
     );
-    store.apply(&CertSettings::default(), &[]);
+    store.apply(&CertSettings::default(), &[]).await;
     assert!(store.status().is_empty());
     assert_eq!(served(store.clone(), "tunnel.example.com").await, None);
+}
+
+#[tokio::test]
+async fn status_reports_when_a_file_expires() {
+    let dir = tempfile::tempdir().unwrap();
+    let key = rcgen::KeyPair::generate().unwrap();
+    let mut params = rcgen::CertificateParams::new(vec!["blog.example.com".to_string()]).unwrap();
+    params.not_after = rcgen::date_time_ymd(2099, 1, 1);
+    let (c, k) = (dir.path().join("a.pem"), dir.path().join("a.key"));
+    std::fs::write(&c, params.self_signed(&key).unwrap().pem()).unwrap();
+    std::fs::write(&k, key.serialize_pem()).unwrap();
+    let store = Store::new();
+    store
+        .apply(
+            &CertSettings::default(),
+            &[named("blog.example.com", own(&c, &k), "blog")],
+        )
+        .await;
+    assert_eq!(store.status()[0].expires, Some(4_070_908_800));
+}
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+async fn apply_reads_files_off_the_async_workers() {
+    let dir = tempfile::tempdir().unwrap();
+    let (c, k) = write_pair(dir.path(), "own", &["blog.example.com"]);
+    let pem = std::fs::read(&c).unwrap();
+    std::fs::remove_file(&c).unwrap();
+    assert!(
+        std::process::Command::new("mkfifo")
+            .arg(&c)
+            .status()
+            .unwrap()
+            .success()
+    );
+    let store = Store::new();
+    let names = vec![named("blog.example.com", own(&c, &k), "blog")];
+    let fifo = c.clone();
+    let writer = std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        let at = std::time::Instant::now();
+        std::fs::write(fifo, pem).unwrap();
+        at
+    });
+    let applying = {
+        let store = store.clone();
+        tokio::spawn(async move { store.apply(&CertSettings::default(), &names).await })
+    };
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    let ran = tokio::spawn(async { std::time::Instant::now() }).await.unwrap();
+    applying.await.unwrap();
+    let written = writer.join().unwrap();
+    assert!(ran < written, "a task ran while the file was being read");
+    assert_eq!(store.state("blog.example.com"), CertState::Ready);
 }
