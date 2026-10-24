@@ -3,6 +3,7 @@ mod body;
 mod detail;
 mod list;
 mod problems;
+mod rows;
 mod summary;
 
 use burrow_admin_proto::schema::Entity;
