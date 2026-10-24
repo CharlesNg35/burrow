@@ -132,6 +132,7 @@ pub struct AcmeSettings {
     pub email: String,
     pub profile: Option<String>,
     pub state_dir: Option<PathBuf>,
+    pub challenges: Vec<tls::CertCheck>,
 }
 
 #[derive(Clone)]

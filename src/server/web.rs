@@ -159,6 +159,9 @@ fn cert_settings(s: &ServerSettings, web: &WebSettings) -> CertSettings {
             email: l.email.clone(),
             profile: None,
             state_dir: None,
+            challenges: std::iter::once(burrow_web::tls::CertCheck::Tls)
+                .chain(web.http.map(|_| burrow_web::tls::CertCheck::Http))
+                .collect(),
         }),
     }
 }

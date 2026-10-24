@@ -1,0 +1,229 @@
+use std::path::Path;
+use std::sync::Arc;
+
+use tokio_rustls::rustls::client::danger::{
+    HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier,
+};
+use tokio_rustls::rustls::pki_types::{CertificateDer, ServerName, UnixTime};
+use tokio_rustls::rustls::{
+    self, ClientConfig, DigitallySignedStruct, ServerConfig, SignatureScheme,
+};
+use tokio_rustls::{TlsAcceptor, TlsConnector};
+
+use super::*;
+use crate::tls::files::tests::write_pair;
+use crate::{CertSource, SharedFile};
+
+#[derive(Debug)]
+struct Any;
+
+impl ServerCertVerifier for Any {
+    fn verify_server_cert(
+        &self,
+        _: &CertificateDer<'_>,
+        _: &[CertificateDer<'_>],
+        _: &ServerName<'_>,
+        _: &[u8],
+        _: UnixTime,
+    ) -> Result<ServerCertVerified, rustls::Error> {
+        Ok(ServerCertVerified::assertion())
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        _: &[u8],
+        _: &CertificateDer<'_>,
+        _: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, rustls::Error> {
+        Ok(HandshakeSignatureValid::assertion())
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        _: &[u8],
+        _: &CertificateDer<'_>,
+        _: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, rustls::Error> {
+        Ok(HandshakeSignatureValid::assertion())
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
+        rustls::crypto::ring::default_provider()
+            .signature_verification_algorithms
+            .supported_schemes()
+    }
+}
+
+async fn served(store: Arc<Store>, name: &str) -> Option<CertificateDer<'static>> {
+    let provider = Arc::new(rustls::crypto::ring::default_provider());
+    let server = ServerConfig::builder_with_provider(provider.clone())
+        .with_safe_default_protocol_versions()
+        .unwrap()
+        .with_no_client_auth()
+        .with_cert_resolver(store);
+    let client = ClientConfig::builder_with_provider(provider)
+        .with_safe_default_protocol_versions()
+        .unwrap()
+        .dangerous()
+        .with_custom_certificate_verifier(Arc::new(Any))
+        .with_no_client_auth();
+    let (a, b) = tokio::io::duplex(64 * 1024);
+    let accept = TlsAcceptor::from(Arc::new(server));
+    let side = tokio::spawn(async move { accept.accept(b).await.is_ok() });
+    let name = ServerName::try_from(name.to_string()).unwrap();
+    let tls = TlsConnector::from(Arc::new(client)).connect(name, a).await;
+    let got = tls.ok().and_then(|t| {
+        t.get_ref()
+            .1
+            .peer_certificates()
+            .map(|c| c[0].clone().into_owned())
+    });
+    let _ = side.await;
+    got
+}
+
+fn leaf(cert: &Path) -> CertificateDer<'static> {
+    files::load(cert, &cert.with_extension("key")).unwrap().cert[0].clone()
+}
+
+fn named(name: &str, source: CertSource, group: &str) -> CertName {
+    CertName {
+        name: name.into(),
+        source,
+        group: group.into(),
+    }
+}
+
+fn own(c: &Path, k: &Path) -> CertSource {
+    CertSource::OwnFile {
+        cert: c.to_path_buf(),
+        key: k.to_path_buf(),
+    }
+}
+
+fn shared(hosts: &[&str], c: &Path, k: &Path) -> CertSettings {
+    CertSettings {
+        shared: vec![SharedFile {
+            hosts: hosts.iter().map(|h| h.to_string()).collect(),
+            cert: c.to_path_buf(),
+            key: k.to_path_buf(),
+        }],
+        ..CertSettings::default()
+    }
+}
+
+#[tokio::test]
+async fn each_name_is_served_the_file_the_selection_order_gives_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let (oc, ok) = write_pair(dir.path(), "own", &["blog.example.com"]);
+    let (sc, sk) = write_pair(dir.path(), "star", &["*.example.com", "other.example.org"]);
+    let settings = shared(&["*.example.com"], &sc, &sk);
+    let store = Store::new();
+    store.apply(
+        &settings,
+        &[
+            named("blog.example.com", own(&oc, &ok), "blog"),
+            named("*.example.com", CertSource::Auto, "apps"),
+            named("other.example.org", CertSource::Auto, "other"),
+        ],
+    );
+    assert_eq!(
+        served(store.clone(), "blog.example.com").await,
+        Some(leaf(&oc))
+    );
+    assert_eq!(
+        served(store.clone(), "x.example.com").await,
+        Some(leaf(&sc))
+    );
+    assert_eq!(
+        served(store.clone(), "X.Example.com").await,
+        Some(leaf(&sc))
+    );
+    assert_eq!(served(store.clone(), "other.example.org").await, None);
+    assert_eq!(served(store.clone(), "a.b.example.com").await, None);
+    assert_eq!(store.state("x.example.com"), CertState::Ready);
+    assert_eq!(store.state("other.example.org"), CertState::Failing);
+    let status = store.status();
+    assert_eq!(status.len(), 2);
+    assert_eq!(status[0].origin, CertOrigin::OwnFile { path: oc.clone() });
+    assert_eq!(
+        status[1].origin,
+        CertOrigin::SharedFile { path: sc.clone() }
+    );
+    assert!(
+        status
+            .iter()
+            .all(|s| s.phase == CertPhase::Ok && s.last_error.is_none())
+    );
+}
+
+#[tokio::test]
+async fn a_file_that_does_not_cover_its_name_is_never_served() {
+    let dir = tempfile::tempdir().unwrap();
+    let (c, k) = write_pair(dir.path(), "own", &["blog.example.com"]);
+    let store = Store::new();
+    store.apply(
+        &CertSettings::default(),
+        &[named("www.example.com", own(&c, &k), "blog")],
+    );
+    assert_eq!(served(store.clone(), "www.example.com").await, None);
+    assert_eq!(store.state("www.example.com"), CertState::Failing);
+    let reason = format!("{} does not cover \"www.example.com\"", c.display());
+    assert_eq!(store.status()[0].phase, CertPhase::Failing { reason });
+}
+
+#[tokio::test]
+async fn a_changed_file_is_served_after_apply_and_a_broken_one_keeps_the_last_good() {
+    let dir = tempfile::tempdir().unwrap();
+    let (c, k) = write_pair(dir.path(), "own", &["blog.example.com"]);
+    let first = leaf(&c);
+    let names = [named("blog.example.com", own(&c, &k), "blog")];
+    let store = Store::new();
+    store.apply(&CertSettings::default(), &names);
+    assert_eq!(
+        served(store.clone(), "blog.example.com").await,
+        Some(first.clone())
+    );
+    write_pair(dir.path(), "own", &["blog.example.com"]);
+    let second = leaf(&c);
+    assert_ne!(first, second);
+    store.apply(&CertSettings::default(), &names);
+    assert_eq!(
+        served(store.clone(), "blog.example.com").await,
+        Some(second.clone())
+    );
+    std::fs::write(&k, "half written").unwrap();
+    store.apply(&CertSettings::default(), &names);
+    assert_eq!(
+        served(store.clone(), "blog.example.com").await,
+        Some(second)
+    );
+    assert_eq!(store.state("blog.example.com"), CertState::Ready);
+    let s = &store.status()[0];
+    assert_eq!(s.phase, CertPhase::Ok);
+    assert!(
+        s.last_error
+            .as_deref()
+            .is_some_and(|e| e.contains("cannot read"))
+    );
+}
+
+#[tokio::test]
+async fn the_tunnel_name_reports_its_websocket_file_and_removed_names_are_dropped() {
+    let dir = tempfile::tempdir().unwrap();
+    let (c, k) = write_pair(dir.path(), "ws", &["tunnel.example.com"]);
+    let store = Store::new();
+    let tunnel = named(
+        "tunnel.example.com",
+        own(&c, &k),
+        super::super::select::TUNNEL_GROUP,
+    );
+    store.apply(&CertSettings::default(), &[tunnel]);
+    assert_eq!(
+        store.status()[0].origin,
+        CertOrigin::TunnelFile { path: c.clone() }
+    );
+    store.apply(&CertSettings::default(), &[]);
+    assert!(store.status().is_empty());
+    assert_eq!(served(store.clone(), "tunnel.example.com").await, None);
+}

@@ -76,6 +76,7 @@ const CRATE_DEPS: &[(&str, &[&str], &[&str])] = &[
             "hyper-util",
             "ppp",
             "ring",
+            "rustls-webpki",
             "socket2",
             "tokio",
             "tokio-rustls",

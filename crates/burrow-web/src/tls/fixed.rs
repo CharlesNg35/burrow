@@ -28,6 +28,10 @@ impl Certificates for Fixed {
         CertState::Ready
     }
 
+    fn certificate(&self, _name: &str) -> Option<Arc<CertifiedKey>> {
+        Some(self.key.clone())
+    }
+
     fn alpn_challenge(&self, _name: &str) -> Option<Arc<CertifiedKey>> {
         None
     }
