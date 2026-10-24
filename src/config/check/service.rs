@@ -122,11 +122,6 @@ pub(super) fn check_service<'a>(
     for field in ServiceEntry::TCP_ONLY {
         let generic = format!("{field} only works for tcp services");
         let (set, code, why) = match *field {
-            "visitors" => (
-                !svc.visitors.is_empty(),
-                "visitors-tcp-only",
-                "visitors can only reach tcp services",
-            ),
             "proxy_protocol" => (
                 svc.proxy_protocol.is_some(),
                 "proxy-protocol-tcp-only",
@@ -135,7 +130,7 @@ pub(super) fn check_service<'a>(
             "max_connections" => (
                 svc.max_connections.is_some(),
                 "max-connections-tcp-only",
-                "max_connections only works for tcp services; UDP peers are limited to 4096 per port",
+                "max_connections only works for tcp services; for UDP, udp.max_peers limits the peers of each port",
             ),
             "mode" => (
                 svc.mode == Mode::Balance && clients.len() > 1,

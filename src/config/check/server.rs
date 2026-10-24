@@ -144,7 +144,7 @@ pub fn check_server(
                 Diagnostic::warning(
                     "reach-any",
                     format!(
-                        "visitor \"{name}\" may reach any target that client \"{client}\" allows"
+                        "visitor \"{name}\" may reach any target that client \"{client}\" allows, over TCP or UDP"
                     ),
                 )
                 .at(spans.key(&["visitors", name, "reach", client]))
@@ -300,6 +300,7 @@ pub fn check_server(
         pool_max_idle: cfg.pool.max_idle as usize,
         tcp: tuning(&cfg.tcp),
         udp_session_timeout: Duration::from_secs(cfg.udp.session_timeout_secs.into()),
+        udp_max_peers: cfg.udp.max_peers as usize,
         metrics,
         self_allow,
     })

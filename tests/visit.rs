@@ -91,7 +91,13 @@ async fn ask(
     ch.writer
         .send(
             &mut ch.stream,
-            &VisitRequest { check, to }.encode().unwrap(),
+            &VisitRequest {
+                check,
+                protocol: burrow_config::Protocol::Tcp,
+                to,
+            }
+            .encode()
+            .unwrap(),
         )
         .await
         .unwrap();
@@ -677,4 +683,759 @@ async fn widening_reach_keeps_open_visits() {
             "{wider} reach cut an open visit"
         );
     }
+}
+
+async fn udp_setup(change: impl FnOnce(&mut ServerSettings, SocketAddr)) -> Setup {
+    let echo = udp_echo_server().await;
+    let secret = Secret::generate();
+    let visitor_secret = Secret::generate();
+    let mut server = server_settings(vec![secret.clone()]);
+    server
+        .visitors
+        .insert("laptop".into(), visitor_auth(visitor_secret.clone(), &[]));
+    server
+        .services
+        .insert("dns".into(), private_udp_service(echo, &["laptop"]));
+    server
+        .services
+        .insert("db".into(), private_service(echo, &["laptop"]));
+    change(&mut server, echo);
+    let tunnel = tunnel_with(server, vec![], |c| c, secret).await;
+    Setup {
+        tunnel,
+        visitor_secret,
+        echo,
+    }
+}
+
+impl Setup {
+    async fn udp(&self, to: VisitTarget) -> Result<UdpVisit, Option<Status>> {
+        udp_visit(self.tunnel.server.addr, self.visitor_secret.clone(), to).await
+    }
+
+    fn dns_status(&self) -> burrow::metrics::ServiceStatus {
+        self.tunnel
+            .server
+            .shared
+            .status()
+            .services
+            .into_iter()
+            .find(|s| s.name == "dns")
+            .unwrap()
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_visitor_reaches_a_private_udp_service() {
+    let s = udp_setup(|_, _| {}).await;
+    let mut v = s.udp(VisitTarget::service("dns")).await.ok().unwrap();
+    assert!(v.echoes(1, b"one").await);
+    assert!(v.echoes(2, b"two").await);
+    assert!(v.echoes(1, &pattern(60_000, 3)).await);
+    let shared = s.tunnel.server.shared.clone();
+    assert_eq!(shared.udp_peers(), 2);
+    let status = s.dns_status();
+    assert_eq!(status.total, 2, "each new peer counts once");
+    assert!(status.bytes_in >= 60_006 && status.bytes_out >= 60_006);
+    let laptop = shared
+        .status()
+        .visitors
+        .into_iter()
+        .find(|v| v.name == "laptop")
+        .unwrap();
+    assert_eq!(
+        laptop.open, 1,
+        "a UDP visit is one open connection of its visitor"
+    );
+    drop(v);
+    wait_for(|| shared.udp_peers() == 0).await;
+    wait_for(|| shared.status().visitors[0].open == 0).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_udp_visit_must_match_the_protocol_of_its_service() {
+    let s = udp_setup(|srv, echo| {
+        srv.services
+            .insert("other".into(), private_udp_service(echo, &["someone"]));
+    })
+    .await;
+    assert_eq!(
+        s.ask(false, VisitTarget::service("dns")).await,
+        Ok(Status::Invalid),
+        "a TCP visit to a UDP service"
+    );
+    assert_eq!(
+        s.udp(VisitTarget::service("db")).await.err(),
+        Some(Some(Status::Invalid)),
+        "a UDP visit to a TCP service"
+    );
+    assert_eq!(
+        s.udp(VisitTarget::service("other")).await.err(),
+        Some(Some(Status::Forbidden)),
+        "a UDP service that does not list the visitor"
+    );
+    assert_eq!(
+        s.udp(VisitTarget::service("nothing")).await.err(),
+        Some(Some(Status::Forbidden))
+    );
+    let checked = udp_visit_with(
+        s.tunnel.server.addr,
+        s.visitor_secret.clone(),
+        true,
+        VisitTarget::service("dns"),
+    )
+    .await;
+    assert!(checked.is_ok(), "a UDP check answers ok");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn reach_carries_udp_inside_its_rules_and_never_to_a_unix_socket() {
+    let s = udp_setup(|srv, _| {
+        srv.visitors.get_mut("laptop").unwrap().reach =
+            [("home".to_string(), narrowed(&["127.0.0.0/8"]))].into();
+    })
+    .await;
+    let mut v = s.udp(s.reach()).await.ok().unwrap();
+    assert!(v.echoes(7, b"by address").await);
+    let port = s.echo.port();
+    let mut named = s
+        .udp(on_home(format!("localhost:{port}")))
+        .await
+        .ok()
+        .unwrap();
+    assert!(named.echoes(7, b"by name").await);
+    assert_eq!(
+        s.udp(on_home("10.1.2.3:53".into())).await.err(),
+        Some(Some(Status::Forbidden))
+    );
+    assert_eq!(
+        s.udp(on_home("unix:/run/app.sock".into())).await.err(),
+        Some(Some(Status::Invalid))
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_udp_visit_to_an_offline_client_is_reported() {
+    let visitor_secret = Secret::generate();
+    let mut server = server_settings(vec![Secret::generate()]);
+    server
+        .visitors
+        .insert("laptop".into(), visitor_auth(visitor_secret.clone(), &[]));
+    server.services.insert(
+        "dns".into(),
+        private_udp_service("127.0.0.1:9".parse().unwrap(), &["laptop"]),
+    );
+    let srv = start_server(server).await;
+    assert_eq!(
+        udp_visit(srv.addr, visitor_secret, VisitTarget::service("dns"))
+            .await
+            .err(),
+        Some(Some(Status::Offline))
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_udp_visit_counts_against_the_visitor_connection_limit() {
+    let s = udp_setup(|srv, _| {
+        srv.visitors.get_mut("laptop").unwrap().max_connections = Some(1);
+    })
+    .await;
+    let mut first = s.udp(VisitTarget::service("dns")).await.ok().unwrap();
+    assert!(first.echoes(1, b"held").await);
+    assert_eq!(
+        s.udp(VisitTarget::service("dns")).await.err(),
+        Some(Some(Status::Busy))
+    );
+    assert_eq!(
+        s.ask(false, VisitTarget::service("db")).await,
+        Ok(Status::Busy)
+    );
+    drop(first);
+    let shared = s.tunnel.server.shared.clone();
+    wait_for(|| shared.status().visitors[0].open == 0).await;
+    assert!(s.udp(VisitTarget::service("dns")).await.is_ok());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn reload_closes_revoked_udp_visits() {
+    let mut settings = None;
+    let s = udp_setup(|srv, _| {
+        srv.visitors.get_mut("laptop").unwrap().reach =
+            [("home".to_string(), AllowList::All)].into();
+        settings = Some(srv.clone());
+    })
+    .await;
+    let settings = settings.unwrap();
+    let mut second = s.udp(VisitTarget::service("dns")).await.ok().unwrap();
+    let mut by_service = s.udp(VisitTarget::service("dns")).await.ok().unwrap();
+    let mut by_reach = s.udp(s.reach()).await.ok().unwrap();
+    for v in [&mut second, &mut by_service, &mut by_reach] {
+        assert!(v.echoes(1, b"before").await);
+    }
+    let mut next = settings.clone();
+    next.services.get_mut("dns").unwrap().visitors.clear();
+    next.services
+        .insert("dns2".into(), private_udp_service(s.echo, &["laptop"]));
+    next.visitors.get_mut("laptop").unwrap().reach =
+        [("home".to_string(), narrowed(&["10.0.0.0/8"]))].into();
+    s.tunnel.server.reload(next).await;
+    assert!(by_service.closed_within(Duration::from_secs(5)).await);
+    assert!(by_reach.closed_within(Duration::from_secs(5)).await);
+    assert!(second.closed_within(Duration::from_secs(5)).await);
+    let mut back = settings;
+    back.visitors.get_mut("laptop").unwrap().reach = [("home".to_string(), AllowList::All)].into();
+    s.tunnel.server.reload(back.clone()).await;
+    let shared = s.tunnel.server.shared.clone();
+    wait_for(|| {
+        shared.settings_snapshot().services["dns"]
+            .visitors
+            .contains(&"laptop".to_string())
+    })
+    .await;
+    let mut open = s.udp(VisitTarget::service("dns")).await.ok().unwrap();
+    assert!(open.echoes(1, b"again").await);
+    back.services
+        .insert("unrelated".into(), private_service(s.echo, &["laptop"]));
+    s.tunnel.server.reload(back).await;
+    assert!(
+        open.echoes(1, b"still open").await,
+        "an unrelated change keeps the visit"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_idle_udp_visit_is_closed_by_the_server() {
+    let s = udp_setup(|srv, _| {
+        srv.udp_session_timeout = Duration::from_secs(1);
+    })
+    .await;
+    let mut v = s.udp(VisitTarget::service("dns")).await.ok().unwrap();
+    assert!(v.echoes(1, b"once").await);
+    assert!(v.closed_within(Duration::from_secs(10)).await);
+    let shared = s.tunnel.server.shared.clone();
+    wait_for(|| shared.udp_peers() == 0).await;
+    let mut quiet = s.udp(VisitTarget::service("dns")).await.ok().unwrap();
+    assert!(
+        quiet.closed_within(Duration::from_secs(10)).await,
+        "a visit that never sends is closed too"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn udp_max_peers_caps_each_visit_and_keeps_known_peers() {
+    let s = udp_setup(|srv, _| {
+        srv.udp_max_peers = 2;
+    })
+    .await;
+    let mut v = s.udp(VisitTarget::service("dns")).await.ok().unwrap();
+    assert!(v.echoes(1, b"a").await);
+    assert!(v.echoes(2, b"b").await);
+    let counted = s.dns_status().bytes_in;
+    assert!(!v.echoes(3, b"c").await, "a third peer is dropped");
+    assert_eq!(
+        s.dns_status().bytes_in,
+        counted,
+        "datagrams dropped at udp.max_peers are not counted as traffic"
+    );
+    assert!(v.echoes(1, b"a again").await);
+    assert_eq!(s.tunnel.server.shared.udp_peers(), 2);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_udp_visit_record_without_a_peer_id_ends_the_visit() {
+    let s = udp_setup(|_, _| {}).await;
+    let mut v = s.udp(VisitTarget::service("dns")).await.ok().unwrap();
+    assert!(v.echoes(1, b"fine").await);
+    v.send_raw(&[0, 0, 1]).await.unwrap();
+    assert!(v.closed_within(Duration::from_secs(5)).await);
+    let shared = s.tunnel.server.shared.clone();
+    wait_for(|| shared.udp_peers() == 0).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn udp_visits_over_the_bandwidth_limit_are_dropped() {
+    let s = udp_setup(|srv, _| {
+        srv.services.get_mut("dns").unwrap().bandwidth = Some(1000);
+    })
+    .await;
+    let mut v = s.udp(VisitTarget::service("dns")).await.ok().unwrap();
+    let payload = vec![5u8; 1000];
+    for _ in 0..100 {
+        v.send(1, &payload).await;
+    }
+    let mut back = 0;
+    while let Got::Datagram(..) = v.next(Duration::from_secs(2)).await {
+        back += 1;
+    }
+    assert!(back > 0 && back < 50, "{back} of 100 came back");
+}
+
+async fn grants_for(s: &Setup, request: &[u8]) -> Option<burrow::protocol::Grants> {
+    let dialer = Dialer::visitor(&visitor_settings(
+        s.tunnel.server.addr,
+        s.visitor_secret.clone(),
+        vec![],
+    ));
+    let mut ch = dialer
+        .open(ChannelKind::Visit, Hello::Visit { version: 1 })
+        .await
+        .ok()?;
+    ch.writer.send(&mut ch.stream, request).await.ok()?;
+    let rec = ch.reader.recv(&mut ch.stream).await.ok()??.to_vec();
+    burrow::protocol::Grants::decode(&rec).ok()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn grants_list_udp_services_only_when_asked_with_protocols() {
+    let s = udp_setup(|_, _| {}).await;
+    let old = grants_for(&s, &burrow::protocol::GRANTS_REQUEST)
+        .await
+        .unwrap();
+    let names = |g: &burrow::protocol::Grants| {
+        g.services
+            .iter()
+            .map(|s| (s.name.clone(), s.protocol))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        names(&old),
+        vec![("db".to_string(), burrow_config::Protocol::Tcp)]
+    );
+    let new = grants_for(&s, &burrow::protocol::GRANTS_REQUEST_V2)
+        .await
+        .unwrap();
+    assert_eq!(
+        names(&new),
+        vec![
+            ("db".to_string(), burrow_config::Protocol::Tcp),
+            ("dns".to_string(), burrow_config::Protocol::Udp)
+        ]
+    );
+    assert!(grants_for(&s, &[0x21, 0x02]).await.is_none());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_udp_visit_moves_to_the_next_client_when_one_refuses() {
+    let echo = udp_echo_server().await;
+    let home = Secret::generate();
+    let office = Secret::generate();
+    let visitor_secret = Secret::generate();
+    let mut server = server_settings(vec![home.clone()]);
+    server.clients.insert(
+        "office".into(),
+        burrow::config::settings::ClientAuth {
+            secrets: vec![office.clone()],
+            max_connections: None,
+        },
+    );
+    server
+        .visitors
+        .insert("laptop".into(), visitor_auth(visitor_secret.clone(), &[]));
+    let mut dns = private_udp_service(echo, &["laptop"]);
+    dns.clients = vec!["office".into(), "home".into()];
+    server.services.insert("dns".into(), dns);
+    let srv = start_server(server).await;
+    let mut refusing = client_settings(srv.addr, office);
+    refusing.name = "office".into();
+    refusing.allow = narrowed(&["10.0.0.0/8"]);
+    let mut c1 = start_client(refusing).await;
+    let mut c2 = start_client(client_settings(srv.addr, home)).await;
+    wait_state(&mut c1.state, burrow::client::State::Connected).await;
+    wait_state(&mut c2.state, burrow::client::State::Connected).await;
+    let shared = srv.shared.clone();
+    wait_for(|| shared.idle_channels("home") >= 1 && shared.idle_channels("office") >= 1).await;
+    let mut v = udp_visit(srv.addr, visitor_secret, VisitTarget::service("dns"))
+        .await
+        .ok()
+        .unwrap();
+    assert!(v.echoes(1, b"via home").await);
+    let dns = srv
+        .shared
+        .status()
+        .services
+        .into_iter()
+        .find(|s| s.name == "dns")
+        .unwrap();
+    assert_eq!(dns.set_aside.len(), 1, "{:?}", dns.set_aside);
+    assert_eq!(dns.set_aside[0].client, "office");
+    assert!(dns.set_aside[0].refused);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hand_built_v011_requests_keep_working() {
+    let s = udp_setup(|_, _| {}).await;
+    let send = |bytes: Vec<u8>| {
+        let server = s.tunnel.server.addr;
+        let secret = s.visitor_secret.clone();
+        async move {
+            let dialer = Dialer::visitor(&visitor_settings(server, secret, vec![]));
+            let mut ch = dialer
+                .open(ChannelKind::Visit, Hello::Visit { version: 1 })
+                .await
+                .ok()
+                .unwrap();
+            ch.writer.send(&mut ch.stream, &bytes).await.unwrap();
+            ch.reader
+                .recv(&mut ch.stream)
+                .await
+                .unwrap()
+                .unwrap()
+                .to_vec()
+        }
+    };
+    assert_eq!(
+        send(vec![0x20, 1, 1, 2, b'd', b'b', 0, 0]).await,
+        vec![Status::Ok as u8]
+    );
+    assert_eq!(
+        send(vec![0x20, 1, 1, 3, b'd', b'n', b's', 0, 0]).await,
+        vec![Status::Invalid as u8],
+        "a v0.1.1 visitor asking for a UDP service over TCP"
+    );
+    let grants = send(vec![0x21]).await;
+    assert_eq!(grants[0], 0x22);
+    let old = burrow::protocol::Grants::decode(&grants).unwrap();
+    assert_eq!(old.services.len(), 1);
+    assert_eq!(old.services[0].name, "db");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_udp_visit_closes_when_its_service_target_changes() {
+    let mut settings = None;
+    let s = udp_setup(|srv, _| {
+        settings = Some(srv.clone());
+    })
+    .await;
+    let mut v = s.udp(VisitTarget::service("dns")).await.ok().unwrap();
+    assert!(v.echoes(1, b"before").await);
+    let mut reach = settings.clone().unwrap();
+    reach.visitors.get_mut("laptop").unwrap().reach = [("home".to_string(), AllowList::All)].into();
+    s.tunnel.server.reload(reach.clone()).await;
+    let shared = s.tunnel.server.shared.clone();
+    wait_for(|| {
+        shared.settings_snapshot().visitors["laptop"]
+            .reach
+            .contains_key("home")
+    })
+    .await;
+    let mut by_reach = s.udp(s.reach()).await.ok().unwrap();
+    assert!(v.echoes(1, b"same target").await);
+    let fresh = udp_echo_server().await;
+    let mut next = reach;
+    next.services
+        .insert("dns".into(), private_udp_service(fresh, &["laptop"]));
+    s.tunnel.server.reload(next).await;
+    assert!(
+        v.closed_within(Duration::from_secs(5)).await,
+        "a UDP visit to a service whose target changed is closed"
+    );
+    assert!(
+        by_reach.echoes(1, b"reach is unaffected").await,
+        "a reach visit keeps its own target"
+    );
+    let mut again = s.udp(VisitTarget::service("dns")).await.ok().unwrap();
+    assert!(again.echoes(1, b"after").await);
+    let got = s
+        .tunnel
+        .server
+        .shared
+        .status()
+        .services
+        .into_iter()
+        .find(|x| x.name == "dns")
+        .unwrap()
+        .target;
+    assert_eq!(got, fresh.to_string());
+}
+
+impl Setup {
+    fn udp_visitor(
+        &self,
+        forwards: Vec<(&str, VisitTarget)>,
+        change: impl FnOnce(&mut burrow::config::settings::VisitorSettings),
+        reloads: bool,
+    ) -> RunningVisitor {
+        let mut settings =
+            visitor_settings(self.tunnel.server.addr, self.visitor_secret.clone(), vec![]);
+        for (name, to) in forwards {
+            settings.forwards.insert(
+                name.to_string(),
+                udp_forward("127.0.0.1:0".parse().unwrap(), to),
+            );
+        }
+        change(&mut settings);
+        start_visitor_with(settings, reloads)
+    }
+
+    fn laptop_open(&self) -> u64 {
+        self.tunnel
+            .server
+            .shared
+            .status()
+            .visitors
+            .into_iter()
+            .find(|v| v.name == "laptop")
+            .map_or(0, |v| v.open)
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_udp_forward_reaches_a_private_udp_service_and_closes_when_idle() {
+    let s = udp_setup(|_, _| {}).await;
+    let v = s.udp_visitor(
+        vec![("dns", VisitTarget::service("dns"))],
+        |v| v.udp_session_timeout = Duration::from_secs(1),
+        false,
+    );
+    let at = v.addr("dns");
+    let one = udp_bind().await;
+    let two = udp_bind().await;
+    assert!(udp_echoes_from(&one, at, b"from one").await);
+    assert!(udp_echoes_from(&two, at, b"from two").await);
+    assert!(udp_echoes_from(&one, at, &pattern(60_000, 9)).await);
+    assert_eq!(
+        s.laptop_open(),
+        1,
+        "one visit channel carries every peer of a port"
+    );
+    assert_eq!(s.tunnel.server.shared.udp_peers(), 2);
+    assert_eq!(v.udp_peers.load(std::sync::atomic::Ordering::Acquire), 2);
+    let shared = s.tunnel.server.shared.clone();
+    wait_long(|| shared.status().visitors[0].open == 0).await;
+    wait_for(|| shared.udp_peers() == 0).await;
+    wait_for(|| v.udp_peers.load(std::sync::atomic::Ordering::Acquire) == 0).await;
+    assert!(
+        udp_echoes_from(&one, at, b"after idle").await,
+        "the next datagram opens a new visit"
+    );
+    assert_eq!(s.laptop_open(), 1);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_udp_forward_forgets_its_peers_after_the_server_closes_the_visit_first() {
+    let s = udp_setup(|srv, _| srv.udp_session_timeout = Duration::from_secs(1)).await;
+    let v = s.udp_visitor(
+        vec![("dns", VisitTarget::service("dns"))],
+        |v| v.udp_session_timeout = Duration::from_secs(8),
+        false,
+    );
+    let at = v.addr("dns");
+    let one = udp_bind().await;
+    assert!(udp_echoes_from(&one, at, b"once").await);
+    let sent = std::time::Instant::now();
+    assert_eq!(v.udp_peers.load(std::sync::atomic::Ordering::Acquire), 1);
+    let shared = s.tunnel.server.shared.clone();
+    wait_long(|| shared.status().visitors[0].open == 0).await;
+    assert!(
+        sent.elapsed() < Duration::from_secs(8),
+        "the server closed the visit before the visitor's own timeout"
+    );
+    wait_long(|| v.udp_peers.load(std::sync::atomic::Ordering::Acquire) == 0).await;
+    assert!(
+        udp_echoes_from(&one, at, b"again").await,
+        "the next datagram opens a new visit"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_udp_forward_reaches_a_target_through_reach() {
+    let s = udp_setup(|srv, _| {
+        srv.visitors.get_mut("laptop").unwrap().reach =
+            [("home".to_string(), narrowed(&["127.0.0.0/8"]))].into();
+    })
+    .await;
+    let v = s.udp_visitor(vec![("echo", s.reach())], |_| {}, false);
+    assert!(udp_echoes_at(v.addr("echo"), b"reach over udp").await);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_udp_forward_follows_a_new_service_target_on_its_next_datagram() {
+    let mut settings = None;
+    let s = udp_setup(|srv, _| settings = Some(srv.clone())).await;
+    let v = s.udp_visitor(vec![("dns", VisitTarget::service("dns"))], |_| {}, false);
+    let at = v.addr("dns");
+    let local = udp_bind().await;
+    assert!(udp_echoes_from(&local, at, b"old").await);
+    let fresh = udp_bind().await;
+    let fresh_at = fresh.local_addr().unwrap();
+    let mut next = settings.unwrap();
+    next.services
+        .insert("dns".into(), private_udp_service(fresh_at, &["laptop"]));
+    s.tunnel.server.reload(next).await;
+    let mut buf = [0u8; 64];
+    let got = tokio::time::timeout(Duration::from_secs(20), async {
+        loop {
+            let _ = local.send_to(b"to the new target", at).await;
+            if let Ok(Ok((n, _))) =
+                tokio::time::timeout(Duration::from_millis(300), fresh.recv_from(&mut buf)).await
+            {
+                return n;
+            }
+        }
+    })
+    .await
+    .expect("a datagram reaches the new target");
+    assert_eq!(&buf[..got], b"to the new target");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_udp_forward_dials_with_the_reloaded_secret() {
+    let mut settings = None;
+    let s = udp_setup(|srv, _| settings = Some(srv.clone())).await;
+    let fresh = Secret::generate();
+    let mut both = settings.unwrap();
+    both.visitors.get_mut("laptop").unwrap().secrets =
+        vec![s.visitor_secret.clone(), fresh.clone()];
+    s.tunnel.server.reload(both.clone()).await;
+    let shared = s.tunnel.server.shared.clone();
+    wait_for(|| shared.settings_snapshot().visitors["laptop"].secrets.len() == 2).await;
+    let at = SocketAddr::from(([127, 0, 0, 1], free_port()));
+    let v = s.udp_visitor(
+        vec![],
+        |v| {
+            v.forwards
+                .insert("dns".into(), udp_forward(at, VisitTarget::service("dns")));
+        },
+        true,
+    );
+    let local = udp_bind().await;
+    assert!(udp_echoes_from(&local, at, b"old secret").await);
+    let first_visit = s.tunnel.server.shared.status().visitors[0].total;
+    let mut next = visitor_settings(s.tunnel.server.addr, fresh.clone(), vec![]);
+    next.forwards
+        .insert("dns".into(), udp_forward(at, VisitTarget::service("dns")));
+    v.reload.as_ref().unwrap().send(next).await.unwrap();
+    let mut only_new = both;
+    only_new.visitors.get_mut("laptop").unwrap().secrets = vec![fresh];
+    s.tunnel.server.reload(only_new).await;
+    wait_for(|| shared.settings_snapshot().visitors["laptop"].secrets.len() == 1).await;
+    assert!(
+        udp_echoes_from(&local, at, b"new secret").await,
+        "the running forward reopens with the reloaded secret"
+    );
+    assert!(s.tunnel.server.shared.status().visitors[0].total > first_visit);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_udp_forward_keeps_at_most_its_udp_max_peers() {
+    let s = udp_setup(|_, _| {}).await;
+    let v = s.udp_visitor(
+        vec![("dns", VisitTarget::service("dns"))],
+        |v| v.udp_max_peers = 1,
+        false,
+    );
+    let at = v.addr("dns");
+    let one = udp_bind().await;
+    let two = udp_bind().await;
+    assert!(udp_echoes_from(&one, at, b"first").await);
+    assert!(!udp_echoes_from(&two, at, b"second").await);
+    assert!(udp_echoes_from(&one, at, b"first again").await);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn tcp_and_udp_forwards_share_a_port_number() {
+    let s = udp_setup(|_, _| {}).await;
+    let port = free_port();
+    let at = SocketAddr::from(([127, 0, 0, 1], port));
+    let mut settings = visitor_settings(s.tunnel.server.addr, s.visitor_secret.clone(), vec![]);
+    settings.forwards.insert(
+        "db".into(),
+        burrow::config::settings::Forward::single(at, VisitTarget::service("db")),
+    );
+    settings
+        .forwards
+        .insert("dns".into(), udp_forward(at, VisitTarget::service("dns")));
+    let _v = start_visitor(settings);
+    assert!(udp_echoes_at(at, b"udp on the shared port").await);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn burrow_visit_udp_forwards_a_service_named_on_the_command_line() {
+    let s = udp_setup(|_, _| {}).await;
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = dir.path().join("visitor.yaml");
+    let server = if ws_mode() {
+        format!("ws://{}/burrow", s.tunnel.server.addr)
+    } else {
+        s.tunnel.server.addr.to_string()
+    };
+    std::fs::write(
+        &cfg,
+        format!(
+            "server: {server}\nname: laptop\nsecret: {}\nforwards: {{}}\n",
+            s.visitor_secret.encode()
+        ),
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&cfg, std::fs::Permissions::from_mode(0o600)).unwrap();
+    }
+    let burrow = |args: &[&str]| {
+        let mut c = std::process::Command::new(env!("CARGO_BIN_EXE_burrow"));
+        c.arg("visit")
+            .arg("-c")
+            .arg(&cfg)
+            .args(args)
+            .env("BURROW_INSTANCE_DIR", dir.path())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::piped());
+        c
+    };
+    let port = free_port();
+    let mut child = burrow(&["--udp", "--service", "dns", "--local", &port.to_string()])
+        .spawn()
+        .unwrap();
+    let echoed = udp_echoes_at(SocketAddr::from(([127, 0, 0, 1], port)), b"from the cli").await;
+    let _ = child.kill();
+    let _ = child.wait();
+    assert!(echoed, "burrow visit --udp carries datagrams");
+    for (args, says) in [
+        (
+            vec!["--udp", "--client", "home", "--socks", "1080"],
+            "cannot be used with",
+        ),
+        (vec!["--udp"], "--udp needs --service NAME"),
+        (
+            vec![
+                "--udp",
+                "--client",
+                "home",
+                "--target",
+                "unix:/run/a.sock",
+                "--local",
+                "9",
+            ],
+            "--udp cannot reach a Unix socket",
+        ),
+    ] {
+        let out = burrow(&args).output().unwrap();
+        let err = String::from_utf8_lossy(&out.stderr);
+        assert!(!out.status.success(), "{args:?}");
+        assert!(err.contains(says), "{args:?}: {err}");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn datagrams_dropped_at_the_peer_cap_use_none_of_the_bandwidth() {
+    let s = udp_setup(|srv, _| {
+        srv.udp_max_peers = 1;
+        srv.services.get_mut("dns").unwrap().bandwidth = Some(1000);
+    })
+    .await;
+    let mut v = s.udp(VisitTarget::service("dns")).await.ok().unwrap();
+    assert!(v.echoes(1, b"admitted").await);
+    let big = vec![3u8; 1000];
+    for _ in 0..100 {
+        v.send(2, &big).await;
+    }
+    let mut back = 0;
+    for _ in 0..8 {
+        v.send(1, &big).await;
+    }
+    while let Got::Datagram(1, _) = v.next(Duration::from_secs(1)).await {
+        back += 1;
+    }
+    assert_eq!(back, 8, "the admitted peer still has the whole burst");
 }

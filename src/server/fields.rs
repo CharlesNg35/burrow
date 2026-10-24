@@ -25,6 +25,7 @@ pub(super) fn changed(old: &ServerSettings, new: &ServerSettings) -> Vec<(&'stat
         pool_max_idle,
         tcp,
         udp_session_timeout,
+        udp_max_peers,
         metrics,
         self_allow,
     } = new;
@@ -74,6 +75,7 @@ pub(super) fn changed(old: &ServerSettings, new: &ServerSettings) -> Vec<(&'stat
         (*pool_max_idle != old.pool_max_idle, "pool.max_idle", Reload),
         (*tcp != old.tcp, "tcp", Live),
         (*udp_session_timeout != old.udp_session_timeout, "udp", Live),
+        (*udp_max_peers != old.udp_max_peers, "udp.max_peers", Live),
         (*metrics != old.metrics, "metrics", Reload),
         (*self_allow != old.self_allow, "self.allow", Reload),
     ]
@@ -215,6 +217,11 @@ mod tests {
                 "udp",
                 Applied::Live,
                 Box::new(|s| s.udp_session_timeout = Duration::from_secs(9)),
+            ),
+            (
+                "udp.max_peers",
+                Applied::Live,
+                Box::new(|s| s.udp_max_peers = 9),
             ),
             (
                 "metrics",

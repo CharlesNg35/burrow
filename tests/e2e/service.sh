@@ -21,7 +21,7 @@ cleanup() {
     sudo "$B" service uninstall burrow-e2e-oldunit --purge >/dev/null 2>&1
     sudo systemctl disable --now burrow-e2e-oldunit burrow-e2e-other >/dev/null 2>&1
     sudo rm -f /etc/systemd/system/burrow-e2e-oldunit.service /etc/systemd/system/burrow-e2e-other.service \
-      "$STATE/services/burrow-e2e-oldunit.json" /etc/burrow/e2e-oldunit.yaml
+      "$STATE/services/burrow-e2e-oldunit.json" /etc/burrow/e2e-oldunit.yaml /etc/burrow/e2e-oldunit.env
     sudo systemctl daemon-reload
   fi
   sudo "$B" service uninstall burrow-e2e-visitor --purge >/dev/null 2>&1
@@ -218,10 +218,12 @@ if [ "$(uname -s)" = Linux ]; then
   BIN="$(sudo "$B" service status burrow-e2e-server | sed -n 's/^ *binary: *\([^ ]*\).*/\1/p')"
   "$B" init server -o e2e-oldunit.yaml >/dev/null
   sed -i.bak 's/0.0.0.0:7835/127.0.0.1:27936/; s/0.0.0.0:7840/127.0.0.1:27946/' e2e-oldunit.yaml
-  sudo install -m 600 e2e-oldunit.yaml /etc/burrow/e2e-oldunit.yaml
-  printf '[Service]\nExecStart=%s server -c /etc/burrow/e2e-oldunit.yaml\n[Install]\nWantedBy=multi-user.target\n' "$BIN" \
+  ACCOUNT="$(sudo "$B" service status burrow-e2e-server | sed -n 's/^ *account: *//p')"
+  sudo install -m 600 -o "$ACCOUNT" e2e-oldunit.yaml /etc/burrow/e2e-oldunit.yaml
+  printf 'OLD_SECRET="x"\n' | sudo install -m 600 -o "$ACCOUNT" /dev/stdin /etc/burrow/e2e-oldunit.env
+  printf '[Service]\nUser=%s\nExecStart=%s server -c /etc/burrow/e2e-oldunit.yaml\n[Install]\nWantedBy=multi-user.target\n' "$ACCOUNT" "$BIN" \
     | sudo tee /etc/systemd/system/burrow-e2e-oldunit.service >/dev/null
-  printf '{"name":"burrow-e2e-oldunit","role":"server","config":"/etc/burrow/e2e-oldunit.yaml","source_config":"/root/e2e-oldunit.yaml","env_file":null,"log_file":"","binary":"%s","copied_binary":true,"account":"root","created_account":false,"low_ports":false,"files":[],"version":"0.1.0"}\n' "$BIN" \
+  printf '{"name":"burrow-e2e-oldunit","role":"server","config":"/etc/burrow/e2e-oldunit.yaml","source_config":"/root/e2e-oldunit.yaml","env_file":"/etc/burrow/e2e-oldunit.env","log_file":"","binary":"%s","copied_binary":true,"account":"root","created_account":false,"low_ports":false,"files":[],"version":"0.1.0"}\n' "$BIN" \
     | sudo tee "$STATE/services/burrow-e2e-oldunit.json" >/dev/null
   printf '[Service]\nExecStart=/bin/sleep 100000\n' | sudo tee /etc/systemd/system/burrow-e2e-other.service >/dev/null
   sudo systemctl daemon-reload
@@ -242,13 +244,17 @@ if [ "$(uname -s)" = Linux ]; then
   grep -q "/etc/burrow/e2e-oldunit.yaml" /etc/systemd/system/burrow-e2e-oldunit.service || fail "the refused install changed the unit"
   sudo systemctl stop burrow-e2e-oldunit
   out="$(sudo "$B" service install -c /etc/burrow/e2e-oldunit.yaml 2>&1)" || fail "install over a stopped unmanaged unit: $out"
-  echo "$out" | grep -q "note: replaced burrow-e2e-oldunit.service, which burrow had no record of; its old config was left as it was: /etc/burrow/e2e-oldunit.yaml" || fail "takeover note: $out"
+  echo "$out" | grep -q "note: replaced burrow-e2e-oldunit.service, which burrow had no record of; its old config was left as it was, now owned by root: /etc/burrow/e2e-oldunit.yaml" || fail "takeover note: $out"
+  echo "$out" | grep -q "note: gave /etc/burrow/e2e-oldunit.env, left by an older install of burrow-e2e-oldunit, to root" || fail "takeover env note: $out"
+  for f in /etc/burrow/e2e-oldunit.yaml /etc/burrow/e2e-oldunit.env; do
+    [ "$(sudo stat -c %u "$f")" = 0 ] || fail "the takeover left $f owned by uid $(sudo stat -c %u "$f")"
+  done
   echo "$out" | grep -q "started burrow-e2e-oldunit" || fail "takeover did not start: $out"
   running burrow-e2e-oldunit || fail "the taken-over unit does not run"
   sudo "$B" service list | grep -Eq "^burrow-e2e-oldunit +server +running +/etc/burrow/e2e-oldunit/server.yaml" || fail "list after takeover: $(sudo "$B" service list)"
   sudo "$B" service uninstall burrow-e2e-oldunit --purge >/dev/null || fail "uninstall of the taken-over unit"
   sudo systemctl stop burrow-e2e-other
-  sudo rm -f /etc/systemd/system/burrow-e2e-other.service /etc/burrow/e2e-oldunit.yaml
+  sudo rm -f /etc/systemd/system/burrow-e2e-other.service /etc/burrow/e2e-oldunit.env
   sudo systemctl daemon-reload
   check "an unmanaged unit is named, refused while running, and taken over once stopped"
 fi
@@ -526,6 +532,11 @@ case "$(uname -s)" in
   Linux) [ -e /run/burrow-instances ] && fail "/run/burrow-instances still exists" ;;
 esac
 if id burrow >/dev/null 2>&1 || id _burrow >/dev/null 2>&1; then fail "service account still exists"; fi
+if [ "$(uname -s)" = Linux ]; then
+  [ "$(sudo stat -c %u /etc/burrow/e2e-oldunit.yaml)" = 0 ] || fail "a taken-over unit's old config is owned by a removed account"
+  sudo rm -f /etc/burrow/e2e-oldunit.yaml
+  sudo rmdir /etc/burrow 2>/dev/null || true
+fi
 sudo "$B" service uninstall burrow-e2e-server --purge >/dev/null 2>&1 && fail "uninstalling a missing service succeeded"
 [ -e "$STATE" ] && fail "uninstalling a missing service created $STATE"
 check "nothing left behind"

@@ -515,7 +515,7 @@ fn json_secret_line_hidden() {
        |
      1 | {"server": "a:1", "name": "home", "secret": **********************************************, "alow": []}
        |                                                                                             ^^^^^^ unknown field
-       = help: did you mean "allow"? valid fields: server, name, secret, allow, allow_all, insecure_plaintext, headers, ca, cipher, proxy, reconnect, connect_timeout_secs, tcp, udp
+       = help: did you mean "allow"? valid fields: server, name, secret, allow, allow_all, insecure_plaintext, headers, ca, cipher, proxy, reconnect, connect_timeout_secs, max_connections, max_udp_peers, tcp, udp
 
     client.json: 1 error, 1 warning
     "#);
@@ -606,6 +606,14 @@ fn json_output_shape() {
             .unwrap()
             .contains("did you mean \"home\"")
     );
+}
+
+#[test]
+fn the_visitor_udp_options_speak_of_forward_ports() {
+    let s = burrow::config::load::schema_json(Role::Visitor).to_string();
+    assert!(s.contains("each port of a UDP forward"), "{s}");
+    assert!(!s.contains("service port"), "{s}");
+    assert!(s.contains("1000000"), "max_peers keeps its range: {s}");
 }
 
 #[test]
@@ -998,7 +1006,7 @@ fn private_services_and_visitors() {
         "  web: { client: home, bind: 7840, target: 3000, visitors: [laptop] }\n  db: { client: home, target: 5432, visitors: [laptop] }\n",
     );
     insta::assert_snapshot!(render("server.yaml", &src, None), @r#"
-    warning: visitor "laptop" may reach any target that client "home" allows
+    warning: visitor "laptop" may reach any target that client "home" allows, over TCP or UDP
       --> server.yaml:9:7
        |
      9 |       home: any
@@ -1050,13 +1058,6 @@ fn visitor_mistakes_in_the_server_config() {
        |                                                ^^^^^ no visitor with this name
        = help: did you mean "laptop"? defined visitors: laptop, idle
 
-    error: service "dns" is udp, but visitors can only reach tcp services
-      --> server.yaml:14:61
-       |
-    14 |   dns: { client: home, protocol: udp, target: 53, visitors: [laptop] }
-       |                                                             ^^^^^^^^^
-       = help: remove "visitors", or use a tcp service
-
     error: service "nobody" has no "bind" and no "visitors", so nobody can reach it
       --> server.yaml:15:3
        |
@@ -1064,7 +1065,80 @@ fn visitor_mistakes_in_the_server_config() {
        |   ^^^^^^ no bind and no visitors
        = help: add "bind: 7840" to expose it publicly, or "visitors: [NAME]" for visitors using burrow visit
 
-    server.yaml: 5 errors, 1 warning
+    server.yaml: 4 errors, 1 warning
+    "#);
+}
+
+#[test]
+fn a_udp_service_with_neither_bind_nor_visitors_is_told_to_add_one() {
+    let src = visitors_server(
+        "  laptop:\n    secret: ${HOME_SECRET}\n",
+        "  web: { client: home, bind: 7840, target: 80, visitors: [laptop] }\n  dns: { client: home, protocol: udp, target: 53 }\n",
+    );
+    insta::assert_snapshot!(render("server.yaml", &src, None), @r#"
+    error: service "dns" has no "bind" and no "visitors", so nobody can reach it
+      --> server.yaml:10:3
+       |
+    10 |   dns: { client: home, protocol: udp, target: 53 }
+       |   ^^^ no bind and no visitors
+       = help: add "bind: 7840" to expose it publicly, or "visitors: [NAME]" for visitors using burrow visit
+
+    server.yaml: 1 error, 0 warnings
+    "#);
+}
+
+#[test]
+fn a_private_udp_service_with_visitors_is_valid() {
+    let src = visitors_server(
+        "  laptop:\n    secret: ${HOME_SECRET}\n",
+        "  dns: { client: home, protocol: udp, target: 53, visitors: [laptop] }\n  game: { client: home, protocol: udp, target: 27015-27016, visitors: [laptop] }\n",
+    );
+    insta::assert_snapshot!(render("server.yaml", &src, None), @"server.yaml: valid server config (1 client, 1 visitor, 2 services)");
+}
+
+#[test]
+fn udp_forwards_in_a_visitor_config() {
+    insta::assert_snapshot!(render("visitor.yaml", &visitor(
+        "  dns: { service: dns, protocol: udp, local: 5353 }\n  db: { service: db, local: 5353 }\n  dup: { service: x, protocol: udp, local: 5353 }\n  proxy: { client: home, socks: true, protocol: udp, local: 1080 }\n  sock: { client: home, target: \"unix:/run/a.sock\", protocol: udp, local: 9 }\n"
+    ), None), @r#"
+    error: forward "dup" listens on 127.0.0.1:5353, already used by forward "dns"
+      --> visitor.yaml:7:44
+       |
+     7 |   dup: { service: x, protocol: udp, local: 5353 }
+       |                                            ^^^^ address already used
+       = help: pick a different local port for one of the forwards
+
+    error: forward "proxy" is a SOCKS proxy, which listens on tcp
+      --> visitor.yaml:8:49
+       |
+     8 |   proxy: { client: home, socks: true, protocol: udp, local: 1080 }
+       |                                                 ^^^ udp with socks: true
+       = help: remove "protocol: udp", or use a forward with service, or client and target, for UDP
+
+    error: forward "sock" is udp, but its target is a Unix socket, which carries tcp only
+      --> visitor.yaml:9:63
+       |
+     9 |   sock: { client: home, target: "unix:/run/a.sock", protocol: udp, local: 9 }
+       |                                                               ^^^ udp to a Unix socket
+       = help: remove "protocol: udp", or use a host:port target
+
+    visitor.yaml: 3 errors, 0 warnings
+    "#);
+    insta::assert_snapshot!(render("visitor.yaml", &format!(
+        "{}udp:\n  session_timeout_secs: 120\n  max_peers: 100\n",
+        visitor("  dns: { service: dns, protocol: udp, local: 5353 }\n  lan: { client: home, target: \"10.0.0.1:27015-27016\", protocol: udp, local: 27015-27016 }\n")
+    ), None), @r#"visitor.yaml: valid visitor config for "laptop" (2 forwards)"#);
+    insta::assert_snapshot!(render("visitor.yaml", &visitor(
+        "  dns: { service: dns, protocol: sctp, local: 5353 }\n"
+    ), None), @r#"
+    error: unknown protocol "sctp" in forward "dns"
+      --> visitor.yaml:5:34
+       |
+     5 |   dns: { service: dns, protocol: sctp, local: 5353 }
+       |                                  ^^^^ not a valid protocol
+       = help: valid values: tcp, udp
+
+    visitor.yaml: 1 error, 0 warnings
     "#);
 }
 
@@ -2030,9 +2104,12 @@ fn a_connection_limit_on_a_udp_service_is_refused() {
         None,
     );
     assert!(
-        shown.contains("max_connections only works for tcp services"),
+        shown.contains(
+            "max_connections only works for tcp services; for UDP, udp.max_peers limits the peers of each port"
+        ),
         "{shown}"
     );
+    assert!(!shown.contains("4096"), "{shown}");
     assert!(!shown.contains("valid server config"), "{shown}");
 }
 
@@ -2046,6 +2123,90 @@ fn a_connection_limit_of_zero_is_refused() {
     ] {
         let shown = render("server.yaml", &src, None);
         assert!(shown.contains("must be at least 1"), "{shown}");
+    }
+}
+
+#[test]
+fn a_client_connection_limit_outside_1_to_1000000_is_refused_with_the_range_and_default() {
+    let client = |v: &str| {
+        render(
+            "client.yaml",
+            &format!(
+                "server: example.com\nname: home\nsecret: {SECRET}\nallow: [127.0.0.0/8]\nmax_connections: {v}\n"
+            ),
+            None,
+        )
+    };
+    for bad in ["0", "-1", "1000001", "lots", "1.5"] {
+        let shown = client(bad);
+        assert!(
+            shown.contains("error: \"max_connections\" in client config must be"),
+            "{shown}"
+        );
+        assert!(
+            shown.contains("help: use a value between 1 and 1000000; the default is 16384"),
+            "{shown}"
+        );
+    }
+    assert!(client("0").contains("must be between 1 and 1000000, found 0"));
+    for good in ["1", "1000000"] {
+        assert!(
+            client(good).contains("valid client config"),
+            "{}",
+            client(good)
+        );
+    }
+}
+
+#[test]
+fn udp_peer_limits_outside_1_to_1000000_are_refused_with_the_range_and_default() {
+    let client = |v: &str| {
+        render(
+            "client.yaml",
+            &format!(
+                "server: example.com\nname: home\nsecret: {SECRET}\nallow: [127.0.0.0/8]\nmax_udp_peers: {v}\n"
+            ),
+            None,
+        )
+    };
+    let server = |v: &str| {
+        render(
+            "server.yaml",
+            &format!("udp:\n  max_peers: {v}\n{}", server("  {}\n")),
+            None,
+        )
+    };
+    for bad in ["0", "-1", "1000001", "lots", "1.5"] {
+        let shown = client(bad);
+        assert!(
+            shown.contains("error: \"max_udp_peers\" in client config must be"),
+            "{shown}"
+        );
+        assert!(
+            shown.contains("help: use a value between 1 and 1000000; the default is 8192"),
+            "{shown}"
+        );
+        let shown = server(bad);
+        assert!(
+            shown.contains("error: \"max_peers\" in \"udp\" must be"),
+            "{shown}"
+        );
+        assert!(
+            shown.contains("help: use a value between 1 and 1000000; the default is 4096"),
+            "{shown}"
+        );
+    }
+    for good in ["1", "1000000"] {
+        assert!(
+            client(good).contains("valid client config"),
+            "{}",
+            client(good)
+        );
+        assert!(
+            server(good).contains("valid server config"),
+            "{}",
+            server(good)
+        );
     }
 }
 
@@ -2392,7 +2553,7 @@ fn reach_any_to_self_is_warned_like_any_client() {
         None,
     );
     insta::assert_snapshot!(text, @r#"
-    warning: visitor "laptop" may reach any target that client "self" allows
+    warning: visitor "laptop" may reach any target that client "self" allows, over TCP or UDP
       --> server.yaml:12:14
        |
     12 |     reach: { self: any }

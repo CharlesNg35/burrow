@@ -13,7 +13,7 @@ use super::{
 use crate::diagnostics::Diagnostic;
 use crate::protocol::VisitTarget;
 use crate::secret::Secret;
-use burrow_config::{ForwardEntry, VisitorConfig};
+use burrow_config::{ForwardEntry, Protocol, VisitorConfig};
 
 pub fn check_visitor(
     cfg: &VisitorConfig,
@@ -63,16 +63,16 @@ pub fn check_visitor(
     }
 
     let mut forwards = BTreeMap::new();
-    let mut locals: Vec<(SocketAddr, u16, &str)> = Vec::new();
+    let mut locals: Vec<(SocketAddr, u16, Protocol, &str)> = Vec::new();
     for (name, f) in &cfg.forwards {
         if !valid_name(name) {
             out.push(name_error("forward", name, spans.key(&["forwards", name])));
         }
         let local = check_local(name, f, spans, out);
         if let Some((l, n)) = local {
-            if let Some((_, _, other)) = locals
+            if let Some((_, _, _, other)) = locals
                 .iter()
-                .find(|(a, an, _)| ranges_conflict(*a, *an, l, n))
+                .find(|(a, an, p, _)| *p == f.protocol && ranges_conflict(*a, *an, l, n))
             {
                 out.push(
                     Diagnostic::error(
@@ -87,9 +87,12 @@ pub fn check_visitor(
                     .help("pick a different local port for one of the forwards"),
                 );
             }
-            locals.push((l, n, name));
+            locals.push((l, n, f.protocol, name));
         }
         let to = check_destination(name, f, spans, out);
+        if f.protocol == Protocol::Udp && !check_udp(name, f, spans, out) {
+            continue;
+        }
         if let (Some((local, ports)), Some((to, target_ports))) = (local, to) {
             if f.socks && ports > 1 {
                 out.push(
@@ -126,6 +129,7 @@ pub fn check_visitor(
                     ports,
                     to,
                     socks: f.socks,
+                    protocol: f.protocol,
                 },
             );
         }
@@ -147,8 +151,40 @@ pub fn check_visitor(
         proxy,
         connect_timeout: Duration::from_secs(cfg.connect_timeout_secs.into()),
         tcp: tuning(&cfg.tcp),
+        udp_session_timeout: Duration::from_secs(cfg.udp.session_timeout_secs.into()),
+        udp_max_peers: cfg.udp.max_peers as usize,
         forwards,
     })
+}
+
+fn check_udp(name: &str, f: &ForwardEntry, spans: &Spans, out: &mut Vec<Diagnostic>) -> bool {
+    let at = spans.value(&["forwards", name, "protocol"]);
+    if f.socks {
+        out.push(
+            Diagnostic::error(
+                "socks-udp",
+                format!("forward \"{name}\" is a SOCKS proxy, which listens on tcp"),
+            )
+            .at(at)
+            .label("udp with socks: true")
+            .help("remove \"protocol: udp\", or use a forward with service, or client and target, for UDP"),
+        );
+        return false;
+    }
+    let target = f.target.as_ref().map(|t| t.host_port()).unwrap_or_default();
+    if unix::path_of(&target).is_some() {
+        out.push(
+            Diagnostic::error(
+                "udp-unix-target",
+                format!("forward \"{name}\" is udp, but its target is a Unix socket, which carries tcp only"),
+            )
+            .at(at)
+            .label("udp to a Unix socket")
+            .help("remove \"protocol: udp\", or use a host:port target"),
+        );
+        return false;
+    }
+    true
 }
 
 fn check_local(

@@ -214,9 +214,17 @@ mod tests {
             s => s.clone(),
         };
         match inner(n) {
-            SemType::IpPort(_) | SemType::Target(_) | SemType::ServerAddress | SemType::Rate => {
-                true
-            }
+            SemType::IpPort(_)
+            | SemType::Target(_)
+            | SemType::ServerAddress
+            | SemType::Rate
+            | SemType::Text(_)
+            | SemType::Ip(_)
+            | SemType::Host
+            | SemType::PortRange(_)
+            | SemType::Size(_)
+            | SemType::Path(_)
+            | SemType::UrlPath => true,
             SemType::List(l) => matches!(l.item.sem, SemType::Cidr | SemType::CidrRule),
             SemType::RefMap(m) => matches!(m.value.sem, SemType::Union(_)),
             _ => false,
@@ -239,6 +247,53 @@ mod tests {
             "the walk finds the address fields"
         );
         assert!(missing.is_empty(), "{missing:#?}");
+    }
+
+    #[test]
+    fn every_server_field_has_help() {
+        fn fields(key: &str, n: &Node, out: &mut Vec<String>) {
+            let n = match &n.sem {
+                SemType::Optional(o) => &o.inner,
+                _ => n,
+            };
+            match &n.sem {
+                SemType::Object(o) => o.fields.iter().for_each(|f| {
+                    let at = format!("{key}.{}", f.key);
+                    let section = match &f.node.sem {
+                        SemType::Optional(o) => matches!(o.inner.sem, SemType::Object(_)),
+                        s => matches!(s, SemType::Object(_)),
+                    };
+                    if !section && f.node.help.trim().is_empty() {
+                        out.push(at.clone());
+                    }
+                    fields(&at, &f.node, out);
+                }),
+                SemType::Map(m) => fields(&format!("{key}.*"), &m.value, out),
+                SemType::RefMap(m) => fields(&format!("{key}.*"), &m.value, out),
+                _ => {}
+            }
+        }
+        let root = <burrow_config::ServerConfig as AdminSchema>::node();
+        let mut missing = Vec::new();
+        fields("", &root, &mut missing);
+        assert!(missing.is_empty(), "{missing:#?}");
+    }
+
+    #[test]
+    fn the_per_client_limit_names_the_client_field_that_overrides_it() {
+        let root = <burrow_config::ServerConfig as AdminSchema>::node();
+        let at = |p: &[&str]| {
+            root.at(&p.iter().map(|s| s.to_string()).collect::<Vec<_>>())
+                .unwrap()
+        };
+        let limit = at(&["limits", "max_connections_per_client"]);
+        let own = at(&["clients", "*", "max_connections"]);
+        let label = own.label.clone();
+        assert!(
+            limit.help.contains(&format!("its own {label}")),
+            "{} / {label}",
+            limit.help
+        );
     }
 
     #[test]

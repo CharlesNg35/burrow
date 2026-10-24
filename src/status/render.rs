@@ -433,7 +433,7 @@ pub fn render(s: &Status, paint: Paint, rates: Option<&Rates>) -> String {
         .clients
         .iter()
         .map(|c| {
-            let (state, since) = match (c.connected, c.connected_secs, c.left_secs_ago) {
+            let (mut state, since) = match (c.connected, c.connected_secs, c.left_secs_ago) {
                 (true, secs, _) => (
                     paint.state("connected", true),
                     cell(secs.map(duration).unwrap_or_default()),
@@ -447,6 +447,9 @@ pub fn render(s: &Status, paint: Paint, rates: Option<&Rates>) -> String {
                     toned("never seen", Tone::Dim),
                 ),
             };
+            if c.at_limit {
+                state.parts.push((", at limit".into(), Tone::Warn));
+            }
             vec![
                 cell(&c.name),
                 state,
@@ -668,6 +671,7 @@ mod tests {
                     idle_channels: 4,
                     left_secs_ago: None,
                     local: false,
+                    ..ClientStatus::default()
                 },
                 ClientStatus {
                     name: "office".into(),
@@ -678,6 +682,7 @@ mod tests {
                     idle_channels: 0,
                     left_secs_ago: Some(300),
                     local: false,
+                    ..ClientStatus::default()
                 },
             ],
             services: vec![
@@ -793,6 +798,22 @@ VISITORS
             text.contains("  self    connected  1 min           this server        2     0"),
             "{text}"
         );
+    }
+
+    #[test]
+    fn a_client_at_its_limit_says_so_next_to_its_state() {
+        let mut s = sample();
+        s.clients[0].at_limit = true;
+        let text = render(&s, Paint::PLAIN, None);
+        let line = |name: &str| {
+            text.lines()
+                .find(|l| l.trim_start().starts_with(name))
+                .unwrap()
+                .to_string()
+        };
+        assert!(line("home").contains("connected, at limit"), "{text}");
+        assert!(!line("office").contains("at limit"), "{text}");
+        assert!(!render(&sample(), Paint::PLAIN, None).contains("at limit"));
     }
 
     #[test]

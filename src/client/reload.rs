@@ -54,6 +54,8 @@ pub fn compare(old: &ClientSettings, new: &ClientSettings) -> Changes {
         connect_timeout,
         tcp,
         udp_session_timeout,
+        max_connections,
+        max_udp_peers,
     } = new;
     let reconnect = [
         (*server != old.server || *endpoint != old.endpoint, "server"),
@@ -84,6 +86,8 @@ pub fn compare(old: &ClientSettings, new: &ClientSettings) -> Changes {
         ),
         (*tcp != old.tcp, "tcp"),
         (*udp_session_timeout != old.udp_session_timeout, "udp"),
+        (*max_connections != old.max_connections, "max_connections"),
+        (*max_udp_peers != old.max_udp_peers, "max_udp_peers"),
     ];
     let names = |fields: &[(bool, &'static str)]| {
         fields
@@ -101,7 +105,7 @@ pub fn compare(old: &ClientSettings, new: &ClientSettings) -> Changes {
 pub(crate) mod tests {
     use super::*;
     use crate::allowlist::AllowList;
-    use crate::config::settings::SocketTuning;
+    use crate::config::settings::{Limit, SocketTuning};
     use crate::secret::Secret;
     use burrow_config::Cipher;
     use burrow_syntax::endpoint::Endpoint;
@@ -130,8 +134,44 @@ pub(crate) mod tests {
                 nodelay: true,
                 keepalive: None,
             },
-            udp_session_timeout: Duration::from_secs(60),
+            udp_session_timeout: Duration::from_secs(120),
+            max_connections: Limit::default_of(16384),
+            max_udp_peers: Limit::default_of(8192),
         }
+    }
+
+    fn loaded(extra: &str) -> ClientSettings {
+        let yaml = format!(
+            "server: tunnel.example.com\nname: home\nsecret: {}\nallow: [127.0.0.0/8]\n{extra}",
+            Secret::generate().encode()
+        );
+        let nothing = |_: &str| None;
+        match crate::config::load_str(
+            "client.yaml",
+            &yaml,
+            crate::config::Format::Yaml,
+            Some(crate::config::Role::Client),
+            &nothing,
+        )
+        .loaded
+        {
+            Some(crate::config::Loaded::Client(s, _)) => *s,
+            _ => panic!("client config loads"),
+        }
+    }
+
+    #[test]
+    fn a_limit_knows_whether_the_file_wrote_it() {
+        let plain = loaded("");
+        assert_eq!(plain.max_connections, Limit::default_of(16384));
+        assert_eq!(plain.max_udp_peers, Limit::default_of(8192));
+        let both = loaded("max_connections: 16384\nmax_udp_peers: 50\n");
+        assert_eq!(both.max_connections, Limit::written(16384));
+        assert_eq!(both.max_udp_peers, Limit::written(50));
+        assert_eq!(
+            compare(&plain, &both).live,
+            vec!["max_connections", "max_udp_peers"]
+        );
     }
 
     #[test]
@@ -141,11 +181,18 @@ pub(crate) mod tests {
         let mut new = old.clone();
         new.connect_timeout = Duration::from_secs(5);
         new.reconnect_max = Duration::from_secs(60);
+        new.max_connections = Limit::written(3);
+        new.max_udp_peers = Limit::default_of(4);
         assert_eq!(
             compare(&old, &new),
             Changes {
                 reconnect: vec![],
-                live: vec!["reconnect", "connect_timeout_secs"],
+                live: vec![
+                    "reconnect",
+                    "connect_timeout_secs",
+                    "max_connections",
+                    "max_udp_peers"
+                ],
             }
         );
         new.allow = AllowList::Rules(vec!["10.0.0.0/8".parse().unwrap()]);

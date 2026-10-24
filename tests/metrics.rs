@@ -528,3 +528,45 @@ async fn a_reload_that_moves_metrics_onto_the_kept_listen_port_is_rejected() {
     assert_eq!(now.max_handshakes, settings.max_handshakes);
     assert_eq!(now.metrics, None);
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_client_answering_busy_is_marked_at_limit_and_counted() {
+    let echo = echo_server().await;
+    let secret = Secret::generate();
+    let mut settings = server_settings(vec![secret.clone()]);
+    settings.metrics = Some("127.0.0.1:0".parse().unwrap());
+    let t = tunnel_with(
+        settings,
+        vec![("web", service(echo, Protocol::Tcp))],
+        |mut c| {
+            c.max_connections = burrow::config::settings::Limit::written(1);
+            c
+        },
+        secret,
+    )
+    .await;
+    let web = t.server.services["web"];
+    let home = t.server.shared.status().clients[0].clone();
+    assert_eq!((home.busy_total, home.at_limit), (0, false));
+    let _held = open_echo(web).await;
+    for _ in 0..2 {
+        assert_ne!(
+            try_roundtrip(web, b"x").await.as_deref(),
+            Some(&b"x"[..]),
+            "a second connection got through max_connections 1"
+        );
+    }
+    let shared = t.server.shared.clone();
+    wait_for(|| shared.status().clients[0].busy_total == 2).await;
+    assert!(t.server.shared.status().clients[0].at_limit);
+    wait_for(|| shared.status().services[0].refused == 2).await;
+    let text = http_get(t.server.metrics.unwrap(), "/metrics");
+    assert!(
+        text.contains("burrow_client_busy_total{client=\"home\"} 2"),
+        "{text}"
+    );
+    assert!(
+        text.contains("# TYPE burrow_client_busy_total counter"),
+        "{text}"
+    );
+}

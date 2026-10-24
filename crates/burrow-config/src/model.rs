@@ -39,7 +39,7 @@ pub struct ServerConfig {
     #[schemars(
         description = "How clients reach this server: a host name or IP (the port comes from listen), host:port, or a wss:// URL; client-config writes it into client configs"
     )]
-    #[admin(help = "How clients reach this server, for example tunnel.example.com or tunnel.example.com:7835, or a wss:// URL such as wss://tunnel.example.com/burrow when WebSocket is on; the connect commands and client configs made here use it",
+    #[admin(help = "How clients reach this server, for example tunnel.example.com, or wss://tunnel.example.com/burrow when WebSocket is on; connect commands made here use it",
         ty = server_address,
         group = listener,
         applies = live,
@@ -142,7 +142,7 @@ pub struct WebSocketConfig {
     #[admin(label = "Listen address")]
     pub listen: Bind,
     #[serde(default = "default_ws_path")]
-    #[schemars(description = "URL path clients connect to")]
+    #[schemars(description = "URL path clients connect to, for example /burrow")]
     #[admin(ty = url_path)]
     pub path: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -180,10 +180,14 @@ pub fn default_ws_path() -> String {
 #[serde(deny_unknown_fields)]
 #[admin(label = "TLS files")]
 pub struct TlsFiles {
-    #[schemars(description = "Certificate chain PEM file, relative to the config file")]
+    #[schemars(
+        description = "Certificate chain PEM file, relative to the config file, for example certs/fullchain.pem"
+    )]
     #[admin(ty = path(must_exist, relative_to = "config"), label = "Certificate file")]
     pub cert: String,
-    #[schemars(description = "Private key PEM file, relative to the config file")]
+    #[schemars(
+        description = "Private key PEM file, relative to the config file, for example certs/privkey.pem"
+    )]
     #[admin(ty = path(must_exist, relative_to = "config"), label = "Private key file")]
     pub key: String,
 }
@@ -197,7 +201,7 @@ pub struct SelfEntry {
     #[schemars(
         description = "What this server may dial for itself: CIDR, optionally with :port or :lo-hi, or unix:/path; link-local and metadata addresses only when listed one by one"
     )]
-    #[admin(help = "Addresses this server may reach itself, with optional ports, or Unix sockets, for example 10.0.0.0/8, 192.168.1.10:22 or unix:/run/app.sock; link-local and cloud metadata addresses only when listed one by one", ty = list(cidr_rule), label = "Allowed targets", empty_label = "Nothing")]
+    #[admin(help = "Addresses this server may reach itself, for example 10.0.0.0/8, 192.168.1.10:22 or unix:/run/app.sock; link-local and cloud metadata addresses only when listed one by one", ty = list(cidr_rule), label = "Allowed targets", empty_label = "Nothing")]
     pub allow: Vec<String>,
 }
 
@@ -217,6 +221,8 @@ pub struct ClientEntry {
     #[schemars(range(min = 1))]
     #[admin(
         ty = integer(unit = "connections"),
+        label = "Max connections on this server",
+        help = "Connections this server forwards to the client at once. The client has its own limit too, max_connections in its client.yaml",
         none_label = "Server default",
         default_from("/limits/max_connections_per_client"),
         advanced
@@ -242,9 +248,9 @@ pub struct VisitorEntry {
     pub secret: Secrets,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     #[schemars(
-        description = "Clients this visitor may reach directly, with the targets it may pick there: any (whatever the client's allow list permits), or rules in allow-list syntax that narrow it, for example home: any, office: 192.168.150.0/25 or lab: [10.0.0.0/8:22, unix:/run/app.sock]"
+        description = "Clients this visitor may reach directly, over TCP and UDP, with the targets it may pick there: any (whatever the client's allow list permits), or rules in allow-list syntax that narrow it, for example home: any, office: 192.168.150.0/25 or lab: [10.0.0.0/8:22, unix:/run/app.sock]"
     )]
-    #[admin(help = "Clients this visitor may reach directly, and which targets there: any target the client allows, or only the ones listed, for example 192.168.150.0/25 or 10.0.0.5:22",
+    #[admin(help = "Clients this visitor may reach directly, over TCP and UDP: any target the client allows, or only those listed, for example 10.0.0.5:22 or 192.168.150.0/25",
         ty = ref_map(client, reserved = "self"),
         label = "Direct access to clients",
         group = access,
@@ -362,7 +368,7 @@ impl Secrets {
 #[serde(deny_unknown_fields)]
 #[admin(
     entity = service,
-    tcp_only(mode, health_check, max_connections, visitors, proxy_protocol),
+    tcp_only(mode, health_check, max_connections, proxy_protocol),
     label = "Service",
     groups(
         who = "Where it runs | Clients that reach the target.",
@@ -422,7 +428,10 @@ pub struct ServiceEntry {
     )]
     pub target: Target,
     #[serde(default, skip_serializing_if = "is_default")]
-    #[admin(group = exposure)]
+    #[admin(
+        help = "TCP for most services; UDP for DNS, WireGuard or game servers",
+        group = exposure
+    )]
     pub protocol: Protocol,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(description = "Maximum concurrent connections for this service")]
@@ -440,7 +449,6 @@ pub struct ServiceEntry {
         group = access,
         empty_label = "No visitors",
         inverse(entity = visitor, label = "Services it may use"),
-        options_filter(eq(protocol, "tcp")),
         narrow
     )]
     pub visitors: Vec<String>,
@@ -634,7 +642,7 @@ pub struct Limits {
     #[schemars(range(min = 1))]
     #[admin(
         ty = integer(unit = "connections"),
-        help = "Concurrent forwarded connections of one client, unless the client sets its own",
+        help = "Connections this server forwards to one client at once, unless that client has its own Max connections on this server",
         applies = live
     )]
     pub max_connections_per_client: u32,
@@ -668,7 +676,11 @@ pub struct Pool {
     )]
     pub min_idle: u32,
     #[schemars(range(min = 1, max = 4096))]
-    #[admin(ty = integer(unit = "channels"), label = "Max idle channels")]
+    #[admin(
+        ty = integer(unit = "channels"),
+        label = "Max idle channels",
+        help = "Most data channels each client keeps ready; the pool grows toward it when busy and shrinks when idle"
+    )]
     pub max_idle: u32,
 }
 
@@ -722,12 +734,41 @@ pub struct UdpOptions {
         help = "A UDP peer that sends nothing for this long is forgotten"
     )]
     pub session_timeout_secs: u32,
+    #[schemars(
+        description = "Most UDP peers one service port keeps at once; a datagram from a new peer beyond it is dropped",
+        range(min = 1, max = 1000000),
+        extend("x-show-default" = true)
+    )]
+    #[admin(
+        ty = integer(unit = "peers"),
+        label = "Max UDP peers per port",
+        help = "Most UDP peers one service port keeps at once; a datagram from a new peer beyond it is dropped. For example 20000; the default is 4096",
+        applies = live
+    )]
+    pub max_peers: u32,
 }
 
 impl Default for UdpOptions {
     fn default() -> Self {
         UdpOptions {
-            session_timeout_secs: 60,
+            session_timeout_secs: 120,
+            max_peers: 4096,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields, default)]
+pub struct ClientUdpOptions {
+    #[cfg_attr(feature = "json-schema", schemars(range(min = 1)))]
+    pub session_timeout_secs: u32,
+}
+
+impl Default for ClientUdpOptions {
+    fn default() -> Self {
+        ClientUdpOptions {
+            session_timeout_secs: 120,
         }
     }
 }
@@ -781,10 +822,30 @@ pub struct ClientConfig {
     )]
     #[schemars(range(min = 1, max = 300))]
     pub connect_timeout_secs: u32,
+    #[serde(
+        default = "default_client_max_connections",
+        skip_serializing_if = "is_default_client_max_connections"
+    )]
+    #[schemars(
+        description = "Most connections open through this client at once; beyond it the server gets busy. Lowered automatically when the open file limit is too small",
+        range(min = 1, max = 1000000),
+        extend("default" = CLIENT_MAX_CONNECTIONS, "x-show-default" = true)
+    )]
+    pub max_connections: u32,
+    #[serde(
+        default = "default_client_max_udp_peers",
+        skip_serializing_if = "is_default_client_max_udp_peers"
+    )]
+    #[schemars(
+        description = "Most UDP peers open through this client at once, across all UDP services; a datagram from a new peer beyond it is dropped. Lowered automatically when the open file limit is too small",
+        range(min = 1, max = 1000000),
+        extend("default" = CLIENT_MAX_UDP_PEERS, "x-show-default" = true)
+    )]
+    pub max_udp_peers: u32,
     #[serde(default, skip_serializing_if = "is_default")]
     pub tcp: TcpOptions,
     #[serde(default, skip_serializing_if = "is_default")]
-    pub udp: UdpOptions,
+    pub udp: ClientUdpOptions,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, AdminSchema)]
@@ -833,6 +894,43 @@ pub struct VisitorConfig {
     pub connect_timeout_secs: u32,
     #[serde(default, skip_serializing_if = "is_default")]
     pub tcp: TcpOptions,
+    #[serde(default, skip_serializing_if = "is_default")]
+    #[schemars(
+        description = "UDP forwards: how long a local UDP peer is kept without traffic, and how many peers each forward port keeps"
+    )]
+    pub udp: VisitorUdpOptions,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields, default)]
+pub struct VisitorUdpOptions {
+    #[cfg_attr(
+        feature = "json-schema",
+        schemars(
+            description = "A local UDP peer of a UDP forward that sends and gets nothing for this long is forgotten",
+            range(min = 1)
+        )
+    )]
+    pub session_timeout_secs: u32,
+    #[cfg_attr(
+        feature = "json-schema",
+        schemars(
+            description = "Most UDP peers each port of a UDP forward keeps at once; a datagram from a new peer beyond it is dropped",
+            range(min = 1, max = 1000000)
+        )
+    )]
+    pub max_peers: u32,
+}
+
+impl Default for VisitorUdpOptions {
+    fn default() -> Self {
+        let server = UdpOptions::default();
+        VisitorUdpOptions {
+            session_timeout_secs: server.session_timeout_secs,
+            max_peers: server.max_peers,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -869,6 +967,14 @@ pub struct ForwardEntry {
         )
     )]
     pub socks: bool,
+    #[serde(default, skip_serializing_if = "is_default")]
+    #[cfg_attr(
+        feature = "json-schema",
+        schemars(
+            description = "tcp or udp; must match the service's protocol on the server, and reach covers both"
+        )
+    )]
+    pub protocol: Protocol,
     #[cfg_attr(
         feature = "json-schema",
         schemars(
@@ -937,6 +1043,25 @@ fn is_default_connect_timeout(v: &u32) -> bool {
     *v == default_connect_timeout()
 }
 
+pub const CLIENT_MAX_CONNECTIONS: u32 = 16384;
+pub const CLIENT_MAX_UDP_PEERS: u32 = 8192;
+
+fn default_client_max_udp_peers() -> u32 {
+    CLIENT_MAX_UDP_PEERS
+}
+
+fn is_default_client_max_udp_peers(v: &u32) -> bool {
+    *v == CLIENT_MAX_UDP_PEERS
+}
+
+fn default_client_max_connections() -> u32 {
+    CLIENT_MAX_CONNECTIONS
+}
+
+fn is_default_client_max_connections(v: &u32) -> bool {
+    *v == CLIENT_MAX_CONNECTIONS
+}
+
 fn is_false(v: &bool) -> bool {
     !v
 }
@@ -962,5 +1087,64 @@ mod tests {
             assert_eq!(serde_json::to_value(l).unwrap(), json!(o.value));
         }
         assert_eq!(AdminLevel::from_wire("owner"), None);
+    }
+
+    #[test]
+    fn a_client_keeps_16384_connections_unless_told_otherwise() {
+        let base = json!({"server": "tunnel.example.com", "name": "home", "secret": "x"});
+        let plain: ClientConfig = serde_json::from_value(base.clone()).unwrap();
+        assert_eq!(plain.max_connections, 16384);
+        assert!(
+            serde_json::to_value(&plain)
+                .unwrap()
+                .get("max_connections")
+                .is_none()
+        );
+        let mut set = base;
+        set["max_connections"] = json!(2);
+        let two: ClientConfig = serde_json::from_value(set).unwrap();
+        assert_eq!(two.max_connections, 2);
+        assert_eq!(serde_json::to_value(&two).unwrap()["max_connections"], 2);
+    }
+
+    #[test]
+    fn a_client_keeps_8192_udp_peers_unless_told_otherwise() {
+        let base = json!({"server": "tunnel.example.com", "name": "home", "secret": "x"});
+        let plain: ClientConfig = serde_json::from_value(base.clone()).unwrap();
+        assert_eq!(plain.max_udp_peers, 8192);
+        assert!(
+            serde_json::to_value(&plain)
+                .unwrap()
+                .get("max_udp_peers")
+                .is_none()
+        );
+        let mut set = base;
+        set["max_udp_peers"] = json!(3);
+        let three: ClientConfig = serde_json::from_value(set).unwrap();
+        assert_eq!(three.max_udp_peers, 3);
+        assert_eq!(serde_json::to_value(&three).unwrap()["max_udp_peers"], 3);
+        let udp: Result<ClientConfig, _> = serde_json::from_value(
+            json!({"server": "a", "name": "b", "secret": "c", "udp": {"max_peers": 5}}),
+        );
+        assert!(udp.is_err());
+    }
+
+    #[test]
+    fn a_server_keeps_4096_udp_peers_per_port_unless_told_otherwise() {
+        let plain = UdpOptions::default();
+        assert_eq!(plain.max_peers, 4096);
+        let set: UdpOptions = serde_json::from_value(json!({"max_peers": 7})).unwrap();
+        assert_eq!(set.max_peers, 7);
+        assert_eq!(serde_json::to_value(&set).unwrap()["max_peers"], 7);
+    }
+
+    #[test]
+    fn udp_peers_are_kept_two_minutes_by_default_as_rfc_4787_req_5_asks() {
+        assert_eq!(UdpOptions::default().session_timeout_secs, 120);
+        assert_eq!(ClientUdpOptions::default().session_timeout_secs, 120);
+        assert_eq!(VisitorUdpOptions::default().session_timeout_secs, 120);
+        assert_eq!(VisitorUdpOptions::default().max_peers, 4096);
+        let set: UdpOptions = serde_json::from_value(json!({"max_peers": 7})).unwrap();
+        assert_eq!(set.session_timeout_secs, 120);
     }
 }

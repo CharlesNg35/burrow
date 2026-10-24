@@ -409,6 +409,12 @@ pub struct VisitArgs {
         help = "Local port to listen on (127.0.0.1), or ip:port"
     )]
     pub local: Option<String>,
+    #[arg(
+        long,
+        conflicts_with_all = ["socks", "forward"],
+        help = "Carry UDP: listen on a local UDP port for --service or --client --target"
+    )]
+    pub udp: bool,
 }
 
 #[derive(Debug, Args)]
@@ -453,7 +459,7 @@ pub struct InitArgs {
     #[arg(
         long,
         conflicts_with_all = ["force", "server", "name", "secret", "env_secret"],
-        help = "Visitor only: ask the server again what this visitor may use and update the forwards of visitor.yaml (or -o FILE)"
+        help = "Visitor only: ask the server again what this visitor may use, TCP and UDP, and update the forwards of visitor.yaml (or -o FILE): adds new grants, removes revoked ones, kept forwards keep their local ports"
     )]
     pub update: bool,
     #[arg(
@@ -642,24 +648,31 @@ mod tests {
             let args: Vec<std::ffi::OsString> = args.iter().map(Into::into).collect();
             service_word(&e, &args)
         };
+        let supported = cfg!(any(target_os = "linux", target_os = "macos", windows));
         for word in ["install", "uninstall", "start", "stop", "restart", "logs"] {
             let f = parse(&["burrow", word]).unwrap_or_else(|| panic!("{word}"));
             assert_eq!(f.message, format!("burrow {word} is not a command"));
             let hint = f.hint.unwrap();
-            assert!(hint.contains(&format!("burrow service {word}")), "{hint}");
+            if supported {
+                assert!(hint.contains(&format!("burrow service {word}")), "{hint}");
+            } else {
+                assert!(hint.starts_with("burrow cannot manage services"), "{hint}");
+            }
         }
         let hint = |args: &[&str]| parse(args).unwrap().hint.unwrap();
-        assert!(hint(&["burrow", "stop", "home"]).contains("burrow service stop home"));
-        assert!(
-            hint(&["burrow", "--log-level", "debug", "logs", "home", "-n", "3"])
-                .contains("burrow service logs home -n 3")
-        );
-        assert!(
-            hint(&["burrow", "install", "-c", "my home.yaml"]).contains(&format!(
-                "burrow service install -c {}",
-                crate::failure::arg("my home.yaml")
-            ))
-        );
+        if supported {
+            assert!(hint(&["burrow", "stop", "home"]).contains("burrow service stop home"));
+            assert!(
+                hint(&["burrow", "--log-level", "debug", "logs", "home", "-n", "3"])
+                    .contains("burrow service logs home -n 3")
+            );
+            assert!(
+                hint(&["burrow", "install", "-c", "my home.yaml"]).contains(&format!(
+                    "burrow service install -c {}",
+                    crate::failure::arg("my home.yaml")
+                ))
+            );
+        }
         assert!(
             service_word_hint("stop", " home", false).starts_with("burrow cannot manage services"),
         );

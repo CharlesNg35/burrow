@@ -55,7 +55,7 @@ pub fn init_visitor(
             return say(out, &later(&why)).map(|()| path);
         }
     };
-    let grants = match super::fetch::grants(&settings) {
+    let fetched = match super::fetch::grants(&settings) {
         Ok(g) => g,
         Err(n) if !n.rejected => {
             write_new(&path, &bare, opts.force)?;
@@ -63,7 +63,8 @@ pub fn init_visitor(
         }
         Err(n) => return Err(n.failure),
     };
-    let planned = super::plan::plan(&grants, &BTreeMap::new(), true);
+    let grants = fetched.grants;
+    let planned = super::plan::plan(&grants, &BTreeMap::new(), true, fetched.tcp_only);
     let notes = allow_notes(&grants, &planned);
     write_new(
         &path,
@@ -97,6 +98,9 @@ pub fn init_visitor(
     if let Some(line) = left_out(&planned) {
         text.push_str(&format!("{line}\n"));
     }
+    if fetched.tcp_only {
+        text.push_str(&format!("  {}\n", super::fetch::OLD_SERVER_NOTE));
+    }
     text.push_str(&format!("run them with: {}", crate::failure::cmd("visit")));
     say(out, &text).map(|()| path)
 }
@@ -123,8 +127,14 @@ fn update_visitor(
         ))
     })?;
     let settings = settings_of(&path, &text, format)?;
-    let grants = super::fetch::grants(&settings).map_err(Failure::from)?;
-    let planned = super::plan::plan(&grants, &settings.forwards, true);
+    let fetched = super::fetch::grants(&settings).map_err(Failure::from)?;
+    let grants = fetched.grants;
+    let planned = super::plan::plan(&grants, &settings.forwards, true, fetched.tcp_only);
+    let old_server = if fetched.tcp_only {
+        format!("\n{}", super::fetch::OLD_SERVER_NOTE)
+    } else {
+        String::new()
+    };
     let notes = allow_notes(&grants, &planned);
     let stale: Map<String, Value> = match format {
         Format::Yaml => planned
@@ -151,6 +161,7 @@ fn update_visitor(
         if let Some(line) = left_out(&planned) {
             text.push_str(&format!("\n{line}"));
         }
+        text.push_str(&old_server);
         return say(out, &text).map(|()| path);
     }
     let mut changes = String::new();
@@ -180,6 +191,7 @@ fn update_visitor(
     if let Some(line) = left_out(&planned) {
         changes.push_str(&format!("{line}\n"));
     }
+    changes.push_str(&old_server);
     say(out, changes.trim_end_matches('\n'))?;
     if !opts.yes {
         if !prompt.interactive() {
@@ -334,6 +346,10 @@ fn listing(
                 Value::String(s) => format!("127.0.0.1:{s}"),
                 _ => String::new(),
             };
+            let local = match v.get("protocol").and_then(Value::as_str) {
+                Some("udp") => format!("udp {local}"),
+                _ => local,
+            };
             let to = match (v.get("service"), v.get("client"), v.get("target")) {
                 (Some(s), _, _) => format!("service {}", s.as_str().unwrap_or("")),
                 (_, Some(c), Some(t)) => format!(
@@ -435,7 +451,7 @@ pub fn visitor_document(
     let Some(grants) = crate::config::grants::for_visitor(settings, name) else {
         return json!({ "server": server, "name": name, "secret": secret_text });
     };
-    let planned = super::plan::plan(&grants, &std::collections::BTreeMap::new(), false);
+    let planned = super::plan::plan(&grants, &std::collections::BTreeMap::new(), false, false);
     for (_, client, local) in &planned.socks {
         let reach = grants
             .clients

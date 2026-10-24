@@ -7,6 +7,7 @@ use serde_json::{Map, Value, json};
 use crate::allowlist::Rule;
 use crate::config::settings::Forward;
 use crate::protocol::{Grants, VisitTarget};
+use burrow_config::Protocol;
 
 #[derive(Debug, Default, PartialEq)]
 pub struct Plan {
@@ -27,13 +28,36 @@ impl Plan {
 struct Ports {
     held: Vec<bool>,
     probed: Option<Vec<Option<bool>>>,
+    kind: socket2::Type,
+}
+
+struct Spaces {
+    tcp: Ports,
+    udp: Ports,
+}
+
+impl Spaces {
+    fn new(probe: bool) -> Spaces {
+        Spaces {
+            tcp: Ports::new(probe, socket2::Type::STREAM),
+            udp: Ports::new(probe, socket2::Type::DGRAM),
+        }
+    }
+
+    fn of(&mut self, protocol: Protocol) -> &mut Ports {
+        match protocol {
+            Protocol::Tcp => &mut self.tcp,
+            Protocol::Udp => &mut self.udp,
+        }
+    }
 }
 
 impl Ports {
-    fn new(probe: bool) -> Ports {
+    fn new(probe: bool, kind: socket2::Type) -> Ports {
         Ports {
             held: vec![false; 65536],
             probed: probe.then(|| vec![None; 65536]),
+            kind,
         }
     }
 
@@ -44,15 +68,13 @@ impl Ports {
     }
 
     fn open(&mut self, port: usize) -> bool {
+        let kind = self.kind;
         let Some(probed) = &mut self.probed else {
             return true;
         };
         *probed[port].get_or_insert_with(|| {
-            crate::transport::udp::std_socket(
-                (Ipv4Addr::LOCALHOST, port as u16).into(),
-                socket2::Type::STREAM,
-            )
-            .is_ok()
+            crate::transport::udp::std_socket((Ipv4Addr::LOCALHOST, port as u16).into(), kind)
+                .is_ok()
         })
     }
 
@@ -86,7 +108,22 @@ fn local_value(at: IpAddr, port: u16, count: u16) -> Value {
     }
 }
 
+fn with_protocol(mut v: Value, protocol: Protocol) -> Value {
+    if protocol == Protocol::Udp
+        && let Value::Object(map) = &mut v
+        && let Some(local) = map.remove("local")
+    {
+        map.insert("protocol".into(), json!("udp"));
+        map.insert("local".into(), local);
+    }
+    v
+}
+
 fn existing_value(f: &Forward) -> Value {
+    with_protocol(shape(f), f.protocol)
+}
+
+fn shape(f: &Forward) -> Value {
     let local = local_value(f.local.ip(), f.local.port(), f.ports.max(1));
     match &f.to {
         VisitTarget::Service { name, .. } => json!({ "service": name, "local": local }),
@@ -111,12 +148,13 @@ fn existing_value(f: &Forward) -> Value {
     }
 }
 
-fn granted(f: &Forward, grants: &Grants) -> bool {
+fn granted(f: &Forward, grants: &Grants, tcp_only: bool) -> bool {
     match &f.to {
+        VisitTarget::Service { .. } if tcp_only && f.protocol == Protocol::Udp => true,
         VisitTarget::Service { name, .. } => grants
             .services
             .iter()
-            .any(|s| &s.name == name && f.ports.max(1) <= s.ports),
+            .any(|s| &s.name == name && s.protocol == f.protocol && f.ports.max(1) <= s.ports),
         VisitTarget::Client { client, target } => grants.clients.iter().any(|c| {
             &c.name == client
                 && (f.socks || c.reach.is_empty() || within(target, f.ports, &c.reach))
@@ -168,40 +206,57 @@ fn only_sockets(reach: &[String]) -> Option<Vec<&str>> {
     })
 }
 
-pub fn plan(grants: &Grants, existing: &BTreeMap<String, Forward>, probe: bool) -> Plan {
+pub fn plan(
+    grants: &Grants,
+    existing: &BTreeMap<String, Forward>,
+    probe: bool,
+    tcp_only: bool,
+) -> Plan {
     let mut out = Plan::default();
-    let mut ports = Ports::new(probe);
+    let mut spaces = Spaces::new(probe);
     for (name, f) in existing {
-        if granted(f, grants) {
-            ports.hold(f.local.port(), f.ports.max(1));
+        if granted(f, grants, tcp_only) {
+            spaces.of(f.protocol).hold(f.local.port(), f.ports.max(1));
             out.forwards.insert(name.clone(), existing_value(f));
         } else {
             out.removed.push(name.clone());
         }
     }
-    let kept: Vec<&Forward> = existing.values().filter(|f| granted(f, grants)).collect();
-    let covers = |f: &&Forward, target: &str, client: bool| match (&f.to, client) {
-        (VisitTarget::Service { name, .. }, false) => name == target,
-        (VisitTarget::Client { client, .. }, true) => client == target,
+    let kept: Vec<&Forward> = existing
+        .values()
+        .filter(|f| granted(f, grants, tcp_only))
+        .collect();
+    let covers = |f: &&Forward, target: &str, client: Option<Protocol>| match (&f.to, client) {
+        (VisitTarget::Service { name, .. }, Some(p)) => name == target && f.protocol == p,
+        (VisitTarget::Client { client, .. }, None) => client == target,
         _ => false,
     };
     for s in &grants.services {
-        if kept.iter().any(|f| covers(f, &s.name, false)) {
+        if kept.iter().any(|f| covers(f, &s.name, Some(s.protocol))) {
             continue;
         }
-        let first = match s.port {
-            0 => 10000,
-            p if p < 1024 => p + 10000,
-            p => p,
+        let moved = existing.values().find(|f| {
+            matches!(&f.to, VisitTarget::Service { name, .. } if name == &s.name)
+                && f.protocol != s.protocol
+                && f.ports.max(1) == s.ports
+        });
+        let first = match (moved, s.port) {
+            (Some(f), _) => f.local.port(),
+            (None, 0) => 10000,
+            (None, p) if p < 1024 => p + 10000,
+            (None, p) => p,
         };
-        let Some(local) = ports.free(first, s.ports) else {
+        let Some(local) = spaces.of(s.protocol).free(first, s.ports) else {
             out.unplaced.push(s.name.clone());
             continue;
         };
         let key = unique(&s.name, &out.forwards, "-service");
         out.forwards.insert(
             key.clone(),
-            json!({ "service": s.name, "local": local_value(IpAddr::V4(Ipv4Addr::LOCALHOST), local, s.ports) }),
+            with_protocol(
+                json!({ "service": s.name, "local": local_value(IpAddr::V4(Ipv4Addr::LOCALHOST), local, s.ports) }),
+                s.protocol,
+            ),
         );
         out.added.push(key);
     }
@@ -216,12 +271,12 @@ pub fn plan(grants: &Grants, existing: &BTreeMap<String, Forward>, probe: bool) 
             out.allows.insert(name, c.allow.clone());
             continue;
         }
-        if kept.iter().any(|f| covers(f, &c.name, true)) {
+        if kept.iter().any(|f| covers(f, &c.name, None)) {
             continue;
         }
         if let Some(sockets) = only_sockets(&c.reach) {
             for path in sockets {
-                let Some(local) = ports.free(10000, 1) else {
+                let Some(local) = spaces.tcp.free(10000, 1) else {
                     out.unplaced.push(format!("{} ({path})", c.name));
                     continue;
                 };
@@ -247,7 +302,7 @@ pub fn plan(grants: &Grants, existing: &BTreeMap<String, Forward>, probe: bool) 
             }
             continue;
         }
-        let Some(local) = ports.free(1080, 1) else {
+        let Some(local) = spaces.tcp.free(1080, 1) else {
             out.unplaced.push(c.name.clone());
             continue;
         };
@@ -268,7 +323,124 @@ mod tests {
     use super::*;
 
     fn plan(grants: &Grants, existing: &BTreeMap<String, Forward>) -> Plan {
-        super::plan(grants, existing, false)
+        super::plan(grants, existing, false, false)
+    }
+
+    fn udp(mut g: Grants, names: &[&str]) -> Grants {
+        for s in &mut g.services {
+            if names.contains(&s.name.as_str()) {
+                s.protocol = burrow_config::Protocol::Udp;
+            }
+        }
+        g
+    }
+
+    #[test]
+    fn a_udp_service_gets_a_udp_forward_and_its_own_port_space() {
+        let g = udp(
+            grants(
+                &[("dns", 53, 1), ("web", 10053, 1), ("game", 27015, 2)],
+                &[],
+            ),
+            &["dns", "game"],
+        );
+        let p = plan(&g, &BTreeMap::new());
+        assert_eq!(
+            p.forwards["dns"],
+            json!({ "service": "dns", "protocol": "udp", "local": 10053 })
+        );
+        assert_eq!(
+            p.forwards["web"],
+            json!({ "service": "web", "local": 10053 }),
+            "a TCP and a UDP forward may share a port number"
+        );
+        assert_eq!(
+            p.forwards["game"],
+            json!({ "service": "game", "protocol": "udp", "local": "27015-27016" })
+        );
+    }
+
+    #[test]
+    fn a_udp_forward_is_kept_while_granted_and_replaced_when_its_service_changes_protocol() {
+        let mut existing = BTreeMap::new();
+        existing.insert(
+            "dns".to_string(),
+            Forward::udp(at(5353), VisitTarget::service("dns")),
+        );
+        let kept = plan(&udp(grants(&[("dns", 53, 1)], &[]), &["dns"]), &existing);
+        assert!(!kept.changed());
+        assert_eq!(
+            kept.forwards["dns"],
+            json!({ "service": "dns", "protocol": "udp", "local": 5353 })
+        );
+        let now_tcp = plan(&grants(&[("dns", 53, 1)], &[]), &existing);
+        assert_eq!(now_tcp.removed, vec!["dns"]);
+        assert_eq!(now_tcp.added, vec!["dns"]);
+        assert_eq!(
+            now_tcp.forwards["dns"],
+            json!({ "service": "dns", "local": 5353 }),
+            "the forward keeps its local port in the other protocol when it is free"
+        );
+        let mut tcp = BTreeMap::new();
+        tcp.insert(
+            "dns".to_string(),
+            Forward::single(at(5353), VisitTarget::service("dns")),
+        );
+        tcp.insert(
+            "other".to_string(),
+            Forward::udp(at(5353), VisitTarget::service("other")),
+        );
+        let g = udp(
+            grants(&[("dns", 53, 1), ("other", 53, 1)], &[]),
+            &["dns", "other"],
+        );
+        let busy = plan(&g, &tcp);
+        assert_eq!(
+            busy.forwards["dns"],
+            json!({ "service": "dns", "protocol": "udp", "local": 5354 }),
+            "a port the other protocol already uses moves to the next free one"
+        );
+    }
+
+    #[test]
+    fn an_old_server_listing_tcp_only_keeps_every_udp_forward() {
+        let mut existing = BTreeMap::new();
+        existing.insert(
+            "dns".to_string(),
+            Forward::udp(at(5353), VisitTarget::service("dns")),
+        );
+        existing.insert(
+            "db".to_string(),
+            Forward::single(at(5432), VisitTarget::service("db")),
+        );
+        let old = super::plan(&grants(&[], &[]), &existing, false, true);
+        assert_eq!(old.removed, vec!["db"]);
+        assert_eq!(
+            old.forwards["dns"],
+            json!({ "service": "dns", "protocol": "udp", "local": 5353 })
+        );
+    }
+
+    #[test]
+    fn free_ports_for_udp_forwards_are_probed_over_udp() {
+        let taken = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        let port = taken.local_addr().unwrap().port();
+        let tcp = std::net::TcpListener::bind(("127.0.0.1", port)).ok();
+        let g = udp(grants(&[("dns", port, 1)], &[]), &["dns"]);
+        let p = super::plan(&g, &BTreeMap::new(), true, false);
+        assert_ne!(
+            p.forwards["dns"]["local"],
+            json!(port),
+            "the UDP port is in use"
+        );
+        drop(taken);
+        let p = super::plan(&g, &BTreeMap::new(), true, false);
+        assert_eq!(
+            p.forwards["dns"]["local"],
+            json!(port),
+            "a TCP listener on the same number does not matter to a UDP forward"
+        );
+        drop(tcp);
     }
 
     #[test]
@@ -310,6 +482,7 @@ mod tests {
                 .iter()
                 .map(|(n, port, ports)| GrantedService {
                     name: n.to_string(),
+                    protocol: burrow_config::Protocol::Tcp,
                     port: *port,
                     ports: *ports,
                 })
@@ -355,7 +528,7 @@ mod tests {
         let busy = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
         let port = busy.local_addr().unwrap().port();
         let g = grants(&[("db", port, 1)], &[]);
-        let probed = super::plan(&g, &BTreeMap::new(), true);
+        let probed = super::plan(&g, &BTreeMap::new(), true, false);
         assert_ne!(probed.forwards["db"]["local"], port);
         let p = plan(&g, &BTreeMap::new());
         assert_eq!(p.forwards["db"]["local"], port);

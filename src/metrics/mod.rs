@@ -58,11 +58,14 @@ impl Drop for Seen {
     }
 }
 
+const AT_LIMIT_FOR: std::time::Duration = std::time::Duration::from_secs(60);
+
 pub struct Metrics {
     started: Instant,
     services: Mutex<HashMap<String, Arc<ServiceStats>>>,
     visitors: Mutex<HashMap<String, Arc<VisitorStats>>>,
     left: Mutex<HashMap<String, SystemTime>>,
+    busy: Mutex<HashMap<String, (u64, Instant)>>,
     pub handshakes_refused: AtomicU64,
 }
 
@@ -73,6 +76,7 @@ impl Default for Metrics {
             services: Mutex::default(),
             visitors: Mutex::default(),
             left: Mutex::default(),
+            busy: Mutex::default(),
             handshakes_refused: AtomicU64::new(0),
         }
     }
@@ -108,6 +112,22 @@ impl Metrics {
             .lock()
             .expect("metrics lock")
             .insert(name.to_string(), SystemTime::now());
+    }
+
+    pub fn client_busy(&self, name: &str) {
+        let mut busy = self.busy.lock().expect("metrics lock");
+        let entry = busy.entry(name.to_string()).or_insert((0, Instant::now()));
+        *entry = (entry.0 + 1, Instant::now());
+    }
+
+    pub fn busy(&self, name: &str) -> (u64, bool) {
+        self.busy
+            .lock()
+            .expect("metrics lock")
+            .get(name)
+            .map_or((0, false), |(total, last)| {
+                (*total, last.elapsed() < AT_LIMIT_FOR)
+            })
     }
 
     pub fn uptime_secs(&self) -> u64 {

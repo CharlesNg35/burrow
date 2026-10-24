@@ -52,6 +52,7 @@ pub mod status;
 pub mod suggest;
 pub mod throttle;
 pub mod transport;
+pub mod udp;
 pub mod update;
 pub mod validate;
 pub mod visitor;

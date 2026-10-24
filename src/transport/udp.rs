@@ -25,6 +25,10 @@ pub fn std_socket(addr: SocketAddr, kind: socket2::Type) -> std::io::Result<sock
 }
 
 pub async fn bind_udp(addr: SocketAddr) -> std::io::Result<UdpSocket> {
+    bind_udp_now(addr)
+}
+
+pub fn bind_udp_now(addr: SocketAddr) -> std::io::Result<UdpSocket> {
     let sock = std_socket(addr, socket2::Type::DGRAM)?;
     sock.set_nonblocking(true)?;
     let sock = UdpSocket::from_std(sock.into())?;

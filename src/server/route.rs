@@ -114,6 +114,11 @@ impl<'a> Tries<'a> {
         let way = self.way;
         let client = session.name();
         let service = way.service.filter(|_| way.several);
+        if let Opened::Done(Err(ForwardError::Status(Status::Busy)))
+        | Opened::Refused(ForwardError::Status(Status::Busy)) = &opened
+        {
+            self.shared.metrics.client_busy(client);
+        }
         match opened {
             Opened::Done(result) => Some(Outcome::Done {
                 client: client.to_string(),

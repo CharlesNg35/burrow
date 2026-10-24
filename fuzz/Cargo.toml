@@ -58,3 +58,10 @@ path = "fuzz_targets/syntax_parsers.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "socks_udp_header"
+path = "fuzz_targets/socks_udp_header.rs"
+test = false
+doc = false
+bench = false

@@ -195,6 +195,13 @@ forwards:
 
 `./burrow visit db --local 5433` runs one forward on another port, `./burrow init visitor --update` refreshes the forwards after the server changed, and `sudo ./burrow service install -c visitor.yaml` keeps the visitor running.
 
+A private UDP service works the same way: its forward has `protocol: udp`, which `init visitor` and `visitor-config` write for you.
+
+```yaml
+# visitor.yaml, under forwards:
+dns: { service: dns, protocol: udp, local: 5353 }   # or: ./burrow visit --udp --service dns --local 5353
+```
+
 With `reach`, a visitor can also pick any target on a client by itself, like `ssh -L`. The client's `allow` list must permit those targets too.
 
 ```yaml
@@ -210,7 +217,7 @@ visitors:
 ./burrow visit --client home --target 22 --local 2222                  # --target 22 means 127.0.0.1:22 on the client; then: ssh -p 2222 localhost
 ./burrow visit --client home --target 192.168.150.44:22 --local 2222   # a machine on the client's network
 ./burrow visit --client home --target 192.168.150.3:3000 --local 3000  # a web app there; then open http://localhost:3000
-./burrow visit --client home --socks 1080                              # a SOCKS5 proxy into the client's network (TCP only)
+./burrow visit --client home --socks 1080                              # a SOCKS5 proxy into the client's network (TCP and UDP)
 curl --socks5-hostname 127.0.0.1:1080 http://nas.local:5000            # then any app can use it
 ```
 

@@ -617,6 +617,16 @@ fn Section(
     }
 }
 
+pub fn old_server_item(server: &str, ui: &str) -> Option<Item> {
+    burrow_admin_logic::version::server_is_older(server, ui).then(|| Item {
+        key: "old-server".into(),
+        tone: Tone::Warning,
+        title: format!("This server runs burrow v{server}, older than this burrow admin (v{ui})"),
+        detail: "Update it for the newest settings and help: run burrow update on the server as root or administrator, or pull the new image for Docker; restart a server you run by hand.".into(),
+        to: Some(Route::About),
+    })
+}
+
 #[component]
 fn Attention() -> impl IntoView {
     let s = store();
@@ -624,7 +634,12 @@ fn Attention() -> impl IntoView {
         let v = s.running();
         let st = s.state.get();
         let status = s.status.get();
-        attention(&v, st.as_deref(), status.as_deref())
+        let mut items = attention(&v, st.as_deref(), status.as_deref());
+        items.extend(s.welcome.with(|w| {
+            w.as_ref()
+                .and_then(|w| old_server_item(&w.server.version, env!("CARGO_PKG_VERSION")))
+        }));
+        items
     });
     let away_items = Memo::new(move |_| {
         let v = s.running();
@@ -1067,9 +1082,28 @@ mod tests {
                 idle_channels: 0,
                 left_secs_ago: (!on).then_some(172_800),
                 local: false,
+                ..ClientStatus::default()
             });
         }
         st
+    }
+
+    #[test]
+    fn an_older_server_needs_attention_until_it_is_updated() {
+        let item = old_server_item("0.1.0", "0.1.2").expect("an older server is an item");
+        assert_eq!(item.tone, Tone::Warning);
+        assert_eq!(
+            item.title,
+            "This server runs burrow v0.1.0, older than this burrow admin (v0.1.2)"
+        );
+        assert_eq!(
+            item.detail,
+            "Update it for the newest settings and help: run burrow update on the server as root or administrator, or pull the new image for Docker; restart a server you run by hand."
+        );
+        assert_eq!(item.to, Some(Route::About));
+        assert_eq!(old_server_item("0.1.2", "0.1.2"), None);
+        assert_eq!(old_server_item("0.1.3", "0.1.2"), None);
+        assert_eq!(old_server_item("garbage", "0.1.2"), None);
     }
 
     #[test]

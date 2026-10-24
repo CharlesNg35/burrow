@@ -1,10 +1,13 @@
 mod forward;
 mod socks;
+pub mod socks_udp;
+mod udp;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::sync::atomic::AtomicUsize;
 
-use tokio::net::TcpListener;
+use tokio::net::{TcpListener, UdpSocket};
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinSet;
 use tracing::{error, info};
@@ -16,6 +19,7 @@ use crate::failure::Failure;
 use crate::protocol::VisitTarget;
 use crate::transport::resolve::Resolver;
 use crate::transport::tcp::bind_tcp;
+use crate::transport::udp::bind_udp_now;
 use burrow_config::Protocol;
 
 const MAX_OPENING: usize = 32;
@@ -30,6 +34,7 @@ pub enum Pick {
     Adhoc {
         to: VisitTarget,
         local: (SocketAddr, u16),
+        protocol: Protocol,
     },
     Socks {
         client: String,
@@ -84,7 +89,11 @@ pub fn pick(settings: &mut VisitorSettings, choice: Pick, config: &str) -> Resul
         Pick::Socks { client, local } => {
             settings.forwards = [(client.clone(), Forward::socks(local, client))].into();
         }
-        Pick::Adhoc { to, local } => {
+        Pick::Adhoc {
+            to,
+            local,
+            protocol,
+        } => {
             let name = match &to {
                 VisitTarget::Service { name, .. } => name.clone(),
                 VisitTarget::Client { client, .. } => client.clone(),
@@ -97,6 +106,7 @@ pub fn pick(settings: &mut VisitorSettings, choice: Pick, config: &str) -> Resul
                     ports,
                     to,
                     socks: false,
+                    protocol,
                 },
             )]
             .into();
@@ -105,11 +115,31 @@ pub fn pick(settings: &mut VisitorSettings, choice: Pick, config: &str) -> Resul
     Ok(())
 }
 
+#[derive(Clone)]
+pub(super) struct Live {
+    pub dialer: Arc<Dialer>,
+    pub settings: Arc<VisitorSettings>,
+}
+
+enum Listener {
+    Tcp(TcpListener),
+    Udp(UdpSocket),
+}
+
+impl Listener {
+    fn local_addr(&self) -> std::io::Result<SocketAddr> {
+        match self {
+            Listener::Tcp(l) => l.local_addr(),
+            Listener::Udp(s) => s.local_addr(),
+        }
+    }
+}
+
 struct Bound {
     name: String,
     to: VisitTarget,
     socks: bool,
-    listener: TcpListener,
+    listener: Listener,
 }
 
 fn bind_forward(name: &str, forward: &Forward) -> Result<Vec<Bound>, Failure> {
@@ -117,8 +147,17 @@ fn bind_forward(name: &str, forward: &Forward) -> Result<Vec<Bound>, Failure> {
         .listens()
         .into_iter()
         .map(|(index, local)| {
-            let listener = bind_tcp(local).map_err(|e| {
-                crate::server::bind_error(&format!("forward \"{name}\""), Protocol::Tcp, local, &e)
+            let bound = match forward.protocol {
+                Protocol::Tcp => bind_tcp(local).map(Listener::Tcp),
+                Protocol::Udp => bind_udp_now(local).map(Listener::Udp),
+            };
+            let listener = bound.map_err(|e| {
+                crate::server::bind_error(
+                    &format!("forward \"{name}\""),
+                    forward.protocol,
+                    local,
+                    &e,
+                )
             })?;
             Ok(Bound {
                 name: name.to_string(),
@@ -147,12 +186,15 @@ fn describe(forward: &Forward, at: SocketAddr) -> String {
         }
         (to, _) => to.to_string(),
     };
-    format!("forwarding {at} -> {to}")
+    match forward.protocol {
+        Protocol::Tcp => format!("forwarding {at} -> {to}"),
+        Protocol::Udp => format!("forwarding udp {at} -> {to}"),
+    }
 }
 
 fn ends<'a>(
     forwards: impl Iterator<Item = (&'a String, &'a Forward)>,
-) -> Vec<(String, VisitTarget)> {
+) -> Vec<(String, VisitTarget, Protocol)> {
     forwards
         .flat_map(|(name, f)| {
             let first = match &f.to {
@@ -163,9 +205,9 @@ fn ends<'a>(
                 to => to.clone(),
             };
             let last = f.ports.max(1) - 1;
-            let mut ends = vec![(name.clone(), first)];
+            let mut ends = vec![(name.clone(), first, f.protocol)];
             if last > 0 {
-                ends.push((name.clone(), f.to.at(last)));
+                ends.push((name.clone(), f.to.at(last), f.protocol));
             }
             ends
         })
@@ -185,6 +227,8 @@ fn connection_changes(old: &VisitorSettings, new: &VisitorSettings) -> Vec<&'sta
         proxy,
         connect_timeout,
         tcp,
+        udp_session_timeout: _,
+        udp_max_peers: _,
         forwards: _,
     } = new;
     [
@@ -236,6 +280,8 @@ pub struct Visitor {
     resolver: Option<Arc<dyn Resolver>>,
     bound: Vec<Bound>,
     reloads: Option<mpsc::Receiver<VisitorSettings>>,
+    live: watch::Sender<Live>,
+    udp_peers: Arc<AtomicUsize>,
 }
 
 impl Visitor {
@@ -244,19 +290,39 @@ impl Visitor {
         for (name, forward) in &settings.forwards {
             bound.extend(bind_forward(name, forward)?);
         }
+        let dialer = dialer_for(&settings, &None);
+        let settings = Arc::new(settings);
+        let (live, _) = watch::channel(Live {
+            dialer: dialer.clone(),
+            settings: settings.clone(),
+        });
         Ok(Visitor {
-            dialer: dialer_for(&settings, &None),
-            settings: Arc::new(settings),
+            dialer,
+            settings,
             resolver: None,
             bound,
             reloads: None,
+            live,
+            udp_peers: Arc::new(AtomicUsize::new(0)),
         })
     }
 
     pub fn with_resolver(mut self, resolver: Arc<dyn Resolver>) -> Self {
         self.resolver = Some(resolver);
         self.dialer = dialer_for(&self.settings, &self.resolver);
+        self.publish();
         self
+    }
+
+    pub fn udp_peers(&self) -> Arc<AtomicUsize> {
+        self.udp_peers.clone()
+    }
+
+    fn publish(&self) {
+        self.live.send_replace(Live {
+            dialer: self.dialer.clone(),
+            settings: self.settings.clone(),
+        });
     }
 
     pub fn with_reloads(mut self, reloads: mpsc::Receiver<VisitorSettings>) -> Self {
@@ -272,19 +338,23 @@ impl Visitor {
     }
 
     fn listen(
+        &self,
         bound: Vec<Bound>,
         tx: &mpsc::Sender<forward::Incoming>,
     ) -> Vec<tokio::task::JoinHandle<()>> {
         bound
             .into_iter()
-            .map(|b| {
-                tokio::spawn(forward::accept(
+            .map(|b| match b.listener {
+                Listener::Tcp(listener) => {
+                    tokio::spawn(forward::accept(b.name, b.to, b.socks, listener, tx.clone()))
+                }
+                Listener::Udp(socket) => tokio::spawn(udp::serve(
                     b.name,
                     b.to,
-                    b.socks,
-                    b.listener,
-                    tx.clone(),
-                ))
+                    socket,
+                    self.live.subscribe(),
+                    self.udp_peers.clone(),
+                )),
             })
             .collect()
     }
@@ -300,7 +370,7 @@ impl Visitor {
                 name,
                 Listening {
                     forward: f,
-                    tasks: Self::listen(bound, &tx),
+                    tasks: self.listen(bound, &tx),
                 },
             );
         }
@@ -323,6 +393,7 @@ impl Visitor {
                         self.settings.clone(),
                         opening.clone(),
                         conn,
+                        self.live.subscribe(),
                     ));
                 }
                 Some(_) = open.join_next(), if !open.is_empty() => {}
@@ -360,7 +431,7 @@ impl Visitor {
                     name.clone(),
                     Listening {
                         forward: f.clone(),
-                        tasks: Self::listen(bound, tx),
+                        tasks: self.listen(bound, tx),
                     },
                 );
             }
@@ -403,6 +474,8 @@ impl Visitor {
         if !connection.is_empty() {
             self.dialer = dialer_for(&next, &self.resolver);
         }
+        self.settings = Arc::new(next.clone());
+        self.publish();
         let mut added = Vec::new();
         for (name, f) in &next.forwards {
             if listening.contains_key(name) {
@@ -419,7 +492,7 @@ impl Visitor {
                         name.clone(),
                         Listening {
                             forward: f.clone(),
-                            tasks: Self::listen(bound, tx),
+                            tasks: self.listen(bound, tx),
                         },
                     );
                     added.push((name, f));
@@ -436,7 +509,6 @@ impl Visitor {
         } else {
             ends(next.forwards.iter())
         };
-        self.settings = Arc::new(next);
         if !check.is_empty() {
             tokio::spawn(forward::check(self.dialer.clone(), check));
         }
@@ -499,6 +571,8 @@ mod tests {
                 nodelay: true,
                 keepalive: None,
             },
+            udp_session_timeout: std::time::Duration::from_secs(120),
+            udp_max_peers: 4096,
             forwards: [
                 ("db".to_string(), forward(5432, VisitTarget::service("db"))),
                 (
@@ -535,6 +609,25 @@ mod tests {
             "config reloaded: secret applied to new connections, open ones keep running; forwards db, web changed"
         );
         assert_eq!(summary(&[], &[]), "config reloaded: nothing changed");
+    }
+
+    #[test]
+    fn a_udp_forward_says_udp_and_checks_with_its_protocol() {
+        let at = SocketAddr::from(([127, 0, 0, 1], 5353));
+        let udp = Forward::udp(at, VisitTarget::service("dns"));
+        assert_eq!(
+            describe(&udp, at),
+            "forwarding udp 127.0.0.1:5353 -> service \"dns\""
+        );
+        let tcp = Forward::single(at, VisitTarget::service("db"));
+        assert_eq!(
+            describe(&tcp, at),
+            "forwarding 127.0.0.1:5353 -> service \"db\""
+        );
+        let forwards = [("dns".to_string(), udp), ("db".to_string(), tcp)];
+        let checked = ends(forwards.iter().map(|(n, f)| (n, f)));
+        assert_eq!(checked[0].2, Protocol::Udp);
+        assert_eq!(checked[1].2, Protocol::Tcp);
     }
 
     #[test]
@@ -621,6 +714,7 @@ mod tests {
             Pick::Adhoc {
                 to: to.clone(),
                 local: (local, 1),
+                protocol: Protocol::Tcp,
             },
             "visitor.yaml",
         )

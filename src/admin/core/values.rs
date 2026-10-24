@@ -33,6 +33,14 @@ fn is_secret(node: Option<&Node>) -> bool {
     }
 }
 
+fn is_path(node: Option<&Node>) -> bool {
+    match node.map(|n| &n.sem) {
+        Some(SemType::Path(_)) => true,
+        Some(SemType::Optional(o)) => is_path(Some(&o.inner)),
+        _ => false,
+    }
+}
+
 fn secret_info(raw: &str, env: &dyn EnvSource) -> SecretInfo {
     let vars = burrow_syntax::env::names(raw);
     let src = match vars.first() {
@@ -82,7 +90,7 @@ fn present_at(
     is_name: bool,
     env: &dyn EnvSource,
 ) -> Value {
-    if is_secret(node) || (!is_name && secretish(key)) {
+    if is_secret(node) || (!is_name && secretish(key) && !is_path(node)) {
         return present_secret(v, env);
     }
     match v {
@@ -244,5 +252,15 @@ mod tests {
         assert_eq!(out["visitors"]["token"]["admin"], "read", "{out}");
         assert_eq!(out["services"], raw["services"], "{out}");
         assert_eq!(raw_of(&out["services"]), raw["services"]);
+    }
+
+    #[test]
+    fn a_tls_key_file_path_is_shown_as_written() {
+        let schema = crate::config::admin_schema::server_schema();
+        let env = |_: &str| None;
+        let raw =
+            json!({"websocket": {"listen": 7836, "tls": {"cert": "ws.crt", "key": "ws.key"}}});
+        let out = present(&raw, Some(&schema.root), "", &env);
+        assert_eq!(out["websocket"]["tls"]["key"], "ws.key", "{out}");
     }
 }

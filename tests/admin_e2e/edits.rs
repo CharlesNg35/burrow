@@ -468,6 +468,34 @@ fn editors(c: &mut Ctx) -> Flow<'_> {
             text.contains("public_address: tunnel.example.net"),
             "{text}"
         );
+
+        c.ui.nav("/settings").await;
+        let peers = "[data-schema='udp/max_peers']";
+        let help = c.ui.wait_text(peers, "Max UDP peers per port", SECS).await;
+        assert!(
+            help.contains("For example 20000; the default is 4096"),
+            "{help}"
+        );
+        edit_mode(c).await;
+        c.ui.wait_for(&format!("{peers} [data-editor]"), SECS).await;
+        let _: bool = c
+            .ui
+            .eval("(() => { const b = document.querySelector('[data-sticky-bar]').getBoundingClientRect(); const r = document.querySelector(\"[data-schema='udp/max_peers']\").getBoundingClientRect(); scrollBy(0, r.bottom - b.top - 10); document.getElementById('f-udp-max-peers').focus(); return true; })()")
+            .await;
+        clear_of_bar(c, "udp/max_peers").await;
+        c.ui.fill("#f-udp-max-peers", "0").await;
+        let err = row_error(c, "udp/max_peers").await;
+        assert!(!err.is_empty(), "0 peers is refused inline");
+        c.ui.fill("#f-udp-max-peers", "1000001").await;
+        let err = row_error(c, "udp/max_peers").await;
+        assert!(!err.is_empty(), "more than 1000000 peers is refused inline");
+        c.ui.fill("#f-udp-max-peers", "20000").await;
+        row_clean(c, "udp/max_peers").await;
+        c.ui.shot("udp-max-peers").await;
+        open_review(c, "review-of-udp-max-peers").await;
+        applied(c, "udp-max-peers-applied").await;
+        let text = c.world.config();
+        assert!(text.contains("max_peers: 20000"), "{text}");
         c.ui.assert_no_errors();
     })
 }
@@ -935,7 +963,7 @@ fn revert_conflict(c: &mut Ctx) -> Flow<'_> {
         c.world
             .hand_edit(|t| t.replace("target: 4002", "target: 4003"));
         c.ui.wait_for("[data-testid=banner-changed]", SECS).await;
-        c.ui.click("[data-testid=apply]").await;
+        click_js(c, "[data-testid=apply]").await;
         c.ui.wait_for("[data-testid=conflict]", SECS).await;
         c.ui.shot("revert-against-a-changed-file").await;
         c.ui.click("[data-testid=conflict-recheck]").await;
@@ -1060,8 +1088,20 @@ fn locked_fields(c: &mut Ctx) -> Flow<'_> {
         );
         edit_mode(c).await;
         assert!(
+            c.ui.text("[data-schema=listen]")
+                .await
+                .contains("Change this in server.yaml"),
+            "a locked address keeps its help while editing: {}",
+            c.ui.text("[data-schema=listen]").await
+        );
+        assert!(
             c.ui.count("[data-schema=public_address] input").await > 0,
             "unlocked fields are editable in edit mode"
+        );
+        let public = c.ui.text("[data-schema=public_address]").await;
+        assert!(
+            public.contains("when WebSocket is on; connect commands made here use it"),
+            "the public address keeps its whole help while editing: {public}"
         );
         assert!(
             c.ui.count("[data-schema='limits/max_pending'] input").await > 0,
@@ -1210,7 +1250,7 @@ fn draft_after_a_viewed_revert_conflict(c: &mut Ctx) -> Flow<'_> {
         c.world
             .hand_edit(|t| t.replace("target: 4002", "target: 4003"));
         c.ui.wait_for("[data-testid=banner-changed]", SECS).await;
-        c.ui.click("[data-testid=apply]").await;
+        click_js(c, "[data-testid=apply]").await;
         c.ui.wait_for("[data-testid=conflict]", SECS).await;
         c.ui.click("[data-testid=conflict-view]").await;
         c.ui.wait_gone("[data-testid=conflict]", SECS).await;
@@ -1550,6 +1590,42 @@ fn edit_state(c: &mut Ctx) -> Flow<'_> {
         c.ui.wait_gone(clear, SECS).await;
         wait_checked(c).await;
         assert_eq!(c.ui.count("[data-testid=form-problems]").await, 0);
+        c.ui.choose("f-services-web-bind-visibility", "private")
+            .await;
+        c.ui.wait_for("[data-testid=pick-visitors]", SECS).await;
+        wait_checked(c).await;
+        tokio::time::sleep(Duration::from_millis(600)).await;
+        assert_eq!(
+            c.ui.count("[data-testid=form-problems]").await,
+            0,
+            "a private UDP service asks for visitors like a TCP one, with no red error"
+        );
+        assert_eq!(
+            c.ui.text("[data-testid=fields-changed]").await,
+            "Pick at least one visitor or switch back to Public port"
+        );
+        c.ui.shot("private-udp-needs-visitors").await;
+        c.ui.click("[data-testid=pick-visitors] button").await;
+        c.ui.wait_for(
+            "#f-services-web-visitors:focus, #f-services-web-visitors:focus-within",
+            SECS,
+        )
+        .await;
+        clear_of_bar(c, "services/*/visitors").await;
+        let _: bool = c
+            .ui
+            .eval("(() => { const f = document.getElementById('f-services-web-visitors'); const i = f.matches('input') ? f : f.querySelector('input'); i.focus(); i.click(); return true; })()")
+            .await;
+        c.ui.wait_for("[role=listbox] [role=option]", SECS).await;
+        c.ui.click("[role=listbox] [role=option]").await;
+        c.ui.wait_for("[data-chip]", SECS).await;
+        wait_checked(c).await;
+        assert_eq!(c.ui.count("[data-testid=form-problems]").await, 0);
+        assert!(
+            c.ui.enabled("[data-testid=save]").await,
+            "a private UDP service with a visitor can be added"
+        );
+        c.ui.shot("private-udp-with-a-visitor").await;
         c.ui.click("[data-testid=discard-edit]").await;
         c.ui.wait_gone("[data-testid=save-bar]", SECS).await;
 
@@ -1612,4 +1688,91 @@ fn edit_state(c: &mut Ctx) -> Flow<'_> {
 #[test]
 fn edits_survive_navigation_and_problems_show_where_you_edit() {
     run("edit-state", Options::default(), false, edit_state);
+}
+
+async fn create_in_picker(c: &mut Ctx, field: &str, name: &str, by_button: bool) {
+    c.ui.click(&format!("#{field}")).await;
+    c.ui.wait_for("[role=listbox]", SECS).await;
+    c.ui.click("[data-testid=combo-new]").await;
+    c.ui.wait_for("[data-testid=combo-new-name]", SECS).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(
+        c.ui.count("[role=listbox]").await,
+        1,
+        "{field}: the list stays open after New"
+    );
+    let focused: String =
+        c.ui.eval("(document.activeElement && document.activeElement.dataset.testid) || ''")
+            .await;
+    assert_eq!(
+        focused, "combo-new-name",
+        "{field}: the name input has the focus"
+    );
+    let placeholder: String =
+        c.ui.eval("document.querySelector('[data-testid=combo-new-name]').placeholder")
+            .await;
+    assert!(
+        !placeholder.is_empty(),
+        "{field}: the name input says what it is for"
+    );
+    c.ui.shot(&format!("{field}-new-name")).await;
+    let el =
+        c.ui.page
+            .find_element("[data-testid=combo-new-name]")
+            .await
+            .expect("name input");
+    el.type_str(name).await.expect("type the name");
+    if by_button {
+        c.ui.click("[data-testid=combo-create]").await;
+    } else {
+        el.press_key("Enter").await.expect("Enter");
+    }
+    c.ui.wait_for(&format!("[data-chip='{name}']"), SECS).await;
+    assert_eq!(
+        c.ui.count("[data-testid=combo-new-name]").await,
+        0,
+        "{field}: the name input goes once the item is made"
+    );
+    c.ui.shot(&format!("{field}-created")).await;
+}
+
+fn picker_create(c: &mut Ctx) -> Flow<'_> {
+    Box::pin(async move {
+        open(c, "ops").await;
+        c.ui.nav("/services/web?tab=settings").await;
+        edit_mode(c).await;
+        create_in_picker(c, "f-services-web-visitors", "tablet", false).await;
+        create_in_picker(c, "f-services-web-clients", "edge", true).await;
+        c.ui.click("#f-services-web-visitors").await;
+        c.ui.wait_for("[role=listbox]", SECS).await;
+        c.ui.click("[data-testid=combo-new]").await;
+        c.ui.wait_for("[data-testid=combo-new-name]", SECS).await;
+        let _: bool = c
+            .ui
+            .eval("(() => { document.querySelector('[data-testid=combo-new-name]').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); return true; })()")
+            .await;
+        c.ui.wait_gone("[data-testid=combo-new-name]", SECS).await;
+        assert_eq!(
+            c.ui.count("[role=listbox]").await,
+            1,
+            "Escape leaves New first"
+        );
+        c.ui.press("#f-services-web-visitors", "Escape").await;
+        c.ui.wait_gone("[role=listbox]", SECS).await;
+        c.ui.click("#f-services-web-visitors").await;
+        c.ui.wait_for("[role=listbox]", SECS).await;
+        assert_eq!(
+            c.ui.count("[data-testid=combo-new-name]").await,
+            0,
+            "a reopened list starts without the name input"
+        );
+        c.ui.click("main h1").await;
+        c.ui.wait_gone("[role=listbox]", SECS).await;
+        c.ui.assert_no_errors();
+    })
+}
+
+#[test]
+fn a_new_visitor_or_client_is_made_from_its_picker_without_closing_it() {
+    run("picker-create", Options::default(), false, picker_create);
 }

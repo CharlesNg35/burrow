@@ -425,3 +425,205 @@ async fn an_update_through_a_symlink_changes_the_real_file_and_keeps_the_link() 
     );
     assert!(read(&w.path("real/visitor.yaml")).contains("service: web"));
 }
+
+fn udp_world_settings(w: &World) -> burrow::config::settings::ServerSettings {
+    let mut next = w.settings.clone();
+    next.services.insert(
+        "dns".into(),
+        private_udp_service("127.0.0.1:53".parse().unwrap(), &["laptop"]),
+    );
+    next
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn init_visitor_writes_udp_forwards_and_update_adds_keeps_and_removes_them() {
+    let w = World::start(true).await;
+    let with_dns = udp_world_settings(&w);
+    w.server.reload(with_dns.clone()).await;
+    let shared = w.server.shared.clone();
+    wait_for(|| shared.settings_snapshot().services.contains_key("dns")).await;
+    let out = w.new_config("visitor.yaml");
+    assert!(out.status.success(), "{}", text(&out));
+    assert!(text(&out).contains("udp 127.0.0.1:"), "{}", text(&out));
+    let path = w.path("visitor.yaml");
+    let yaml = read(&path);
+    assert!(
+        yaml.contains("  dns:\n    service: dns\n    protocol: udp\n    local: "),
+        "{yaml}"
+    );
+    let check = w.burrow(&["validate", "-c", "visitor.yaml"]);
+    assert!(check.status.success(), "{}", text(&check));
+
+    let again = w.burrow(&["init", "visitor", "--update", "--yes"]);
+    assert!(text(&again).contains("is up to date"), "{}", text(&again));
+    assert_eq!(read(&path), yaml, "a granted UDP forward is kept as it is");
+
+    let mut next = with_dns;
+    next.services.remove("dns");
+    next.services.insert(
+        "voice".into(),
+        private_udp_service("127.0.0.1:9987".parse().unwrap(), &["laptop"]),
+    );
+    w.server.reload(next).await;
+    wait_for(|| shared.settings_snapshot().services.contains_key("voice")).await;
+    let dry = w.burrow(&["init", "visitor", "--update"]);
+    assert!(text(&dry).contains("- dns"), "{}", text(&dry));
+    assert!(text(&dry).contains("+ voice"), "{}", text(&dry));
+    let write = w.burrow(&["init", "visitor", "--update", "--yes"]);
+    assert!(write.status.success(), "{}", text(&write));
+    let yaml = read(&path);
+    assert!(!yaml.contains("service: dns"), "{yaml}");
+    assert!(
+        yaml.contains("  voice:\n    service: voice\n    protocol: udp\n    local: 9987\n"),
+        "{yaml}"
+    );
+}
+
+async fn old(w: &World) -> std::net::SocketAddr {
+    let grants = burrow::protocol::Grants {
+        services: vec![burrow::protocol::GrantedService {
+            name: "db".into(),
+            protocol: burrow_config::Protocol::Tcp,
+            port: 5432,
+            ports: 1,
+        }],
+        clients: vec![],
+    };
+    old_server(w.visitor.clone(), grants.encode().unwrap()).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn init_visitor_against_a_server_older_than_v012_lists_tcp_and_keeps_udp_forwards() {
+    let w = World::start(false).await;
+    let server = old(&w).await.to_string();
+    let out = w.burrow(&[
+        "init",
+        "visitor",
+        "--server",
+        &server,
+        "--name",
+        "laptop",
+        "--secret",
+        &w.visitor.encode(),
+        "-o",
+        "visitor.yaml",
+    ]);
+    assert!(out.status.success(), "{}", text(&out));
+    assert!(text(&out).contains("older than v0.1.2"), "{}", text(&out));
+    assert!(
+        text(&out).contains("or lists more services than fit in one answer"),
+        "{}",
+        text(&out)
+    );
+    let path = w.path("visitor.yaml");
+    let yaml = read(&path);
+    assert!(yaml.contains("  db:\n    service: db\n"), "{yaml}");
+    let mut edited = yaml.clone();
+    edited.push_str("  dns:\n    service: dns\n    protocol: udp\n    local: 5353\n  gone:\n    service: gone\n    local: 7000\n");
+    std::fs::write(&path, &edited).unwrap();
+    let update = w.burrow(&["init", "visitor", "--update", "--yes"]);
+    assert!(update.status.success(), "{}", text(&update));
+    assert!(
+        text(&update).contains("older than v0.1.2"),
+        "{}",
+        text(&update)
+    );
+    assert!(text(&update).contains("- gone"), "{}", text(&update));
+    let yaml = read(&path);
+    assert!(
+        yaml.contains("  dns:\n    service: dns\n    protocol: udp\n    local: 5353\n"),
+        "{yaml}"
+    );
+    assert!(!yaml.contains("gone"), "{yaml}");
+}
+
+fn visit_log(w: &World, config: &str, expect: &[&str]) -> String {
+    std::fs::write(w.path("visitor.yaml"), config).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(
+            w.path("visitor.yaml"),
+            std::fs::Permissions::from_mode(0o600),
+        )
+        .unwrap();
+    }
+    let mut child = Command::new(env!("CARGO_BIN_EXE_burrow"))
+        .args(["visit", "-c", "visitor.yaml"])
+        .current_dir(w.dir.path())
+        .env("BURROW_INSTANCE_DIR", w.dir.path())
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let stderr = child.stderr.take().unwrap();
+    let seen = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+    let into = seen.clone();
+    let reader = std::thread::spawn(move || {
+        use std::io::BufRead;
+        for line in std::io::BufReader::new(stderr)
+            .lines()
+            .map_while(Result::ok)
+        {
+            let mut all = into.lock().unwrap();
+            all.push_str(&line);
+            all.push('\n');
+        }
+    });
+    let started = std::time::Instant::now();
+    while started.elapsed() < std::time::Duration::from_secs(20)
+        && !expect.iter().all(|e| seen.lock().unwrap().contains(e))
+    {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+    let _ = reader.join();
+    std::sync::Arc::try_unwrap(seen)
+        .map(|m| m.into_inner().unwrap())
+        .unwrap_or_default()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_udp_forward_to_a_server_older_than_v012_says_the_server_needs_updating() {
+    let w = World::start(false).await;
+    let server = old(&w).await;
+    let log = visit_log(
+        &w,
+        &format!(
+            "server: {server}\nname: laptop\nsecret: {}\nforwards:\n  dns: {{ service: dns, protocol: udp, local: {} }}\n",
+            w.visitor.encode(),
+            free_port()
+        ),
+        &[OLDER],
+    );
+    assert!(log.contains(OLDER), "{log}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_forward_with_the_wrong_protocol_is_told_which_one_the_service_has() {
+    let w = World::start(true).await;
+    w.server.reload(udp_world_settings(&w)).await;
+    let shared = w.server.shared.clone();
+    wait_for(|| shared.settings_snapshot().services.contains_key("dns")).await;
+    let log = visit_log(
+        &w,
+        &format!(
+            "server: {}\nname: laptop\nsecret: {}\nforwards:\n  dns: {{ service: dns, local: {} }}\n  db: {{ service: db, protocol: udp, local: {} }}\n",
+            w.server_line(),
+            w.visitor.encode(),
+            free_port(),
+            free_port()
+        ),
+        &[ADD, REMOVE],
+    );
+    assert!(log.contains(ADD), "{log}");
+    assert!(log.contains(REMOVE), "{log}");
+}
+
+const OLDER: &str = "forward \"dns\": the server is older than v0.1.2";
+const ADD: &str =
+    "forward \"dns\": service \"dns\" is a udp service on the server; add \"protocol: udp\"";
+const REMOVE: &str =
+    "forward \"db\": service \"db\" is a tcp service on the server; remove \"protocol: udp\"";

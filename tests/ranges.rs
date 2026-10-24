@@ -213,6 +213,7 @@ impl Visits {
                 ports,
                 to,
                 socks: false,
+                protocol: Protocol::Tcp,
             },
         );
         start_visitor(settings)
@@ -357,4 +358,104 @@ async fn shrinking_a_range_closes_connections_on_the_ports_it_dropped() {
     let mut conn = conn;
     let _ = conn.flush().await;
     assert_cut(conn).await;
+}
+
+async fn udp_visits(target: u16, ports: u16) -> Visits {
+    let secret = Secret::generate();
+    let visitor_secret = Secret::generate();
+    let mut server = server_settings(vec![secret.clone()]);
+    server.visitors.insert(
+        "laptop".into(),
+        visitor_auth(visitor_secret.clone(), &["home"]),
+    );
+    server.services.insert(
+        "game".into(),
+        Service {
+            visitors: vec!["laptop".into()],
+            ..ranged(Protocol::Udp, None, target, ports)
+        },
+    );
+    let tunnel = tunnel_with(
+        server,
+        vec![],
+        |mut c| {
+            c.allow = burrow::allowlist::AllowList::All;
+            c
+        },
+        secret,
+    )
+    .await;
+    Visits {
+        server: tunnel.server.addr,
+        _tunnel: tunnel,
+        visitor_secret,
+    }
+}
+
+impl Visits {
+    async fn udp_lands_on(&self, to: VisitTarget) -> Result<u16, Option<burrow::protocol::Status>> {
+        let mut v = udp_visit(self.server, self.visitor_secret.clone(), to).await?;
+        for _ in 0..10 {
+            v.send(9, b"hello").await;
+            match v.next(Duration::from_millis(300)).await {
+                Got::Datagram(9, b) if b.len() == 7 && &b[2..] == b"hello" => {
+                    return Ok(u16::from_be_bytes([b[0], b[1]]));
+                }
+                Got::Closed => return Err(None),
+                _ => {}
+            }
+        }
+        Err(None)
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_udp_visit_reaches_each_port_of_a_private_udp_range() {
+    let target = tagged_udp_targets(3).await;
+    let v = udp_visits(target, 3).await;
+    for i in 0..3 {
+        assert_eq!(
+            v.udp_lands_on(VisitTarget::service("game").at(i)).await,
+            Ok(target + i)
+        );
+    }
+    assert_eq!(
+        v.udp_lands_on(VisitTarget::service("game").at(3)).await,
+        Err(Some(burrow::protocol::Status::Invalid))
+    );
+    let direct = VisitTarget::Client {
+        client: "home".into(),
+        target: format!("127.0.0.1:{target}"),
+    };
+    for i in 0..3 {
+        assert_eq!(v.udp_lands_on(direct.at(i)).await, Ok(target + i));
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_udp_forward_range_reaches_each_port_of_a_private_udp_range() {
+    let target = tagged_udp_targets(3).await;
+    let v = udp_visits(target, 3).await;
+    let local = free_range(3);
+    let mut settings = visitor_settings(v.server, v.visitor_secret.clone(), vec![]);
+    settings.forwards.insert(
+        "game".into(),
+        Forward {
+            ports: 3,
+            ..udp_forward(
+                SocketAddr::from(([127, 0, 0, 1], local)),
+                VisitTarget::service("game"),
+            )
+        },
+    );
+    let _visitor = start_visitor(settings);
+    for i in 0..3 {
+        let at = SocketAddr::from(([127, 0, 0, 1], local + i));
+        assert_eq!(
+            udp_lands_on(at).await,
+            Some(target + i),
+            "local port {}",
+            local + i
+        );
+    }
 }

@@ -647,3 +647,136 @@ async fn self_churn_returns_to_baseline() {
         last.0
     );
 }
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "heavy: run with --ignored"]
+async fn visitor_udp_churn_returns_to_baseline() {
+    use burrow::protocol::VisitTarget;
+    logs();
+    let rounds = env_u64("BURROW_CHURN_ROUNDS", 10);
+    let peers = env_u64("BURROW_CHURN_PEERS", 300) as usize;
+    let echo = udp_echo_server().await;
+    let mut destinations = Vec::new();
+    for _ in 0..8 {
+        destinations.push(udp_echo_server().await);
+    }
+    let secret = Secret::generate();
+    let visitor_secret = Secret::generate();
+    let mut settings = server_settings(vec![secret.clone()]);
+    settings.max_connections_per_client = 1_000_000;
+    settings.max_handshakes = 256;
+    settings.udp_session_timeout = Duration::from_secs(3);
+    settings.visitors.insert(
+        "laptop".into(),
+        visitor_auth(visitor_secret.clone(), &["home"]),
+    );
+    settings
+        .services
+        .insert("dns".into(), private_udp_service(echo, &["laptop"]));
+    let srv = start_server(settings).await;
+    let mut cli = start_client(client_settings(srv.addr, secret)).await;
+    wait_state(&mut cli.state, State::Connected).await;
+    let shared = srv.shared.clone();
+    wait_for(|| shared.idle_channels("home") >= 1).await;
+    let metrics = tokio::runtime::Handle::current().metrics();
+    let mut samples = Vec::new();
+    for round in 0..rounds {
+        let mut vs = visitor_settings(srv.addr, visitor_secret.clone(), vec![]);
+        vs.udp_session_timeout = Duration::from_secs(1);
+        vs.forwards.insert(
+            "dns".into(),
+            udp_forward("127.0.0.1:0".parse().unwrap(), VisitTarget::service("dns")),
+        );
+        vs.forwards.insert(
+            "lan".into(),
+            burrow::config::settings::Forward::socks("127.0.0.1:0".parse().unwrap(), "home".into()),
+        );
+        let v = start_visitor(vs);
+        let (dns, lan) = (v.addr("dns"), v.addr("lan"));
+        let gate = Arc::new(tokio::sync::Semaphore::new(64));
+        let tasks: Vec<_> = (0..peers)
+            .map(|i| {
+                let gate = gate.clone();
+                tokio::spawn(async move {
+                    let _p = gate.acquire_owned().await.unwrap();
+                    let data = pattern(10 + (i % 40) * 997, i as u64);
+                    assert!(udp_echoes_at(dns, &data).await, "peer {i}");
+                })
+            })
+            .collect();
+        for t in tasks {
+            t.await.unwrap();
+        }
+        let mut control = TcpStream::connect(lan).await.unwrap();
+        control.write_all(&[5, 1, 0]).await.unwrap();
+        let mut chosen = [0u8; 2];
+        control.read_exact(&mut chosen).await.unwrap();
+        control
+            .write_all(&[5, 3, 0, 1, 0, 0, 0, 0, 0, 0])
+            .await
+            .unwrap();
+        let mut reply = [0u8; 10];
+        control.read_exact(&mut reply).await.unwrap();
+        assert_eq!(reply[1], 0);
+        let relay = SocketAddr::from((
+            [reply[4], reply[5], reply[6], reply[7]],
+            u16::from_be_bytes([reply[8], reply[9]]),
+        ));
+        let app = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let mut buf = vec![0u8; 2048];
+        for to in &destinations {
+            let SocketAddr::V4(to) = to else {
+                unreachable!()
+            };
+            let mut d = vec![0, 0, 0, 1];
+            d.extend_from_slice(&to.ip().octets());
+            d.extend_from_slice(&to.port().to_be_bytes());
+            d.extend_from_slice(b"socks");
+            let mut back = false;
+            for _ in 0..10 {
+                app.send_to(&d, relay).await.unwrap();
+                if let Ok(Ok((n, _))) =
+                    tokio::time::timeout(Duration::from_millis(500), app.recv_from(&mut buf)).await
+                {
+                    back = buf[..n] == d[..];
+                    break;
+                }
+            }
+            assert!(back, "SOCKS UDP to {to}");
+        }
+        drop(control);
+        let shared = srv.shared.clone();
+        let visitor_peers = v.udp_peers.clone();
+        wait_long(|| {
+            visitor_peers.load(Ordering::Acquire) == 0
+                && shared.udp_peers() == 0
+                && shared.status().visitors[0].open == 0
+        })
+        .await;
+        v.stop.send(true).unwrap();
+        v.task.await.unwrap();
+        wait_for(|| shared.active_connections() == 0).await;
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        let sample = (rss_kib(), open_fds(), metrics.num_alive_tasks());
+        eprintln!(
+            "round {round}: RSS {} KiB, open fds {}, alive tasks {}",
+            sample.0, sample.1, sample.2
+        );
+        samples.push(sample);
+    }
+    let warm = samples[samples.len() / 4];
+    let last = *samples.last().unwrap();
+    assert!(
+        last.1 <= warm.1 + 4,
+        "file descriptors leak: {} -> {}",
+        warm.1,
+        last.1
+    );
+    assert!(last.2 <= warm.2 + 4, "tasks leak: {} -> {}", warm.2, last.2);
+    assert!(
+        last.0 <= warm.0 + 16 * 1024,
+        "RSS keeps growing: {} KiB -> {} KiB",
+        warm.0,
+        last.0
+    );
+}

@@ -364,6 +364,39 @@ fn errors_land_on_their_field() {
 }
 
 #[test]
+fn a_udp_service_with_neither_bind_nor_visitors_shows_its_error_at_visitors_like_tcp() {
+    let w = world();
+    let core = core_for(&w.text);
+    let s = session(&w, AdminLevel::Write);
+    let base = text::rev(&w.text);
+    let ops = [Op::Add {
+        path: p(&["services", "dns"]),
+        value: json!({"client": "home", "protocol": "udp", "target": 53}),
+    }];
+    let c = plan::compute(&core, &s, &base, &ops).unwrap();
+    let d = c
+        .plan
+        .diags
+        .iter()
+        .find(|d| d.code == "unreachable-service")
+        .expect("a udp service nobody can reach is an error");
+    assert!(d.concerns(&p(&["services", "dns", "visitors"])), "{d:?}");
+    let ops = [Op::Add {
+        path: p(&["services", "dns"]),
+        value: json!({"client": "home", "protocol": "udp", "target": 53, "visitors": ["ops"]}),
+    }];
+    let c = plan::compute(&core, &s, &base, &ops).unwrap();
+    assert!(
+        c.plan
+            .diags
+            .iter()
+            .all(|d| d.severity != burrow_admin_proto::diag::Severity::Error),
+        "a private udp service with visitors is valid: {:?}",
+        c.plan.diags
+    );
+}
+
+#[test]
 fn a_changed_file_is_a_conflict_and_nothing_is_written() {
     let w = world();
     let core = core_for(&w.text);
@@ -666,6 +699,39 @@ fn a_new_client_comes_with_ready_snippets_and_later_only_with_a_placeholder() {
     .unwrap();
     assert!(!placeholder.server_known);
     assert!(placeholder.config.contains("server: SERVER_ADDRESS"));
+}
+
+#[test]
+fn the_connect_snippet_of_a_visitor_writes_protocol_udp_for_a_udp_service() {
+    let w = world();
+    let text = format!(
+        "{}  dns: {{ client: home, protocol: udp, target: 53, visitors: [ops] }}\n  db: {{ client: home, target: 53, visitors: [ops] }}\n",
+        w.text
+    );
+    let core = core_for(&text);
+    let s = session(&w, AdminLevel::Write);
+    let sn = snippets::connect_info(
+        &core,
+        &s,
+        &ConnectInfo {
+            kind: "visitor".into(),
+            name: "ops".into(),
+            address: Some("tunnel.example.com".into()),
+        },
+    )
+    .unwrap();
+    assert!(
+        sn.config
+            .contains("  dns:\n    service: dns\n    protocol: udp\n    local: 10053\n"),
+        "{}",
+        sn.config
+    );
+    assert!(
+        sn.config
+            .contains("  db:\n    service: db\n    local: 10053\n"),
+        "{}",
+        sn.config
+    );
 }
 
 #[test]

@@ -79,6 +79,9 @@ pub trait Backend {
     fn ensure_account(&self, account: &str) -> Result<bool, Failure>;
     fn remove_account(&self, account: &str) -> Result<(), Failure>;
     fn can_read(&self, account: &str, path: &Path) -> bool;
+    fn made_for_burrow(&self, _account: &str) -> bool {
+        false
+    }
     fn low_ports(&self, _m: &Manifest) -> bool {
         true
     }
@@ -559,7 +562,12 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
     }
 
     system::require_admin()?;
-    let replaced = take_over(stray::named(&name).as_ref(), &config)?;
+    let taken = take_over(stray::named(&name).as_ref(), &config)?;
+    let old_files: Vec<PathBuf> = taken
+        .iter()
+        .flat_map(Takeover::old_files)
+        .chain(stray::leftovers(Some(&name)))
+        .collect();
     let operation = system::operation(out)?;
     let previous = load_manifest(&name).ok();
     let was_running = previous.as_ref().is_some_and(|p| backend.status(p).running);
@@ -639,10 +647,13 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
         )?;
     }
     let manifest = Manifest {
-        created_account: created
-            || previous
-                .as_ref()
-                .is_some_and(|p| p.created_account && p.account == account),
+        created_account: burrows_account(
+            created,
+            &account,
+            &platform.default_account(&name),
+            previous.as_ref(),
+            || backend.made_for_burrow(&account),
+        ),
         ..manifest
     };
     for (field, file) in &checked.files {
@@ -777,57 +788,31 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
             manifest.role
         ),
     )?;
-    if let Some(note) = &replaced {
+    let mut own = own_logs(&manifest.log_file);
+    own.push(config.clone());
+    own.extend(manifest.env_file.clone());
+    let given = give_old_files(&old_files, &account, &own);
+    if let Some(t) = &taken {
+        say(out, format!("note: {}", t.note(&given)))?;
+    }
+    if let Some(note) = given_note(
+        &name,
+        &given,
+        taken.as_ref().and_then(|t| t.old_config.as_ref()),
+    ) {
         say(out, format!("note: {note}"))?;
     }
     let arg = name_arg(&name, all_manifests().len(), stray::strays().len());
-    if opts.start && !already_running(&*backend, &manifest, &arg, out)? {
-        let started = backend.start(&manifest);
-        again.manifest = None;
-        if started.is_ok() {
-            std::thread::sleep(std::time::Duration::from_millis(1500));
-        }
-        let st = backend.status(&manifest);
-        if let Some(undo) = undo.filter(|_| started.is_err() || !st.running) {
-            let why = match started {
-                Err(f) => f.message,
-                Ok(()) => st.detail.clone(),
-            };
-            return Err(undo.put_back(&*backend, &manifest, &why, save_manifest, out));
-        }
-        started?;
-        if st.running {
-            say(
-                out,
-                format!(
-                    "started {name}{}",
-                    st.pid.map(|p| format!(" (pid {p})")).unwrap_or_default()
-                ),
-            )?;
-        } else {
-            say(
-                out,
-                format!("warning: {name} is not running: {}", st.detail),
-            )?;
-            match backend
-                .journal_hint(&manifest)
-                .filter(|_| !manifest.log_file.exists())
-            {
-                Some(journal) => say(
-                    out,
-                    format!(
-                        "  it wrote no log yet, so it may never have started; see the service manager's reason with: {journal}"
-                    ),
-                )?,
-                None => say(
-                    out,
-                    format!(
-                        "  see why with: {}",
-                        crate::failure::admin(&format!("service logs{arg}"))
-                    ),
-                )?,
-            }
-        }
+    if opts.start {
+        start_installed(
+            &*backend,
+            &manifest,
+            &arg,
+            &mut again,
+            undo,
+            save_manifest,
+            out,
+        )?;
     }
     if let Some(p) = &previous {
         release_previous(&*backend, p, &manifest, out)?;
@@ -859,21 +844,164 @@ fn name_arg(name: &str, managed: usize, strays: usize) -> String {
     }
 }
 
-fn take_over(stray: Option<&stray::Stray>, config: &Path) -> Result<Option<String>, Failure> {
+fn burrows_account(
+    created: bool,
+    account: &str,
+    default: &str,
+    previous: Option<&Manifest>,
+    made_for_burrow: impl FnOnce() -> bool,
+) -> bool {
+    created
+        || previous.is_some_and(|p| p.created_account && p.account == account)
+        || (account == default && made_for_burrow())
+}
+
+#[derive(Debug)]
+struct Takeover {
+    label: String,
+    old_config: Option<PathBuf>,
+}
+
+impl Takeover {
+    fn old_files(&self) -> Vec<PathBuf> {
+        self.old_config.iter().cloned().collect()
+    }
+
+    fn note(&self, given: &[PathBuf]) -> String {
+        let replaced = format!("replaced {}, which burrow had no record of", self.label);
+        match &self.old_config {
+            Some(old) if given.contains(old) => format!(
+                "{replaced}; its old config was left as it was, now owned by root: {}",
+                old.display()
+            ),
+            Some(old) => format!(
+                "{replaced}; its old config was left as it was: {}",
+                old.display()
+            ),
+            None => replaced,
+        }
+    }
+}
+
+fn take_over(stray: Option<&stray::Stray>, config: &Path) -> Result<Option<Takeover>, Failure> {
     let Some(s) = stray else {
         return Ok(None);
     };
     if s.running {
         return Err(s.failure());
     }
-    let replaced = format!("replaced {}, which burrow had no record of", s.label);
-    Ok(Some(match s.config.as_deref().filter(|c| *c != config) {
-        Some(old) => format!(
-            "{replaced}; its old config was left as it was: {}",
-            old.display()
-        ),
-        None => replaced,
+    Ok(Some(Takeover {
+        label: s.label.clone(),
+        old_config: s.config.clone().filter(|c| c != config),
     }))
+}
+
+fn given_note(name: &str, given: &[PathBuf], shown: Option<&PathBuf>) -> Option<String> {
+    let rest: Vec<String> = given
+        .iter()
+        .filter(|p| Some(*p) != shown)
+        .map(|p| p.display().to_string())
+        .collect();
+    (!rest.is_empty()).then(|| {
+        format!(
+            "gave {}, left by an older install of {name}, to root, since the service does not use {}",
+            rest.join(", "),
+            if rest.len() == 1 { "it" } else { "them" }
+        )
+    })
+}
+
+fn give_old_files(files: &[PathBuf], account: &str, keep: &[PathBuf]) -> Vec<PathBuf> {
+    #[cfg(unix)]
+    {
+        let Ok((uid, _)) = system::account_ids(account) else {
+            return Vec::new();
+        };
+        let mut given: Vec<PathBuf> = Vec::new();
+        for f in files {
+            if uid != 0
+                && !keep.contains(f)
+                && !given.contains(f)
+                && system::give_back(f, uid, 0, 0).unwrap_or(false)
+            {
+                given.push(f.clone());
+            }
+        }
+        given
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (files, account, keep);
+        Vec::new()
+    }
+}
+
+fn own_logs(log: &Path) -> Vec<PathBuf> {
+    std::iter::once(log.to_path_buf())
+        .chain((1..=crate::logfile::KEEP).map(|n| PathBuf::from(format!("{}.{n}", log.display()))))
+        .collect()
+}
+
+fn start_installed(
+    backend: &dyn Backend,
+    manifest: &Manifest,
+    arg: &str,
+    again: &mut StartAgain,
+    undo: Option<Undo>,
+    save: impl Fn(&Manifest) -> Result<(), Failure>,
+    out: &mut dyn Write,
+) -> Result<(), Failure> {
+    if already_running(backend, manifest, arg, out)? {
+        return Ok(());
+    }
+    let started = backend.start(manifest);
+    again.manifest = None;
+    if started.is_ok() {
+        std::thread::sleep(std::time::Duration::from_millis(1500));
+    }
+    let st = backend.status(manifest);
+    if let Some(undo) = undo.filter(|_| started.is_err() || !st.running) {
+        let why = match started {
+            Err(f) => f.message,
+            Ok(()) => st.detail.clone(),
+        };
+        return Err(undo.put_back(backend, manifest, &why, save, out));
+    }
+    started?;
+    if st.running {
+        say(
+            out,
+            format!(
+                "started {}{}",
+                manifest.name,
+                st.pid.map(|p| format!(" (pid {p})")).unwrap_or_default()
+            ),
+        )?;
+    } else {
+        say(
+            out,
+            format!("warning: {} is not running: {}", manifest.name, st.detail),
+        )?;
+        match backend
+            .journal_hint(manifest)
+            .filter(|_| !manifest.log_file.exists())
+        {
+            Some(journal) => say(
+                out,
+                format!(
+                    "  it wrote no log yet, so it may never have started; see the service manager's reason with: {journal}"
+                ),
+            )?,
+            None => say(
+                out,
+                format!(
+                    "  see why with: {}",
+                    crate::failure::admin(&format!("service logs{arg}"))
+                ),
+            )?,
+        }
+    }
+    Ok(())
 }
 
 fn already_running(
@@ -1469,6 +1597,22 @@ pub fn uninstall(name: Option<&str>, purge: bool, out: &mut dyn Write) -> Result
                 give_history(&m.config, 0, 0);
                 let _ = std::os::unix::fs::lchown(d, Some(0), Some(0));
             }
+        }
+        let given = give_old_files(&stray::leftovers(None), &m.account, &[]);
+        if !given.is_empty() {
+            say(
+                out,
+                format!(
+                    "gave {} to root before removing service account {}, since an older install left {} owned by it",
+                    given
+                        .iter()
+                        .map(|p| p.display().to_string())
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                    m.account,
+                    if given.len() == 1 { "it" } else { "them" }
+                ),
+            )?;
         }
         match backend.remove_account(&m.account) {
             Ok(()) => say(out, format!("removed service account {}", m.account))?,
@@ -2126,7 +2270,11 @@ mod tests {
         let m = record(Platform::Linux);
         let rec = Recorder(Default::default(), true);
         let mut out = Vec::new();
-        assert!(already_running(&rec, &m, "", &mut out).unwrap());
+        let mut again = StartAgain {
+            backend: &rec,
+            manifest: None,
+        };
+        start_installed(&rec, &m, "", &mut again, None, |_| Ok(()), &mut out).unwrap();
         let out = String::from_utf8(out).unwrap();
         assert!(
             out.starts_with("warning: burrow-server was already running and was not restarted"),
@@ -2137,8 +2285,45 @@ mod tests {
         assert!(rec.0.borrow().is_empty());
         let stopped = Recorder(Default::default(), false);
         let mut out = Vec::new();
-        assert!(!already_running(&stopped, &m, "", &mut out).unwrap());
-        assert!(out.is_empty());
+        let mut again = StartAgain {
+            backend: &stopped,
+            manifest: None,
+        };
+        start_installed(&stopped, &m, "", &mut again, None, |_| Ok(()), &mut out).unwrap();
+        let out = String::from_utf8(out).unwrap();
+        assert_eq!(*stopped.0.borrow(), ["start burrow"]);
+        assert!(
+            out.starts_with("warning: burrow-server is not running"),
+            "{out}"
+        );
+        assert!(!out.contains("already running"), "{out}");
+    }
+
+    #[test]
+    fn an_install_records_burrows_own_account_that_an_earlier_install_left_behind() {
+        let p = Platform::Linux;
+        let ours = p.default_account("burrow-server");
+        let (shaped, other) = (|| true, || false);
+        let previous = Manifest {
+            created_account: true,
+            ..record(p)
+        };
+        let elsewhere = Manifest {
+            account: "www".into(),
+            ..previous.clone()
+        };
+        assert!(burrows_account(true, &ours, &ours, None, other));
+        assert!(burrows_account(false, &ours, &ours, Some(&previous), other));
+        assert!(burrows_account(false, &ours, &ours, None, shaped));
+        assert!(!burrows_account(false, &ours, &ours, None, other));
+        assert!(!burrows_account(false, "www", &ours, None, shaped));
+        assert!(!burrows_account(
+            false,
+            &ours,
+            &ours,
+            Some(&elsewhere),
+            other
+        ));
     }
 
     #[test]
@@ -2158,21 +2343,35 @@ mod tests {
             pid: None,
             ..s.clone()
         };
+        let taken = take_over(Some(&stopped), new).unwrap().unwrap();
         assert_eq!(
-            take_over(Some(&stopped), new).unwrap().as_deref(),
-            Some(
-                "replaced burrow-client.service, which burrow had no record of; its old config was left as it was: /etc/burrow/client.yaml"
-            )
+            taken.note(&[]),
+            "replaced burrow-client.service, which burrow had no record of; its old config was left as it was: /etc/burrow/client.yaml"
         );
+        let old = PathBuf::from("/etc/burrow/client.yaml");
+        assert_eq!(
+            taken.note(std::slice::from_ref(&old)),
+            "replaced burrow-client.service, which burrow had no record of; its old config was left as it was, now owned by root: /etc/burrow/client.yaml"
+        );
+        assert_eq!(taken.old_files(), vec![old.clone()]);
         let in_place = stray::Stray {
             config: Some(new.to_path_buf()),
             ..stopped.clone()
         };
+        let taken = take_over(Some(&in_place), new).unwrap().unwrap();
         assert_eq!(
-            take_over(Some(&in_place), new).unwrap().as_deref(),
-            Some("replaced burrow-client.service, which burrow had no record of")
+            taken.note(&[]),
+            "replaced burrow-client.service, which burrow had no record of"
         );
-        assert_eq!(take_over(None, new).unwrap(), None);
+        assert!(taken.old_files().is_empty());
+        assert!(take_over(None, new).unwrap().is_none());
+        let env = PathBuf::from("/etc/burrow/client.env");
+        assert_eq!(given_note("burrow-client", &[old.clone(), env.clone()], Some(&old)), Some("gave /etc/burrow/client.env, left by an older install of burrow-client, to root, since the service does not use it".to_string()));
+        assert_eq!(
+            given_note("burrow-client", std::slice::from_ref(&old), Some(&old)),
+            None
+        );
+        assert_eq!(given_note("burrow-client", &[], None), None);
     }
 
     #[test]

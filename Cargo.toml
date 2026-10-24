@@ -1,6 +1,6 @@
 [package]
 name = "burrow"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 description = "Fast, secure, lightweight reverse tunnel"
 license = "MIT"
@@ -69,6 +69,7 @@ zeroize = { version = "1.9.1", features = ["derive"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2.190"
+nix = { version = "0.31.3", default-features = false, features = ["user"] }
 signal-hook = "0.3.18"
 rustix = { version = "1.1.5", default-features = false, features = ["fs", "process", "std"] }
 

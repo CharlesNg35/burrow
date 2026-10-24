@@ -727,7 +727,8 @@ fn Detail(section: String, name: String) -> impl IntoView {
     });
     let protocol_tag = {
         let (sec, nm) = (section.clone(), name.clone());
-        move || match sec.as_str() {
+        move || {
+            match sec.as_str() {
             SERVICES => {
                 let p = ServiceEntry::PROTOCOL
                     .at(&e.doc(), &nm)
@@ -755,7 +756,15 @@ fn Detail(section: String, name: String) -> impl IntoView {
                 }
                 .into_any()
             }
+            CLIENTS => s
+                .status
+                .with(|st| format::limit_tag(st.as_deref(), &nm))
+                .map(|(text, why)| {
+                    view! { <span class=wrapping_tag(Tone::Warning) title=why data-testid="limit-tag">{text}</span> }
+                })
+                .into_any(),
             _ => ().into_any(),
+        }
         }
     };
     let tab_counts = {
@@ -998,7 +1007,7 @@ fn Detail(section: String, name: String) -> impl IntoView {
             </nav>
             <header class="mb-[22px] flex items-start gap-3.5" class:max-sm:hidden=move || editing.get() class:hidden=move || !exists.get()>
                 <div class="min-w-0 flex-1">
-                    <h1 class="flex items-center gap-2.5 text-[25px] font-bold tracking-[-0.015em]">{title_dot}{name.clone()}{protocol_tag}</h1>
+                    <h1 class="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[25px] font-bold tracking-[-0.015em]">{title_dot}{name.clone()}{protocol_tag}</h1>
 
                 </div>
                 <div class="flex items-center gap-2">{head_actions}</div>
@@ -1039,6 +1048,12 @@ fn since_date(secs: u64) -> String {
         d.get_hours(),
         d.get_minutes()
     )
+}
+
+fn wrapping_tag(tone: Tone) -> String {
+    tag_class(tone)
+        .replace("h-[18px]", "min-h-[18px] max-w-full py-px leading-tight")
+        .replace("whitespace-nowrap", "whitespace-normal")
 }
 
 fn overview(section: &str, name: &str, stats: bool) -> impl IntoView {
@@ -1377,7 +1392,7 @@ fn visitor_overview(name: &str) -> impl IntoView {
     move || {
         let doc = s.edit.doc();
         let st = s.status.get();
-        let may: Vec<(String, Option<bool>)> = ServiceEntry::entries(&doc)
+        let may: Vec<(String, Option<bool>, bool)> = ServiceEntry::entries(&doc)
             .map(|m| {
                 m.iter()
                     .filter(|(_, x)| {
@@ -1392,7 +1407,7 @@ fn visitor_overview(name: &str) -> impl IntoView {
                                 .iter()
                                 .any(|c| st.clients.iter().any(|y| &y.name == c && y.connected))
                         });
-                        (n.clone(), up)
+                        (n.clone(), up, crate::screens::paths::udp(x))
                     })
                     .collect()
             })
@@ -1410,7 +1425,7 @@ fn visitor_overview(name: &str) -> impl IntoView {
         } else {
             view! {
                 <div class="flex flex-wrap gap-2 px-4 py-3">
-                    {may.into_iter().map(|(n, up)| {
+                    {may.into_iter().map(|(n, up, udp)| {
                         let (dot, state) = match up {
                             Some(true) => ("bg-success", "a client is online"),
                             Some(false) => ("bg-transparent ring-[1.5px] ring-text-faint ring-inset", "no client online"),
@@ -1420,6 +1435,7 @@ fn visitor_overview(name: &str) -> impl IntoView {
                             <Link to=Route::Detail(ServiceEntry::section().into(), n.clone()) class="inline-flex h-[26px] items-center gap-1.5 rounded-sm bg-surface-3 px-2 text-[12.5px] font-semibold text-text no-underline ring-1 ring-border ring-inset hover:ring-border-strong">
                                 <span class=format!("size-2 rounded-full {dot}") aria-hidden="true"></span>
                                 {n.clone()}
+                                {udp.then(|| view! { <span class=tag_class(Tone::Violet)>"UDP"</span> })}
                                 <span class="sr-only">{format!(", {state}")}</span>
                             </Link>
                         }
@@ -1456,9 +1472,29 @@ fn served(name: &str) -> impl IntoView {
         if rows.is_empty() {
             return view! { <div class="mb-4"><EmptyState title="Serves no services" message="Pick this client in a service to publish one of its ports."/></div> }.into_any();
         }
+        let names: Vec<String> = rows.iter().map(|(n, _)| n.clone()).collect();
+        let targets: std::collections::BTreeMap<String, String> = rows
+            .iter()
+            .map(|(n, v)| {
+                (
+                    n.clone(),
+                    ServiceEntry::TARGET.get(v).map(plain).unwrap_or_default(),
+                )
+            })
+            .collect();
+        let cards = rows_for(ServiceEntry::section())
+            .into_iter()
+            .filter(|r| names.contains(&r.key))
+            .map(|r| {
+                let t = targets.get(&r.key).cloned().unwrap_or_default();
+                view! { <div data-target=t><crate::screens::ListCard row=r selected=false/></div> }
+            })
+            .collect_view();
         view! {
             <div class="mb-4">
                 <Card title="Services it serves" flush=true testid="served">
+                    <div class="pt-2 pb-1 sm:hidden" data-testid="served-cards">{cards}</div>
+                    <div class="max-sm:hidden">
                     <Table head=vec!["Service", "_", "Public", "Target", ">Open", "_Health"]>
                         {rows.into_iter().map(|(n, v)| {
                             let x = st.as_ref().and_then(|x| x.services.iter().find(|c| c.name == n)).cloned();
@@ -1476,7 +1512,7 @@ fn served(name: &str) -> impl IntoView {
                                     }}</td>
                                     {
                                         let t = ServiceEntry::TARGET.get(&v).map(plain).unwrap_or_default();
-                                        view! { <td class="max-w-[260px] truncate font-mono text-[13px] text-text-muted" title=t.clone()>{format!("→ {t}")}</td> }
+                                        view! { <td class="max-w-[260px] truncate font-mono text-[13px] text-text-muted" title=t.clone() data-target=t.clone()>{format!("→ {t}")}</td> }
                                     }
                                     <td class="text-right tabular-nums">{x.map(|x| x.open).unwrap_or(0)}</td>
                                     <td>{health}</td>
@@ -1484,9 +1520,24 @@ fn served(name: &str) -> impl IntoView {
                             }
                         }).collect_view()}
                     </Table>
+                    </div>
                 </Card>
             </div>
         }
         .into_any()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_limit_tag_wraps_instead_of_running_under_the_buttons() {
+        let class = wrapping_tag(Tone::Warning);
+        assert!(class.contains("whitespace-normal"), "{class}");
+        assert!(class.contains("max-w-full"), "{class}");
+        assert!(!class.contains("whitespace-nowrap"), "{class}");
+        assert!(!class.contains(" h-[18px]"), "{class}");
     }
 }

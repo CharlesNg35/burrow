@@ -13,7 +13,7 @@ use std::time::Duration;
 use burrow::allowlist::{AllowList, Rule};
 use burrow::client::{Client, State};
 use burrow::config::settings::{
-    ClientAuth, ClientSettings, Forward, ServerSettings, Service, SocketTuning, VisitorAuth,
+    ClientAuth, ClientSettings, Forward, Limit, ServerSettings, Service, SocketTuning, VisitorAuth,
     VisitorSettings,
 };
 use burrow::protocol::VisitTarget;
@@ -58,6 +58,7 @@ pub fn server_settings(secrets: Vec<Secret>) -> ServerSettings {
         pool_max_idle: 64,
         tcp: tuning(),
         udp_session_timeout: Duration::from_secs(30),
+        udp_max_peers: 4096,
         metrics: None,
         self_allow: None,
     }
@@ -96,6 +97,8 @@ pub fn client_settings(server: SocketAddr, secret: Secret) -> ClientSettings {
         connect_timeout: Duration::from_secs(2),
         tcp: tuning(),
         udp_session_timeout: Duration::from_secs(30),
+        max_connections: Limit::default_of(16384),
+        max_udp_peers: Limit::default_of(8192),
     }
 }
 
@@ -149,10 +152,7 @@ pub async fn start_server(settings: ServerSettings) -> RunningServer {
     };
     let ws_addr = server.websocket_addr();
     let metrics = server.metrics_addr();
-    let ws_settings = settings_ws.map(|mut w| {
-        w.listen = ws_addr.expect("websocket bound");
-        w
-    });
+    let ws_settings = settings_ws;
     let addr = server
         .local_addr()
         .or(ws_addr)
@@ -485,6 +485,8 @@ pub fn visitor_settings(
         proxy: None,
         connect_timeout: Duration::from_secs(2),
         tcp: tuning(),
+        udp_session_timeout: Duration::from_secs(30),
+        udp_max_peers: 4096,
         forwards: forwards
             .into_iter()
             .map(|(n, to)| {
@@ -501,6 +503,8 @@ pub struct RunningVisitor {
     pub addrs: BTreeMap<String, SocketAddr>,
     pub stop: watch::Sender<bool>,
     pub task: JoinHandle<()>,
+    pub udp_peers: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    pub reload: Option<mpsc::Sender<VisitorSettings>>,
 }
 
 impl RunningVisitor {
@@ -510,13 +514,218 @@ impl RunningVisitor {
 }
 
 pub fn start_visitor(settings: VisitorSettings) -> RunningVisitor {
+    start_visitor_with(settings, false)
+}
+
+pub fn start_visitor_with(mut settings: VisitorSettings, reloads: bool) -> RunningVisitor {
+    if ws_mode()
+        && let burrow_syntax::endpoint::Endpoint::Tcp { host_port } = &settings.endpoint
+    {
+        let url = format!("ws://{host_port}/burrow");
+        settings.endpoint = burrow_syntax::endpoint::Endpoint::parse(&url).unwrap();
+        settings.server = url;
+    }
     let names: Vec<String> = settings.forwards.keys().cloned().collect();
     let visitor = burrow::visitor::Visitor::bind(settings).expect("visitor binds");
     let addrs = names
         .iter()
         .map(|n| (n.clone(), visitor.local_addr(n).unwrap()))
         .collect();
+    let udp_peers = visitor.udp_peers();
+    let (visitor, reload) = if reloads {
+        let (tx, rx) = mpsc::channel(4);
+        (visitor.with_reloads(rx), Some(tx))
+    } else {
+        (visitor, None)
+    };
     let (stop, stop_rx) = watch::channel(false);
     let task = tokio::spawn(visitor.run(stop_rx));
-    RunningVisitor { addrs, stop, task }
+    RunningVisitor {
+        addrs,
+        stop,
+        task,
+        udp_peers,
+        reload,
+    }
+}
+
+pub fn udp_forward(local: SocketAddr, to: VisitTarget) -> Forward {
+    Forward::udp(local, to)
+}
+
+pub async fn udp_echoes_at(addr: SocketAddr, payload: &[u8]) -> bool {
+    let s = udp_bind().await;
+    udp_echoes_from(&s, addr, payload).await
+}
+
+pub async fn udp_echoes_from(s: &UdpSocket, addr: SocketAddr, payload: &[u8]) -> bool {
+    let mut buf = vec![0u8; 65536];
+    for _ in 0..10 {
+        let _ = s.send_to(payload, addr).await;
+        let deadline = tokio::time::Instant::now() + Duration::from_millis(500);
+        while let Ok(got) = tokio::time::timeout_at(deadline, s.recv_from(&mut buf)).await {
+            if let Ok((n, _)) = got
+                && &buf[..n] == payload
+            {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+pub async fn wait_long<F: FnMut() -> bool>(mut f: F) {
+    for _ in 0..1500 {
+        if f() {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    panic!("condition not reached in 30 s");
+}
+
+pub struct UdpVisit {
+    pub ch: burrow::handshake::Channel,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum Got {
+    Datagram(u32, Vec<u8>),
+    Closed,
+    Silent,
+}
+
+pub async fn udp_visit(
+    server: SocketAddr,
+    secret: Secret,
+    to: VisitTarget,
+) -> Result<UdpVisit, Option<burrow::protocol::Status>> {
+    udp_visit_with(server, secret, false, to).await
+}
+
+pub async fn udp_visit_with(
+    server: SocketAddr,
+    secret: Secret,
+    check: bool,
+    to: VisitTarget,
+) -> Result<UdpVisit, Option<burrow::protocol::Status>> {
+    use burrow::protocol::{ChannelKind, Hello, Status, VisitRequest};
+    let dialer = burrow::dialer::Dialer::visitor(&visitor_settings(server, secret, vec![]));
+    let mut ch = dialer
+        .open(ChannelKind::Visit, Hello::Visit { version: 1 })
+        .await
+        .map_err(|_| None)?;
+    let request = VisitRequest {
+        check,
+        protocol: Protocol::Udp,
+        to,
+    };
+    ch.writer
+        .send(&mut ch.stream, &request.encode().unwrap())
+        .await
+        .map_err(|_| None)?;
+    match tokio::time::timeout(Duration::from_secs(10), ch.reader.recv(&mut ch.stream)).await {
+        Ok(Ok(Some(b))) => match Status::decode(b) {
+            Ok(Status::Ok) => Ok(UdpVisit { ch }),
+            Ok(s) => Err(Some(s)),
+            Err(_) => Err(None),
+        },
+        _ => Err(None),
+    }
+}
+
+impl UdpVisit {
+    pub async fn send(&mut self, peer: u32, payload: &[u8]) {
+        let mut rec = Vec::new();
+        burrow::protocol::encode_datagram(peer, payload, &mut rec);
+        self.ch
+            .writer
+            .send(&mut self.ch.stream, &rec)
+            .await
+            .unwrap();
+    }
+
+    pub async fn send_raw(&mut self, rec: &[u8]) -> std::io::Result<()> {
+        self.ch.writer.send(&mut self.ch.stream, rec).await
+    }
+
+    pub async fn next(&mut self, within: Duration) -> Got {
+        match tokio::time::timeout(within, self.ch.reader.recv(&mut self.ch.stream)).await {
+            Err(_) => Got::Silent,
+            Ok(Ok(Some(rec))) => match burrow::protocol::decode_datagram(rec) {
+                Ok((id, payload)) => Got::Datagram(id, payload.to_vec()),
+                Err(_) => Got::Closed,
+            },
+            Ok(_) => Got::Closed,
+        }
+    }
+
+    pub async fn echoes(&mut self, peer: u32, payload: &[u8]) -> bool {
+        for _ in 0..5 {
+            self.send(peer, payload).await;
+            let deadline = tokio::time::Instant::now() + Duration::from_secs(1);
+            loop {
+                let left = deadline.saturating_duration_since(tokio::time::Instant::now());
+                match self.next(left).await {
+                    Got::Datagram(id, got) if id == peer && got == payload => return true,
+                    Got::Datagram(..) => continue,
+                    Got::Closed => return false,
+                    Got::Silent => break,
+                }
+            }
+        }
+        false
+    }
+
+    pub async fn closed_within(&mut self, within: Duration) -> bool {
+        let deadline = tokio::time::Instant::now() + within;
+        loop {
+            let left = deadline.saturating_duration_since(tokio::time::Instant::now());
+            if left.is_zero() {
+                return false;
+            }
+            match self.next(left).await {
+                Got::Closed => return true,
+                Got::Silent => return false,
+                Got::Datagram(..) => continue,
+            }
+        }
+    }
+}
+
+pub fn private_udp_service(target: SocketAddr, visitors: &[&str]) -> Service {
+    Service {
+        bind: None,
+        visitors: visitors.iter().map(|v| v.to_string()).collect(),
+        ..service(target, Protocol::Udp)
+    }
+}
+
+pub async fn old_server(secret: Secret, grants_v1: Vec<u8>) -> SocketAddr {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        while let Ok((s, _)) = listener.accept().await {
+            let (secret, grants_v1) = (secret.clone(), grants_v1.clone());
+            tokio::spawn(async move {
+                let Ok(acc) = burrow::handshake::accept(s.into(), |_, _| vec![secret]).await else {
+                    return;
+                };
+                let mut ch = acc.channel;
+                let Ok(Some(req)) = ch.reader.recv(&mut ch.stream).await else {
+                    return;
+                };
+                let answer = match req {
+                    [0x21] => grants_v1,
+                    [0x20, 0 | 1, ..] => vec![0],
+                    _ => vec![4],
+                };
+                let _ = ch.writer.send(&mut ch.stream, &answer).await;
+                let _ =
+                    tokio::time::timeout(Duration::from_secs(2), ch.reader.recv(&mut ch.stream))
+                        .await;
+            });
+        }
+    });
+    addr
 }

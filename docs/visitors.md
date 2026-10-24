@@ -12,7 +12,7 @@ A visitor can use:
 - **[any target on a client](#any-target-on-a-client)** you allow with `reach`, like `ssh -L`;
 - **[a SOCKS5 proxy](#a-socks5-proxy-into-a-client)** into a client, so each app picks its own target.
 
-Visitors are TCP only. UDP services cannot be reached by a visitor.
+A forward carries TCP by default, or UDP with `protocol: udp`: to a private UDP service, or to a UDP target on a client through `reach`. See [UDP forwards](#udp-forwards).
 
 A visitor can also be used for the web admin only. See [admin.md](admin.md).
 
@@ -76,14 +76,14 @@ With `--service`, `--client` or `--socks`, the forwards in the config are not st
 <details>
 <summary><b>Without access to the server's config</b></summary>
 
-`./burrow init visitor` asks for the server's address, the visitor's name and its secret. It then asks the server what this visitor may use, and writes the forwards for it:
+`./burrow init visitor` asks for the server's address, the visitor's name and its secret. It then asks the server what this visitor may use, and writes the forwards for it, with `protocol: udp` for UDP services and free local ports checked for that protocol:
 
 ```sh
 ./burrow init visitor            # writes visitor.yaml
 ./burrow init visitor --update   # later: ask the server again and update the forwards
 ```
 
-`--update` shows the changes and asks before writing. It keeps your local ports and the rest of the file.
+`--update` shows the changes and asks before writing: new grants are added, revoked ones removed, and kept forwards keep their local ports and names, TCP and UDP alike. It keeps the rest of the file. A server older than v0.1.2 lists only its TCP services; `--update` then says so and leaves your UDP forwards as they are.
 
 </details>
 
@@ -167,7 +167,8 @@ In a browser, set the SOCKS5 proxy to `127.0.0.1`, port `1080`, and turn on "pro
 <details>
 <summary><b>What the SOCKS5 proxy supports</b></summary>
 
-- **TCP only.** The proxy supports the CONNECT command, which is what apps use to open a TCP connection. UDP ASSOCIATE (UDP through the proxy) and BIND are not supported, because visitors are TCP only. A tool that tests UDP reports that the proxy does not support UDP; that is expected. Set the app to use the proxy for TCP only.
+- **TCP and UDP.** The proxy supports CONNECT, which apps use for TCP, and UDP ASSOCIATE, which apps use for UDP such as DNS. BIND is not supported.
+- **UDP ASSOCIATE** opens a UDP relay port next to the proxy, on the address the app connected to, and tells the app where it is. The relay takes datagrams only from the app: from the IP address of its TCP connection to the proxy, on the port it named in its request (an address it names on another host is ignored, so the relay can never be pointed at a third party), or, when it named no port, from the first sender with that IP address. It drops all others, and replies go to that sender only. The association ends when the app closes its TCP connection to the proxy, or after `udp.session_timeout_secs` without a datagram. Each destination gets its own channel to the server, checked against `reach` and the client's `allow` list like a TCP target, with at most 64 destinations and 1 MiB of datagrams waiting for the server per association; more is dropped. Fragmented datagrams (FRAG not 0) are dropped, as SOCKS5 allows; apps rarely send them.
 - **No user name or password.** The proxy listens on `127.0.0.1` by default, so only your own machine reaches it. An app that insists on a user name and password is refused.
 - **Targets:** IPv4 and IPv6 addresses, and host names. A host name is resolved by the client.
 - When a target cannot be reached, the app gets a standard SOCKS5 error:
@@ -178,7 +179,7 @@ In a browser, set the SOCKS5 proxy to `127.0.0.1`, port `1080`, and turn on "pro
   | the client is not connected | network unreachable (code 3) |
   | the target refuses or does not answer | connection refused (code 5) |
   | the client or server is busy, or the request is invalid | general failure (code 1) |
-  | the app asks for UDP ASSOCIATE or BIND | command not supported (code 7) |
+  | the app asks for BIND | command not supported (code 7) |
   | the app offers only a user name and password | no acceptable methods |
 
 </details>
@@ -188,12 +189,23 @@ In a browser, set the SOCKS5 proxy to `127.0.0.1`, port `1080`, and turn on "pro
 Some apps show only a vague error, such as "code -1", whatever went wrong. Look at the visitor's log: it says what the app asked for and which SOCKS5 reply it got.
 
 - **Most often, the target is not allowed.** The app gets "connection not allowed by ruleset" (code 2). Add the target to the client's `allow` list, and to the visitor's `reach` if you use rules there. The client's log names the exact rule to add. Some apps look up a host name themselves and send its IP address, so it is that address that must be allowed.
-- **A test of UDP fails.** That is expected: visitors are TCP only, so UDP ASSOCIATE gets "command not supported" (code 7). TCP through the proxy still works.
+- **UDP gets no answer.** UDP has no error replies, so a datagram to a target that is not allowed is dropped. The visitor's log says why (for example, outside `reach`), and a server older than v0.1.2 carries no UDP for visitors.
 - **The app asks for a user name and password.** Set it to no authentication.
+
+## UDP forwards
+
+```yaml
+# visitor.yaml, under forwards:
+dns: { service: dns, protocol: udp, local: 5353 }
+```
+
+`protocol` must match the service's protocol on the server; if it does not, `burrow visit` says which one to set. For a quick try, `burrow visit --udp --service dns --local 5353` does the same without a config. A TCP and a UDP forward may use the same local port number. The first datagram opens one channel to the server for each local port; it closes once no local peer has sent or received anything for `udp.session_timeout_secs` (2 minutes by default), and the next datagram opens it again. A port keeps at most `udp.max_peers` local peers (4096). A server older than v0.1.2 cannot carry UDP for visitors.
+
+A UDP forward that listens on an address other than 127.0.0.1 accepts datagrams from any source address, including forged ones, since UDP has no handshake: anyone on that network can fill its `udp.max_peers` and make it send replies to an address of their choice. Keep `local` on 127.0.0.1 unless the network is trusted.
 
 ## Port ranges
 
-A forward can open a range of local ports, for a private TCP service with a port range on the server. Both ranges must have the same size.
+A forward can open a range of local ports, for a private TCP or UDP service with a port range on the server. Both ranges must have the same size.
 
 ```yaml
 # visitor.yaml, under forwards:

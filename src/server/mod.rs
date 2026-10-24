@@ -12,6 +12,7 @@ mod tcp;
 mod udp;
 mod via;
 mod visit;
+mod visit_udp;
 
 use std::collections::HashMap;
 use std::net::SocketAddr;

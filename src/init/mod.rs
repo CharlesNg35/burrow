@@ -1,6 +1,6 @@
 mod client;
 mod export;
-mod fetch;
+pub(crate) mod fetch;
 mod plan;
 mod server;
 mod splice;

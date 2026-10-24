@@ -78,6 +78,7 @@ impl Live {
 
 pub struct Client {
     live: Live,
+    open: data::Open,
     resolver: Arc<dyn Resolver>,
     state: watch::Sender<State>,
     halt: watch::Sender<bool>,
@@ -124,9 +125,17 @@ impl Client {
     pub fn new(settings: ClientSettings) -> Self {
         let (state, _) = watch::channel(State::Connecting);
         let resolver = crate::transport::resolve::system();
+        let open = data::Open::new(
+            (
+                data::client_connection_cap(settings.max_connections),
+                data::client_peer_cap(settings.max_udp_peers),
+            ),
+            false,
+        );
         let current = Current::new(Arc::new(settings), &resolver);
         Client {
             live: Live(Arc::new(watch::Sender::new(current))),
+            open,
             resolver,
             state,
             halt: watch::Sender::new(false),
@@ -164,6 +173,16 @@ impl Client {
             != (next.reconnect_initial, next.reconnect_max)
         {
             *backoff = Backoff::new(next.reconnect_initial, next.reconnect_max);
+        }
+        if old.max_connections != next.max_connections {
+            self.open
+                .connections
+                .limit(data::client_connection_cap(next.max_connections));
+        }
+        if old.max_udp_peers != next.max_udp_peers {
+            self.open
+                .peers
+                .limit(data::client_peer_cap(next.max_udp_peers));
         }
         self.live
             .0
@@ -515,6 +534,7 @@ impl Client {
     ) {
         let me = Client {
             live: self.live.clone(),
+            open: self.open.clone(),
             resolver: self.resolver.clone(),
             state: self.state.clone(),
             halt: self.halt.clone(),
@@ -555,7 +575,7 @@ impl Client {
             match ch {
                 Ok(ch) => {
                     let stale = data::serve(
-                        data::Rules(self.live.0.clone()),
+                        data::Rules(self.live.0.clone(), self.open.clone()),
                         self.resolver.clone(),
                         ch,
                         ended,

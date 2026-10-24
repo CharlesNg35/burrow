@@ -37,6 +37,10 @@ pub struct ClientStatus {
     pub left_secs_ago: Option<u64>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub local: bool,
+    #[serde(default)]
+    pub busy_total: u64,
+    #[serde(default)]
+    pub at_limit: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]

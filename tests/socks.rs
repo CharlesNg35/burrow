@@ -30,7 +30,7 @@ async fn echo_on(addr: &str) -> SocketAddr {
 }
 
 struct Proxy {
-    _tunnel: Tunnel,
+    tunnel: Tunnel,
     _visitor: RunningVisitor,
     addr: SocketAddr,
 }
@@ -43,6 +43,15 @@ async fn proxy_with(
     reach: &[&str],
     allow: Vec<&str>,
     edit: impl FnOnce(&mut burrow::config::settings::ServerSettings),
+) -> Proxy {
+    proxy_at(reach, allow, edit, "127.0.0.1:0").await
+}
+
+async fn proxy_at(
+    reach: &[&str],
+    allow: Vec<&str>,
+    edit: impl FnOnce(&mut burrow::config::settings::ServerSettings),
+    local: &str,
 ) -> Proxy {
     let secret = Secret::generate();
     let visitor_secret = Secret::generate();
@@ -65,13 +74,13 @@ async fn proxy_with(
     let mut settings = visitor_settings(tunnel.server.addr, visitor_secret, vec![]);
     settings.forwards.insert(
         "home".into(),
-        Forward::socks("127.0.0.1:0".parse().unwrap(), "home".into()),
+        Forward::socks(local.parse().unwrap(), "home".into()),
     );
     let visitor = start_visitor(settings);
     Proxy {
         addr: visitor.addr("home"),
         _visitor: visitor,
-        _tunnel: tunnel,
+        tunnel,
     }
 }
 
@@ -266,6 +275,7 @@ fn long_targets_survive_the_wire() {
     };
     let req = burrow::protocol::VisitRequest {
         check: false,
+        protocol: burrow_config::Protocol::Tcp,
         to: to.clone(),
     };
     let bytes = std::panic::catch_unwind(|| req.encode());
@@ -336,4 +346,291 @@ async fn narrowed_reach_is_checked_after_the_client_resolves_a_name() {
     assert_ne!(code, 0, "a name that resolves outside reach got through");
     let (code, _) = socks_connect(outside.addr, "127.0.0.1", echo.port()).await;
     assert_ne!(code, 0, "an address outside reach got through");
+}
+
+async fn associate_from(proxy: SocketAddr, hint: SocketAddr) -> (TcpStream, SocketAddr) {
+    let mut s = greet(proxy).await;
+    let mut req = vec![5, 3, 0];
+    match hint {
+        SocketAddr::V4(a) => {
+            req.push(1);
+            req.extend_from_slice(&a.ip().octets());
+        }
+        SocketAddr::V6(a) => {
+            req.push(4);
+            req.extend_from_slice(&a.ip().octets());
+        }
+    }
+    req.extend_from_slice(&hint.port().to_be_bytes());
+    s.write_all(&req).await.unwrap();
+    let mut reply = [0u8; 10];
+    tokio::time::timeout(Duration::from_secs(10), s.read_exact(&mut reply))
+        .await
+        .expect("a SOCKS reply in time")
+        .unwrap();
+    assert_eq!(reply[..4], [5, 0, 0, 1], "UDP ASSOCIATE succeeds over IPv4");
+    let relay = SocketAddr::from((
+        [reply[4], reply[5], reply[6], reply[7]],
+        u16::from_be_bytes([reply[8], reply[9]]),
+    ));
+    (s, relay)
+}
+
+async fn associate(proxy: SocketAddr) -> (TcpStream, SocketAddr) {
+    associate_from(proxy, "0.0.0.0:0".parse().unwrap()).await
+}
+
+fn wrapped(frag: u8, to: SocketAddr, data: &[u8]) -> Vec<u8> {
+    let SocketAddr::V4(to) = to else {
+        panic!("IPv4 targets in these tests")
+    };
+    let mut d = vec![0, 0, frag, 1];
+    d.extend_from_slice(&to.ip().octets());
+    d.extend_from_slice(&to.port().to_be_bytes());
+    d.extend_from_slice(data);
+    d
+}
+
+fn named(host: &str, port: u16, data: &[u8]) -> Vec<u8> {
+    let mut d = vec![0, 0, 0, 3, host.len() as u8];
+    d.extend_from_slice(host.as_bytes());
+    d.extend_from_slice(&port.to_be_bytes());
+    d.extend_from_slice(data);
+    d
+}
+
+async fn answer(
+    app: &tokio::net::UdpSocket,
+    relay: SocketAddr,
+    datagram: &[u8],
+) -> Option<Vec<u8>> {
+    let mut buf = vec![0u8; 65536];
+    for _ in 0..10 {
+        app.send_to(datagram, relay).await.unwrap();
+        if let Ok(Ok((n, from))) =
+            tokio::time::timeout(Duration::from_millis(500), app.recv_from(&mut buf)).await
+        {
+            assert_eq!(from, relay, "replies come from the relay");
+            return Some(buf[..n].to_vec());
+        }
+    }
+    None
+}
+
+async fn dns_server() -> SocketAddr {
+    let s = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let at = s.local_addr().unwrap();
+    tokio::spawn(async move {
+        let mut buf = [0u8; 512];
+        while let Ok((n, from)) = s.recv_from(&mut buf).await {
+            let q = &buf[..n];
+            if n < 12 {
+                continue;
+            }
+            let mut r = q[..2].to_vec();
+            r.extend_from_slice(&[0x81, 0x80, 0, 1, 0, 1, 0, 0, 0, 0]);
+            r.extend_from_slice(&q[12..]);
+            r.extend_from_slice(&[0xc0, 0x0c, 0, 1, 0, 1, 0, 0, 0, 60, 0, 4, 127, 0, 0, 42]);
+            let _ = s.send_to(&r, from).await;
+        }
+    });
+    at
+}
+
+fn dns_query(id: u16, name: &str) -> Vec<u8> {
+    let mut q = id.to_be_bytes().to_vec();
+    q.extend_from_slice(&[1, 0, 0, 1, 0, 0, 0, 0, 0, 0]);
+    for label in name.split('.') {
+        q.push(label.len() as u8);
+        q.extend_from_slice(label.as_bytes());
+    }
+    q.extend_from_slice(&[0, 0, 1, 0, 1]);
+    q
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_dns_query_goes_through_udp_associate() {
+    let dns = dns_server().await;
+    let p = proxy(&["home"], vec!["127.0.0.0/8"]).await;
+    let (_control, relay) = associate(p.addr).await;
+    let app = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let query = dns_query(0x4242, "burrow.test");
+    let got = answer(&app, relay, &wrapped(0, dns, &query))
+        .await
+        .expect("a DNS answer");
+    let head = wrapped(0, dns, &[]);
+    assert_eq!(
+        &got[..head.len()],
+        &head[..],
+        "the reply names the server it came from"
+    );
+    let reply = &got[head.len()..];
+    assert_eq!(&reply[..2], &[0x42, 0x42], "the answer to this query");
+    assert_eq!(&reply[6..8], &[0, 1], "one answer");
+    assert_eq!(&reply[reply.len() - 4..], &[127, 0, 0, 42]);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_named_destination_is_resolved_by_the_client_and_named_in_replies() {
+    let echo = udp_echo_server().await;
+    let p = proxy(&["home"], vec!["127.0.0.0/8"]).await;
+    let (_control, relay) = associate(p.addr).await;
+    let app = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let out = named("localhost", echo.port(), b"by name");
+    assert_eq!(answer(&app, relay, &out).await.unwrap(), out);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn datagrams_from_any_other_source_are_dropped() {
+    let echo = udp_echo_server().await;
+    let p = proxy(&["home"], vec!["127.0.0.0/8"]).await;
+    let app = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let stranger = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let (_control, relay) = associate_from(p.addr, app.local_addr().unwrap()).await;
+    let out = wrapped(0, echo, b"stranger first");
+    assert!(
+        silent(&stranger, relay, &out).await,
+        "a source other than the one named in the request gets nothing"
+    );
+    let out = wrapped(0, echo, b"the app");
+    assert_eq!(answer(&app, relay, &out).await.unwrap(), out);
+    assert!(silent(&stranger, relay, &out).await);
+
+    let (_open, any) = associate(p.addr).await;
+    let first = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let out = wrapped(0, echo, b"first sender");
+    assert_eq!(answer(&first, any, &out).await.unwrap(), out);
+    let elsewhere = udp_echo_server().await;
+    assert!(
+        silent(&stranger, any, &wrapped(0, elsewhere, b"stranger later")).await,
+        "without a named source, the first sender is the only one"
+    );
+    assert!(silent(&first, any, &[]).await);
+    let fresh = wrapped(0, elsewhere, b"first, elsewhere");
+    assert_eq!(answer(&first, any, &fresh).await.unwrap(), fresh);
+}
+
+async fn silent(app: &tokio::net::UdpSocket, relay: SocketAddr, datagram: &[u8]) -> bool {
+    let mut buf = vec![0u8; 65536];
+    for _ in 0..3 {
+        if !datagram.is_empty() {
+            app.send_to(datagram, relay).await.unwrap();
+        }
+        if let Ok(Ok(_)) =
+            tokio::time::timeout(Duration::from_millis(400), app.recv_from(&mut buf)).await
+        {
+            return false;
+        }
+    }
+    true
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fragments_are_dropped() {
+    let echo = udp_echo_server().await;
+    let p = proxy(&["home"], vec!["127.0.0.0/8"]).await;
+    let (_control, relay) = associate(p.addr).await;
+    let app = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    assert!(silent(&app, relay, &wrapped(1, echo, b"part")).await);
+    assert!(silent(&app, relay, &wrapped(0x81, echo, b"last")).await);
+    let whole = wrapped(0, echo, b"whole");
+    assert_eq!(answer(&app, relay, &whole).await.unwrap(), whole);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_association_ends_with_its_tcp_connection() {
+    let echo = udp_echo_server().await;
+    let p = proxy(&["home"], vec!["127.0.0.0/8"]).await;
+    let (control, relay) = associate(p.addr).await;
+    let app = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let out = wrapped(0, echo, b"while open");
+    assert_eq!(answer(&app, relay, &out).await.unwrap(), out);
+    let shared = p.tunnel.server.shared.clone();
+    assert_eq!(shared.status().visitors[0].open, 1);
+    drop(control);
+    wait_for(|| shared.status().visitors[0].open == 0).await;
+    assert!(
+        silent(&app, relay, &out).await,
+        "nothing is relayed after the TCP connection closed"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn udp_through_socks_stays_inside_reach_and_the_client_allow_list() {
+    let echo = udp_echo_server().await;
+    let p = proxy_with(&[], vec!["127.0.0.0/8"], |s| {
+        s.visitors.get_mut("laptop").unwrap().reach = [(
+            "home".to_string(),
+            AllowList::Rules(vec![
+                format!("127.0.0.1/32:{}", echo.port()).parse().unwrap(),
+            ]),
+        )]
+        .into();
+    })
+    .await;
+    let (_control, relay) = associate(p.addr).await;
+    let app = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let inside = wrapped(0, echo, b"inside");
+    assert_eq!(answer(&app, relay, &inside).await.unwrap(), inside);
+    let other = udp_echo_server().await;
+    assert!(silent(&app, relay, &wrapped(0, other, b"outside")).await);
+    assert_eq!(
+        answer(&app, relay, &inside).await.unwrap(),
+        inside,
+        "the association keeps working"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_ipv4_app_gets_an_ipv4_relay_from_a_dual_stack_socks_forward() {
+    if std::net::TcpListener::bind("[::]:0").is_err() {
+        return;
+    }
+    let echo = udp_echo_server().await;
+    let p = proxy_at(&["home"], vec!["127.0.0.0/8"], |_| {}, "[::]:0").await;
+    let at = SocketAddr::from(([127, 0, 0, 1], p.addr.port()));
+    let (_control, relay) = associate(at).await;
+    assert_eq!(relay.ip(), std::net::Ipv4Addr::LOCALHOST);
+    let app = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let out = wrapped(0, echo, b"dual stack");
+    assert_eq!(answer(&app, relay, &out).await.unwrap(), out);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_named_source_on_another_host_is_never_admitted() {
+    let echo = udp_echo_server().await;
+    let p = proxy(&["home"], vec!["127.0.0.0/8"]).await;
+    let app = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let port = app.local_addr().unwrap().port();
+    let (_control, relay) = associate_from(p.addr, SocketAddr::from(([127, 0, 0, 2], port))).await;
+    let out = wrapped(0, echo, b"from the app's own address");
+    assert_eq!(
+        answer(&app, relay, &out).await.unwrap(),
+        out,
+        "the app's own address with the named port is admitted"
+    );
+    let other = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    assert!(silent(&other, relay, &out).await);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_association_reaches_at_most_64_destinations_at_once() {
+    let p = proxy(&["home"], vec!["127.0.0.0/8"]).await;
+    let (_control, relay) = associate(p.addr).await;
+    let app = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    for i in 0..64u8 {
+        let echo = udp_echo_server().await;
+        let out = wrapped(0, echo, &[i]);
+        assert_eq!(
+            answer(&app, relay, &out).await.as_deref(),
+            Some(&out[..]),
+            "destination {}",
+            i + 1
+        );
+    }
+    let one_more = udp_echo_server().await;
+    assert!(
+        silent(&app, relay, &wrapped(0, one_more, b"65th")).await,
+        "a 65th destination gets nothing"
+    );
 }

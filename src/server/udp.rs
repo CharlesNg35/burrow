@@ -1,7 +1,7 @@
-use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use tokio::net::UdpSocket;
 use tokio::sync::watch;
@@ -11,101 +11,17 @@ use super::tcp::log_status;
 use super::{Shared, TakeError};
 use crate::config::settings::Service;
 use crate::forward::ForwardError;
-use crate::protocol::{Connect, Status, decode_datagram, encode_datagram};
+use crate::metrics::ServiceStats;
+use crate::protocol::{Connect, Status};
+use crate::ratelimit::Limit;
+use crate::udp::front::{self, Ending, Front, Hooks, Interrupt, Meter};
+use crate::udp::link::{Opening, open_udp};
+use crate::udp::peers::{PeerCount, PeerGauge, PeerTable};
 use burrow_config::Protocol;
 
-pub const MAX_PEERS: usize = 4096;
-const MAX_DATAGRAM: usize = crate::noise::MAX_PLAINTEXT - 4;
-
-#[derive(Default)]
-struct Peers {
-    by_addr: HashMap<SocketAddr, (u32, Instant)>,
-    by_id: HashMap<u32, SocketAddr>,
-    next: u32,
-}
-
-impl Peers {
-    fn id_for(&mut self, addr: SocketAddr) -> Option<u32> {
-        if let Some((id, seen)) = self.by_addr.get_mut(&addr) {
-            *seen = Instant::now();
-            return Some(*id);
-        }
-        if self.by_addr.len() >= MAX_PEERS {
-            return None;
-        }
-        self.next = self.next.wrapping_add(1);
-        while self.by_id.contains_key(&self.next) {
-            self.next = self.next.wrapping_add(1);
-        }
-        let id = self.next;
-        self.by_addr.insert(addr, (id, Instant::now()));
-        self.by_id.insert(id, addr);
-        Some(id)
-    }
-
-    fn touch(&mut self, id: u32) -> Option<SocketAddr> {
-        let addr = *self.by_id.get(&id)?;
-        if let Some((_, seen)) = self.by_addr.get_mut(&addr) {
-            *seen = Instant::now();
-        }
-        Some(addr)
-    }
-
-    fn len(&self) -> usize {
-        self.by_addr.len()
-    }
-
-    fn expire(&mut self, timeout: Duration) {
-        self.retain_where(|_, seen| seen.elapsed() < timeout);
-    }
-
-    fn retain(&mut self, keep: impl Fn(SocketAddr) -> bool) {
-        self.retain_where(|addr, _| keep(addr));
-    }
-
-    fn retain_where(&mut self, keep: impl Fn(SocketAddr, Instant) -> bool) {
-        let by_id = &mut self.by_id;
-        self.by_addr.retain(|addr, (id, seen)| {
-            let kept = keep(*addr, *seen);
-            if !kept {
-                by_id.remove(id);
-            }
-            kept
-        });
-    }
-}
-
-struct AbortOnDrop(tokio::task::JoinHandle<()>);
-
-impl Drop for AbortOnDrop {
-    fn drop(&mut self) {
-        self.0.abort();
-    }
-}
-
-struct PeerGauge {
-    shared: Arc<Shared>,
-    counted: usize,
-}
-
-impl PeerGauge {
-    fn set(&mut self, now: usize) {
-        if now > self.counted {
-            self.shared
-                .udp_peers
-                .fetch_add(now - self.counted, std::sync::atomic::Ordering::AcqRel);
-        } else {
-            self.shared
-                .udp_peers
-                .fetch_sub(self.counted - now, std::sync::atomic::Ordering::AcqRel);
-        }
-        self.counted = now;
-    }
-}
-
-impl Drop for PeerGauge {
-    fn drop(&mut self) {
-        self.set(0);
+impl PeerCount for Arc<Shared> {
+    fn peers(&self) -> &std::sync::atomic::AtomicUsize {
+        &self.udp_peers
     }
 }
 
@@ -156,6 +72,9 @@ pub async fn udp_service(
         match relay(&shared, port, &session, socket.clone(), ch, config.clone()).await {
             Ok(()) => {}
             Err(Some(status)) => {
+                if status == Status::Busy {
+                    shared.metrics.client_busy(session.name());
+                }
                 log_status(
                     &format!("service \"{name}\""),
                     session.name(),
@@ -189,30 +108,21 @@ async fn relay(
     session: &super::via::Via,
     socket: Arc<UdpSocket>,
     ch: crate::handshake::Channel,
-    mut config: watch::Receiver<Service>,
+    config: watch::Receiver<Service>,
 ) -> Result<(), Option<Status>> {
     let Port { name, svc, target } = port;
-    let crate::handshake::Channel {
-        stream,
-        mut writer,
-        mut reader,
-    } = ch;
-    let (mut rd, mut wr) = stream.into_split();
     let connect = Connect {
         protocol: Protocol::Udp,
         service: name.to_string(),
         target: target.to_string(),
         only: None,
     };
-    writer
-        .send(&mut wr, &connect.encode())
-        .await
-        .map_err(|_| None)?;
     let wait = shared.settings().heartbeat_interval * 3;
-    let status = match tokio::time::timeout(wait, reader.recv(&mut rd)).await {
-        Ok(Ok(Some(b))) => Status::decode(b).map_err(|_| None)?,
-        Ok(_) => return Err(None),
-        Err(_) => {
+    let link = match open_udp(ch, &connect.encode(), wait).await {
+        Ok(link) => link,
+        Err(Opening::Lost) => return Err(None),
+        Err(Opening::Refused(status)) => return Err(Some(status)),
+        Err(Opening::Silent) => {
             static SILENT: crate::throttle::Throttle = crate::throttle::Throttle::new();
             if let Some(more) = SILENT.allow() {
                 warn!(
@@ -227,9 +137,6 @@ async fn relay(
             return Err(None);
         }
     };
-    if status != Status::Ok {
-        return Err(Some(status));
-    }
     if svc.clients.len() > 1 {
         shared.accepted(name, session.name(), target);
     }
@@ -238,145 +145,160 @@ async fn relay(
         session.name()
     );
 
-    let peers = Arc::new(Mutex::new(Peers::default()));
-    let back_peers = peers.clone();
-    let back_socket = socket.clone();
-    let limit = shared.limit(name);
-    let back_limit = limit.clone();
-    let stats = shared.metrics.service(name);
-    let back_stats = stats.clone();
-    let back = tokio::spawn(async move {
-        loop {
-            match reader.recv(&mut rd).await {
-                Ok(Some(rec)) => {
-                    let Ok((id, payload)) = decode_datagram(rec) else {
-                        return;
-                    };
-                    if !back_limit.outbound.try_take(payload.len()) {
-                        continue;
-                    }
-                    let addr = back_peers.lock().expect("peers lock").touch(id);
-                    if let Some(addr) = addr {
-                        back_stats
-                            .traffic
-                            .outbound
-                            .fetch_add(payload.len() as u64, std::sync::atomic::Ordering::Relaxed);
-                        let _ = back_socket.send_to(payload, addr).await;
-                    }
-                }
-                _ => return,
-            }
-        }
-    });
-
-    let mut back = AbortOnDrop(back);
-    let mut gauge = PeerGauge {
-        shared: shared.clone(),
-        counted: 0,
+    let mut front = Front {
+        socket,
+        peers: Arc::new(Mutex::new(PeerTable::default())),
+        gauge: PeerGauge::new(shared.clone()),
+        meter: Arc::new(ServiceMeter {
+            limit: shared.limit(name),
+            stats: shared.metrics.service(name),
+        }),
+        stall: shared.settings().heartbeat_interval * 3,
     };
-    let mut sweep = tokio::time::interval(Duration::from_secs(5));
-    let mut repick = tokio::time::interval(Duration::from_secs(1));
-    let mut buf = vec![0u8; 65536];
-    let mut rec = Vec::with_capacity(65536);
-    let mut stop = shared.shutdown.clone();
-    let stall = shared.settings().heartbeat_interval * 3;
-    loop {
-        tokio::select! {
-            r = socket.recv_from(&mut buf) => {
-                let (n, from) = match r {
-                    Ok(v) => v,
-                    Err(e) => {
-                        debug!("service \"{name}\": UDP receive error: {e}");
-                        continue;
+    let mut hooks = PublicPort {
+        shared,
+        name,
+        svc,
+        target,
+        session,
+        config,
+        repick: tokio::time::interval(Duration::from_secs(1)),
+        stop: shared.shutdown.clone(),
+    };
+    match front::run(&mut front, link, &mut hooks).await {
+        Ending::Done => Ok(()),
+        Ending::Broken => Err(None),
+    }
+}
+
+struct ServiceMeter {
+    limit: Arc<Limit>,
+    stats: Arc<ServiceStats>,
+}
+
+impl Meter for ServiceMeter {
+    fn take_in(&self, n: usize) -> bool {
+        self.limit.inbound.try_take(n)
+    }
+
+    fn count_in(&self, n: usize) {
+        self.stats
+            .traffic
+            .inbound
+            .fetch_add(n as u64, Ordering::Relaxed);
+    }
+
+    fn new_peer(&self) {
+        self.stats.total.fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn take_out(&self, n: usize) -> bool {
+        self.limit.outbound.try_take(n)
+    }
+
+    fn count_out(&self, n: usize) {
+        self.stats
+            .traffic
+            .outbound
+            .fetch_add(n as u64, Ordering::Relaxed);
+    }
+}
+
+struct PublicPort<'a> {
+    shared: &'a Arc<Shared>,
+    name: &'a str,
+    svc: &'a Service,
+    target: &'a str,
+    session: &'a super::via::Via,
+    config: watch::Receiver<Service>,
+    repick: tokio::time::Interval,
+    stop: watch::Receiver<bool>,
+}
+
+impl Hooks for PublicPort<'_> {
+    fn admit(&self, from: SocketAddr) -> bool {
+        self.config.borrow().sources.permits(from.ip())
+    }
+
+    fn max_peers(&self) -> usize {
+        self.shared.settings().udp_max_peers
+    }
+
+    fn timeout(&self) -> Duration {
+        self.shared.settings().udp_session_timeout
+    }
+
+    fn full(&self, from: SocketAddr) {
+        static FULL: crate::throttle::Throttle = crate::throttle::Throttle::new();
+        if let Some(more) = FULL.allow() {
+            warn!(
+                "service \"{}\": udp.max_peers {} reached, dropping datagram from {from}; raise udp.max_peers in server.yaml{more}",
+                self.name,
+                self.shared.settings().udp_max_peers
+            );
+        }
+    }
+
+    fn stalled(&self, stall: Duration) {
+        static STALLED: crate::throttle::Throttle = crate::throttle::Throttle::new();
+        if let Some(more) = STALLED.allow() {
+            warn!(
+                "service \"{}\": client \"{}\" stopped reading its UDP relay for {}s; trying again{more}",
+                self.name,
+                self.session.name(),
+                stall.as_secs()
+            );
+        }
+        if self.svc.clients.len() > 1 {
+            self.shared.troubled(
+                self.name,
+                self.session,
+                self.target,
+                &crate::forward::no_reply(),
+            );
+        }
+    }
+
+    fn recv_error(&self, e: &std::io::Error) {
+        debug!("service \"{}\": UDP receive error: {e}", self.name);
+    }
+
+    async fn lost(&self) {
+        self.session.closed().await
+    }
+
+    async fn interrupt(&mut self) -> Interrupt {
+        loop {
+            tokio::select! {
+                _ = self.repick.tick() => {
+                    let current = self.config.borrow().clone();
+                    if let Some(preferred) = self
+                        .shared
+                        .preferred(self.name, &current, self.target)
+                        .filter(|p| p != self.session.name())
+                    {
+                        debug!(
+                            "service \"{}\": moving the UDP relay to client \"{preferred}\"",
+                            self.name
+                        );
+                        return Interrupt::End(Ending::Done);
                     }
-                };
-                if n > MAX_DATAGRAM || !config.borrow().sources.permits(from.ip()) {
-                    continue;
                 }
-                if !limit.inbound.try_take(n) {
-                    continue;
-                }
-                stats
-                    .traffic
-                    .inbound
-                    .fetch_add(n as u64, std::sync::atomic::Ordering::Relaxed);
-                let (id, count, before) = {
-                    let mut p = peers.lock().expect("peers lock");
-                    let before = p.len();
-                    (p.id_for(from), p.len(), before)
-                };
-                if count > before {
-                    stats.total.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                }
-                gauge.set(count);
-                let Some(id) = id else {
-                    static FULL: crate::throttle::Throttle = crate::throttle::Throttle::new();
-                    if let Some(more) = FULL.allow() {
-                        warn!("service \"{name}\": too many UDP peers ({MAX_PEERS}), dropping datagram from {from}{more}");
+                r = self.config.changed() => {
+                    let moved = {
+                        let next = self.config.borrow();
+                        next.target != self.svc.target
+                            || !next.clients.iter().any(|c| c == self.session.name())
+                    };
+                    if r.is_err() || moved {
+                        return Interrupt::End(Ending::Done);
                     }
-                    continue;
-                };
-                encode_datagram(id, &buf[..n], &mut rec);
-                let sent = tokio::select! {
-                    r = tokio::time::timeout(stall, writer.send(&mut wr, &rec)) => r,
-                    _ = session.closed() => break Err(None),
-                };
-                match sent {
-                    Ok(Ok(())) => {}
-                    Ok(Err(_)) => break Err(None),
-                    Err(_) => {
-                        static STALLED: crate::throttle::Throttle = crate::throttle::Throttle::new();
-                        if let Some(more) = STALLED.allow() {
-                            warn!(
-                                "service \"{name}\": client \"{}\" stopped reading its UDP relay for {}s; trying again{more}",
-                                session.name(),
-                                stall.as_secs()
-                            );
-                        }
-                        if svc.clients.len() > 1 {
-                            shared.troubled(name, session, target, &crate::forward::no_reply());
-                        }
-                        break Err(None);
-                    }
+                    let sources = self.config.borrow().sources.clone();
+                    return Interrupt::Retain(Box::new(move |addr| sources.permits(addr.ip())));
                 }
+                _ = self.session.closed() => return Interrupt::End(Ending::Done),
+                _ = self.stop.changed() => return Interrupt::End(Ending::Done),
             }
-            _ = sweep.tick() => {
-                let count = {
-                    let mut p = peers.lock().expect("peers lock");
-                    p.expire(shared.settings().udp_session_timeout);
-                    p.len()
-                };
-                gauge.set(count);
-            }
-            _ = repick.tick() => {
-                let current = config.borrow().clone();
-                if let Some(preferred) = shared
-                    .preferred(name, &current, target)
-                    .filter(|p| p != session.name())
-                {
-                    debug!("service \"{name}\": moving the UDP relay to client \"{preferred}\"");
-                    break Ok(());
-                }
-            }
-            _ = &mut back.0 => break Err(None),
-            r = config.changed() => {
-                let moved = {
-                    let next = config.borrow();
-                    next.target != svc.target || !next.clients.iter().any(|c| c == session.name())
-                };
-                if r.is_err() || moved {
-                    break Ok(());
-                }
-                let sources = config.borrow().sources.clone();
-                let count = {
-                    let mut p = peers.lock().expect("peers lock");
-                    p.retain(|addr| sources.permits(addr.ip()));
-                    p.len()
-                };
-                gauge.set(count);
-            }
-            _ = session.closed() => break Ok(()),
-            _ = stop.changed() => break Ok(()),
         }
     }
 }

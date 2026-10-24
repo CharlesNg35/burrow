@@ -1114,6 +1114,45 @@ fn visitor_config_gives_reach_a_socks_proxy_and_ranges_a_local_range() {
 }
 
 #[test]
+fn a_client_config_lists_ipv4_before_ipv6_and_unix_sockets_last() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("server.yaml");
+    let secret = burrow::secret::Secret::generate().encode();
+    std::fs::write(
+        &path,
+        format!(
+            "listen: 7835\nclients:\n  home:\n    secret: {secret}\nservices:\n  a:\n    client: home\n    bind: 5433\n    target: unix:/run/a.sock\n  b:\n    client: home\n    bind: 5434\n    target: \"[2001:db8::5]:443\"\n  c:\n    client: home\n    bind: 5435\n    target: 10.0.0.9:22\n  d:\n    client: home\n    bind: 5436\n    target: \"[2001:db8::4]:8443\"\n  e:\n    client: home\n    bind: 5437\n    target: 10.0.0.8:80\n"
+        ),
+    )
+    .unwrap();
+    let text = client_config(
+        Some("home"),
+        &path,
+        Some("t.example"),
+        Format::Yaml,
+        &ProcessEnv,
+    )
+    .unwrap()
+    .text;
+    let allow: Vec<&str> = text
+        .lines()
+        .filter_map(|l| l.trim().strip_prefix("- "))
+        .map(|l| l.trim_matches(['"', '\'']))
+        .collect();
+    assert_eq!(
+        allow,
+        [
+            "10.0.0.8/32:80",
+            "10.0.0.9/32:22",
+            "[2001:db8::4/128]:8443",
+            "[2001:db8::5/128]:443",
+            "unix:/run/a.sock",
+        ],
+        "{text}"
+    );
+}
+
+#[test]
 fn client_config_allows_ranges_sockets_and_shared_services() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("server.yaml");
@@ -1297,4 +1336,39 @@ fn a_long_client_name_still_gives_a_valid_visitor_config() {
             .report
             .render_text(burrow::diagnostics::Style { color: false })
     );
+}
+
+#[test]
+fn visitor_config_writes_protocol_udp_for_udp_services() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = visitors_server(
+        dir.path(),
+        "  laptop:\n    secret: @SECRET@\n",
+        "  dns: { client: home, protocol: udp, target: 5353, visitors: [laptop] }\n  mdns: { client: home, target: 5353, visitors: [laptop] }\n  game: { client: home, protocol: udp, target: 27015-27016, visitors: [laptop] }\n",
+    );
+    let out = burrow::init::visitor_config(None, &path, None, Format::Yaml, &ProcessEnv).unwrap();
+    insta::assert_snapshot!(out.text.lines().filter(|l| !l.starts_with("secret:")).collect::<Vec<_>>().join("\n"), @"
+    server: tunnel.example.com:7835
+    name: laptop
+    forwards:
+      dns:
+        service: dns
+        protocol: udp
+        local: 5353
+      game:
+        service: game
+        protocol: udp
+        local: 27015-27016
+      mdns:
+        service: mdns
+        local: 5353
+    ");
+    let written = dir.path().join("visitor.yaml");
+    std::fs::write(&written, &out.text).unwrap();
+    let Loaded::Visitor(v, _) = load(&written) else {
+        panic!("not a visitor config")
+    };
+    assert_eq!(v.forwards["dns"].protocol, burrow_config::Protocol::Udp);
+    assert_eq!(v.forwards["game"].protocol, burrow_config::Protocol::Udp);
+    assert_eq!(v.forwards["mdns"].protocol, burrow_config::Protocol::Tcp);
 }

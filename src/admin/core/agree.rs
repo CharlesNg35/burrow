@@ -9,7 +9,7 @@ use burrow_admin_proto::ops::Op;
 use burrow_admin_proto::schema::{Node, SemType};
 use burrow_config::{
     ClientEntry, HealthCheck, Limits, MetricsConfig, SelfEntry, ServerConfig, ServiceEntry,
-    TcpOptions, VisitorEntry,
+    TcpOptions, UdpOptions, VisitorEntry,
 };
 use serde_json::{Value, json};
 
@@ -126,6 +126,19 @@ fn cases(sem: &SemType) -> Cases {
                     .then(HealthCheck::FAILURES)
                     .of("web"),
                 &[json!(2), json!(100), json!(101), json!(0)],
+            ));
+            c.extend(at(
+                ServerConfig::UDP.then(UdpOptions::MAX_PEERS).path(),
+                &[
+                    json!(1),
+                    json!(4096),
+                    json!(1_000_000),
+                    json!(0),
+                    json!(-1),
+                    json!(1_000_001),
+                    json!("x"),
+                    json!(1.5),
+                ],
             ));
             Cases::Values(c)
         }

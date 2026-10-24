@@ -36,6 +36,7 @@ impl Shared {
         visitor: &str,
         secret: &Secret,
         to: &VisitTarget,
+        protocol: Protocol,
         from: IpAddr,
     ) -> Result<Grant, Refusal> {
         let settings = self.settings();
@@ -55,10 +56,21 @@ impl Shared {
                         "visitor \"{visitor}\" asked for service \"{name}\", which does not exist"
                     )));
                 };
-                if svc.protocol != Protocol::Tcp || !svc.visitors.iter().any(|v| v == visitor) {
+                if !svc.visitors.iter().any(|v| v == visitor) {
                     return Err(forbidden(format!(
                         "visitor \"{visitor}\" may not use service \"{name}\"; to allow it, add it to \"visitors\" of service \"{name}\""
                     )));
+                }
+                if svc.protocol != protocol {
+                    return Err(Refusal {
+                        status: Status::Invalid,
+                        why: format!(
+                            "visitor \"{visitor}\" asked for service \"{name}\" over {}, but it is a {} service; set \"protocol: {}\" on its forward in visitor.yaml",
+                            protocol.wire(),
+                            svc.protocol.wire(),
+                            svc.protocol.wire()
+                        ),
+                    });
                 }
                 if !svc.sources.permits(from) {
                     return Err(forbidden(format!(
@@ -100,6 +112,16 @@ impl Shared {
                         why: format!("visitor \"{visitor}\" asked for an invalid target"),
                     });
                 }
+                if protocol == Protocol::Udp
+                    && crate::config::check::unix::path_of(target).is_some()
+                {
+                    return Err(Refusal {
+                        status: Status::Invalid,
+                        why: format!(
+                            "visitor \"{visitor}\" asked for UDP to {target}, but a Unix socket target carries TCP only"
+                        ),
+                    });
+                }
                 let outside = match crate::config::check::unix::path_of(target) {
                     Some(path) => !rules.permits_socket(path),
                     None => target
@@ -122,22 +144,23 @@ impl Shared {
         }
     }
 
-    fn still_granted(
+    pub(super) fn still_granted(
         &self,
         visitor: &str,
         secret: &Secret,
-        to: &VisitTarget,
+        request: &VisitRequest,
         from: IpAddr,
         grant: &Grant,
         client: &str,
     ) -> bool {
         let checked_here = crate::config::check::unix::path_of(&grant.target).is_some()
             || grant.target.parse::<SocketAddr>().is_ok();
-        self.grant(visitor, secret, to, from).is_ok_and(|g| {
-            g.service == grant.service
-                && (g.only.is_none() || g.only == grant.only || checked_here)
-                && g.clients.iter().any(|c| c == client)
-        })
+        self.grant(visitor, secret, &request.to, request.protocol, from)
+            .is_ok_and(|g| {
+                g.service == grant.service
+                    && (g.only.is_none() || g.only == grant.only || checked_here)
+                    && g.clients.iter().any(|c| c == client)
+            })
     }
 }
 
@@ -146,6 +169,7 @@ async fn answer_grants(
     visitor: &str,
     secret: &Secret,
     channel: crate::handshake::Channel,
+    with_protocols: bool,
 ) {
     let settings = shared.settings();
     let allowed = settings
@@ -165,7 +189,12 @@ async fn answer_grants(
             c.allow = shared.via(&c.name).and_then(|s| s.allow());
         }
     }
-    let Ok(bytes) = grants.encode() else {
+    let encoded = if with_protocols {
+        grants.encode_v2()
+    } else {
+        grants.encode()
+    };
+    let Ok(bytes) = encoded else {
         static LARGE: Throttle = Throttle::new();
         if let Some(more) = LARGE.allow() {
             warn!(
@@ -208,7 +237,11 @@ pub(super) async fn serve(
     drop(permit);
     let request = match first {
         Ok(Ok(b)) if b[..] == crate::protocol::GRANTS_REQUEST => {
-            answer_grants(&shared, &visitor, &secret, channel).await;
+            answer_grants(&shared, &visitor, &secret, channel, false).await;
+            return;
+        }
+        Ok(Ok(b)) if b[..] == crate::protocol::GRANTS_REQUEST_V2 => {
+            answer_grants(&shared, &visitor, &secret, channel, true).await;
             return;
         }
         Ok(Ok(b)) if burrow_admin_proto::frame::AdminOpen::is_admin_open(&b) => {
@@ -240,7 +273,7 @@ pub(super) async fn serve(
             return;
         }
     };
-    let grant = match shared.grant(&visitor, &secret, &request.to, peer.ip()) {
+    let grant = match shared.grant(&visitor, &secret, &request.to, request.protocol, peer.ip()) {
         Ok(g) => {
             if request.check {
                 shared.metrics.visitor(&visitor).seen();
@@ -288,11 +321,12 @@ pub(super) async fn serve(
     let visitor_stats = shared.metrics.visitor(&visitor);
     visitor_stats.total.fetch_add(1, Ordering::Relaxed);
     let _seen = crate::metrics::Seen::new(visitor_stats);
+    let udp = request.protocol == Protocol::Udp;
     let stats = grant
         .service
         .as_ref()
         .map(|name| shared.metrics.service(name));
-    if let Some(s) = &stats {
+    if let Some(s) = stats.as_ref().filter(|_| !udp) {
         s.total.fetch_add(1, Ordering::Relaxed);
     }
     let busy = |why: String| {
@@ -316,6 +350,22 @@ pub(super) async fn serve(
         .service
         .as_ref()
         .and_then(|name| settings.services.get(name).map(|svc| (name, svc)));
+    if udp {
+        let _tracked = shared.track();
+        let visit = super::visit_udp::Visit {
+            visitor: &visitor,
+            secret: &secret,
+            request: &request,
+            peer,
+            grant: &grant,
+            label: &label,
+            several: service.is_some_and(|(_, svc)| svc.clients.len() > 1),
+        };
+        let (outcome, forbidden) =
+            super::visit_udp::serve(&shared, &mut channel, visit, clients).await;
+        answer(channel, outcome, &grant, &label, peer, &busy, forbidden).await;
+        return;
+    }
     let _service_count = match service {
         Some((name, svc)) => {
             let (guard, before) = shared.service_counts.enter(name);
@@ -371,7 +421,7 @@ pub(super) async fn serve(
             let client = session.name();
             let mut reloads = shared.reloads();
             let allowed = || {
-                shared.still_granted(&visitor, &secret, &request.to, peer.ip(), &grant, client)
+                shared.still_granted(&visitor, &secret, &request, peer.ip(), &grant, client)
                     && session.admitted(&shared)
             };
             if !allowed() {
@@ -399,6 +449,18 @@ pub(super) async fn serve(
             break outcome;
         }
     };
+    answer(channel, outcome, &grant, &label, peer, &busy, forbidden).await;
+}
+
+async fn answer(
+    channel: crate::handshake::Channel,
+    outcome: Outcome,
+    grant: &Grant,
+    label: &str,
+    peer: SocketAddr,
+    busy: &impl Fn(String),
+    forbidden: bool,
+) {
     match outcome {
         Outcome::Done { result: Ok(()), .. } => debug!(%peer, "{label}: connection closed"),
         Outcome::Done {
@@ -408,7 +470,7 @@ pub(super) async fn serve(
         Outcome::Done {
             client,
             result: Err(error),
-        } => log_refusal(&label, &client, &grant.target, &error),
+        } => log_refusal(label, &client, &grant.target, &error),
         Outcome::Refused { client, error } => {
             match (&error, grant.only.is_some()) {
                 (ForwardError::Status(Status::Denied), true) => {
@@ -420,7 +482,7 @@ pub(super) async fn serve(
                         );
                     }
                 }
-                _ => log_refusal(&label, &client, &grant.target, &error),
+                _ => log_refusal(label, &client, &grant.target, &error),
             }
             let status = match error {
                 ForwardError::Status(st) => st,

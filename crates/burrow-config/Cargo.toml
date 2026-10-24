@@ -1,6 +1,6 @@
 [package]
 name = "burrow-config"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 description = "The burrow config model, shared by the server and the admin UI"
 license = "MIT"

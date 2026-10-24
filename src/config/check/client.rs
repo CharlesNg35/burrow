@@ -2,7 +2,7 @@ use std::net::IpAddr;
 use std::path::Path;
 use std::time::Duration;
 
-use super::super::settings::ClientSettings;
+use super::super::settings::{ClientSettings, Limit};
 use super::connection::{Connection, Dial, check_connection};
 use super::server::insecure_warning;
 use super::{Spans, name_error, secret_error, tuning, unix, valid_name};
@@ -150,6 +150,14 @@ pub fn check_client(
         connect_timeout: Duration::from_secs(cfg.connect_timeout_secs.into()),
         tcp: tuning(&cfg.tcp),
         udp_session_timeout: Duration::from_secs(cfg.udp.session_timeout_secs.into()),
+        max_connections: Limit {
+            value: cfg.max_connections,
+            written: spans.has(&["max_connections"]),
+        },
+        max_udp_peers: Limit {
+            value: cfg.max_udp_peers,
+            written: spans.has(&["max_udp_peers"]),
+        },
     })
 }
 

@@ -153,11 +153,15 @@ fn merge(
     found
 }
 
-fn unusable_records(dir: &Path) -> Vec<(String, Option<PathBuf>)> {
-    #[derive(serde::Deserialize)]
-    struct Old {
-        config: Option<PathBuf>,
-    }
+#[derive(Default, serde::Deserialize)]
+#[serde(default)]
+struct OldRecord {
+    config: Option<PathBuf>,
+    env_file: Option<PathBuf>,
+    log_file: Option<PathBuf>,
+}
+
+fn records(dir: &Path) -> Vec<(String, OldRecord)> {
     let Ok(listing) = std::fs::read_dir(dir) else {
         return Vec::new();
     };
@@ -168,13 +172,45 @@ fn unusable_records(dir: &Path) -> Vec<(String, Option<PathBuf>)> {
         .filter(|p| read_manifest(p).is_err())
         .filter_map(|p| {
             let name = p.file_stem()?.to_str()?.to_string();
-            let config = std::fs::read_to_string(&p)
+            let record = std::fs::read_to_string(&p)
                 .ok()
-                .and_then(|t| serde_json::from_str::<Old>(&t).ok())
-                .and_then(|o| o.config);
-            Some((name, config))
+                .and_then(|t| serde_json::from_str::<OldRecord>(&t).ok())
+                .unwrap_or_default();
+            Some((name, record))
         })
         .collect()
+}
+
+fn unusable_records(dir: &Path) -> Vec<(String, Option<PathBuf>)> {
+    records(dir)
+        .into_iter()
+        .map(|(name, r)| (name, r.config))
+        .collect()
+}
+
+pub fn leftovers_in(dir: &Path, name: Option<&str>) -> Vec<PathBuf> {
+    records(dir)
+        .into_iter()
+        .filter(|(n, _)| name.is_none_or(|x| x == n))
+        .flat_map(|(_, r)| {
+            let logs = r
+                .log_file
+                .filter(|l| !l.as_os_str().is_empty())
+                .into_iter()
+                .flat_map(|l| {
+                    let mut all: Vec<PathBuf> = (1..=crate::logfile::KEEP)
+                        .map(|n| PathBuf::from(format!("{}.{n}", l.display())))
+                        .collect();
+                    all.push(l);
+                    all
+                });
+            r.config.into_iter().chain(r.env_file).chain(logs)
+        })
+        .collect()
+}
+
+pub fn leftovers(name: Option<&str>) -> Vec<PathBuf> {
+    leftovers_in(&system::Platform::current().state_dir(), name)
 }
 
 pub fn strays() -> Vec<Stray> {
@@ -604,6 +640,44 @@ mod tests {
             .as_deref(),
             Some("kept service account burrow: burrow-a.service, burrow-b.service still use it")
         );
+    }
+
+    #[test]
+    fn the_files_an_unusable_record_names_are_its_leftovers() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("burrow-old.json"),
+            r#"{"name":"burrow-old","config":"/etc/burrow/old.yaml","env_file":"/etc/burrow/old.env","log_file":"/var/log/burrow/old/old.log"}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("burrow-other.json"),
+            r#"{"name":"burrow-other","config":"/etc/burrow/other.yaml","env_file":null,"log_file":""}"#,
+        )
+        .unwrap();
+        std::fs::write(dir.path().join("burrow-junk.json"), "not json").unwrap();
+        let mut old: Vec<PathBuf> = ["/etc/burrow/old.yaml", "/etc/burrow/old.env"]
+            .into_iter()
+            .map(PathBuf::from)
+            .chain(
+                std::iter::once("/var/log/burrow/old/old.log".to_string())
+                    .chain(
+                        (1..=crate::logfile::KEEP)
+                            .map(|n| format!("/var/log/burrow/old/old.log.{n}")),
+                    )
+                    .map(PathBuf::from),
+            )
+            .collect();
+        old.sort();
+        let mut found = leftovers_in(dir.path(), Some("burrow-old"));
+        found.sort();
+        assert_eq!(found, old);
+        let mut all = leftovers_in(dir.path(), None);
+        all.sort();
+        old.push(PathBuf::from("/etc/burrow/other.yaml"));
+        old.sort();
+        assert_eq!(all, old);
+        assert!(leftovers_in(&dir.path().join("missing"), None).is_empty());
     }
 
     #[test]

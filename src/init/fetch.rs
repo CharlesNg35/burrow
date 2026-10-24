@@ -3,7 +3,9 @@ use std::time::Duration;
 use crate::config::settings::VisitorSettings;
 use crate::dialer::{DialError, Dialer};
 use crate::failure::Failure;
-use crate::protocol::{ChannelKind, GRANTS_REQUEST, Grants, Hello, Status, VERSION};
+use crate::protocol::{
+    ChannelKind, GRANTS_REQUEST, GRANTS_REQUEST_V2, Grants, Hello, Status, VERSION,
+};
 
 const ANSWER: Duration = Duration::from_secs(10);
 
@@ -18,7 +20,14 @@ impl From<NotAsked> for Failure {
     }
 }
 
-pub fn grants(settings: &VisitorSettings) -> Result<Grants, NotAsked> {
+pub struct Fetched {
+    pub grants: Grants,
+    pub tcp_only: bool,
+}
+
+pub const OLD_SERVER_NOTE: &str = "the server is older than v0.1.2, or lists more services than fit in one answer, so it listed its TCP services only; UDP forwards were kept as they are";
+
+pub fn grants(settings: &VisitorSettings) -> Result<Fetched, NotAsked> {
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -26,16 +35,44 @@ pub fn grants(settings: &VisitorSettings) -> Result<Grants, NotAsked> {
             failure: Failure::new(format!("cannot start the async runtime: {e}")),
             rejected: false,
         })?;
-    rt.block_on(ask(settings))
+    rt.block_on(ask(&Dialer::visitor(settings)))
 }
 
-async fn ask(settings: &VisitorSettings) -> Result<Grants, NotAsked> {
+pub async fn ask(dialer: &Dialer) -> Result<Fetched, NotAsked> {
+    match once(dialer, &GRANTS_REQUEST_V2).await? {
+        Answer::Grants(grants) => Ok(Fetched {
+            grants,
+            tcp_only: false,
+        }),
+        Answer::Status(Some(Status::Invalid)) => match once(dialer, &GRANTS_REQUEST).await? {
+            Answer::Grants(grants) => Ok(Fetched {
+                grants,
+                tcp_only: true,
+            }),
+            Answer::Status(status) => Err(refusal(status, dialer)),
+        },
+        Answer::Status(status) => Err(refusal(status, dialer)),
+    }
+}
+
+enum Answer {
+    Grants(Grants),
+    Status(Option<Status>),
+}
+
+fn refusal(status: Option<Status>, dialer: &Dialer) -> NotAsked {
+    NotAsked {
+        failure: refused(status, &dialer.server, &dialer.name),
+        rejected: status == Some(Status::Forbidden),
+    }
+}
+
+async fn once(dialer: &Dialer, request: &[u8]) -> Result<Answer, NotAsked> {
     let answered = |failure: Failure| NotAsked {
         failure,
         rejected: false,
     };
-    let dialer = Dialer::visitor(settings);
-    let (server, name) = (&settings.server, &settings.name);
+    let (server, name) = (&dialer.server, &dialer.name);
     let mut ch = dialer
         .open(ChannelKind::Visit, Hello::Visit { version: VERSION })
         .await
@@ -56,7 +93,7 @@ async fn ask(settings: &VisitorSettings) -> Result<Grants, NotAsked> {
         )))
     };
     ch.writer
-        .send(&mut ch.stream, &GRANTS_REQUEST)
+        .send(&mut ch.stream, request)
         .await
         .map_err(lost)?;
     let answer = tokio::time::timeout(ANSWER, ch.reader.recv(&mut ch.stream))
@@ -68,18 +105,14 @@ async fn ask(settings: &VisitorSettings) -> Result<Grants, NotAsked> {
         })?
         .map_err(lost)?;
     match answer {
-        Some(b) if b.first() == Some(&0x22) => Grants::decode(b).map_err(|_| {
-            answered(Failure::new(format!(
-                "the server {server} sent an answer burrow cannot read"
-            )))
-        }),
-        Some(b) => {
-            let status = Status::decode(b).ok();
-            Err(NotAsked {
-                failure: refused(status, server, name),
-                rejected: status == Some(Status::Forbidden),
+        Some(b) if matches!(b.first(), Some(0x22 | 0x25)) => {
+            Grants::decode(b).map(Answer::Grants).map_err(|_| {
+                answered(Failure::new(format!(
+                    "the server {server} sent an answer burrow cannot read"
+                )))
             })
         }
+        Some(b) => Ok(Answer::Status(Status::decode(b).ok())),
         None => Err(answered(Failure::new(format!(
             "the server {server} closed the connection without answering"
         )))),

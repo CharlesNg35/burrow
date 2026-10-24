@@ -82,7 +82,7 @@ forwards:
 Saving a config applies it, on the server, the client and the visitor. You can also send `SIGHUP`, or run `burrow service reload` for an installed service.
 
 - **Server:** services, clients and visitors that changed are updated. Open connections keep running, unless the change takes away their access. Only a change to `listen` needs a restart.
-- **Client:** a change to `allow`, `server`, `name`, `secret`, `headers`, `ca`, `cipher`, `proxy` or `insecure_plaintext` reconnects it. Other changes apply at once. Open connections keep running, except those whose target the new `allow` no longer permits.
+- **Client:** a change to `allow`, `server`, `name`, `secret`, `headers`, `ca`, `cipher`, `proxy` or `insecure_plaintext` reconnects it. Other changes apply at once, `max_connections` and `max_udp_peers` included: a new limit counts for new connections and new UDP peers. Open connections keep running, except those whose target the new `allow` no longer permits.
 - **Visitor:** only the forwards that changed are opened or closed.
 
 Files are also checked again every 30 seconds, so changes through a Docker file mount or a network share are applied too.
@@ -129,8 +129,8 @@ services:
 | `clients.<name>.secret` | required | a 256-bit secret (base64 or hex), or a list of up to 4 while you change it |
 | `clients.<name>.max_connections` | `limits.max_connections_per_client` | open forwarded connections for this client |
 | `visitors.<name>.secret` | required | like a client secret |
-| `visitors.<name>.reach` | none | clients this visitor may reach directly: `CLIENT: any`, or rules like `CLIENT: [192.168.1.0/24:22]`. See [visitors.md](visitors.md) |
-| `visitors.<name>.max_connections` | unlimited | open connections for this visitor |
+| `visitors.<name>.reach` | none | clients this visitor may reach directly, over TCP and UDP: `CLIENT: any`, or rules like `CLIENT: [192.168.1.0/24:22]`. See [visitors.md](visitors.md) |
+| `visitors.<name>.max_connections` | unlimited | open connections for this visitor; a UDP visit counts as one, whatever its number of peers |
 | `visitors.<name>.admin` | none | `read` or `write`: may use `burrow admin`. See [admin.md](admin.md) |
 | `visitors.<name>.admin_from` | any address | source IPs or CIDRs that admin access is limited to |
 | `services.<name>.client` | required (or `clients`) | the client that reaches the target; `self` for the server itself |
@@ -140,7 +140,7 @@ services:
 | `services.<name>.target` | required | host:port as seen from the client, a port alone (`127.0.0.1`), a range like `30000-30010`, or `unix:/path` |
 | `services.<name>.bind` | none (private) | public port, range or ip:port on the server; a port alone means `0.0.0.0` |
 | `services.<name>.protocol` | `tcp` | `tcp` or `udp` |
-| `services.<name>.visitors` | none | visitors that may reach this service (TCP services only) |
+| `services.<name>.visitors` | none | visitors that may reach this service, TCP or UDP |
 | `services.<name>.allow_from` | everyone | only these source IPs or CIDRs may connect |
 | `services.<name>.deny_from` | nobody | these source IPs or CIDRs may never connect |
 | `services.<name>.proxy_protocol` | off | `v1` or `v2`: send the real client address to the target |
@@ -152,12 +152,13 @@ services:
 | `heartbeat.interval_secs` | `10` | ping interval; a peer times out after 3 missed pings |
 | `limits.handshake_timeout_secs` | `5` | time a new connection has to authenticate |
 | `limits.max_handshakes` | `256` | connections that have not finished authenticating yet |
-| `limits.max_connections_per_client` | `8192` | open forwarded connections per client, unless the client sets its own |
+| `limits.max_connections_per_client` | `8192` | open forwarded connections per client, unless `clients.<name>.max_connections` sets its own |
 | `limits.max_pending` | `512` | connections waiting for a free channel, per client |
 | `pool.min_idle` / `pool.max_idle` | `4` / `64` | channels each client keeps open in advance, so a new connection starts at once |
 | `tcp.nodelay` | `true` | send small writes at once (TCP_NODELAY) |
 | `tcp.keepalive_secs` | `30` | TCP keepalive idle time; `0` turns it off |
-| `udp.session_timeout_secs` | `60` | a UDP peer that sends nothing for this long is forgotten |
+| `udp.session_timeout_secs` | `120` | a UDP peer that sends nothing for this long is forgotten. Two minutes is the least a NAT should keep a UDP mapping (RFC 4787); a shorter value frees peers sooner for traffic like DNS, where each query may come from a new port |
+| `udp.max_peers` | `4096` | most UDP peers one service port keeps at once, 1 to 1000000; a datagram from a new peer beyond it is dropped. A change applies at once to new peers |
 
 </details>
 
@@ -197,6 +198,8 @@ allow:
 | `headers` | none | extra HTTP headers for the WebSocket connection, for example an access token |
 | `ca` | none | an extra certificate (PEM) to trust for `wss://`: a CA that signed the server's certificate, or the server's own certificate. Certificates from public CAs are still trusted too |
 | `connect_timeout_secs` | `10` | time allowed to connect to the server, 1 to 300 |
+| `max_connections` | `16384` | most connections open through this client at once, 1 to 1000000; beyond it the server gets busy. Each UDP service also holds one of them for its relay. Lowered automatically when the open file limit is too small, with a warning. Each idle connection uses about 15 KB on the client, so 100000 is about 1.5 GB |
+| `max_udp_peers` | `8192` | most UDP peers open through this client at once, across all UDP services, 1 to 1000000; a datagram from a new peer beyond it is dropped. Each peer uses one socket on the client, so it is lowered like `max_connections` |
 | `tcp`, `udp` | as on the server | `tcp.nodelay`, `tcp.keepalive_secs`, `udp.session_timeout_secs` |
 
 By default a client keeps retrying until it is stopped, and follows a server that moved to a new address.
@@ -214,6 +217,7 @@ forwards:
   db:  { service: db, local: 5432 }                # a private service
   ssh: { client: home, target: 22, local: 2222 }   # a target on a client (needs reach)
   lan: { client: home, socks: true, local: 1080 }  # a SOCKS5 proxy into a client (needs reach)
+  dns: { service: dns, protocol: udp, local: 5353 } # a private UDP service
 ```
 
 Each forward opens a local port on the visitor's machine. See [visitors.md](visitors.md) for what each kind does.
@@ -229,6 +233,9 @@ Each forward opens a local port on the visitor's machine. See [visitors.md](visi
 | `forwards.<name>.target` | | with `client`: host:port as seen from the client, or a port alone for `127.0.0.1` there |
 | `forwards.<name>.socks` | `false` | with `client`: a SOCKS5 proxy, where each connection names its own target |
 | `forwards.<name>.local` | required | where to listen on this machine: a port alone for `127.0.0.1`, ip:port, or a range |
+| `forwards.<name>.protocol` | `tcp` | `tcp` or `udp`; must match the service's protocol on the server. A TCP and a UDP forward may use the same port number. A `unix:` target is TCP only; a SOCKS forward keeps `tcp` and carries UDP for apps that ask with UDP ASSOCIATE |
+| `udp.session_timeout_secs` | `120` | a local UDP peer of a UDP forward that sends and gets nothing for this long is forgotten; the forward closes its channel to the server once it has no peers left |
+| `udp.max_peers` | `4096` | most UDP peers one port of a UDP forward keeps at once; a datagram from a new peer beyond it is dropped |
 | `headers`, `ca`, `cipher`, `proxy`, `connect_timeout_secs`, `tcp` | | as in client.yaml |
 
 </details>

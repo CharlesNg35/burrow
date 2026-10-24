@@ -6,7 +6,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{Semaphore, mpsc};
 use tracing::{debug, info, warn};
 
-use super::socks::{self, Reply};
+use super::socks::{self, Asked, Reply};
 use crate::client::reconnect::Backoff;
 use crate::config::settings::VisitorSettings;
 use crate::dialer::{DialError, Dialer};
@@ -14,6 +14,7 @@ use crate::forward::{ForwardError, pump_tcp, request_visit};
 use crate::protocol::{ChannelKind, Hello, Status, VERSION, VisitRequest, VisitTarget};
 use crate::throttle::Throttle;
 use crate::transport::tcp::tune;
+use burrow_config::Protocol;
 
 const OPEN_PATIENCE: Duration = Duration::from_secs(5);
 const SOCKS_TIMEOUT: Duration = Duration::from_secs(10);
@@ -96,14 +97,19 @@ pub(super) async fn accept(
     }
 }
 
-fn rejected(dialer: &Dialer) -> String {
+pub(super) fn rejected(dialer: &Dialer) -> String {
     format!(
         "the server {} refused the handshake: wrong secret or unknown visitor name \"{}\" (check the name and secret against the server config, or print a new visitor config on the server with: burrow visitor-config {} -o visitor.yaml)",
         dialer.server, dialer.name, dialer.name
     )
 }
 
-fn explain(status: Status, to: &VisitTarget, visitor: &str) -> String {
+pub(super) fn explain(
+    status: Status,
+    to: &VisitTarget,
+    visitor: &str,
+    protocol: Protocol,
+) -> String {
     let goal = match to {
         VisitTarget::Service { name, .. } => format!("service \"{name}\""),
         VisitTarget::Client { target, .. } => target.clone(),
@@ -143,6 +149,17 @@ fn explain(status: Status, to: &VisitTarget, visitor: &str) -> String {
             "the server refused port {} of service \"{name}\": the service has fewer ports than this forward's local range, or its client rejected the target",
             index + 1
         ),
+        (Status::Invalid, VisitTarget::Service { name, .. }) if protocol == Protocol::Udp => {
+            format!(
+                "the server refused UDP for service \"{name}\": it is a tcp service there (remove \"protocol: udp\" from this forward), or the server is older than v0.1.2, which carries UDP for visitors"
+            )
+        }
+        (Status::Invalid, VisitTarget::Service { name, .. }) => format!(
+            "the server refused service \"{name}\" as invalid: if it is a udp service there, add \"protocol: udp\" to this forward"
+        ),
+        (Status::Invalid, _) if protocol == Protocol::Udp => format!(
+            "the server refused UDP to {goal}: the server is older than v0.1.2, which carries UDP for visitors, or the target is not a valid host:port"
+        ),
         (Status::Invalid, _) => format!("the request for {goal} was rejected as invalid"),
         (Status::Ok, _) => String::new(),
     }
@@ -156,7 +173,7 @@ fn told_app(reply: Reply) -> String {
     )
 }
 
-fn socks_target_ok(target: &str) -> bool {
+pub(super) fn socks_target_ok(target: &str) -> bool {
     target.len() <= crate::config::check::MAX_TARGET_LEN
         && !target.starts_with(crate::config::check::unix::PREFIX)
         && crate::config::check::parse_host_port(target).is_ok()
@@ -171,9 +188,9 @@ fn not_ready(why: &str) -> String {
     format!("{why}; the forwards will work once {until}")
 }
 
-pub(super) async fn check(dialer: Arc<Dialer>, forwards: Vec<(String, VisitTarget)>) {
+pub(super) async fn check(dialer: Arc<Dialer>, forwards: Vec<(String, VisitTarget, Protocol)>) {
     let mut ready = true;
-    for (name, to) in forwards {
+    for (name, to, protocol) in forwards {
         let ch = match dialer
             .open(ChannelKind::Visit, Hello::Visit { version: VERSION })
             .await
@@ -188,14 +205,34 @@ pub(super) async fn check(dialer: Arc<Dialer>, forwards: Vec<(String, VisitTarge
                 return;
             }
         };
-        let request = VisitRequest { check: true, to };
+        let request = VisitRequest {
+            check: true,
+            protocol,
+            to,
+        };
         match ask(ch, &request).await {
             Some(Status::Ok) => {}
+            Some(Status::Invalid) => {
+                ready = false;
+                let why = match crate::init::fetch::ask(&dialer).await {
+                    Ok(fetched) => mismatch(&fetched, &request.to, protocol),
+                    Err(_) => None,
+                };
+                warn!(
+                    "forward \"{name}\": {}",
+                    why.unwrap_or_else(|| explain(
+                        Status::Invalid,
+                        &request.to,
+                        &dialer.name,
+                        protocol
+                    ))
+                );
+            }
             Some(st) => {
                 ready = false;
                 warn!(
                     "forward \"{name}\": {}",
-                    explain(st, &request.to, &dialer.name)
+                    explain(st, &request.to, &dialer.name, protocol)
                 );
             }
             None => {
@@ -209,6 +246,31 @@ pub(super) async fn check(dialer: Arc<Dialer>, forwards: Vec<(String, VisitTarge
             "the server at {} accepts visitor \"{}\"; forwards are ready",
             dialer.server, dialer.name
         );
+    }
+}
+
+fn mismatch(
+    fetched: &crate::init::fetch::Fetched,
+    to: &VisitTarget,
+    protocol: Protocol,
+) -> Option<String> {
+    if fetched.tcp_only && protocol == Protocol::Udp {
+        return Some(
+            "the server is older than v0.1.2, which carries UDP for visitors (update it with burrow update, or remove this forward), or it lists more services than fit in one answer and this service is not a udp service there".into(),
+        );
+    }
+    let VisitTarget::Service { name, .. } = to else {
+        return None;
+    };
+    let service = fetched.grants.services.iter().find(|s| &s.name == name)?;
+    match (service.protocol, protocol) {
+        (Protocol::Udp, Protocol::Tcp) => Some(format!(
+            "service \"{name}\" is a udp service on the server; add \"protocol: udp\" to this forward in visitor.yaml (or pass --udp)"
+        )),
+        (Protocol::Tcp, Protocol::Udp) => Some(format!(
+            "service \"{name}\" is a tcp service on the server; remove \"protocol: udp\" from this forward in visitor.yaml (or leave out --udp)"
+        )),
+        _ => None,
     }
 }
 
@@ -229,6 +291,7 @@ pub(super) async fn visit(
     settings: Arc<VisitorSettings>,
     opening: Arc<Slots>,
     conn: Incoming,
+    live: tokio::sync::watch::Receiver<super::Live>,
 ) {
     let Incoming {
         name,
@@ -241,10 +304,22 @@ pub(super) async fn visit(
     let to = match (socks, to) {
         (true, VisitTarget::Client { client, .. }) => {
             match tokio::time::timeout(SOCKS_TIMEOUT, socks::request(&mut stream)).await {
-                Ok(Ok(target)) if socks_target_ok(&target) => {
+                Ok(Ok(Asked::Connect(target))) if socks_target_ok(&target) => {
                     VisitTarget::Client { client, target }
                 }
-                Ok(Ok(target)) => {
+                Ok(Ok(Asked::Associate(hint))) => {
+                    super::socks_udp::associate(super::socks_udp::Association {
+                        name,
+                        client,
+                        stream,
+                        peer,
+                        hint,
+                        live,
+                    })
+                    .await;
+                    return;
+                }
+                Ok(Ok(Asked::Connect(target))) => {
                     debug!(%peer, "forward \"{name}\": SOCKS target {target:?} is not a valid host:port");
                     let _ = socks::reply(&mut stream, Reply::HostUnreachable).await;
                     return;
@@ -270,6 +345,7 @@ pub(super) async fn visit(
     };
     let Ok(request) = (VisitRequest {
         check: false,
+        protocol: Protocol::Tcp,
         to: to.clone(),
     })
     .encode() else {
@@ -366,7 +442,7 @@ pub(super) async fn visit(
             if let Some(more) = REFUSED.allow() {
                 warn!(
                     "forward \"{name}\": {}{}{more}",
-                    explain(st, &to, &dialer.name),
+                    explain(st, &to, &dialer.name, Protocol::Tcp),
                     told.map(told_app).unwrap_or_default()
                 );
             }
@@ -391,6 +467,57 @@ mod tests {
         assert_eq!(
             not_ready("server unreachable at tunnel.example.com:7835 (connection refused)"),
             "server unreachable at tunnel.example.com:7835 (connection refused); the forwards will work once the server is reachable"
+        );
+    }
+
+    #[test]
+    fn an_invalid_answer_names_the_protocol_fix_or_an_old_server() {
+        let dns = VisitTarget::service("dns");
+        let udp = explain(Status::Invalid, &dns, "laptop", Protocol::Udp);
+        assert!(udp.contains("remove \"protocol: udp\""), "{udp}");
+        assert!(udp.contains("older than v0.1.2"), "{udp}");
+        let tcp = explain(Status::Invalid, &dns, "laptop", Protocol::Tcp);
+        assert!(tcp.contains("add \"protocol: udp\""), "{tcp}");
+        let reach = VisitTarget::Client {
+            client: "home".into(),
+            target: "10.0.0.1:53".into(),
+        };
+        let reach = explain(Status::Invalid, &reach, "laptop", Protocol::Udp);
+        assert!(reach.contains("older than v0.1.2"), "{reach}");
+    }
+
+    #[test]
+    fn a_protocol_mismatch_names_the_fix_and_an_old_server_says_so() {
+        use crate::init::fetch::Fetched;
+        use crate::protocol::{GrantedService, Grants};
+        let fetched = |protocol, tcp_only| Fetched {
+            grants: Grants {
+                services: vec![GrantedService {
+                    name: "dns".into(),
+                    protocol,
+                    port: 53,
+                    ports: 1,
+                }],
+                clients: vec![],
+            },
+            tcp_only,
+        };
+        let dns = VisitTarget::service("dns");
+        let add = mismatch(&fetched(Protocol::Udp, false), &dns, Protocol::Tcp).unwrap();
+        assert!(add.contains("add \"protocol: udp\""), "{add}");
+        assert!(add.ends_with("(or pass --udp)"), "{add}");
+        let remove = mismatch(&fetched(Protocol::Tcp, false), &dns, Protocol::Udp).unwrap();
+        assert!(remove.contains("remove \"protocol: udp\""), "{remove}");
+        assert!(remove.ends_with("(or leave out --udp)"), "{remove}");
+        assert_eq!(
+            mismatch(&fetched(Protocol::Udp, false), &dns, Protocol::Udp),
+            None
+        );
+        let old = mismatch(&fetched(Protocol::Tcp, true), &dns, Protocol::Udp).unwrap();
+        assert!(old.contains("older than v0.1.2"), "{old}");
+        assert!(
+            old.contains("more services than fit in one answer"),
+            "{old}"
         );
     }
 
@@ -460,9 +587,13 @@ mod tests {
             peer,
         };
         let full = Arc::new(Slots::new(0));
+        let (_live, live) = tokio::sync::watch::channel(super::super::Live {
+            dialer: dialer.clone(),
+            settings: settings.clone(),
+        });
         tokio::time::timeout(
             OPEN_PATIENCE + settings.connect_timeout + Duration::from_secs(3),
-            visit(dialer, settings, full, conn),
+            visit(dialer, settings, full, conn, live),
         )
         .await
         .expect("the connection gives up waiting");

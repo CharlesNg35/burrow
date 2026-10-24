@@ -540,6 +540,7 @@ fn put_strings(v: &mut Vec<u8>, items: &[String]) {
 }
 
 pub const GRANTS_REQUEST: [u8; 1] = [0x21];
+pub const GRANTS_REQUEST_V2: [u8; 2] = [0x21, 0x01];
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Grants {
@@ -550,6 +551,7 @@ pub struct Grants {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GrantedService {
     pub name: String,
+    pub protocol: Protocol,
     pub port: u16,
     pub ports: u16,
 }
@@ -563,7 +565,17 @@ pub struct GrantedClient {
 
 impl Grants {
     pub fn encode(&self) -> Result<Vec<u8>, DecodeError> {
-        let full = self.encode_all()?;
+        let mut tcp = self.clone();
+        tcp.services.retain(|s| s.protocol == Protocol::Tcp);
+        tcp.fitting(false)
+    }
+
+    pub fn encode_v2(&self) -> Result<Vec<u8>, DecodeError> {
+        self.fitting(true)
+    }
+
+    fn fitting(&self, v2: bool) -> Result<Vec<u8>, DecodeError> {
+        let full = self.encode_all(v2)?;
         if full.len() <= crate::noise::MAX_PLAINTEXT {
             return Ok(full);
         }
@@ -571,19 +583,22 @@ impl Grants {
         for c in &mut lean.clients {
             c.allow = None;
         }
-        let lean = lean.encode_all()?;
+        let lean = lean.encode_all(v2)?;
         if lean.len() <= crate::noise::MAX_PLAINTEXT {
             return Ok(lean);
         }
         Err(DecodeError::TooLong)
     }
 
-    fn encode_all(&self) -> Result<Vec<u8>, DecodeError> {
+    fn encode_all(&self, v2: bool) -> Result<Vec<u8>, DecodeError> {
         let count = |n: usize| u16::try_from(n).map_err(|_| DecodeError::TooLong);
-        let mut v = vec![0x22];
+        let mut v = vec![if v2 { 0x25 } else { 0x22 }];
         v.extend_from_slice(&count(self.services.len())?.to_be_bytes());
         for s in &self.services {
             put_short(&mut v, &s.name)?;
+            if v2 {
+                v.push(proto_byte(s.protocol));
+            }
             v.extend_from_slice(&s.port.to_be_bytes());
             v.extend_from_slice(&s.ports.to_be_bytes());
         }
@@ -604,13 +619,19 @@ impl Grants {
 
     pub fn decode(b: &[u8]) -> Result<Self, DecodeError> {
         let mut r = Reader { buf: b };
-        match r.u8()? {
-            0x22 => {}
+        let v2 = match r.u8()? {
+            0x22 => false,
+            0x25 => true,
             x => return Err(DecodeError::UnknownType(x)),
-        }
+        };
         let services = (0..r.u16()?)
             .map(|_| {
                 let name = r.name()?;
+                let protocol = if v2 {
+                    proto_from(r.u8()?)?
+                } else {
+                    Protocol::Tcp
+                };
                 let (port, ports) = (r.u16()?, r.u16()?);
                 if ports == 0
                     || ports > crate::config::check::ports::MAX_RANGE
@@ -618,7 +639,12 @@ impl Grants {
                 {
                     return Err(DecodeError::TooLong);
                 }
-                Ok(GrantedService { name, port, ports })
+                Ok(GrantedService {
+                    name,
+                    protocol,
+                    port,
+                    ports,
+                })
             })
             .collect::<Result<Vec<_>, DecodeError>>()?;
         let clients = (0..r.u16()?)
@@ -641,8 +667,12 @@ impl Grants {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VisitRequest {
     pub check: bool,
+    pub protocol: Protocol,
     pub to: VisitTarget,
 }
+
+const VISIT_CHECK: u8 = 1;
+const VISIT_UDP: u8 = 2;
 
 fn put_short(v: &mut Vec<u8>, s: &str) -> Result<(), DecodeError> {
     let b = s.as_bytes();
@@ -654,7 +684,14 @@ fn put_short(v: &mut Vec<u8>, s: &str) -> Result<(), DecodeError> {
 
 impl VisitRequest {
     pub fn encode(&self) -> Result<Vec<u8>, DecodeError> {
-        let mut v = vec![0x20, u8::from(self.check)];
+        let mut flags = 0;
+        if self.check {
+            flags |= VISIT_CHECK;
+        }
+        if self.protocol == Protocol::Udp {
+            flags |= VISIT_UDP;
+        }
+        let mut v = vec![0x20, flags];
         match &self.to {
             VisitTarget::Service { name, index } => {
                 v.push(1);
@@ -676,10 +713,15 @@ impl VisitRequest {
             0x20 => {}
             x => return Err(DecodeError::UnknownType(x)),
         }
-        let check = match r.u8()? {
-            0 => false,
-            1 => true,
-            x => return Err(DecodeError::UnknownType(x)),
+        let flags = r.u8()?;
+        if flags & !(VISIT_CHECK | VISIT_UDP) != 0 {
+            return Err(DecodeError::UnknownType(flags));
+        }
+        let check = flags & VISIT_CHECK != 0;
+        let protocol = if flags & VISIT_UDP != 0 {
+            Protocol::Udp
+        } else {
+            Protocol::Tcp
         };
         let name = |r: &mut Reader| {
             let n = r.short_str()?;
@@ -701,9 +743,15 @@ impl VisitRequest {
             x => return Err(DecodeError::UnknownType(x)),
         };
         r.end()?;
-        Ok(VisitRequest { check, to })
+        Ok(VisitRequest {
+            check,
+            protocol,
+            to,
+        })
     }
 }
+
+pub const MAX_DATAGRAM: usize = crate::noise::MAX_PLAINTEXT - 4;
 
 pub fn encode_datagram(peer: u32, payload: &[u8], out: &mut Vec<u8>) {
     out.clear();
@@ -722,10 +770,21 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_datagram_with_its_peer_id_fills_one_record_at_most() {
+        assert_eq!(MAX_DATAGRAM, 65515);
+        let mut rec = Vec::new();
+        encode_datagram(7, &vec![1u8; MAX_DATAGRAM], &mut rec);
+        assert_eq!(rec.len(), crate::noise::MAX_PLAINTEXT);
+        let (id, payload) = decode_datagram(&rec).unwrap();
+        assert_eq!((id, payload.len()), (7, MAX_DATAGRAM));
+    }
+
+    #[test]
     fn a_grants_answer_rejects_what_cannot_be_true() {
         let one = |port: u16, ports: u16| Grants {
             services: vec![GrantedService {
                 name: "db".into(),
+                protocol: Protocol::Tcp,
                 port,
                 ports,
             }],
@@ -762,6 +821,7 @@ mod tests {
             services: (0..2000)
                 .map(|i| GrantedService {
                     name: format!("service-with-a-rather-long-name-{i:04}"),
+                    protocol: Protocol::Tcp,
                     port: 1,
                     ports: 1,
                 })
@@ -783,6 +843,7 @@ mod tests {
         let grants = Grants {
             services: vec![GrantedService {
                 name: "db".into(),
+                protocol: Protocol::Tcp,
                 port: 5432,
                 ports: 1,
             }],
@@ -813,6 +874,7 @@ mod tests {
         let bad = Grants {
             services: vec![GrantedService {
                 name: "no spaces".into(),
+                protocol: Protocol::Tcp,
                 port: 1,
                 ports: 1,
             }],
@@ -967,6 +1029,7 @@ mod tests {
     fn fields_too_long_for_the_wire_are_an_error() {
         let too_long = VisitRequest {
             check: false,
+            protocol: Protocol::Tcp,
             to: VisitTarget::Client {
                 client: "home".into(),
                 target: format!("{}:8080", "a".repeat(252)),
@@ -1089,10 +1152,12 @@ mod tests {
         for r in [
             VisitRequest {
                 check: false,
+                protocol: Protocol::Tcp,
                 to: VisitTarget::service("db"),
             },
             VisitRequest {
                 check: true,
+                protocol: Protocol::Tcp,
                 to: VisitTarget::Client {
                     client: "home".into(),
                     target: "[::1]:22".into(),
@@ -1109,6 +1174,14 @@ mod tests {
             assert_eq!(VisitRequest::decode(&t), Err(DecodeError::Trailing));
         }
         assert!(VisitRequest::decode(&[0x20, 2, 1, 2, b'd', b'b']).is_err());
+        assert_eq!(
+            VisitRequest::decode(&[0x20, 4, 1, 2, b'd', b'b', 0, 0]),
+            Err(DecodeError::UnknownType(4))
+        );
+        assert_eq!(
+            VisitRequest::decode(&[0x20, 0x80, 1, 2, b'd', b'b', 0, 0]),
+            Err(DecodeError::UnknownType(0x80))
+        );
         assert!(VisitRequest::decode(&[0x20, 0, 3, 2, b'd', b'b']).is_err());
         assert_eq!(
             VisitRequest::decode(&[0x20, 0, 1, 3, b'a', b' ', b'b']),
@@ -1118,6 +1191,84 @@ mod tests {
             VisitRequest::decode(&[0x10, 0, 1, 2, b'd', b'b']),
             Err(DecodeError::UnknownType(0x10))
         );
+    }
+
+    #[test]
+    fn a_udp_visit_request_sets_flag_bit_1_and_a_tcp_one_keeps_the_v1_bytes() {
+        let tcp = VisitRequest {
+            check: false,
+            protocol: Protocol::Tcp,
+            to: VisitTarget::service("db"),
+        };
+        assert_eq!(tcp.encode().unwrap(), vec![0x20, 0, 1, 2, b'd', b'b', 0, 0]);
+        let udp = VisitRequest {
+            protocol: Protocol::Udp,
+            ..tcp.clone()
+        };
+        assert_eq!(udp.encode().unwrap(), vec![0x20, 2, 1, 2, b'd', b'b', 0, 0]);
+        let checked = VisitRequest {
+            check: true,
+            protocol: Protocol::Udp,
+            to: VisitTarget::Client {
+                client: "home".into(),
+                target: "10.0.0.1:53".into(),
+            },
+        };
+        let b = checked.encode().unwrap();
+        assert_eq!(&b[..3], &[0x20, 3, 2]);
+        for r in [udp, checked] {
+            let b = r.encode().unwrap();
+            assert_eq!(VisitRequest::decode(&b).unwrap(), r);
+            for i in 0..b.len() {
+                assert!(VisitRequest::decode(&b[..i]).is_err());
+            }
+        }
+    }
+
+    #[test]
+    fn grants_v2_carry_each_service_protocol_and_v1_lists_tcp_only() {
+        let grants = Grants {
+            services: vec![
+                GrantedService {
+                    name: "db".into(),
+                    protocol: Protocol::Tcp,
+                    port: 5432,
+                    ports: 1,
+                },
+                GrantedService {
+                    name: "dns".into(),
+                    protocol: Protocol::Udp,
+                    port: 53,
+                    ports: 2,
+                },
+            ],
+            clients: vec![GrantedClient {
+                name: "home".into(),
+                reach: vec![],
+                allow: None,
+            }],
+        };
+        assert_eq!(GRANTS_REQUEST_V2, [0x21, 0x01]);
+        let v2 = grants.encode_v2().unwrap();
+        assert_eq!(
+            v2,
+            unhex("250002026462001538000103646e730100350002000104686f6d650000")
+        );
+        assert_eq!(Grants::decode(&v2).unwrap(), grants);
+        let v1 = grants.encode().unwrap();
+        assert_eq!(v1[0], 0x22);
+        let old = Grants::decode(&v1).unwrap();
+        assert_eq!(old.services, grants.services[..1].to_vec());
+        assert_eq!(old.clients, grants.clients);
+        let mut bad = v2.clone();
+        bad[6] = 2;
+        assert_eq!(Grants::decode(&bad), Err(DecodeError::UnknownType(2)));
+        for i in 0..v2.len() {
+            assert!(Grants::decode(&v2[..i]).is_err());
+        }
+        let mut trailing = v2;
+        trailing.push(0);
+        assert!(Grants::decode(&trailing).is_err());
     }
 
     #[test]

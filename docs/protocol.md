@@ -11,7 +11,7 @@ A client opens TCP connections to the server's `listen` address. Each connection
 
 A visitor (`burrow visit`) opens a third kind:
 
-- a **visit channel**: one per local TCP connection, relayed by the server to a data channel of the client (section 9).
+- a **visit channel**: one per local TCP connection, or one per port of a UDP forward while it has peers, relayed by the server to a data channel of the client (section 9).
 
 Every channel, control or data, does its own full Noise handshake.
 
@@ -125,7 +125,7 @@ The client resolves `target`, keeps only the addresses permitted by its allow li
 
 ```
 Status = 0 ok | 1 denied by allow list or reach rules | 2 unreachable | 3 unresolved | 4 invalid
-         | 5 forbidden | 6 offline | 7 busy      (5-6 only from the server to a visitor; 7 also from a client at its connection limit: 16384, or less where the open file limit is lower)
+         | 5 forbidden | 6 offline | 7 busy      (5-6 only from the server to a visitor; 7 also from a client at its connection limit: 16384 by default, the client's max_connections, or less where the open file limit is lower)
 ```
 
 The server does not wait for Status before sending the connection's bytes, so connection setup adds no round trip. If Status is not 0, or none arrives within 3 × the heartbeat interval, the server logs the reason; for a service with several clients it moves the connection to the next one (after a timeout, only if the connection has sent nothing yet), sending again the PROXY header and up to 64 KiB of bytes it had already sent, and otherwise closes the connection.
@@ -138,7 +138,7 @@ With `health_check`, the server also opens connections of its own: every interva
 
 **TCP**: after Connect/Status both directions carry stream records, each ending with the end-of-stream record. Half-close is preserved: the EOF record makes the receiver `shutdown(Write)` its socket while the other direction keeps flowing.
 
-**UDP**: each record is `peer:u32 || datagram` (at most 65515 bytes). The server assigns a peer id per sender address. The client keeps one connected UDP socket per peer id. Both sides expire peers after `udp.session_timeout_secs` of silence, with at most 4096 peers per service port. Each port of a UDP range keeps one data channel while its relay runs.
+**UDP**: each record is `peer:u32 || datagram` (at most 65515 bytes). The server assigns a peer id per sender address. The client keeps one connected UDP socket per peer id. Both sides expire peers after `udp.session_timeout_secs` of silence. The server keeps at most `udp.max_peers` peers per service port (4096 by default), and a client at most its `max_udp_peers` in all. Each port of a UDP range keeps one data channel while its relay runs.
 
 **insecure_plaintext**: the handshake, hello, Connect and Status are still encrypted records. After them, TCP data channels carry raw bytes (TCP FIN carries half-close). UDP stays encrypted.
 
@@ -147,23 +147,28 @@ With `health_check`, the server also opens connections of its own: every interva
 After the hello, the visitor sends one request record without waiting for a reply:
 
 ```
-VisitRequest = 0x20 check:u8 kind:u8 ...
+VisitRequest = 0x20 flags:u8 kind:u8 ...
+  flags bit 0: check; bit 1: UDP (else TCP); other bits must be 0
   kind 1: service:str8 index:u16     a service that lists this visitor in "visitors";
                                      index picks a port of a port range, 0 for one port
   kind 2: client:str8 target:str8    any target on a client, if the visitor has reach for it
 ```
 
+A TCP request has the same bytes as in burrow v0.1.0 and v0.1.1. A server older than v0.1.2 answers `4 invalid` to a request with the UDP bit set.
+
 Names follow the rules of section 3. The server reads the request, a record of at most 512 bytes, within the same `limits.handshake_timeout_secs` deadline and while it still counts against `limits.max_handshakes`, then checks it against its current config:
 
 - the visitor still exists and still has the secret it authenticated with;
-- for kind 1, the service exists, is TCP, lists the visitor, admits the visitor's address in `allow_from`/`deny_from`, and `index` is inside its range (`4 invalid` otherwise);
-- for kind 2, the visitor has `reach` for the client, and the target is a valid `host:port` of at most 255 bytes, or `unix:/absolute/path`, or empty in a check, which asks only whether the visitor may reach that client (a SOCKS forward checks this way); if that `reach` has rules, an IP address or socket path target must match one of them.
+- for kind 1, the service exists, lists the visitor, has the request's protocol (`4 invalid` otherwise), admits the visitor's address in `allow_from`/`deny_from`, and `index` is inside its range (`4 invalid` otherwise);
+- for kind 2, the visitor has `reach` for the client, and the target is a valid `host:port` of at most 255 bytes, or `unix:/absolute/path` for TCP only (`4 invalid` for UDP), or empty in a check, which asks only whether the visitor may reach that client (a SOCKS forward checks this way); if that `reach` has rules, an IP address or socket path target must match one of them.
 
 Unknown services and services that do not list the visitor get the same answer, `5 forbidden`, so names cannot be probed. Then the server checks that the client is connected (`6 offline`). With `check = 1` it answers `0 ok` at this point and closes: `burrow visit` uses this at startup to report problems before the first connection. Otherwise it checks the limits of the visitor, the service and the client (`7 busy`).
 
 Otherwise the server takes a data channel of the client (for a service with several clients, the one chosen as for public connections) and sends it a Connect (section 8) with the service name, or an empty name for kind 2, and the target. For kind 2 with `reach` rules, `only` is 1 and the rules follow; the client then connects only to addresses, after resolving a name on its own network, that the rules match, and denies the connection when none do or a rule cannot be read. The client applies its allow list as for any other connection and replies with Status, which the server passes on to the visitor. The visitor waits for this Status before sending data, so a refusal always arrives with its reason. From then on, the server decrypts each record from one channel and encrypts it for the other, both ways, until each side has sent its end-of-stream record. With `insecure_plaintext`, only the leg between server and client is raw; the visit channel is always encrypted.
 
-On every config reload, the server checks the request again and closes the connection when it is no longer granted: the visitor, its secret, its place in `visitors` or its `reach` for the client is gone, the service no longer runs on that client, or a `reach` rule change no longer covers the target (for a host name target, any change of those rules, since only the client resolves it). A changed service target, like a widened `reach`, leaves open connections running.
+A UDP visit sends Connect with protocol 1, always with encrypted records, and waits for Status for 3 × the heartbeat interval as a UDP service does; a client that refuses, does not answer or closes its channel moves the visit to the next client of the service, as for TCP. After Status 0 both channels carry the UDP records of section 8, `peer:u32 || datagram`, with peer ids chosen by the visitor; the server passes each record on unchanged. It checks that a record holds at least a peer id, and closes the visit otherwise (an end-of-stream record closes it too). It admits at most `udp.max_peers` peer ids per visit, dropping datagrams of further ones, and passes a reply from the client only for a peer id it admitted. For kind 1 the service's bandwidth limit applies to each datagram, which is dropped when over the rate, and each new peer id counts as one connection of the service. Peer ids expire after `udp.session_timeout_secs` without traffic, and the server closes a visit that carried no datagram in either direction for that long. A UDP visit counts as one connection of the visitor and of the client, not of the service.
+
+On every config reload, the server checks the request again and closes the connection, or the UDP visit, when it is no longer granted: the visitor, its secret, its place in `visitors` or its `reach` for the client is gone, the service no longer runs on that client, or a `reach` rule change no longer covers the target (for a host name target, any change of those rules, since only the client resolves it). A changed service target, like a widened `reach`, leaves open TCP connections running; a UDP visit to a service whose target changed is closed, and the visitor's next datagram opens a new one to the new target.
 
 Instead of a VisitRequest, the visitor may send the single byte `0x21` to ask what it may use. The server checks the visitor and its secret against its current config, answers `5 forbidden` if they no longer match, and otherwise sends one record and closes:
 
@@ -171,9 +176,15 @@ Instead of a VisitRequest, the visitor may send the single byte `0x21` to ask wh
 Grants = 0x22 services:u16 (name:str8 port:u16 ports:u16)* clients:u16 (name:str8 count:u8 reach:str8* known:u8 [count:u8 rule:str8*])*
 ```
 
-`services` are the TCP services that list the visitor, wherever it asks from (`allow_from`/`deny_from` apply when it connects), with the target's port (0 for a Unix socket) and the size of their range (at most 1000); `clients` are the clients in its `reach`, each with the visitor's rules for it (none for `any`) and, for `any` only, the Allow list of their current session when `known` is 1. If the answer does not fit in one record, the server leaves out the Allow lists, and answers `4 invalid` if it still does not fit. `burrow init visitor` uses it to write the forwards, and `--update` to refresh them.
+The two bytes `0x21 0x01` ask the same question and get the same answer with each service's protocol (0 tcp, 1 udp), so it also lists UDP services:
 
-A visitor's SOCKS5 forward reads the target from the SOCKS request (CONNECT only, no authentication, IPv4, IPv6 or a host name) and sends it as kind 2. It answers the SOCKS client only after the server's Status, mapping refusals to SOCKS reply codes.
+```
+GrantsV2 = 0x25 services:u16 (name:str8 protocol:u8 port:u16 ports:u16)* clients:u16 (...as in Grants)
+```
+
+A server older than v0.1.2 answers `4 invalid` to `0x21 0x01`; a visitor then asks again with `0x21` and gets TCP services only. `services` in Grants (`0x22`) are the TCP services that list the visitor (in GrantsV2, its TCP and UDP services), wherever it asks from (`allow_from`/`deny_from` apply when it connects), with the target's port (0 for a Unix socket) and the size of their range (at most 1000); `clients` are the clients in its `reach`, each with the visitor's rules for it (none for `any`) and, for `any` only, the Allow list of their current session when `known` is 1. If the answer does not fit in one record, the server leaves out the Allow lists, and answers `4 invalid` if it still does not fit. `burrow init visitor` uses it to write the forwards, and `--update` to refresh them.
+
+A visitor's SOCKS5 forward reads the target from the SOCKS request (CONNECT or UDP ASSOCIATE, no authentication, IPv4, IPv6 or a host name) and sends it as kind 2. For CONNECT it answers the SOCKS client only after the server's Status, mapping refusals to SOCKS reply codes. For UDP ASSOCIATE (RFC 1928 §7) it opens a UDP relay port, takes datagrams only from the SOCKS client's address, drops those with FRAG not 0, and opens one UDP visit (flag bit 1, kind 2) per destination named in the datagram headers, with peer id 1; replies get the header the client sent. The association ends with its TCP connection.
 
 ## 10. Limits enforced before authentication
 

@@ -1,12 +1,12 @@
 #![no_main]
 
-use burrow_config::Cipher;
 use burrow::noise::{Initiator, Responder};
 use burrow::protocol::{
-    ClientMsg, Connect, Hello, ServerMsg, Status, VisitRequest, decode_datagram,
+    ClientMsg, Connect, Grants, Hello, ServerMsg, Status, VisitRequest, decode_datagram,
 };
 use burrow::record::RecordReader;
 use burrow::secret::Secret;
+use burrow_config::Cipher;
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {
@@ -21,6 +21,15 @@ fuzz_target!(|data: &[u8]| {
         assert_eq!(VisitRequest::decode(&r.encode().unwrap()), Ok(r));
     }
     let _ = decode_datagram(data);
+    if let Ok(g) = Grants::decode(data) {
+        if let Ok(b) = g.encode_v2() {
+            assert_eq!(Grants::decode(&b).unwrap().services, g.services);
+        }
+        if let Ok(b) = g.encode() {
+            let tcp = Grants::decode(&b).unwrap();
+            assert!(tcp.services.iter().all(|s| g.services.contains(s)));
+        }
+    }
 
     let secret = Secret::from_bytes([9u8; 32]);
     let (init, m1) = Initiator::start(Cipher::Chachapoly, &secret, b"f");

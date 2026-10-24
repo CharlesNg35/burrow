@@ -554,6 +554,8 @@ fn status_json_keeps_its_exact_shape() {
                 idle_channels: 4,
                 left_secs_ago: None,
                 local: false,
+                busy_total: 4,
+                at_limit: true,
             },
             ClientStatus {
                 name: "office".into(),
@@ -564,6 +566,7 @@ fn status_json_keeps_its_exact_shape() {
                 idle_channels: 0,
                 left_secs_ago: Some(120),
                 local: false,
+                ..ClientStatus::default()
             },
         ],
         services: vec![ServiceStatus {
@@ -614,7 +617,9 @@ fn status_json_keeps_its_exact_shape() {
       "from": "198.51.100.4:5000",
       "open": 2,
       "idle_channels": 4,
-      "left_secs_ago": null
+      "left_secs_ago": null,
+      "busy_total": 4,
+      "at_limit": true
     },
     {
       "name": "office",
@@ -623,7 +628,9 @@ fn status_json_keeps_its_exact_shape() {
       "from": null,
       "open": 0,
       "idle_channels": 0,
-      "left_secs_ago": 120
+      "left_secs_ago": 120,
+      "busy_total": 0,
+      "at_limit": false
     }
   ],
   "services": [

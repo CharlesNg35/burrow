@@ -877,14 +877,15 @@ async fn burrow_admin_listens_on_7839_unless_it_is_taken_or_a_port_is_given() {
     tokio::task::spawn_blocking(move || {
         let held = std::net::TcpListener::bind("127.0.0.1:7839").unwrap();
         let fallback = AdminRun::start(&config2, None);
+        let note = |l: &str| {
+            l.contains("port 7839 is in use")
+                || l.contains("port 7839 of your last session is taken")
+        };
         let mut seen = fallback.until(|l| l.contains("token="));
-        if !seen.iter().any(|l| l.contains("port 7839 is in use")) {
-            seen.extend(fallback.until(|l| l.contains("port 7839 is in use")));
+        if !seen.iter().any(|l| note(l)) {
+            seen.extend(fallback.until(note));
         }
-        assert!(
-            seen.iter().any(|l| l.contains("port 7839 is in use")),
-            "{seen:?}"
-        );
+        assert!(seen.iter().any(|l| note(l)), "{seen:?}");
         assert!(
             !seen.iter().any(|l| l.contains("127.0.0.1:7839/")),
             "{seen:?}"

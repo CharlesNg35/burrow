@@ -425,6 +425,134 @@ fn e8_a_newer_server_field_renders_through_its_fallback() {
     run("e8-fallback", opts, true, fallback);
 }
 
+fn private_udp(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
+    Box::pin(async move {
+        open(c, "ops").await;
+        c.ui.nav("/services/dns").await;
+        c.ui.wait_for("[data-testid=path-diagram]", SECS).await;
+        let path = c.ui.text("[data-testid=path-diagram]").await.to_lowercase();
+        assert!(
+            path.contains("visitors") && path.contains("laptop") && path.contains("udp"),
+            "a private UDP service starts at its visitors: {path}"
+        );
+        assert_eq!(c.ui.count("[data-testid=form-problems]").await, 0);
+        assert!(
+            !c.ui.text("main").await.contains("needs a public port"),
+            "a private UDP service with visitors is fine"
+        );
+        c.ui.shot("private-udp-service").await;
+        c.ui.nav("/visitors/laptop").await;
+        c.ui.wait_for("[data-testid=may-use]", SECS).await;
+        let may = c.ui.text("[data-testid=may-use]").await;
+        assert!(
+            may.contains("dns") && may.contains("UDP") && may.contains("ssh"),
+            "the visitor page lists its UDP services with a tag: {may}"
+        );
+        let path = c.ui.text("[data-testid=path-diagram]").await;
+        assert!(path.contains("1 TCP · 1 UDP"), "{path}");
+        c.ui.shot("visitor-with-a-udp-service").await;
+        c.ui.click("[role=tablist] [data-tab=connect]").await;
+        c.ui.wait_for("[data-testid=connect] [data-testid=snippets]", SECS)
+            .await;
+        c.ui.click("[data-testid=connect] [data-tab=file]").await;
+        c.ui.wait_for("[data-testid=snippet-file]", SECS).await;
+        let snippet = c.ui.text("[data-testid=snippet-file]").await;
+        assert!(
+            snippet.contains("protocol: udp"),
+            "the Connect snippet writes a UDP forward: {snippet}"
+        );
+        c.ui.shot("connect-with-a-udp-forward").await;
+        c.ui.assert_no_errors();
+    })
+}
+
+#[test]
+fn a_private_udp_service_with_visitors_reads_right_everywhere() {
+    let opts = Options {
+        extra_services:
+            "  dns:\n    client: home\n    protocol: udp\n    target: 53\n    visitors: [laptop]\n"
+                .into(),
+        ..Options::default()
+    };
+    run("private-udp", opts, false, private_udp);
+}
+
+fn at_limit(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
+    Box::pin(async move {
+        c.world.start_client_with("home", "max_connections: 1\n");
+        c.world.wait_client("home", true);
+        world::wait_until("home answering busy", Duration::from_secs(20), || {
+            c.world.status().is_some_and(|s| {
+                s["clients"].as_array().is_some_and(|l| {
+                    l.iter()
+                        .any(|c| c["name"] == "home" && c["at_limit"] == true)
+                })
+            })
+        });
+        open(c, "ops").await;
+        for (w, h) in [(1440, 900), (420, 900), (320, 800)] {
+            c.ui.viewport(w, h).await;
+            c.ui.nav("/clients/home").await;
+            c.ui.wait_text(
+                "[data-testid=limit-tag]",
+                "at limit · max_connections in client.yaml",
+                SECS,
+            )
+            .await;
+            tokio::time::sleep(Duration::from_millis(300)).await;
+            let clear: Vec<f64> = c
+                .ui
+                .eval("(() => { const t = document.querySelector('[data-testid=limit-tag]').getBoundingClientRect(); const overlaps = [...document.querySelectorAll('header [data-testid=edit], header button')].filter(b => { const r = b.getBoundingClientRect(); return r.width > 0 && t.left < r.right && r.left < t.right && t.top < r.bottom && r.top < t.bottom; }).length; return [overlaps, t.right, document.documentElement.clientWidth, t.width, document.querySelector('[data-testid=limit-tag]').scrollWidth]; })()")
+                .await;
+            assert_eq!(
+                clear[0], 0.0,
+                "at {w} px the limit tag runs under a button: {clear:?}"
+            );
+            assert!(
+                clear[1] <= clear[2],
+                "at {w} px the limit tag runs off the screen: {clear:?}"
+            );
+            assert!(
+                clear[4] <= clear[3] + 1.0,
+                "at {w} px the limit tag text is cut off: {clear:?}"
+            );
+            let sideways: Vec<String> = c
+                .ui
+                .eval("[...document.querySelectorAll('[data-testid=served] *')].filter(e => e.offsetParent !== null && ['auto', 'scroll'].includes(getComputedStyle(e).overflowX) && e.scrollWidth > e.clientWidth + 1).map(e => e.className)")
+                .await;
+            assert!(
+                sideways.is_empty(),
+                "at {w} px the services home serves scroll sideways: {sideways:?}"
+            );
+            let targets: Vec<bool> = c
+                .ui
+                .eval("[...document.querySelectorAll('[data-testid=served] [data-target]')].filter(e => e.offsetParent !== null).map(e => { const r = e.getBoundingClientRect(); return r.width > 0 && r.right <= document.documentElement.clientWidth; })")
+                .await;
+            assert!(
+                !targets.is_empty() && targets.iter().all(|t| *t),
+                "at {w} px every served target shows on screen: {targets:?}"
+            );
+            c.ui.shot(&format!("at-limit-{w}")).await;
+        }
+        c.ui.viewport(1440, 900).await;
+        c.ui.assert_no_errors();
+    })
+}
+
+#[test]
+fn a_client_at_its_limit_says_which_limit_without_overlapping_the_buttons() {
+    let opts = Options {
+        clients: Some(Vec::new()),
+        extra_services: format!(
+            "  dns1: {{ client: home, protocol: udp, bind: 127.0.0.1:{}, target: 53 }}\n  dns2: {{ client: home, protocol: udp, bind: 127.0.0.1:{}, target: 54 }}\n",
+            world::free_port(),
+            world::free_port()
+        ),
+        ..Options::default()
+    };
+    run("at-limit", opts, false, at_limit);
+}
+
 fn many_issues(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
     Box::pin(async move {
         open(c, "ops").await;
@@ -1531,16 +1659,17 @@ fn admin_session(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
         );
         c.ui.shot("old-tab-reconnected").await;
         c.world.stop("admin-ops");
-        let banner =
-            c.ui.wait_text(
-                "[data-testid=banner-reconnecting]",
-                "open the link it printed",
-                Duration::from_secs(50),
-            )
-            .await;
+        c.ui.wait_text(
+            "[data-testid=banner-reconnecting]",
+            "burrow admin is not running",
+            Duration::from_secs(20),
+        )
+        .await;
+        tokio::time::sleep(Duration::from_secs(45)).await;
+        let banner = c.ui.text("[data-testid=banner-reconnecting]").await;
         assert!(
-            !banner.contains("this tab reconnects") && !banner.contains("0 pending"),
-            "after a while the tab stops promising to reconnect: {banner}"
+            banner.contains("this tab reconnects") && !banner.contains("0 pending"),
+            "45 s after burrow admin stopped the tab still retries every 2 s: {banner}"
         );
         c.ui.shot("admin-gone-for-a-while").await;
         let logged = c.ui.take_errors();
@@ -1550,6 +1679,14 @@ fn admin_session(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
         );
         let _ = std::fs::remove_file(c.world.file("url-ops"));
         c.world.open_admin_on("ops", port);
+        world::wait_until(
+            "the reconnect note after a long outage",
+            Duration::from_secs(10),
+            || {
+                std::fs::read_to_string(&log)
+                    .is_ok_and(|t| t.contains("reconnected in your open browser tab"))
+            },
+        );
         let token = url.split("#token=").nth(1).unwrap().to_string();
         let foreign = url.replace(&token, &"0".repeat(64));
         c.ui.goto("about:blank").await;
@@ -1574,6 +1711,89 @@ fn admin_session(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
 #[test]
 fn an_old_tab_reconnects_to_the_next_burrow_admin_and_a_foreign_one_is_told_it_ended() {
     run("admin-session", Options::default(), false, admin_session);
+}
+
+fn old_server(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
+    Box::pin(async move {
+        open(c, "ops").await;
+        let ui = env!("CARGO_PKG_VERSION");
+        let item = "[data-testid=attention] li[data-item=old-server]";
+        let text = c.ui.wait_text(item, "v0.1.0", SECS).await;
+        assert!(
+            text.contains(&format!("older than this burrow admin (v{ui})"))
+                && text.contains("burrow update on the server as root or administrator"),
+            "{text}"
+        );
+        assert_eq!(
+            c.ui.eval::<String>(&format!(
+                "document.querySelector('{item}').getAttribute('data-tone')"
+            ))
+            .await,
+            "warning"
+        );
+        let rows = c.ui.count("[data-testid=attention] li").await;
+        let badge: String =
+            c.ui.eval(
+                "document.querySelector('[data-testid=attention] [data-testid=count]').textContent",
+            )
+            .await;
+        assert_eq!(
+            badge,
+            rows.to_string(),
+            "the older server counts in Needs attention"
+        );
+        assert_eq!(
+            c.ui.count("[data-testid=old-server]").await,
+            0,
+            "no banner under the header"
+        );
+        c.ui.shot("older-server-attention").await;
+        c.ui.nav("/about").await;
+        c.ui.wait_text("[data-testid=about]", "older than this burrow admin", SECS)
+            .await;
+        c.ui.shot("older-server-about").await;
+        c.ui.assert_no_errors();
+    })
+}
+
+fn same_version_server(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
+    Box::pin(async move {
+        open(c, "ops").await;
+        c.ui.wait_for("[data-testid=attention] [data-testid=count]", SECS)
+            .await;
+        tokio::time::sleep(Duration::from_millis(800)).await;
+        assert_eq!(
+            c.ui.count("[data-testid=attention] li[data-item=old-server]")
+                .await,
+            0,
+            "a server on this burrow admin's version needs no update"
+        );
+        c.ui.nav("/about").await;
+        let about =
+            c.ui.wait_text("[data-testid=about]", env!("CARGO_PKG_VERSION"), SECS)
+                .await;
+        assert!(!about.contains("older than this burrow admin"), "{about}");
+        c.ui.assert_no_errors();
+    })
+}
+
+#[test]
+fn an_older_server_needs_attention_until_it_is_updated() {
+    let opts = Options {
+        server_env: vec![("BURROW_ADMIN_TEST_VERSION".into(), "0.1.0".into())],
+        ..Options::default()
+    };
+    run("old-server", opts, true, old_server);
+}
+
+#[test]
+fn a_server_on_the_same_version_needs_no_update() {
+    run(
+        "same-version",
+        Options::default(),
+        true,
+        same_version_server,
+    );
 }
 
 #[test]

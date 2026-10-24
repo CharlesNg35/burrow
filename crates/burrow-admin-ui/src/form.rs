@@ -485,14 +485,6 @@ fn visibility_row(bind: Path, public: RwSignal<bool>) -> AnyView {
                 .is_none_or(|v| v.as_array().is_some_and(Vec::is_empty) || v.is_null())
         })
     };
-    let is_udp = {
-        let mut svc = bind.clone();
-        svc.pop();
-        Memo::new(move |_| {
-            e.value(&svc)
-                .is_some_and(|v| crate::screens::paths::udp(&v))
-        })
-    };
     let control = {
         let bind = bind.clone();
         let id = id.clone();
@@ -535,13 +527,7 @@ fn visibility_row(bind: Path, public: RwSignal<bool>) -> AnyView {
                         })
                     />
                 </div>
-                {move || (!public.get() && is_udp.get()).then(|| view! {
-                    <p class="mt-2 flex items-center gap-2 text-[12.5px] text-co-info" data-testid="udp-needs-port">
-                        <burrow_ui_kit::Icon name="info" small=true/>
-                        {crate::screens::paths::UDP_NEEDS_PORT}
-                    </p>
-                })}
-                {move || (!public.get() && !is_udp.get() && none_picked.get()).then(|| {
+                {move || (!public.get() && none_picked.get()).then(|| {
                     let to = to_visitors.clone();
                     view! {
                         <p class="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12.5px] text-co-info" data-testid="pick-visitors">
@@ -843,7 +829,7 @@ fn row(f: Field, path: Path, spath: Path, entity: Path) -> AnyView {
                     id=id.clone()
                     label=label.clone()
                     help=help.clone()
-                    hide_help=Signal::derive(move || saved_line && editing.try_get().unwrap_or(false))
+                    hide_help=Signal::derive(move || saved_line && !lock && editing.try_get().unwrap_or(false))
                     path=jp.clone()
                     schema_path=js.clone()
                     key_hint=key_hint.clone()
