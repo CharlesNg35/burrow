@@ -46,6 +46,32 @@ fn other_lints_strings_and_calls_are_not_silencing() {
 }
 
 #[test]
+fn the_crate_has_no_other_name() {
+    for c in [
+        "use crate as root;",
+        "use crate::{self as root, wire};",
+        "extern crate self as burrow;",
+        "extern crate alloc;",
+    ] {
+        assert_eq!(
+            alias_problems("src/lib.rs", &format!("{c}\n")).len(),
+            1,
+            "{c}"
+        );
+    }
+    for c in [
+        "use crate::wire::{self, noise};",
+        "use crate::wire::noise as n;",
+        "let s = \"extern crate self as burrow;\";",
+    ] {
+        assert!(
+            alias_problems("src/lib.rs", &format!("{c}\n")).is_empty(),
+            "{c}"
+        );
+    }
+}
+
+#[test]
 fn the_tree_keeps_its_lint_rules() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()

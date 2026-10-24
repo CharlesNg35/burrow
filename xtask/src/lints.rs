@@ -116,11 +116,42 @@ pub fn silenced_problems(path: &str, src: &str) -> Vec<String> {
     out
 }
 
+pub fn alias_problems(path: &str, src: &str) -> Vec<String> {
+    let toks = tokens(&lex(src).code);
+    let words = texts(&toks);
+    let mut out = Vec::new();
+    for (i, w) in words.iter().enumerate() {
+        let next = |n: usize| words.get(i + n).copied().unwrap_or_default();
+        let found = match *w {
+            "extern" if next(1) == "crate" => Some("extern crate"),
+            "use" if next(1) == "crate" && next(2) == "as" => Some("use crate as"),
+            "crate" if next(1) == "::" && next(2) == "{" => {
+                let end = closing(&toks, i + 2);
+                words[i + 2..end.min(words.len())]
+                    .windows(2)
+                    .any(|p| p == ["self", "as"])
+                    .then_some("crate::{self as ..}")
+            }
+            _ => None,
+        };
+        if let Some(what) = found {
+            out.push(format!(
+                "{path}:{}: {what} gives the crate another name; use crate:: paths",
+                toks[i].line
+            ));
+        }
+    }
+    out
+}
+
 pub fn problems(root: &Path) -> Result<Vec<String>, String> {
     let mut out = Vec::new();
     for path in crate::shape::tracked(root)? {
         let src = std::fs::read_to_string(root.join(&path)).unwrap_or_default();
         out.extend(silenced_problems(&path, &src));
+        if path.starts_with("src/") {
+            out.extend(alias_problems(&path, &src));
+        }
     }
     Ok(out)
 }
