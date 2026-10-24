@@ -293,6 +293,25 @@ impl<'a> Checker<'a> {
             self.prune.push(own);
         }
         if let Some(required) = schema.get("required").and_then(J::as_array) {
+            if let ["web", "certificates", i] = ctx.parts().as_slice()
+                && required
+                    .iter()
+                    .filter_map(J::as_str)
+                    .any(|n| !entries.iter().any(|e| e.key == n))
+            {
+                self.diagnostics.push(
+                    Diagnostic::error(
+                        "certificate-entry",
+                        format!(
+                            "web.certificates[{i}] needs hosts, cert and key: hosts names which names use the file, cert and key are the files"
+                        ),
+                    )
+                    .at(ctx.owner_span)
+                    .help("certificates from Let's Encrypt are not listed here: sites get theirs automatically, and many sites under one domain are best served by one wildcard certificate file"),
+                );
+                self.prune.push(ctx.path());
+                return;
+            }
             for name in required.iter().filter_map(J::as_str) {
                 if entries.iter().any(|e| e.key == name) {
                     continue;

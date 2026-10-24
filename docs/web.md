@@ -162,7 +162,8 @@ web:
 
 - **Writing `letsencrypt:` with an email accepts Let's Encrypt's terms** (<https://letsencrypt.org/repository/>). Let's Encrypt stopped sending expiry emails in June 2025; burrow shows the state of every certificate in `burrow status`, the admin UI and its metrics instead.
 - **How Let's Encrypt checks a name:** over TLS on port 443 when `web.https` is 443, else over HTTP on port 80 when `web.http` is 80. Each name needs one of them reachable from the internet, also from several places, so a firewall that allows only some countries or addresses breaks the check.
-- **Wildcards** need a DNS check, which this build does not have yet: use your own file for them.
+- **Wildcards** need a DNS check, and DNS checks come in a later phase: use your own file for them.
+- **Many sites under one domain** are best served by one wildcard certificate, like `*.example.com`: today as your own file in `web.certificates` (see the recipe below), and from Let's Encrypt with a DNS check once that phase lands.
 - **IP addresses** get Let's Encrypt's short-lived certificates (about 6 days), renewed after half their life.
 - **`profile`** applies to certificates for DNS names; IP addresses always get the short-lived profile (or none if the CA doesn't list it). burrow checks the profile against the list the CA offers before ordering; one it does not offer is shown in `burrow status` and the admin UI with the list of the offered ones.
 - **Renewal** happens by itself, at the time Let's Encrypt suggests (ARI), else after two thirds of a certificate's life. A failed try is retried after 1 minute, 10 minutes, 100 minutes, then daily, and the old certificate keeps being served, even after it expires.
@@ -215,7 +216,20 @@ On port 80, passthrough names get `404`: burrow cannot redirect a site whose HTT
 
 ## Recipes
 
-A website on a client's port, with automatic HTTPS:
+The everyday case: one site, its own certificate from Let's Encrypt:
+
+```yaml
+# server.yaml
+web:
+  https: 443
+  http: 80
+  letsencrypt:
+    email: you@example.com
+services:
+  shop: { client: home, target: 8081, web: shop.example.com } # its own certificate (TLS or HTTP check)
+```
+
+A website with two names, with automatic HTTPS:
 
 ```yaml
 # server.yaml
@@ -327,8 +341,9 @@ server: wss://tunnel.example.com/burrow
 | `https_redirect: false` with no `web.http` | `services.blog.web.https_redirect: false serves plain HTTP too, but web.http is not set; add http: 80` |
 | `https_redirect: false` on passthrough | `services.nas.web.https_redirect: false: burrow cannot serve plain HTTP for a passthrough service (the app keeps its own TLS); only the redirect is possible` |
 | an HTTPS name with no certificate | `host "blog.example.com" (service "blog") has no certificate; add web.letsencrypt for automatic certificates, tls: {cert, key} on service "blog", or an entry in web.certificates whose hosts lists it` |
-| Let's Encrypt cannot check a name | `blog.example.com (service "blog") cannot be checked by Let's Encrypt: open http: 80, or list a file for it in web.certificates` |
-| a wildcard from Let's Encrypt | `services.apps.web.hosts: "*.apps.example.com" needs DNS-01 (...), which this build does not have yet; add a certificate file under web.certificates or tls` |
+| Let's Encrypt cannot check a name | `blog.example.com (service "blog") cannot be checked by Let's Encrypt: open http: 80, or list a file for it in web.certificates (DNS checks come in a later phase)` |
+| an entry in `web.certificates` without its files | `web.certificates[0] needs hosts, cert and key: hosts names which names use the file, cert and key are the files` |
+| a wildcard from Let's Encrypt | `services.apps.web.hosts: "*.apps.example.com" needs DNS-01 (...); DNS checks come in a later phase, so add a certificate file under web.certificates or tls` |
 | a name in two certificate entries | `host "files.example.com" is listed in web.certificates[0] and [2]; list it in one entry only` |
 | a name that is not a host name | `services.blog.web.hosts: "https://blog.example.com" is not a host name; write the name alone, like blog.example.com` |
 | a short name on an HTTPS site | `"nas" is a single-label name; ... use a full name like nas.home.example.com, or set tls: off` |
