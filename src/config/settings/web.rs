@@ -5,6 +5,8 @@ use std::time::Duration;
 
 pub const REQUEST_HEADER_TIMEOUT: Duration = Duration::from_secs(10);
 pub const IDLE_TIMEOUT: Duration = Duration::from_secs(60);
+pub const LETSENCRYPT_PRODUCTION: &str = "https://acme-v02.api.letsencrypt.org/directory";
+pub const LETSENCRYPT_STAGING: &str = "https://acme-staging-v02.api.letsencrypt.org/directory";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WebSettings {

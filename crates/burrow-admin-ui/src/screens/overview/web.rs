@@ -1,5 +1,6 @@
 use burrow_admin_proto::web::WebSummary;
 use burrow_config::{Entry, ServiceEntry};
+use burrow_ui_kit::{Tone, tag_class};
 use leptos::prelude::*;
 
 use crate::route::{Link, Route};
@@ -22,10 +23,11 @@ fn rows(web: WebSummary) -> impl IntoView {
         .into_iter()
         .map(|h| {
             let to = Route::Detail(ServiceEntry::section().into(), h.service.clone());
-            let (row, kind) = (h.name.clone(), format!("{}, {}", h.kind, h.certificate));
+            let (row, kind, plain) = (h.name.clone(), h.served(), h.unencrypted());
             view! {
                 <li class="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 px-4 py-2.5" data-web-row=row>
                     <span class="font-mono text-[13px]">{h.name}</span>
+                    {plain.then(|| view! { <span class=tag_class(Tone::Warning) data-testid="unencrypted">"unencrypted"</span> })}
                     <span class="text-xs text-text-muted">{kind}</span>
                     <span class="ml-auto text-[13px]">"→ "<Link to=to class="font-semibold text-accent-ink no-underline hover:underline">{h.service}</Link></span>
                 </li>

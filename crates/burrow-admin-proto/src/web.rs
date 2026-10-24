@@ -2,15 +2,24 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct WebSummary {
+    #[serde(default)]
     pub https: String,
     #[serde(default)]
     pub addresses: String,
     #[serde(default)]
+    pub http: String,
+    #[serde(default)]
+    pub http_addresses: String,
+    #[serde(default)]
     pub shared_with_tunnel: bool,
+    #[serde(default)]
+    pub certificates: String,
     #[serde(default)]
     pub tunnel: Option<TunnelLine>,
     #[serde(default)]
     pub hosts: Vec<HostLine>,
+    #[serde(default)]
+    pub http_note: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -20,6 +29,8 @@ pub struct TunnelLine {
     pub certificate: String,
 }
 
+pub const PLAIN: &str = "plain HTTP";
+
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct HostLine {
     pub name: String,
@@ -27,6 +38,10 @@ pub struct HostLine {
     pub kind: String,
     #[serde(default)]
     pub certificate: String,
+    #[serde(default)]
+    pub check: String,
+    #[serde(default)]
+    pub note: String,
     #[serde(default)]
     pub service: String,
 }
@@ -38,11 +53,21 @@ impl WebSummary {
         } else {
             ""
         };
-        format!("web: https {} ({}{shared})", self.https, self.addresses)
+        let mut ports = Vec::new();
+        if !self.https.is_empty() {
+            ports.push(format!("https {} ({}{shared})", self.https, self.addresses));
+        }
+        if !self.http.is_empty() {
+            ports.push(format!("http {} ({})", self.http, self.http_addresses));
+        }
+        format!("web: {}", ports.join(", "))
     }
 
     pub fn lines(&self) -> Vec<String> {
         let mut out = vec![self.head()];
+        if !self.certificates.is_empty() {
+            out.push(format!("certificates: {}", self.certificates));
+        }
         if let Some(t) = &self.tunnel {
             out.push(format!("tunnel: {} ({})", t.url, t.certificate));
         }
@@ -52,16 +77,38 @@ impl WebSummary {
         if self.hosts.is_empty() && self.tunnel.is_none() {
             out.push("no names yet: every connection is closed".into());
         }
+        if !self.http.is_empty() && !self.http_note.is_empty() {
+            out.push(format!("http {}: {}", self.http, self.http_note));
+        }
         out
     }
 }
 
 impl HostLine {
+    pub fn served(&self) -> String {
+        let mut out = self.certificate.clone();
+        if !self.check.is_empty() {
+            out.push_str(", ");
+            out.push_str(&self.check);
+        }
+        if !self.note.is_empty() {
+            out.push_str("; ");
+            out.push_str(&self.note);
+        }
+        out
+    }
+
     pub fn line(&self) -> String {
         format!(
-            "{}: {}, {} -> service {}",
-            self.name, self.kind, self.certificate, self.service
+            "{}: {} -> service {}",
+            self.name,
+            self.served(),
+            self.service
         )
+    }
+
+    pub fn unencrypted(&self) -> bool {
+        self.kind == PLAIN
     }
 }
 

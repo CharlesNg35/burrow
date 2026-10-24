@@ -82,3 +82,88 @@ fn an_ipv4_port_without_names_says_so() {
     );
     assert!(summary(&off).is_none());
 }
+
+fn pair(dir: &std::path::Path, stem: &str, names: &[&str]) {
+    let key = rcgen::KeyPair::generate().unwrap();
+    let names = names.iter().map(|n| n.to_string()).collect::<Vec<_>>();
+    let cert = rcgen::CertificateParams::new(names)
+        .unwrap()
+        .self_signed(&key)
+        .unwrap();
+    std::fs::write(dir.join(format!("{stem}.pem")), cert.pem()).unwrap();
+    std::fs::write(dir.join(format!("{stem}.key")), key.serialize_pem()).unwrap();
+}
+
+#[test]
+fn every_host_says_how_it_is_served_with_its_certificate_source_and_check() {
+    let dir = tempfile::tempdir().unwrap();
+    pair(dir.path(), "corp", &["*.corp.example.com"]);
+    pair(dir.path(), "portal", &["portal.example.com"]);
+    let s = settings(
+        dir.path(),
+        "listen: 7835\nweb:\n  https: 443\n  http: 80\n  letsencrypt: { email: ops@example.com, profile: shortlived }\n  certificates:\n    - { hosts: [\"*.corp.example.com\"], cert: corp.pem, key: corp.key }\nservices:\n  blog: { client: home, target: 8080, web: example.com }\n  erp: { client: home, target: 8081, web: erp.corp.example.com }\n  portal:\n    client: home\n    target: 8082\n    web: { hosts: [portal.example.com], tls: { cert: portal.pem, key: portal.key } }\n  kiosk: { client: home, target: 8083, web: 203.0.113.10 }\n  intranet:\n    client: home\n    target: 8084\n    web: { hosts: [dash.lan.example.com], tls: off }\n  updates:\n    client: home\n    target: 8085\n    web: { hosts: [updates.example.com], https_redirect: false }\n  nas:\n    client: home\n    target: 443\n    web: { hosts: [nas.example.com], tls: passthrough }\n",
+    );
+    let at = |f: &str| dir.path().join(f).display().to_string();
+    assert_eq!(
+        summary(&s).unwrap().lines(),
+        [
+            "web: https [::]:443 (IPv4 and IPv6), http [::]:80 (IPv4 and IPv6)".to_string(),
+            "certificates: Let's Encrypt (production) as ops@example.com, profile shortlived"
+                .to_string(),
+            "203.0.113.10: Let's Encrypt short-lived (6 days), TLS check -> service kiosk"
+                .to_string(),
+            "dash.lan.example.com: plain HTTP on :80 only, unencrypted (tls: off) -> service intranet"
+                .to_string(),
+            format!("erp.corp.example.com: shared {} -> service erp", at("corp.pem")),
+            "example.com: Let's Encrypt, TLS check -> service blog".to_string(),
+            "nas.example.com: passthrough, the app's own certificate -> service nas".to_string(),
+            format!("portal.example.com: own file {} -> service portal", at("portal.pem")),
+            "updates.example.com: Let's Encrypt, TLS check; http:// served too (https_redirect: false) -> service updates"
+                .to_string(),
+            "http [::]:80: other HTTPS hosts redirect to https:// (308); Let's Encrypt HTTP checks answered"
+                .to_string(),
+        ]
+    );
+    let plain = summary(&s).unwrap();
+    let dash = plain
+        .hosts
+        .iter()
+        .find(|h| h.service == "intranet")
+        .unwrap();
+    assert!(dash.unencrypted());
+    assert!(
+        !plain
+            .hosts
+            .iter()
+            .find(|h| h.service == "blog")
+            .unwrap()
+            .unencrypted()
+    );
+}
+
+#[test]
+fn without_https_every_site_is_plain_and_the_tunnel_names_its_certificate() {
+    let s = settings(
+        std::path::Path::new("."),
+        "listen: 7835\nweb:\n  http: 8080\nservices:\n  wiki: { client: home, target: 3000, web: wiki.lan.example.com }\n",
+    );
+    assert_eq!(
+        summary(&s).unwrap().lines(),
+        [
+            "web: http [::]:8080 (IPv4 and IPv6)",
+            "wiki.lan.example.com: plain HTTP on :8080 only, unencrypted -> service wiki",
+        ]
+    );
+    let t = settings(
+        std::path::Path::new("."),
+        "web:\n  https: 443\n  letsencrypt: { email: ops@example.com, directory: staging }\nwebsocket:\n  listen: 443\n  host: tunnel.example.com\n",
+    );
+    assert_eq!(
+        summary(&t).unwrap().lines()[..3],
+        [
+            "web: https [::]:443 (IPv4 and IPv6; shared with the tunnel)",
+            "certificates: Let's Encrypt (staging) as ops@example.com",
+            "tunnel: wss://tunnel.example.com/burrow (Let's Encrypt, TLS check)",
+        ]
+    );
+}

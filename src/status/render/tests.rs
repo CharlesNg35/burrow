@@ -441,9 +441,10 @@ fn websites_are_listed_with_the_tunnel_first() {
         hosts: vec![HostLine {
             name: "nas.example.com".into(),
             kind: "passthrough".into(),
-            certificate: String::new(),
             service: "nas".into(),
+            ..HostLine::default()
         }],
+        ..WebSummary::default()
     });
     let text = render(&s, Paint::PLAIN, None);
     let at = text.find("WEBSITES").expect("a websites table");

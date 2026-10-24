@@ -8,8 +8,7 @@ use crate::config::settings::{
 };
 use burrow_config::{Directory, DirectoryName, ServerConfig, ServiceWeb, SiteTls, TlsMode};
 
-const LETSENCRYPT_PRODUCTION: &str = "https://acme-v02.api.letsencrypt.org/directory";
-const LETSENCRYPT_STAGING: &str = "https://acme-staging-v02.api.letsencrypt.org/directory";
+use crate::config::settings::{LETSENCRYPT_PRODUCTION, LETSENCRYPT_STAGING};
 
 pub(super) fn site(
     cfg: &ServerConfig,
