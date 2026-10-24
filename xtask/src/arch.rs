@@ -66,6 +66,7 @@ pub fn run(root: &Path) -> Result<(), String> {
     let mut problems = check_deps(root)?;
     problems.extend(crate::fields::problems(root)?);
     problems.extend(crate::layers::problems(root)?);
+    problems.extend(crate::shape::problems(root)?);
     if problems.is_empty() {
         println!("arch-check: ok");
         Ok(())

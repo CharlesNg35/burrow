@@ -5,6 +5,7 @@
 #![allow(clippy::disallowed_macros)]
 
 mod arch;
+mod shape;
 mod e2e;
 mod fields;
 mod layers;
