@@ -38,7 +38,47 @@ server: wss://tunnel.example.com/burrow   # wss:// is WebSocket over TLS (HTTPS)
 - The services you expose with `bind` are still plain TCP or UDP ports on the server. Only the connection between client and server goes over WebSocket.
 - `headers` in client.yaml or visitor.yaml adds HTTP headers to the WebSocket connection, for example an access token for a proxy.
 - A client that must go through an outgoing proxy uses `proxy: http://host:port` or `socks5://host:port`.
-- The tunnel can also share port 443 with websites that burrow passes through by name, without nginx in front: see [web.md](web.md#the-tunnel-on-the-same-port).
+- burrow can also do HTTPS for the tunnel itself, with a certificate from Let's Encrypt, and share port 443 (or 80) with websites: see [Automatic HTTPS for the tunnel](#automatic-https-for-the-tunnel).
+
+## Automatic HTTPS for the tunnel
+
+burrow can get and renew the tunnel's certificate from Let's Encrypt by itself, with no nginx or certbot. The tunnel then shares port 443 with the web proxy, which may serve no websites at all:
+
+```sh
+./burrow init server --ws --email you@example.com --server tunnel.example.com
+```
+
+```yaml
+# server.yaml
+web:
+  https: 443
+  letsencrypt:
+    email: you@example.com # writing this accepts Let's Encrypt's terms
+websocket:
+  listen: 443 # the same as web.https: shared
+  host: tunnel.example.com # gets and renews its certificate automatically
+  path: /burrow
+```
+
+Point `tunnel.example.com` at the server, open port 443, and start. Clients use `wss://tunnel.example.com/burrow`, which `burrow client-config` prints. Other names on port 443 are closed until you add websites ([web.md](web.md)).
+
+- **Your own files still work:** `websocket.tls` with `cert` and `key` takes precedence over Let's Encrypt, and a file renewed on disk is used from the next reload.
+- **Another HTTPS port:** sharing needs `websocket.listen` to equal `web.https` in port and address, like `8443` and `8443`; clients then use `wss://tunnel.example.com:8443/burrow`. Let's Encrypt only checks ports 443 and 80, so on another port add `http: 80` (with port 80 open) or use your own files; `burrow validate` says so.
+- **Behind a home router:** burrow only sees the port it listens on. If the router forwards the internet's 443 to burrow's 8443, Let's Encrypt's check would reach burrow, but burrow cannot know that, so validate still asks for port 80 or files. Forward port 80 to `web.http: 80` as well.
+- **Port 80 instead:** `websocket.listen` may equal `web.http`, like `80`. Clients then use `ws://tunnel.example.com/burrow`. No certificate is needed: burrow's own encryption still protects the tunnel's data, and only the host, path, sizes and timing are visible on the network.
+
+  ```yaml
+  # server.yaml
+  web:
+    http: 80
+  websocket:
+    listen: 80 # the same as web.http: shared over plain ws://
+    host: tunnel.example.com
+    path: /burrow
+  ```
+
+- **A website's name:** `websocket.host` may also be the name of a website burrow serves over HTTPS; the tunnel then takes only `path` (and below) on that name and uses the website's certificate.
+- **Its own port:** without `host`, `websocket.listen` is a port of its own, as in the setup above. Plain `ws://` on port 443 works but gets a note from validate: networks that expect TLS there may block it.
 
 ## Examples
 
