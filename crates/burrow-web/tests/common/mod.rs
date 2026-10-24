@@ -396,3 +396,66 @@ pub async fn over_plain(addr: SocketAddr, req: &str) -> String {
     let mut t = TcpStream::connect(addr).await.unwrap();
     exchange(&mut t, req.as_bytes()).await
 }
+
+#[derive(Debug)]
+pub struct Scripted {
+    pub fixed: Arc<burrow_web::tls::Fixed>,
+    pub state: Mutex<HashMap<String, burrow_web::tls::CertState>>,
+    pub tokens: Mutex<HashMap<String, String>>,
+    pub alpn: Mutex<HashMap<String, Arc<rustls::sign::CertifiedKey>>>,
+}
+
+impl Scripted {
+    pub fn new() -> Arc<Scripted> {
+        Arc::new(Scripted {
+            fixed: fixed(&["site.example.com"]),
+            state: Mutex::default(),
+            tokens: Mutex::default(),
+            alpn: Mutex::default(),
+        })
+    }
+}
+
+impl rustls::server::ResolvesServerCert for Scripted {
+    fn resolve(
+        &self,
+        hello: rustls::server::ClientHello<'_>,
+    ) -> Option<Arc<rustls::sign::CertifiedKey>> {
+        self.fixed.resolve(hello)
+    }
+}
+
+impl burrow_web::tls::Certificates for Scripted {
+    fn state(&self, name: &str) -> burrow_web::tls::CertState {
+        self.state
+            .lock()
+            .unwrap()
+            .get(name)
+            .copied()
+            .unwrap_or(burrow_web::tls::CertState::Ready)
+    }
+
+    fn certificate(&self, name: &str) -> Option<Arc<rustls::sign::CertifiedKey>> {
+        burrow_web::tls::Certificates::certificate(self.fixed.as_ref(), name)
+    }
+
+    fn alpn_challenge(&self, name: &str) -> Option<Arc<rustls::sign::CertifiedKey>> {
+        self.alpn.lock().unwrap().get(name).cloned()
+    }
+
+    fn http_challenge(&self, token: &str) -> Option<String> {
+        self.tokens.lock().unwrap().get(token).cloned()
+    }
+
+    fn apply<'a>(
+        &'a self,
+        _: &'a burrow_web::CertSettings,
+        _: &'a [burrow_web::tls::CertName],
+    ) -> burrow_web::tls::Applying<'a> {
+        Box::pin(async {})
+    }
+
+    fn status(&self) -> Vec<burrow_web::tls::CertStatus> {
+        Vec::new()
+    }
+}
