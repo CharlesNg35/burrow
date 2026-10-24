@@ -75,3 +75,59 @@ fn a_plain_site_needs_the_http_port() {
     assert!(found(&site("https: 443, http: 80"), "plain-needs-http").is_empty());
     assert!(found(&site("http: 80"), "plain-needs-http").is_empty());
 }
+
+fn site_with(ports: &str, web: &str) -> String {
+    format!(
+        "web: {{ {ports} }}\nservices:\n  nas:\n    client: home\n    target: 443\n    web: {web}\n"
+    )
+}
+
+#[test]
+fn a_redirect_choice_that_cannot_work_is_refused() {
+    let pass = site_with(
+        "https: 443, http: 80",
+        "{hosts: [nas.example.com], tls: passthrough, https_redirect: false}",
+    );
+    assert_eq!(
+        found(&pass, "redirect-passthrough"),
+        [
+            "services.nas.web.https_redirect: false: burrow cannot serve plain HTTP for a passthrough service (the app keeps its own TLS); only the redirect is possible"
+        ]
+    );
+    let plain = site_with(
+        "https: 443, http: 80",
+        "{hosts: [nas.example.com], tls: off, https_redirect: true}",
+    );
+    assert_eq!(found(&plain, "redirect-plain").len(), 1);
+    let plain_by_ports = site_with(
+        "http: 80",
+        "{hosts: [nas.example.com], https_redirect: true}",
+    );
+    assert_eq!(found(&plain_by_ports, "redirect-plain").len(), 1);
+    let fine = site_with(
+        "https: 443, http: 80",
+        "{hosts: [nas.example.com], tls: off, https_redirect: false}",
+    );
+    assert!(found(&fine, "redirect-plain").is_empty());
+}
+
+#[test]
+fn an_https_site_that_also_answers_plain_http_needs_the_http_port() {
+    let own = site_with(
+        "https: 443",
+        "{hosts: [nas.example.com], tls: auto, https_redirect: false}",
+    );
+    assert_eq!(
+        found(&own, "redirect-needs-http"),
+        [
+            "services.nas.web.https_redirect: false serves plain HTTP too, but web.http is not set; add http: 80"
+        ]
+    );
+    let top = site_with("https: 443, https_redirect: false", "nas.example.com");
+    assert_eq!(found(&top, "redirect-needs-http").len(), 1);
+    let ok = site_with(
+        "https: 443, http: 80, https_redirect: false",
+        "nas.example.com",
+    );
+    assert!(found(&ok, "redirect-needs-http").is_empty());
+}

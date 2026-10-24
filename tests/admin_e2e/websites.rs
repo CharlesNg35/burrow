@@ -69,6 +69,22 @@ async fn read_only_pages(c: &mut Ctx) {
     both_widths(c, "service-nas-settings").await;
 }
 
+async fn toast_clear_of_the_bar(c: &mut Ctx) {
+    for (w, h) in [(1440, 900), (420, 900)] {
+        c.ui.viewport(w, h).await;
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        let gap: f64 = c
+            .ui
+            .eval("(() => { const t = document.querySelector('[data-testid=toast]'); const b = document.querySelector('[data-sticky-bar]'); if (!t || !b) return -9999; return b.getBoundingClientRect().top - t.getBoundingClientRect().bottom; })()")
+            .await;
+        assert!(
+            gap >= 0.0,
+            "a toast covers the save bar at {w}px by {gap}px"
+        );
+    }
+    c.ui.viewport(1440, 900).await;
+}
+
 async fn plain_with_the_http_port(c: &mut Ctx) {
     let port = c.world.ports["http"];
     c.world
@@ -111,8 +127,11 @@ fn websites(c: &mut Ctx) -> Flow<'_> {
         click_js(c, "[data-schema='services/*/web/tls'] input[value=auto]").await;
         wait_checked(c).await;
         let err = row_error(c, SITE).await;
-        assert!(err.contains("choose The app does its own HTTPS"), "{err}");
-        assert!(!err.contains("services.nas.web"), "{err}");
+        assert!(
+            err.contains("has no certificate: turn on Let's Encrypt"),
+            "{err}"
+        );
+        assert!(!err.contains("web.letsencrypt"), "{err}");
         let blocked: bool = c
             .ui
             .eval("(() => { const b = document.querySelector('[data-testid=save]'); return !!b && (b.disabled || b.getAttribute('aria-disabled') === 'true'); })()")
@@ -121,7 +140,7 @@ fn websites(c: &mut Ctx) -> Flow<'_> {
             blocked,
             "a problem found by the server blocks the save like a local one"
         );
-        both_widths(c, "nas-https-not-yet").await;
+        both_widths(c, "nas-https-needs-a-certificate").await;
         click_js(c, "[data-schema='services/*/web/tls'] input[value=off]").await;
         wait_checked(c).await;
         let err = row_error(c, SITE_TLS).await;
@@ -151,6 +170,7 @@ fn websites(c: &mut Ctx) -> Flow<'_> {
         c.ui.wait_for("[role=tablist]", SECS).await;
         c.ui.click("[role=tablist] [data-tab=settings]").await;
         edit_mode(c).await;
+        toast_clear_of_the_bar(c).await;
         c.ui.wait_for("[data-testid=website-editor]", SECS).await;
         both_widths(c, "web-not-a-website").await;
         add_name(c, "f-services-web-web-hosts", "app.example.com").await;

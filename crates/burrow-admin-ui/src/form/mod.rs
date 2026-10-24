@@ -181,7 +181,7 @@ impl Section<'_> {
             }
             let (fp, fs) = (under(path, &f.key), under(spath, &f.key));
             if f.key.contains('/') {
-                rows.push(site_row((*f).clone(), fp, fs, entity.clone()));
+                rows.push(site_row((*f).clone(), fp, fs));
                 continue;
             }
             match (f.key.as_str(), self.public) {
@@ -237,9 +237,10 @@ fn site_fields(node: &Node, skip: &[&str]) -> Vec<Field> {
         .collect()
 }
 
-fn site_row(f: Field, path: Path, spath: Path, entity: Path) -> AnyView {
+fn site_row(f: Field, path: Path, spath: Path) -> AnyView {
     let e = store().edit;
     let site = path[..path.len() - 1].to_vec();
+    let entity = site.clone();
     let named = Memo::new(move |_| {
         e.value(&site)
             .is_some_and(|v| !burrow_admin_logic::web::names(&v).is_empty())

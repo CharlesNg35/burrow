@@ -66,7 +66,14 @@ fn visible_fields(m: &More) -> Memo<Vec<(Node, Path)>> {
         e.draft.with(|d| {
             fields
                 .iter()
-                .filter(|(f, _)| field_state(&f.node, &schema.root, d.draft(), &entity).visible)
+                .filter(|(f, p)| {
+                    let base = if f.key.contains('/') {
+                        &p[..p.len() - 1]
+                    } else {
+                        entity.as_slice()
+                    };
+                    field_state(&f.node, &schema.root, d.draft(), base).visible
+                })
                 .map(|(f, p)| (f.node.clone(), p.clone()))
                 .collect()
         })

@@ -1,4 +1,13 @@
 pub const PLAIN_NEEDS_HTTP: &str = "plain-needs-http";
+pub const REDIRECT_PASSTHROUGH: &str = "redirect-passthrough";
+pub const REDIRECT_PLAIN: &str = "redirect-plain";
+pub const REDIRECT_NEEDS_HTTP: &str = "redirect-needs-http";
+pub const NO_CERTIFICATE: &str = "no-certificate";
+pub const WILDCARD_NEEDS_DNS: &str = "wildcard-needs-dns";
+
+fn quoted(message: &str) -> &str {
+    message.split('"').nth(1).unwrap_or_default()
+}
 pub const WEB_TCP_ONLY: &str = "web-tcp-only";
 pub const PROXY_PROTOCOL_TCP_ONLY: &str = "proxy-protocol-tcp-only";
 pub const MAX_CONNECTIONS_TCP_ONLY: &str = "max-connections-tcp-only";
@@ -36,8 +45,29 @@ fn key_path(head: &str) -> bool {
 }
 
 pub fn shown(code: &str, message: &str) -> String {
+    if code == REDIRECT_NEEDS_HTTP {
+        return "answering plain HTTP too needs the web proxy's HTTP port, which is not set; add http: 80 under web in server.yaml (burrow edit), or send http:// to https://".into();
+    }
     if code == PLAIN_NEEDS_HTTP {
         return "plain HTTP needs the web proxy's HTTP port, which is not set; add http: 80 under web in server.yaml (burrow edit), or choose another HTTPS option".into();
+    }
+    if code == NO_CERTIFICATE {
+        return format!(
+            "{} has no certificate: turn on Let's Encrypt under Settings, Web proxy, choose My own certificate file under HTTPS, or list the name in the web proxy's Certificate files",
+            quoted(message)
+        );
+    }
+    if code == WILDCARD_NEEDS_DNS {
+        return format!(
+            "Let's Encrypt gives {} only through a DNS check, which this build does not have yet; use your own certificate file for it",
+            quoted(message)
+        );
+    }
+    if code == REDIRECT_PASSTHROUGH {
+        return "the app does its own HTTPS, so burrow cannot also answer plain HTTP for it; remove this choice in server.yaml (burrow edit)".into();
+    }
+    if code == REDIRECT_PLAIN {
+        return "a plain HTTP website cannot send visitors to https:// in this build; remove this choice in server.yaml (burrow edit)".into();
     }
     if let Some((_, text)) = TCP_ONLY.iter().find(|(c, _)| *c == code) {
         return (*text).into();
@@ -51,6 +81,43 @@ pub fn shown(code: &str, message: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_name_without_a_certificate_says_how_to_get_one_in_the_ui() {
+        let m = shown(
+            NO_CERTIFICATE,
+            "host \"nas.example.com\" (service \"nas\") has no certificate; add web.letsencrypt for automatic certificates, tls: {cert, key} on service \"nas\", or an entry in web.certificates whose hosts lists it",
+        );
+        assert!(
+            m.starts_with("nas.example.com has no certificate: turn on Let's Encrypt"),
+            "{m}"
+        );
+        assert!(!m.contains("web.") && !m.contains("tls:"), "{m}");
+        let w = shown(
+            WILDCARD_NEEDS_DNS,
+            "services.apps.web.hosts: \"*.apps.example.com\" needs DNS-01 (...)",
+        );
+        assert!(
+            w.contains("*.apps.example.com only through a DNS check"),
+            "{w}"
+        );
+    }
+
+    #[test]
+    fn the_redirect_choices_say_what_to_do_in_plain_words() {
+        let too = shown(
+            REDIRECT_NEEDS_HTTP,
+            "services.nas.web.https_redirect: false serves plain HTTP too, but web.http is not set; add http: 80",
+        );
+        assert!(too.starts_with("answering plain HTTP too"), "{too}");
+        for code in [REDIRECT_PASSTHROUGH, REDIRECT_PLAIN] {
+            let m = shown(code, "services.nas.web.https_redirect: ...");
+            assert!(
+                !m.contains("https_redirect") && !m.contains("services."),
+                "{m}"
+            );
+        }
+    }
 
     #[test]
     fn a_tcp_only_field_on_a_udp_service_says_its_label_and_the_fix() {

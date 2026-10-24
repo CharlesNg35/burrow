@@ -160,7 +160,8 @@ pub struct WebSite {
     #[admin(
         label = "Send http:// to https://",
         help = "Send a visitor who types http://nas.example.com to https://nas.example.com, or answer plain HTTP too",
-        none_label = "As the web proxy says"
+        none_label = "As the web proxy says",
+        visible_if(all(ne(tls, "passthrough"), ne(tls, "off")))
     )]
     pub https_redirect: Option<bool>,
 }

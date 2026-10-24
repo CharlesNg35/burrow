@@ -184,6 +184,40 @@ mod tests {
     }
 
     #[test]
+    fn the_redirect_choice_shows_only_where_burrow_does_https() {
+        use crate::relations::field_state;
+        use crate::tree::{fields, inner};
+        use burrow_admin_proto::schema::SemType;
+        let schema = crate::testing::schema();
+        let service = schema.root.at(&["services".into(), "x".into()]).unwrap();
+        let web = fields(service).iter().find(|f| f.key == "web").unwrap();
+        let SemType::Union(u) = &inner(&web.node).sem else {
+            panic!("web is a union")
+        };
+        let redirect = u
+            .branches
+            .iter()
+            .flat_map(|b| fields(b).iter())
+            .find(|f| f.key == WebSite::HTTPS_REDIRECT.key())
+            .unwrap();
+        let base: Vec<String> = ["services", "nas", "web"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        let shown = |site: Value| {
+            let doc = json!({"services": {"nas": {"web": site}}});
+            field_state(&redirect.node, &schema.root, &doc, &base).visible
+        };
+        assert!(shown(json!({"hosts": ["a.example.com"]})));
+        assert!(shown(json!({"hosts": ["a.example.com"], "tls": "auto"})));
+        assert!(shown(json!("a.example.com")));
+        assert!(!shown(
+            json!({"hosts": ["a.example.com"], "tls": "passthrough"})
+        ));
+        assert!(!shown(json!({"hosts": ["a.example.com"], "tls": "off"})));
+    }
+
+    #[test]
     fn a_bind_comes_first_and_nothing_means_private() {
         let both = json!({"bind": 7840, "web": "a.example.com"});
         assert_eq!(exposure(&both).as_deref(), Some("7840"));
