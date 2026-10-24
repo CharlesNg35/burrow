@@ -32,7 +32,11 @@ pub fn summary(s: &ServerSettings) -> Option<WebSummary> {
             })
         })
         .collect();
-    hosts.sort_by(|a, b| a.name.cmp(&b.name));
+    hosts.sort_unstable_by(|a, b| a.name.cmp(&b.name));
+    debug_assert!(
+        hosts.windows(2).all(|w| w[0].name != w[1].name),
+        "validate lets each host name lead to one service"
+    );
     Some(WebSummary {
         https: web.https.to_string(),
         addresses: addresses(web.https).into(),
