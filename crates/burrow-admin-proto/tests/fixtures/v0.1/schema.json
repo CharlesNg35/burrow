@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:28ad2c70323555f2",
+  "hash": "b2s:f15a4413ed208e92",
   "root": {
     "label": "Server",
     "sem": {
@@ -201,6 +201,240 @@
                         },
                         "locked": true,
                         "none_label": "No HTTPS port"
+                      }
+                    },
+                    {
+                      "key": "http",
+                      "node": {
+                        "label": "HTTP port",
+                        "help": "The port for plain HTTP, for example 80: sites with HTTPS off, the step from http:// to https:// and Let's Encrypt's check; a port alone listens on IPv4 and IPv6",
+                        "sem": {
+                          "t": "optional",
+                          "inner": {
+                            "sem": {
+                              "t": "ip_port",
+                              "ranges": false,
+                              "default_ip": "::"
+                            }
+                          }
+                        },
+                        "locked": true,
+                        "none_label": "No HTTP port"
+                      }
+                    },
+                    {
+                      "key": "https_redirect",
+                      "node": {
+                        "label": "Send http:// to https://",
+                        "help": "For every HTTPS website: send a visitor who types http://example.com to https://example.com, or answer plain HTTP too; a website can change it",
+                        "sem": {
+                          "t": "optional",
+                          "inner": {
+                            "sem": {
+                              "t": "bool"
+                            }
+                          }
+                        },
+                        "advanced": true,
+                        "none_label": "Yes"
+                      }
+                    },
+                    {
+                      "key": "letsencrypt",
+                      "node": {
+                        "label": "Let's Encrypt",
+                        "help": "Automatic certificates for every website name no file covers; turning it on accepts Let's Encrypt's terms, for example with the email ops@example.com",
+                        "sem": {
+                          "t": "optional",
+                          "inner": {
+                            "label": "Let's Encrypt settings",
+                            "sem": {
+                              "t": "object",
+                              "fields": [
+                                {
+                                  "key": "email",
+                                  "node": {
+                                    "label": "Email",
+                                    "help": "Let's Encrypt's contact for this server, for example ops@example.com; giving it accepts Let's Encrypt's terms",
+                                    "sem": {
+                                      "t": "text"
+                                    },
+                                    "required": true
+                                  }
+                                },
+                                {
+                                  "key": "directory",
+                                  "node": {
+                                    "label": "Certificate service",
+                                    "help": "Where certificates come from: Let's Encrypt, its test service for trying things out, or another ACME server by its directory URL, for example https://ca.internal/acme/directory",
+                                    "sem": {
+                                      "t": "optional",
+                                      "inner": {
+                                        "sem": {
+                                          "t": "union",
+                                          "branches": [
+                                            {
+                                              "sem": {
+                                                "t": "enum",
+                                                "options": [
+                                                  {
+                                                    "value": "production",
+                                                    "label": "Production",
+                                                    "help": "Real certificates that browsers trust"
+                                                  },
+                                                  {
+                                                    "value": "staging",
+                                                    "label": "Staging",
+                                                    "help": "Let's Encrypt's test service: higher limits, certificates browsers do not trust"
+                                                  }
+                                                ]
+                                              }
+                                            },
+                                            {
+                                              "sem": {
+                                                "t": "text"
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      }
+                                    },
+                                    "advanced": true,
+                                    "none_label": "Let's Encrypt"
+                                  }
+                                },
+                                {
+                                  "key": "ca",
+                                  "node": {
+                                    "label": "Trusted CA file",
+                                    "help": "The CA certificate to trust for another ACME server, for example certs/internal-ca.pem",
+                                    "sem": {
+                                      "t": "optional",
+                                      "inner": {
+                                        "sem": {
+                                          "t": "path",
+                                          "must_exist": true,
+                                          "relative_to": "config"
+                                        }
+                                      }
+                                    },
+                                    "advanced": true,
+                                    "locked": true,
+                                    "none_label": "The public CAs"
+                                  }
+                                }
+                              ]
+                            }
+                          }
+                        },
+                        "none_label": "Off"
+                      }
+                    },
+                    {
+                      "key": "certificates",
+                      "node": {
+                        "label": "Certificate files",
+                        "help": "Your own certificate files, each used for exactly the names it lists, for example *.example.com with certs/wild.pem and certs/wild.key",
+                        "sem": {
+                          "t": "list",
+                          "item": {
+                            "label": "Certificate file",
+                            "sem": {
+                              "t": "object",
+                              "fields": [
+                                {
+                                  "key": "hosts",
+                                  "node": {
+                                    "label": "Host names",
+                                    "help": "The names this file is used for, for example *.example.com and example.com; the certificate must cover each",
+                                    "sem": {
+                                      "t": "list",
+                                      "item": {
+                                        "sem": {
+                                          "t": "host_name",
+                                          "fallback": [
+                                            {
+                                              "t": "text"
+                                            }
+                                          ]
+                                        }
+                                      }
+                                    },
+                                    "required": true
+                                  }
+                                },
+                                {
+                                  "key": "cert",
+                                  "node": {
+                                    "label": "Certificate file",
+                                    "help": "Certificate chain PEM file, relative to the config file, for example certs/fullchain.pem",
+                                    "sem": {
+                                      "t": "path",
+                                      "must_exist": true,
+                                      "relative_to": "config"
+                                    },
+                                    "required": true,
+                                    "locked": true
+                                  }
+                                },
+                                {
+                                  "key": "key",
+                                  "node": {
+                                    "label": "Private key file",
+                                    "help": "Private key PEM file, relative to the config file, for example certs/privkey.pem",
+                                    "sem": {
+                                      "t": "path",
+                                      "must_exist": true,
+                                      "relative_to": "config"
+                                    },
+                                    "required": true,
+                                    "locked": true
+                                  }
+                                }
+                              ]
+                            }
+                          }
+                        },
+                        "advanced": true,
+                        "empty_label": "None"
+                      }
+                    },
+                    {
+                      "key": "request_header_timeout_secs",
+                      "node": {
+                        "label": "Request header timeout",
+                        "help": "How long a visitor may take to send a request's headers, and how long an idle kept-alive connection stays open, for example 10 seconds",
+                        "sem": {
+                          "t": "optional",
+                          "inner": {
+                            "sem": {
+                              "t": "duration",
+                              "unit": "secs",
+                              "min": 1
+                            }
+                          }
+                        },
+                        "advanced": true,
+                        "none_label": "10 seconds"
+                      }
+                    },
+                    {
+                      "key": "idle_timeout_secs",
+                      "node": {
+                        "label": "Idle timeout",
+                        "help": "A connection that moves no data for this long is closed, for example 60 seconds; WebSockets stay open",
+                        "sem": {
+                          "t": "optional",
+                          "inner": {
+                            "sem": {
+                              "t": "duration",
+                              "unit": "secs",
+                              "min": 1
+                            }
+                          }
+                        },
+                        "advanced": true,
+                        "none_label": "60 seconds"
                       }
                     }
                   ]
@@ -1066,6 +1300,22 @@
                                             }
                                           },
                                           "none_label": "Automatic"
+                                        }
+                                      },
+                                      {
+                                        "key": "https_redirect",
+                                        "node": {
+                                          "label": "Send http:// to https://",
+                                          "help": "Send a visitor who types http://nas.example.com to https://nas.example.com, or answer plain HTTP too",
+                                          "sem": {
+                                            "t": "optional",
+                                            "inner": {
+                                              "sem": {
+                                                "t": "bool"
+                                              }
+                                            }
+                                          },
+                                          "none_label": "As the web proxy says"
                                         }
                                       }
                                     ]

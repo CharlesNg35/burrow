@@ -3,7 +3,13 @@ use std::net::IpAddr;
 pub const MAX_HOST_LEN: usize = 253;
 const MAX_LABEL_LEN: usize = 63;
 
-pub fn host_name(text: &str) -> Result<String, String> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SingleLabel {
+    Allowed,
+    Refused,
+}
+
+pub fn host_name(text: &str, single: SingleLabel) -> Result<String, String> {
     let t = text.trim();
     let bare = t
         .strip_prefix('[')
@@ -33,7 +39,7 @@ pub fn host_name(text: &str) -> Result<String, String> {
             "\"{text}\" is too wide; a wildcard needs a parent name, like *.example.com"
         ));
     }
-    if labels.len() < 2 {
+    if labels.len() < 2 && single == SingleLabel::Refused {
         return Err(format!(
             "\"{text}\" is not a host name; write a full name, like blog.example.com"
         ));
@@ -94,66 +100,90 @@ pub fn sni_name(raw: &str) -> String {
 mod tests {
     use super::*;
 
+    const R: SingleLabel = SingleLabel::Refused;
+
     #[test]
     fn host_names_are_kept_lower_case_without_the_final_dot() {
-        assert_eq!(host_name("Blog.Example.COM.").unwrap(), "blog.example.com");
-        assert_eq!(host_name(" nas.home.arpa ").unwrap(), "nas.home.arpa");
         assert_eq!(
-            host_name("*.Apps.example.com").unwrap(),
+            host_name("Blog.Example.COM.", R).unwrap(),
+            "blog.example.com"
+        );
+        assert_eq!(host_name(" nas.home.arpa ", R).unwrap(), "nas.home.arpa");
+        assert_eq!(
+            host_name("*.Apps.example.com", R).unwrap(),
             "*.apps.example.com"
         );
         assert_eq!(
-            host_name("xn--bcher-kva.example").unwrap(),
+            host_name("xn--bcher-kva.example", R).unwrap(),
             "xn--bcher-kva.example"
         );
     }
 
     #[test]
     fn ip_addresses_are_sites_too() {
-        assert_eq!(host_name("203.0.113.10").unwrap(), "203.0.113.10");
-        assert_eq!(host_name("2001:DB8::1").unwrap(), "2001:db8::1");
-        assert_eq!(host_name("[2001:db8::1]").unwrap(), "2001:db8::1");
-        assert_eq!(host_name("::ffff:192.0.2.1").unwrap(), "192.0.2.1");
+        assert_eq!(host_name("203.0.113.10", R).unwrap(), "203.0.113.10");
+        assert_eq!(host_name("2001:DB8::1", R).unwrap(), "2001:db8::1");
+        assert_eq!(host_name("[2001:db8::1]", R).unwrap(), "2001:db8::1");
+        assert_eq!(host_name("::ffff:192.0.2.1", R).unwrap(), "192.0.2.1");
         assert!(is_ip("192.0.2.1") && !is_ip("example.com"));
     }
 
     #[test]
     fn the_messages_say_how_to_write_a_name() {
-        let e = host_name("https://blog.example.com").unwrap_err();
+        let e = host_name("https://blog.example.com", R).unwrap_err();
         assert_eq!(
             e,
             "\"https://blog.example.com\" is not a host name; write the name alone, like blog.example.com"
         );
         assert!(
-            host_name("blog.example.com:443")
+            host_name("blog.example.com:443", R)
                 .unwrap_err()
                 .contains("the name alone")
         );
         assert_eq!(
-            host_name("*.example.*").unwrap_err(),
+            host_name("*.example.*", R).unwrap_err(),
             "\"*.example.*\" is not a valid wildcard; a wildcard is \"*.\" followed by a name, like *.example.com"
         );
         assert!(
-            host_name("a*.example.com")
+            host_name("a*.example.com", R)
                 .unwrap_err()
                 .contains("not a valid wildcard")
         );
         assert_eq!(
-            host_name("*.com").unwrap_err(),
+            host_name("*.com", R).unwrap_err(),
             "\"*.com\" is too wide; a wildcard needs a parent name, like *.example.com"
         );
-        assert!(host_name("nas").unwrap_err().contains("a full name"));
-        assert!(host_name("").unwrap_err().contains("required"));
+        assert!(host_name("nas", R).unwrap_err().contains("a full name"));
+        assert!(host_name("", R).unwrap_err().contains("required"));
         assert!(
-            host_name("bad_name.example.com")
+            host_name("bad_name.example.com", R)
                 .unwrap_err()
                 .contains("letters, digits")
         );
-        assert!(host_name("-a.example.com").is_err());
-        assert!(host_name("a..example.com").is_err());
-        assert!(host_name(&format!("{}.com", "a".repeat(64))).is_err());
-        assert!(host_name(&format!("{}.com", "a".repeat(63))).is_ok());
-        assert!(host_name("203.0.113").unwrap_err().contains("IP address"));
+        assert!(host_name("-a.example.com", R).is_err());
+        assert!(host_name("a..example.com", R).is_err());
+        assert!(host_name(&format!("{}.com", "a".repeat(64)), R).is_err());
+        assert!(host_name(&format!("{}.com", "a".repeat(63)), R).is_ok());
+        assert!(
+            host_name("203.0.113", R)
+                .unwrap_err()
+                .contains("IP address")
+        );
+    }
+
+    #[test]
+    fn a_single_label_name_is_a_host_name_only_when_the_caller_allows_it() {
+        let a = SingleLabel::Allowed;
+        assert_eq!(host_name("NAS", a).unwrap(), "nas");
+        assert_eq!(host_name("localhost.", a).unwrap(), "localhost");
+        assert!(host_name("nas", R).unwrap_err().contains("a full name"));
+        assert!(host_name("*.nas", a).unwrap_err().contains("too wide"));
+        assert!(host_name("123", a).unwrap_err().contains("IP address"));
+        assert!(
+            host_name("-nas", a)
+                .unwrap_err()
+                .contains("letters, digits")
+        );
     }
 
     #[test]

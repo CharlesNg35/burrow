@@ -28,6 +28,7 @@ pub fn check_server(
 
     let listen = check_listen(cfg, spans, out);
     let https = super::web::check_https(cfg, listen, spans, out);
+    let http = super::web::check_http(cfg, listen, spans, out);
     let mut websocket = cfg
         .websocket
         .as_ref()
@@ -46,7 +47,7 @@ pub fn check_server(
 
     let (services, taken) = check_all_services(cfg, listen, websocket.as_ref(), https, spans, out);
     let tunnel = websocket.as_ref().and_then(|w| w.host.as_deref());
-    let sites = super::web::check_sites(cfg, https, tunnel, spans, out);
+    let sites = super::web::check_sites(cfg, https, tunnel, spans, base_dir, out);
 
     warn_proxied_sources(websocket.as_ref(), &services, spans, out);
 
@@ -112,7 +113,7 @@ pub fn check_server(
         udp_max_peers: cfg.udp.max_peers as usize,
         metrics,
         self_allow,
-        web: super::web::settings(https, sites, websocket.as_ref()),
+        web: super::web::settings(cfg, (https, http), sites, websocket.as_ref(), base_dir),
         websocket,
     })
 }

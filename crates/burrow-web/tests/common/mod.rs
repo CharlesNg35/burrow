@@ -219,10 +219,7 @@ impl Upstream for Fake {
 }
 
 pub fn site(service: &str, hosts: &[&str]) -> Site {
-    Site {
-        service: service.into(),
-        hosts: hosts.iter().map(|h| h.to_string()).collect(),
-    }
+    Site::passthrough(service, hosts.iter().map(|h| h.to_string()).collect())
 }
 
 pub async fn start(

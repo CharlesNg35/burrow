@@ -10,10 +10,12 @@ pub mod peek;
 mod permit;
 pub mod proxy_header;
 pub mod route;
+pub mod tls;
 pub mod tunnel;
 
 use std::future::Future;
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::time::Duration;
 
 use tokio::net::TcpStream;
@@ -26,23 +28,53 @@ pub const HELLO_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Clone)]
 pub struct ProxySettings {
-    pub https: SocketAddr,
+    pub https: Option<SocketAddr>,
+    pub http: Option<SocketAddr>,
     pub sites: Vec<Site>,
     pub tunnel: Option<TunnelSettings>,
+    pub timeouts: Timeouts,
     pub max_pending: usize,
-    pub hello_timeout: Duration,
-    pub handshake_timeout: Duration,
+    pub certs: CertSettings,
+}
+
+impl Default for ProxySettings {
+    fn default() -> ProxySettings {
+        ProxySettings {
+            https: None,
+            http: None,
+            sites: Vec::new(),
+            tunnel: None,
+            timeouts: Timeouts::default(),
+            max_pending: 256,
+            certs: CertSettings::default(),
+        }
+    }
 }
 
 impl ProxySettings {
     pub fn new(https: SocketAddr) -> ProxySettings {
         ProxySettings {
-            https,
-            sites: Vec::new(),
-            tunnel: None,
-            max_pending: 256,
-            hello_timeout: HELLO_TIMEOUT,
-            handshake_timeout: Duration::from_secs(10),
+            https: Some(https),
+            ..ProxySettings::default()
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Timeouts {
+    pub hello: Duration,
+    pub handshake: Duration,
+    pub request_header: Duration,
+    pub idle: Duration,
+}
+
+impl Default for Timeouts {
+    fn default() -> Timeouts {
+        Timeouts {
+            hello: HELLO_TIMEOUT,
+            handshake: Duration::from_secs(10),
+            request_header: Duration::from_secs(10),
+            idle: Duration::from_secs(60),
         }
     }
 }
@@ -51,6 +83,55 @@ impl ProxySettings {
 pub struct Site {
     pub service: String,
     pub hosts: Vec<String>,
+    pub tls: SiteTls,
+    pub https_redirect: bool,
+}
+
+impl Site {
+    pub fn passthrough(service: &str, hosts: Vec<String>) -> Site {
+        Site {
+            service: service.to_string(),
+            hosts,
+            tls: SiteTls::Passthrough,
+            https_redirect: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SiteTls {
+    Passthrough,
+    Https(CertSource),
+    Plain,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CertSource {
+    OwnFile { cert: PathBuf, key: PathBuf },
+    Auto,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CertSettings {
+    pub shared: Vec<SharedFile>,
+    pub tunnel_file: Option<(PathBuf, PathBuf)>,
+    pub acme: Option<AcmeSettings>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SharedFile {
+    pub hosts: Vec<String>,
+    pub cert: PathBuf,
+    pub key: PathBuf,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AcmeSettings {
+    pub directory_url: String,
+    pub ca: Option<PathBuf>,
+    pub email: String,
+    pub profile: Option<String>,
+    pub state_dir: Option<PathBuf>,
 }
 
 #[derive(Clone)]

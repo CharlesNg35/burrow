@@ -26,9 +26,7 @@ async fn hosts_added_and_removed_on_save_take_effect_and_close_what_they_removed
     next.services.insert("git".into(), site(&["home"], git));
     next.web.as_mut().unwrap().sites.insert(
         "git".into(),
-        WebSite {
-            hosts: vec!["git.example.com".into()],
-        },
+        WebSite::passthrough(vec!["git.example.com".into()]),
     );
     t.server.reload(next.clone()).await;
     let shared = t.server.shared.clone();

@@ -161,6 +161,7 @@ impl Shared {
             services,
             visitors,
             web: crate::config::web_summary::summary(&settings),
+            certificates: Vec::new(),
         }
     }
 }

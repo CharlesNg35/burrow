@@ -3,8 +3,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use burrow_web::{
-    BoxIo, Proxy, ProxySettings, Refused, Site, TunnelConn, TunnelMode, TunnelSettings, Upstream,
-    Visitor,
+    AcmeSettings, BoxIo, CertSettings, CertSource, Proxy, ProxySettings, Refused, SharedFile, Site,
+    SiteTls, TunnelConn, TunnelMode, TunnelSettings, Upstream, Visitor,
 };
 use tokio::net::{TcpListener, TcpStream};
 use tracing::{debug, error, info};
@@ -13,7 +13,7 @@ use super::listen::Permit;
 use super::tcp::{Door, Entry, Refusal, admit, visit};
 use super::{FREED_TRIES, Server, Shared, bind_error};
 use crate::base::failure::Failure;
-use crate::config::settings::ServerSettings;
+use crate::config::settings::{ServerSettings, WebSettings, WebTls};
 use burrow_config::Protocol;
 
 pub(super) struct WebTask {
@@ -93,16 +93,22 @@ pub(super) fn proxy_settings(s: &ServerSettings) -> Result<Option<ProxySettings>
         return Ok(None);
     };
     let mut p = ProxySettings::new(web.https);
+    p.http = web.http;
     p.sites = web
         .sites
         .iter()
         .map(|(service, site)| Site {
             service: service.clone(),
             hosts: site.hosts.clone(),
+            tls: site_tls(&site.tls),
+            https_redirect: site.https_redirect,
         })
         .collect();
     p.max_pending = s.max_handshakes;
-    p.handshake_timeout = s.handshake_timeout;
+    p.timeouts.handshake = s.handshake_timeout;
+    p.timeouts.request_header = web.request_header_timeout;
+    p.timeouts.idle = web.idle_timeout;
+    p.certs = cert_settings(s, web);
     if let Some(ws) = s.websocket.as_ref()
         && let Some(host) = &ws.host
     {
@@ -117,6 +123,46 @@ pub(super) fn proxy_settings(s: &ServerSettings) -> Result<Option<ProxySettings>
     Ok(Some(p))
 }
 
+fn site_tls(tls: &WebTls) -> SiteTls {
+    match tls {
+        WebTls::Passthrough => SiteTls::Passthrough,
+        WebTls::Auto => SiteTls::Https(CertSource::Auto),
+        WebTls::Files { cert, key } => SiteTls::Https(CertSource::OwnFile {
+            cert: cert.clone(),
+            key: key.clone(),
+        }),
+        WebTls::Off => SiteTls::Plain,
+    }
+}
+
+fn cert_settings(s: &ServerSettings, web: &WebSettings) -> CertSettings {
+    let tunnel_file = s
+        .websocket
+        .as_ref()
+        .filter(|ws| ws.host.is_some())
+        .and_then(|ws| ws.tls.as_ref())
+        .map(|t| (t.cert_path.clone(), t.key_path.clone()));
+    CertSettings {
+        shared: web
+            .certificates
+            .iter()
+            .map(|c| SharedFile {
+                hosts: c.hosts.clone(),
+                cert: c.cert.clone(),
+                key: c.key.clone(),
+            })
+            .collect(),
+        tunnel_file,
+        acme: web.letsencrypt.as_ref().map(|l| AcmeSettings {
+            directory_url: l.directory.clone(),
+            ca: l.ca.clone(),
+            email: l.email.clone(),
+            profile: None,
+            state_dir: None,
+        }),
+    }
+}
+
 pub(super) fn bind_web(addr: SocketAddr) -> Result<TcpListener, Failure> {
     crate::wire::transport::tcp::bind_tcp(addr)
         .map_err(|e| bind_error("the web proxy's HTTPS port", Protocol::Tcp, addr, &e))
@@ -127,15 +173,15 @@ impl WebTask {
         shared: &Arc<Shared>,
         s: &ServerSettings,
     ) -> Result<Option<WebTask>, Failure> {
-        let Some(p) = proxy_settings(s)? else {
+        let Some((p, https)) = with_https(proxy_settings(s)?) else {
             return Ok(None);
         };
-        let listener = bind_web(p.https)?;
+        let listener = bind_web(https)?;
         Ok(Some(WebTask::start(shared, listener, p)))
     }
 
     fn start(shared: &Arc<Shared>, listener: TcpListener, p: ProxySettings) -> WebTask {
-        let https = p.https;
+        let https = p.https.unwrap_or_else(|| listener_addr(&listener));
         let proxy = Proxy::start(listener, p, Arc::new(Doorway(shared.clone())));
         WebTask { proxy, https }
     }
@@ -147,6 +193,15 @@ impl WebTask {
     pub(super) async fn stop(self) {
         self.proxy.stop().await;
     }
+}
+
+fn with_https(p: Option<ProxySettings>) -> Option<(ProxySettings, SocketAddr)> {
+    p.and_then(|p| p.https.map(|h| (p, h)))
+}
+
+fn listener_addr(l: &TcpListener) -> SocketAddr {
+    l.local_addr()
+        .unwrap_or_else(|_| SocketAddr::from(([0, 0, 0, 0], 0)))
 }
 
 async fn bind_web_with_retry(addr: SocketAddr, tries: usize) -> Result<TcpListener, Failure> {
@@ -195,14 +250,14 @@ impl Server {
                 return;
             }
         };
-        let Some(p) = p else {
+        let Some((p, https)) = with_https(p) else {
             if self.web.is_some() {
                 self.stop_web().await;
                 info!("web proxy stopped");
             }
             return;
         };
-        if let Some(t) = self.web.as_ref().filter(|t| t.https == p.https) {
+        if let Some(t) = self.web.as_ref().filter(|t| t.https == https) {
             let before = t.proxy.table();
             t.proxy.apply(&p);
             if *before != *t.proxy.table() {
@@ -210,7 +265,7 @@ impl Server {
             }
             return;
         }
-        let conflicts = |a: SocketAddr| crate::config::check::binds_conflict(a, p.https);
+        let conflicts = |a: SocketAddr| crate::config::check::binds_conflict(a, https);
         let freed = self
             .web
             .as_ref()
@@ -218,14 +273,14 @@ impl Server {
             || released.iter().any(|a| conflicts(*a));
         let old = match self.web.as_ref() {
             Some(t) if freed => {
-                let https = t.https;
+                let was = t.https;
                 self.stop_web().await;
-                Some(https)
+                Some(was)
             }
             Some(t) => Some(t.https),
             None => None,
         };
-        match bind_web_with_retry(p.https, if freed { FREED_TRIES } else { 1 }).await {
+        match bind_web_with_retry(https, if freed { FREED_TRIES } else { 1 }).await {
             Ok(l) => {
                 self.stop_web().await;
                 let t = WebTask::start(&self.shared, l, p);
@@ -252,7 +307,7 @@ impl Server {
             next.web = None;
             return;
         };
-        p.https = old;
+        p.https = Some(old);
         if let Some(web) = next.web.as_mut() {
             web.https = old;
         }

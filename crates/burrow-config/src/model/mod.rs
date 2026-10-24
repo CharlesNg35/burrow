@@ -1,3 +1,4 @@
+mod certs;
 mod client;
 mod entries;
 mod options;
@@ -5,6 +6,7 @@ mod server;
 mod visitor;
 mod web;
 
+pub use certs::{CertFile, Directory, DirectoryName, LetsEncrypt};
 pub use client::{
     CLIENT_MAX_CONNECTIONS, CLIENT_MAX_UDP_PEERS, Cipher, ClientConfig, OnRejected, Reconnect,
 };

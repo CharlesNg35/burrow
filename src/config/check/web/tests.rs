@@ -6,7 +6,7 @@ use crate::config::load::load_str_in;
 use crate::config::settings::ServerSettings;
 use crate::config::{Format, Loaded, Outcome, Role};
 
-const SECRET: &str = "yjgGDKUL5TY/9SCE2jvBsr2z5zLSKl+x1p76T98Vf/U=";
+pub(super) const SECRET: &str = "yjgGDKUL5TY/9SCE2jvBsr2z5zLSKl+x1p76T98Vf/U=";
 
 fn tls_dir() -> tempfile::TempDir {
     let dir = tempfile::tempdir().unwrap();
@@ -30,11 +30,11 @@ fn load_in(dir: &Path, rest: &str) -> Outcome {
     )
 }
 
-fn load(rest: &str) -> Outcome {
+pub(super) fn load(rest: &str) -> Outcome {
     load_in(Path::new("."), rest)
 }
 
-fn errors(o: &Outcome) -> Vec<String> {
+pub(super) fn errors(o: &Outcome) -> Vec<String> {
     o.report
         .diagnostics
         .iter()
@@ -43,7 +43,7 @@ fn errors(o: &Outcome) -> Vec<String> {
         .collect()
 }
 
-fn settings(o: Outcome) -> ServerSettings {
+pub(super) fn settings(o: Outcome) -> ServerSettings {
     let errs = errors(&o);
     match o.loaded {
         Some(Loaded::Server(s, _)) => *s,
@@ -58,7 +58,7 @@ fn one_error(rest: &str) -> String {
     e[0].clone()
 }
 
-const NAS: &str = "services:\n  nas:\n    client: home\n    target: 192.168.1.20:443\n    web: { hosts: [NAS.example.com], tls: passthrough }\n";
+pub(super) const NAS: &str = "services:\n  nas:\n    client: home\n    target: 192.168.1.20:443\n    web: { hosts: [NAS.example.com], tls: passthrough }\n";
 
 #[test]
 fn a_passthrough_site_turns_into_settings_on_a_dual_stack_port() {

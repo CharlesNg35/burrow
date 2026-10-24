@@ -105,7 +105,10 @@ fn check_sem(sem: &SemType, v: &Value) -> Result<(), String> {
         SemType::PortRange(c) => check_port_range(c, v),
         SemType::Target(c) => check_target(c, v),
         SemType::Host => hostport::check_host(&want_text(v)?),
-        SemType::HostName(_) => burrow_syntax::web::host_name(&want_text(v)?).map(|_| ()),
+        SemType::HostName(_) => {
+            burrow_syntax::web::host_name(&want_text(v)?, burrow_syntax::web::SingleLabel::Refused)
+                .map(|_| ())
+        }
         SemType::ServerAddress => burrow_syntax::endpoint::check_public_address(&want_text(v)?),
         SemType::Cidr => want_text(v)?
             .parse::<burrow_syntax::cidr::Cidr>()

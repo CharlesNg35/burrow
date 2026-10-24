@@ -233,11 +233,9 @@ mod tests {
                 "web",
                 Applied::Reload,
                 Box::new(|s| {
-                    s.web = Some(crate::config::settings::WebSettings {
-                        https: "[::]:443".parse().unwrap(),
-                        sites: Default::default(),
-                        tunnel: None,
-                    })
+                    s.web = Some(crate::config::settings::WebSettings::new(
+                        "[::]:443".parse().unwrap(),
+                    ))
                 }),
             ),
             (

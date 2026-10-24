@@ -13,18 +13,13 @@ use crate::io::{Io, Prefixed};
 use crate::peek::{Peek, peek_sni};
 use crate::permit::{Permit, Permits};
 use crate::route::{Kind, Table};
-use crate::{ProxySettings, TunnelConn, TunnelSettings, Upstream, Visitor};
-
-struct Timing {
-    hello: Duration,
-    handshake: Duration,
-}
+use crate::{ProxySettings, Timeouts, TunnelConn, TunnelSettings, Upstream, Visitor};
 
 struct Shared<U> {
     up: Arc<U>,
     table: RwLock<Arc<Table>>,
     tunnel: RwLock<Option<TunnelSettings>>,
-    timing: RwLock<Timing>,
+    timing: RwLock<Timeouts>,
     permits: Permits,
     stop: watch::Receiver<bool>,
 }
@@ -38,16 +33,17 @@ pub struct Proxy<U: Upstream> {
 
 impl<U: Upstream> Proxy<U> {
     pub fn start(listener: TcpListener, settings: ProxySettings, up: Arc<U>) -> Proxy<U> {
-        let addr = listener.local_addr().unwrap_or(settings.https);
+        let addr = listener.local_addr().unwrap_or_else(|_| {
+            settings
+                .https
+                .unwrap_or(SocketAddr::from(([0, 0, 0, 0], 0)))
+        });
         let (stop, stopped) = watch::channel(false);
         let shared = Arc::new(Shared {
             up,
             table: RwLock::new(Arc::new(Table::build(&settings))),
             tunnel: RwLock::new(settings.tunnel.clone()),
-            timing: RwLock::new(Timing {
-                hello: settings.hello_timeout,
-                handshake: settings.handshake_timeout,
-            }),
+            timing: RwLock::new(settings.timeouts),
             permits: Permits::new(settings.max_pending),
             stop: stopped,
         });
@@ -63,10 +59,7 @@ impl<U: Upstream> Proxy<U> {
     pub fn apply(&self, settings: &ProxySettings) {
         *self.shared.table.write().expect("table lock") = Arc::new(Table::build(settings));
         *self.shared.tunnel.write().expect("tunnel lock") = settings.tunnel.clone();
-        *self.shared.timing.write().expect("timing lock") = Timing {
-            hello: settings.hello_timeout,
-            handshake: settings.handshake_timeout,
-        };
+        *self.shared.timing.write().expect("timing lock") = settings.timeouts;
         self.shared.permits.resize(settings.max_pending);
     }
 

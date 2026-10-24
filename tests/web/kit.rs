@@ -179,16 +179,12 @@ pub fn web_server(secret: &Secret, sites: &[(&str, Service, &[&str])]) -> Server
         s.services.insert(name.to_string(), svc.clone());
         web.insert(
             name.to_string(),
-            WebSite {
-                hosts: hosts.iter().map(|h| h.to_string()).collect(),
-            },
+            WebSite::passthrough(hosts.iter().map(|h| h.to_string()).collect()),
         );
     }
-    s.web = Some(WebSettings {
-        https: "127.0.0.1:0".parse().unwrap(),
-        sites: web,
-        tunnel: None,
-    });
+    let mut settings = WebSettings::new("127.0.0.1:0".parse().unwrap());
+    settings.sites = web;
+    s.web = Some(settings);
     s
 }
 

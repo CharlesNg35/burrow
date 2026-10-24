@@ -20,6 +20,8 @@ pub struct Status {
     pub visitors: Vec<VisitorStatus>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub web: Option<crate::web::WebSummary>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub certificates: Vec<CertStatus>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -107,4 +109,77 @@ pub struct VisitorStatus {
     pub total: u64,
     #[serde(default)]
     pub last_seen_secs: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CertStatus {
+    pub name: String,
+    pub source: CertSourceStatus,
+    #[serde(default)]
+    pub check: Option<CertCheck>,
+    pub state: CertStateStatus,
+    #[serde(default)]
+    pub expires: Option<u64>,
+    #[serde(default)]
+    pub next_renewal: Option<u64>,
+    #[serde(default)]
+    pub last_error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum CertSourceStatus {
+    OwnFile { path: String },
+    SharedFile { path: String },
+    TunnelFile { path: String },
+    LetsEncrypt { directory: String },
+    Passthrough,
+    Plain,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CertCheck {
+    Tls,
+    Http,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum CertStateStatus {
+    Ok,
+    Pending,
+    Renewing,
+    Failing { reason: String },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_certificate_line_reads_back_and_is_left_out_while_there_are_none() {
+        let c = CertStatus {
+            name: "nas.example.com".into(),
+            source: CertSourceStatus::LetsEncrypt {
+                directory: "https://acme-v02.api.letsencrypt.org/directory".into(),
+            },
+            check: Some(CertCheck::Tls),
+            state: CertStateStatus::Failing {
+                reason: "rate limited".into(),
+            },
+            expires: Some(1_800_000_000),
+            next_renewal: None,
+            last_error: Some("rate limited".into()),
+        };
+        let v = serde_json::to_value(&c).unwrap();
+        assert_eq!(v["source"]["kind"], "lets_encrypt");
+        assert_eq!(
+            v["state"],
+            serde_json::json!({"kind": "failing", "reason": "rate limited"})
+        );
+        assert_eq!(serde_json::from_value::<CertStatus>(v).unwrap(), c);
+        let empty = serde_json::to_value(Status::default()).unwrap();
+        assert!(empty.get("certificates").is_none());
+    }
 }

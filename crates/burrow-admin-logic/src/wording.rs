@@ -1,5 +1,6 @@
 pub const WEB_HTTPS_LATER: &str = "web-https-later";
 pub const WEB_HTTP_LATER: &str = "web-http-later";
+pub const WEB_TLS_FILES_LATER: &str = "web-tls-files-later";
 pub const WEB_TCP_ONLY: &str = "web-tcp-only";
 
 fn key_path(head: &str) -> bool {
@@ -10,7 +11,7 @@ fn key_path(head: &str) -> bool {
 }
 
 pub fn shown(code: &str, message: &str) -> String {
-    if code == WEB_HTTPS_LATER {
+    if code == WEB_HTTPS_LATER || code == WEB_TLS_FILES_LATER {
         return "burrow cannot serve HTTPS for websites in this build yet; under HTTPS, choose The app does its own HTTPS".into();
     }
     if code == WEB_HTTP_LATER {
@@ -64,6 +65,10 @@ mod tests {
         assert!(
             shown(WEB_HTTPS_LATER, "services.nas.web: ... tls: passthrough")
                 .contains("choose The app does its own HTTPS")
+        );
+        assert_eq!(
+            shown(WEB_TLS_FILES_LATER, "services.nas.web.tls: ..."),
+            shown(WEB_HTTPS_LATER, "services.nas.web.tls: ...")
         );
     }
 }

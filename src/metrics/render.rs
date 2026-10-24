@@ -299,6 +299,7 @@ mod tests {
                 last_seen_secs: Some(0),
             }],
             web: None,
+            certificates: Vec::new(),
         }
     }
 

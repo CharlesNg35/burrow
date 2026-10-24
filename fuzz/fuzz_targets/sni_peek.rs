@@ -47,7 +47,7 @@ fn name_from(bytes: &[u8]) -> Option<String> {
         })
         .take(80)
         .collect();
-    let name = burrow_syntax::web::host_name(&text).ok()?;
+    let name = burrow_syntax::web::host_name(&text, burrow_syntax::web::SingleLabel::Refused).ok()?;
     let plain = !burrow_syntax::web::is_wildcard(&name) && !burrow_syntax::web::is_ip(&name);
     plain.then_some(name)
 }

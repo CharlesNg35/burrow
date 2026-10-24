@@ -3,7 +3,7 @@ use std::net::IpAddr;
 
 use burrow_syntax::web::wildcard_of;
 
-use crate::{ProxySettings, TunnelMode};
+use crate::{ProxySettings, SiteTls, TunnelMode};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Kind {
@@ -32,6 +32,9 @@ impl Table {
     pub fn build(settings: &ProxySettings) -> Table {
         let mut hosts = HashMap::new();
         for site in &settings.sites {
+            if site.tls != SiteTls::Passthrough {
+                continue;
+            }
             for host in &site.hosts {
                 hosts
                     .entry(host.clone())
@@ -96,17 +99,12 @@ mod tests {
     fn settings(tunnel: Option<(&str, TunnelMode)>) -> ProxySettings {
         let mut s = ProxySettings::new("[::]:443".parse().unwrap());
         s.sites = vec![
+            Site::passthrough("nas", vec!["nas.example.com".into(), "203.0.113.10".into()]),
+            Site::passthrough("apps", vec!["*.apps.example.com".into()]),
+            Site::passthrough("exact", vec!["one.apps.example.com".into()]),
             Site {
-                service: "nas".into(),
-                hosts: vec!["nas.example.com".into(), "203.0.113.10".into()],
-            },
-            Site {
-                service: "apps".into(),
-                hosts: vec!["*.apps.example.com".into()],
-            },
-            Site {
-                service: "exact".into(),
-                hosts: vec!["one.apps.example.com".into()],
+                tls: SiteTls::Plain,
+                ..Site::passthrough("plain", vec!["plain.example.com".into()])
             },
         ];
         s.tunnel = tunnel.map(|(host, mode)| TunnelSettings {
@@ -129,6 +127,7 @@ mod tests {
         assert_eq!(t.kind("apps.example.com"), None);
         assert_eq!(t.kind("example.com"), None);
         assert_eq!(t.kind("unknown.example.org"), None);
+        assert_eq!(t.kind("plain.example.com"), None);
     }
 
     #[test]

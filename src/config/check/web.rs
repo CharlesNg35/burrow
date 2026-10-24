@@ -1,12 +1,13 @@
 use std::collections::BTreeMap;
 use std::net::{Ipv6Addr, SocketAddr};
+use std::path::Path;
 
 use super::{Spans, binds_conflict, parse_addr};
 use crate::config::diagnostics::Diagnostic;
-use crate::config::settings::{WebSettings, WebSite, WebSocketSettings};
+use crate::config::settings::{WebSite, WebSocketSettings};
 use crate::config::tree::Span;
 use burrow_config::{Bind, Protocol, ServerConfig, ServiceWeb, SiteTls, TlsMode};
-use burrow_syntax::web::{host_name, is_wildcard};
+use burrow_syntax::web::{SingleLabel, host_name, is_wildcard};
 
 pub(super) const BUILT_WITH_WEB: bool = cfg!(feature = "web");
 
@@ -38,19 +39,60 @@ pub(super) fn check_https(
         );
         return None;
     }
+    later::refuse(cfg, spans, out);
     let Some(given) = cfg.web.as_ref().and_then(|w| w.https.as_ref()) else {
-        out.push(
-            Diagnostic::error(
-                "web-port",
-                "web needs a port: https for HTTPS sites, like https: 443 (plain HTTP sites on web.http are not in this build yet)",
-            )
-            .at(spans.key(&["web"]))
-            .help("add https: 443 under web"),
-        );
+        if !later::http_written(cfg, spans) {
+            out.push(
+                Diagnostic::error(
+                    "web-port",
+                    "web needs a port: https for HTTPS sites, like https: 443 (plain HTTP sites on web.http are not in this build yet)",
+                )
+                .at(spans.key(&["web"]))
+                .help("add https: 443 under web"),
+            );
+        }
         return None;
     };
-    let at = spans.value(&["web", "https"]);
-    let addr = match parse_addr(given, [0, 0, 0, 0], "web.https") {
+    web_port(&Port::HTTPS, given, listen, spans, out)
+}
+
+pub(super) fn check_http(
+    cfg: &ServerConfig,
+    listen: Option<SocketAddr>,
+    spans: &Spans,
+    out: &mut Vec<Diagnostic>,
+) -> Option<SocketAddr> {
+    let given = cfg.web.as_ref().and_then(|w| w.http.as_ref())?;
+    web_port(&Port::HTTP, given, listen, spans, out)
+}
+
+struct Port {
+    key: &'static str,
+    example: u16,
+}
+
+impl Port {
+    const HTTPS: Port = Port {
+        key: "https",
+        example: 443,
+    };
+    const HTTP: Port = Port {
+        key: "http",
+        example: 80,
+    };
+}
+
+fn web_port(
+    port: &Port,
+    given: &Bind,
+    listen: Option<SocketAddr>,
+    spans: &Spans,
+    out: &mut Vec<Diagnostic>,
+) -> Option<SocketAddr> {
+    let (key, n) = (port.key, port.example);
+    let name = format!("web.{key}");
+    let at = spans.value(&["web", key]);
+    let addr = match parse_addr(given, [0, 0, 0, 0], &name) {
         Ok(a) if bare_port(given).is_some() => {
             SocketAddr::new(Ipv6Addr::UNSPECIFIED.into(), a.port())
         }
@@ -59,13 +101,14 @@ pub(super) fn check_https(
             out.push(
                 Diagnostic::error(
                     "invalid-address",
-                    format!("invalid web.https address \"{given}\": {e}"),
+                    format!("invalid {name} address \"{given}\": {e}"),
                 )
                 .at(at)
                 .label("expected a port or ip:port")
-                .help(
-                    "use the port for HTTPS, like 443, or ip:port like 0.0.0.0:443 for IPv4 only",
-                ),
+                .help(format!(
+                    "use the port for {}, like {n}, or ip:port like 0.0.0.0:{n} for IPv4 only",
+                    key.to_uppercase()
+                )),
             );
             return None;
         }
@@ -74,11 +117,11 @@ pub(super) fn check_https(
         out.push(
             Diagnostic::error(
                 "duplicate-bind",
-                format!("web.https {addr} is also the control port (listen {l})"),
+                format!("{name} {addr} is also the control port (listen {l})"),
             )
             .at(at)
             .label("already used by \"listen\"")
-            .help("use another port for web.https or for listen"),
+            .help(format!("use another port for {name} or for listen")),
         );
         return None;
     }
@@ -168,7 +211,7 @@ pub(super) fn share_tunnel(
         );
         return;
     }
-    let host = match host_name(text) {
+    let host = match host_name(text, SingleLabel::Refused) {
         Ok(h) if is_wildcard(&h) => {
             out.push(
                 Diagnostic::error(
@@ -210,6 +253,7 @@ pub(super) fn check_sites(
     https: Option<SocketAddr>,
     tunnel: Option<&str>,
     spans: &Spans,
+    base_dir: &Path,
     out: &mut Vec<Diagnostic>,
 ) -> BTreeMap<String, WebSite> {
     let mut sites = BTreeMap::new();
@@ -253,7 +297,7 @@ pub(super) fn check_sites(
         };
         let place = Place { name, at: &item };
         if let Some(hosts) = check_hosts(&place, web.hosts(), &mut owners, tunnel, out) {
-            sites.insert(name.clone(), WebSite { hosts });
+            sites.insert(name.clone(), fill::site(cfg, web, hosts, base_dir));
         }
     }
     sites
@@ -267,7 +311,12 @@ fn tls_later(name: &str, web: &ServiceWeb, spans: &Spans) -> Option<Diagnostic> 
             "plain HTTP websites need web.http, which this build does not have yet",
             spans.value(&["services", name, "web", "tls"]),
         ),
-        Some(_) => (
+        Some(SiteTls::Files(_)) => (
+            "web-tls-files-later",
+            "burrow cannot serve HTTPS for websites in this build yet",
+            spans.value(&["services", name, "web", "tls"]),
+        ),
+        Some(SiteTls::Mode(TlsMode::Auto)) => (
             "web-https-later",
             "burrow cannot serve HTTPS for websites in this build yet",
             spans.value(&["services", name, "web", "tls"]),
@@ -336,7 +385,7 @@ fn check_hosts(
     let before = out.len();
     for (i, text) in given.iter().enumerate() {
         let at = (place.at)(i);
-        let host = match host_name(text) {
+        let host = match host_name(text, SingleLabel::Refused) {
             Ok(h) => h,
             Err(e) => {
                 out.push(
@@ -389,20 +438,16 @@ fn check_hosts(
     (out.len() == before).then_some(hosts)
 }
 
-pub(super) fn settings(
-    https: Option<SocketAddr>,
-    sites: BTreeMap<String, WebSite>,
-    websocket: Option<&WebSocketSettings>,
-) -> Option<WebSettings> {
-    Some(WebSettings {
-        https: https?,
-        sites,
-        tunnel: websocket.and_then(|w| w.host.clone()),
-    })
-}
+mod fill;
+mod later;
+
+pub(super) use fill::settings;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(all(test, feature = "web"))]
+mod tests_later;
 
 #[cfg(all(test, not(feature = "web")))]
 mod tests_without_web;

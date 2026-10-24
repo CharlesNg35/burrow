@@ -187,7 +187,7 @@ async fn a_tunnel_handshake_that_outlasts_its_deadline_is_closed() {
     let proxy = start(
         |s| {
             s.tunnel = tunnel("tunnel.example.com", TunnelMode::OwnName);
-            s.handshake_timeout = Duration::from_millis(300);
+            s.timeouts.handshake = Duration::from_millis(300);
         },
         up.clone(),
     )

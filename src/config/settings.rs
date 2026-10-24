@@ -11,6 +11,10 @@ use burrow_admin_proto::msg::AdminLevel;
 use burrow_config::{Cipher, Mode, Protocol};
 use burrow_syntax::endpoint::Endpoint;
 
+mod web;
+
+pub use web::{CertFile, LetsEncrypt, WebSettings, WebSite, WebTls};
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct ServerSettings {
     pub listen: Option<SocketAddr>,
@@ -33,24 +37,6 @@ pub struct ServerSettings {
     pub metrics: Option<SocketAddr>,
     pub self_allow: Option<AllowList>,
     pub web: Option<WebSettings>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct WebSettings {
-    pub https: SocketAddr,
-    pub sites: BTreeMap<String, WebSite>,
-    pub tunnel: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct WebSite {
-    pub hosts: Vec<String>,
-}
-
-impl WebSettings {
-    pub fn site_of(&self, service: &str) -> Option<&WebSite> {
-        self.sites.get(service)
-    }
 }
 
 pub struct ListenClash {
