@@ -160,6 +160,7 @@ pub async fn all(p: Pebble) {
     p.run_pebble(&["PEBBLE_AUTHZREUSE=0"]).await;
     let root = p.root().await;
     super::listener::through_the_web_listener(&p, &root).await;
+    super::listener::a_tunnel_only_config_gets_and_renews_its_certificate(&p, &root).await;
 }
 
 async fn tls_alpn(ctx: &Ctx, state: &Path) {

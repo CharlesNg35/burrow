@@ -122,3 +122,48 @@ async fn an_open_https_connection_keeps_working_after_its_certificate_is_swapped
         "the open connection keeps its session: {r:?}"
     );
 }
+
+async fn shows_name(web: std::net::SocketAddr, name: &str, c: &Cert) -> bool {
+    let Ok(tcp) = TcpStream::connect(web).await else {
+        return false;
+    };
+    let name = ServerName::try_from(name.to_string()).unwrap();
+    trusting(c).connect(name, tcp).await.is_ok()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_websocket_tls_file_rewritten_at_its_path_is_served_on_the_tunnels_name_after_reload() {
+    let (first, second) = (cert(&["localhost"]), cert(&["localhost"]));
+    let secret = Secret::generate();
+    let mut s = web_server(&secret, &[]);
+    s.web.as_mut().unwrap().https = Some(format!("127.0.0.1:{}", free_port()).parse().unwrap());
+    share_tunnel(&mut s, "localhost", &first);
+    let srv = start_server(s.clone()).await;
+    let web = srv.web_addr.unwrap();
+    assert!(
+        shows_name(web, "localhost", &first).await,
+        "websocket.tls is served"
+    );
+    let mut next = s.clone();
+    let tls = next.websocket.as_mut().unwrap().tls.as_mut().unwrap();
+    std::fs::write(&tls.cert_path, &second.cert_pem).unwrap();
+    std::fs::write(&tls.key_path, &second.key_pem).unwrap();
+    tls.cert_pem = second.cert_pem.clone().into_bytes();
+    tls.key_pem = zeroize::Zeroizing::new(second.key_pem.clone().into_bytes());
+    assert_ne!(
+        next.websocket, s.websocket,
+        "the new bytes change the settings"
+    );
+    srv.reload(next.clone()).await;
+    let shared = srv.shared.clone();
+    wait_for(|| shared.settings_snapshot().websocket == next.websocket).await;
+    let start = std::time::Instant::now();
+    while !shows_name(web, "localhost", &second).await {
+        assert!(
+            start.elapsed() < std::time::Duration::from_secs(5),
+            "the rewritten file is not served"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    assert!(!shows_name(web, "localhost", &first).await);
+}
