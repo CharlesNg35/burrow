@@ -131,9 +131,12 @@ pub(super) async fn serve(
         answer(channel, outcome, &grant, &label, peer, &busy, forbidden).await;
         return;
     }
-    let Some(_service_count) = service_slot(&shared, service, &busy) else {
-        reply(channel, Status::Busy).await;
-        return;
+    let _service_count = match service_slot(&shared, service, &busy) {
+        Ok(guard) => guard,
+        Err(_held) => {
+            reply(channel, Status::Busy).await;
+            return;
+        }
     };
     let _tracked = shared.track();
     let first = connect_frame(&grant);
@@ -225,17 +228,17 @@ fn service_slot(
     shared: &Shared,
     service: Option<(&String, &crate::config::settings::Service)>,
     busy: &impl Fn(String),
-) -> Option<Option<super::CountGuard>> {
+) -> Result<Option<super::CountGuard>, super::CountGuard> {
     match service {
         Some((name, svc)) => {
             let (guard, before) = shared.service_counts.enter(name);
             if svc.max_connections.is_some_and(|m| before >= m) {
                 busy(format!("service \"{name}\" is at its connection limit"));
-                return None;
+                return Err(guard);
             }
-            Some(Some(guard))
+            Ok(Some(guard))
         }
-        None => Some(None),
+        None => Ok(None),
     }
 }
 
