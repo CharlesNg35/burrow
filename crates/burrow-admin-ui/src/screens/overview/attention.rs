@@ -135,7 +135,8 @@ pub(super) fn Attention() -> impl IntoView {
         let v = s.running();
         let st = s.state.get();
         let status = s.status.get();
-        let mut items = attention(&v, st.as_deref(), status.as_deref());
+        let now = (s.now.get() / 1000.0) as u64;
+        let mut items = attention(&v, st.as_deref(), status.as_deref(), now);
         items.extend(s.welcome.with(|w| {
             w.as_ref()
                 .and_then(|w| old_server_item(&w.server.version, env!("CARGO_PKG_VERSION")))

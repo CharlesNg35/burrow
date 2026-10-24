@@ -4,6 +4,7 @@
 #![forbid(unsafe_code)]
 
 pub mod addr;
+pub mod certs;
 pub mod changeset;
 pub mod check;
 pub mod fallback;

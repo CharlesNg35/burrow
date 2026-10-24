@@ -105,9 +105,15 @@ fn each_certificate_shows_its_source_state_expiry_and_next_renewal() {
 }
 
 #[test]
-fn a_server_without_certificates_prints_nothing_for_them() {
-    let s = sample();
+fn a_server_without_certificates_of_its_own_prints_nothing_for_them() {
+    let mut s = sample();
     assert_eq!(shown(&s), "");
+    s.certificates = vec![cert(
+        "nas.example.com",
+        CertSourceStatus::Passthrough,
+        CertStateStatus::Ok,
+    )];
+    assert_eq!(shown(&s), "", "the app's own certificate is not burrow's");
 }
 
 #[test]

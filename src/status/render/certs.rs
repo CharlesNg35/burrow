@@ -18,8 +18,7 @@ fn source(c: &CertStatus) -> String {
         CertSourceStatus::SharedFile { path } => format!("shared {path}"),
         CertSourceStatus::TunnelFile { path } => format!("websocket.tls {path}"),
         CertSourceStatus::LetsEncrypt { .. } => "Let's Encrypt".into(),
-        CertSourceStatus::Passthrough => "passthrough, the app's own".into(),
-        CertSourceStatus::Plain => "none, plain HTTP".into(),
+        CertSourceStatus::Passthrough | CertSourceStatus::Plain => String::new(),
     };
     match c.check {
         Some(CertCheck::Tls) => format!("{base}, TLS check"),
@@ -52,12 +51,19 @@ fn next(at: Option<u64>, now: u64) -> Cell {
     }
 }
 
+fn burrows(c: &&CertStatus) -> bool {
+    !matches!(
+        c.source,
+        CertSourceStatus::Passthrough | CertSourceStatus::Plain
+    )
+}
+
 pub(super) fn render_certs(out: &mut String, s: &Status, paint: Paint, now: u64) {
-    if s.certificates.is_empty() {
+    let mine: Vec<&CertStatus> = s.certificates.iter().filter(burrows).collect();
+    if mine.is_empty() {
         return;
     }
-    let rows = s
-        .certificates
+    let rows = mine
         .iter()
         .map(|c| {
             vec![
@@ -82,7 +88,7 @@ pub(super) fn render_certs(out: &mut String, s: &Status, paint: Paint, now: u64)
         ],
         rows,
     );
-    for c in &s.certificates {
+    for c in &mine {
         let CertStateStatus::Failing { reason } = &c.state else {
             continue;
         };

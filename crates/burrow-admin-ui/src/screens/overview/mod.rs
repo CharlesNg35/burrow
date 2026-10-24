@@ -1,4 +1,5 @@
 mod attention;
+mod certs;
 mod page;
 mod tables;
 mod web;
@@ -51,7 +52,12 @@ fn link_of(path: &[String]) -> Option<Route> {
     }
 }
 
-pub fn attention(values: &Value, state: Option<&State>, status: Option<&Status>) -> Vec<Item> {
+pub fn attention(
+    values: &Value,
+    state: Option<&State>,
+    status: Option<&Status>,
+    now: u64,
+) -> Vec<Item> {
     let mut out = Vec::new();
     if let Some(st) = state {
         state_items(st, &mut out);
@@ -62,6 +68,7 @@ pub fn attention(values: &Value, state: Option<&State>, status: Option<&Status>)
             out.push(client_item(c, down, partial, status));
         }
         out.extend(own);
+        out.extend(certs::items(status, now));
     }
     out.sort_by_key(|i| rank(i.tone));
     out
@@ -499,7 +506,7 @@ mod tests {
             }
         });
         let st = status(&["a"], &["b", "c", "d"]);
-        let items = attention(&v, None, Some(&st));
+        let items = attention(&v, None, Some(&st), 0);
         let titles: Vec<&str> = items.iter().map(|i| i.title.as_str()).collect();
         assert_eq!(titles, ["Client b is offline", "Service both is down"]);
         assert_eq!(
@@ -515,7 +522,7 @@ mod tests {
             "every offline client is listed in Clients away"
         );
         assert!(a[1].detail.starts_with("serves both · "), "{}", a[1].detail);
-        assert!(attention(&v, None, None).is_empty());
+        assert!(attention(&v, None, None, 0).is_empty());
     }
 
     #[test]

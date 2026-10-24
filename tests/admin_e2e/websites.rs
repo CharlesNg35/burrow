@@ -200,3 +200,38 @@ fn websites(c: &mut Ctx) -> Flow<'_> {
 fn websites_are_shown_and_edited_in_the_admin_ui() {
     run("websites", opts(), false, websites);
 }
+
+fn certificates(c: &mut Ctx) -> Flow<'_> {
+    Box::pin(async move {
+        open(c, "ops").await;
+        let key = rcgen::KeyPair::generate().expect("a key");
+        let cert = rcgen::CertificateParams::new(vec!["portal.example.com".to_string()])
+            .expect("params")
+            .self_signed(&key)
+            .expect("a certificate");
+        c.world.write("portal.pem", &cert.pem());
+        c.world.write("portal.key", &key.serialize_pem());
+        c.world.hand_edit(|t| {
+            format!(
+                "{t}  portal:\n    client: home\n    target: 8443\n    web:\n      hosts: [portal.example.com]\n      tls: {{ cert: portal.pem, key: portal.key }}\n"
+            )
+        });
+        c.ui.nav("/").await;
+        let row = "[data-testid=certs-card] [data-cert='portal.example.com']";
+        let text =
+            c.ui.wait_text(row, "Own file", std::time::Duration::from_secs(20))
+                .await;
+        assert!(
+            text.contains("Valid") && text.contains("portal.pem"),
+            "{text}"
+        );
+        assert!(text.contains("in "), "the expiry is shown: {text}");
+        both_widths(c, "overview-certificates").await;
+        c.ui.assert_no_errors();
+    })
+}
+
+#[test]
+fn certificates_are_listed_on_the_overview() {
+    run("certificates", opts(), false, certificates);
+}
