@@ -208,7 +208,72 @@ pub fn root_problems(cargo: &str, clippy: &str) -> Vec<String> {
             "Cargo.toml must set too_many_lines = \"deny\" in [workspace.lints.clippy]".into(),
         );
     }
+    out.extend(workspace_lint_problems(cargo));
     out
+}
+
+fn level_of(value: &str) -> String {
+    let value = value.trim();
+    let level = match value.strip_prefix('{') {
+        Some(table) => table
+            .split(',')
+            .find_map(|kv| kv.trim().strip_prefix("level").map(str::to_string))
+            .unwrap_or_default(),
+        None => value.to_string(),
+    };
+    level
+        .trim()
+        .trim_start_matches('=')
+        .trim()
+        .trim_matches(|c| c == '"' || c == '}' || c == ' ')
+        .to_string()
+}
+
+pub fn lint_levels(cargo: &str, tool: &str) -> Vec<(String, String)> {
+    let table = format!("[workspace.lints.{tool}]");
+    let sub = format!("[workspace.lints.{tool}.");
+    let dotted = format!("{tool}.");
+    let mut out = Vec::new();
+    let mut current = String::new();
+    for line in cargo.lines().map(str::trim) {
+        if line.starts_with('[') {
+            current = line.to_string();
+            continue;
+        }
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        let key = key.trim().trim_matches('"');
+        if current == table {
+            out.push((key.to_string(), level_of(value)));
+        } else if current == "[workspace.lints]"
+            && let Some(name) = key.strip_prefix(&dotted)
+        {
+            out.push((name.trim_matches('"').to_string(), level_of(value)));
+        } else if let Some(name) = current.strip_prefix(&sub).and_then(|n| n.strip_suffix(']'))
+            && key == "level"
+        {
+            out.push((name.trim_matches('"').to_string(), level_of(value)));
+        }
+    }
+    out
+}
+
+pub fn workspace_lint_problems(cargo: &str) -> Vec<String> {
+    let lowered = |level: &str| matches!(level, "allow" | "warn" | "expect");
+    let clippy = lint_levels(cargo, "clippy")
+        .into_iter()
+        .filter(|(k, l)| SILENCED.contains(&k.as_str()) && lowered(l))
+        .map(|(k, l)| {
+            format!(
+                "Cargo.toml: workspace lint clippy::{k} = {l} would silence clippy::too_many_lines"
+            )
+        });
+    let rust = lint_levels(cargo, "rust")
+        .into_iter()
+        .filter(|(k, l)| k == "warnings" && matches!(l.as_str(), "allow" | "expect"))
+        .map(|(k, l)| format!("Cargo.toml: workspace lint {k} = {l} would silence every lint"));
+    clippy.chain(rust).collect()
 }
 
 pub fn flag_problems(path: &str, text: &str) -> Vec<String> {

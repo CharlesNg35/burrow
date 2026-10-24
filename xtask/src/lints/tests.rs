@@ -97,8 +97,49 @@ fn the_root_keeps_the_threshold_and_the_deny() {
         1
     );
     let warn = "[workspace.lints.clippy]\ntoo_many_lines = \"warn\"\n";
-    assert_eq!(root_problems(warn, clippy).len(), 1);
+    assert_eq!(root_problems(warn, clippy).len(), 2);
     assert_eq!(root_problems("", "").len(), 2);
+}
+
+#[test]
+fn workspace_lints_cannot_lower_too_many_lines_or_its_groups() {
+    let base = "[workspace.lints.clippy]\ntoo_many_lines = \"deny\"\n";
+    let clippy = "too-many-lines-threshold = 150\n";
+    for extra in [
+        "pedantic = { level = \"allow\", priority = 1 }\n",
+        "all = \"warn\"\n",
+        "pedantic = \"allow\"\n",
+        "\"all\" = { priority = -1, level = \"expect\" }\n",
+    ] {
+        let cargo = format!("{base}{extra}");
+        assert_eq!(root_problems(&cargo, clippy).len(), 1, "{extra}");
+    }
+    for cargo in [
+        "[workspace.lints.clippy]\ntoo_many_lines = \"warn\"\n",
+        "[workspace.lints.clippy]\ntoo_many_lines = { level = \"allow\" }\n",
+    ] {
+        assert_eq!(root_problems(cargo, clippy).len(), 2, "{cargo}");
+    }
+    let sub =
+        format!("{base}\n[workspace.lints.clippy.pedantic]\nlevel = \"allow\"\npriority = 1\n");
+    assert_eq!(root_problems(&sub, clippy).len(), 1);
+    let dotted = format!("{base}\n[workspace.lints]\nclippy.all = \"allow\"\n");
+    assert_eq!(root_problems(&dotted, clippy).len(), 1);
+    for rust in [
+        "[workspace.lints.rust]\nwarnings = \"allow\"\n",
+        "[workspace.lints.rust]\nwarnings = { level = \"allow\", priority = -1 }\n",
+    ] {
+        let cargo = format!("{base}\n{rust}");
+        assert_eq!(root_problems(&cargo, clippy).len(), 1, "{rust}");
+    }
+    for fine in [
+        "pedantic = { level = \"deny\", priority = -1 }\n",
+        "needless_borrow = \"allow\"\n",
+        "\n[workspace.lints.rust]\nwarnings = \"deny\"\nunsafe_code = \"allow\"\n",
+    ] {
+        let cargo = format!("{base}{fine}");
+        assert!(root_problems(&cargo, clippy).is_empty(), "{fine}");
+    }
 }
 
 #[test]
