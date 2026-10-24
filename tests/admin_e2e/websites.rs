@@ -57,8 +57,12 @@ async fn read_only_pages(c: &mut Ctx) {
     assert!(path.contains("2 names on the HTTPS port"), "{path}");
     both_widths(c, "service-nas-path").await;
     c.ui.click("[role=tablist] [data-tab=settings]").await;
-    c.ui.wait_text(&format!("[data-schema='{SITE}']"), "Passthrough", SECS)
-        .await;
+    c.ui.wait_text(
+        &format!("[data-schema='{SITE}']"),
+        "The app does its own HTTPS",
+        SECS,
+    )
+    .await;
     let visibility = c.ui.text("[data-schema='services/*/visibility']").await;
     assert!(visibility.contains("Website only"), "{visibility}");
     both_widths(c, "service-nas-settings").await;
@@ -82,10 +86,10 @@ fn websites(c: &mut Ctx) -> Flow<'_> {
         c.ui.click("[data-chip='https://bad.example.com'] button")
             .await;
         row_clean(c, SITE).await;
-        click_js(c, "[data-schema='services/*/web'] input[value=own]").await;
+        click_js(c, "[data-schema='services/*/web'] input[value=auto]").await;
         wait_checked(c).await;
         let err = row_error(c, SITE).await;
-        assert!(err.contains("choose Passthrough under TLS"), "{err}");
+        assert!(err.contains("choose The app does its own HTTPS"), "{err}");
         assert!(!err.contains("services.nas.web"), "{err}");
         let blocked: bool = c
             .ui
@@ -96,6 +100,19 @@ fn websites(c: &mut Ctx) -> Flow<'_> {
             "a problem found by the server blocks the save like a local one"
         );
         both_widths(c, "nas-https-not-yet").await;
+        click_js(c, "[data-schema='services/*/web'] input[value=off]").await;
+        wait_checked(c).await;
+        let err = row_error(c, SITE).await;
+        assert!(
+            err.contains("plain HTTP websites are not in this build yet"),
+            "{err}"
+        );
+        both_widths(c, "nas-plain-http-not-yet").await;
+        let files_off: bool = c
+            .ui
+            .eval("(() => { const i = document.querySelector(\"[data-schema='services/*/web'] input[value=files]\"); return !!i && i.disabled; })()")
+            .await;
+        assert!(files_off, "own certificate files are set in server.yaml");
         click_js(c, "[data-schema='services/*/web'] input[value=passthrough]").await;
         row_clean(c, SITE).await;
         open_review(c, "nas-review").await;

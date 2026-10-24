@@ -72,10 +72,14 @@ pub(super) fn row(f: Field, path: Path, spath: Path, entity: Path) -> AnyView {
     let touched = RwSignal::new(false);
     let id = field_id(&path);
     let msg_id = format!("{id}-msg");
-    let items = matches!(
-        inner(&node).sem,
-        SemType::List(_) | SemType::RefList(_) | SemType::Map(_) | SemType::RefMap(_)
-    );
+    let items = match &inner(&node).sem {
+        SemType::List(_) | SemType::RefList(_) | SemType::Map(_) | SemType::RefMap(_) => true,
+        SemType::Union(u) => u
+            .branches
+            .iter()
+            .any(|b| matches!(inner(b).sem, SemType::HostName(_))),
+        _ => false,
+    };
     let state = field_state_of(&parts, touched, items);
     let body = field_body(&parts, &id, &msg_id, touched);
     let label = node.label.clone();
