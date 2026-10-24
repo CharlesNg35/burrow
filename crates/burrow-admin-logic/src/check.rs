@@ -1,4 +1,7 @@
-use burrow_admin_proto::schema::{DurationUnit, Node, SemType};
+use burrow_admin_proto::schema::{
+    DurationC, DurationUnit, IpC, IpPortC, NameC, Node, ObjectC, PortRangeC, RefListC, SemType,
+    TargetC, UnionC,
+};
 use burrow_admin_proto::serde_json::Value;
 use burrow_admin_proto::value::is_special;
 use burrow_syntax::duration::{TimeUnit, check_range};
@@ -93,55 +96,14 @@ fn check_sem(sem: &SemType, v: &Value) -> Result<(), String> {
                 Err(format!("pick one of {}", names.join(", ")))
             }
         }
-        SemType::Ip(c) => {
-            let a = ip::parse_ip(&want_text(v)?)?;
-            if a.is_ipv4() && !c.v4 && c.v6 {
-                return Err("an IPv6 address is needed here".into());
-            }
-            if a.is_ipv6() && !c.v6 && c.v4 {
-                return Err("an IPv4 address is needed here".into());
-            }
-            if a.is_unspecified() && !c.unspecified_ok {
-                return Err("0.0.0.0 and :: are not allowed here".into());
-            }
-            Ok(())
-        }
+        SemType::Ip(c) => check_ip(c, v),
         SemType::Port => match v {
             Value::String(s) => ports::parse_port(s).map(|_| ()),
             _ => port(v).map(|_| ()),
         },
-        SemType::IpPort(c) => {
-            if v.is_number() {
-                return port(v).map(|_| ());
-            }
-            let max = if c.ranges {
-                c.max_range.unwrap_or(ports::MAX_RANGE)
-            } else {
-                1
-            };
-            target::parse_bind(&want_text(v)?, [0, 0, 0, 0], max).map(|_| ())
-        }
-        SemType::PortRange(c) => {
-            let (a, b) = ports::parse_range(&want_text(v)?)?;
-            let count = u32::from(b) - u32::from(a) + 1;
-            match c.max {
-                Some(m) if count > u32::from(m) => Err(format!("at most {m} ports")),
-                _ => Ok(()),
-            }
-        }
-        SemType::Target(c) => {
-            if v.is_number() {
-                return port(v).map(|_| ());
-            }
-            let t = target::parse_target(&want_text(v)?)?;
-            match t {
-                target::TargetValue::Unix(_) if !c.unix => {
-                    Err("a Unix socket is not allowed here".into())
-                }
-                t if t.count() > 1 && !c.ranges => Err("a single port is needed here".into()),
-                _ => Ok(()),
-            }
-        }
+        SemType::IpPort(c) => check_ip_port(c, v),
+        SemType::PortRange(c) => check_port_range(c, v),
+        SemType::Target(c) => check_target(c, v),
         SemType::Host => hostport::check_host(&want_text(v)?),
         SemType::ServerAddress => burrow_syntax::endpoint::check_public_address(&want_text(v)?),
         SemType::Cidr => want_text(v)?
@@ -152,15 +114,7 @@ fn check_sem(sem: &SemType, v: &Value) -> Result<(), String> {
             .parse::<rule::Rule>()
             .map(|_| ())
             .map_err(|e| e.describe()),
-        SemType::Duration(c) => {
-            let n = want_int(v)?;
-            let n = u64::try_from(n).map_err(|_| "a duration cannot be negative".to_string())?;
-            let unit = match c.unit {
-                DurationUnit::Ms => TimeUnit::Ms,
-                _ => TimeUnit::Secs,
-            };
-            check_range(n, c.min, c.max, unit)
-        }
+        SemType::Duration(c) => check_duration(c, v),
         SemType::Size(_) => {
             let n = want_int(v)?;
             (n >= 0)
@@ -168,47 +122,14 @@ fn check_sem(sem: &SemType, v: &Value) -> Result<(), String> {
                 .ok_or_else(|| "a size cannot be negative".to_string())
         }
         SemType::Rate => rate::parse_rate(&want_text(v)?).map(|_| ()),
-        SemType::Name(c) => {
-            let s = want_text(v)?;
-            name::check_name(&s)?;
-            if s.chars().count() > c.max_len as usize {
-                return Err(format!("at most {} characters", c.max_len));
-            }
-            Ok(())
-        }
+        SemType::Name(c) => check_name(c, v),
         SemType::Ref(_) => {
             let s = want_str(v)?;
             (!s.trim().is_empty())
                 .then_some(())
                 .ok_or_else(|| "pick one".to_string())
         }
-        SemType::RefList(c) => {
-            let items = match v {
-                Value::Array(a) => a.clone(),
-                _ => return Err("expected a list of names".into()),
-            };
-            let names: Vec<String> = items
-                .iter()
-                .filter_map(|x| x.as_str().map(str::to_string))
-                .collect();
-            if names.len() != items.len() {
-                return Err("expected a list of names".into());
-            }
-            if let Some(m) = c.max
-                && names.len() > m as usize
-            {
-                return Err(format!("at most {m}"));
-            }
-            if c.unique
-                && let Some(d) = names
-                    .iter()
-                    .enumerate()
-                    .find(|(i, n)| names[..*i].contains(n))
-            {
-                return Err(format!("\"{}\" is listed twice", d.1));
-            }
-            Ok(())
-        }
+        SemType::RefList(c) => check_ref_list(c, v),
         SemType::Path(_) => {
             let s = want_text(v)?;
             (!s.trim().is_empty())
@@ -229,27 +150,8 @@ fn check_sem(sem: &SemType, v: &Value) -> Result<(), String> {
             _ => Err("expected a list".into()),
         },
         SemType::Optional(o) => check(&o.inner, v),
-        SemType::Union(u) => {
-            if u.branches.is_empty() || u.branches.iter().any(|b| check(b, v).is_ok()) {
-                Ok(())
-            } else {
-                u.branches
-                    .iter()
-                    .map(|b| check(b, v))
-                    .find_map(Result::err)
-                    .map_or(Ok(()), Err)
-            }
-        }
-        SemType::Object(o) => {
-            let Value::Object(m) = v else {
-                return Err("expected a group of settings".into());
-            };
-            m.iter()
-                .try_for_each(|(k, x)| match o.fields.iter().find(|f| f.key == *k) {
-                    Some(f) => check(&f.node, x).map_err(|e| format!("{k}: {e}")),
-                    None => Err(format!("{k} is not a setting here")),
-                })
-        }
+        SemType::Union(u) => check_union(u, v),
+        SemType::Object(o) => check_object(o, v),
         SemType::Map(c) => match v {
             Value::Object(m) => m.values().try_for_each(|x| check(&c.value, x)),
             _ => Err("expected a group of settings".into()),
@@ -260,6 +162,123 @@ fn check_sem(sem: &SemType, v: &Value) -> Result<(), String> {
         },
         SemType::SecretRef(_) | SemType::Unknown(_) => Ok(()),
     }
+}
+
+fn check_ip(c: &IpC, v: &Value) -> Result<(), String> {
+    let a = ip::parse_ip(&want_text(v)?)?;
+    if a.is_ipv4() && !c.v4 && c.v6 {
+        return Err("an IPv6 address is needed here".into());
+    }
+    if a.is_ipv6() && !c.v6 && c.v4 {
+        return Err("an IPv4 address is needed here".into());
+    }
+    if a.is_unspecified() && !c.unspecified_ok {
+        return Err("0.0.0.0 and :: are not allowed here".into());
+    }
+    Ok(())
+}
+
+fn check_ip_port(c: &IpPortC, v: &Value) -> Result<(), String> {
+    if v.is_number() {
+        return port(v).map(|_| ());
+    }
+    let max = if c.ranges {
+        c.max_range.unwrap_or(ports::MAX_RANGE)
+    } else {
+        1
+    };
+    target::parse_bind(&want_text(v)?, [0, 0, 0, 0], max).map(|_| ())
+}
+
+fn check_port_range(c: &PortRangeC, v: &Value) -> Result<(), String> {
+    let (a, b) = ports::parse_range(&want_text(v)?)?;
+    let count = u32::from(b) - u32::from(a) + 1;
+    match c.max {
+        Some(m) if count > u32::from(m) => Err(format!("at most {m} ports")),
+        _ => Ok(()),
+    }
+}
+
+fn check_target(c: &TargetC, v: &Value) -> Result<(), String> {
+    if v.is_number() {
+        return port(v).map(|_| ());
+    }
+    let t = target::parse_target(&want_text(v)?)?;
+    match t {
+        target::TargetValue::Unix(_) if !c.unix => Err("a Unix socket is not allowed here".into()),
+        t if t.count() > 1 && !c.ranges => Err("a single port is needed here".into()),
+        _ => Ok(()),
+    }
+}
+
+fn check_duration(c: &DurationC, v: &Value) -> Result<(), String> {
+    let n = want_int(v)?;
+    let n = u64::try_from(n).map_err(|_| "a duration cannot be negative".to_string())?;
+    let unit = match c.unit {
+        DurationUnit::Ms => TimeUnit::Ms,
+        _ => TimeUnit::Secs,
+    };
+    check_range(n, c.min, c.max, unit)
+}
+
+fn check_name(c: &NameC, v: &Value) -> Result<(), String> {
+    let s = want_text(v)?;
+    name::check_name(&s)?;
+    if s.chars().count() > c.max_len as usize {
+        return Err(format!("at most {} characters", c.max_len));
+    }
+    Ok(())
+}
+
+fn check_ref_list(c: &RefListC, v: &Value) -> Result<(), String> {
+    let items = match v {
+        Value::Array(a) => a.clone(),
+        _ => return Err("expected a list of names".into()),
+    };
+    let names: Vec<String> = items
+        .iter()
+        .filter_map(|x| x.as_str().map(str::to_string))
+        .collect();
+    if names.len() != items.len() {
+        return Err("expected a list of names".into());
+    }
+    if let Some(m) = c.max
+        && names.len() > m as usize
+    {
+        return Err(format!("at most {m}"));
+    }
+    if c.unique
+        && let Some(d) = names
+            .iter()
+            .enumerate()
+            .find(|(i, n)| names[..*i].contains(n))
+    {
+        return Err(format!("\"{}\" is listed twice", d.1));
+    }
+    Ok(())
+}
+
+fn check_union(u: &UnionC, v: &Value) -> Result<(), String> {
+    if u.branches.is_empty() || u.branches.iter().any(|b| check(b, v).is_ok()) {
+        Ok(())
+    } else {
+        u.branches
+            .iter()
+            .map(|b| check(b, v))
+            .find_map(Result::err)
+            .map_or(Ok(()), Err)
+    }
+}
+
+fn check_object(o: &ObjectC, v: &Value) -> Result<(), String> {
+    let Value::Object(m) = v else {
+        return Err("expected a group of settings".into());
+    };
+    m.iter()
+        .try_for_each(|(k, x)| match o.fields.iter().find(|f| f.key == *k) {
+            Some(f) => check(&f.node, x).map_err(|e| format!("{k}: {e}")),
+            None => Err(format!("{k} is not a setting here")),
+        })
 }
 
 pub fn check_in(node: &Node, v: &Value, doc: &Value) -> Result<(), String> {
