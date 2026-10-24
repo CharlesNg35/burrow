@@ -5,7 +5,7 @@ use leptos::prelude::*;
 use wasm_bindgen::JsCast;
 
 use crate::edit::Edit;
-use crate::form::{ShowKeys, card_fields, settings_card, settings_cards};
+use crate::form::{PageSearch, ShowKeys, card_fields, settings_card, settings_cards};
 use crate::route::Route;
 use crate::screens::{DetailPane, ListPane, Row, master_detail};
 use crate::store::store;
@@ -72,6 +72,11 @@ pub fn groups(
                 line2: String::new(),
                 tags,
                 filters,
+                terms: inside
+                    .iter()
+                    .map(|(p, f)| format!("{} {}", f.node.label, p.join(".")))
+                    .collect::<Vec<_>>()
+                    .join("\n"),
                 ..Row::default()
             }
         })
@@ -95,6 +100,7 @@ pub fn setting_errors(diags: &[burrow_admin_proto::diag::Diag]) -> usize {
 pub fn Settings() -> impl IntoView {
     let s = store();
     let current: RwSignal<Option<String>> = RwSignal::new(None);
+    let query = RwSignal::new(String::new());
     let rows = Memo::new(move |_| {
         let schema = s.schema.get();
         let restart = s
@@ -107,7 +113,7 @@ pub fn Settings() -> impl IntoView {
             .unwrap_or_default()
     });
     let count = Signal::derive(move || rows.with(Vec::len).to_string());
-    let list = settings_list(rows, count, current);
+    let list = settings_list(rows, count, current, query);
     let body = move || {
         let schema = s.schema.get()?;
         let skip = sections(&schema);
@@ -138,6 +144,7 @@ pub fn Settings() -> impl IntoView {
     let can = s.can_write_now();
     let detail = view! {
         <Provider value=ShowKeys(true)>
+        <Provider value=PageSearch(query)>
         <Provider value=crate::form::EditMode(Signal::derive(move || editing.get()))>
         <DetailPane>
             <header class="mb-[22px] flex flex-wrap items-start gap-3.5">
@@ -168,6 +175,7 @@ pub fn Settings() -> impl IntoView {
         </DetailPane>
         </Provider>
         </Provider>
+        </Provider>
     }
     .into_any();
     master_detail(list, detail)
@@ -177,6 +185,7 @@ fn settings_list(
     rows: Memo<Vec<Row>>,
     count: Signal<String>,
     current: RwSignal<Option<String>>,
+    query: RwSignal<String>,
 ) -> AnyView {
     view! {
         <div
@@ -205,6 +214,7 @@ fn settings_list(
                 selected=current
                 testid="settings-list"
                 compact=true
+                query=query
             />
         </div>
     }

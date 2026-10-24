@@ -9,14 +9,15 @@ pub fn Disclosure(
     open: RwSignal<bool>,
     #[prop(optional, into)] on_toggle: Option<Callback<bool>>,
     #[prop(optional)] table: bool,
+    #[prop(optional)] flush: bool,
     #[prop(optional, into)] grid: String,
     children: Children,
 ) -> impl IntoView {
     let region = format!("{id}-region");
-    let (outer, button) = if table {
-        ("", "py-3")
-    } else {
-        ("md:col-span-2", "border-t border-rowline pt-3")
+    let (outer, button) = match (table, flush) {
+        (true, _) => ("", "py-3"),
+        (false, true) => ("md:col-span-2", ""),
+        (false, false) => ("md:col-span-2", "border-t border-rowline pt-3"),
     };
     view! {
         <div class=outer data-disclosure="" data-open=move || open.get().to_string()>
@@ -35,8 +36,8 @@ pub fn Disclosure(
                     }
                 }
             >
-                <span class=move || if open.get() { "inline-flex rotate-90 transition-transform" } else { "inline-flex transition-transform" } aria-hidden="true">
-                    <Icon name="chevron-right" small=true/>
+                <span class="inline-flex" aria-hidden="true">
+                    {move || view! { <Icon name=if open.get() { "chevron-down" } else { "chevron-right" } small=true/> }}
                 </span>
                 <span>{move || summary.get()}</span>
             </button>

@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use super::edits::open_more;
 use super::edits::{Flow, clear_of_bar, click_js};
 use super::world::Options;
 use super::{Ctx, SECS, edit_mode, open, run, wait_checked};
@@ -50,6 +51,7 @@ async fn visitor_edits_are_kept(c: &mut Ctx) {
     );
     c.ui.shot("visitor-access-view").await;
     edit_mode(c).await;
+    open_more(c, "visitors/*/max_connections").await;
     c.ui.fill("#f-visitors-laptop-max-connections", "abc").await;
     wait_checked(c).await;
     c.ui.wait_for("[data-testid=form-problems] [data-problem]", SECS)
@@ -122,6 +124,7 @@ async fn visitor_edits_are_kept(c: &mut Ctx) {
     c.ui.click("[data-testid=discard-edit]").await;
     c.ui.wait_gone("[data-testid=save-bar]", SECS).await;
     edit_mode(c).await;
+    open_more(c, "visitors/*/max_connections").await;
     c.ui.fill("#f-visitors-laptop-max-connections", "50").await;
     wait_checked(c).await;
     assert_eq!(
@@ -134,6 +137,7 @@ async fn visitor_edits_are_kept(c: &mut Ctx) {
     c.ui.wait_text("[data-testid=review-count]", "1", SECS)
         .await;
     edit_mode(c).await;
+    open_more(c, "visitors/*/max_connections").await;
     c.ui.fill("#f-visitors-laptop-max-connections", "60").await;
     wait_checked(c).await;
     c.ui.click("[data-testid=review-open]").await;
@@ -272,6 +276,7 @@ async fn service_problems_show_in_the_form(c: &mut Ctx) {
     )
     .await;
     clear_of_bar(c, "services/*/visitors").await;
+    open_more(c, "services/*/max_connections").await;
     c.ui.fill("#f-services-web-max-connections", "abc").await;
     c.ui.wait_for("[data-testid=form-problems] [data-problem]", SECS)
         .await;
@@ -290,6 +295,7 @@ async fn service_problems_show_in_the_form(c: &mut Ctx) {
 async fn toast_sits_above_the_bar(c: &mut Ctx) {
     c.ui.nav("/clients/home?tab=settings").await;
     edit_mode(c).await;
+    open_more(c, "clients/*/max_connections").await;
     c.ui.fill("#f-clients-home-max-connections", "7").await;
     wait_checked(c).await;
     c.ui.click("[data-testid=save]").await;
@@ -311,6 +317,7 @@ async fn toast_sits_above_the_bar(c: &mut Ctx) {
 async fn private_udp_needs_visitors(c: &mut Ctx) {
     c.ui.nav("/services/web?tab=settings").await;
     edit_mode(c).await;
+    open_more(c, "services/*/max_connections").await;
     c.ui.fill("#f-services-web-max-connections", "9").await;
     wait_checked(c).await;
     c.ui.choose("f-services-web-protocol", "udp").await;

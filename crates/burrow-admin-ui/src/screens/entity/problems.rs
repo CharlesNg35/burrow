@@ -204,23 +204,31 @@ pub fn go_to_field(path: &[String]) {
         .map(|n| crate::form::field_id(&path[..n]))
         .collect();
     request_animation_frame(move || {
-        use wasm_bindgen::JsCast;
         let doc = document();
         let Some(el) = ids.iter().find_map(|id| doc.get_element_by_id(id)) else {
             return;
         };
-        let opts = web_sys::ScrollIntoViewOptions::new();
-        opts.set_block(web_sys::ScrollLogicalPosition::Center);
-        el.scroll_into_view_with_scroll_into_view_options(&opts);
-        let target = el
-            .query_selector("input:not([type=hidden]), select, textarea, button")
-            .ok()
-            .flatten()
-            .unwrap_or(el);
-        if let Ok(h) = target.dyn_into::<web_sys::HtmlElement>() {
-            let _ = h.focus();
+        if crate::form::reveal(&el) {
+            request_animation_frame(move || scroll_and_focus(el));
+        } else {
+            scroll_and_focus(el);
         }
     });
+}
+
+fn scroll_and_focus(el: web_sys::Element) {
+    use wasm_bindgen::JsCast;
+    let opts = web_sys::ScrollIntoViewOptions::new();
+    opts.set_block(web_sys::ScrollLogicalPosition::Center);
+    el.scroll_into_view_with_scroll_into_view_options(&opts);
+    let target = el
+        .query_selector("input:not([type=hidden]), select, textarea, button")
+        .ok()
+        .flatten()
+        .unwrap_or(el);
+    if let Ok(h) = target.dyn_into::<web_sys::HtmlElement>() {
+        let _ = h.focus();
+    }
 }
 
 pub(super) fn problem_list(

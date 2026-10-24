@@ -333,3 +333,15 @@ pub(super) async fn click_js(c: &Ctx, css: &str) {
         .await;
     assert!(ok, "nothing matches {css}");
 }
+
+pub(super) async fn open_more(c: &Ctx, schema: &str) {
+    c.ui.wait_for(&format!("[data-schema='{schema}']"), SECS)
+        .await;
+    let _: bool = c
+        .ui
+        .eval(&format!(
+            "(() => {{ const r = document.querySelector(\"[data-schema='{schema}']\").closest('[data-testid=more-region][hidden]'); if (r) document.querySelector('[aria-controls=\"' + r.id + '\"]').click(); return true; }})()"
+        ))
+        .await;
+    tokio::time::sleep(Duration::from_millis(150)).await;
+}

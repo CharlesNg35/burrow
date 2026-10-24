@@ -101,8 +101,9 @@ pub fn ListPane(
     #[prop(optional)] default_filter: Option<&'static str>,
     #[prop(optional)] compact: bool,
     #[prop(optional)] empty_icon: Option<&'static str>,
+    #[prop(optional)] query: Option<RwSignal<String>>,
 ) -> impl IntoView {
-    let q = RwSignal::new(String::new());
+    let q = query.unwrap_or_else(|| RwSignal::new(String::new()));
     let filter = RwSignal::new(default_filter.unwrap_or("all"));
     let visible = Memo::new(move |_| {
         let needle = q.get().to_lowercase();

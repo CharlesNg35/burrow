@@ -9,11 +9,13 @@ use leptos::prelude::*;
 
 use crate::store::store;
 
+use super::more::{More, ROWS, more_settings};
 use super::{
     ADMIN, ADMIN_FROM, ALLOW_FROM, BANDWIDTH, BIND, CLIENTS, DENY_FROM, HEALTH_CHECK,
     MAX_CONNECTIONS, MODE, PROTOCOL, PROXY_PROTOCOL, SERVICE_VISITORS, SERVICES, TARGET, VISITORS,
-    editing_now, field_id, join, locked_hint, object_view, row,
+    editing_now, field_id, join, locked_hint, object_view_marked, row,
 };
+use burrow_admin_logic::more::split;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct SettingsCard {
@@ -138,18 +140,35 @@ pub fn settings_card(c: &SettingsCard) -> AnyView {
         }
     };
     if !c.object {
-        let rows = c
-            .fields
-            .iter()
-            .map(|f| {
-                row(
-                    f.clone(),
-                    vec![f.key.clone()],
-                    vec![f.key.clone()],
-                    Vec::new(),
-                )
-            })
-            .collect_view();
+        let all: Vec<&Field> = c.fields.iter().collect();
+        let (essential, advanced) = split(&all, false);
+        let one = |f: &Field| {
+            row(
+                f.clone(),
+                vec![f.key.clone()],
+                vec![f.key.clone()],
+                Vec::new(),
+            )
+        };
+        let mut rows: Vec<AnyView> = essential.iter().map(|f| one(f)).collect();
+        if !advanced.is_empty() {
+            let more = More {
+                fields: advanced
+                    .iter()
+                    .map(|f| ((*f).clone(), vec![f.key.clone()]))
+                    .collect(),
+                spath: Vec::new(),
+                group: c.key.clone(),
+                entity: Vec::new(),
+                table: true,
+                alone: essential.is_empty(),
+                grid: ROWS,
+            };
+            rows.push(more_settings(
+                more,
+                advanced.iter().map(|f| one(f)).collect(),
+            ));
+        }
         return view! {
             <section class=format!("mb-4 scroll-mt-20 rounded-card border bg-surface {border}") data-card=c.key.clone() data-group=c.key.clone()>
                 {head(c.title.clone(), ().into_any())}
@@ -172,6 +191,7 @@ pub fn settings_card(c: &SettingsCard) -> AnyView {
     let editing = editing_now();
     let optional = matches!(f.node.sem, SemType::Optional(_));
     let inner_node = inner(&f.node).clone();
+    let advanced = f.node.advanced;
     let p2 = path.clone();
     let is_set = Memo::new(move |_| e.value(&p2).is_some_and(|v| !v.is_null()));
     let (p3, tid) = (path.clone(), field_id(&path));
@@ -212,7 +232,14 @@ pub fn settings_card(c: &SettingsCard) -> AnyView {
     let p4 = path.clone();
     let body = move || {
         if !optional || is_set.get() {
-            object_view(&inner_node, p4.clone(), p4.clone(), Vec::new())
+            object_view_marked(
+                &inner_node,
+                p4.clone(),
+                p4.clone(),
+                Vec::new(),
+                &[],
+                advanced,
+            )
         } else {
             view! {
                 <div class="py-3">

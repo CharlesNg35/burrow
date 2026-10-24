@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use super::edits::open_more;
 use super::edits::{Flow, clear_of_bar, click_js, focus, row_clean, row_error, stored_as};
 use super::world::{Options, free_range};
 use super::{Ctx, SECS, applied, edit_mode, open, open_review, run, wait_checked};
@@ -49,6 +50,7 @@ fn editors(c: &mut Ctx) -> Flow<'_> {
             .await;
         row_clean(c, target).await;
 
+        open_more(c, "services/*/health_check").await;
         click_js(
             c,
             "[data-schema='services/*/health_check'] input[value=custom]",
@@ -97,6 +99,7 @@ fn editors(c: &mut Ctx) -> Flow<'_> {
         edit_mode(c).await;
         c.ui.wait_for("[data-schema='pool/min_idle'] [data-editor]", SECS)
             .await;
+        open_more(c, "pool/min_idle").await;
         let _: bool = c
             .ui
             .eval("(() => { const b = document.querySelector('[data-sticky-bar]').getBoundingClientRect(); const r = document.querySelector(\"[data-schema='pool/min_idle']\").getBoundingClientRect(); scrollBy(0, r.bottom - b.top - 10); document.getElementById('f-pool-min-idle').focus(); return true; })()")
@@ -141,6 +144,7 @@ fn editors(c: &mut Ctx) -> Flow<'_> {
 
         c.ui.nav("/settings").await;
         let peers = "[data-schema='udp/max_peers']";
+        open_more(c, "udp/max_peers").await;
         let help = c.ui.wait_text(peers, "Max UDP peers per port", SECS).await;
         assert!(
             help.contains("For example 20000; the default is 4096"),
@@ -219,6 +223,7 @@ fn locked_fields(c: &mut Ctx) -> Flow<'_> {
             "limits/max_handshakes",
         ] {
             let row = format!("[data-schema='{field}']");
+            open_more(c, field).await;
             assert_eq!(
                 c.ui.count(&format!("{row} [data-editor]")).await,
                 0,

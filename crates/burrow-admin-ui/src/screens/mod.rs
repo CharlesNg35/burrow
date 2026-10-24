@@ -64,6 +64,7 @@ pub struct Row {
     pub line3: String,
     pub aside: String,
     pub title_tag: Option<(String, Tone)>,
+    pub terms: String,
 }
 
 impl Row {
@@ -72,6 +73,7 @@ impl Row {
             || self.title.to_lowercase().contains(q)
             || self.line2.to_lowercase().contains(q)
             || self.meta.to_lowercase().contains(q)
+            || self.terms.to_lowercase().contains(q)
     }
 }
 

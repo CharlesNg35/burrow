@@ -1,8 +1,10 @@
 mod cards;
 mod controls;
+mod more;
 mod row;
 mod view;
 
+use burrow_admin_logic::more::split;
 use burrow_admin_logic::tree::{fields, inner, merged_into, merged_single};
 use burrow_admin_proto::Path;
 use burrow_admin_proto::schema::{Applies, Editable, Field, Node, SemType};
@@ -18,6 +20,8 @@ use crate::store::store;
 use cards::layout_order;
 pub(crate) use cards::{card_fields, settings_card, settings_cards};
 use controls::visibility_row;
+use more::{More, more_settings};
+pub use more::{PageSearch, reveal};
 use row::row;
 use view::value_view;
 
@@ -145,6 +149,66 @@ pub fn object_view_skipping(
     entity: Path,
     skip: &[&str],
 ) -> AnyView {
+    object_view_marked(node, path, spath, entity, skip, false)
+}
+
+struct Section<'a> {
+    node: &'a Node,
+    path: &'a Path,
+    spath: &'a Path,
+    entity: &'a Path,
+    public: Option<RwSignal<bool>>,
+}
+
+impl Section<'_> {
+    fn rows(&self, mine: &[&Field]) -> Vec<AnyView> {
+        let (path, spath, entity) = (self.path, self.spath, self.entity);
+        let mut rows: Vec<AnyView> = Vec::new();
+        for f in mine {
+            if let Some(single) = merged_single(self.node, &f.key) {
+                let sp = join(&child(spath, single));
+                let into = f.key.clone();
+                rows.push(
+                    view! { <span hidden data-schema=sp data-merged-into=into></span> }.into_any(),
+                );
+            }
+            if f.key == PROTOCOL
+                && let Some(public) = self.public
+            {
+                rows.push(visibility_row(child(path, BIND), public));
+            }
+            let (fp, fs) = (child(path, &f.key), child(spath, &f.key));
+            match (f.key.as_str(), self.public) {
+                (BIND, Some(public)) => {
+                    let (f, entity) = ((*f).clone(), entity.clone());
+                    rows.push(
+                        (move || {
+                            public
+                                .get()
+                                .then(|| row(f.clone(), fp.clone(), fs.clone(), entity.clone()))
+                        })
+                        .into_any(),
+                    );
+                }
+                (HEALTH_CHECK, Some(_)) => {
+                    rows.push(row((*f).clone(), fp.clone(), fs.clone(), entity.clone()));
+                    rows.push(domain::health_box(f.node.clone(), fp, fs, entity.clone()));
+                }
+                _ => rows.push(row((*f).clone(), fp, fs, entity.clone())),
+            }
+        }
+        rows
+    }
+}
+
+pub(crate) fn object_view_marked(
+    node: &Node,
+    path: Path,
+    spath: Path,
+    entity: Path,
+    skip: &[&str],
+    all_advanced: bool,
+) -> AnyView {
     let node = inner(node);
     let table = use_context::<ShowKeys>().is_some_and(|k| k.0);
     let mut groups: Vec<(String, String, String)> = node
@@ -166,73 +230,96 @@ pub fn object_view_skipping(
         let bind = child(&path, BIND);
         RwSignal::new(store().edit.peek(&bind).is_some_and(|v| !v.is_null()))
     });
+    let at = Section {
+        node,
+        path: &path,
+        spath: &spath,
+        entity: &entity,
+        public,
+    };
     let sections = groups
         .into_iter()
         .filter_map(|(key, label, sub)| {
-            let mut mine: Vec<&Field> = all.iter().copied().filter(|f| f.node.group == key).collect();
+            let mut mine: Vec<&Field> = all
+                .iter()
+                .copied()
+                .filter(|f| f.node.group == key)
+                .collect();
             if let Some(order) = layout_order(&spath, &key) {
-                mine.sort_by_key(|f| order.iter().position(|k| *k == f.key).unwrap_or(order.len()));
-            }
-            let mut rows: Vec<AnyView> = Vec::new();
-            for f in mine {
-                if let Some(single) = merged_single(node, &f.key) {
-                    let sp = join(&child(&spath, single));
-                    let into = f.key.clone();
-                    rows.push(view! { <span hidden data-schema=sp data-merged-into=into></span> }.into_any());
-                }
-                if f.key == PROTOCOL
-                    && let Some(public) = public
-                {
-                    rows.push(visibility_row(child(&path, BIND), public));
-                }
-                let (fp, fs) = (child(&path, &f.key), child(&spath, &f.key));
-                match (f.key.as_str(), public) {
-                    (BIND, Some(public)) => {
-                        let (f, entity) = ((*f).clone(), entity.clone());
-                        rows.push((move || public.get().then(|| row(f.clone(), fp.clone(), fs.clone(), entity.clone()))).into_any());
-                    }
-                    (HEALTH_CHECK, Some(_)) => {
-                        rows.push(row((*f).clone(), fp.clone(), fs.clone(), entity.clone()));
-                        rows.push(domain::health_box(f.node.clone(), fp, fs, entity.clone()));
-                    }
-                    _ => rows.push(row((*f).clone(), fp, fs, entity.clone())),
-                }
-            }
-            (!rows.is_empty()).then(|| {
-                let n = rows.len();
-                if table && path.is_empty() {
-                    let label = if label.is_empty() { "General".to_string() } else { label.clone() };
-                    return view! {
-                        <section class="mb-4 scroll-mt-20 rounded-card border border-border bg-surface" data-group=key>
-                            <div class="flex items-center border-b border-border px-4 py-3">
-                                <h3 class="text-[14px] font-bold">{label}</h3>
-                                <span class="ml-auto text-xs text-text-muted">{format!("{n} field{}", if n == 1 { "" } else { "s" })}</span>
-                            </div>
-                            <div class="divide-y divide-rowline px-4">{rows}</div>
-                        </section>
-                    }
-                    .into_any();
-                }
-                if table {
-                    return view! { <div class="divide-y divide-rowline" data-group=key>{rows}</div> }.into_any();
-                }
-                let title = (!label.is_empty()).then(|| {
-                    view! {
-                        <div class="flex items-baseline gap-2.5 border-b border-border pb-2.5 md:col-span-2">
-                            <h3 class="text-[14px] font-bold">{label}</h3>
-                            {(!sub.is_empty()).then(|| view! { <span class="text-[12.5px] text-text-muted">{sub.clone()}</span> })}
-                        </div>
-                    }
+                mine.sort_by_key(|f| {
+                    order
+                        .iter()
+                        .position(|k| *k == f.key)
+                        .unwrap_or(order.len())
                 });
-                view! {
-                    <section class="mb-[26px] grid grid-cols-1 gap-x-6 gap-y-[22px] md:grid-cols-2" data-group=key>
-                        {title}
-                        {rows}
-                    </section>
-                }
-                .into_any()
-            })
+            }
+            let (essential, advanced) = split(&mine, all_advanced);
+            let n = mine.len();
+            let mut rows = at.rows(&essential);
+            if !advanced.is_empty() {
+                let more = More {
+                    fields: advanced
+                        .iter()
+                        .map(|f| ((*f).clone(), child(&path, &f.key)))
+                        .collect(),
+                    spath: spath.clone(),
+                    group: key.clone(),
+                    entity: entity.clone(),
+                    table,
+                    alone: essential.is_empty(),
+                    grid: more::GRID,
+                };
+                rows.push(more_settings(more, at.rows(&advanced)));
+            }
+            (n > 0).then(|| section_view(table && path.is_empty(), table, key, label, sub, n, rows))
         })
         .collect_view();
     view! { <div class="max-w-[1120px]">{sections}</div> }.into_any()
+}
+
+fn section_view(
+    card: bool,
+    table: bool,
+    key: String,
+    label: String,
+    sub: String,
+    n: usize,
+    rows: Vec<AnyView>,
+) -> AnyView {
+    if card {
+        let label = if label.is_empty() {
+            "General".to_string()
+        } else {
+            label
+        };
+        return view! {
+            <section class="mb-4 scroll-mt-20 rounded-card border border-border bg-surface" data-group=key>
+                <div class="flex items-center border-b border-border px-4 py-3">
+                    <h3 class="text-[14px] font-bold">{label}</h3>
+                    <span class="ml-auto text-xs text-text-muted">{format!("{n} field{}", if n == 1 { "" } else { "s" })}</span>
+                </div>
+                <div class="divide-y divide-rowline px-4">{rows}</div>
+            </section>
+        }
+        .into_any();
+    }
+    if table {
+        return view! { <div class="divide-y divide-rowline" data-group=key>{rows}</div> }
+            .into_any();
+    }
+    let title = (!label.is_empty()).then(|| {
+        view! {
+            <div class="flex items-baseline gap-2.5 border-b border-border pb-2.5 md:col-span-2">
+                <h3 class="text-[14px] font-bold">{label}</h3>
+                {(!sub.is_empty()).then(|| view! { <span class="text-[12.5px] text-text-muted">{sub}</span> })}
+            </div>
+        }
+    });
+    view! {
+        <section class="mb-[26px] grid grid-cols-1 gap-x-6 gap-y-[22px] md:grid-cols-2" data-group=key>
+            {title}
+            {rows}
+        </section>
+    }
+    .into_any()
 }
