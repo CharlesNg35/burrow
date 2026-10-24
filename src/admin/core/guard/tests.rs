@@ -1,7 +1,10 @@
 use super::*;
+use crate::admin::core::ports::LiveSession;
 use crate::admin::core::tests::world;
 use crate::config::{Format, Loaded, Role, load_str};
-use crate::metrics::{ServiceStatus, VisitorStatus};
+use crate::metrics::{ServiceStatus, Status, VisitorStatus};
+use burrow_admin_proto::plan::Level;
+use burrow_config::SELF;
 
 fn settings(text: &str) -> ServerSettings {
     let nothing = |_: &str| None;
