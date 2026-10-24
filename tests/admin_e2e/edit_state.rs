@@ -377,7 +377,7 @@ async fn narrow_window(c: &mut Ctx) {
     assert!(!placeholder.is_empty(), "the picker says what it is for");
     let before: f64 = c
         .ui
-        .eval("(() => { scrollTo(0, 0); const r = document.getElementById('new-links').getBoundingClientRect(); const b = document.querySelector('[data-sticky-bar]').getBoundingClientRect(); scrollBy(0, r.bottom - b.top + 8); return scrollY; })()")
+        .eval("(() => { scrollTo(0, 0); const r = document.getElementById('new-links').getBoundingClientRect(); const b = document.querySelector('[data-sticky-bar]').getBoundingClientRect(); scrollBy(0, r.bottom - b.top + 24); return scrollY; })()")
         .await;
     let _: bool = c
         .ui
