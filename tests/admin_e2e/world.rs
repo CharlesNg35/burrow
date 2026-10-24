@@ -109,7 +109,7 @@ impl World {
             ports: BTreeMap::new(),
             secrets: BTreeMap::new(),
         };
-        for k in ["listen", "web", "echo", "forward", "game", "https"] {
+        for k in ["listen", "web", "echo", "forward", "game", "https", "http"] {
             w.ports.insert(k, free_port());
         }
         for n in ["home", "office", "ops", "viewer", "laptop", "plain", "boss"] {
@@ -138,7 +138,8 @@ impl World {
             extra_clients = opts.extra_clients,
             extra_top = opts
                 .extra_top
-                .replace("HTTPS_PORT", &p["https"].to_string()),
+                .replace("HTTPS_PORT", &p["https"].to_string())
+                .replace("HTTP_PORT", &p["http"].to_string()),
         );
         w.write("server.yaml", &yaml);
         let env: Vec<(&str, &str)> = opts

@@ -346,6 +346,7 @@ pub(super) fn check_sites(
         }
     }
     certs::check_sources(cfg, https, spans, out);
+    choices::check_choices(cfg, (https, http), spans, out);
     sites
 }
 
@@ -512,6 +513,7 @@ fn check_hosts(
 }
 
 mod certs;
+mod choices;
 mod fill;
 
 pub(super) use fill::settings;

@@ -60,3 +60,18 @@ fn the_letsencrypt_profile_is_passed_on_as_written() {
         "the CA decides which profiles exist"
     );
 }
+
+#[test]
+fn a_plain_site_needs_the_http_port() {
+    let site = |ports: &str| {
+        format!(
+            "web: {{ {ports} }}\nservices:\n  wiki:\n    client: home\n    target: 3000\n    web: {{ hosts: [wiki.example.com], tls: off }}\n"
+        )
+    };
+    assert_eq!(
+        found(&site("https: 443"), "plain-needs-http"),
+        ["services.wiki.web.tls: off serves plain HTTP, but web.http is not set; add http: 80"]
+    );
+    assert!(found(&site("https: 443, http: 80"), "plain-needs-http").is_empty());
+    assert!(found(&site("http: 80"), "plain-needs-http").is_empty());
+}

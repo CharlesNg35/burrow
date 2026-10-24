@@ -69,6 +69,27 @@ async fn read_only_pages(c: &mut Ctx) {
     both_widths(c, "service-nas-settings").await;
 }
 
+async fn plain_with_the_http_port(c: &mut Ctx) {
+    let port = c.world.ports["http"];
+    c.world
+        .hand_edit(|t| t.replacen("web:\n", &format!("web:\n  http: 127.0.0.1:{port}\n"), 1));
+    c.ui.nav("/settings").await;
+    c.ui.wait_text("[data-schema='web/http']", &port.to_string(), SECS)
+        .await;
+    c.ui.nav("/services/nas").await;
+    c.ui.wait_for("[role=tablist]", SECS).await;
+    c.ui.click("[role=tablist] [data-tab=settings]").await;
+    edit_mode(c).await;
+    click_js(c, "[data-schema='services/*/web/tls'] input[value=off]").await;
+    wait_checked(c).await;
+    row_clean(c, SITE_TLS).await;
+    both_widths(c, "nas-plain-http").await;
+    open_review(c, "nas-plain-review").await;
+    applied(c, "nas-plain-applied").await;
+    let text = c.world.config();
+    assert!(text.contains("tls: \"off\""), "{text}");
+}
+
 fn websites(c: &mut Ctx) -> Flow<'_> {
     Box::pin(async move {
         open(c, "ops").await;
@@ -105,10 +126,10 @@ fn websites(c: &mut Ctx) -> Flow<'_> {
         wait_checked(c).await;
         let err = row_error(c, SITE_TLS).await;
         assert!(
-            err.contains("plain HTTP websites are not in this build yet"),
+            err.contains("plain HTTP needs the web proxy's HTTP port"),
             "{err}"
         );
-        both_widths(c, "nas-plain-http-not-yet").await;
+        both_widths(c, "nas-plain-http-needs-the-port").await;
         let files_off: bool = c
             .ui
             .eval("(() => { const i = document.querySelector(\"[data-schema='services/*/web/tls'] input[value=files]\"); return !!i && i.disabled; })()")
@@ -150,6 +171,7 @@ fn websites(c: &mut Ctx) -> Flow<'_> {
         c.ui.wait_text("[data-testid=websites]", "app.example.com", SECS)
             .await;
         both_widths(c, "overview-after").await;
+        plain_with_the_http_port(c).await;
         c.ui.assert_no_errors();
     })
 }

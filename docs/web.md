@@ -82,10 +82,10 @@ Names:
 | --- | --- | --- |
 | `auto` (the default with `web.https`) | burrow does HTTPS with a certificate for every name | not yet |
 | `passthrough` | the app does its own HTTPS; burrow only reads the name | yes |
-| `off` | no HTTPS: plain HTTP on `web.http` | not yet |
-| `{cert, key}` | burrow does HTTPS with this site's own certificate file | not yet |
+| `off` | no HTTPS: plain HTTP on `web.http` | yes |
+| `{cert, key}` | burrow does HTTPS with this site's own certificate file | yes |
 
-The short forms `web: nas.example.com` and `web: [a.example.com, b.example.com]` use the default, `auto`. Until burrow can serve HTTPS itself, `burrow validate` refuses every form but `passthrough` and says how to fix it.
+The short forms `web: nas.example.com` and `web: [a.example.com, b.example.com]` use the default, `auto`. Until automatic certificates are in this build, `burrow validate` refuses `auto` and says how to fix it.
 
 ## The tunnel on the same port
 
@@ -128,9 +128,9 @@ server: wss://tunnel.example.com/burrow
 | Problem | What validate says |
 | --- | --- |
 | a service has `web` but there is no top-level `web` | `services.nas.web: the web proxy is off; add a top-level web: with its port, like web: {https: 443}` |
-| `web` has no port | `web needs a port: https for HTTPS sites, like https: 443 (plain HTTP sites on web.http are not in this build yet)` |
-| a website with `tls: auto` (or no `tls`) or `{cert, key}` | `services.blog.web.tls: burrow cannot serve HTTPS for websites in this build yet; use tls: passthrough` |
-| a website with `tls: off` | `services.blog.web.tls: plain HTTP websites need web.http, which this build does not have yet; use tls: passthrough` |
+| `web` has no port | `web needs a port: https for HTTPS sites, like https: 443, or http for plain HTTP sites, like http: 80` |
+| a website with `tls: auto` (or no `tls` with `web.https`) | `services.blog.web.tls: burrow cannot serve HTTPS for websites in this build yet; use tls: passthrough` |
+| a website with `tls: off` but no `web.http` | `services.wiki.web.tls: off serves plain HTTP, but web.http is not set; add http: 80` |
 | an HTTPS name with no certificate | `host "blog.example.com" (service "blog") has no certificate; add web.letsencrypt for automatic certificates, tls: {cert, key} on service "blog", or an entry in web.certificates whose hosts lists it` |
 | a wildcard name from Let's Encrypt | `services.apps.web.hosts: "*.apps.example.com" needs DNS-01 (Let's Encrypt gives wildcard certificates only through DNS checks), which this build does not have yet; add a certificate file under web.certificates or tls` |
 | a name that is not a host name | `services.nas.web.hosts: "https://nas.example.com" is not a host name; write the name alone, like blog.example.com` |

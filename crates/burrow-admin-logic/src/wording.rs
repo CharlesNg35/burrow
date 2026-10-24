@@ -1,6 +1,5 @@
 pub const WEB_HTTPS_LATER: &str = "web-https-later";
-pub const WEB_HTTP_LATER: &str = "web-http-later";
-pub const WEB_TLS_FILES_LATER: &str = "web-tls-files-later";
+pub const PLAIN_NEEDS_HTTP: &str = "plain-needs-http";
 pub const WEB_TCP_ONLY: &str = "web-tcp-only";
 pub const PROXY_PROTOCOL_TCP_ONLY: &str = "proxy-protocol-tcp-only";
 pub const MAX_CONNECTIONS_TCP_ONLY: &str = "max-connections-tcp-only";
@@ -38,11 +37,11 @@ fn key_path(head: &str) -> bool {
 }
 
 pub fn shown(code: &str, message: &str) -> String {
-    if code == WEB_HTTPS_LATER || code == WEB_TLS_FILES_LATER {
+    if code == WEB_HTTPS_LATER {
         return "burrow cannot serve HTTPS for websites in this build yet; under HTTPS, choose The app does its own HTTPS".into();
     }
-    if code == WEB_HTTP_LATER {
-        return "plain HTTP websites are not in this build yet; under HTTPS, choose The app does its own HTTPS".into();
+    if code == PLAIN_NEEDS_HTTP {
+        return "plain HTTP needs the web proxy's HTTP port, which is not set; add http: 80 under web in server.yaml (burrow edit), or choose another HTTPS option".into();
     }
     if let Some((_, text)) = TCP_ONLY.iter().find(|(c, _)| *c == code) {
         return (*text).into();
@@ -123,8 +122,11 @@ mod tests {
                 .contains("choose The app does its own HTTPS")
         );
         assert_eq!(
-            shown(WEB_TLS_FILES_LATER, "services.nas.web.tls: ..."),
-            shown(WEB_HTTPS_LATER, "services.nas.web.tls: ...")
+            shown(
+                PLAIN_NEEDS_HTTP,
+                "services.wiki.web.tls: off serves plain HTTP, but web.http is not set; add http: 80"
+            ),
+            "plain HTTP needs the web proxy's HTTP port, which is not set; add http: 80 under web in server.yaml (burrow edit), or choose another HTTPS option"
         );
     }
 }
