@@ -78,7 +78,7 @@ pub(super) fn share_tunnel(
     spans: &Spans,
     out: &mut Vec<Diagnostic>,
 ) {
-    let (Some(ws), Some(given)) = (websocket, cfg.websocket.as_ref()) else {
+    let (true, Some(ws), Some(given)) = (BUILT_WITH_WEB, websocket, cfg.websocket.as_ref()) else {
         return;
     };
     let host_at = spans.value(&["websocket", "host"]);
@@ -183,6 +183,10 @@ pub(super) fn check_sites(
     out: &mut Vec<Diagnostic>,
 ) -> BTreeMap<String, WebSite> {
     let mut sites = BTreeMap::new();
+    if !BUILT_WITH_WEB {
+        no_web_proxy_for_sites(cfg, spans, out);
+        return sites;
+    }
     let mut owners: BTreeMap<String, String> = BTreeMap::new();
     for (name, svc) in &cfg.services {
         let Some(web) = &svc.web else {
@@ -235,6 +239,22 @@ pub(super) fn check_sites(
         }
     }
     sites
+}
+
+fn no_web_proxy_for_sites(cfg: &ServerConfig, spans: &Spans, out: &mut Vec<Diagnostic>) {
+    if cfg.web.is_some() || spans.has(&["web"]) {
+        return;
+    }
+    for (name, _) in cfg.services.iter().filter(|(_, s)| s.web.is_some()) {
+        out.push(
+            Diagnostic::error(
+                "no-web-proxy",
+                format!("services.{name}.web: this build of burrow has no web proxy"),
+            )
+            .at(spans.value(&["services", name, "web"]))
+            .help("use a release build of burrow, or remove web: from this service"),
+        );
+    }
 }
 
 struct Place<'a> {

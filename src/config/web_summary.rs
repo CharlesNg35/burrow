@@ -12,7 +12,7 @@ fn addresses(a: SocketAddr) -> &'static str {
 }
 
 pub fn summary(s: &ServerSettings) -> Option<WebSummary> {
-    let web = s.web.as_ref()?;
+    let web = s.web.as_ref().filter(|_| cfg!(feature = "web"))?;
     let tunnel = s.websocket.as_ref().and_then(|w| {
         let url = w.shared_url()?;
         let certificate = w.tls.as_ref().map_or_else(String::new, |t| {
