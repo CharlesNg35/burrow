@@ -1,3 +1,4 @@
+use burrow_admin_logic::web::SiteKind;
 use burrow_admin_proto::serde_json::Value;
 use burrow_admin_proto::status::Status;
 use burrow_config::{Entry, Protocol, ServiceEntry, VisitorEntry};
@@ -164,7 +165,7 @@ pub(super) fn visitor_row(
 
 pub(super) fn service_row(
     name: &String,
-    v: &Value,
+    (v, https_on): (&Value, bool),
     status: Option<&Status>,
     pending: Option<&'static str>,
     to: Route,
@@ -190,6 +191,12 @@ pub(super) fn service_row(
         protocol.to_uppercase(),
         if udp { Tone::Violet } else { Tone::Accent },
     )];
+    match burrow_admin_logic::web::site_kind(v, https_on) {
+        Some(SiteKind::Https) => tags.push(("HTTPS".into(), Tone::Success)),
+        Some(SiteKind::Plain) => tags.push(("HTTP · unencrypted".into(), Tone::Warning)),
+        Some(SiteKind::Passthrough) => tags.push(("passthrough".into(), Tone::Neutral)),
+        None => {}
+    }
     if up == 0 && status.is_some() {
         tags.push(("✕ Down".into(), Tone::Danger));
     } else if let Some((u, n)) = health_up.filter(|(u, n)| *n > 0 && u < n) {

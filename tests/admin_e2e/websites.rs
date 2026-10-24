@@ -51,6 +51,11 @@ async fn read_only_pages(c: &mut Ctx) {
     c.ui.nav("/services").await;
     c.ui.wait_text("[data-row=nas]", "nas.example.com", SECS)
         .await;
+    let nas = c.ui.text("[data-row=nas]").await;
+    assert!(
+        nas.contains("passthrough"),
+        "a website says how it is served: {nas}"
+    );
     both_widths(c, "services-list").await;
     c.ui.nav("/services/nas").await;
     c.ui.wait_text("[role=tablist]", "Settings", SECS).await;

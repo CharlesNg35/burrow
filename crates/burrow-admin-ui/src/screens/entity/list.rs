@@ -1,6 +1,9 @@
 use burrow_admin_proto::schema::Entity;
 use burrow_admin_proto::serde_json::Value;
-use burrow_config::{ClientEntry, Entry, Protocol, ServiceEntry, VisitorEntry, entity_of_section};
+use burrow_config::{
+    ClientEntry, Entry, Protocol, ServerConfig, ServiceEntry, VisitorEntry, WebConfig,
+    entity_of_section,
+};
 use burrow_ui_kit::{EmptyState, Tone};
 use leptos::prelude::*;
 
@@ -29,6 +32,10 @@ pub fn rows_for(section: &str) -> Vec<Row> {
         .and_then(Value::as_object)
         .cloned()
         .unwrap_or_default();
+    let https_on = ServerConfig::WEB
+        .get(&draft)
+        .and_then(|w| WebConfig::HTTPS.get(w))
+        .is_some_and(|h| !h.is_null());
     let mut out = Vec::new();
     for (name, v) in &items {
         let pending = (!base_items.contains_key(name)
@@ -56,7 +63,7 @@ pub fn rows_for(section: &str) -> Vec<Row> {
                 pending,
                 to,
             ),
-            _ => service_row(name, v, status.as_deref(), pending, to),
+            _ => service_row(name, (v, https_on), status.as_deref(), pending, to),
         };
         let mut row = row;
         if let Some(m) = mark {

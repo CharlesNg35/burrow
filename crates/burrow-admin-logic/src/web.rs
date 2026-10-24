@@ -140,6 +140,26 @@ pub fn needs_letsencrypt(hosts: &[String], web: &Value) -> bool {
     })
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SiteKind {
+    Https,
+    Plain,
+    Passthrough,
+}
+
+pub fn site_kind(svc: &Value, https_on: bool) -> Option<SiteKind> {
+    let web = ServiceEntry::WEB.get(svc).filter(|w| !w.is_null())?;
+    if names(web).is_empty() {
+        return None;
+    }
+    Some(match tls_of(web).and_then(Value::as_str) {
+        Some("passthrough") => SiteKind::Passthrough,
+        Some("off") => SiteKind::Plain,
+        None if !https_on => SiteKind::Plain,
+        _ => SiteKind::Https,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -277,6 +297,34 @@ mod tests {
         let files = json!({"https": 443, "certificates": [{"hosts": ["*.example.com"], "cert": "c", "key": "k"}]});
         assert!(!needs_letsencrypt(&n(&["blog.example.com"]), &files));
         assert!(needs_letsencrypt(&n(&["example.com"]), &files));
+    }
+
+    #[test]
+    fn a_website_is_https_plain_or_passed_through() {
+        let svc = |web: Value| json!({"target": 80, "web": web});
+        assert_eq!(
+            site_kind(&svc(json!("a.example.com")), true),
+            Some(SiteKind::Https)
+        );
+        assert_eq!(
+            site_kind(&svc(json!("a.example.com")), false),
+            Some(SiteKind::Plain)
+        );
+        assert_eq!(
+            site_kind(
+                &svc(json!({"hosts": ["a.example.com"], "tls": "off"})),
+                true
+            ),
+            Some(SiteKind::Plain)
+        );
+        assert_eq!(
+            site_kind(
+                &svc(json!({"hosts": ["a.example.com"], "tls": "passthrough"})),
+                true
+            ),
+            Some(SiteKind::Passthrough)
+        );
+        assert_eq!(site_kind(&json!({"target": 80}), true), None);
     }
 
     #[test]
