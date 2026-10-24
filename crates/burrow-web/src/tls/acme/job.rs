@@ -198,10 +198,12 @@ impl Worker {
         let profile = profile_for(&account, &g.names, plan.settings.profile.as_deref())
             .map_err(|e| (e, None))?;
         let mut checks = super::checks_for_all(&plan.settings, &g.names);
-        if let Some(c) = g.check
+        let learned = self.learned(&g.names, &checks).await;
+        if let Some(c) = learned.or(g.check)
             && let Some(i) = checks.iter().position(|x| *x == c)
         {
-            checks.swap(0, i);
+            let c = checks.remove(i);
+            checks.insert(0, c);
         }
         if checks.is_empty() {
             return Err((
@@ -231,6 +233,7 @@ impl Worker {
                 match issue(&account, &self.acme.challenges, ask).await {
                     Ok(issued) => {
                         self.note_issued(&g.names, with.is_some()).await;
+                        self.learn(&g.names, check).await;
                         return held_of(&issued, &g.names, check).map_err(|e| (e, None));
                     }
                     Err(f)
@@ -284,6 +287,31 @@ impl Worker {
                 Some(std::time::Duration::from_secs(next.saturating_sub(now))),
             )),
         }
+    }
+
+    fn learned_path(&self) -> Option<std::path::PathBuf> {
+        let p = self.plan.as_ref()?;
+        Some(super::learned::path(
+            p.settings.state_dir.as_ref()?,
+            &p.settings.directory_url,
+        ))
+    }
+
+    async fn learned(&self, names: &[String], allowed: &[CertCheck]) -> Option<CertCheck> {
+        let path = self.learned_path()?;
+        let learned = tokio::task::spawn_blocking(move || super::learned::load(&path))
+            .await
+            .unwrap_or_default();
+        super::learned::first(&learned, names, allowed)
+    }
+
+    async fn learn(&self, names: &[String], check: CertCheck) {
+        let Some(path) = self.learned_path() else {
+            return;
+        };
+        let names = names.to_vec();
+        let _ = tokio::task::spawn_blocking(move || super::learned::remember(&path, &names, check))
+            .await;
     }
 
     async fn note_issued(&self, names: &[String], ari: bool) {
