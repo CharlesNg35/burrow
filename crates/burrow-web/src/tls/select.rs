@@ -1,6 +1,8 @@
 use std::collections::HashSet;
 use std::path::PathBuf;
 
+use burrow_syntax::web::{Twice, entry_for};
+
 use super::{CertName, CertOrigin};
 use crate::{CertSettings, CertSource, ProxySettings, SiteTls, TunnelMode};
 
@@ -14,7 +16,7 @@ pub enum Choice {
         origin: CertOrigin,
     },
     Acme,
-    Missing,
+    Missing(String),
 }
 
 pub fn cert_names(settings: &ProxySettings) -> Vec<CertName> {
@@ -66,20 +68,30 @@ pub fn choose(settings: &CertSettings, name: &CertName) -> Choice {
             },
         },
         CertSource::Auto => {
-            let listed = settings
+            let entries = settings
                 .shared
                 .iter()
-                .find(|f| f.hosts.iter().any(|h| h.eq_ignore_ascii_case(&name.name)));
-            match (listed, &settings.acme) {
-                (Some(f), _) => Choice::File {
-                    cert: f.cert.clone(),
-                    key: f.key.clone(),
-                    origin: CertOrigin::SharedFile {
-                        path: f.cert.clone(),
-                    },
-                },
-                (None, Some(_)) => Choice::Acme,
-                (None, None) => Choice::Missing,
+                .enumerate()
+                .map(|(i, f)| (i, f.hosts.as_slice()));
+            match (entry_for(entries, &name.name), &settings.acme) {
+                (Ok(Some(i)), _) => {
+                    let f = &settings.shared[i];
+                    Choice::File {
+                        cert: f.cert.clone(),
+                        key: f.key.clone(),
+                        origin: CertOrigin::SharedFile {
+                            path: f.cert.clone(),
+                        },
+                    }
+                }
+                (Err(Twice { first, second }), _) => Choice::Missing(format!(
+                    "\"{}\" is listed in web.certificates[{first}] and [{second}]",
+                    name.name
+                )),
+                (Ok(None), Some(_)) => Choice::Acme,
+                (Ok(None), None) => {
+                    Choice::Missing(format!("\"{}\" has no certificate", name.name))
+                }
             }
         }
     }
@@ -155,12 +167,47 @@ mod tests {
             })
         );
         assert_eq!(
-            choose(&s, &name("x.example.com", CertSource::Auto)),
-            Choice::Acme
+            origin(choose(&s, &name("x.example.com", CertSource::Auto))),
+            Some(CertOrigin::SharedFile {
+                path: path("star.pem")
+            }),
+            "a listed wildcard covers one label below it"
         );
+        for not in ["a.b.example.com", "example.com"] {
+            assert_eq!(
+                choose(&s, &name(not, CertSource::Auto)),
+                Choice::Acme,
+                "{not}"
+            );
+        }
+        assert!(matches!(
+            choose(&certs(false), &name("a.b.example.com", CertSource::Auto)),
+            Choice::Missing(_)
+        ));
+    }
+
+    #[test]
+    fn an_exact_listing_beats_a_wildcard_and_a_name_listed_twice_gets_no_file() {
+        let mut s = certs(true);
+        s.shared.push(SharedFile {
+            hosts: vec!["app.example.com".into()],
+            cert: "app.pem".into(),
+            key: "app.key".into(),
+        });
         assert_eq!(
-            choose(&certs(false), &name("x.example.com", CertSource::Auto)),
-            Choice::Missing
+            origin(choose(&s, &name("app.example.com", CertSource::Auto))),
+            Some(CertOrigin::SharedFile {
+                path: "app.pem".into()
+            })
+        );
+        s.shared.push(SharedFile {
+            hosts: vec!["App.Example.com".into()],
+            cert: "again.pem".into(),
+            key: "again.key".into(),
+        });
+        assert_eq!(
+            choose(&s, &name("app.example.com", CertSource::Auto)),
+            Choice::Missing("\"app.example.com\" is listed in web.certificates[1] and [2]".into())
         );
     }
 

@@ -214,12 +214,12 @@ impl Store {
                     error: None,
                     expires: None,
                 },
-                Choice::Missing => Slot {
+                Choice::Missing(why) => Slot {
                     key: None,
                     origin: None,
                     acme: false,
                     group: n.group.clone(),
-                    error: Some(format!("\"{}\" has no certificate", n.name)),
+                    error: Some(why),
                     expires: None,
                 },
             };
