@@ -163,7 +163,7 @@ async fn hosts_added_and_removed_take_effect_for_new_connections() {
     assert!(closed_without_tls(addr, "git.example.com").await);
     let mut next = burrow_web::ProxySettings::new(addr);
     next.sites = vec![site("git", &["git.example.com"])];
-    proxy.apply(&next);
+    proxy.apply(&next).await;
     let mut g = tls(addr, "git.example.com").await.unwrap();
     assert_eq!(ask(&mut g, b"b").await.unwrap(), b"git:b");
     assert!(closed_without_tls(addr, "nas.example.com").await);

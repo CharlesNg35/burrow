@@ -48,7 +48,7 @@ fn addr_of(l: &TcpListener) -> Option<SocketAddr> {
 }
 
 impl<U: Upstream> Proxy<U> {
-    pub fn start(
+    pub async fn start(
         listeners: Listeners,
         settings: ProxySettings,
         up: Arc<U>,
@@ -57,7 +57,7 @@ impl<U: Upstream> Proxy<U> {
         let https = listeners.https.as_ref().and_then(addr_of);
         let http = listeners.http.as_ref().and_then(addr_of);
         let (stop, stopped) = watch::channel(false);
-        certs.apply(&settings.certs, &cert_names(&settings));
+        certs.apply(&settings.certs, &cert_names(&settings)).await;
         let shared = Arc::new(Shared {
             up,
             site_tls: crate::terminate::site_acceptor(certs.clone()),
@@ -85,10 +85,11 @@ impl<U: Upstream> Proxy<U> {
         }
     }
 
-    pub fn apply(&self, settings: &ProxySettings) {
+    pub async fn apply(&self, settings: &ProxySettings) {
         self.shared
             .certs
-            .apply(&settings.certs, &cert_names(settings));
+            .apply(&settings.certs, &cert_names(settings))
+            .await;
         *self.shared.table.write().expect("table lock") = Arc::new(Table::build(settings));
         *self.shared.tunnel.write().expect("tunnel lock") = settings.tunnel.clone();
         *self.shared.timing.write().expect("timing lock") = settings.timeouts;

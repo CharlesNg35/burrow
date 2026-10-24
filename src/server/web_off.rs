@@ -8,7 +8,10 @@ use crate::config::settings::ServerSettings;
 pub(super) enum WebTask {}
 
 impl WebTask {
-    pub(super) fn bind(_: &Arc<Shared>, _: &ServerSettings) -> Result<Option<WebTask>, Failure> {
+    pub(super) async fn bind(
+        _: &Arc<Shared>,
+        _: &ServerSettings,
+    ) -> Result<Option<WebTask>, Failure> {
         Ok(None)
     }
 }

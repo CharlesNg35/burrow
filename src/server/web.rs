@@ -172,7 +172,7 @@ pub(super) fn bind_web(addr: SocketAddr) -> Result<TcpListener, Failure> {
 }
 
 impl WebTask {
-    pub(super) fn bind(
+    pub(super) async fn bind(
         shared: &Arc<Shared>,
         s: &ServerSettings,
     ) -> Result<Option<WebTask>, Failure> {
@@ -180,17 +180,17 @@ impl WebTask {
             return Ok(None);
         };
         let listener = bind_web(https)?;
-        Ok(Some(WebTask::start(shared, listener, p)))
+        Ok(Some(WebTask::start(shared, listener, p).await))
     }
 
-    fn start(shared: &Arc<Shared>, listener: TcpListener, p: ProxySettings) -> WebTask {
+    async fn start(shared: &Arc<Shared>, listener: TcpListener, p: ProxySettings) -> WebTask {
         let https = p.https.unwrap_or_else(|| listener_addr(&listener));
         let listeners = burrow_web::Listeners {
             https: Some(listener),
             http: None,
         };
         let up = Arc::new(Doorway(shared.clone()));
-        let proxy = Proxy::start(listeners, p, up, burrow_web::tls::Store::new());
+        let proxy = Proxy::start(listeners, p, up, burrow_web::tls::Store::new()).await;
         WebTask { proxy, https }
     }
 
@@ -267,7 +267,7 @@ impl Server {
         };
         if let Some(t) = self.web.as_ref().filter(|t| t.https == https) {
             let before = t.proxy.table();
-            t.proxy.apply(&p);
+            t.proxy.apply(&p).await;
             if *before != *t.proxy.table() {
                 info!("web proxy updated");
             }
@@ -291,7 +291,7 @@ impl Server {
         match bind_web_with_retry(https, if freed { FREED_TRIES } else { 1 }).await {
             Ok(l) => {
                 self.stop_web().await;
-                let t = WebTask::start(&self.shared, l, p);
+                let t = WebTask::start(&self.shared, l, p).await;
                 info!("web proxy now on {}", t.addr());
                 self.web = Some(t);
             }
@@ -320,13 +320,13 @@ impl Server {
             web.https = old;
         }
         if !freed && let Some(t) = &self.web {
-            t.proxy.apply(&p);
+            t.proxy.apply(&p).await;
             error!("{why}; the web proxy stays on {}", t.addr());
             return;
         }
         match bind_web_with_retry(old, FREED_TRIES).await {
             Ok(l) => {
-                let t = WebTask::start(&self.shared, l, p);
+                let t = WebTask::start(&self.shared, l, p).await;
                 error!("{why}; the web proxy stays on {}", t.addr());
                 self.web = Some(t);
             }
@@ -357,7 +357,7 @@ impl Server {
             return false;
         };
         self.stop_web().await;
-        let t = WebTask::start(&self.shared, l, p);
+        let t = WebTask::start(&self.shared, l, p).await;
         info!("web proxy could listen now: {}", t.addr());
         self.web = Some(t);
         *next = wanted;

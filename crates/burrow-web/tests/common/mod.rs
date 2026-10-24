@@ -255,7 +255,7 @@ pub async fn start_with(
         https: Some(l),
         http,
     };
-    burrow_web::Proxy::start(listeners, s, up, certs)
+    burrow_web::Proxy::start(listeners, s, up, certs).await
 }
 
 pub async fn start(

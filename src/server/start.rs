@@ -364,7 +364,7 @@ impl Server {
             services.insert(name.clone(), spawn_service(&shared, name, svc, bound));
         }
         let websocket = ws_listener.map(|l| WsTask::start(&shared, l));
-        let web = super::web::WebTask::bind(&shared, &settings)?;
+        let web = super::web::WebTask::bind(&shared, &settings).await?;
         let health = tokio::spawn(health::run(shared.clone()));
         let metrics = metrics_listener.map(|l| MetricsTask::start(&shared, l));
         let server = Server {
