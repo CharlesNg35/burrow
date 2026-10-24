@@ -96,3 +96,47 @@ async fn one_port_passes_one_name_through_and_terminates_another() {
         "{r}"
     );
 }
+
+#[tokio::test]
+async fn a_terminated_name_added_live_is_served_while_an_open_connection_keeps_working() {
+    let (blog, wiki) = (http_backend().await, http_backend().await);
+    let (up, _) = Fake::new(4);
+    up.serve("blog", blog.addr);
+    up.serve("wiki", wiki.addr);
+    let proxy = start(
+        |s| s.sites = vec![https_site("blog", &["blog.example.com"])],
+        up,
+    )
+    .await;
+    let addr = proxy.https_addr().unwrap();
+    let get = |host: &str, path: &str| format!("GET {path} HTTP/1.1\r\nHost: {host}\r\n\r\n");
+    let mut kept = tls(addr, "blog.example.com").await.unwrap();
+    let r = ask(&mut kept, get("blog.example.com", "/1").as_bytes())
+        .await
+        .unwrap();
+    assert!(String::from_utf8_lossy(&r).contains("GET /1\n"));
+    let mut next = burrow_web::ProxySettings::new(addr);
+    next.sites = vec![
+        https_site("blog", &["blog.example.com"]),
+        https_site("wiki", &["wiki.example.com"]),
+    ];
+    proxy.apply(&next).await;
+    let r = over_tls(
+        addr,
+        "wiki.example.com",
+        "GET /n HTTP/1.1\r\nHost: wiki.example.com\r\nConnection: close\r\n\r\n",
+    )
+    .await;
+    assert!(
+        r.starts_with("HTTP/1.1 200") && r.contains("GET /n\n"),
+        "{r}"
+    );
+    let r = ask(&mut kept, get("blog.example.com", "/2").as_bytes())
+        .await
+        .unwrap();
+    assert!(String::from_utf8_lossy(&r).contains("GET /2\n"));
+    assert_eq!(
+        wiki.connections.load(std::sync::atomic::Ordering::SeqCst),
+        1
+    );
+}
