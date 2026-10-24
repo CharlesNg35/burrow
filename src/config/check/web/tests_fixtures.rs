@@ -1,6 +1,31 @@
-use super::tests::{errors, load, settings};
+use std::path::Path;
+
+use super::tests::{SECRET, errors, settings};
+use crate::config::load::load_str_in;
+use crate::config::{Format, Outcome, Role};
+
+fn load(text: &str) -> Outcome {
+    let env = |name: &str| match name {
+        "HOME_SECRET" => Some(SECRET.to_string()),
+        "OFFICE_SECRET" => Some("0uAEjsD0O5lWx7ngXPdRMpdMvjrVqA5IFw1MQf2EYxA=".to_string()),
+        "CF_TOKEN" | "TSIG" => Some("c2VjcmV0".to_string()),
+        _ => None,
+    };
+    load_str_in(
+        Path::new("."),
+        "server.yaml",
+        text,
+        Format::Yaml,
+        Some(Role::Server),
+        &env,
+    )
+}
 
 const EXAMPLE_1: &str = r#"# server.yaml
+listen: 7835 # clients connect here (or websocket:)
+clients:
+  home:
+    secret: ${HOME_SECRET}
 web:
   https: 443
   http: 80
@@ -11,16 +36,22 @@ services:
 "#;
 
 const EXAMPLE_2: &str = r#"# server.yaml
+listen: 7835
+clients:
+  home:
+    secret: ${HOME_SECRET}
+  office:
+    secret: ${OFFICE_SECRET}
 web:
   https: 443
   letsencrypt:
     email: you@example.com
     dns:
       - domains: [example.com, example.net] # Cloudflare manages these and every name under them
-        cloudflare: { token: ${CF_TOKEN} }
+        cloudflare: { token: "${CF_TOKEN}" } # quoted: ${...} inside { } must be a quoted string in YAML
         wildcards: ["*.example.com"] # one shared certificate: example.com + *.example.com
       - domains: [apps.example.com] # a delegated subdomain: the most specific domain wins
-        rfc2136: { server: 10.0.0.53:53, key_name: acme, secret: ${TSIG} }
+        rfc2136: { server: 10.0.0.53:53, key_name: acme, secret: "${TSIG}" }
         wildcards: ["*.apps.example.com"] # on the entry that manages apps.example.com
   certificates:
     - hosts: ["*.corp.example.com"] # own file: hosts, cert and key all required
@@ -40,27 +71,26 @@ services:
 "#;
 
 const EXAMPLE_3: &str = r#"# server.yaml
+clients:
+  home:
+    secret: ${HOME_SECRET}
 web:
   https: 8443
   letsencrypt:
     email: you@example.com
     dns:
       - domains: [example.com]
-        cloudflare: { token: ${CF_TOKEN} }
-websocket:
+        cloudflare: { token: "${CF_TOKEN}" }
+websocket: # the only way in for clients here, on the shared HTTPS port
   listen: 8443
   host: tunnel.example.com
   path: /burrow
   challenge: dns # the tunnel's own name through DNS; clients use wss://tunnel.example.com:8443/burrow
 "#;
 
-fn with_listen(example: &str) -> String {
-    format!("listen: 7835\n{example}")
-}
-
 #[test]
 fn example_1_of_section_3_15_validates_and_says_how_the_site_is_served() {
-    let o = load(&with_listen(EXAMPLE_1));
+    let o = load(EXAMPLE_1);
     assert!(errors(&o).is_empty(), "{:#?}", errors(&o));
     let s = settings(o);
     let sum = crate::config::web_summary::summary(&s).unwrap();
@@ -86,28 +116,8 @@ fn codes(text: &str) -> Vec<(String, String)> {
 }
 
 #[test]
-fn examples_2_and_3_wait_for_dns_checks_and_say_so() {
-    for verbatim in [EXAMPLE_2, EXAMPLE_3] {
-        assert_eq!(
-            codes(&with_listen(verbatim)),
-            [(
-                "syntax".to_string(),
-                "invalid syntax: while parsing a flow mapping, did not find expected ',' or '}'"
-                    .to_string()
-            )],
-            "${{...}} inside a flow mapping needs quotes; the spec's examples will quote it"
-        );
-    }
-    let quoted = |t: &str| {
-        t.replace("${CF_TOKEN}", "\"${CF_TOKEN}\"")
-            .replace("${TSIG}", "\"${TSIG}\"")
-    };
-    let pinned = |t: &str| {
-        codes(&with_listen(&quoted(t)))
-            .into_iter()
-            .filter(|(c, _)| c != "env-unset" && c != "unknown-client")
-            .collect::<Vec<_>>()
-    };
+fn examples_2_and_3_wait_for_dns_checks_until_p6_flips_them_to_clean() {
+    let pinned = |t: &str| codes(t);
     let pair = |c: &str, m: &str| (c.to_string(), m.to_string());
     assert_eq!(
         pinned(EXAMPLE_2),
