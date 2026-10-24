@@ -168,7 +168,7 @@ async fn a_websites_bandwidth_is_limited_like_any_service() {
     svc.bandwidth = Some(128 * 1024);
     let s = web_server(&secret, &[("nas", svc, &["nas.example.com"])]);
     let t = up(s, secret).await;
-    let a = visit(t.server.web_addr.unwrap(), "nas.example.com", &nas_cert)
+    let a = visit_with_small_send_buffer(t.server.web_addr.unwrap(), "nas.example.com", &nas_cert)
         .await
         .unwrap();
     let data = pattern(384 * 1024, 9);
@@ -189,6 +189,7 @@ async fn a_websites_bandwidth_is_limited_like_any_service() {
     tokio::io::AsyncWriteExt::write_all(&mut w, &data)
         .await
         .unwrap();
+    tokio::io::AsyncWriteExt::flush(&mut w).await.unwrap();
     reader.await.unwrap();
     let took = started.elapsed();
     assert!(

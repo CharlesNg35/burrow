@@ -110,7 +110,7 @@ pub async fn backend(
                     }
                     let mut out = format!("{label}:").into_bytes();
                     out.extend_from_slice(&buf[..n]);
-                    if tls.write_all(&out).await.is_err() {
+                    if tls.write_all(&out).await.is_err() || tls.flush().await.is_err() {
                         break;
                     }
                 }
@@ -126,7 +126,24 @@ pub async fn visit(
     name: &str,
     c: &Cert,
 ) -> std::io::Result<tokio_rustls::client::TlsStream<TcpStream>> {
-    let tcp = TcpStream::connect(addr).await?;
+    visit_over(TcpStream::connect(addr).await?, name, c).await
+}
+
+pub async fn visit_with_small_send_buffer(
+    addr: SocketAddr,
+    name: &str,
+    c: &Cert,
+) -> std::io::Result<tokio_rustls::client::TlsStream<TcpStream>> {
+    let socket = tokio::net::TcpSocket::new_v4()?;
+    socket.set_send_buffer_size(4096)?;
+    visit_over(socket.connect(addr).await?, name, c).await
+}
+
+async fn visit_over(
+    tcp: TcpStream,
+    name: &str,
+    c: &Cert,
+) -> std::io::Result<tokio_rustls::client::TlsStream<TcpStream>> {
     let name = ServerName::try_from(name.to_string()).unwrap();
     tokio::time::timeout(Duration::from_secs(5), trusting(c).connect(name, tcp))
         .await

@@ -122,7 +122,7 @@ pub async fn backend(
                     }
                     let mut out = format!("{label}:").into_bytes();
                     out.extend_from_slice(&buf[..n]);
-                    if tls.write_all(&out).await.is_err() {
+                    if tls.write_all(&out).await.is_err() || tls.flush().await.is_err() {
                         break;
                     }
                 }
