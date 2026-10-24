@@ -269,12 +269,7 @@ pub async fn run(
                 };
                 if req.t == msg::req::SUBSCRIBE {
                     let sub: Subscribe = core::parse(&req.body).unwrap_or_default();
-                    status_every = (sub.status_ms > 0).then(|| {
-                        let ms = sub.status_ms.clamp(500, 60_000);
-                        let mut i = tokio::time::interval(Duration::from_millis(ms));
-                        i.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-                        i
-                    });
+                    status_every = status_interval(&sub);
                     config_events = sub.config;
                     if !send(msg::reply_ok(req.id, serde_json::json!({})), heard + silence).await {
                         break "closed";
@@ -288,20 +283,7 @@ pub async fn run(
                     }
                     continue;
                 }
-                if req.t == msg::req::APPLY {
-                    let id = req.id;
-                    let detached = tokio::spawn(handle(cx.clone(), req));
-                    jobs.spawn(async move {
-                        detached.await.unwrap_or_else(|_| {
-                            msg::reply_err(
-                                id,
-                                &ApiError::new(ErrorCode::Internal, "the apply task failed").wire(),
-                            )
-                        })
-                    });
-                } else {
-                    jobs.spawn(handle(cx.clone(), req));
-                }
+                spawn_job(&mut jobs, &cx, req);
             }
             Some(done) = jobs.join_next(), if !jobs.is_empty() => {
                 if let Ok(v) = done
@@ -331,26 +313,10 @@ pub async fn run(
                 }
             }
             _ = file_check.tick(), if config_events => {
-                let rev = blocking({
-                    let hub = hub.clone();
-                    move || file_rev(&hub)
-                })
-                .await
-                .flatten();
-                if rev.is_some() && rev != last_rev {
-                    last_rev = rev.clone();
-                    let rev = rev.unwrap_or_default();
-                    let by = hub.written_by(&rev).unwrap_or_else(|| "file".into());
-                    let ok = blocking({
-                        let hub = hub.clone();
-                        move || hub.core.read().map(|t| plan::check_text(&hub.core, &t).valid).unwrap_or(false)
-                    })
-                    .await
-                    .unwrap_or(false);
-                    let ev = msg::event(msg::ev::CONFIG, serde_json::to_value(ConfigEvent { rev, by, ok }).unwrap_or_default());
-                    if !send(ev, heard + silence).await {
-                        break "closed";
-                    }
+                if let Some(ev) = config_event(&hub, &mut last_rev).await
+                    && !send(ev, heard + silence).await
+                {
+                    break "closed";
                 }
             }
             _ = shutdown.changed() => {
@@ -368,7 +334,66 @@ pub async fn run(
     debug!("admin session of visitor \"{visitor}\" ended: {end}");
     jobs.abort_all();
     drop(tx);
-    let mut writer = writer;
+    stop_writer(writer).await;
+}
+
+fn status_interval(sub: &Subscribe) -> Option<tokio::time::Interval> {
+    (sub.status_ms > 0).then(|| {
+        let ms = sub.status_ms.clamp(500, 60_000);
+        let mut i = tokio::time::interval(Duration::from_millis(ms));
+        i.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        i
+    })
+}
+
+fn spawn_job(jobs: &mut JoinSet<Value>, cx: &Arc<Ctx>, req: Request) {
+    if req.t == msg::req::APPLY {
+        let id = req.id;
+        let detached = tokio::spawn(handle(cx.clone(), req));
+        jobs.spawn(async move {
+            detached.await.unwrap_or_else(|_| {
+                msg::reply_err(
+                    id,
+                    &ApiError::new(ErrorCode::Internal, "the apply task failed").wire(),
+                )
+            })
+        });
+    } else {
+        jobs.spawn(handle(cx.clone(), req));
+    }
+}
+
+async fn config_event(hub: &Arc<Hub>, last_rev: &mut Option<String>) -> Option<Value> {
+    let rev = blocking({
+        let hub = hub.clone();
+        move || file_rev(&hub)
+    })
+    .await
+    .flatten();
+    if rev.is_some() && rev != *last_rev {
+        *last_rev = rev.clone();
+        let rev = rev.unwrap_or_default();
+        let by = hub.written_by(&rev).unwrap_or_else(|| "file".into());
+        let ok = blocking({
+            let hub = hub.clone();
+            move || {
+                hub.core
+                    .read()
+                    .map(|t| plan::check_text(&hub.core, &t).valid)
+                    .unwrap_or(false)
+            }
+        })
+        .await
+        .unwrap_or(false);
+        return Some(msg::event(
+            msg::ev::CONFIG,
+            serde_json::to_value(ConfigEvent { rev, by, ok }).unwrap_or_default(),
+        ));
+    }
+    None
+}
+
+async fn stop_writer(mut writer: tokio::task::JoinHandle<()>) {
     if tokio::time::timeout(Duration::from_secs(5), &mut writer)
         .await
         .is_err()
