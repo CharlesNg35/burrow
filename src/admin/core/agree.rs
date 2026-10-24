@@ -79,6 +79,7 @@ fn cases(sem: &SemType) -> Cases {
         | SemType::Port
         | SemType::PortRange(_)
         | SemType::Host
+        | SemType::HostName(_)
         | SemType::Size(_)
         | SemType::Name(_)
         | SemType::Unknown(_) => Cases::NotInTheServerSchema,

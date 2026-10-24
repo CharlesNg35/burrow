@@ -136,6 +136,7 @@ fn sem_view(sem: &SemType, node: &Node, v: &Value, ctx: &Ctx) -> AnyView {
     match sem {
         SemType::Text(_)
         | SemType::Host
+        | SemType::HostName(_)
         | SemType::ServerAddress
         | SemType::Path(_)
         | SemType::UrlPath

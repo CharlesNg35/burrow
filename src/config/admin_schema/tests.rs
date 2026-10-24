@@ -348,6 +348,7 @@ fn carriers_cover_semtypes() {
             SemType::PortRange(_) => assert_carrier::<String, sem::PortRange>(),
             SemType::Target(_) => assert_carrier::<Target, sem::Target>(),
             SemType::Host => assert_carrier::<String, sem::Host>(),
+            SemType::HostName(_) => assert_carrier::<String, sem::HostName>(),
             SemType::ServerAddress => assert_carrier::<String, sem::ServerAddress>(),
             SemType::Cidr => assert_carrier::<String, sem::Cidr>(),
             SemType::CidrRule => assert_carrier::<String, sem::CidrRule>(),

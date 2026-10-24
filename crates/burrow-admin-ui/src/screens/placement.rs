@@ -221,6 +221,7 @@ mod tests {
             | SemType::Text(_)
             | SemType::Ip(_)
             | SemType::Host
+            | SemType::HostName(_)
             | SemType::PortRange(_)
             | SemType::Size(_)
             | SemType::Path(_)

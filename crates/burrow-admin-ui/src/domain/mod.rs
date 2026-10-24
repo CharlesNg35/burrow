@@ -115,6 +115,7 @@ fn by_sem(fc: FieldCtx, sem: &SemType) -> AnyView {
         SemType::ServerAddress => crate::addr::server_editor(fc),
         SemType::Text(_)
         | SemType::Host
+        | SemType::HostName(_)
         | SemType::Path(_)
         | SemType::UrlPath
         | SemType::Name(_)

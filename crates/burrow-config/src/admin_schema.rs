@@ -93,6 +93,7 @@ pub mod sem {
         PortRange,
         Target,
         Host,
+        HostName,
         ServerAddress,
         Cidr,
         CidrRule,
@@ -126,6 +127,7 @@ carriers!(Port: u16);
 carriers!(IpPort: String);
 carriers!(PortRange: String);
 carriers!(Host: String);
+carriers!(HostName: String);
 carriers!(ServerAddress: String);
 carriers!(Cidr: String);
 carriers!(CidrRule: String);
@@ -149,8 +151,9 @@ pub mod __private {
     };
     pub use burrow_admin_proto::schema::{
         Applies, Cond, DurationC, DurationUnit, Editable, EnumC, EnumOption, Field, Group,
-        IntegerC, IpC, IpPortC, ListC, MapC, NameC, Node, ObjectC, OptionalC, PathC, PortRangeC,
-        RefC, RefListC, RefMapC, Relation, SecretRefC, SemType, SizeC, TargetC, TextC, UnionC,
+        HostNameC, IntegerC, IpC, IpPortC, ListC, MapC, NameC, Node, ObjectC, OptionalC, PathC,
+        PortRangeC, RefC, RefListC, RefMapC, Relation, SecretRefC, SemType, SizeC, TargetC, TextC,
+        UnionC,
     };
     use burrow_admin_proto::serde_json;
     pub use serde_json::json;

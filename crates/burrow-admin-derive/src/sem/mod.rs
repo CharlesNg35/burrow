@@ -45,6 +45,7 @@ pub fn marker(t: &Term) -> Option<syn::Ident> {
         "port_range" => "PortRange",
         "target" => "Target",
         "host" => "Host",
+        "host_name" => "HostName",
         "server_address" => "ServerAddress",
         "cidr" => "Cidr",
         "cidr_rule" => "CidrRule",
@@ -215,6 +216,7 @@ fn scalar_sem(
             quote!(#p::SemType::Target(#p::TargetC { ranges: #ranges, unix: #unix }))
         }
         "host" => quote!(#p::SemType::Host),
+        "host_name" => quote!(#p::SemType::HostName(#p::HostNameC::default())),
         "server_address" => quote!(#p::SemType::ServerAddress),
         "cidr" => quote!(#p::SemType::Cidr),
         "cidr_rule" => quote!(#p::SemType::CidrRule),

@@ -105,6 +105,7 @@ fn check_sem(sem: &SemType, v: &Value) -> Result<(), String> {
         SemType::PortRange(c) => check_port_range(c, v),
         SemType::Target(c) => check_target(c, v),
         SemType::Host => hostport::check_host(&want_text(v)?),
+        SemType::HostName(_) => burrow_syntax::web::host_name(&want_text(v)?).map(|_| ()),
         SemType::ServerAddress => burrow_syntax::endpoint::check_public_address(&want_text(v)?),
         SemType::Cidr => want_text(v)?
             .parse::<burrow_syntax::cidr::Cidr>()
@@ -425,6 +426,23 @@ mod tests {
         bad(SemType::ServerAddress, json!("x:99999"));
         bad(SemType::ServerAddress, json!("wss://"));
         bad(SemType::ServerAddress, json!("https://x"));
+    }
+
+    #[test]
+    fn host_names_take_names_wildcards_and_addresses_like_validate() {
+        let h = || SemType::HostName(burrow_admin_proto::schema::HostNameC::default());
+        for v in [
+            "blog.example.com",
+            "*.apps.example.com",
+            "203.0.113.10",
+            "2001:db8::1",
+        ] {
+            ok(h(), json!(v));
+        }
+        assert!(bad(h(), json!("https://blog.example.com")).contains("the name alone"));
+        assert!(bad(h(), json!("*.com")).contains("too wide"));
+        bad(h(), json!("nas"));
+        bad(h(), json!(7));
     }
 
     #[test]

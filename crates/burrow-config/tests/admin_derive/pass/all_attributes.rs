@@ -68,6 +68,10 @@ pub struct Thing {
     pub path: String,
     #[admin(ty = url_path, warn_if(eq(text, "x"), "careful"))]
     pub url: String,
+    #[admin(ty = host_name)]
+    pub site: String,
+    #[admin(ty = list(host_name))]
+    pub sites: Vec<String>,
     #[admin(ty = list(cidr), empty_label = "Nobody", cross(cidr, rule), same_len(range))]
     pub list: Vec<String>,
     #[admin(options_filter(eq(protocol, "tcp")), inverse(entity = visitor, label = "Back"))]

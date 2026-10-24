@@ -138,6 +138,24 @@ pub struct SecretRefC {
     pub max: u32,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HostNameC {
+    #[serde(default = "text_fallback")]
+    pub fallback: Vec<Value>,
+}
+
+impl Default for HostNameC {
+    fn default() -> Self {
+        HostNameC {
+            fallback: text_fallback(),
+        }
+    }
+}
+
+fn text_fallback() -> Vec<Value> {
+    vec![serde_json::json!({"t": "text"})]
+}
+
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct PathC {
     #[serde(default)]
@@ -240,6 +258,7 @@ sem_types! {
     PortRange "port_range" (PortRangeC),
     Target "target" (TargetC),
     Host "host",
+    HostName "host_name" (HostNameC),
     ServerAddress "server_address",
     Cidr "cidr",
     CidrRule "cidr_rule",
@@ -335,6 +354,7 @@ impl SemType {
             | SemType::PortRange(_)
             | SemType::Target(_)
             | SemType::Host
+            | SemType::HostName(_)
             | SemType::ServerAddress
             | SemType::Cidr
             | SemType::CidrRule

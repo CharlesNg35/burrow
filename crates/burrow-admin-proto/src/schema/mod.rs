@@ -8,9 +8,9 @@ use crate::Path;
 
 pub use relation::{Cond, Relation};
 pub use sem::{
-    DurationC, DurationUnit, EnumC, EnumOption, IntegerC, IpC, IpPortC, ListC, MapC, NameC,
-    ObjectC, OptionalC, PathC, PortRangeC, RefC, RefListC, RefMapC, SecretRefC, SemType, SizeC,
-    TargetC, TextC, UnionC, UnknownType,
+    DurationC, DurationUnit, EnumC, EnumOption, HostNameC, IntegerC, IpC, IpPortC, ListC, MapC,
+    NameC, ObjectC, OptionalC, PathC, PortRangeC, RefC, RefListC, RefMapC, SecretRefC, SemType,
+    SizeC, TargetC, TextC, UnionC, UnknownType,
 };
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -344,6 +344,20 @@ mod tests {
         let broken: SemType = serde_json::from_value(json!({"t": "ref"})).unwrap();
         assert!(matches!(broken, SemType::Unknown(_)));
         assert!(serde_json::from_value::<SemType>(json!({"x": 1})).is_err());
+    }
+
+    #[test]
+    fn a_host_name_tells_older_uis_to_show_a_text_field() {
+        let s = SemType::HostName(HostNameC::default());
+        let sent = serde_json::to_value(&s).unwrap();
+        assert_eq!(sent, json!({"t": "host_name", "fallback": [{"t": "text"}]}));
+        assert_eq!(serde_json::from_value::<SemType>(sent).unwrap(), s);
+        let mut older = serde_json::to_value(&s).unwrap();
+        older["t"] = json!("host_name_v0");
+        let SemType::Unknown(u) = serde_json::from_value::<SemType>(older).unwrap() else {
+            panic!("an unknown tag stays unknown")
+        };
+        assert_eq!(u.fallback, vec![SemType::Text(TextC::default())]);
     }
 
     #[test]
