@@ -12,7 +12,6 @@ fn tunnel(host: &str, mode: TunnelMode) -> Option<TunnelSettings> {
         host: host.into(),
         path: "/burrow".into(),
         mode,
-        tls: Some(acceptor(&[host])),
     })
 }
 
@@ -223,4 +222,37 @@ async fn a_tunnel_handshake_that_outlasts_its_deadline_is_closed() {
         }
     }
     assert!(started.elapsed() < Duration::from_secs(2));
+}
+
+#[tokio::test]
+async fn the_tunnels_own_name_gets_its_certificate_like_a_site_from_a_shared_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let key = rcgen::KeyPair::generate().unwrap();
+    let params = rcgen::CertificateParams::new(vec!["tunnel.example.com".to_string()]).unwrap();
+    let issued = params.self_signed(&key).unwrap();
+    let (cert, keyfile) = (dir.path().join("t.pem"), dir.path().join("t.key"));
+    std::fs::write(&cert, issued.pem()).unwrap();
+    std::fs::write(&keyfile, key.serialize_pem()).unwrap();
+    let (up, mut tunneled) = Fake::new(4);
+    let proxy = start_with(
+        |s| {
+            s.tunnel = tunnel("tunnel.example.com", TunnelMode::OwnName);
+            s.certs.shared = vec![burrow_web::SharedFile {
+                hosts: vec!["tunnel.example.com".into()],
+                cert,
+                key: keyfile,
+            }];
+        },
+        up,
+        burrow_web::tls::Store::new(),
+        false,
+    )
+    .await;
+    let mut t = tls(proxy.https_addr().unwrap(), "tunnel.example.com")
+        .await
+        .unwrap();
+    let served = t.get_ref().1.peer_certificates().unwrap()[0].clone();
+    assert_eq!(served.as_ref(), issued.der().as_ref());
+    assert_eq!(ask(&mut t, b"noise").await.unwrap(), b"tunnel:noise");
+    assert!(!tunneled.recv().await.unwrap().upgraded);
 }

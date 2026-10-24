@@ -151,7 +151,6 @@ mod tests {
             host: host.into(),
             path: "/burrow".into(),
             mode,
-            tls: None,
         });
         s
     }

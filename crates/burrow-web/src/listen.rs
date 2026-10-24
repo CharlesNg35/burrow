@@ -15,7 +15,7 @@ use crate::peek::{Peek, peek_sni};
 use crate::permit::{Permit, Permits};
 use crate::route::{Action, Kind, Table};
 use crate::tls::{Certificates, cert_names};
-use crate::{ProxySettings, Timeouts, TunnelConn, TunnelSettings, Upstream, Visitor};
+use crate::{ProxySettings, Timeouts, TunnelConn, Upstream, Visitor};
 use tokio_rustls::TlsAcceptor;
 
 pub(crate) struct Shared<U> {
@@ -24,7 +24,6 @@ pub(crate) struct Shared<U> {
     pub(crate) https_port: Option<u16>,
     site_tls: TlsAcceptor,
     table: RwLock<Arc<Table>>,
-    tunnel: RwLock<Option<TunnelSettings>>,
     timing: RwLock<Timeouts>,
     permits: Permits,
     stop: watch::Receiver<bool>,
@@ -64,7 +63,6 @@ impl<U: Upstream> Proxy<U> {
             certs,
             https_port: https.map(|a| a.port()),
             table: RwLock::new(Arc::new(Table::build(&settings))),
-            tunnel: RwLock::new(settings.tunnel.clone()),
             timing: RwLock::new(settings.timeouts),
             permits: Permits::new(settings.max_pending),
             stop: stopped,
@@ -91,7 +89,6 @@ impl<U: Upstream> Proxy<U> {
             .apply(&settings.certs, &cert_names(settings))
             .await;
         *self.shared.table.write().expect("table lock") = Arc::new(Table::build(settings));
-        *self.shared.tunnel.write().expect("tunnel lock") = settings.tunnel.clone();
         *self.shared.timing.write().expect("timing lock") = settings.timeouts;
         self.shared.permits.resize(settings.max_pending);
     }
@@ -303,13 +300,17 @@ async fn dispatch<U: Upstream>(shared: &Arc<Shared<U>>, seen: Seen, permit: Perm
             passthrough(shared.up.as_ref(), &service, &from, io).await;
         }
         Kind::Tunnel { path } => {
-            let Some(conn) = start_tunnel(shared, io, peer, local, deadline, permit).await else {
+            let Some(conn) =
+                start_tunnel(shared, io, (peer, local), (&host, sni), deadline, permit).await
+            else {
                 return;
             };
             shared.up.tunnel(conn.into_conn(path, false)).await;
         }
         Kind::Http { routes, .. } if routes.iter().all(|r| r.action == Action::Tunnel) => {
-            let Some(conn) = start_tunnel(shared, io, peer, local, deadline, permit).await else {
+            let Some(conn) =
+                start_tunnel(shared, io, (peer, local), (&host, sni), deadline, permit).await
+            else {
                 return;
             };
             crate::tunnel::serve_by_path(shared.up.clone(), &table, &host, conn).await;
@@ -375,19 +376,15 @@ impl<P> Started<P> {
 async fn start_tunnel<U: Upstream>(
     shared: &Shared<U>,
     io: Prefixed<TcpStream>,
-    peer: SocketAddr,
-    local: SocketAddr,
+    (peer, local): (SocketAddr, SocketAddr),
+    (host, sni): (&str, bool),
     deadline: Instant,
     permit: Permit,
 ) -> Option<Started<U::Permit>> {
     let tunnel_permit = shared.up.tunnel_permit(peer)?;
     drop(permit);
-    let acceptor = shared
-        .tunnel
-        .read()
-        .expect("tunnel lock")
-        .as_ref()
-        .and_then(|t| t.tls.clone())?;
+    let acceptor =
+        crate::terminate::acceptor_for(&shared.site_tls, shared.certs.as_ref(), host, sni)?;
     match tokio::time::timeout_at(deadline, acceptor.accept(io)).await {
         Ok(Ok(tls)) => Some(Started {
             io: Box::new(tls),

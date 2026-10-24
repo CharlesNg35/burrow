@@ -42,11 +42,6 @@ impl WsRoute {
             tls,
         })
     }
-
-    #[cfg(feature = "web")]
-    pub fn acceptor(&self) -> Option<TlsAcceptor> {
-        self.tls.clone()
-    }
 }
 
 pub struct WsListener {

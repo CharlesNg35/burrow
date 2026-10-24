@@ -145,7 +145,6 @@ pub struct TunnelSettings {
     pub host: String,
     pub path: String,
     pub mode: TunnelMode,
-    pub tls: Option<tokio_rustls::TlsAcceptor>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

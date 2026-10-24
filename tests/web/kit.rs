@@ -191,12 +191,16 @@ pub fn web_server(secret: &Secret, sites: &[(&str, Service, &[&str])]) -> Server
 pub fn share_tunnel(s: &mut ServerSettings, host: &str, c: &Cert) {
     let https = s.web.as_ref().unwrap().https.unwrap();
     s.listen = None;
+    let dir = tempfile::tempdir().unwrap().keep();
+    let (cert_path, key_path) = (dir.join("cert.pem"), dir.join("key.pem"));
+    std::fs::write(&cert_path, &c.cert_pem).unwrap();
+    std::fs::write(&key_path, &c.key_pem).unwrap();
     s.websocket = Some(WebSocketSettings {
         listen: https,
         path: "/burrow".into(),
         tls: Some(TlsMaterial {
-            cert_path: "cert.pem".into(),
-            key_path: "key.pem".into(),
+            cert_path,
+            key_path,
             cert_pem: c.cert_pem.clone().into_bytes(),
             key_pem: zeroize::Zeroizing::new(c.key_pem.clone().into_bytes()),
         }),

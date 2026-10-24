@@ -239,7 +239,6 @@ mod tests {
             host: "tunnel.example.com".into(),
             path: "/burrow".into(),
             mode: TunnelMode::OwnName,
-            tls: None,
         });
         p.certs.tunnel_file = Some(("ws.pem".into(), "ws.key".into()));
         let names = cert_names(&p);

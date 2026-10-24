@@ -134,12 +134,10 @@ pub(super) fn proxy_settings(s: &ServerSettings) -> Result<Option<ProxySettings>
     if let Some(ws) = s.websocket.as_ref()
         && let Some(host) = &ws.host
     {
-        let route = super::listen::WsRoute::new(ws)?;
         p.tunnel = Some(TunnelSettings {
             host: host.clone(),
             path: ws.path.clone(),
             mode: TunnelMode::OwnName,
-            tls: route.acceptor(),
         });
     }
     Ok(Some(p))
