@@ -88,10 +88,9 @@ impl Schema {
     }
 
     pub fn locked_at(&self, path: &[String]) -> Option<Path> {
-        self.locked_paths().into_iter().find(|l| {
-            under_lock(l, path)
-                || (!path.is_empty() && !l.iter().any(|s| s == ANY) && l.starts_with(path))
-        })
+        self.locked_paths()
+            .into_iter()
+            .find(|l| under_lock(l, path))
     }
 }
 

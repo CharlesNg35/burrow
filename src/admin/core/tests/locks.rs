@@ -68,17 +68,25 @@ fn refused(core: &Core, s: &Session, ops: &[Op]) -> Vec<String> {
 }
 
 #[test]
-fn every_field_locked_before_stays_locked_and_files_in_entries_are_locked_too() {
+fn every_field_locked_before_stays_locked_and_the_web_proxy_keeps_its_ports_and_files() {
     let core = core_for(&world().text);
     let now = core.schema.locked_paths();
-    for old in BEFORE_P2 {
+    for old in BEFORE_P2.iter().filter(|o| **o != ["web"]) {
         assert!(now.contains(&p(old)), "{old:?} is still locked: {now:?}");
     }
-    for f in ["cert", "key"] {
-        let path = p(&["services", "*", "web", "tls", f]);
-        assert!(now.contains(&path), "{path:?}: {now:?}");
+    let finer: [&[&str]; 7] = [
+        &["web", "https"],
+        &["web", "http"],
+        &["web", "letsencrypt", "ca"],
+        &["web", "certificates", "*", "cert"],
+        &["web", "certificates", "*", "key"],
+        &["services", "*", "web", "tls", "cert"],
+        &["services", "*", "web", "tls", "key"],
+    ];
+    for f in finer {
+        assert!(now.contains(&p(f)), "{f:?}: {now:?}");
     }
-    assert_eq!(now.len(), BEFORE_P2.len() + 2, "{now:?}");
+    assert_eq!(now.len(), BEFORE_P2.len() - 1 + finer.len(), "{now:?}");
 }
 
 #[test]
@@ -215,4 +223,53 @@ fn the_files_stay_editable_by_file_and_a_revert_keeps_the_current_ones() {
         "{:?}",
         reverted.plan.impacts
     );
+}
+
+#[test]
+fn the_web_proxy_is_open_to_edits_except_its_ports_and_files() {
+    let site = site();
+    let text = site.w.text.replace(
+        "web:\n  https: 8443\n",
+        &format!(
+            "web:\n  https: 8443\n  certificates:\n    - {{hosts: [\"*.example.com\"], cert: {}, key: {}}}\n",
+            site.file("a.pem"),
+            site.file("a.key")
+        ),
+    );
+    let core = core_for(&text);
+    let s = session(&site.w, AdminLevel::Write);
+    let set = |path: &[&str], value: serde_json::Value| {
+        vec![Op::Set {
+            path: p(path),
+            value,
+        }]
+    };
+    for ops in [
+        set(&["web", "https"], json!(9443)),
+        set(&["web", "http"], json!(80)),
+        set(&["web", "letsencrypt", "ca"], json!("certs/ca.pem")),
+        set(
+            &["web", "certificates", "0", "cert"],
+            json!(site.file("b.pem")),
+        ),
+        set(
+            &["web", "certificates"],
+            json!([{"hosts": ["*.example.com"], "cert": site.file("b.pem"), "key": site.file("b.key")}]),
+        ),
+        vec![Op::Remove { path: p(&["web"]) }],
+    ] {
+        refused(&core, &s, &ops);
+    }
+    let base = text::rev(&core.read().unwrap());
+    for ops in [
+        set(&["web", "letsencrypt"], json!({"email": "ops@example.com"})),
+        set(
+            &["web", "certificates"],
+            json!([{"hosts": ["*.example.com", "example.com"], "cert": site.file("a.pem"), "key": site.file("a.key")}]),
+        ),
+        set(&["web", "idle_timeout_secs"], json!(30)),
+    ] {
+        let c = plan::compute(&core, &s, &base, &ops);
+        assert!(c.is_ok(), "{ops:?}: {:?}", c.err().map(|e| e.message));
+    }
 }

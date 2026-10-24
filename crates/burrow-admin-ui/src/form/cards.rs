@@ -115,6 +115,56 @@ pub fn settings_cards(node: &Node, skip: &[&str]) -> Vec<SettingsCard> {
     out
 }
 
+fn card_head(title: String, right: AnyView) -> AnyView {
+    view! {
+        <div class="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3">
+            <h3 class="text-[14px] font-bold">{title}</h3>
+            <span class="ml-auto"></span>
+            {right}
+        </div>
+    }
+    .into_any()
+}
+
+fn scalar_card(c: &SettingsCard, border: &str) -> AnyView {
+    let all: Vec<&Field> = c.fields.iter().collect();
+    let (essential, advanced) = split(&all, false);
+    let one = |f: &Field| {
+        row(
+            f.clone(),
+            vec![f.key.clone()],
+            vec![f.key.clone()],
+            Vec::new(),
+        )
+    };
+    let mut rows: Vec<AnyView> = essential.iter().map(|f| one(f)).collect();
+    if !advanced.is_empty() {
+        let more = More {
+            fields: advanced
+                .iter()
+                .map(|f| ((*f).clone(), vec![f.key.clone()]))
+                .collect(),
+            spath: Vec::new(),
+            group: c.key.clone(),
+            entity: Vec::new(),
+            table: true,
+            alone: essential.is_empty(),
+            grid: ROWS,
+        };
+        rows.push(more_settings(
+            more,
+            advanced.iter().map(|f| one(f)).collect(),
+        ));
+    }
+    view! {
+        <section class=format!("mb-4 scroll-mt-20 rounded-card border bg-surface {border}") data-card=c.key.clone() data-group=c.key.clone()>
+            {card_head(c.title.clone(), ().into_any())}
+            <div class="divide-y divide-rowline px-4">{rows}</div>
+        </section>
+    }
+    .into_any()
+}
+
 pub fn settings_card(c: &SettingsCard) -> AnyView {
     let locked_all = store().schema.with_untracked(|sc| {
         sc.as_ref().is_some_and(|sc| {
@@ -130,52 +180,8 @@ pub fn settings_card(c: &SettingsCard) -> AnyView {
     } else {
         "border-border"
     };
-    let head = |title: String, right: AnyView| {
-        view! {
-            <div class="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3">
-                <h3 class="text-[14px] font-bold">{title}</h3>
-                <span class="ml-auto"></span>
-                {right}
-            </div>
-        }
-    };
     if !c.object {
-        let all: Vec<&Field> = c.fields.iter().collect();
-        let (essential, advanced) = split(&all, false);
-        let one = |f: &Field| {
-            row(
-                f.clone(),
-                vec![f.key.clone()],
-                vec![f.key.clone()],
-                Vec::new(),
-            )
-        };
-        let mut rows: Vec<AnyView> = essential.iter().map(|f| one(f)).collect();
-        if !advanced.is_empty() {
-            let more = More {
-                fields: advanced
-                    .iter()
-                    .map(|f| ((*f).clone(), vec![f.key.clone()]))
-                    .collect(),
-                spath: Vec::new(),
-                group: c.key.clone(),
-                entity: Vec::new(),
-                table: true,
-                alone: essential.is_empty(),
-                grid: ROWS,
-            };
-            rows.push(more_settings(
-                more,
-                advanced.iter().map(|f| one(f)).collect(),
-            ));
-        }
-        return view! {
-            <section class=format!("mb-4 scroll-mt-20 rounded-card border bg-surface {border}") data-card=c.key.clone() data-group=c.key.clone()>
-                {head(c.title.clone(), ().into_any())}
-                <div class="divide-y divide-rowline px-4">{rows}</div>
-            </section>
-        }
-        .into_any();
+        return scalar_card(c, border);
     }
     let Some(f) = c.fields.first().cloned() else {
         return ().into_any();
@@ -187,7 +193,12 @@ pub fn settings_card(c: &SettingsCard) -> AnyView {
         .schema
         .get_untracked()
         .is_some_and(|sc| sc.locked_paths().iter().any(|l| path.starts_with(l)));
-    let can = s.can_write_now() && f.node.editable.is_yes() && !lock;
+    let ports = s.schema.get_untracked().is_some_and(|sc| {
+        sc.locked_paths()
+            .iter()
+            .any(|l| l.len() > path.len() && l.starts_with(&path))
+    });
+    let can = s.can_write_now() && f.node.editable.is_yes() && !lock && !ports;
     let editing = editing_now();
     let optional = matches!(f.node.sem, SemType::Optional(_));
     let inner_node = inner(&f.node).clone();
@@ -217,6 +228,12 @@ pub fn settings_card(c: &SettingsCard) -> AnyView {
                 <span class="flex items-center gap-1.5 text-xs text-text-muted" data-testid="locked-hint">
                     <burrow_ui_kit::Icon name="lock" small=true/>
                     {locked_hint(&f.node)}
+                </span>
+            })}
+            {(ports && optional).then(|| view! {
+                <span class="flex items-center gap-1.5 text-xs text-text-muted" data-testid="locked-hint">
+                    <burrow_ui_kit::Icon name="lock" small=true/>
+                    "Turn it on or off in server.yaml (burrow edit)"
                 </span>
             })}
             {toggle}
@@ -253,7 +270,7 @@ pub fn settings_card(c: &SettingsCard) -> AnyView {
     let (jp, js) = (join(&path), join(&path));
     view! {
         <section class=format!("mb-4 scroll-mt-20 rounded-card border bg-surface {border}") data-card=c.key.clone() data-group=c.key.clone() data-path=jp data-schema=js>
-            {head(c.title.clone(), right)}
+            {card_head(c.title.clone(), right)}
             <div class="px-4">{body}</div>
         </section>
     }

@@ -71,8 +71,7 @@ pub struct ServerConfig {
         label = "Web proxy",
         group = web,
         applies = reload,
-        none_label = "Off",
-        locked
+        none_label = "Off"
     )]
     pub web: Option<WebConfig>,
     #[serde(default)]

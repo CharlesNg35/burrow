@@ -172,7 +172,11 @@ fn locked_fields_are_refused_even_from_a_crafted_client() {
         vec![
             p(&["listen"]),
             p(&["websocket"]),
-            p(&["web"]),
+            p(&["web", "https"]),
+            p(&["web", "http"]),
+            p(&["web", "letsencrypt", "ca"]),
+            p(&["web", "certificates", "*", "cert"]),
+            p(&["web", "certificates", "*", "key"]),
             p(&["services", "*", "web", "tls", "cert"]),
             p(&["services", "*", "web", "tls", "key"]),
             p(&["insecure_plaintext"]),
@@ -293,7 +297,7 @@ fn set_text_is_parsed_by_the_server() {
         &base,
         &[Op::SetText {
             path: p(&["limits"]),
-            text: "max_pending: 9\n".into(),
+            text: "max_pending: 9\nmax_handshakes: 9\n".into(),
         }],
     )
     .err()
@@ -301,7 +305,20 @@ fn set_text_is_parsed_by_the_server() {
     assert_eq!(
         locked.code,
         ErrorCode::LockedField,
-        "a block with locked fields inside is locked"
+        "a block that changes a locked field inside is locked"
+    );
+    let kept = plan::compute(
+        &core,
+        &s,
+        &base,
+        &[Op::SetText {
+            path: p(&["limits"]),
+            text: "max_pending: 9\n".into(),
+        }],
+    );
+    assert!(
+        kept.is_ok(),
+        "a block that leaves its locked fields as they are is not"
     );
     assert!(
         plan::compute(

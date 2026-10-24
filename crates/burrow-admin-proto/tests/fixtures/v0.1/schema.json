@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:094627ac446471a0",
+  "hash": "b2s:f407bcbf46fa1aaf",
   "root": {
     "label": "Server",
     "sem": {
@@ -462,7 +462,6 @@
             },
             "applies": "reload",
             "group": "web",
-            "locked": true,
             "none_label": "Off"
           }
         },
