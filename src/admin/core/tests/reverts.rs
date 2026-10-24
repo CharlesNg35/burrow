@@ -1,3 +1,5 @@
+#![cfg(test)]
+
 use burrow_admin_proto::msg::{AdminLevel, Apply, ErrorCode, HistoryRequest};
 use burrow_admin_proto::ops::Op;
 use serde_json::json;
