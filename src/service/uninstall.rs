@@ -2,9 +2,9 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use super::previous::give_old_files;
-use super::{p_log_dir, resolve, save_manifest, say, stray, system};
+use super::{Backend, p_log_dir, resolve, save_manifest, say, stray, system};
 use crate::base::failure::Failure;
-use crate::install::{Platform, all_manifests, manifest_path};
+use crate::install::{Manifest, Platform, all_manifests, manifest_path};
 
 pub(super) fn admin_history(config: &Path) -> PathBuf {
     crate::admin::adapters::history_dir_of(config)
@@ -77,32 +77,8 @@ pub fn uninstall(name: Option<&str>, purge: bool, out: &mut dyn Write) -> Result
     );
     let mut kept = Vec::new();
     let mut kept_folder = None;
-    let real_dir = |p: &Path| std::fs::symlink_metadata(p).is_ok_and(|m| m.is_dir());
     if purge {
-        if let Some(f) = &m.env_file
-            && std::fs::remove_file(f).is_ok()
-        {
-            say(out, format!("removed {}", f.display()))?;
-        }
-        if real_dir(m.folder()) && std::fs::remove_dir_all(m.folder()).is_ok() {
-            say(
-                out,
-                format!("removed {} and the files in it", m.folder().display()),
-            )?;
-        } else if std::fs::remove_file(&m.config).is_ok() {
-            say(out, format!("removed {}", m.config.display()))?;
-        }
-        if logs
-            .iter()
-            .filter(|f| std::fs::remove_file(f).is_ok())
-            .count()
-            > 0
-        {
-            say(out, format!("removed the logs in {}", m.log_file.display()))?;
-        }
-        if let Some(dir) = m.log_file.parent().filter(|d| *d != p_log_dir()) {
-            let _ = std::fs::remove_dir(dir);
-        }
+        purge_files(&m, &logs, out)?;
     } else {
         kept.extend(
             [Some(&m.config), m.env_file.as_ref()]
@@ -119,37 +95,7 @@ pub fn uninstall(name: Option<&str>, purge: bool, out: &mut dyn Write) -> Result
     if let Some(note) = stray::keeps(&strays, m.binary.display()).filter(|_| last_binary_user) {
         say(out, note)?;
     } else if last_binary_user {
-        match std::fs::remove_file(&m.binary) {
-            Ok(()) => {
-                let _ = std::fs::remove_file(m.binary.with_extension("previous"));
-                let _ = std::fs::remove_file(m.binary.with_extension("old"));
-                let _ = std::fs::remove_file(m.binary.with_extension("reinstall"));
-                let _ = std::fs::remove_file(m.binary.with_extension("burrow-new"));
-                let own_folder = cfg!(windows) || m.binary != Platform::current().binary_path();
-                if own_folder && let Some(dir) = m.binary.parent() {
-                    let _ = std::fs::remove_dir(dir);
-                }
-                say(out, format!("removed {}", m.binary.display()))?;
-            }
-            Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
-                let later = match m.binary.parent().filter(|_| cfg!(windows)) {
-                    Some(dir) => format!(
-                        "Remove-Item -Recurse {}",
-                        crate::base::failure::path_arg(dir)
-                    ),
-                    None => format!("sudo rm {}", crate::base::failure::path_arg(&m.binary)),
-                };
-                say(
-                    out,
-                    format!(
-                        "note: cannot remove {} ({}); delete it after this command ends: {later}",
-                        m.binary.display(),
-                        crate::base::failure::file_reason(&e)
-                    ),
-                )?;
-            }
-            Err(_) => {}
-        }
+        remove_binary(&m, out)?;
     }
     let heir = others
         .iter()
@@ -172,42 +118,8 @@ pub fn uninstall(name: Option<&str>, purge: bool, out: &mut dyn Write) -> Result
         say(out, note)?;
     } else if last_account_user {
         #[cfg(unix)]
-        {
-            let dir = m
-                .log_file
-                .parent()
-                .filter(|d| !kept.is_empty() && *d != p_log_dir());
-            for f in kept.iter().map(PathBuf::as_path) {
-                let _ = system::give_plain_file(f, 0, 0);
-            }
-            if let Some(d) = dir {
-                let _ = std::os::unix::fs::lchown(d, Some(0), Some(0));
-            }
-            if let Some(d) = &kept_folder {
-                give_history(&m.config, 0, 0);
-                let _ = std::os::unix::fs::lchown(d, Some(0), Some(0));
-            }
-        }
-        let given = give_old_files(&stray::leftovers(None), &m.account, &[]);
-        if !given.is_empty() {
-            say(
-                out,
-                format!(
-                    "gave {} to root before removing service account {}, since an older install left {} owned by it",
-                    given
-                        .iter()
-                        .map(|p| p.display().to_string())
-                        .collect::<Vec<_>>()
-                        .join(", "),
-                    m.account,
-                    if given.len() == 1 { "it" } else { "them" }
-                ),
-            )?;
-        }
-        match backend.remove_account(&m.account) {
-            Ok(()) => say(out, format!("removed service account {}", m.account))?,
-            Err(f) => account_left = Some(f),
-        }
+        give_kept_to_root(&m, &kept, kept_folder.as_deref());
+        account_left = remove_service_account(&*backend, &m, out)?;
     }
     if !kept.is_empty() || kept_folder.is_some() {
         say(
@@ -219,23 +131,140 @@ pub fn uninstall(name: Option<&str>, purge: bool, out: &mut dyn Write) -> Result
         )?;
     }
     if others.is_empty() {
-        let p = Platform::current();
-        operation.remove();
-        let _ = std::fs::remove_dir_all(p.jobs_dir());
-        let mut dirs = vec![p.state_dir()];
-        dirs.extend(p.state_dir().parent().map(Path::to_path_buf));
-        if purge {
-            dirs.extend([p.log_dir(), p.config_dir()]);
-        }
-        let locks = crate::instance::service_dir().unwrap_or_else(crate::instance::default_dir);
-        crate::instance::remove_unused(&locks);
-        for dir in dirs {
-            let _ = std::fs::remove_dir(dir);
-        }
+        remove_burrow_folders(operation, purge);
     }
     match account_left {
         Some(f) => Err(account_not_removed(&m.account, f)),
         None => Ok(()),
+    }
+}
+
+fn real_dir(p: &Path) -> bool {
+    std::fs::symlink_metadata(p).is_ok_and(|m| m.is_dir())
+}
+
+fn purge_files(m: &Manifest, logs: &[PathBuf], out: &mut dyn Write) -> Result<(), Failure> {
+    if let Some(f) = &m.env_file
+        && std::fs::remove_file(f).is_ok()
+    {
+        say(out, format!("removed {}", f.display()))?;
+    }
+    if real_dir(m.folder()) && std::fs::remove_dir_all(m.folder()).is_ok() {
+        say(
+            out,
+            format!("removed {} and the files in it", m.folder().display()),
+        )?;
+    } else if std::fs::remove_file(&m.config).is_ok() {
+        say(out, format!("removed {}", m.config.display()))?;
+    }
+    if logs
+        .iter()
+        .filter(|f| std::fs::remove_file(f).is_ok())
+        .count()
+        > 0
+    {
+        say(out, format!("removed the logs in {}", m.log_file.display()))?;
+    }
+    if let Some(dir) = m.log_file.parent().filter(|d| *d != p_log_dir()) {
+        let _ = std::fs::remove_dir(dir);
+    }
+    Ok(())
+}
+
+fn remove_binary(m: &Manifest, out: &mut dyn Write) -> Result<(), Failure> {
+    match std::fs::remove_file(&m.binary) {
+        Ok(()) => {
+            let _ = std::fs::remove_file(m.binary.with_extension("previous"));
+            let _ = std::fs::remove_file(m.binary.with_extension("old"));
+            let _ = std::fs::remove_file(m.binary.with_extension("reinstall"));
+            let _ = std::fs::remove_file(m.binary.with_extension("burrow-new"));
+            let own_folder = cfg!(windows) || m.binary != Platform::current().binary_path();
+            if own_folder && let Some(dir) = m.binary.parent() {
+                let _ = std::fs::remove_dir(dir);
+            }
+            say(out, format!("removed {}", m.binary.display()))?;
+        }
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+            let later = match m.binary.parent().filter(|_| cfg!(windows)) {
+                Some(dir) => format!(
+                    "Remove-Item -Recurse {}",
+                    crate::base::failure::path_arg(dir)
+                ),
+                None => format!("sudo rm {}", crate::base::failure::path_arg(&m.binary)),
+            };
+            say(
+                out,
+                format!(
+                    "note: cannot remove {} ({}); delete it after this command ends: {later}",
+                    m.binary.display(),
+                    crate::base::failure::file_reason(&e)
+                ),
+            )?;
+        }
+        Err(_) => {}
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn give_kept_to_root(m: &Manifest, kept: &[PathBuf], kept_folder: Option<&Path>) {
+    let dir = m
+        .log_file
+        .parent()
+        .filter(|d| !kept.is_empty() && *d != p_log_dir());
+    for f in kept.iter().map(PathBuf::as_path) {
+        let _ = system::give_plain_file(f, 0, 0);
+    }
+    if let Some(d) = dir {
+        let _ = std::os::unix::fs::lchown(d, Some(0), Some(0));
+    }
+    if let Some(d) = kept_folder {
+        give_history(&m.config, 0, 0);
+        let _ = std::os::unix::fs::lchown(d, Some(0), Some(0));
+    }
+}
+
+fn remove_service_account(
+    backend: &dyn Backend,
+    m: &Manifest,
+    out: &mut dyn Write,
+) -> Result<Option<Failure>, Failure> {
+    let given = give_old_files(&stray::leftovers(None), &m.account, &[]);
+    if !given.is_empty() {
+        say(
+            out,
+            format!(
+                "gave {} to root before removing service account {}, since an older install left {} owned by it",
+                given
+                    .iter()
+                    .map(|p| p.display().to_string())
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                m.account,
+                if given.len() == 1 { "it" } else { "them" }
+            ),
+        )?;
+    }
+    match backend.remove_account(&m.account) {
+        Ok(()) => say(out, format!("removed service account {}", m.account))?,
+        Err(f) => return Ok(Some(f)),
+    }
+    Ok(None)
+}
+
+fn remove_burrow_folders(operation: system::Operation, purge: bool) {
+    let p = Platform::current();
+    operation.remove();
+    let _ = std::fs::remove_dir_all(p.jobs_dir());
+    let mut dirs = vec![p.state_dir()];
+    dirs.extend(p.state_dir().parent().map(Path::to_path_buf));
+    if purge {
+        dirs.extend([p.log_dir(), p.config_dir()]);
+    }
+    let locks = crate::instance::service_dir().unwrap_or_else(crate::instance::default_dir);
+    crate::instance::remove_unused(&locks);
+    for dir in dirs {
+        let _ = std::fs::remove_dir(dir);
     }
 }
 
