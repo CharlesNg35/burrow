@@ -89,13 +89,17 @@ fn a_site_that_needs_https_from_burrow_is_refused_until_burrow_can_serve_it() {
         "web: [a.example.com, b.example.com]",
         "web: { hosts: [blog.example.com] }",
     ] {
-        let e = one_error(&format!(
+        let e = errors(&load(&format!(
             "listen: 7835\nweb: {{ https: 443 }}\nservices:\n  blog:\n    client: home\n    target: 8080\n    {web}\n"
-        ));
+        )));
         assert_eq!(
-            e,
+            e[0],
             "services.blog.web: burrow cannot serve HTTPS for websites in this build yet; use tls: passthrough",
             "{web}: the default with web.https is auto"
+        );
+        assert!(
+            e[1..].iter().all(|m| m.contains("has no certificate")),
+            "{web}: {e:#?}"
         );
     }
 }
@@ -108,7 +112,13 @@ fn every_final_tls_form_parses_and_only_passthrough_is_served_in_this_build() {
         )
     };
     let https_later = "services.blog.web.tls: burrow cannot serve HTTPS for websites in this build yet; use tls: passthrough";
-    assert_eq!(one_error(&site("auto")), https_later);
+    let auto = errors(&load(&site("auto")));
+    assert_eq!(auto.len(), 2, "{auto:#?}");
+    assert!(auto.iter().any(|m| m == https_later), "{auto:#?}");
+    assert!(
+        auto.iter().any(|m| m.contains("has no certificate")),
+        "{auto:#?}"
+    );
     assert_eq!(
         one_error(&site("{ cert: certs/blog.pem, key: certs/blog.key }")),
         https_later
@@ -279,7 +289,7 @@ fn the_tunnel_messages_of_section_5_3() {
     assert_eq!(
         errors(&no_cert),
         [
-            "websocket.host \"tunnel.example.com\" has no certificate; add websocket.tls with its cert and key"
+            "websocket.host \"tunnel.example.com\" has no certificate; add web.letsencrypt, websocket.tls, or an entry in web.certificates whose hosts lists it"
         ]
     );
 }

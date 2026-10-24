@@ -131,13 +131,15 @@ server: wss://tunnel.example.com/burrow
 | `web` has no port | `web needs a port: https for HTTPS sites, like https: 443 (plain HTTP sites on web.http are not in this build yet)` |
 | a website with `tls: auto` (or no `tls`) or `{cert, key}` | `services.blog.web.tls: burrow cannot serve HTTPS for websites in this build yet; use tls: passthrough` |
 | a website with `tls: off` | `services.blog.web.tls: plain HTTP websites need web.http, which this build does not have yet; use tls: passthrough` |
+| an HTTPS name with no certificate | `host "blog.example.com" (service "blog") has no certificate; add web.letsencrypt for automatic certificates, tls: {cert, key} on service "blog", or an entry in web.certificates whose hosts lists it` |
+| a wildcard name from Let's Encrypt | `services.apps.web.hosts: "*.apps.example.com" needs DNS-01 (Let's Encrypt gives wildcard certificates only through DNS checks), which this build does not have yet; add a certificate file under web.certificates or tls` |
 | a name that is not a host name | `services.nas.web.hosts: "https://nas.example.com" is not a host name; write the name alone, like blog.example.com` |
 | a wildcard that is too wide | `services.apps.web.hosts: "*.com" is too wide; a wildcard needs a parent name, like *.example.com` |
 | one name in two services | `host "nas.example.com" is used by services "nas" and "nas2"; each host name leads to one service` |
 | the tunnel shares the port but has no name | `websocket.host is required when websocket.listen is the same port as web.https (443): ...` |
 | `websocket.host` without sharing | `websocket.host is only used when websocket.listen is the same port as web.https; ...` |
 | the tunnel's name is a passthrough site | `websocket.host "nas.example.com" is a passthrough site; burrow cannot see its requests` |
-| the tunnel's name has no certificate | `websocket.host "tunnel.example.com" has no certificate; add websocket.tls with its cert and key` |
+| the tunnel's name has no certificate | `websocket.host "tunnel.example.com" has no certificate; add web.letsencrypt, websocket.tls, or an entry in web.certificates whose hosts lists it` |
 | a UDP service with `web` | `service "dns" is udp, but web only works for tcp services; remove web:, or set protocol: tcp` |
 | another listener on the same port | `web.https [::]:443 is also the control port (listen ...)`, or the service or metrics port it clashes with |
 

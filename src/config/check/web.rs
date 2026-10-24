@@ -233,18 +233,7 @@ pub(super) fn share_tunnel(
             return;
         }
     };
-    if ws.tls.is_none() {
-        out.push(
-            Diagnostic::error(
-                "tunnel-certificate",
-                format!(
-                    "websocket.host \"{host}\" has no certificate; add websocket.tls with its cert and key"
-                ),
-            )
-            .at(host_at)
-            .help("for example tls: {cert: certs/fullchain.pem, key: certs/privkey.pem} under websocket"),
-        );
-    }
+    certs::tunnel_has_source(cfg, &host, ws.tls.is_some(), spans, out);
     ws.host = Some(host);
 }
 
@@ -300,6 +289,7 @@ pub(super) fn check_sites(
             sites.insert(name.clone(), fill::site(cfg, web, hosts, base_dir));
         }
     }
+    certs::check_sources(cfg, https, spans, out);
     sites
 }
 
@@ -438,6 +428,7 @@ fn check_hosts(
     (out.len() == before).then_some(hosts)
 }
 
+mod certs;
 mod fill;
 mod later;
 
@@ -445,6 +436,9 @@ pub(super) use fill::settings;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(all(test, feature = "web"))]
+mod tests_certs;
 
 #[cfg(all(test, feature = "web"))]
 mod tests_files;
