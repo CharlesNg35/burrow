@@ -381,7 +381,7 @@ fn run_server(path: &Path, logging: Logging, hosted: Option<Hosted>) -> Result<u
             shared.set_admin(hub);
             Some(nudges)
         };
-        let _status = crate::status::publish(path, Arc::new(move || shared.status()));
+        let _status = crate::instance::publish::publish(path, Arc::new(move || shared.status()));
         let stop = stop_on_signal(stop);
         let (reload_tx, reload_rx) = mpsc::channel(4);
         tokio::spawn(crate::reload::follow_nudged(

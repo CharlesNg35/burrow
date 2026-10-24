@@ -4,9 +4,9 @@ use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use super::Entry;
 use super::render::{Paint, Rates, rates, render};
 use crate::base::failure::Failure;
+use crate::instance::publish::Entry;
 use crate::metrics::Status;
 
 const MAX_BODY: u64 = 16 * 1024 * 1024;

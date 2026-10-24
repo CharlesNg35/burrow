@@ -1,12 +1,20 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use serde::{Deserialize, Serialize};
 use tokio::task::JoinHandle;
 use tracing::{debug, warn};
 
-use super::Entry;
 use crate::metrics::Status;
 use crate::metrics::{Handler, serve_with};
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Entry {
+    pub config: PathBuf,
+    pub pid: u32,
+    pub port: u16,
+    pub token: String,
+}
 
 pub struct Published {
     path: PathBuf,

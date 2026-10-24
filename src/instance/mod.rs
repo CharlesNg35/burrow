@@ -1,3 +1,5 @@
+pub mod publish;
+
 use std::fs::{File, OpenOptions, TryLockError};
 use std::io::Write;
 use std::path::{Path, PathBuf};
