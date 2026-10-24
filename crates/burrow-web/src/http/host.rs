@@ -1,4 +1,4 @@
-use std::net::IpAddr;
+use std::net::{Ipv4Addr, Ipv6Addr};
 
 use http::uri::Authority;
 use http::{HeaderMap, Uri, header};
@@ -17,15 +17,16 @@ pub fn host_header(value: &str) -> Option<String> {
     {
         return None;
     }
-    let bare = host
-        .strip_prefix('[')
-        .and_then(|h| h.strip_suffix(']'))
-        .unwrap_or(host);
-    if let Ok(ip) = bare.parse::<IpAddr>() {
+    if let Some(literal) = host.strip_prefix('[').and_then(|h| h.strip_suffix(']')) {
+        let ip = literal.parse::<Ipv6Addr>().ok()?;
         return Some(ip.to_canonical().to_string());
     }
-    let name = bare.strip_suffix('.').unwrap_or(bare);
-    (!name.is_empty() && !name.contains('[')).then(|| name.to_ascii_lowercase())
+    if let Ok(ip) = host.parse::<Ipv4Addr>() {
+        return Some(ip.to_string());
+    }
+    let name = host.strip_suffix('.').unwrap_or(host);
+    let labels_ok = !name.is_empty() && name.split('.').all(|l| !l.is_empty());
+    (labels_ok && !name.contains(['[', ']'])).then(|| name.to_ascii_lowercase())
 }
 
 pub fn request_host(uri: &Uri, headers: &HeaderMap) -> Option<String> {
@@ -72,7 +73,7 @@ mod tests {
     }
 
     #[test]
-    fn a_host_that_is_not_an_authority_is_refused() {
+    fn a_host_that_is_not_an_authority_or_a_dns_shaped_name_is_refused() {
         for bad in [
             "",
             "user@blog.example.com",
@@ -82,6 +83,11 @@ mod tests {
             ".",
             "a.example.com:99999",
             "a.example.com:",
+            "a..example.com",
+            "blog.example.com..",
+            ".blog.example.com",
+            "[blog.example.com]",
+            "[v1.x]",
         ] {
             assert_eq!(host_header(bad), None, "{bad:?}");
         }
