@@ -167,22 +167,58 @@ pub fn impacts(
     restart: &[String],
     renames: &[Rename],
 ) -> Vec<Impact> {
-    use burrow_config::{ClientEntry, Entry, ServiceEntry, VisitorEntry};
+    let cx = Before {
+        old,
+        new,
+        status,
+        sessions,
+        renames,
+    };
     let mut out = Vec::new();
-    let renamed_to = |section: &str, name: &str| {
-        renames
+    service_impacts(&cx, &mut out);
+    client_impacts(&cx, &mut out);
+    visitor_impacts(&cx, &mut out);
+    setting_impacts(&cx, restart, &mut out);
+    out
+}
+
+struct Before<'a> {
+    old: &'a ServerSettings,
+    new: &'a ServerSettings,
+    status: &'a Status,
+    sessions: &'a [LiveSession],
+    renames: &'a [Rename],
+}
+
+impl Before<'_> {
+    fn renamed_to(&self, section: &str, name: &str) -> Option<String> {
+        self.renames
             .iter()
             .find(|r| r.path.len() == 2 && r.path[0] == section && r.path[1] == name)
             .map(|r| r.to.clone())
-    };
-    let renamed_in = |section: &str, name: &str| {
-        renames
+    }
+
+    fn renamed_in(&self, section: &str, name: &str) -> bool {
+        self.renames
             .iter()
             .any(|r| r.path.len() == 2 && r.path[0] == section && r.to == name)
-    };
+    }
+
+    fn client_open(&self, name: &str) -> u64 {
+        self.status
+            .clients
+            .iter()
+            .find(|c| c.name == name)
+            .map_or(0, |c| c.open)
+    }
+}
+
+fn service_impacts(cx: &Before, out: &mut Vec<Impact>) {
+    use burrow_config::{Entry, ServiceEntry};
+    let (old, new, status) = (cx.old, cx.new, cx.status);
+    let renamed_to = |section: &str, name: &str| cx.renamed_to(section, name);
+    let renamed_in = |section: &str, name: &str| cx.renamed_in(section, name);
     let services = ServiceEntry::section();
-    let clients = ClientEntry::section();
-    let visitors = VisitorEntry::section();
     let open_of = |name: &str| {
         status
             .services
@@ -190,14 +226,6 @@ pub fn impacts(
             .find(|s| s.name == name)
             .map_or(0, |s| s.open)
     };
-    let client_open = |name: &str| {
-        status
-            .clients
-            .iter()
-            .find(|c| c.name == name)
-            .map_or(0, |c| c.open)
-    };
-    let connected = |name: &str| sessions.iter().find(|s| s.client == name);
     let mut retargeted: Vec<String> = Vec::new();
     let mut push = |level: Level, code: &str, message: String, confirm: Option<String>| {
         out.push(Impact {
@@ -281,6 +309,24 @@ pub fn impacts(
             push(Level::Info, "adds-service", msg, None);
         }
     }
+}
+
+fn client_impacts(cx: &Before, out: &mut Vec<Impact>) {
+    use burrow_config::{ClientEntry, Entry};
+    let (old, new, sessions) = (cx.old, cx.new, cx.sessions);
+    let renamed_to = |section: &str, name: &str| cx.renamed_to(section, name);
+    let renamed_in = |section: &str, name: &str| cx.renamed_in(section, name);
+    let clients = ClientEntry::section();
+    let client_open = |name: &str| cx.client_open(name);
+    let connected = |name: &str| sessions.iter().find(|s| s.client == name);
+    let mut push = |level: Level, code: &str, message: String, confirm: Option<String>| {
+        out.push(Impact {
+            level,
+            code: code.into(),
+            message,
+            confirm,
+        })
+    };
     for (name, auth) in &old.clients {
         let live = connected(name);
         if let Some(to) = renamed_to(clients, name) {
@@ -360,6 +406,23 @@ pub fn impacts(
             None,
         );
     }
+}
+
+fn visitor_impacts(cx: &Before, out: &mut Vec<Impact>) {
+    use burrow_config::{ClientEntry, Entry, ServiceEntry, VisitorEntry};
+    let (old, new, status) = (cx.old, cx.new, cx.status);
+    let renamed_to = |section: &str, name: &str| cx.renamed_to(section, name);
+    let services = ServiceEntry::section();
+    let clients = ClientEntry::section();
+    let visitors = VisitorEntry::section();
+    let mut push = |level: Level, code: &str, message: String, confirm: Option<String>| {
+        out.push(Impact {
+            level,
+            code: code.into(),
+            message,
+            confirm,
+        })
+    };
     let visitor_open = |name: &str| {
         status
             .visitors
@@ -444,6 +507,19 @@ pub fn impacts(
             }
         }
     }
+}
+
+fn setting_impacts(cx: &Before, restart: &[String], out: &mut Vec<Impact>) {
+    let (old, new, sessions) = (cx.old, cx.new, cx.sessions);
+    let client_open = |name: &str| cx.client_open(name);
+    let mut push = |level: Level, code: &str, message: String, confirm: Option<String>| {
+        out.push(Impact {
+            level,
+            code: code.into(),
+            message,
+            confirm,
+        })
+    };
     let reaches_self = |s: &ServerSettings| s.visitors.values().any(|v| v.reach.contains_key(SELF));
     if old.self_allow.is_some() && new.self_allow != old.self_allow && reaches_self(old) {
         let open = client_open(SELF);
@@ -508,7 +584,6 @@ pub fn impacts(
             );
         }
     }
-    out
 }
 
 #[cfg(test)]
