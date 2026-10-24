@@ -85,6 +85,15 @@ fn a_bare_layer_folder_or_crate_root_import_is_found_and_has_no_unit() {
 }
 
 #[test]
+fn burrow_paths_are_scanned_like_crate_paths() {
+    let src = "use burrow::admin::Hub;\nuse ::burrow::server::Shared;\nfn f() { let t = \"burrow::admin\"; let x = other::burrow::thing(); }\n";
+    let found = targets(src, "wire::noise");
+    assert!(found.iter().any(|f| f == "admin::Hub"), "{found:?}");
+    assert!(found.iter().any(|f| f == "server::Shared"), "{found:?}");
+    assert_eq!(found.len(), 2, "{found:?}");
+}
+
+#[test]
 fn super_crosses_into_a_sibling_unit_of_a_layer_folder() {
     let found = targets("use super::failure::Failure;\n", "base::fs");
     assert_eq!(found, ["base::failure::Failure"]);

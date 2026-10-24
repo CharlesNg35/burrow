@@ -151,6 +151,15 @@ fn after_in(tokens: &[TokenTree], i: usize) -> bool {
     i > 0 && matches!(&tokens[i - 1], TokenTree::Ident(id) if id == "in")
 }
 
+fn inside_path(tokens: &[TokenTree], i: usize) -> bool {
+    const BEFORE_A_PATH: &[&str] = &[
+        "use", "pub", "return", "let", "in", "as", "dyn", "impl", "for",
+    ];
+    i >= 3
+        && is_path_sep(tokens, i - 2)
+        && matches!(&tokens[i - 3], TokenTree::Ident(id) if !BEFORE_A_PATH.contains(&id.to_string().as_str()))
+}
+
 fn bracket_starts_with(t: Option<&TokenTree>, word: &str) -> bool {
     match t {
         Some(TokenTree::Group(g)) if g.delimiter() == Delimiter::Bracket => g
@@ -180,12 +189,13 @@ fn scan_stream(stream: TokenStream, module: &[String], scan: &mut Scan) {
                 }
             }
             TokenTree::Ident(id)
-                if (id == "crate" || id == "super" || id == "self")
+                if (id == "crate" || id == "super" || id == "self" || id == "burrow")
                     && is_path_sep(&tokens, i + 1)
-                    && !after_in(&tokens, i) =>
+                    && !after_in(&tokens, i)
+                    && !(id == "burrow" && inside_path(&tokens, i)) =>
             {
                 let start = match id.to_string().as_str() {
-                    "crate" => Vec::new(),
+                    "crate" | "burrow" => Vec::new(),
                     "super" => module[..module.len().saturating_sub(1)].to_vec(),
                     _ => module.to_vec(),
                 };
