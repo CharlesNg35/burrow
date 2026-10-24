@@ -168,53 +168,7 @@ fn diff_value(
             diff_map(src, old, want, path, depth, unit, edits);
         }
         Value::Array(items) if block_seq && !items.is_empty() => {
-            let tree::Value::Seq(old_items) = &old.value else {
-                return;
-            };
-            let first = line_start(src, old_items[0].span.start.offset);
-            let dash = src[first..].find('-').map(|i| first + i);
-            let item_indent = dash.and_then(|d| src.get(first..d)).unwrap_or("-");
-            if item_indent.chars().any(|c| c != ' ')
-                || dash.is_none_or(|d| d > old_items[0].span.start.offset)
-            {
-                edits.give_up(path, "the list items do not start their lines");
-                return;
-            }
-            let last = &old_items[old_items.len() - 1];
-            let end = end_of(src, first, last.span.end.offset, item_indent.len());
-            let mut lines = Vec::new();
-            for it in old_items {
-                let ls = line_start(src, it.span.start.offset);
-                let le = line_end(src, content_end(it));
-                let own = src[ls..le].starts_with(&format!("{item_indent}-"));
-                lines.push((it.to_json(), own.then(|| src[ls..le].to_string())));
-            }
-            let mut text = String::new();
-            for v in items {
-                if matches!(v, Value::Object(o) if !o.is_empty()) {
-                    edits.give_up(path, "a list of mappings");
-                    return;
-                }
-                match lines
-                    .iter()
-                    .position(|(old, line)| old == v && line.is_some())
-                {
-                    Some(pos) => {
-                        let line = lines.remove(pos).1.unwrap_or_default();
-                        text.push_str(&line);
-                        if !line.ends_with('\n') {
-                            text.push('\n');
-                        }
-                    }
-                    None => {
-                        text.push_str(item_indent);
-                        text.push_str("- ");
-                        text.push_str(&flow_text(v));
-                        text.push('\n');
-                    }
-                }
-            }
-            edits.push(first, end, text);
+            replace_block_seq(src, old, items, path, edits);
         }
         Value::Object(m) if !m.is_empty() => {
             let Some(end) = value_end(edits) else {
@@ -312,6 +266,56 @@ fn diff_value(
             edits.push(from, end, with);
         }
     }
+}
+
+fn replace_block_seq(src: &str, old: &Node, items: &[Value], path: &[String], edits: &mut Edits) {
+    let tree::Value::Seq(old_items) = &old.value else {
+        return;
+    };
+    let first = line_start(src, old_items[0].span.start.offset);
+    let dash = src[first..].find('-').map(|i| first + i);
+    let item_indent = dash.and_then(|d| src.get(first..d)).unwrap_or("-");
+    if item_indent.chars().any(|c| c != ' ')
+        || dash.is_none_or(|d| d > old_items[0].span.start.offset)
+    {
+        edits.give_up(path, "the list items do not start their lines");
+        return;
+    }
+    let last = &old_items[old_items.len() - 1];
+    let end = end_of(src, first, last.span.end.offset, item_indent.len());
+    let mut lines = Vec::new();
+    for it in old_items {
+        let ls = line_start(src, it.span.start.offset);
+        let le = line_end(src, content_end(it));
+        let own = src[ls..le].starts_with(&format!("{item_indent}-"));
+        lines.push((it.to_json(), own.then(|| src[ls..le].to_string())));
+    }
+    let mut text = String::new();
+    for v in items {
+        if matches!(v, Value::Object(o) if !o.is_empty()) {
+            edits.give_up(path, "a list of mappings");
+            return;
+        }
+        match lines
+            .iter()
+            .position(|(old, line)| old == v && line.is_some())
+        {
+            Some(pos) => {
+                let line = lines.remove(pos).1.unwrap_or_default();
+                text.push_str(&line);
+                if !line.ends_with('\n') {
+                    text.push('\n');
+                }
+            }
+            None => {
+                text.push_str(item_indent);
+                text.push_str("- ");
+                text.push_str(&flow_text(v));
+                text.push('\n');
+            }
+        }
+    }
+    edits.push(first, end, text);
 }
 
 fn flow_subset(
