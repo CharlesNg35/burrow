@@ -193,7 +193,11 @@ fn offline_plan(state: &Path, names: &[&str]) -> Plan {
             email: "ops@example.com".into(),
             profile: None,
             state_dir: Some(state.to_path_buf()),
-            challenges: vec![CertCheck::Tls],
+            check_ports: burrow_syntax::web::CheckPorts {
+                https: Some(443),
+                http: None,
+            },
+            dns: false,
             fallback_directory: None,
         },
         groups: [("moved".to_string(), s(names))].into_iter().collect(),

@@ -195,3 +195,11 @@ impl Pebble {
 pub async fn remove_containers() {
     docker(&["rm", "-f", PEBBLE_NAME, DNS_NAME]).await;
 }
+
+pub fn ports_of(checks: &[burrow_web::tls::CertCheck]) -> burrow_syntax::web::CheckPorts {
+    use burrow_web::tls::CertCheck;
+    burrow_syntax::web::CheckPorts {
+        https: checks.contains(&CertCheck::Tls).then_some(443),
+        http: checks.contains(&CertCheck::Http).then_some(80),
+    }
+}

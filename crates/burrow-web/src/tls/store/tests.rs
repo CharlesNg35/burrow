@@ -309,3 +309,62 @@ async fn a_file_close_to_expiry_is_warned_about_once_a_day() {
     assert_eq!(store.warn_expiring(), 1, "the first daily check warns");
     assert_eq!(store.warn_expiring(), 0, "not again the same day");
 }
+
+fn acme_on(state: &Path, https: u16) -> CertSettings {
+    CertSettings {
+        acme: Some(crate::AcmeSettings {
+            directory_url: "https://127.0.0.1:9/dir".into(),
+            ca: None,
+            email: "ops@example.com".into(),
+            profile: None,
+            state_dir: Some(state.to_path_buf()),
+            check_ports: burrow_syntax::web::CheckPorts {
+                https: Some(https),
+                http: None,
+            },
+            dns: false,
+            fallback_directory: None,
+        }),
+        ..CertSettings::default()
+    }
+}
+
+#[tokio::test]
+async fn a_name_lets_encrypt_cannot_check_orders_nothing_and_says_why_unless_a_stored_one_covers_it()
+ {
+    let state = tempfile::tempdir().unwrap();
+    let names = [named("x.example.com", CertSource::Auto, "x")];
+    let store = Store::new();
+    store.apply(&acme_on(state.path(), 8443), &names).await;
+    assert_eq!(store.state("x.example.com"), CertState::Failing);
+    let st = &store.status()[0];
+    assert!(
+        matches!(&st.phase, CertPhase::Failing { reason } if reason.contains("port 443")),
+        "{st:#?}"
+    );
+    assert!(store.queue().is_empty(), "nothing is ordered");
+    let key = rcgen::KeyPair::generate().unwrap();
+    let cert = rcgen::CertificateParams::new(vec!["x.example.com".to_string()])
+        .unwrap()
+        .self_signed(&key)
+        .unwrap();
+    let stored = crate::tls::acme::storage::Stored {
+        chain_pem: cert.pem(),
+        key_pem: key.serialize_pem(),
+        meta: crate::tls::acme::storage::Meta {
+            directory: "https://127.0.0.1:9/dir".into(),
+            names: vec!["x.example.com".into()],
+            issued: 1,
+        },
+    };
+    let dir = crate::tls::acme::storage::cert_dir(state.path(), &["x.example.com".to_string()]);
+    crate::tls::acme::storage::save(&dir, &stored).unwrap();
+    let again = Store::new();
+    again.apply(&acme_on(state.path(), 8443), &names).await;
+    assert_eq!(
+        again.state("x.example.com"),
+        CertState::Ready,
+        "the stored one is served"
+    );
+    assert_eq!(again.status()[0].phase, CertPhase::Ok);
+}

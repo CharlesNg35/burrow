@@ -11,6 +11,8 @@ pub mod storage;
 
 pub use manager::{Acme, GroupView, Handle, Plan};
 
+use crate::tls::CertCheck;
+
 pub const LETSENCRYPT_PRODUCTION: &str = "https://acme-v02.api.letsencrypt.org/directory";
 pub const LETSENCRYPT_STAGING: &str = "https://acme-staging-v02.api.letsencrypt.org/directory";
 
@@ -38,6 +40,42 @@ impl Problemish {
 
 fn short_type(t: &str) -> &str {
     t.strip_prefix("urn:ietf:params:acme:error:").unwrap_or(t)
+}
+
+pub fn checks_of(settings: &crate::AcmeSettings, name: &str) -> Result<Vec<CertCheck>, String> {
+    use burrow_syntax::web::{Check, NoCheck, checks_for};
+    match checks_for(name, settings.check_ports, settings.dns, false) {
+        Ok(list) if list.contains(&Check::Dns) => Err(format!(
+            "\"{name}\" needs a DNS check (DNS checks come in a later phase)"
+        )),
+        Ok(list) => Ok(list
+            .into_iter()
+            .map(|c| match c {
+                Check::Http => CertCheck::Http,
+                _ => CertCheck::Tls,
+            })
+            .collect()),
+        Err(NoCheck::NoPort) => Err(format!(
+            "Let's Encrypt cannot check \"{name}\": it connects only to port 443 (web.https) or port 80 (web.http)"
+        )),
+        Err(NoCheck::DnsForIp) => Err(format!(
+            "\"{name}\" is an IP address, which Let's Encrypt checks only over TLS or HTTP"
+        )),
+        Err(NoCheck::DnsNotSet) => Err(format!(
+            "\"{name}\" needs a DNS check (DNS checks come in a later phase)"
+        )),
+    }
+}
+
+pub fn checks_for_all(settings: &crate::AcmeSettings, names: &[String]) -> Vec<CertCheck> {
+    let each: Vec<Vec<CertCheck>> = names
+        .iter()
+        .filter_map(|n| checks_of(settings, n).ok())
+        .collect();
+    [CertCheck::Tls, CertCheck::Http]
+        .into_iter()
+        .filter(|c| each.iter().all(|l| l.contains(c)))
+        .collect()
 }
 
 pub fn problem_text(p: &instant_acme::Problem) -> String {
@@ -90,5 +128,40 @@ mod tests {
         );
         let f = fraction();
         assert!((0.0..1.0).contains(&f));
+    }
+
+    fn le(https: Option<u16>, http: Option<u16>) -> crate::AcmeSettings {
+        crate::AcmeSettings {
+            directory_url: LETSENCRYPT_PRODUCTION.into(),
+            ca: None,
+            email: "ops@example.com".into(),
+            profile: None,
+            state_dir: None,
+            check_ports: burrow_syntax::web::CheckPorts { https, http },
+            dns: false,
+            fallback_directory: None,
+        }
+    }
+
+    #[test]
+    fn the_runtime_takes_each_names_checks_from_the_shared_rule() {
+        use crate::tls::CertCheck::{Http, Tls};
+        let both = le(Some(443), Some(80));
+        assert_eq!(checks_of(&both, "a.example.com"), Ok(vec![Tls, Http]));
+        assert_eq!(
+            checks_of(&le(Some(8443), Some(80)), "a.example.com"),
+            Ok(vec![Http])
+        );
+        assert_eq!(checks_of(&both, "203.0.113.10"), Ok(vec![Tls, Http]));
+        let off = checks_of(&le(Some(8443), None), "a.example.com").unwrap_err();
+        assert!(off.contains("port 443") && off.contains("port 80"), "{off}");
+        let wild = checks_of(&both, "*.example.com").unwrap_err();
+        assert!(
+            wild.ends_with("(DNS checks come in a later phase)"),
+            "{wild}"
+        );
+        let names = vec!["a.example.com".to_string(), "b.example.com".to_string()];
+        assert_eq!(checks_for_all(&both, &names), vec![Tls, Http]);
+        assert_eq!(checks_for_all(&le(None, Some(80)), &names), vec![Http]);
     }
 }

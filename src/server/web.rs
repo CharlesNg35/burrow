@@ -199,12 +199,11 @@ fn cert_settings(s: &ServerSettings, web: &WebSettings) -> CertSettings {
             email: l.email.clone(),
             profile: l.profile.clone(),
             state_dir: l.state_dir.clone(),
-            challenges: web
-                .https
-                .map(|_| burrow_web::tls::CertCheck::Tls)
-                .into_iter()
-                .chain(web.http.map(|_| burrow_web::tls::CertCheck::Http))
-                .collect(),
+            check_ports: burrow_syntax::web::CheckPorts {
+                https: web.https.map(|a| a.port()),
+                http: web.http.map(|a| a.port()),
+            },
+            dns: false,
             fallback_directory: (l.directory == burrow_web::tls::acme::LETSENCRYPT_PRODUCTION)
                 .then(|| burrow_web::tls::acme::LETSENCRYPT_STAGING.to_string()),
         }),

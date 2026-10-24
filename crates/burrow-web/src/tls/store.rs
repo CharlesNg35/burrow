@@ -215,7 +215,10 @@ impl Store {
                     origin: None,
                     acme: true,
                     group: n.group.clone(),
-                    error: None,
+                    error: settings
+                        .acme
+                        .as_ref()
+                        .and_then(|a| super::acme::checks_of(a, &n.name).err()),
                     expires: None,
                 },
                 Choice::Missing(why) => Slot {
@@ -245,15 +248,22 @@ impl Store {
             },
             check: view.as_ref().and_then(|v| v.check),
             phase: match view.as_ref().map(|v| &v.phase) {
+                _ if served.is_none() && s.error.is_some() => CertPhase::Failing {
+                    reason: s.error.clone().unwrap_or_default(),
+                },
                 Some(CertPhase::Failing { reason }) => CertPhase::Failing {
                     reason: reason.clone(),
                 },
                 Some(p) if served.is_some() => p.clone(),
+                None if served.is_some() => CertPhase::Ok,
                 _ => CertPhase::Pending,
             },
             expires: served.as_deref().and_then(expires),
             next_renewal: view.as_ref().and_then(|v| v.next_renewal),
-            last_error: view.as_ref().and_then(|v| v.last_error.clone()),
+            last_error: match (&s.error, &served) {
+                (Some(e), None) => Some(e.clone()),
+                _ => view.as_ref().and_then(|v| v.last_error.clone()),
+            },
             code: view.as_ref().and_then(|v| v.code),
             explanation: view.as_ref().and_then(|v| v.explanation.clone()),
             failures: view.map_or(0, |v| v.failures),
@@ -306,6 +316,9 @@ impl Certificates for Store {
         if slot.acme {
             if self.acme.certificate(&configured).is_some() {
                 return CertState::Ready;
+            }
+            if slot.error.is_some() {
+                return CertState::Failing;
             }
             return match self.acme.view_of(&slot.group).map(|v| v.phase) {
                 Some(CertPhase::Failing { .. }) => CertState::Failing,

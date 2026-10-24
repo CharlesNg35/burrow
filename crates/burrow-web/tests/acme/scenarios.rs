@@ -29,7 +29,8 @@ fn settings(ctx: &Ctx, state: &Path, checks: &[CertCheck], profile: Option<&str>
             email: "ops@example.com".into(),
             profile: profile.map(str::to_string),
             state_dir: Some(state.to_path_buf()),
-            challenges: checks.to_vec(),
+            check_ports: super::pebble::ports_of(checks),
+            dns: false,
             fallback_directory: None,
         }),
         ..CertSettings::default()

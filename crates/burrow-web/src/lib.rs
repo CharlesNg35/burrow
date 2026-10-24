@@ -136,7 +136,8 @@ pub struct AcmeSettings {
     pub email: String,
     pub profile: Option<String>,
     pub state_dir: Option<PathBuf>,
-    pub challenges: Vec<tls::CertCheck>,
+    pub check_ports: burrow_syntax::web::CheckPorts,
+    pub dns: bool,
     pub fallback_directory: Option<String>,
 }
 

@@ -131,7 +131,8 @@ mod tests {
                 email: "ops@example.com".into(),
                 profile: None,
                 state_dir: None,
-                challenges: Vec::new(),
+                check_ports: Default::default(),
+                dns: false,
                 fallback_directory: None,
             }),
         }

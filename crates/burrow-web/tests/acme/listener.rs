@@ -30,7 +30,8 @@ fn proxy_settings(
             email: "ops@example.com".into(),
             profile: None,
             state_dir: Some(state.to_path_buf()),
-            challenges: checks.to_vec(),
+            check_ports: super::pebble::ports_of(checks),
+            dns: false,
             fallback_directory: None,
         }),
         ..CertSettings::default()

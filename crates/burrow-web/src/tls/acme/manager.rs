@@ -107,22 +107,30 @@ impl Acme {
             .write()
             .expect("acme lock")
             .retain(|n, _| names.contains(&n));
+        let wanted = orderable(plan);
         self.views
             .write()
             .expect("acme lock")
-            .retain(|g, _| plan.groups.contains_key(g));
+            .retain(|g, _| wanted.contains_key(g));
     }
 
     pub async fn preload(&self, plan: &Plan) {
         let Some(state) = plan.settings.state_dir.clone() else {
             return;
         };
-        let missing: Vec<Vec<String>> = plan
+        let mut missing: Vec<Vec<String>> = plan
             .groups
             .values()
             .filter(|names| names.iter().any(|n| self.certificate(n).is_none()))
             .cloned()
             .collect();
+        missing.extend(
+            plan.groups
+                .values()
+                .flatten()
+                .filter(|n| self.certificate(n).is_none())
+                .map(|n| vec![n.clone()]),
+        );
         let directory = plan.settings.directory_url.clone();
         let loaded = tokio::task::spawn_blocking(move || {
             missing
@@ -180,7 +188,7 @@ async fn run(acme: Arc<Acme>, mut rx: watch::Receiver<Plan>) {
         worker.adopt(&plan);
         sync(&mut groups, &plan).await;
         for (name, g) in &groups {
-            acme.publish(name, g.view(worker.checks()));
+            acme.publish(name, g.view(&worker.checks(g.names())));
         }
         if now_secs() >= swept + SWEEP_EVERY {
             swept = now_secs();
@@ -198,7 +206,7 @@ async fn run(acme: Arc<Acme>, mut rx: watch::Receiver<Plan>) {
                     && let Some(g) = groups.get_mut(&name)
                 {
                     worker.step(&name, g).await;
-                    acme.publish(&name, g.view(worker.checks()));
+                    acme.publish(&name, g.view(&worker.checks(g.names())));
                 }
             }
             changed = rx.changed() => {
@@ -211,11 +219,27 @@ async fn run(acme: Arc<Acme>, mut rx: watch::Receiver<Plan>) {
     }
 }
 
+fn orderable(plan: &Plan) -> BTreeMap<String, Vec<String>> {
+    plan.groups
+        .iter()
+        .map(|(g, names)| {
+            let ok: Vec<String> = names
+                .iter()
+                .filter(|n| super::checks_of(&plan.settings, n).is_ok())
+                .cloned()
+                .collect();
+            (g.clone(), ok)
+        })
+        .filter(|(_, names)| !names.is_empty())
+        .collect()
+}
+
 async fn sync(groups: &mut BTreeMap<String, Group>, plan: &Plan) {
-    groups.retain(|g, _| plan.groups.contains_key(g));
+    let wanted = orderable(plan);
+    groups.retain(|g, _| wanted.contains_key(g));
     let state = plan.settings.state_dir.clone();
     let directory = plan.settings.directory_url.clone();
-    for (name, names) in &plan.groups {
+    for (name, names) in &wanted {
         match groups.get_mut(name) {
             Some(g) => g.rename(names),
             None => {

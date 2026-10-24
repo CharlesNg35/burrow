@@ -127,6 +127,10 @@ impl Group {
         }
     }
 
+    pub fn names(&self) -> &[String] {
+        &self.names
+    }
+
     pub fn in_use(&self) -> Vec<Vec<String>> {
         std::iter::once(self.names.clone())
             .chain(self.held.as_ref().map(|h| h.names.clone()))
