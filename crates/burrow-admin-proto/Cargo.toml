@@ -13,3 +13,6 @@ serde_json = { version = "1.0.154", features = ["preserve_order"] }
 
 [features]
 json-schema = ["dep:schemars"]
+
+[lints]
+workspace = true

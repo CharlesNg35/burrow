@@ -14,3 +14,6 @@ serde = { version = "1.0.229", features = ["derive"] }
 
 [features]
 json-schema = ["dep:schemars", "burrow-admin-proto/json-schema"]
+
+[lints]
+workspace = true

@@ -16,3 +16,6 @@ proc-macro2 = { version = "1.0.107", features = ["span-locations"] }
 quote = "1.0.47"
 sha2 = "0.10.9"
 syn = { version = "2.0.119", features = ["full", "visit-mut"] }
+
+[lints]
+workspace = true
