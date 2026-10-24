@@ -153,6 +153,8 @@ pub async fn all(p: Pebble) {
     failure_keeps_the_old(&ctx, state.path()).await;
     profiles(&ctx).await;
     the_guard_stops_an_order_loop(&ctx).await;
+    the_everyday_example_gets_its_own_certificate(&ctx).await;
+    an_added_name_reorders_once_and_a_removed_name_orders_nothing(&ctx).await;
     fallback_directory(&ctx).await;
     authz_reuse(&ctx).await;
     let Ctx { p, r, .. } = ctx;
@@ -387,6 +389,70 @@ async fn profiles(ctx: &Ctx) {
         e.contains("does not offer the profile \"nope\"") && e.contains("shortlived"),
         "{e}"
     );
+}
+
+async fn the_everyday_example_gets_its_own_certificate(ctx: &Ctx) {
+    let state = tempfile::tempdir().unwrap();
+    let s = settings(ctx, state.path(), &[CertCheck::Tls, CertCheck::Http], None);
+    let store = open_store(ctx, &s, &names("shop", &["shop.test"])).await;
+    let st = until(&store, "shop.test", "issued", |s| s.phase == CertPhase::Ok).await;
+    assert!(
+        matches!(st.check, Some(CertCheck::Tls | CertCheck::Http)),
+        "{st:#?}"
+    );
+    assert!(served(ctx, "shop.test").await.is_some());
+    let stored = burrow_web::tls::acme::storage::all(state.path());
+    assert_eq!(stored.len(), 1);
+    assert_eq!(stored[0].1.meta.names, ["shop.test"], "its own certificate");
+}
+
+fn orders(state: &Path) -> usize {
+    use burrow_web::tls::acme::guard;
+    guard::load(&guard::path(state, DIRECTORY)).len()
+}
+
+async fn an_added_name_reorders_once_and_a_removed_name_orders_nothing(ctx: &Ctx) {
+    let state = tempfile::tempdir().unwrap();
+    let s = settings(ctx, state.path(), &[CertCheck::Tls], None);
+    let store = open_store(ctx, &s, &names("blog", &["n1.test"])).await;
+    until(&store, "n1.test", "issued", |s| s.phase == CertPhase::Ok).await;
+    let first = served(ctx, "n1.test").await.unwrap();
+    assert_eq!(orders(state.path()), 1);
+    store
+        .apply(&s, &names("blog", &["n1.test", "n2.test"]))
+        .await;
+    assert_eq!(
+        store.state("n2.test"),
+        CertState::Pending,
+        "the new name shows the pending page"
+    );
+    assert_eq!(
+        served(ctx, "n1.test").await,
+        Some(first.clone()),
+        "the old one serves meanwhile"
+    );
+    until(&store, "n2.test", "the new name's order", |s| {
+        s.phase == CertPhase::Ok
+    })
+    .await;
+    let both = served(ctx, "n2.test").await.unwrap();
+    assert_eq!(
+        served(ctx, "n1.test").await,
+        Some(both.clone()),
+        "one certificate for all names"
+    );
+    assert_ne!(both, first);
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    assert_eq!(orders(state.path()), 2, "the added name re-ordered once");
+    store.apply(&s, &names("blog", &["n1.test"])).await;
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    assert_eq!(orders(state.path()), 2, "a removed name orders nothing");
+    assert_eq!(
+        served(ctx, "n1.test").await,
+        Some(both),
+        "until the next renewal"
+    );
+    assert!(served(ctx, "n2.test").await.is_none());
 }
 
 async fn the_guard_stops_an_order_loop(ctx: &Ctx) {
