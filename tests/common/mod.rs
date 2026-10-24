@@ -163,6 +163,7 @@ pub async fn start_server(settings: ServerSettings) -> RunningServer {
         .local_addr()
         .or(ws_addr)
         .or(web_addr)
+        .or(server.web_http_addr())
         .expect("server has a listener");
     let services = names
         .iter()

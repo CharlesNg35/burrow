@@ -34,6 +34,12 @@ pub(crate) async fn handle<U: Upstream>(
         Some(name) if *name != host => return Page::Misdirected.response(),
         Some(_) => {}
         None => {
+            if let Some(answer) = challenge(shared, &req) {
+                return answer;
+            }
+            if let Some(prefix) = table.plain_tunnel(&host, req.uri().path()) {
+                return by_path(shared, conn, req, prefix);
+            }
             if let Some(answer) = on_plain(shared, &table, &host, &req) {
                 return answer;
             }
@@ -75,22 +81,22 @@ fn only_tunnel(kind: &Kind) -> bool {
     matches!(kind, Kind::Http { routes, .. } if routes.iter().all(|r| r.action == Action::Tunnel))
 }
 
+fn challenge<U: Upstream>(shared: &Shared<U>, req: &Request<Incoming>) -> Option<Response<Body>> {
+    let answer = challenge_token(req.uri().path()).and_then(|t| shared.certs.http_challenge(t))?;
+    let mut r = Response::new(full(Bytes::from(answer)));
+    r.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/octet-stream"),
+    );
+    Some(r)
+}
+
 fn on_plain<U: Upstream>(
     shared: &Shared<U>,
     table: &Table,
     host: &str,
     req: &Request<Incoming>,
 ) -> Option<Response<Body>> {
-    if let Some(answer) =
-        challenge_token(req.uri().path()).and_then(|t| shared.certs.http_challenge(t))
-    {
-        let mut r = Response::new(full(Bytes::from(answer)));
-        r.headers_mut().insert(
-            header::CONTENT_TYPE,
-            HeaderValue::from_static("application/octet-stream"),
-        );
-        return Some(r);
-    }
     let kind = table.kind(host);
     match kind {
         Some(Kind::Plain(_)) => None,

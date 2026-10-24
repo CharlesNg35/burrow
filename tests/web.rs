@@ -13,6 +13,8 @@ mod kit;
 mod passthrough;
 #[path = "web/plain.rs"]
 mod plain;
+#[path = "web/plain_tunnel.rs"]
+mod plain_tunnel;
 #[path = "web/refusals.rs"]
 mod refusals;
 #[path = "web/reload.rs"]

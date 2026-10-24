@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use burrow_web::{
     AcmeSettings, BoxIo, CertSettings, CertSource, ProxySettings, Refused, SharedFile, Site,
-    SiteTls, TunnelConn, TunnelMode, TunnelSettings, Upstream, Visitor,
+    SiteTls, TunnelConn, TunnelMode, TunnelPort, TunnelSettings, Upstream, Visitor,
 };
 use tokio::net::TcpStream;
 use tracing::debug;
@@ -13,7 +13,7 @@ use super::listen::Permit;
 use super::route::Outcome;
 use super::tcp::{Door, Entry, Refusal, admit, visit};
 use crate::base::failure::Failure;
-use crate::config::settings::{ServerSettings, WebSettings, WebTls};
+use crate::config::settings::{ServerSettings, Shares, WebSettings, WebTls};
 use crate::forward::ForwardError;
 use crate::wire::protocol::Status;
 
@@ -137,16 +137,24 @@ pub(super) fn proxy_settings(s: &ServerSettings) -> Result<Option<ProxySettings>
         p.tunnel = Some(TunnelSettings {
             host: host.clone(),
             path: ws.path.clone(),
-            mode: tunnel_mode(web, host),
+            mode: tunnel_mode(web, host, ws.shares),
+            port: match ws.shares {
+                Shares::Http => TunnelPort::Http,
+                Shares::Https | Shares::Nothing => TunnelPort::Https,
+            },
         });
     }
     Ok(Some(p))
 }
 
-fn tunnel_mode(web: &WebSettings, host: &str) -> TunnelMode {
+fn tunnel_mode(web: &WebSettings, host: &str, shares: Shares) -> TunnelMode {
     let on_site = web.sites.values().any(|site| {
-        matches!(site.tls, WebTls::Auto | WebTls::Files { .. })
-            && site.hosts.iter().any(|h| h == host)
+        let served = match site.tls {
+            WebTls::Auto | WebTls::Files { .. } => true,
+            WebTls::Off => shares == Shares::Http,
+            WebTls::Passthrough => false,
+        };
+        served && site.hosts.iter().any(|h| h == host)
     });
     if on_site {
         TunnelMode::ByPath

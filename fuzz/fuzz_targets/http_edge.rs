@@ -205,6 +205,7 @@ fn settings(http: SocketAddr) -> ProxySettings {
         host: "secure.example".into(),
         path: "/burrow".into(),
         mode: TunnelMode::ByPath,
+        port: burrow_web::TunnelPort::Https,
     });
     s.timeouts = Timeouts {
         request_header: Duration::from_secs(1),

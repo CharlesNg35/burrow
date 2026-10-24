@@ -145,6 +145,13 @@ pub struct TunnelSettings {
     pub host: String,
     pub path: String,
     pub mode: TunnelMode,
+    pub port: TunnelPort,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TunnelPort {
+    Https,
+    Http,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

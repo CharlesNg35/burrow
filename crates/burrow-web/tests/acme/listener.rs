@@ -161,6 +161,7 @@ async fn tunnel_proxy(p: &Pebble, state: &std::path::Path) -> (Proxy<Fake>, Arc<
         host: "t.test".into(),
         path: "/burrow".into(),
         mode: TunnelMode::OwnName,
+        port: burrow_web::TunnelPort::Https,
     });
     let store = Store::new();
     let listeners = Listeners {

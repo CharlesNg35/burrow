@@ -12,6 +12,7 @@ fn tunnel(host: &str, mode: TunnelMode) -> Option<TunnelSettings> {
         host: host.into(),
         path: "/burrow".into(),
         mode,
+        port: burrow_web::TunnelPort::Https,
     })
 }
 

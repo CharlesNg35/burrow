@@ -33,6 +33,7 @@ async fn setup() -> Setup {
                 host: "tunnel.example.com".into(),
                 path: "/burrow".into(),
                 mode: burrow_web::TunnelMode::OwnName,
+                port: burrow_web::TunnelPort::Https,
             });
         },
         up,

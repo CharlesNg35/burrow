@@ -197,6 +197,7 @@ mod tests {
             host: "blog.example.com".into(),
             path: "/burrow".into(),
             mode: TunnelMode::ByPath,
+            port: crate::TunnelPort::Https,
         });
         p.certs.tunnel_file = Some(("ws.pem".into(), "ws.key".into()));
         let names = cert_names(&p);
@@ -258,6 +259,7 @@ mod tests {
             host: "tunnel.example.com".into(),
             path: "/burrow".into(),
             mode: TunnelMode::OwnName,
+            port: crate::TunnelPort::Https,
         });
         p.certs.tunnel_file = Some(("ws.pem".into(), "ws.key".into()));
         let names = cert_names(&p);

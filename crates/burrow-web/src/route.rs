@@ -3,7 +3,7 @@ use std::net::IpAddr;
 
 use burrow_syntax::web::wildcard_of;
 
-use crate::{ProxySettings, SiteTls, TunnelMode};
+use crate::{ProxySettings, SiteTls, TunnelMode, TunnelPort, TunnelSettings};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Kind {
@@ -28,6 +28,14 @@ pub enum Action {
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Table {
     hosts: HashMap<String, Kind>,
+    plain_tunnel: Option<PlainTunnel>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PlainTunnel {
+    host: String,
+    path: String,
+    whole_name: bool,
 }
 
 fn whole(service: &str) -> Vec<Route> {
@@ -53,15 +61,33 @@ impl Table {
                 hosts.entry(host.clone()).or_insert_with(|| kind.clone());
             }
         }
-        if let Some(t) = &settings.tunnel {
-            add_tunnel(&mut hosts, t);
-        }
+        let plain_tunnel = match &settings.tunnel {
+            Some(t) if t.port == TunnelPort::Http => Some(PlainTunnel {
+                host: t.host.clone(),
+                path: t.path.clone(),
+                whole_name: t.mode == TunnelMode::OwnName,
+            }),
+            Some(t) => {
+                add_tunnel(&mut hosts, t);
+                None
+            }
+            None => None,
+        };
         for kind in hosts.values_mut() {
             if let Kind::Http { routes, .. } | Kind::Plain(routes) = kind {
                 routes.sort_by_key(|r| std::cmp::Reverse(r.prefix.len()));
             }
         }
-        Table { hosts }
+        Table {
+            hosts,
+            plain_tunnel,
+        }
+    }
+
+    pub fn plain_tunnel(&self, host: &str, path: &str) -> Option<&str> {
+        let t = self.plain_tunnel.as_ref()?;
+        let here = t.host == host && (t.whole_name || on_prefix(&t.path, path));
+        here.then_some(t.path.as_str())
     }
 
     pub fn kind(&self, name: &str) -> Option<&Kind> {
@@ -96,7 +122,7 @@ impl Table {
     }
 }
 
-fn add_tunnel(hosts: &mut HashMap<String, Kind>, t: &crate::TunnelSettings) {
+fn add_tunnel(hosts: &mut HashMap<String, Kind>, t: &TunnelSettings) {
     let route = Route {
         prefix: t.path.clone(),
         action: Action::Tunnel,
@@ -151,6 +177,7 @@ mod tests {
             host: host.into(),
             path: "/burrow".into(),
             mode,
+            port: crate::TunnelPort::Https,
         });
         s
     }
