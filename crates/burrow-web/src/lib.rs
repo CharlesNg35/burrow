@@ -97,6 +97,8 @@ pub trait Upstream: Send + Sync + 'static {
 
     fn tune(&self, _stream: &TcpStream) {}
 
+    fn refused(&self) {}
+
     fn open(
         &self,
         service: &str,

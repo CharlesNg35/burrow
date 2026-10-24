@@ -22,6 +22,12 @@ pub fn wss_client(
 }
 
 async fn shared_server() -> (RunningServer, Secret, Cert, Cert, std::net::SocketAddr) {
+    shared_server_with(|_| {}).await
+}
+
+async fn shared_server_with(
+    edit: impl FnOnce(&mut burrow::config::settings::ServerSettings),
+) -> (RunningServer, Secret, Cert, Cert, std::net::SocketAddr) {
     logs();
     let nas_cert = cert(&["nas.example.com"]);
     let (nas, _seen) = backend("nas", &nas_cert, false).await;
@@ -35,6 +41,7 @@ async fn shared_server() -> (RunningServer, Secret, Cert, Cert, std::net::Socket
     s.services.insert("db".into(), service(echo, Protocol::Tcp));
     s.web.as_mut().unwrap().https = format!("127.0.0.1:{}", free_port()).parse().unwrap();
     share_tunnel(&mut s, "localhost", &tunnel_cert);
+    edit(&mut s);
     let srv = start_server(s).await;
     assert_eq!(srv.ws_addr, None, "the tunnel has no listener of its own");
     let web = srv.web_addr.expect("web listener");
@@ -86,4 +93,27 @@ async fn a_wrong_tunnel_path_is_refused_and_the_client_never_connects() {
     let cli = start_client(wss_client(&url, secret, &tunnel_cert)).await;
     tokio::time::sleep(Duration::from_millis(500)).await;
     assert_ne!(*cli.state.borrow(), State::Connected);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn overload_and_failed_tunnel_handshakes_on_the_web_port_are_counted() {
+    let (srv, _secret, _tunnel_cert, _nas, web) =
+        shared_server_with(|s| s.max_handshakes = 4).await;
+    let before = srv.shared.status().handshakes_refused;
+    let mut silent = Vec::new();
+    for _ in 0..8 {
+        silent.push(tokio::net::TcpStream::connect(web).await.unwrap());
+    }
+    let shared = srv.shared.clone();
+    wait_for(|| shared.status().handshakes_refused >= before + 4).await;
+    drop(silent);
+    let after_flood = srv.shared.status().handshakes_refused;
+    let mut bad = tokio::net::TcpStream::connect(web).await.unwrap();
+    bad.write_all(&client_hello("localhost")).await.unwrap();
+    bad.write_all(&[0x15, 0x03, 0x03, 0x00, 0x02, 0x02, 0x28])
+        .await
+        .unwrap();
+    let mut buf = [0u8; 64];
+    let _ = tokio::time::timeout(Duration::from_secs(5), bad.read(&mut buf)).await;
+    wait_for(|| shared.status().handshakes_refused > after_flood).await;
 }

@@ -30,6 +30,16 @@ impl Upstream for Doorway {
         crate::wire::transport::tcp::tune(stream, &self.0.settings().tcp);
     }
 
+    fn refused(&self) {
+        self.0
+            .rejected
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.0
+            .metrics
+            .handshakes_refused
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+
     async fn open(&self, service: &str, from: &Visitor) -> Result<BoxIo, Refused> {
         let shared = &self.0;
         let settings = shared.settings();

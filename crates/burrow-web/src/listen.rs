@@ -139,6 +139,7 @@ async fn accept_loop<U: Upstream>(shared: Arc<Shared<U>>, listener: TcpListener)
             }
         };
         let Some(permit) = shared.permits.try_take(peer.ip()) else {
+            shared.up.refused();
             debug!(%peer, "web: too many connections that have not shown a TLS name yet, dropping");
             continue;
         };
@@ -305,10 +306,12 @@ async fn start_tunnel<U: Upstream>(
             permit: tunnel_permit,
         }),
         Ok(Err(e)) => {
+            shared.up.refused();
             debug!(%peer, "web: TLS handshake for the tunnel failed: {e}");
             None
         }
         Err(_) => {
+            shared.up.refused();
             debug!(%peer, "web: TLS handshake for the tunnel timed out");
             None
         }
