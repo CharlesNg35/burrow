@@ -74,11 +74,11 @@ async fn world_with(services: usize) -> World {
     let (hub, nudges) = burrow::admin::adapters::hub(&shared, &path, env.clone());
     shared.set_admin(hub);
     let (reload_tx, reload_rx) = mpsc::channel(4);
-    tokio::spawn(burrow::reload::follow_nudged(
+    tokio::spawn(burrow::app::reload::follow_nudged(
         path.clone(),
         *settings,
         env,
-        burrow::reload::accept(),
+        burrow::app::reload::accept(),
         reload_tx,
         Some(nudges),
     ));

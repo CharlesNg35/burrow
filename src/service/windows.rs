@@ -18,10 +18,10 @@ use windows_service::service_dispatcher;
 use windows_service::service_manager::{ServiceManager, ServiceManagerAccess};
 
 use super::{Backend, Manifest, Platform, Status};
+use crate::app::run::{Hosted, Logging};
 use crate::base::failure::Failure;
 use crate::base::process::run;
 use crate::config::env::Env;
-use crate::run::{Hosted, Logging};
 
 const SYSTEM: &str = "*S-1-5-18";
 const ADMINS: &str = "*S-1-5-32-544";
@@ -608,9 +608,9 @@ fn serve(name: &str, stop: tokio::sync::watch::Receiver<bool>) -> Result<u8, Fai
         env: Env::with(read_env(m.env_file.as_ref())),
     };
     match m.role.as_str() {
-        "server" => crate::run::server_until(&m.config, logging, Some(hosted)),
-        "visitor" => crate::run::visit_until(&m.config, logging, Some(hosted)),
-        _ => crate::run::client_until(&m.config, logging, Some(hosted)),
+        "server" => crate::app::run::server_until(&m.config, logging, Some(hosted)),
+        "visitor" => crate::app::run::visit_until(&m.config, logging, Some(hosted)),
+        _ => crate::app::run::client_until(&m.config, logging, Some(hosted)),
     }
 }
 

@@ -424,7 +424,10 @@ pub fn hub(
     shared: &Arc<Shared>,
     path: &Path,
     env: crate::config::env::Env,
-) -> (Arc<Hub>, tokio::sync::mpsc::Receiver<crate::reload::Nudge>) {
+) -> (
+    Arc<Hub>,
+    tokio::sync::mpsc::Receiver<crate::app::reload::Nudge>,
+) {
     let (tx, rx) = tokio::sync::mpsc::channel(4);
     let core = Core::new(
         Box::new(FileStore::new(path)),

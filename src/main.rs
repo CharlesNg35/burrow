@@ -5,10 +5,10 @@ use std::process::ExitCode;
 
 use clap::{CommandFactory, Parser};
 
+use burrow::app::cli::{Cli, Command, FileFormat, LogLevel, OutputFormat, RoleArg, ServiceAction};
 use burrow::base::failure::Failure;
 use burrow::base::prompt::TtyPrompt;
 use burrow::base::style::Style;
-use burrow::cli::{Cli, Command, FileFormat, LogLevel, OutputFormat, RoleArg, ServiceAction};
 use burrow::config::env::ProcessEnv;
 use burrow::config::{Format, Role};
 use burrow::init::InitOptions;
@@ -32,13 +32,15 @@ fn main() -> ExitCode {
     let err_style = Style::detect(std::io::stderr().is_terminal());
     let cli = match Cli::try_parse() {
         Ok(cli) => cli,
-        Err(e) => match burrow::cli::service_word(&e, &std::env::args_os().collect::<Vec<_>>()) {
-            Some(f) => {
-                burrow::say_errln!("{}", f.render(err_style));
-                return ExitCode::from(f.exit);
+        Err(e) => {
+            match burrow::app::cli::service_word(&e, &std::env::args_os().collect::<Vec<_>>()) {
+                Some(f) => {
+                    burrow::say_errln!("{}", f.render(err_style));
+                    return ExitCode::from(f.exit);
+                }
+                None => e.exit(),
             }
-            None => e.exit(),
-        },
+        }
     };
     match run(cli) {
         Ok(code) => ExitCode::from(code),
@@ -103,7 +105,7 @@ type Export = fn(
 fn export(
     make: Export,
     name: Option<&str>,
-    args: burrow::cli::ExportArgs,
+    args: burrow::app::cli::ExportArgs,
     role: &str,
     err_style: Style,
 ) -> Result<u8, Failure> {
@@ -136,7 +138,7 @@ fn export(
     Ok(0)
 }
 
-fn visit_pick(args: burrow::cli::VisitArgs) -> Result<burrow::visitor::Pick, Failure> {
+fn visit_pick(args: burrow::app::cli::VisitArgs) -> Result<burrow::visitor::Pick, Failure> {
     use burrow::visitor::Pick;
     use burrow::wire::protocol::VisitTarget;
     use burrow_config::{Bind, Target};
@@ -279,7 +281,7 @@ fn visit_pick(args: burrow::cli::VisitArgs) -> Result<burrow::visitor::Pick, Fai
 
 fn control(
     action: &str,
-    a: burrow::cli::ServiceControlArgs,
+    a: burrow::app::cli::ServiceControlArgs,
     out: &mut dyn std::io::Write,
 ) -> Result<u8, Failure> {
     use burrow::service;
@@ -291,7 +293,7 @@ fn control(
     }
 }
 
-fn service(action: ServiceAction, logging: burrow::run::Logging) -> Result<u8, Failure> {
+fn service(action: ServiceAction, logging: burrow::app::run::Logging) -> Result<u8, Failure> {
     use burrow::service;
     let mut out = std::io::stdout().lock();
     match action {
@@ -350,7 +352,7 @@ fn run(cli: Cli) -> Result<u8, Failure> {
         (_, LogLevel::Debug) => tracing::Level::DEBUG,
         (_, LogLevel::Trace) => tracing::Level::TRACE,
     };
-    let logging = burrow::run::Logging {
+    let logging = burrow::app::run::Logging {
         level,
         json: cli.log_json,
         file: cli.log_file.clone(),
@@ -545,21 +547,21 @@ fn run(cli: Cli) -> Result<u8, Failure> {
         Command::Admin(args) => admin(args),
         Command::Server(args) => {
             let env = run_env(args.env_file.as_deref())?;
-            burrow::run::server(&config_path(args.config, Some(Role::Server))?, logging, env)
+            burrow::app::run::server(&config_path(args.config, Some(Role::Server))?, logging, env)
         }
         Command::Client(args) => {
             let env = run_env(args.env_file.as_deref())?;
-            burrow::run::client(&config_path(args.config, Some(Role::Client))?, logging, env)
+            burrow::app::run::client(&config_path(args.config, Some(Role::Client))?, logging, env)
         }
         Command::Visit(args) => {
             let path = config_path(args.config.clone(), Some(Role::Visitor))?;
             let env = run_env(args.env_file.as_deref())?;
-            burrow::run::visit(&path, logging, visit_pick(args)?, env)
+            burrow::app::run::visit(&path, logging, visit_pick(args)?, env)
         }
     }
 }
 
-fn admin(args: burrow::cli::AdminArgs) -> Result<u8, Failure> {
+fn admin(args: burrow::app::cli::AdminArgs) -> Result<u8, Failure> {
     use burrow::admin_local::find::{Found, Installed, choose, unreadable};
     if args.ui_info {
         print!("{}", burrow::admin_local::assets::info());
@@ -617,12 +619,12 @@ fn admin(args: burrow::cli::AdminArgs) -> Result<u8, Failure> {
         idle_exit: args.idle_exit,
         ui_dir: args.ui_dir,
     };
-    burrow::run::admin(&path, env, opts)
+    burrow::app::run::admin(&path, env, opts)
 }
 
 fn run_env(file: Option<&std::path::Path>) -> Result<burrow::config::env::Env, Failure> {
     match file {
-        Some(f) => burrow::run::env_file(f),
+        Some(f) => burrow::app::run::env_file(f),
         None => Ok(burrow::config::env::Env::default()),
     }
 }

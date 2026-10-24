@@ -176,11 +176,11 @@ async fn invalid_reload_is_rejected_and_old_config_kept() {
         _ => panic!("valid config"),
     };
     let (tx, mut rx) = tokio::sync::mpsc::channel::<ServerSettings>(4);
-    tokio::spawn(burrow::reload::follow(
+    tokio::spawn(burrow::app::reload::follow(
         path.clone(),
         initial,
         burrow::config::env::Env::default(),
-        burrow::reload::accept(),
+        burrow::app::reload::accept(),
         tx,
     ));
     tokio::time::sleep(Duration::from_millis(300)).await;
@@ -946,11 +946,11 @@ async fn a_symlinked_config_is_followed_through_its_links() {
         _ => panic!("valid config"),
     };
     let (tx, mut rx) = tokio::sync::mpsc::channel::<ServerSettings>(4);
-    tokio::spawn(burrow::reload::follow(
+    tokio::spawn(burrow::app::reload::follow(
         path.clone(),
         initial,
         burrow::config::env::Env::default(),
-        burrow::reload::accept(),
+        burrow::app::reload::accept(),
         tx,
     ));
     tokio::time::sleep(Duration::from_millis(300)).await;
@@ -1038,11 +1038,11 @@ async fn a_save_between_start_and_the_file_watch_is_not_missed() {
     };
     started.services.get_mut("web").unwrap().target = "127.0.0.1:3".into();
     let (tx, mut rx) = tokio::sync::mpsc::channel::<ServerSettings>(4);
-    tokio::spawn(burrow::reload::follow(
+    tokio::spawn(burrow::app::reload::follow(
         path.clone(),
         started,
         burrow::config::env::Env::default(),
-        burrow::reload::accept(),
+        burrow::app::reload::accept(),
         tx,
     ));
     let next = tokio::time::timeout(Duration::from_secs(3), rx.recv())

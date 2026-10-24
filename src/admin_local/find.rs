@@ -71,7 +71,7 @@ pub fn unreadable(what: &std::path::Path, e: &std::io::Error) -> Failure {
     } else {
         format!(
             "run with sudo ({}), or pass -c FILE",
-            crate::base::failure::admin(crate::cli::ADMIN_COMMAND)
+            crate::base::failure::admin(crate::app::cli::ADMIN_COMMAND)
         )
     };
     Failure::new(format!(

@@ -22,8 +22,8 @@ compile_error!("admin-test-hooks is for end-to-end tests only and never goes int
 
 pub mod admin;
 pub mod admin_local;
+pub mod app;
 pub mod base;
-pub mod cli;
 pub mod client;
 pub mod config;
 pub mod dialer;
@@ -34,8 +34,6 @@ pub mod install;
 pub mod instance;
 pub mod metrics;
 pub mod policy;
-pub mod reload;
-pub mod run;
 pub mod server;
 pub mod service;
 pub mod status;

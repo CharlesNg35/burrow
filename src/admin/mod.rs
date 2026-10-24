@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 
 use tokio::sync::{Semaphore, mpsc};
 
-use crate::reload::Nudge;
+use crate::app::reload::Nudge;
 
 pub const MAX_SESSIONS: usize = 8;
 pub const MAX_SESSIONS_PER_VISITOR: usize = 2;

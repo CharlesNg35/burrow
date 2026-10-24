@@ -627,11 +627,11 @@ async fn replacing_the_ca_file_reloads_the_client() {
     };
     assert!(settings.ca_file.is_some());
     let (tx, mut rx) = mpsc::channel(4);
-    tokio::spawn(burrow::reload::follow(
+    tokio::spawn(burrow::app::reload::follow(
         config.clone(),
         (*settings).clone(),
         burrow::config::env::Env::default(),
-        burrow::reload::accept(),
+        burrow::app::reload::accept(),
         tx,
     ));
     tokio::time::sleep(Duration::from_millis(300)).await;

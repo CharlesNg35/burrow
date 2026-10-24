@@ -11,7 +11,7 @@ use tracing::debug;
 use crate::admin::core::plan::{self, ReloadResult};
 use crate::admin::core::{self, ApiError, Session};
 use crate::admin::{Hub, MAX_INFLIGHT, Seat};
-use crate::reload::{Nudge, ReloadOutcome};
+use crate::app::reload::{Nudge, ReloadOutcome};
 use crate::server::ApplyReport;
 use crate::wire::transport::Channel;
 

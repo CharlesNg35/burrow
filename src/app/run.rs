@@ -384,11 +384,11 @@ fn run_server(path: &Path, logging: Logging, hosted: Option<Hosted>) -> Result<u
         let _status = crate::instance::publish::publish(path, Arc::new(move || shared.status()));
         let stop = stop_on_signal(stop);
         let (reload_tx, reload_rx) = mpsc::channel(4);
-        tokio::spawn(crate::reload::follow_nudged(
+        tokio::spawn(crate::app::reload::follow_nudged(
             path.to_path_buf(),
             *settings,
             env,
-            crate::reload::accept(),
+            crate::app::reload::accept(),
             reload_tx,
             nudges,
         ));
@@ -412,7 +412,7 @@ fn run_client(path: &Path, logging: Logging, hosted: Option<Hosted>) -> Result<u
     drive(async move {
         let stop = stop_on_signal(stop);
         let (reload_tx, reload_rx) = mpsc::channel(4);
-        tokio::spawn(crate::reload::follow(
+        tokio::spawn(crate::app::reload::follow(
             path.to_path_buf(),
             (*settings).clone(),
             env,
@@ -455,7 +455,7 @@ fn run_visitor(
     init_logging(&logging)?;
     drive(async move {
         let (reload_tx, reload_rx) = mpsc::channel(4);
-        tokio::spawn(crate::reload::follow(
+        tokio::spawn(crate::app::reload::follow(
             path.to_path_buf(),
             (*settings).clone(),
             env,
@@ -476,7 +476,7 @@ fn same_tunnel_once(
     path: PathBuf,
     identity: Identity,
     lock: instance::InstanceLock,
-) -> crate::reload::Check<crate::config::settings::ClientSettings> {
+) -> crate::app::reload::Check<crate::config::settings::ClientSettings> {
     let mut held = (identity, lock);
     Box::new(move |next| {
         let wanted = Identity::client(&next.endpoint.to_string(), &next.name);
