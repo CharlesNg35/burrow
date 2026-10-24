@@ -13,11 +13,11 @@ use super::{Hub, Opened};
 use crate::config::Format;
 use crate::config::settings::ServerSettings;
 use crate::edit::save::{Refused, write_back};
-use crate::handshake::Channel;
 use crate::metrics::Status;
 use crate::protocol::Status as Answer;
 use crate::server::Shared;
 use crate::throttle::Throttle;
+use crate::transport::Channel;
 use burrow_admin_proto::msg::AdminLevel;
 
 const KEEP: usize = 20;

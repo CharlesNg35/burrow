@@ -586,7 +586,7 @@ pub async fn wait_long<F: FnMut() -> bool>(mut f: F) {
 }
 
 pub struct UdpVisit {
-    pub ch: burrow::handshake::Channel,
+    pub ch: burrow::transport::Channel,
 }
 
 #[derive(Debug, PartialEq, Eq)]

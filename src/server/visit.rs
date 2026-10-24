@@ -168,7 +168,7 @@ async fn answer_grants(
     shared: &Shared,
     visitor: &str,
     secret: &Secret,
-    channel: crate::handshake::Channel,
+    channel: crate::transport::Channel,
     with_protocols: bool,
 ) {
     let settings = shared.settings();
@@ -453,7 +453,7 @@ pub(super) async fn serve(
 }
 
 async fn answer(
-    channel: crate::handshake::Channel,
+    channel: crate::transport::Channel,
     outcome: Outcome,
     grant: &Grant,
     label: &str,

@@ -1,8 +1,8 @@
 use std::time::Duration;
 
-use crate::handshake::Channel;
 use crate::protocol::Status;
 use crate::record::{RecordReader, RecordWriter};
+use crate::transport::Channel;
 use crate::transport::{OwnedReadHalf, OwnedWriteHalf};
 
 pub struct Link {

@@ -107,7 +107,7 @@ async fn relay(
     port: Port<'_>,
     session: &super::via::Via,
     socket: Arc<UdpSocket>,
-    ch: crate::handshake::Channel,
+    ch: crate::transport::Channel,
     config: watch::Receiver<Service>,
 ) -> Result<(), Option<Status>> {
     let Port { name, svc, target } = port;

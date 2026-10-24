@@ -11,9 +11,9 @@ use tracing::debug;
 use crate::admin::core::plan::{self, ReloadResult};
 use crate::admin::core::{self, ApiError, Session};
 use crate::admin::{Hub, MAX_INFLIGHT, Seat};
-use crate::handshake::Channel;
 use crate::reload::{Nudge, ReloadOutcome};
 use crate::server::ApplyReport;
+use crate::transport::Channel;
 
 const IDLE: Duration = Duration::from_secs(30 * 60);
 const RELOAD_WAIT: Duration = Duration::from_secs(15);

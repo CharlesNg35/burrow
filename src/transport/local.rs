@@ -1,6 +1,6 @@
-use crate::handshake::Channel;
 use crate::noise::Session;
 use crate::record::{RecordReader, RecordWriter};
+use crate::transport::Channel;
 use crate::transport::Conn;
 
 const PIPE: usize = 32 * 1024;

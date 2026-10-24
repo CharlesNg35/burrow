@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use super::local::SelfDialer;
 use super::{ClientSession, Shared, TakeError};
-use crate::handshake::Channel;
 use crate::protocol::TOKEN_LEN;
+use crate::transport::Channel;
 use burrow_config::SELF;
 
 #[derive(Clone)]

@@ -388,7 +388,7 @@ async fn take_channel(
     session: &via::Via,
     label: &str,
     peer: SocketAddr,
-) -> Result<crate::handshake::Channel, crate::protocol::Status> {
+) -> Result<crate::transport::Channel, crate::protocol::Status> {
     use crate::protocol::Status;
     match tokio::time::timeout(TAKE_TIMEOUT, session.take()).await {
         Ok(Ok(ch)) => Ok(ch),

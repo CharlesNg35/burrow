@@ -13,10 +13,10 @@ use tracing::{debug, error, info, warn};
 use crate::config::settings::ClientSettings;
 use crate::dialer::{DialError, Dialer};
 use crate::failure::io_reason;
-use crate::handshake::Channel;
 use crate::protocol::{
     ByeReason, ChannelKind, ClientMsg, Hello, ServerMsg, ServiceInfo, TOKEN_LEN, VERSION,
 };
+use crate::transport::Channel;
 use crate::transport::resolve::Resolver;
 use reconnect::{Backoff, Outage, Report, human};
 

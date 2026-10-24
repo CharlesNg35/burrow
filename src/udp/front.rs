@@ -255,7 +255,7 @@ mod tests {
         let refused = UdpSocket::bind("127.0.0.1:0").await.unwrap();
         let extra = UdpSocket::bind("127.0.0.1:0").await.unwrap();
         let (near, mut far) = pair();
-        let crate::handshake::Channel {
+        let crate::transport::Channel {
             stream,
             writer,
             reader,
@@ -339,7 +339,7 @@ mod tests {
     async fn a_broken_link_ends_the_front_as_broken() {
         let socket = Arc::new(UdpSocket::bind("127.0.0.1:0").await.unwrap());
         let (near, far) = pair();
-        let crate::handshake::Channel {
+        let crate::transport::Channel {
             stream,
             writer,
             reader,
@@ -381,7 +381,7 @@ mod tests {
         let at = socket.local_addr().unwrap();
         let sender = UdpSocket::bind("[::1]:0").await.unwrap();
         let (near, mut far) = pair();
-        let crate::handshake::Channel {
+        let crate::transport::Channel {
             stream,
             writer,
             reader,

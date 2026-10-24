@@ -7,8 +7,8 @@ use tokio::sync::watch;
 use crate::allowlist::Gate;
 use crate::client::data::{Dialing, Dials, Open, Rules, fitted, serve_local};
 use crate::config::settings::ServerSettings;
-use crate::handshake::Channel;
 use crate::protocol::TOKEN_LEN;
+use crate::transport::Channel;
 use crate::transport::resolve::Resolver;
 use burrow_config::Protocol;
 

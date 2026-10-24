@@ -6,17 +6,11 @@ use crate::noise::{Initiator, MSG1_LEN, MSG2_LEN, Responder};
 use crate::protocol::{ChannelKind, DecodeError, Hello, PREAMBLE_FIXED, Preamble};
 use crate::record::{RecordReader, RecordWriter};
 use crate::secret::Secret;
-use crate::transport::Conn;
+use crate::transport::{Channel, Conn};
 
 const MAX_SMALL_RECORD: usize = 256;
 pub const REFUSED: u8 = 0x00;
 pub const MAX_REQUEST_RECORD: usize = 512;
-
-pub struct Channel {
-    pub stream: Conn,
-    pub writer: RecordWriter,
-    pub reader: RecordReader,
-}
 
 #[derive(Debug)]
 pub enum ClientHandshakeError {

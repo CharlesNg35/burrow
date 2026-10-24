@@ -6,6 +6,8 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::net::TcpStream;
 use tokio::net::tcp as tokio_tcp;
 
+use crate::record::{RecordReader, RecordWriter};
+
 macro_rules! delegate_read {
     ($ty:ty, $($variant:ident),+) => {
         impl AsyncRead for $ty {
@@ -49,6 +51,12 @@ pub mod tcp;
 pub mod tls;
 pub mod udp;
 pub mod ws;
+
+pub struct Channel {
+    pub stream: Conn,
+    pub writer: RecordWriter,
+    pub reader: RecordReader,
+}
 
 pub enum Conn {
     Tcp(TcpStream),
@@ -200,7 +208,7 @@ pub(crate) mod testing {
         (ours.into(), theirs.into())
     }
 
-    pub(crate) fn sealed(stream: crate::transport::Conn) -> crate::handshake::Channel {
+    pub(crate) fn sealed(stream: crate::transport::Conn) -> crate::transport::Channel {
         use crate::noise::{Initiator, Responder};
         let s = crate::secret::Secret::generate();
         let (_, m1) = Initiator::start(burrow_config::Cipher::Chachapoly, &s, b"t");
@@ -213,7 +221,7 @@ pub(crate) mod testing {
         .unwrap();
         let (session, _) = r.reply().unwrap();
         let (sealer, opener) = session.split();
-        crate::handshake::Channel {
+        crate::transport::Channel {
             stream,
             writer: crate::record::RecordWriter::new(sealer),
             reader: crate::record::RecordReader::new(opener),

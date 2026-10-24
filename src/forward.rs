@@ -6,13 +6,13 @@ use std::future::Future;
 use tokio::io::{AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpStream;
 
-use crate::handshake::Channel;
 use crate::metrics::{Counted, Traffic};
 use crate::protocol::Status;
 use crate::ratelimit::{Limit, Throttled};
 use crate::record::{
     CHUNK, RecordReader, RecordWriter, SMALL, open_pump, raw_pump, relay_pump, seal_pump,
 };
+use crate::transport::Channel;
 use crate::transport::{Conn, ReadHalf, WriteHalf};
 
 pub(crate) const VISIT_REPLY: Duration = Duration::from_secs(45);

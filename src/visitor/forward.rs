@@ -274,7 +274,7 @@ fn mismatch(
     }
 }
 
-async fn ask(mut ch: crate::handshake::Channel, request: &VisitRequest) -> Option<Status> {
+async fn ask(mut ch: crate::transport::Channel, request: &VisitRequest) -> Option<Status> {
     ch.writer
         .send(&mut ch.stream, &request.encode().ok()?)
         .await

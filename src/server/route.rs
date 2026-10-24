@@ -8,8 +8,8 @@ use super::via::Via;
 use super::{Shared, take_channel};
 use crate::config::settings::ServerSettings;
 use crate::forward::{Early, ForwardError, Opened};
-use crate::handshake::Channel;
 use crate::protocol::Status;
+use crate::transport::Channel;
 
 pub(super) struct Way<'a> {
     pub service: Option<&'a str>,
