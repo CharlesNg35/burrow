@@ -1,6 +1,8 @@
-#![forbid(unsafe_code)]
+//! burrow, a fast and secure reverse tunnel, as a library built in layers: base, wire, config, roles and ops.
+//! Each layer imports only the layers below it; xtask/src/layers.rs lists the layer of every module.
+//! It must not depend on the admin UI crates, which are WebAssembly only.
 
-extern crate self as burrow;
+#![forbid(unsafe_code)]
 
 #[cfg(all(
     target_env = "musl",
@@ -22,37 +24,22 @@ compile_error!("admin-test-hooks is for end-to-end tests only and never goes int
 
 pub mod admin;
 pub mod admin_local;
-pub mod allowlist;
-pub mod cli;
+pub mod app;
+pub mod base;
 pub mod client;
 pub mod config;
-pub mod diagnostics;
 pub mod dialer;
 pub mod edit;
-pub mod failure;
 pub mod forward;
-pub mod handshake;
 pub mod init;
+pub mod install;
 pub mod instance;
-pub mod logfile;
 pub mod metrics;
-pub mod noise;
-pub mod prompt;
-pub mod protocol;
-pub mod proxy;
-pub mod proxy_protocol;
-pub mod ratelimit;
-pub mod record;
-pub mod reload;
-pub mod run;
-pub mod secret;
+pub mod policy;
 pub mod server;
 pub mod service;
 pub mod status;
-pub mod suggest;
-pub mod throttle;
-pub mod transport;
 pub mod udp;
 pub mod update;
-pub mod validate;
 pub mod visitor;
+pub mod wire;

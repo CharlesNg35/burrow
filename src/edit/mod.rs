@@ -1,11 +1,9 @@
-pub(crate) mod access;
 mod apply;
 mod draft;
 mod editor;
 mod found;
 mod notes;
 mod pick;
-pub(crate) mod save;
 mod source;
 
 use std::collections::BTreeMap;
@@ -13,11 +11,13 @@ use std::io::{IsTerminal, Write};
 use std::path::Path;
 use std::time::{Duration, Instant};
 
+use crate::base::failure::{Failure, admin, cmd, file_reason};
+use crate::base::prompt::Prompter;
+use crate::base::style::Style;
 use crate::config::Format;
+use crate::config::diagnostics::Severity;
 use crate::config::env::{EnvSource, ProcessEnv};
-use crate::diagnostics::{Severity, Style};
-use crate::failure::{Failure, admin, cmd, file_reason};
-use crate::prompt::Prompter;
+use crate::config::save;
 use draft::Draft;
 use found::{Found, Origin};
 
@@ -50,7 +50,7 @@ fn choose(
     match (target, found) {
         (Some(t), _) => pick::by_target(found, t),
         (None, []) => {
-            let hint = if crate::service::services_hidden() {
+            let hint = if crate::install::services_hidden() {
                 format!(
                     "the installed services are only visible to an administrator: {}",
                     admin("edit")
@@ -95,7 +95,7 @@ fn read(path: &Path) -> Result<String, Failure> {
         if e.kind() == std::io::ErrorKind::PermissionDenied {
             failure.hint(format!(
                 "open it as an administrator: {}",
-                admin(&format!("edit {}", crate::failure::path_arg(path)))
+                admin(&format!("edit {}", crate::base::failure::path_arg(path)))
             ))
         } else {
             failure
@@ -125,20 +125,7 @@ fn edit(
             .hint("burrow configs end in .yaml, .yml or .json")
     })?;
     let before = read(path)?;
-    if !access::can_write(path) {
-        return Err(
-            Failure::new(format!("you cannot change {shown}")).hint(format!(
-                "open it as an administrator: {}",
-                admin(&format!("edit {}", crate::failure::path_arg(path)))
-            )),
-        );
-    }
-    if let Some(owner) = access::other_owner(path) {
-        say(
-            out,
-            format!("note: {shown} belongs to {owner}; it keeps that owner and its permissions"),
-        )?;
-    }
+    check_access(path, out)?;
     let complete_env = matches!(f.origin, Origin::Service { .. });
     let env: Box<dyn EnvSource> = match service_env(f) {
         Some(vars) => Box::new(move |k: &str| vars.get(k).cloned()),
@@ -151,36 +138,7 @@ fn edit(
     let mut opened = before.clone();
     let text = loop {
         let started = Instant::now();
-        let text = {
-            let quiet = editor::Quiet::new();
-            let draft = Draft::new(name, &opened)
-                .map_err(|e| Failure::new(format!("cannot make a private copy to edit: {e}")))?;
-            let stopped = || Err(Failure::new("stopped while editing; nothing was changed"));
-            let opened_now = if quiet.stopped() {
-                stopped()
-            } else {
-                match open(draft.path()) {
-                    _ if quiet.stopped() => stopped(),
-                    r => r,
-                }
-            };
-            if let Err(mut f) = opened_now {
-                if opened != before {
-                    let kept = draft.keep();
-                    let saved = format!("your edited version is kept in {}", kept.display());
-                    f.hint = Some(match f.hint.take() {
-                        Some(h) => format!("{h}; {saved}"),
-                        None => saved,
-                    });
-                }
-                return Err(f);
-            }
-            notes::strip(
-                &draft
-                    .read()
-                    .map_err(|e| Failure::new(format!("cannot read the edited copy: {e}")))?,
-            )
-        };
+        let text = edit_once(name, &opened, &before, open)?;
         if text == before {
             say(out, format!("no changes; {shown} is unchanged"))?;
             if started.elapsed() < Duration::from_secs(1) {
@@ -239,12 +197,79 @@ fn edit(
         };
         current = text;
     };
+    save(path, name, &before, &text, out)?;
+    note_sources(f, &before, &text, out)?;
+    apply::apply(apply::after(f), out)?;
+    Ok(0)
+}
+
+fn check_access(path: &Path, out: &mut dyn Write) -> Result<(), Failure> {
+    let shown = path.display();
+    if !crate::base::access::can_write(path) {
+        return Err(
+            Failure::new(format!("you cannot change {shown}")).hint(format!(
+                "open it as an administrator: {}",
+                admin(&format!("edit {}", crate::base::failure::path_arg(path)))
+            )),
+        );
+    }
+    if let Some(owner) = crate::base::access::other_owner(path) {
+        say(
+            out,
+            format!("note: {shown} belongs to {owner}; it keeps that owner and its permissions"),
+        )?;
+    }
+    Ok(())
+}
+
+fn edit_once(
+    name: &std::ffi::OsStr,
+    opened: &str,
+    before: &str,
+    open: &mut dyn FnMut(&Path) -> Result<(), Failure>,
+) -> Result<String, Failure> {
+    let quiet = editor::Quiet::new();
+    let draft = Draft::new(name, opened)
+        .map_err(|e| Failure::new(format!("cannot make a private copy to edit: {e}")))?;
+    let stopped = || Err(Failure::new("stopped while editing; nothing was changed"));
+    let opened_now = if quiet.stopped() {
+        stopped()
+    } else {
+        match open(draft.path()) {
+            _ if quiet.stopped() => stopped(),
+            r => r,
+        }
+    };
+    if let Err(mut f) = opened_now {
+        if opened != before {
+            let kept = draft.keep();
+            let saved = format!("your edited version is kept in {}", kept.display());
+            f.hint = Some(match f.hint.take() {
+                Some(h) => format!("{h}; {saved}"),
+                None => saved,
+            });
+        }
+        return Err(f);
+    }
+    Ok(notes::strip(&draft.read().map_err(|e| {
+        Failure::new(format!("cannot read the edited copy: {e}"))
+    })?))
+}
+
+fn save(
+    path: &Path,
+    name: &std::ffi::OsStr,
+    before: &str,
+    text: &str,
+    out: &mut dyn Write,
+) -> Result<(), Failure> {
+    let shown = path.display();
     let keep = |text: &str| {
         Draft::new(name, text)
             .map(|d| d.keep().display().to_string())
             .unwrap_or_else(|e| format!("nowhere ({e})"))
     };
-    match save::write_back(path, &before, &text) {
+    match save::write_back(path, before, text) {
         Ok(()) => say(out, format!("saved {shown}"))?,
         Err(save::Refused::Changed) => {
             return Err(Failure::new(format!(
@@ -252,18 +277,23 @@ fn edit(
             ))
             .hint(format!(
                 "your version is in {}; compare and copy what you need",
-                keep(&text)
+                keep(text)
             )));
         }
         Err(save::Refused::Io(e)) => {
             return Err(
                 Failure::new(format!("cannot write {shown}: {}", file_reason(&e)))
-                    .hint(format!("your version is in {}", keep(&text))),
+                    .hint(format!("your version is in {}", keep(text))),
             );
         }
     }
+    Ok(())
+}
+
+fn note_sources(f: &Found, before: &str, text: &str, out: &mut dyn Write) -> Result<(), Failure> {
+    let path = &f.path;
     match &f.origin {
-        Origin::Service { name, .. } => match source::of_service(name, path, &before, &text) {
+        Origin::Service { name, .. } => match source::of_service(name, path, before, text) {
             source::Source::Synced(src) => say(
                 out,
                 format!(
@@ -288,7 +318,7 @@ fn edit(
                         "note: {service} runs its own copy of this file; to use the change: {}",
                         admin(&format!(
                             "service install -c {}",
-                            crate::failure::path_arg(path)
+                            crate::base::failure::path_arg(path)
                         ))
                     ),
                 )?;
@@ -296,8 +326,7 @@ fn edit(
         }
         Origin::Running { .. } => {}
     }
-    apply::apply(apply::after(f), out)?;
-    Ok(0)
+    Ok(())
 }
 
 #[cfg(test)]
@@ -333,13 +362,13 @@ mod tests {
     fn good() -> String {
         format!(
             "server: example.com\nname: home\nsecret: {}\nallow: [127.0.0.0/8]\n",
-            crate::secret::Secret::generate().encode()
+            crate::wire::secret::Secret::generate().encode()
         )
     }
 
     fn config(dir: &Path, name: &str, text: &str) -> Found {
         let path = dir.join(name);
-        crate::instance::write_private(&path, text).unwrap();
+        crate::base::fs::write_private(&path, text).unwrap();
         Found {
             path: std::fs::canonicalize(&path).unwrap(),
             role: Role::Client,
@@ -369,7 +398,11 @@ mod tests {
         let good = good();
         let f = config(dir.path(), "client.yaml", &good);
         let next = good.replace("name: home", "name: office");
-        let (code, out) = run(&f, vec![Some(next.clone())], &mut crate::prompt::NoPrompt);
+        let (code, out) = run(
+            &f,
+            vec![Some(next.clone())],
+            &mut crate::base::prompt::NoPrompt,
+        );
         assert_eq!(code, 0, "{out}");
         assert!(out.contains("saved"), "{out}");
         assert_eq!(std::fs::read_to_string(&f.path).unwrap(), next);
@@ -464,7 +497,7 @@ mod tests {
             Ok(())
         };
         let mut out = Vec::new();
-        let code = edit(&f, &mut open, &mut crate::prompt::NoPrompt, &mut out).unwrap();
+        let code = edit(&f, &mut open, &mut crate::base::prompt::NoPrompt, &mut out).unwrap();
         assert_eq!((code, calls), (1, 1));
         assert_eq!(std::fs::read_to_string(&f.path).unwrap(), good);
     }
@@ -474,7 +507,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let good = format!(
             r#"{{"server": "example.com", "name": "home", "secret": "{}", "allow": ["127.0.0.0/8"]}}"#,
-            crate::secret::Secret::generate().encode()
+            crate::wire::secret::Secret::generate().encode()
         );
         let f = config(dir.path(), "client.json", &good);
         let wrong = good.replace("\"name\"", "\"nmae\"");
@@ -521,7 +554,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let good = good();
         let f = config(dir.path(), "client.yaml", &good);
-        let (code, out) = run(&f, vec![None], &mut crate::prompt::NoPrompt);
+        let (code, out) = run(&f, vec![None], &mut crate::base::prompt::NoPrompt);
         assert_eq!(code, 0);
         assert!(out.contains("no changes"), "{out}");
     }
@@ -539,7 +572,13 @@ mod tests {
             std::fs::write(&original, &theirs).unwrap();
             Ok(())
         };
-        let err = edit(&f, &mut open, &mut crate::prompt::NoPrompt, &mut Vec::new()).unwrap_err();
+        let err = edit(
+            &f,
+            &mut open,
+            &mut crate::base::prompt::NoPrompt,
+            &mut Vec::new(),
+        )
+        .unwrap_err();
         assert!(err.message.contains("changed while you were editing"));
         assert_eq!(std::fs::read_to_string(&f.path).unwrap(), theirs);
         let hint = err.hint.unwrap();

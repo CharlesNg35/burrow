@@ -7,7 +7,7 @@ use super::{
     Backend, Manifest, all_manifests, background, parse_version, resolve, save_manifest, say,
     system, this_binary,
 };
-use crate::failure::Failure;
+use crate::base::failure::Failure;
 
 const SETTLE: Duration = if cfg!(test) {
     Duration::from_millis(100)
@@ -164,7 +164,7 @@ fn group(
                 format!(
                     "{} is not managed by burrow; upgrade it where you installed it, then run: {}",
                     binary.display(),
-                    crate::failure::admin(&format!("service restart {}", users[0].name))
+                    crate::base::failure::admin(&format!("service restart {}", users[0].name))
                 ),
             )?;
             continue;
@@ -280,7 +280,7 @@ fn swap(
         ))
         .hint(format!(
             "see why with: {}",
-            crate::failure::admin(&format!("service logs {}", failed[0]))
+            crate::base::failure::admin(&format!("service logs {}", failed[0]))
         )));
     }
     for m in &users {
@@ -402,8 +402,8 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn a_service_whose_bin_folder_users_can_now_change_is_not_updated_in_place() {
-        let usual = crate::service::Platform::current().binary_path();
-        crate::service::system::tests::as_if_users_can_change(usual.parent().unwrap(), || {
+        let usual = crate::install::Platform::current().binary_path();
+        crate::install::trust::tests::as_if_users_can_change(usual.parent().unwrap(), || {
             let all = [service("burrow-x", &usual)];
             let mut out = Vec::new();
             let swaps = group(

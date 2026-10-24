@@ -24,7 +24,7 @@ fn addr(args: &[String]) -> SocketAddr {
 
 async fn echo(args: &[String]) {
     let listen: SocketAddr = arg(args, "--listen", "127.0.0.1:9000").parse().unwrap();
-    let l = burrow::transport::tcp::bind_tcp(listen).unwrap();
+    let l = burrow::wire::transport::tcp::bind_tcp(listen).unwrap();
     println!("echo listening on {listen}");
     loop {
         let (mut s, _) = l.accept().await.unwrap();

@@ -7,11 +7,11 @@ use serde_json::{Map, Value, json};
 
 use super::export::{ConfigOutput, VISITOR, connect_address, load_server, pick_name, secret_text};
 use super::{InitOptions, Login, ask_login, resolve_output, write_new};
+use crate::base::failure::Failure;
+use crate::base::prompt::Prompter;
 use crate::config::emit::render;
 use crate::config::env::EnvSource;
 use crate::config::{Format, Role};
-use crate::failure::Failure;
-use crate::prompt::Prompter;
 
 pub fn init_visitor(
     opts: &InitOptions,
@@ -37,14 +37,17 @@ pub fn init_visitor(
     );
     let later = |why: &str| {
         let update = match &opts.output {
-            Some(p) => format!("init visitor --update -o {}", crate::failure::path_arg(p)),
+            Some(p) => format!(
+                "init visitor --update -o {}",
+                crate::base::failure::path_arg(p)
+            ),
             None => "init visitor --update".to_string(),
         };
         format!(
             "wrote {} without forwards: {why}\nadd them later with: {}\nor ask the server's admin for a ready config: {}",
             path.display(),
-            crate::failure::cmd(&update),
-            crate::failure::cmd(&format!("visitor-config {name} -o visitor.yaml"))
+            crate::base::failure::cmd(&update),
+            crate::base::failure::cmd(&format!("visitor-config {name} -o visitor.yaml"))
         )
     };
     let settings = match settings_of(&path, &bare, format) {
@@ -55,7 +58,7 @@ pub fn init_visitor(
             return say(out, &later(&why)).map(|()| path);
         }
     };
-    let fetched = match super::fetch::grants(&settings) {
+    let fetched = match crate::dialer::fetch::grants(&settings) {
         Ok(g) => g,
         Err(n) if !n.rejected => {
             write_new(&path, &bare, opts.force)?;
@@ -92,16 +95,19 @@ pub fn init_visitor(
         "wrote {} with {} {}:\n",
         path.display(),
         planned.forwards.len(),
-        crate::diagnostics::plural(planned.forwards.len(), "forward")
+        crate::config::diagnostics::plural(planned.forwards.len(), "forward")
     );
     text.push_str(&listing(&planned.forwards, &notes, |_| ("", "")));
     if let Some(line) = left_out(&planned) {
         text.push_str(&format!("{line}\n"));
     }
     if fetched.tcp_only {
-        text.push_str(&format!("  {}\n", super::fetch::OLD_SERVER_NOTE));
+        text.push_str(&format!("  {}\n", crate::dialer::fetch::OLD_SERVER_NOTE));
     }
-    text.push_str(&format!("run them with: {}", crate::failure::cmd("visit")));
+    text.push_str(&format!(
+        "run them with: {}",
+        crate::base::failure::cmd("visit")
+    ));
     say(out, &text).map(|()| path)
 }
 
@@ -114,7 +120,7 @@ fn update_visitor(
         Some(p) => p.clone(),
         None => crate::config::discover::discover_with(Path::new("."), Some(Role::Visitor), "-o")?,
     };
-    let path = crate::service::system::canonical_or_same(&given);
+    let path = crate::base::fs::canonical_or_same(&given);
     let format = Format::from_path(&path).ok_or_else(|| {
         Failure::usage(format!("cannot tell the format of {}", path.display()))
             .hint("visitor configs end in .yaml, .yml or .json")
@@ -123,15 +129,15 @@ fn update_visitor(
         Failure::new(format!(
             "cannot read {}: {}",
             path.display(),
-            crate::failure::file_reason(&e)
+            crate::base::failure::file_reason(&e)
         ))
     })?;
     let settings = settings_of(&path, &text, format)?;
-    let fetched = super::fetch::grants(&settings).map_err(Failure::from)?;
+    let fetched = crate::dialer::fetch::grants(&settings).map_err(Failure::from)?;
     let grants = fetched.grants;
     let planned = super::plan::plan(&grants, &settings.forwards, true, fetched.tcp_only);
     let old_server = if fetched.tcp_only {
-        format!("\n{}", super::fetch::OLD_SERVER_NOTE)
+        format!("\n{}", crate::dialer::fetch::OLD_SERVER_NOTE)
     } else {
         String::new()
     };
@@ -156,7 +162,7 @@ fn update_visitor(
             "{} is up to date ({} {})",
             path.display(),
             planned.forwards.len(),
-            crate::diagnostics::plural(planned.forwards.len(), "forward")
+            crate::config::diagnostics::plural(planned.forwards.len(), "forward")
         );
         if let Some(line) = left_out(&planned) {
             text.push_str(&format!("\n{line}"));
@@ -229,16 +235,16 @@ fn update_visitor(
         ))
         .hint("this is likely a burrow bug; please report it with the file (without its secret)"));
     }
-    crate::edit::save::write_back(&path, &text, &next).map_err(|e| match e {
-        crate::edit::save::Refused::Changed => Failure::new(format!(
+    crate::config::save::write_back(&path, &text, &next).map_err(|e| match e {
+        crate::config::save::Refused::Changed => Failure::new(format!(
             "{} changed while burrow was asking the server; nothing was written",
             path.display()
         ))
         .hint("run the update again"),
-        crate::edit::save::Refused::Io(e) => Failure::new(format!(
+        crate::config::save::Refused::Io(e) => Failure::new(format!(
             "cannot write {}: {}",
             path.display(),
-            crate::failure::file_reason(&e)
+            crate::base::failure::file_reason(&e)
         )),
     })?;
     say(
@@ -287,13 +293,16 @@ fn settings_of(
         ))
         .hint(format!(
             "see why with: {}",
-            crate::failure::cmd(&format!("validate -c {}", crate::failure::path_arg(path)))
+            crate::base::failure::cmd(&format!(
+                "validate -c {}",
+                crate::base::failure::path_arg(path)
+            ))
         ))),
     }
 }
 
 fn allow_notes(
-    grants: &crate::protocol::Grants,
+    grants: &crate::wire::protocol::Grants,
     planned: &super::plan::Plan,
 ) -> BTreeMap<String, String> {
     planned
@@ -389,13 +398,13 @@ pub fn socks_note(client: &str, local: u16, reach: &[String]) -> String {
     let target = reach
         .iter()
         .find_map(|r| match r.parse() {
-            Ok(crate::allowlist::Rule::Net(rule)) => Some(rule.example().to_string()),
+            Ok(crate::policy::allowlist::Rule::Net(rule)) => Some(rule.example().to_string()),
             _ => None,
         })
         .unwrap_or_else(|| "HOST:PORT".to_string());
     format!(
         "127.0.0.1:{local} is a SOCKS5 proxy into client \"{client}\": point an app at it, or forward one target with: {} visit --client {client} --target {target} --local 2222",
-        crate::failure::command()
+        crate::base::failure::command()
     )
 }
 
@@ -427,7 +436,7 @@ pub fn visitor_config(
     if admin {
         notes.push(format!(
             "visitor \"{name}\" has admin access: open the admin UI with {}",
-            crate::failure::cmd("admin -c FILE")
+            crate::base::failure::cmd("admin -c FILE")
         ));
     }
     Ok(ConfigOutput {

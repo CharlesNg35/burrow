@@ -4,12 +4,12 @@ use std::time::Duration;
 
 use tokio::sync::watch;
 
-use crate::allowlist::Gate;
 use crate::client::data::{Dialing, Dials, Open, Rules, fitted, serve_local};
 use crate::config::settings::ServerSettings;
-use crate::handshake::Channel;
-use crate::protocol::TOKEN_LEN;
-use crate::transport::resolve::Resolver;
+use crate::policy::allowlist::Gate;
+use crate::wire::protocol::TOKEN_LEN;
+use crate::wire::transport::Channel;
+use crate::wire::transport::resolve::Resolver;
 use burrow_config::Protocol;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -60,7 +60,7 @@ impl SelfDialer {
     }
 
     pub(crate) fn open(&self) -> Channel {
-        let (near, far) = crate::transport::local::pair();
+        let (near, far) = crate::wire::transport::local::pair();
         tokio::spawn(serve_local(
             Rules(self.rules.clone(), self.open.clone()),
             self.resolver.clone(),
@@ -101,14 +101,14 @@ fn fresh_token() -> [u8; TOKEN_LEN] {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::{Connect, Status};
+    use crate::wire::protocol::{Connect, Status};
     use burrow_config::Protocol;
 
     fn settings(allow: &[&str]) -> ServerSettings {
         let yaml = format!(
             "listen: 127.0.0.1:7835\nself:\n  allow: [{}]\nclients:\n  home:\n    secret: {}\n",
             allow.join(", "),
-            crate::secret::Secret::generate().encode()
+            crate::wire::secret::Secret::generate().encode()
         );
         match crate::config::load_str(
             "server.yaml",
@@ -148,7 +148,7 @@ mod tests {
         let dialer = SelfDialer::new(
             &settings(&["127.0.0.0/8"]),
             vec![own],
-            crate::transport::resolve::system(),
+            crate::wire::transport::resolve::system(),
         );
         assert_eq!(ask(&dialer, at.to_string()).await, Status::Ok);
         assert_eq!(ask(&dialer, "10.0.0.1:22".into()).await, Status::Denied);
@@ -162,7 +162,11 @@ mod tests {
     #[test]
     fn the_token_is_renewed_only_when_what_self_may_reach_changes() {
         let narrow = settings(&["127.0.0.1/32"]);
-        let dialer = SelfDialer::new(&narrow, Vec::new(), crate::transport::resolve::system());
+        let dialer = SelfDialer::new(
+            &narrow,
+            Vec::new(),
+            crate::wire::transport::resolve::system(),
+        );
         let first = dialer.token();
         dialer.reconfigure(&narrow, Vec::new());
         assert_eq!(dialer.token(), first);

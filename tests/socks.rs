@@ -3,9 +3,9 @@ mod common;
 use std::net::SocketAddr;
 use std::time::Duration;
 
-use burrow::allowlist::{AllowList, Rule};
 use burrow::config::settings::Forward;
-use burrow::secret::Secret;
+use burrow::policy::allowlist::{AllowList, Rule};
+use burrow::wire::secret::Secret;
 use common::socks::*;
 use common::*;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -206,7 +206,7 @@ async fn many_plain_visits_at_once() {
         visitor_auth(visitor_secret.clone(), &["home"]),
     );
     let tunnel = tunnel_with(server, vec![], |c| c, secret).await;
-    let to = burrow::protocol::VisitTarget::Client {
+    let to = burrow::wire::protocol::VisitTarget::Client {
         client: "home".into(),
         target: echo.to_string(),
     };
@@ -269,11 +269,11 @@ async fn a_burst_wider_than_the_server_handshake_limit_still_gets_through() {
 #[test]
 fn long_targets_survive_the_wire() {
     let host = "a".repeat(252);
-    let to = burrow::protocol::VisitTarget::Client {
+    let to = burrow::wire::protocol::VisitTarget::Client {
         client: "home".into(),
         target: format!("{host}:8080"),
     };
-    let req = burrow::protocol::VisitRequest {
+    let req = burrow::wire::protocol::VisitRequest {
         check: false,
         protocol: burrow_config::Protocol::Tcp,
         to: to.clone(),
@@ -281,7 +281,7 @@ fn long_targets_survive_the_wire() {
     let bytes = std::panic::catch_unwind(|| req.encode());
     assert!(bytes.is_ok(), "encoding panicked");
     if let Ok(b) = bytes.unwrap() {
-        let back = burrow::protocol::VisitRequest::decode(&b).unwrap();
+        let back = burrow::wire::protocol::VisitRequest::decode(&b).unwrap();
         assert_eq!(back.to, to, "the target changed on the wire");
     }
 }

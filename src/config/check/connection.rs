@@ -2,8 +2,8 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use super::Spans;
-use crate::diagnostics::Diagnostic;
-use crate::proxy::ProxyConfig;
+use crate::config::diagnostics::Diagnostic;
+use crate::wire::proxy::ProxyConfig;
 use burrow_syntax::endpoint::Endpoint;
 
 const RESERVED_HEADERS: &[&str] = &[
@@ -102,13 +102,13 @@ pub fn check_connection(
         None => None,
         Some(file) => {
             let path = base_dir.join(file);
-            let read = std::fs::read(&path).map_err(|e| crate::failure::file_reason(&e));
+            let read = std::fs::read(&path).map_err(|e| crate::base::failure::file_reason(&e));
             let code = if read.is_err() {
                 "tls-unreadable"
             } else {
                 "tls-file"
             };
-            match read.and_then(|pem| crate::transport::tls::parse_certs(&pem).map(|_| pem)) {
+            match read.and_then(|pem| crate::wire::transport::tls::parse_certs(&pem).map(|_| pem)) {
                 Ok(pem) => {
                     if !tls && endpoint.is_some() {
                         out.push(

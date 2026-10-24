@@ -5,8 +5,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use burrow::client::{Client, RunEnd, State};
-use burrow::secret::Secret;
-use burrow::transport::resolve::{Resolved, Resolver, resolve};
+use burrow::wire::secret::Secret;
+use burrow::wire::transport::resolve::{Resolved, Resolver, resolve};
 use burrow_config::Protocol;
 use common::*;
 

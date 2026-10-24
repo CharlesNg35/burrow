@@ -1,8 +1,8 @@
 use std::io::Write;
 
 use super::found::{Found, Origin};
+use crate::base::failure::{Failure, admin};
 use crate::config::Role;
-use crate::failure::{Failure, admin};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum After {

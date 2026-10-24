@@ -33,11 +33,11 @@ impl Drop for Setup {
 }
 
 fn secret() -> String {
-    burrow::secret::Secret::generate().encode()
+    burrow::wire::secret::Secret::generate().encode()
 }
 
 fn write(path: &Path, text: &str) {
-    burrow::instance::write_private(path, text).unwrap();
+    burrow::base::fs::write_private(path, text).unwrap();
 }
 
 const KEEP: &str = if cfg!(windows) { "cmd /c rem" } else { "true" };

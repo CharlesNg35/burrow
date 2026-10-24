@@ -6,8 +6,10 @@ use tokio::sync::mpsc;
 use tracing::{info, warn};
 
 use super::{ClientSession, Shared, TICK};
-use crate::handshake::Accepted;
-use crate::protocol::{ByeReason, ClientMsg, ServerMsg, TOKEN_LEN};
+use crate::wire::handshake::Accepted;
+use crate::wire::protocol::{ByeReason, ClientMsg, ServerMsg, TOKEN_LEN};
+use crate::wire::record::RecordWriter;
+use crate::wire::transport::OwnedWriteHalf;
 
 pub(super) async fn control_session(
     shared: Arc<Shared>,
@@ -33,21 +35,13 @@ pub(super) async fn control_session(
             on_off(preamble.plaintext),
             on_off(settings.insecure_plaintext)
         );
-        let _ = writer
-            .send(
-                &mut wr,
-                &ServerMsg::Bye {
-                    reason: ByeReason::PlaintextMismatch,
-                }
-                .encode(),
-            )
-            .await;
+        say_bye(&mut writer, &mut wr, ByeReason::PlaintextMismatch).await;
         return;
     }
 
     let mut token = [0u8; TOKEN_LEN];
     getrandom::fill(&mut token).expect("operating system random source is available");
-    let (tx, mut rx) = mpsc::channel::<ServerMsg>(256);
+    let (tx, rx) = mpsc::channel::<ServerMsg>(256);
     let mut session = ClientSession::new(
         name.clone(),
         peer,
@@ -59,67 +53,32 @@ pub(super) async fn control_session(
     );
     session.over_websocket = over_websocket;
     let session = Arc::new(session);
-    let taken = {
-        let mut sessions = shared.sessions.lock().expect("sessions lock");
-        if !shared.allows(&name, &session.secret) {
-            Err(None)
-        } else if shared.settings().insecure_plaintext != preamble.plaintext {
-            Err(Some(None))
-        } else {
-            match sessions.get(&name) {
-                Some(other) if other.instance != instance => Err(Some(Some(other.peer))),
-                _ => Ok(sessions.insert(name.clone(), session.clone())),
-            }
-        }
-    };
+    let taken = take_seat(&shared, &name, &session, instance, preamble.plaintext);
     let old = match taken {
         Ok(old) => old,
         Err(None) => {
             info!(
                 "client \"{name}\" from {peer} refused: its secret was removed while it connected"
             );
-            let _ = writer
-                .send(
-                    &mut wr,
-                    &ServerMsg::Bye {
-                        reason: ByeReason::Removed,
-                    }
-                    .encode(),
-                )
-                .await;
+            say_bye(&mut writer, &mut wr, ByeReason::Removed).await;
             return;
         }
         Err(Some(None)) => {
             info!(
                 "client \"{name}\" from {peer} refused: insecure_plaintext changed while it connected"
             );
-            let _ = writer
-                .send(
-                    &mut wr,
-                    &ServerMsg::Bye {
-                        reason: ByeReason::PlaintextMismatch,
-                    }
-                    .encode(),
-                )
-                .await;
+            say_bye(&mut writer, &mut wr, ByeReason::PlaintextMismatch).await;
             return;
         }
         Err(Some(Some(other))) => {
-            static TWICE: crate::throttle::Throttle = crate::throttle::Throttle::new();
+            static TWICE: crate::policy::throttle::Throttle =
+                crate::policy::throttle::Throttle::new();
             if let Some(more) = TWICE.allow() {
                 warn!(
                     "client \"{name}\" from {peer} refused: a client with that name is already connected from {other}; two machines may be using the same config{more}"
                 );
             }
-            let _ = writer
-                .send(
-                    &mut wr,
-                    &ServerMsg::Bye {
-                        reason: ByeReason::Duplicate,
-                    }
-                    .encode(),
-                )
-                .await;
+            say_bye(&mut writer, &mut wr, ByeReason::Duplicate).await;
             return;
         }
     };
@@ -140,33 +99,15 @@ pub(super) async fn control_session(
     let services = ServerMsg::Services(settings.services_for(&name));
     let mut stop = shared.shutdown.clone();
     let writer_session = session.clone();
-    let writer_task = tokio::spawn(async move {
-        if writer.send(&mut wr, &welcome.encode()).await.is_err()
-            || writer.send(&mut wr, &services.encode()).await.is_err()
-        {
-            return;
-        }
-        writer_session.start();
-        let mut ping = tokio::time::interval(interval);
-        let mut tick = tokio::time::interval(TICK);
-        loop {
-            let msg = tokio::select! {
-                m = rx.recv() => match m {
-                    Some(m) => m,
-                    None => return,
-                },
-                _ = ping.tick() => ServerMsg::Ping,
-                _ = tick.tick() => {
-                    writer_session.tick();
-                    continue;
-                }
-            };
-            let bye = matches!(msg, ServerMsg::Bye { .. });
-            if writer.send(&mut wr, &msg.encode()).await.is_err() || bye {
-                return;
-            }
-        }
-    });
+    let writer_task = tokio::spawn(write_loop(
+        writer,
+        wr,
+        rx,
+        writer_session,
+        welcome,
+        services,
+        interval,
+    ));
 
     let timeout = interval * 3;
     let reason = loop {
@@ -187,16 +128,7 @@ pub(super) async fn control_session(
             _ = session.closed() => break None,
         }
     };
-    let current = {
-        let mut sessions = shared.sessions.lock().expect("sessions lock");
-        let current = sessions
-            .get(&name)
-            .is_some_and(|s| Arc::ptr_eq(s, &session));
-        if current {
-            sessions.remove(&name);
-        }
-        current
-    };
+    let current = leave_seat(&shared, &name, &session);
     session.close();
     if current {
         shared.metrics.client_left(&name);
@@ -214,12 +146,83 @@ pub(super) async fn control_session(
     }
 }
 
+async fn say_bye(writer: &mut RecordWriter, wr: &mut OwnedWriteHalf, reason: ByeReason) {
+    let _ = writer.send(wr, &ServerMsg::Bye { reason }.encode()).await;
+}
+
+type Seat = Result<Option<Arc<ClientSession>>, Option<Option<SocketAddr>>>;
+
+fn take_seat(
+    shared: &Shared,
+    name: &str,
+    session: &Arc<ClientSession>,
+    instance: [u8; TOKEN_LEN],
+    plaintext: bool,
+) -> Seat {
+    let mut sessions = shared.sessions.lock().expect("sessions lock");
+    if !shared.allows(name, &session.secret) {
+        Err(None)
+    } else if shared.settings().insecure_plaintext != plaintext {
+        Err(Some(None))
+    } else {
+        match sessions.get(name) {
+            Some(other) if other.instance != instance => Err(Some(Some(other.peer))),
+            _ => Ok(sessions.insert(name.to_string(), session.clone())),
+        }
+    }
+}
+
+async fn write_loop(
+    mut writer: RecordWriter,
+    mut wr: OwnedWriteHalf,
+    mut rx: mpsc::Receiver<ServerMsg>,
+    writer_session: Arc<ClientSession>,
+    welcome: ServerMsg,
+    services: ServerMsg,
+    interval: Duration,
+) {
+    if writer.send(&mut wr, &welcome.encode()).await.is_err()
+        || writer.send(&mut wr, &services.encode()).await.is_err()
+    {
+        return;
+    }
+    writer_session.start();
+    let mut ping = tokio::time::interval(interval);
+    let mut tick = tokio::time::interval(TICK);
+    loop {
+        let msg = tokio::select! {
+            m = rx.recv() => match m {
+                Some(m) => m,
+                None => return,
+            },
+            _ = ping.tick() => ServerMsg::Ping,
+            _ = tick.tick() => {
+                writer_session.tick();
+                continue;
+            }
+        };
+        let bye = matches!(msg, ServerMsg::Bye { .. });
+        if writer.send(&mut wr, &msg.encode()).await.is_err() || bye {
+            return;
+        }
+    }
+}
+
+fn leave_seat(shared: &Shared, name: &str, session: &Arc<ClientSession>) -> bool {
+    let mut sessions = shared.sessions.lock().expect("sessions lock");
+    let current = sessions.get(name).is_some_and(|s| Arc::ptr_eq(s, session));
+    if current {
+        sessions.remove(name);
+    }
+    current
+}
+
 fn on_off(b: bool) -> &'static str {
     if b { "on" } else { "off" }
 }
 
 fn note_refused_targets(shared: &Shared, client: &str, rules: &[String]) {
-    use crate::allowlist::{AllowList, Rule};
+    use crate::policy::allowlist::{AllowList, Rule};
     let allow = if rules == ["any"] {
         AllowList::All
     } else {
@@ -249,7 +252,7 @@ fn note_refused_targets(shared: &Shared, client: &str, rules: &[String]) {
     if refused.is_empty() {
         return;
     }
-    static REFUSED: crate::throttle::Throttle = crate::throttle::Throttle::new();
+    static REFUSED: crate::policy::throttle::Throttle = crate::policy::throttle::Throttle::new();
     if let Some(more) = REFUSED.allow() {
         warn!(
             "client \"{client}\" does not allow the target of service {}, so it will refuse those connections; add the target to \"allow\" in the config of client \"{client}\"{more}",

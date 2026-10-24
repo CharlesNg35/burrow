@@ -1,6 +1,5 @@
 mod client;
 mod export;
-pub(crate) mod fetch;
 mod plan;
 mod server;
 mod splice;
@@ -14,11 +13,11 @@ pub use visitor::{init_visitor, reaches_something, visitor_config, visitor_docum
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
+use crate::base::failure::Failure;
+use crate::base::prompt::Prompter;
 use crate::config::check::valid_name;
 use crate::config::{Format, Role};
-use crate::failure::Failure;
-use crate::prompt::Prompter;
-use crate::secret::Secret;
+use crate::wire::secret::Secret;
 use burrow_syntax::endpoint::Endpoint;
 use burrow_syntax::ports::{FIRST_SERVICE_PORT, SERVER_PORT, WS_PORT, WSS_PORT};
 
@@ -199,7 +198,7 @@ pub fn write_new(path: &Path, contents: &str, force: bool) -> Result<(), Failure
             })?;
     }
     #[cfg(windows)]
-    crate::instance::restrict_on_windows(path);
+    crate::base::fs::restrict_on_windows(path);
     file.write_all(contents.as_bytes())
         .map_err(|e| Failure::new(format!("cannot write {}: {e}", path.display())))
 }
@@ -285,7 +284,7 @@ fn ask_login(
         Secret::parse(&secret_text).map_err(|e| {
             Failure::usage(format!("the secret {}", e.describe())).hint(format!(
                 "copy it from the server config, or run on the server: {} {kind}-config NAME -o {kind}.yaml",
-                crate::failure::command()
+                crate::base::failure::command()
             ))
         })?;
     }

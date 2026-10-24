@@ -4,9 +4,9 @@ use burrow_admin_proto::frame::{self, AdminOpen, Assembler, Frame};
 use tokio::io::AsyncWriteExt;
 
 use super::{DialError, Dialer};
-use crate::protocol::{ChannelKind, Hello, VERSION};
-use crate::record::{RecordReader, RecordWriter};
-use crate::transport::{OwnedReadHalf, OwnedWriteHalf};
+use crate::wire::protocol::{ChannelKind, Hello, VERSION};
+use crate::wire::record::{RecordReader, RecordWriter};
+use crate::wire::transport::{OwnedReadHalf, OwnedWriteHalf};
 
 const ANSWER: Duration = Duration::from_secs(15);
 
@@ -167,8 +167,8 @@ mod tests {
 
     #[tokio::test]
     async fn closing_toward_a_websocket_peer_that_never_closes_gives_up() {
-        let (ours, _held) = crate::transport::testing::held_websocket().await;
-        let ch = crate::transport::testing::sealed(ours);
+        let (ours, _held) = crate::wire::transport::testing::held_websocket().await;
+        let ch = crate::wire::transport::testing::sealed(ours);
         let (_, wr) = ch.stream.into_split();
         let tx = AdminTx {
             writer: ch.writer,

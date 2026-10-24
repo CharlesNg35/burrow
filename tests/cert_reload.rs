@@ -4,13 +4,13 @@ use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use burrow::app::reload::{accept, follow};
+use burrow::config::env::Env;
 use burrow::config::env::ProcessEnv;
 use burrow::config::{Loaded, Role, load_file};
-use burrow::reload::{accept, follow};
-use burrow::run::Env;
-use burrow::secret::Secret;
 use burrow::server::Server;
-use burrow::transport::tls;
+use burrow::wire::secret::Secret;
+use burrow::wire::transport::tls;
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, watch};
 
@@ -64,7 +64,7 @@ async fn serve(config: &Path) -> SocketAddr {
     let outcome = load_file(config, Some(Role::Server), &ProcessEnv).unwrap();
     let report = outcome
         .report
-        .render_text(burrow::diagnostics::Style { color: false });
+        .render_text(burrow::base::style::Style { color: false });
     let Some(Loaded::Server(settings, _)) = outcome.loaded else {
         panic!("server config loads: {report}")
     };
@@ -264,7 +264,7 @@ async fn a_renewed_certificate_is_used_without_a_restart() {
     let outcome = load_file(&config, Some(Role::Server), &ProcessEnv).unwrap();
     let report = outcome
         .report
-        .render_text(burrow::diagnostics::Style { color: false });
+        .render_text(burrow::base::style::Style { color: false });
     let Some(Loaded::Server(settings, _)) = outcome.loaded else {
         panic!("server config loads: {report}")
     };

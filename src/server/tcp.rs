@@ -11,9 +11,9 @@ use super::Shared;
 use super::route::{Outcome, Tries, Way};
 use crate::config::settings::Service;
 use crate::forward::{ForwardError, Meter, Opened, Opening, open_tcp};
-use crate::protocol::{Connect, Status};
-use crate::proxy_protocol::header;
-use crate::transport::tcp::tune;
+use crate::wire::protocol::{Connect, Status};
+use crate::wire::proxy_protocol::header;
+use crate::wire::transport::tcp::tune;
 use burrow_config::Protocol;
 
 pub(super) async fn tcp_service(
@@ -26,12 +26,13 @@ pub(super) async fn tcp_service(
     loop {
         let (visitor, peer) = match listener.accept().await {
             Ok(v) => v,
-            Err(e) if crate::transport::tcp::gone_before_accept(&e) => {
+            Err(e) if crate::wire::transport::tcp::gone_before_accept(&e) => {
                 debug!("service \"{name}\": a connection was gone before it was accepted: {e}");
                 continue;
             }
             Err(e) => {
-                static FAILED: crate::throttle::Throttle = crate::throttle::Throttle::new();
+                static FAILED: crate::policy::throttle::Throttle =
+                    crate::policy::throttle::Throttle::new();
                 if let Some(more) = FAILED.allow() {
                     warn!("service \"{name}\": accept failed: {e}{more}");
                 }
@@ -194,7 +195,8 @@ pub(super) fn log_refusal(label: &str, client: &str, target: &str, error: &Forwa
     match error {
         ForwardError::Status(st) => log_status(label, client, target, *st),
         ForwardError::Protocol => {
-            static INVALID: crate::throttle::Throttle = crate::throttle::Throttle::new();
+            static INVALID: crate::policy::throttle::Throttle =
+                crate::policy::throttle::Throttle::new();
             if let Some(more) = INVALID.allow() {
                 warn!("{label}: client \"{client}\" sent an invalid reply{more}");
             }
@@ -204,7 +206,7 @@ pub(super) fn log_refusal(label: &str, client: &str, target: &str, error: &Forwa
 }
 
 pub(super) fn log_status(label: &str, client: &str, target: &str, st: Status) {
-    static STATUS: crate::throttle::Throttle = crate::throttle::Throttle::new();
+    static STATUS: crate::policy::throttle::Throttle = crate::policy::throttle::Throttle::new();
     if st == Status::Ok {
         return;
     }

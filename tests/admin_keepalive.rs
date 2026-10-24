@@ -8,8 +8,8 @@ use std::time::{Duration, Instant};
 use burrow::config::{Loaded, Role, load_file};
 use burrow::dialer::Dialer;
 use burrow::dialer::admin::{AdminOpenError, AdminRefusal, AdminRx, AdminTx};
-use burrow::secret::Secret;
 use burrow::server::Server;
+use burrow::wire::secret::Secret;
 use burrow_admin_proto::frame::AdminOpen;
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
@@ -62,8 +62,8 @@ async fn world_with(services: usize) -> World {
             ));
         }
     }
-    burrow::instance::write_private(&path, &text).unwrap();
-    let env = burrow::run::Env::default();
+    burrow::base::fs::write_private(&path, &text).unwrap();
+    let env = burrow::config::env::Env::default();
     let outcome = load_file(&path, Some(Role::Server), &env).unwrap();
     let Some(Loaded::Server(settings, _)) = outcome.loaded else {
         panic!("server config")
@@ -74,11 +74,11 @@ async fn world_with(services: usize) -> World {
     let (hub, nudges) = burrow::admin::adapters::hub(&shared, &path, env.clone());
     shared.set_admin(hub);
     let (reload_tx, reload_rx) = mpsc::channel(4);
-    tokio::spawn(burrow::reload::follow_nudged(
+    tokio::spawn(burrow::app::reload::follow_nudged(
         path.clone(),
         *settings,
         env,
-        burrow::reload::accept(),
+        burrow::app::reload::accept(),
         reload_tx,
         Some(nudges),
     ));

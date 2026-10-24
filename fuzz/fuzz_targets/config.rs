@@ -16,7 +16,7 @@ fuzz_target!(|data: &[u8]| {
             let o = load_str("fuzz.yaml", text, format, role, &env);
             let _ = o
                 .report
-                .render_text(burrow::diagnostics::Style { color: false });
+                .render_text(burrow::base::style::Style { color: false });
             let _ = o.report.render_json();
         }
     }

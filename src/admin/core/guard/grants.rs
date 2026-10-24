@@ -4,7 +4,7 @@ use serde_json::Value;
 
 use super::{Base, Change, refusal};
 use crate::config::settings::{ServerSettings, VisitorAuth};
-use crate::secret::Secret;
+use crate::wire::secret::Secret;
 use burrow_admin_proto::msg::AdminLevel;
 use burrow_config::admin_schema::AdminEnum;
 use burrow_config::{Entry, VisitorEntry};

@@ -6,8 +6,9 @@ use std::path::{Path, PathBuf};
 
 use sha2::{Digest, Sha256};
 
-use crate::failure::{Failure, admin, cmd};
-use crate::service::{self, Manifest, parse_version};
+use crate::base::failure::{Failure, admin, cmd};
+use crate::install::Manifest;
+use crate::service::{self, parse_version};
 
 const MAX_SUMS: usize = 1024 * 1024;
 const MAX_ASSET: usize = 256 * 1024 * 1024;
@@ -235,28 +236,7 @@ pub fn run(opts: &Options, out: &mut dyn Write) -> Result<u8, Failure> {
         }
         None => None,
     };
-    let sums_url = match &wanted {
-        Some(v) => format!("{base}/download/v{v}/SHA256SUMS"),
-        None => format!("{base}/latest/download/SHA256SUMS"),
-    };
-    let sums = match fetch(&sums_url, MAX_SUMS) {
-        Ok(http::Fetched::Body(b)) => String::from_utf8_lossy(&b).into_owned(),
-        Ok(http::Fetched::NotFound) => {
-            let what = match &wanted {
-                Some(v) => format!("burrow {v} is not released"),
-                None => "no burrow release was found".to_string(),
-            };
-            return Err(Failure::new(format!("{what} at {base}"))
-                .hint(format!("see the releases at {base}")));
-        }
-        Err(e) if e.contains("is plain http") => {
-            return Err(Failure::new(format!("cannot check for a new version: {e}")));
-        }
-        Err(e) => {
-            return Err(Failure::new(format!("cannot check for a new version: {e}"))
-                .hint(connect_hint(&sums_url, &|name| std::env::var(name).ok())));
-        }
-    };
+    let (sums_url, sums) = fetch_sums(&base, wanted.as_deref())?;
     let asset = find_asset(&sums, platform, ext).ok_or_else(|| {
         Failure::new(format!(
             "the release has no {platform} build (looked in {sums_url})"
@@ -273,53 +253,16 @@ pub fn run(opts: &Options, out: &mut dyn Write) -> Result<u8, Failure> {
         _ => None,
     };
     if opts.check {
-        let line = current.unwrap_or_else(|| {
-            let how = match &wanted {
-                Some(v) => cmd(&format!("update --to {v}")),
-                None => cmd("update"),
-            };
-            format!(
-                "burrow {} is available (this is {mine}); install it with: {how}",
-                asset.version
-            )
-        });
-        say(out, line)?;
+        say_available(current, wanted.as_deref(), &asset.version, mine, out)?;
         return Ok(0);
     }
     if let Some(line) = current.filter(|_| !opts.force) {
-        let me = service::this_binary()?;
-        let installed = service::all_manifests();
-        let behind: Vec<&Manifest> = installed
-            .iter()
-            .filter(|m| m.copied_binary && m.binary != me)
-            .filter(|m| version_of(&service::recorded_version(m)).is_ok_and(|v| v < ours))
-            .collect();
-        for m in installed.iter().filter(|m| service::exposed(m)) {
-            say(out, format!("{}: {}", m.name, service::exposed_note(m)))?;
-        }
-        if behind.is_empty() {
-            say(out, format!("{line}, nothing to do"))?;
-        } else if theirs == ours && service::is_admin() {
-            say(
-                out,
-                format!("{line}; the installed services run an older version"),
-            )?;
-            service::update_from(&me, mine, None, false, out)?;
-        } else {
-            say(
-                out,
-                format!(
-                    "{line}, but the installed services run the older {}; update them with: {}",
-                    service::recorded_version(behind[0]),
-                    update_services_with(&me)
-                ),
-            )?;
-        }
+        already_current(&line, &theirs, &ours, mine, out)?;
         return Ok(0);
     }
 
     let me = service::this_binary()?;
-    let installed = service::all_manifests();
+    let installed = crate::install::all_manifests();
     let managed: Vec<&Manifest> = installed.iter().filter(|m| m.copied_binary).collect();
     let foreign = installed.iter().any(|m| !m.copied_binary && m.binary == me);
     let me_is_service = managed.iter().any(|m| m.binary == me);
@@ -338,6 +281,111 @@ pub fn run(opts: &Options, out: &mut dyn Write) -> Result<u8, Failure> {
         )));
     }
 
+    let staged = download(&base, &asset, ext, &me, &theirs, out)?;
+
+    let targets = Targets {
+        managed: &managed,
+        me: &me,
+        me_is_service,
+        admin_rights,
+    };
+    let force = opts.force || theirs < ours;
+    finish(&staged, &targets, force, &asset.version, mine, out)
+}
+
+fn fetch_sums(base: &str, wanted: Option<&str>) -> Result<(String, String), Failure> {
+    let sums_url = match wanted {
+        Some(v) => format!("{base}/download/v{v}/SHA256SUMS"),
+        None => format!("{base}/latest/download/SHA256SUMS"),
+    };
+    let sums = match fetch(&sums_url, MAX_SUMS) {
+        Ok(http::Fetched::Body(b)) => String::from_utf8_lossy(&b).into_owned(),
+        Ok(http::Fetched::NotFound) => {
+            let what = match wanted {
+                Some(v) => format!("burrow {v} is not released"),
+                None => "no burrow release was found".to_string(),
+            };
+            return Err(Failure::new(format!("{what} at {base}"))
+                .hint(format!("see the releases at {base}")));
+        }
+        Err(e) if e.contains("is plain http") => {
+            return Err(Failure::new(format!("cannot check for a new version: {e}")));
+        }
+        Err(e) => {
+            return Err(Failure::new(format!("cannot check for a new version: {e}"))
+                .hint(connect_hint(&sums_url, &|name| std::env::var(name).ok())));
+        }
+    };
+    Ok((sums_url, sums))
+}
+
+fn say_available(
+    current: Option<String>,
+    wanted: Option<&str>,
+    version: &str,
+    mine: &str,
+    out: &mut dyn Write,
+) -> Result<(), Failure> {
+    let line = current.unwrap_or_else(|| {
+        let how = match wanted {
+            Some(v) => cmd(&format!("update --to {v}")),
+            None => cmd("update"),
+        };
+        format!(
+            "burrow {} is available (this is {mine}); install it with: {how}",
+            version
+        )
+    });
+    say(out, line)?;
+    Ok(())
+}
+
+fn already_current(
+    line: &str,
+    theirs: &semver::Version,
+    ours: &semver::Version,
+    mine: &str,
+    out: &mut dyn Write,
+) -> Result<(), Failure> {
+    let me = service::this_binary()?;
+    let installed = crate::install::all_manifests();
+    let behind: Vec<&Manifest> = installed
+        .iter()
+        .filter(|m| m.copied_binary && m.binary != me)
+        .filter(|m| version_of(&service::recorded_version(m)).is_ok_and(|v| v < *ours))
+        .collect();
+    for m in installed.iter().filter(|m| service::exposed(m)) {
+        say(out, format!("{}: {}", m.name, service::exposed_note(m)))?;
+    }
+    if behind.is_empty() {
+        say(out, format!("{line}, nothing to do"))?;
+    } else if theirs == ours && service::is_admin() {
+        say(
+            out,
+            format!("{line}; the installed services run an older version"),
+        )?;
+        service::update_from(&me, mine, None, false, out)?;
+    } else {
+        say(
+            out,
+            format!(
+                "{line}, but the installed services run the older {}; update them with: {}",
+                service::recorded_version(behind[0]),
+                update_services_with(&me)
+            ),
+        )?;
+    }
+    Ok(())
+}
+
+fn download(
+    base: &str,
+    asset: &Asset,
+    ext: &str,
+    me: &Path,
+    theirs: &semver::Version,
+    out: &mut dyn Write,
+) -> Result<Staged, Failure> {
     say(out, format!("downloading {}", asset.name))?;
     let url = format!("{base}/download/v{}/{}", asset.version, asset.name);
     let data = match fetch(&url, MAX_ASSET) {
@@ -362,9 +410,9 @@ pub fn run(opts: &Options, out: &mut dyn Write) -> Result<u8, Failure> {
         _ => archive::from_tar_gz(&data, binary_name()),
     }
     .map_err(|e| Failure::new(format!("cannot unpack {}: {e}", asset.name)))?;
-    let staged = stage(&me, &binary)?;
+    let staged = stage(me, &binary)?;
     let reported = service::binary_version(&staged.binary);
-    if parse_version(&reported).as_ref() != Some(&theirs) {
+    if parse_version(&reported).as_ref() != Some(theirs) {
         return Err(Failure::new(format!(
             "the downloaded binary reports \"{reported}\" instead of {}; nothing was changed",
             asset.version
@@ -374,13 +422,31 @@ pub fn run(opts: &Options, out: &mut dyn Write) -> Result<u8, Failure> {
         out,
         format!("verified {} (SHA-256 {})", asset.name, &asset.sha256[..16]),
     )?;
+    Ok(staged)
+}
 
+struct Targets<'a> {
+    managed: &'a [&'a Manifest],
+    me: &'a Path,
+    me_is_service: bool,
+    admin_rights: bool,
+}
+
+fn finish(
+    staged: &Staged,
+    t: &Targets,
+    force: bool,
+    version: &str,
+    mine: &str,
+    out: &mut dyn Write,
+) -> Result<u8, Failure> {
+    let (managed, me, me_is_service, admin_rights) =
+        (t.managed, t.me, t.me_is_service, t.admin_rights);
     if !managed.is_empty() && admin_rights {
-        let force = opts.force || theirs < ours;
-        service::update_from(&staged.binary, &asset.version, None, force, out)?;
+        service::update_from(&staged.binary, version, None, force, out)?;
     }
     if !me_is_service {
-        service::copy_file(&staged.binary, &me, true).map_err(|f| {
+        service::copy_file(&staged.binary, me, true).map_err(|f| {
             f.hint(format!(
                 "if you lack the rights to change it, run: {}",
                 admin("update")
@@ -388,7 +454,7 @@ pub fn run(opts: &Options, out: &mut dyn Write) -> Result<u8, Failure> {
         })?;
         say(
             out,
-            format!("updated {} {mine} -> {}", me.display(), asset.version),
+            format!("updated {} {mine} -> {}", me.display(), version),
         )?;
     }
     if managed.is_empty() {
@@ -400,7 +466,7 @@ pub fn run(opts: &Options, out: &mut dyn Write) -> Result<u8, Failure> {
             format!(
                 "the installed services still use {}; update them with: {}",
                 managed[0].binary.display(),
-                update_services_with(&me)
+                update_services_with(me)
             ),
         )?;
     }
@@ -408,7 +474,7 @@ pub fn run(opts: &Options, out: &mut dyn Write) -> Result<u8, Failure> {
 }
 
 fn update_services_with(me: &Path) -> String {
-    let me = crate::failure::path_arg(me);
+    let me = crate::base::failure::path_arg(me);
     if cfg!(windows) {
         format!("{me} service update (as administrator)")
     } else {
@@ -443,7 +509,7 @@ fn proxy_hint(under_sudo: bool) -> String {
     } else if under_sudo {
         format!(
             "set HTTPS_PROXY=http://host:port, and keep it through sudo with: sudo --preserve-env=HTTPS_PROXY,NO_PROXY {} update",
-            crate::failure::command()
+            crate::base::failure::command()
         )
     } else {
         "set HTTPS_PROXY=http://host:port".to_string()

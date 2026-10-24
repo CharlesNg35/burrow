@@ -3,7 +3,7 @@ use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use crate::failure::Failure;
+use crate::base::failure::Failure;
 
 fn rotated(path: &Path, n: usize) -> PathBuf {
     let mut name = path.as_os_str().to_owned();
@@ -35,7 +35,7 @@ fn read_lines(path: &Path) -> Vec<String> {
 pub fn last_lines(path: &Path, n: usize) -> Vec<String> {
     let mut lines = read_lines(path);
     let mut k = 1;
-    while lines.len() < n && k <= crate::logfile::KEEP {
+    while lines.len() < n && k <= crate::base::logfile::KEEP {
         let mut older = read_lines(&rotated(path, k));
         if older.is_empty() {
             break;
@@ -60,7 +60,7 @@ pub fn show(
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             let mut hint = format!(
                 "the service creates it when it starts; check it with: {}",
-                crate::failure::cmd("service list")
+                crate::base::failure::cmd("service list")
             );
             if let Some(j) = journal {
                 hint.push_str(&format!(

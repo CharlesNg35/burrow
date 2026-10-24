@@ -2,9 +2,9 @@ use std::io::IsTerminal;
 use std::path::Path;
 
 use super::found::{Found, Origin, role_of};
+use crate::base::failure::Failure;
+use crate::base::prompt::Prompter;
 use crate::config::Role;
-use crate::failure::Failure;
-use crate::prompt::Prompter;
 
 pub fn place(f: &Found) -> String {
     match &f.origin {
@@ -67,7 +67,7 @@ fn listed(found: &[Found]) -> String {
 pub fn by_target(found: &[Found], target: &str) -> Result<Found, Failure> {
     let path = Path::new(target);
     if path.is_file() {
-        let real = crate::service::system::canonical_or_same(path);
+        let real = crate::base::fs::canonical_or_same(path);
         if let Some(f) = found.iter().find(|f| f.path == real) {
             return Ok(f.clone());
         }
@@ -77,7 +77,10 @@ pub fn by_target(found: &[Found], target: &str) -> Result<Found, Failure> {
             ))
             .hint(format!(
                 "check it with: {}",
-                crate::failure::cmd(&format!("validate -c {}", crate::failure::arg(target)))
+                crate::base::failure::cmd(&format!(
+                    "validate -c {}",
+                    crate::base::failure::arg(target)
+                ))
             ))
         })?;
         return Ok(Found {
@@ -112,7 +115,7 @@ pub fn ask(found: &[Found], prompt: &mut dyn Prompter) -> Result<Found, Failure>
     let none = || {
         Failure::usage("found several burrow configs; not sure which one to open").hint(format!(
             "pass one, for example: {}\n{}",
-            crate::failure::cmd("edit client"),
+            crate::base::failure::cmd("edit client"),
             table(found)
         ))
     };
@@ -120,7 +123,7 @@ pub fn ask(found: &[Found], prompt: &mut dyn Prompter) -> Result<Found, Failure>
         return Err(none());
     }
     let text = table(found);
-    let style = crate::diagnostics::Style::detect(std::io::stderr().is_terminal());
+    let style = crate::base::style::Style::detect(std::io::stderr().is_terminal());
     let (head, rows) = text.split_once('\n').unwrap_or((&text, ""));
     crate::say_err!("{}\n{rows}", style.paint("1", head));
     for _ in 0..3 {
@@ -201,7 +204,7 @@ mod tests {
         let mut answers = Answers(vec!["x", "9", "3"]);
         assert_eq!(ask(&found, &mut answers).unwrap(), found[2]);
         assert!(ask(&found, &mut Answers(vec![])).is_err());
-        assert!(ask(&found, &mut crate::prompt::NoPrompt).is_err());
+        assert!(ask(&found, &mut crate::base::prompt::NoPrompt).is_err());
     }
 
     #[test]

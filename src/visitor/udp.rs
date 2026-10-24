@@ -11,13 +11,13 @@ use super::Live;
 use super::forward::{explain, rejected};
 use crate::client::reconnect::Backoff;
 use crate::dialer::DialError;
-use crate::protocol::{
-    ChannelKind, Hello, MAX_DATAGRAM, VERSION, VisitRequest, VisitTarget, encode_datagram,
-};
-use crate::throttle::Throttle;
+use crate::policy::throttle::Throttle;
 use crate::udp::front::{self, Ending, Front, Hooks, Interrupt, Meter};
 use crate::udp::link::{Opening, open_udp};
 use crate::udp::peers::{PeerCount, PeerGauge, PeerTable};
+use crate::wire::protocol::{
+    ChannelKind, Hello, MAX_DATAGRAM, VERSION, VisitRequest, VisitTarget, encode_datagram,
+};
 use burrow_config::Protocol;
 
 const IDLE_CHECK: Duration = Duration::from_secs(1);

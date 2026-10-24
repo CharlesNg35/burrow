@@ -2,10 +2,10 @@ mod common;
 
 use std::time::Duration;
 
-use burrow::allowlist::{Cidr, Sources};
 use burrow::config::settings::Service;
-use burrow::protocol::VisitTarget;
-use burrow::secret::Secret;
+use burrow::policy::allowlist::{Cidr, Sources};
+use burrow::wire::protocol::VisitTarget;
+use burrow::wire::secret::Secret;
 use burrow_config::Protocol;
 use common::*;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -309,7 +309,7 @@ async fn reload_stops_udp_peers_no_longer_allowed_and_readmits_them() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn reload_closes_a_visit_from_a_source_no_longer_allowed() {
-    use burrow::protocol::VisitTarget;
+    use burrow::wire::protocol::VisitTarget;
     let echo = echo_server().await;
     let secret = Secret::generate();
     let visitor_secret = Secret::generate();

@@ -4,10 +4,10 @@ mod common;
 
 use std::path::{Path, PathBuf};
 
-use burrow::allowlist::{AllowList, Rule};
 use burrow::config::settings::Service;
-use burrow::protocol::VisitTarget;
-use burrow::secret::Secret;
+use burrow::policy::allowlist::{AllowList, Rule};
+use burrow::wire::protocol::VisitTarget;
+use burrow::wire::secret::Secret;
 use burrow_config::Protocol;
 use common::*;
 use tokio::io::AsyncWriteExt;

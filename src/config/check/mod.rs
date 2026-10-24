@@ -15,13 +15,12 @@ use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::time::Duration;
 
-use super::settings::SocketTuning;
 use super::tree::{Node, Span, Value};
-use crate::diagnostics::Diagnostic;
-use crate::secret::SecretError;
+use crate::config::diagnostics::Diagnostic;
+use crate::wire::secret::SecretError;
+use crate::wire::transport::tcp::SocketTuning;
 use burrow_config::{Bind, TcpOptions};
 
-pub const MAX_SECRETS_PER_CLIENT: usize = 4;
 pub use burrow_syntax::hostport::{MAX_TARGET_LEN, parse_host_port};
 pub use burrow_syntax::name::{MAX_NAME_LEN, valid_name};
 use burrow_syntax::ports::SENSITIVE_PORTS;
@@ -108,7 +107,7 @@ pub fn secretish(key: &str) -> bool {
     let key = key.to_ascii_lowercase();
     key.contains(SECRET_WORD)
         || SECRET_LIKE.contains(&key.as_str())
-        || crate::suggest::closest(&key, [SECRET_WORD]).is_some()
+        || crate::base::suggest::closest(&key, [SECRET_WORD]).is_some()
 }
 
 pub fn secret_spans(root: &Node) -> Vec<Span> {
@@ -167,7 +166,7 @@ fn name_error(kind: &str, name: &str, span: Span) -> Diagnostic {
 }
 
 fn secret_error(owner: &str, err: &SecretError, span: Span) -> Diagnostic {
-    let make = crate::failure::cmd("gensecret");
+    let make = crate::base::failure::cmd("gensecret");
     let help = match err {
         SecretError::NotDecodable { .. } => {
             format!("use a 32-byte value encoded as base64 or hex; generate one with: {make}")

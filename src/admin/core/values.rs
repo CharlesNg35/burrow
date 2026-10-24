@@ -4,7 +4,7 @@ use serde_json::{Map, Value};
 
 use crate::config::check::secretish;
 use crate::config::env::{EnvSource, expand_value};
-use crate::secret::Secret;
+use crate::wire::secret::Secret;
 
 fn holds_names(node: Option<&Node>) -> bool {
     match node.map(|n| &n.sem) {

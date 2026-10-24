@@ -8,10 +8,10 @@ use super::{
     DEFAULT_CLIENT_NAME, InitOptions, WebSocketChoice, WebSocketInit, check_env_name, check_name,
     default_listen, default_service_bind, resolve_output, write_new,
 };
+use crate::base::failure::Failure;
 use crate::config::emit::render;
 use crate::config::{Format, Role};
-use crate::failure::Failure;
-use crate::secret::Secret;
+use crate::wire::secret::Secret;
 
 pub fn server_value(client: &str, secret_text: &str) -> Value {
     json!({
@@ -176,7 +176,7 @@ pub fn init_server(opts: &InitOptions, out: &mut dyn Write) -> Result<PathBuf, F
                 out,
                 format!(
                     "\nnext, print the client config with:\n\n  {} client-config -c {} --server {example} -o client.yaml",
-                    crate::failure::command(),
+                    crate::base::failure::command(),
                     path.display()
                 ),
             )?;

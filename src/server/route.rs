@@ -8,8 +8,8 @@ use super::via::Via;
 use super::{Shared, take_channel};
 use crate::config::settings::ServerSettings;
 use crate::forward::{Early, ForwardError, Opened};
-use crate::handshake::Channel;
-use crate::protocol::Status;
+use crate::wire::protocol::Status;
+use crate::wire::transport::Channel;
 
 pub(super) struct Way<'a> {
     pub service: Option<&'a str>,
@@ -89,7 +89,7 @@ impl<'a> Tries<'a> {
                 }
                 Err(status) => {
                     if self.way.several
-                        && status != crate::protocol::Status::Busy
+                        && status != crate::wire::protocol::Status::Busy
                         && let Some(service) = self.way.service
                     {
                         self.shared.troubled(

@@ -12,14 +12,14 @@ use tokio::sync::{mpsc, watch};
 use tokio::task::JoinSet;
 use tracing::{error, info};
 
+use crate::base::failure::Failure;
 use crate::config::check::ports::show_addr;
 use crate::config::settings::{Forward, VisitorSettings};
 use crate::dialer::Dialer;
-use crate::failure::Failure;
-use crate::protocol::VisitTarget;
-use crate::transport::resolve::Resolver;
-use crate::transport::tcp::bind_tcp;
-use crate::transport::udp::bind_udp_now;
+use crate::wire::protocol::VisitTarget;
+use crate::wire::transport::resolve::Resolver;
+use crate::wire::transport::tcp::bind_tcp;
+use crate::wire::transport::udp::bind_udp_now;
 use burrow_config::Protocol;
 
 const MAX_OPENING: usize = 32;
@@ -49,8 +49,8 @@ pub fn pick(settings: &mut VisitorSettings, choice: Pick, config: &str) -> Resul
                 return Err(Failure::usage(format!("{config} has no forwards")).hint(
                     format!(
                         "add one under \"forwards\", for example db: {{ service: db, local: 5432 }}, or name the target: {}, or: {}",
-                        crate::failure::cmd("visit --service NAME --local PORT"),
-                        crate::failure::cmd("visit --client NAME --target HOST:PORT --local PORT")
+                        crate::base::failure::cmd("visit --service NAME --local PORT"),
+                        crate::base::failure::cmd("visit --client NAME --target HOST:PORT --local PORT")
                     ),
                 ));
             }
@@ -63,7 +63,7 @@ pub fn pick(settings: &mut VisitorSettings, choice: Pick, config: &str) -> Resul
                 } else {
                     format!("defined forwards: {}", names.join(", "))
                 };
-                let hint = match crate::suggest::closest(&name, names.iter().copied()) {
+                let hint = match crate::base::suggest::closest(&name, names.iter().copied()) {
                     Some(s) => format!("did you mean \"{s}\"? {defined}"),
                     None => format!(
                         "{defined}; to reach a service that is not in the config, pass --service {name} --local PORT"
@@ -78,7 +78,7 @@ pub fn pick(settings: &mut VisitorSettings, choice: Pick, config: &str) -> Resul
                     return Err(Failure::usage(format!(
                         "forward \"{name}\" has {} {}, but --local has {ports}",
                         forward.ports,
-                        crate::diagnostics::plural(forward.ports.into(), "port")
+                        crate::config::diagnostics::plural(forward.ports.into(), "port")
                     ))
                     .hint("give --local a range of the same size"));
                 }
@@ -563,11 +563,11 @@ mod tests {
             ca_pem: None,
             ca_file: None,
             name: "laptop".into(),
-            secret: crate::secret::Secret::generate(),
+            secret: crate::wire::secret::Secret::generate(),
             cipher: burrow_config::Cipher::Chachapoly,
             proxy: None,
             connect_timeout: std::time::Duration::from_secs(1),
-            tcp: crate::config::settings::SocketTuning {
+            tcp: crate::wire::transport::tcp::SocketTuning {
                 nodelay: true,
                 keepalive: None,
             },
@@ -597,7 +597,7 @@ mod tests {
         let mut new = old.clone();
         new.forwards.clear();
         assert!(connection_changes(&old, &new).is_empty());
-        new.secret = crate::secret::Secret::generate();
+        new.secret = crate::wire::secret::Secret::generate();
         new.connect_timeout = std::time::Duration::from_secs(9);
         new.tcp.nodelay = false;
         assert_eq!(

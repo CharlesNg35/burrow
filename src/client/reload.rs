@@ -104,9 +104,10 @@ pub fn compare(old: &ClientSettings, new: &ClientSettings) -> Changes {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use crate::allowlist::AllowList;
-    use crate::config::settings::{Limit, SocketTuning};
-    use crate::secret::Secret;
+    use crate::config::settings::Limit;
+    use crate::policy::allowlist::AllowList;
+    use crate::wire::secret::Secret;
+    use crate::wire::transport::tcp::SocketTuning;
     use burrow_config::Cipher;
     use burrow_syntax::endpoint::Endpoint;
     use std::time::Duration;

@@ -1,6 +1,6 @@
 use crate::config::check::parse_host_port;
 use crate::config::settings::ServerSettings;
-use crate::protocol::{GrantedClient, GrantedService, Grants};
+use crate::wire::protocol::{GrantedClient, GrantedService, Grants};
 
 pub fn for_visitor(settings: &ServerSettings, visitor: &str) -> Option<Grants> {
     let auth = settings.visitors.get(visitor)?;
@@ -34,7 +34,7 @@ mod tests {
 
     #[test]
     fn a_visitor_sees_every_service_it_is_granted_wherever_it_asks_from() {
-        let s = || crate::secret::Secret::generate().encode();
+        let s = || crate::wire::secret::Secret::generate().encode();
         let yaml = format!(
             "listen: 7835\nclients:\n  home: {{ secret: {} }}\n  office: {{ secret: {} }}\nvisitors:\n  laptop: {{ secret: {}, reach: {{ home: any }} }}\n  other: {{ secret: {} }}\nservices:\n  db: {{ client: home, target: 5432, visitors: [laptop] }}\n  lan: {{ client: home, target: 22, visitors: [laptop], allow_from: [10.0.0.0/8] }}\n  theirs: {{ client: office, target: 80, visitors: [other] }}\n  udp: {{ client: home, protocol: udp, bind: 5353, target: 53 }}\n  dns: {{ client: home, protocol: udp, target: 53, visitors: [laptop] }}\n",
             s(),

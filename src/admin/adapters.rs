@@ -1,23 +1,26 @@
 use std::collections::BTreeMap;
+use std::future::Future;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
+use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 
 use burrow_admin_proto::frame::{self, AdminOpen};
 use tracing::{debug, warn};
 
+use super::Hub;
 use super::core::ports::{Live, LiveSession, Store, Version, WhyNot, WriteError};
 use super::core::{Core, Session, text};
 use super::transport::{self, Access};
-use super::{Hub, Opened};
 use crate::config::Format;
+use crate::config::save::{Refused, write_back};
 use crate::config::settings::ServerSettings;
-use crate::edit::save::{Refused, write_back};
-use crate::handshake::Channel;
 use crate::metrics::Status;
-use crate::protocol::Status as Answer;
+use crate::policy::throttle::Throttle;
 use crate::server::Shared;
-use crate::throttle::Throttle;
+use crate::server::admin_hook::{AdminHook, Opened, answer};
+use crate::wire::protocol::Status as Answer;
+use crate::wire::transport::Channel;
 use burrow_admin_proto::msg::AdminLevel;
 
 const KEEP: usize = 20;
@@ -191,7 +194,7 @@ impl FileStore {
             }
             return Ok(());
         }
-        crate::instance::write_private(&file, body)?;
+        crate::base::fs::write_private(&file, body)?;
         for (_, old) in self.files().into_iter().skip(KEEP) {
             let _ = std::fs::remove_file(old);
         }
@@ -231,7 +234,7 @@ impl Store for FileStore {
         match write_back(&self.path, before, after) {
             Ok(()) => Ok(()),
             Err(Refused::Changed) => Err(WriteError::Changed),
-            Err(Refused::Io(e)) => Err(WriteError::Io(crate::failure::file_reason(&e))),
+            Err(Refused::Io(e)) => Err(WriteError::Io(crate::base::failure::file_reason(&e))),
         }
     }
 
@@ -249,7 +252,7 @@ impl Store for FileStore {
             .write(true)
             .create_new(true)
             .open(&probe);
-        let file_ok = crate::edit::access::can_write(&self.path);
+        let file_ok = crate::base::access::can_write(&self.path);
         match made {
             Ok(_) => {
                 let _ = std::fs::remove_file(&probe);
@@ -268,7 +271,7 @@ impl Store for FileStore {
             Err(e) => {
                 let ro = e.raw_os_error() == Some(30);
                 let installed = std::env::var_os("INVOCATION_ID").is_some()
-                    || crate::service::in_service_folder(&self.path);
+                    || crate::install::in_service_folder(&self.path);
                 Err(WhyNot {
                     code: if ro {
                         "read-only-fs".into()
@@ -284,11 +287,11 @@ impl Store for FileStore {
                         format!(
                             "the server cannot create files in {} ({})",
                             folder.display(),
-                            crate::failure::file_reason(&e)
+                            crate::base::failure::file_reason(&e)
                         )
                     },
                     hint: if installed || ro {
-                        crate::service::writable_hint(&self.path)
+                        crate::install::writable_hint(&self.path)
                     } else {
                         format!(
                             "give the account the server runs as write access to {}",
@@ -305,7 +308,7 @@ impl Store for FileStore {
             *self.problem.lock().expect("problem lock") = Some(format!(
                 "earlier versions are kept in memory only: cannot write {} ({})",
                 self.dir().display(),
-                crate::failure::file_reason(&e)
+                crate::base::failure::file_reason(&e)
             ));
             let mut m = self.memory.lock().expect("memory lock");
             m.retain(|(v, _)| v.rev != rev);
@@ -423,8 +426,11 @@ fn hand_over(fd: impl std::os::fd::AsFd, (uid, gid): (u32, u32)) -> std::io::Res
 pub fn hub(
     shared: &Arc<Shared>,
     path: &Path,
-    env: crate::run::Env,
-) -> (Arc<Hub>, tokio::sync::mpsc::Receiver<crate::reload::Nudge>) {
+    env: crate::config::env::Env,
+) -> (
+    Arc<Hub>,
+    tokio::sync::mpsc::Receiver<crate::app::reload::Nudge>,
+) {
     let (tx, rx) = tokio::sync::mpsc::channel(4);
     let core = Core::new(
         Box::new(FileStore::new(path)),
@@ -437,7 +443,7 @@ pub fn hub(
 struct SettingsAccess {
     shared: Arc<Shared>,
     visitor: String,
-    secret: crate::secret::Secret,
+    secret: crate::wire::secret::Secret,
     peer: SocketAddr,
     level: AdminLevel,
 }
@@ -464,19 +470,25 @@ impl Access for SettingsAccess {
     }
 }
 
-async fn answer(ch: &mut Channel, records: &[&[u8]]) {
-    use tokio::io::AsyncWriteExt;
-    let sent = async {
-        for r in records {
-            ch.writer.send(&mut ch.stream, r).await?;
-        }
-        ch.writer.send(&mut ch.stream, &[]).await?;
-        ch.stream.shutdown().await
-    };
-    let _ = tokio::time::timeout(crate::forward::ANSWER_TIMEOUT, sent).await;
+impl AdminHook for Hub {
+    fn serve(
+        self: Arc<Self>,
+        shared: Arc<Shared>,
+        channel: Channel,
+        open: AdminOpen,
+        opened: Opened,
+    ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
+        Box::pin(serve(self, shared, channel, open, opened))
+    }
 }
 
-pub async fn serve(shared: Arc<Shared>, mut channel: Channel, first: &[u8], opened: Opened) {
+async fn serve(
+    hub: Arc<Hub>,
+    shared: Arc<Shared>,
+    mut channel: Channel,
+    open: AdminOpen,
+    opened: Opened,
+) {
     static REFUSED: Throttle = Throttle::new();
     let Opened {
         visitor,
@@ -484,21 +496,6 @@ pub async fn serve(shared: Arc<Shared>, mut channel: Channel, first: &[u8], open
         peer,
         via_websocket,
     } = opened;
-    let Ok(open) = AdminOpen::decode(first) else {
-        answer(&mut channel, &[&[Answer::Invalid as u8]]).await;
-        return;
-    };
-    let Some(hub) = shared.admin() else {
-        answer(
-            &mut channel,
-            &[
-                &[Answer::Invalid as u8],
-                b"this server runs without a config file, so it has nothing to administer",
-            ],
-        )
-        .await;
-        return;
-    };
     let settings = shared.current_settings();
     let level = settings
         .visitors
@@ -616,8 +613,8 @@ mod tests {
 
     #[tokio::test]
     async fn a_refusal_to_a_websocket_peer_that_never_closes_gives_up() {
-        let (ours, _held) = crate::transport::testing::held_websocket().await;
-        let mut ch = crate::transport::testing::sealed(ours);
+        let (ours, _held) = crate::wire::transport::testing::held_websocket().await;
+        let mut ch = crate::wire::transport::testing::sealed(ours);
         tokio::time::timeout(
             crate::forward::ANSWER_TIMEOUT + std::time::Duration::from_secs(3),
             answer(&mut ch, &[&[Answer::Forbidden as u8]]),

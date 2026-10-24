@@ -1,11 +1,11 @@
 use std::path::Path;
 
+use crate::base::failure::Failure;
 use crate::config::env::EnvSource;
 use crate::config::settings::ServerSettings;
 use crate::config::tree::{self, Value as TreeValue};
 use crate::config::{Loaded, Role, load_file};
-use crate::failure::Failure;
-use crate::secret::Secret;
+use crate::wire::secret::Secret;
 
 #[derive(Clone, Copy)]
 pub(super) struct Kind {
@@ -41,7 +41,7 @@ pub(super) fn load_server(
             ))
             .hint(format!(
                 "pass the server config with -c, or create one with: {}",
-                crate::failure::cmd("init server")
+                crate::base::failure::cmd("init server")
             ))
         }
         _ => {
@@ -53,7 +53,7 @@ pub(super) fn load_server(
         return Err(
             Failure::new(format!("{} has errors", server_config.display())).hint(format!(
                 "see them with: {} validate -c {}",
-                crate::failure::command(),
+                crate::base::failure::command(),
                 server_config.display()
             )),
         );
@@ -77,7 +77,7 @@ pub(super) fn pick_name(
                 Failure::new(format!("{} defines no {section}", server_config.display())).hint(
                     format!(
                         "add one under \"{section}\", with a secret from: {} gensecret",
-                        crate::failure::command()
+                        crate::base::failure::command()
                     ),
                 ),
             );
@@ -85,7 +85,7 @@ pub(super) fn pick_name(
         (None, _) => {
             let mut example = format!(
                 "{} {word}-config {} -c {}",
-                crate::failure::command(),
+                crate::base::failure::command(),
                 names[0],
                 server_config.display()
             );
@@ -109,7 +109,7 @@ pub(super) fn pick_name(
         } else {
             format!("defined {section}: {}", names.join(", "))
         };
-        let hint = match crate::suggest::closest(name, names.iter().copied()) {
+        let hint = match crate::base::suggest::closest(name, names.iter().copied()) {
             Some(s) => format!("did you mean \"{s}\"? {defined}"),
             None => defined,
         };

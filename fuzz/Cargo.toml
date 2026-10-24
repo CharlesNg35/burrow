@@ -65,3 +65,6 @@ path = "fuzz_targets/socks_udp_header.rs"
 test = false
 doc = false
 bench = false
+
+[lints.clippy]
+too_many_lines = "deny"

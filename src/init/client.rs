@@ -6,12 +6,12 @@ use serde_json::{Value, json};
 
 use super::export::{CLIENT, ConfigOutput, connect_address, load_server, pick_name, secret_text};
 use super::{InitOptions, Login, ask_login, resolve_output, write_new};
+use crate::base::failure::Failure;
+use crate::base::prompt::Prompter;
 use crate::config::check::parse_host_port;
 use crate::config::emit::render;
 use crate::config::env::EnvSource;
 use crate::config::{Format, Role};
-use crate::failure::Failure;
-use crate::prompt::Prompter;
 
 fn allow_order(entry: &str) -> (u8, Option<IpAddr>, u32, String) {
     let (addr, port) = entry.rsplit_once(':').unwrap_or((entry, ""));

@@ -54,244 +54,19 @@ fn items(path: Path, values: &[Value]) -> Vec<Case> {
 
 fn cases(sem: &SemType) -> Cases {
     match sem {
-        SemType::IpPort(_) => {
-            let mut c = at(
-                ServiceEntry::BIND.of("web"),
-                &[
-                    json!(7841),
-                    json!("7841"),
-                    json!("127.0.0.1:7841"),
-                    json!("[::1]:7841"),
-                    json!("0.0.0.0:7841"),
-                    json!(70000),
-                    json!(0),
-                    json!("abc"),
-                    json!("127.0.0.1"),
-                    json!("1.2.3.4:99999"),
-                    json!("7841-"),
-                    json!("host.example:7841"),
-                    json!("127.0.0.1:7841:1"),
-                    json!(""),
-                ],
-            );
-            c.extend(at(
-                ServerConfig::METRICS.then(MetricsConfig::LISTEN).path(),
-                &[
-                    json!("127.0.0.1:9100"),
-                    json!(9100),
-                    json!("127.0.0.1:9100-9101"),
-                    json!("[::1]:9100"),
-                ],
-            ));
-            Cases::Values(c)
-        }
-        SemType::Target(_) => Cases::Values(at(
-            ServiceEntry::TARGET.of("web"),
-            &[
-                json!(3001),
-                json!("3001"),
-                json!("127.0.0.1:3001"),
-                json!("db.local:5432"),
-                json!("unix:/run/app.sock"),
-                json!("[::1]:22"),
-                json!(70000),
-                json!("127.0.0.1:"),
-                json!("unix:relative"),
-                json!(""),
-                json!("http://x"),
-                json!(0),
-            ],
-        )),
-        SemType::Integer(_) => {
-            let mut c = at(
-                ClientEntry::MAX_CONNECTIONS.of("home"),
-                &[
-                    json!(1),
-                    json!(100),
-                    json!(0),
-                    json!(-1),
-                    json!("x"),
-                    json!(1.5),
-                    json!("5"),
-                ],
-            );
-            c.extend(at(
-                ServerConfig::LIMITS
-                    .then(Limits::MAX_CONNECTIONS_PER_CLIENT)
-                    .path(),
-                &[json!(10), json!(0), json!(4_294_967_296_u64)],
-            ));
-            c.extend(at(
-                ServiceEntry::HEALTH_CHECK
-                    .then(HealthCheck::FAILURES)
-                    .of("web"),
-                &[json!(2), json!(100), json!(101), json!(0)],
-            ));
-            c.extend(at(
-                ServerConfig::UDP.then(UdpOptions::MAX_PEERS).path(),
-                &[
-                    json!(1),
-                    json!(4096),
-                    json!(1_000_000),
-                    json!(0),
-                    json!(-1),
-                    json!(1_000_001),
-                    json!("x"),
-                    json!(1.5),
-                ],
-            ));
-            Cases::Values(c)
-        }
-        SemType::Duration(_) => {
-            let mut c = at(
-                ServiceEntry::HEALTH_CHECK
-                    .then(HealthCheck::INTERVAL_SECS)
-                    .of("web"),
-                &[
-                    json!(10),
-                    json!(1),
-                    json!(3600),
-                    json!(0),
-                    json!(3601),
-                    json!(-5),
-                    json!("x"),
-                ],
-            );
-            c.extend(at(
-                ServerConfig::TCP.then(TcpOptions::KEEPALIVE_SECS).path(),
-                &[json!(0), json!(60), json!(32767), json!(32768), json!(-1)],
-            ));
-            Cases::Values(c)
-        }
-        SemType::Bool => Cases::Values(at(
-            ServerConfig::TCP.then(TcpOptions::NODELAY).path(),
-            &[json!(true), json!(false), json!("yes"), json!(1)],
-        )),
-        SemType::Enum(_) => {
-            let mut c = at(
-                ServiceEntry::PROTOCOL.of("web"),
-                &[json!("tcp"), json!("udp"), json!("TCP"), json!("sctp")],
-            );
-            c.extend(at(
-                ServiceEntry::PROXY_PROTOCOL.of("web"),
-                &[json!("v1"), json!("v2"), json!("v3")],
-            ));
-            c.extend(at(
-                ServiceEntry::MODE.of("web"),
-                &[json!("failover"), json!("balance"), json!("random")],
-            ));
-            c.extend(at(
-                VisitorEntry::ADMIN.of("lap"),
-                &[json!("read"), json!("write"), json!("admin")],
-            ));
-            Cases::Values(c)
-        }
-        SemType::Rate => Cases::Values(at(
-            ServiceEntry::BANDWIDTH.of("web"),
-            &[
-                json!("10mbit"),
-                json!("10 Mbit/s"),
-                json!("1MB/s"),
-                json!("500kbit"),
-                json!("fast"),
-                json!("-1mbit"),
-                json!("0"),
-                json!("0mbit"),
-                json!(""),
-                json!(10),
-            ],
-        )),
-        SemType::Ref(_) => Cases::Values(at(
-            ServiceEntry::CLIENT.of("web"),
-            &[
-                json!("home"),
-                json!("office"),
-                json!("nobody"),
-                json!(""),
-                json!(3),
-            ],
-        )),
-        SemType::RefList(_) => {
-            let mut c = at(
-                ServiceEntry::VISITORS.of("web"),
-                &[
-                    json!(["lap"]),
-                    json!([]),
-                    json!(["lap", "lap"]),
-                    json!(["ghost"]),
-                    json!("lap"),
-                ],
-            );
-            c.extend(at(
-                ServiceEntry::CLIENTS.of("web"),
-                &[json!(["home", "office"]), json!(["home", "home"])],
-            ));
-            Cases::Values(c)
-        }
-        SemType::ServerAddress => Cases::Values(at(
-            ServerConfig::PUBLIC_ADDRESS.path(),
-            &[
-                json!("tunnel.example.com"),
-                json!("1.2.3.4"),
-                json!("tunnel.example.com:7900"),
-                json!("[::1]"),
-                json!("[::1]:7900"),
-                json!("::1"),
-                json!("wss://x.example.com/burrow"),
-                json!(""),
-                json!("http://x"),
-                json!("a b"),
-                json!("tunnel.example.com:0"),
-            ],
-        )),
-        SemType::Cidr => Cases::Values(items(
-            ServiceEntry::ALLOW_FROM.of("web"),
-            &[
-                json!("10.0.0.0/8"),
-                json!("203.0.113.7"),
-                json!("::/0"),
-                json!("::ffff:10.0.0.0/104"),
-                json!("10.0.0.1/8"),
-                json!("10.0.0.0/33"),
-                json!("x"),
-                json!("10.0.0.0/8:22"),
-            ],
-        )),
-        SemType::CidrRule => Cases::Values(items(
-            ServerConfig::SELF.then(SelfEntry::ALLOW).path(),
-            &[
-                json!("10.0.0.0/8:22"),
-                json!("127.0.0.1:5432"),
-                json!("10.0.0.0/24"),
-                json!("unix:/run/x.sock"),
-                json!("10.0.0.0/8:0"),
-                json!("10.0.0.0/8:22-21"),
-                json!("x"),
-                json!("10.0.0.1/8"),
-            ],
-        )),
-        SemType::Union(_) => {
-            let mut c = at(
-                ServiceEntry::HEALTH_CHECK.of("web"),
-                &[
-                    json!(true),
-                    json!(false),
-                    json!({"interval_secs": 5}),
-                    json!("sometimes"),
-                ],
-            );
-            c.extend(at(
-                VisitorEntry::REACH.entry_of("lap", "home"),
-                &[
-                    json!("any"),
-                    json!("10.0.0.0/8:22"),
-                    json!(["10.0.0.0/8:22", "127.0.0.1:80"]),
-                    json!("all"),
-                    json!(["x"]),
-                ],
-            ));
-            Cases::Values(c)
-        }
+        SemType::IpPort(_) => Cases::Values(ip_port_cases()),
+        SemType::Target(_) => Cases::Values(target_cases()),
+        SemType::Integer(_) => Cases::Values(integer_cases()),
+        SemType::Duration(_) => Cases::Values(duration_cases()),
+        SemType::Bool => Cases::Values(bool_cases()),
+        SemType::Enum(_) => Cases::Values(enum_cases()),
+        SemType::Rate => Cases::Values(rate_cases()),
+        SemType::Ref(_) => Cases::Values(ref_cases()),
+        SemType::RefList(_) => Cases::Values(ref_list_cases()),
+        SemType::ServerAddress => Cases::Values(server_address_cases()),
+        SemType::Cidr => Cases::Values(cidr_cases()),
+        SemType::CidrRule => Cases::Values(cidr_rule_cases()),
+        SemType::Union(_) => Cases::Values(union_cases()),
         SemType::UrlPath | SemType::Path(_) => Cases::Locked,
         SemType::SecretRef(_) => Cases::ServerGenerated,
         SemType::Object(_)
@@ -310,6 +85,271 @@ fn cases(sem: &SemType) -> Cases {
     }
 }
 
+fn ip_port_cases() -> Vec<Case> {
+    let mut c = at(
+        ServiceEntry::BIND.of("web"),
+        &[
+            json!(7841),
+            json!("7841"),
+            json!("127.0.0.1:7841"),
+            json!("[::1]:7841"),
+            json!("0.0.0.0:7841"),
+            json!(70000),
+            json!(0),
+            json!("abc"),
+            json!("127.0.0.1"),
+            json!("1.2.3.4:99999"),
+            json!("7841-"),
+            json!("host.example:7841"),
+            json!("127.0.0.1:7841:1"),
+            json!(""),
+        ],
+    );
+    c.extend(at(
+        ServerConfig::METRICS.then(MetricsConfig::LISTEN).path(),
+        &[
+            json!("127.0.0.1:9100"),
+            json!(9100),
+            json!("127.0.0.1:9100-9101"),
+            json!("[::1]:9100"),
+        ],
+    ));
+    c
+}
+
+fn target_cases() -> Vec<Case> {
+    at(
+        ServiceEntry::TARGET.of("web"),
+        &[
+            json!(3001),
+            json!("3001"),
+            json!("127.0.0.1:3001"),
+            json!("db.local:5432"),
+            json!("unix:/run/app.sock"),
+            json!("[::1]:22"),
+            json!(70000),
+            json!("127.0.0.1:"),
+            json!("unix:relative"),
+            json!(""),
+            json!("http://x"),
+            json!(0),
+        ],
+    )
+}
+
+fn integer_cases() -> Vec<Case> {
+    let mut c = at(
+        ClientEntry::MAX_CONNECTIONS.of("home"),
+        &[
+            json!(1),
+            json!(100),
+            json!(0),
+            json!(-1),
+            json!("x"),
+            json!(1.5),
+            json!("5"),
+        ],
+    );
+    c.extend(at(
+        ServerConfig::LIMITS
+            .then(Limits::MAX_CONNECTIONS_PER_CLIENT)
+            .path(),
+        &[json!(10), json!(0), json!(4_294_967_296_u64)],
+    ));
+    c.extend(at(
+        ServiceEntry::HEALTH_CHECK
+            .then(HealthCheck::FAILURES)
+            .of("web"),
+        &[json!(2), json!(100), json!(101), json!(0)],
+    ));
+    c.extend(at(
+        ServerConfig::UDP.then(UdpOptions::MAX_PEERS).path(),
+        &[
+            json!(1),
+            json!(4096),
+            json!(1_000_000),
+            json!(0),
+            json!(-1),
+            json!(1_000_001),
+            json!("x"),
+            json!(1.5),
+        ],
+    ));
+    c
+}
+
+fn duration_cases() -> Vec<Case> {
+    let mut c = at(
+        ServiceEntry::HEALTH_CHECK
+            .then(HealthCheck::INTERVAL_SECS)
+            .of("web"),
+        &[
+            json!(10),
+            json!(1),
+            json!(3600),
+            json!(0),
+            json!(3601),
+            json!(-5),
+            json!("x"),
+        ],
+    );
+    c.extend(at(
+        ServerConfig::TCP.then(TcpOptions::KEEPALIVE_SECS).path(),
+        &[json!(0), json!(60), json!(32767), json!(32768), json!(-1)],
+    ));
+    c
+}
+
+fn bool_cases() -> Vec<Case> {
+    at(
+        ServerConfig::TCP.then(TcpOptions::NODELAY).path(),
+        &[json!(true), json!(false), json!("yes"), json!(1)],
+    )
+}
+
+fn enum_cases() -> Vec<Case> {
+    let mut c = at(
+        ServiceEntry::PROTOCOL.of("web"),
+        &[json!("tcp"), json!("udp"), json!("TCP"), json!("sctp")],
+    );
+    c.extend(at(
+        ServiceEntry::PROXY_PROTOCOL.of("web"),
+        &[json!("v1"), json!("v2"), json!("v3")],
+    ));
+    c.extend(at(
+        ServiceEntry::MODE.of("web"),
+        &[json!("failover"), json!("balance"), json!("random")],
+    ));
+    c.extend(at(
+        VisitorEntry::ADMIN.of("lap"),
+        &[json!("read"), json!("write"), json!("admin")],
+    ));
+    c
+}
+
+fn rate_cases() -> Vec<Case> {
+    at(
+        ServiceEntry::BANDWIDTH.of("web"),
+        &[
+            json!("10mbit"),
+            json!("10 Mbit/s"),
+            json!("1MB/s"),
+            json!("500kbit"),
+            json!("fast"),
+            json!("-1mbit"),
+            json!("0"),
+            json!("0mbit"),
+            json!(""),
+            json!(10),
+        ],
+    )
+}
+
+fn ref_cases() -> Vec<Case> {
+    at(
+        ServiceEntry::CLIENT.of("web"),
+        &[
+            json!("home"),
+            json!("office"),
+            json!("nobody"),
+            json!(""),
+            json!(3),
+        ],
+    )
+}
+
+fn ref_list_cases() -> Vec<Case> {
+    let mut c = at(
+        ServiceEntry::VISITORS.of("web"),
+        &[
+            json!(["lap"]),
+            json!([]),
+            json!(["lap", "lap"]),
+            json!(["ghost"]),
+            json!("lap"),
+        ],
+    );
+    c.extend(at(
+        ServiceEntry::CLIENTS.of("web"),
+        &[json!(["home", "office"]), json!(["home", "home"])],
+    ));
+    c
+}
+
+fn server_address_cases() -> Vec<Case> {
+    at(
+        ServerConfig::PUBLIC_ADDRESS.path(),
+        &[
+            json!("tunnel.example.com"),
+            json!("1.2.3.4"),
+            json!("tunnel.example.com:7900"),
+            json!("[::1]"),
+            json!("[::1]:7900"),
+            json!("::1"),
+            json!("wss://x.example.com/burrow"),
+            json!(""),
+            json!("http://x"),
+            json!("a b"),
+            json!("tunnel.example.com:0"),
+        ],
+    )
+}
+
+fn cidr_cases() -> Vec<Case> {
+    items(
+        ServiceEntry::ALLOW_FROM.of("web"),
+        &[
+            json!("10.0.0.0/8"),
+            json!("203.0.113.7"),
+            json!("::/0"),
+            json!("::ffff:10.0.0.0/104"),
+            json!("10.0.0.1/8"),
+            json!("10.0.0.0/33"),
+            json!("x"),
+            json!("10.0.0.0/8:22"),
+        ],
+    )
+}
+
+fn cidr_rule_cases() -> Vec<Case> {
+    items(
+        ServerConfig::SELF.then(SelfEntry::ALLOW).path(),
+        &[
+            json!("10.0.0.0/8:22"),
+            json!("127.0.0.1:5432"),
+            json!("10.0.0.0/24"),
+            json!("unix:/run/x.sock"),
+            json!("10.0.0.0/8:0"),
+            json!("10.0.0.0/8:22-21"),
+            json!("x"),
+            json!("10.0.0.1/8"),
+        ],
+    )
+}
+
+fn union_cases() -> Vec<Case> {
+    let mut c = at(
+        ServiceEntry::HEALTH_CHECK.of("web"),
+        &[
+            json!(true),
+            json!(false),
+            json!({"interval_secs": 5}),
+            json!("sometimes"),
+        ],
+    );
+    c.extend(at(
+        VisitorEntry::REACH.entry_of("lap", "home"),
+        &[
+            json!("any"),
+            json!("10.0.0.0/8:22"),
+            json!(["10.0.0.0/8:22", "127.0.0.1:80"]),
+            json!("all"),
+            json!(["x"]),
+        ],
+    ));
+    c
+}
+
 fn walk<'a>(n: &'a Node, out: &mut Vec<&'a SemType>) {
     out.push(&n.sem);
     match &n.sem {
@@ -326,8 +366,8 @@ fn walk<'a>(n: &'a Node, out: &mut Vec<&'a SemType>) {
 fn base() -> (super::tests::World, String) {
     let w = world();
     let (office, lap) = (
-        crate::secret::Secret::generate(),
-        crate::secret::Secret::generate(),
+        crate::wire::secret::Secret::generate(),
+        crate::wire::secret::Secret::generate(),
     );
     let text = w.text.replace(
         "\nvisitors:",

@@ -1,9 +1,10 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use super::system::{all_paths_under, private_file, run, run_ok, write_private};
+use super::system::{all_paths_under, private_file, write_private};
 use super::{Backend, Manifest, Status};
-use crate::failure::Failure;
+use crate::base::failure::Failure;
+use crate::base::process::{run, run_ok};
 
 pub const INSTANCE_DIR: &str = "/run/burrow-instances";
 const TMPFILES: &str = "/etc/tmpfiles.d/burrow.conf";
@@ -33,7 +34,7 @@ impl Systemd {
             )
             .hint(format!(
                 "print a unit for your own setup with: {}, or run burrow in Docker",
-                crate::failure::cmd("service install --print")
+                crate::base::failure::cmd("service install --print")
             )))
         }
     }
@@ -300,7 +301,7 @@ impl Backend for Systemd {
             .map_err(|f| {
                 f.hint(format!(
                     "see why with: {}",
-                    crate::failure::admin(&format!("service logs {}", m.name))
+                    crate::base::failure::admin(&format!("service logs {}", m.name))
                 ))
             })
     }
@@ -361,7 +362,7 @@ impl Backend for Systemd {
         let detail = match get("ExecMainStatus").as_str() {
             "3" => format!(
                 "the config has errors or cannot be read (exit 3); fix it, then: {}",
-                crate::failure::admin(&format!("service start {}", m.name))
+                crate::base::failure::admin(&format!("service start {}", m.name))
             ),
             "203" => format!(
                 "{} {}: systemd could not run {} as {} (203/EXEC); the account may not reach the binary",

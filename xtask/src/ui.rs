@@ -98,6 +98,52 @@ fn hashed(name: &str, bytes: &[u8], release: bool) -> String {
 
 pub fn build(root: &Path, tools: &Tools, release: bool) -> Result<PathBuf, String> {
     let ui = root.join("crates").join(CRATE);
+    let wasm = compile_wasm(root, release)?;
+    let work = target_dir(root).join("admin-ui-work");
+    let _ = std::fs::remove_dir_all(&work);
+    std::fs::create_dir_all(&work).map_err(|e| e.to_string())?;
+    let bg = bindgen(tools, &work, &wasm, release)?;
+    let css_tmp = work.join("app.css");
+    tailwind(tools, &ui, &css_tmp, release)?;
+
+    let dist = dist_dir(root);
+    prepare_dist(&dist, release)?;
+    let read = |p: &Path| std::fs::read(p).map_err(|e| format!("{}: {e}", p.display()));
+    let wasm_bytes = read(&bg)?;
+    let wasm_name = hashed("app.wasm", &wasm_bytes, release);
+    write(&dist, &wasm_name, &wasm_bytes)?;
+    let js_bytes = read(&work.join("app.js"))?;
+    let js_name = hashed("app.js", &js_bytes, release);
+    write(&dist, &js_name, &js_bytes)?;
+    let mut css_text = String::from_utf8(read(&css_tmp)?).map_err(|e| e.to_string())?;
+    let extra = write_fonts(&ui, &dist, &mut css_text, release)?;
+    if css_text.contains("/fonts/") {
+        return Err("app.css refers to a font that is not in assets/fonts".into());
+    }
+    let css_bytes = css_text.into_bytes();
+    let css_name = hashed("app.css", &css_bytes, release);
+    write(&dist, &css_name, &css_bytes)?;
+    let boot = format!(
+        "import init from \"./{js_name}\";\ninit({{ module_or_path: new URL(\"./{wasm_name}\", import.meta.url) }});\n"
+    );
+    let boot_name = hashed("boot.js", boot.as_bytes(), release);
+    write(&dist, &boot_name, boot.as_bytes())?;
+    let index = index_html(
+        &css_name,
+        &sri(&css_bytes),
+        &boot_name,
+        &sri(boot.as_bytes()),
+    );
+    write(&dist, "index.html", index.as_bytes())?;
+
+    let files = files_of(&boot_name, &js_name, &wasm_name, &css_name, &extra);
+    write_manifest(&ui, &dist, &files, release)?;
+    let _ = std::fs::remove_dir_all(&work);
+    println!("admin UI written to {}", dist.display());
+    Ok(dist)
+}
+
+fn compile_wasm(root: &Path, release: bool) -> Result<PathBuf, String> {
     let mut cargo = Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()));
     cargo
         .args(["build", "--locked", "-p", CRATE, "--target", WASM_TARGET])
@@ -119,9 +165,10 @@ pub fn build(root: &Path, tools: &Tools, release: bool) -> Result<PathBuf, Strin
             .join(profile)
             .join(format!("{CRATE}.wasm"))
     };
-    let work = target_dir(root).join("admin-ui-work");
-    let _ = std::fs::remove_dir_all(&work);
-    std::fs::create_dir_all(&work).map_err(|e| e.to_string())?;
+    Ok(wasm)
+}
+
+fn bindgen(tools: &Tools, work: &Path, wasm: &Path, release: bool) -> Result<PathBuf, String> {
     run(Command::new(&tools.wasm_bindgen)
         .args([
             "--target",
@@ -131,8 +178,8 @@ pub fn build(root: &Path, tools: &Tools, release: bool) -> Result<PathBuf, Strin
             "app",
             "--out-dir",
         ])
-        .arg(&work)
-        .arg(&wasm))?;
+        .arg(work)
+        .arg(wasm))?;
     let bg = work.join("app_bg.wasm");
     if release {
         let opt = work.join("app_opt.wasm");
@@ -151,35 +198,42 @@ pub fn build(root: &Path, tools: &Tools, release: bool) -> Result<PathBuf, Strin
             .arg(&opt))?;
         std::fs::rename(&opt, &bg).map_err(|e| e.to_string())?;
     }
-    let css_tmp = work.join("app.css");
+    Ok(bg)
+}
+
+fn tailwind(tools: &Tools, ui: &Path, css_tmp: &Path, release: bool) -> Result<(), String> {
     let mut tw = Command::new(&tools.tailwind);
     tw.arg("-i")
         .arg(ui.join("style/entry.css"))
         .arg("-o")
-        .arg(&css_tmp)
-        .current_dir(&ui);
+        .arg(css_tmp)
+        .current_dir(ui);
     if release {
         tw.arg("--minify");
     }
     run(&mut tw)?;
+    Ok(())
+}
 
-    let dist = dist_dir(root);
+fn prepare_dist(dist: &Path, release: bool) -> Result<(), String> {
     if release {
-        let _ = std::fs::remove_dir_all(&dist);
-    } else if let Ok(rd) = std::fs::read_dir(&dist) {
+        let _ = std::fs::remove_dir_all(dist);
+    } else if let Ok(rd) = std::fs::read_dir(dist) {
         for e in rd.flatten().filter(|e| e.file_name() != "app.css") {
             let _ = std::fs::remove_file(e.path());
         }
     }
-    std::fs::create_dir_all(&dist).map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(dist).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+fn write_fonts(
+    ui: &Path,
+    dist: &Path,
+    css_text: &mut String,
+    release: bool,
+) -> Result<Vec<String>, String> {
     let read = |p: &Path| std::fs::read(p).map_err(|e| format!("{}: {e}", p.display()));
-    let wasm_bytes = read(&bg)?;
-    let wasm_name = hashed("app.wasm", &wasm_bytes, release);
-    write(&dist, &wasm_name, &wasm_bytes)?;
-    let js_bytes = read(&work.join("app.js"))?;
-    let js_name = hashed("app.js", &js_bytes, release);
-    write(&dist, &js_name, &js_bytes)?;
-    let mut css_text = String::from_utf8(read(&css_tmp)?).map_err(|e| e.to_string())?;
     let mut extra = Vec::new();
     let fonts = ui.join("assets/fonts");
     let mut font_files: Vec<_> = std::fs::read_dir(&fonts)
@@ -197,35 +251,26 @@ pub fn build(root: &Path, tools: &Tools, release: bool) -> Result<PathBuf, Strin
         let bytes = read(&p)?;
         let out = if name.ends_with(".woff2") {
             let h = hashed(&name, &bytes, release);
-            css_text = css_text.replace(&format!("/fonts/{name}"), &format!("./{h}"));
+            *css_text = css_text.replace(&format!("/fonts/{name}"), &format!("./{h}"));
             h
         } else if name.starts_with("LICENSE") {
             "fonts-license.txt".to_string()
         } else {
             continue;
         };
-        write(&dist, &out, &bytes)?;
+        write(dist, &out, &bytes)?;
         extra.push(out);
     }
-    if css_text.contains("/fonts/") {
-        return Err("app.css refers to a font that is not in assets/fonts".into());
-    }
-    let css_bytes = css_text.into_bytes();
-    let css_name = hashed("app.css", &css_bytes, release);
-    write(&dist, &css_name, &css_bytes)?;
-    let boot = format!(
-        "import init from \"./{js_name}\";\ninit({{ module_or_path: new URL(\"./{wasm_name}\", import.meta.url) }});\n"
-    );
-    let boot_name = hashed("boot.js", boot.as_bytes(), release);
-    write(&dist, &boot_name, boot.as_bytes())?;
-    let index = index_html(
-        &css_name,
-        &sri(&css_bytes),
-        &boot_name,
-        &sri(boot.as_bytes()),
-    );
-    write(&dist, "index.html", index.as_bytes())?;
+    Ok(extra)
+}
 
+fn files_of(
+    boot_name: &str,
+    js_name: &str,
+    wasm_name: &str,
+    css_name: &str,
+    extra: &[String],
+) -> Vec<File> {
     let mut files = vec![
         File {
             path: "/index.html".into(),
@@ -234,39 +279,44 @@ pub fn build(root: &Path, tools: &Tools, release: bool) -> Result<PathBuf, Strin
         },
         File {
             path: format!("/{boot_name}"),
-            file: boot_name.clone(),
-            mime: mime(&boot_name),
+            file: boot_name.to_string(),
+            mime: mime(boot_name),
         },
         File {
             path: format!("/{js_name}"),
-            file: js_name.clone(),
-            mime: mime(&js_name),
+            file: js_name.to_string(),
+            mime: mime(js_name),
         },
         File {
             path: format!("/{wasm_name}"),
-            file: wasm_name.clone(),
-            mime: mime(&wasm_name),
+            file: wasm_name.to_string(),
+            mime: mime(wasm_name),
         },
         File {
             path: format!("/{css_name}"),
-            file: css_name.clone(),
-            mime: mime(&css_name),
+            file: css_name.to_string(),
+            mime: mime(css_name),
         },
     ];
-    for name in &extra {
+    for name in extra {
         files.push(File {
             path: format!("/{name}"),
             file: name.clone(),
             mime: mime(name),
         });
     }
+    files
+}
+
+fn write_manifest(ui: &Path, dist: &Path, files: &[File], release: bool) -> Result<(), String> {
+    let read = |p: &Path| std::fs::read(p).map_err(|e| format!("{}: {e}", p.display()));
     let mut listed = Vec::new();
-    for f in &files {
+    for f in files {
         let bytes = read(&dist.join(&f.file))?;
         let gz_size = if f.file.ends_with(".woff2") {
             bytes.len() as u64
         } else if release {
-            gzip(&dist, &f.file)?;
+            gzip(dist, &f.file)?;
             std::fs::metadata(dist.join(format!("{}.gz", f.file)))
                 .map(|m| m.len())
                 .unwrap_or(0)
@@ -297,15 +347,13 @@ pub fn build(root: &Path, tools: &Tools, release: bool) -> Result<PathBuf, Strin
         "files": listed,
     });
     write(
-        &dist,
+        dist,
         "manifest.json",
         serde_json::to_string_pretty(&manifest)
             .map_err(|e| e.to_string())?
             .as_bytes(),
     )?;
-    let _ = std::fs::remove_dir_all(&work);
-    println!("admin UI written to {}", dist.display());
-    Ok(dist)
+    Ok(())
 }
 
 fn newest(root: &Path) -> SystemTime {

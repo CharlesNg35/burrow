@@ -1,3 +1,6 @@
+//! The admin UI logic that runs without a browser: changesets, checks, relations and rates.
+//! It may depend only on burrow-admin-proto, burrow-config, burrow-syntax and semver.
+
 #![forbid(unsafe_code)]
 
 pub mod addr;

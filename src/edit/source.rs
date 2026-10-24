@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use super::save;
+use crate::config::save;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Source {
@@ -10,7 +10,7 @@ pub enum Source {
 }
 
 fn canonical(path: &Path) -> PathBuf {
-    crate::service::system::canonical_or_same(path)
+    crate::base::fs::canonical_or_same(path)
 }
 
 pub fn follow(source: &Path, installed: &Path, before: &str, text: &str) -> Source {

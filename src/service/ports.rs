@@ -1,6 +1,7 @@
 use std::net::SocketAddr;
 
-use crate::failure::Failure;
+use crate::base::failure::Failure;
+use crate::base::ports::inspect_hint;
 use burrow_config::Protocol;
 
 pub struct PortUser {
@@ -20,7 +21,7 @@ pub fn check_free(
         Protocol::Tcp => socket2::Type::STREAM,
         Protocol::Udp => socket2::Type::DGRAM,
     };
-    let result = crate::transport::udp::std_socket(addr, kind).map(drop);
+    let result = crate::wire::transport::udp::std_socket(addr, kind).map(drop);
     match result {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
@@ -42,7 +43,7 @@ pub fn check_free(
                 .hint(format!(
                     "two services cannot use one port; pick another port in the config, or stop {} first: {}",
                     u.name,
-                    crate::failure::admin(&format!("service stop {}", u.name))
+                    crate::base::failure::admin(&format!("service stop {}", u.name))
                 )),
                 (Some((program, pid)), Some(u)) => Failure::new(format!(
                     "{busy} by {program} (pid {pid}), from {} (not a service burrow manages)",
@@ -72,28 +73,9 @@ pub fn check_free(
         ))
         .hint(format!(
             "use 0.0.0.0, 127.0.0.1 or an IP shown by: {}",
-            crate::failure::addresses_cmd()
+            crate::base::failure::addresses_cmd()
         ))),
         Err(_) => Ok(()),
-    }
-}
-
-pub(crate) fn inspect_hint(proto: Protocol, port: u16) -> String {
-    if cfg!(windows) {
-        format!("netstat -ano | findstr :{port}")
-    } else if cfg!(target_os = "linux") {
-        let flag = if proto == Protocol::Udp {
-            "-lunp"
-        } else {
-            "-ltnp"
-        };
-        format!("sudo ss {flag} 'sport = :{port}'")
-    } else if cfg!(target_os = "freebsd") {
-        let flag = proto.wire();
-        format!("sockstat -46 -l -P {flag} -p {port}")
-    } else {
-        let flag = if proto == Protocol::Udp { "UDP" } else { "TCP" };
-        format!("sudo lsof -nP -i{flag}:{port}")
     }
 }
 

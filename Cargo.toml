@@ -23,6 +23,12 @@ members = [
     "xtask",
 ]
 
+[workspace.lints.clippy]
+too_many_lines = "deny"
+
+[lints]
+workspace = true
+
 [dependencies]
 burrow-admin-proto = { path = "crates/burrow-admin-proto" }
 burrow-config = { path = "crates/burrow-config", features = ["json-schema"] }

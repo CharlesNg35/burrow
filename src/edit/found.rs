@@ -66,7 +66,7 @@ pub fn role_of(path: &Path) -> Option<Role> {
 }
 
 fn canonical(path: &Path) -> PathBuf {
-    crate::service::system::canonical_or_same(path)
+    crate::base::fs::canonical_or_same(path)
 }
 
 pub fn merge(sources: Sources, role_of: impl Fn(&Path) -> Option<Role>) -> Vec<Found> {

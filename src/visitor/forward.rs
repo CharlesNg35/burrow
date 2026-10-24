@@ -11,9 +11,9 @@ use crate::client::reconnect::Backoff;
 use crate::config::settings::VisitorSettings;
 use crate::dialer::{DialError, Dialer};
 use crate::forward::{ForwardError, pump_tcp, request_visit};
-use crate::protocol::{ChannelKind, Hello, Status, VERSION, VisitRequest, VisitTarget};
-use crate::throttle::Throttle;
-use crate::transport::tcp::tune;
+use crate::policy::throttle::Throttle;
+use crate::wire::protocol::{ChannelKind, Hello, Status, VERSION, VisitRequest, VisitTarget};
+use crate::wire::transport::tcp::tune;
 use burrow_config::Protocol;
 
 const OPEN_PATIENCE: Duration = Duration::from_secs(5);
@@ -71,7 +71,7 @@ pub(super) async fn accept(
     loop {
         let (stream, peer) = match listener.accept().await {
             Ok(v) => v,
-            Err(e) if crate::transport::tcp::gone_before_accept(&e) => {
+            Err(e) if crate::wire::transport::tcp::gone_before_accept(&e) => {
                 debug!("forward \"{name}\": a connection was gone before it was accepted: {e}");
                 continue;
             }
@@ -214,7 +214,7 @@ pub(super) async fn check(dialer: Arc<Dialer>, forwards: Vec<(String, VisitTarge
             Some(Status::Ok) => {}
             Some(Status::Invalid) => {
                 ready = false;
-                let why = match crate::init::fetch::ask(&dialer).await {
+                let why = match crate::dialer::fetch::ask(&dialer).await {
                     Ok(fetched) => mismatch(&fetched, &request.to, protocol),
                     Err(_) => None,
                 };
@@ -250,7 +250,7 @@ pub(super) async fn check(dialer: Arc<Dialer>, forwards: Vec<(String, VisitTarge
 }
 
 fn mismatch(
-    fetched: &crate::init::fetch::Fetched,
+    fetched: &crate::dialer::fetch::Fetched,
     to: &VisitTarget,
     protocol: Protocol,
 ) -> Option<String> {
@@ -274,7 +274,7 @@ fn mismatch(
     }
 }
 
-async fn ask(mut ch: crate::handshake::Channel, request: &VisitRequest) -> Option<Status> {
+async fn ask(mut ch: crate::wire::transport::Channel, request: &VisitRequest) -> Option<Status> {
     ch.writer
         .send(&mut ch.stream, &request.encode().ok()?)
         .await
@@ -355,66 +355,18 @@ pub(super) async fn visit(
         debug!(%peer, "forward \"{name}\": {to} is too long to send");
         return;
     };
-    let started = tokio::time::Instant::now();
-    let mut backoff = Backoff::new(Duration::from_millis(100), Duration::from_secs(1));
-    let answer = loop {
-        let patience = OPEN_PATIENCE + settings.connect_timeout;
-        let permit = match opening.wait(patience).await {
-            Ok(permit) => permit,
-            Err(queued) => {
-                if socks {
-                    let _ = socks::reply(&mut stream, Reply::NetworkUnreachable).await;
-                }
-                static BUSY: Throttle = Throttle::new();
-                if let Some(more) = BUSY.allow() {
-                    if queued {
-                        warn!(
-                            "forward \"{name}\": closing a connection that waited {}s in line: new connections arrive faster than the server accepts them{more}",
-                            (patience * 4).as_secs()
-                        );
-                    } else {
-                        warn!(
-                            "forward \"{name}\": closing a connection that waited {}s without the server answering any dial{more}",
-                            patience.as_secs()
-                        );
-                    }
-                }
-                return;
-            }
-        };
-        let ch = dialer
-            .open(ChannelKind::Visit, Hello::Visit { version: VERSION })
-            .await;
-        drop(permit);
-        if ch.is_ok() {
-            opening
-                .opened
-                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        }
-        let patient = started.elapsed() < OPEN_PATIENCE;
-        match ch {
-            Ok(mut ch) => match request_visit(&mut ch, &request).await {
-                Ok(()) => break Ok(ch),
-                Err(ForwardError::Io(_)) if patient => {}
-                Err(e) => break Err(e),
-            },
-            Err(DialError::Rejected | DialError::Lost(_)) if patient => {}
-            Err(e) => {
-                if socks {
-                    let _ = socks::reply(&mut stream, Reply::NetworkUnreachable).await;
-                }
-                static LOST: Throttle = Throttle::new();
-                if let Some(more) = LOST.allow() {
-                    let why = match e {
-                        DialError::Rejected => rejected(&dialer),
-                        DialError::Lost(why) | DialError::Unreachable(why) => why,
-                    };
-                    warn!("forward \"{name}\": {why}{more}");
-                }
-                return;
-            }
-        }
-        tokio::time::sleep(backoff.next_delay()).await;
+    let Some(answer) = open_visit(
+        &dialer,
+        &settings,
+        &opening,
+        &request,
+        socks,
+        &mut stream,
+        &name,
+    )
+    .await
+    else {
+        return;
     };
     let mut told = None;
     let result = match answer {
@@ -435,6 +387,90 @@ pub(super) async fn visit(
             Err(e)
         }
     };
+    log_end(result, told, peer, &name, &to, &dialer);
+}
+
+async fn open_visit(
+    dialer: &Dialer,
+    settings: &VisitorSettings,
+    opening: &Slots,
+    request: &[u8],
+    socks: bool,
+    stream: &mut TcpStream,
+    name: &str,
+) -> Option<Result<crate::wire::transport::Channel, ForwardError>> {
+    let started = tokio::time::Instant::now();
+    let mut backoff = Backoff::new(Duration::from_millis(100), Duration::from_secs(1));
+    let answer = loop {
+        let patience = OPEN_PATIENCE + settings.connect_timeout;
+        let permit = match opening.wait(patience).await {
+            Ok(permit) => permit,
+            Err(queued) => {
+                if socks {
+                    let _ = socks::reply(stream, Reply::NetworkUnreachable).await;
+                }
+                static BUSY: Throttle = Throttle::new();
+                if let Some(more) = BUSY.allow() {
+                    if queued {
+                        warn!(
+                            "forward \"{name}\": closing a connection that waited {}s in line: new connections arrive faster than the server accepts them{more}",
+                            (patience * 4).as_secs()
+                        );
+                    } else {
+                        warn!(
+                            "forward \"{name}\": closing a connection that waited {}s without the server answering any dial{more}",
+                            patience.as_secs()
+                        );
+                    }
+                }
+                return None;
+            }
+        };
+        let ch = dialer
+            .open(ChannelKind::Visit, Hello::Visit { version: VERSION })
+            .await;
+        drop(permit);
+        if ch.is_ok() {
+            opening
+                .opened
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
+        let patient = started.elapsed() < OPEN_PATIENCE;
+        match ch {
+            Ok(mut ch) => match request_visit(&mut ch, request).await {
+                Ok(()) => break Ok(ch),
+                Err(ForwardError::Io(_)) if patient => {}
+                Err(e) => break Err(e),
+            },
+            Err(DialError::Rejected | DialError::Lost(_)) if patient => {}
+            Err(e) => {
+                if socks {
+                    let _ = socks::reply(stream, Reply::NetworkUnreachable).await;
+                }
+                static LOST: Throttle = Throttle::new();
+                if let Some(more) = LOST.allow() {
+                    let why = match e {
+                        DialError::Rejected => rejected(dialer),
+                        DialError::Lost(why) | DialError::Unreachable(why) => why,
+                    };
+                    warn!("forward \"{name}\": {why}{more}");
+                }
+                return None;
+            }
+        }
+        tokio::time::sleep(backoff.next_delay()).await;
+    };
+    Some(answer)
+}
+
+fn log_end(
+    result: Result<(), ForwardError>,
+    told: Option<Reply>,
+    peer: SocketAddr,
+    name: &str,
+    to: &VisitTarget,
+    dialer: &Dialer,
+) {
     match result {
         Ok(()) => debug!(%peer, "forward \"{name}\": connection closed"),
         Err(ForwardError::Status(st)) => {
@@ -442,7 +478,7 @@ pub(super) async fn visit(
             if let Some(more) = REFUSED.allow() {
                 warn!(
                     "forward \"{name}\": {}{}{more}",
-                    explain(st, &to, &dialer.name, Protocol::Tcp),
+                    explain(st, to, &dialer.name, Protocol::Tcp),
                     told.map(told_app).unwrap_or_default()
                 );
             }
@@ -488,8 +524,8 @@ mod tests {
 
     #[test]
     fn a_protocol_mismatch_names_the_fix_and_an_old_server_says_so() {
-        use crate::init::fetch::Fetched;
-        use crate::protocol::{GrantedService, Grants};
+        use crate::dialer::fetch::Fetched;
+        use crate::wire::protocol::{GrantedService, Grants};
         let fetched = |protocol, tcp_only| Fetched {
             grants: Grants {
                 services: vec![GrantedService {

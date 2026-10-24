@@ -5,9 +5,9 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use burrow::config::settings::{Health, Service};
-use burrow::protocol::VisitTarget;
-use burrow::proxy_protocol::V2_SIGNATURE;
-use burrow::secret::Secret;
+use burrow::wire::protocol::VisitTarget;
+use burrow::wire::proxy_protocol::V2_SIGNATURE;
+use burrow::wire::secret::Secret;
 use burrow_config::Protocol;
 use burrow_config::ProxyVersion;
 use common::*;
@@ -319,7 +319,7 @@ async fn ipv6_and_dual_stack_binds_send_the_right_family() {
 async fn a_visitor_that_sends_nothing_still_produces_the_header() {
     for plaintext in [false, true] {
         let (target, seen) = recording_target().await;
-        let secret = burrow::secret::Secret::generate();
+        let secret = burrow::wire::secret::Secret::generate();
         let mut server = server_settings(vec![secret.clone()]);
         server.insecure_plaintext = plaintext;
         let t = tunnel_with(
@@ -372,10 +372,10 @@ async fn line_then_echo() -> SocketAddr {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn plaintext_visits_with_a_header_and_a_limit_keep_the_data_intact() {
-    use burrow::protocol::VisitTarget;
+    use burrow::wire::protocol::VisitTarget;
     let target = line_then_echo().await;
-    let secret = burrow::secret::Secret::generate();
-    let visitor_secret = burrow::secret::Secret::generate();
+    let secret = burrow::wire::secret::Secret::generate();
+    let visitor_secret = burrow::wire::secret::Secret::generate();
     let mut server = server_settings(vec![secret.clone()]);
     server.insecure_plaintext = true;
     server

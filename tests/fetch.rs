@@ -3,9 +3,9 @@ mod common;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
-use burrow::allowlist::AllowList;
 use burrow::client::State;
-use burrow::secret::Secret;
+use burrow::policy::allowlist::AllowList;
+use burrow::wire::secret::Secret;
 use common::*;
 
 struct World {
@@ -173,7 +173,7 @@ async fn an_update_from_outside_a_services_allow_from_keeps_its_forward() {
     let path = w.path("visitor.yaml");
     let before = read(&path);
     let mut next = w.settings.clone();
-    next.services.get_mut("db").unwrap().sources = burrow::allowlist::Sources {
+    next.services.get_mut("db").unwrap().sources = burrow::policy::allowlist::Sources {
         allow: vec!["10.0.0.0/8".parse().unwrap()],
         deny: vec![],
     };
@@ -480,8 +480,8 @@ async fn init_visitor_writes_udp_forwards_and_update_adds_keeps_and_removes_them
 }
 
 async fn old(w: &World) -> std::net::SocketAddr {
-    let grants = burrow::protocol::Grants {
-        services: vec![burrow::protocol::GrantedService {
+    let grants = burrow::wire::protocol::Grants {
+        services: vec![burrow::wire::protocol::GrantedService {
             name: "db".into(),
             protocol: burrow_config::Protocol::Tcp,
             port: 5432,

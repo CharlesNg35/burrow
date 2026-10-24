@@ -1,3 +1,6 @@
+//! Generic Leptos components for the admin UI: inputs, tables, charts, dialogs and path diagrams.
+//! It knows nothing about burrow and must not depend on burrow-admin-proto, burrow-syntax or burrow-admin-logic.
+
 #![forbid(unsafe_code)]
 
 mod basic;

@@ -10,9 +10,9 @@ use super::{
     MAX_TARGET_LEN, Spans, name_error, parse_host_port, parse_local, secret_error, tuning, unix,
     valid_name,
 };
-use crate::diagnostics::Diagnostic;
-use crate::protocol::VisitTarget;
-use crate::secret::Secret;
+use crate::config::diagnostics::Diagnostic;
+use crate::wire::protocol::VisitTarget;
+use crate::wire::secret::Secret;
 use burrow_config::{ForwardEntry, Protocol, VisitorConfig};
 
 pub fn check_visitor(
@@ -57,7 +57,7 @@ pub fn check_visitor(
         let d = Diagnostic::warning("no-forwards", "no forwards are defined")
             .help(format!(
                 "add one, for example:\n         forwards:\n           db: {{ service: db, local: 5432 }}\n       or name the target when you run it: {}",
-                crate::failure::cmd("visit --service NAME --local PORT")
+                crate::base::failure::cmd("visit --service NAME --local PORT")
             ));
         out.push(d);
     }
@@ -112,7 +112,7 @@ pub fn check_visitor(
                         "range-mismatch",
                         format!(
                             "forward \"{name}\" listens on {ports} {} but targets {}",
-                            crate::diagnostics::plural(ports.into(), "port"),
+                            crate::config::diagnostics::plural(ports.into(), "port"),
                             target_ports.unwrap_or(1)
                         ),
                     )

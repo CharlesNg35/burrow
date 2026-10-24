@@ -4,9 +4,9 @@ use std::time::{Duration, Instant};
 
 use tokio::sync::{mpsc, oneshot, watch};
 
-use crate::handshake::Channel;
-use crate::protocol::{KEEPALIVE_RECORD, ServerMsg, TOKEN_LEN};
-use crate::secret::Secret;
+use crate::wire::protocol::{KEEPALIVE_RECORD, ServerMsg, TOKEN_LEN};
+use crate::wire::secret::Secret;
+use crate::wire::transport::Channel;
 use tokio::io::AsyncReadExt;
 
 pub struct PoolConfig {

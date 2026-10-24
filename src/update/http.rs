@@ -2,10 +2,10 @@ use std::time::Duration;
 
 use tokio::io::{AsyncRead, AsyncWrite};
 
-use crate::proxy::ProxyConfig;
-use crate::transport::proxy::dial_tcp;
-use crate::transport::resolve::SystemResolver;
-use crate::transport::tls;
+use crate::wire::proxy::ProxyConfig;
+use crate::wire::transport::proxy::dial_tcp;
+use crate::wire::transport::resolve::SystemResolver;
+use crate::wire::transport::tls;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 const READ_TIMEOUT: Duration = Duration::from_secs(30);

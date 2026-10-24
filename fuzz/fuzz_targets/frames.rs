@@ -1,11 +1,11 @@
 #![no_main]
 
-use burrow::noise::{Initiator, Responder};
-use burrow::protocol::{
+use burrow::wire::noise::{Initiator, Responder};
+use burrow::wire::protocol::{
     ClientMsg, Connect, Grants, Hello, ServerMsg, Status, VisitRequest, decode_datagram,
 };
-use burrow::record::RecordReader;
-use burrow::secret::Secret;
+use burrow::wire::record::RecordReader;
+use burrow::wire::secret::Secret;
 use burrow_config::Cipher;
 use libfuzzer_sys::fuzz_target;
 

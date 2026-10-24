@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use crate::failure::Failure;
+use crate::base::failure::Failure;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Installed {
@@ -52,7 +52,7 @@ pub fn choose(
         [one] => Ok(Found::Service(one.clone())),
         [] => Err(Failure::usage("no visitor config found").hint(format!(
             "pass -c FILE, create one with: {}, or install a visitor service",
-            crate::failure::cmd("init visitor")
+            crate::base::failure::cmd("init visitor")
         ))),
         many => Err(Failure::usage(format!(
             "several visitor services are installed: {}",
@@ -71,13 +71,13 @@ pub fn unreadable(what: &std::path::Path, e: &std::io::Error) -> Failure {
     } else {
         format!(
             "run with sudo ({}), or pass -c FILE",
-            crate::failure::admin(crate::cli::ADMIN_COMMAND)
+            crate::base::failure::admin(crate::app::cli::ADMIN_COMMAND)
         )
     };
     Failure::new(format!(
         "cannot read {}: {}",
         what.display(),
-        crate::failure::file_reason(e)
+        crate::base::failure::file_reason(e)
     ))
     .hint(hint)
 }

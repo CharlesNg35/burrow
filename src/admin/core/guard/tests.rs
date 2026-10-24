@@ -1,7 +1,10 @@
 use super::*;
+use crate::admin::core::ports::LiveSession;
 use crate::admin::core::tests::world;
 use crate::config::{Format, Loaded, Role, load_str};
-use crate::metrics::{ServiceStatus, VisitorStatus};
+use crate::metrics::{ServiceStatus, Status, VisitorStatus};
+use burrow_admin_proto::plan::Level;
+use burrow_config::SELF;
 
 fn settings(text: &str) -> ServerSettings {
     let nothing = |_: &str| None;
@@ -138,7 +141,7 @@ fn a_new_self_allow_names_the_reach_connections_it_may_close() {
     let mut old = with_self("127.0.0.0/8");
     let auth = old.visitors.get_mut("ops").unwrap();
     auth.reach
-        .insert(SELF.into(), crate::allowlist::AllowList::All);
+        .insert(SELF.into(), crate::policy::allowlist::AllowList::All);
     let mut new = with_self("127.0.0.1/32");
     new.visitors = old.visitors.clone();
     let status = Status {
@@ -450,8 +453,8 @@ fn a_grant_brings_no_impact_since_it_is_refused() {
 #[test]
 fn services_that_only_change_target_or_clients_share_one_impact() {
     let (a, b) = (
-        crate::secret::Secret::generate().encode(),
-        crate::secret::Secret::generate().encode(),
+        crate::wire::secret::Secret::generate().encode(),
+        crate::wire::secret::Secret::generate().encode(),
     );
     let head = format!(
         "listen: 7835\nclients:\n  a:\n    secret: {a}\n  b:\n    secret: {b}\nservices:\n"
@@ -482,9 +485,9 @@ fn renamed(section: &str, from: &str, to: &str) -> Rename {
 
 fn twins() -> (String, String) {
     let (c, v, o) = (
-        crate::secret::Secret::generate().encode(),
-        crate::secret::Secret::generate().encode(),
-        crate::secret::Secret::generate().encode(),
+        crate::wire::secret::Secret::generate().encode(),
+        crate::wire::secret::Secret::generate().encode(),
+        crate::wire::secret::Secret::generate().encode(),
     );
     (
         format!(
