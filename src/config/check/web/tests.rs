@@ -289,3 +289,22 @@ fn an_empty_web_key_needs_its_port_too() {
         "web needs a port: https for HTTPS sites, like https: 443 (plain HTTP sites on web.http are not in this build yet)"
     );
 }
+
+#[test]
+fn the_tunnel_and_the_web_port_on_two_addresses_of_one_port_do_not_overlap() {
+    let apart = settings(load(&format!(
+        "websocket: {{ listen: 10.8.0.1:443 }}\nweb: {{ https: 203.0.113.10:443 }}\n{NAS}"
+    )));
+    let ws = apart.websocket.unwrap();
+    assert_eq!(ws.listen, "10.8.0.1:443".parse().unwrap());
+    assert_eq!(ws.host, None);
+    assert_eq!(
+        apart.web.unwrap().https,
+        "203.0.113.10:443".parse().unwrap()
+    );
+    let overlap = errors(&load(&format!(
+        "websocket: {{ listen: 0.0.0.0:443 }}\nweb: {{ https: 203.0.113.10:443 }}\n{NAS}"
+    )));
+    assert_eq!(overlap.len(), 1, "{overlap:?}");
+    assert!(overlap[0].contains("overlap"), "{overlap:?}");
+}

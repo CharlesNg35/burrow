@@ -85,6 +85,48 @@ pub(super) fn check_https(
     Some(addr)
 }
 
+fn shares_port(
+    cfg: &ServerConfig,
+    https: Option<SocketAddr>,
+    ws: &mut WebSocketSettings,
+    listen: &Bind,
+    spans: &Spans,
+    out: &mut Vec<Diagnostic>,
+) -> Result<bool, ()> {
+    let Some(h) = https.filter(|h| h.port() == ws.listen.port()) else {
+        return Ok(false);
+    };
+    let wanted = match bare_port(listen) {
+        Some(p) => SocketAddr::new(Ipv6Addr::UNSPECIFIED.into(), p),
+        None => ws.listen,
+    };
+    if wanted == h {
+        ws.listen = h;
+        return Ok(true);
+    }
+    if !binds_conflict(wanted, h) {
+        return Ok(false);
+    }
+    out.push(
+        Diagnostic::error(
+            "web-overlap",
+            format!(
+                "websocket.listen {wanted} and web.https {h} overlap; to share the port give both the same address, otherwise use another port"
+            ),
+        )
+        .at(spans.value(&["websocket", "listen"]))
+        .label("same port as web.https")
+        .help(format!(
+            "write websocket.listen the same way as web.https ({}) to share it",
+            cfg.web
+                .as_ref()
+                .and_then(|w| w.https.as_ref())
+                .map_or(String::new(), Bind::to_string)
+        )),
+    );
+    Err(())
+}
+
 pub(super) fn share_tunnel(
     cfg: &ServerConfig,
     https: Option<SocketAddr>,
@@ -96,37 +138,8 @@ pub(super) fn share_tunnel(
         return;
     };
     let host_at = spans.value(&["websocket", "host"]);
-    let same_port = https.is_some_and(|h| h.port() == ws.listen.port());
-    let shared = match https {
-        Some(h) if same_port => {
-            let wanted = match bare_port(&given.listen) {
-                Some(p) => SocketAddr::new(Ipv6Addr::UNSPECIFIED.into(), p),
-                None => ws.listen,
-            };
-            if wanted != h {
-                out.push(
-                    Diagnostic::error(
-                        "web-overlap",
-                        format!(
-                            "websocket.listen {wanted} and web.https {h} overlap; to share the port give both the same address, otherwise use another port"
-                        ),
-                    )
-                    .at(spans.value(&["websocket", "listen"]))
-                    .label("same port as web.https")
-                    .help(format!(
-                        "write websocket.listen the same way as web.https ({}) to share it",
-                        cfg.web
-                            .as_ref()
-                            .and_then(|w| w.https.as_ref())
-                            .map_or(String::new(), Bind::to_string)
-                    )),
-                );
-                return;
-            }
-            ws.listen = h;
-            true
-        }
-        _ => false,
+    let Ok(shared) = shares_port(cfg, https, ws, &given.listen, spans, out) else {
+        return;
     };
     let Some(text) = given.host.as_deref() else {
         if shared {
