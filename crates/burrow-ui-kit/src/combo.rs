@@ -82,141 +82,12 @@ pub fn Combobox(
             open.set(false);
         }
     };
-    let remove = move |value: String| {
-        let next: Vec<String> = selected
-            .get_untracked()
-            .into_iter()
-            .filter(|x| *x != value)
-            .collect();
-        on_change.run(next);
-    };
-    let label_of = move |v: &str| {
-        options.with(|o| {
-            o.iter()
-                .find(|x| x.value == v)
-                .map(|x| (x.label.clone(), x.dot))
-        })
-    };
-    let chips = move || {
-        selected
-            .get()
-            .into_iter()
-            .filter(|v| multi || clearable || !v.is_empty())
-            .map(|v| {
-                let (text, dot, missing) = match label_of(&v) {
-                    Some((l, d)) => (l, d, false),
-                    None => (format!("{v} (removed)"), Some(Tone::Danger), true),
-                };
-                let v2 = v.clone();
-                let removable = multi || clearable;
-                view! {
-                    <span class=format!("inline-flex h-[26px] items-center gap-1.5 rounded-sm pr-1 pl-2 text-sm font-semibold {}", if missing { "bg-danger-weak text-danger" } else { "bg-surface-3 ring-1 ring-border ring-inset dark:ring-0" }) data-chip=v.clone()>
-                        <span class=format!("size-2 rounded-full {}", dot_class(dot)) aria-hidden="true"></span>
-                        {text.clone()}
-                        {removable.then(|| view! {
-                            <button
-                                type="button"
-                                class="flex size-[18px] cursor-pointer items-center justify-center rounded-xs text-text-faint hover:bg-border hover:text-text"
-                                aria-label=format!("Remove {text}")
-                                data-remove=v2.clone()
-                                on:mousedown=move |e| e.prevent_default()
-                                on:click=move |_| remove(v2.clone())
-                            >
-                                <Icon name="x" small=true/>
-                            </button>
-                        })}
-                    </span>
-                }
-            })
-            .collect_view()
-    };
-    let rows = {
-        let id = id.clone();
-        move || {
-            let sel = selected.get();
-            let list = visible.get();
-            if list.is_empty() {
-                return view! { <li class="px-2.5 py-2 text-sm text-text-muted" role="presentation">"Nothing matches"</li> }.into_any();
-            }
-            let act = active.get().min(list.len() - 1);
-            list.into_iter()
-                .enumerate()
-                .map(|(i, o)| {
-                    let on = sel.contains(&o.value);
-                    let value = o.value.clone();
-                    view! {
-                        <li
-                            id=format!("{id}-opt-{i}")
-                            role="option"
-                            aria-selected=on.to_string()
-                            class="flex h-[34px] cursor-pointer items-center gap-2.5 rounded-input px-2.5 text-sm"
-                            class:bg-surface-3=i == act
-                            data-option=o.value.clone()
-                            on:mousedown=move |e| e.prevent_default()
-                            on:mouseenter=move |_| active.set(i)
-                            on:click=move |e| {
-                                let on_input = e
-                                    .target()
-                                    .and_then(|t| t.dyn_into::<web_sys::HtmlInputElement>().ok())
-                                    .is_some();
-                                if !on_input {
-                                    pick(value.clone());
-                                }
-                            }
-                        >
-                            {multi.then(|| {
-                                let value = o.value.clone();
-                                view! {
-                                    <input
-                                        type="checkbox"
-                                        tabindex="-1"
-                                        class="size-[15px] accent-accent"
-                                        aria-hidden="true"
-                                        prop:checked=on
-                                        on:change=move |_| pick(value.clone())
-                                    />
-                                }
-                            })}
-                            <span class=format!("size-2 shrink-0 rounded-full {}", dot_class(o.dot)) aria-hidden="true"></span>
-                            <span class="font-semibold">{o.label.clone()}</span>
-                            <span class="ml-auto truncate text-[11.5px] text-text-muted">{o.facet.clone()}</span>
-                            {(!multi && on).then(|| view! { <span class="text-accent-ink"><Icon name="check" small=true/></span> })}
-                        </li>
-                    }
-                })
-                .collect_view()
-                .into_any()
-        }
-    };
+    let remove = move |value: String| remove_value(selected, on_change, value);
+    let chips = chips(options, selected, multi, clearable, remove);
+    let rows = option_rows(id.clone(), selected, visible, active, pick, multi);
     let input_id = id.clone();
     let up = RwSignal::new(false);
-    {
-        let id = id.clone();
-        Effect::new(move |_| {
-            if !open.get() {
-                return;
-            }
-            let Some(field) = document().get_element_by_id(&id) else {
-                return;
-            };
-            let h = window()
-                .inner_height()
-                .ok()
-                .and_then(|v| v.as_f64())
-                .unwrap_or(0.0);
-            let floor = document()
-                .query_selector("[data-sticky-bar]")
-                .ok()
-                .flatten()
-                .map(|b| b.get_bounding_client_rect().top())
-                .filter(|t| *t > 0.0 && *t < h)
-                .unwrap_or(h);
-            let r = field.get_bounding_client_rect();
-            let below = floor - r.bottom();
-            let above = r.top() - 72.0;
-            up.set(below < POPOVER_ROOM && above > below);
-        });
-    }
+    place_popover(id.clone(), open, up);
     Effect::new(move |_| {
         if !open.get() && creating.get_untracked() {
             creating.set(false);
@@ -224,6 +95,11 @@ pub fn Combobox(
             create_error.set(None);
         }
     });
+    let c = Create {
+        creating,
+        new_name,
+        create_error,
+    };
     let lid = list_id.clone();
     let act_id = {
         let id = id.clone();
@@ -320,113 +196,285 @@ pub fn Combobox(
                     <ul id=list_id.clone() role="listbox" aria-multiselectable=multi.then_some("true") class="max-h-72 overflow-y-auto">
                         {rows.clone()}
                     </ul>
-                    {on_create.map(|cb| {
-                        let label = create_label.clone();
-                        let combo_id = id.clone();
-                        let name_id = format!("{id}-new-name");
-                        let refocus = {
-                            let combo_id = combo_id.clone();
-                            move || {
-                                if let Some(el) = document().get_element_by_id(&combo_id)
+                    {on_create.map(|cb| create_section(cb, create_label.clone(), &id, c, selected, on_change, multi))}
+                </div>
+            </Show>
+        </div>
+    }
+}
+
+fn remove_value(selected: Signal<Vec<String>>, on_change: Callback<Vec<String>>, value: String) {
+    let next: Vec<String> = selected
+        .get_untracked()
+        .into_iter()
+        .filter(|x| *x != value)
+        .collect();
+    on_change.run(next);
+}
+
+fn chips(
+    options: Signal<Vec<ComboOption>>,
+    selected: Signal<Vec<String>>,
+    multi: bool,
+    clearable: bool,
+    remove: impl Fn(String) + Copy + Send + Sync + 'static,
+) -> impl Fn() -> AnyView + Send + Sync + 'static {
+    let label_of = move |v: &str| {
+        options.with(|o| {
+            o.iter()
+                .find(|x| x.value == v)
+                .map(|x| (x.label.clone(), x.dot))
+        })
+    };
+    move || {
+        selected
+        .get()
+        .into_iter()
+        .filter(|v| multi || clearable || !v.is_empty())
+        .map(|v| {
+            let (text, dot, missing) = match label_of(&v) {
+                Some((l, d)) => (l, d, false),
+                None => (format!("{v} (removed)"), Some(Tone::Danger), true),
+            };
+            let v2 = v.clone();
+            let removable = multi || clearable;
+            view! {
+                <span class=format!("inline-flex h-[26px] items-center gap-1.5 rounded-sm pr-1 pl-2 text-sm font-semibold {}", if missing { "bg-danger-weak text-danger" } else { "bg-surface-3 ring-1 ring-border ring-inset dark:ring-0" }) data-chip=v.clone()>
+                    <span class=format!("size-2 rounded-full {}", dot_class(dot)) aria-hidden="true"></span>
+                    {text.clone()}
+                    {removable.then(|| view! {
+                        <button
+                            type="button"
+                            class="flex size-[18px] cursor-pointer items-center justify-center rounded-xs text-text-faint hover:bg-border hover:text-text"
+                            aria-label=format!("Remove {text}")
+                            data-remove=v2.clone()
+                            on:mousedown=move |e| e.prevent_default()
+                            on:click=move |_| remove(v2.clone())
+                        >
+                            <Icon name="x" small=true/>
+                        </button>
+                    })}
+                </span>
+            }
+        })
+        .collect_view()
+            .into_any()
+    }
+}
+
+fn option_rows(
+    id: String,
+    selected: Signal<Vec<String>>,
+    visible: Memo<Vec<ComboOption>>,
+    active: RwSignal<usize>,
+    pick: impl Fn(String) + Copy + Send + Sync + 'static,
+    multi: bool,
+) -> impl Fn() -> AnyView + Clone + Send + Sync + 'static {
+    move || {
+        let sel = selected.get();
+        let list = visible.get();
+        if list.is_empty() {
+            return view! { <li class="px-2.5 py-2 text-sm text-text-muted" role="presentation">"Nothing matches"</li> }.into_any();
+        }
+        let act = active.get().min(list.len() - 1);
+        list.into_iter()
+            .enumerate()
+            .map(|(i, o)| {
+                let on = sel.contains(&o.value);
+                let value = o.value.clone();
+                view! {
+                    <li
+                        id=format!("{id}-opt-{i}")
+                        role="option"
+                        aria-selected=on.to_string()
+                        class="flex h-[34px] cursor-pointer items-center gap-2.5 rounded-input px-2.5 text-sm"
+                        class:bg-surface-3=i == act
+                        data-option=o.value.clone()
+                        on:mousedown=move |e| e.prevent_default()
+                        on:mouseenter=move |_| active.set(i)
+                        on:click=move |e| {
+                            let on_input = e
+                                .target()
+                                .and_then(|t| t.dyn_into::<web_sys::HtmlInputElement>().ok())
+                                .is_some();
+                            if !on_input {
+                                pick(value.clone());
+                            }
+                        }
+                    >
+                        {multi.then(|| {
+                            let value = o.value.clone();
+                            view! {
+                                <input
+                                    type="checkbox"
+                                    tabindex="-1"
+                                    class="size-[15px] accent-accent"
+                                    aria-hidden="true"
+                                    prop:checked=on
+                                    on:change=move |_| pick(value.clone())
+                                />
+                            }
+                        })}
+                        <span class=format!("size-2 shrink-0 rounded-full {}", dot_class(o.dot)) aria-hidden="true"></span>
+                        <span class="font-semibold">{o.label.clone()}</span>
+                        <span class="ml-auto truncate text-[11.5px] text-text-muted">{o.facet.clone()}</span>
+                        {(!multi && on).then(|| view! { <span class="text-accent-ink"><Icon name="check" small=true/></span> })}
+                    </li>
+                }
+            })
+            .collect_view()
+            .into_any()
+    }
+}
+
+fn place_popover(id: String, open: RwSignal<bool>, up: RwSignal<bool>) {
+    Effect::new(move |_| {
+        if !open.get() {
+            return;
+        }
+        let Some(field) = document().get_element_by_id(&id) else {
+            return;
+        };
+        let h = window()
+            .inner_height()
+            .ok()
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0);
+        let floor = document()
+            .query_selector("[data-sticky-bar]")
+            .ok()
+            .flatten()
+            .map(|b| b.get_bounding_client_rect().top())
+            .filter(|t| *t > 0.0 && *t < h)
+            .unwrap_or(h);
+        let r = field.get_bounding_client_rect();
+        let below = floor - r.bottom();
+        let above = r.top() - 72.0;
+        up.set(below < POPOVER_ROOM && above > below);
+    });
+}
+
+#[derive(Clone, Copy)]
+struct Create {
+    creating: RwSignal<bool>,
+    new_name: RwSignal<String>,
+    create_error: RwSignal<Option<String>>,
+}
+
+fn create_section(
+    cb: Callback<String, Option<String>>,
+    label: String,
+    id: &str,
+    c: Create,
+    selected: Signal<Vec<String>>,
+    on_change: Callback<Vec<String>>,
+    multi: bool,
+) -> impl IntoView + use<> {
+    let Create {
+        creating,
+        new_name,
+        create_error,
+    } = c;
+    let combo_id = id.to_string();
+    let name_id = format!("{id}-new-name");
+    let refocus = {
+        let combo_id = combo_id.clone();
+        move || {
+            if let Some(el) = document().get_element_by_id(&combo_id)
+                && let Ok(el) = el.dyn_into::<web_sys::HtmlElement>()
+            {
+                let _ = el.focus();
+            }
+        }
+    };
+    let create = {
+        let refocus = refocus.clone();
+        move || {
+            let n = new_name.get_untracked().trim().to_string();
+            match cb.run(n.clone()) {
+                None => {
+                    refocus();
+                    creating.set(false);
+                    new_name.set(String::new());
+                    on_change.run(toggle(&selected.get_untracked(), &n, multi));
+                }
+                Some(err) => create_error.set(Some(err)),
+            }
+        }
+    };
+    let placeholder = format!("{} name", label.trim_end_matches('…'));
+    view! {
+        <div class="mt-1 border-t border-border pt-1">
+            {move || if creating.get() {
+                let (create, create2, refocus) = (create.clone(), create.clone(), refocus.clone());
+                view! {
+                    <div class="px-2.5 py-1.5">
+                        <div class="flex items-center gap-2">
+                            <input
+                                id=name_id.clone()
+                                type="text"
+                                class="h-8 min-w-0 flex-1 rounded-input border border-border-strong bg-input px-2 font-mono text-sm outline-none placeholder:font-sans placeholder:text-text-faint focus:border-accent"
+                                aria-label=placeholder.clone()
+                                placeholder=placeholder.clone()
+                                data-testid="combo-new-name"
+                                prop:value=move || new_name.get()
+                                on:input:target=move |e| { new_name.set(e.target().value()); create_error.set(None); }
+                                on:keydown=move |e| {
+                                    if e.key() == "Enter" {
+                                        e.prevent_default();
+                                        e.stop_propagation();
+                                        create();
+                                    }
+                                    if e.key() == "Escape" {
+                                        e.stop_propagation();
+                                        refocus();
+                                        creating.set(false);
+                                    }
+                                }
+                            />
+                            <button
+                                type="button"
+                                class="h-8 cursor-pointer rounded-input bg-accent px-3 text-sm font-semibold text-on-accent hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-55"
+                                data-testid="combo-create"
+                                disabled=move || new_name.with(|n| n.trim().is_empty())
+                                on:mousedown=move |e| e.prevent_default()
+                                on:click=move |_| create2()
+                            >
+                                "Create"
+                            </button>
+                        </div>
+                        <p class="mt-1 text-xs text-danger" data-testid="combo-new-error">{move || create_error.get()}</p>
+                    </div>
+                }
+                .into_any()
+            } else {
+                let label = label.clone();
+                let (refocus, name_id) = (refocus.clone(), name_id.clone());
+                view! {
+                    <button
+                        type="button"
+                        class="flex h-[34px] w-full cursor-pointer items-center gap-2 rounded-input px-2.5 text-sm font-semibold text-accent-ink hover:bg-surface-3"
+                        data-testid="combo-new"
+                        on:mousedown=move |e| e.prevent_default()
+                        on:click=move |_| {
+                            refocus();
+                            creating.set(true);
+                            let name_id = name_id.clone();
+                            request_animation_frame(move || {
+                                if let Some(el) = document().get_element_by_id(&name_id)
                                     && let Ok(el) = el.dyn_into::<web_sys::HtmlElement>()
                                 {
                                     let _ = el.focus();
                                 }
-                            }
-                        };
-                        let create = {
-                            let refocus = refocus.clone();
-                            move || {
-                                let n = new_name.get_untracked().trim().to_string();
-                                match cb.run(n.clone()) {
-                                    None => {
-                                        refocus();
-                                        creating.set(false);
-                                        new_name.set(String::new());
-                                        on_change.run(toggle(&selected.get_untracked(), &n, multi));
-                                    }
-                                    Some(err) => create_error.set(Some(err)),
-                                }
-                            }
-                        };
-                        let placeholder = format!("{} name", label.trim_end_matches('…'));
-                        view! {
-                            <div class="mt-1 border-t border-border pt-1">
-                                {move || if creating.get() {
-                                    let (create, create2, refocus) = (create.clone(), create.clone(), refocus.clone());
-                                    view! {
-                                        <div class="px-2.5 py-1.5">
-                                            <div class="flex items-center gap-2">
-                                                <input
-                                                    id=name_id.clone()
-                                                    type="text"
-                                                    class="h-8 min-w-0 flex-1 rounded-input border border-border-strong bg-input px-2 font-mono text-sm outline-none placeholder:font-sans placeholder:text-text-faint focus:border-accent"
-                                                    aria-label=placeholder.clone()
-                                                    placeholder=placeholder.clone()
-                                                    data-testid="combo-new-name"
-                                                    prop:value=move || new_name.get()
-                                                    on:input:target=move |e| { new_name.set(e.target().value()); create_error.set(None); }
-                                                    on:keydown=move |e| {
-                                                        if e.key() == "Enter" {
-                                                            e.prevent_default();
-                                                            e.stop_propagation();
-                                                            create();
-                                                        }
-                                                        if e.key() == "Escape" {
-                                                            e.stop_propagation();
-                                                            refocus();
-                                                            creating.set(false);
-                                                        }
-                                                    }
-                                                />
-                                                <button
-                                                    type="button"
-                                                    class="h-8 cursor-pointer rounded-input bg-accent px-3 text-sm font-semibold text-on-accent hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-55"
-                                                    data-testid="combo-create"
-                                                    disabled=move || new_name.with(|n| n.trim().is_empty())
-                                                    on:mousedown=move |e| e.prevent_default()
-                                                    on:click=move |_| create2()
-                                                >
-                                                    "Create"
-                                                </button>
-                                            </div>
-                                            <p class="mt-1 text-xs text-danger" data-testid="combo-new-error">{move || create_error.get()}</p>
-                                        </div>
-                                    }
-                                    .into_any()
-                                } else {
-                                    let label = label.clone();
-                                    let (refocus, name_id) = (refocus.clone(), name_id.clone());
-                                    view! {
-                                        <button
-                                            type="button"
-                                            class="flex h-[34px] w-full cursor-pointer items-center gap-2 rounded-input px-2.5 text-sm font-semibold text-accent-ink hover:bg-surface-3"
-                                            data-testid="combo-new"
-                                            on:mousedown=move |e| e.prevent_default()
-                                            on:click=move |_| {
-                                                refocus();
-                                                creating.set(true);
-                                                let name_id = name_id.clone();
-                                                request_animation_frame(move || {
-                                                    if let Some(el) = document().get_element_by_id(&name_id)
-                                                        && let Ok(el) = el.dyn_into::<web_sys::HtmlElement>()
-                                                    {
-                                                        let _ = el.focus();
-                                                    }
-                                                });
-                                            }
-                                        >
-                                            <Icon name="plus" small=true/>
-                                            {label}
-                                        </button>
-                                    }
-                                    .into_any()
-                                }}
-                            </div>
+                            });
                         }
-                    })}
-                </div>
-            </Show>
+                    >
+                        <Icon name="plus" small=true/>
+                        {label}
+                    </button>
+                }
+                .into_any()
+            }}
         </div>
     }
 }
