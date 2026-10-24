@@ -43,14 +43,20 @@ fn takes_auto(web: &ServiceWeb) -> bool {
     matches!(web.tls(), None | Some(SiteTls::Mode(TlsMode::Auto)))
 }
 
+const FORWARDING: &str = "Let's Encrypt checks port 443 or port 80; if a router forwards them to other ports, burrow cannot see that, so forward port 80 to web.http too, or give certificate files";
+
+fn checkable((https, http): (Option<SocketAddr>, Option<SocketAddr>)) -> bool {
+    https.is_some_and(|a| a.port() == 443) || http.is_some_and(|a| a.port() == 80)
+}
+
 pub(in crate::config::check) fn check_sources(
     cfg: &ServerConfig,
-    https: Option<SocketAddr>,
+    ports: (Option<SocketAddr>, Option<SocketAddr>),
     spans: &Spans,
     out: &mut Vec<Diagnostic>,
 ) {
     check_entries(cfg, spans, out);
-    if https.is_none() {
+    if ports.0.is_none() {
         return;
     }
     let sources = Sources::of(cfg);
@@ -73,6 +79,17 @@ pub(in crate::config::check) fn check_sources(
                 out.push(no_certificate(name, &host, at));
             } else if is_wildcard(&host) {
                 out.push(wildcard_needs_dns(name, &host, at));
+            } else if !checkable(ports) {
+                out.push(
+                    Diagnostic::error(
+                        "no-check",
+                        format!(
+                            "{host} (service \"{name}\") cannot be checked by Let's Encrypt: open http: 80, or list a file for it in web.certificates"
+                        ),
+                    )
+                    .at(at)
+                    .help(FORWARDING),
+                );
             }
         }
     }
@@ -144,13 +161,28 @@ fn check_entries(cfg: &ServerConfig, spans: &Spans, out: &mut Vec<Diagnostic>) {
 
 pub(in crate::config::check) fn tunnel_has_source(
     cfg: &ServerConfig,
-    host: &str,
-    own_file: bool,
+    (host, own_file): (&str, bool),
+    ports: (Option<SocketAddr>, Option<SocketAddr>),
     spans: &Spans,
     out: &mut Vec<Diagnostic>,
 ) {
     let sources = Sources::of(cfg);
-    if own_file || sources.letsencrypt || sources.lists(host) {
+    if own_file || sources.lists(host) {
+        return;
+    }
+    if sources.letsencrypt {
+        if !checkable(ports) {
+            out.push(
+                Diagnostic::error(
+                    "no-check",
+                    format!(
+                        "websocket.host \"{host}\" cannot be checked: open http: 80, or give websocket.tls files"
+                    ),
+                )
+                .at(spans.value(&["websocket", "host"]))
+                .help(FORWARDING),
+            );
+        }
         return;
     }
     out.push(

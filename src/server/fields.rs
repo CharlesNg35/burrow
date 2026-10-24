@@ -166,6 +166,7 @@ mod tests {
                         tls: None,
                         keepalive: Duration::from_secs(25),
                         host: None,
+                        shares: crate::config::settings::Shares::Nothing,
                     })
                 }),
             ),

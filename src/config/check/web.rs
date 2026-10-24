@@ -4,7 +4,7 @@ use std::path::Path;
 
 use super::{Spans, binds_conflict, parse_addr};
 use crate::config::diagnostics::Diagnostic;
-use crate::config::settings::{WebSite, WebSocketSettings};
+use crate::config::settings::{Shares, WebSite, WebSocketSettings};
 use crate::config::tree::Span;
 use burrow_config::{Bind, Protocol, ServerConfig, ServiceWeb, SiteTls, TlsMode};
 use burrow_syntax::web::{SingleLabel, host_name, is_wildcard};
@@ -88,6 +88,7 @@ pub(super) fn http_beside_websocket(
     out: &mut Vec<Diagnostic>,
 ) {
     if let (Some(h), Some(ws)) = (http, ws)
+        && ws.shares != Shares::Http
         && binds_conflict(h, ws.listen)
     {
         out.push(
@@ -97,7 +98,7 @@ pub(super) fn http_beside_websocket(
             )
             .at(spans.value(&["web", "http"]))
             .label("already used by websocket.listen")
-            .help("the tunnel can share only web.https; use another port for one of them"),
+            .help("to share it, write websocket.listen the same way as web.http and give websocket.host; otherwise use another port for one of them"),
         );
     }
 }
@@ -166,49 +167,103 @@ fn web_port(
 
 fn shares_port(
     cfg: &ServerConfig,
-    https: Option<SocketAddr>,
+    ports: (Option<SocketAddr>, Option<SocketAddr>),
     ws: &mut WebSocketSettings,
     listen: &Bind,
     spans: &Spans,
     out: &mut Vec<Diagnostic>,
-) -> Result<bool, ()> {
-    let Some(h) = https.filter(|h| h.port() == ws.listen.port()) else {
-        return Ok(false);
-    };
+) -> Result<Shares, ()> {
     let wanted = match bare_port(listen) {
         Some(p) => SocketAddr::new(Ipv6Addr::UNSPECIFIED.into(), p),
         None => ws.listen,
     };
-    if wanted == h {
-        ws.listen = h;
-        return Ok(true);
+    let candidates = [
+        (ports.0, Shares::Https, "https"),
+        (ports.1, Shares::Http, "http"),
+    ];
+    for (port, shares, key) in candidates {
+        let Some(h) = port.filter(|h| h.port() == ws.listen.port()) else {
+            continue;
+        };
+        if wanted == h {
+            ws.listen = h;
+            return Ok(shares);
+        }
+        if !binds_conflict(wanted, h) {
+            continue;
+        }
+        let written = cfg
+            .web
+            .as_ref()
+            .and_then(|w| {
+                if key == "https" {
+                    w.https.as_ref()
+                } else {
+                    w.http.as_ref()
+                }
+            })
+            .map_or(String::new(), Bind::to_string);
+        out.push(
+            Diagnostic::error(
+                "web-overlap",
+                format!(
+                    "websocket.listen {wanted} and web.{key} {h} overlap; to share the port give both the same address, otherwise use another port"
+                ),
+            )
+            .at(spans.value(&["websocket", "listen"]))
+            .label(format!("same port as web.{key}"))
+            .help(format!(
+                "write websocket.listen the same way as web.{key} ({written}) to share it"
+            )),
+        );
+        return Err(());
     }
-    if !binds_conflict(wanted, h) {
-        return Ok(false);
+    Ok(Shares::Nothing)
+}
+
+fn plain_on_443(cfg: &ServerConfig, ws: &WebSocketSettings, spans: &Spans) -> Option<Diagnostic> {
+    if ws.listen.port() != 443 || ws.tls.is_some() {
+        return None;
     }
-    out.push(
-        Diagnostic::error(
-            "web-overlap",
+    let host = cfg.public_address.as_deref().map_or("this-server", |a| {
+        let a = a.rsplit("://").next().unwrap_or(a);
+        let a = a.split('/').next().unwrap_or(a);
+        match a.rsplit_once(':') {
+            Some((h, p)) if p.parse::<u16>().is_ok() && !h.contains(':') => h,
+            _ => a,
+        }
+    });
+    Some(
+        Diagnostic::warning(
+            "plain-ws-443",
             format!(
-                "websocket.listen {wanted} and web.https {h} overlap; to share the port give both the same address, otherwise use another port"
+                "websocket.listen 443 has no TLS: clients must use ws://{host}:443{}, and networks that expect TLS on 443 may block it; add websocket.tls, use web.letsencrypt (a web: block with websocket.host), or use port 80",
+                ws.path
             ),
         )
         .at(spans.value(&["websocket", "listen"]))
-        .label("same port as web.https")
-        .help(format!(
-            "write websocket.listen the same way as web.https ({}) to share it",
-            cfg.web
-                .as_ref()
-                .and_then(|w| w.https.as_ref())
-                .map_or(String::new(), Bind::to_string)
-        )),
-    );
-    Err(())
+        .help("the tunnel stays encrypted by burrow either way"),
+    )
+}
+
+fn host_unused(cfg: &ServerConfig) -> Diagnostic {
+    if cfg.web.is_none() {
+        return Diagnostic::error(
+            "tunnel-host",
+            "websocket.host is only used when the tunnel shares a web port, and this server has no web: block; remove websocket.host, or add web: {https: 443} (and web.letsencrypt for an automatic certificate) to share 443",
+        )
+        .help("for example web: {https: 443, letsencrypt: {email: you@example.com}} with websocket: {listen: 443, host: tunnel.example.com}");
+    }
+    Diagnostic::error(
+        "tunnel-host",
+        "websocket.host is only used when websocket.listen is the same port as web.https or web.http; remove it, or set websocket.listen: 443 (or 80)",
+    )
+    .help("for example web: {https: 443} with websocket: {listen: 443, host: tunnel.example.com}")
 }
 
 pub(super) fn share_tunnel(
     cfg: &ServerConfig,
-    https: Option<SocketAddr>,
+    ports: (Option<SocketAddr>, Option<SocketAddr>),
     websocket: Option<&mut WebSocketSettings>,
     spans: &Spans,
     out: &mut Vec<Diagnostic>,
@@ -217,16 +272,25 @@ pub(super) fn share_tunnel(
         return;
     };
     let host_at = spans.value(&["websocket", "host"]);
-    let Ok(shared) = shares_port(cfg, https, ws, &given.listen, spans, out) else {
+    let Ok(shares) = shares_port(cfg, ports, ws, &given.listen, spans, out) else {
         return;
     };
+    ws.shares = shares;
+    if shares == Shares::Nothing {
+        out.extend(plain_on_443(cfg, ws, spans));
+    }
     let Some(text) = given.host.as_deref() else {
-        if shared {
+        if shares != Shares::Nothing {
+            let key = if shares == Shares::Https {
+                "https"
+            } else {
+                "http"
+            };
             out.push(
                 Diagnostic::error(
                     "tunnel-host",
                     format!(
-                        "websocket.host is required when websocket.listen is the same port as web.https ({}): it is the name that leads to the tunnel",
+                        "websocket.host is required when websocket.listen is the same port as web.{key} ({}): it is the name that leads to the tunnel",
                         ws.listen.port()
                     ),
                 )
@@ -236,15 +300,8 @@ pub(super) fn share_tunnel(
         }
         return;
     };
-    if !shared {
-        out.push(
-            Diagnostic::error(
-                "tunnel-host",
-                "websocket.host is only used when websocket.listen is the same port as web.https; remove it, or set websocket.listen to the port of web.https",
-            )
-            .at(host_at)
-            .help("for example web: {https: 443} with websocket: {listen: 443, host: tunnel.example.com}"),
-        );
+    if shares == Shares::Nothing {
+        out.push(host_unused(cfg).at(host_at));
         return;
     }
     let host = match host_name(text, SingleLabel::Refused) {
@@ -269,8 +326,8 @@ pub(super) fn share_tunnel(
             return;
         }
     };
-    if !on_terminated_site(cfg, &host) {
-        certs::tunnel_has_source(cfg, &host, ws.tls.is_some(), spans, out);
+    if shares == Shares::Https && !on_terminated_site(cfg, &host) {
+        certs::tunnel_has_source(cfg, (&host, ws.tls.is_some()), ports, spans, out);
     }
     ws.host = Some(host);
 }
@@ -341,7 +398,7 @@ pub(super) fn check_sites(
             sites.insert(name.clone(), fill::site(cfg, web, hosts, base_dir));
         }
     }
-    certs::check_sources(cfg, https, spans, out);
+    certs::check_sources(cfg, (https, http), spans, out);
     choices::check_choices(cfg, (https, http), spans, out);
     sites
 }
@@ -505,10 +562,13 @@ mod tests_files;
 mod tests_keys;
 
 #[cfg(all(test, feature = "web"))]
+mod tests_tunnel;
+
+#[cfg(all(test, feature = "web"))]
 mod tests_settings;
 
 #[cfg(all(test, feature = "web"))]
-mod tests_tunnel;
+mod tests_sharing;
 
 #[cfg(all(test, not(feature = "web")))]
 mod tests_without_web;

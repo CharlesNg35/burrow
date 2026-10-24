@@ -180,5 +180,6 @@ pub(super) fn check_websocket(
         tls,
         keepalive: Duration::from_secs(ws.keepalive_secs.into()),
         host: None,
+        shares: crate::config::settings::Shares::Nothing,
     })
 }

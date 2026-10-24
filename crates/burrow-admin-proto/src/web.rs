@@ -13,6 +13,8 @@ pub struct WebSummary {
     #[serde(default)]
     pub shared_with_tunnel: bool,
     #[serde(default)]
+    pub http_shared_with_tunnel: bool,
+    #[serde(default)]
     pub certificates: String,
     #[serde(default)]
     pub tunnel: Option<TunnelLine>,
@@ -58,7 +60,15 @@ impl WebSummary {
             ports.push(format!("https {} ({}{shared})", self.https, self.addresses));
         }
         if !self.http.is_empty() {
-            ports.push(format!("http {} ({})", self.http, self.http_addresses));
+            let shared = if self.http_shared_with_tunnel {
+                "; shared with the tunnel"
+            } else {
+                ""
+            };
+            ports.push(format!(
+                "http {} ({}{shared})",
+                self.http, self.http_addresses
+            ));
         }
         format!("web: {}", ports.join(", "))
     }

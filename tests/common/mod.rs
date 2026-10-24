@@ -133,6 +133,7 @@ fn as_websocket(mut settings: ServerSettings) -> ServerSettings {
             tls: None,
             keepalive: Duration::from_secs(25),
             host: None,
+            shares: burrow::config::settings::Shares::Nothing,
         });
     }
     settings

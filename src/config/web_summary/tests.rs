@@ -167,3 +167,22 @@ fn without_https_every_site_is_plain_and_the_tunnel_names_its_certificate() {
         ]
     );
 }
+
+#[test]
+fn a_tunnel_on_the_plain_http_port_says_it_is_burrow_encrypted() {
+    let s = settings(
+        std::path::Path::new("."),
+        "web:\n  http: 80\nwebsocket:\n  listen: 80\n  host: tunnel.example.com\n",
+    );
+    assert_eq!(
+        summary(&s).unwrap().lines(),
+        [
+            "web: http [::]:80 (IPv4 and IPv6; shared with the tunnel)",
+            "tunnel: ws://tunnel.example.com/burrow (plain ws://, burrow-encrypted)",
+        ]
+    );
+    assert_eq!(
+        s.public_address.as_deref(),
+        Some("ws://tunnel.example.com/burrow")
+    );
+}

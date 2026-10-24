@@ -1,8 +1,8 @@
 use std::net::SocketAddr;
 
 use crate::config::settings::{
-    LETSENCRYPT_PRODUCTION, LETSENCRYPT_STAGING, LetsEncrypt, ServerSettings, WebSettings, WebSite,
-    WebTls,
+    LETSENCRYPT_PRODUCTION, LETSENCRYPT_STAGING, LetsEncrypt, ServerSettings, Shares, WebSettings,
+    WebSite, WebTls,
 };
 pub use burrow_admin_proto::web::{HostLine, PLAIN, TunnelLine, WebSummary};
 use burrow_syntax::web::{entry_for, is_ip};
@@ -130,6 +130,7 @@ fn tunnel_line(s: &ServerSettings, web: &WebSettings) -> Option<TunnelLine> {
     let ws = s.websocket.as_ref()?;
     let url = ws.shared_url()?;
     let certificate = match (&ws.tls, ws.host.as_deref()) {
+        _ if ws.shares == Shares::Http => "plain ws://, burrow-encrypted".to_string(),
         (Some(t), _) => format!("websocket.tls {}", t.cert_path.display()),
         (None, Some(name)) => {
             let (source, check) = automatic(web, name);
@@ -147,6 +148,7 @@ fn tunnel_line(s: &ServerSettings, web: &WebSettings) -> Option<TunnelLine> {
 pub fn summary(s: &ServerSettings) -> Option<WebSummary> {
     let web = s.web.as_ref().filter(|_| cfg!(feature = "web"))?;
     let tunnel = tunnel_line(s, web);
+    let shares = s.websocket.as_ref().map_or(Shares::Nothing, |w| w.shares);
     let mut hosts: Vec<HostLine> = web
         .sites
         .iter()
@@ -164,7 +166,8 @@ pub fn summary(s: &ServerSettings) -> Option<WebSummary> {
         addresses,
         http,
         http_addresses,
-        shared_with_tunnel: tunnel.is_some(),
+        shared_with_tunnel: tunnel.is_some() && shares == Shares::Https,
+        http_shared_with_tunnel: tunnel.is_some() && shares == Shares::Http,
         certificates: web.letsencrypt.as_ref().map(account).unwrap_or_default(),
         tunnel,
         hosts,

@@ -332,6 +332,14 @@ impl Limit {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Shares {
+    #[default]
+    Nothing,
+    Https,
+    Http,
+}
+
 #[derive(Clone, PartialEq)]
 pub struct WebSocketSettings {
     pub listen: SocketAddr,
@@ -339,14 +347,19 @@ pub struct WebSocketSettings {
     pub tls: Option<TlsMaterial>,
     pub keepalive: std::time::Duration,
     pub host: Option<String>,
+    pub shares: Shares,
 }
 
 impl WebSocketSettings {
     pub fn shared_url(&self) -> Option<String> {
-        let host = self.host.clone()?;
+        let tls = match self.shares {
+            Shares::Nothing => return None,
+            Shares::Https => true,
+            Shares::Http => false,
+        };
         let url = Endpoint::WebSocket {
-            tls: true,
-            host,
+            tls,
+            host: self.host.clone()?,
             port: self.listen.port(),
             path: self.path.clone(),
         };
@@ -444,5 +457,35 @@ mod tests {
             old.listen_clash(&udp).is_none(),
             "a UDP port does not clash with a TCP listener"
         );
+    }
+
+    #[test]
+    fn the_shared_tunnel_url_follows_the_web_port_it_shares() {
+        let ws = |listen: &str, shares: Shares| WebSocketSettings {
+            listen: listen.parse().unwrap(),
+            path: "/burrow".into(),
+            tls: None,
+            keepalive: std::time::Duration::from_secs(25),
+            host: Some("tunnel.example.com".into()),
+            shares,
+        };
+        let url = |listen: &str, shares| ws(listen, shares).shared_url();
+        assert_eq!(
+            url("[::]:443", Shares::Https).as_deref(),
+            Some("wss://tunnel.example.com/burrow")
+        );
+        assert_eq!(
+            url("[::]:8443", Shares::Https).as_deref(),
+            Some("wss://tunnel.example.com:8443/burrow")
+        );
+        assert_eq!(
+            url("[::]:80", Shares::Http).as_deref(),
+            Some("ws://tunnel.example.com/burrow")
+        );
+        assert_eq!(
+            url("[::]:8080", Shares::Http).as_deref(),
+            Some("ws://tunnel.example.com:8080/burrow")
+        );
+        assert_eq!(url("127.0.0.1:7836", Shares::Nothing), None);
     }
 }

@@ -41,6 +41,7 @@ fn ws_server(secret: &Secret, path: &str, tls: Option<&Cert>) -> ServerSettings 
         }),
         keepalive: Duration::from_secs(25),
         host: None,
+        shares: burrow::config::settings::Shares::Nothing,
     });
     s
 }

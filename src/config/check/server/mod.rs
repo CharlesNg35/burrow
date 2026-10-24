@@ -33,7 +33,7 @@ pub fn check_server(
         .websocket
         .as_ref()
         .and_then(|ws| check_websocket(ws, listen, spans, base_dir, out));
-    super::web::share_tunnel(cfg, https, websocket.as_mut(), spans, out);
+    super::web::share_tunnel(cfg, (https, http), websocket.as_mut(), spans, out);
     super::web::http_beside_websocket(http, websocket.as_ref(), spans, out);
 
     check_public_address(cfg, listen, websocket.as_ref(), spans, out);

@@ -206,6 +206,7 @@ pub fn share_tunnel(s: &mut ServerSettings, host: &str, c: &Cert) {
         }),
         keepalive: Duration::from_secs(25),
         host: Some(host.into()),
+        shares: burrow::config::settings::Shares::Https,
     });
     s.web.as_mut().unwrap().tunnel = Some(host.into());
 }

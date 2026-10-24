@@ -166,7 +166,7 @@ fn web_http_must_not_share_a_port_with_another_listener() {
             "web.http [::]:7835 is also the control port (listen 0.0.0.0:7835)",
         ),
         (
-            "web: { https: 443, http: 8080 }\nwebsocket: { listen: 8080 }",
+            "web: { https: 443, http: 8080 }\nwebsocket: { listen: 0.0.0.0:8080 }",
             "web.http [::]:8080 is also websocket.listen 0.0.0.0:8080",
         ),
     ] {
@@ -314,7 +314,7 @@ fn the_tunnel_messages_of_section_5_3() {
     assert_eq!(
         errors(&alone),
         [
-            "websocket.host is only used when websocket.listen is the same port as web.https; remove it, or set websocket.listen to the port of web.https"
+            "websocket.host is only used when websocket.listen is the same port as web.https or web.http; remove it, or set websocket.listen: 443 (or 80)"
         ]
     );
     assert_eq!(
