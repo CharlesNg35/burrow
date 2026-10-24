@@ -15,6 +15,7 @@ burrow = { path = ".." }
 burrow-config = { path = "../crates/burrow-config" }
 burrow-syntax = { path = "../crates/burrow-syntax" }
 burrow-web = { path = "../crates/burrow-web" }
+tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring", "logging", "tls12"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 tokio = { version = "1", features = ["rt", "io-util"] }
 
