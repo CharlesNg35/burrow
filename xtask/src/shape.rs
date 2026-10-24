@@ -54,12 +54,31 @@ pub fn kind_of(path: &str, src: &str) -> Kind {
 
 pub fn inline_tests_at(lines: &[&str]) -> Option<usize> {
     lines.iter().enumerate().find_map(|(i, l)| {
-        let opens = l.starts_with("#[cfg(test)]")
-            && lines
-                .get(i + 1)
-                .is_some_and(|n| n.starts_with("mod tests {"));
-        (opens || l.starts_with("mod tests {")).then_some(i)
+        let gated = l.starts_with("#[cfg(test)]")
+            && lines.get(i + 1).is_some_and(|n| opens_module(n))
+            && trailing(lines, i + 1);
+        let plain = l.starts_with("mod tests {") && trailing(lines, i);
+        (gated || plain).then_some(i)
     })
+}
+
+fn opens_module(line: &str) -> bool {
+    let rest = ["pub(crate) ", "pub(super) ", "pub "]
+        .iter()
+        .find_map(|v| line.strip_prefix(v))
+        .unwrap_or(line);
+    rest.strip_prefix("mod ")
+        .and_then(|r| r.strip_suffix(" {"))
+        .is_some_and(|name| {
+            !name.is_empty() && name.chars().all(|c| c.is_alphanumeric() || c == '_')
+        })
+}
+
+fn trailing(lines: &[&str], open: usize) -> bool {
+    lines[open + 1..]
+        .iter()
+        .position(|l| *l == "}")
+        .is_some_and(|end| lines[open + 2 + end..].iter().all(|l| l.trim().is_empty()))
 }
 
 pub fn size_problems(path: &str, src: &str) -> Vec<String> {
@@ -184,6 +203,33 @@ mod tests {
             lines(200, "fn t() {}")
         );
         assert!(size_problems("src/a.rs", &src).is_empty());
+    }
+
+    #[test]
+    fn a_test_module_of_any_visibility_or_name_is_the_inline_test_module() {
+        for head in [
+            "pub(crate) mod tests {",
+            "pub mod tests {",
+            "pub(super) mod checks {",
+        ] {
+            let src = format!(
+                "{}\n#[cfg(test)]\n{head}\n{}\n}}\n",
+                lines(455, "let x = 1;"),
+                lines(270, "fn t() {}")
+            );
+            assert!(size_problems("src/a.rs", &src).is_empty(), "{head}");
+            let lines_of: Vec<&str> = src.lines().collect();
+            assert_eq!(inline_tests_at(&lines_of), Some(455), "{head}");
+        }
+    }
+
+    #[test]
+    fn a_gated_module_that_is_not_last_counts_as_code() {
+        let src = format!(
+            "#[cfg(test)]\nmod helpers {{\n}}\n{}",
+            lines(600, "let x = 1;")
+        );
+        assert_eq!(size_problems("src/a.rs", &src).len(), 1);
     }
 
     #[test]
