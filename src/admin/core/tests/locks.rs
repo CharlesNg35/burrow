@@ -204,8 +204,12 @@ fn the_files_stay_editable_by_file_and_a_revert_keeps_the_current_ones() {
         }],
     )
     .unwrap();
-    assert!(
-        reverted.new_text.contains(&site.file("b.pem")),
+    let doc = crate::config::tree::parse(&crate::config::patch::split_text(&reverted.new_text).2)
+        .unwrap()
+        .to_json();
+    assert_eq!(
+        doc["services"]["nas"]["web"]["tls"]["cert"],
+        json!(site.file("b.pem")),
         "{}",
         reverted.new_text
     );
