@@ -1,5 +1,5 @@
 mod platform;
-pub mod trust;
+pub(crate) mod trust;
 
 use std::path::{Path, PathBuf};
 
