@@ -98,21 +98,6 @@ impl Split for TcpStream {
     }
 }
 
-#[cfg(feature = "web")]
-impl Split for burrow_web::Pipe {
-    type Read<'a> = tokio::io::ReadHalf<&'a mut burrow_web::Pipe>;
-    type Write<'a> = tokio::io::WriteHalf<&'a mut burrow_web::Pipe>;
-    fn halves(&mut self) -> (Self::Read<'_>, Self::Write<'_>) {
-        tokio::io::split(self)
-    }
-    fn reset_on_close(&self, reset: bool) {
-        self.set_reset(reset);
-    }
-}
-
-#[cfg(feature = "web")]
-impl Linger for tokio::io::WriteHalf<&mut burrow_web::Pipe> {}
-
 #[cfg(unix)]
 impl Split for tokio::net::UnixStream {
     type Read<'a> = tokio::net::unix::ReadHalf<'a>;

@@ -10,7 +10,7 @@ use tracing::{debug, info, warn};
 use super::Shared;
 use super::route::{Outcome, Tries, Way};
 use crate::config::settings::Service;
-use crate::forward::{ForwardError, Meter, Opened, Opening, Split, open_tcp};
+use crate::forward::{ForwardError, Incoming, Meter, Opened, Opening, Split, open_tcp};
 use crate::wire::protocol::{Connect, Status};
 use crate::wire::proxy_protocol::header;
 use crate::wire::transport::tcp::tune;
@@ -59,7 +59,7 @@ pub(super) async fn tcp_service(
                 index,
                 door: Door::Bind,
             };
-            visit(shared, name, svc, visitor, entry, admitted).await;
+            visit(shared, name, svc, Incoming::Tcp(visitor), entry, admitted).await;
         });
     }
 }
@@ -120,11 +120,11 @@ pub(super) fn admit(
     })
 }
 
-pub(super) async fn visit<V: Split>(
+pub(super) async fn visit(
     shared: Arc<Shared>,
     name: String,
     svc: Service,
-    mut visitor: V,
+    mut visitor: Incoming,
     entry: Entry,
     admitted: Admitted,
 ) {

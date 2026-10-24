@@ -1,4 +1,5 @@
 mod early;
+mod incoming;
 mod linger;
 mod open;
 
@@ -15,6 +16,7 @@ use crate::wire::transport::Channel;
 use crate::wire::transport::Conn;
 pub use early::Early;
 use early::Sealed;
+pub use incoming::Incoming;
 use linger::{Graceful, close};
 pub use linger::{Linger, Split};
 use open::{Client, answer, ended_cleanly, refused, start};

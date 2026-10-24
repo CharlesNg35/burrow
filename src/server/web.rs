@@ -61,7 +61,7 @@ impl Upstream for Doorway {
             shared.clone(),
             service.to_string(),
             svc,
-            theirs,
+            crate::forward::Incoming::Web(theirs),
             entry,
             admitted,
         ));
