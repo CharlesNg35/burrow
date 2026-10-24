@@ -114,7 +114,7 @@ fn editors(c: &mut Ctx) -> Flow<'_> {
         c.ui.wait_gone("[data-testid=save-bar]", SECS).await;
         edit_mode(c).await;
         c.ui.wait_for("[data-server-address]", SECS).await;
-        click_js(c, "[data-server-address] input[value=host]").await;
+        click_js(c, "[data-server-address] input[value=name]").await;
         c.ui.fill("#f-public-address", "bad host").await;
         let err = row_error(c, "public_address").await;
         assert!(!err.is_empty(), "a host with a space is refused inline");
@@ -128,7 +128,7 @@ fn editors(c: &mut Ctx) -> Flow<'_> {
             "a wss:// address is refused inline on a server without WebSocket, as validate refuses it: {err}"
         );
         c.ui.shot("server-address-wss").await;
-        click_js(c, "[data-server-address] input[value=host]").await;
+        click_js(c, "[data-server-address] input[value=name]").await;
         c.ui.fill("#f-public-address", "tunnel.example.net").await;
         row_clean(c, "public_address").await;
         open_review(c, "review-of-the-server-address").await;

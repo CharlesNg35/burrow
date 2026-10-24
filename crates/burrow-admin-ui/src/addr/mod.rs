@@ -229,14 +229,14 @@ pub fn server_editor(fc: FieldCtx) -> AnyView {
             <Segmented
                 name=format!("{}-scheme", fc.id)
                 label="Address kind"
-                options=vec![("host".to_string(), "host".to_string(), false), ("ws".to_string(), "ws://".to_string(), false), ("wss".to_string(), "wss://".to_string(), false)]
+                options=vec![("name".to_string(), "host name".to_string(), false), ("ws".to_string(), "ws://".to_string(), false), ("wss".to_string(), "wss://".to_string(), false)]
                 value=Signal::derive(move || server.with(|s| s.scheme.to_string()))
                 on_change=Callback::new(move |v: String| {
                     server.update(|s| {
                         s.scheme = match v.as_str() {
                             "ws" => "ws",
                             "wss" => "wss",
-                            _ => "host",
+                            _ => "name",
                         }
                     });
                     c2();

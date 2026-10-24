@@ -139,7 +139,7 @@ pub fn split_server(v: Option<&Value>) -> Server {
         }
     }
     Server {
-        scheme: "host",
+        scheme: "name",
         rest: t.to_string(),
     }
 }
@@ -150,7 +150,7 @@ pub fn join_server(s: &Server) -> Option<Value> {
         return None;
     }
     Some(Value::String(match s.scheme {
-        "host" => rest.to_string(),
+        "name" => rest.to_string(),
         scheme => format!("{scheme}://{rest}"),
     }))
 }

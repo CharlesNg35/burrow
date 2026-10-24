@@ -48,7 +48,7 @@ pub fn head_of<B>(req: &::http::Request<B>) -> Result<Head, Reject> {
     Ok(Head {
         method: req.method().as_str().to_string(),
         path: req.uri().to_string(),
-        host: one("host")?,
+        host: one(::http::header::HOST.as_str())?,
         origin: one("origin")?,
         fetch_site: one("sec-fetch-site")?,
         fetch_mode: one("sec-fetch-mode")?,
