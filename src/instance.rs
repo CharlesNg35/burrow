@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use blake2::{Blake2s256, Digest};
 
-use crate::failure::Failure;
+use crate::base::failure::Failure;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Identity {
@@ -15,7 +15,7 @@ pub enum Identity {
 impl Identity {
     pub fn server(config: &Path) -> Identity {
         Identity::Server {
-            config: crate::service::system::canonical_or_same(config),
+            config: crate::base::fs::canonical_or_same(config),
         }
     }
 
@@ -204,56 +204,6 @@ pub fn default_dir() -> PathBuf {
     fallback_dir()
 }
 
-pub fn write_private(path: &Path, text: &str) -> std::io::Result<()> {
-    let _ = std::fs::remove_file(path);
-    let mut opts = std::fs::OpenOptions::new();
-    opts.write(true).create_new(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        opts.mode(0o600).custom_flags(libc::O_NOFOLLOW);
-        opts.open(path)?.write_all(text.as_bytes())
-    }
-    #[cfg(windows)]
-    {
-        use std::os::windows::fs::OpenOptionsExt;
-        let draft = path.with_extension("new");
-        let _ = std::fs::remove_file(&draft);
-        let mut f = opts.share_mode(0).open(&draft)?;
-        restrict_on_windows(&draft);
-        let written = f.write_all(text.as_bytes());
-        drop(f);
-        written
-            .and_then(|()| std::fs::rename(&draft, path))
-            .inspect_err(|_| {
-                let _ = std::fs::remove_file(&draft);
-            })
-    }
-    #[cfg(not(any(unix, windows)))]
-    opts.open(path)?.write_all(text.as_bytes())
-}
-
-#[cfg(windows)]
-pub(crate) fn restrict_on_windows(path: &Path) {
-    let me = std::process::Command::new("whoami")
-        .output()
-        .ok()
-        .filter(|o| o.status.success())
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-        .filter(|u| !u.is_empty());
-    let mut args = vec![
-        path.display().to_string(),
-        "/inheritance:r".into(),
-        "/grant:r".into(),
-        "*S-1-5-18:F".into(),
-        "*S-1-5-32-544:F".into(),
-    ];
-    if let Some(me) = me {
-        args.push(format!("{me}:F"));
-    }
-    let _ = std::process::Command::new("icacls").args(&args).output();
-}
-
 pub fn private_dir(dir: &Path) -> std::io::Result<()> {
     std::fs::create_dir_all(dir)?;
     #[cfg(unix)]
@@ -403,7 +353,7 @@ pub fn acquire_in(dir: &Path, identity: &Identity, config: &Path) -> Result<Inst
         return Err(Failure::new(format!(
             "cannot create {}: {}",
             dir.display(),
-            crate::failure::file_reason(&e)
+            crate::base::failure::file_reason(&e)
         ))
         .hint("burrow keeps a small lock file there so the same tunnel cannot run twice"));
     }
@@ -444,7 +394,7 @@ pub fn acquire_in(dir: &Path, identity: &Identity, config: &Path) -> Result<Inst
                 return Err(Failure::new(format!(
                     "cannot lock {}: {}",
                     path.display(),
-                    crate::failure::file_reason(&e)
+                    crate::base::failure::file_reason(&e)
                 )));
             }
         }
@@ -452,7 +402,7 @@ pub fn acquire_in(dir: &Path, identity: &Identity, config: &Path) -> Result<Inst
     let note = format!(
         "pid {}, config {}",
         std::process::id(),
-        crate::service::system::canonical_or_same(config).display()
+        crate::base::fs::canonical_or_same(config).display()
     );
     let noted = writable && write_note(&path.with_extension("info"), &note);
     let mut fresh = vec![path.clone()];
@@ -510,10 +460,10 @@ fn already_running(identity: &Identity, lock: &Path) -> Failure {
     } else {
         format!(" ({holder})")
     };
-    let hint = if crate::failure::SERVICES {
+    let hint = if crate::base::failure::SERVICES {
         format!(
             "stop the other instance first; if it runs as a service, find it with: {}",
-            crate::failure::cmd("service list")
+            crate::base::failure::cmd("service list")
         )
     } else {
         "stop the other instance first".to_string()
@@ -718,8 +668,8 @@ fn trusted_owner(uid: u32, config: &Path) -> bool {
     uid == 0
         || uid == me
         || crate::service::all_manifests().iter().any(|m| {
-            (m.created_account || crate::service::system::canonical_or_same(&m.config) == config)
-                && crate::service::system::account_ids(&m.account).is_ok_and(|(id, _)| id == uid)
+            (m.created_account || crate::base::fs::canonical_or_same(&m.config) == config)
+                && crate::base::process::account_ids(&m.account).is_ok_and(|(id, _)| id == uid)
         })
 }
 
@@ -797,7 +747,7 @@ pub(crate) fn alive(pid: u32) -> bool {
 }
 
 fn open_failure(path: &Path, e: &std::io::Error) -> Failure {
-    Failure::new(format!("cannot open {}: {}", path.display(), crate::failure::file_reason(e)))
+    Failure::new(format!("cannot open {}: {}", path.display(), crate::base::failure::file_reason(e)))
         .hint("check the permissions of that file; it only holds a lock and can be deleted when burrow is not running")
 }
 
@@ -916,7 +866,7 @@ mod tests {
         let note = format!(
             "pid {}, config {}",
             std::process::id(),
-            crate::service::system::canonical_or_same(&cfg).display()
+            crate::base::fs::canonical_or_same(&cfg).display()
         );
         let writer = std::thread::spawn(move || {
             std::thread::sleep(std::time::Duration::from_millis(300));
@@ -1010,31 +960,6 @@ mod tests {
         assert_eq!(found[0].pid, std::process::id());
         assert!(found[0].config.ends_with("client.yaml"));
         drop(lock);
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn a_private_file_is_locked_down_before_it_holds_anything() {
-        let dir = tempfile::tempdir().unwrap();
-        let shared = std::process::Command::new("icacls")
-            .arg(dir.path())
-            .args(["/grant", "*S-1-5-32-545:(OI)(CI)M"])
-            .output()
-            .unwrap();
-        assert!(shared.status.success());
-        let path = dir.path().join("1.status");
-        write_private(&path, "token").unwrap();
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), "token");
-        let acl = std::process::Command::new("icacls")
-            .arg(&path)
-            .output()
-            .unwrap();
-        let acl = String::from_utf8_lossy(&acl.stdout).to_string();
-        assert!(
-            !acl.contains("S-1-5-32-545") && !acl.contains("BUILTIN\\Users"),
-            "{acl}"
-        );
-        assert!(!path.with_extension("new").exists());
     }
 
     #[cfg(unix)]

@@ -62,7 +62,7 @@ async fn world_with(services: usize) -> World {
             ));
         }
     }
-    burrow::instance::write_private(&path, &text).unwrap();
+    burrow::base::fs::write_private(&path, &text).unwrap();
     let env = burrow::run::Env::default();
     let outcome = load_file(&path, Some(Role::Server), &env).unwrap();
     let Some(Loaded::Server(settings, _)) = outcome.loaded else {

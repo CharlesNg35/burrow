@@ -107,7 +107,7 @@ pub fn secretish(key: &str) -> bool {
     let key = key.to_ascii_lowercase();
     key.contains(SECRET_WORD)
         || SECRET_LIKE.contains(&key.as_str())
-        || crate::suggest::closest(&key, [SECRET_WORD]).is_some()
+        || crate::base::suggest::closest(&key, [SECRET_WORD]).is_some()
 }
 
 pub fn secret_spans(root: &Node) -> Vec<Span> {
@@ -166,7 +166,7 @@ fn name_error(kind: &str, name: &str, span: Span) -> Diagnostic {
 }
 
 fn secret_error(owner: &str, err: &SecretError, span: Span) -> Diagnostic {
-    let make = crate::failure::cmd("gensecret");
+    let make = crate::base::failure::cmd("gensecret");
     let help = match err {
         SecretError::NotDecodable { .. } => {
             format!("use a 32-byte value encoded as base64 or hex; generate one with: {make}")

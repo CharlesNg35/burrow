@@ -1,4 +1,3 @@
-pub(crate) mod access;
 mod apply;
 mod draft;
 mod editor;
@@ -13,11 +12,12 @@ use std::io::{IsTerminal, Write};
 use std::path::Path;
 use std::time::{Duration, Instant};
 
+use crate::base::failure::{Failure, admin, cmd, file_reason};
+use crate::base::prompt::Prompter;
+use crate::base::style::Style;
 use crate::config::Format;
 use crate::config::env::{EnvSource, ProcessEnv};
-use crate::diagnostics::{Severity, Style};
-use crate::failure::{Failure, admin, cmd, file_reason};
-use crate::prompt::Prompter;
+use crate::diagnostics::Severity;
 use draft::Draft;
 use found::{Found, Origin};
 
@@ -95,7 +95,7 @@ fn read(path: &Path) -> Result<String, Failure> {
         if e.kind() == std::io::ErrorKind::PermissionDenied {
             failure.hint(format!(
                 "open it as an administrator: {}",
-                admin(&format!("edit {}", crate::failure::path_arg(path)))
+                admin(&format!("edit {}", crate::base::failure::path_arg(path)))
             ))
         } else {
             failure
@@ -125,15 +125,15 @@ fn edit(
             .hint("burrow configs end in .yaml, .yml or .json")
     })?;
     let before = read(path)?;
-    if !access::can_write(path) {
+    if !crate::base::access::can_write(path) {
         return Err(
             Failure::new(format!("you cannot change {shown}")).hint(format!(
                 "open it as an administrator: {}",
-                admin(&format!("edit {}", crate::failure::path_arg(path)))
+                admin(&format!("edit {}", crate::base::failure::path_arg(path)))
             )),
         );
     }
-    if let Some(owner) = access::other_owner(path) {
+    if let Some(owner) = crate::base::access::other_owner(path) {
         say(
             out,
             format!("note: {shown} belongs to {owner}; it keeps that owner and its permissions"),
@@ -288,7 +288,7 @@ fn edit(
                         "note: {service} runs its own copy of this file; to use the change: {}",
                         admin(&format!(
                             "service install -c {}",
-                            crate::failure::path_arg(path)
+                            crate::base::failure::path_arg(path)
                         ))
                     ),
                 )?;
@@ -339,7 +339,7 @@ mod tests {
 
     fn config(dir: &Path, name: &str, text: &str) -> Found {
         let path = dir.join(name);
-        crate::instance::write_private(&path, text).unwrap();
+        crate::base::fs::write_private(&path, text).unwrap();
         Found {
             path: std::fs::canonicalize(&path).unwrap(),
             role: Role::Client,
@@ -369,7 +369,11 @@ mod tests {
         let good = good();
         let f = config(dir.path(), "client.yaml", &good);
         let next = good.replace("name: home", "name: office");
-        let (code, out) = run(&f, vec![Some(next.clone())], &mut crate::prompt::NoPrompt);
+        let (code, out) = run(
+            &f,
+            vec![Some(next.clone())],
+            &mut crate::base::prompt::NoPrompt,
+        );
         assert_eq!(code, 0, "{out}");
         assert!(out.contains("saved"), "{out}");
         assert_eq!(std::fs::read_to_string(&f.path).unwrap(), next);
@@ -464,7 +468,7 @@ mod tests {
             Ok(())
         };
         let mut out = Vec::new();
-        let code = edit(&f, &mut open, &mut crate::prompt::NoPrompt, &mut out).unwrap();
+        let code = edit(&f, &mut open, &mut crate::base::prompt::NoPrompt, &mut out).unwrap();
         assert_eq!((code, calls), (1, 1));
         assert_eq!(std::fs::read_to_string(&f.path).unwrap(), good);
     }
@@ -521,7 +525,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let good = good();
         let f = config(dir.path(), "client.yaml", &good);
-        let (code, out) = run(&f, vec![None], &mut crate::prompt::NoPrompt);
+        let (code, out) = run(&f, vec![None], &mut crate::base::prompt::NoPrompt);
         assert_eq!(code, 0);
         assert!(out.contains("no changes"), "{out}");
     }
@@ -539,7 +543,13 @@ mod tests {
             std::fs::write(&original, &theirs).unwrap();
             Ok(())
         };
-        let err = edit(&f, &mut open, &mut crate::prompt::NoPrompt, &mut Vec::new()).unwrap_err();
+        let err = edit(
+            &f,
+            &mut open,
+            &mut crate::base::prompt::NoPrompt,
+            &mut Vec::new(),
+        )
+        .unwrap_err();
         assert!(err.message.contains("changed while you were editing"));
         assert_eq!(std::fs::read_to_string(&f.path).unwrap(), theirs);
         let hint = err.hint.unwrap();

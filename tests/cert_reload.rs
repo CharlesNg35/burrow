@@ -64,7 +64,7 @@ async fn serve(config: &Path) -> SocketAddr {
     let outcome = load_file(config, Some(Role::Server), &ProcessEnv).unwrap();
     let report = outcome
         .report
-        .render_text(burrow::diagnostics::Style { color: false });
+        .render_text(burrow::base::style::Style { color: false });
     let Some(Loaded::Server(settings, _)) = outcome.loaded else {
         panic!("server config loads: {report}")
     };
@@ -264,7 +264,7 @@ async fn a_renewed_certificate_is_used_without_a_restart() {
     let outcome = load_file(&config, Some(Role::Server), &ProcessEnv).unwrap();
     let report = outcome
         .report
-        .render_text(burrow::diagnostics::Style { color: false });
+        .render_text(burrow::base::style::Style { color: false });
     let Some(Loaded::Server(settings, _)) = outcome.loaded else {
         panic!("server config loads: {report}")
     };

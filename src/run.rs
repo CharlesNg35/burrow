@@ -6,11 +6,11 @@ use std::sync::Arc;
 use tokio::sync::{mpsc, watch};
 use tracing::error;
 
+use crate::base::failure::Failure;
+use crate::base::style::Style;
 use crate::client::{Client, RunEnd};
 use crate::config::env::EnvSource;
 use crate::config::{Loaded, Role, load_file};
-use crate::diagnostics::Style;
-use crate::failure::Failure;
 use crate::instance::{self, Identity};
 use crate::server::Server;
 use crate::validate::startup_report;
@@ -31,11 +31,11 @@ pub fn init_logging(l: &Logging) -> Result<(), Failure> {
         .with_target(false);
     let result = match (&l.file, l.json) {
         (Some(path), json) => {
-            let file = crate::logfile::RotatingFile::open(path).map_err(|e| {
+            let file = crate::base::logfile::RotatingFile::open(path).map_err(|e| {
                 Failure::new(format!(
                     "cannot open log file {}: {}",
                     path.display(),
-                    crate::failure::file_reason(&e)
+                    crate::base::failure::file_reason(&e)
                 ))
             })?;
             let builder = builder.with_writer(file).with_ansi(false);
@@ -46,14 +46,14 @@ pub fn init_logging(l: &Logging) -> Result<(), Failure> {
             }
         }
         (None, true) => builder
-            .with_writer(|| crate::failure::QuietStderr)
+            .with_writer(|| crate::base::failure::QuietStderr)
             .json()
             .flatten_event(true)
             .try_init(),
         (None, false) => {
             let color = Style::detect(std::io::stderr().is_terminal()).color;
             builder
-                .with_writer(|| crate::failure::QuietStderr)
+                .with_writer(|| crate::base::failure::QuietStderr)
                 .with_ansi(color)
                 .try_init()
         }
@@ -117,7 +117,10 @@ fn load(path: &Path, role: Role, env: &Env, quiet: &[&str]) -> Result<Loaded, Fa
         ))
         .hint(format!(
             "fix them, then check again with: {}",
-            crate::failure::cmd(&format!("validate -c {}", crate::failure::path_arg(path)))
+            crate::base::failure::cmd(&format!(
+                "validate -c {}",
+                crate::base::failure::path_arg(path)
+            ))
         ));
         let only_files = outcome
             .report
@@ -138,7 +141,7 @@ fn load(path: &Path, role: Role, env: &Env, quiet: &[&str]) -> Result<Loaded, Fa
 }
 
 fn config_failure(mut f: Failure) -> Failure {
-    f.exit = crate::failure::EXIT_CONFIG;
+    f.exit = crate::base::failure::EXIT_CONFIG;
     f
 }
 
@@ -310,7 +313,7 @@ pub fn env_file(path: &Path) -> Result<Env, Failure> {
         Failure::new(format!(
             "cannot read {}: {}",
             path.display(),
-            crate::failure::file_reason(&e)
+            crate::base::failure::file_reason(&e)
         ))
     })?;
     let vars: BTreeMap<String, String> = serde_json::from_str(&text)

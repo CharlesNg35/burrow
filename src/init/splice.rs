@@ -289,7 +289,7 @@ mod tests {
             "{}\n{text}",
             parsed
                 .report
-                .render_text(crate::diagnostics::Style { color: false })
+                .render_text(crate::base::style::Style { color: false })
         );
     }
 

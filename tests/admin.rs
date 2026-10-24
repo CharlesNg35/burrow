@@ -63,12 +63,12 @@ async fn world_checked(
         plain.encode(),
         free_port()
     );
-    burrow::instance::write_private(&path, &text).unwrap();
+    burrow::base::fs::write_private(&path, &text).unwrap();
     let env = burrow::run::Env::default();
     let outcome = load_file(&path, Some(Role::Server), &env).unwrap();
     let report = outcome
         .report
-        .render_text(burrow::diagnostics::Style { color: false });
+        .render_text(burrow::base::style::Style { color: false });
     let Loaded::Server(settings, _) = outcome.loaded.unwrap_or_else(|| panic!("{report}")) else {
         panic!("server config")
     };
@@ -695,7 +695,7 @@ async fn burrow_admin_stops_at_once_when_it_cannot_write_the_launch_page() {
         w.addr.to_string()
     };
     let config = dir.path().join("visitor.yaml");
-    burrow::instance::write_private(
+    burrow::base::fs::write_private(
         &config,
         &format!("server: {server}\nname: ops\nsecret: {}\n", w.ops.encode()),
     )
@@ -736,7 +736,7 @@ async fn burrow_admin_stops_at_once_when_it_cannot_write_the_url_file() {
         w.addr.to_string()
     };
     let config = dir.path().join("visitor.yaml");
-    burrow::instance::write_private(
+    burrow::base::fs::write_private(
         &config,
         &format!("server: {server}\nname: ops\nsecret: {}\n", w.ops.encode()),
     )
@@ -855,7 +855,7 @@ async fn burrow_admin_listens_on_7839_unless_it_is_taken_or_a_port_is_given() {
         w.addr.to_string()
     };
     let config = dir.path().join("visitor.yaml");
-    burrow::instance::write_private(
+    burrow::base::fs::write_private(
         &config,
         &format!("server: {server}\nname: ops\nsecret: {}\n", w.ops.encode()),
     )
@@ -911,7 +911,7 @@ struct Local {
     run: String,
     token: String,
     stop: watch::Sender<bool>,
-    task: tokio::task::JoinHandle<Result<(), burrow::failure::Failure>>,
+    task: tokio::task::JoinHandle<Result<(), burrow::base::failure::Failure>>,
 }
 
 async fn local(w: &World, name: &str, secret: &Secret) -> Local {

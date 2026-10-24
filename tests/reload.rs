@@ -414,7 +414,7 @@ mod process {
     }
 
     pub fn write(path: &Path, text: &str) {
-        burrow::instance::write_private(path, text).unwrap();
+        burrow::base::fs::write_private(path, text).unwrap();
     }
 
     pub fn server_line(addr: SocketAddr) -> String {
@@ -610,7 +610,7 @@ async fn replacing_the_ca_file_reloads_the_client() {
     let ca = dir.path().join("ca.pem");
     std::fs::write(&ca, cert("one.example.com")).unwrap();
     let config = dir.path().join("client.yaml");
-    burrow::instance::write_private(
+    burrow::base::fs::write_private(
         &config,
         &format!(
             "server: wss://one.example.com/burrow\nname: home\nsecret: {}\nallow: [127.0.0.0/8]\nca: ca.pem\n",

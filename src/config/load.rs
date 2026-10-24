@@ -81,7 +81,7 @@ impl LoadError {
                 format!("config file {} does not exist", path.display()),
                 format!(
                     "check the path, or create one with: {0} init server  (or: {0} init client, {0} init visitor)",
-                    crate::failure::command()
+                    crate::base::failure::command()
                 ),
             ),
             LoadError::Read(e) if e.kind() == std::io::ErrorKind::PermissionDenied => (
@@ -89,12 +89,12 @@ impl LoadError {
                 if cfg!(windows) {
                     format!(
                         "run as an administrator, or check its permissions with: icacls {}",
-                        crate::failure::path_arg(path)
+                        crate::base::failure::path_arg(path)
                     )
                 } else {
                     format!(
                         "run as the file's owner, or check its permissions with: ls -l {}",
-                        crate::failure::path_arg(path)
+                        crate::base::failure::path_arg(path)
                     )
                 },
             ),
@@ -106,7 +106,7 @@ impl LoadError {
                 format!(
                     "cannot read {}: {}",
                     path.display(),
-                    crate::failure::file_reason(e)
+                    crate::base::failure::file_reason(e)
                 ),
                 "check that the path is a readable file".into(),
             ),
@@ -181,7 +181,7 @@ fn permission_warning(path: &Path) -> Option<Diagnostic> {
         )
         .help(format!(
             "restrict it with: chmod 600 {}",
-            crate::failure::path_arg(path)
+            crate::base::failure::path_arg(path)
         ))
     })
 }
@@ -394,7 +394,10 @@ pub fn load_str_in(
                 .without_snippet()
                 .help(format!(
                     "run it with: {}",
-                    crate::failure::cmd(&format!("{run} -c {}", crate::failure::arg(name)))
+                    crate::base::failure::cmd(&format!(
+                        "{run} -c {}",
+                        crate::base::failure::arg(name)
+                    ))
                 )),
             );
             return fail(report, Some(wanted));

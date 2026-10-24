@@ -83,7 +83,7 @@ pub fn publish_in(
     let port = listener.local_addr().ok()?.port();
     let token = token();
     let entry = Entry {
-        config: crate::service::system::canonical_or_same(config),
+        config: crate::base::fs::canonical_or_same(config),
         pid: std::process::id(),
         port,
         token: token.clone(),
@@ -91,7 +91,7 @@ pub fn publish_in(
     let path = dir.join(format!("{}.status", entry.pid));
     let text = serde_json::to_string(&entry).expect("entry serializes");
     if let Err(e) =
-        crate::instance::prepare(dir).and_then(|()| crate::instance::write_private(&path, &text))
+        crate::instance::prepare(dir).and_then(|()| crate::base::fs::write_private(&path, &text))
     {
         warn!(
             "burrow status will not see this server: cannot write {} ({e})",

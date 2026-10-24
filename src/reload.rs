@@ -7,9 +7,9 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
+use crate::base::style::Style;
 use crate::config::settings::{ClientSettings, ServerSettings, VisitorSettings};
 use crate::config::{Loaded, Role, load_file};
-use crate::diagnostics::Style;
 use crate::run::Env;
 use crate::validate::startup_report;
 

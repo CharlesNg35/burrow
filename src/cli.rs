@@ -581,7 +581,7 @@ pub struct ExportArgs {
 pub fn service_word(
     e: &clap::Error,
     args: &[std::ffi::OsString],
-) -> Option<crate::failure::Failure> {
+) -> Option<crate::base::failure::Failure> {
     if e.kind() != clap::error::ErrorKind::InvalidSubcommand {
         return None;
     }
@@ -598,11 +598,11 @@ pub fn service_word(
         .skip(1)
         .skip_while(|a| a.to_str() != Some(word.as_str()))
         .skip(1)
-        .map(|a| format!(" {}", crate::failure::arg(&a.to_string_lossy())))
+        .map(|a| format!(" {}", crate::base::failure::arg(&a.to_string_lossy())))
         .collect();
     let supported = cfg!(any(target_os = "linux", target_os = "macos", windows));
     Some(
-        crate::failure::Failure::usage(format!("burrow {word} is not a command"))
+        crate::base::failure::Failure::usage(format!("burrow {word} is not a command"))
             .hint(service_word_hint(word, &rest, supported)),
     )
 }
@@ -611,7 +611,7 @@ fn service_word_hint(word: &str, rest: &str, supported: bool) -> String {
     if supported {
         format!(
             "for a service, run: {}",
-            crate::failure::admin(&format!("service {word}{rest}"))
+            crate::base::failure::admin(&format!("service {word}{rest}"))
         )
     } else {
         "burrow cannot manage services on this operating system; run burrow server or burrow client under your own service manager".to_string()
@@ -669,7 +669,7 @@ mod tests {
             assert!(
                 hint(&["burrow", "install", "-c", "my home.yaml"]).contains(&format!(
                     "burrow service install -c {}",
-                    crate::failure::arg("my home.yaml")
+                    crate::base::failure::arg("my home.yaml")
                 ))
             );
         }

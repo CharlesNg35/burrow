@@ -2,7 +2,11 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use super::Backend;
-use crate::failure::Failure;
+use crate::base::failure::Failure;
+#[cfg(unix)]
+use crate::base::process::account_ids;
+#[cfg(windows)]
+use crate::base::process::run_ok;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Platform {
@@ -133,32 +137,6 @@ pub fn backend() -> Result<Box<dyn Backend>, Failure> {
     }
 }
 
-pub fn run(program: &str, args: &[&str]) -> Result<String, Failure> {
-    let out = Command::new(program)
-        .args(args)
-        .output()
-        .map_err(|e| Failure::new(format!("cannot run {program}: {e}")))?;
-    if out.status.success() {
-        Ok(String::from_utf8_lossy(&out.stdout).into_owned())
-    } else {
-        let err = String::from_utf8_lossy(&out.stderr);
-        let msg = err.trim();
-        Err(Failure::new(format!(
-            "{program} {} failed: {}",
-            args.join(" "),
-            if msg.is_empty() { "no output" } else { msg }
-        )))
-    }
-}
-
-#[cfg(any(target_os = "linux", target_os = "macos", windows))]
-pub fn run_ok(program: &str, args: &[&str]) -> bool {
-    Command::new(program)
-        .args(args)
-        .output()
-        .is_ok_and(|o| o.status.success())
-}
-
 #[cfg(unix)]
 pub fn is_admin() -> bool {
     rustix::process::geteuid().is_root()
@@ -227,14 +205,6 @@ pub fn trusted_binary(path: &Path) -> bool {
         && std::env::var_os("ProgramFiles")
             .map(PathBuf::from)
             .is_some_and(|root| path.starts_with(root))
-}
-
-pub fn canonical(p: &Path) -> std::io::Result<PathBuf> {
-    dunce::canonicalize(p)
-}
-
-pub fn canonical_or_same(p: &Path) -> PathBuf {
-    canonical(p).unwrap_or_else(|_| p.to_path_buf())
 }
 
 pub fn same_content(a: &Path, b: &Path) -> bool {
@@ -388,17 +358,6 @@ pub fn run_as_service(name: &str) -> Result<u8, Failure> {
             "burrow service run is only used by the Windows service manager",
         ))
     }
-}
-
-#[cfg(unix)]
-pub fn account_ids(account: &str) -> Result<(u32, u32), Failure> {
-    let read = |flag: &str| -> Result<u32, Failure> {
-        run("id", &[flag, account])?
-            .trim()
-            .parse()
-            .map_err(|_| Failure::new(format!("cannot read the ids of {account}")))
-    };
-    Ok((read("-u")?, read("-g")?))
 }
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -647,19 +606,10 @@ pub fn all_paths_under(files: &[PathBuf], roots: &[&str]) -> bool {
 pub(crate) mod tests {
     use super::*;
 
-    #[test]
-    fn canonical_paths_are_plain_paths() {
-        let dir = tempfile::tempdir().unwrap();
-        let c = canonical(dir.path()).unwrap();
-        assert!(c.is_absolute());
-        assert!(!c.to_string_lossy().starts_with(r"\\?\"), "{c:?}");
-        assert_eq!(c, canonical(&c).unwrap());
-    }
-
     #[cfg(unix)]
     #[test]
     fn admin_means_the_effective_user_is_root() {
-        let id = run("id", &["-u"]).unwrap();
+        let id = crate::base::process::run("id", &["-u"]).unwrap();
         assert_eq!(is_admin(), id.trim() == "0");
     }
 

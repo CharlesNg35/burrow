@@ -2,9 +2,10 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use super::system::{make_dir, private_file, run, run_ok, write_private};
+use super::system::{make_dir, private_file, write_private};
 use super::{Backend, Manifest, Platform, Status};
-use crate::failure::Failure;
+use crate::base::failure::Failure;
+use crate::base::process::{run, run_ok};
 
 pub struct Launchd;
 
@@ -229,7 +230,7 @@ impl Backend for Launchd {
             let owner = (m.account != "root").then_some(m.account.as_str());
             make_dir(dir, 0o750, owner)?;
             let (uid, gid) = match owner {
-                Some(account) => super::system::account_ids(account)?,
+                Some(account) => crate::base::process::account_ids(account)?,
                 None => (0, 0),
             };
             if owner.is_none() {
@@ -238,7 +239,7 @@ impl Backend for Launchd {
                 })?;
             }
             let mut kept = vec![m.log_file.clone()];
-            kept.extend((1..=crate::logfile::KEEP).map(|n| {
+            kept.extend((1..=crate::base::logfile::KEEP).map(|n| {
                 let mut name = m.log_file.as_os_str().to_owned();
                 name.push(format!(".{n}"));
                 std::path::PathBuf::from(name)
@@ -287,7 +288,7 @@ impl Backend for Launchd {
         let hint = |f: Failure| {
             f.hint(format!(
                 "see why with: {}",
-                crate::failure::admin(&format!("service logs {}", m.name))
+                crate::base::failure::admin(&format!("service logs {}", m.name))
             ))
         };
         if loaded(m) {
@@ -369,7 +370,7 @@ impl Backend for Launchd {
             "3" => {
                 format!(
                     "the config has errors or cannot be read (exit 3); fix it, then: {}",
-                    crate::failure::admin(&format!("service start {}", m.name))
+                    crate::base::failure::admin(&format!("service start {}", m.name))
                 )
             }
             c if !c.is_empty() && c != "0" && !c.starts_with('(') => {

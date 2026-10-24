@@ -5,8 +5,8 @@ use std::time::Duration;
 
 use tokio_rustls::TlsConnector;
 
+use crate::base::failure::io_reason;
 use crate::config::settings::{ClientSettings, VisitorSettings};
-use crate::failure::io_reason;
 use crate::handshake::{ClientHandshakeError, initiate};
 use crate::protocol::{ChannelKind, Hello, Preamble};
 use crate::proxy::ProxyConfig;

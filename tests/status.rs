@@ -180,7 +180,7 @@ fn a_server_that_does_not_answer_is_named_rather_than_called_stopped() {
         "port": silent.local_addr().unwrap().port(),
         "token": "ab".repeat(24),
     });
-    burrow::instance::write_private(
+    burrow::base::fs::write_private(
         &instances.join(format!("{}.status", std::process::id())),
         &entry.to_string(),
     )

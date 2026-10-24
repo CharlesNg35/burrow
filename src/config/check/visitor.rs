@@ -57,7 +57,7 @@ pub fn check_visitor(
         let d = Diagnostic::warning("no-forwards", "no forwards are defined")
             .help(format!(
                 "add one, for example:\n         forwards:\n           db: {{ service: db, local: 5432 }}\n       or name the target when you run it: {}",
-                crate::failure::cmd("visit --service NAME --local PORT")
+                crate::base::failure::cmd("visit --service NAME --local PORT")
             ));
         out.push(d);
     }

@@ -1,9 +1,10 @@
 use std::path::Path;
 
+use crate::base::failure::Failure;
+use crate::base::style::Style;
 use crate::config::env::EnvSource;
 use crate::config::{Loaded, Outcome, Role, load_file};
-use crate::diagnostics::{Diagnostic, Report, Style};
-use crate::failure::Failure;
+use crate::diagnostics::{Diagnostic, Report};
 
 pub struct Validation {
     pub outcome: Outcome,

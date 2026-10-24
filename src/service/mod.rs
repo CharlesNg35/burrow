@@ -1,6 +1,5 @@
 mod background;
 mod logview;
-pub(crate) mod ports;
 mod stray;
 pub(crate) mod system;
 mod update;
@@ -19,9 +18,9 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::base::failure::Failure;
+use crate::base::style::Style;
 use crate::config::{Loaded, Role, load_file};
-use crate::diagnostics::Style;
-use crate::failure::Failure;
 use crate::instance::Identity;
 use burrow_config::Protocol;
 
@@ -110,7 +109,7 @@ pub trait Backend {
         {
             let owner = if writable { account } else { "root" };
             system::make_dir(dir, if writable { 0o700 } else { 0o755 }, Some(owner))?;
-            if let Ok((uid, gid)) = system::account_ids(owner) {
+            if let Ok((uid, gid)) = crate::base::process::account_ids(owner) {
                 give_history(config, uid, gid);
             }
             Ok(())
@@ -300,7 +299,7 @@ fn misfits_of(
     let again = format!(
         "make the change in {} and install it again: {}",
         m.source_config.display(),
-        crate::failure::admin(&install_args(m, &m.source_config))
+        crate::base::failure::admin(&install_args(m, &m.source_config))
     );
     let Uses { listens, files } = uses(loaded);
     let admins = admin_visitors(loaded);
@@ -334,7 +333,7 @@ fn misfits_of(
             )
             .help(format!(
                 "let the service change its config, without moving it: {}",
-                crate::failure::admin(&writable_args(m))
+                crate::base::failure::admin(&writable_args(m))
             )),
         );
     }
@@ -391,7 +390,7 @@ fn check_config(path: &Path, env: &BTreeMap<String, String>) -> Result<Checked, 
         } else {
             format!(
                 "sudo drops environment variables; keep them with: sudo --preserve-env={list} {} (the values are saved for the service, readable by it only)",
-                crate::failure::cmd(&format!("service install -c {}", crate::failure::path_arg(path)))
+                crate::base::failure::cmd(&format!("service install -c {}", crate::base::failure::path_arg(path)))
             )
         }));
     }
@@ -405,7 +404,10 @@ fn check_config(path: &Path, env: &BTreeMap<String, String>) -> Result<Checked, 
         return Err(
             Failure::new(format!("{} has errors, not installing", path.display())).hint(format!(
                 "fix them, then check with: {}",
-                crate::failure::cmd(&format!("validate -c {}", crate::failure::path_arg(path)))
+                crate::base::failure::cmd(&format!(
+                    "validate -c {}",
+                    crate::base::failure::path_arg(path)
+                ))
             )),
         );
     }
@@ -454,23 +456,26 @@ fn check_config(path: &Path, env: &BTreeMap<String, String>) -> Result<Checked, 
 
 fn recorded_source(existing: Option<&Manifest>, source: &Path) -> PathBuf {
     match existing {
-        Some(m) if system::canonical_or_same(&m.config) == source => m.source_config.clone(),
+        Some(m) if crate::base::fs::canonical_or_same(&m.config) == source => {
+            m.source_config.clone()
+        }
         _ => source.to_path_buf(),
     }
 }
 
 fn installs_from(existing: &Manifest, source: &Path) -> bool {
-    existing.source_config == source || system::canonical_or_same(&existing.config) == source
+    existing.source_config == source
+        || crate::base::fs::canonical_or_same(&existing.config) == source
 }
 
 pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure> {
     let backend = system::backend()?;
     let platform = Platform::current();
-    let source = system::canonical(&opts.config).map_err(|e| {
+    let source = crate::base::fs::canonical(&opts.config).map_err(|e| {
         Failure::usage(format!(
             "cannot read {}: {}",
             opts.config.display(),
-            crate::failure::file_reason(&e)
+            crate::base::failure::file_reason(&e)
         ))
     })?;
     let name = name_for(&source, opts.name.as_deref(), &all_manifests())?;
@@ -494,9 +499,9 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
         .hint(format!(
             "to add this config as another service, rename the file or pass --name, for example: --name {name}-2; to change {name} instead, edit {} or install again from it: {}",
             existing.config.display(),
-            crate::failure::admin(&format!(
+            crate::base::failure::admin(&format!(
                 "service install -c {}",
-                crate::failure::path_arg(&existing.config)
+                crate::base::failure::path_arg(&existing.config)
             ))
         )));
     }
@@ -516,7 +521,7 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
     let env_file = (!env.is_empty()).then(|| platform.config_dir().join(format!("{short}.env")));
     let current = std::env::current_exe()
         .map_err(|e| Failure::new(format!("cannot locate the burrow binary: {e}")))?;
-    let current = system::canonical(&current).unwrap_or(current);
+    let current = crate::base::fs::canonical(&current).unwrap_or(current);
     let (binary, copy_binary) = service_binary_for(&current, platform);
     let low_ports = checked.listens.iter().any(|(_, a, _)| a.port() < 1024);
     let manifest = Manifest {
@@ -614,15 +619,18 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
     }
     let users = || {
         let managed = all_manifests().into_iter().filter_map(|m| {
-            backend.status(&m).pid.map(|pid| ports::PortUser {
-                pid,
-                name: m.name,
-                managed: true,
-                stop: None,
-            })
+            backend
+                .status(&m)
+                .pid
+                .map(|pid| crate::base::ports::PortUser {
+                    pid,
+                    name: m.name,
+                    managed: true,
+                    stop: None,
+                })
         });
         let strays = stray::strays().into_iter().filter_map(|s| {
-            s.pid.map(|pid| ports::PortUser {
+            s.pid.map(|pid| crate::base::ports::PortUser {
                 pid,
                 name: s.label,
                 managed: false,
@@ -632,7 +640,7 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
         managed.chain(strays).collect()
     };
     for (proto, addr, label) in &checked.listens {
-        ports::check_free(*proto, *addr, label, &users)?;
+        crate::base::ports::check_free(*proto, *addr, label, &users)?;
     }
 
     let created = backend.ensure_account(&account)?;
@@ -712,7 +720,7 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
                 format!(
                     "note: {} still run the previous binary until restarted; restart them all with: {}",
                     others.join(", "),
-                    crate::failure::admin("service update --force")
+                    crate::base::failure::admin("service update --force")
                 ),
             )?;
         }
@@ -724,7 +732,7 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
         binary: kept_binary.clone().map(|kept| (kept, binary.clone())),
     });
     backend.config_folder(&folder, &config, &account, writable)?;
-    if source != system::canonical_or_same(&config) {
+    if source != crate::base::fs::canonical_or_same(&config) {
         if writable {
             match keep_admin_copy(&source, &config)? {
                 Kept::Version => say(
@@ -822,15 +830,15 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
         format!(
             "\nthe service uses {}; change it with {} and it applies the change by itself",
             config.display(),
-            crate::failure::admin(&format!("edit{arg}"))
+            crate::base::failure::admin(&format!("edit{arg}"))
         ),
     )?;
     say(
         out,
         format!(
             "  status: {}    logs: {}",
-            crate::failure::cmd(&format!("service status{arg}")),
-            crate::failure::admin(&format!("service logs{arg} -f"))
+            crate::base::failure::cmd(&format!("service status{arg}")),
+            crate::base::failure::admin(&format!("service logs{arg} -f"))
         ),
     )?;
     Ok(())
@@ -914,7 +922,7 @@ fn given_note(name: &str, given: &[PathBuf], shown: Option<&PathBuf>) -> Option<
 fn give_old_files(files: &[PathBuf], account: &str, keep: &[PathBuf]) -> Vec<PathBuf> {
     #[cfg(unix)]
     {
-        let Ok((uid, _)) = system::account_ids(account) else {
+        let Ok((uid, _)) = crate::base::process::account_ids(account) else {
             return Vec::new();
         };
         let mut given: Vec<PathBuf> = Vec::new();
@@ -938,7 +946,10 @@ fn give_old_files(files: &[PathBuf], account: &str, keep: &[PathBuf]) -> Vec<Pat
 
 fn own_logs(log: &Path) -> Vec<PathBuf> {
     std::iter::once(log.to_path_buf())
-        .chain((1..=crate::logfile::KEEP).map(|n| PathBuf::from(format!("{}.{n}", log.display()))))
+        .chain(
+            (1..=crate::base::logfile::KEEP)
+                .map(|n| PathBuf::from(format!("{}.{n}", log.display()))),
+        )
         .collect()
 }
 
@@ -996,7 +1007,7 @@ fn start_installed(
                 out,
                 format!(
                     "  see why with: {}",
-                    crate::failure::admin(&format!("service logs{arg}"))
+                    crate::base::failure::admin(&format!("service logs{arg}"))
                 ),
             )?,
         }
@@ -1020,7 +1031,7 @@ fn already_running(
             "warning: {} was already running and was not restarted, so it still runs its previous setup{}; restart it with: {}",
             m.name,
             st.pid.map(|p| format!(" (pid {p})")).unwrap_or_default(),
-            crate::failure::admin(&format!("service restart{arg}"))
+            crate::base::failure::admin(&format!("service restart{arg}"))
         ),
     )?;
     Ok(true)
@@ -1103,7 +1114,7 @@ impl Undo {
             ))
             .hint(format!(
                 "see why the new one failed with: {}",
-                crate::failure::admin(&format!("service logs {} -n 50", new.name))
+                crate::base::failure::admin(&format!("service logs {} -n 50", new.name))
             )),
             Some(f) => Failure::new(format!(
                 "the reinstalled {} did not run, and putting back its previous setup failed too: {}",
@@ -1111,7 +1122,7 @@ impl Undo {
             ))
             .hint(format!(
                 "install it again from a config that works: {}",
-                crate::failure::admin(&install_args(p, &p.config))
+                crate::base::failure::admin(&install_args(p, &p.config))
             )),
         }
     }
@@ -1209,7 +1220,7 @@ fn release_previous(
 }
 
 fn grant_hint(account: &str, file: &Path) -> String {
-    let path = crate::failure::path_arg(file);
+    let path = crate::base::failure::path_arg(file);
     if cfg!(windows) {
         format!("icacls {path} /grant \"{account}:R\"")
     } else if cfg!(target_os = "macos") {
@@ -1277,7 +1288,7 @@ pub fn exposed_note(m: &Manifest) -> String {
         "users other than root can change {}, so burrow does not run or replace {}; move the service to its own copy with: {}",
         m.binary.parent().unwrap_or(&m.binary).display(),
         m.binary.display(),
-        crate::failure::admin(&install_args(m, &m.config))
+        crate::base::failure::admin(&install_args(m, &m.config))
     )
 }
 
@@ -1305,7 +1316,7 @@ pub fn load_manifest(name: &str) -> Result<Manifest, Failure> {
         return Err(
             Failure::new(format!("no burrow service named {name}")).hint(format!(
                 "see the installed ones with: {}",
-                crate::failure::cmd("service list")
+                crate::base::failure::cmd("service list")
             )),
         );
     }
@@ -1449,10 +1460,10 @@ fn give_history(config: &Path, uid: u32, gid: u32) {
 }
 
 fn is_source(config: &Path, sources: &[&Path]) -> bool {
-    let config = system::canonical_or_same(config);
+    let config = crate::base::fs::canonical_or_same(config);
     sources
         .iter()
-        .any(|s| system::canonical_or_same(s) == config)
+        .any(|s| crate::base::fs::canonical_or_same(s) == config)
 }
 
 fn delete_hint(files: &[PathBuf], folder: Option<&Path>) -> String {
@@ -1486,7 +1497,8 @@ pub fn uninstall(name: Option<&str>, purge: bool, out: &mut dyn Write) -> Result
     let strays = stray::strays();
     let mut logs = vec![m.log_file.clone()];
     logs.extend(
-        (1..=crate::logfile::KEEP).map(|n| PathBuf::from(format!("{}.{n}", m.log_file.display()))),
+        (1..=crate::base::logfile::KEEP)
+            .map(|n| PathBuf::from(format!("{}.{n}", m.log_file.display()))),
     );
     let mut kept = Vec::new();
     let mut kept_folder = None;
@@ -1546,15 +1558,18 @@ pub fn uninstall(name: Option<&str>, purge: bool, out: &mut dyn Write) -> Result
             }
             Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
                 let later = match m.binary.parent().filter(|_| cfg!(windows)) {
-                    Some(dir) => format!("Remove-Item -Recurse {}", crate::failure::path_arg(dir)),
-                    None => format!("sudo rm {}", crate::failure::path_arg(&m.binary)),
+                    Some(dir) => format!(
+                        "Remove-Item -Recurse {}",
+                        crate::base::failure::path_arg(dir)
+                    ),
+                    None => format!("sudo rm {}", crate::base::failure::path_arg(&m.binary)),
                 };
                 say(
                     out,
                     format!(
                         "note: cannot remove {} ({}); delete it after this command ends: {later}",
                         m.binary.display(),
-                        crate::failure::file_reason(&e)
+                        crate::base::failure::file_reason(&e)
                     ),
                 )?;
             }
@@ -1671,7 +1686,7 @@ pub fn parse_version(v: &str) -> Option<semver::Version> {
 pub fn this_binary() -> Result<PathBuf, Failure> {
     let me = std::env::current_exe()
         .map_err(|e| Failure::new(format!("cannot locate this burrow binary: {e}")))?;
-    Ok(system::canonical(&me).unwrap_or(me))
+    Ok(crate::base::fs::canonical(&me).unwrap_or(me))
 }
 
 pub fn as_worker(log: &Path, job: impl FnOnce(&mut dyn Write) -> Result<(), Failure>) -> u8 {
@@ -1730,7 +1745,10 @@ pub fn control_now(action: &str, name: Option<&str>, out: &mut dyn Write) -> Res
 }
 
 fn install_args(m: &Manifest, from: &Path) -> String {
-    let mut args = format!("service install -c {}", crate::failure::path_arg(from));
+    let mut args = format!(
+        "service install -c {}",
+        crate::base::failure::path_arg(from)
+    );
     if from != m.config && service_name(from, None).ok().as_deref() != Some(m.name.as_str()) {
         args.push_str(&format!(" --name {}", m.name));
     }
@@ -1753,9 +1771,9 @@ fn writable_args(m: &Manifest) -> String {
 pub fn writable_hint(config: &Path) -> String {
     format!(
         "install the service again so it may change its config; nothing moves: {}",
-        crate::failure::admin(&format!(
+        crate::base::failure::admin(&format!(
             "service install -c {} --admin-writable",
-            crate::failure::path_arg(config)
+            crate::base::failure::path_arg(config)
         ))
     )
 }
@@ -1766,10 +1784,9 @@ pub fn in_service_folder(config: &Path) -> bool {
 
 fn name_for(source: &Path, given: Option<&str>, installed: &[Manifest]) -> Result<String, Failure> {
     let name = service_name(source, given)?;
-    let Some(owner) = installed
-        .iter()
-        .find(|m| system::canonical_or_same(&m.config) == system::canonical_or_same(source))
-    else {
+    let Some(owner) = installed.iter().find(|m| {
+        crate::base::fs::canonical_or_same(&m.config) == crate::base::fs::canonical_or_same(source)
+    }) else {
         return Ok(name);
     };
     if given.is_none() || owner.name == name {
@@ -1783,7 +1800,7 @@ fn name_for(source: &Path, given: Option<&str>, installed: &[Manifest]) -> Resul
     .hint(format!(
         "copy it to another folder first, or change {} with: {}",
         owner.name,
-        crate::failure::admin(&install_args(owner, &owner.config))
+        crate::base::failure::admin(&install_args(owner, &owner.config))
     )))
 }
 
@@ -1791,7 +1808,7 @@ pub fn status(name: Option<&str>, out: &mut dyn Write) -> Result<u8, Failure> {
     let backend = system::backend()?;
     let m = resolve(name)?;
     let st = backend.status(&m);
-    let reinstall = crate::failure::admin(&install_args(&m, &m.config));
+    let reinstall = crate::base::failure::admin(&install_args(&m, &m.config));
     let state = match (st.installed, st.running) {
         (false, _) => format!("not installed in the service manager (run: {reinstall})"),
         (true, true) => "running".to_string(),
@@ -1866,7 +1883,7 @@ fn source_note(m: &Manifest) -> Option<String> {
         format!(
             "{} differs from the installed copy; to use it, run: {}",
             m.source_config.display(),
-            crate::failure::admin(&install_args(m, &m.source_config))
+            crate::base::failure::admin(&install_args(m, &m.source_config))
         )
     })
 }
@@ -1903,9 +1920,9 @@ fn keep_admin_copy(source: &Path, config: &Path) -> Result<Kept, Failure> {
         .hint(format!(
             "copy {} somewhere safe, or use it as the source: {}",
             config.display(),
-            crate::failure::admin(&format!(
+            crate::base::failure::admin(&format!(
                 "service install -c {} --admin-writable",
-                crate::failure::path_arg(config)
+                crate::base::failure::path_arg(config)
             ))
         ))),
     }
@@ -1963,7 +1980,7 @@ pub fn logs(name: Option<&str>, lines: usize, follow: bool) -> Result<(), Failur
         &m.log_file,
         lines,
         follow,
-        &crate::failure::admin(&retry),
+        &crate::base::failure::admin(&retry),
         journal.as_deref(),
         &mut out,
     )
@@ -2071,9 +2088,9 @@ mod tests {
         let note = source_note(&fixed).unwrap();
         let from = format!(
             "to use it, run: {}",
-            crate::failure::admin(&format!(
+            crate::base::failure::admin(&format!(
                 "service install -c {}",
-                crate::failure::path_arg(&source)
+                crate::base::failure::path_arg(&source)
             ))
         );
         assert!(note.contains(&from), "{note}");
@@ -2095,27 +2112,32 @@ mod tests {
             source_config: tmp.path().join("gone/server.yaml"),
             ..record(Platform::MacOs)
         };
-        let source = system::canonical(&installed).unwrap();
+        let source = crate::base::fs::canonical(&installed).unwrap();
         assert_ne!(source, installed, "the folder is reached through a link");
         assert!(installs_from(&m, &source));
         assert_eq!(recorded_source(Some(&m), &source), m.source_config);
         assert_eq!(recorded_source(None, &source), source);
         let elsewhere = tmp.path().join("other.yaml");
         std::fs::write(&elsewhere, "listen: 1\n").unwrap();
-        assert!(!installs_from(&m, &system::canonical(&elsewhere).unwrap()));
+        assert!(!installs_from(
+            &m,
+            &crate::base::fs::canonical(&elsewhere).unwrap()
+        ));
     }
 
     #[cfg(unix)]
     #[test]
     fn a_source_recorded_through_a_linked_parent_is_still_the_source() {
         let dir = tempfile::tempdir().unwrap();
-        let real = system::canonical(dir.path()).unwrap().join("private-etc");
+        let real = crate::base::fs::canonical(dir.path())
+            .unwrap()
+            .join("private-etc");
         std::fs::create_dir_all(real.join("burrow/x")).unwrap();
         std::fs::write(real.join("burrow/x.yaml"), "listen: 1\n").unwrap();
         std::fs::write(real.join("burrow/x/server.yaml"), "listen: 1\n").unwrap();
         let etc = dir.path().join("etc");
         std::os::unix::fs::symlink(&real, &etc).unwrap();
-        let source = system::canonical(&etc.join("burrow/x.yaml")).unwrap();
+        let source = crate::base::fs::canonical(&etc.join("burrow/x.yaml")).unwrap();
         assert_ne!(source, etc.join("burrow/x.yaml"));
         assert!(is_source(&etc.join("burrow/x.yaml"), &[&source]));
         assert!(!is_source(&etc.join("burrow/x/server.yaml"), &[&source]));
@@ -2520,7 +2542,7 @@ mod tests {
             );
             let shown = o
                 .report
-                .render_text(crate::diagnostics::Style { color: false });
+                .render_text(crate::base::style::Style { color: false });
             o.loaded.unwrap_or_else(|| panic!("{shown}"))
         };
         let server = |listen: &str| {
@@ -2628,7 +2650,7 @@ mod tests {
     fn the_install_command_for_a_service_is_its_installed_config() {
         let p = Platform::current();
         let m = record(p);
-        let config = crate::failure::path_arg(&m.config);
+        let config = crate::base::failure::path_arg(&m.config);
         assert_eq!(
             install_args(&m, &m.config),
             format!("service install -c {config}")
@@ -2647,7 +2669,7 @@ mod tests {
             install_args(&client, &client.config),
             format!(
                 "service install -c {}",
-                crate::failure::path_arg(&client.config)
+                crate::base::failure::path_arg(&client.config)
             )
         );
         assert_eq!(
@@ -2668,9 +2690,9 @@ mod tests {
             &Platform::current().config_dir().join("server.yaml")
         ));
         let hint = writable_hint(&config);
-        let command = crate::failure::admin(&format!(
+        let command = crate::base::failure::admin(&format!(
             "service install -c {} --admin-writable",
-            crate::failure::path_arg(&config)
+            crate::base::failure::path_arg(&config)
         ));
         assert!(hint.ends_with(&command), "{hint}");
         assert!(hint.contains("nothing moves"), "{hint}");

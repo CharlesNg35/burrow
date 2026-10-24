@@ -408,7 +408,7 @@ pub enum ConnectError {
 impl ConnectError {
     pub fn describe(&self) -> String {
         match self {
-            ConnectError::Io(e) => crate::failure::io_reason(e),
+            ConnectError::Io(e) => crate::base::failure::io_reason(e),
             ConnectError::Status(code) => {
                 format!("the server answered HTTP {code} instead of upgrading to WebSocket")
             }

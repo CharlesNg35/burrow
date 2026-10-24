@@ -1,8 +1,8 @@
 use serde_json::{Map, Value as J};
 
 use super::tree::{Entry, Node, Span, Value};
+use crate::base::suggest::{closest, quoted_list};
 use crate::diagnostics::Diagnostic;
-use crate::suggest::{closest, quoted_list};
 
 pub struct Checker<'a> {
     root: &'a J,
@@ -80,7 +80,7 @@ impl<'a> Checker<'a> {
             let mut d = Diagnostic::error("not-a-mapping", msg)
                 .help(format!(
                     "start with \"listen: 0.0.0.0:{port}\" (server) or \"server: host:{port}\" (client), or run: {}",
-                    crate::failure::cmd("init"),
+                    crate::base::failure::cmd("init"),
                     port = burrow_syntax::ports::SERVER_PORT
                 ));
             if node.span.start.line > 0 {

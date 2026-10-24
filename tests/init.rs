@@ -2,11 +2,11 @@ mod common;
 
 use std::path::Path;
 
+use burrow::base::prompt::{NoPrompt, Prompter};
 use burrow::client::State;
 use burrow::config::env::ProcessEnv;
 use burrow::config::{Format, Loaded, Role, load_file};
 use burrow::init::{InitOptions, client_config, init_client, init_server};
-use burrow::prompt::{NoPrompt, Prompter};
 use common::*;
 
 fn load(path: &Path) -> Loaded {
@@ -15,7 +15,7 @@ fn load(path: &Path) -> Loaded {
         !o.report.has_errors(),
         "{}",
         o.report
-            .render_text(burrow::diagnostics::Style { color: false })
+            .render_text(burrow::base::style::Style { color: false })
     );
     o.loaded.unwrap()
 }
@@ -56,7 +56,7 @@ fn server_init_is_valid_private_and_not_overwritten() {
             0,
             "{}",
             o.report
-                .render_text(burrow::diagnostics::Style { color: false })
+                .render_text(burrow::base::style::Style { color: false })
         );
         #[cfg(unix)]
         assert_eq!(mode(&path), 0o600);
@@ -412,7 +412,7 @@ fn server_line(text: &str) -> &str {
 fn generate(
     path: &Path,
     server: Option<&str>,
-) -> Result<burrow::init::ConfigOutput, burrow::failure::Failure> {
+) -> Result<burrow::init::ConfigOutput, burrow::base::failure::Failure> {
     client_config(None, path, server, Format::Yaml, &ProcessEnv)
 }
 
@@ -833,7 +833,7 @@ fn visitor_init_asks_for_what_is_missing_and_validates() {
     assert!(
         out.contains(&format!(
             "init visitor --update -o {}",
-            burrow::failure::path_arg(&path)
+            burrow::base::failure::path_arg(&path)
         )),
         "{out}"
     );
@@ -1334,7 +1334,7 @@ fn a_long_client_name_still_gives_a_valid_visitor_config() {
         "{text}\n{}",
         outcome
             .report
-            .render_text(burrow::diagnostics::Style { color: false })
+            .render_text(burrow::base::style::Style { color: false })
     );
 }
 

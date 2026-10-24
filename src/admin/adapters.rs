@@ -191,7 +191,7 @@ impl FileStore {
             }
             return Ok(());
         }
-        crate::instance::write_private(&file, body)?;
+        crate::base::fs::write_private(&file, body)?;
         for (_, old) in self.files().into_iter().skip(KEEP) {
             let _ = std::fs::remove_file(old);
         }
@@ -231,7 +231,7 @@ impl Store for FileStore {
         match write_back(&self.path, before, after) {
             Ok(()) => Ok(()),
             Err(Refused::Changed) => Err(WriteError::Changed),
-            Err(Refused::Io(e)) => Err(WriteError::Io(crate::failure::file_reason(&e))),
+            Err(Refused::Io(e)) => Err(WriteError::Io(crate::base::failure::file_reason(&e))),
         }
     }
 
@@ -249,7 +249,7 @@ impl Store for FileStore {
             .write(true)
             .create_new(true)
             .open(&probe);
-        let file_ok = crate::edit::access::can_write(&self.path);
+        let file_ok = crate::base::access::can_write(&self.path);
         match made {
             Ok(_) => {
                 let _ = std::fs::remove_file(&probe);
@@ -284,7 +284,7 @@ impl Store for FileStore {
                         format!(
                             "the server cannot create files in {} ({})",
                             folder.display(),
-                            crate::failure::file_reason(&e)
+                            crate::base::failure::file_reason(&e)
                         )
                     },
                     hint: if installed || ro {
@@ -305,7 +305,7 @@ impl Store for FileStore {
             *self.problem.lock().expect("problem lock") = Some(format!(
                 "earlier versions are kept in memory only: cannot write {} ({})",
                 self.dir().display(),
-                crate::failure::file_reason(&e)
+                crate::base::failure::file_reason(&e)
             ));
             let mut m = self.memory.lock().expect("memory lock");
             m.retain(|(v, _)| v.rev != rev);

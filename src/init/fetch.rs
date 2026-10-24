@@ -1,8 +1,8 @@
 use std::time::Duration;
 
+use crate::base::failure::Failure;
 use crate::config::settings::VisitorSettings;
 use crate::dialer::{DialError, Dialer};
-use crate::failure::Failure;
 use crate::protocol::{
     ChannelKind, GRANTS_REQUEST, GRANTS_REQUEST_V2, Grants, Hello, Status, VERSION,
 };
@@ -130,7 +130,7 @@ fn refused(status: Option<Status>, server: &str, name: &str) -> Failure {
         ))
         .hint(format!(
             "its log says why; or ask its admin for a ready config: {}",
-            crate::failure::cmd(&format!("visitor-config {name} -o visitor.yaml"))
+            crate::base::failure::cmd(&format!("visitor-config {name} -o visitor.yaml"))
         )),
     }
 }

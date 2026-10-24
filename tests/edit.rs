@@ -37,7 +37,7 @@ fn secret() -> String {
 }
 
 fn write(path: &Path, text: &str) {
-    burrow::instance::write_private(path, text).unwrap();
+    burrow::base::fs::write_private(path, text).unwrap();
 }
 
 const KEEP: &str = if cfg!(windows) { "cmd /c rem" } else { "true" };

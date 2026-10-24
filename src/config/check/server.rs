@@ -13,10 +13,10 @@ use super::{
     Spans, binds_conflict, name_error, parse_bind, parse_local, secret_error, tuning, valid_name,
 };
 use crate::allowlist::AllowList;
+use crate::base::suggest::{closest, quoted_list};
 use crate::diagnostics::Diagnostic;
 use crate::noise::MAX_SECRETS_PER_CLIENT;
 use crate::secret::Secret;
-use crate::suggest::{closest, quoted_list};
 use burrow_config::SELF;
 use burrow_config::{Bind, Protocol, Secrets, ServerConfig, WebSocketConfig};
 
@@ -93,7 +93,7 @@ pub fn check_server(
             .at(spans.key(&["clients"]))
             .help(format!(
                 "add one, for example:\n         clients:\n           home: {{ secret: SECRET }}\n       with a SECRET from: {}",
-                crate::failure::cmd("gensecret")
+                crate::base::failure::cmd("gensecret")
             )),
         );
     }
@@ -446,7 +446,7 @@ fn check_secrets(
             .at(spans.value(&[section, name, "secret"]))
             .help(format!(
                 "add at least one secret; generate one with: {}",
-                crate::failure::cmd("gensecret")
+                crate::base::failure::cmd("gensecret")
             )),
         );
     }
@@ -490,7 +490,7 @@ fn check_secrets(
                             .without_snippet()
                             .help(format!(
                                 "every {who} needs its own secret; generate one with: {}",
-                                crate::failure::cmd("gensecret")
+                                crate::base::failure::cmd("gensecret")
                             )),
                     );
                 }
@@ -567,7 +567,7 @@ fn check_websocket(
                 Ok(bytes) => Some((path, bytes)),
                 Err(e) => {
                     out.push(
-                        Diagnostic::error("tls-unreadable", format!("cannot read websocket.tls.{field} \"{file}\": {}", crate::failure::file_reason(&e)))
+                        Diagnostic::error("tls-unreadable", format!("cannot read websocket.tls.{field} \"{file}\": {}", crate::base::failure::file_reason(&e)))
                             .at(spans.value(&["websocket", "tls", field]))
                             .label("file not readable")
                             .help("paths are relative to the config file; check the path and its permissions"),

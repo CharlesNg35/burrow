@@ -6,7 +6,7 @@ use std::process::{Command, Stdio};
 use std::time::Duration;
 
 use super::{Platform, say, this_binary};
-use crate::failure::Failure;
+use crate::base::failure::Failure;
 
 const DONE: char = '\u{1}';
 
@@ -46,7 +46,7 @@ impl Run {
     ) -> Result<(), Failure> {
         if let Some(env) = secrets.filter(|e| !e.is_empty()) {
             let text = serde_json::to_string(env).expect("variables serialize");
-            if let Err(e) = crate::instance::write_private(&secrets_of(&self.log), &text) {
+            if let Err(e) = crate::base::fs::write_private(&secrets_of(&self.log), &text) {
                 self.remove();
                 return Err(Failure::new(format!(
                     "cannot hand the variables to the background job: {e}"
@@ -116,7 +116,7 @@ pub fn trusted_binary(from: &Path) -> bool {
 
 pub fn worker(log: &Path, job: impl FnOnce(&mut dyn Write) -> Result<(), Failure>) -> u8 {
     if !in_jobs_dir(log) || log.extension().is_none_or(|e| e != "log") {
-        return crate::failure::EXIT_USAGE;
+        return crate::base::failure::EXIT_USAGE;
     }
     run_job(log, job)
 }
@@ -276,7 +276,7 @@ fn follow(
                 Failure::new("the background job stopped before it finished").hint(format!(
                     "see {} and {}",
                     log.display(),
-                    crate::failure::admin("service status")
+                    crate::base::failure::admin("service status")
                 )),
             );
         }
@@ -333,7 +333,7 @@ mod tests {
         let log = dir.path().join("job.log");
         std::fs::File::create(&log).unwrap();
         let env = BTreeMap::from([("HOME_SECRET".to_string(), "s3cret".to_string())]);
-        crate::instance::write_private(&secrets_of(&log), &serde_json::to_string(&env).unwrap())
+        crate::base::fs::write_private(&secrets_of(&log), &serde_json::to_string(&env).unwrap())
             .unwrap();
         let code = run_job(&log, |out| {
             assert_eq!(read_secrets(&log), env);
@@ -344,7 +344,7 @@ mod tests {
         assert!(!secrets_of(&log).exists());
         assert!(read_secrets(&log).is_empty());
         assert!(take_secrets(&log).is_empty());
-        assert_eq!(worker(&log, |_| Ok(())), crate::failure::EXIT_USAGE);
+        assert_eq!(worker(&log, |_| Ok(())), crate::base::failure::EXIT_USAGE);
         assert!(!trusted_binary(&log));
         let text = std::fs::read_to_string(&log).unwrap();
         assert_eq!(text, "step one\n\u{1}1\tbroke badly\ttry again\n");

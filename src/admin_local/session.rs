@@ -195,7 +195,7 @@ pub fn save(dir: &Path, config: &Path, s: &Session, port: u16, now: u64) -> std:
         used: now,
     })
     .map_err(std::io::Error::other)?;
-    crate::instance::write_private(&file_for(dir, config), &text)
+    crate::base::fs::write_private(&file_for(dir, config), &text)
 }
 
 fn make_private_dir(dir: &Path) -> std::io::Result<()> {

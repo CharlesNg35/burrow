@@ -102,7 +102,7 @@ pub fn check_connection(
         None => None,
         Some(file) => {
             let path = base_dir.join(file);
-            let read = std::fs::read(&path).map_err(|e| crate::failure::file_reason(&e));
+            let read = std::fs::read(&path).map_err(|e| crate::base::failure::file_reason(&e));
             let code = if read.is_err() {
                 "tls-unreadable"
             } else {

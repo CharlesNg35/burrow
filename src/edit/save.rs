@@ -291,7 +291,7 @@ mod tests {
     fn the_file_is_replaced_with_its_permissions_and_only_if_unchanged() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("client.yaml");
-        crate::instance::write_private(&path, "name: home\n").unwrap();
+        crate::base::fs::write_private(&path, "name: home\n").unwrap();
         write_back(&path, "name: home\n", "name: office\n").unwrap();
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "name: office\n");
         #[cfg(unix)]

@@ -25,9 +25,9 @@ use tokio::sync::{Notify, Semaphore, mpsc, watch};
 use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
 
+use crate::base::failure::Failure;
 use crate::config::settings::WebSocketSettings;
 use crate::config::settings::{ServerSettings, Service};
-use crate::failure::Failure;
 use crate::protocol::{ByeReason, ServerMsg};
 use crate::ratelimit::Limit;
 use burrow_config::Protocol;
@@ -424,11 +424,11 @@ async fn take_channel(
 pub fn bind_error(what: &str, proto: Protocol, addr: SocketAddr, e: &std::io::Error) -> Failure {
     match e.kind() {
         std::io::ErrorKind::AddrInUse => {
-            let find = crate::service::ports::inspect_hint(proto, addr.port());
+            let find = crate::base::ports::inspect_hint(proto, addr.port());
             let hint = if crate::service::any_installed() {
                 format!(
                     "a burrow service is installed here and may be using it, see: {}; otherwise find what uses it with: {find}",
-                    crate::failure::cmd("service list")
+                    crate::base::failure::cmd("service list")
                 )
             } else {
                 format!("pick another port, or find what uses it with: {find}")
@@ -459,11 +459,11 @@ pub fn bind_error(what: &str, proto: Protocol, addr: SocketAddr, e: &std::io::Er
         ))
         .hint(format!(
             "use 0.0.0.0 or an IP address assigned to this machine (see: {})",
-            crate::failure::addresses_cmd()
+            crate::base::failure::addresses_cmd()
         )),
         _ => Failure::new(format!(
             "cannot bind {what} on {addr}: {}",
-            crate::failure::io_reason(e)
+            crate::base::failure::io_reason(e)
         )),
     }
 }
@@ -1278,7 +1278,7 @@ mod tests {
         );
         let hint = tcp.hint.unwrap();
         assert!(
-            hint.ends_with(&crate::service::ports::inspect_hint(Protocol::Tcp, 7835)),
+            hint.ends_with(&crate::base::ports::inspect_hint(Protocol::Tcp, 7835)),
             "{hint}"
         );
         assert_eq!(
@@ -1290,7 +1290,7 @@ mod tests {
             .hint
             .unwrap();
         assert!(
-            udp.ends_with(&crate::service::ports::inspect_hint(Protocol::Udp, 7835)),
+            udp.ends_with(&crate::base::ports::inspect_hint(Protocol::Udp, 7835)),
             "{udp}"
         );
         if !cfg!(windows) {

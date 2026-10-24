@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use crate::failure::Failure;
+use crate::base::failure::Failure;
 
 pub struct LaunchFile(PathBuf);
 
@@ -41,13 +41,13 @@ pub fn write(dir: &Path, url: &str) -> Result<LaunchFile, Failure> {
     getrandom::fill(&mut tag).expect("operating system random source is available");
     let tag = hex::encode(tag);
     let path = dir.join(format!("admin-{}-{tag}.html", std::process::id()));
-    crate::instance::write_private(&path, &page(url))
+    crate::base::fs::write_private(&path, &page(url))
         .map_err(|e| Failure::new(format!("cannot write {}: {e}", path.display())))?;
     Ok(LaunchFile(path))
 }
 
 pub fn write_url_file(path: &Path, url: &str) -> Result<(), Failure> {
-    crate::instance::write_private(path, &format!("{url}\n"))
+    crate::base::fs::write_private(path, &format!("{url}\n"))
         .map_err(|e| Failure::new(format!("cannot write {}: {e}", path.display())))
 }
 

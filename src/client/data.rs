@@ -9,9 +9,9 @@ use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
 
 use crate::allowlist::{AllowList, Gate, Refusal};
+use crate::base::failure::io_reason;
 use crate::config::check::{parse_host_port, unix};
 use crate::config::settings::{ClientSettings, Limit};
-use crate::failure::io_reason;
 use crate::forward::{client_tcp, refuse};
 use crate::protocol::{
     Connect, KEEPALIVE_RECORD, MAX_DATAGRAM, STALE_RECORD, ServiceInfo, Status, decode_datagram,

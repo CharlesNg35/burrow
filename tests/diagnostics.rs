@@ -1,5 +1,5 @@
+use burrow::base::style::Style;
 use burrow::config::{Format, Role, load_str};
-use burrow::diagnostics::Style;
 
 const SECRET: &str = "yjgGDKUL5TY/9SCE2jvBsr2z5zLSKl+x1p76T98Vf/U=";
 const SECRET2: &str = "q4x7Z0m3VQ1n8kPp2rT6sW9yB5cD0eF3gH7jK1lM4nA=";

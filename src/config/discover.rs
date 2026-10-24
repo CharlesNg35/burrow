@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use super::Role;
-use crate::failure::Failure;
+use crate::base::failure::Failure;
 
 const EXTENSIONS: [&str; 3] = ["yaml", "yml", "json"];
 
@@ -60,11 +60,11 @@ pub fn discover_with(dir: &Path, role: Option<Role>, flag: &str) -> Result<PathB
                     "{file} here is a {} config, run it with: {cmd} {}; otherwise pass {flag} FILE, or create one with: {cmd} init {init}",
                     o.as_str(),
                     o.command(),
-                    cmd = crate::failure::command()
+                    cmd = crate::base::failure::command()
                 ),
                 None => format!(
                     "pass {flag} FILE, or create one with: {} init {init}",
-                    crate::failure::command()
+                    crate::base::failure::command()
                 ),
             };
             Err(Failure::usage(format!("no {wanted} in {}", dir.display())).hint(hint))

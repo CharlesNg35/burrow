@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::process::Command;
 
-use crate::failure::Failure;
+use crate::base::failure::Failure;
 
 const FALLBACKS: &[&str] = if cfg!(windows) {
     &["notepad"]

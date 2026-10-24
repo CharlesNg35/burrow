@@ -2,7 +2,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use super::{Manifest, all_manifests, read_manifest, say, service_name, system};
-use crate::failure::Failure;
+use crate::base::failure::Failure;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Unit {
@@ -198,7 +198,7 @@ pub fn leftovers_in(dir: &Path, name: Option<&str>) -> Vec<PathBuf> {
                 .filter(|l| !l.as_os_str().is_empty())
                 .into_iter()
                 .flat_map(|l| {
-                    let mut all: Vec<PathBuf> = (1..=crate::logfile::KEEP)
+                    let mut all: Vec<PathBuf> = (1..=crate::base::logfile::KEEP)
                         .map(|n| PathBuf::from(format!("{}.{n}", l.display())))
                         .collect();
                     all.push(l);
@@ -247,7 +247,7 @@ impl Stray {
         let config = self
             .config
             .as_deref()
-            .map_or_else(|| "CONFIG".to_string(), crate::failure::path_arg);
+            .map_or_else(|| "CONFIG".to_string(), crate::base::failure::path_arg);
         let named = self
             .config
             .as_deref()
@@ -261,7 +261,7 @@ impl Stray {
                 self.name.strip_prefix("burrow-").unwrap_or(&self.name)
             )
         };
-        crate::failure::admin(&format!("service install -c {config}{name}"))
+        crate::base::failure::admin(&format!("service install -c {config}{name}"))
     }
 
     fn steps(&self) -> String {
@@ -287,7 +287,7 @@ impl Stray {
             self.name,
             "?",
             self.state(),
-            crate::failure::cmd(&format!("service status {}", self.name))
+            crate::base::failure::cmd(&format!("service status {}", self.name))
         )
     }
 
@@ -308,7 +308,7 @@ pub fn none_usable(strays: &[Stray]) -> Failure {
     match strays {
         [] => Failure::new("no burrow service is installed").hint(format!(
             "install one with: {}",
-            crate::failure::admin("service install")
+            crate::base::failure::admin("service install")
         )),
         [one] => one.failure(),
         many => Failure::new(format!(
@@ -317,7 +317,7 @@ pub fn none_usable(strays: &[Stray]) -> Failure {
         ))
         .hint(format!(
             "see how to take each over with: {}",
-            crate::failure::cmd(&format!("service status {}", many[0].name))
+            crate::base::failure::cmd(&format!("service status {}", many[0].name))
         )),
     }
 }
@@ -547,7 +547,7 @@ mod tests {
             f.message,
             "burrow-client.service is running, but burrow has no usable record of it (installed by an older burrow or by hand)"
         );
-        let admin = crate::failure::admin;
+        let admin = crate::base::failure::admin;
         assert_eq!(
             f.hint.unwrap(),
             format!(
@@ -614,7 +614,7 @@ mod tests {
         assert!(
             out.starts_with(&format!(
                 "note: burrow-client.service (running) was not restarted, because burrow has no usable record of it; take it over: sudo systemctl stop burrow-client, then {}",
-                crate::failure::admin("service install -c /etc/burrow/client.yaml")
+                crate::base::failure::admin("service install -c /etc/burrow/client.yaml")
             )),
             "{out}"
         );
@@ -662,7 +662,7 @@ mod tests {
             .chain(
                 std::iter::once("/var/log/burrow/old/old.log".to_string())
                     .chain(
-                        (1..=crate::logfile::KEEP)
+                        (1..=crate::base::logfile::KEEP)
                             .map(|n| format!("/var/log/burrow/old/old.log.{n}")),
                     )
                     .map(PathBuf::from),

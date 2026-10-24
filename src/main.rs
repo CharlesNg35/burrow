@@ -5,13 +5,13 @@ use std::process::ExitCode;
 
 use clap::{CommandFactory, Parser};
 
+use burrow::base::failure::Failure;
+use burrow::base::prompt::TtyPrompt;
+use burrow::base::style::Style;
 use burrow::cli::{Cli, Command, FileFormat, LogLevel, OutputFormat, RoleArg, ServiceAction};
 use burrow::config::env::ProcessEnv;
 use burrow::config::{Format, Role};
-use burrow::diagnostics::Style;
-use burrow::failure::Failure;
 use burrow::init::InitOptions;
-use burrow::prompt::TtyPrompt;
 
 fn role(r: RoleArg) -> Role {
     match r {
@@ -69,7 +69,7 @@ fn config_path(
 }
 
 fn ask_role() -> Result<RoleArg, Failure> {
-    use burrow::prompt::Prompter;
+    use burrow::base::prompt::Prompter;
     let mut prompt = TtyPrompt;
     for _ in 0..3 {
         if !prompt.interactive() {
@@ -87,7 +87,7 @@ fn ask_role() -> Result<RoleArg, Failure> {
     Err(
         Failure::usage("burrow init needs to know which config to write").hint(format!(
             "run: {0} init server  (on the public machine), {0} init client  (behind NAT), or: {0} init visitor  (to use private services)",
-            burrow::failure::command()
+            burrow::base::failure::command()
         )),
     )
 }
@@ -189,8 +189,8 @@ fn visit_pick(args: burrow::cli::VisitArgs) -> Result<burrow::visitor::Pick, Fai
         )
         .hint(format!(
             "for example: {}, or: {}",
-            burrow::failure::cmd("visit --client home --target 22 --local 2222"),
-            burrow::failure::cmd("visit --client home --socks 1080")
+            burrow::base::failure::cmd("visit --client home --target 22 --local 2222"),
+            burrow::base::failure::cmd("visit --client home --socks 1080")
         )));
     }
     if args.udp && args.service.is_none() && args.target.is_none() {
@@ -199,7 +199,7 @@ fn visit_pick(args: burrow::cli::VisitArgs) -> Result<burrow::visitor::Pick, Fai
         )
         .hint(format!(
             "for example: {}",
-            burrow::failure::cmd("visit --udp --service dns --local 5353")
+            burrow::base::failure::cmd("visit --udp --service dns --local 5353")
         )));
     }
     if args.udp
@@ -269,7 +269,7 @@ fn visit_pick(args: burrow::cli::VisitArgs) -> Result<burrow::visitor::Pick, Fai
                 Failure::usage("--local needs a forward name, --service or --client").hint(
                     format!(
                         "for example: {}",
-                        burrow::failure::cmd("visit db --local 5433")
+                        burrow::base::failure::cmd("visit db --local 5433")
                     ),
                 ),
             );
@@ -474,17 +474,19 @@ fn run(cli: Cli) -> Result<u8, Failure> {
                     tls_key: args.ws_tls_key,
                 }),
             };
-            let role =
-                match (args.role, args.update) {
-                    (Some(RoleArg::Visitor) | None, true) => RoleArg::Visitor,
-                    (Some(_), true) => {
-                        return Err(Failure::usage("--update is for visitor configs").hint(
-                            format!("run: {}", burrow::failure::cmd("init visitor --update")),
-                        ));
-                    }
-                    (Some(r), false) => r,
-                    (None, false) => ask_role()?,
-                };
+            let role = match (args.role, args.update) {
+                (Some(RoleArg::Visitor) | None, true) => RoleArg::Visitor,
+                (Some(_), true) => {
+                    return Err(
+                        Failure::usage("--update is for visitor configs").hint(format!(
+                            "run: {}",
+                            burrow::base::failure::cmd("init visitor --update")
+                        )),
+                    );
+                }
+                (Some(r), false) => r,
+                (None, false) => ask_role()?,
+            };
             let given = [
                 ("--name", opts.name.is_some()),
                 ("--secret", opts.secret.is_some()),

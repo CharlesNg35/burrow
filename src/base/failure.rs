@@ -1,19 +1,19 @@
 use std::fmt;
 use std::io::Write;
 
-use crate::diagnostics::Style;
+use crate::base::style::Style;
 
 #[macro_export]
 macro_rules! say_err {
     ($($arg:tt)*) => {
-        $crate::failure::to_stderr(&format!($($arg)*))
+        $crate::base::failure::to_stderr(&format!($($arg)*))
     };
 }
 
 #[macro_export]
 macro_rules! say_errln {
     ($($arg:tt)*) => {
-        $crate::failure::to_stderr(&format!("{}\n", format_args!($($arg)*)))
+        $crate::base::failure::to_stderr(&format!("{}\n", format_args!($($arg)*)))
     };
 }
 

@@ -242,7 +242,7 @@ impl Core {
                 format!(
                     "cannot read {}: {}",
                     self.store.path().display(),
-                    crate::failure::file_reason(&e)
+                    crate::base::failure::file_reason(&e)
                 ),
             )
         })

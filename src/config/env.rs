@@ -130,7 +130,7 @@ fn set_hint(name: &str, secret: bool) -> String {
     if secret {
         format!(
             "{hint}; a secret has the same value in server.yaml and in the client's or visitor's file (make a new one with: {})",
-            crate::failure::cmd("gensecret")
+            crate::base::failure::cmd("gensecret")
         )
     } else {
         hint

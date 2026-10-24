@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use sha2::{Digest, Sha256};
 
-use crate::failure::{Failure, admin, cmd};
+use crate::base::failure::{Failure, admin, cmd};
 use crate::service::{self, Manifest, parse_version};
 
 const MAX_SUMS: usize = 1024 * 1024;
@@ -408,7 +408,7 @@ pub fn run(opts: &Options, out: &mut dyn Write) -> Result<u8, Failure> {
 }
 
 fn update_services_with(me: &Path) -> String {
-    let me = crate::failure::path_arg(me);
+    let me = crate::base::failure::path_arg(me);
     if cfg!(windows) {
         format!("{me} service update (as administrator)")
     } else {
@@ -443,7 +443,7 @@ fn proxy_hint(under_sudo: bool) -> String {
     } else if under_sudo {
         format!(
             "set HTTPS_PROXY=http://host:port, and keep it through sudo with: sudo --preserve-env=HTTPS_PROXY,NO_PROXY {} update",
-            crate::failure::command()
+            crate::base::failure::command()
         )
     } else {
         "set HTTPS_PROXY=http://host:port".to_string()

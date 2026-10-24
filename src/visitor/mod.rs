@@ -12,10 +12,10 @@ use tokio::sync::{mpsc, watch};
 use tokio::task::JoinSet;
 use tracing::{error, info};
 
+use crate::base::failure::Failure;
 use crate::config::check::ports::show_addr;
 use crate::config::settings::{Forward, VisitorSettings};
 use crate::dialer::Dialer;
-use crate::failure::Failure;
 use crate::protocol::VisitTarget;
 use crate::transport::resolve::Resolver;
 use crate::transport::tcp::bind_tcp;
@@ -49,8 +49,8 @@ pub fn pick(settings: &mut VisitorSettings, choice: Pick, config: &str) -> Resul
                 return Err(Failure::usage(format!("{config} has no forwards")).hint(
                     format!(
                         "add one under \"forwards\", for example db: {{ service: db, local: 5432 }}, or name the target: {}, or: {}",
-                        crate::failure::cmd("visit --service NAME --local PORT"),
-                        crate::failure::cmd("visit --client NAME --target HOST:PORT --local PORT")
+                        crate::base::failure::cmd("visit --service NAME --local PORT"),
+                        crate::base::failure::cmd("visit --client NAME --target HOST:PORT --local PORT")
                     ),
                 ));
             }
@@ -63,7 +63,7 @@ pub fn pick(settings: &mut VisitorSettings, choice: Pick, config: &str) -> Resul
                 } else {
                     format!("defined forwards: {}", names.join(", "))
                 };
-                let hint = match crate::suggest::closest(&name, names.iter().copied()) {
+                let hint = match crate::base::suggest::closest(&name, names.iter().copied()) {
                     Some(s) => format!("did you mean \"{s}\"? {defined}"),
                     None => format!(
                         "{defined}; to reach a service that is not in the config, pass --service {name} --local PORT"

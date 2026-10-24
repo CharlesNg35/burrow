@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 
 use super::Entry;
 use super::render::{Paint, Rates, rates, render};
-use crate::failure::Failure;
+use crate::base::failure::Failure;
 use crate::metrics::Status;
 
 const MAX_BODY: u64 = 16 * 1024 * 1024;
@@ -239,7 +239,7 @@ fn valid_token(t: &str) -> bool {
 }
 
 fn canonical(p: &Path) -> PathBuf {
-    crate::service::system::canonical_or_same(p)
+    crate::base::fs::canonical_or_same(p)
 }
 
 fn wanted(pick: &Pick) -> Result<Option<PathBuf>, Failure> {
@@ -255,7 +255,7 @@ fn wanted(pick: &Pick) -> Result<Option<PathBuf>, Failure> {
                 ))
                 .hint(format!(
                     "see it with: {}",
-                    crate::failure::admin(&format!("service status {}", m.name))
+                    crate::base::failure::admin(&format!("service status {}", m.name))
                 )));
             }
             Some(canonical(&m.config))
@@ -339,12 +339,12 @@ fn none_running(pick: &Pick, hidden: usize) -> Failure {
     let hint = if hidden > 0 {
         format!(
             "{hidden} running server(s) belong to another user, such as a service; run: {}",
-            crate::failure::admin("status")
+            crate::base::failure::admin("status")
         )
-    } else if crate::failure::SERVICES {
+    } else if crate::base::failure::SERVICES {
         format!(
             "burrow status shows servers; on a client or visitor, see {} and its logs",
-            crate::failure::cmd("service status")
+            crate::base::failure::cmd("service status")
         )
     } else {
         "burrow status shows servers; a client or visitor reports in its own log".to_string()
@@ -381,7 +381,7 @@ fn frame(scan: &Scan, paint: Paint, rates: Option<&HashMap<u32, Rates>>, all: bo
         text.push_str(&format!(
             "\n{} more running server(s) belong to another user; see them with: {}\n",
             scan.hidden,
-            crate::failure::admin("status")
+            crate::base::failure::admin("status")
         ));
     }
     text
@@ -482,7 +482,7 @@ pub fn run_in(dir: &Path, opts: Options, out: &mut dyn Write) -> Result<u8, Fail
         return Err(none_answered(&first, &opts.pick));
     }
     let tty = std::io::stdout().is_terminal();
-    let color = tty && crate::diagnostics::Style::detect(true).color;
+    let color = tty && crate::base::style::Style::detect(true).color;
     let paint = || Paint {
         color,
         boxed: tty && !opts.json,

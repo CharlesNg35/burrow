@@ -12,8 +12,8 @@ use tracing::{debug, warn};
 
 use super::control::control_session;
 use super::{Shared, bind_error};
+use crate::base::failure::Failure;
 use crate::config::settings::WebSocketSettings;
-use crate::failure::Failure;
 use crate::handshake::{AcceptError, accept};
 use crate::protocol::{ChannelKind, Hello, VERSION};
 use crate::secret::Secret;
@@ -32,7 +32,7 @@ impl WsRoute {
             Some(m) => Some(tls::acceptor(&m.cert_pem, &m.key_pem).map_err(|e| {
                 Failure::new(format!("websocket TLS files are not usable: {e}")).hint(format!(
                     "check websocket.tls.cert and websocket.tls.key with: {}",
-                    crate::failure::cmd("validate")
+                    crate::base::failure::cmd("validate")
                 ))
             })?),
             None => None,

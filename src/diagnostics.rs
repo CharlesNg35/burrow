@@ -2,6 +2,7 @@ use std::fmt::Write as _;
 
 use serde::Serialize;
 
+use crate::base::style::Style;
 use crate::config::tree::Span;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
@@ -64,29 +65,6 @@ impl Diagnostic {
 
     pub fn is_error(&self) -> bool {
         self.severity == Severity::Error
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct Style {
-    pub color: bool,
-}
-
-impl Style {
-    pub fn detect(stream_is_tty: bool) -> Self {
-        let no_color = std::env::var_os("NO_COLOR").is_some_and(|v| !v.is_empty());
-        let color = stream_is_tty && !no_color;
-        #[cfg(windows)]
-        let color = color && crossterm::ansi_support::supports_ansi();
-        Style { color }
-    }
-
-    pub fn paint(&self, code: &str, text: &str) -> String {
-        if self.color {
-            format!("\x1b[{code}m{text}\x1b[0m")
-        } else {
-            text.to_string()
-        }
     }
 }
 

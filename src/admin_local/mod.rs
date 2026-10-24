@@ -21,9 +21,9 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{Semaphore, watch};
 use tracing::debug;
 
+use crate::base::failure::Failure;
 use crate::config::settings::VisitorSettings;
 use crate::dialer::Dialer;
-use crate::failure::Failure;
 use http::Decision;
 use token::Token;
 

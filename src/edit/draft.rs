@@ -29,7 +29,7 @@ impl Draft {
             dir,
             keep: false,
         };
-        crate::instance::write_private(&draft.file, text)?;
+        crate::base::fs::write_private(&draft.file, text)?;
         Ok(draft)
     }
 

@@ -17,9 +17,9 @@ use windows_service::service_control_handler::{self, ServiceControlHandlerResult
 use windows_service::service_dispatcher;
 use windows_service::service_manager::{ServiceManager, ServiceManagerAccess};
 
-use super::system::run;
 use super::{Backend, Manifest, Platform, Status};
-use crate::failure::Failure;
+use crate::base::failure::Failure;
+use crate::base::process::run;
 use crate::run::{Env, Hosted, Logging};
 
 const SYSTEM: &str = "*S-1-5-18";
@@ -457,7 +457,7 @@ impl Backend for WindowsService {
         service.start::<&OsStr>(&[]).map_err(|e| {
             scm_error(&format!("start {}", m.name), e).hint(format!(
                 "see why with: {}",
-                crate::failure::admin(&format!("service logs {}", m.name))
+                crate::base::failure::admin(&format!("service logs {}", m.name))
             ))
         })?;
         wait_for(
@@ -519,7 +519,7 @@ impl Backend for WindowsService {
             ServiceExitCode::ServiceSpecific(3) => {
                 format!(
                     "the config has errors or cannot be read (exit 3); fix it, then: {}",
-                    crate::failure::admin(&format!("service start {}", m.name))
+                    crate::base::failure::admin(&format!("service start {}", m.name))
                 )
             }
             ServiceExitCode::ServiceSpecific(c) if c != 0 => {
@@ -546,7 +546,7 @@ pub fn dispatch(name: &str) -> Result<u8, Failure> {
     service_dispatcher::start(name, ffi_service_main).map_err(|e| {
         scm_error("talk to the Windows service manager", e).hint(format!(
             "this command is run by Windows; start the service with: {}",
-            crate::failure::admin(&format!("service start {name}"))
+            crate::base::failure::admin(&format!("service start {name}"))
         ))
     })?;
     Ok(EXIT.load(Ordering::SeqCst))
