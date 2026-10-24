@@ -1,4 +1,5 @@
 mod cards;
+mod controls;
 mod row;
 mod view;
 
@@ -16,7 +17,8 @@ use crate::store::store;
 
 use cards::layout_order;
 pub(crate) use cards::{card_fields, settings_card, settings_cards};
-use row::{row, visibility_row};
+use controls::visibility_row;
+use row::row;
 use view::value_view;
 
 const SERVICES: &str = ServiceEntry::SECTION;
