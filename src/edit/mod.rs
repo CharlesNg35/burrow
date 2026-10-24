@@ -125,20 +125,7 @@ fn edit(
             .hint("burrow configs end in .yaml, .yml or .json")
     })?;
     let before = read(path)?;
-    if !crate::base::access::can_write(path) {
-        return Err(
-            Failure::new(format!("you cannot change {shown}")).hint(format!(
-                "open it as an administrator: {}",
-                admin(&format!("edit {}", crate::base::failure::path_arg(path)))
-            )),
-        );
-    }
-    if let Some(owner) = crate::base::access::other_owner(path) {
-        say(
-            out,
-            format!("note: {shown} belongs to {owner}; it keeps that owner and its permissions"),
-        )?;
-    }
+    check_access(path, out)?;
     let complete_env = matches!(f.origin, Origin::Service { .. });
     let env: Box<dyn EnvSource> = match service_env(f) {
         Some(vars) => Box::new(move |k: &str| vars.get(k).cloned()),
@@ -151,36 +138,7 @@ fn edit(
     let mut opened = before.clone();
     let text = loop {
         let started = Instant::now();
-        let text = {
-            let quiet = editor::Quiet::new();
-            let draft = Draft::new(name, &opened)
-                .map_err(|e| Failure::new(format!("cannot make a private copy to edit: {e}")))?;
-            let stopped = || Err(Failure::new("stopped while editing; nothing was changed"));
-            let opened_now = if quiet.stopped() {
-                stopped()
-            } else {
-                match open(draft.path()) {
-                    _ if quiet.stopped() => stopped(),
-                    r => r,
-                }
-            };
-            if let Err(mut f) = opened_now {
-                if opened != before {
-                    let kept = draft.keep();
-                    let saved = format!("your edited version is kept in {}", kept.display());
-                    f.hint = Some(match f.hint.take() {
-                        Some(h) => format!("{h}; {saved}"),
-                        None => saved,
-                    });
-                }
-                return Err(f);
-            }
-            notes::strip(
-                &draft
-                    .read()
-                    .map_err(|e| Failure::new(format!("cannot read the edited copy: {e}")))?,
-            )
-        };
+        let text = edit_once(name, &opened, &before, open)?;
         if text == before {
             say(out, format!("no changes; {shown} is unchanged"))?;
             if started.elapsed() < Duration::from_secs(1) {
@@ -239,12 +197,79 @@ fn edit(
         };
         current = text;
     };
+    save(path, name, &before, &text, out)?;
+    note_sources(f, &before, &text, out)?;
+    apply::apply(apply::after(f), out)?;
+    Ok(0)
+}
+
+fn check_access(path: &Path, out: &mut dyn Write) -> Result<(), Failure> {
+    let shown = path.display();
+    if !crate::base::access::can_write(path) {
+        return Err(
+            Failure::new(format!("you cannot change {shown}")).hint(format!(
+                "open it as an administrator: {}",
+                admin(&format!("edit {}", crate::base::failure::path_arg(path)))
+            )),
+        );
+    }
+    if let Some(owner) = crate::base::access::other_owner(path) {
+        say(
+            out,
+            format!("note: {shown} belongs to {owner}; it keeps that owner and its permissions"),
+        )?;
+    }
+    Ok(())
+}
+
+fn edit_once(
+    name: &std::ffi::OsStr,
+    opened: &str,
+    before: &str,
+    open: &mut dyn FnMut(&Path) -> Result<(), Failure>,
+) -> Result<String, Failure> {
+    let quiet = editor::Quiet::new();
+    let draft = Draft::new(name, opened)
+        .map_err(|e| Failure::new(format!("cannot make a private copy to edit: {e}")))?;
+    let stopped = || Err(Failure::new("stopped while editing; nothing was changed"));
+    let opened_now = if quiet.stopped() {
+        stopped()
+    } else {
+        match open(draft.path()) {
+            _ if quiet.stopped() => stopped(),
+            r => r,
+        }
+    };
+    if let Err(mut f) = opened_now {
+        if opened != before {
+            let kept = draft.keep();
+            let saved = format!("your edited version is kept in {}", kept.display());
+            f.hint = Some(match f.hint.take() {
+                Some(h) => format!("{h}; {saved}"),
+                None => saved,
+            });
+        }
+        return Err(f);
+    }
+    Ok(notes::strip(&draft.read().map_err(|e| {
+        Failure::new(format!("cannot read the edited copy: {e}"))
+    })?))
+}
+
+fn save(
+    path: &Path,
+    name: &std::ffi::OsStr,
+    before: &str,
+    text: &str,
+    out: &mut dyn Write,
+) -> Result<(), Failure> {
+    let shown = path.display();
     let keep = |text: &str| {
         Draft::new(name, text)
             .map(|d| d.keep().display().to_string())
             .unwrap_or_else(|e| format!("nowhere ({e})"))
     };
-    match save::write_back(path, &before, &text) {
+    match save::write_back(path, before, text) {
         Ok(()) => say(out, format!("saved {shown}"))?,
         Err(save::Refused::Changed) => {
             return Err(Failure::new(format!(
@@ -252,18 +277,23 @@ fn edit(
             ))
             .hint(format!(
                 "your version is in {}; compare and copy what you need",
-                keep(&text)
+                keep(text)
             )));
         }
         Err(save::Refused::Io(e)) => {
             return Err(
                 Failure::new(format!("cannot write {shown}: {}", file_reason(&e)))
-                    .hint(format!("your version is in {}", keep(&text))),
+                    .hint(format!("your version is in {}", keep(text))),
             );
         }
     }
+    Ok(())
+}
+
+fn note_sources(f: &Found, before: &str, text: &str, out: &mut dyn Write) -> Result<(), Failure> {
+    let path = &f.path;
     match &f.origin {
-        Origin::Service { name, .. } => match source::of_service(name, path, &before, &text) {
+        Origin::Service { name, .. } => match source::of_service(name, path, before, text) {
             source::Source::Synced(src) => say(
                 out,
                 format!(
@@ -296,8 +326,7 @@ fn edit(
         }
         Origin::Running { .. } => {}
     }
-    apply::apply(apply::after(f), out)?;
-    Ok(0)
+    Ok(())
 }
 
 #[cfg(test)]
