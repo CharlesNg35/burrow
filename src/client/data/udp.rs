@@ -322,6 +322,13 @@ pub(super) async fn udp<W: Dials>(
     debug!("service \"{}\": UDP relay closed", connect.service);
 }
 
+pub(super) fn unreachable_status(e: &std::io::Error) -> Status {
+    match e.kind() {
+        std::io::ErrorKind::AddrInUse => Status::Offline,
+        _ => Status::Unreachable,
+    }
+}
+
 pub(super) fn unreachable_hint(e: &std::io::Error) -> &'static str {
     match e.kind() {
         std::io::ErrorKind::AddrNotAvailable | std::io::ErrorKind::AddrInUse => {

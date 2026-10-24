@@ -324,7 +324,10 @@ pub(super) fn log_status(label: &str, client: &str, target: &str, st: Status) {
             warn!("{label}: client \"{client}\" rejected the target {target} as invalid{more}")
         }
         Status::Busy => warn!("{label}: {}{more}", busy(client)),
-        Status::Forbidden | Status::Offline => {
+        Status::Offline => warn!(
+            "{label}: client \"{client}\" had no free local port to connect to {target}: many recent connections from it are still closing (TIME_WAIT){more}"
+        ),
+        Status::Forbidden => {
             warn!("{label}: client \"{client}\" sent an unexpected reply{more}")
         }
         Status::Ok => {}

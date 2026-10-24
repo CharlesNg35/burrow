@@ -360,6 +360,11 @@ mod tests {
         );
         assert_eq!(kind(ForwardError::Protocol), None);
         assert_eq!(
+            kind(ForwardError::Status(Status::Offline)),
+            None,
+            "a client without a free local port says nothing about the target"
+        );
+        assert_eq!(
             kind(ForwardError::Status(Status::Busy)),
             Some(Trouble::Failed),
             "a client at its connection limit is set aside like one that cannot connect"

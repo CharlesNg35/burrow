@@ -24,7 +24,7 @@ pub(crate) use limits::{Slots, WAITING_CAP, client_connection_cap, client_peer_c
 #[cfg(unix)]
 use reach::foreign_link_on;
 use reach::{label, outside_reach, permitted, whom};
-use udp::{preferred, udp, unreachable_hint};
+use udp::{preferred, udp, unreachable_hint, unreachable_status};
 
 #[derive(Clone, PartialEq)]
 pub(crate) struct Dialing {
@@ -219,7 +219,7 @@ async fn connected<W: Dials>(
                             unreachable_hint(&e)
                         );
                     }
-                    refuse(ch, Status::Unreachable).await;
+                    refuse(ch, unreachable_status(&e)).await;
                     return;
                 }
             };
@@ -525,6 +525,14 @@ mod tests {
         assert!(unreachable_hint(&ports).contains("TIME_WAIT"));
         let refused = std::io::Error::from(std::io::ErrorKind::ConnectionRefused);
         assert_eq!(unreachable_hint(&refused), "is it running?");
+    }
+
+    #[test]
+    fn a_local_port_in_use_is_not_blamed_on_the_target() {
+        let in_use = std::io::Error::from(std::io::ErrorKind::AddrInUse);
+        assert_eq!(unreachable_status(&in_use), Status::Offline);
+        let refused = std::io::Error::from(std::io::ErrorKind::ConnectionRefused);
+        assert_eq!(unreachable_status(&refused), Status::Unreachable);
     }
 
     #[test]

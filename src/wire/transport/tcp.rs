@@ -115,14 +115,47 @@ pub fn interleave(addrs: &[SocketAddr]) -> Vec<SocketAddr> {
     out
 }
 
+const IN_USE_RETRIES: usize = 3;
+const IN_USE_PAUSE: Duration = Duration::from_millis(5);
+
 pub async fn connect_any(addrs: &[SocketAddr], timeout: Duration) -> io::Result<TcpStream> {
+    connect_any_with(addrs, timeout, TcpStream::connect).await
+}
+
+async fn connect_one<C, F>(a: SocketAddr, connect: C) -> (SocketAddr, io::Result<TcpStream>)
+where
+    C: Fn(SocketAddr) -> F,
+    F: Future<Output = io::Result<TcpStream>>,
+{
+    let mut retries = 0;
+    loop {
+        match connect(a).await {
+            Err(e) if e.kind() == io::ErrorKind::AddrInUse && retries < IN_USE_RETRIES => {
+                retries += 1;
+                tracing::debug!("connecting to {a}: the local port is in use ({e}), trying again");
+                tokio::time::sleep(IN_USE_PAUSE).await;
+            }
+            done => return (a, done),
+        }
+    }
+}
+
+async fn connect_any_with<C, F>(
+    addrs: &[SocketAddr],
+    timeout: Duration,
+    connect: C,
+) -> io::Result<TcpStream>
+where
+    C: Fn(SocketAddr) -> F + Copy + Send + 'static,
+    F: Future<Output = io::Result<TcpStream>> + Send + 'static,
+{
     let ordered = interleave(addrs);
     let race = async {
         let mut attempts = tokio::task::JoinSet::new();
         let mut next = ordered.iter().copied();
         let mut last = io::Error::new(io::ErrorKind::NotFound, "no addresses to connect to");
         if let Some(a) = next.next() {
-            attempts.spawn(async move { (a, TcpStream::connect(a).await) });
+            attempts.spawn(connect_one(a, connect));
         }
         loop {
             let more = next.len() > 0;
@@ -132,7 +165,7 @@ pub async fn connect_any(addrs: &[SocketAddr], timeout: Duration) -> io::Result<
                     Some(Ok((_, Err(e)))) => {
                         last = e;
                         if let Some(a) = next.next() {
-                            attempts.spawn(async move { (a, TcpStream::connect(a).await) });
+                            attempts.spawn(connect_one(a, connect));
                         }
                     }
                     Some(Err(e)) => last = io::Error::new(io::ErrorKind::Interrupted, e),
@@ -140,7 +173,7 @@ pub async fn connect_any(addrs: &[SocketAddr], timeout: Duration) -> io::Result<
                 },
                 _ = tokio::time::sleep(ATTEMPT_DELAY), if more => {
                     if let Some(a) = next.next() {
-                        attempts.spawn(async move { (a, TcpStream::connect(a).await) });
+                        attempts.spawn(connect_one(a, connect));
                     }
                 }
             }
@@ -176,6 +209,36 @@ mod tests {
             libc::EMFILE
         )));
         assert!(!gone_before_accept(&io::ErrorKind::OutOfMemory.into()));
+    }
+
+    static FLAKY: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    static STUCK: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+    async fn in_use_once(a: SocketAddr) -> io::Result<TcpStream> {
+        match FLAKY.fetch_add(1, std::sync::atomic::Ordering::SeqCst) {
+            0 => Err(io::ErrorKind::AddrInUse.into()),
+            _ => TcpStream::connect(a).await,
+        }
+    }
+
+    async fn always_in_use(_: SocketAddr) -> io::Result<TcpStream> {
+        STUCK.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Err(io::ErrorKind::AddrInUse.into())
+    }
+
+    #[tokio::test]
+    async fn a_local_port_in_use_is_tried_again_with_a_new_socket() {
+        let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let to = [l.local_addr().unwrap()];
+        let got = connect_any_with(&to, Duration::from_secs(5), in_use_once).await;
+        assert_eq!(got.unwrap().peer_addr().unwrap(), to[0]);
+        assert_eq!(FLAKY.load(std::sync::atomic::Ordering::SeqCst), 2);
+        let got = connect_any_with(&to, Duration::from_secs(5), always_in_use).await;
+        assert_eq!(got.unwrap_err().kind(), io::ErrorKind::AddrInUse);
+        assert_eq!(
+            STUCK.load(std::sync::atomic::Ordering::SeqCst),
+            IN_USE_RETRIES + 1
+        );
     }
 
     fn a(s: &str) -> SocketAddr {
