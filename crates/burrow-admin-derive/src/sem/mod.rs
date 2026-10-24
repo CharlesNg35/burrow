@@ -178,7 +178,15 @@ fn scalar_sem(
             quote!(#p::SemType::Integer(#p::IntegerC { min: #mn, max: #mx, unit: #unit }))
         }
         "bool" => quote!(#p::SemType::Bool),
-        "enum_" => match ty {
+        "enum_" => match Term::positional(args)
+            .first()
+            .and_then(|a| match a {
+                Term::Type(t, _) => Some((**t).clone()),
+                _ => None,
+            })
+            .as_ref()
+            .or(ty)
+        {
             Some(ty) => {
                 quote!(#p::SemType::Enum(#p::EnumC { options: <#ty as #p::AdminEnum>::options() }))
             }

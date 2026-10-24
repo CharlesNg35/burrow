@@ -30,6 +30,16 @@ pub enum Toggle {
     Tuned(Inner),
 }
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, AdminSchema)]
+#[serde(untagged)]
+#[admin(semantic = union(enum_(Speed), object(Inner)))]
+pub enum Pace {
+    #[admin(label = "named")]
+    Named(Speed),
+    #[admin(label = "tuned")]
+    Tuned(Inner),
+}
+
 #[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize, AdminSchema)]
 #[serde(default)]
 #[admin(entity = service, label = "Thing", groups(main = "Main", more = "More"))]
@@ -164,4 +174,12 @@ fn main() {
     assert_eq!(Svc::TCP_ONLY, ["visitors"]);
     let svc = <Svc as AdminSchema>::node();
     assert_eq!(svc.field("visitors").unwrap().node.relations.len(), 1);
+    let pace = <Pace as AdminSchema>::node();
+    let burrow_config::admin_schema::__private::SemType::Union(u) = &pace.sem else {
+        panic!("a union")
+    };
+    let burrow_config::admin_schema::__private::SemType::Enum(e) = &u.branches[0].sem else {
+        panic!("the first branch is the named enum")
+    };
+    assert_eq!(e.options[1].label, "Fast");
 }
