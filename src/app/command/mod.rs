@@ -218,34 +218,7 @@ fn run(cli: Cli) -> Result<u8, Failure> {
         file: cli.log_file.clone(),
     };
     match cli.command {
-        Command::Validate(args) => {
-            let path = config_path(args.config, args.role.map(role))?;
-            let v = match crate::config::validate::validate(
-                &path,
-                args.role.map(role),
-                args.strict,
-                &ProcessEnv,
-            ) {
-                Ok(v) => v,
-                Err(f) if matches!(args.format, OutputFormat::Json) => {
-                    print(&crate::config::validate::unreadable_json(
-                        &path,
-                        &f,
-                        args.strict,
-                    ))?;
-                    return Ok(f.exit);
-                }
-                Err(f) => return Err(f),
-            };
-            let text = match args.format {
-                OutputFormat::Text => {
-                    crate::config::validate::render_text(&v.outcome, args.strict, out_style)
-                }
-                OutputFormat::Json => crate::config::validate::render_json(&v.outcome, args.strict),
-            };
-            print(&text)?;
-            Ok(v.exit)
-        }
+        Command::Validate(args) => validate(args, out_style),
         Command::Schema { role: r } => {
             let schema = crate::config::load::schema_json(role(r));
             print(&format!(
@@ -273,31 +246,7 @@ fn run(cli: Cli) -> Result<u8, Failure> {
             &mut TtyPrompt,
             &mut std::io::stdout().lock(),
         ),
-        Command::Status(a) => {
-            use crate::status::query::{Options, Pick, run};
-            let pick = match (a.name, a.config) {
-                (Some(name), _) => Pick::Service(name),
-                (None, Some(config)) => Pick::Config(config),
-                (None, None) => Pick::All,
-            };
-            if !(a.interval.is_finite() && (0.2..=3600.0).contains(&a.interval)) {
-                return Err(Failure::usage(
-                    "--interval must be between 0.2 and 3600 seconds",
-                ));
-            }
-            let follow = a
-                .follow
-                .then(|| std::time::Duration::from_secs_f64(a.interval));
-            let mut out = std::io::stdout().lock();
-            run(
-                Options {
-                    pick,
-                    json: a.json,
-                    follow,
-                },
-                &mut out,
-            )
-        }
+        Command::Status(a) => status(a),
         Command::Update(a) => {
             let mut out = std::io::stdout().lock();
             crate::update::run(
@@ -316,77 +265,7 @@ fn run(cli: Cli) -> Result<u8, Failure> {
             print(&String::from_utf8_lossy(&buf))?;
             Ok(0)
         }
-        Command::Init(args) => {
-            let opts = InitOptions {
-                format: args.format.map(format),
-                output: args.output,
-                force: args.force,
-                server: args.server,
-                name: args.name,
-                client_name: args.client_name,
-                secret: args.secret,
-                env_secret: args.env_secret,
-                update: args.update,
-                yes: args.yes,
-                websocket: (args.ws
-                    || args.ws_listen.is_some()
-                    || args.ws_path.is_some()
-                    || args.ws_tls_cert.is_some()
-                    || args.ws_tls_key.is_some())
-                .then_some(crate::init::WebSocketInit {
-                    listen: args.ws_listen,
-                    path: args.ws_path,
-                    tls_cert: args.ws_tls_cert,
-                    tls_key: args.ws_tls_key,
-                }),
-            };
-            let role = match (args.role, args.update) {
-                (Some(RoleArg::Visitor) | None, true) => RoleArg::Visitor,
-                (Some(_), true) => {
-                    return Err(
-                        Failure::usage("--update is for visitor configs").hint(format!(
-                            "run: {}",
-                            crate::base::failure::cmd("init visitor --update")
-                        )),
-                    );
-                }
-                (Some(r), false) => r,
-                (None, false) => ask_role()?,
-            };
-            let given = [
-                ("--name", opts.name.is_some()),
-                ("--secret", opts.secret.is_some()),
-                ("--client-name", opts.client_name.is_some()),
-                ("--ws", opts.websocket.is_some()),
-            ];
-            let (kind, applies): (&str, &[&str]) = match role {
-                RoleArg::Server => ("server", &["--client-name", "--ws"]),
-                RoleArg::Client => ("client", &["--name", "--secret"]),
-                RoleArg::Visitor => ("visitor", &["--name", "--secret"]),
-            };
-            if let Some((flag, _)) = given.iter().find(|(f, set)| *set && !applies.contains(f)) {
-                let what = if *flag == "--ws" {
-                    "--ws and its options are".to_string()
-                } else {
-                    format!("{flag} is")
-                };
-                return Err(Failure::usage(format!(
-                    "{what} not for {kind} configs"
-                ))
-                .hint(match *flag {
-                    "--name" | "--secret" => "for a server config, name the first client with --client-name; its secret is generated".to_string(),
-                    "--client-name" => format!("the {kind}'s own name is --name"),
-                    _ => "a client or visitor gets a WebSocket server from its --server URL, for example --server wss://tunnel.example.com/burrow".to_string(),
-                }));
-            }
-            let mut out = std::io::stdout().lock();
-            match role {
-                RoleArg::Server => crate::init::init_server(&opts, &mut out)?,
-                RoleArg::Client => crate::init::init_client(&opts, &mut TtyPrompt, &mut out)?,
-                RoleArg::Visitor => crate::init::init_visitor(&opts, &mut TtyPrompt, &mut out)?,
-            };
-            Ok(0)
-        }
+        Command::Init(args) => init(args),
         Command::ClientConfig(args) => export(
             crate::init::client_config,
             args.name.as_deref(),
@@ -417,6 +296,133 @@ fn run(cli: Cli) -> Result<u8, Failure> {
             crate::app::run::visit(&path, logging, visit_pick(args)?, env)
         }
     }
+}
+
+fn validate(args: crate::app::cli::ValidateArgs, out_style: Style) -> Result<u8, Failure> {
+    let path = config_path(args.config, args.role.map(role))?;
+    let v = match crate::config::validate::validate(
+        &path,
+        args.role.map(role),
+        args.strict,
+        &ProcessEnv,
+    ) {
+        Ok(v) => v,
+        Err(f) if matches!(args.format, OutputFormat::Json) => {
+            print(&crate::config::validate::unreadable_json(
+                &path,
+                &f,
+                args.strict,
+            ))?;
+            return Ok(f.exit);
+        }
+        Err(f) => return Err(f),
+    };
+    let text = match args.format {
+        OutputFormat::Text => {
+            crate::config::validate::render_text(&v.outcome, args.strict, out_style)
+        }
+        OutputFormat::Json => crate::config::validate::render_json(&v.outcome, args.strict),
+    };
+    print(&text)?;
+    Ok(v.exit)
+}
+
+fn status(a: crate::app::cli::StatusArgs) -> Result<u8, Failure> {
+    use crate::status::query::{Options, Pick, run};
+    let pick = match (a.name, a.config) {
+        (Some(name), _) => Pick::Service(name),
+        (None, Some(config)) => Pick::Config(config),
+        (None, None) => Pick::All,
+    };
+    if !(a.interval.is_finite() && (0.2..=3600.0).contains(&a.interval)) {
+        return Err(Failure::usage(
+            "--interval must be between 0.2 and 3600 seconds",
+        ));
+    }
+    let follow = a
+        .follow
+        .then(|| std::time::Duration::from_secs_f64(a.interval));
+    let mut out = std::io::stdout().lock();
+    run(
+        Options {
+            pick,
+            json: a.json,
+            follow,
+        },
+        &mut out,
+    )
+}
+
+fn init(args: crate::app::cli::InitArgs) -> Result<u8, Failure> {
+    let opts = InitOptions {
+        format: args.format.map(format),
+        output: args.output,
+        force: args.force,
+        server: args.server,
+        name: args.name,
+        client_name: args.client_name,
+        secret: args.secret,
+        env_secret: args.env_secret,
+        update: args.update,
+        yes: args.yes,
+        websocket: (args.ws
+            || args.ws_listen.is_some()
+            || args.ws_path.is_some()
+            || args.ws_tls_cert.is_some()
+            || args.ws_tls_key.is_some())
+        .then_some(crate::init::WebSocketInit {
+            listen: args.ws_listen,
+            path: args.ws_path,
+            tls_cert: args.ws_tls_cert,
+            tls_key: args.ws_tls_key,
+        }),
+    };
+    let role = match (args.role, args.update) {
+        (Some(RoleArg::Visitor) | None, true) => RoleArg::Visitor,
+        (Some(_), true) => {
+            return Err(
+                Failure::usage("--update is for visitor configs").hint(format!(
+                    "run: {}",
+                    crate::base::failure::cmd("init visitor --update")
+                )),
+            );
+        }
+        (Some(r), false) => r,
+        (None, false) => ask_role()?,
+    };
+    let given = [
+        ("--name", opts.name.is_some()),
+        ("--secret", opts.secret.is_some()),
+        ("--client-name", opts.client_name.is_some()),
+        ("--ws", opts.websocket.is_some()),
+    ];
+    let (kind, applies): (&str, &[&str]) = match role {
+        RoleArg::Server => ("server", &["--client-name", "--ws"]),
+        RoleArg::Client => ("client", &["--name", "--secret"]),
+        RoleArg::Visitor => ("visitor", &["--name", "--secret"]),
+    };
+    if let Some((flag, _)) = given.iter().find(|(f, set)| *set && !applies.contains(f)) {
+        let what = if *flag == "--ws" {
+            "--ws and its options are".to_string()
+        } else {
+            format!("{flag} is")
+        };
+        return Err(Failure::usage(format!(
+            "{what} not for {kind} configs"
+        ))
+        .hint(match *flag {
+            "--name" | "--secret" => "for a server config, name the first client with --client-name; its secret is generated".to_string(),
+            "--client-name" => format!("the {kind}'s own name is --name"),
+            _ => "a client or visitor gets a WebSocket server from its --server URL, for example --server wss://tunnel.example.com/burrow".to_string(),
+        }));
+    }
+    let mut out = std::io::stdout().lock();
+    match role {
+        RoleArg::Server => crate::init::init_server(&opts, &mut out)?,
+        RoleArg::Client => crate::init::init_client(&opts, &mut TtyPrompt, &mut out)?,
+        RoleArg::Visitor => crate::init::init_visitor(&opts, &mut TtyPrompt, &mut out)?,
+    };
+    Ok(0)
 }
 
 fn admin(args: crate::app::cli::AdminArgs) -> Result<u8, Failure> {
