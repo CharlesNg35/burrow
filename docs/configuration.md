@@ -124,6 +124,7 @@ services:
 | `public_address` | none | how clients reach this server: host, host:port or a `wss://` URL. `client-config` and `visitor-config` write it into the configs they print |
 | `websocket.listen` | none | accept clients over WebSocket on this address; a port alone means `0.0.0.0`. See [websocket.md](websocket.md) |
 | `websocket.path` | `/burrow` | URL path for WebSocket clients |
+| `websocket.host` | none | the tunnel's name when `websocket.listen` is the same port as `web.https`; required then. See [web.md](web.md#the-tunnel-on-the-same-port) |
 | `websocket.tls.cert` / `key` | none | serve `wss://` directly with these PEM files |
 | `websocket.keepalive_secs` | `25` | keepalive on idle connections, 5 to 30 |
 | `clients.<name>.secret` | required | a 256-bit secret (base64 or hex), or a list of up to 4 while you change it |
@@ -146,7 +147,9 @@ services:
 | `services.<name>.proxy_protocol` | off | `v1` or `v2`: send the real client address to the target |
 | `services.<name>.bandwidth` | unlimited | speed limit per direction, for example `40mbit` or `5MB` (per second) |
 | `services.<name>.max_connections` | unlimited | open connections for this TCP service |
+| `services.<name>.web` | none | names that lead to this TCP service on `web.https`: `{ hosts: [nas.example.com], tls: passthrough }`. See [web.md](web.md) |
 | `self.allow` | none | what the server may connect to for itself, for `client: self` and `reach: self`. See [services.md](services.md#on-the-server-itself) |
+| `web.https` | required with `web` | the HTTPS port for websites and TLS services by name; a port alone means every IPv4 and IPv6 address, `0.0.0.0:443` IPv4 only. Off unless `web` is written. See [web.md](web.md) |
 | `metrics.listen` | off | address for Prometheus `/metrics`; a port alone means `127.0.0.1`. See [monitoring.md](monitoring.md) |
 | `insecure_plaintext` | `false` | send forwarded TCP data unencrypted on raw TCP links to clients; logging in stays encrypted |
 | `heartbeat.interval_secs` | `10` | ping interval; a peer times out after 3 missed pings |

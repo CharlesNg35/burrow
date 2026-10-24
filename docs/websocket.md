@@ -38,6 +38,7 @@ server: wss://tunnel.example.com/burrow   # wss:// is WebSocket over TLS (HTTPS)
 - The services you expose with `bind` are still plain TCP or UDP ports on the server. Only the connection between client and server goes over WebSocket.
 - `headers` in client.yaml or visitor.yaml adds HTTP headers to the WebSocket connection, for example an access token for a proxy.
 - A client that must go through an outgoing proxy uses `proxy: http://host:port` or `socks5://host:port`.
+- The tunnel can also share port 443 with websites that burrow passes through by name, without nginx in front: see [web.md](web.md#the-tunnel-on-the-same-port).
 
 ## Examples
 

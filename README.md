@@ -38,6 +38,7 @@ The client at home connects out to the server and keeps that connection open. Th
 - [Services](#services)
 - [Private services and visitors](#private-services-and-visitors)
 - [Servers reachable only through HTTP(S)](#servers-reachable-only-through-https)
+- [Websites](#websites)
 - [Web admin](#web-admin)
 - [Running as a service](#running-as-a-service)
 - [Monitoring](#monitoring)
@@ -252,6 +253,25 @@ server: wss://tunnel.example.com/burrow
 ```
 
 **Read more:** [docs/websocket.md](docs/websocket.md), with ready configs for nginx, Caddy, Cloudflare, Cloudflare Tunnel and Kubernetes, and for burrow serving `wss://` itself.
+
+## Websites
+
+One HTTPS port on the server, usually 443, can lead to several websites and TLS services, told apart by their name. Each one still goes through the tunnel like any service. With `tls: passthrough` the app keeps its own certificate, and burrow only reads the name:
+
+```yaml
+# server.yaml
+web:
+  https: 443 # IPv4 and IPv6
+services:
+  nas:
+    client: home
+    target: 192.168.1.20:443
+    web: { hosts: [nas.example.com], tls: passthrough }
+```
+
+`burrow validate` lists each name and where it leads. The tunnel can share the port too, on a name of its own, so clients connect to `wss://tunnel.example.com/burrow` on 443.
+
+**Read more:** [docs/web.md](docs/web.md).
 
 ## Web admin
 
