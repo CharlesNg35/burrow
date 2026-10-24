@@ -102,6 +102,7 @@ pub fn ListPane(
     #[prop(optional)] compact: bool,
     #[prop(optional)] empty_icon: Option<&'static str>,
     #[prop(optional)] query: Option<RwSignal<String>>,
+    #[prop(default = None)] new_menu: Option<Vec<NewChoice>>,
 ) -> impl IntoView {
     let q = query.unwrap_or_else(|| RwSignal::new(String::new()));
     let filter = RwSignal::new(default_filter.unwrap_or("all"));
@@ -126,7 +127,12 @@ pub fn ListPane(
         let next = (at + delta).clamp(0, list.len() as i32 - 1) as usize;
         route::go(list[next].to.clone());
     };
-    let new_button = new_button(on_new, new_label, new_disabled);
+    let new_button = match new_menu {
+        Some(menu) => {
+            Some(new_menu_button(menu, new_label.unwrap_or_default(), new_disabled).into_any())
+        }
+        None => new_button(on_new, new_label, new_disabled).map(IntoAny::into_any),
+    };
     let chips = filter_chips(filters, filter, rows, no_counts);
     let list_ref: NodeRef<leptos::html::Div> = NodeRef::new();
     keep_selected_in_view(list_ref, selected, visible);
@@ -209,6 +215,69 @@ pub fn ListPane(
 struct Look {
     no_counts: bool,
     compact: bool,
+}
+
+#[derive(Clone)]
+pub struct NewChoice {
+    pub key: &'static str,
+    pub label: String,
+    pub sub: String,
+    pub on_pick: Callback<()>,
+}
+
+fn new_menu_button(menu: Vec<NewChoice>, label: String, disabled: bool) -> impl IntoView {
+    let open = RwSignal::new(false);
+    let items = menu
+        .into_iter()
+        .map(|c| {
+            let pick = c.on_pick;
+            view! {
+                <li role="none">
+                    <button
+                        type="button"
+                        role="menuitem"
+                        class="flex w-full cursor-pointer flex-col items-start rounded-md px-3 py-2 text-left hover:bg-surface-3 focus-visible:bg-surface-3 focus-visible:outline-none"
+                        data-new=c.key
+                        on:click=move |_| {
+                            open.set(false);
+                            pick.run(());
+                        }
+                    >
+                        <span class="text-sm font-semibold">{c.label}</span>
+                        <span class="text-xs text-text-muted">{c.sub}</span>
+                    </button>
+                </li>
+            }
+        })
+        .collect_view();
+    view! {
+        <span class="relative ml-auto" on:keydown=move |e| if e.key() == "Escape" { open.set(false) }>
+            <button
+                type="button"
+                class="flex size-[30px] cursor-pointer items-center justify-center rounded-md bg-accent text-on-accent hover:brightness-95 dark:hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-55"
+                aria-label=label
+                aria-haspopup="menu"
+                aria-expanded=move || open.get().to_string()
+                disabled=disabled
+                title=disabled.then_some("Adding needs write admin.")
+                data-testid="new"
+                on:click=move |_| open.update(|o| *o = !*o)
+            >
+                <Icon name="plus"/>
+            </button>
+            <Show when=move || open.get()>
+                <div class="fixed inset-0 z-30" on:click=move |_| open.set(false)></div>
+            </Show>
+            <ul
+                role="menu"
+                class="absolute top-[36px] right-0 z-40 w-64 rounded-card border border-border-strong bg-surface p-1 shadow-overlay dark:bg-surface-2"
+                hidden=move || !open.get()
+                data-testid="new-menu"
+            >
+                {items}
+            </ul>
+        </span>
+    }
 }
 
 fn new_button(

@@ -28,6 +28,8 @@ fn add_service(c: &mut Ctx) -> Flow<'_> {
         c.ui.nav("/services").await;
         c.ui.shot("services-list").await;
         c.ui.click("[data-testid=new]").await;
+        c.ui.click("[data-testid=new-menu] [data-new=service]")
+            .await;
         c.ui.wait_for("[data-testid=new-entity]", SECS).await;
         c.ui.shot("new-service-dialog").await;
         c.ui.fill("#new-name", "has space").await;
@@ -216,6 +218,8 @@ fn service_on_this_server(c: &mut Ctx) -> Flow<'_> {
         open(c, "ops").await;
         c.ui.nav("/services").await;
         c.ui.click("[data-testid=new]").await;
+        c.ui.click("[data-testid=new-menu] [data-new=service]")
+            .await;
         c.ui.wait_for("[data-testid=new-entity]", SECS).await;
         c.ui.fill("#new-name", "local").await;
         c.ui.wait_for("[data-testid=name-available]", SECS).await;

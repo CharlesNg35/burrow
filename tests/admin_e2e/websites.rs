@@ -320,3 +320,80 @@ fn a_profile_the_service_does_not_offer_links_to_the_field() {
     };
     run("profile-link", opts, true, profile_link);
 }
+
+fn new_website(c: &mut Ctx) -> Flow<'_> {
+    Box::pin(async move {
+        open(c, "ops").await;
+        c.ui.nav("/services").await;
+        c.ui.click("[data-testid=new]").await;
+        c.ui.wait_for("[data-testid=new-menu] [data-new=website]", SECS)
+            .await;
+        c.ui.shot("new-menu").await;
+        c.ui.click("[data-new=website]").await;
+        c.ui.wait_for("[data-testid=new-website]", SECS).await;
+        add_name(c, "new-website-names", "shop.example.com").await;
+        c.ui.fill("#new-website-target", "8081").await;
+        c.ui.wait_for("[data-testid=new-website-email]", SECS).await;
+        c.ui.fill("#new-website-email", "ops@example.com").await;
+        let problem = c.ui.text("[data-testid=new-website-problem]").await;
+        assert!(
+            problem.contains("Let's Encrypt cannot check shop.example.com"),
+            "this test's HTTPS port is not 443: {problem}"
+        );
+        assert!(!c.ui.enabled("[data-testid=create]").await);
+        both_widths(c, "new-website-no-check").await;
+        click_js(c, "[data-testid=new-website-tls] input[value=passthrough]").await;
+        c.ui.wait_gone("[data-testid=new-website-email]", SECS)
+            .await;
+        let service = c.ui.text("[data-testid=new-website-service]").await;
+        assert!(service.contains("\"shop\""), "{service}");
+        both_widths(c, "new-website").await;
+        c.ui.click("[data-testid=create]").await;
+        c.ui.wait_for("[data-testid=entity-list] [data-row=shop]", SECS)
+            .await;
+        open_review(c, "new-website-review").await;
+        applied(c, "new-website-applied").await;
+        let text = c.world.config();
+        assert!(
+            text.contains("  shop:\n")
+                && text.contains("target: 8081")
+                && text.contains("shop.example.com"),
+            "{text}"
+        );
+        c.ui.assert_no_errors();
+    })
+}
+
+#[test]
+fn a_new_website_is_made_from_the_services_page() {
+    run("new-website", opts(), false, new_website);
+}
+
+fn new_website_web_off(c: &mut Ctx) -> Flow<'_> {
+    Box::pin(async move {
+        open(c, "ops").await;
+        c.ui.nav("/services").await;
+        c.ui.click("[data-testid=new]").await;
+        c.ui.click("[data-new=website]").await;
+        c.ui.wait_for("[data-testid=web-off-new]", SECS).await;
+        assert!(
+            c.ui.text("[data-testid=web-off-new]")
+                .await
+                .contains("https: 443")
+        );
+        add_name(c, "new-website-names", "shop.example.com").await;
+        assert!(!c.ui.enabled("[data-testid=create]").await);
+        both_widths(c, "new-website-web-off").await;
+        c.ui.assert_no_errors();
+    })
+}
+
+#[test]
+fn a_new_website_with_the_web_proxy_off_says_which_lines_to_add() {
+    run(
+        "new-website-off",
+        Options::default(),
+        false,
+        new_website_web_off,
+    );
+}

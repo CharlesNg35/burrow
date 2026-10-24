@@ -1,12 +1,12 @@
 use burrow_admin_proto::schema::Entity;
 use burrow_admin_proto::serde_json::Value;
-use burrow_config::{ClientEntry, Entry, Protocol, VisitorEntry, entity_of_section};
+use burrow_config::{ClientEntry, Entry, Protocol, ServiceEntry, VisitorEntry, entity_of_section};
 use burrow_ui_kit::{EmptyState, Tone};
 use leptos::prelude::*;
 
 use crate::route::{self, Route};
-use crate::screens::create::{NewEntity, singular};
-use crate::screens::{DetailPane, ListPane, Row, master_detail, wide};
+use crate::screens::create::{NewEntity, NewWebsite, singular};
+use crate::screens::{DetailPane, ListPane, NewChoice, Row, master_detail, wide};
 use crate::store::store;
 
 use super::rows::{client_row, service_row, visitor_row};
@@ -93,6 +93,31 @@ pub fn rows_for(section: &str) -> Vec<Row> {
     out
 }
 
+fn new_menu(section: &str, site: RwSignal<bool>, adding: RwSignal<bool>) -> Option<Vec<NewChoice>> {
+    let pick = move |website: bool| {
+        Callback::new(move |_| {
+            site.set(website);
+            adding.set(true);
+        })
+    };
+    (section == ServiceEntry::section()).then(|| {
+        vec![
+            NewChoice {
+                key: "service",
+                label: "Service".into(),
+                sub: "A TCP or UDP port".into(),
+                on_pick: pick(false),
+            },
+            NewChoice {
+                key: "website",
+                label: "Website".into(),
+                sub: "A name with HTTPS".into(),
+                on_pick: pick(true),
+            },
+        ]
+    })
+}
+
 #[component]
 pub fn Entities(section: String, selected: Option<String>) -> impl IntoView {
     let s = store();
@@ -105,6 +130,7 @@ pub fn Entities(section: String, selected: Option<String>) -> impl IntoView {
         route::replace(first.to);
     }
     let adding = RwSignal::new(false);
+    let site = RwSignal::new(false);
     {
         let sec = section.clone();
         Effect::new(move |_| {
@@ -168,7 +194,9 @@ pub fn Entities(section: String, selected: Option<String>) -> impl IntoView {
                             "stack"
                         },
                         dot: Some(Tone::Accent),
-                        title: if n.is_empty() {
+                        title: if site.get() {
+                            "new website".to_string()
+                        } else if n.is_empty() {
                             format!("new {what}")
                         } else {
                             n
@@ -191,12 +219,14 @@ pub fn Entities(section: String, selected: Option<String>) -> impl IntoView {
         }
     });
     let can = s.can_write_now();
+    let new_menu = new_menu(&section, site, adding);
     let list = view! {
         <ListPane
             title=plural(&section)
             count=count
             new_label=format!("New {what}")
-            on_new=Callback::new(move |_| adding.set(true))
+            on_new=Callback::new(move |_| { site.set(false); adding.set(true) })
+            new_menu=new_menu
             new_disabled=!can
             search_label=format!("Search {}", section)
             filters=filters
@@ -214,6 +244,9 @@ pub fn Entities(section: String, selected: Option<String>) -> impl IntoView {
     let detail = view! {
         {move || {
             let (sec, pick) = (sec_new.clone(), pick.clone());
+            if adding.get() && site.get() {
+                return view! { <DetailPane><NewWebsite open=adding/></DetailPane> }.into_any();
+            }
             if adding.get() {
                 return view! { <DetailPane><NewEntity section=sec open=adding draft_name=draft_name/></DetailPane> }.into_any();
             }

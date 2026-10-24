@@ -15,7 +15,7 @@ use leptos::prelude::*;
 use crate::route::{Link, Route};
 use crate::store::store;
 
-pub(crate) use list::{ListCard, ListPane};
+pub(crate) use list::{ListCard, ListPane, NewChoice};
 
 pub fn screen(route: Route) -> AnyView {
     let _ = store();

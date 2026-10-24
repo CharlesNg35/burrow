@@ -103,6 +103,43 @@ pub fn is_public(svc: &Value) -> bool {
     exposure(svc).is_some()
 }
 
+pub fn service_name(names: &[String], taken: &[String]) -> String {
+    let first = names
+        .first()
+        .and_then(|n| n.trim_start_matches("*.").split('.').next())
+        .filter(|l| {
+            burrow_syntax::name::check_name(l).is_ok() && !l.chars().all(|c| c.is_ascii_digit())
+        })
+        .unwrap_or("site");
+    let mut name = first.to_string();
+    let mut n = 2;
+    while taken.contains(&name) {
+        name = format!("{first}-{n}");
+        n += 1;
+    }
+    name
+}
+
+pub fn needs_letsencrypt(hosts: &[String], web: &Value) -> bool {
+    if burrow_config::WebConfig::LETSENCRYPT
+        .get(web)
+        .is_some_and(|v| !v.is_null())
+    {
+        return false;
+    }
+    let entries: Vec<Vec<String>> = burrow_config::WebConfig::CERTIFICATES
+        .get(web)
+        .and_then(Value::as_array)
+        .map(|a| a.iter().map(names).collect())
+        .unwrap_or_default();
+    hosts.iter().any(|n| {
+        !matches!(
+            burrow_syntax::web::entry_for(entries.iter().map(Vec::as_slice).enumerate(), n),
+            Ok(Some(_))
+        )
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -215,6 +252,31 @@ mod tests {
             json!({"hosts": ["a.example.com"], "tls": "passthrough"})
         ));
         assert!(!shown(json!({"hosts": ["a.example.com"], "tls": "off"})));
+    }
+
+    #[test]
+    fn a_new_website_gets_a_free_service_name_from_its_first_name() {
+        let n = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(service_name(&n(&["blog.example.com"]), &n(&[])), "blog");
+        assert_eq!(
+            service_name(&n(&["blog.example.com"]), &n(&["blog"])),
+            "blog-2"
+        );
+        assert_eq!(service_name(&n(&["*.apps.example.com"]), &n(&[])), "apps");
+        assert_eq!(service_name(&n(&["203.0.113.10"]), &n(&[])), "site");
+        assert_eq!(service_name(&n(&[]), &n(&["site"])), "site-2");
+    }
+
+    #[test]
+    fn a_new_website_asks_for_an_email_only_when_no_certificate_covers_it() {
+        let n = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let bare = json!({"https": 443});
+        assert!(needs_letsencrypt(&n(&["blog.example.com"]), &bare));
+        let le = json!({"https": 443, "letsencrypt": {"email": "a@b.c"}});
+        assert!(!needs_letsencrypt(&n(&["blog.example.com"]), &le));
+        let files = json!({"https": 443, "certificates": [{"hosts": ["*.example.com"], "cert": "c", "key": "k"}]});
+        assert!(!needs_letsencrypt(&n(&["blog.example.com"]), &files));
+        assert!(needs_letsencrypt(&n(&["example.com"]), &files));
     }
 
     #[test]

@@ -1,4 +1,5 @@
 mod new;
+mod website;
 
 use burrow_admin_proto::msg::{self, GeneratedSecret};
 use burrow_admin_proto::schema::Entity;
@@ -13,6 +14,7 @@ use crate::route::{Route, go};
 use crate::store::store;
 
 pub(crate) use new::NewEntity;
+pub(crate) use website::NewWebsite;
 
 pub fn singular(section: &str) -> &'static str {
     match entity_of_section(section) {
