@@ -2,13 +2,14 @@ use serde::{Deserialize, Serialize};
 
 use crate::admin_schema::AdminSchema;
 
-use super::Bind;
+use super::{Bind, TlsFiles};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, AdminSchema)]
 #[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 #[admin(label = "Web proxy")]
 pub struct WebConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
         description = "Port or ip:port for HTTPS, like 443; a port alone means every IPv4 and IPv6 address, 0.0.0.0:443 only IPv4"
     )]
@@ -16,9 +17,10 @@ pub struct WebConfig {
         ty = ip_port(default_ip = "::"),
         label = "HTTPS port",
         help = "The port where websites and TLS services are reached by name, for example 443; a port alone listens on IPv4 and IPv6, 0.0.0.0:443 on IPv4 only",
+        none_label = "No HTTPS port",
         locked
     )]
-    pub https: Bind,
+    pub https: Option<Bind>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, AdminSchema)]
@@ -43,9 +45,9 @@ impl ServiceWeb {
         }
     }
 
-    pub fn tls(&self) -> Option<WebTls> {
+    pub fn tls(&self) -> Option<&SiteTls> {
         match self {
-            ServiceWeb::Site(s) => s.tls,
+            ServiceWeb::Site(s) => s.tls.as_ref(),
             _ => None,
         }
     }
@@ -67,23 +69,44 @@ pub struct WebSite {
     pub hosts: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
-        description = "passthrough: the app keeps its own TLS and certificate, burrow only reads the name"
+        description = "auto (a certificate for every name, the default with web.https), passthrough (the app does its own HTTPS; burrow only reads the name), off (plain HTTP) or {cert, key} (this site's own certificate file)"
     )]
     #[admin(
-        label = "TLS",
-        help = "Passthrough leaves TLS to the app: it keeps its own certificate, and burrow only reads the name",
-        none_label = "burrow handles HTTPS"
+        label = "HTTPS",
+        help = "Who does HTTPS for this website: burrow with an automatic certificate, the app itself (burrow only reads the name), nobody (plain HTTP), or burrow with your own certificate file",
+        none_label = "Automatic"
     )]
-    pub tls: Option<WebTls>,
+    pub tls: Option<SiteTls>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, AdminSchema)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
+#[serde(untagged)]
+#[admin(semantic = union(enum_(TlsMode), object(TlsFiles)))]
+pub enum SiteTls {
+    #[admin(label = "Choice")]
+    Mode(TlsMode),
+    #[admin(label = "My own certificate file")]
+    Files(TlsFiles),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, AdminSchema)]
 #[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "lowercase")]
-pub enum WebTls {
+pub enum TlsMode {
     #[admin(
-        label = "Passthrough",
-        help = "The app keeps its own TLS; burrow only reads the name"
+        label = "Automatic",
+        help = "burrow does HTTPS with a certificate for every name"
+    )]
+    Auto,
+    #[admin(
+        label = "The app does its own HTTPS",
+        help = "The app keeps its own certificate; burrow only reads the name"
     )]
     Passthrough,
+    #[admin(
+        label = "Off: plain HTTP",
+        help = "No HTTPS: the website is served as plain HTTP"
+    )]
+    Off,
 }

@@ -1,4 +1,5 @@
 pub const WEB_HTTPS_LATER: &str = "web-https-later";
+pub const WEB_HTTP_LATER: &str = "web-http-later";
 
 fn key_path(head: &str) -> bool {
     head.contains('.')
@@ -9,7 +10,10 @@ fn key_path(head: &str) -> bool {
 
 pub fn shown(code: &str, message: &str) -> String {
     if code == WEB_HTTPS_LATER {
-        return "burrow cannot serve HTTPS for websites in this build yet; choose Passthrough under TLS to pass the TLS through to the app".into();
+        return "burrow cannot serve HTTPS for websites in this build yet; under HTTPS, choose The app does its own HTTPS".into();
+    }
+    if code == WEB_HTTP_LATER {
+        return "plain HTTP websites are not in this build yet; under HTTPS, choose The app does its own HTTPS".into();
     }
     match message.split_once(": ") {
         Some((head, rest)) if key_path(head) => rest.to_string(),
@@ -47,7 +51,7 @@ mod tests {
         );
         assert!(
             shown(WEB_HTTPS_LATER, "services.nas.web: ... tls: passthrough")
-                .contains("choose Passthrough")
+                .contains("choose The app does its own HTTPS")
         );
     }
 }

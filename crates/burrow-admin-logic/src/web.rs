@@ -1,5 +1,5 @@
 use burrow_admin_proto::serde_json::{Map, json};
-use burrow_config::{ServiceEntry, WebSite, WebTls};
+use burrow_config::{ServiceEntry, TlsMode, WebSite};
 
 use crate::Value;
 
@@ -21,26 +21,30 @@ pub fn names(web: &Value) -> Vec<String> {
     }
 }
 
-fn passthrough_value() -> Value {
-    json!(WebTls::Passthrough)
+pub fn passthrough() -> Value {
+    json!(TlsMode::Passthrough)
+}
+
+pub fn tls_of(web: &Value) -> Option<&Value> {
+    WebSite::TLS.get(web).filter(|t| !t.is_null())
 }
 
 pub fn passes_through(web: &Value) -> bool {
-    WebSite::TLS.get(web) == Some(&passthrough_value())
+    tls_of(web) == Some(&passthrough())
 }
 
-pub fn website(names: &[String], passthrough: bool) -> Option<Value> {
+pub fn website(names: &[String], tls: Option<Value>) -> Option<Value> {
     let list = || Value::Array(names.iter().map(|n| Value::String(n.clone())).collect());
-    match (names, passthrough) {
+    match (names, tls) {
         ([], _) => None,
-        (_, true) => {
+        (_, Some(tls)) => {
             let mut site = Map::new();
             site.insert(WebSite::HOSTS.key().into(), list());
-            site.insert(WebSite::TLS.key().into(), passthrough_value());
+            site.insert(WebSite::TLS.key().into(), tls);
             Some(Value::Object(site))
         }
-        ([one], false) => Some(Value::String(one.clone())),
-        (_, false) => Some(list()),
+        ([one], None) => Some(Value::String(one.clone())),
+        (_, None) => Some(list()),
     }
 }
 
@@ -80,16 +84,21 @@ mod tests {
     #[test]
     fn a_website_is_written_in_its_shortest_form() {
         let n = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
-        assert_eq!(website(&n(&[]), true), None);
+        assert_eq!(website(&n(&[]), Some(passthrough())), None);
         assert_eq!(
-            website(&n(&["a.example.com"]), false),
+            website(&n(&["a.example.com"]), None),
             Some(json!("a.example.com"))
         );
         assert_eq!(
-            website(&n(&["a.example.com", "b.example.com"]), false),
+            website(&n(&["a.example.com", "b.example.com"]), None),
             Some(json!(["a.example.com", "b.example.com"]))
         );
-        let site = website(&n(&["a.example.com"]), true).unwrap();
+        let off = website(&n(&["a.example.com"]), Some(json!("off"))).unwrap();
+        assert_eq!(tls_of(&off), Some(&json!("off")));
+        let files = json!({"cert": "c.pem", "key": "k.pem"});
+        let own = website(&n(&["a.example.com"]), Some(files.clone())).unwrap();
+        assert_eq!(tls_of(&own), Some(&files));
+        let site = website(&n(&["a.example.com"]), Some(passthrough())).unwrap();
         assert_eq!(
             site,
             json!({"hosts": ["a.example.com"], "tls": "passthrough"})

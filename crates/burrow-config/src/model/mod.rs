@@ -17,7 +17,7 @@ pub use server::{
     MetricsConfig, SelfEntry, ServerConfig, TlsFiles, WebSocketConfig, default_ws_path,
 };
 pub use visitor::{ForwardEntry, VisitorConfig, VisitorUdpOptions};
-pub use web::{ServiceWeb, WebConfig, WebSite, WebTls};
+pub use web::{ServiceWeb, SiteTls, TlsMode, WebConfig, WebSite};
 
 fn is_false(v: &bool) -> bool {
     !v

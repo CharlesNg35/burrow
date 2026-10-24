@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:97cdc70420bcb2a6",
+  "hash": "b2s:28ad2c70323555f2",
   "root": {
     "label": "Server",
     "sem": {
@@ -190,12 +190,17 @@
                         "label": "HTTPS port",
                         "help": "The port where websites and TLS services are reached by name, for example 443; a port alone listens on IPv4 and IPv6, 0.0.0.0:443 on IPv4 only",
                         "sem": {
-                          "t": "ip_port",
-                          "ranges": false,
-                          "default_ip": "::"
+                          "t": "optional",
+                          "inner": {
+                            "sem": {
+                              "t": "ip_port",
+                              "ranges": false,
+                              "default_ip": "::"
+                            }
+                          }
                         },
-                        "required": true,
-                        "locked": true
+                        "locked": true,
+                        "none_label": "No HTTPS port"
                       }
                     }
                   ]
@@ -992,24 +997,75 @@
                                       {
                                         "key": "tls",
                                         "node": {
-                                          "label": "TLS",
-                                          "help": "Passthrough leaves TLS to the app: it keeps its own certificate, and burrow only reads the name",
+                                          "label": "HTTPS",
+                                          "help": "Who does HTTPS for this website: burrow with an automatic certificate, the app itself (burrow only reads the name), nobody (plain HTTP), or burrow with your own certificate file",
                                           "sem": {
                                             "t": "optional",
                                             "inner": {
                                               "sem": {
-                                                "t": "enum",
-                                                "options": [
+                                                "t": "union",
+                                                "branches": [
                                                   {
-                                                    "value": "passthrough",
-                                                    "label": "Passthrough",
-                                                    "help": "The app keeps its own TLS; burrow only reads the name"
+                                                    "sem": {
+                                                      "t": "enum",
+                                                      "options": [
+                                                        {
+                                                          "value": "auto",
+                                                          "label": "Automatic",
+                                                          "help": "burrow does HTTPS with a certificate for every name"
+                                                        },
+                                                        {
+                                                          "value": "passthrough",
+                                                          "label": "The app does its own HTTPS",
+                                                          "help": "The app keeps its own certificate; burrow only reads the name"
+                                                        },
+                                                        {
+                                                          "value": "off",
+                                                          "label": "Off: plain HTTP",
+                                                          "help": "No HTTPS: the website is served as plain HTTP"
+                                                        }
+                                                      ]
+                                                    }
+                                                  },
+                                                  {
+                                                    "label": "TLS files",
+                                                    "sem": {
+                                                      "t": "object",
+                                                      "fields": [
+                                                        {
+                                                          "key": "cert",
+                                                          "node": {
+                                                            "label": "Certificate file",
+                                                            "help": "Certificate chain PEM file, relative to the config file, for example certs/fullchain.pem",
+                                                            "sem": {
+                                                              "t": "path",
+                                                              "must_exist": true,
+                                                              "relative_to": "config"
+                                                            },
+                                                            "required": true
+                                                          }
+                                                        },
+                                                        {
+                                                          "key": "key",
+                                                          "node": {
+                                                            "label": "Private key file",
+                                                            "help": "Private key PEM file, relative to the config file, for example certs/privkey.pem",
+                                                            "sem": {
+                                                              "t": "path",
+                                                              "must_exist": true,
+                                                              "relative_to": "config"
+                                                            },
+                                                            "required": true
+                                                          }
+                                                        }
+                                                      ]
+                                                    }
                                                   }
                                                 ]
                                               }
                                             }
                                           },
-                                          "none_label": "burrow handles HTTPS"
+                                          "none_label": "Automatic"
                                         }
                                       }
                                     ]

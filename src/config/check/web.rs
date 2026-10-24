@@ -5,7 +5,7 @@ use super::{Spans, binds_conflict, parse_addr};
 use crate::config::diagnostics::Diagnostic;
 use crate::config::settings::{WebSettings, WebSite, WebSocketSettings};
 use crate::config::tree::Span;
-use burrow_config::{Bind, Protocol, ServerConfig, ServiceWeb, WebTls};
+use burrow_config::{Bind, Protocol, ServerConfig, ServiceWeb, SiteTls, TlsMode};
 use burrow_syntax::web::{host_name, is_wildcard};
 
 pub(super) const BUILT_WITH_WEB: bool = cfg!(feature = "web");
@@ -35,9 +35,20 @@ pub(super) fn check_https(
         );
         return None;
     }
+    let Some(given) = &web.https else {
+        out.push(
+            Diagnostic::error(
+                "web-port",
+                "web needs a port: https for HTTPS sites, like https: 443 (plain HTTP sites on web.http are not in this build yet)",
+            )
+            .at(spans.key(&["web"]))
+            .help("add https: 443 under web"),
+        );
+        return None;
+    };
     let at = spans.value(&["web", "https"]);
-    let addr = match parse_addr(&web.https, [0, 0, 0, 0], "web.https") {
-        Ok(a) if bare_port(&web.https).is_some() => {
+    let addr = match parse_addr(given, [0, 0, 0, 0], "web.https") {
+        Ok(a) if bare_port(given).is_some() => {
             SocketAddr::new(Ipv6Addr::UNSPECIFIED.into(), a.port())
         }
         Ok(a) => a,
@@ -45,7 +56,7 @@ pub(super) fn check_https(
             out.push(
                 Diagnostic::error(
                     "invalid-address",
-                    format!("invalid web.https address \"{}\": {e}", web.https),
+                    format!("invalid web.https address \"{given}\": {e}"),
                 )
                 .at(at)
                 .label("expected a port or ip:port")
@@ -101,7 +112,10 @@ pub(super) fn share_tunnel(
                     .label("same port as web.https")
                     .help(format!(
                         "write websocket.listen the same way as web.https ({}) to share it",
-                        cfg.web.as_ref().map_or(String::new(), |w| w.https.to_string())
+                        cfg.web
+                            .as_ref()
+                            .and_then(|w| w.https.as_ref())
+                            .map_or(String::new(), Bind::to_string)
                     )),
                 );
                 return;
@@ -209,20 +223,8 @@ pub(super) fn check_sites(
         if https.is_none() || svc.protocol != Protocol::Tcp {
             continue;
         }
-        if web.tls() != Some(WebTls::Passthrough) {
-            out.push(
-                Diagnostic::error(
-                    "web-https-later",
-                    format!(
-                        "services.{name}.web: burrow cannot serve HTTPS for websites in this build yet; add tls: passthrough to pass the TLS through to the app"
-                    ),
-                )
-                .at(at)
-                .help(format!(
-                    "write web: {{hosts: [{}], tls: passthrough}}",
-                    web.hosts().join(", ")
-                )),
-            );
+        if let Some(d) = tls_later(name, web, spans) {
+            out.push(d);
             continue;
         }
         let item = |i: usize| {
@@ -239,6 +241,39 @@ pub(super) fn check_sites(
         }
     }
     sites
+}
+
+fn tls_later(name: &str, web: &ServiceWeb, spans: &Spans) -> Option<Diagnostic> {
+    let (code, why, at) = match web.tls() {
+        Some(SiteTls::Mode(TlsMode::Passthrough)) => return None,
+        Some(SiteTls::Mode(TlsMode::Off)) => (
+            "web-http-later",
+            "plain HTTP websites need web.http, which this build does not have yet",
+            spans.value(&["services", name, "web", "tls"]),
+        ),
+        Some(_) => (
+            "web-https-later",
+            "burrow cannot serve HTTPS for websites in this build yet",
+            spans.value(&["services", name, "web", "tls"]),
+        ),
+        None => (
+            "web-https-later",
+            "burrow cannot serve HTTPS for websites in this build yet",
+            spans.value(&["services", name, "web"]),
+        ),
+    };
+    let key = if web.tls().is_some() { ".tls" } else { "" };
+    Some(
+        Diagnostic::error(
+            code,
+            format!("services.{name}.web{key}: {why}; use tls: passthrough"),
+        )
+        .at(at)
+        .help(format!(
+            "write web: {{hosts: [{}], tls: passthrough}} to pass the TLS through to the app",
+            web.hosts().join(", ")
+        )),
+    )
 }
 
 fn no_web_proxy_for_sites(cfg: &ServerConfig, spans: &Spans, out: &mut Vec<Diagnostic>) {

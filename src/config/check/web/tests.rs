@@ -92,11 +92,45 @@ fn a_site_that_needs_https_from_burrow_is_refused_until_burrow_can_serve_it() {
         let e = one_error(&format!(
             "listen: 7835\nweb: {{ https: 443 }}\nservices:\n  blog:\n    client: home\n    target: 8080\n    {web}\n"
         ));
-        assert!(
-            e.starts_with("services.blog.web: burrow cannot serve HTTPS for websites in this build yet; add tls: passthrough"),
-            "{web}: {e}"
+        assert_eq!(
+            e,
+            "services.blog.web: burrow cannot serve HTTPS for websites in this build yet; use tls: passthrough",
+            "{web}: the default with web.https is auto"
         );
     }
+}
+
+#[test]
+fn every_final_tls_form_parses_and_only_passthrough_is_served_in_this_build() {
+    let site = |tls: &str| {
+        format!(
+            "listen: 7835\nweb: {{ https: 443 }}\nservices:\n  blog:\n    client: home\n    target: 8080\n    web: {{ hosts: [blog.example.com], tls: {tls} }}\n"
+        )
+    };
+    let https_later = "services.blog.web.tls: burrow cannot serve HTTPS for websites in this build yet; use tls: passthrough";
+    assert_eq!(one_error(&site("auto")), https_later);
+    assert_eq!(
+        one_error(&site("{ cert: certs/blog.pem, key: certs/blog.key }")),
+        https_later
+    );
+    assert_eq!(
+        one_error(&site("off")),
+        "services.blog.web.tls: plain HTTP websites need web.http, which this build does not have yet; use tls: passthrough"
+    );
+    assert!(errors(&load(&site("passthrough"))).is_empty());
+    let half = errors(&load(&site("{ cert: certs/blog.pem }")));
+    assert!(half.iter().any(|e| e.contains("key")), "{half:?}");
+    let wrong = errors(&load(&site("sometimes")));
+    assert!(!wrong.is_empty(), "an unknown word is refused");
+}
+
+#[test]
+fn web_needs_its_https_port_in_this_build() {
+    let e = one_error(&format!("listen: 7835\nweb: {{}}\n{NAS}"));
+    assert_eq!(
+        e,
+        "web needs a port: https for HTTPS sites, like https: 443 (plain HTTP sites on web.http are not in this build yet)"
+    );
 }
 
 #[test]

@@ -27,7 +27,7 @@ fn json_paths(
     out: &mut BTreeSet<String>,
     depth: usize,
 ) {
-    if depth > 12 {
+    if depth > 16 {
         return;
     }
     if let Some(r) = v.get("$ref").and_then(|r| r.as_str()) {
