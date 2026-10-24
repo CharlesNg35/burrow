@@ -221,6 +221,8 @@ pub(super) async fn visit(
         Outcome::Done { result: Err(_), .. } => visitor.reset_on_close(true),
         _ => {}
     }
+    #[cfg(feature = "web")]
+    visitor.refused(super::web::refusal(&outcome));
     log_outcome(&shared, &label, &target, peer, outcome, refuse);
 }
 

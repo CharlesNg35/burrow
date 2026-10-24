@@ -33,6 +33,13 @@ impl Incoming {
             p.set_reset(false);
         }
     }
+
+    #[cfg(feature = "web")]
+    pub fn refused(&self, why: Option<burrow_web::Refused>) {
+        if let (Incoming::Web(p), Some(why)) = (self, why) {
+            p.refuse(why);
+        }
+    }
 }
 
 impl Split for Incoming {

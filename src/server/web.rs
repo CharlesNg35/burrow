@@ -10,9 +10,12 @@ use tracing::debug;
 
 use super::Shared;
 use super::listen::Permit;
+use super::route::Outcome;
 use super::tcp::{Door, Entry, Refusal, admit, visit};
 use crate::base::failure::Failure;
 use crate::config::settings::{ServerSettings, WebSettings, WebTls};
+use crate::forward::ForwardError;
+use crate::wire::protocol::Status;
 
 pub(super) struct Doorway(Arc<Shared>);
 
@@ -78,6 +81,29 @@ impl Upstream for Doorway {
 
     async fn tunnel(&self, conn: TunnelConn<Permit>) {
         super::listen::handle_web_tunnel(self.0.clone(), conn).await;
+    }
+}
+
+pub(super) fn refusal(outcome: &Outcome) -> Option<Refused> {
+    let status = |st: Status| match st {
+        Status::Busy => Refused::Full,
+        Status::Offline => Refused::Down,
+        Status::Unreachable | Status::Unresolved => Refused::Unreachable,
+        Status::Denied | Status::Forbidden | Status::Invalid | Status::Ok => Refused::Denied,
+    };
+    match outcome {
+        Outcome::Done {
+            result: Err(ForwardError::Status(st)),
+            ..
+        }
+        | Outcome::Refused {
+            error: ForwardError::Status(st),
+            ..
+        } => Some(status(*st)),
+        Outcome::Full(_) => Some(Refused::Full),
+        Outcome::Unavailable(Status::Busy) => Some(Refused::Full),
+        Outcome::Unavailable(_) => Some(Refused::Down),
+        _ => None,
     }
 }
 

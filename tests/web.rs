@@ -9,6 +9,8 @@ mod kit;
 mod passthrough;
 #[path = "web/plain.rs"]
 mod plain;
+#[path = "web/refusals.rs"]
+mod refusals;
 #[path = "web/reload.rs"]
 mod reload;
 #[path = "web/sites.rs"]
