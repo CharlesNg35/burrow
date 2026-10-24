@@ -301,6 +301,9 @@ async fn answer(
     for (k, v) in req.headers() {
         text.push_str(&format!("{k}: {}\n", v.to_str().unwrap_or("?")));
     }
+    if let Some(ms) = req.uri().path().strip_prefix("/slow/") {
+        tokio::time::sleep(Duration::from_millis(ms.parse().unwrap_or(0))).await;
+    }
     if req.uri().path() == "/upgrade" {
         let on = hyper::upgrade::on(&mut req);
         tokio::spawn(async move {

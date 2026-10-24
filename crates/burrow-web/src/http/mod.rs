@@ -1,4 +1,5 @@
 pub mod host;
+mod idle;
 pub mod pages;
 mod pipeline;
 mod serve;

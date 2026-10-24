@@ -8,6 +8,7 @@ use hyper::server::conn::http1;
 use hyper_util::rt::{TokioIo, TokioTimer};
 use tracing::debug;
 
+use super::idle::{Activity, Watched};
 use super::upstream::Upstreams;
 use super::{MAX_HEAD, MAX_HEADERS, pipeline};
 use crate::Upstream;
@@ -37,11 +38,18 @@ impl Conn {
 pub(crate) async fn serve<U: Upstream>(shared: Arc<Shared<U>>, io: BoxIo, conn: Conn) {
     let conn = Arc::new(conn);
     let timeouts = shared.timeouts();
+    let activity = Activity::new();
+    let io: BoxIo = Box::new(Watched::new(io, activity.clone()));
     let service = {
-        let (shared, conn) = (shared.clone(), conn.clone());
+        let (shared, conn, activity) = (shared.clone(), conn.clone(), activity.clone());
         hyper::service::service_fn(move |req: hyper::Request<Incoming>| {
             let (shared, conn) = (shared.clone(), conn.clone());
-            async move { Ok::<_, Infallible>(pipeline::handle(&shared, &conn, req).await) }
+            let busy = activity.enter();
+            async move {
+                let r = pipeline::handle(&shared, &conn, req).await;
+                drop(busy);
+                Ok::<_, Infallible>(r)
+            }
         })
     };
     let served = http1::Builder::new()
@@ -53,7 +61,14 @@ pub(crate) async fn serve<U: Upstream>(shared: Arc<Shared<U>>, io: BoxIo, conn: 
         .half_close(false)
         .serve_connection(TokioIo::new(io), service)
         .with_upgrades();
-    if let Err(e) = served.await {
-        debug!(peer = %conn.peer, "web: the connection ended: {e}");
+    tokio::select! {
+        r = served => {
+            if let Err(e) = r {
+                debug!(peer = %conn.peer, "web: the connection ended: {e}");
+            }
+        }
+        () = activity.idle(timeouts.idle.max(LEAST)) => {
+            debug!(peer = %conn.peer, "web: closing a connection idle for {:?}", timeouts.idle);
+        }
     }
 }

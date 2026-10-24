@@ -215,3 +215,80 @@ async fn a_refusal_before_the_app_answers_is_a_page_on_a_connection_that_stays_u
     .await;
     assert!(r.starts_with("HTTP/1.1 200"), "{r}");
 }
+
+async fn quick_idle() -> (burrow_web::Proxy<Fake>, HttpBackend) {
+    let app = http_backend().await;
+    let (up, _) = Fake::new(4);
+    up.serve("blog", app.addr);
+    let proxy = start(
+        |s| {
+            s.sites = vec![https_site("blog", &["blog.example.com"])];
+            s.timeouts.idle = Duration::from_secs(1);
+            s.timeouts.request_header = Duration::from_secs(30);
+        },
+        up.clone(),
+    )
+    .await;
+    (proxy, app)
+}
+
+async fn closed_within(t: &mut (impl tokio::io::AsyncRead + Unpin), limit: Duration) -> bool {
+    let mut buf = vec![0u8; 4096];
+    loop {
+        match tokio::time::timeout(limit, t.read(&mut buf)).await {
+            Ok(Ok(0) | Err(_)) => return true,
+            Ok(Ok(_)) => {}
+            Err(_) => return false,
+        }
+    }
+}
+
+#[tokio::test]
+async fn a_connection_that_moves_nothing_for_the_idle_time_is_closed() {
+    let (proxy, _app) = quick_idle().await;
+    let mut t = tls(proxy.https_addr().unwrap(), "blog.example.com")
+        .await
+        .unwrap();
+    t.write_all(b"GET / HTTP/1.1\r\nHost: blog.example.com\r\n\r\n")
+        .await
+        .unwrap();
+    let started = std::time::Instant::now();
+    assert!(closed_within(&mut t, Duration::from_secs(4)).await);
+    let took = started.elapsed();
+    assert!(
+        took >= Duration::from_millis(900) && took < Duration::from_secs(3),
+        "{took:?}"
+    );
+}
+
+#[tokio::test]
+async fn an_app_slower_than_the_idle_time_still_answers() {
+    let (proxy, _app) = quick_idle().await;
+    let r = over_tls(
+        proxy.https_addr().unwrap(),
+        "blog.example.com",
+        "GET /slow/2500 HTTP/1.1\r\nHost: blog.example.com\r\nConnection: close\r\n\r\n",
+    )
+    .await;
+    assert!(r.starts_with("HTTP/1.1 200"), "{r}");
+}
+
+#[tokio::test]
+async fn an_upgraded_connection_is_not_closed_for_being_quiet() {
+    let (proxy, _app) = quick_idle().await;
+    let mut t = tls(proxy.https_addr().unwrap(), "blog.example.com")
+        .await
+        .unwrap();
+    t.write_all(b"GET /upgrade HTTP/1.1\r\nHost: blog.example.com\r\nConnection: Upgrade\r\nUpgrade: echo\r\n\r\n")
+        .await
+        .unwrap();
+    let mut buf = vec![0u8; 4096];
+    let n = t.read(&mut buf).await.unwrap();
+    assert!(String::from_utf8_lossy(&buf[..n]).starts_with("HTTP/1.1 101"));
+    tokio::time::sleep(Duration::from_millis(2500)).await;
+    t.write_all(b"still").await.unwrap();
+    t.flush().await.unwrap();
+    let mut got = [0u8; 5];
+    t.read_exact(&mut got).await.unwrap();
+    assert_eq!(&got, b"still");
+}
