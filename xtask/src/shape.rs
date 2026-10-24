@@ -114,31 +114,175 @@ pub fn size_problems(path: &str, src: &str) -> Vec<String> {
     out
 }
 
+pub struct Lexed {
+    pub code: String,
+    pub comments: Vec<(usize, usize, String)>,
+}
+
+fn ident_char(c: Option<&char>) -> bool {
+    c.is_some_and(|c| c.is_alphanumeric() || *c == '_')
+}
+
+fn raw_start(chars: &[char], i: usize) -> Option<usize> {
+    let mut j = i + 1;
+    if chars.get(i) == Some(&'b') {
+        if chars.get(j) != Some(&'r') {
+            return None;
+        }
+        j += 1;
+    } else if chars.get(i) != Some(&'r') {
+        return None;
+    }
+    if i > 0 && ident_char(chars.get(i - 1)) {
+        return None;
+    }
+    let mut hashes = 0;
+    while chars.get(j) == Some(&'#') {
+        hashes += 1;
+        j += 1;
+    }
+    (chars.get(j) == Some(&'"')).then_some(hashes)
+}
+
+pub fn lex(src: &str) -> Lexed {
+    let chars: Vec<char> = src.chars().collect();
+    let mut code = String::with_capacity(src.len());
+    let mut comments = Vec::new();
+    let (mut line, mut col) = (1, 0);
+    let mut i = 0;
+    let blank = |c: char| if c == '\n' { '\n' } else { ' ' };
+    while i < chars.len() {
+        let c = chars[i];
+        let start = i;
+        let end = if c == '/' && chars.get(i + 1) == Some(&'/') {
+            let mut j = i;
+            while j < chars.len() && chars[j] != '\n' {
+                j += 1;
+            }
+            comments.push((line, col, chars[i..j].iter().collect()));
+            j
+        } else if c == '/' && chars.get(i + 1) == Some(&'*') {
+            let mut depth = 0;
+            let mut j = i;
+            while j < chars.len() {
+                if chars[j] == '/' && chars.get(j + 1) == Some(&'*') {
+                    depth += 1;
+                    j += 2;
+                } else if chars[j] == '*' && chars.get(j + 1) == Some(&'/') {
+                    depth -= 1;
+                    j += 2;
+                    if depth == 0 {
+                        break;
+                    }
+                } else {
+                    j += 1;
+                }
+            }
+            comments.push((line, col, chars[i..j.min(chars.len())].iter().collect()));
+            j
+        } else if let Some(hashes) = raw_start(&chars, i) {
+            let open = chars[i..]
+                .iter()
+                .position(|c| *c == '"')
+                .map_or(i, |p| i + p);
+            let mut j = open + 1;
+            loop {
+                if j >= chars.len() {
+                    break j;
+                }
+                if chars[j] == '"' && (0..hashes).all(|h| chars.get(j + 1 + h) == Some(&'#')) {
+                    break j + 1 + hashes;
+                }
+                j += 1;
+            }
+        } else if c == '"' {
+            let mut j = i + 1;
+            while j < chars.len() && chars[j] != '"' {
+                j += if chars[j] == '\\' { 2 } else { 1 };
+            }
+            j + 1
+        } else if c == '\'' {
+            let rest: String = chars[i..chars.len().min(i + 12)].iter().collect();
+            let len = char_literal_len(&rest);
+            if len == 0 { i + 1 } else { i + len }
+        } else {
+            i + 1
+        };
+        let end = end.min(chars.len());
+        let literal = end > start + 1;
+        for &ch in &chars[start..end] {
+            code.push(if literal { blank(ch) } else { ch });
+            if ch == '\n' {
+                line += 1;
+                col = 0;
+            } else {
+                col += 1;
+            }
+        }
+        i = end;
+    }
+    Lexed { code, comments }
+}
+
+fn char_literal_len(rest: &str) -> usize {
+    let b: Vec<char> = rest.chars().collect();
+    match (b.get(1), b.get(2), b.get(3)) {
+        (Some('\\'), Some('u'), Some('{')) => b
+            .iter()
+            .position(|c| *c == '}')
+            .filter(|p| b.get(p + 1) == Some(&'\''))
+            .map_or(0, |p| p + 2),
+        (Some('\\'), Some(_), Some('\'')) => 4,
+        (Some(c), Some('\''), _) if *c != '\\' && *c != '\n' => 3,
+        _ => 0,
+    }
+}
+
+fn squashed_lines(code: &str) -> Vec<String> {
+    code.lines()
+        .map(|l| l.chars().filter(|c| !c.is_whitespace()).collect())
+        .collect()
+}
+
+fn lines_with(code: &str, needle: &str) -> Vec<usize> {
+    squashed_lines(code)
+        .iter()
+        .enumerate()
+        .filter(|(_, l)| l.contains(needle))
+        .map(|(i, _)| i + 1)
+        .collect()
+}
+
 pub fn comment_problems(path: &str, src: &str, header_allowed: bool) -> Vec<String> {
+    let lexed = lex(src);
+    let header_lines = if header_allowed {
+        src.lines().take_while(|l| l.starts_with("//!")).count()
+    } else {
+        0
+    };
     let mut out = Vec::new();
-    let mut header = 0;
-    let mut in_header = header_allowed;
-    for (i, line) in src.lines().enumerate() {
-        let t = line.trim_start();
-        if in_header && line.starts_with("//!") {
-            header += 1;
-            if header > MAX_HEADER {
+    for (line, col, text) in &lexed.comments {
+        if *line <= header_lines && *col == 0 && text.starts_with("//!") {
+            if *line > MAX_HEADER {
                 out.push(format!(
-                    "{path}:{}: the //! header has more than {MAX_HEADER} lines",
-                    i + 1
+                    "{path}:{line}: the //! header has more than {MAX_HEADER} lines"
                 ));
             }
             continue;
         }
-        in_header = false;
-        if t.starts_with("//") {
-            out.push(format!(
-                "{path}:{}: a comment; code has no comments, only a //! header at the top of a crate root or layer mod.rs",
-                i + 1
-            ));
-        }
+        out.push(format!(
+            "{path}:{line}: a comment; code has no comments, only a //! header at the top of a crate root or layer mod.rs"
+        ));
     }
-    if header_allowed && header == 0 {
+    for at in lines_with(&lexed.code, "#[doc=")
+        .into_iter()
+        .chain(lines_with(&lexed.code, "#![doc="))
+    {
+        out.push(format!(
+            "{path}:{at}: a doc attribute; code has no comments or docs"
+        ));
+    }
+    if header_allowed && header_lines == 0 {
         out.push(format!(
             "{path}: needs a //! header of at most {MAX_HEADER} lines saying what it is for and what it must not depend on"
         ));
@@ -283,6 +427,48 @@ mod tests {
             comment_problems("src/a.rs", "//! header\nfn a() {}\n", false).len(),
             1
         );
+    }
+
+    #[test]
+    fn trailing_block_and_doc_comments_are_found() {
+        for c in [
+            "let x = 1; // note",
+            "let x = 1; /* note */",
+            "/* note */",
+            "/** doc */",
+            "/*! inner doc */",
+            "/* outer /* nested */ still */",
+            "#[doc = \"text\"]",
+            "#![doc = \"text\"]",
+            "# [ doc = \"text\" ]",
+        ] {
+            let src = format!("fn a() {{}}\n{c}\nfn b() {{}}\n");
+            assert_eq!(comment_problems("src/a.rs", &src, false).len(), 1, "{c}");
+        }
+        assert!(comment_problems("src/a.rs", "#[doc(hidden)]\npub fn a() {}\n", false).is_empty());
+    }
+
+    #[test]
+    fn literals_and_lifetimes_are_not_comments() {
+        for c in [
+            "let u = \"https://example.com/a\";",
+            "let s = \"/* not a comment */ // either\";",
+            "let e = \"a \\\" // still a string\";",
+            "let r = r#\"// raw \"quoted\" /* text */\"#;",
+            "let b = b\"//\";",
+            "let br = br\"//\";",
+            "let slash = '/';",
+            "let quote = '\"';",
+            "let tick = '\\'';",
+            "let esc = '\\u{2f}';",
+            "fn f<'a>(x: &'a str) -> &'a str { x }",
+            "let d = 6 / 2 / 1;",
+        ] {
+            let src = format!("{c}\n");
+            assert!(comment_problems("src/a.rs", &src, false).is_empty(), "{c}");
+        }
+        let after = "let u = \"https://x\"; // real\n";
+        assert_eq!(comment_problems("src/a.rs", after, false).len(), 1);
     }
 
     #[test]
