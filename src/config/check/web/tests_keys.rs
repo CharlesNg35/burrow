@@ -154,3 +154,11 @@ fn a_single_label_name_is_for_plain_http_sites_only() {
         );
     }
 }
+
+#[test]
+fn a_website_without_a_port_or_visitors_is_reachable() {
+    let site = "listen: 7835\nweb: { https: 443, http: 80 }\nservices:\n  wiki: { client: home, target: 3000, web: { hosts: [wiki.example.com], tls: off } }\n";
+    assert!(found(site, "unreachable-service").is_empty());
+    let none = "listen: 7835\nservices:\n  wiki: { client: home, target: 3000 }\n";
+    assert_eq!(found(none, "unreachable-service").len(), 1);
+}
