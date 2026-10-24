@@ -199,11 +199,7 @@ impl Backend for WindowsService {
                 &format!("{SYSTEM}:(OI)(CI)F"),
                 &format!("{ADMINS}:(OI)(CI)F"),
             ],
-        )?;
-        if broad(&m.account) {
-            return Ok(());
-        }
-        grant(dir, &m.account, "(OI)(CI)M")
+        )
     }
 
     fn prepare_dirs(&self, _account: &str) -> Result<(), Failure> {
@@ -348,6 +344,9 @@ impl Backend for WindowsService {
             grant(env, &m.account, "R")?;
         }
         grant_dirs(&m.account)?;
+        if let Some(dir) = m.web_state.as_ref().filter(|_| !broad(&m.account)) {
+            grant(dir, &m.account, "(OI)(CI)M")?;
+        }
         for f in &m.files {
             grant(f, &m.account, "R")?;
         }
