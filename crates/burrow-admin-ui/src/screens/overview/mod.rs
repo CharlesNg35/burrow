@@ -52,183 +52,202 @@ fn link_of(path: &[String]) -> Option<Route> {
 pub fn attention(values: &Value, state: Option<&State>, status: Option<&Status>) -> Vec<Item> {
     let mut out = Vec::new();
     if let Some(st) = state {
-        if !st.running.ok {
-            out.push(Item {
-                key: "running".into(),
-                tone: Tone::Danger,
-                title: "The config file has errors".into(),
-                detail: "The server keeps running the last good version until the file is fixed."
-                    .into(),
-                to: Some(Route::About),
-            });
-        }
-        for p in &st.runtime.restart_pending {
-            out.push(Item {
-                key: format!("restart:{p}"),
-                tone: Tone::Info,
-                title: format!("Restart needed for {p}"),
-                detail:
-                    "Applied to the file; the running server keeps the old value until it restarts."
-                        .into(),
-                to: Some(Route::Settings),
-            });
-        }
-        for d in st.diags.iter().filter(|d| d.severity == Severity::Warning) {
-            out.push(Item {
-                key: format!(
-                    "diag:{}:{}",
-                    d.code,
-                    d.path.as_ref().map(|p| p.join(".")).unwrap_or_default()
-                ),
-                tone: Tone::Warning,
-                title: d.message.clone(),
-                detail: d
-                    .help
-                    .clone()
-                    .map(|h| format!("{} · {h}", d.code))
-                    .unwrap_or_else(|| d.code.clone()),
-                to: d.path.as_deref().and_then(link_of),
-            });
-        }
+        state_items(st, &mut out);
     }
     if let Some(status) = status {
-        let online = |c: &str| {
-            status
-                .clients
-                .iter()
-                .find(|x| x.name == c)
-                .is_some_and(|x| x.connected)
-        };
-        let mut by_client: std::collections::BTreeMap<String, Hits> =
-            std::collections::BTreeMap::new();
-        let mut own = Vec::new();
-        if let Some(services) = ServiceEntry::entries(values) {
-            for (name, svc) in services {
-                let cs = clients_of(svc);
-                let up: Vec<&String> = cs.iter().filter(|c| online(c)).collect();
-                let off: Vec<&String> = cs.iter().filter(|c| !online(c)).collect();
-                let st = status.services.iter().find(|x| &x.name == name);
-                let to = Some(Route::Detail(ServiceEntry::section().into(), name.clone()));
-                if up.is_empty() {
-                    if let [c] = off.as_slice() {
-                        by_client
-                            .entry((*c).clone())
-                            .or_default()
-                            .0
-                            .push(name.clone());
-                        continue;
-                    }
-                    own.push(Item {
-                        key: format!("down:{name}"),
-                        tone: Tone::Danger,
-                        title: format!("Service {name} is down"),
-                        detail: if cs.is_empty() {
-                            "It has no client.".to_string()
-                        } else {
-                            format!(
-                                "None of its {} clients is online: {}.",
-                                cs.len(),
-                                cs.join(", ")
-                            )
-                        },
-                        to,
-                    });
-                    continue;
-                }
-                let failing: Vec<&str> = st
-                    .map(|x| {
-                        x.health
-                            .iter()
-                            .filter(|h| !h.up)
-                            .map(|h| h.client.as_str())
-                            .collect()
-                    })
-                    .unwrap_or_default();
-                if !failing.is_empty() {
-                    own.push(Item {
-                        key: format!("health:{name}"),
-                        tone: Tone::Warning,
-                        title: format!("Service {name}: health check failing"),
-                        detail: format!("Failing on {}.", failing.join(", ")),
-                        to,
-                    });
-                } else if let [c] = off.as_slice() {
-                    by_client.entry((*c).clone()).or_default().1.push((
-                        name.clone(),
-                        up.len(),
-                        cs.len(),
-                    ));
-                } else if !off.is_empty() {
-                    own.push(Item {
-                        key: format!("partial:{name}"),
-                        tone: Tone::Warning,
-                        title: format!(
-                            "Service {name} runs on {} of {} clients",
-                            up.len(),
-                            cs.len()
-                        ),
-                        detail: format!(
-                            "Offline: {}.",
-                            off.iter()
-                                .map(|c| c.as_str())
-                                .collect::<Vec<_>>()
-                                .join(", ")
-                        ),
-                        to,
-                    });
-                }
-            }
-        }
+        let (by_client, own) = service_items(values, status);
         for (c, (down, partial)) in by_client {
-            let mut parts = Vec::new();
-            if !down.is_empty() {
-                parts.push(format!(
-                    "{} {} down",
-                    and_list(&down),
-                    if down.len() == 1 { "is" } else { "are" }
-                ));
-            }
-            let mut shapes: Vec<(usize, usize)> =
-                partial.iter().map(|(_, u, n)| (*u, *n)).collect();
-            shapes.sort();
-            shapes.dedup();
-            for (u, n) in shapes {
-                let names: Vec<String> = partial
-                    .iter()
-                    .filter(|(_, a, b)| (*a, *b) == (u, n))
-                    .map(|(x, _, _)| x.clone())
-                    .collect();
-                parts.push(format!(
-                    "{} {} on {u} of {n} clients",
-                    and_list(&names),
-                    if names.len() == 1 { "runs" } else { "run" }
-                ));
-            }
-            let when = format::left_of(
-                &c,
-                status
-                    .clients
-                    .iter()
-                    .find(|x| x.name == c)
-                    .and_then(|x| x.left_secs_ago),
-                status.uptime_secs,
-            );
-            out.push(Item {
-                key: format!("client:{c}"),
-                tone: if down.is_empty() {
-                    Tone::Warning
-                } else {
-                    Tone::Danger
-                },
-                title: format!("Client {c} is offline"),
-                detail: format!("{} · {when}", parts.join("; ")),
-                to: Some(Route::Detail(ClientEntry::section().into(), c)),
-            });
+            out.push(client_item(c, down, partial, status));
         }
         out.extend(own);
     }
     out.sort_by_key(|i| rank(i.tone));
     out
+}
+
+fn state_items(st: &State, out: &mut Vec<Item>) {
+    if !st.running.ok {
+        out.push(Item {
+            key: "running".into(),
+            tone: Tone::Danger,
+            title: "The config file has errors".into(),
+            detail: "The server keeps running the last good version until the file is fixed."
+                .into(),
+            to: Some(Route::About),
+        });
+    }
+    for p in &st.runtime.restart_pending {
+        out.push(Item {
+            key: format!("restart:{p}"),
+            tone: Tone::Info,
+            title: format!("Restart needed for {p}"),
+            detail:
+                "Applied to the file; the running server keeps the old value until it restarts."
+                    .into(),
+            to: Some(Route::Settings),
+        });
+    }
+    for d in st.diags.iter().filter(|d| d.severity == Severity::Warning) {
+        out.push(Item {
+            key: format!(
+                "diag:{}:{}",
+                d.code,
+                d.path.as_ref().map(|p| p.join(".")).unwrap_or_default()
+            ),
+            tone: Tone::Warning,
+            title: d.message.clone(),
+            detail: d
+                .help
+                .clone()
+                .map(|h| format!("{} · {h}", d.code))
+                .unwrap_or_else(|| d.code.clone()),
+            to: d.path.as_deref().and_then(link_of),
+        });
+    }
+}
+
+fn service_items(
+    values: &Value,
+    status: &Status,
+) -> (std::collections::BTreeMap<String, Hits>, Vec<Item>) {
+    let online = |c: &str| {
+        status
+            .clients
+            .iter()
+            .find(|x| x.name == c)
+            .is_some_and(|x| x.connected)
+    };
+    let mut by_client: std::collections::BTreeMap<String, Hits> = std::collections::BTreeMap::new();
+    let mut own = Vec::new();
+    if let Some(services) = ServiceEntry::entries(values) {
+        for (name, svc) in services {
+            let cs = clients_of(svc);
+            let up: Vec<&String> = cs.iter().filter(|c| online(c)).collect();
+            let off: Vec<&String> = cs.iter().filter(|c| !online(c)).collect();
+            let st = status.services.iter().find(|x| &x.name == name);
+            let to = Some(Route::Detail(ServiceEntry::section().into(), name.clone()));
+            if up.is_empty() {
+                if let [c] = off.as_slice() {
+                    by_client
+                        .entry((*c).clone())
+                        .or_default()
+                        .0
+                        .push(name.clone());
+                    continue;
+                }
+                own.push(Item {
+                    key: format!("down:{name}"),
+                    tone: Tone::Danger,
+                    title: format!("Service {name} is down"),
+                    detail: if cs.is_empty() {
+                        "It has no client.".to_string()
+                    } else {
+                        format!(
+                            "None of its {} clients is online: {}.",
+                            cs.len(),
+                            cs.join(", ")
+                        )
+                    },
+                    to,
+                });
+                continue;
+            }
+            let failing: Vec<&str> = st
+                .map(|x| {
+                    x.health
+                        .iter()
+                        .filter(|h| !h.up)
+                        .map(|h| h.client.as_str())
+                        .collect()
+                })
+                .unwrap_or_default();
+            if !failing.is_empty() {
+                own.push(Item {
+                    key: format!("health:{name}"),
+                    tone: Tone::Warning,
+                    title: format!("Service {name}: health check failing"),
+                    detail: format!("Failing on {}.", failing.join(", ")),
+                    to,
+                });
+            } else if let [c] = off.as_slice() {
+                by_client.entry((*c).clone()).or_default().1.push((
+                    name.clone(),
+                    up.len(),
+                    cs.len(),
+                ));
+            } else if !off.is_empty() {
+                own.push(Item {
+                    key: format!("partial:{name}"),
+                    tone: Tone::Warning,
+                    title: format!(
+                        "Service {name} runs on {} of {} clients",
+                        up.len(),
+                        cs.len()
+                    ),
+                    detail: format!(
+                        "Offline: {}.",
+                        off.iter()
+                            .map(|c| c.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ),
+                    to,
+                });
+            }
+        }
+    }
+    (by_client, own)
+}
+
+fn client_item(
+    c: String,
+    down: Vec<String>,
+    partial: Vec<(String, usize, usize)>,
+    status: &Status,
+) -> Item {
+    let mut parts = Vec::new();
+    if !down.is_empty() {
+        parts.push(format!(
+            "{} {} down",
+            and_list(&down),
+            if down.len() == 1 { "is" } else { "are" }
+        ));
+    }
+    let mut shapes: Vec<(usize, usize)> = partial.iter().map(|(_, u, n)| (*u, *n)).collect();
+    shapes.sort();
+    shapes.dedup();
+    for (u, n) in shapes {
+        let names: Vec<String> = partial
+            .iter()
+            .filter(|(_, a, b)| (*a, *b) == (u, n))
+            .map(|(x, _, _)| x.clone())
+            .collect();
+        parts.push(format!(
+            "{} {} on {u} of {n} clients",
+            and_list(&names),
+            if names.len() == 1 { "runs" } else { "run" }
+        ));
+    }
+    let when = format::left_of(
+        &c,
+        status
+            .clients
+            .iter()
+            .find(|x| x.name == c)
+            .and_then(|x| x.left_secs_ago),
+        status.uptime_secs,
+    );
+    Item {
+        key: format!("client:{c}"),
+        tone: if down.is_empty() {
+            Tone::Warning
+        } else {
+            Tone::Danger
+        },
+        title: format!("Client {c} is offline"),
+        detail: format!("{} · {when}", parts.join("; ")),
+        to: Some(Route::Detail(ClientEntry::section().into(), c)),
+    }
 }
 
 type Hits = (Vec<String>, Vec<(String, usize, usize)>);
