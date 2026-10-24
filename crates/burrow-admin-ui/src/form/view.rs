@@ -1,6 +1,8 @@
 use burrow_admin_logic::fallback::{Render, for_node};
 use burrow_admin_logic::tree::{fields, inner};
-use burrow_admin_proto::schema::{DurationUnit, Node, SemType};
+use burrow_admin_proto::schema::{
+    DurationUnit, ListC, MapC, Node, RefListC, RefMapC, SemType, UnionC,
+};
 use burrow_admin_proto::serde_json::{self, Value};
 use burrow_admin_proto::value::{SecretSrc, as_env, as_secret};
 use burrow_syntax::duration::{TimeUnit, human};
@@ -145,7 +147,10 @@ fn sem_view(sem: &SemType, node: &Node, v: &Value, ctx: &Ctx) -> AnyView {
         | SemType::Target(_) => mono(v),
         SemType::Integer(c) => {
             let unit = c.unit.clone().map(|u| format!(" {u}")).unwrap_or_default();
-            let n = v.as_u64().map(crate::format::count).unwrap_or_else(|| plain(v));
+            let n = v
+                .as_u64()
+                .map(crate::format::count)
+                .unwrap_or_else(|| plain(v));
             view! { <span class="tabular-nums">{format!("{n}{unit}")}</span> }.into_any()
         }
         SemType::Bool => {
@@ -189,97 +194,120 @@ fn sem_view(sem: &SemType, node: &Node, v: &Value, ctx: &Ctx) -> AnyView {
             view! { <span class="font-mono text-sm">{shown}</span> }.into_any()
         }
         SemType::Ref(c) => ref_link(c.entity.section(), &plain(v), &c.reserved, ctx),
-        SemType::RefList(c) => {
-            let section = c.entity.section().to_string();
-            let items = names(v);
-            if items.is_empty() {
-                return view! { <span class="text-text-muted">"None"</span> }.into_any();
-            }
+        SemType::RefList(c) => ref_list_view(c, v, ctx),
+        SemType::RefMap(c) => ref_map_view(c, v, ctx),
+        SemType::SecretRef(_) => secrets_view(v),
+        SemType::List(c) => list_view(c, v, ctx),
+        SemType::Map(c) => map_view(c, v, ctx),
+        SemType::Union(u) => union_view(u, v, ctx),
+        SemType::Optional(o) => value_view(&o.inner, Some(v), None, ctx),
+        SemType::Object(_) => object_static(node, v, ctx),
+        SemType::Unknown(_) => mono(v),
+    }
+}
+
+fn ref_list_view(c: &RefListC, v: &Value, ctx: &Ctx) -> AnyView {
+    let section = c.entity.section().to_string();
+    let items = names(v);
+    if items.is_empty() {
+        return view! { <span class="text-text-muted">"None"</span> }.into_any();
+    }
+    view! {
+        <span class="flex flex-wrap gap-1">
+            {items.iter().map(|n| ref_link(&section, n, &c.reserved, ctx)).collect_view()}
+        </span>
+    }
+    .into_any()
+}
+
+fn ref_map_view(c: &RefMapC, v: &Value, ctx: &Ctx) -> AnyView {
+    let section = c.entity.section().to_string();
+    let Some(m) = v.as_object() else {
+        return mono(v);
+    };
+    let rows = m
+        .iter()
+        .map(|(k, x)| {
             view! {
-                <span class="flex flex-wrap gap-1">
-                    {items.iter().map(|n| ref_link(&section, n, &c.reserved, ctx)).collect_view()}
-                </span>
+                <tr>
+                    <th scope="row">{ref_link(&section, k, &c.reserved, ctx)}</th>
+                    <td>{value_view(&c.value, Some(x), None, ctx)}</td>
+                </tr>
             }
-            .into_any()
-        }
-        SemType::RefMap(c) => {
-            let section = c.entity.section().to_string();
-            let Some(m) = v.as_object() else {
-                return mono(v);
-            };
-            let rows = m
-                .iter()
-                .map(|(k, x)| {
-                    view! {
-                        <tr>
-                            <th scope="row">{ref_link(&section, k, &c.reserved, ctx)}</th>
-                            <td>{value_view(&c.value, Some(x), None, ctx)}</td>
-                        </tr>
-                    }
-                })
-                .collect_view();
-            view! { <table class="text-sm [&_td]:py-1 [&_td]:pl-3 [&_th]:py-1 [&_th]:text-left [&_th]:font-normal"><tbody>{rows}</tbody></table> }.into_any()
-        }
-        SemType::SecretRef(_) => {
-            let items: Vec<Value> = match v {
-                Value::Array(a) => a.clone(),
-                other => vec![other.clone()],
-            };
-            let rows = items
-                .iter()
-                .map(|i| match as_secret(i) {
-                    Some(s) => {
-                        let fp = s.fp.clone().unwrap_or_else(|| "unset".into());
-                        let src = match &s.src {
-                            SecretSrc::Literal => "in the file".to_string(),
-                            SecretSrc::Env(e) => format!("from ${{{e}}}"),
-                        };
-                        view! {
-                            <li class="flex flex-wrap gap-2" data-fp=fp.clone()>
-                                <span class="font-mono text-sm">{format!("secret {fp}")}</span>
-                                <span class="text-text-muted">{src}</span>
-                            </li>
-                        }
-                        .into_any()
-                    }
-                    None => view! { <li class="font-mono text-sm">"hidden"</li> }.into_any(),
-                })
-                .collect_view();
-            view! { <ul class="space-y-1">{rows}</ul> }.into_any()
-        }
-        SemType::List(c) => {
-            let Some(a) = v.as_array() else {
-                return mono(v);
-            };
-            if a.is_empty() {
-                return view! { <span class="text-text-muted">"None"</span> }.into_any();
+        })
+        .collect_view();
+    view! { <table class="text-sm [&_td]:py-1 [&_td]:pl-3 [&_th]:py-1 [&_th]:text-left [&_th]:font-normal"><tbody>{rows}</tbody></table> }.into_any()
+}
+
+fn secrets_view(v: &Value) -> AnyView {
+    let items: Vec<Value> = match v {
+        Value::Array(a) => a.clone(),
+        other => vec![other.clone()],
+    };
+    let rows = items
+        .iter()
+        .map(|i| match as_secret(i) {
+            Some(s) => {
+                let fp = s.fp.clone().unwrap_or_else(|| "unset".into());
+                let src = match &s.src {
+                    SecretSrc::Literal => "in the file".to_string(),
+                    SecretSrc::Env(e) => format!("from ${{{e}}}"),
+                };
+                view! {
+                    <li class="flex flex-wrap gap-2" data-fp=fp.clone()>
+                        <span class="font-mono text-sm">{format!("secret {fp}")}</span>
+                        <span class="text-text-muted">{src}</span>
+                    </li>
+                }
+                .into_any()
             }
-            let item = (*c.item).clone();
+            None => view! { <li class="font-mono text-sm">"hidden"</li> }.into_any(),
+        })
+        .collect_view();
+    view! { <ul class="space-y-1">{rows}</ul> }.into_any()
+}
+
+fn list_view(c: &ListC, v: &Value, ctx: &Ctx) -> AnyView {
+    let Some(a) = v.as_array() else {
+        return mono(v);
+    };
+    if a.is_empty() {
+        return view! { <span class="text-text-muted">"None"</span> }.into_any();
+    }
+    let item = (*c.item).clone();
+    view! {
+        <span class="flex flex-wrap gap-1">
+            {a.iter().map(|x| value_view(&item, Some(x), None, ctx)).collect_view()}
+        </span>
+    }
+    .into_any()
+}
+
+fn map_view(c: &MapC, v: &Value, ctx: &Ctx) -> AnyView {
+    let Some(m) = v.as_object() else {
+        return mono(v);
+    };
+    let rows = m
+        .iter()
+        .map(|(k, x)| {
             view! {
-                <span class="flex flex-wrap gap-1">
-                    {a.iter().map(|x| value_view(&item, Some(x), None, ctx)).collect_view()}
-                </span>
+                <tr>
+                    <th scope="row" class="font-mono text-sm">{k.clone()}</th>
+                    <td>{value_view(&c.value, Some(x), None, ctx)}</td>
+                </tr>
             }
-            .into_any()
-        }
-        SemType::Map(c) => {
-            let Some(m) = v.as_object() else {
-                return mono(v);
-            };
-            let rows = m
-                .iter()
-                .map(|(k, x)| {
-                    view! {
-                        <tr>
-                            <th scope="row" class="font-mono text-sm">{k.clone()}</th>
-                            <td>{value_view(&c.value, Some(x), None, ctx)}</td>
-                        </tr>
-                    }
-                })
-                .collect_view();
-            view! { <table class="text-sm [&_td]:py-1 [&_td]:pl-3 [&_th]:py-1 [&_th]:text-left [&_th]:font-normal"><tbody>{rows}</tbody></table> }.into_any()
-        }
-        SemType::Union(u) if u.branches.iter().any(|b| matches!(inner(b).sem, SemType::Bool)) && !matches!(v, Value::String(_)) => match v {
+        })
+        .collect_view();
+    view! { <table class="text-sm [&_td]:py-1 [&_td]:pl-3 [&_th]:py-1 [&_th]:text-left [&_th]:font-normal"><tbody>{rows}</tbody></table> }.into_any()
+}
+
+fn union_view(u: &UnionC, v: &Value, ctx: &Ctx) -> AnyView {
+    if u.branches
+        .iter()
+        .any(|b| matches!(inner(b).sem, SemType::Bool))
+        && !matches!(v, Value::String(_))
+    {
+        return match v {
             Value::Bool(on) => view! { <span class="font-medium" data-value=on.to_string()>{if *on { "On" } else { "Off" }}</span> }.into_any(),
             _ => {
                 let object = u.branches.iter().find(|b| matches!(inner(b).sem, SemType::Object(_)));
@@ -291,20 +319,15 @@ fn sem_view(sem: &SemType, node: &Node, v: &Value, ctx: &Ctx) -> AnyView {
                 }
                 .into_any()
             }
-        },
-        SemType::Union(u) => {
-            let pick = u
-                .branches
-                .iter()
-                .find(|b| burrow_admin_logic::check::check(b, v).is_ok())
-                .or(u.branches.first());
-            match pick {
-                Some(b) => value_view(b, Some(v), None, ctx),
-                None => mono(v),
-            }
-        }
-        SemType::Optional(o) => value_view(&o.inner, Some(v), None, ctx),
-        SemType::Object(_) => object_static(node, v, ctx),
-        SemType::Unknown(_) => mono(v),
+        };
+    }
+    let pick = u
+        .branches
+        .iter()
+        .find(|b| burrow_admin_logic::check::check(b, v).is_ok())
+        .or(u.branches.first());
+    match pick {
+        Some(b) => value_view(b, Some(v), None, ctx),
+        None => mono(v),
     }
 }
