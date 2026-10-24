@@ -60,7 +60,7 @@ fn a_service_with_lets_encrypt_gets_a_private_state_folder_from_systemd() {
 }
 
 #[test]
-fn lets_encrypt_without_the_folder_is_named_for_a_reinstall() {
+fn lets_encrypt_without_the_folder_and_the_plain_web_port_are_named_for_a_reinstall() {
     let le = load("listen: 7835\nweb: { https: 8443, letsencrypt: { email: ops@example.com } }\n");
     let without = misfits_of(&Systemd, &manifest(None), &le);
     assert_eq!(without.len(), 1, "{without:#?}");
@@ -72,6 +72,19 @@ fn lets_encrypt_without_the_folder_is_named_for_a_reinstall() {
         without[0].message
     );
     assert!(misfits_of(&Systemd, &manifest(Some("/var/lib/burrow/home")), &le).is_empty());
+    let mut both = load("listen: 7835\nweb: { https: 443 }\n");
+    if let crate::config::Loaded::Server(s, _) = &mut both {
+        s.web.as_mut().unwrap().http = Some("[::]:80".parse().unwrap());
+    }
+    let low = misfits_of(&Systemd, &manifest(None), &both);
+    assert_eq!(low.len(), 1, "{low:#?}");
+    assert!(
+        low[0]
+            .message
+            .contains("web.https on port 443, web.http on port 80"),
+        "{}",
+        low[0].message
+    );
 }
 
 #[test]

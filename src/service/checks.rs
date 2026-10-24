@@ -32,6 +32,7 @@ fn uses(loaded: &Loaded) -> Uses {
             }
             if let Some(web) = &s.web {
                 listens.extend(web.https.map(|a| (Protocol::Tcp, a, "web.https".into())));
+                listens.extend(web.http.map(|a| (Protocol::Tcp, a, "web.http".into())));
                 letsencrypt = web.letsencrypt.is_some();
             }
             if let Some(m) = s.metrics {
