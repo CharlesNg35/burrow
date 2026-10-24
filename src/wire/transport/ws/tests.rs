@@ -299,3 +299,73 @@ fn routes_only_the_configured_upgrade() {
         Err(Refused::BadRequest)
     );
 }
+
+fn accepted(io: tokio::io::DuplexStream) -> Carrier {
+    Carrier::Accepted(Box::new(Accepted {
+        io: Box::new(io),
+        local: "[::]:443".parse().unwrap(),
+    }))
+}
+
+#[tokio::test]
+async fn an_accepted_stream_upgrades_and_keeps_the_address_it_came_in_on() {
+    use futures_util::{SinkExt, StreamExt};
+    let (a, b) = tokio::io::duplex(1 << 16);
+    let server = tokio::spawn(async move {
+        let mut conn = accept(accepted(a), "/burrow").await.unwrap();
+        assert_eq!(conn.local_addr().unwrap(), "[::]:443".parse().unwrap());
+        let mut got = [0u8; 4];
+        conn.read_exact(&mut got).await.unwrap();
+        conn.write_all(b"pong").await.unwrap();
+        conn.finish().await.unwrap();
+        got
+    });
+    let (mut ws, _) = ClientBuilder::new()
+        .uri("wss://tunnel.example.com/burrow")
+        .unwrap()
+        .connect_on(b)
+        .await
+        .unwrap();
+    ws.send(Message::binary(b"ping".to_vec())).await.unwrap();
+    let reply = ws.next().await.unwrap().unwrap();
+    assert_eq!(&reply.into_payload()[..], b"pong");
+    let end = ws.next().await;
+    assert!(
+        end.as_ref()
+            .is_none_or(|m| m.as_ref().is_ok_and(Message::is_close)),
+        "the server's finish closes the WebSocket: {end:?}"
+    );
+    assert_eq!(&server.await.unwrap(), b"ping");
+}
+
+#[tokio::test]
+async fn an_upgraded_stream_keeps_the_message_and_control_frame_limits() {
+    use futures_util::SinkExt;
+    let (a, b) = tokio::io::duplex(1 << 20);
+    let server = tokio::spawn(async move {
+        let mut conn = serve_upgraded(accepted(a));
+        let mut got = vec![0u8; WRITE_BATCH];
+        conn.read_exact(&mut got).await.map(|_| ())?;
+        conn.read_exact(&mut got[..1]).await.map(|_| ())
+    });
+    let mut ws = ClientBuilder::new().take_over(b);
+    ws.send(Message::binary(vec![1u8; WRITE_BATCH]))
+        .await
+        .unwrap();
+    let _ = ws.send(Message::binary(vec![1u8; WRITE_BATCH + 1])).await;
+    assert!(server.await.unwrap().is_err(), "a message over the limit");
+    let (a, b) = tokio::io::duplex(1 << 20);
+    let server = tokio::spawn(async move {
+        let mut conn = serve_upgraded(accepted(a));
+        let mut got = [0u8; 4];
+        conn.read_exact(&mut got).await
+    });
+    let mut ws = ClientBuilder::new().take_over(b);
+    for _ in 0..=MAX_CONTROLS {
+        if ws.send(Message::ping(Vec::new())).await.is_err() {
+            break;
+        }
+    }
+    let _ = ws.send(Message::binary(vec![7u8; 4])).await;
+    assert!(server.await.unwrap().is_err(), "too many control frames");
+}
