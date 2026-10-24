@@ -38,6 +38,7 @@ pub struct Store {
     inner: RwLock<Inner>,
     acme: Arc<Acme>,
     manager: Mutex<Option<Handle>>,
+    warned: std::sync::atomic::AtomicU64,
 }
 
 impl std::fmt::Debug for Store {
@@ -59,9 +60,9 @@ pub fn expires(ck: &CertifiedKey) -> Option<u64> {
     x509::facts(ck.cert.first()?).map(|f| f.not_after)
 }
 
-fn warn_expiry(name: &str, path: &std::path::Path, expires: Option<u64>) {
+fn warn_expiry(name: &str, path: &std::path::Path, expires: Option<u64>) -> bool {
     let Some(at) = expires else {
-        return;
+        return false;
     };
     let now = now_secs();
     if at <= now {
@@ -76,7 +77,10 @@ fn warn_expiry(name: &str, path: &std::path::Path, expires: Option<u64>) {
             path.display(),
             if days == 1 { "day" } else { "days" }
         );
+    } else {
+        return false;
     }
+    true
 }
 
 async fn load_all(pairs: Vec<Pair>) -> Loaded {
@@ -249,6 +253,37 @@ impl Store {
             explanation: view.as_ref().and_then(|v| v.explanation.clone()),
             failures: view.map_or(0, |v| v.failures),
         })
+    }
+}
+
+impl Store {
+    pub fn warn_expiring(&self) -> usize {
+        use std::sync::atomic::Ordering;
+        let now = now_secs();
+        let last = self.warned.load(Ordering::Relaxed);
+        if now < last + 24 * 3600
+            || self
+                .warned
+                .compare_exchange(last, now, Ordering::Relaxed, Ordering::Relaxed)
+                .is_err()
+        {
+            return 0;
+        }
+        let inner = self.inner.read().expect("certificate lock");
+        inner
+            .order
+            .iter()
+            .filter(|name| {
+                inner.slots.get(*name).is_some_and(|s| match &s.origin {
+                    Some(
+                        CertOrigin::OwnFile { path }
+                        | CertOrigin::SharedFile { path }
+                        | CertOrigin::TunnelFile { path },
+                    ) => warn_expiry(name, path, s.expires),
+                    _ => false,
+                })
+            })
+            .count()
     }
 }
 

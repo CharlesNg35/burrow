@@ -77,6 +77,8 @@ impl Server {
                     if n > 0 {
                         warn!("rejected {n} connections in the last minute (failed handshakes or over limits)");
                     }
+                    #[cfg(feature = "web")]
+                    self.shared.certs.warn_expiring();
                 }
                 _ = stop.changed() => break,
             }

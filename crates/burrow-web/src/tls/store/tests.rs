@@ -287,3 +287,25 @@ async fn apply_reads_files_off_the_async_workers() {
     assert!(ran < written, "a task ran while the file was being read");
     assert_eq!(store.state("blog.example.com"), CertState::Ready);
 }
+
+#[tokio::test]
+async fn a_file_close_to_expiry_is_warned_about_once_a_day() {
+    let dir = tempfile::tempdir().unwrap();
+    let key = rcgen::KeyPair::generate().unwrap();
+    let mut params = rcgen::CertificateParams::new(vec!["blog.example.com".to_string()]).unwrap();
+    let now = time::OffsetDateTime::now_utc();
+    params.not_before = now - time::Duration::days(80);
+    params.not_after = now + time::Duration::days(5);
+    let (c, k) = (dir.path().join("a.pem"), dir.path().join("a.key"));
+    std::fs::write(&c, params.self_signed(&key).unwrap().pem()).unwrap();
+    std::fs::write(&k, key.serialize_pem()).unwrap();
+    let store = Store::new();
+    store
+        .apply(
+            &CertSettings::default(),
+            &[named("blog.example.com", own(&c, &k), "blog")],
+        )
+        .await;
+    assert_eq!(store.warn_expiring(), 1, "the first daily check warns");
+    assert_eq!(store.warn_expiring(), 0, "not again the same day");
+}
