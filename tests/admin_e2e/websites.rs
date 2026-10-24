@@ -225,7 +225,10 @@ fn certificates(c: &mut Ctx) -> Flow<'_> {
             text.contains("Valid") && text.contains("portal.pem"),
             "{text}"
         );
-        assert!(text.contains("in "), "the expiry is shown: {text}");
+        assert!(
+            text.contains(" 4096") && !text.contains("years"),
+            "a far expiry reads as a date: {text}"
+        );
         c.ui.wait_text(
             "[data-testid=overview-tabs]",
             "portal",

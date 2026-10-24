@@ -105,6 +105,22 @@ fn each_certificate_shows_its_source_state_expiry_and_next_renewal() {
 }
 
 #[test]
+fn a_far_expiry_reads_as_a_date() {
+    let mut s = sample();
+    s.certificates = vec![CertStatus {
+        expires: Some(4_102_444_800),
+        ..cert(
+            "portal.example.com",
+            CertSourceStatus::OwnFile {
+                path: "/etc/burrow/portal.pem".into(),
+            },
+            CertStateStatus::Ok,
+        )
+    }];
+    assert!(shown(&s).contains("1 Jan 2100"), "{}", shown(&s));
+}
+
+#[test]
 fn a_server_without_certificates_of_its_own_prints_nothing_for_them() {
     let mut s = sample();
     assert_eq!(shown(&s), "");

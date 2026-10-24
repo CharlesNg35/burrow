@@ -39,6 +39,7 @@ fn state(c: &CertStatus) -> Cell {
 fn when(at: Option<u64>, now: u64) -> Cell {
     match at {
         None => toned("-", Tone::Dim),
+        Some(t) if t >= now && t - now >= 365 * 86_400 => cell(burrow_admin_proto::date::date(t)),
         Some(t) if t >= now => cell(format!("in {}", duration(t - now))),
         Some(t) => toned(format!("expired {} ago", duration(now - t)), Tone::Bad),
     }

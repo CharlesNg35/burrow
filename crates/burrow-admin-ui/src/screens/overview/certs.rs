@@ -40,6 +40,7 @@ fn table(status: &Status, now: u64) -> impl IntoView + use<> {
         .map(|r| {
             let (state, st) = r.state;
             let (expires, ex) = r.expires;
+            let on = r.expires_on.clone();
             let key = r.name.clone();
             let problem = r.problem.map(|p| {
                 let link = r.explanation.map(|u| {
@@ -56,7 +57,7 @@ fn table(status: &Status, now: u64) -> impl IntoView + use<> {
                     <td class="px-2 py-2.5 text-[13px]">{r.source}</td>
                     <td class="px-2 py-2.5 text-[13px]">{r.check}</td>
                     <td class="px-2 py-2.5"><span class=tag_class(tone(st))>{state}</span></td>
-                    <td class=format!("px-2 py-2.5 text-[13px] {}", if ex == Level::Good || ex == Level::Info { "" } else { tone(ex).text() })>{expires}</td>
+                    <td class=format!("px-2 py-2.5 text-[13px] {}", if ex == Level::Good || ex == Level::Info { "" } else { tone(ex).text() }) title=(!on.is_empty()).then_some(on)>{expires}</td>
                     <td class="px-2 py-2.5 pr-4 text-[13px]">{r.next}</td>
                 </tr>
             }

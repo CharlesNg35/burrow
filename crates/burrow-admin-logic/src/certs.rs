@@ -1,3 +1,4 @@
+pub use burrow_admin_proto::date::date;
 use burrow_admin_proto::status::{
     CertCheck, CertSourceStatus, CertStateStatus, CertStatus, Status,
 };
@@ -21,6 +22,7 @@ pub struct Row {
     pub check: String,
     pub state: (String, Level),
     pub expires: (String, Level),
+    pub expires_on: String,
     pub next: String,
     pub problem: Option<String>,
     pub explanation: Option<String>,
@@ -62,12 +64,21 @@ fn source(c: &CertStatus) -> String {
     }
 }
 
+const YEAR: u64 = 365 * DAY;
+pub fn ends(at: u64, now: u64) -> String {
+    match at {
+        t if t <= now => format!("expired {} ago", days(now - t)),
+        t if t - now >= YEAR => date(t),
+        t => format!("in {}", days(t - now)),
+    }
+}
+
 fn expires(c: &CertStatus, now: u64) -> (String, Level) {
     match c.expires {
         None => ("—".into(), Level::Info),
-        Some(t) if t <= now => (format!("expired {} ago", days(now - t)), Level::Bad),
-        Some(t) if t - now < SOON => (format!("in {}", days(t - now)), Level::Warn),
-        Some(t) => (format!("in {}", days(t - now)), Level::Good),
+        Some(t) if t <= now => (ends(t, now), Level::Bad),
+        Some(t) if t - now < SOON => (ends(t, now), Level::Warn),
+        Some(t) => (ends(t, now), Level::Good),
     }
 }
 
@@ -109,6 +120,7 @@ pub fn rows(status: &Status, now: u64) -> Vec<Row> {
                 CertStateStatus::Failing { .. } => ("Failing".into(), Level::Bad),
             },
             expires: expires(c, now),
+            expires_on: c.expires.map(date).unwrap_or_default(),
             next: next(c, now),
             problem: match &c.state {
                 CertStateStatus::Failing { reason } => Some(reason.clone()),
@@ -244,6 +256,9 @@ mod tests {
         assert_eq!(r[0].expires, ("in 60 days".to_string(), Level::Good));
         assert_eq!(r[0].next, "in 10 min");
         assert_eq!(days(800 * DAY), "2 years");
+        assert_eq!(r[0].expires_on, date(NOW + 60 * DAY));
+        assert_eq!(ends(NOW + 400 * DAY, NOW), date(NOW + 400 * DAY));
+        assert_eq!(ends(NOW + 20 * DAY, NOW), "in 20 days");
         assert_eq!(r[1].state.1, Level::Bad);
         assert_eq!(r[1].next, "next try in 10 min");
         assert_eq!(r[1].problem.as_deref(), Some("the DNS name does not exist"));
