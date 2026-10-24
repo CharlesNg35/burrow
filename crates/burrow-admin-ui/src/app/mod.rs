@@ -1,4 +1,5 @@
 mod header;
+mod menus;
 mod search;
 
 use burrow_admin_proto::msg::{FileDiagnostics, UiDiagnostics};
