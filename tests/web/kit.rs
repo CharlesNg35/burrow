@@ -245,8 +245,9 @@ pub async fn closed(addr: SocketAddr, name: &str) -> bool {
     };
     let name = ServerName::try_from(name.to_string()).unwrap();
     let shake = TlsConnector::from(Arc::new(config)).connect(name, tcp);
-    !matches!(
-        tokio::time::timeout(Duration::from_secs(5), shake).await,
-        Ok(Ok(_))
-    )
+    match tokio::time::timeout(Duration::from_secs(5), shake).await {
+        Ok(Ok(_)) => false,
+        Ok(Err(_)) => true,
+        Err(_) => panic!("{addr}: the connection is still open after 5 s; it must close quickly"),
+    }
 }

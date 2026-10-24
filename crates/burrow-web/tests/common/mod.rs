@@ -249,5 +249,11 @@ pub async fn ask<S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin>(
 }
 
 pub async fn closed_without_tls(addr: SocketAddr, name: &str) -> bool {
-    tls(addr, name).await.is_err()
+    let tcp = TcpStream::connect(addr).await.expect("the port accepts");
+    let name = ServerName::try_from(name.to_string()).unwrap();
+    match tokio::time::timeout(Duration::from_secs(5), connector().connect(name, tcp)).await {
+        Ok(Ok(_)) => false,
+        Ok(Err(_)) => true,
+        Err(_) => panic!("{addr}: the connection is still open after 5 s; it must close quickly"),
+    }
 }
