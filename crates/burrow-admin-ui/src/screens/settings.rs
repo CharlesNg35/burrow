@@ -4,6 +4,7 @@ use leptos::context::Provider;
 use leptos::prelude::*;
 use wasm_bindgen::JsCast;
 
+use crate::edit::Edit;
 use crate::form::{ShowKeys, card_fields, settings_card, settings_cards};
 use crate::route::Route;
 use crate::screens::{DetailPane, ListPane, Row, master_detail};
@@ -106,37 +107,7 @@ pub fn Settings() -> impl IntoView {
             .unwrap_or_default()
     });
     let count = Signal::derive(move || rows.with(Vec::len).to_string());
-    let list = view! {
-        <div
-            class="contents"
-            on:click=move |e| {
-                let hit = e
-                    .target()
-                    .and_then(|t| t.dyn_into::<web_sys::Element>().ok())
-                    .and_then(|t| t.closest("[data-row]").ok().flatten())
-                    .and_then(|el| el.get_attribute("data-row"));
-                if let Some(key) = hit {
-                    current.set(Some(key.clone()));
-                    if let Ok(Some(el)) = document().query_selector(&format!("#detail [data-card=\"{key}\"]")) {
-                        el.scroll_into_view();
-                    }
-                }
-            }
-        >
-            <ListPane
-                title="Settings"
-                count=count
-                search_label="Search settings"
-                filters=vec![("all", "All".into()), ("restart", "Restart".into()), ("changed", "Changed".into())]
-                groups=vec![""]
-                rows=rows
-                selected=current
-                testid="settings-list"
-                compact=true
-            />
-        </div>
-    }
-    .into_any();
+    let list = settings_list(rows, count, current);
     let body = move || {
         let schema = s.schema.get()?;
         let skip = sections(&schema);
@@ -152,77 +123,10 @@ pub fn Settings() -> impl IntoView {
         let root = root.clone();
         Memo::new(move |_| e.is_editing(&root))
     };
-    let settings_of = move |doc: &burrow_admin_proto::serde_json::Value| {
-        let mut out = burrow_admin_proto::serde_json::Map::new();
-        if let Some(m) = doc.as_object() {
-            for (k, v) in m {
-                if !crate::route::SECTIONS.contains(&k.as_str()) {
-                    out.insert(k.clone(), v.clone());
-                }
-            }
-        }
-        burrow_admin_proto::serde_json::Value::Object(out)
-    };
-    let changed = Signal::derive(move || {
-        let now = settings_of(&e.doc());
-        e.editing.with(|m| {
-            let snap = m
-                .get(&Vec::<String>::new())
-                .cloned()
-                .flatten()
-                .map(|d| settings_of(&d))
-                .unwrap_or_else(|| now.clone());
-            burrow_admin_logic::changeset::ops_between(&snap, &now).len()
-        })
-    });
-    let problems = Signal::derive(move || {
-        let local = e.local.with(|l| {
-            l.keys()
-                .filter(|p| {
-                    p.first()
-                        .is_some_and(|k| !crate::route::SECTIONS.contains(&k.as_str()))
-                })
-                .count()
-        });
-        let server = e
-            .plan
-            .with(|p| p.as_ref().map_or(0, |p| setting_errors(&p.diags)));
-        local.max(server)
-    });
+    let changed = changed_fields(e);
+    let problems = problem_count(e);
     let start = move |_| e.start_edit(&[]);
-    let close = move || {
-        let snap = e
-            .editing
-            .with_untracked(|m| m.get(&Vec::<String>::new()).cloned().flatten());
-        if let Some(snap) = snap {
-            let now = e.doc();
-            let mut keys: Vec<String> = Vec::new();
-            for d in [&snap, &now] {
-                if let Some(m) = d.as_object() {
-                    keys.extend(
-                        m.keys()
-                            .filter(|k| !crate::route::SECTIONS.contains(&k.as_str()))
-                            .cloned(),
-                    );
-                }
-            }
-            keys.sort();
-            keys.dedup();
-            for k in keys {
-                let (a, b) = (snap.get(&k).cloned(), now.get(&k).cloned());
-                if a != b {
-                    e.set(std::slice::from_ref(&k), a);
-                }
-            }
-            e.local.update(|l| {
-                l.retain(|p, _| {
-                    p.first()
-                        .is_some_and(|k| crate::route::SECTIONS.contains(&k.as_str()))
-                })
-            });
-        }
-        e.stop_edit(&[]);
-    };
+    let close = move || discard_settings(e);
     let save = move || {
         e.stop_edit(&[]);
         s.toast(
@@ -267,6 +171,124 @@ pub fn Settings() -> impl IntoView {
     }
     .into_any();
     master_detail(list, detail)
+}
+
+fn settings_list(
+    rows: Memo<Vec<Row>>,
+    count: Signal<String>,
+    current: RwSignal<Option<String>>,
+) -> AnyView {
+    view! {
+        <div
+            class="contents"
+            on:click=move |e| {
+                let hit = e
+                    .target()
+                    .and_then(|t| t.dyn_into::<web_sys::Element>().ok())
+                    .and_then(|t| t.closest("[data-row]").ok().flatten())
+                    .and_then(|el| el.get_attribute("data-row"));
+                if let Some(key) = hit {
+                    current.set(Some(key.clone()));
+                    if let Ok(Some(el)) = document().query_selector(&format!("#detail [data-card=\"{key}\"]")) {
+                        el.scroll_into_view();
+                    }
+                }
+            }
+        >
+            <ListPane
+                title="Settings"
+                count=count
+                search_label="Search settings"
+                filters=vec![("all", "All".into()), ("restart", "Restart".into()), ("changed", "Changed".into())]
+                groups=vec![""]
+                rows=rows
+                selected=current
+                testid="settings-list"
+                compact=true
+            />
+        </div>
+    }
+    .into_any()
+}
+
+fn settings_of(
+    doc: &burrow_admin_proto::serde_json::Value,
+) -> burrow_admin_proto::serde_json::Value {
+    let mut out = burrow_admin_proto::serde_json::Map::new();
+    if let Some(m) = doc.as_object() {
+        for (k, v) in m {
+            if !crate::route::SECTIONS.contains(&k.as_str()) {
+                out.insert(k.clone(), v.clone());
+            }
+        }
+    }
+    burrow_admin_proto::serde_json::Value::Object(out)
+}
+
+fn changed_fields(e: Edit) -> Signal<usize> {
+    Signal::derive(move || {
+        let now = settings_of(&e.doc());
+        e.editing.with(|m| {
+            let snap = m
+                .get(&Vec::<String>::new())
+                .cloned()
+                .flatten()
+                .map(|d| settings_of(&d))
+                .unwrap_or_else(|| now.clone());
+            burrow_admin_logic::changeset::ops_between(&snap, &now).len()
+        })
+    })
+}
+
+fn problem_count(e: Edit) -> Signal<usize> {
+    Signal::derive(move || {
+        let local = e.local.with(|l| {
+            l.keys()
+                .filter(|p| {
+                    p.first()
+                        .is_some_and(|k| !crate::route::SECTIONS.contains(&k.as_str()))
+                })
+                .count()
+        });
+        let server = e
+            .plan
+            .with(|p| p.as_ref().map_or(0, |p| setting_errors(&p.diags)));
+        local.max(server)
+    })
+}
+
+fn discard_settings(e: Edit) {
+    let snap = e
+        .editing
+        .with_untracked(|m| m.get(&Vec::<String>::new()).cloned().flatten());
+    if let Some(snap) = snap {
+        let now = e.doc();
+        let mut keys: Vec<String> = Vec::new();
+        for d in [&snap, &now] {
+            if let Some(m) = d.as_object() {
+                keys.extend(
+                    m.keys()
+                        .filter(|k| !crate::route::SECTIONS.contains(&k.as_str()))
+                        .cloned(),
+                );
+            }
+        }
+        keys.sort();
+        keys.dedup();
+        for k in keys {
+            let (a, b) = (snap.get(&k).cloned(), now.get(&k).cloned());
+            if a != b {
+                e.set(std::slice::from_ref(&k), a);
+            }
+        }
+        e.local.update(|l| {
+            l.retain(|p, _| {
+                p.first()
+                    .is_some_and(|k| crate::route::SECTIONS.contains(&k.as_str()))
+            })
+        });
+    }
+    e.stop_edit(&[]);
 }
 
 #[cfg(test)]
