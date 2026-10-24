@@ -39,7 +39,6 @@ pub(super) fn check_https(
         );
         return None;
     }
-    later::refuse(cfg, spans, out);
     let Some(given) = cfg.web.as_ref().and_then(|w| w.https.as_ref()) else {
         let http =
             cfg.web.as_ref().is_some_and(|w| w.http.is_some()) || spans.has(&["web", "http"]);
@@ -451,7 +450,6 @@ fn check_hosts(
 
 mod certs;
 mod fill;
-mod later;
 
 pub(super) use fill::settings;
 
@@ -466,9 +464,6 @@ mod tests_files;
 
 #[cfg(all(test, feature = "web"))]
 mod tests_keys;
-
-#[cfg(all(test, feature = "web"))]
-mod tests_later;
 
 #[cfg(all(test, not(feature = "web")))]
 mod tests_without_web;
