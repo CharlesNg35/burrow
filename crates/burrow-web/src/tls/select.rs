@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use burrow_syntax::web::{Twice, entry_for};
 
 use super::{CertName, CertOrigin};
-use crate::{CertSettings, CertSource, ProxySettings, SiteTls, TunnelMode};
+use crate::{CertSettings, CertSource, ProxySettings, SiteTls, TunnelMode, TunnelPort};
 
 pub const TUNNEL_GROUP: &str = "websocket.host";
 
@@ -41,7 +41,7 @@ pub fn cert_names(settings: &ProxySettings) -> Vec<CertName> {
     if let Some(t) = settings
         .tunnel
         .as_ref()
-        .filter(|t| t.mode == TunnelMode::OwnName)
+        .filter(|t| t.mode == TunnelMode::OwnName && t.port == TunnelPort::Https)
     {
         let source = settings
             .certs
@@ -286,5 +286,19 @@ mod tests {
         assert_eq!(cert_names(&p)[3].source, CertSource::Auto);
         p.tunnel.as_mut().unwrap().mode = TunnelMode::ByPath;
         assert_eq!(cert_names(&p).len(), 3);
+    }
+
+    #[test]
+    fn a_tunnel_on_the_plain_http_port_needs_no_certificate() {
+        let mut p = ProxySettings::new("[::]:443".parse().unwrap());
+        p.tunnel = Some(TunnelSettings {
+            host: "tunnel.example.com".into(),
+            path: "/burrow".into(),
+            mode: TunnelMode::OwnName,
+            port: crate::TunnelPort::Http,
+        });
+        assert!(cert_names(&p).is_empty());
+        p.tunnel.as_mut().unwrap().port = crate::TunnelPort::Https;
+        assert_eq!(cert_names(&p).len(), 1);
     }
 }
