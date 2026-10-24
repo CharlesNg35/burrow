@@ -58,6 +58,13 @@ fn config(tls_port: u16, http_port: u16) -> String {
 
 impl Pebble {
     pub async fn start() -> Pebble {
+        for name in [PEBBLE_NAME, DNS_NAME] {
+            let running = docker(&["ps", "-q", "-f", &format!("name=^{name}$")]).await;
+            assert!(
+                running.is_empty(),
+                "{name} is already running: another Pebble run is in progress on this host (stop it with docker rm -f {name} if it is left over)"
+            );
+        }
         docker(&["rm", "-f", PEBBLE_NAME, DNS_NAME]).await;
         docker(&[
             "run",
