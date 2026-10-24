@@ -200,3 +200,31 @@ async fn a_service_bind_and_the_web_port_can_swap_places() {
     .await;
     assert!(ok.is_ok(), "both moved to the other's old port");
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_new_tunnel_certificate_is_used_for_new_connections() {
+    let (old_cert, new_cert) = (cert(&["localhost"]), cert(&["localhost"]));
+    let secret = Secret::generate();
+    let mut s = web_server(&secret, &[]);
+    s.web.as_mut().unwrap().https = format!("127.0.0.1:{}", free_port()).parse().unwrap();
+    share_tunnel(&mut s, "localhost", &old_cert);
+    let srv = start_server(s.clone()).await;
+    let web = srv.web_addr.unwrap();
+    assert!(visit(web, "localhost", &old_cert).await.is_ok());
+    assert!(visit(web, "localhost", &new_cert).await.is_err());
+    let mut next = s.clone();
+    share_tunnel(&mut next, "localhost", &new_cert);
+    srv.reload(next.clone()).await;
+    let shared = srv.shared.clone();
+    wait_for(|| shared.settings_snapshot().websocket == next.websocket).await;
+    let mut ok = false;
+    for _ in 0..50 {
+        if visit(web, "localhost", &new_cert).await.is_ok() {
+            ok = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    assert!(ok, "the new certificate is served");
+    assert_eq!(srv.web_addr, Some(web));
+}
