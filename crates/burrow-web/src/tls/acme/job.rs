@@ -71,6 +71,7 @@ pub struct Group {
     failures: u32,
     total: u64,
     last_error: Option<String>,
+    code: Option<&'static str>,
     explanation: Option<String>,
     check: Option<CertCheck>,
     staging_at: Option<u64>,
@@ -89,6 +90,7 @@ impl Group {
             failures: 0,
             total: 0,
             last_error: None,
+            code: None,
             explanation: None,
             check: None,
             staging_at: None,
@@ -143,6 +145,7 @@ impl Group {
                 _ => self.next,
             }),
             last_error,
+            code: self.last_error.as_ref().and(self.code),
             explanation: self.explanation.clone(),
             failures: self.total,
         }
@@ -221,8 +224,14 @@ impl Worker {
         let result = self.order(g).await;
         g.running = false;
         match result {
-            Ok(held) => self.done(name, g, held).await,
-            Err((text, wait)) => self.failed(name, g, text, wait),
+            Ok(held) => {
+                g.code = None;
+                self.done(name, g, held).await;
+            }
+            Err((text, wait)) => {
+                g.code = text.starts_with(NOT_OFFERED).then_some(PROFILE_NOT_OFFERED);
+                self.failed(name, g, text, wait);
+            }
         }
     }
 
@@ -496,6 +505,9 @@ fn cert_id(ari_id: &str) -> Option<CertificateIdentifier<'static>> {
     })
 }
 
+pub const PROFILE_NOT_OFFERED: &str = "profile-not-offered";
+const NOT_OFFERED: &str = "the certificate service does not offer the profile";
+
 pub fn profile_for(
     account: &Account,
     names: &[String],
@@ -518,7 +530,7 @@ pub fn choose_profile(
         None => Ok(None),
         Some(p) if has(p) => Ok(Some(p.to_string())),
         Some(p) => Err(format!(
-            "the certificate service does not offer the profile \"{p}\"; it offers: {}",
+            "{NOT_OFFERED} \"{p}\"; it offers: {}",
             if offered.is_empty() {
                 "none".to_string()
             } else {

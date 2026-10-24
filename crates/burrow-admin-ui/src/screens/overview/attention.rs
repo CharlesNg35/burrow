@@ -31,9 +31,21 @@ fn row_view(i: Item, icon: bool) -> impl IntoView {
     let li = "border-b border-rowline last:border-b-0";
     view! {
         <li class=li data-item=i.key.clone() data-tone=tone.name()>
-            {match i.to {
-                Some(to) => view! { <Link to=to class=class>{inner}</Link> }.into_any(),
-                None => view! { <div class=class>{inner}</div> }.into_any(),
+            {match (i.to, i.field) {
+                (Some(to), Some(path)) => {
+                    let href = crate::route::href(&to);
+                    view! {
+                        <a href=href class=class on:click=move |e| {
+                            e.prevent_default();
+                            crate::route::go(to.clone());
+                            let path = path.clone();
+                            set_timeout(move || crate::screens::entity::go_to_field(&path), std::time::Duration::from_millis(150));
+                        }>{inner}</a>
+                    }
+                    .into_any()
+                }
+                (Some(to), None) => view! { <Link to=to class=class>{inner}</Link> }.into_any(),
+                (None, _) => view! { <div class=class>{inner}</div> }.into_any(),
             }}
         </li>
     }

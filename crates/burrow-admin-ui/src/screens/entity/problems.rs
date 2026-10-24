@@ -226,6 +226,14 @@ fn scroll_and_focus(el: web_sys::Element) {
         .ok()
         .flatten()
         .unwrap_or(el);
+    if !target.has_attribute("tabindex")
+        && !matches!(
+            target.tag_name().as_str(),
+            "INPUT" | "SELECT" | "TEXTAREA" | "BUTTON"
+        )
+    {
+        let _ = target.set_attribute("tabindex", "-1");
+    }
     if let Ok(h) = target.dyn_into::<web_sys::HtmlElement>() {
         let _ = h.focus();
     }

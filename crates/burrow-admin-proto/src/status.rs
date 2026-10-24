@@ -135,6 +135,8 @@ pub struct CertStatus {
     #[serde(default)]
     pub last_error: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub explanation: Option<String>,
     #[serde(default)]
     pub failures: u64,
@@ -185,6 +187,7 @@ mod tests {
             expires: Some(1_800_000_000),
             next_renewal: None,
             last_error: Some("rate limited".into()),
+            code: None,
             explanation: Some("https://example.com/why".into()),
             failures: 3,
         };

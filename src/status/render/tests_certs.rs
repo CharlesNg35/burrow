@@ -16,6 +16,7 @@ fn cert(name: &str, source: CertSourceStatus, state: CertStateStatus) -> CertSta
         expires: None,
         next_renewal: None,
         last_error: None,
+        code: None,
         explanation: None,
         failures: 0,
     }
@@ -43,6 +44,7 @@ fn each_certificate_shows_its_source_state_expiry_and_next_renewal() {
         CertStatus {
             check: Some(CertCheck::Http),
             last_error: Some("urn:ietf:params:acme:error:dns: no such name".into()),
+            code: None,
             explanation: Some("https://letsencrypt.org/docs/x".into()),
             failures: 3,
             next_renewal: Some(NOW + 600),

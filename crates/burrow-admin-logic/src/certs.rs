@@ -2,6 +2,7 @@ pub use burrow_admin_proto::date::date;
 use burrow_admin_proto::status::{
     CertCheck, CertSourceStatus, CertStateStatus, CertStatus, Status,
 };
+use burrow_config::{LetsEncrypt, ServerConfig, WebConfig};
 
 const DAY: u64 = 86_400;
 const SOON: u64 = 14 * DAY;
@@ -35,7 +36,10 @@ pub struct Notice {
     pub title: String,
     pub detail: String,
     pub service: Option<String>,
+    pub field: Option<Vec<String>>,
 }
+
+pub const PROFILE_NOT_OFFERED: &str = "profile-not-offered";
 
 fn days(secs: u64) -> String {
     match secs / DAY {
@@ -143,12 +147,22 @@ pub fn notices(status: &Status, now: u64) -> Vec<Notice> {
     let mut out = Vec::new();
     for c in status.certificates.iter().filter(burrows) {
         let service = service_of(status, &c.name);
+        let field = (c.code.as_deref() == Some(PROFILE_NOT_OFFERED)).then(|| {
+            [
+                ServerConfig::WEB.key(),
+                WebConfig::LETSENCRYPT.key(),
+                LetsEncrypt::PROFILE.key(),
+            ]
+            .map(str::to_string)
+            .to_vec()
+        });
         let notice = |level, title: String, detail: String| Notice {
             key: format!("cert:{}", c.name),
             level,
             title,
             detail,
             service: service.clone(),
+            field: field.clone(),
         };
         if let CertStateStatus::Failing { reason } = &c.state {
             let tries = match c.failures {
@@ -200,6 +214,7 @@ mod tests {
             expires,
             next_renewal: Some(NOW + 600),
             last_error: None,
+            code: None,
             explanation: None,
             failures: 0,
         }
@@ -303,5 +318,13 @@ mod tests {
         assert_eq!(n[0].detail, "rate limited · tried 3 times");
         assert_eq!(n[0].service.as_deref(), Some("blog"));
         assert_eq!(n[1].service, None);
+        assert_eq!(n[0].field, None);
+        let mut p = s.clone();
+        p.certificates[0].code = Some(PROFILE_NOT_OFFERED.into());
+        assert_eq!(
+            notices(&p, NOW)[0].field.as_deref(),
+            Some(&["web".to_string(), "letsencrypt".into(), "profile".into()][..]),
+            "a profile the service does not offer links to the field"
+        );
     }
 }

@@ -25,6 +25,7 @@ pub struct Item {
     pub title: String,
     pub detail: String,
     pub to: Option<Route>,
+    pub field: Option<Vec<String>>,
 }
 
 fn rank(t: Tone) -> u8 {
@@ -83,6 +84,7 @@ fn state_items(st: &State, out: &mut Vec<Item>) {
             detail: "The server keeps running the last good version until the file is fixed."
                 .into(),
             to: Some(Route::About),
+            field: None,
         });
     }
     for p in &st.runtime.restart_pending {
@@ -94,6 +96,7 @@ fn state_items(st: &State, out: &mut Vec<Item>) {
                 "Applied to the file; the running server keeps the old value until it restarts."
                     .into(),
             to: Some(Route::Settings),
+            field: None,
         });
     }
     for d in st.diags.iter().filter(|d| d.severity == Severity::Warning) {
@@ -111,6 +114,7 @@ fn state_items(st: &State, out: &mut Vec<Item>) {
                 .map(|h| format!("{} · {h}", d.code))
                 .unwrap_or_else(|| d.code.clone()),
             to: d.path.as_deref().and_then(link_of),
+            field: None,
         });
     }
 }
@@ -158,6 +162,7 @@ fn service_items(
                         )
                     },
                     to,
+                    field: None,
                 });
                 continue;
             }
@@ -177,6 +182,7 @@ fn service_items(
                     title: format!("Service {name}: health check failing"),
                     detail: format!("Failing on {}.", failing.join(", ")),
                     to,
+                    field: None,
                 });
             } else if let [c] = off.as_slice() {
                 by_client.entry((*c).clone()).or_default().1.push((
@@ -201,6 +207,7 @@ fn service_items(
                             .join(", ")
                     ),
                     to,
+                    field: None,
                 });
             }
         }
@@ -256,6 +263,7 @@ fn client_item(
         title: format!("Client {c} is offline"),
         detail: format!("{} · {when}", parts.join("; ")),
         to: Some(Route::Detail(ClientEntry::section().into(), c)),
+        field: None,
     }
 }
 
@@ -359,6 +367,7 @@ pub fn away(values: &Value, status: Option<&Status>) -> Vec<Item> {
                     }
                 ),
                 to: Some(Route::Detail(ClientEntry::section().into(), c)),
+                field: None,
             })
         })
         .collect()
@@ -441,6 +450,7 @@ pub fn old_server_item(server: &str, ui: &str) -> Option<Item> {
         title: format!("This server runs burrow v{server}, older than this burrow admin (v{ui})"),
         detail: "Update it for the newest settings and help: run burrow update on the server as root or administrator, or pull the new image for Docker; restart a server you run by hand.".into(),
         to: Some(Route::About),
+        field: None,
     })
 }
 

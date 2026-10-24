@@ -113,3 +113,19 @@ fn an_ari_id_becomes_a_certificate_identifier() {
     assert_eq!(id.to_string(), "aYhba4dGQEHhs3uEe6CuLN4ByNQ.AIdlQyE");
     assert!(cert_id("nodot").is_none());
 }
+
+#[test]
+fn a_profile_the_service_does_not_offer_is_told_apart_from_other_failures() {
+    let err = choose_profile(&s(&["default"]), &s(&["blog.example.com"]), Some("x")).unwrap_err();
+    assert!(err.starts_with(NOT_OFFERED), "{err}");
+    let mut g = Group::new(s(&["blog.example.com"]), None);
+    g.last_error = Some(err);
+    g.code = Some(PROFILE_NOT_OFFERED);
+    assert_eq!(g.view(&[]).code, Some(PROFILE_NOT_OFFERED));
+    g.last_error = None;
+    assert_eq!(
+        g.view(&[]).code,
+        None,
+        "a code without a failure is not shown"
+    );
+}

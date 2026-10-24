@@ -4,12 +4,38 @@ use serde_json::json;
 
 pub const SCHEMA_ENV: &str = "BURROW_ADMIN_TEST_SCHEMA";
 pub const VERSION_ENV: &str = "BURROW_ADMIN_TEST_VERSION";
+pub const CERT_ENV: &str = "BURROW_ADMIN_TEST_CERT";
 
 pub fn version(v: &str) -> String {
     if !cfg!(feature = "admin-test-hooks") {
         return v.to_string();
     }
     std::env::var(VERSION_ENV).unwrap_or_else(|_| v.to_string())
+}
+
+pub fn status(mut s: crate::metrics::Status) -> crate::metrics::Status {
+    if !cfg!(feature = "admin-test-hooks") {
+        return s;
+    }
+    if let Ok(name) = std::env::var(CERT_ENV) {
+        s.certificates.push(crate::metrics::CertStatus {
+            name,
+            source: crate::metrics::CertSourceStatus::LetsEncrypt {
+                directory: crate::config::settings::LETSENCRYPT_PRODUCTION.into(),
+            },
+            check: None,
+            state: crate::metrics::CertStateStatus::Failing {
+                reason: "the certificate service does not offer the profile \"tlsserver\"; it offers: classic, shortlived".into(),
+            },
+            expires: None,
+            next_renewal: None,
+            last_error: None,
+            code: Some("profile-not-offered".into()),
+            explanation: None,
+            failures: 1,
+        });
+    }
+    s
 }
 
 pub fn schema(s: Schema) -> Schema {

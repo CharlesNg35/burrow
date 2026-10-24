@@ -298,7 +298,7 @@ pub async fn run(
                     None => std::future::pending::<()>().await,
                 }
             } => {
-                let status = cx.hub.core.live.status();
+                let status = crate::admin::hooks::status(cx.hub.core.live.status());
                 let ev = msg::event(msg::ev::STATUS, serde_json::to_value(status).unwrap_or_default());
                 let _ = tx.try_send(Out::Message(encode(&ev)));
             }

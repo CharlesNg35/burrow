@@ -374,6 +374,7 @@ mod tests {
             expires,
             next_renewal: None,
             last_error: None,
+            code: None,
             explanation: None,
             failures,
         }

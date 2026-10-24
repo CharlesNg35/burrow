@@ -250,6 +250,7 @@ impl Store {
             expires: served.as_deref().and_then(expires),
             next_renewal: view.as_ref().and_then(|v| v.next_renewal),
             last_error: view.as_ref().and_then(|v| v.last_error.clone()),
+            code: view.as_ref().and_then(|v| v.code),
             explanation: view.as_ref().and_then(|v| v.explanation.clone()),
             failures: view.map_or(0, |v| v.failures),
         })
@@ -378,6 +379,7 @@ impl Certificates for Store {
                     expires: s.expires,
                     next_renewal: None,
                     last_error: s.error.clone(),
+                    code: None,
                     explanation: None,
                     failures: 0,
                 })

@@ -62,6 +62,7 @@ pub struct CertStatus {
     pub expires: Option<u64>,
     pub next_renewal: Option<u64>,
     pub last_error: Option<String>,
+    pub code: Option<&'static str>,
     pub explanation: Option<String>,
     pub failures: u64,
 }

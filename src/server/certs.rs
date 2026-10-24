@@ -30,6 +30,7 @@ impl Shared {
                     expires: None,
                     next_renewal: None,
                     last_error: None,
+                    code: None,
                     explanation: None,
                     failures: 0,
                 });
@@ -71,6 +72,7 @@ fn line(s: tls::CertStatus) -> CertStatus {
         expires: s.expires,
         next_renewal: s.next_renewal,
         last_error: s.last_error,
+        code: s.code.map(str::to_string),
         explanation: s.explanation,
         failures: s.failures,
     }
@@ -94,6 +96,7 @@ mod tests {
             expires: Some(10),
             next_renewal: Some(20),
             last_error: Some("rate limited".into()),
+            code: Some("profile-not-offered"),
             explanation: Some("https://example.com/why".into()),
             failures: 2,
         });
@@ -115,6 +118,7 @@ mod tests {
             (Some(10), Some(20), 2)
         );
         assert_eq!(got.explanation.as_deref(), Some("https://example.com/why"));
+        assert_eq!(got.code.as_deref(), Some("profile-not-offered"));
         let own = line(tls::CertStatus {
             origin: CertOrigin::TunnelFile {
                 path: "/etc/burrow/ws.pem".into(),
@@ -141,6 +145,7 @@ mod tests {
             expires: None,
             next_renewal: None,
             last_error: None,
+            code: None,
             explanation: None,
             failures: 0,
         }

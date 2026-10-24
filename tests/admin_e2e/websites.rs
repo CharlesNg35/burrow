@@ -276,3 +276,36 @@ fn web_off(c: &mut Ctx) -> Flow<'_> {
 fn a_website_with_the_web_proxy_off_links_to_turning_it_on() {
     run("web-off", Options::default(), false, web_off);
 }
+
+fn profile_link(c: &mut Ctx) -> Flow<'_> {
+    Box::pin(async move {
+        open(c, "ops").await;
+        let item = "[data-testid=attention] [data-item='cert:blog.example.com']";
+        let text = c.ui.wait_text(item, "cannot be renewed", SECS).await;
+        assert!(text.contains("does not offer the profile"), "{text}");
+        c.ui.shot("profile-needs-attention").await;
+        c.ui.click(&format!("{item} a")).await;
+        c.ui.wait_for("[data-testid=settings]", SECS).await;
+        tokio::time::sleep(std::time::Duration::from_millis(600)).await;
+        let focused: String = c
+            .ui
+            .eval("(() => { const a = document.activeElement; const r = a && a.closest('[data-schema]'); return r ? r.getAttribute('data-schema') : ''; })()")
+            .await;
+        assert_eq!(
+            focused, "web/letsencrypt/profile",
+            "the link lands on the profile"
+        );
+        c.ui.shot("profile-field").await;
+        c.ui.assert_no_errors();
+    })
+}
+
+#[test]
+fn a_profile_the_service_does_not_offer_links_to_the_field() {
+    let opts = Options {
+        server_env: vec![("BURROW_ADMIN_TEST_CERT".into(), "blog.example.com".into())],
+        extra_top: "web:\n  https: 127.0.0.1:HTTPS_PORT\n  letsencrypt: { email: ops@example.com, directory: \"https://127.0.0.1:9/directory\", profile: tlsserver }\n".into(),
+        ..Options::default()
+    };
+    run("profile-link", opts, true, profile_link);
+}

@@ -26,10 +26,12 @@ pub(super) fn items(status: &Status, now: u64) -> Vec<Item> {
             tone: tone(n.level),
             title: n.title,
             detail: n.detail,
-            to: Some(match n.service {
-                Some(s) => Route::Detail(ServiceEntry::section().into(), s),
-                None => Route::Settings,
+            to: Some(match (n.service, &n.field) {
+                (_, Some(_)) => Route::Settings,
+                (Some(s), None) => Route::Detail(ServiceEntry::section().into(), s),
+                (None, None) => Route::Settings,
             }),
+            field: n.field,
         })
         .collect()
 }
