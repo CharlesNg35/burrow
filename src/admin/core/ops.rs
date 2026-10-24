@@ -123,95 +123,13 @@ pub fn apply(raw: &Value, ops: &[Op], cx: &dyn Context) -> Result<Applied, OpErr
                 }
             }
             Op::Rename { path, to, refs } => {
-                let (last, parents) = path
-                    .split_last()
-                    .ok_or_else(|| err("rename needs a path"))?;
-                if !burrow_syntax::name::valid_name(to) {
-                    return Err(err(format!("\"{to}\" is not a valid name")));
-                }
-                let map = parent_mut(&mut target, parents, false)?;
-                if map.contains_key(to) {
-                    return Err(err(format!("{} already exists", to)));
-                }
-                if !map.contains_key(last) {
-                    return Err(err(format!("{} does not exist", show(path))));
-                }
-                let entries = std::mem::take(map);
-                for (k, v) in entries {
-                    let k = if k == *last { to.clone() } else { k };
-                    map.insert(k, v);
-                }
-                renames.push(Rename {
-                    path: path.clone(),
-                    to: to.clone(),
-                });
-                if *refs && parents.len() == 1 {
-                    for key in burrow_config::refs::rename_refs(&mut target, &parents[0], last, to)
-                    {
-                        renames.push(Rename {
-                            path: key,
-                            to: to.clone(),
-                        });
-                    }
-                }
+                rename_entry(&mut target, path, to, *refs, &mut renames)?;
             }
             Op::SecretAdd { path, handle } => {
-                let (value, fp) = cx
-                    .secret(handle)
-                    .ok_or_else(|| err(format!("secret handle {handle} is unknown or expired")))?;
-                let (last, parents) = path
-                    .split_last()
-                    .ok_or_else(|| err("secret_add needs a path"))?;
-                let map = parent_mut(&mut target, parents, true)?;
-                let next = match map.shift_remove(last) {
-                    None | Some(Value::Null) => Value::String(value.clone()),
-                    Some(Value::String(old)) => {
-                        Value::Array(vec![Value::String(old), Value::String(value.clone())])
-                    }
-                    Some(Value::Array(mut items)) => {
-                        items.push(Value::String(value.clone()));
-                        Value::Array(items)
-                    }
-                    Some(_) => return Err(err(format!("{} is not a secret", show(path)))),
-                };
-                map.insert(last.clone(), next);
-                fresh.push(Fresh {
-                    handle: handle.clone(),
-                    path: path.clone(),
-                    value,
-                    fp,
-                });
+                add_secret(&mut target, path, handle, cx, &mut fresh)?;
             }
             Op::SecretRemove { path, fp } => {
-                let (last, parents) = path
-                    .split_last()
-                    .ok_or_else(|| err("secret_remove needs a path"))?;
-                let map = parent_mut(&mut target, parents, false)?;
-                let items: Vec<String> = match map.get(last) {
-                    Some(Value::String(s)) => vec![s.clone()],
-                    Some(Value::Array(a)) => a
-                        .iter()
-                        .filter_map(|v| v.as_str().map(str::to_string))
-                        .collect(),
-                    _ => return Err(err(format!("{} is not a secret", show(path)))),
-                };
-                let at = items
-                    .iter()
-                    .position(|s| fingerprint_of(s, cx.env()).as_deref() == Some(fp.as_str()))
-                    .ok_or_else(|| err(format!("{} has no secret {fp}", show(path))))?;
-                if items.len() == 1 {
-                    return Err(err(
-                        "the last secret cannot be removed; remove the entry instead",
-                    ));
-                }
-                let mut rest = items;
-                rest.remove(at);
-                let next = if rest.len() == 1 {
-                    Value::String(rest.remove(0))
-                } else {
-                    Value::Array(rest.into_iter().map(Value::String).collect())
-                };
-                map.insert(last.clone(), next);
+                remove_secret(&mut target, path, fp, cx)?;
             }
             Op::ReplaceDocument { from_history } => {
                 let text = cx
@@ -249,6 +167,119 @@ pub fn apply(raw: &Value, ops: &[Op], cx: &dyn Context) -> Result<Applied, OpErr
         fresh,
         document,
     })
+}
+
+fn rename_entry(
+    target: &mut Value,
+    path: &[String],
+    to: &str,
+    refs: bool,
+    renames: &mut Vec<Rename>,
+) -> Result<(), OpError> {
+    let (last, parents) = path
+        .split_last()
+        .ok_or_else(|| err("rename needs a path"))?;
+    if !burrow_syntax::name::valid_name(to) {
+        return Err(err(format!("\"{to}\" is not a valid name")));
+    }
+    let map = parent_mut(target, parents, false)?;
+    if map.contains_key(to) {
+        return Err(err(format!("{} already exists", to)));
+    }
+    if !map.contains_key(last) {
+        return Err(err(format!("{} does not exist", show(path))));
+    }
+    let entries = std::mem::take(map);
+    for (k, v) in entries {
+        let k = if k == *last { to.to_string() } else { k };
+        map.insert(k, v);
+    }
+    renames.push(Rename {
+        path: path.to_vec(),
+        to: to.to_string(),
+    });
+    if refs && parents.len() == 1 {
+        for key in burrow_config::refs::rename_refs(target, &parents[0], last, to) {
+            renames.push(Rename {
+                path: key,
+                to: to.to_string(),
+            });
+        }
+    }
+    Ok(())
+}
+
+fn add_secret(
+    target: &mut Value,
+    path: &[String],
+    handle: &str,
+    cx: &dyn Context,
+    fresh: &mut Vec<Fresh>,
+) -> Result<(), OpError> {
+    let (value, fp) = cx
+        .secret(handle)
+        .ok_or_else(|| err(format!("secret handle {handle} is unknown or expired")))?;
+    let (last, parents) = path
+        .split_last()
+        .ok_or_else(|| err("secret_add needs a path"))?;
+    let map = parent_mut(target, parents, true)?;
+    let next = match map.shift_remove(last) {
+        None | Some(Value::Null) => Value::String(value.clone()),
+        Some(Value::String(old)) => {
+            Value::Array(vec![Value::String(old), Value::String(value.clone())])
+        }
+        Some(Value::Array(mut items)) => {
+            items.push(Value::String(value.clone()));
+            Value::Array(items)
+        }
+        Some(_) => return Err(err(format!("{} is not a secret", show(path)))),
+    };
+    map.insert(last.clone(), next);
+    fresh.push(Fresh {
+        handle: handle.to_string(),
+        path: path.to_vec(),
+        value,
+        fp,
+    });
+    Ok(())
+}
+
+fn remove_secret(
+    target: &mut Value,
+    path: &[String],
+    fp: &str,
+    cx: &dyn Context,
+) -> Result<(), OpError> {
+    let (last, parents) = path
+        .split_last()
+        .ok_or_else(|| err("secret_remove needs a path"))?;
+    let map = parent_mut(target, parents, false)?;
+    let items: Vec<String> = match map.get(last) {
+        Some(Value::String(s)) => vec![s.clone()],
+        Some(Value::Array(a)) => a
+            .iter()
+            .filter_map(|v| v.as_str().map(str::to_string))
+            .collect(),
+        _ => return Err(err(format!("{} is not a secret", show(path)))),
+    };
+    let at = items
+        .iter()
+        .position(|s| fingerprint_of(s, cx.env()).as_deref() == Some(fp))
+        .ok_or_else(|| err(format!("{} has no secret {fp}", show(path))))?;
+    if items.len() == 1 {
+        return Err(err(
+            "the last secret cannot be removed; remove the entry instead",
+        ));
+    }
+    let mut rest = items;
+    rest.remove(at);
+    let next = if rest.len() == 1 {
+        Value::String(rest.remove(0))
+    } else {
+        Value::Array(rest.into_iter().map(Value::String).collect())
+    };
+    map.insert(last.clone(), next);
+    Ok(())
 }
 
 #[cfg(test)]
