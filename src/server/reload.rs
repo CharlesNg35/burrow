@@ -84,17 +84,17 @@ impl Server {
                 .is_some_and(|a| crate::config::check::binds_conflict(a, w.https))
         });
         if ws_first {
-            self.apply_own_websocket(current, next, &mut released).await;
+            Box::pin(self.apply_own_websocket(current, next, &mut released)).await;
         }
         if next.web.is_some() || self.web_addr().is_some() {
             if let Some(a) = self.web_addr().filter(|_| next.web.is_none()) {
                 released.push(a);
             }
-            self.apply_web(next, &released).await;
+            Box::pin(self.apply_web(next, &released)).await;
             *self.shared.settings.write().expect("settings lock") = Arc::new(next.clone());
         }
         if !ws_first {
-            self.apply_own_websocket(current, next, &mut released).await;
+            Box::pin(self.apply_own_websocket(current, next, &mut released)).await;
         }
         if before != self.tunnel_at(next) {
             self.shared.close_websocket_clients();

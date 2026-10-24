@@ -134,7 +134,7 @@ impl Server {
             self.metrics = Some(m);
             next.metrics = Some(want);
         }
-        let web_moved = self.web_waiting(&mut next).await;
+        let web_moved = Box::pin(self.web_waiting(&mut next)).await;
         if web_moved && next.websocket.as_ref().is_some_and(|w| w.host.is_some()) {
             self.shared.close_websocket_clients();
         }
