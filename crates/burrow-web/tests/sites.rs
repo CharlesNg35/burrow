@@ -323,3 +323,36 @@ async fn a_browser_without_a_tls_name_reaches_the_ip_site_it_dialled_over_https(
     .await;
     assert!(r.starts_with("HTTP/1.1 421"), "{r}");
 }
+
+#[tokio::test]
+async fn stopping_lets_a_request_in_flight_finish_and_closes_idle_keep_alive_connections() {
+    let (proxy, _app, _up) = blog().await;
+    let addr = proxy.https_addr().unwrap();
+    let mut idle = tls(addr, "blog.example.com").await.unwrap();
+    idle.write_all(b"GET / HTTP/1.1\r\nHost: blog.example.com\r\n\r\n")
+        .await
+        .unwrap();
+    let mut buf = vec![0u8; 4096];
+    let n = idle.read(&mut buf).await.unwrap();
+    assert!(String::from_utf8_lossy(&buf[..n]).starts_with("HTTP/1.1 200"));
+    let mut busy = tls(addr, "blog.example.com").await.unwrap();
+    busy.write_all(b"GET /slow/1000 HTTP/1.1\r\nHost: blog.example.com\r\n\r\n")
+        .await
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let stopping = tokio::spawn(proxy.stop());
+    let started = std::time::Instant::now();
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(2), idle.read(&mut buf))
+            .await
+            .unwrap()
+            .unwrap(),
+        0,
+        "an idle keep-alive connection closes at once"
+    );
+    assert!(started.elapsed() < Duration::from_millis(500));
+    let r = exchange(&mut busy, b"").await;
+    assert!(r.starts_with("HTTP/1.1 200"), "{r}");
+    assert!(r.to_ascii_lowercase().contains("connection: close"), "{r}");
+    stopping.await.unwrap();
+}

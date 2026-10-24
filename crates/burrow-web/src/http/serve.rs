@@ -16,6 +16,7 @@ use crate::io::BoxIo;
 use crate::listen::Shared;
 
 const LEAST: Duration = Duration::from_secs(1);
+pub const DRAIN: Duration = Duration::from_secs(10);
 
 pub(crate) struct Conn {
     pub peer: SocketAddr,
@@ -61,14 +62,28 @@ pub(crate) async fn serve<U: Upstream>(shared: Arc<Shared<U>>, io: BoxIo, conn: 
         .half_close(false)
         .serve_connection(TokioIo::new(io), service)
         .with_upgrades();
+    let mut served = std::pin::pin!(served);
+    let mut stop = shared.stop();
     tokio::select! {
-        r = served => {
-            if let Err(e) = r {
-                debug!(peer = %conn.peer, "web: the connection ended: {e}");
-            }
+        r = served.as_mut() => {
+            ended(&conn, r);
+            return;
         }
         () = activity.idle(timeouts.idle.max(LEAST)) => {
             debug!(peer = %conn.peer, "web: closing a connection idle for {:?}", timeouts.idle);
+            return;
         }
+        _ = stop.wait_for(|s| *s) => {}
+    }
+    served.as_mut().graceful_shutdown();
+    match tokio::time::timeout(DRAIN, served).await {
+        Ok(r) => ended(&conn, r),
+        Err(_) => debug!(peer = %conn.peer, "web: a request outlasted the shutdown drain"),
+    }
+}
+
+fn ended(conn: &Conn, r: hyper::Result<()>) {
+    if let Err(e) = r {
+        debug!(peer = %conn.peer, "web: the connection ended: {e}");
     }
 }

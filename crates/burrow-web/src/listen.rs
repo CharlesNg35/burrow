@@ -132,6 +132,10 @@ impl<U> Shared<U> {
         self.table.read().expect("table lock").clone()
     }
 
+    pub(crate) fn stop(&self) -> watch::Receiver<bool> {
+        self.stop.clone()
+    }
+
     pub(crate) fn timeouts(&self) -> Timeouts {
         *self.timing.read().expect("timing lock")
     }
