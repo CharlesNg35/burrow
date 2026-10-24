@@ -28,8 +28,8 @@ fn uses(loaded: &Loaded) -> Uses {
             if let Some(ws) = s.websocket.as_ref().filter(|w| w.host.is_none()) {
                 listens.push((Protocol::Tcp, ws.listen, "websocket.listen".into()));
             }
-            if let Some(web) = &s.web {
-                listens.push((Protocol::Tcp, web.https, "web.https".into()));
+            if let Some(https) = s.web.as_ref().and_then(|w| w.https) {
+                listens.push((Protocol::Tcp, https, "web.https".into()));
             }
             if let Some(m) = s.metrics {
                 listens.push((Protocol::Tcp, m, "metrics.listen".into()));

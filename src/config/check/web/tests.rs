@@ -64,13 +64,13 @@ pub(super) const NAS: &str = "services:\n  nas:\n    client: home\n    target: 1
 fn a_passthrough_site_turns_into_settings_on_a_dual_stack_port() {
     let s = settings(load(&format!("listen: 7835\nweb:\n  https: 443\n{NAS}")));
     let web = s.web.unwrap();
-    assert_eq!(web.https, "[::]:443".parse().unwrap());
+    assert_eq!(web.https, Some("[::]:443".parse().unwrap()));
     assert_eq!(web.site_of("nas").unwrap().hosts, ["nas.example.com"]);
     assert_eq!(web.tunnel, None);
     let v4 = settings(load(&format!(
         "listen: 7835\nweb: {{ https: 0.0.0.0:443 }}\n{NAS}"
     )));
-    assert_eq!(v4.web.unwrap().https, "0.0.0.0:443".parse().unwrap());
+    assert_eq!(v4.web.unwrap().https, Some("0.0.0.0:443".parse().unwrap()));
 }
 
 #[test]
@@ -303,7 +303,7 @@ fn the_tunnel_and_the_web_port_on_two_addresses_of_one_port_do_not_overlap() {
     assert_eq!(ws.host, None);
     assert_eq!(
         apart.web.unwrap().https,
-        "203.0.113.10:443".parse().unwrap()
+        Some("203.0.113.10:443".parse().unwrap())
     );
     let overlap = errors(&load(&format!(
         "websocket: {{ listen: 0.0.0.0:443 }}\nweb: {{ https: 203.0.113.10:443 }}\n{NAS}"

@@ -189,7 +189,7 @@ pub fn web_server(secret: &Secret, sites: &[(&str, Service, &[&str])]) -> Server
 }
 
 pub fn share_tunnel(s: &mut ServerSettings, host: &str, c: &Cert) {
-    let https = s.web.as_ref().unwrap().https;
+    let https = s.web.as_ref().unwrap().https.unwrap();
     s.listen = None;
     s.websocket = Some(WebSocketSettings {
         listen: https,

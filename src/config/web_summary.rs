@@ -38,8 +38,8 @@ pub fn summary(s: &ServerSettings) -> Option<WebSummary> {
         "validate lets each host name lead to one service"
     );
     Some(WebSummary {
-        https: web.https.to_string(),
-        addresses: addresses(web.https).into(),
+        https: web.https.map_or_else(String::new, |a| a.to_string()),
+        addresses: web.https.map_or("", addresses).into(),
         shared_with_tunnel: tunnel.is_some(),
         tunnel,
         hosts,

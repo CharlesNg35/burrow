@@ -92,8 +92,11 @@ pub(super) fn proxy_settings(s: &ServerSettings) -> Result<Option<ProxySettings>
     let Some(web) = &s.web else {
         return Ok(None);
     };
-    let mut p = ProxySettings::new(web.https);
-    p.http = web.http;
+    let mut p = ProxySettings {
+        https: web.https,
+        http: web.http,
+        ..ProxySettings::default()
+    };
     p.sites = web
         .sites
         .iter()
@@ -317,7 +320,7 @@ impl Server {
         };
         p.https = Some(old);
         if let Some(web) = next.web.as_mut() {
-            web.https = old;
+            web.https = Some(old);
         }
         if !freed && let Some(t) = &self.web {
             t.proxy.apply(&p).await;
@@ -349,7 +352,9 @@ impl Server {
         }
         let mut wanted = next.clone();
         wanted.web = Some(want.clone());
-        let want = want.https;
+        let Some(want) = want.https else {
+            return false;
+        };
         let Ok(Some(p)) = proxy_settings(&wanted) else {
             return false;
         };

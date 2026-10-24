@@ -85,8 +85,14 @@ impl ServerSettings {
             .or_else(|| {
                 next.web
                     .as_ref()
-                    .filter(|w| conflicts(w.https))
+                    .filter(|w| w.https.is_some_and(conflicts))
                     .map(|_| clash(&["web", "https"], "web.https".into()))
+            })
+            .or_else(|| {
+                next.web
+                    .as_ref()
+                    .filter(|w| w.http.is_some_and(conflicts))
+                    .map(|_| clash(&["web", "http"], "web.http".into()))
             })
     }
 }

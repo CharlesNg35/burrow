@@ -80,8 +80,10 @@ impl Server {
         let before = self.tunnel_at(current);
         let mut released = Vec::new();
         let ws_first = next.web.as_ref().is_some_and(|w| {
-            self.websocket_addr()
-                .is_some_and(|a| crate::config::check::binds_conflict(a, w.https))
+            self.websocket_addr().is_some_and(|a| {
+                w.https
+                    .is_some_and(|h| crate::config::check::binds_conflict(a, h))
+            })
         });
         if ws_first {
             Box::pin(self.apply_own_websocket(current, next, &mut released)).await;

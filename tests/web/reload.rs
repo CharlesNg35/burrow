@@ -64,7 +64,7 @@ async fn turning_the_web_proxy_off_and_on_closes_and_opens_its_port() {
         &secret,
         &[("nas", site(&["home"], nas), &["nas.example.com"])],
     );
-    s.web.as_mut().unwrap().https = format!("127.0.0.1:{port}").parse().unwrap();
+    s.web.as_mut().unwrap().https = Some(format!("127.0.0.1:{port}").parse().unwrap());
     let t = tunnel_with(s.clone(), Vec::new(), |c| c, secret.clone()).await;
     let web = t.server.web_addr.unwrap();
     assert_eq!(web.port(), port);
@@ -101,7 +101,7 @@ async fn moving_the_tunnel_onto_the_web_port_and_back_never_binds_it_twice() {
         &secret,
         &[("nas", site(&["home"], nas), &["nas.example.com"])],
     );
-    apart.web.as_mut().unwrap().https = format!("127.0.0.1:{web_port}").parse().unwrap();
+    apart.web.as_mut().unwrap().https = Some(format!("127.0.0.1:{web_port}").parse().unwrap());
     separate_ws(&mut apart, ws_port, &tunnel_cert);
     let srv = start_server(apart.clone()).await;
     assert_eq!(srv.ws_addr.map(|a| a.port()), Some(ws_port));
@@ -171,7 +171,7 @@ async fn a_service_bind_and_the_web_port_can_swap_places() {
         &secret,
         &[("nas", site(&["home"], nas), &["nas.example.com"])],
     );
-    s.web.as_mut().unwrap().https = at(p2);
+    s.web.as_mut().unwrap().https = Some(at(p2));
     let mut db = service(echo, burrow_config::Protocol::Tcp);
     db.bind = Some(at(p1));
     s.services.insert("db".into(), db.clone());
@@ -181,7 +181,7 @@ async fn a_service_bind_and_the_web_port_can_swap_places() {
         Some(&b"db"[..])
     );
     let mut swapped = s.clone();
-    swapped.web.as_mut().unwrap().https = at(p1);
+    swapped.web.as_mut().unwrap().https = Some(at(p1));
     db.bind = Some(at(p2));
     swapped.services.insert("db".into(), db);
     t.server.reload(swapped).await;
@@ -204,7 +204,7 @@ async fn a_new_tunnel_certificate_is_used_for_new_connections() {
     let (old_cert, new_cert) = (cert(&["localhost"]), cert(&["localhost"]));
     let secret = Secret::generate();
     let mut s = web_server(&secret, &[]);
-    s.web.as_mut().unwrap().https = format!("127.0.0.1:{}", free_port()).parse().unwrap();
+    s.web.as_mut().unwrap().https = Some(format!("127.0.0.1:{}", free_port()).parse().unwrap());
     share_tunnel(&mut s, "localhost", &old_cert);
     let srv = start_server(s.clone()).await;
     let web = srv.web_addr.unwrap();

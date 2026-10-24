@@ -146,7 +146,8 @@ impl Shared {
             None => {}
         }
         if let Some(web) = &settings.web {
-            listening.push(format!("websites on https {}", web.https));
+            listening.extend(web.https.map(|a| format!("websites on https {a}")));
+            listening.extend(web.http.map(|a| format!("websites on http {a}")));
         }
         if let Some(m) = settings.metrics {
             listening.push(format!("metrics on http://{m}/metrics"));

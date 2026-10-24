@@ -260,7 +260,7 @@ async fn a_self_service_cannot_dial_the_web_port_back_into_burrow() {
         &secret,
         &[("nas", site(&["home"], nas), &["nas.example.com"])],
     );
-    s.web.as_mut().unwrap().https = format!("127.0.0.1:{port}").parse().unwrap();
+    s.web.as_mut().unwrap().https = Some(format!("127.0.0.1:{port}").parse().unwrap());
     let mut back = service(
         format!("127.0.0.1:{port}").parse().unwrap(),
         burrow_config::Protocol::Tcp,

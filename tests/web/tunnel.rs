@@ -39,7 +39,7 @@ async fn shared_server_with(
         &[("nas", site(&["home"], nas), &["nas.example.com"])],
     );
     s.services.insert("db".into(), service(echo, Protocol::Tcp));
-    s.web.as_mut().unwrap().https = format!("127.0.0.1:{}", free_port()).parse().unwrap();
+    s.web.as_mut().unwrap().https = Some(format!("127.0.0.1:{}", free_port()).parse().unwrap());
     share_tunnel(&mut s, "localhost", &tunnel_cert);
     edit(&mut s);
     let srv = start_server(s).await;

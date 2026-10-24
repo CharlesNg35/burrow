@@ -58,8 +58,10 @@ pub(in crate::config::check) fn settings(
     let (https, http) = ports;
     let web = cfg.web.as_ref()?;
     let secs = |v: Option<u64>, d: Duration| v.map_or(d, Duration::from_secs);
-    let mut s = WebSettings::new(https?);
-    s.http = http;
+    if https.is_none() && http.is_none() {
+        return None;
+    }
+    let mut s = WebSettings::on((https, http));
     s.sites = sites;
     s.tunnel = websocket.and_then(|w| w.host.clone());
     s.request_header_timeout = secs(web.request_header_timeout_secs, s.request_header_timeout);

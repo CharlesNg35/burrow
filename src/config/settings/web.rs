@@ -8,7 +8,7 @@ pub const IDLE_TIMEOUT: Duration = Duration::from_secs(60);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WebSettings {
-    pub https: SocketAddr,
+    pub https: Option<SocketAddr>,
     pub http: Option<SocketAddr>,
     pub sites: BTreeMap<String, WebSite>,
     pub tunnel: Option<String>,
@@ -50,9 +50,13 @@ pub struct LetsEncrypt {
 
 impl WebSettings {
     pub fn new(https: SocketAddr) -> WebSettings {
+        WebSettings::on((Some(https), None))
+    }
+
+    pub fn on(ports: (Option<SocketAddr>, Option<SocketAddr>)) -> WebSettings {
         WebSettings {
-            https,
-            http: None,
+            https: ports.0,
+            http: ports.1,
             sites: BTreeMap::new(),
             tunnel: None,
             request_header_timeout: REQUEST_HEADER_TIMEOUT,
