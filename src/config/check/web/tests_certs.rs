@@ -110,7 +110,11 @@ services:
     .replace("client: office", "client: home");
     assert!(found(&text, "no-certificate").is_empty());
     assert!(found(&text, "certificate-hosts").is_empty());
-    assert_eq!(found(&text, "web-https-later").len(), 1, "it parsed");
+    let e = super::tests::errors(&load(&text));
+    assert!(
+        e.iter().all(|m| m.contains("needs \"listen\"")),
+        "only the missing listen: {e:#?}"
+    );
 }
 
 #[test]
@@ -129,7 +133,11 @@ services:
       hosts: [erp.corp.example.com] # served with the shared file above
 "#;
     assert!(found(text, "no-certificate").is_empty());
-    assert_eq!(found(text, "web-https-later").len(), 1, "it parsed");
+    let e = super::tests::errors(&load(text));
+    assert!(
+        e.iter().all(|m| m.contains("needs \"listen\"")),
+        "only the missing listen: {e:#?}"
+    );
     let without = text.replace("*.corp.example.com", "*.other.example.com");
     assert_eq!(found(&without, "no-certificate").len(), 1);
 }

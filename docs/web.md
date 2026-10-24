@@ -129,7 +129,6 @@ server: wss://tunnel.example.com/burrow
 | --- | --- |
 | a service has `web` but there is no top-level `web` | `services.nas.web: the web proxy is off; add a top-level web: with its port, like web: {https: 443}` |
 | `web` has no port | `web needs a port: https for HTTPS sites, like https: 443, or http for plain HTTP sites, like http: 80` |
-| a website with `tls: auto` (or no `tls` with `web.https`) | `services.blog.web.tls: burrow cannot serve HTTPS for websites in this build yet; use tls: passthrough` |
 | a website with `tls: off` but no `web.http` | `services.wiki.web.tls: off serves plain HTTP, but web.http is not set; add http: 80` |
 | an HTTPS name with no certificate | `host "blog.example.com" (service "blog") has no certificate; add web.letsencrypt for automatic certificates, tls: {cert, key} on service "blog", or an entry in web.certificates whose hosts lists it` |
 | a wildcard name from Let's Encrypt | `services.apps.web.hosts: "*.apps.example.com" needs DNS-01 (Let's Encrypt gives wildcard certificates only through DNS checks), which this build does not have yet; add a certificate file under web.certificates or tls` |

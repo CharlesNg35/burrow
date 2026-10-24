@@ -83,42 +83,37 @@ fn a_site_without_a_top_level_web_is_refused() {
 }
 
 #[test]
-fn a_site_that_needs_https_from_burrow_is_refused_until_burrow_can_serve_it() {
+fn a_site_served_over_https_by_burrow_needs_a_certificate_source_and_nothing_else() {
     for web in [
         "web: blog.example.com",
         "web: [a.example.com, b.example.com]",
         "web: { hosts: [blog.example.com] }",
     ] {
-        let e = errors(&load(&format!(
-            "listen: 7835\nweb: {{ https: 443 }}\nservices:\n  blog:\n    client: home\n    target: 8080\n    {web}\n"
-        )));
-        assert_eq!(
-            e[0],
-            "services.blog.web: burrow cannot serve HTTPS for websites in this build yet; use tls: passthrough",
-            "{web}: the default with web.https is auto"
-        );
+        let config = |le: &str| {
+            format!(
+                "listen: 7835\nweb: {{ https: 443{le} }}\nservices:\n  blog:\n    client: home\n    target: 8080\n    {web}\n"
+            )
+        };
+        let e = errors(&load(&config("")));
         assert!(
-            e[1..].iter().all(|m| m.contains("has no certificate")),
-            "{web}: {e:#?}"
+            !e.is_empty() && e.iter().all(|m| m.contains("has no certificate")),
+            "{web}: the default with web.https is auto: {e:#?}"
         );
+        let with = errors(&load(&config(", letsencrypt: { email: ops@example.com }")));
+        assert!(with.is_empty(), "{web}: {with:#?}");
     }
 }
 
 #[test]
-fn every_final_tls_form_parses_and_only_automatic_certificates_wait_for_a_later_build() {
+fn every_final_tls_form_parses_and_automatic_certificates_need_a_source() {
     let site = |tls: &str| {
         format!(
             "listen: 7835\nweb: {{ https: 443, http: 80 }}\nservices:\n  blog:\n    client: home\n    target: 8080\n    web: {{ hosts: [blog.example.com], tls: {tls} }}\n"
         )
     };
-    let https_later = "services.blog.web.tls: burrow cannot serve HTTPS for websites in this build yet; use tls: passthrough";
     let auto = errors(&load(&site("auto")));
-    assert_eq!(auto.len(), 2, "{auto:#?}");
-    assert!(auto.iter().any(|m| m == https_later), "{auto:#?}");
-    assert!(
-        auto.iter().any(|m| m.contains("has no certificate")),
-        "{auto:#?}"
-    );
+    assert_eq!(auto.len(), 1, "{auto:#?}");
+    assert!(auto[0].contains("has no certificate"), "{auto:#?}");
     for served in [
         "passthrough",
         "off",

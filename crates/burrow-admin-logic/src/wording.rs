@@ -1,4 +1,3 @@
-pub const WEB_HTTPS_LATER: &str = "web-https-later";
 pub const PLAIN_NEEDS_HTTP: &str = "plain-needs-http";
 pub const WEB_TCP_ONLY: &str = "web-tcp-only";
 pub const PROXY_PROTOCOL_TCP_ONLY: &str = "proxy-protocol-tcp-only";
@@ -37,9 +36,6 @@ fn key_path(head: &str) -> bool {
 }
 
 pub fn shown(code: &str, message: &str) -> String {
-    if code == WEB_HTTPS_LATER {
-        return "burrow cannot serve HTTPS for websites in this build yet; under HTTPS, choose The app does its own HTTPS".into();
-    }
     if code == PLAIN_NEEDS_HTTP {
         return "plain HTTP needs the web proxy's HTTP port, which is not set; add http: 80 under web in server.yaml (burrow edit), or choose another HTTPS option".into();
     }
@@ -116,10 +112,6 @@ mod tests {
                 "service \"dns\" is udp, but web only works for tcp services; remove web:, or set protocol: tcp"
             ),
             "a website only works for TCP services; set Protocol to TCP, or remove the website"
-        );
-        assert!(
-            shown(WEB_HTTPS_LATER, "services.nas.web: ... tls: passthrough")
-                .contains("choose The app does its own HTTPS")
         );
         assert_eq!(
             shown(

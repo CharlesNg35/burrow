@@ -324,10 +324,6 @@ pub(super) fn check_sites(
         if (https.is_none() && http.is_none()) || svc.protocol != Protocol::Tcp {
             continue;
         }
-        if let Some(d) = tls_later(name, web, https.is_some(), spans) {
-            out.push(d);
-            continue;
-        }
         let item = |i: usize| {
             let i = i.to_string();
             match web {
@@ -348,28 +344,6 @@ pub(super) fn check_sites(
     certs::check_sources(cfg, https, spans, out);
     choices::check_choices(cfg, (https, http), spans, out);
     sites
-}
-
-fn tls_later(name: &str, web: &ServiceWeb, https: bool, spans: &Spans) -> Option<Diagnostic> {
-    let at = match web.tls() {
-        Some(SiteTls::Mode(TlsMode::Auto)) => spans.value(&["services", name, "web", "tls"]),
-        None if https => spans.value(&["services", name, "web"]),
-        _ => return None,
-    };
-    let key = if web.tls().is_some() { ".tls" } else { "" };
-    Some(
-        Diagnostic::error(
-            "web-https-later",
-            format!(
-                "services.{name}.web{key}: burrow cannot serve HTTPS for websites in this build yet; use tls: passthrough"
-            ),
-        )
-        .at(at)
-        .help(format!(
-            "write web: {{hosts: [{}], tls: passthrough}} to pass the TLS through to the app",
-            web.hosts().join(", ")
-        )),
-    )
 }
 
 fn no_web_proxy_for_sites(cfg: &ServerConfig, spans: &Spans, out: &mut Vec<Diagnostic>) {
