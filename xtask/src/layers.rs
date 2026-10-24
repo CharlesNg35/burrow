@@ -47,6 +47,7 @@ pub const UNITS: &[(&str, Layer)] = &[
     ("visitor", Layer::Roles),
     ("admin", Layer::Ops),
     ("admin_local", Layer::Ops),
+    ("app::command", Layer::Ops),
     ("app::cli", Layer::Ops),
     ("app::reload", Layer::Ops),
     ("app::run", Layer::Ops),
