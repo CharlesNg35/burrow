@@ -83,3 +83,42 @@ async fn a_sites_own_file_is_served_shown_in_status_and_rewritten_in_place_on_re
     assert!(shows(web, &second).await, "the rewritten file is served");
     assert!(!shows(web, &first).await);
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_open_https_connection_keeps_working_after_its_certificate_is_swapped() {
+    let dir = tempfile::tempdir().unwrap();
+    let (first, second) = (cert(&["blog.example.com"]), cert(&["blog.example.com"]));
+    write(dir.path(), &first);
+    let secret = Secret::generate();
+    let mut s = web_server(
+        &secret,
+        &[(
+            "blog",
+            site(&["home"], http_app().await),
+            &["blog.example.com"],
+        )],
+    );
+    own_file(&mut s, dir.path());
+    let t = tunnel_with(s.clone(), Vec::new(), |c| c, secret).await;
+    let web = t.server.web_addr.unwrap();
+    let get = |path: &str| format!("GET {path} HTTP/1.1\r\nHost: blog.example.com\r\n\r\n");
+    let mut kept = visit(web, "blog.example.com", &first).await.unwrap();
+    let r = ask(&mut kept, get("/1").as_bytes()).await.unwrap();
+    assert!(String::from_utf8_lossy(&r).contains("get /1 "), "{r:?}");
+    write(dir.path(), &second);
+    let mut next = s.clone();
+    own_file(&mut next, dir.path());
+    t.server.reload(next.clone()).await;
+    let shared = t.server.shared.clone();
+    wait_for(|| shared.settings_snapshot().web == next.web).await;
+    assert!(
+        shows(web, &second).await,
+        "new connections get the new file"
+    );
+    assert!(!shows(web, &first).await);
+    let r = ask(&mut kept, get("/2").as_bytes()).await.unwrap();
+    assert!(
+        String::from_utf8_lossy(&r).contains("get /2 "),
+        "the open connection keeps its session: {r:?}"
+    );
+}
