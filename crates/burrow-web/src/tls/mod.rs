@@ -37,6 +37,18 @@ pub trait Certificates: ResolvesServerCert + Send + Sync + 'static {
     fn account(&self) -> Option<String> {
         None
     }
+
+    fn queue(&self) -> Vec<CertOrder> {
+        Vec::new()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CertOrder {
+    pub service: String,
+    pub names: Vec<String>,
+    pub at: u64,
+    pub running: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

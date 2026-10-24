@@ -237,3 +237,28 @@ async fn a_certificate_due_for_renewal_is_not_reused_for_itself() {
     worker.step("moved", &mut g).await;
     assert!(g.last_error.is_some(), "the renewal was tried");
 }
+
+#[test]
+fn a_group_waiting_for_an_order_is_in_the_queue_and_one_served_is_not() {
+    let (chain, key) = pem_pair(&["a.example.com"], 90);
+    let held = Held::parse(&chain, &key, &s(&["a.example.com"])).unwrap();
+    let mut g = Group::new(s(&["a.example.com"]), Some(held));
+    assert_eq!(g.view(&[]).queued, None, "served and not due");
+    g.rename(&s(&["a.example.com", "new.example.com"]));
+    let v = g.view(&[]);
+    assert!(
+        v.queued.is_some() && !v.running,
+        "an added name waits for an order"
+    );
+    g.rename(&s(&["a.example.com"]));
+    assert_eq!(g.view(&[]).queued, None, "a removed name orders nothing");
+    let acme = Acme::default();
+    acme.publish("blog", Group::new(s(&["b.example.com"]), None).view(&[]));
+    acme.publish("shop", g.view(&[]));
+    let q = acme.queue();
+    assert_eq!(q.len(), 1);
+    assert_eq!(
+        (q[0].service.as_str(), q[0].names.clone()),
+        ("blog", s(&["b.example.com"]))
+    );
+}

@@ -71,6 +71,7 @@ fn each_certificate_shows_its_source_state_expiry_and_next_renewal() {
         directory: "https://acme-v02.api.letsencrypt.org/directory".into(),
         account: Some("https://acme-v02.api.letsencrypt.org/acme/acct/42".into()),
         state_dir: "/var/lib/burrow/server".into(),
+        queue: Vec::new(),
     });
     let text = shown(&s);
     assert!(text.contains("CERTIFICATES"), "{text}");

@@ -31,6 +31,8 @@ pub struct GroupView {
     pub code: Option<&'static str>,
     pub explanation: Option<String>,
     pub failures: u64,
+    pub queued: Option<u64>,
+    pub running: bool,
 }
 
 #[derive(Debug, Default)]
@@ -48,6 +50,25 @@ impl Acme {
 
     pub fn view_of(&self, group: &str) -> Option<GroupView> {
         self.views.read().expect("acme lock").get(group).cloned()
+    }
+
+    pub fn queue(&self) -> Vec<crate::tls::CertOrder> {
+        let mut q: Vec<crate::tls::CertOrder> = self
+            .views
+            .read()
+            .expect("acme lock")
+            .iter()
+            .filter_map(|(group, v)| {
+                Some(crate::tls::CertOrder {
+                    service: group.clone(),
+                    names: v.names.clone(),
+                    at: v.queued?,
+                    running: v.running,
+                })
+            })
+            .collect();
+        q.sort_by_key(|o| (!o.running, o.at));
+        q
     }
 
     pub fn account(&self) -> Option<String> {

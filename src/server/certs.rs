@@ -1,5 +1,5 @@
 use burrow_admin_proto::status::{
-    AcmeStatus, CertCheck, CertSourceStatus, CertStateStatus, CertStatus,
+    AcmeStatus, CertCheck, CertOrderStatus, CertSourceStatus, CertStateStatus, CertStatus,
 };
 use burrow_web::tls::{self, CertOrigin, CertPhase, Certificates};
 
@@ -44,6 +44,17 @@ impl Shared {
                 .as_ref()
                 .map(|d| d.display().to_string())
                 .unwrap_or_default(),
+            queue: self
+                .certs
+                .queue()
+                .into_iter()
+                .map(|o| CertOrderStatus {
+                    service: o.service,
+                    names: o.names,
+                    at: o.at,
+                    running: o.running,
+                })
+                .collect(),
         });
         (lines, acme)
     }

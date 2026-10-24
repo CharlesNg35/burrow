@@ -32,6 +32,17 @@ pub struct AcmeStatus {
     #[serde(default)]
     pub account: Option<String>,
     pub state_dir: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub queue: Vec<CertOrderStatus>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct CertOrderStatus {
+    pub service: String,
+    pub names: Vec<String>,
+    pub at: u64,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub running: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -206,9 +217,17 @@ mod tests {
             directory: "https://acme-v02.api.letsencrypt.org/directory".into(),
             account: Some("https://acme-v02.api.letsencrypt.org/acme/acct/1".into()),
             state_dir: "/var/lib/burrow/home".into(),
+            queue: vec![CertOrderStatus {
+                service: "blog".into(),
+                names: vec!["blog.example.com".into()],
+                at: 1_800_000_000,
+                running: true,
+            }],
         };
         let v = serde_json::to_value(&acme).unwrap();
         assert_eq!(v["state_dir"], "/var/lib/burrow/home");
+        assert_eq!(v["queue"][0]["names"][0], "blog.example.com");
+        assert_eq!(v["queue"][0]["running"], true);
         assert_eq!(serde_json::from_value::<AcmeStatus>(v).unwrap(), acme);
     }
 }

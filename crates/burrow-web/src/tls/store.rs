@@ -244,9 +244,13 @@ impl Store {
                 directory: directory.to_string(),
             },
             check: view.as_ref().and_then(|v| v.check),
-            phase: view
-                .as_ref()
-                .map_or(CertPhase::Pending, |v| v.phase.clone()),
+            phase: match view.as_ref().map(|v| &v.phase) {
+                Some(CertPhase::Failing { reason }) => CertPhase::Failing {
+                    reason: reason.clone(),
+                },
+                Some(p) if served.is_some() => p.clone(),
+                _ => CertPhase::Pending,
+            },
             expires: served.as_deref().and_then(expires),
             next_renewal: view.as_ref().and_then(|v| v.next_renewal),
             last_error: view.as_ref().and_then(|v| v.last_error.clone()),
@@ -334,6 +338,10 @@ impl Certificates for Store {
 
     fn account(&self) -> Option<String> {
         self.acme.account()
+    }
+
+    fn queue(&self) -> Vec<super::CertOrder> {
+        self.acme.queue()
     }
 
     fn apply<'a>(&'a self, settings: &'a CertSettings, names: &'a [CertName]) -> Applying<'a> {

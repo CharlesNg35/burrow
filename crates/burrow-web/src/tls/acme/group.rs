@@ -173,6 +173,8 @@ impl Group {
             code: self.last_error.as_ref().and(self.code),
             explanation: self.explanation.clone(),
             failures: self.total,
+            queued: (self.running || self.needs_order(now_secs())).then_some(self.next),
+            running: self.running,
         }
     }
 }
