@@ -147,9 +147,9 @@ services:
 | `services.<name>.proxy_protocol` | off | `v1` or `v2`: send the real client address to the target |
 | `services.<name>.bandwidth` | unlimited | speed limit per direction, for example `40mbit` or `5MB` (per second) |
 | `services.<name>.max_connections` | unlimited | open connections for this TCP service |
-| `services.<name>.web` | none | names that lead to this TCP service on `web.https`: `{ hosts: [nas.example.com], tls: passthrough }`. See [web.md](web.md) |
+| `services.<name>.web` | none | names that lead to this TCP service on `web.https`: a name, a list of names, or `{ hosts, tls }`. `tls` is `auto` (the default), `passthrough`, `off` or `{cert, key}`; this build serves `passthrough` only. See [web.md](web.md) |
 | `self.allow` | none | what the server may connect to for itself, for `client: self` and `reach: self`. See [services.md](services.md#on-the-server-itself) |
-| `web.https` | required with `web` | the HTTPS port for websites and TLS services by name; a port alone means every IPv4 and IPv6 address, `0.0.0.0:443` IPv4 only. Off unless `web` is written. See [web.md](web.md) |
+| `web.https` | none | the HTTPS port for websites and TLS services by name; a port alone means every IPv4 and IPv6 address, `0.0.0.0:443` IPv4 only. `web` needs a port, and in this build that is `https`. Off unless `web` is written. See [web.md](web.md) |
 | `metrics.listen` | off | address for Prometheus `/metrics`; a port alone means `127.0.0.1`. See [monitoring.md](monitoring.md) |
 | `insecure_plaintext` | `false` | send forwarded TCP data unencrypted on raw TCP links to clients; logging in stays encrypted |
 | `heartbeat.interval_secs` | `10` | ping interval; a peer times out after 3 missed pings |

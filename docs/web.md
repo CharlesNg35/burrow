@@ -29,7 +29,7 @@ services:
     target: 192.168.1.20:443
     web:
       hosts: [nas.example.com]
-      tls: passthrough # the NAS keeps its own certificate
+      tls: passthrough # the NAS does its own HTTPS
 ```
 
 Point the name at the server in your DNS, open port 443 in the server's firewall, and start or save. `burrow validate` shows what will happen:
@@ -76,7 +76,16 @@ Names:
 - Each name leads to one service. Upper and lower case do not matter, and a final dot is ignored.
 - Names are added and removed when you save the config. Open connections to a name that was removed are closed.
 
-The short forms `web: nas.example.com` and `web: [a.example.com, b.example.com]` mean that burrow serves HTTPS for the site with its own certificate. That is not in this build yet, so `burrow validate` asks for `tls: passthrough`.
+`tls` says who does HTTPS for a website:
+
+| `tls` | Meaning | In this build |
+| --- | --- | --- |
+| `auto` (the default with `web.https`) | burrow does HTTPS with a certificate for every name | not yet |
+| `passthrough` | the app does its own HTTPS; burrow only reads the name | yes |
+| `off` | no HTTPS: plain HTTP on `web.http` | not yet |
+| `{cert, key}` | burrow does HTTPS with this site's own certificate file | not yet |
+
+The short forms `web: nas.example.com` and `web: [a.example.com, b.example.com]` use the default, `auto`. Until burrow can serve HTTPS itself, `burrow validate` refuses every form but `passthrough` and says how to fix it.
 
 ## The tunnel on the same port
 
@@ -119,8 +128,9 @@ server: wss://tunnel.example.com/burrow
 | Problem | What validate says |
 | --- | --- |
 | a service has `web` but there is no top-level `web` | `services.nas.web: the web proxy is off; add a top-level web: with its port, like web: {https: 443}` |
-| `web` has no `https` | `missing field "https" in "web"` |
-| a website without `tls: passthrough` | `services.blog.web: burrow cannot serve HTTPS for websites in this build yet; add tls: passthrough ...` |
+| `web` has no port | `web needs a port: https for HTTPS sites, like https: 443 (plain HTTP sites on web.http are not in this build yet)` |
+| a website with `tls: auto` (or no `tls`) or `{cert, key}` | `services.blog.web.tls: burrow cannot serve HTTPS for websites in this build yet; use tls: passthrough` |
+| a website with `tls: off` | `services.blog.web.tls: plain HTTP websites need web.http, which this build does not have yet; use tls: passthrough` |
 | a name that is not a host name | `services.nas.web.hosts: "https://nas.example.com" is not a host name; write the name alone, like nas.example.com` |
 | a wildcard that is too wide | `services.apps.web.hosts: "*.com" is too wide; a wildcard needs a parent name, like *.example.com` |
 | one name in two services | `host "nas.example.com" is used by services "nas" and "nas2"; each host name leads to one service` |
