@@ -185,12 +185,17 @@ impl WebTask {
 
     fn start(shared: &Arc<Shared>, listener: TcpListener, p: ProxySettings) -> WebTask {
         let https = p.https.unwrap_or_else(|| listener_addr(&listener));
-        let proxy = Proxy::start(listener, p, Arc::new(Doorway(shared.clone())));
+        let listeners = burrow_web::Listeners {
+            https: Some(listener),
+            http: None,
+        };
+        let up = Arc::new(Doorway(shared.clone()));
+        let proxy = Proxy::start(listeners, p, up, burrow_web::tls::Store::new());
         WebTask { proxy, https }
     }
 
     pub(super) fn addr(&self) -> SocketAddr {
-        self.proxy.local_addr()
+        self.proxy.https_addr().unwrap_or(self.https)
     }
 
     pub(super) async fn stop(self) {

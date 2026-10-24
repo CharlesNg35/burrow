@@ -222,14 +222,47 @@ pub fn site(service: &str, hosts: &[&str]) -> Site {
     Site::passthrough(service, hosts.iter().map(|h| h.to_string()).collect())
 }
 
+pub fn fixed(names: &[&str]) -> Arc<burrow_web::tls::Fixed> {
+    let key = rcgen::KeyPair::generate().unwrap();
+    let params =
+        rcgen::CertificateParams::new(names.iter().map(|n| n.to_string()).collect::<Vec<_>>())
+            .unwrap();
+    let cert = params.self_signed(&key).unwrap();
+    let der = CertificateDer::from(cert.der().to_vec());
+    let private = PrivateKeyDer::try_from(key.serialize_der()).unwrap();
+    let signing = provider().key_provider.load_private_key(private).unwrap();
+    Arc::new(burrow_web::tls::Fixed::new(Arc::new(
+        rustls::sign::CertifiedKey::new(vec![der], signing),
+    )))
+}
+
+pub async fn start_with(
+    settings: impl FnOnce(&mut ProxySettings),
+    up: Arc<Fake>,
+    certs: Arc<dyn burrow_web::tls::Certificates>,
+    plain: bool,
+) -> burrow_web::Proxy<Fake> {
+    let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let http = if plain {
+        Some(TcpListener::bind("127.0.0.1:0").await.unwrap())
+    } else {
+        None
+    };
+    let mut s = ProxySettings::new(l.local_addr().unwrap());
+    s.http = http.as_ref().map(|h| h.local_addr().unwrap());
+    settings(&mut s);
+    let listeners = burrow_web::Listeners {
+        https: Some(l),
+        http,
+    };
+    burrow_web::Proxy::start(listeners, s, up, certs)
+}
+
 pub async fn start(
     settings: impl FnOnce(&mut ProxySettings),
     up: Arc<Fake>,
 ) -> burrow_web::Proxy<Fake> {
-    let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let mut s = ProxySettings::new(l.local_addr().unwrap());
-    settings(&mut s);
-    burrow_web::Proxy::start(l, s, up)
+    start_with(settings, up, fixed(&["site.example.com"]), false).await
 }
 
 pub async fn ask<S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin>(
@@ -253,4 +286,110 @@ pub async fn closed_without_tls(addr: SocketAddr, name: &str) -> bool {
         Ok(Err(_)) => true,
         Err(_) => panic!("{addr}: the connection is still open after 5 s; it must close quickly"),
     }
+}
+
+pub struct HttpBackend {
+    pub addr: SocketAddr,
+    pub connections: Arc<std::sync::atomic::AtomicUsize>,
+}
+
+async fn answer(
+    mut req: hyper::Request<hyper::body::Incoming>,
+) -> Result<hyper::Response<http_body_util::Full<bytes::Bytes>>, std::convert::Infallible> {
+    use http_body_util::BodyExt;
+    let mut text = format!("{} {}\n", req.method(), req.uri());
+    for (k, v) in req.headers() {
+        text.push_str(&format!("{k}: {}\n", v.to_str().unwrap_or("?")));
+    }
+    if req.uri().path() == "/upgrade" {
+        let on = hyper::upgrade::on(&mut req);
+        tokio::spawn(async move {
+            if let Ok(up) = on.await {
+                let mut io = hyper_util::rt::TokioIo::new(up);
+                let mut buf = [0u8; 1024];
+                while let Ok(n) = io.read(&mut buf).await {
+                    if n == 0 || io.write_all(&buf[..n]).await.is_err() {
+                        break;
+                    }
+                }
+            }
+        });
+        let mut r = hyper::Response::new(http_body_util::Full::default());
+        *r.status_mut() = http::StatusCode::SWITCHING_PROTOCOLS;
+        r.headers_mut().insert("upgrade", "echo".parse().unwrap());
+        r.headers_mut()
+            .insert("connection", "upgrade".parse().unwrap());
+        return Ok(r);
+    }
+    let body = req
+        .into_body()
+        .collect()
+        .await
+        .map(|b| b.to_bytes().len())
+        .unwrap_or(0);
+    text.push_str(&format!("body-len: {body}\n"));
+    let mut r = hyper::Response::new(http_body_util::Full::new(bytes::Bytes::from(text)));
+    r.headers_mut().insert("x-from-app", "yes".parse().unwrap());
+    r.headers_mut()
+        .insert("keep-alive", "timeout=5".parse().unwrap());
+    Ok(r)
+}
+
+pub async fn http_backend() -> HttpBackend {
+    let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = l.local_addr().unwrap();
+    let connections = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let count = connections.clone();
+    tokio::spawn(async move {
+        loop {
+            let Ok((s, _)) = l.accept().await else { return };
+            count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            tokio::spawn(async move {
+                let _ = hyper::server::conn::http1::Builder::new()
+                    .serve_connection(
+                        hyper_util::rt::TokioIo::new(s),
+                        hyper::service::service_fn(answer),
+                    )
+                    .with_upgrades()
+                    .await;
+            });
+        }
+    });
+    HttpBackend { addr, connections }
+}
+
+pub fn https_site(service: &str, hosts: &[&str]) -> Site {
+    Site {
+        tls: burrow_web::SiteTls::Https(burrow_web::CertSource::Auto),
+        ..site(service, hosts)
+    }
+}
+
+pub fn plain_site(service: &str, hosts: &[&str]) -> Site {
+    Site {
+        tls: burrow_web::SiteTls::Plain,
+        https_redirect: false,
+        ..site(service, hosts)
+    }
+}
+
+pub async fn exchange<S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin>(
+    s: &mut S,
+    req: &[u8],
+) -> String {
+    s.write_all(req).await.unwrap();
+    s.flush().await.unwrap();
+    let mut out = Vec::new();
+    let _ = tokio::time::timeout(Duration::from_secs(5), s.read_to_end(&mut out)).await;
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+pub async fn over_tls(addr: SocketAddr, name: &str, req: &str) -> String {
+    let mut t = tls(addr, name).await.unwrap();
+    exchange(&mut t, req.as_bytes()).await
+}
+
+pub async fn over_plain(addr: SocketAddr, req: &str) -> String {
+    let mut t = TcpStream::connect(addr).await.unwrap();
+    exchange(&mut t, req.as_bytes()).await
 }

@@ -1,5 +1,10 @@
 pub mod host;
 pub mod pages;
+mod pipeline;
+mod serve;
+pub mod upstream;
+
+pub(crate) use serve::{Conn, serve};
 
 use bytes::Bytes;
 use http_body_util::combinators::BoxBody;
@@ -13,3 +18,6 @@ pub fn full(bytes: impl Into<Bytes>) -> Body {
         .map_err(|never| match never {})
         .boxed()
 }
+
+pub const MAX_HEAD: usize = 32 * 1024;
+pub const MAX_HEADERS: usize = 100;

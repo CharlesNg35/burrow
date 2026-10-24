@@ -23,7 +23,7 @@ async fn each_name_reaches_its_own_backend_with_its_own_certificate() {
         up.clone(),
     )
     .await;
-    let addr = proxy.local_addr();
+    let addr = proxy.https_addr().unwrap();
     let mut a = tls(addr, "NAS.example.com").await.unwrap();
     assert_eq!(ask(&mut a, b"hi").await.unwrap(), b"nas:hi");
     assert_eq!(
@@ -55,7 +55,7 @@ async fn unknown_names_and_clients_without_a_name_are_closed_without_a_certifica
         up.clone(),
     )
     .await;
-    let addr = proxy.local_addr();
+    let addr = proxy.https_addr().unwrap();
     assert!(closed_without_tls(addr, "other.example.com").await);
     assert!(closed_without_tls(addr, "10.9.9.9").await);
     let mut plain = TcpStream::connect(addr).await.unwrap();
@@ -78,7 +78,7 @@ async fn an_ip_site_answers_clients_that_send_no_name() {
         up.clone(),
     )
     .await;
-    let mut a = tls(proxy.local_addr(), "127.0.0.1").await.unwrap();
+    let mut a = tls(proxy.https_addr().unwrap(), "127.0.0.1").await.unwrap();
     assert_eq!(ask(&mut a, b"x").await.unwrap(), b"kiosk:x");
     assert_eq!(names.recv().await.unwrap(), None);
 }
@@ -100,7 +100,7 @@ async fn a_wildcard_site_takes_one_label_and_an_exact_site_wins() {
         up.clone(),
     )
     .await;
-    let addr = proxy.local_addr();
+    let addr = proxy.https_addr().unwrap();
     let mut x = tls(addr, "x.apps.example.com").await.unwrap();
     assert_eq!(ask(&mut x, b"1").await.unwrap(), b"apps:1");
     let mut o = tls(addr, "one.apps.example.com").await.unwrap();
@@ -117,7 +117,7 @@ async fn a_refused_open_closes_the_visitor() {
         up.clone(),
     )
     .await;
-    assert!(closed_without_tls(proxy.local_addr(), "nas.example.com").await);
+    assert!(closed_without_tls(proxy.https_addr().unwrap(), "nas.example.com").await);
 }
 
 #[tokio::test]
@@ -139,7 +139,7 @@ async fn a_backend_reset_reaches_the_visitor_as_a_reset() {
         up.clone(),
     )
     .await;
-    let err = tls(proxy.local_addr(), "nas.example.com")
+    let err = tls(proxy.https_addr().unwrap(), "nas.example.com")
         .await
         .unwrap_err();
     assert_eq!(err.kind(), std::io::ErrorKind::ConnectionReset, "{err}");
@@ -157,7 +157,7 @@ async fn hosts_added_and_removed_take_effect_for_new_connections() {
         up.clone(),
     )
     .await;
-    let addr = proxy.local_addr();
+    let addr = proxy.https_addr().unwrap();
     let mut kept = tls(addr, "nas.example.com").await.unwrap();
     assert_eq!(ask(&mut kept, b"a").await.unwrap(), b"nas:a");
     assert!(closed_without_tls(addr, "git.example.com").await);
@@ -187,7 +187,7 @@ async fn silent_connections_over_the_cap_are_dropped_and_a_stop_ends_their_wait(
         up.clone(),
     )
     .await;
-    let addr = proxy.local_addr();
+    let addr = proxy.https_addr().unwrap();
     let mut silent = Vec::new();
     for _ in 0..4 {
         silent.push(TcpStream::connect(addr).await.unwrap());

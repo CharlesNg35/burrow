@@ -1,0 +1,193 @@
+use std::sync::Arc;
+
+use bytes::Bytes;
+use http::{HeaderValue, Method, Request, Response, StatusCode, header};
+use http_body_util::BodyExt;
+use hyper::body::Incoming;
+
+use super::host::request_host;
+use super::pages::Page;
+use super::upstream::{Forward, forward};
+use super::{Body, Conn, full};
+use crate::Upstream;
+use crate::Visitor;
+use crate::listen::Shared;
+use crate::route::{Action, Kind, Table};
+use crate::tls::CertState;
+use crate::tunnel::{self, Answer, Handoff};
+
+const CHALLENGE: &str = "/.well-known/acme-challenge/";
+
+pub(crate) async fn handle<U: Upstream>(
+    shared: &Arc<Shared<U>>,
+    conn: &Conn,
+    req: Request<Incoming>,
+) -> Response<Body> {
+    let Some(host) = request_host(req.uri(), req.headers()) else {
+        return Page::BadRequest.response();
+    };
+    if req.method() == Method::CONNECT {
+        return Page::BadRequest.response();
+    }
+    let table = shared.table();
+    match &conn.name {
+        Some(name) if *name != host => return Page::Misdirected.response(),
+        Some(_) => {}
+        None => {
+            if let Some(answer) = on_plain(shared, &table, &host, &req) {
+                return answer;
+            }
+        }
+    }
+    let Some(route) = table.route(&host, req.uri().path()) else {
+        return Page::NotFound.response();
+    };
+    match &route.action {
+        Action::Tunnel if conn.name.is_some() => by_path(shared, conn, req, &route.prefix),
+        Action::Tunnel => Page::NotFound.response(),
+        Action::Service(service) => {
+            let f = Forward {
+                service,
+                visitor: Visitor {
+                    addr: conn.peer,
+                    local: conn.local,
+                    host,
+                },
+                https: conn.name.is_some(),
+                response_header: shared.timeouts().response_header,
+            };
+            forward(shared.up.as_ref(), &conn.ups, req, f).await
+        }
+    }
+}
+
+fn challenge_token(path: &str) -> Option<&str> {
+    let token = path.strip_prefix(CHALLENGE)?;
+    let good = !token.is_empty()
+        && token
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
+    good.then_some(token)
+}
+
+fn only_tunnel(kind: &Kind) -> bool {
+    matches!(kind, Kind::Http { routes, .. } if routes.iter().all(|r| r.action == Action::Tunnel))
+}
+
+fn on_plain<U: Upstream>(
+    shared: &Shared<U>,
+    table: &Table,
+    host: &str,
+    req: &Request<Incoming>,
+) -> Option<Response<Body>> {
+    if let Some(answer) =
+        challenge_token(req.uri().path()).and_then(|t| shared.certs.http_challenge(t))
+    {
+        let mut r = Response::new(full(Bytes::from(answer)));
+        r.headers_mut().insert(
+            header::CONTENT_TYPE,
+            HeaderValue::from_static("application/octet-stream"),
+        );
+        return Some(r);
+    }
+    let kind = table.kind(host);
+    match kind {
+        Some(Kind::Plain(_)) => None,
+        Some(
+            k @ Kind::Http {
+                redirect: false, ..
+            },
+        ) if !only_tunnel(k) => None,
+        Some(k @ Kind::Http { redirect: true, .. }) if !only_tunnel(k) => {
+            Some(match shared.certs.state(host) {
+                CertState::Ready => to_https(host, shared.https_port, req),
+                CertState::Pending | CertState::Failing => Page::Pending.response(),
+            })
+        }
+        _ => Some(Page::NotFound.response()),
+    }
+}
+
+pub fn https_location(host: &str, port: Option<u16>, path_and_query: &str) -> String {
+    let host = if host.contains(':') {
+        format!("[{host}]")
+    } else {
+        host.to_string()
+    };
+    match port {
+        Some(p) if p != 443 => format!("https://{host}:{p}{path_and_query}"),
+        _ => format!("https://{host}{path_and_query}"),
+    }
+}
+
+fn to_https(host: &str, port: Option<u16>, req: &Request<Incoming>) -> Response<Body> {
+    let pq = req.uri().path_and_query().map_or("/", |p| p.as_str());
+    let mut r = Response::new(full(Bytes::new()));
+    *r.status_mut() = StatusCode::PERMANENT_REDIRECT;
+    if let Ok(v) = HeaderValue::from_str(&https_location(host, port, pq)) {
+        r.headers_mut().insert(header::LOCATION, v);
+    }
+    r
+}
+
+fn by_path<U: Upstream>(
+    shared: &Arc<Shared<U>>,
+    conn: &Conn,
+    mut req: Request<Incoming>,
+    prefix: &str,
+) -> Response<Body> {
+    let answer = tunnel::answer(&req, prefix);
+    if matches!(answer, Answer::Upgrade(_)) {
+        let Some(permit) = shared.up.tunnel_permit(conn.peer) else {
+            return Page::Busy.response();
+        };
+        let on = hyper::upgrade::on(&mut req);
+        let handoff = Handoff {
+            path: prefix.to_string(),
+            peer: conn.peer,
+            local: conn.local,
+            deadline: tokio::time::Instant::now() + shared.timeouts().handshake,
+            permit,
+        };
+        let up = shared.up.clone();
+        tokio::spawn(async move { tunnel::take_over(up.as_ref(), on, handoff).await });
+    }
+    tunnel::reply(&answer).map(|b| b.map_err(|never| match never {}).boxed())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_a_non_empty_base64url_token_is_a_challenge() {
+        assert_eq!(
+            challenge_token("/.well-known/acme-challenge/abc_DEF-9"),
+            Some("abc_DEF-9")
+        );
+        assert_eq!(challenge_token("/.well-known/acme-challenge/"), None);
+        assert_eq!(challenge_token("/.well-known/acme-challenge/a/b"), None);
+        assert_eq!(challenge_token("/.well-known/acme-challenge/a.b"), None);
+        assert_eq!(challenge_token("/other"), None);
+    }
+
+    #[test]
+    fn the_https_address_keeps_the_path_and_names_a_port_other_than_443() {
+        assert_eq!(
+            https_location("a.example.com", Some(443), "/x?y=1"),
+            "https://a.example.com/x?y=1"
+        );
+        assert_eq!(
+            https_location("a.example.com", None, "/"),
+            "https://a.example.com/"
+        );
+        assert_eq!(
+            https_location("a.example.com", Some(8443), "/"),
+            "https://a.example.com:8443/"
+        );
+        assert_eq!(
+            https_location("2001:db8::1", Some(443), "/"),
+            "https://[2001:db8::1]/"
+        );
+    }
+}

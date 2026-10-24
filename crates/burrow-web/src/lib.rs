@@ -11,6 +11,7 @@ pub mod peek;
 mod permit;
 pub mod proxy_header;
 pub mod route;
+mod terminate;
 pub mod tls;
 pub mod tunnel;
 
@@ -22,7 +23,7 @@ use std::time::Duration;
 use tokio::net::TcpStream;
 
 pub use io::{BoxIo, Io, Pipe, Prefixed, pipe};
-pub use listen::Proxy;
+pub use listen::{Listeners, Proxy};
 pub use permit::source_key;
 
 pub const HELLO_TIMEOUT: Duration = Duration::from_secs(10);
@@ -67,6 +68,7 @@ pub struct Timeouts {
     pub handshake: Duration,
     pub request_header: Duration,
     pub idle: Duration,
+    pub response_header: Duration,
 }
 
 impl Default for Timeouts {
@@ -76,6 +78,7 @@ impl Default for Timeouts {
             handshake: Duration::from_secs(10),
             request_header: Duration::from_secs(10),
             idle: Duration::from_secs(60),
+            response_header: Duration::from_secs(60),
         }
     }
 }

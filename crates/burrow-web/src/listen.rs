@@ -9,14 +9,20 @@ use tokio::task::JoinHandle;
 use tokio::time::Instant;
 use tracing::{debug, warn};
 
+use crate::http::{Conn, serve};
 use crate::io::{Io, Prefixed};
 use crate::peek::{Peek, peek_sni};
 use crate::permit::{Permit, Permits};
-use crate::route::{Kind, Table};
+use crate::route::{Action, Kind, Table};
+use crate::tls::{Certificates, cert_names};
 use crate::{ProxySettings, Timeouts, TunnelConn, TunnelSettings, Upstream, Visitor};
+use tokio_rustls::TlsAcceptor;
 
-struct Shared<U> {
-    up: Arc<U>,
+pub(crate) struct Shared<U> {
+    pub(crate) up: Arc<U>,
+    pub(crate) certs: Arc<dyn Certificates>,
+    pub(crate) https_port: Option<u16>,
+    site_tls: TlsAcceptor,
     table: RwLock<Arc<Table>>,
     tunnel: RwLock<Option<TunnelSettings>>,
     timing: RwLock<Timeouts>,
@@ -24,47 +30,77 @@ struct Shared<U> {
     stop: watch::Receiver<bool>,
 }
 
+pub struct Listeners {
+    pub https: Option<TcpListener>,
+    pub http: Option<TcpListener>,
+}
+
 pub struct Proxy<U: Upstream> {
     shared: Arc<Shared<U>>,
-    addr: SocketAddr,
-    task: JoinHandle<()>,
+    https: Option<SocketAddr>,
+    http: Option<SocketAddr>,
+    tasks: Vec<JoinHandle<()>>,
     stop: watch::Sender<bool>,
 }
 
+fn addr_of(l: &TcpListener) -> Option<SocketAddr> {
+    l.local_addr().ok()
+}
+
 impl<U: Upstream> Proxy<U> {
-    pub fn start(listener: TcpListener, settings: ProxySettings, up: Arc<U>) -> Proxy<U> {
-        let addr = listener.local_addr().unwrap_or_else(|_| {
-            settings
-                .https
-                .unwrap_or(SocketAddr::from(([0, 0, 0, 0], 0)))
-        });
+    pub fn start(
+        listeners: Listeners,
+        settings: ProxySettings,
+        up: Arc<U>,
+        certs: Arc<dyn Certificates>,
+    ) -> Proxy<U> {
+        let https = listeners.https.as_ref().and_then(addr_of);
+        let http = listeners.http.as_ref().and_then(addr_of);
         let (stop, stopped) = watch::channel(false);
+        certs.apply(&settings.certs, &cert_names(&settings));
         let shared = Arc::new(Shared {
             up,
+            site_tls: crate::terminate::site_acceptor(certs.clone()),
+            certs,
+            https_port: https.map(|a| a.port()),
             table: RwLock::new(Arc::new(Table::build(&settings))),
             tunnel: RwLock::new(settings.tunnel.clone()),
             timing: RwLock::new(settings.timeouts),
             permits: Permits::new(settings.max_pending),
             stop: stopped,
         });
-        let task = tokio::spawn(accept_loop(shared.clone(), listener));
+        let mut tasks = Vec::new();
+        if let Some(l) = listeners.https {
+            tasks.push(tokio::spawn(accept_loop(shared.clone(), l)));
+        }
+        if let Some(l) = listeners.http {
+            tasks.push(tokio::spawn(plain_loop(shared.clone(), l)));
+        }
         Proxy {
             shared,
-            addr,
-            task,
+            https,
+            http,
+            tasks,
             stop,
         }
     }
 
     pub fn apply(&self, settings: &ProxySettings) {
+        self.shared
+            .certs
+            .apply(&settings.certs, &cert_names(settings));
         *self.shared.table.write().expect("table lock") = Arc::new(Table::build(settings));
         *self.shared.tunnel.write().expect("tunnel lock") = settings.tunnel.clone();
         *self.shared.timing.write().expect("timing lock") = settings.timeouts;
         self.shared.permits.resize(settings.max_pending);
     }
 
-    pub fn local_addr(&self) -> SocketAddr {
-        self.addr
+    pub fn https_addr(&self) -> Option<SocketAddr> {
+        self.https
+    }
+
+    pub fn http_addr(&self) -> Option<SocketAddr> {
+        self.http
     }
 
     pub fn refused(&self) -> u64 {
@@ -75,20 +111,32 @@ impl<U: Upstream> Proxy<U> {
         self.shared.table()
     }
 
+    pub fn certificates(&self) -> Arc<dyn Certificates> {
+        self.shared.certs.clone()
+    }
+
     pub async fn stop(self) {
         let _ = self.stop.send(true);
-        self.task.abort();
-        let _ = self.task.await;
+        for t in &self.tasks {
+            t.abort();
+        }
+        for t in self.tasks {
+            let _ = t.await;
+        }
     }
 }
 
 impl<U> Shared<U> {
-    fn table(&self) -> Arc<Table> {
+    pub(crate) fn table(&self) -> Arc<Table> {
         self.table.read().expect("table lock").clone()
     }
 
+    pub(crate) fn timeouts(&self) -> Timeouts {
+        *self.timing.read().expect("timing lock")
+    }
+
     fn timing(&self) -> (Duration, Duration) {
-        let t = self.timing.read().expect("timing lock");
+        let t = self.timeouts();
         (t.hello, t.handshake)
     }
 }
@@ -105,7 +153,7 @@ fn warn_accept(e: &std::io::Error) {
             .compare_exchange(last, now, Ordering::Relaxed, Ordering::Relaxed)
             .is_ok()
     {
-        warn!("web: accept on the HTTPS port failed: {e}");
+        warn!("web: accept on a web port failed: {e}");
     }
 }
 
@@ -119,18 +167,7 @@ fn gone_before_accept(e: &std::io::Error) -> bool {
 
 async fn accept_loop<U: Upstream>(shared: Arc<Shared<U>>, listener: TcpListener) {
     loop {
-        let (stream, peer) = match listener.accept().await {
-            Ok(v) => v,
-            Err(e) if gone_before_accept(&e) => {
-                debug!("web: a connection was gone before it was accepted: {e}");
-                continue;
-            }
-            Err(e) => {
-                warn_accept(&e);
-                tokio::time::sleep(Duration::from_millis(100)).await;
-                continue;
-            }
-        };
+        let (stream, peer) = accepted(&listener).await;
         let Some(permit) = shared.permits.try_take(peer.ip()) else {
             shared.up.refused();
             debug!(%peer, "web: too many connections that have not shown a TLS name yet, dropping");
@@ -150,11 +187,42 @@ async fn accept_loop<U: Upstream>(shared: Arc<Shared<U>>, listener: TcpListener)
     }
 }
 
+async fn accepted(listener: &TcpListener) -> (TcpStream, SocketAddr) {
+    loop {
+        match listener.accept().await {
+            Ok(v) => return v,
+            Err(e) if gone_before_accept(&e) => {
+                debug!("web: a connection was gone before it was accepted: {e}");
+            }
+            Err(e) => {
+                warn_accept(&e);
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        }
+    }
+}
+
+async fn plain_loop<U: Upstream>(shared: Arc<Shared<U>>, listener: TcpListener) {
+    loop {
+        let (stream, peer) = accepted(&listener).await;
+        let Ok(local) = stream.local_addr() else {
+            continue;
+        };
+        shared.up.tune(&stream);
+        tokio::spawn(serve(
+            shared.clone(),
+            Box::new(stream),
+            Conn::new(peer, local, None),
+        ));
+    }
+}
+
 struct Seen {
     io: Prefixed<TcpStream>,
     peer: SocketAddr,
     local: SocketAddr,
     host: String,
+    sni: bool,
     kind: Kind,
     table: Arc<Table>,
     deadline: Instant,
@@ -190,6 +258,7 @@ async fn greet<U: Upstream>(
         io: Prefixed::new(hello.bytes, stream),
         peer,
         local,
+        sni: hello.name.is_some(),
         host,
         kind,
         table,
@@ -197,12 +266,13 @@ async fn greet<U: Upstream>(
     })
 }
 
-async fn dispatch<U: Upstream>(shared: &Shared<U>, seen: Seen, permit: Permit) {
+async fn dispatch<U: Upstream>(shared: &Arc<Shared<U>>, seen: Seen, permit: Permit) {
     let Seen {
         io,
         peer,
         local,
         host,
+        sni,
         kind,
         table,
         deadline,
@@ -223,11 +293,24 @@ async fn dispatch<U: Upstream>(shared: &Shared<U>, seen: Seen, permit: Permit) {
             };
             shared.up.tunnel(conn.into_conn(path, false)).await;
         }
-        Kind::Http { .. } | Kind::Plain(_) => {
+        Kind::Http { routes, .. } if routes.iter().all(|r| r.action == Action::Tunnel) => {
             let Some(conn) = start_tunnel(shared, io, peer, local, deadline, permit).await else {
                 return;
             };
             crate::tunnel::serve_by_path(shared.up.clone(), &table, &host, conn).await;
+        }
+        Kind::Http { .. } | Kind::Plain(_) => {
+            let Some(acceptor) =
+                crate::terminate::acceptor_for(&shared.site_tls, shared.certs.as_ref(), &host, sni)
+            else {
+                debug!(%peer, "web: no certificate for \"{host}\", closing");
+                return;
+            };
+            let tls = crate::terminate::accept(acceptor, io, deadline).await;
+            drop(permit);
+            if let Some(tls) = tls {
+                serve(shared.clone(), tls, Conn::new(peer, local, Some(host))).await;
+            }
         }
     }
 }

@@ -77,7 +77,7 @@ pub fn answer<B>(req: &Request<B>, tunnel_path: &str) -> Answer {
     }
 }
 
-fn reply(answer: &Answer) -> Response<Full<Bytes>> {
+pub(crate) fn reply(answer: &Answer) -> Response<Full<Bytes>> {
     let (status, text) = match answer {
         Answer::Upgrade(_) => (StatusCode::SWITCHING_PROTOCOLS, ""),
         Answer::NotFound => (StatusCode::NOT_FOUND, "Not found.\n"),
@@ -172,7 +172,26 @@ pub(crate) async fn serve_by_path<U: Upstream>(
     let Some(on) = upgrade.lock().expect("upgrade lock").take() else {
         return;
     };
-    let Ok(Ok(upgraded)) = tokio::time::timeout_at(deadline, on).await else {
+    let handoff = Handoff {
+        path,
+        peer,
+        local,
+        deadline,
+        permit,
+    };
+    take_over(up.as_ref(), on, handoff).await;
+}
+
+pub(crate) struct Handoff<P> {
+    pub path: String,
+    pub peer: std::net::SocketAddr,
+    pub local: std::net::SocketAddr,
+    pub deadline: tokio::time::Instant,
+    pub permit: P,
+}
+
+pub(crate) async fn take_over<U: Upstream>(up: &U, on: OnUpgrade, h: Handoff<U::Permit>) {
+    let Ok(Ok(upgraded)) = tokio::time::timeout_at(h.deadline, on).await else {
         return;
     };
     let Ok(parts) = upgraded.downcast::<TokioIo<BoxIo>>() else {
@@ -182,11 +201,11 @@ pub(crate) async fn serve_by_path<U: Upstream>(
     up.tunnel(TunnelConn {
         io: Box::new(io),
         upgraded: true,
-        path,
-        peer,
-        local,
-        deadline,
-        permit,
+        path: h.path,
+        peer: h.peer,
+        local: h.local,
+        deadline: h.deadline,
+        permit: h.permit,
     })
     .await;
 }

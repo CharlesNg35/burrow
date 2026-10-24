@@ -43,7 +43,7 @@ async fn the_tunnel_on_its_own_name_gets_the_tls_stream_beside_passthrough_sites
         up.clone(),
     )
     .await;
-    let addr = proxy.local_addr();
+    let addr = proxy.https_addr().unwrap();
     let mut t = tls(addr, "tunnel.example.com").await.unwrap();
     assert_eq!(ask(&mut t, b"noise").await.unwrap(), b"tunnel:noise");
     let seen = tunneled.recv().await.unwrap();
@@ -63,7 +63,7 @@ async fn the_tunnel_by_path_answers_the_upgrade_and_hands_over_the_rest() {
         up.clone(),
     )
     .await;
-    let addr = proxy.local_addr();
+    let addr = proxy.https_addr().unwrap();
     let mut t = tls(addr, "site.example.com").await.unwrap();
     let mut first = UPGRADE.as_bytes().to_vec();
     first.extend_from_slice(b"early");
@@ -92,7 +92,7 @@ async fn other_requests_on_a_tunnel_name_get_404_or_426() {
         up.clone(),
     )
     .await;
-    let addr = proxy.local_addr();
+    let addr = proxy.https_addr().unwrap();
     for (req, want) in [
         ("GET / HTTP/1.1\r\nHost: site.example.com\r\n\r\n", "404"),
         (
@@ -137,7 +137,7 @@ async fn a_flood_of_passthrough_connections_does_not_block_tunnel_handshakes() {
         up.clone(),
     )
     .await;
-    let addr = proxy.local_addr();
+    let addr = proxy.https_addr().unwrap();
     let mut open = Vec::new();
     for i in 0..40 {
         let mut c = tls(addr, "nas.example.com").await.unwrap();
@@ -166,7 +166,7 @@ async fn a_flood_of_stalled_tunnel_handshakes_does_not_block_passthrough() {
         up.clone(),
     )
     .await;
-    let addr = proxy.local_addr();
+    let addr = proxy.https_addr().unwrap();
     let mut stalled = Vec::new();
     for _ in 0..8 {
         stalled.push(tls(addr, "tunnel.example.com").await);
@@ -192,7 +192,9 @@ async fn a_tunnel_handshake_that_outlasts_its_deadline_is_closed() {
         up.clone(),
     )
     .await;
-    let mut raw = TcpStream::connect(proxy.local_addr()).await.unwrap();
+    let mut raw = TcpStream::connect(proxy.https_addr().unwrap())
+        .await
+        .unwrap();
     let hello = {
         let mut half = Vec::new();
         let (mut a, mut b) = tokio::io::duplex(1 << 16);
