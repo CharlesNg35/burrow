@@ -8,6 +8,7 @@ mod arch;
 mod e2e;
 mod fields;
 mod layers;
+mod lints;
 mod shape;
 mod size;
 mod surface;

@@ -67,6 +67,7 @@ pub fn run(root: &Path) -> Result<(), String> {
     problems.extend(crate::fields::problems(root)?);
     problems.extend(crate::layers::problems(root)?);
     problems.extend(crate::shape::problems(root)?);
+    problems.extend(crate::lints::problems(root)?);
     if problems.is_empty() {
         println!("arch-check: ok");
         Ok(())

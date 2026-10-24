@@ -290,44 +290,7 @@ pub fn comment_problems(path: &str, src: &str, header_allowed: bool) -> Vec<Stri
     out
 }
 
-pub fn silenced_problems(path: &str, src: &str) -> Vec<String> {
-    let code = lex(src).code;
-    let squashed: String = code
-        .chars()
-        .filter(|c| !c.is_whitespace() || *c == '\n')
-        .collect();
-    let mut out = Vec::new();
-    for (i, l) in squashed.lines().enumerate() {
-        for word in ["allow(", "expect("] {
-            let mut rest: &str = l;
-            while let Some(at) = rest.find(word) {
-                let after = &rest[at + word.len()..];
-                let mut depth = 1;
-                let inner: String = after
-                    .chars()
-                    .take_while(|c| {
-                        match c {
-                            '(' => depth += 1,
-                            ')' => depth -= 1,
-                            _ => {}
-                        }
-                        depth > 0
-                    })
-                    .collect();
-                if inner.split(',').any(|x| x == "clippy::too_many_lines") {
-                    out.push(format!(
-                        "{path}:{}: clippy::too_many_lines cannot be allowed; split the function into named steps",
-                        i + 1
-                    ));
-                }
-                rest = after;
-            }
-        }
-    }
-    out
-}
-
-fn tracked(root: &Path) -> Result<Vec<String>, String> {
+pub(crate) fn tracked(root: &Path) -> Result<Vec<String>, String> {
     let out = Command::new("git")
         .args(["ls-files", "-z", "--", "*.rs"])
         .current_dir(root)
@@ -355,7 +318,6 @@ pub fn problems(root: &Path) -> Result<Vec<String>, String> {
         };
         out.extend(size_problems(&path, &src));
         out.extend(comment_problems(&path, &src, headers.contains(&path)));
-        out.extend(silenced_problems(&path, &src));
     }
     Ok(out)
 }
@@ -507,29 +469,6 @@ mod tests {
         }
         let after = "let u = \"https://x\"; // real\n";
         assert_eq!(comment_problems("src/a.rs", after, false).len(), 1);
-    }
-
-    #[test]
-    fn too_many_lines_cannot_be_silenced() {
-        for c in [
-            "#[allow(clippy::too_many_lines)]",
-            "#[expect(clippy::too_many_lines)]",
-            "#![allow(clippy::all, clippy::too_many_lines)]",
-            "#[cfg_attr(test, allow(clippy::too_many_lines))]",
-            "#[allow( clippy :: too_many_lines )]",
-        ] {
-            let src = format!("{c}\nfn a() {{}}\n");
-            assert_eq!(silenced_problems("src/a.rs", &src).len(), 1, "{c}");
-        }
-        for c in [
-            "#[allow(clippy::too_many_arguments)]",
-            "let s = \"allow(clippy::too_many_lines)\";",
-        ] {
-            assert!(
-                silenced_problems("src/a.rs", &format!("{c}\n")).is_empty(),
-                "{c}"
-            );
-        }
     }
 
     #[test]
