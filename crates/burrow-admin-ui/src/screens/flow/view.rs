@@ -3,7 +3,7 @@ use leptos::html;
 use leptos::prelude::*;
 
 use crate::route;
-use crate::store::store;
+use crate::store::{Store, store};
 
 use super::{COLS, Chart, Health, LABELS, Node, WIDTH, fit, layout};
 
@@ -110,26 +110,7 @@ pub fn FlowModal() -> impl IntoView {
     let panel: NodeRef<html::Div> = NodeRef::new();
     let wrap: NodeRef<html::Div> = NodeRef::new();
     let hover: RwSignal<Option<(String, f64, f64)>> = RwSignal::new(None);
-    let back: StoredValue<Option<web_sys::HtmlElement>, LocalStorage> =
-        StoredValue::new_local(None);
-    Effect::new(move |was: Option<bool>| {
-        let open = s.flow_open.get();
-        if open && was != Some(true) {
-            back.set_value(active_element());
-            let c = chart.get_untracked();
-            only_problems.set(c.services > 12 && c.problems > 0);
-            if let Some(p) = panel.get_untracked() {
-                focus_first(&p);
-            }
-        } else if !open && was == Some(true) {
-            if let Some(b) = back.get_value() {
-                let _ = b.focus();
-            }
-            back.set_value(None);
-            hover.set(None);
-        }
-        open
-    });
+    restore_focus(s, chart, only_problems, panel, hover);
     let close = move || s.flow_open.set(false);
     let filter = Signal::derive(move || {
         if only_problems.get() {
@@ -138,65 +119,8 @@ pub fn FlowModal() -> impl IntoView {
             "all".to_string()
         }
     });
-    let svg = move || {
-        let c = chart.get();
-        let h = c.height;
-        let op = Signal::from(only_problems);
-        let labels = LABELS
-            .iter()
-            .zip(COLS)
-            .map(|(l, (x, _))| view! { <text x=x y="12" class="fill-text-faint text-[10.5px] font-semibold tracking-[0.06em] uppercase">{*l}</text> })
-            .collect_view();
-        let lines = c
-            .lines
-            .into_iter()
-            .map(|l| {
-                let p = l.problem;
-                view! {
-                    <path
-                        d=l.d
-                        fill="none"
-                        class=l.stroke
-                        stroke-width=format!("{:.2}", l.width)
-                        stroke-linecap="round"
-                        stroke-dasharray=l.dashed.then_some("4 4")
-                        opacity=move || if op.get() && !p { "0.07" } else { "1" }
-                    ></path>
-                }
-            })
-            .collect_view();
-        let nodes = c
-            .nodes
-            .into_iter()
-            .map(|n| node_view(n, op, hover, wrap))
-            .collect_view();
-        view! {
-            <svg viewBox=format!("0 0 {WIDTH} {h}") width="100%" class="block min-w-[1000px]" role="img" aria-label=c.alt data-testid="flow-svg">
-                {labels}
-                <g>{lines}</g>
-                {nodes}
-            </svg>
-        }
-    };
-    let links = move || {
-        let c = chart.get();
-        c.nodes
-            .into_iter()
-            .filter_map(|n| n.to.map(|to| (n.tip, to)))
-            .map(|(tip, to)| {
-                let label = tip.trim_end_matches(" →").to_string();
-                view! {
-                    <li>
-                        <a href=crate::route::href(&to) on:click=move |e| {
-                            e.prevent_default();
-                            s.flow_open.set(false);
-                            route::go(to.clone());
-                        }>{label}</a>
-                    </li>
-                }
-            })
-            .collect_view()
-    };
+    let svg = flow_svg(chart, only_problems, hover, wrap);
+    let links = flow_links(s, chart);
     view! {
         <Show when=move || s.flow_open.get()>
             <div class="fixed inset-0 z-40 bg-scrim" on:click=move |_| close()></div>
@@ -245,16 +169,121 @@ pub fn FlowModal() -> impl IntoView {
                     })}
                     <ul class="sr-only" aria-label="Open from the flow chart">{links}</ul>
                 </div>
-                <div class="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-border px-4 py-2.5 text-xs text-text-muted">
-                    <span class="flex items-center gap-1.5"><span class="h-0.5 w-4 rounded bg-success"></span>"healthy"</span>
-                    <span class="flex items-center gap-1.5"><span class="h-0.5 w-4 rounded bg-warning"></span>"degraded"</span>
-                    <span class="flex items-center gap-1.5"><span class="h-0.5 w-4 rounded bg-danger"></span>"down"</span>
-                    <span class="flex items-center gap-1.5"><span class="w-4 border-t border-dashed border-text-faint"></span>"offline"</span>
-                    <span class="flex items-center gap-1.5"><span class="h-0.5 w-4 rounded bg-accent"></span>"server ↔ client channels"</span>
-                    <span>"line weight = open connections; client → target lines are fixed"</span>
-                    <span class="ml-auto">"Click a node to open that service or client · Esc closes"</span>
-                </div>
+                {legend()}
             </div>
         </Show>
+    }
+}
+
+fn restore_focus(
+    s: Store,
+    chart: Memo<Chart>,
+    only_problems: RwSignal<bool>,
+    panel: NodeRef<html::Div>,
+    hover: RwSignal<Option<(String, f64, f64)>>,
+) {
+    let back: StoredValue<Option<web_sys::HtmlElement>, LocalStorage> =
+        StoredValue::new_local(None);
+    Effect::new(move |was: Option<bool>| {
+        let open = s.flow_open.get();
+        if open && was != Some(true) {
+            back.set_value(active_element());
+            let c = chart.get_untracked();
+            only_problems.set(c.services > 12 && c.problems > 0);
+            if let Some(p) = panel.get_untracked() {
+                focus_first(&p);
+            }
+        } else if !open && was == Some(true) {
+            if let Some(b) = back.get_value() {
+                let _ = b.focus();
+            }
+            back.set_value(None);
+            hover.set(None);
+        }
+        open
+    });
+}
+
+fn flow_svg(
+    chart: Memo<Chart>,
+    only_problems: RwSignal<bool>,
+    hover: RwSignal<Option<(String, f64, f64)>>,
+    wrap: NodeRef<html::Div>,
+) -> impl IntoView + Copy {
+    move || {
+        let c = chart.get();
+        let h = c.height;
+        let op = Signal::from(only_problems);
+        let labels = LABELS
+            .iter()
+            .zip(COLS)
+            .map(|(l, (x, _))| view! { <text x=x y="12" class="fill-text-faint text-[10.5px] font-semibold tracking-[0.06em] uppercase">{*l}</text> })
+            .collect_view();
+        let lines = c
+            .lines
+            .into_iter()
+            .map(|l| {
+                let p = l.problem;
+                view! {
+                    <path
+                        d=l.d
+                        fill="none"
+                        class=l.stroke
+                        stroke-width=format!("{:.2}", l.width)
+                        stroke-linecap="round"
+                        stroke-dasharray=l.dashed.then_some("4 4")
+                        opacity=move || if op.get() && !p { "0.07" } else { "1" }
+                    ></path>
+                }
+            })
+            .collect_view();
+        let nodes = c
+            .nodes
+            .into_iter()
+            .map(|n| node_view(n, op, hover, wrap))
+            .collect_view();
+        view! {
+            <svg viewBox=format!("0 0 {WIDTH} {h}") width="100%" class="block min-w-[1000px]" role="img" aria-label=c.alt data-testid="flow-svg">
+                {labels}
+                <g>{lines}</g>
+                {nodes}
+            </svg>
+        }
+    }
+}
+
+fn flow_links(s: Store, chart: Memo<Chart>) -> impl IntoView + Copy {
+    move || {
+        let c = chart.get();
+        c.nodes
+            .into_iter()
+            .filter_map(|n| n.to.map(|to| (n.tip, to)))
+            .map(|(tip, to)| {
+                let label = tip.trim_end_matches(" →").to_string();
+                view! {
+                    <li>
+                        <a href=crate::route::href(&to) on:click=move |e| {
+                            e.prevent_default();
+                            s.flow_open.set(false);
+                            route::go(to.clone());
+                        }>{label}</a>
+                    </li>
+                }
+            })
+            .collect_view()
+    }
+}
+
+fn legend() -> impl IntoView {
+    view! {
+    <div class="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-border px-4 py-2.5 text-xs text-text-muted">
+        <span class="flex items-center gap-1.5"><span class="h-0.5 w-4 rounded bg-success"></span>"healthy"</span>
+        <span class="flex items-center gap-1.5"><span class="h-0.5 w-4 rounded bg-warning"></span>"degraded"</span>
+        <span class="flex items-center gap-1.5"><span class="h-0.5 w-4 rounded bg-danger"></span>"down"</span>
+        <span class="flex items-center gap-1.5"><span class="w-4 border-t border-dashed border-text-faint"></span>"offline"</span>
+        <span class="flex items-center gap-1.5"><span class="h-0.5 w-4 rounded bg-accent"></span>"server ↔ client channels"</span>
+        <span>"line weight = open connections; client → target lines are fixed"</span>
+        <span class="ml-auto">"Click a node to open that service or client · Esc closes"</span>
+    </div>
     }
 }
