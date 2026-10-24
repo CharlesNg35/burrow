@@ -117,3 +117,56 @@ async fn overload_and_failed_tunnel_handshakes_on_the_web_port_are_counted() {
     let _ = tokio::time::timeout(Duration::from_secs(5), bad.read(&mut buf)).await;
     wait_for(|| shared.status().handshakes_refused > after_flood).await;
 }
+
+async fn reencrypting_relay(
+    cert: &Cert,
+    upstream: std::net::SocketAddr,
+) -> (
+    std::net::SocketAddr,
+    tokio::sync::mpsc::UnboundedReceiver<std::io::Result<(u64, u64)>>,
+) {
+    let (ended, ends) = tokio::sync::mpsc::unbounded_channel();
+    let acceptor = acceptor(cert);
+    let connector = trusting(cert);
+    let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = l.local_addr().unwrap();
+    tokio::spawn(async move {
+        while let Ok((down, _)) = l.accept().await {
+            let (acceptor, connector, ended) = (acceptor.clone(), connector.clone(), ended.clone());
+            tokio::spawn(async move {
+                let Ok(mut down) = acceptor.accept(down).await else {
+                    return;
+                };
+                let Ok(tcp) = tokio::net::TcpStream::connect(upstream).await else {
+                    return;
+                };
+                let name =
+                    tokio_rustls::rustls::pki_types::ServerName::try_from("localhost").unwrap();
+                let Ok(mut up) = connector.connect(name, tcp).await else {
+                    return;
+                };
+                let _ = ended.send(tokio::io::copy_bidirectional(&mut down, &mut up).await);
+            });
+        }
+    });
+    (addr, ends)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_tunnel_channel_on_the_web_port_ends_with_tls_close_notify() {
+    let (srv, secret, tunnel_cert, _nas, web) = shared_server().await;
+    let (relay, mut ends) = reencrypting_relay(&tunnel_cert, web).await;
+    let url = format!("wss://localhost:{}/burrow", relay.port());
+    let mut cli = start_client(wss_client(&url, secret, &tunnel_cert)).await;
+    wait_state(&mut cli.state, State::Connected).await;
+    let data = pattern(8 << 20, 11);
+    assert_eq!(roundtrip(srv.services["db"], &data).await, data);
+    let end = tokio::time::timeout(Duration::from_secs(10), ends.recv())
+        .await
+        .expect("the data channel closes")
+        .unwrap();
+    assert!(
+        end.is_ok(),
+        "the data channel must end with a WebSocket close and TLS close_notify, not {end:?}"
+    );
+}

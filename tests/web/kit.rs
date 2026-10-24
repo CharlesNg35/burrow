@@ -38,7 +38,7 @@ fn provider() -> Arc<rustls::crypto::CryptoProvider> {
     Arc::new(rustls::crypto::ring::default_provider())
 }
 
-fn acceptor(c: &Cert) -> TlsAcceptor {
+pub fn acceptor(c: &Cert) -> TlsAcceptor {
     let certs = vec![CertificateDer::from_pem_slice(c.cert_pem.as_bytes()).unwrap()];
     let key = PrivateKeyDer::from_pem_slice(c.key_pem.as_bytes()).unwrap();
     let config = ServerConfig::builder_with_provider(provider())
