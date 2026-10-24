@@ -119,7 +119,7 @@ fn reply(answer: &Answer) -> Response<Full<Bytes>> {
 
 fn tunnel_path(table: &Table, host: &str) -> Option<String> {
     match table.kind(host)? {
-        Kind::Http(routes) => routes
+        Kind::Http { routes, .. } => routes
             .iter()
             .find(|r| r.action == Action::Tunnel)
             .map(|r| r.prefix.clone()),

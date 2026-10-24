@@ -223,7 +223,7 @@ async fn dispatch<U: Upstream>(shared: &Shared<U>, seen: Seen, permit: Permit) {
             };
             shared.up.tunnel(conn.into_conn(path, false)).await;
         }
-        Kind::Http(_) => {
+        Kind::Http { .. } | Kind::Plain(_) => {
             let Some(conn) = start_tunnel(shared, io, peer, local, deadline, permit).await else {
                 return;
             };

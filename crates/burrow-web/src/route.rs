@@ -9,7 +9,8 @@ use crate::{ProxySettings, SiteTls, TunnelMode};
 pub enum Kind {
     Passthrough(String),
     Tunnel { path: String },
-    Http(Vec<Route>),
+    Http { routes: Vec<Route>, redirect: bool },
+    Plain(Vec<Route>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -21,6 +22,7 @@ pub struct Route {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Action {
     Tunnel,
+    Service(String),
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -28,30 +30,36 @@ pub struct Table {
     hosts: HashMap<String, Kind>,
 }
 
+fn whole(service: &str) -> Vec<Route> {
+    vec![Route {
+        prefix: "/".into(),
+        action: Action::Service(service.to_string()),
+    }]
+}
+
 impl Table {
     pub fn build(settings: &ProxySettings) -> Table {
         let mut hosts = HashMap::new();
         for site in &settings.sites {
-            if site.tls != SiteTls::Passthrough {
-                continue;
-            }
+            let kind = match &site.tls {
+                SiteTls::Passthrough => Kind::Passthrough(site.service.clone()),
+                SiteTls::Https(_) => Kind::Http {
+                    routes: whole(&site.service),
+                    redirect: site.https_redirect,
+                },
+                SiteTls::Plain => Kind::Plain(whole(&site.service)),
+            };
             for host in &site.hosts {
-                hosts
-                    .entry(host.clone())
-                    .or_insert_with(|| Kind::Passthrough(site.service.clone()));
+                hosts.entry(host.clone()).or_insert_with(|| kind.clone());
             }
         }
         if let Some(t) = &settings.tunnel {
-            let kind = match t.mode {
-                TunnelMode::OwnName => Kind::Tunnel {
-                    path: t.path.clone(),
-                },
-                TunnelMode::ByPath => Kind::Http(vec![Route {
-                    prefix: t.path.clone(),
-                    action: Action::Tunnel,
-                }]),
-            };
-            hosts.entry(t.host.clone()).or_insert(kind);
+            add_tunnel(&mut hosts, t);
+        }
+        for kind in hosts.values_mut() {
+            if let Kind::Http { routes, .. } | Kind::Plain(routes) = kind {
+                routes.sort_by_key(|r| std::cmp::Reverse(r.prefix.len()));
+            }
         }
         Table { hosts }
     }
@@ -63,24 +71,56 @@ impl Table {
     }
 
     pub fn pick(&self, sni: Option<&str>, local: IpAddr) -> Option<(String, &Kind)> {
-        match sni {
-            Some(name) => self.kind(name).map(|k| (name.to_string(), k)),
+        let (name, kind) = match sni {
+            Some(name) => (name.to_string(), self.kind(name)?),
             None => {
                 let ip = local.to_canonical().to_string();
-                self.hosts.get(&ip).map(|k| (ip, k))
+                let kind = self.hosts.get(&ip)?;
+                (ip, kind)
             }
-        }
+        };
+        (!matches!(kind, Kind::Plain(_))).then_some((name, kind))
     }
 
     pub fn route<'a>(&'a self, host: &str, path: &str) -> Option<&'a Route> {
         match self.kind(host)? {
-            Kind::Http(routes) => routes.iter().find(|r| on_prefix(&r.prefix, path)),
+            Kind::Http { routes, .. } | Kind::Plain(routes) => {
+                routes.iter().find(|r| on_prefix(&r.prefix, path))
+            }
             _ => None,
         }
     }
 
     pub fn hosts(&self) -> impl Iterator<Item = (&String, &Kind)> {
         self.hosts.iter()
+    }
+}
+
+fn add_tunnel(hosts: &mut HashMap<String, Kind>, t: &crate::TunnelSettings) {
+    let route = Route {
+        prefix: t.path.clone(),
+        action: Action::Tunnel,
+    };
+    match (t.mode, hosts.get_mut(&t.host)) {
+        (TunnelMode::ByPath, Some(Kind::Http { routes, .. })) => routes.insert(0, route),
+        (_, Some(_)) => {}
+        (TunnelMode::OwnName, None) => {
+            hosts.insert(
+                t.host.clone(),
+                Kind::Tunnel {
+                    path: t.path.clone(),
+                },
+            );
+        }
+        (TunnelMode::ByPath, None) => {
+            hosts.insert(
+                t.host.clone(),
+                Kind::Http {
+                    routes: vec![route],
+                    redirect: true,
+                },
+            );
+        }
     }
 }
 
@@ -127,7 +167,75 @@ mod tests {
         assert_eq!(t.kind("apps.example.com"), None);
         assert_eq!(t.kind("example.com"), None);
         assert_eq!(t.kind("unknown.example.org"), None);
-        assert_eq!(t.kind("plain.example.com"), None);
+        let local: IpAddr = "127.0.0.1".parse().unwrap();
+        assert!(t.pick(Some("plain.example.com"), local).is_none());
+        assert!(matches!(t.kind("plain.example.com"), Some(Kind::Plain(_))));
+    }
+
+    fn served(t: &Table, host: &str, path: &str) -> Option<Action> {
+        t.route(host, path).map(|r| r.action.clone())
+    }
+
+    #[test]
+    fn a_terminated_site_owns_every_path_and_keeps_its_redirect_choice() {
+        let mut s = settings(None);
+        s.sites.push(Site {
+            tls: SiteTls::Https(crate::CertSource::Auto),
+            ..Site::passthrough("blog", vec!["blog.example.com".into(), "nas".into()])
+        });
+        s.sites.push(Site {
+            tls: SiteTls::Https(crate::CertSource::Auto),
+            https_redirect: false,
+            ..Site::passthrough("open", vec!["open.example.com".into()])
+        });
+        let t = Table::build(&s);
+        let blog = Some(Action::Service("blog".into()));
+        assert_eq!(served(&t, "blog.example.com", "/"), blog);
+        assert_eq!(served(&t, "blog.example.com", "/a/b"), blog);
+        assert_eq!(served(&t, "nas", "/"), blog);
+        assert_eq!(
+            served(&t, "plain.example.com", "/x"),
+            Some(Action::Service("plain".into()))
+        );
+        assert_eq!(served(&t, "nas.example.com", "/"), None);
+        assert!(matches!(
+            t.kind("blog.example.com"),
+            Some(Kind::Http { redirect: true, .. })
+        ));
+        assert!(matches!(
+            t.kind("open.example.com"),
+            Some(Kind::Http {
+                redirect: false,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn the_tunnel_by_path_shares_a_terminated_sites_name_and_wins_its_prefix() {
+        let mut s = settings(Some(("blog.example.com", TunnelMode::ByPath)));
+        s.sites.push(Site {
+            tls: SiteTls::Https(crate::CertSource::Auto),
+            ..Site::passthrough("blog", vec!["blog.example.com".into()])
+        });
+        let t = Table::build(&s);
+        assert_eq!(
+            served(&t, "blog.example.com", "/burrow"),
+            Some(Action::Tunnel)
+        );
+        assert_eq!(
+            served(&t, "blog.example.com", "/burrow/x"),
+            Some(Action::Tunnel)
+        );
+        assert_eq!(
+            served(&t, "blog.example.com", "/burrowx"),
+            Some(Action::Service("blog".into()))
+        );
+        let on_passthrough = Table::build(&settings(Some(("nas.example.com", TunnelMode::ByPath))));
+        assert_eq!(
+            on_passthrough.kind("nas.example.com"),
+            Some(&Kind::Passthrough("nas".into()))
+        );
     }
 
     #[test]
