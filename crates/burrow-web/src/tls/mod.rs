@@ -1,3 +1,4 @@
+pub mod acme;
 pub mod files;
 mod fixed;
 mod select;
