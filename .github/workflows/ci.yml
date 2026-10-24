@@ -31,7 +31,7 @@ jobs:
       - name: Format and lint the fuzz targets
         working-directory: fuzz
         env:
-          RUSTUP_TOOLCHAIN: stable
+          RUSTUP_TOOLCHAIN: 1.99.0
         run: cargo fmt --check && cargo clippy --all-targets -- -D warnings
 
   test:
