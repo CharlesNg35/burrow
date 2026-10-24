@@ -187,6 +187,25 @@ mod tests {
     }
 
     #[test]
+    fn the_tunnel_by_path_on_a_sites_name_shares_that_sites_certificate() {
+        let mut p = ProxySettings::new("[::]:443".parse().unwrap());
+        p.sites = vec![Site {
+            tls: SiteTls::Https(CertSource::Auto),
+            ..Site::passthrough("blog", vec!["blog.example.com".into()])
+        }];
+        p.tunnel = Some(TunnelSettings {
+            host: "blog.example.com".into(),
+            path: "/burrow".into(),
+            mode: TunnelMode::ByPath,
+        });
+        p.certs.tunnel_file = Some(("ws.pem".into(), "ws.key".into()));
+        let names = cert_names(&p);
+        assert_eq!(names.len(), 1, "one name, so one order: {names:#?}");
+        assert_eq!(names[0].group, "blog");
+        assert_eq!(names[0].source, CertSource::Auto);
+    }
+
+    #[test]
     fn an_exact_listing_beats_a_wildcard_and_a_name_listed_twice_gets_no_file() {
         let mut s = certs(true);
         s.shared.push(SharedFile {
