@@ -447,6 +447,9 @@ pub(super) use fill::settings;
 mod tests;
 
 #[cfg(all(test, feature = "web"))]
+mod tests_files;
+
+#[cfg(all(test, feature = "web"))]
 mod tests_later;
 
 #[cfg(all(test, not(feature = "web")))]

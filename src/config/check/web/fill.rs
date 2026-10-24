@@ -78,5 +78,6 @@ pub(in crate::config::check) fn settings(
         directory: directory_url(l.directory.as_ref()),
         ca: l.ca.as_ref().map(|c| base_dir.join(c)),
     });
+    s.file_digest = crate::config::settings::digest_of(&s.cert_files());
     Some(s)
 }

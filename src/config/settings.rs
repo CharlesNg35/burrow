@@ -13,7 +13,7 @@ use burrow_syntax::endpoint::Endpoint;
 
 mod web;
 
-pub use web::{CertFile, LetsEncrypt, WebSettings, WebSite, WebTls};
+pub use web::{CertFile, LetsEncrypt, WebSettings, WebSite, WebTls, digest_of};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ServerSettings {

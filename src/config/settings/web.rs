@@ -16,6 +16,7 @@ pub struct WebSettings {
     pub idle_timeout: Duration,
     pub certificates: Vec<CertFile>,
     pub letsencrypt: Option<LetsEncrypt>,
+    pub file_digest: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -58,7 +59,22 @@ impl WebSettings {
             idle_timeout: IDLE_TIMEOUT,
             certificates: Vec::new(),
             letsencrypt: None,
+            file_digest: 0,
         }
+    }
+
+    pub fn cert_files(&self) -> Vec<PathBuf> {
+        let mut out = Vec::new();
+        for site in self.sites.values() {
+            if let WebTls::Files { cert, key } = &site.tls {
+                out.extend([cert.clone(), key.clone()]);
+            }
+        }
+        for c in &self.certificates {
+            out.extend([c.cert.clone(), c.key.clone()]);
+        }
+        out.extend(self.letsencrypt.as_ref().and_then(|l| l.ca.clone()));
+        out
     }
 
     pub fn site_of(&self, service: &str) -> Option<&WebSite> {
@@ -74,4 +90,14 @@ impl WebSite {
             https_redirect: true,
         }
     }
+}
+
+pub fn digest_of(files: &[PathBuf]) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    for f in files {
+        f.hash(&mut h);
+        std::fs::read(f).ok().hash(&mut h);
+    }
+    h.finish()
 }
