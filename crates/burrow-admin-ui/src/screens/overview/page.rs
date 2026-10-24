@@ -1,3 +1,5 @@
+use std::collections::VecDeque;
+
 use burrow_admin_logic::rates::human_bits;
 use burrow_admin_proto::schema::Entity;
 use burrow_admin_proto::serde_json::Value;
@@ -7,7 +9,6 @@ use burrow_ui_kit::{
     button_class, tag_class,
 };
 use leptos::prelude::*;
-use std::collections::VecDeque;
 
 use crate::form::plain;
 use crate::format;
