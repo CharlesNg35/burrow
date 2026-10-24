@@ -548,7 +548,7 @@ async fn self_churn_returns_to_baseline() {
     settings.max_connections_per_client = 1_000_000;
     settings.max_handshakes = 256;
     settings.udp_session_timeout = Duration::from_secs(2);
-    settings.self_allow = Some(burrow::allowlist::AllowList::Rules(vec![
+    settings.self_allow = Some(burrow::policy::allowlist::AllowList::Rules(vec![
         "127.0.0.0/8".parse().unwrap(),
     ]));
     let on_self = |s: burrow::config::settings::Service| burrow::config::settings::Service {
@@ -563,7 +563,7 @@ async fn self_churn_returns_to_baseline() {
         .insert("dns".into(), on_self(service(uecho, Protocol::Udp)));
     let mut auth = visitor_auth(visitor_secret.clone(), &[]);
     auth.reach
-        .insert("self".into(), burrow::allowlist::AllowList::All);
+        .insert("self".into(), burrow::policy::allowlist::AllowList::All);
     settings.visitors.insert("laptop".into(), auth);
     let srv = start_server(settings).await;
     let (web, dns) = (srv.services["web"], srv.services["dns"]);

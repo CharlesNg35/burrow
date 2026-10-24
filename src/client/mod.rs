@@ -478,7 +478,8 @@ impl Client {
                         );
                     }
                     if usize::from(count) > room {
-                        static MANY: crate::throttle::Throttle = crate::throttle::Throttle::new();
+                        static MANY: crate::policy::throttle::Throttle =
+                            crate::policy::throttle::Throttle::new();
                         if let Some(more) = MANY.allow() {
                             warn!(
                                 "the server asked for {count} more data channels while {now} are waiting; opening at most {most}{more}"
@@ -601,14 +602,16 @@ impl Client {
                 }
                 Err(_) if *ended.borrow() => return,
                 Err(DialError::Lost(why) | DialError::Unreachable(why)) => {
-                    static FAILED: crate::throttle::Throttle = crate::throttle::Throttle::new();
+                    static FAILED: crate::policy::throttle::Throttle =
+                        crate::policy::throttle::Throttle::new();
                     if let Some(more) = FAILED.allow() {
                         warn!("cannot open a data channel for the server: {why}{more}");
                     }
                     return;
                 }
                 Err(DialError::Rejected) => {
-                    static REJECTED: crate::throttle::Throttle = crate::throttle::Throttle::new();
+                    static REJECTED: crate::policy::throttle::Throttle =
+                        crate::policy::throttle::Throttle::new();
                     if let Some(more) = REJECTED.allow() {
                         warn!(
                             "the server refused a data channel; connections through this client wait or fail until it reconnects{more}"

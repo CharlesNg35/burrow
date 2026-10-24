@@ -4,8 +4,8 @@ use std::path::Path;
 
 use serde_json::{Map, Value, json};
 
-use crate::allowlist::Rule;
 use crate::config::settings::Forward;
+use crate::policy::allowlist::Rule;
 use crate::wire::protocol::{Grants, VisitTarget};
 use burrow_config::Protocol;
 
@@ -166,7 +166,7 @@ fn within(target: &str, ports: u16, reach: &[String]) -> bool {
     if reach.iter().any(|r| r.parse::<Rule>().is_err()) {
         return true;
     }
-    let rules = crate::allowlist::AllowList::from_rules(reach);
+    let rules = crate::policy::allowlist::AllowList::from_rules(reach);
     if let Some(path) = crate::config::check::unix::path_of(target) {
         return rules.permits_socket(path);
     }

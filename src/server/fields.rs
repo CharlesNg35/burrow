@@ -231,7 +231,9 @@ mod tests {
             (
                 "self.allow",
                 Applied::Reload,
-                Box::new(|s| s.self_allow = Some(crate::allowlist::AllowList::Rules(Vec::new()))),
+                Box::new(|s| {
+                    s.self_allow = Some(crate::policy::allowlist::AllowList::Rules(Vec::new()))
+                }),
             ),
         ];
         let schema = crate::config::admin_schema::server_schema();

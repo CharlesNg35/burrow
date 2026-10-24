@@ -10,12 +10,12 @@ use std::collections::BTreeMap;
 use std::net::SocketAddr;
 use std::time::Duration;
 
-use burrow::allowlist::{AllowList, Rule};
 use burrow::client::{Client, State};
 use burrow::config::settings::{
     ClientAuth, ClientSettings, Forward, Limit, ServerSettings, Service, VisitorAuth,
     VisitorSettings,
 };
+use burrow::policy::allowlist::{AllowList, Rule};
 use burrow::server::Server;
 use burrow::wire::protocol::VisitTarget;
 use burrow::wire::secret::Secret;
@@ -446,7 +446,7 @@ pub fn visitor_auth(secret: Secret, reach: &[&str]) -> VisitorAuth {
         secrets: vec![secret],
         reach: reach
             .iter()
-            .map(|c| (c.to_string(), burrow::allowlist::AllowList::All))
+            .map(|c| (c.to_string(), burrow::policy::allowlist::AllowList::All))
             .collect(),
         max_connections: None,
         admin: None,

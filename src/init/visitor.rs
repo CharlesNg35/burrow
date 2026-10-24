@@ -398,7 +398,7 @@ pub fn socks_note(client: &str, local: u16, reach: &[String]) -> String {
     let target = reach
         .iter()
         .find_map(|r| match r.parse() {
-            Ok(crate::allowlist::Rule::Net(rule)) => Some(rule.example().to_string()),
+            Ok(crate::policy::allowlist::Rule::Net(rule)) => Some(rule.example().to_string()),
             _ => None,
         })
         .unwrap_or_else(|| "HOST:PORT".to_string());

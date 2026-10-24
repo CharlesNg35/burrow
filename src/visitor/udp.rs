@@ -11,7 +11,7 @@ use super::Live;
 use super::forward::{explain, rejected};
 use crate::client::reconnect::Backoff;
 use crate::dialer::DialError;
-use crate::throttle::Throttle;
+use crate::policy::throttle::Throttle;
 use crate::udp::front::{self, Ending, Front, Hooks, Interrupt, Meter};
 use crate::udp::link::{Opening, open_udp};
 use crate::udp::peers::{PeerCount, PeerGauge, PeerTable};

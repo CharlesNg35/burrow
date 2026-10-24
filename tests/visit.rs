@@ -3,9 +3,9 @@ mod common;
 use std::net::SocketAddr;
 use std::time::Duration;
 
-use burrow::allowlist::{AllowList, Rule};
 use burrow::config::settings::ServerSettings;
 use burrow::dialer::{DialError, Dialer};
+use burrow::policy::allowlist::{AllowList, Rule};
 use burrow::wire::protocol::{ChannelKind, Hello, Status, VisitRequest, VisitTarget};
 use burrow::wire::secret::Secret;
 use common::*;
@@ -158,8 +158,11 @@ async fn a_public_service_can_list_visitors_too() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn reach_lets_a_visitor_pick_the_target() {
     let s = setup(|srv, _| {
-        srv.visitors.get_mut("laptop").unwrap().reach =
-            [("home".to_string(), burrow::allowlist::AllowList::All)].into();
+        srv.visitors.get_mut("laptop").unwrap().reach = [(
+            "home".to_string(),
+            burrow::policy::allowlist::AllowList::All,
+        )]
+        .into();
     })
     .await;
     let v = s.visitor(vec![("echo", s.reach())]);
@@ -229,8 +232,11 @@ async fn wrong_secrets_and_client_secrets_are_rejected() {
 async fn the_client_allow_list_still_decides() {
     let s = setup_with(
         |srv, _| {
-            srv.visitors.get_mut("laptop").unwrap().reach =
-                [("home".to_string(), burrow::allowlist::AllowList::All)].into();
+            srv.visitors.get_mut("laptop").unwrap().reach = [(
+                "home".to_string(),
+                burrow::policy::allowlist::AllowList::All,
+            )]
+            .into();
         },
         |mut c| {
             c.allow = AllowList::Rules(vec!["127.0.0.1/32:1".parse::<Rule>().unwrap()]);
@@ -302,8 +308,11 @@ async fn connection_limits_apply_to_visitors() {
 
 async fn closed_after_reload(change: impl FnOnce(&mut ServerSettings)) {
     let s = setup(|srv, _| {
-        srv.visitors.get_mut("laptop").unwrap().reach =
-            [("home".to_string(), burrow::allowlist::AllowList::All)].into();
+        srv.visitors.get_mut("laptop").unwrap().reach = [(
+            "home".to_string(),
+            burrow::policy::allowlist::AllowList::All,
+        )]
+        .into();
     })
     .await;
     let v = s.visitor(vec![
@@ -347,8 +356,11 @@ async fn reload_closes_revoked_visits() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn reload_closes_each_revoked_permission() {
     let s = setup(|srv, _| {
-        srv.visitors.get_mut("laptop").unwrap().reach =
-            [("home".to_string(), burrow::allowlist::AllowList::All)].into();
+        srv.visitors.get_mut("laptop").unwrap().reach = [(
+            "home".to_string(),
+            burrow::policy::allowlist::AllowList::All,
+        )]
+        .into();
     })
     .await;
     let v = s.visitor(vec![
@@ -413,8 +425,11 @@ async fn visits_work_with_insecure_plaintext() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn invalid_requests_are_answered_and_closed() {
     let s = setup(|srv, _| {
-        srv.visitors.get_mut("laptop").unwrap().reach =
-            [("home".to_string(), burrow::allowlist::AllowList::All)].into();
+        srv.visitors.get_mut("laptop").unwrap().reach = [(
+            "home".to_string(),
+            burrow::policy::allowlist::AllowList::All,
+        )]
+        .into();
     })
     .await;
     assert_eq!(

@@ -11,7 +11,7 @@ use crate::client::reconnect::Backoff;
 use crate::config::settings::VisitorSettings;
 use crate::dialer::{DialError, Dialer};
 use crate::forward::{ForwardError, pump_tcp, request_visit};
-use crate::throttle::Throttle;
+use crate::policy::throttle::Throttle;
 use crate::wire::protocol::{ChannelKind, Hello, Status, VERSION, VisitRequest, VisitTarget};
 use crate::wire::transport::tcp::tune;
 use burrow_config::Protocol;

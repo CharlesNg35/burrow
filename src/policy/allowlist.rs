@@ -520,7 +520,7 @@ mod tests {
     #[cfg(target_os = "linux")]
     #[test]
     fn a_host_that_binds_any_address_still_tells_its_own_from_another_machine() {
-        const NAME: &str = "allowlist::tests::a_host_that_binds_any_address_still_tells_its_own_from_another_machine";
+        const NAME: &str = "policy::allowlist::tests::a_host_that_binds_any_address_still_tells_its_own_from_another_machine";
         const SETUP: &str = "ip link set lo up && ip addr add 10.9.9.9/24 dev lo && ip addr add fd09::9/64 dev lo nodad && echo 1 > /proc/sys/net/ipv4/ip_nonlocal_bind && echo 1 > /proc/sys/net/ipv6/ip_nonlocal_bind";
         if std::env::var_os("BURROW_NONLOCAL_BIND_NETNS").is_some() {
             assert!(std::net::UdpSocket::bind("10.9.9.20:0").is_ok());

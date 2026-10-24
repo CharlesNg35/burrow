@@ -12,7 +12,7 @@ use crate::config::check::{MAX_TARGET_LEN, parse_host_port};
 use crate::forward::{ForwardError, Meter, Opened, Opening, relay, reply};
 use burrow_config::Protocol;
 
-use crate::throttle::Throttle;
+use crate::policy::throttle::Throttle;
 use crate::wire::handshake::{Accepted, MAX_REQUEST_RECORD, read_small};
 use crate::wire::protocol::{Connect, Status, VisitRequest, VisitTarget};
 use crate::wire::secret::Secret;

@@ -34,7 +34,8 @@ pub async fn serve_with(listener: TcpListener, handler: Handler) {
                 continue;
             }
             Err(e) => {
-                static FAILED: crate::throttle::Throttle = crate::throttle::Throttle::new();
+                static FAILED: crate::policy::throttle::Throttle =
+                    crate::policy::throttle::Throttle::new();
                 if let Some(more) = FAILED.allow() {
                     warn!("metrics: accept failed: {e}{more}");
                 }

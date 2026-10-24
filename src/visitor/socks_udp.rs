@@ -13,7 +13,7 @@ use super::Live;
 use super::forward::{explain, rejected};
 use super::socks::{Hint, Reply, reply_bound};
 use crate::dialer::DialError;
-use crate::throttle::Throttle;
+use crate::policy::throttle::Throttle;
 use crate::udp::link::{Opening, open_udp};
 use crate::udp::peers::AbortOnDrop;
 use crate::wire::protocol::{

@@ -190,7 +190,7 @@ async fn visits(target: u16, ports: u16) -> Visits {
         server,
         vec![],
         |mut c| {
-            c.allow = burrow::allowlist::AllowList::All;
+            c.allow = burrow::policy::allowlist::AllowList::All;
             c
         },
         secret,
@@ -379,7 +379,7 @@ async fn udp_visits(target: u16, ports: u16) -> Visits {
         server,
         vec![],
         |mut c| {
-            c.allow = burrow::allowlist::AllowList::All;
+            c.allow = burrow::policy::allowlist::AllowList::All;
             c
         },
         secret,

@@ -4,8 +4,8 @@ mod common;
 
 use std::path::{Path, PathBuf};
 
-use burrow::allowlist::{AllowList, Rule};
 use burrow::config::settings::Service;
+use burrow::policy::allowlist::{AllowList, Rule};
 use burrow::wire::protocol::VisitTarget;
 use burrow::wire::secret::Secret;
 use burrow_config::Protocol;

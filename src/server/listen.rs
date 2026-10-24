@@ -184,7 +184,8 @@ pub async fn ws_accept_loop(shared: Arc<Shared>, ws: Arc<WsListener>) {
                 continue;
             }
             Err(e) => {
-                static FAILED: crate::throttle::Throttle = crate::throttle::Throttle::new();
+                static FAILED: crate::policy::throttle::Throttle =
+                    crate::policy::throttle::Throttle::new();
                 if let Some(more) = FAILED.allow() {
                     warn!("websocket accept failed: {e}{more}");
                 }

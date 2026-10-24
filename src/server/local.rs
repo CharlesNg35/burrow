@@ -4,9 +4,9 @@ use std::time::Duration;
 
 use tokio::sync::watch;
 
-use crate::allowlist::Gate;
 use crate::client::data::{Dialing, Dials, Open, Rules, fitted, serve_local};
 use crate::config::settings::ServerSettings;
+use crate::policy::allowlist::Gate;
 use crate::wire::protocol::TOKEN_LEN;
 use crate::wire::transport::Channel;
 use crate::wire::transport::resolve::Resolver;

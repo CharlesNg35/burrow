@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::net::SocketAddr;
 use std::time::Duration;
 
-use crate::allowlist::{AllowList, Cidr, Sources};
+use crate::policy::allowlist::{AllowList, Cidr, Sources};
 use crate::wire::protocol::VisitTarget;
 use crate::wire::proxy::ProxyConfig;
 use crate::wire::secret::Secret;

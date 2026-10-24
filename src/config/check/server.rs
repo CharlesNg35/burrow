@@ -12,9 +12,9 @@ use super::service::{Taken, check_service};
 use super::{
     Spans, binds_conflict, name_error, parse_bind, parse_local, secret_error, tuning, valid_name,
 };
-use crate::allowlist::AllowList;
 use crate::base::suggest::{closest, quoted_list};
 use crate::config::diagnostics::Diagnostic;
+use crate::policy::allowlist::AllowList;
 use crate::wire::noise::MAX_SECRETS_PER_CLIENT;
 use crate::wire::secret::Secret;
 use burrow_config::SELF;
@@ -314,10 +314,10 @@ fn check_admin(
     listed: bool,
     spans: &Spans,
     out: &mut Vec<Diagnostic>,
-) -> Vec<crate::allowlist::Cidr> {
+) -> Vec<crate::policy::allowlist::Cidr> {
     let mut nets = Vec::new();
     for (i, text) in entry.admin_from.iter().enumerate() {
-        match text.parse::<crate::allowlist::Cidr>() {
+        match text.parse::<crate::policy::allowlist::Cidr>() {
             Ok(net) => nets.push(net),
             Err(e) => out.push(
                 Diagnostic::error(

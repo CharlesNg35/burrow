@@ -28,7 +28,7 @@ use tracing::{debug, error, info, warn};
 use crate::base::failure::Failure;
 use crate::config::settings::WebSocketSettings;
 use crate::config::settings::{ServerSettings, Service};
-use crate::ratelimit::Limit;
+use crate::policy::ratelimit::Limit;
 use crate::wire::protocol::{ByeReason, ServerMsg};
 use burrow_config::Protocol;
 use listen::WsListener;
@@ -394,7 +394,8 @@ async fn take_channel(
         Ok(Ok(ch)) => Ok(ch),
         Ok(Err(TakeError::TooManyPending)) => {
             shared.rejected.fetch_add(1, Ordering::Relaxed);
-            static WAITING: crate::throttle::Throttle = crate::throttle::Throttle::new();
+            static WAITING: crate::policy::throttle::Throttle =
+                crate::policy::throttle::Throttle::new();
             if let Some(more) = WAITING.allow() {
                 warn!(
                     "{label}: too many connections waiting for client \"{}\", dropping one{more}",
@@ -408,7 +409,8 @@ async fn take_channel(
             Err(Status::Offline)
         }
         Err(_) => {
-            static SLOW: crate::throttle::Throttle = crate::throttle::Throttle::new();
+            static SLOW: crate::policy::throttle::Throttle =
+                crate::policy::throttle::Throttle::new();
             if let Some(more) = SLOW.allow() {
                 warn!(
                     "{label}: client \"{}\" did not open a data channel within {}s{more}",
@@ -637,7 +639,7 @@ impl Server {
                         debug!("a connection was gone before it was accepted: {e}");
                     }
                     Err(e) => {
-                        static FAILED: crate::throttle::Throttle = crate::throttle::Throttle::new();
+                        static FAILED: crate::policy::throttle::Throttle = crate::policy::throttle::Throttle::new();
                         if let Some(more) = FAILED.allow() {
                             warn!("accept failed: {e}{more}");
                         }
@@ -1200,7 +1202,10 @@ fn log_service(name: &str, svc: &Service, addr: Option<SocketAddr>) {
         extras.push(format!("visitors: {}", svc.visitors.join(", ")));
     }
     if let Some(rate) = svc.bandwidth {
-        extras.push(format!("limited to {}", crate::ratelimit::describe(rate)));
+        extras.push(format!(
+            "limited to {}",
+            crate::policy::ratelimit::describe(rate)
+        ));
     }
     let clients = match svc.clients.as_slice() {
         [one] => format!("client \"{one}\""),

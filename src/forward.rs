@@ -7,7 +7,7 @@ use tokio::io::{AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpStream;
 
 use crate::metrics::{Counted, Traffic};
-use crate::ratelimit::{Limit, Throttled};
+use crate::policy::ratelimit::{Limit, Throttled};
 use crate::wire::protocol::Status;
 use crate::wire::record::{
     CHUNK, RecordReader, RecordWriter, SMALL, open_pump, raw_pump, relay_pump, seal_pump,

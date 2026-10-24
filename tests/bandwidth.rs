@@ -252,14 +252,14 @@ async fn a_udp_datagram_larger_than_the_burst_can_pass_an_idle_limit() {
 #[test]
 fn the_minimum_rate_named_in_the_error_is_accepted() {
     for text in ["1kb", "8kbit"] {
-        let r = burrow::ratelimit::parse_rate(text);
+        let r = burrow::policy::ratelimit::parse_rate(text);
         assert!(r.is_ok(), "{text}: {r:?}");
     }
 }
 
 #[tokio::test]
 async fn a_slow_limit_reads_in_reasonable_chunks() {
-    use burrow::ratelimit::{Limit, Throttled};
+    use burrow::policy::ratelimit::{Limit, Throttled};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     let limit = Limit::new(2_000);
     let (mut a, b) = tokio::io::duplex(1 << 20);

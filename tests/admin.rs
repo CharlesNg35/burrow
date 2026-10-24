@@ -312,7 +312,8 @@ async fn an_applied_change_keeps_comments_reloads_and_serves() {
     let w = world().await;
     let echo = common::echo_server().await;
     let mut client = common::client_settings(w.addr, w.home.clone());
-    client.allow = burrow::allowlist::AllowList::Rules(vec!["127.0.0.0/8".parse().unwrap()]);
+    client.allow =
+        burrow::policy::allowlist::AllowList::Rules(vec!["127.0.0.0/8".parse().unwrap()]);
     let mut running = common::start_client(client).await;
     common::wait_state(&mut running.state, burrow::client::State::Connected).await;
     let before = std::fs::read_to_string(&w.path).unwrap();

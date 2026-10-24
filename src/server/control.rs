@@ -105,7 +105,8 @@ pub(super) async fn control_session(
             return;
         }
         Err(Some(Some(other))) => {
-            static TWICE: crate::throttle::Throttle = crate::throttle::Throttle::new();
+            static TWICE: crate::policy::throttle::Throttle =
+                crate::policy::throttle::Throttle::new();
             if let Some(more) = TWICE.allow() {
                 warn!(
                     "client \"{name}\" from {peer} refused: a client with that name is already connected from {other}; two machines may be using the same config{more}"
@@ -219,7 +220,7 @@ fn on_off(b: bool) -> &'static str {
 }
 
 fn note_refused_targets(shared: &Shared, client: &str, rules: &[String]) {
-    use crate::allowlist::{AllowList, Rule};
+    use crate::policy::allowlist::{AllowList, Rule};
     let allow = if rules == ["any"] {
         AllowList::All
     } else {
@@ -249,7 +250,7 @@ fn note_refused_targets(shared: &Shared, client: &str, rules: &[String]) {
     if refused.is_empty() {
         return;
     }
-    static REFUSED: crate::throttle::Throttle = crate::throttle::Throttle::new();
+    static REFUSED: crate::policy::throttle::Throttle = crate::policy::throttle::Throttle::new();
     if let Some(more) = REFUSED.allow() {
         warn!(
             "client \"{client}\" does not allow the target of service {}, so it will refuse those connections; add the target to \"allow\" in the config of client \"{client}\"{more}",

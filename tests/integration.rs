@@ -2,8 +2,8 @@ mod common;
 
 use std::time::Duration;
 
-use burrow::allowlist::{AllowList, Rule};
 use burrow::client::State;
+use burrow::policy::allowlist::{AllowList, Rule};
 use burrow::wire::proxy::ProxyConfig;
 use burrow::wire::secret::Secret;
 use burrow_config::{Cipher, Protocol};
@@ -1062,7 +1062,7 @@ async fn a_udp_target_named_localhost_reaches_an_ipv4_only_listener() {
         server_settings(vec![secret.clone()]),
         vec![("dns", svc)],
         |mut c| {
-            c.allow = burrow::allowlist::AllowList::Rules(vec![
+            c.allow = burrow::policy::allowlist::AllowList::Rules(vec![
                 "[::1/128]".parse().unwrap(),
                 "127.0.0.0/8".parse().unwrap(),
             ]);

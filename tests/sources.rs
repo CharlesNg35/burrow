@@ -2,8 +2,8 @@ mod common;
 
 use std::time::Duration;
 
-use burrow::allowlist::{Cidr, Sources};
 use burrow::config::settings::Service;
+use burrow::policy::allowlist::{Cidr, Sources};
 use burrow::wire::protocol::VisitTarget;
 use burrow::wire::secret::Secret;
 use burrow_config::Protocol;

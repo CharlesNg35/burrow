@@ -3,8 +3,8 @@ mod common;
 use std::net::SocketAddr;
 use std::time::Duration;
 
-use burrow::allowlist::Sources;
 use burrow::config::settings::{Health, Service};
+use burrow::policy::allowlist::Sources;
 use burrow::wire::protocol::VisitTarget;
 use burrow::wire::secret::Secret;
 use burrow_config::Protocol;
@@ -304,7 +304,7 @@ async fn source_refusals_are_counted_in_total() {
     let mut settings = server_settings(vec![secret.clone()]);
     settings.metrics = Some("127.0.0.1:0".parse().unwrap());
     let blocked = Service {
-        sources: burrow::allowlist::Sources {
+        sources: burrow::policy::allowlist::Sources {
             allow: vec![],
             deny: vec!["127.0.0.0/8".parse().unwrap()],
         },

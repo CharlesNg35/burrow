@@ -3,9 +3,9 @@ mod common;
 use std::net::SocketAddr;
 use std::time::Duration;
 
-use burrow::allowlist::AllowList;
 use burrow::client::{Client, State};
 use burrow::config::settings::{ClientSettings, Forward, Limit, VisitorSettings};
+use burrow::policy::allowlist::AllowList;
 use burrow::wire::protocol::VisitTarget;
 use burrow::wire::secret::Secret;
 use burrow_config::Protocol;

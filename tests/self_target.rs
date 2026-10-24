@@ -4,9 +4,9 @@ use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use burrow::allowlist::{AllowList, Rule};
 use burrow::client::State;
 use burrow::config::settings::{Health, ServerSettings, Service};
+use burrow::policy::allowlist::{AllowList, Rule};
 use burrow::wire::protocol::VisitTarget;
 use burrow::wire::secret::Secret;
 use burrow_config::Protocol;

@@ -3,8 +3,8 @@ mod common;
 use std::net::SocketAddr;
 use std::time::Duration;
 
-use burrow::allowlist::{AllowList, Rule};
 use burrow::config::settings::Forward;
+use burrow::policy::allowlist::{AllowList, Rule};
 use burrow::wire::secret::Secret;
 use common::socks::*;
 use common::*;

@@ -12,7 +12,7 @@ use super::{Shared, TakeError};
 use crate::config::settings::Service;
 use crate::forward::ForwardError;
 use crate::metrics::ServiceStats;
-use crate::ratelimit::Limit;
+use crate::policy::ratelimit::Limit;
 use crate::udp::front::{self, Ending, Front, Hooks, Interrupt, Meter};
 use crate::udp::link::{Opening, open_udp};
 use crate::udp::peers::{PeerCount, PeerGauge, PeerTable};
@@ -123,7 +123,8 @@ async fn relay(
         Err(Opening::Lost) => return Err(None),
         Err(Opening::Refused(status)) => return Err(Some(status)),
         Err(Opening::Silent) => {
-            static SILENT: crate::throttle::Throttle = crate::throttle::Throttle::new();
+            static SILENT: crate::policy::throttle::Throttle =
+                crate::policy::throttle::Throttle::new();
             if let Some(more) = SILENT.allow() {
                 warn!(
                     "service \"{name}\": client \"{}\" did not answer the UDP relay within {}s; trying again{more}",
@@ -229,7 +230,7 @@ impl Hooks for PublicPort<'_> {
     }
 
     fn full(&self, from: SocketAddr) {
-        static FULL: crate::throttle::Throttle = crate::throttle::Throttle::new();
+        static FULL: crate::policy::throttle::Throttle = crate::policy::throttle::Throttle::new();
         if let Some(more) = FULL.allow() {
             warn!(
                 "service \"{}\": udp.max_peers {} reached, dropping datagram from {from}; raise udp.max_peers in server.yaml{more}",
@@ -240,7 +241,8 @@ impl Hooks for PublicPort<'_> {
     }
 
     fn stalled(&self, stall: Duration) {
-        static STALLED: crate::throttle::Throttle = crate::throttle::Throttle::new();
+        static STALLED: crate::policy::throttle::Throttle =
+            crate::policy::throttle::Throttle::new();
         if let Some(more) = STALLED.allow() {
             warn!(
                 "service \"{}\": client \"{}\" stopped reading its UDP relay for {}s; trying again{more}",

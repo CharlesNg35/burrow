@@ -47,7 +47,7 @@ pub trait Hooks {
 }
 
 pub fn too_large(from: SocketAddr, n: usize) {
-    static LARGE: crate::throttle::Throttle = crate::throttle::Throttle::new();
+    static LARGE: crate::policy::throttle::Throttle = crate::policy::throttle::Throttle::new();
     if let Some(more) = LARGE.allow() {
         tracing::debug!(
             "dropped a UDP datagram of {n} bytes from {from}: the tunnel carries at most {MAX_DATAGRAM} bytes per datagram{more}"

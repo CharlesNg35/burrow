@@ -138,7 +138,7 @@ fn a_new_self_allow_names_the_reach_connections_it_may_close() {
     let mut old = with_self("127.0.0.0/8");
     let auth = old.visitors.get_mut("ops").unwrap();
     auth.reach
-        .insert(SELF.into(), crate::allowlist::AllowList::All);
+        .insert(SELF.into(), crate::policy::allowlist::AllowList::All);
     let mut new = with_self("127.0.0.1/32");
     new.visitors = old.visitors.clone();
     let status = Status {

@@ -5,10 +5,10 @@ use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use burrow::allowlist::AllowList;
 use burrow::client::{Client, State};
 use burrow::config::settings::{ClientAuth, Health, ServerSettings, Service};
 use burrow::metrics::SetAside;
+use burrow::policy::allowlist::AllowList;
 use burrow::wire::protocol::VisitTarget;
 use burrow::wire::secret::Secret;
 use burrow::wire::transport::resolve::{Resolved, Resolver};
@@ -856,7 +856,8 @@ async fn a_denied_target_marks_the_only_client_down_but_still_tries_it() {
         settings,
         vec![("web", checked)],
         |mut c| {
-            c.allow = burrow::allowlist::AllowList::Rules(vec!["10.0.0.0/8".parse().unwrap()]);
+            c.allow =
+                burrow::policy::allowlist::AllowList::Rules(vec!["10.0.0.0/8".parse().unwrap()]);
             c
         },
         secret,

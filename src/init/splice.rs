@@ -42,7 +42,7 @@ fn is_note(line: &str) -> bool {
     };
     let rules = |list: &str| {
         list.split(", ").all(|r| {
-            r.parse::<crate::allowlist::Rule>().is_ok()
+            r.parse::<crate::policy::allowlist::Rule>().is_ok()
                 || r.ends_with('…')
                 || r.strip_prefix("and ")
                     .and_then(|n| n.strip_suffix(" more"))

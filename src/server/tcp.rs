@@ -31,7 +31,8 @@ pub(super) async fn tcp_service(
                 continue;
             }
             Err(e) => {
-                static FAILED: crate::throttle::Throttle = crate::throttle::Throttle::new();
+                static FAILED: crate::policy::throttle::Throttle =
+                    crate::policy::throttle::Throttle::new();
                 if let Some(more) = FAILED.allow() {
                     warn!("service \"{name}\": accept failed: {e}{more}");
                 }
@@ -194,7 +195,8 @@ pub(super) fn log_refusal(label: &str, client: &str, target: &str, error: &Forwa
     match error {
         ForwardError::Status(st) => log_status(label, client, target, *st),
         ForwardError::Protocol => {
-            static INVALID: crate::throttle::Throttle = crate::throttle::Throttle::new();
+            static INVALID: crate::policy::throttle::Throttle =
+                crate::policy::throttle::Throttle::new();
             if let Some(more) = INVALID.allow() {
                 warn!("{label}: client \"{client}\" sent an invalid reply{more}");
             }
@@ -204,7 +206,7 @@ pub(super) fn log_refusal(label: &str, client: &str, target: &str, error: &Forwa
 }
 
 pub(super) fn log_status(label: &str, client: &str, target: &str, st: Status) {
-    static STATUS: crate::throttle::Throttle = crate::throttle::Throttle::new();
+    static STATUS: crate::policy::throttle::Throttle = crate::policy::throttle::Throttle::new();
     if st == Status::Ok {
         return;
     }
