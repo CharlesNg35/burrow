@@ -5,14 +5,20 @@ use std::time::Duration;
 use burrow::config::settings::Service;
 use burrow::policy::allowlist::AllowList;
 use burrow::wire::secret::Secret;
-use burrow_config::{Mode, Protocol};
-use tokio::net::{TcpListener, TcpStream};
+#[cfg(target_os = "linux")]
+use burrow_config::Mode;
+use burrow_config::Protocol;
+#[cfg(target_os = "linux")]
+use tokio::net::TcpListener;
+use tokio::net::TcpStream;
 use tokio::task::JoinHandle;
 
 use super::common::*;
 use super::health::{tagged_udp_echo, udp_tag};
 use super::selection::aside;
-use super::{Farm, TARGET, quick_health, web};
+use super::{Farm, TARGET};
+#[cfg(target_os = "linux")]
+use super::{quick_health, web};
 
 async fn deaf_client(
     server: SocketAddr,

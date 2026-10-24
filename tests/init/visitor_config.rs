@@ -8,8 +8,10 @@ use burrow::init::{InitOptions, client_config};
 
 use super::common;
 use super::common::*;
+use super::load;
+#[cfg(unix)]
+use super::mode;
 use super::server_init::Answers;
-use super::{load, mode};
 
 #[test]
 fn visitor_init_asks_for_what_is_missing_and_validates() {

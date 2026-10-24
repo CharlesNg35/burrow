@@ -1,10 +1,16 @@
+#[cfg(unix)]
 use std::net::SocketAddr;
+#[cfg(unix)]
 use std::time::Duration;
 
+#[cfg(unix)]
 use burrow::wire::secret::Secret;
+#[cfg(unix)]
 use tokio::net::TcpStream;
 
+#[cfg(unix)]
 use super::live::free_local;
+#[cfg(unix)]
 use super::process;
 
 #[cfg(unix)]

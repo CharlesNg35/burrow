@@ -8,7 +8,9 @@ use burrow::init::{InitOptions, client_config, init_client, init_server};
 
 use super::common;
 use super::common::*;
-use super::{load, mode};
+use super::load;
+#[cfg(unix)]
+use super::mode;
 
 #[test]
 fn server_init_is_valid_private_and_not_overwritten() {

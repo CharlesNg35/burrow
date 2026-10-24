@@ -8,8 +8,10 @@ use burrow_config::Protocol;
 use tokio::net::TcpStream;
 
 use super::common::*;
+#[cfg(unix)]
+use super::eventually;
 use super::process;
-use super::{Live, echoes, eventually};
+use super::{Live, echoes};
 
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
