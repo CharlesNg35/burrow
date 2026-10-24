@@ -120,7 +120,7 @@ async fn other_requests_on_a_tunnel_name_get_404_or_426() {
     );
     let _ = big.write_all(huge.as_bytes()).await;
     let h = head(&mut big).await;
-    assert!(h.is_empty() || h.starts_with("HTTP/1.1 431"), "{h}");
+    assert!(h.starts_with("HTTP/1.1 431"), "a head over 8 KiB: {h}");
 }
 
 #[tokio::test]
