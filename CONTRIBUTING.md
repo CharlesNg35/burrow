@@ -6,8 +6,9 @@ These rules apply to all code in this repository, now and in the future. `cargo 
 
 - A source file has at most 600 lines of code, not counting its inline test module. Aim for under 400.
 - An inline test module has at most 300 lines. A longer one moves to a sibling `tests.rs`.
-- A test file has at most 1000 lines. A longer one becomes a folder.
-- A function has at most 150 lines; CI rejects longer ones. Aim for 100 or less in new code, and bring an older function under 100 when you change it.
+- A test file has at most 1000 lines. A longer one becomes a folder of modules. Test files are everything under a `tests/` folder, every `tests.rs`, and every file that starts with `#![cfg(test)]`.
+- A function has at most 150 lines; clippy's `too_many_lines` denies longer ones in every crate. Aim for 100 or less in new code, and bring an older function under 100 when you change it.
+- `cargo xtask arch-check` enforces the file limits, with no exceptions.
 - Split by responsibility: one clear job per file, not many tiny files.
 - Write new code within these limits from the start, instead of splitting it later.
 
@@ -17,11 +18,11 @@ The `burrow` crate is built in layers, from the bottom up:
 
 | Layer | What it holds |
 |---|---|
-| base | generic helpers: errors, output, files, processes, ports |
+| base | generic helpers: errors, output, files, processes, prompts, ports |
 | wire | secrets, encryption, records, the protocol, transports |
 | config | the config, its checks, policies, install records, metrics |
-| roles | forwarding, the server, the client, the visitor |
-| ops | services, update, edit, init, status, admin, the CLI |
+| roles | dialing, forwarding, UDP relays, the server, the client, the visitor |
+| ops | services, instances, update, edit, init, status, admin, the CLI |
 
 - A lower layer never imports a higher one, and no two modules import each other.
 - Each crate in `crates/` has a fixed list of crates it may depend on.
@@ -30,7 +31,8 @@ The `burrow` crate is built in layers, from the bottom up:
 ## Comments
 
 - No code comments: no `//` and no `///`.
-- One exception: at the top of each crate's `lib.rs` or `main.rs`, and of each layer folder's `mod.rs`, a `//!` header of at most 3 lines. It says what the unit is for and what it must not depend on.
+- One exception: a `//!` header of at most 3 lines, as the very first lines of each crate's `lib.rs` or `main.rs` (`burrow`, every crate in `crates/`, and `xtask`) and of each layer folder's `mod.rs` (`base`, `wire`, `policy`, `app`). Each of these files has one. It says what the unit is for and what it must not depend on.
+- `cargo xtask arch-check` enforces the comment rule.
 - Longer explanations belong in `docs/`, and the reasons for design choices in `docs/decisions.md`.
 
 ## Changes
