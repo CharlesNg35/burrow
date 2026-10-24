@@ -179,7 +179,7 @@ async fn invalid_reload_is_rejected_and_old_config_kept() {
     tokio::spawn(burrow::reload::follow(
         path.clone(),
         initial,
-        burrow::run::Env::default(),
+        burrow::config::env::Env::default(),
         burrow::reload::accept(),
         tx,
     ));
@@ -949,7 +949,7 @@ async fn a_symlinked_config_is_followed_through_its_links() {
     tokio::spawn(burrow::reload::follow(
         path.clone(),
         initial,
-        burrow::run::Env::default(),
+        burrow::config::env::Env::default(),
         burrow::reload::accept(),
         tx,
     ));
@@ -1041,7 +1041,7 @@ async fn a_save_between_start_and_the_file_watch_is_not_missed() {
     tokio::spawn(burrow::reload::follow(
         path.clone(),
         started,
-        burrow::run::Env::default(),
+        burrow::config::env::Env::default(),
         burrow::reload::accept(),
         tx,
     ));

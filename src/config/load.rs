@@ -5,7 +5,7 @@ use super::env::{EnvSource, expand};
 use super::schema::Checker;
 use super::settings::{ClientSettings, ServerSettings, VisitorSettings};
 use super::tree::{self, Node, Pos, Span, Value};
-use crate::diagnostics::{Diagnostic, Report};
+use crate::config::diagnostics::{Diagnostic, Report};
 use burrow_config::{ClientConfig, ServerConfig, VisitorConfig};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -150,7 +150,7 @@ pub fn load_file(
         .diagnostics
         .iter()
         .any(|d| d.code == "syntax")
-        && let Some(spare) = crate::edit::save::spare_next_to(path)
+        && let Some(spare) = crate::config::save::spare_next_to(path)
     {
         outcome.report.push(
             Diagnostic::warning(

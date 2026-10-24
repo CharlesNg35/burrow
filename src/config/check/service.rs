@@ -7,7 +7,7 @@ use super::{
     MAX_TARGET_LEN, SENSITIVE_PORTS, Spans, name_error, parse_host_port, unix, valid_name,
 };
 use crate::allowlist::{Cidr, Sources};
-use crate::diagnostics::Diagnostic;
+use crate::config::diagnostics::Diagnostic;
 use burrow_config::{HealthCheck, HealthCheckSetting, Mode, Protocol, ServiceEntry};
 
 pub(super) struct Taken<'a> {
@@ -70,7 +70,7 @@ pub(super) fn check_service<'a>(
                 "range-mismatch",
                 format!(
                     "service \"{name}\" binds {bind_ports} {} but targets {target_ports}",
-                    crate::diagnostics::plural(bind_ports.into(), "port")
+                    crate::config::diagnostics::plural(bind_ports.into(), "port")
                 ),
             )
             .at(spans.value(&path("target")))

@@ -95,7 +95,7 @@ pub fn init_visitor(
         "wrote {} with {} {}:\n",
         path.display(),
         planned.forwards.len(),
-        crate::diagnostics::plural(planned.forwards.len(), "forward")
+        crate::config::diagnostics::plural(planned.forwards.len(), "forward")
     );
     text.push_str(&listing(&planned.forwards, &notes, |_| ("", "")));
     if let Some(line) = left_out(&planned) {
@@ -162,7 +162,7 @@ fn update_visitor(
             "{} is up to date ({} {})",
             path.display(),
             planned.forwards.len(),
-            crate::diagnostics::plural(planned.forwards.len(), "forward")
+            crate::config::diagnostics::plural(planned.forwards.len(), "forward")
         );
         if let Some(line) = left_out(&planned) {
             text.push_str(&format!("\n{line}"));
@@ -235,13 +235,13 @@ fn update_visitor(
         ))
         .hint("this is likely a burrow bug; please report it with the file (without its secret)"));
     }
-    crate::edit::save::write_back(&path, &text, &next).map_err(|e| match e {
-        crate::edit::save::Refused::Changed => Failure::new(format!(
+    crate::config::save::write_back(&path, &text, &next).map_err(|e| match e {
+        crate::config::save::Refused::Changed => Failure::new(format!(
             "{} changed while burrow was asking the server; nothing was written",
             path.display()
         ))
         .hint("run the update again"),
-        crate::edit::save::Refused::Io(e) => Failure::new(format!(
+        crate::config::save::Refused::Io(e) => Failure::new(format!(
             "cannot write {}: {}",
             path.display(),
             crate::base::failure::file_reason(&e)

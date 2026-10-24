@@ -7,7 +7,7 @@ use super::connection::{Connection, Dial, check_connection};
 use super::server::insecure_warning;
 use super::{Spans, name_error, secret_error, tuning, unix, valid_name};
 use crate::allowlist::{AllowList, Rule};
-use crate::diagnostics::Diagnostic;
+use crate::config::diagnostics::Diagnostic;
 use crate::wire::secret::Secret;
 use burrow_config::{ClientConfig, OnRejected};
 use burrow_syntax::endpoint::Endpoint;

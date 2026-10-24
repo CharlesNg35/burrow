@@ -61,7 +61,7 @@ async fn run(args: Vec<String>) -> Result<(), String> {
                 .into(),
         );
     };
-    let env = burrow::run::Env::default();
+    let env = burrow::config::env::Env::default();
     let outcome = load_file(std::path::Path::new(config), Some(Role::Visitor), &env)
         .map_err(|e| e.describe(std::path::Path::new(config)).0)?;
     let Some(Loaded::Visitor(settings, _)) = outcome.loaded else {

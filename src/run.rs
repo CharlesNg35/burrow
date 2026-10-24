@@ -9,11 +9,11 @@ use tracing::error;
 use crate::base::failure::Failure;
 use crate::base::style::Style;
 use crate::client::{Client, RunEnd};
-use crate::config::env::EnvSource;
+use crate::config::env::Env;
+use crate::config::validate::startup_report;
 use crate::config::{Loaded, Role, load_file};
 use crate::instance::{self, Identity};
 use crate::server::Server;
-use crate::validate::startup_report;
 use crate::visitor::{Pick, Visitor};
 
 #[derive(Debug, Clone)]
@@ -62,24 +62,6 @@ pub fn init_logging(l: &Logging) -> Result<(), Failure> {
     Ok(())
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct Env(Arc<BTreeMap<String, String>>);
-
-impl Env {
-    pub fn with(vars: BTreeMap<String, String>) -> Env {
-        Env(Arc::new(vars))
-    }
-}
-
-impl EnvSource for Env {
-    fn get(&self, name: &str) -> Option<String> {
-        self.0
-            .get(name)
-            .cloned()
-            .or_else(|| std::env::var(name).ok())
-    }
-}
-
 pub struct Hosted {
     pub stop: Option<watch::Receiver<bool>>,
     pub env: Env,
@@ -113,7 +95,7 @@ fn load(path: &Path, role: Role, env: &Env, quiet: &[&str]) -> Result<Loaded, Fa
             "{} has {} {}, not starting",
             path.display(),
             outcome.report.error_count(),
-            crate::diagnostics::plural(outcome.report.error_count(), "error")
+            crate::config::diagnostics::plural(outcome.report.error_count(), "error")
         ))
         .hint(format!(
             "fix them, then check again with: {}",

@@ -4,7 +4,7 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use super::super::settings::Service;
 use super::{Spans, parse_host_port, unix};
 use crate::allowlist::{AllowList, Gate, NetRule, Refusal, Rule};
-use crate::diagnostics::Diagnostic;
+use crate::config::diagnostics::Diagnostic;
 use burrow_config::SELF;
 use burrow_config::{Protocol, ServerConfig};
 

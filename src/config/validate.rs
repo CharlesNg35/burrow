@@ -2,9 +2,9 @@ use std::path::Path;
 
 use crate::base::failure::Failure;
 use crate::base::style::Style;
+use crate::config::diagnostics::{Diagnostic, Report};
 use crate::config::env::EnvSource;
 use crate::config::{Loaded, Outcome, Role, load_file};
-use crate::diagnostics::{Diagnostic, Report};
 
 pub struct Validation {
     pub outcome: Outcome,
@@ -32,7 +32,7 @@ pub fn summary_line(outcome: &Outcome, strict: bool) -> String {
     let r = &outcome.report;
     let w = r.warning_count();
     let warn = if w > 0 {
-        format!(", {w} {}", crate::diagnostics::plural(w, "warning"))
+        format!(", {w} {}", crate::config::diagnostics::plural(w, "warning"))
     } else {
         String::new()
     };
@@ -40,15 +40,15 @@ pub fn summary_line(outcome: &Outcome, strict: bool) -> String {
         Some(Loaded::Server(s, _)) if !(strict && w > 0) => {
             let visitors = match s.visitors.len() {
                 0 => String::new(),
-                n => format!(", {n} {}", crate::diagnostics::plural(n, "visitor")),
+                n => format!(", {n} {}", crate::config::diagnostics::plural(n, "visitor")),
             };
             format!(
                 "{}: valid server config ({} {}{visitors}, {} {}){warn}",
                 r.file,
                 s.clients.len(),
-                crate::diagnostics::plural(s.clients.len(), "client"),
+                crate::config::diagnostics::plural(s.clients.len(), "client"),
                 s.services.len(),
-                crate::diagnostics::plural(s.services.len(), "service"),
+                crate::config::diagnostics::plural(s.services.len(), "service"),
             )
         }
         Some(Loaded::Client(s, _)) if !(strict && w > 0) => {
@@ -59,12 +59,12 @@ pub fn summary_line(outcome: &Outcome, strict: bool) -> String {
             r.file,
             s.name,
             s.forwards.len(),
-            crate::diagnostics::plural(s.forwards.len(), "forward"),
+            crate::config::diagnostics::plural(s.forwards.len(), "forward"),
         ),
         _ if strict && !r.has_errors() => format!(
             "{}: {w} {} (failing because of --strict)",
             r.file,
-            crate::diagnostics::plural(w, "warning")
+            crate::config::diagnostics::plural(w, "warning")
         ),
         _ => r.summary(),
     }
@@ -89,7 +89,7 @@ pub fn render_json(outcome: &Outcome, strict: bool) -> String {
 }
 
 pub fn unreadable_json(path: &Path, f: &Failure, strict: bool) -> String {
-    let mut report = crate::diagnostics::Report::new(path.display().to_string(), "");
+    let mut report = crate::config::diagnostics::Report::new(path.display().to_string(), "");
     let mut d = Diagnostic::error("read", f.message.clone()).without_snippet();
     if let Some(h) = &f.hint {
         d = d.help(h.clone());

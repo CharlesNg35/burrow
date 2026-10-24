@@ -8,10 +8,10 @@ use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
 use crate::base::style::Style;
+use crate::config::env::Env;
 use crate::config::settings::{ClientSettings, ServerSettings, VisitorSettings};
+use crate::config::validate::startup_report;
 use crate::config::{Loaded, Role, load_file};
-use crate::run::Env;
-use crate::validate::startup_report;
 
 pub trait Watched: Clone + PartialEq + Send + 'static {
     const ROLE: Role;
@@ -226,7 +226,7 @@ pub async fn follow_nudged<S: Watched>(
                     "{} has {} {}",
                     path.display(),
                     outcome.report.error_count(),
-                    crate::diagnostics::plural(outcome.report.error_count(), "error")
+                    crate::config::diagnostics::plural(outcome.report.error_count(), "error")
                 );
                 let report = outcome.report.render_text(style);
                 if asked || rejected.as_ref() != Some(&report) {

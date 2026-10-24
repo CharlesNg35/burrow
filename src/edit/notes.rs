@@ -1,4 +1,4 @@
-use crate::diagnostics::{Diagnostic, Severity};
+use crate::config::diagnostics::{Diagnostic, Severity};
 
 const MARK: &str = "# burrow edit:";
 

@@ -4,7 +4,6 @@ mod editor;
 mod found;
 mod notes;
 mod pick;
-pub(crate) mod save;
 mod source;
 
 use std::collections::BTreeMap;
@@ -16,8 +15,9 @@ use crate::base::failure::{Failure, admin, cmd, file_reason};
 use crate::base::prompt::Prompter;
 use crate::base::style::Style;
 use crate::config::Format;
+use crate::config::diagnostics::Severity;
 use crate::config::env::{EnvSource, ProcessEnv};
-use crate::diagnostics::Severity;
+use crate::config::save;
 use draft::Draft;
 use found::{Found, Origin};
 

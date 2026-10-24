@@ -155,7 +155,7 @@ fn ports_of(svc: &Service) -> String {
 fn connections(n: u64) -> String {
     format!(
         "{n} open {}",
-        crate::diagnostics::plural(n as usize, "connection")
+        crate::config::diagnostics::plural(n as usize, "connection")
     )
 }
 

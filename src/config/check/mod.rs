@@ -16,7 +16,7 @@ use std::net::SocketAddr;
 use std::time::Duration;
 
 use super::tree::{Node, Span, Value};
-use crate::diagnostics::Diagnostic;
+use crate::config::diagnostics::Diagnostic;
 use crate::wire::secret::SecretError;
 use crate::wire::transport::tcp::SocketTuning;
 use burrow_config::{Bind, TcpOptions};

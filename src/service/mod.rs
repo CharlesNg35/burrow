@@ -18,6 +18,7 @@ use std::path::{Path, PathBuf};
 
 use crate::base::failure::Failure;
 use crate::base::style::Style;
+use crate::config::env::referenced_env;
 use crate::config::{Loaded, Role, load_file};
 use crate::install::{Manifest, Platform, all_manifests, load_manifest, manifest_path};
 use crate::instance::Identity;
@@ -172,27 +173,6 @@ pub fn service_name(config: &Path, given: Option<&str>) -> Result<String, Failur
 
 const OWN_FOLDERS: [&str; 5] = ["services", "jobs", "logs", "bin", "instances"];
 
-pub fn referenced_env(src: &str) -> Vec<String> {
-    fn values(n: &crate::config::tree::Node, out: &mut String) {
-        use crate::config::tree::Value;
-        match &n.value {
-            Value::Str(s) => {
-                out.push_str(s);
-                out.push('\n');
-            }
-            Value::Seq(items) => items.iter().for_each(|i| values(i, out)),
-            Value::Map(entries) => entries.iter().for_each(|e| values(&e.value, out)),
-            _ => {}
-        }
-    }
-    let mut text = String::new();
-    match crate::config::tree::parse(src) {
-        Ok(root) => values(&root, &mut text),
-        Err(_) => text.push_str(src),
-    }
-    burrow_syntax::env::names(&text)
-}
-
 struct Uses {
     listens: Vec<(Protocol, SocketAddr, String)>,
     files: Vec<(String, PathBuf)>,
@@ -241,7 +221,7 @@ fn uses(loaded: &Loaded) -> Uses {
     Uses { listens, files }
 }
 
-pub fn misfits(name: &str, loaded: &Loaded) -> Vec<crate::diagnostics::Diagnostic> {
+pub fn misfits(name: &str, loaded: &Loaded) -> Vec<crate::config::diagnostics::Diagnostic> {
     match (system::backend(), load_manifest(name)) {
         (Ok(backend), Ok(m)) => misfits_of(&*backend, &m, loaded),
         _ => Vec::new(),
@@ -256,7 +236,7 @@ fn misfits_of(
     backend: &dyn Backend,
     m: &Manifest,
     loaded: &Loaded,
-) -> Vec<crate::diagnostics::Diagnostic> {
+) -> Vec<crate::config::diagnostics::Diagnostic> {
     let name = &m.name;
     let again = format!(
         "make the change in {} and install it again: {}",
@@ -273,7 +253,7 @@ fn misfits_of(
         .collect();
     if !low.is_empty() && !backend.low_ports(m) {
         out.push(
-            crate::diagnostics::Diagnostic::error(
+            crate::config::diagnostics::Diagnostic::error(
                 "service-unit",
                 format!(
                     "{name} was installed without permission for ports below 1024, so {} would fail when it restarts",
@@ -287,7 +267,7 @@ fn misfits_of(
         && let Some(first) = admins.first()
     {
         out.push(
-            crate::diagnostics::Diagnostic::warning(
+            crate::config::diagnostics::Diagnostic::warning(
                 "service-admin-read-only",
                 format!(
                     "visitor {first} has admin access, but {name} was installed without permission to change its config, so burrow admin is read-only"
@@ -302,7 +282,7 @@ fn misfits_of(
     for (field, file) in &files {
         if let Some(why) = backend.cannot_use(m, file) {
             out.push(
-                crate::diagnostics::Diagnostic::error(
+                crate::config::diagnostics::Diagnostic::error(
                     "service-unit",
                     format!("{name} cannot use {field} ({}): {why}", file.display()),
                 )
@@ -2763,19 +2743,5 @@ mod tests {
         assert!(v("1.0.0-1") < v("1.0.0-2"));
         assert!(v("1.0.0-1") < v("1.0.0-a"));
         assert_eq!(parse_version("1.0.0-"), None);
-    }
-
-    #[test]
-    fn finds_referenced_environment_variables() {
-        let src =
-            "secret: ${HOME_SECRET}\nx: $${NOT_THIS}\nheaders: {a: ${TOKEN}, b: ${HOME_SECRET}}\n";
-        assert_eq!(
-            referenced_env(src),
-            vec!["HOME_SECRET".to_string(), "TOKEN".to_string()]
-        );
-        let commented = "# old: ${GONE}\nsecret: ${HOME_SECRET} # was ${OLD}\n";
-        assert_eq!(referenced_env(commented), vec!["HOME_SECRET".to_string()]);
-        let json = "{\"secret\": \"${HOME_SECRET}\"}";
-        assert_eq!(referenced_env(json), vec!["HOME_SECRET".to_string()]);
     }
 }

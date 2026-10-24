@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use super::Spans;
-use crate::diagnostics::Diagnostic;
+use crate::config::diagnostics::Diagnostic;
 use crate::wire::proxy::ProxyConfig;
 use burrow_syntax::endpoint::Endpoint;
 

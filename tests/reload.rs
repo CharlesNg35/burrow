@@ -630,7 +630,7 @@ async fn replacing_the_ca_file_reloads_the_client() {
     tokio::spawn(burrow::reload::follow(
         config.clone(),
         (*settings).clone(),
-        burrow::run::Env::default(),
+        burrow::config::env::Env::default(),
         burrow::reload::accept(),
         tx,
     ));

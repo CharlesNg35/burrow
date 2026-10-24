@@ -14,7 +14,7 @@ use super::{
 };
 use crate::allowlist::AllowList;
 use crate::base::suggest::{closest, quoted_list};
-use crate::diagnostics::Diagnostic;
+use crate::config::diagnostics::Diagnostic;
 use crate::wire::noise::MAX_SECRETS_PER_CLIENT;
 use crate::wire::secret::Secret;
 use burrow_config::SELF;

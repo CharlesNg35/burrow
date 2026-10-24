@@ -4,10 +4,10 @@ use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use burrow::config::env::Env;
 use burrow::config::env::ProcessEnv;
 use burrow::config::{Loaded, Role, load_file};
 use burrow::reload::{accept, follow};
-use burrow::run::Env;
 use burrow::server::Server;
 use burrow::wire::secret::Secret;
 use burrow::wire::transport::tls;

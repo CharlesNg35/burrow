@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use super::save;
+use crate::config::save;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Source {

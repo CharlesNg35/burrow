@@ -2,7 +2,7 @@ use serde_json::{Map, Value as J};
 
 use super::tree::{Entry, Node, Span, Value};
 use crate::base::suggest::{closest, quoted_list};
-use crate::diagnostics::Diagnostic;
+use crate::config::diagnostics::Diagnostic;
 
 pub struct Checker<'a> {
     root: &'a J,

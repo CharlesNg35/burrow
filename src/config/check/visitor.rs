@@ -10,7 +10,7 @@ use super::{
     MAX_TARGET_LEN, Spans, name_error, parse_host_port, parse_local, secret_error, tuning, unix,
     valid_name,
 };
-use crate::diagnostics::Diagnostic;
+use crate::config::diagnostics::Diagnostic;
 use crate::wire::protocol::VisitTarget;
 use crate::wire::secret::Secret;
 use burrow_config::{ForwardEntry, Protocol, VisitorConfig};
@@ -112,7 +112,7 @@ pub fn check_visitor(
                         "range-mismatch",
                         format!(
                             "forward \"{name}\" listens on {ports} {} but targets {}",
-                            crate::diagnostics::plural(ports.into(), "port"),
+                            crate::config::diagnostics::plural(ports.into(), "port"),
                             target_ports.unwrap_or(1)
                         ),
                     )

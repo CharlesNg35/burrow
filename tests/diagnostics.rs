@@ -19,7 +19,7 @@ fn render(name: &str, src: &str, role: Option<Role>) -> String {
     };
     let o = load_str(name, src, format, role, &env);
     let mut text = o.report.render_text(Style { color: false });
-    text.push_str(&burrow::validate::summary_line(&o, false));
+    text.push_str(&burrow::config::validate::summary_line(&o, false));
     for s in [SECRET, SECRET2] {
         assert!(!text.contains(s), "secret leaked in diagnostics:\n{text}");
     }

@@ -64,7 +64,7 @@ async fn world_checked(
         free_port()
     );
     burrow::base::fs::write_private(&path, &text).unwrap();
-    let env = burrow::run::Env::default();
+    let env = burrow::config::env::Env::default();
     let outcome = load_file(&path, Some(Role::Server), &env).unwrap();
     let report = outcome
         .report

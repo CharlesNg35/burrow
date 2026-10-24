@@ -1,8 +1,8 @@
 use burrow_admin_proto::diag::{Diag, Severity};
 use burrow_config::{Entry, ServiceEntry};
 
+use crate::config::diagnostics::{Diagnostic, mask_text};
 use crate::config::tree::{Node, Span, Value};
-use crate::diagnostics::{Diagnostic, mask_text};
 
 struct Place {
     path: Vec<String>,
@@ -104,8 +104,8 @@ impl Mapper {
         let also = also(d, path.as_deref());
         Diag {
             severity: match d.severity {
-                crate::diagnostics::Severity::Error => Severity::Error,
-                crate::diagnostics::Severity::Warning => Severity::Warning,
+                crate::config::diagnostics::Severity::Error => Severity::Error,
+                crate::config::diagnostics::Severity::Warning => Severity::Warning,
             },
             code: d.code.to_string(),
             message: mask_text(&d.message),

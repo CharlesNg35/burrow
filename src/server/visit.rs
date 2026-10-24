@@ -84,7 +84,7 @@ impl Shared {
                             "visitor \"{visitor}\" asked for port {} of service \"{name}\", which has {} {}",
                             index + 1,
                             svc.ports.max(1),
-                            crate::diagnostics::plural(svc.ports.max(1).into(), "port")
+                            crate::config::diagnostics::plural(svc.ports.max(1).into(), "port")
                         ),
                     });
                 }

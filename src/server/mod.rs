@@ -984,8 +984,8 @@ impl Server {
         };
         let summary = format!(
             "config reloaded ({c} {}, {v} {}{what})",
-            crate::diagnostics::plural(c, "client"),
-            crate::diagnostics::plural(v, "service")
+            crate::config::diagnostics::plural(c, "client"),
+            crate::config::diagnostics::plural(v, "service")
         );
         let restart: Vec<&'static str> = changed
             .iter()

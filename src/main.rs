@@ -241,7 +241,7 @@ fn visit_pick(args: burrow::cli::VisitArgs) -> Result<burrow::visitor::Pick, Fai
             {
                 return Err(Failure::usage(format!(
                     "--target has {ports} {} but --local has {n}",
-                    burrow::diagnostics::plural(ports.into(), "port")
+                    burrow::config::diagnostics::plural(ports.into(), "port")
                 ))
                 .hint("give --local and --target ranges of the same size"));
             }
@@ -358,7 +358,7 @@ fn run(cli: Cli) -> Result<u8, Failure> {
     match cli.command {
         Command::Validate(args) => {
             let path = config_path(args.config, args.role.map(role))?;
-            let v = match burrow::validate::validate(
+            let v = match burrow::config::validate::validate(
                 &path,
                 args.role.map(role),
                 args.strict,
@@ -366,16 +366,22 @@ fn run(cli: Cli) -> Result<u8, Failure> {
             ) {
                 Ok(v) => v,
                 Err(f) if matches!(args.format, OutputFormat::Json) => {
-                    print(&burrow::validate::unreadable_json(&path, &f, args.strict))?;
+                    print(&burrow::config::validate::unreadable_json(
+                        &path,
+                        &f,
+                        args.strict,
+                    ))?;
                     return Ok(f.exit);
                 }
                 Err(f) => return Err(f),
             };
             let text = match args.format {
                 OutputFormat::Text => {
-                    burrow::validate::render_text(&v.outcome, args.strict, out_style)
+                    burrow::config::validate::render_text(&v.outcome, args.strict, out_style)
                 }
-                OutputFormat::Json => burrow::validate::render_json(&v.outcome, args.strict),
+                OutputFormat::Json => {
+                    burrow::config::validate::render_json(&v.outcome, args.strict)
+                }
             };
             print(&text)?;
             Ok(v.exit)
@@ -580,7 +586,7 @@ fn admin(args: burrow::cli::AdminArgs) -> Result<u8, Failure> {
         };
     let found = choose(args.config, here, &services, args.service.as_deref())?;
     let (path, env) = match found {
-        Found::File(p) => (p, burrow::run::Env::default()),
+        Found::File(p) => (p, burrow::config::env::Env::default()),
         Found::Service(s) => {
             let readable = |p: &std::path::Path| {
                 std::fs::File::open(p)
@@ -600,7 +606,7 @@ fn admin(args: burrow::cli::AdminArgs) -> Result<u8, Failure> {
                 s.name,
                 s.config.display()
             );
-            (s.config, burrow::run::Env::with(env))
+            (s.config, burrow::config::env::Env::with(env))
         }
     };
     let opts = burrow::admin_local::Options {
@@ -614,9 +620,9 @@ fn admin(args: burrow::cli::AdminArgs) -> Result<u8, Failure> {
     burrow::run::admin(&path, env, opts)
 }
 
-fn run_env(file: Option<&std::path::Path>) -> Result<burrow::run::Env, Failure> {
+fn run_env(file: Option<&std::path::Path>) -> Result<burrow::config::env::Env, Failure> {
     match file {
         Some(f) => burrow::run::env_file(f),
-        None => Ok(burrow::run::Env::default()),
+        None => Ok(burrow::config::env::Env::default()),
     }
 }

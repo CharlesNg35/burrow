@@ -20,7 +20,8 @@ use windows_service::service_manager::{ServiceManager, ServiceManagerAccess};
 use super::{Backend, Manifest, Platform, Status};
 use crate::base::failure::Failure;
 use crate::base::process::run;
-use crate::run::{Env, Hosted, Logging};
+use crate::config::env::Env;
+use crate::run::{Hosted, Logging};
 
 const SYSTEM: &str = "*S-1-5-18";
 const ADMINS: &str = "*S-1-5-32-544";

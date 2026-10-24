@@ -78,7 +78,7 @@ pub fn pick(settings: &mut VisitorSettings, choice: Pick, config: &str) -> Resul
                     return Err(Failure::usage(format!(
                         "forward \"{name}\" has {} {}, but --local has {ports}",
                         forward.ports,
-                        crate::diagnostics::plural(forward.ports.into(), "port")
+                        crate::config::diagnostics::plural(forward.ports.into(), "port")
                     ))
                     .hint("give --local a range of the same size"));
                 }
