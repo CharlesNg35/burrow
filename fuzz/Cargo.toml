@@ -14,6 +14,7 @@ libfuzzer-sys = "0.4"
 burrow = { path = ".." }
 burrow-config = { path = "../crates/burrow-config" }
 burrow-syntax = { path = "../crates/burrow-syntax" }
+burrow-web = { path = "../crates/burrow-web" }
 serde_json = { version = "1", features = ["preserve_order"] }
 tokio = { version = "1", features = ["rt", "io-util"] }
 
@@ -68,3 +69,17 @@ bench = false
 
 [lints.clippy]
 too_many_lines = "deny"
+
+[[bin]]
+name = "sni_peek"
+path = "fuzz_targets/sni_peek.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "proxy_header"
+path = "fuzz_targets/proxy_header.rs"
+test = false
+doc = false
+bench = false
