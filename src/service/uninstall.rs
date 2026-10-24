@@ -77,8 +77,20 @@ pub fn uninstall(name: Option<&str>, purge: bool, out: &mut dyn Write) -> Result
     );
     let mut kept = Vec::new();
     let mut kept_folder = None;
+    let state = m.web_state.clone().filter(|d| real_dir(d));
     if purge {
         purge_files(&m, &logs, out)?;
+        if let Some(d) = &state
+            && std::fs::remove_dir_all(d).is_ok()
+        {
+            say(
+                out,
+                format!(
+                    "removed {}: the Let's Encrypt account and certificates",
+                    d.display()
+                ),
+            )?;
+        }
     } else {
         kept.extend(
             [Some(&m.config), m.env_file.as_ref()]
@@ -119,6 +131,10 @@ pub fn uninstall(name: Option<&str>, purge: bool, out: &mut dyn Write) -> Result
     } else if last_account_user {
         #[cfg(unix)]
         give_kept_to_root(&m, &kept, kept_folder.as_deref());
+        #[cfg(unix)]
+        if let Some(d) = state.as_deref().filter(|_| !purge) {
+            system::own_tree(d, 0, 0);
+        }
         account_left = remove_service_account(&*backend, &m, out)?;
     }
     if !kept.is_empty() || kept_folder.is_some() {
@@ -127,6 +143,16 @@ pub fn uninstall(name: Option<&str>, purge: bool, out: &mut dyn Write) -> Result
             format!(
                 "kept these files for a later reinstall; delete them with:\n  {}",
                 delete_hint(&kept, kept_folder.as_deref())
+            ),
+        )?;
+    }
+    if let Some(d) = state.as_deref().filter(|_| !purge) {
+        say(
+            out,
+            format!(
+                "kept {}, the Let's Encrypt account and certificates, for a later reinstall; delete it with:\n  {}",
+                d.display(),
+                delete_hint(&[], Some(d))
             ),
         )?;
     }

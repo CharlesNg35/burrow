@@ -75,6 +75,10 @@ fn plist(m: &Manifest) -> String {
         args.push("--env-file".into());
         args.push(env.display().to_string());
     }
+    if let Some(dir) = &m.web_state {
+        args.push("--state-dir".into());
+        args.push(dir.display().to_string());
+    }
     let mut s = String::from(
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\">\n<dict>\n",
     );
@@ -427,6 +431,7 @@ mod tests {
             files: vec![],
             version: "0.1.0".into(),
             admin_writable: false,
+            web_state: None,
         };
         let p = plist(&Manifest {
             env_file: Some("/etc/burrow/home.env".into()),
@@ -450,5 +455,13 @@ mod tests {
             plist(&visitor)
                 .contains("<string>/usr/local/bin/burrow</string>\n    <string>visit</string>")
         );
+        assert!(!p.contains("--state-dir"));
+        let web = plist(&Manifest {
+            web_state: Some("/Library/Application Support/burrow/home".into()),
+            ..visitor
+        });
+        assert!(web.contains(
+            "<string>--state-dir</string>\n    <string>/Library/Application Support/burrow/home</string>"
+        ));
     }
 }

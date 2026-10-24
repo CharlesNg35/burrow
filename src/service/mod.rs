@@ -92,6 +92,27 @@ pub trait Backend {
         }
     }
     fn prepare_dirs(&self, account: &str) -> Result<(), Failure>;
+    fn state_folder(&self, m: &Manifest) -> Result<(), Failure> {
+        let Some(dir) = &m.web_state else {
+            return Ok(());
+        };
+        #[cfg(unix)]
+        {
+            let owner = (m.account != "root").then_some(m.account.as_str());
+            system::make_dir(dir, 0o700, owner)?;
+            let (uid, gid) = match owner {
+                Some(a) => crate::base::process::account_ids(a)?,
+                None => (0, 0),
+            };
+            system::own_tree(dir, uid, gid);
+            Ok(())
+        }
+        #[cfg(not(unix))]
+        {
+            std::fs::create_dir_all(dir)
+                .map_err(|e| Failure::new(format!("cannot create {}: {e}", dir.display())))
+        }
+    }
     fn write_env(&self, m: &Manifest, env: &BTreeMap<String, String>) -> Result<(), Failure>;
     fn read_env(&self, _m: &Manifest) -> BTreeMap<String, String> {
         BTreeMap::new()
@@ -316,3 +337,5 @@ fn name_for(source: &Path, given: Option<&str>, installed: &[Manifest]) -> Resul
 }
 #[cfg(test)]
 mod tests;
+#[cfg(all(test, target_os = "linux"))]
+mod tests_web;

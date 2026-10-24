@@ -13,10 +13,14 @@ pub fn choose_state_dir(dir: PathBuf) {
 
 pub fn service_state_dir(short: &str) -> PathBuf {
     let p = Platform::current();
-    p.state_dir()
-        .parent()
-        .map_or_else(|| PathBuf::from("/var/lib/burrow"), Path::to_path_buf)
-        .join(short)
+    match p {
+        Platform::Windows => p.state_dir().join(short),
+        _ => p
+            .state_dir()
+            .parent()
+            .map_or_else(|| PathBuf::from("/var/lib/burrow"), Path::to_path_buf)
+            .join(short),
+    }
 }
 
 pub fn state_dir_for(config: &Path) -> PathBuf {
@@ -25,7 +29,10 @@ pub fn state_dir_for(config: &Path) -> PathBuf {
     }
     let config = crate::base::fs::canonical_or_same(config);
     if let Some(m) = installed_for(&config, &all_manifests()) {
-        return service_state_dir(m.short());
+        return m
+            .web_state
+            .clone()
+            .unwrap_or_else(|| service_state_dir(m.short()));
     }
     own_state_dir(&config, dirs::state_dir().or_else(dirs::data_local_dir))
 }
@@ -74,6 +81,7 @@ mod tests {
             files: Vec::new(),
             version: String::new(),
             admin_writable: false,
+            web_state: None,
         }
     }
 

@@ -32,6 +32,7 @@ cleanup() {
   sudo rm -rf /etc/burrow/e2e-rootadmin
   sudo "$B" service uninstall burrow-e2e-client --purge >/dev/null 2>&1
   sudo "$B" service uninstall burrow-e2e-server --purge >/dev/null 2>&1
+  sudo "$B" service uninstall burrow-e2e-acme --purge >/dev/null 2>&1
   for p in "${PIDS[@]}"; do kill "$p" 2>/dev/null; done
   [ -n "${SOCK_PID:-}" ] && sudo kill "$SOCK_PID" 2>/dev/null
   sudo rm -rf "${SOCK_DIR:-/nonexistent-burrow}"
@@ -488,6 +489,44 @@ if [ "$(uname -s)" = Linux ]; then
   [ -e /etc/burrow/e2e-rootadmin ] && fail "/etc/burrow/e2e-rootadmin still exists"
   check "a root server keeps its admin history on disk"
 fi
+
+echo "== a server with Let's Encrypt keeps its account and certificates in its own folder"
+case "$(uname)" in
+  Darwin) ACME_DIR="/Library/Application Support/burrow/e2e-acme" ;;
+  *) ACME_DIR=/var/lib/burrow/e2e-acme ;;
+esac
+cat > e2e-acme.yaml <<YAML
+listen: 127.0.0.1:27944
+clients:
+  home: { secret: $("$B" gensecret) }
+web:
+  https: 127.0.0.1:443
+  letsencrypt: { email: ops@example.com, directory: "https://127.0.0.1:9/dir" }
+services:
+  site: { client: home, target: 127.0.0.1:19100, web: acme.example.com }
+YAML
+chmod 600 e2e-acme.yaml
+out="$(sudo "$B" service install -c e2e-acme.yaml 2>&1)" || fail "install with letsencrypt: $out"
+running burrow-e2e-acme || fail "the server with letsencrypt is not running"
+for _ in $(seq 1 50); do sudo sh -c "ls '$ACME_DIR'/acme/*/account.key >/dev/null 2>&1" && break; sleep 0.2; done
+ACME_ACCOUNT="$(mode_owner "$ACME_DIR" | awk '{print $2}')"
+[ "$(mode_owner "$ACME_DIR")" = "700 $ACME_ACCOUNT" ] && [ "$ACME_ACCOUNT" != root ] || fail "the state folder is not private to the service: $(mode_owner "$ACME_DIR")"
+KEY="$(sudo sh -c "ls '$ACME_DIR'/acme/*/account.key" | head -1)"
+[ "$(mode_owner "$KEY")" = "600 $ACME_ACCOUNT" ] || fail "the account key is not private: $KEY $(mode_owner "$KEY")"
+st="$(sudo "$B" status burrow-e2e-acme --json 2>&1)" || true
+echo "$st" | grep -q '"state_dir"' && echo "$st" | grep -qF "$ACME_DIR" || fail "status does not name the state folder: $st"
+out="$(sudo "$B" service uninstall burrow-e2e-acme 2>&1)" || fail "uninstall: $out"
+echo "$out" | grep -q "kept $ACME_DIR, the Let's Encrypt account" || fail "uninstall does not name the kept state folder: $out"
+sudo test -e "$KEY" || fail "uninstall without --purge removed the Let's Encrypt account"
+left="$(sudo find "$ACME_DIR" ! -uid 0)"
+[ -z "$left" ] || fail "uninstall left state files of the removed account behind: $left"
+out="$(sudo "$B" service install -c e2e-acme.yaml 2>&1)" || fail "reinstall with letsencrypt: $out"
+running burrow-e2e-acme || fail "the reinstalled server with letsencrypt is not running"
+for _ in $(seq 1 50); do [ -z "$(sudo find "$ACME_DIR" -uid 0)" ] && break; sleep 0.2; done
+[ -z "$(sudo find "$ACME_DIR" -uid 0)" ] || fail "the reinstalled service does not own its kept state: $(sudo find "$ACME_DIR" -uid 0)"
+out="$(sudo "$B" service uninstall burrow-e2e-acme --purge 2>&1)" || fail "uninstall --purge: $out"
+sudo test -e "$ACME_DIR" && fail "uninstall --purge left $ACME_DIR"
+check "the state folder is private, named, kept by uninstall and removed by --purge"
 
 echo "== uninstall removes everything it created"
 sudo "$B" service uninstall burrow-e2e-server --purge

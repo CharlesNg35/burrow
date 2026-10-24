@@ -447,6 +447,24 @@ pub fn make_dir(path: &Path, mode: u32, owner: Option<&str>) -> Result<(), Failu
         .map_err(|e| Failure::new(format!("cannot set permissions on {}: {e}", path.display())))
 }
 
+#[cfg(unix)]
+pub fn own_tree(dir: &Path, uid: u32, gid: u32) {
+    let _ = std::os::unix::fs::lchown(dir, Some(uid), Some(gid));
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for e in entries.flatten() {
+        let path = e.path();
+        match std::fs::symlink_metadata(&path) {
+            Ok(md) if md.is_dir() => own_tree(&path, uid, gid),
+            Ok(_) => {
+                let _ = std::os::unix::fs::lchown(&path, Some(uid), Some(gid));
+            }
+            Err(_) => {}
+        }
+    }
+}
+
 #[cfg(target_os = "linux")]
 pub fn all_paths_under(files: &[PathBuf], roots: &[&str]) -> bool {
     files.iter().any(|f| roots.iter().any(|r| f.starts_with(r)))

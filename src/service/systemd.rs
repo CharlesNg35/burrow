@@ -119,11 +119,14 @@ impl Backend for Systemd {
             s.push_str(&format!("User={}\n", m.account));
         }
         s.push_str(&format!(
-            "ExecStart={} {} -c {} --log-file {}\n",
+            "ExecStart={} {} -c {} --log-file {}{}\n",
             quote(&m.binary),
             m.command(),
             quote(&m.config),
-            quote(&m.log_file)
+            quote(&m.log_file),
+            m.web_state
+                .as_ref()
+                .map_or_else(String::new, |d| format!(" --state-dir {}", quote(d)))
         ));
         s.push_str("ExecReload=/bin/kill -HUP $MAINPID\n");
         if let Some(env) = &m.env_file {
@@ -138,6 +141,12 @@ impl Backend for Systemd {
             "LogsDirectory=burrow/{}\nLogsDirectoryMode=0750\n",
             m.short()
         ));
+        if m.web_state.is_some() {
+            s.push_str(&format!(
+                "StateDirectory=burrow/{}\nStateDirectoryMode=0700\n",
+                m.short()
+            ));
+        }
         s.push_str("NoNewPrivileges=yes\nProtectSystem=strict\n");
         s.push_str(if home_files {
             "ProtectHome=read-only\n"
@@ -201,6 +210,10 @@ impl Backend for Systemd {
 
     fn low_ports(&self, m: &Manifest) -> bool {
         m.low_ports || m.account == "root"
+    }
+
+    fn state_folder(&self, _m: &Manifest) -> Result<(), Failure> {
+        Ok(())
     }
 
     fn hidden(&self, file: &Path) -> Option<String> {
@@ -454,6 +467,7 @@ mod tests {
                 files: vec![],
                 version: "0.1.0".into(),
                 admin_writable: false,
+                web_state: None,
             };
             let unit = Systemd.render(&m);
             assert!(
@@ -486,6 +500,7 @@ mod tests {
             files: vec![],
             version: "0.1.0".into(),
             admin_writable: false,
+            web_state: None,
         }
     }
 

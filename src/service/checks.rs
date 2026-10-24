@@ -15,11 +15,13 @@ use burrow_config::Protocol;
 struct Uses {
     listens: Vec<(Protocol, SocketAddr, String)>,
     files: Vec<(String, PathBuf)>,
+    letsencrypt: bool,
 }
 
 fn uses(loaded: &Loaded) -> Uses {
     let mut files = Vec::new();
     let mut listens = Vec::new();
+    let mut letsencrypt = false;
     match loaded {
         Loaded::Server(s, cfg) => {
             if let Some(l) = s.listen {
@@ -28,8 +30,9 @@ fn uses(loaded: &Loaded) -> Uses {
             if let Some(ws) = s.websocket.as_ref().filter(|w| w.host.is_none()) {
                 listens.push((Protocol::Tcp, ws.listen, "websocket.listen".into()));
             }
-            if let Some(https) = s.web.as_ref().and_then(|w| w.https) {
-                listens.push((Protocol::Tcp, https, "web.https".into()));
+            if let Some(web) = &s.web {
+                listens.extend(web.https.map(|a| (Protocol::Tcp, a, "web.https".into())));
+                letsencrypt = web.letsencrypt.is_some();
             }
             if let Some(m) = s.metrics {
                 listens.push((Protocol::Tcp, m, "metrics.listen".into()));
@@ -60,7 +63,11 @@ fn uses(loaded: &Loaded) -> Uses {
             }
         }
     }
-    Uses { listens, files }
+    Uses {
+        listens,
+        files,
+        letsencrypt,
+    }
 }
 
 pub fn misfits(name: &str, loaded: &Loaded) -> Vec<crate::config::diagnostics::Diagnostic> {
@@ -85,9 +92,24 @@ pub(super) fn misfits_of(
         m.source_config.display(),
         crate::base::failure::admin(&install_args(m, &m.source_config))
     );
-    let Uses { listens, files } = uses(loaded);
+    let Uses {
+        listens,
+        files,
+        letsencrypt,
+    } = uses(loaded);
     let admins = admin_visitors(loaded);
     let mut out = Vec::new();
+    if letsencrypt && m.web_state.is_none() {
+        out.push(
+            crate::config::diagnostics::Diagnostic::error(
+                "service-unit",
+                format!(
+                    "{name} was installed without a folder for Let's Encrypt's account and certificates (web.letsencrypt), so it could not keep them"
+                ),
+            )
+            .help(again.clone()),
+        );
+    }
     let low: Vec<String> = listens
         .iter()
         .filter(|(_, a, _)| needs_low_ports(backend, a))
@@ -153,6 +175,7 @@ pub(super) struct Checked {
     pub(super) listens: Vec<(Protocol, SocketAddr, String)>,
     pub(super) files: Vec<(String, PathBuf)>,
     pub(super) admins: Vec<String>,
+    pub(super) letsencrypt: bool,
 }
 
 pub(super) fn check_config(
@@ -221,7 +244,11 @@ pub(super) fn check_config(
             (Role::Visitor, None)
         }
     };
-    let Uses { listens, files } = uses(loaded);
+    let Uses {
+        listens,
+        files,
+        letsencrypt,
+    } = uses(loaded);
     let admins = admin_visitors(loaded);
     for (field, file) in &files {
         if file.is_relative() {
@@ -238,6 +265,7 @@ pub(super) fn check_config(
         listens,
         files,
         admins,
+        letsencrypt,
     })
 }
 

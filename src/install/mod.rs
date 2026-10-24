@@ -30,6 +30,8 @@ pub struct Manifest {
     pub files: Vec<PathBuf>,
     pub version: String,
     pub admin_writable: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub web_state: Option<PathBuf>,
 }
 
 impl Manifest {

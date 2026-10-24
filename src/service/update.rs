@@ -396,6 +396,7 @@ mod tests {
             files: vec![],
             version: "1.0.0".into(),
             admin_writable: false,
+            web_state: None,
         }
     }
 

@@ -123,6 +123,7 @@ pub fn bare(name: &str) -> Manifest {
         files: Vec::new(),
         version: String::new(),
         admin_writable: false,
+        web_state: None,
     }
 }
 

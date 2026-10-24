@@ -76,6 +76,9 @@ pub(super) fn service_main(_args: Vec<OsString>) {
 fn serve(name: &str, stop: tokio::sync::watch::Receiver<bool>) -> Result<u8, Failure> {
     let m = crate::service::load_manifest(name)?;
     crate::instance::running_as_service();
+    if let Some(dir) = &m.web_state {
+        crate::install::choose_state_dir(dir.clone());
+    }
     let logging = Logging {
         level: tracing::Level::INFO,
         json: false,

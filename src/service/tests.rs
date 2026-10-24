@@ -541,6 +541,7 @@ fn record(p: Platform) -> Manifest {
         files: Vec::new(),
         version: "0.1.0".into(),
         admin_writable: false,
+        web_state: None,
     }
 }
 

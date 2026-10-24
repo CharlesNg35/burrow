@@ -84,6 +84,8 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
         files: checked.files.iter().map(|(_, p)| p.clone()).collect(),
         version: env!("CARGO_PKG_VERSION").to_string(),
         admin_writable: writable,
+        web_state: (checked.letsencrypt && checked.role == Role::Server)
+            .then(|| crate::install::service_state_dir(&short)),
     };
     refuse_low_ports(&*backend, &checked, &manifest)?;
 
@@ -141,6 +143,7 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
     check_files_readable(&*backend, &checked, &account)?;
 
     backend.prepare_dirs(&account)?;
+    backend.state_folder(&manifest)?;
     let kept_binary = keep_previous_binary(again.manifest, &binary, copy_binary, &current);
     let _leftover = Leftover(kept_binary.clone());
     if copy_binary && !system::same_content(&current, &binary) {
