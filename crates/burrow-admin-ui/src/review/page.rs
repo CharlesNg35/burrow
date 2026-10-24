@@ -1,3 +1,4 @@
+use burrow_admin_proto::plan::Plan;
 use burrow_admin_proto::value::get;
 use burrow_ui_kit::{
     Button, Callout, Dialog, EmptyState, Icon, Skeleton, Tone, button_class, tag_class,
@@ -22,6 +23,47 @@ pub fn ReviewPage() -> impl IntoView {
     if !reverting && untrack(|| e.dirty()) {
         e.open_review();
     }
+    follow_applied(s);
+    on_cleanup(move || {
+        let _ = e.auto_apply.try_set(false);
+        if e.review
+            .try_with_untracked(|r| r.as_ref().is_some_and(|r| r.revert_of.is_some()))
+            .unwrap_or(false)
+        {
+            let _ = e.review.try_set(None);
+        }
+    });
+    let plan = Memo::new(move |_| e.review_plan());
+    auto_apply(s, plan);
+    let revert = Memo::new(move |_| {
+        e.review
+            .with(|r| r.as_ref().is_some_and(|r| r.revert_of.is_some()))
+    });
+    let open = Memo::new(move |_| e.review.with(Option::is_some));
+    let rows = review_rows(s, plan, revert);
+    let count = Signal::stored(String::new());
+    let list = view! {
+        <ListPane
+            title="Review"
+            count=count
+            search_label="Search changes"
+            filters=Vec::new()
+            groups=vec!["Changes"]
+            no_counts=true
+            empty=(String::new(), String::new())
+            rows=rows
+            selected=Signal::stored(None::<String>)
+            testid="review-list"
+        />
+    }
+    .into_any();
+    let body = review_body(s, open, revert, plan);
+    let detail = view! { <DetailPane>{body}</DetailPane> }.into_any();
+    master_detail(list, detail)
+}
+
+fn follow_applied(s: Store) {
+    let e = s.edit;
     Effect::new(move |prev: Option<Option<String>>| {
         let rev = e.outcome.with(|o| match o {
             Some(Outcome::Applied(a)) => Some(a.rev.clone()),
@@ -50,16 +92,10 @@ pub fn ReviewPage() -> impl IntoView {
         }
         rev
     });
-    on_cleanup(move || {
-        let _ = e.auto_apply.try_set(false);
-        if e.review
-            .try_with_untracked(|r| r.as_ref().is_some_and(|r| r.revert_of.is_some()))
-            .unwrap_or(false)
-        {
-            let _ = e.review.try_set(None);
-        }
-    });
-    let plan = Memo::new(move |_| e.review_plan());
+}
+
+fn auto_apply(s: Store, plan: Memo<Option<std::sync::Arc<Plan>>>) {
+    let e = s.edit;
     Effect::new(move |_| {
         if !e.auto_apply.get() {
             return;
@@ -71,12 +107,15 @@ pub fn ReviewPage() -> impl IntoView {
             }
         }
     });
-    let revert = Memo::new(move |_| {
-        e.review
-            .with(|r| r.as_ref().is_some_and(|r| r.revert_of.is_some()))
-    });
-    let open = Memo::new(move |_| e.review.with(Option::is_some));
-    let rows = Signal::derive(move || {
+}
+
+fn review_rows(
+    s: Store,
+    plan: Memo<Option<std::sync::Arc<Plan>>>,
+    revert: Memo<bool>,
+) -> Signal<Vec<Row>> {
+    let e = s.edit;
+    Signal::derive(move || {
         let Some(p) = plan.get() else {
             return Vec::new();
         };
@@ -107,24 +146,17 @@ pub fn ReviewPage() -> impl IntoView {
             })
             .collect();
         out
-    });
-    let count = Signal::stored(String::new());
-    let list = view! {
-        <ListPane
-            title="Review"
-            count=count
-            search_label="Search changes"
-            filters=Vec::new()
-            groups=vec!["Changes"]
-            no_counts=true
-            empty=(String::new(), String::new())
-            rows=rows
-            selected=Signal::stored(None::<String>)
-            testid="review-list"
-        />
-    }
-    .into_any();
-    let body = move || {
+    })
+}
+
+fn review_body(
+    s: Store,
+    open: Memo<bool>,
+    revert: Memo<bool>,
+    plan: Memo<Option<std::sync::Arc<Plan>>>,
+) -> impl Fn() -> AnyView + Copy {
+    let e = s.edit;
+    move || {
         if !open.get() {
             return view! {
                 {outcome_view()}
@@ -165,9 +197,7 @@ pub fn ReviewPage() -> impl IntoView {
             .into_any(),
             Some(p) => view! { {outcome_view()} {detail(p, revert.get())} }.into_any(),
         }
-    };
-    let detail = view! { <DetailPane>{body}</DetailPane> }.into_any();
-    master_detail(list, detail)
+    }
 }
 
 pub fn stale(s: Store) -> Option<(String, String)> {
