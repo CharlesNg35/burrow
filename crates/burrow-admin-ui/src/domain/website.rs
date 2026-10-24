@@ -120,7 +120,8 @@ pub(super) fn website_editor(fc: FieldCtx, u: UnionC, item: Node) -> AnyView {
                 .iter()
                 .find_map(|n| check(&item, &Value::String(n.clone())).err());
             e.local_error(&fc.path, bad);
-            e.set(&fc.path, website(&list, tls));
+            let now = value.get_untracked();
+            e.set(&fc.path, website(now.as_ref(), &list, tls));
         }
     };
     let on_names = {
