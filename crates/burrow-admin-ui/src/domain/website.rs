@@ -3,7 +3,7 @@ use burrow_admin_logic::tree::inner;
 use burrow_admin_logic::web::{names, tls_of, website};
 use burrow_admin_proto::schema::{Node, ObjectC, SemType, UnionC};
 use burrow_admin_proto::serde_json::Value;
-use burrow_config::{Entry, ServiceEntry, WebSite};
+use burrow_config::{Entry, ServerConfig, ServiceEntry, WebSite};
 use burrow_ui_kit::{ChipInput, Segmented};
 use leptos::prelude::*;
 
@@ -121,6 +121,24 @@ pub(super) fn tls_editor(fc: FieldCtx) -> AnyView {
     .into_any()
 }
 
+fn web_off() -> impl IntoView {
+    let open = move |_| {
+        crate::route::go(crate::route::Route::Settings);
+        request_animation_frame(|| {
+            let card = format!("[data-schema='{}']", ServerConfig::WEB.key());
+            if let Ok(Some(el)) = document().query_selector(&card) {
+                el.scroll_into_view();
+            }
+        });
+    };
+    view! {
+        <p class="mb-2 text-[13px] text-text-muted" data-testid="web-off">
+            "The web proxy is off, so names here lead nowhere yet. "
+            <button type="button" class="cursor-pointer font-semibold text-accent-ink hover:underline" data-testid="web-off-link" on:click=open>"Turn it on in Settings"</button>
+        </p>
+    }
+}
+
 pub(super) fn website_editor(fc: FieldCtx, item: Node) -> AnyView {
     let e = store().edit;
     let path = fc.path.clone();
@@ -141,8 +159,13 @@ pub(super) fn website_editor(fc: FieldCtx, item: Node) -> AnyView {
             e.set(&fc.path, website(now.as_ref(), &list, tls));
         }
     };
+    let off = Memo::new(move |_| {
+        e.draft
+            .with(|d| ServerConfig::WEB.get(d.draft()).is_none_or(Value::is_null))
+    });
     view! {
         <div id=fc.id.clone() data-testid="website-editor">
+            {move || off.get().then(web_off)}
             <ChipInput
                 id=format!("{}-hosts", fc.id)
                 items=items

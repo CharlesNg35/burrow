@@ -3,6 +3,7 @@ pub const REDIRECT_PASSTHROUGH: &str = "redirect-passthrough";
 pub const REDIRECT_PLAIN: &str = "redirect-plain";
 pub const REDIRECT_NEEDS_HTTP: &str = "redirect-needs-http";
 pub const NO_CERTIFICATE: &str = "no-certificate";
+pub const WEB_OFF: &str = "web-off";
 pub const WILDCARD_NEEDS_DNS: &str = "wildcard-needs-dns";
 
 fn quoted(message: &str) -> &str {
@@ -51,6 +52,9 @@ pub fn shown(code: &str, message: &str) -> String {
     if code == PLAIN_NEEDS_HTTP {
         return "plain HTTP needs the web proxy's HTTP port, which is not set; add http: 80 under web in server.yaml (burrow edit), or choose another HTTPS option".into();
     }
+    if code == WEB_OFF {
+        return "the web proxy is off; turn it on in server.yaml (burrow edit) with its ports, as Settings, Web proxy shows".into();
+    }
     if code == NO_CERTIFICATE {
         return format!(
             "{} has no certificate: turn on Let's Encrypt under Settings, Web proxy, choose My own certificate file under HTTPS, or list the name in the web proxy's Certificate files",
@@ -81,6 +85,18 @@ pub fn shown(code: &str, message: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_website_with_the_web_proxy_off_says_where_to_turn_it_on() {
+        let m = shown(
+            WEB_OFF,
+            "services.blog.web: the web proxy is off; add a top-level web: with its port, like web: {https: 443}",
+        );
+        assert!(
+            m.contains("Settings, Web proxy") && !m.contains("web:"),
+            "{m}"
+        );
+    }
 
     #[test]
     fn a_name_without_a_certificate_says_how_to_get_one_in_the_ui() {

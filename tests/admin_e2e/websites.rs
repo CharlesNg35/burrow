@@ -235,3 +235,35 @@ fn certificates(c: &mut Ctx) -> Flow<'_> {
 fn certificates_are_listed_on_the_overview() {
     run("certificates", opts(), false, certificates);
 }
+
+fn web_off(c: &mut Ctx) -> Flow<'_> {
+    Box::pin(async move {
+        open(c, "ops").await;
+        c.ui.nav("/services/web").await;
+        c.ui.wait_for("[role=tablist]", SECS).await;
+        c.ui.click("[role=tablist] [data-tab=settings]").await;
+        edit_mode(c).await;
+        c.ui.wait_text("[data-testid=web-off]", "The web proxy is off", SECS)
+            .await;
+        add_name(c, "f-services-web-web-hosts", "app.example.com").await;
+        wait_checked(c).await;
+        let err = row_error(c, SITE).await;
+        assert!(
+            err.contains("the web proxy is off") && err.contains("Settings, Web proxy"),
+            "{err}"
+        );
+        both_widths(c, "web-off").await;
+        c.ui.click("[data-testid=web-off-link]").await;
+        c.ui.wait_for("[data-testid=settings] [data-schema=web]", SECS)
+            .await;
+        let path: String = c.ui.eval("location.pathname").await;
+        assert!(path.ends_with("/settings"), "{path}");
+        c.ui.shot("web-off-settings").await;
+        c.ui.assert_no_errors();
+    })
+}
+
+#[test]
+fn a_website_with_the_web_proxy_off_links_to_turning_it_on() {
+    run("web-off", Options::default(), false, web_off);
+}
