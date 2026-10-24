@@ -4,6 +4,7 @@ pub const REDIRECT_PLAIN: &str = "redirect-plain";
 pub const REDIRECT_NEEDS_HTTP: &str = "redirect-needs-http";
 pub const NO_CERTIFICATE: &str = "no-certificate";
 pub const WEB_OFF: &str = "web-off";
+pub const NO_CHECK: &str = "no-check";
 pub const WILDCARD_NEEDS_DNS: &str = "wildcard-needs-dns";
 
 fn quoted(message: &str) -> &str {
@@ -52,6 +53,15 @@ pub fn shown(code: &str, message: &str) -> String {
     if code == PLAIN_NEEDS_HTTP {
         return "plain HTTP needs the web proxy's HTTP port, which is not set; add http: 80 under web in server.yaml (burrow edit), or choose another HTTPS option".into();
     }
+    if code == NO_CHECK {
+        let name = message
+            .split([' ', '"'])
+            .find(|w| !w.is_empty() && *w != "websocket.host")
+            .unwrap_or_default();
+        return format!(
+            "Let's Encrypt cannot check {name}: its checks reach only ports 443 and 80; open port 80 in server.yaml (burrow edit), or use your own certificate file (DNS checks come in a later phase)"
+        );
+    }
     if code == WEB_OFF {
         return "the web proxy is off; turn it on in server.yaml (burrow edit) with its ports, as Settings, Web proxy shows".into();
     }
@@ -63,7 +73,7 @@ pub fn shown(code: &str, message: &str) -> String {
     }
     if code == WILDCARD_NEEDS_DNS {
         return format!(
-            "Let's Encrypt gives {} only through a DNS check, which this build does not have yet; use your own certificate file for it",
+            "Let's Encrypt gives {} only through a DNS check, and DNS checks come in a later phase; use your own certificate file for it",
             quoted(message)
         );
     }
@@ -85,6 +95,20 @@ pub fn shown(code: &str, message: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_name_let_s_encrypt_cannot_check_says_which_ports_it_needs() {
+        for m in [
+            "blog.example.com (service \"blog\") cannot be checked by Let's Encrypt: open http: 80, ...",
+            "websocket.host \"blog.example.com\" cannot be checked: open http: 80, ...",
+        ] {
+            let shown = shown(NO_CHECK, m);
+            assert!(
+                shown.starts_with("Let's Encrypt cannot check blog.example.com:"),
+                "{shown}"
+            );
+        }
+    }
 
     #[test]
     fn a_website_with_the_web_proxy_off_says_where_to_turn_it_on() {

@@ -137,11 +137,120 @@ pub fn entry_for<'a>(
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Check {
+    Dns,
+    Tls,
+    Http,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NoCheck {
+    DnsNotSet,
+    DnsForIp,
+    NoPort,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct CheckPorts {
+    pub https: Option<u16>,
+    pub http: Option<u16>,
+}
+
+pub const TLS_PORT: u16 = 443;
+pub const HTTP_PORT: u16 = 80;
+
+pub fn checks_for(
+    name: &str,
+    ports: CheckPorts,
+    dns: bool,
+    challenge_dns: bool,
+) -> Result<Vec<Check>, NoCheck> {
+    let name = sni_name(name.trim());
+    if is_wildcard(&name) || challenge_dns {
+        return match (is_ip(&name), dns) {
+            (true, _) => Err(NoCheck::DnsForIp),
+            (false, false) => Err(NoCheck::DnsNotSet),
+            (false, true) => Ok(vec![Check::Dns]),
+        };
+    }
+    let mut out = Vec::new();
+    if ports.https == Some(TLS_PORT) {
+        out.push(Check::Tls);
+    }
+    if ports.http == Some(HTTP_PORT) {
+        out.push(Check::Http);
+    }
+    if out.is_empty() {
+        return Err(NoCheck::NoPort);
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     const R: SingleLabel = SingleLabel::Refused;
+
+    fn ports(https: Option<u16>, http: Option<u16>) -> CheckPorts {
+        CheckPorts { https, http }
+    }
+
+    #[test]
+    fn a_name_is_checked_over_dns_for_a_wildcard_else_over_tls_or_http() {
+        let both = ports(Some(443), Some(80));
+        assert_eq!(
+            checks_for("blog.example.com", both, false, false),
+            Ok(vec![Check::Tls, Check::Http])
+        );
+        assert_eq!(
+            checks_for(
+                "blog.example.com",
+                ports(Some(8443), Some(80)),
+                false,
+                false
+            ),
+            Ok(vec![Check::Http])
+        );
+        assert_eq!(
+            checks_for("blog.example.com", ports(Some(443), None), false, false),
+            Ok(vec![Check::Tls])
+        );
+        assert_eq!(
+            checks_for(
+                "blog.example.com",
+                ports(Some(8443), Some(8080)),
+                false,
+                false
+            ),
+            Err(NoCheck::NoPort)
+        );
+        assert_eq!(
+            checks_for("*.apps.example.com", both, false, false),
+            Err(NoCheck::DnsNotSet)
+        );
+        assert_eq!(
+            checks_for("*.apps.example.com", ports(None, None), true, false),
+            Ok(vec![Check::Dns])
+        );
+        assert_eq!(
+            checks_for("lab.example.net", both, true, true),
+            Ok(vec![Check::Dns])
+        );
+        assert_eq!(
+            checks_for("lab.example.net", both, false, true),
+            Err(NoCheck::DnsNotSet)
+        );
+        assert_eq!(
+            checks_for("203.0.113.10", both, true, true),
+            Err(NoCheck::DnsForIp)
+        );
+        assert_eq!(
+            checks_for("203.0.113.10", both, false, false),
+            Ok(vec![Check::Tls, Check::Http])
+        );
+    }
 
     fn entries(list: &[&[&str]]) -> Vec<Vec<String>> {
         list.iter()

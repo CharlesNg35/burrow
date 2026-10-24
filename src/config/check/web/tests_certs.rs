@@ -148,7 +148,7 @@ fn a_wildcard_from_lets_encrypt_needs_dns_checks_this_build_does_not_have() {
     assert_eq!(
         e,
         [
-            "services.blog.web.hosts: \"*.apps.example.com\" needs DNS-01 (Let's Encrypt gives wildcard certificates only through DNS checks), which this build does not have yet; add a certificate file under web.certificates or tls"
+            "services.blog.web.hosts: \"*.apps.example.com\" needs DNS-01 (Let's Encrypt gives wildcard certificates only through DNS); DNS checks come in a later phase, so add a certificate file under web.certificates or tls"
         ]
     );
     assert!(found(&site("\"*.apps.example.com\"", LE), "no-certificate").is_empty());

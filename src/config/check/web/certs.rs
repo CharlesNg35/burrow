@@ -4,7 +4,7 @@ use super::Spans;
 use crate::config::diagnostics::Diagnostic;
 use crate::config::tree::Span;
 use burrow_config::{Protocol, ServerConfig, ServiceWeb, SiteTls, TlsMode};
-use burrow_syntax::web::{SingleLabel, entry_for, host_name, is_wildcard};
+use burrow_syntax::web::{CheckPorts, NoCheck, SingleLabel, checks_for, entry_for, host_name};
 
 struct Sources<'a> {
     entries: Vec<&'a [String]>,
@@ -45,8 +45,17 @@ fn takes_auto(web: &ServiceWeb) -> bool {
 
 const FORWARDING: &str = "Let's Encrypt checks port 443 or port 80; if a router forwards them to other ports, burrow cannot see that, so forward port 80 to web.http too, or give certificate files";
 
-fn checkable((https, http): (Option<SocketAddr>, Option<SocketAddr>)) -> bool {
-    https.is_some_and(|a| a.port() == 443) || http.is_some_and(|a| a.port() == 80)
+const LATER: &str = "DNS checks come in a later phase";
+
+fn check(
+    host: &str,
+    (https, http): (Option<SocketAddr>, Option<SocketAddr>),
+) -> Result<(), NoCheck> {
+    let ports = CheckPorts {
+        https: https.map(|a| a.port()),
+        http: http.map(|a| a.port()),
+    };
+    checks_for(host, ports, false, false).map(drop)
 }
 
 pub(in crate::config::check) fn check_sources(
@@ -77,19 +86,23 @@ pub(in crate::config::check) fn check_sources(
             let at = host_at(spans, name, web, i);
             if !sources.letsencrypt {
                 out.push(no_certificate(name, &host, at));
-            } else if is_wildcard(&host) {
-                out.push(wildcard_needs_dns(name, &host, at));
-            } else if !checkable(ports) {
-                out.push(
+                continue;
+            }
+            match check(&host, ports) {
+                Ok(()) => {}
+                Err(NoCheck::NoPort) => out.push(
                     Diagnostic::error(
                         "no-check",
                         format!(
-                            "{host} (service \"{name}\") cannot be checked by Let's Encrypt: open http: 80, or list a file for it in web.certificates"
+                            "{host} (service \"{name}\") cannot be checked by Let's Encrypt: open http: 80, or list a file for it in web.certificates ({LATER})"
                         ),
                     )
                     .at(at)
                     .help(FORWARDING),
-                );
+                ),
+                Err(NoCheck::DnsNotSet | NoCheck::DnsForIp) => {
+                    out.push(wildcard_needs_dns(name, &host, at));
+                }
             }
         }
     }
@@ -110,7 +123,7 @@ fn wildcard_needs_dns(name: &str, host: &str, at: Span) -> Diagnostic {
     Diagnostic::error(
         "wildcard-needs-dns",
         format!(
-            "services.{name}.web.hosts: \"{host}\" needs DNS-01 (Let's Encrypt gives wildcard certificates only through DNS checks), which this build does not have yet; add a certificate file under web.certificates or tls"
+            "services.{name}.web.hosts: \"{host}\" needs DNS-01 (Let's Encrypt gives wildcard certificates only through DNS); {LATER}, so add a certificate file under web.certificates or tls"
         ),
     )
     .at(at)
@@ -171,12 +184,12 @@ pub(in crate::config::check) fn tunnel_has_source(
         return;
     }
     if sources.letsencrypt {
-        if !checkable(ports) {
+        if check(host, ports).is_err() {
             out.push(
                 Diagnostic::error(
                     "no-check",
                     format!(
-                        "websocket.host \"{host}\" cannot be checked: open http: 80, or give websocket.tls files"
+                        "websocket.host \"{host}\" cannot be checked: open http: 80, or give websocket.tls files ({LATER})"
                     ),
                 )
                 .at(spans.value(&["websocket", "host"]))
