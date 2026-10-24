@@ -6,6 +6,7 @@ use leptos::prelude::*;
 
 use crate::route::{self, Route};
 use crate::store::{Store, short_rev, store};
+use burrow_admin_proto::status::Status;
 
 #[derive(Clone, PartialEq)]
 struct Hit {
@@ -32,162 +33,13 @@ fn marked(label: &str, needle: &str) -> AnyView {
 fn search_hits(s: Store, needle: &str) -> Vec<Hit> {
     let doc = s.edit.doc();
     let status = s.status.get_untracked();
-    let hit = |l: &str| needle.is_empty() || l.to_lowercase().contains(needle);
     let mut out = Vec::new();
-    let names = |sec: &str| {
-        doc.get(sec)
-            .and_then(Value::as_object)
-            .map(|m| m.keys().cloned().collect::<Vec<_>>())
-            .unwrap_or_default()
-    };
     if s.can_write_now() {
-        for c in names(ClientEntry::section()) {
-            let label = format!("Rotate secret of {c}…");
-            if !needle.is_empty() && hit(&label) {
-                out.push(Hit {
-                    section: "Actions",
-                    icon: "refresh",
-                    label,
-                    facet: ClientEntry::ENTITY.into(),
-                    go: Route::Detail(ClientEntry::section().into(), c),
-                    query: Some(("tab", "secrets")),
-                });
-            }
-        }
-        for (sec, what) in [
-            (ServiceEntry::section(), ServiceEntry::ENTITY),
-            (ClientEntry::section(), ClientEntry::ENTITY),
-            (VisitorEntry::section(), VisitorEntry::ENTITY),
-        ] {
-            let label = format!("New {what}…");
-            if hit(&label) {
-                out.push(Hit {
-                    section: "Actions",
-                    icon: "plus",
-                    label,
-                    facet: String::new(),
-                    go: Route::List(sec.into()),
-                    query: Some(("new", "1")),
-                });
-            }
-        }
-        let n = s.edit.pending();
-        if n > 0 {
-            let label = format!("Review {n} change{}", if n == 1 { "" } else { "s" });
-            if hit(&label) {
-                out.push(Hit {
-                    section: "Actions",
-                    icon: "diff",
-                    label,
-                    facet: String::new(),
-                    go: Route::Review,
-                    query: None,
-                });
-            }
-        }
+        action_hits(s, &doc, needle, &mut out);
     }
-    for (sec, title, icon) in [
-        (ServiceEntry::section(), "Services", "stack"),
-        (ClientEntry::section(), "Clients", "monitor"),
-        (VisitorEntry::section(), "Visitors", "person"),
-    ] {
-        for n in names(sec) {
-            if !hit(&n) {
-                continue;
-            }
-            let v = doc
-                .get(sec)
-                .and_then(|m| m.get(&n))
-                .cloned()
-                .unwrap_or(Value::Null);
-            let facet = match entity_of_section(sec) {
-                Some(Entity::Client) => {
-                    let c = status
-                        .as_ref()
-                        .and_then(|st| st.clients.iter().find(|c| c.name == n))
-                        .cloned();
-                    let secrets = match ClientEntry::SECRET.get(&v) {
-                        Some(Value::Array(a)) => a.len(),
-                        Some(_) => 1,
-                        None => 0,
-                    };
-                    match c {
-                        Some(c) if c.connected => format!(
-                            "{} · {secrets} secret{}",
-                            c.from
-                                .unwrap_or_default()
-                                .rsplit_once(':')
-                                .map(|(h, _)| h.to_string())
-                                .unwrap_or_default(),
-                            if secrets == 1 { "" } else { "s" }
-                        ),
-                        _ => format!(
-                            "offline · {secrets} secret{}",
-                            if secrets == 1 { "" } else { "s" }
-                        ),
-                    }
-                }
-                Some(Entity::Service) => ServiceEntry::BIND
-                    .get(&v)
-                    .filter(|b| !b.is_null())
-                    .map(crate::form::plain)
-                    .unwrap_or_else(|| "private".into()),
-                _ => VisitorEntry::ADMIN
-                    .get(&v)
-                    .map(|a| format!("admin · {}", crate::form::plain(a)))
-                    .unwrap_or_else(|| "visitor".into()),
-            };
-            out.push(Hit {
-                section: title,
-                icon,
-                label: n.clone(),
-                facet,
-                go: Route::Detail(sec.into(), n),
-                query: None,
-            });
-        }
-    }
-    if let Some(schema) = s.schema.get_untracked() {
-        let skip: Vec<String> = schema
-            .entities
-            .iter()
-            .filter_map(|e| e.path.first().cloned())
-            .collect();
-        for f in burrow_admin_logic::tree::fields(&schema.root)
-            .iter()
-            .filter(|f| !skip.contains(&f.key))
-        {
-            if !needle.is_empty() && (hit(&f.node.label) || hit(&f.key)) {
-                out.push(Hit {
-                    section: "Settings",
-                    icon: "settings",
-                    label: f.node.label.clone(),
-                    facet: f.key.clone(),
-                    go: Route::Settings,
-                    query: None,
-                });
-            }
-        }
-    }
-    if !needle.is_empty() {
-        for e in s.history.get_untracked().unwrap_or_default() {
-            let summary = e
-                .changes
-                .first()
-                .map(|c| c.summary.clone())
-                .unwrap_or_default();
-            if hit(&summary) {
-                out.push(Hit {
-                    section: "Activity",
-                    icon: "history",
-                    label: format!("rev {} · {summary}", short_rev(&e.rev)),
-                    facet: crate::format::relative(e.at),
-                    go: Route::Activity(Some(e.rev.clone())),
-                    query: None,
-                });
-            }
-        }
-    }
+    entity_hits(&doc, status.as_deref(), needle, &mut out);
+    setting_hits(s, needle, &mut out);
+    history_hits(s, needle, &mut out);
     for (r, l, i) in [
         (Route::Settings, "Settings", "settings"),
         (Route::Activity(None), "Activity", "activity"),
@@ -206,6 +58,179 @@ fn search_hits(s: Store, needle: &str) -> Vec<Hit> {
     }
     out.truncate(14);
     out
+}
+
+fn hit(needle: &str, l: &str) -> bool {
+    needle.is_empty() || l.to_lowercase().contains(needle)
+}
+
+fn names(doc: &Value, sec: &str) -> Vec<String> {
+    doc.get(sec)
+        .and_then(Value::as_object)
+        .map(|m| m.keys().cloned().collect::<Vec<_>>())
+        .unwrap_or_default()
+}
+
+fn action_hits(s: Store, doc: &Value, needle: &str, out: &mut Vec<Hit>) {
+    for c in names(doc, ClientEntry::section()) {
+        let label = format!("Rotate secret of {c}…");
+        if !needle.is_empty() && hit(needle, &label) {
+            out.push(Hit {
+                section: "Actions",
+                icon: "refresh",
+                label,
+                facet: ClientEntry::ENTITY.into(),
+                go: Route::Detail(ClientEntry::section().into(), c),
+                query: Some(("tab", "secrets")),
+            });
+        }
+    }
+    for (sec, what) in [
+        (ServiceEntry::section(), ServiceEntry::ENTITY),
+        (ClientEntry::section(), ClientEntry::ENTITY),
+        (VisitorEntry::section(), VisitorEntry::ENTITY),
+    ] {
+        let label = format!("New {what}…");
+        if hit(needle, &label) {
+            out.push(Hit {
+                section: "Actions",
+                icon: "plus",
+                label,
+                facet: String::new(),
+                go: Route::List(sec.into()),
+                query: Some(("new", "1")),
+            });
+        }
+    }
+    let n = s.edit.pending();
+    if n > 0 {
+        let label = format!("Review {n} change{}", if n == 1 { "" } else { "s" });
+        if hit(needle, &label) {
+            out.push(Hit {
+                section: "Actions",
+                icon: "diff",
+                label,
+                facet: String::new(),
+                go: Route::Review,
+                query: None,
+            });
+        }
+    }
+}
+
+fn entity_hits(doc: &Value, status: Option<&Status>, needle: &str, out: &mut Vec<Hit>) {
+    for (sec, title, icon) in [
+        (ServiceEntry::section(), "Services", "stack"),
+        (ClientEntry::section(), "Clients", "monitor"),
+        (VisitorEntry::section(), "Visitors", "person"),
+    ] {
+        for n in names(doc, sec) {
+            if !hit(needle, &n) {
+                continue;
+            }
+            let v = doc
+                .get(sec)
+                .and_then(|m| m.get(&n))
+                .cloned()
+                .unwrap_or(Value::Null);
+            let facet = entity_facet(sec, &n, &v, status);
+            out.push(Hit {
+                section: title,
+                icon,
+                label: n.clone(),
+                facet,
+                go: Route::Detail(sec.into(), n),
+                query: None,
+            });
+        }
+    }
+}
+
+fn entity_facet(sec: &str, n: &str, v: &Value, status: Option<&Status>) -> String {
+    match entity_of_section(sec) {
+        Some(Entity::Client) => {
+            let c = status
+                .as_ref()
+                .and_then(|st| st.clients.iter().find(|c| c.name == n))
+                .cloned();
+            let secrets = match ClientEntry::SECRET.get(v) {
+                Some(Value::Array(a)) => a.len(),
+                Some(_) => 1,
+                None => 0,
+            };
+            match c {
+                Some(c) if c.connected => format!(
+                    "{} · {secrets} secret{}",
+                    c.from
+                        .unwrap_or_default()
+                        .rsplit_once(':')
+                        .map(|(h, _)| h.to_string())
+                        .unwrap_or_default(),
+                    if secrets == 1 { "" } else { "s" }
+                ),
+                _ => format!(
+                    "offline · {secrets} secret{}",
+                    if secrets == 1 { "" } else { "s" }
+                ),
+            }
+        }
+        Some(Entity::Service) => ServiceEntry::BIND
+            .get(v)
+            .filter(|b| !b.is_null())
+            .map(crate::form::plain)
+            .unwrap_or_else(|| "private".into()),
+        _ => VisitorEntry::ADMIN
+            .get(v)
+            .map(|a| format!("admin · {}", crate::form::plain(a)))
+            .unwrap_or_else(|| "visitor".into()),
+    }
+}
+
+fn setting_hits(s: Store, needle: &str, out: &mut Vec<Hit>) {
+    if let Some(schema) = s.schema.get_untracked() {
+        let skip: Vec<String> = schema
+            .entities
+            .iter()
+            .filter_map(|e| e.path.first().cloned())
+            .collect();
+        for f in burrow_admin_logic::tree::fields(&schema.root)
+            .iter()
+            .filter(|f| !skip.contains(&f.key))
+        {
+            if !needle.is_empty() && (hit(needle, &f.node.label) || hit(needle, &f.key)) {
+                out.push(Hit {
+                    section: "Settings",
+                    icon: "settings",
+                    label: f.node.label.clone(),
+                    facet: f.key.clone(),
+                    go: Route::Settings,
+                    query: None,
+                });
+            }
+        }
+    }
+}
+
+fn history_hits(s: Store, needle: &str, out: &mut Vec<Hit>) {
+    if !needle.is_empty() {
+        for e in s.history.get_untracked().unwrap_or_default() {
+            let summary = e
+                .changes
+                .first()
+                .map(|c| c.summary.clone())
+                .unwrap_or_default();
+            if hit(needle, &summary) {
+                out.push(Hit {
+                    section: "Activity",
+                    icon: "history",
+                    label: format!("rev {} · {summary}", short_rev(&e.rev)),
+                    facet: crate::format::relative(e.at),
+                    go: Route::Activity(Some(e.rev.clone())),
+                    query: None,
+                });
+            }
+        }
+    }
 }
 
 #[component]
