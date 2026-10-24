@@ -4,29 +4,29 @@ use super::Spans;
 use crate::config::diagnostics::Diagnostic;
 use crate::config::tree::Span;
 use burrow_config::{Protocol, ServerConfig, ServiceWeb, SiteTls, TlsMode};
-use burrow_syntax::web::{SingleLabel, covers, host_name, is_wildcard};
+use burrow_syntax::web::{SingleLabel, entry_for, host_name, is_wildcard};
 
-struct Sources {
-    listed: Vec<String>,
+struct Sources<'a> {
+    entries: Vec<&'a [String]>,
     letsencrypt: bool,
 }
 
-impl Sources {
-    fn of(cfg: &ServerConfig) -> Sources {
+impl<'a> Sources<'a> {
+    fn of(cfg: &'a ServerConfig) -> Sources<'a> {
         let web = cfg.web.as_ref();
         Sources {
-            listed: web
-                .map(|w| w.certificates.iter().flat_map(|c| c.hosts.iter()))
-                .into_iter()
-                .flatten()
-                .filter_map(|h| host_name(h, SingleLabel::Allowed).ok())
-                .collect(),
+            entries: web
+                .map(|w| w.certificates.iter().map(|c| c.hosts.as_slice()).collect())
+                .unwrap_or_default(),
             letsencrypt: web.is_some_and(|w| w.letsencrypt.is_some()),
         }
     }
 
     fn lists(&self, host: &str) -> bool {
-        self.listed.iter().any(|l| covers(l, host))
+        !matches!(
+            entry_for(self.entries.iter().copied().enumerate(), host),
+            Ok(None)
+        )
     }
 }
 

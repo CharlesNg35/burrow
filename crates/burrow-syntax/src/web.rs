@@ -96,11 +96,96 @@ pub fn sni_name(raw: &str) -> String {
     raw.strip_suffix('.').unwrap_or(raw).to_ascii_lowercase()
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Twice {
+    pub first: usize,
+    pub second: usize,
+}
+
+pub fn entry_for<'a>(
+    entries: impl IntoIterator<Item = (usize, &'a [String])>,
+    name: &str,
+) -> Result<Option<usize>, Twice> {
+    let name = sni_name(name.trim());
+    let (mut exact, mut wild): (Vec<usize>, Vec<usize>) = (Vec::new(), Vec::new());
+    for (i, hosts) in entries {
+        let listed = hosts.iter().map(|h| sni_name(h.trim()));
+        let mut kind = None;
+        for h in listed {
+            if h == name {
+                kind = Some(true);
+                break;
+            }
+            if covers(&h, &name) {
+                kind = Some(false);
+            }
+        }
+        match kind {
+            Some(true) => exact.push(i),
+            Some(false) => wild.push(i),
+            None => {}
+        }
+    }
+    let pick = if exact.is_empty() { wild } else { exact };
+    match pick.as_slice() {
+        [] => Ok(None),
+        [one] => Ok(Some(*one)),
+        [first, second, ..] => Err(Twice {
+            first: *first,
+            second: *second,
+        }),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     const R: SingleLabel = SingleLabel::Refused;
+
+    fn entries(list: &[&[&str]]) -> Vec<Vec<String>> {
+        list.iter()
+            .map(|e| e.iter().map(|h| h.to_string()).collect())
+            .collect()
+    }
+
+    fn pick(list: &[&[&str]], name: &str) -> Result<Option<usize>, Twice> {
+        let e = entries(list);
+        entry_for(e.iter().enumerate().map(|(i, h)| (i, h.as_slice())), name)
+    }
+
+    #[test]
+    fn an_exact_listing_wins_over_a_wildcard_listing() {
+        let list: &[&[&str]] = &[&["*.example.com"], &["Blog.Example.com."]];
+        assert_eq!(pick(list, "blog.example.com"), Ok(Some(1)));
+        assert_eq!(pick(list, "app.example.com"), Ok(Some(0)));
+        assert_eq!(pick(list, "BLOG.example.com."), Ok(Some(1)));
+    }
+
+    #[test]
+    fn a_wildcard_covers_exactly_one_leftmost_label() {
+        let list: &[&[&str]] = &[&["*.example.com"]];
+        assert_eq!(pick(list, "app.example.com"), Ok(Some(0)));
+        assert_eq!(pick(list, "example.com"), Ok(None));
+        assert_eq!(pick(list, "a.b.example.com"), Ok(None));
+        assert_eq!(pick(list, "*.example.com"), Ok(Some(0)));
+        assert_eq!(pick(list, "other.org"), Ok(None));
+    }
+
+    #[test]
+    fn a_name_listed_in_two_entries_is_an_error() {
+        let list: &[&[&str]] = &[&["a.example.com"], &["b.example.com", "a.example.com"]];
+        assert_eq!(
+            pick(list, "a.example.com"),
+            Err(Twice {
+                first: 0,
+                second: 1
+            })
+        );
+        let wild: &[&[&str]] = &[&["*.example.com"], &["*.example.com"]];
+        assert!(pick(wild, "x.example.com").is_err());
+        assert_eq!(pick(list, "b.example.com"), Ok(Some(1)));
+    }
 
     #[test]
     fn host_names_are_kept_lower_case_without_the_final_dot() {
