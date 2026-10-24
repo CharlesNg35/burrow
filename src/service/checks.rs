@@ -2,12 +2,13 @@ use std::collections::BTreeMap;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 
-use super::{Backend, install_args, system, writable_args};
+use super::install::installs_from;
+use super::{Backend, install_args, ports, stray, system, writable_args};
 use crate::base::failure::Failure;
 use crate::base::style::Style;
 use crate::config::env::referenced_env;
 use crate::config::{Loaded, Role, load_file};
-use crate::install::{Manifest, load_manifest};
+use crate::install::{Manifest, all_manifests, load_manifest};
 use crate::instance::Identity;
 use burrow_config::Protocol;
 
@@ -235,4 +236,121 @@ pub(super) fn check_config(
         files,
         admins,
     })
+}
+
+pub(super) fn refuse_another_source(name: &str, source: &Path) -> Result<(), Failure> {
+    if let Ok(existing) = load_manifest(name)
+        && !installs_from(&existing, source)
+    {
+        return Err(Failure::usage(format!(
+            "{name} is already installed from {}; its config is {}",
+            existing.source_config.display(),
+            existing.config.display()
+        ))
+        .hint(format!(
+            "to add this config as another service, rename the file or pass --name, for example: --name {name}-2; to change {name} instead, edit {} or install again from it: {}",
+            existing.config.display(),
+            crate::base::failure::admin(&format!(
+                "service install -c {}",
+                crate::base::failure::path_arg(&existing.config)
+            ))
+        )));
+    }
+    Ok(())
+}
+
+pub(super) fn refuse_low_ports(
+    backend: &dyn Backend,
+    checked: &Checked,
+    manifest: &Manifest,
+) -> Result<(), Failure> {
+    let low: Vec<String> = checked
+        .listens
+        .iter()
+        .filter(|(_, a, _)| needs_low_ports(backend, a))
+        .map(|(_, a, what)| format!("{what} on {a}"))
+        .collect();
+    if !low.is_empty() && !backend.low_ports(manifest) {
+        return Err(Failure::new(format!(
+            "{} would need root to listen below port 1024 on that address",
+            low.join(", ")
+        ))
+        .hint("listen on all addresses (0.0.0.0) or on a port above 1023, or install with --run-as root"));
+    }
+    Ok(())
+}
+
+pub(super) fn refuse_running_outside(checked: &Checked) -> Result<(), Failure> {
+    if let Some(e) = checked.identity.as_ref().and_then(crate::instance::held) {
+        return Err(Failure::new(format!("cannot install: {}", e.message)).hint(
+            "stop the burrow process that is running outside the service first, then install again",
+        ));
+    }
+    Ok(())
+}
+
+pub(super) fn check_ports_free(backend: &dyn Backend, checked: &Checked) -> Result<(), Failure> {
+    let users = || {
+        let managed = all_manifests().into_iter().filter_map(|m| {
+            backend.status(&m).pid.map(|pid| ports::PortUser {
+                pid,
+                name: m.name,
+                managed: true,
+                stop: None,
+            })
+        });
+        let strays = stray::strays().into_iter().filter_map(|s| {
+            s.pid.map(|pid| ports::PortUser {
+                pid,
+                name: s.label,
+                managed: false,
+                stop: Some(s.stop),
+            })
+        });
+        managed.chain(strays).collect()
+    };
+    for (proto, addr, label) in &checked.listens {
+        ports::check_free(*proto, *addr, label, &users)?;
+    }
+    Ok(())
+}
+
+pub(super) fn check_files_readable(
+    backend: &dyn Backend,
+    checked: &Checked,
+    account: &str,
+) -> Result<(), Failure> {
+    for (field, file) in &checked.files {
+        if let Some(why) = backend.hidden(file) {
+            return Err(Failure::new(format!(
+                "the service cannot use {field} ({}): {why}",
+                file.display()
+            ))
+            .hint("move the file, for example to /etc/burrow, and point the config at it"));
+        }
+        if !backend.can_read(account, file) {
+            return Err(Failure::new(format!(
+                "the service account {account} cannot read {field} ({})",
+                file.display()
+            ))
+            .hint(format!(
+                "grant read access, for example: {}, or pass --run-as with an account that can read it",
+                grant_hint(account, file)
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn grant_hint(account: &str, file: &Path) -> String {
+    let path = crate::base::failure::path_arg(file);
+    if cfg!(windows) {
+        format!("icacls {path} /grant \"{account}:R\"")
+    } else if cfg!(target_os = "macos") {
+        format!(
+            "sudo chmod +a \"{account} allow read\" {path} (and \"allow search\" on its folders)"
+        )
+    } else {
+        format!("sudo setfacl -m u:{account}:r {path} (and x on its folders)")
+    }
 }
