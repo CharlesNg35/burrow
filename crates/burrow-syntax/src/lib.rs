@@ -18,3 +18,4 @@ pub mod rule;
 pub mod secret_fmt;
 pub mod target;
 pub mod unix;
+pub mod web;
