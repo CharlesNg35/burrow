@@ -51,15 +51,87 @@ fn letsencrypt_a_listing_file_or_the_sites_own_file_is_a_source() {
 }
 
 #[test]
-fn a_file_is_used_only_for_the_names_its_hosts_lists() {
+fn a_wildcard_entry_covers_the_names_one_label_under_it() {
     let wild = "  certificates:\n    - {hosts: [\"*.example.com\"], cert: c.pem, key: c.key}\n";
-    let e = found(&site("blog.example.com", wild), "no-certificate");
-    assert_eq!(
-        e.len(),
-        1,
-        "a wildcard entry does not list blog.example.com"
-    );
+    assert!(found(&site("blog.example.com", wild), "no-certificate").is_empty());
     assert!(found(&site("\"*.example.com\"", wild), "no-certificate").is_empty());
+    let e = found(&site("a.b.example.com", wild), "no-certificate");
+    assert_eq!(e.len(), 1, "two labels down is not covered: {e:#?}");
+    assert_eq!(found(&site("example.com", wild), "no-certificate").len(), 1);
+}
+
+#[test]
+fn a_name_is_listed_in_one_entry_only_and_every_entry_lists_names() {
+    let twice = "  certificates:\n    - {hosts: [blog.example.com], cert: a.pem, key: a.key}\n    - {hosts: [\"*.example.com\", Blog.Example.com], cert: b.pem, key: b.key}\n";
+    assert_eq!(
+        found(&site("blog.example.com", twice), "certificate-hosts"),
+        [
+            "host \"blog.example.com\" is listed in web.certificates[0] and [1]; list it in one entry only"
+        ]
+    );
+    let exact_and_wild = "  certificates:\n    - {hosts: [blog.example.com], cert: a.pem, key: a.key}\n    - {hosts: [\"*.example.com\"], cert: b.pem, key: b.key}\n";
+    assert!(
+        found(
+            &site("blog.example.com", exact_and_wild),
+            "certificate-hosts"
+        )
+        .is_empty()
+    );
+    let none = "  certificates:\n    - {hosts: [], cert: a.pem, key: a.key}\n";
+    assert_eq!(
+        found(&site("blog.example.com", none), "certificate-hosts"),
+        [
+            "web.certificates[0].hosts is required: the names this file is for, like hosts: [\"*.corp.example.com\"]"
+        ]
+    );
+}
+
+#[test]
+fn the_own_certificates_example_of_section_4_7_has_a_source_for_every_name() {
+    let text = r#"web:
+  https: 443
+  certificates: # shared files; each says which names use it
+    - { hosts: ["*.example.com"], cert: certs/star.example.com.pem, key: certs/star.example.com.key }
+    - { hosts: [app.home.arpa], cert: certs/home.pem, key: certs/home.key } # an internal name
+services:
+  intranet:
+    client: office
+    target: 80
+    web:
+      hosts: [intranet.corp.example.com]
+      tls: { cert: certs/intranet.pem, key: certs/intranet.key }
+  mixed:
+    client: home
+    target: 8080
+    web:
+      hosts: [app.example.com, app.home.arpa]
+      # app.example.com uses the shared *.example.com file, app.home.arpa its own entry above
+"#
+    .replace("client: office", "client: home");
+    assert!(found(&text, "no-certificate").is_empty());
+    assert!(found(&text, "certificate-hosts").is_empty());
+    assert_eq!(found(&text, "web-certificates-later").len(), 1, "it parsed");
+}
+
+#[test]
+fn the_shared_file_of_section_4_2_serves_erp() {
+    let text = r#"web:
+  https: 443
+  certificates: # shared files, for names from your own CA; each says which names use it
+    - hosts: ["*.corp.example.com"]
+      cert: certs/wildcard.corp.example.com.pem
+      key: certs/wildcard.corp.example.com.key
+services:
+  erp:
+    client: home
+    target: erp.corp.example.com:443
+    web:
+      hosts: [erp.corp.example.com] # served with the shared file above
+"#;
+    assert!(found(text, "no-certificate").is_empty());
+    assert_eq!(found(text, "web-certificates-later").len(), 1, "it parsed");
+    let without = text.replace("*.corp.example.com", "*.other.example.com");
+    assert_eq!(found(&without, "no-certificate").len(), 1);
 }
 
 #[test]

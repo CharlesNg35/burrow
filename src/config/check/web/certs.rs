@@ -4,7 +4,7 @@ use super::Spans;
 use crate::config::diagnostics::Diagnostic;
 use crate::config::tree::Span;
 use burrow_config::{Protocol, ServerConfig, ServiceWeb, SiteTls, TlsMode};
-use burrow_syntax::web::{SingleLabel, host_name, is_wildcard};
+use burrow_syntax::web::{SingleLabel, covers, host_name, is_wildcard};
 
 struct Sources {
     listed: Vec<String>,
@@ -26,7 +26,7 @@ impl Sources {
     }
 
     fn lists(&self, host: &str) -> bool {
-        self.listed.iter().any(|l| l == host)
+        self.listed.iter().any(|l| covers(l, host))
     }
 }
 
@@ -49,6 +49,7 @@ pub(in crate::config::check) fn check_sources(
     spans: &Spans,
     out: &mut Vec<Diagnostic>,
 ) {
+    check_entries(cfg, spans, out);
     if https.is_none() {
         return;
     }
@@ -99,6 +100,46 @@ fn wildcard_needs_dns(name: &str, host: &str, at: Span) -> Diagnostic {
     .help(format!(
         "for example certificates: [{{hosts: [\"{host}\"], cert: certs/wild.pem, key: certs/wild.key}}] under web"
     ))
+}
+
+fn check_entries(cfg: &ServerConfig, spans: &Spans, out: &mut Vec<Diagnostic>) {
+    let Some(web) = cfg.web.as_ref() else {
+        return;
+    };
+    let mut seen: Vec<(String, usize)> = Vec::new();
+    for (i, entry) in web.certificates.iter().enumerate() {
+        let n = i.to_string();
+        if entry.hosts.is_empty() {
+            out.push(
+                Diagnostic::error(
+                    "certificate-hosts",
+                    format!(
+                        "web.certificates[{i}].hosts is required: the names this file is for, like hosts: [\"*.corp.example.com\"]"
+                    ),
+                )
+                .at(spans.value(&["web", "certificates", &n]))
+                .help("list each name or wildcard the file is used for"),
+            );
+        }
+        for (j, text) in entry.hosts.iter().enumerate() {
+            let Ok(host) = host_name(text, SingleLabel::Allowed) else {
+                continue;
+            };
+            match seen.iter().find(|(h, _)| *h == host) {
+                Some((_, first)) => out.push(
+                    Diagnostic::error(
+                        "certificate-hosts",
+                        format!(
+                            "host \"{host}\" is listed in web.certificates[{first}] and [{i}]; list it in one entry only"
+                        ),
+                    )
+                    .at(spans.value(&["web", "certificates", &n, "hosts", &j.to_string()]))
+                    .help("remove it from one of the two entries"),
+                ),
+                None => seen.push((host, i)),
+            }
+        }
+    }
 }
 
 pub(in crate::config::check) fn tunnel_has_source(
