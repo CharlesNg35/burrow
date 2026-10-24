@@ -1,23 +1,24 @@
+mod early;
 mod linger;
+mod open;
 
 use std::io;
 use std::time::Duration;
 
-use std::future::Future;
-
-use tokio::io::{AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use tokio::net::TcpStream;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::metrics::{Counted, Traffic};
 use crate::policy::ratelimit::{Limit, Throttled};
 use crate::wire::protocol::Status;
-use crate::wire::record::{
-    CHUNK, RecordReader, RecordWriter, SMALL, open_pump, raw_pump, relay_pump, seal_pump,
-};
+use crate::wire::record::{CHUNK, SMALL, open_pump, raw_pump, relay_pump, seal_pump};
 use crate::wire::transport::Channel;
-use crate::wire::transport::{Conn, ReadHalf, WriteHalf};
+use crate::wire::transport::Conn;
+pub use early::Early;
+use early::Sealed;
 use linger::{Graceful, close};
 pub use linger::{Linger, Split};
+use open::{Client, answer, ended_cleanly, refused, start};
+pub use open::{client_tcp, open_tcp};
 
 pub(crate) const VISIT_REPLY: Duration = Duration::from_secs(45);
 
@@ -95,340 +96,6 @@ pub enum Opened {
     Done(Result<(), ForwardError>),
     Refused(ForwardError),
     Gone(Option<io::Error>),
-}
-
-pub struct Early {
-    bytes: Vec<u8>,
-    ended: bool,
-    keep: bool,
-}
-
-impl Default for Early {
-    fn default() -> Self {
-        Early {
-            bytes: Vec::new(),
-            ended: false,
-            keep: true,
-        }
-    }
-}
-
-impl Early {
-    pub fn last_try(&mut self) {
-        self.keep = false;
-    }
-
-    pub fn sent_nothing(&self) -> bool {
-        self.bytes.is_empty()
-    }
-
-    fn room(&self) -> usize {
-        match (self.ended, self.keep) {
-            (true, _) => 0,
-            (false, true) => KEEP_EARLY.saturating_sub(self.bytes.len()),
-            (false, false) => usize::MAX,
-        }
-    }
-
-    fn took(&mut self, plain: &[u8]) {
-        if self.keep {
-            self.bytes.extend_from_slice(plain);
-        }
-    }
-
-    fn accepted(&mut self) {
-        self.bytes = Vec::new();
-        self.keep = false;
-    }
-}
-
-trait Source {
-    fn next(&mut self, room: usize) -> impl Future<Output = io::Result<Option<&[u8]>>> + Send;
-}
-
-struct Raw<'a, R> {
-    r: &'a mut R,
-    buf: [u8; EARLY_READ],
-}
-
-impl<R: tokio::io::AsyncRead + Unpin + Send> Source for Raw<'_, R> {
-    async fn next(&mut self, room: usize) -> io::Result<Option<&[u8]>> {
-        let want = room.min(EARLY_READ);
-        let n = self.r.read(&mut self.buf[..want]).await?;
-        Ok((n > 0).then_some(&self.buf[..n]))
-    }
-}
-
-struct Sealed<'a, R> {
-    r: &'a mut R,
-    reader: &'a mut RecordReader,
-    counted: Option<&'a std::sync::atomic::AtomicU64>,
-}
-
-impl<R: tokio::io::AsyncRead + Unpin + Send> Source for Sealed<'_, R> {
-    async fn next(&mut self, _room: usize) -> io::Result<Option<&[u8]>> {
-        match self.reader.recv(self.r).await? {
-            Some([]) => Ok(None),
-            Some(plain) => {
-                if let Some(c) = self.counted {
-                    c.fetch_add(plain.len() as u64, std::sync::atomic::Ordering::Relaxed);
-                }
-                Ok(Some(plain))
-            }
-            None => Err(io::Error::new(
-                io::ErrorKind::UnexpectedEof,
-                "peer closed without an end-of-stream record",
-            )),
-        }
-    }
-}
-
-async fn send_early<W: AsyncWrite + Unpin>(
-    w: &mut W,
-    writer: &mut RecordWriter,
-    plain: &[u8],
-    plaintext: bool,
-) -> io::Result<()> {
-    if plaintext {
-        w.write_all(plain).await?;
-        return w.flush().await;
-    }
-    for chunk in plain.chunks(CHUNK) {
-        writer.send(w, chunk).await?;
-    }
-    Ok(())
-}
-
-async fn end_early<W: AsyncWrite + Unpin>(
-    w: &mut W,
-    writer: &mut RecordWriter,
-    plaintext: bool,
-) -> io::Result<()> {
-    if plaintext {
-        w.flush().await?;
-        w.shutdown().await
-    } else {
-        writer.send(w, &[]).await
-    }
-}
-
-async fn start(
-    stream: &mut Conn,
-    writer: &mut RecordWriter,
-    opening: &Opening<'_>,
-    early: &mut Early,
-    plaintext: bool,
-) -> io::Result<()> {
-    writer.send(stream, opening.first).await?;
-    send_prefix(stream, writer, opening.prefix, plaintext).await?;
-    if !early.bytes.is_empty() {
-        send_early(stream, writer, &early.bytes, plaintext).await?;
-    }
-    if !early.keep {
-        early.bytes = Vec::new();
-    }
-    if early.ended {
-        if plaintext {
-            stream.close_normally();
-        }
-        end_early(stream, writer, plaintext).await?;
-    }
-    Ok(())
-}
-
-enum Answer {
-    Status(Status),
-    Failed(ForwardError),
-    Gone(io::Error),
-}
-
-struct Client<'r, 'w, 'c> {
-    r: &'r mut ReadHalf<'c>,
-    reader: &'r mut RecordReader,
-    w: &'w mut WriteHalf<'c>,
-    writer: &'w mut RecordWriter,
-}
-
-fn reply_of(reply: io::Result<Option<&[u8]>>) -> Answer {
-    match reply {
-        Ok(Some(b)) => {
-            Status::decode(b).map_or(Answer::Failed(ForwardError::Protocol), Answer::Status)
-        }
-        Ok(None) => Answer::Failed(ForwardError::Io(io::Error::new(
-            io::ErrorKind::UnexpectedEof,
-            "the client closed its channel before replying",
-        ))),
-        Err(e) => Answer::Failed(ForwardError::Io(e)),
-    }
-}
-
-async fn answer(
-    client: Client<'_, '_, '_>,
-    source: &mut impl Source,
-    early: &mut Early,
-    plaintext: bool,
-    timeout: Duration,
-) -> Answer {
-    let Client {
-        r,
-        reader,
-        w,
-        writer,
-    } = client;
-    let deadline = tokio::time::sleep(timeout);
-    tokio::pin!(deadline);
-    let mut broken = false;
-    loop {
-        let room = if broken { 0 } else { early.room() };
-        tokio::select! {
-            biased;
-            reply = reader.recv(r) => return reply_of(reply),
-            _ = &mut deadline => return Answer::Failed(no_reply()),
-            more = source.next(room), if room > 0 => {
-                let more = match more {
-                    Ok(more) => more,
-                    Err(e) => return Answer::Gone(e),
-                };
-                let send = async {
-                    match more {
-                        Some(plain) => {
-                            early.took(plain);
-                            send_early(w, writer, plain, plaintext).await
-                        }
-                        None => {
-                            early.ended = true;
-                            end_early(w, writer, plaintext).await
-                        }
-                    }
-                };
-                tokio::pin!(send);
-                let sent = tokio::select! {
-                    biased;
-                    sent = &mut send => sent,
-                    reply = reader.recv(r) => match reply_of(reply) {
-                        Answer::Status(Status::Ok) => match send.await {
-                            Ok(()) => return Answer::Status(Status::Ok),
-                            Err(e) => return Answer::Failed(ForwardError::Io(e)),
-                        },
-                        other => return other,
-                    },
-                    _ = &mut deadline => return Answer::Failed(no_reply()),
-                };
-                if sent.is_err() {
-                    broken = true;
-                }
-            }
-        }
-    }
-}
-
-async fn answer_raw<R: tokio::io::AsyncRead + Unpin + Send>(
-    client: Client<'_, '_, '_>,
-    r: &mut R,
-    early: &mut Early,
-    plaintext: bool,
-    timeout: Duration,
-) -> Answer {
-    let mut source = Raw {
-        r,
-        buf: [0; EARLY_READ],
-    };
-    answer(client, &mut source, early, plaintext, timeout).await
-}
-
-fn ended_cleanly(done: &Result<Result<(), ForwardError>, Opened>) -> bool {
-    matches!(
-        done,
-        Ok(Ok(())) | Err(Opened::Refused(ForwardError::Status(_)))
-    )
-}
-
-fn refused(answer: Answer) -> Option<Opened> {
-    match answer {
-        Answer::Status(Status::Ok) => None,
-        Answer::Status(s) => Some(Opened::Refused(ForwardError::Status(s))),
-        Answer::Failed(e) => Some(Opened::Refused(e)),
-        Answer::Gone(e) => Some(Opened::Gone(Some(e))),
-    }
-}
-
-pub async fn open_tcp(
-    ch: Channel,
-    visitor: &mut TcpStream,
-    opening: &Opening<'_>,
-    meter: Meter<'_>,
-    early: &mut Early,
-    accepted: impl FnOnce(),
-) -> Opened {
-    let Channel {
-        mut stream,
-        mut writer,
-        mut reader,
-    } = ch;
-    let plaintext = opening.plaintext && stream.supports_half_close();
-    if plaintext {
-        stream.reset_on_close();
-    }
-    if let Err(e) = start(&mut stream, &mut writer, opening, early, plaintext).await {
-        return Opened::Refused(ForwardError::Io(e));
-    }
-    let done = {
-        let (mut cr, mut cw) = stream.split();
-        let (vr, vw) = visitor.split();
-        let mut vr = meter.inbound(vr);
-        let mut vw = meter.outbound(vw);
-        let client = Client {
-            r: &mut cr,
-            reader: &mut reader,
-            w: &mut cw,
-            writer: &mut writer,
-        };
-        let answer = answer_raw(client, &mut vr, early, plaintext, opening.reply_timeout).await;
-        match refused(answer) {
-            Some(opened) => Err(opened),
-            None => {
-                accepted();
-                early.accepted();
-                let ended = early.ended;
-                let up = async {
-                    match (ended, plaintext) {
-                        (true, _) => Ok(()),
-                        (false, true) => raw_pump(&mut vr, &mut Graceful::new(&mut cw)).await,
-                        (false, false) => seal_pump(&mut vr, &mut cw, &mut writer, CHUNK).await,
-                    }
-                };
-                let down = async {
-                    if plaintext {
-                        let rest = reader.take_buffered();
-                        vw.write_all(&rest).await?;
-                        raw_pump(&mut cr, &mut vw).await?;
-                    } else {
-                        open_pump(&mut cr, &mut vw, &mut reader).await?;
-                    }
-                    Ok(())
-                };
-                let up = async { up.await.map_err(ForwardError::Io) };
-                Ok(tokio::try_join!(up, down).map(|_| ()))
-            }
-        }
-    };
-    if plaintext && ended_cleanly(&done) {
-        stream.close_normally();
-    }
-    close(&mut stream).await;
-    match done {
-        Ok(result) => Opened::Done(result),
-        Err(opened) => opened,
-    }
-}
-
-pub async fn client_tcp<T: Split>(
-    mut ch: Channel,
-    target: T,
-    plaintext: bool,
-) -> Result<(), ForwardError> {
-    ch.writer.send(&mut ch.stream, &[Status::Ok as u8]).await?;
-    pump_tcp(ch, target, plaintext).await
 }
 
 pub(crate) fn no_reply() -> ForwardError {
@@ -667,10 +334,12 @@ pub async fn send_and_close(mut ch: Channel, bytes: &[u8]) {
 mod tests {
     use super::*;
     use crate::wire::noise::{Initiator, Responder};
+    use crate::wire::record::{RecordReader, RecordWriter};
     use crate::wire::secret::Secret;
     use burrow_config::Cipher;
     use std::time::Instant;
     use tokio::net::TcpListener;
+    use tokio::net::TcpStream;
 
     fn channel(stream: TcpStream) -> Channel {
         let s = Secret::generate();
