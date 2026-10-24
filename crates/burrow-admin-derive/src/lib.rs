@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 mod enums;
+mod field;
 mod sem;
 mod serde_attrs;
 mod structs;
