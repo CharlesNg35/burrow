@@ -19,13 +19,13 @@ The `burrow` crate is built in layers, from the bottom up:
 |---|---|
 | base | generic helpers: errors, output, files, processes, ports |
 | wire | secrets, encryption, records, the protocol, transports |
-| config | the config, its checks, policies, metrics |
+| config | the config, its checks, policies, install records, metrics |
 | roles | forwarding, the server, the client, the visitor |
-| ops | services, install, update, edit, init, status, admin, the CLI |
+| ops | services, update, edit, init, status, admin, the CLI |
 
 - A lower layer never imports a higher one, and no two modules import each other.
 - Each crate in `crates/` has a fixed list of crates it may depend on.
-- A new module or crate gets its row in `xtask/src/arch.rs` in the same change.
+- A new module gets its row in `xtask/src/layers.rs`, and a new crate in `xtask/src/arch.rs`, in the same change.
 
 ## Comments
 
