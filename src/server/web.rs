@@ -165,6 +165,8 @@ fn cert_settings(s: &ServerSettings, web: &WebSettings) -> CertSettings {
             challenges: std::iter::once(burrow_web::tls::CertCheck::Tls)
                 .chain(web.http.map(|_| burrow_web::tls::CertCheck::Http))
                 .collect(),
+            fallback_directory: (l.directory == burrow_web::tls::acme::LETSENCRYPT_PRODUCTION)
+                .then(|| burrow_web::tls::acme::LETSENCRYPT_STAGING.to_string()),
         }),
     }
 }

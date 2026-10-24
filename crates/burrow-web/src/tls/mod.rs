@@ -33,6 +33,10 @@ pub trait Certificates: ResolvesServerCert + Send + Sync + 'static {
     fn apply<'a>(&'a self, settings: &'a CertSettings, names: &'a [CertName]) -> Applying<'a>;
 
     fn status(&self) -> Vec<CertStatus>;
+
+    fn account(&self) -> Option<String> {
+        None
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -58,6 +62,8 @@ pub struct CertStatus {
     pub expires: Option<u64>,
     pub next_renewal: Option<u64>,
     pub last_error: Option<String>,
+    pub explanation: Option<String>,
+    pub failures: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

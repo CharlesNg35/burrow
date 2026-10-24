@@ -120,6 +120,7 @@ mod tests {
                 profile: None,
                 state_dir: None,
                 challenges: Vec::new(),
+                fallback_directory: None,
             }),
         }
     }

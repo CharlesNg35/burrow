@@ -137,6 +137,7 @@ pub struct AcmeSettings {
     pub profile: Option<String>,
     pub state_dir: Option<PathBuf>,
     pub challenges: Vec<tls::CertCheck>,
+    pub fallback_directory: Option<String>,
 }
 
 #[derive(Clone)]

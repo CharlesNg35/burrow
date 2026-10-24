@@ -1,12 +1,14 @@
+use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 
 use burrow_syntax::web::{sni_name, wildcard_of};
 use tokio_rustls::rustls::server::{ClientHello, ResolvesServerCert};
 use tokio_rustls::rustls::sign::CertifiedKey;
 use tracing::warn;
 
+use super::acme::{Acme, Handle, Plan};
 use super::select::{Choice, choose};
 use super::{Applying, CertName, CertOrigin, CertPhase, CertState, CertStatus, Certificates};
 use super::{files, x509};
@@ -19,6 +21,7 @@ struct Slot {
     key: Option<Arc<CertifiedKey>>,
     origin: Option<CertOrigin>,
     acme: bool,
+    group: String,
     error: Option<String>,
     expires: Option<u64>,
 }
@@ -27,11 +30,20 @@ struct Slot {
 struct Inner {
     slots: HashMap<String, Slot>,
     order: Vec<String>,
+    directory: String,
 }
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct Store {
     inner: RwLock<Inner>,
+    acme: Arc<Acme>,
+    manager: Mutex<Option<Handle>>,
+}
+
+impl std::fmt::Debug for Store {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Store").finish_non_exhaustive()
+    }
 }
 
 type Pair = (PathBuf, PathBuf);
@@ -86,14 +98,45 @@ impl Store {
         Arc::new(Store::default())
     }
 
-    fn slot_for(&self, name: &str) -> Option<Slot> {
+    fn slot_for(&self, name: &str) -> Option<(String, Slot)> {
         let inner = self.inner.read().expect("certificate lock");
         let name = sni_name(name);
-        inner
-            .slots
-            .get(&name)
-            .or_else(|| wildcard_of(&name).and_then(|w| inner.slots.get(&w)))
-            .cloned()
+        let key = if inner.slots.contains_key(&name) {
+            name
+        } else {
+            wildcard_of(&name).filter(|w| inner.slots.contains_key(w))?
+        };
+        inner.slots.get(&key).cloned().map(|s| (key, s))
+    }
+
+    async fn run_acme(&self, settings: &CertSettings) {
+        let groups: BTreeMap<String, Vec<String>> = {
+            let inner = self.inner.read().expect("certificate lock");
+            let mut g: BTreeMap<String, Vec<String>> = BTreeMap::new();
+            for n in &inner.order {
+                if let Some(s) = inner.slots.get(n).filter(|s| s.acme) {
+                    g.entry(s.group.clone()).or_default().push(n.clone());
+                }
+            }
+            g
+        };
+        let plan = settings
+            .acme
+            .clone()
+            .filter(|_| !groups.is_empty())
+            .map(|settings| Plan { settings, groups });
+        let Some(plan) = plan else {
+            let stopped = self.manager.lock().expect("manager lock").take();
+            drop(stopped);
+            self.acme.clear();
+            return;
+        };
+        self.acme.preload(&plan).await;
+        let mut manager = self.manager.lock().expect("manager lock");
+        match manager.as_ref() {
+            Some(h) => h.update(plan),
+            None => *manager = Some(Handle::start(self.acme.clone(), plan)),
+        }
     }
 
     fn file_slot(
@@ -121,6 +164,7 @@ impl Store {
                     key: Some(ck),
                     origin: Some(origin),
                     acme: false,
+                    group: String::new(),
                     error: None,
                     expires: at,
                 }
@@ -137,6 +181,7 @@ impl Store {
                     key: kept,
                     origin: Some(origin),
                     acme: false,
+                    group: String::new(),
                     error: Some(e),
                 }
             }
@@ -145,9 +190,16 @@ impl Store {
 }
 
 impl Store {
-    fn install(&self, plan: Vec<(&CertName, Choice)>, loaded: &Loaded) {
+    fn install(&self, settings: &CertSettings, plan: Vec<(&CertName, Choice)>, loaded: &Loaded) {
         let mut inner = self.inner.write().expect("certificate lock");
-        let mut next = Inner::default();
+        let mut next = Inner {
+            directory: settings
+                .acme
+                .as_ref()
+                .map(|a| a.directory_url.clone())
+                .unwrap_or_default(),
+            ..Inner::default()
+        };
         for (n, choice) in plan {
             let old = inner.slots.get(&n.name);
             let slot = match choice {
@@ -155,16 +207,18 @@ impl Store {
                     Self::file_slot(&n.name, (cert, key, origin), loaded, old)
                 }
                 Choice::Acme => Slot {
-                    key: old.filter(|o| o.acme).and_then(|o| o.key.clone()),
+                    key: None,
                     origin: None,
                     acme: true,
+                    group: n.group.clone(),
                     error: None,
-                    expires: old.filter(|o| o.acme).and_then(|o| o.expires),
+                    expires: None,
                 },
                 Choice::Missing => Slot {
                     key: None,
                     origin: None,
                     acme: false,
+                    group: n.group.clone(),
                     error: Some(format!("\"{}\" has no certificate", n.name)),
                     expires: None,
                 },
@@ -176,6 +230,28 @@ impl Store {
     }
 }
 
+impl Store {
+    fn acme_status(&self, name: &str, s: &Slot, directory: &str) -> Option<CertStatus> {
+        let view = self.acme.view_of(&s.group);
+        let served = self.acme.certificate(name);
+        Some(CertStatus {
+            name: name.to_string(),
+            origin: CertOrigin::LetsEncrypt {
+                directory: directory.to_string(),
+            },
+            check: view.as_ref().and_then(|v| v.check),
+            phase: view
+                .as_ref()
+                .map_or(CertPhase::Pending, |v| v.phase.clone()),
+            expires: served.as_deref().and_then(expires),
+            next_renewal: view.as_ref().and_then(|v| v.next_renewal),
+            last_error: view.as_ref().and_then(|v| v.last_error.clone()),
+            explanation: view.as_ref().and_then(|v| v.explanation.clone()),
+            failures: view.map_or(0, |v| v.failures),
+        })
+    }
+}
+
 impl ResolvesServerCert for Store {
     fn resolve(&self, hello: ClientHello<'_>) -> Option<Arc<CertifiedKey>> {
         self.certificate(hello.server_name()?)
@@ -184,23 +260,44 @@ impl ResolvesServerCert for Store {
 
 impl Certificates for Store {
     fn state(&self, name: &str) -> CertState {
-        match self.slot_for(name) {
-            Some(Slot { key: Some(_), .. }) => CertState::Ready,
-            Some(Slot { error: None, .. }) => CertState::Pending,
+        let Some((configured, slot)) = self.slot_for(name) else {
+            return CertState::Failing;
+        };
+        if slot.acme {
+            if self.acme.certificate(&configured).is_some() {
+                return CertState::Ready;
+            }
+            return match self.acme.view_of(&slot.group).map(|v| v.phase) {
+                Some(CertPhase::Failing { .. }) => CertState::Failing,
+                _ => CertState::Pending,
+            };
+        }
+        match slot {
+            Slot { key: Some(_), .. } => CertState::Ready,
+            Slot { error: None, .. } => CertState::Pending,
             _ => CertState::Failing,
         }
     }
 
     fn certificate(&self, name: &str) -> Option<Arc<CertifiedKey>> {
-        self.slot_for(name)?.key
+        let (configured, slot) = self.slot_for(name)?;
+        if slot.acme {
+            self.acme.certificate(&configured)
+        } else {
+            slot.key
+        }
     }
 
-    fn alpn_challenge(&self, _name: &str) -> Option<Arc<CertifiedKey>> {
-        None
+    fn alpn_challenge(&self, name: &str) -> Option<Arc<CertifiedKey>> {
+        self.acme.challenges.alpn(name)
     }
 
-    fn http_challenge(&self, _token: &str) -> Option<String> {
-        None
+    fn http_challenge(&self, token: &str) -> Option<String> {
+        self.acme.challenges.http(token)
+    }
+
+    fn account(&self) -> Option<String> {
+        self.acme.account()
     }
 
     fn apply<'a>(&'a self, settings: &'a CertSettings, names: &'a [CertName]) -> Applying<'a> {
@@ -217,7 +314,8 @@ impl Certificates for Store {
             pairs.sort();
             pairs.dedup();
             let loaded = load_all(pairs).await;
-            self.install(plan, &loaded);
+            self.install(settings, plan, &loaded);
+            self.run_acme(settings).await;
         })
     }
 
@@ -228,6 +326,9 @@ impl Certificates for Store {
             .iter()
             .filter_map(|name| {
                 let s = inner.slots.get(name)?;
+                if s.acme {
+                    return self.acme_status(name, s, &inner.directory);
+                }
                 let origin = s.origin.clone()?;
                 let phase = match (&s.key, &s.error) {
                     (None, Some(e)) => CertPhase::Failing { reason: e.clone() },
@@ -242,6 +343,8 @@ impl Certificates for Store {
                     expires: s.expires,
                     next_renewal: None,
                     last_error: s.error.clone(),
+                    explanation: None,
+                    failures: 0,
                 })
             })
             .collect()
