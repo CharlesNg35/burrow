@@ -26,225 +26,27 @@ pub fn check_server(
 ) -> Option<ServerSettings> {
     let errors_before = out.iter().filter(|d| d.is_error()).count();
 
-    let listen = match &cfg.listen {
-        None => None,
-        Some(given) => match parse_bind(given) {
-            Ok(a) => Some(a),
-            Err(_) => {
-                out.push(
-                    Diagnostic::error(
-                        "invalid-address",
-                        format!("invalid listen address \"{given}\""),
-                    )
-                    .at(spans.value(&["listen"]))
-                    .label("expected ip:port or a port")
-                    .help(format!("use an IP and port, for example 0.0.0.0:{p} or [::]:{p}, or a port alone like {p}", p = burrow_syntax::ports::SERVER_PORT)),
-                );
-                None
-            }
-        },
-    };
-    if cfg.listen.is_none()
-        && cfg.websocket.is_none()
-        && !spans.has(&["listen"])
-        && !spans.has(&["websocket"])
-    {
-        out.push(
-            Diagnostic::error("no-listener", "the server needs \"listen\" (TCP), \"websocket\", or both")
-                .help(format!("add \"listen: 0.0.0.0:{}\" for TCP clients, or a websocket section for clients behind HTTP-only networks (see https://github.com/charlesng35/burrow/blob/main/docs/websocket.md)", burrow_syntax::ports::SERVER_PORT)),
-        );
-    }
+    let listen = check_listen(cfg, spans, out);
     let websocket = cfg
         .websocket
         .as_ref()
         .and_then(|ws| check_websocket(ws, listen, spans, base_dir, out));
 
-    if let Some(text) = &cfg.public_address
-        && (listen.is_some() || websocket.is_some())
-        && let Err(e) = burrow_syntax::address::client_address(
-            text,
-            listen,
-            websocket
-                .as_ref()
-                .map(crate::config::settings::WebSocketSettings::shape),
-            "clients",
-            &mut Vec::new(),
-        )
-    {
-        out.push(
-            Diagnostic::error(
-                "invalid-address",
-                format!("invalid public_address: {}", e.message),
-            )
-            .at(spans.value(&["public_address"]))
-            .label("expected a host, host:port or wss:// URL")
-            .help(e.hint),
-        );
-    }
+    check_public_address(cfg, listen, websocket.as_ref(), spans, out);
 
-    if cfg.clients.is_empty() {
-        out.push(
-            Diagnostic::warning(
-                "no-clients",
-                "no clients are defined, so nobody can connect",
-            )
-            .at(spans.key(&["clients"]))
-            .help(format!(
-                "add one, for example:\n         clients:\n           home: {{ secret: SECRET }}\n       with a SECRET from: {}",
-                crate::base::failure::cmd("gensecret")
-            )),
-        );
-    }
-
-    let mut clients = BTreeMap::new();
     let mut seen = Vec::new();
-    for (name, entry) in &cfg.clients {
-        if !valid_name(name) {
-            out.push(name_error("client", name, spans.key(&["clients", name])));
-        }
-        let secrets = check_secrets("client", name, &entry.secret, spans, &mut seen, out);
-        clients.insert(
-            name.clone(),
-            ClientAuth {
-                secrets,
-                max_connections: entry.max_connections.map(|m| m as usize),
-            },
-        );
-    }
+    let clients = check_clients(cfg, spans, &mut seen, out);
 
     super::local::check_reserved(cfg, spans, out);
     let self_allow = super::local::check_allow(cfg, spans, out);
 
-    let mut visitors = BTreeMap::new();
-    for (name, entry) in &cfg.visitors {
-        if !valid_name(name) {
-            out.push(name_error("visitor", name, spans.key(&["visitors", name])));
-        }
-        let secrets = check_secrets("visitor", name, &entry.secret, spans, &mut seen, out);
-        let mut reach = BTreeMap::new();
-        for (client, given) in &entry.reach {
-            if client == SELF {
-                super::local::check_reach(name, self_allow.as_ref(), spans, out);
-            }
-            if let Some(rules) = check_reach(name, client, given, spans, out) {
-                reach.insert(client.clone(), rules);
-            }
-        }
-        for client in reach
-            .iter()
-            .filter(|(c, r)| {
-                (cfg.clients.contains_key(*c) || (*c == SELF && self_allow.is_some()))
-                    && **r == AllowList::All
-            })
-            .map(|(c, _)| c)
-        {
-            out.push(
-                Diagnostic::warning(
-                    "reach-any",
-                    format!(
-                        "visitor \"{name}\" may reach any target that client \"{client}\" allows, over TCP or UDP"
-                    ),
-                )
-                .at(spans.key(&["visitors", name, "reach", client]))
-                .label("limited only by the client's allow list")
-                .help(format!(
-                    "keep {} narrow, for example allow: [127.0.0.1/32:22], or list only the services this visitor needs",
-                    super::local::allow_place(client)
-                )),
-            );
-        }
-        let listed = cfg.services.values().any(|s| s.visitors.contains(name));
-        let admin_from = check_admin(name, entry, listed, spans, out);
-        if !listed
-            && entry.admin.is_none()
-            && entry.reach.is_empty()
-            && !spans.has(&["visitors", name, "reach"])
-        {
-            out.push(
-                Diagnostic::warning(
-                    "unused-visitor",
-                    format!("visitor \"{name}\" cannot reach anything"),
-                )
-                .at(spans.key(&["visitors", name]))
-                .help(format!(
-                    "add it to a service, for example visitors: [{name}], or give it reach: {{ CLIENT: any }}"
-                )),
-            );
-        }
-        visitors.insert(
-            name.clone(),
-            VisitorAuth {
-                secrets,
-                reach,
-                max_connections: entry.max_connections.map(|m| m as usize),
-                admin: entry.admin,
-                admin_from,
-            },
-        );
-    }
+    let visitors = check_visitors(cfg, self_allow.as_ref(), spans, &mut seen, out);
 
-    if cfg.services.is_empty() && cfg.visitors.values().all(|v| v.reach.is_empty()) {
-        out.push(
-            Diagnostic::warning("no-services", "no services are defined, so nothing is exposed")
-                .at(spans.key(&["services"]))
-                .help(format!("add a service, for example:\n         services:\n           web: {{ client: NAME, bind: 0.0.0.0:{}, target: 127.0.0.1:80 }}", burrow_syntax::ports::FIRST_SERVICE_PORT)),
-        );
-    }
+    let (services, taken) = check_all_services(cfg, listen, websocket.as_ref(), spans, out);
 
-    let mut services = BTreeMap::new();
-    let mut taken = Taken {
-        listen,
-        websocket: websocket.as_ref().map(|w| w.listen),
-        binds: Vec::new(),
-    };
-    for (name, svc) in &cfg.services {
-        if let Some(service) = check_service(name, svc, &mut taken, spans, out) {
-            services.insert(name.clone(), service);
-        }
-    }
+    warn_proxied_sources(websocket.as_ref(), &services, spans, out);
 
-    if let Some(ws) = websocket.as_ref().filter(|w| w.listen.ip().is_loopback()) {
-        for (name, svc) in &services {
-            let by_source = !svc.sources.is_open() || svc.proxy_protocol.is_some();
-            if svc.visitors.is_empty() || !by_source {
-                continue;
-            }
-            out.push(
-                Diagnostic::warning(
-                    "proxied-source",
-                    format!(
-                        "visitors of service \"{name}\" that connect through the proxy in front of websocket.listen ({}) all come from the proxy's address, so allow_from, deny_from and proxy_protocol see that address for them",
-                        ws.listen
-                    ),
-                )
-                .at(spans.key(&["services", name]))
-                .help("rely on the visitor's secret for those visitors, or have them connect to the TCP listen port"),
-            );
-        }
-    }
-
-    for name in clients.keys() {
-        let list = super::super::settings::services_for(&services, name);
-        let (count, size) = (
-            list.len(),
-            crate::wire::protocol::ServerMsg::Services(list)
-                .encode()
-                .len(),
-        );
-        if size > crate::wire::noise::MAX_PLAINTEXT {
-            out.push(
-                Diagnostic::error(
-                    "too-many-services",
-                    format!(
-                        "client \"{name}\" serves {count} services, too many to send it in one message ({size} bytes, the limit is {})",
-                        crate::wire::noise::MAX_PLAINTEXT
-                    ),
-                )
-                .at(spans.key(&["clients", name]))
-                .help("spread the services over more clients, or use port ranges for services that differ only by port"),
-            );
-        }
-    }
+    check_service_lists(&clients, &services, spans, out);
 
     let metrics = cfg
         .metrics
@@ -304,6 +106,274 @@ pub fn check_server(
         metrics,
         self_allow,
     })
+}
+
+fn check_listen(
+    cfg: &ServerConfig,
+    spans: &Spans,
+    out: &mut Vec<Diagnostic>,
+) -> Option<SocketAddr> {
+    let listen = match &cfg.listen {
+        None => None,
+        Some(given) => match parse_bind(given) {
+            Ok(a) => Some(a),
+            Err(_) => {
+                out.push(
+                    Diagnostic::error(
+                        "invalid-address",
+                        format!("invalid listen address \"{given}\""),
+                    )
+                    .at(spans.value(&["listen"]))
+                    .label("expected ip:port or a port")
+                    .help(format!("use an IP and port, for example 0.0.0.0:{p} or [::]:{p}, or a port alone like {p}", p = burrow_syntax::ports::SERVER_PORT)),
+                );
+                None
+            }
+        },
+    };
+    if cfg.listen.is_none()
+        && cfg.websocket.is_none()
+        && !spans.has(&["listen"])
+        && !spans.has(&["websocket"])
+    {
+        out.push(
+            Diagnostic::error("no-listener", "the server needs \"listen\" (TCP), \"websocket\", or both")
+                .help(format!("add \"listen: 0.0.0.0:{}\" for TCP clients, or a websocket section for clients behind HTTP-only networks (see https://github.com/charlesng35/burrow/blob/main/docs/websocket.md)", burrow_syntax::ports::SERVER_PORT)),
+        );
+    }
+    listen
+}
+
+fn check_public_address(
+    cfg: &ServerConfig,
+    listen: Option<SocketAddr>,
+    websocket: Option<&crate::config::settings::WebSocketSettings>,
+    spans: &Spans,
+    out: &mut Vec<Diagnostic>,
+) {
+    if let Some(text) = &cfg.public_address
+        && (listen.is_some() || websocket.is_some())
+        && let Err(e) = burrow_syntax::address::client_address(
+            text,
+            listen,
+            websocket.map(crate::config::settings::WebSocketSettings::shape),
+            "clients",
+            &mut Vec::new(),
+        )
+    {
+        out.push(
+            Diagnostic::error(
+                "invalid-address",
+                format!("invalid public_address: {}", e.message),
+            )
+            .at(spans.value(&["public_address"]))
+            .label("expected a host, host:port or wss:// URL")
+            .help(e.hint),
+        );
+    }
+}
+
+fn check_clients(
+    cfg: &ServerConfig,
+    spans: &Spans,
+    seen: &mut Vec<([u8; 32], String)>,
+    out: &mut Vec<Diagnostic>,
+) -> BTreeMap<String, ClientAuth> {
+    if cfg.clients.is_empty() {
+        out.push(
+            Diagnostic::warning(
+                "no-clients",
+                "no clients are defined, so nobody can connect",
+            )
+            .at(spans.key(&["clients"]))
+            .help(format!(
+                "add one, for example:\n         clients:\n           home: {{ secret: SECRET }}\n       with a SECRET from: {}",
+                crate::base::failure::cmd("gensecret")
+            )),
+        );
+    }
+
+    let mut clients = BTreeMap::new();
+    for (name, entry) in &cfg.clients {
+        if !valid_name(name) {
+            out.push(name_error("client", name, spans.key(&["clients", name])));
+        }
+        let secrets = check_secrets("client", name, &entry.secret, spans, seen, out);
+        clients.insert(
+            name.clone(),
+            ClientAuth {
+                secrets,
+                max_connections: entry.max_connections.map(|m| m as usize),
+            },
+        );
+    }
+    clients
+}
+
+fn check_visitors(
+    cfg: &ServerConfig,
+    self_allow: Option<&AllowList>,
+    spans: &Spans,
+    seen: &mut Vec<([u8; 32], String)>,
+    out: &mut Vec<Diagnostic>,
+) -> BTreeMap<String, VisitorAuth> {
+    let mut visitors = BTreeMap::new();
+    for (name, entry) in &cfg.visitors {
+        if !valid_name(name) {
+            out.push(name_error("visitor", name, spans.key(&["visitors", name])));
+        }
+        let secrets = check_secrets("visitor", name, &entry.secret, spans, seen, out);
+        let mut reach = BTreeMap::new();
+        for (client, given) in &entry.reach {
+            if client == SELF {
+                super::local::check_reach(name, self_allow, spans, out);
+            }
+            if let Some(rules) = check_reach(name, client, given, spans, out) {
+                reach.insert(client.clone(), rules);
+            }
+        }
+        for client in reach
+            .iter()
+            .filter(|(c, r)| {
+                (cfg.clients.contains_key(*c) || (*c == SELF && self_allow.is_some()))
+                    && **r == AllowList::All
+            })
+            .map(|(c, _)| c)
+        {
+            out.push(
+                Diagnostic::warning(
+                    "reach-any",
+                    format!(
+                        "visitor \"{name}\" may reach any target that client \"{client}\" allows, over TCP or UDP"
+                    ),
+                )
+                .at(spans.key(&["visitors", name, "reach", client]))
+                .label("limited only by the client's allow list")
+                .help(format!(
+                    "keep {} narrow, for example allow: [127.0.0.1/32:22], or list only the services this visitor needs",
+                    super::local::allow_place(client)
+                )),
+            );
+        }
+        let listed = cfg.services.values().any(|s| s.visitors.contains(name));
+        let admin_from = check_admin(name, entry, listed, spans, out);
+        if !listed
+            && entry.admin.is_none()
+            && entry.reach.is_empty()
+            && !spans.has(&["visitors", name, "reach"])
+        {
+            out.push(
+                Diagnostic::warning(
+                    "unused-visitor",
+                    format!("visitor \"{name}\" cannot reach anything"),
+                )
+                .at(spans.key(&["visitors", name]))
+                .help(format!(
+                    "add it to a service, for example visitors: [{name}], or give it reach: {{ CLIENT: any }}"
+                )),
+            );
+        }
+        visitors.insert(
+            name.clone(),
+            VisitorAuth {
+                secrets,
+                reach,
+                max_connections: entry.max_connections.map(|m| m as usize),
+                admin: entry.admin,
+                admin_from,
+            },
+        );
+    }
+    visitors
+}
+
+fn check_all_services<'a>(
+    cfg: &'a ServerConfig,
+    listen: Option<SocketAddr>,
+    websocket: Option<&crate::config::settings::WebSocketSettings>,
+    spans: &Spans,
+    out: &mut Vec<Diagnostic>,
+) -> (
+    BTreeMap<String, crate::config::settings::Service>,
+    Taken<'a>,
+) {
+    if cfg.services.is_empty() && cfg.visitors.values().all(|v| v.reach.is_empty()) {
+        out.push(
+            Diagnostic::warning("no-services", "no services are defined, so nothing is exposed")
+                .at(spans.key(&["services"]))
+                .help(format!("add a service, for example:\n         services:\n           web: {{ client: NAME, bind: 0.0.0.0:{}, target: 127.0.0.1:80 }}", burrow_syntax::ports::FIRST_SERVICE_PORT)),
+        );
+    }
+
+    let mut services = BTreeMap::new();
+    let mut taken = Taken {
+        listen,
+        websocket: websocket.map(|w| w.listen),
+        binds: Vec::new(),
+    };
+    for (name, svc) in &cfg.services {
+        if let Some(service) = check_service(name, svc, &mut taken, spans, out) {
+            services.insert(name.clone(), service);
+        }
+    }
+    (services, taken)
+}
+
+fn warn_proxied_sources(
+    websocket: Option<&crate::config::settings::WebSocketSettings>,
+    services: &BTreeMap<String, crate::config::settings::Service>,
+    spans: &Spans,
+    out: &mut Vec<Diagnostic>,
+) {
+    if let Some(ws) = websocket.filter(|w| w.listen.ip().is_loopback()) {
+        for (name, svc) in services {
+            let by_source = !svc.sources.is_open() || svc.proxy_protocol.is_some();
+            if svc.visitors.is_empty() || !by_source {
+                continue;
+            }
+            out.push(
+                Diagnostic::warning(
+                    "proxied-source",
+                    format!(
+                        "visitors of service \"{name}\" that connect through the proxy in front of websocket.listen ({}) all come from the proxy's address, so allow_from, deny_from and proxy_protocol see that address for them",
+                        ws.listen
+                    ),
+                )
+                .at(spans.key(&["services", name]))
+                .help("rely on the visitor's secret for those visitors, or have them connect to the TCP listen port"),
+            );
+        }
+    }
+}
+
+fn check_service_lists(
+    clients: &BTreeMap<String, ClientAuth>,
+    services: &BTreeMap<String, crate::config::settings::Service>,
+    spans: &Spans,
+    out: &mut Vec<Diagnostic>,
+) {
+    for name in clients.keys() {
+        let list = super::super::settings::services_for(services, name);
+        let (count, size) = (
+            list.len(),
+            crate::wire::protocol::ServerMsg::Services(list)
+                .encode()
+                .len(),
+        );
+        if size > crate::wire::noise::MAX_PLAINTEXT {
+            out.push(
+                Diagnostic::error(
+                    "too-many-services",
+                    format!(
+                        "client \"{name}\" serves {count} services, too many to send it in one message ({size} bytes, the limit is {})",
+                        crate::wire::noise::MAX_PLAINTEXT
+                    ),
+                )
+                .at(spans.key(&["clients", name]))
+                .help("spread the services over more clients, or use port ranges for services that differ only by port"),
+            );
+        }
+    }
 }
 
 fn check_admin(
