@@ -370,6 +370,11 @@ fn init(args: crate::app::cli::InitArgs) -> Result<u8, Failure> {
         update: args.update,
         yes: args.yes,
         email: args.email,
+        web: args.web.map(|domain| crate::init::WebInit {
+            domain,
+            client: args.web_client,
+            target: args.web_target,
+        }),
         websocket: (args.ws
             || args.ws_listen.is_some()
             || args.ws_path.is_some()
@@ -400,9 +405,11 @@ fn init(args: crate::app::cli::InitArgs) -> Result<u8, Failure> {
         ("--secret", opts.secret.is_some()),
         ("--client-name", opts.client_name.is_some()),
         ("--ws", opts.websocket.is_some()),
+        ("--email", opts.email.is_some()),
+        ("--web", opts.web.is_some()),
     ];
     let (kind, applies): (&str, &[&str]) = match role {
-        RoleArg::Server => ("server", &["--client-name", "--ws"]),
+        RoleArg::Server => ("server", &["--client-name", "--ws", "--email", "--web"]),
         RoleArg::Client => ("client", &["--name", "--secret"]),
         RoleArg::Visitor => ("visitor", &["--name", "--secret"]),
     };
@@ -423,7 +430,7 @@ fn init(args: crate::app::cli::InitArgs) -> Result<u8, Failure> {
     }
     let mut out = std::io::stdout().lock();
     match role {
-        RoleArg::Server => crate::init::init_server(&opts, &mut out)?,
+        RoleArg::Server => crate::init::init_server_asking(&opts, &mut TtyPrompt, &mut out)?,
         RoleArg::Client => crate::init::init_client(&opts, &mut TtyPrompt, &mut out)?,
         RoleArg::Visitor => crate::init::init_visitor(&opts, &mut TtyPrompt, &mut out)?,
     };

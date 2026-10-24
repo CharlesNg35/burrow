@@ -322,6 +322,26 @@ pub struct InitArgs {
         help = "Server: Let's Encrypt contact; with --ws and --server NAME the tunnel shares port 443 with an automatic certificate (accepts Let's Encrypt's terms)"
     )]
     pub email: Option<String>,
+    #[arg(
+        long,
+        value_name = "NAME",
+        help = "Server: serve a first website with automatic HTTPS, like blog.example.com (needs --email)"
+    )]
+    pub web: Option<String>,
+    #[arg(
+        long,
+        value_name = "NAME",
+        requires = "web",
+        help = "Server: the client that runs the website's app (the config's first client)"
+    )]
+    pub web_client: Option<String>,
+    #[arg(
+        long,
+        value_name = "TARGET",
+        requires = "web",
+        help = "Server: the website's app on the client, like 3000 or 127.0.0.1:8080 (default 3000)"
+    )]
+    pub web_target: Option<String>,
 }
 
 #[derive(Debug, Args)]

@@ -8,8 +8,9 @@ mod web;
 
 pub use client::{client_config, client_document, client_value, init_client};
 pub use export::ConfigOutput;
-pub use server::{init_server, server_value};
+pub use server::{init_server, init_server_asking, server_value};
 pub use visitor::{init_visitor, reaches_something, visitor_config, visitor_document};
+pub use web::WebInit;
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -43,6 +44,7 @@ pub struct InitOptions {
     pub env_secret: Option<String>,
     pub websocket: Option<WebSocketInit>,
     pub email: Option<String>,
+    pub web: Option<WebInit>,
     pub update: bool,
     pub yes: bool,
 }
