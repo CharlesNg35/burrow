@@ -51,7 +51,8 @@ const SITES: [(&str, &str, SiteTls, bool); 8] = [
     ("busy", "busy.example", SiteTls::Plain, false),
 ];
 
-const POOL: [&str; 14] = [
+const POOL: [&str; 15] = [
+    "tunnel.example",
     "plain.example",
     "nas",
     "a.w.example",
@@ -184,8 +185,9 @@ impl Upstream for App {
         Some(())
     }
 
-    async fn tunnel(&self, _: TunnelConn<()>) {
-        panic!("the tunnel is never reached over plain HTTP");
+    async fn tunnel(&self, conn: TunnelConn<()>) {
+        assert!(conn.upgraded, "port 80 hands over only an upgraded stream");
+        assert_eq!(conn.path, "/burrow");
     }
 }
 
@@ -202,10 +204,10 @@ fn settings(http: SocketAddr) -> ProxySettings {
         })
         .collect();
     s.tunnel = Some(TunnelSettings {
-        host: "secure.example".into(),
+        host: "tunnel.example".into(),
         path: "/burrow".into(),
-        mode: TunnelMode::ByPath,
-        port: burrow_web::TunnelPort::Https,
+        mode: TunnelMode::OwnName,
+        port: burrow_web::TunnelPort::Http,
     });
     s.timeouts = Timeouts {
         request_header: Duration::from_secs(1),
@@ -258,7 +260,10 @@ fn check_answer(sent: &[u8], got: &[u8]) {
     );
     let code: u16 = text[9..12].parse().expect("a status code");
     assert!(
-        [100, 200, 308, 400, 403, 404, 413, 431, 501, 502, 503, 505].contains(&code),
+        [
+            100, 101, 200, 308, 400, 403, 404, 413, 426, 431, 501, 502, 503, 505
+        ]
+        .contains(&code),
         "status {code} for {:?}",
         String::from_utf8_lossy(sent)
     );
@@ -348,6 +353,8 @@ fn header(p: &mut Pick<'_>, out: &mut Vec<u8>, eol: &[u8]) {
         "Connection: keep-alive, X-Secret",
         "Connection: Upgrade",
         "Upgrade: websocket",
+        "Sec-WebSocket-Version: 13",
+        "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==",
         "X-Secret: 1",
         "X-Forwarded-For: 6.6.6.6",
         "X-Real-IP: 6.6.6.6",
@@ -396,7 +403,7 @@ fn request(p: &mut Pick<'_>, out: &mut Vec<u8>) {
         });
         out.extend_from_slice(eol);
     }
-    for _ in 0..p.byte() % 5 {
+    for _ in 0..p.byte() % 7 {
         header(p, out, eol);
     }
     out.extend_from_slice(eol);
