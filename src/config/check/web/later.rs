@@ -5,11 +5,9 @@ use burrow_config::{ServerConfig, ServiceWeb, WebConfig};
 pub(super) const WEB_HTTPS_REDIRECT: &str = "web-https-redirect-later";
 pub(super) const WEB_LETSENCRYPT: &str = "web-letsencrypt-later";
 pub(super) const WEB_CERTIFICATES: &str = "web-certificates-later";
-pub(super) const WEB_REQUEST_HEADER_TIMEOUT: &str = "web-request-header-timeout-later";
-pub(super) const WEB_IDLE_TIMEOUT: &str = "web-idle-timeout-later";
 pub(super) const SITE_HTTPS_REDIRECT: &str = "site-https-redirect-later";
 
-fn top_level(web: &WebConfig) -> [(&'static str, &'static str, bool); 5] {
+fn top_level(web: &WebConfig) -> [(&'static str, &'static str, bool); 3] {
     [
         (
             WEB_HTTPS_REDIRECT,
@@ -21,16 +19,6 @@ fn top_level(web: &WebConfig) -> [(&'static str, &'static str, bool); 5] {
             WEB_CERTIFICATES,
             "certificates",
             !web.certificates.is_empty(),
-        ),
-        (
-            WEB_REQUEST_HEADER_TIMEOUT,
-            "request_header_timeout_secs",
-            web.request_header_timeout_secs.is_some(),
-        ),
-        (
-            WEB_IDLE_TIMEOUT,
-            "idle_timeout_secs",
-            web.idle_timeout_secs.is_some(),
         ),
     ]
 }

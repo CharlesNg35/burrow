@@ -35,16 +35,6 @@ fn every_web_key_of_a_later_phase_is_refused_with_its_own_code() {
             "certificates: [{ hosts: [nas.example.com], cert: c.pem, key: k.pem }]",
             "web.certificates",
         ),
-        (
-            WEB_REQUEST_HEADER_TIMEOUT,
-            "request_header_timeout_secs: 5",
-            "web.request_header_timeout_secs",
-        ),
-        (
-            WEB_IDLE_TIMEOUT,
-            "idle_timeout_secs: 30",
-            "web.idle_timeout_secs",
-        ),
     ];
     for (code, yaml, key) in cases {
         let got = codes(&format!(
@@ -142,4 +132,15 @@ fn the_new_keys_are_wired_into_the_settings_once_their_refusal_is_lifted() {
         "https://acme-staging-v02.api.letsencrypt.org/directory"
     );
     assert_eq!(le.ca, Some(base.join("ca.pem")));
+}
+
+#[test]
+fn the_header_and_idle_timeouts_are_taken_from_the_config() {
+    let o = load(&format!(
+        "listen: 7835\nweb: {{ https: 443, request_header_timeout_secs: 5, idle_timeout_secs: 30 }}\n{NAS}"
+    ));
+    assert!(errors(&o).is_empty(), "{:?}", errors(&o));
+    let web = settings(o).web.unwrap();
+    assert_eq!(web.request_header_timeout, Duration::from_secs(5));
+    assert_eq!(web.idle_timeout, Duration::from_secs(30));
 }
