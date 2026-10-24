@@ -9,7 +9,7 @@ use leptos::prelude::*;
 
 use crate::store::store;
 
-use super::{FieldCtx, set_checked};
+use super::FieldCtx;
 
 const PASS: &str = "passthrough";
 const OWN: &str = "own";
@@ -64,13 +64,17 @@ pub(super) fn website_editor(fc: FieldCtx, u: UnionC, item: Node) -> AnyView {
             OWN.to_string()
         }
     });
-    let check_one = Callback::new(move |t: String| check(&item, &Value::String(t)).err());
-    let node = fc.node.clone();
+    let one = item.clone();
+    let check_one = Callback::new(move |t: String| check(&one, &Value::String(t)).err());
     let write = {
         let fc = fc.clone();
         move |list: Vec<String>, pass: bool| {
             fc.touched.set(true);
-            set_checked(&fc, &node, website(&list, pass));
+            let bad = list
+                .iter()
+                .find_map(|n| check(&item, &Value::String(n.clone())).err());
+            e.local_error(&fc.path, bad);
+            e.set(&fc.path, website(&list, pass));
         }
     };
     let on_names = {

@@ -14,6 +14,7 @@ pub mod relations;
 pub mod tree;
 pub mod version;
 pub mod web;
+pub mod wording;
 
 #[cfg(test)]
 mod testing;

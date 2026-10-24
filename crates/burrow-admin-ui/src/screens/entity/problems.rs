@@ -29,7 +29,11 @@ pub(super) fn problems_for(path: &Path) -> Problems {
                     p.diags
                         .iter()
                         .filter(|d| d.is_error())
-                        .filter_map(|d| d.path.clone().map(|x| (x, d.message.clone())))
+                        .filter_map(|d| {
+                            d.path.clone().map(|x| {
+                                (x, burrow_admin_logic::wording::shown(&d.code, &d.message))
+                            })
+                        })
                         .collect::<Vec<_>>()
                 })
                 .unwrap_or_default()
@@ -112,7 +116,7 @@ pub(super) fn problems_of(section: &str, entity: &Path) -> Vec<Problem> {
                             .max_by_key(|x| x.len())
                             .cloned()
                             .unwrap_or_else(|| entity.clone());
-                        (at, d.message.clone())
+                        (at, burrow_admin_logic::wording::shown(&d.code, &d.message))
                     })
                     .filter(|(at, _)| field(at).is_none_or(|f| !flagged.contains(&f)))
                     .collect::<Vec<_>>()

@@ -219,7 +219,12 @@ fn field_state_of(p: &Parts, touched: RwSignal<bool>, items: bool) -> Signal<Fie
             diags_at(p.as_deref(), &path, items)
                 .into_iter()
                 .filter(|d| picked || d.code != UNREACHABLE)
-                .map(|d| (d.severity, d.message.clone()))
+                .map(|d| {
+                    (
+                        d.severity,
+                        burrow_admin_logic::wording::shown(&d.code, &d.message),
+                    )
+                })
                 .collect::<Vec<_>>()
         });
         let server_error = server

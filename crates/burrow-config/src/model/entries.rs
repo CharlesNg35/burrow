@@ -175,7 +175,7 @@ impl Secrets {
     groups(
         who = "Where it runs | Clients that reach the target.",
         exposure = "Exposure | What opens on the server, and where it leads.",
-        website = "Website | Names that lead to this service on the web proxy's HTTPS port.",
+        website = "Website | How the web proxy reaches it.",
         access = "Access | Who may connect.",
         traffic = "Traffic | Limits and what the target sees."
     )

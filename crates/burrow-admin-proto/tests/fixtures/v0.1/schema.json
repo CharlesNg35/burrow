@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:8a3f4a2ebfcb2f13",
+  "hash": "b2s:97cdc70420bcb2a6",
   "root": {
     "label": "Server",
     "sem": {
@@ -1051,7 +1051,7 @@
                   {
                     "key": "website",
                     "label": "Website",
-                    "sub": "Names that lead to this service on the web proxy's HTTPS port."
+                    "sub": "How the web proxy reaches it."
                   },
                   {
                     "key": "access",

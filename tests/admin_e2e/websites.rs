@@ -15,6 +15,7 @@ fn opts() -> Options {
 }
 
 async fn both_widths(c: &mut Ctx, step: &str) {
+    tokio::time::sleep(std::time::Duration::from_millis(400)).await;
     c.ui.shot(step).await;
     c.ui.viewport(420, 900).await;
     c.ui.shot(&format!("{step}-phone")).await;
@@ -76,6 +77,7 @@ fn websites(c: &mut Ctx) -> Flow<'_> {
         add_name(c, "f-services-nas-web-hosts", "https://bad.example.com").await;
         let err = row_error(c, SITE).await;
         assert!(err.contains("write the name alone"), "{err}");
+        assert!(!err.starts_with("hosts"), "{err}");
         both_widths(c, "nas-bad-name").await;
         c.ui.click("[data-chip='https://bad.example.com'] button")
             .await;
@@ -83,7 +85,16 @@ fn websites(c: &mut Ctx) -> Flow<'_> {
         click_js(c, "[data-schema='services/*/web'] input[value=own]").await;
         wait_checked(c).await;
         let err = row_error(c, SITE).await;
-        assert!(err.contains("tls: passthrough"), "{err}");
+        assert!(err.contains("choose Passthrough under TLS"), "{err}");
+        assert!(!err.contains("services.nas.web"), "{err}");
+        let blocked: bool = c
+            .ui
+            .eval("(() => { const b = document.querySelector('[data-testid=save]'); return !!b && (b.disabled || b.getAttribute('aria-disabled') === 'true'); })()")
+            .await;
+        assert!(
+            blocked,
+            "a problem found by the server blocks the save like a local one"
+        );
         both_widths(c, "nas-https-not-yet").await;
         click_js(c, "[data-schema='services/*/web'] input[value=passthrough]").await;
         row_clean(c, SITE).await;
