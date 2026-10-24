@@ -648,24 +648,31 @@ mod tests {
             let args: Vec<std::ffi::OsString> = args.iter().map(Into::into).collect();
             service_word(&e, &args)
         };
+        let supported = cfg!(any(target_os = "linux", target_os = "macos", windows));
         for word in ["install", "uninstall", "start", "stop", "restart", "logs"] {
             let f = parse(&["burrow", word]).unwrap_or_else(|| panic!("{word}"));
             assert_eq!(f.message, format!("burrow {word} is not a command"));
             let hint = f.hint.unwrap();
-            assert!(hint.contains(&format!("burrow service {word}")), "{hint}");
+            if supported {
+                assert!(hint.contains(&format!("burrow service {word}")), "{hint}");
+            } else {
+                assert!(hint.starts_with("burrow cannot manage services"), "{hint}");
+            }
         }
         let hint = |args: &[&str]| parse(args).unwrap().hint.unwrap();
-        assert!(hint(&["burrow", "stop", "home"]).contains("burrow service stop home"));
-        assert!(
-            hint(&["burrow", "--log-level", "debug", "logs", "home", "-n", "3"])
-                .contains("burrow service logs home -n 3")
-        );
-        assert!(
-            hint(&["burrow", "install", "-c", "my home.yaml"]).contains(&format!(
-                "burrow service install -c {}",
-                crate::failure::arg("my home.yaml")
-            ))
-        );
+        if supported {
+            assert!(hint(&["burrow", "stop", "home"]).contains("burrow service stop home"));
+            assert!(
+                hint(&["burrow", "--log-level", "debug", "logs", "home", "-n", "3"])
+                    .contains("burrow service logs home -n 3")
+            );
+            assert!(
+                hint(&["burrow", "install", "-c", "my home.yaml"]).contains(&format!(
+                    "burrow service install -c {}",
+                    crate::failure::arg("my home.yaml")
+                ))
+            );
+        }
         assert!(
             service_word_hint("stop", " home", false).starts_with("burrow cannot manage services"),
         );
