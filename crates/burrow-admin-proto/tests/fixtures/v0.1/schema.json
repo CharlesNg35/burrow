@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:2c6175331d9cf37a",
+  "hash": "b2s:70191a3167c9080c",
   "root": {
     "label": "Server",
     "sem": {
@@ -296,7 +296,7 @@
                       "key": "forward_auth",
                       "node": {
                         "label": "Login service",
-                        "help": "The single sign-on service websites use with forward_auth: true, for example Authelia",
+                        "help": "The single sign-on service websites can share to check their visitors, for example Authelia",
                         "sem": {
                           "t": "optional",
                           "inner": {

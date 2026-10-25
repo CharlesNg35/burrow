@@ -65,7 +65,7 @@ pub struct WebConfig {
     )]
     #[admin(
         label = "Login service",
-        help = "The single sign-on service websites use with forward_auth: true, for example Authelia",
+        help = "The single sign-on service websites can share to check their visitors, for example Authelia",
         none_label = "None",
         advanced
     )]
