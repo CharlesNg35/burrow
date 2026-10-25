@@ -68,7 +68,7 @@ Wrong names and wrong secrets get exactly the same answer, after the same amount
 - **`target_tls` checks the app's certificate** unless you write `insecure_skip_verify: true`, which validate notes.
 - **DNS provider secrets** (`cloudflare.token`, `rfc2136.secret`, `acme_dns.password`) come only from `${VAR}` or `file:`; validate refuses one written in the config. They are never printed, and burrow wipes them from memory when they are no longer needed. Give a Cloudflare token only Zone: Read and DNS: Edit on the zones it serves, and an RFC 2136 key only the `_acme-challenge` names. A `command` hook gets no secrets and only `PATH`; validate warns when others can change it.
 - **Certificates and keys** from Let's Encrypt live in a folder only the service account can read (0700, files 0600). Your own key files must be readable by the account burrow runs as.
-- **The admin UI cannot open ports, read files or run programs:** `web.https`, `web.http`, `web.proxy_protocol_from`, every certificate, key and CA path, `error_pages`, `access_log` and a DNS `command` are changed in server.yaml only, and a DNS secret is entered only as `${VAR}` or `file:`. See [web.md](web.md).
+- **The admin UI cannot open ports, read files or run programs:** `web.https`, `web.http`, `web.proxy_protocol_from`, every certificate, key and CA path, `error_pages`, `access_log`, and a DNS provider's `command`, secrets and server are changed in server.yaml only. See [web.md](web.md).
 
 ## burrow admin
 

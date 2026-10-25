@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:7064cb6809eb0b63",
+  "hash": "b2s:6f7ffb43db3cca6b",
   "root": {
     "label": "Server",
     "sem": {
@@ -430,7 +430,8 @@
                                                               "max": 1,
                                                               "reference": true
                                                             },
-                                                            "required": true
+                                                            "required": true,
+                                                            "locked": true
                                                           }
                                                         }
                                                       ]
@@ -460,7 +461,8 @@
                                                             "sem": {
                                                               "t": "text"
                                                             },
-                                                            "required": true
+                                                            "required": true,
+                                                            "locked": true
                                                           }
                                                         },
                                                         {
@@ -471,7 +473,8 @@
                                                             "sem": {
                                                               "t": "text"
                                                             },
-                                                            "required": true
+                                                            "required": true,
+                                                            "locked": true
                                                           }
                                                         },
                                                         {
@@ -484,7 +487,8 @@
                                                               "max": 1,
                                                               "reference": true
                                                             },
-                                                            "required": true
+                                                            "required": true,
+                                                            "locked": true
                                                           }
                                                         }
                                                       ]
@@ -514,7 +518,8 @@
                                                             "sem": {
                                                               "t": "text"
                                                             },
-                                                            "required": true
+                                                            "required": true,
+                                                            "locked": true
                                                           }
                                                         },
                                                         {
@@ -527,7 +532,8 @@
                                                               "max": 1,
                                                               "reference": true
                                                             },
-                                                            "required": true
+                                                            "required": true,
+                                                            "locked": true
                                                           }
                                                         },
                                                         {
@@ -540,7 +546,8 @@
                                                               "max": 1,
                                                               "reference": true
                                                             },
-                                                            "required": true
+                                                            "required": true,
+                                                            "locked": true
                                                           }
                                                         },
                                                         {

@@ -1,5 +1,6 @@
 mod files;
 mod locks;
+mod locks_web;
 mod plans;
 mod reverts;
 mod snippets;

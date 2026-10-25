@@ -93,16 +93,17 @@ async fn dns_secrets_are_references(c: &mut Ctx) {
     );
     both_widths(c, "settings-dns-provider").await;
     edit_mode(c).await;
-    let token = "[data-schema='web/letsencrypt/dns/*/cloudflare/token'] input";
-    c.ui.wait_for(token, SECS).await;
-    c.ui.fill(token, "pasted-token-value").await;
-    c.ui.wait_text(
-        "[data-schema='web/letsencrypt/dns/*/cloudflare/token']",
-        "never the secret itself",
-        SECS,
-    )
-    .await;
-    both_widths(c, "settings-dns-token-refused").await;
+    let token = "[data-schema='web/letsencrypt/dns/*/cloudflare/token']";
+    c.ui.wait_text(token, "Change this in server.yaml", SECS)
+        .await;
+    assert_eq!(
+        c.ui.count(&format!("{token} input")).await,
+        0,
+        "a DNS secret reference is changed in server.yaml only"
+    );
+    let api = c.ui.text(token).await;
+    assert!(api.contains("${CF_TOKEN}") || api.contains("set"), "{api}");
+    both_widths(c, "settings-dns-token-locked").await;
     c.ui.click("[data-testid=discard-edit]").await;
     c.ui.wait_gone("[data-testid=save-bar]", SECS).await;
 }

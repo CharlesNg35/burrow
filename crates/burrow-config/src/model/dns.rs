@@ -100,7 +100,8 @@ pub struct CloudflareDns {
     #[admin(
         ty = secret_ref(max = 1, reference),
         label = "API token",
-        help = "An API token allowed Zone:Read and DNS:Edit on these zones only, from an environment variable like ${CF_TOKEN} or a file like file:/etc/burrow/cf.token"
+        help = "An API token allowed Zone:Read and DNS:Edit on these zones only, from an environment variable like ${CF_TOKEN} or a file like file:/etc/burrow/cf.token",
+        locked
     )]
     pub token: String,
 }
@@ -114,13 +115,17 @@ pub struct Rfc2136Dns {
         description = "The zone's primary nameserver as host:port, for example 192.168.1.2:53; the public nameservers must get the record from it"
     )]
     #[admin(
-        help = "The zone's primary as host:port, for example 192.168.1.2:53; it may be on the LAN if it feeds the public nameservers"
+        help = "The zone's primary as host:port, for example 192.168.1.2:53; it may be on the LAN if it feeds the public nameservers",
+        locked
     )]
     pub server: String,
     #[schemars(
         description = "The TSIG key's name, as in the server's key file, for example burrow-key"
     )]
-    #[admin(help = "The TSIG key's name, as in the server's key file, for example burrow-key")]
+    #[admin(
+        help = "The TSIG key's name, as in the server's key file, for example burrow-key",
+        locked
+    )]
     pub key_name: String,
     #[schemars(
         description = "The TSIG secret in base64, as in the server's key file, from ${TSIG_SECRET} or file:path"
@@ -128,7 +133,8 @@ pub struct Rfc2136Dns {
     #[admin(
         ty = secret_ref(max = 1, reference),
         label = "Key secret",
-        help = "The TSIG secret in base64, as in the server's key file, from an environment variable like ${TSIG_SECRET} or a file like file:/etc/burrow/tsig.secret"
+        help = "The TSIG secret in base64, as in the server's key file, from an environment variable like ${TSIG_SECRET} or a file like file:/etc/burrow/tsig.secret",
+        locked
     )]
     pub secret: String,
 }
@@ -143,20 +149,23 @@ pub struct AcmeDnsDns {
     )]
     #[admin(
         label = "Server address",
-        help = "The acme-dns server's address, for example https://auth.example.org"
+        help = "The acme-dns server's address, for example https://auth.example.org",
+        locked
     )]
     pub api: String,
     #[schemars(description = "The account's user name, from ${ACMEDNS_USER} or file:path")]
     #[admin(
         ty = secret_ref(max = 1, reference),
         label = "User name",
-        help = "The acme-dns account's user name, from an environment variable like ${ACMEDNS_USER} or a file"
+        help = "The acme-dns account's user name, from an environment variable like ${ACMEDNS_USER} or a file",
+        locked
     )]
     pub username: String,
     #[schemars(description = "The account's password, from ${ACMEDNS_KEY} or file:path")]
     #[admin(
         ty = secret_ref(max = 1, reference),
-        help = "The acme-dns account's password, from an environment variable like ${ACMEDNS_KEY} or a file"
+        help = "The acme-dns account's password, from an environment variable like ${ACMEDNS_KEY} or a file",
+        locked
     )]
     pub password: String,
     #[schemars(
