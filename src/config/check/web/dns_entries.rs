@@ -189,6 +189,9 @@ fn provider(i: usize, e: &DnsEntry, base_dir: &Path, spans: &Spans, out: &mut Ve
             }
         }
     }
+    if let Some(a) = &e.acme_dns {
+        acme_dns_api(i, a.api.trim(), spans, out);
+    }
     if let Some(c) = &e.command {
         command(i, c.trim(), base_dir, spans, out);
     }
@@ -215,6 +218,42 @@ fn tsig(written: Option<&str>) -> Option<Result<(&'static str, usize), String>> 
 #[cfg(not(feature = "web"))]
 fn tsig(_: Option<&str>) -> Option<Result<(&'static str, usize), String>> {
     None
+}
+
+#[cfg(feature = "web")]
+fn public_ip(host: &str) -> Option<std::net::IpAddr> {
+    host.trim_matches(['[', ']'])
+        .parse::<std::net::IpAddr>()
+        .ok()
+        .filter(|ip| !burrow_web::tls::acme::http::is_private(*ip))
+}
+
+#[cfg(not(feature = "web"))]
+fn public_ip(_: &str) -> Option<std::net::IpAddr> {
+    None
+}
+
+fn acme_dns_api(i: usize, api: &str, spans: &Spans, out: &mut Vec<Diagnostic>) {
+    let uri = api
+        .parse::<http::Uri>()
+        .ok()
+        .filter(|u| u.host().is_some_and(|h| !h.is_empty()));
+    let problem = match uri.as_ref().map(|u| (u.scheme_str(), u.host())) {
+        Some((Some("https"), _)) => None,
+        Some((Some("http"), Some(host))) => public_ip(host).map(|ip| {
+            format!("{ip} is a public address; plain http:// is allowed only to loopback or private addresses, so use https://")
+        }),
+        _ => Some(format!(
+            "\"{api}\" is not an https:// address, like https://auth.example.org"
+        )),
+    };
+    if let Some(m) = problem {
+        out.push(
+            Diagnostic::error("dns-acme-dns", format!("web.letsencrypt.dns[{i}].acme_dns.api: {m}"))
+                .at(span(spans, &at(i, &["acme_dns", "api"])))
+                .help("plain http:// suits an acme-dns server on your own network, like http://192.168.1.5:8080"),
+        );
+    }
 }
 
 fn command(i: usize, c: &str, base_dir: &Path, spans: &Spans, out: &mut Vec<Diagnostic>) {

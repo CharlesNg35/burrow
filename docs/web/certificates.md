@@ -144,6 +144,8 @@ web:
           subdomain: d420c923-bbd7-4056-ab64-c3ca54c9b3cf
 ```
 
+`api` is an `https://` address. An acme-dns server on your own network may use plain `http://`, like `http://192.168.1.5:8080`, when its address is loopback or private (10/8, 172.16/12, 192.168/16, fc00::/7): validate refuses `http://` to a public address, and for a name, burrow looks it up each time and refuses it when any of its addresses is public, then connects to the address it checked.
+
 #### A command for any provider
 
 `command` runs a program of yours, like lego's `exec` provider: `PROGRAM present|cleanup NAME VALUE`, where `NAME` is the record's name with a final dot (the `_acme-challenge` name, or its CNAME target). It gets no secrets from burrow and an empty environment apart from `PATH`, so it reads its own credentials from a file. It must finish within 60 seconds, and it must add the value, not replace the record: a wildcard and its parent name set two values side by side. Installed as a service, it runs as the service account under the service's limits: on Linux it cannot see /home, can write only burrow's own folders, and cannot run programs that compile code at run time (`MemoryDenyWriteExecute`, so a Node.js hook fails); keep it and its credentials file outside /home, readable by that account.

@@ -375,3 +375,37 @@ fn the_tsig_algorithm_is_one_of_three_and_the_secret_should_be_as_long_as_its_ma
         ]
     );
 }
+
+#[cfg(feature = "web")]
+#[test]
+fn an_acme_dns_api_is_https_or_plain_http_to_a_private_address() {
+    let api = |url: &str| {
+        entry(
+            "[example.com]",
+            &format!(
+                "acme_dns: {{ api: \"{url}\", username: \"${{CF}}\", password: \"${{CF}}\", subdomain: abc }}"
+            ),
+        )
+    };
+    for ok in [
+        "https://auth.acme-dns.io",
+        "http://192.168.1.5:8080",
+        "http://127.0.0.1",
+        "http://[fd00::5]/",
+        "http://acme.lan",
+    ] {
+        assert_eq!(errs(&api(ok), ""), Vec::<String>::new(), "{ok}");
+    }
+    assert_eq!(
+        errs(&api("http://203.0.113.5"), ""),
+        [
+            "web.letsencrypt.dns[0].acme_dns.api: 203.0.113.5 is a public address; plain http:// is allowed only to loopback or private addresses, so use https://"
+        ]
+    );
+    assert_eq!(
+        errs(&api("ftp://auth.example.org"), ""),
+        [
+            "web.letsencrypt.dns[0].acme_dns.api: \"ftp://auth.example.org\" is not an https:// address, like https://auth.example.org"
+        ]
+    );
+}
