@@ -2,7 +2,7 @@
 
 use burrow_syntax::web::{SingleLabel, host_name, is_wildcard};
 use burrow_web::http::host::{host_header, request_host};
-use http::{HeaderMap, HeaderValue, Uri, header};
+use http::{HeaderMap, HeaderValue, Uri, Version, header};
 use libfuzzer_sys::fuzz_target;
 
 fn written(host: &str) -> String {
@@ -66,7 +66,7 @@ fn configured(text: &str) {
     }
 }
 
-fn request(data: &[u8]) {
+fn request(data: &[u8], h2: bool) {
     let mut parts = data.split(|b| *b == b'\n');
     let target = parts.next().unwrap_or_default();
     let Ok(uri) = Uri::try_from(target) else {
@@ -80,15 +80,26 @@ fn request(data: &[u8]) {
             values.push(v);
         }
     }
-    let got = request_host(&uri, &headers);
-    let field = match values.as_slice() {
-        [one] => one.to_str().ok().and_then(host_header),
-        _ => None,
+    let version = if h2 {
+        Version::HTTP_2
+    } else {
+        Version::HTTP_11
     };
-    let want = match (field, uri.authority()) {
+    let got = request_host(&uri, &headers, version);
+    let field = match values.as_slice() {
+        [one] => Some(one.to_str().ok().and_then(host_header)),
+        [] => None,
+        _ => Some(None),
+    };
+    let authority = uri.authority().map(|a| host_header(a.as_str()));
+    let want = match (field, authority) {
+        (Some(None), _) | (_, Some(None)) => None,
+        (Some(Some(f)), Some(Some(a))) if h2 && f != a => None,
+        (_, Some(Some(a))) if h2 => Some(a),
+        (f, None) if h2 => f.flatten(),
         (None, _) => None,
-        (Some(_), Some(a)) => host_header(a.as_str()),
-        (Some(f), None) => Some(f),
+        (Some(Some(_)), Some(Some(a))) => Some(a),
+        (Some(Some(f)), None) => Some(f),
     };
     assert_eq!(got, want, "{uri} {values:?}");
 }
@@ -98,7 +109,7 @@ fuzz_target!(|data: &[u8]| {
         return;
     };
     if mode % 2 == 1 {
-        request(rest);
+        request(rest, mode & 2 == 2);
         return;
     }
     if let Ok(text) = std::str::from_utf8(rest) {

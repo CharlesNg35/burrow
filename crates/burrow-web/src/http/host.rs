@@ -1,7 +1,7 @@
 use std::net::{Ipv4Addr, Ipv6Addr};
 
 use http::uri::Authority;
-use http::{HeaderMap, Uri, header};
+use http::{HeaderMap, Uri, Version, header};
 
 pub fn host_header(value: &str) -> Option<String> {
     if value.contains('@') {
@@ -29,17 +29,29 @@ pub fn host_header(value: &str) -> Option<String> {
     (labels_ok && !name.contains(['[', ']'])).then(|| name.to_ascii_lowercase())
 }
 
-pub fn request_host(uri: &Uri, headers: &HeaderMap) -> Option<String> {
+pub fn request_host(uri: &Uri, headers: &HeaderMap, version: Version) -> Option<String> {
     let mut given = headers.get_all(header::HOST).iter();
-    let first = given.next()?;
+    let first = given.next();
     if given.next().is_some() {
         return None;
     }
-    let field = host_header(first.to_str().ok()?)?;
-    match uri.authority() {
-        Some(a) => host_header(a.as_str()),
-        None => Some(field),
+    let field = match first {
+        Some(v) => Some(host_header(v.to_str().ok()?)?),
+        None => None,
+    };
+    let authority = match uri.authority() {
+        Some(a) => Some(host_header(a.as_str())?),
+        None => None,
+    };
+    if version == Version::HTTP_2 {
+        return match (authority, field) {
+            (Some(a), Some(f)) if a != f => None,
+            (Some(a), _) => Some(a),
+            (None, f) => f,
+        };
     }
+    field.as_ref()?;
+    authority.or(field)
 }
 
 #[cfg(test)]
@@ -101,23 +113,53 @@ mod tests {
         h
     }
 
+    const H1: Version = Version::HTTP_11;
+
     #[test]
     fn a_request_needs_exactly_one_valid_host_and_its_absolute_target_wins() {
         let origin: Uri = "/x".parse().unwrap();
         let absolute: Uri = "https://Other.example.com/x".parse().unwrap();
         assert_eq!(
-            request_host(&origin, &headers(&["a.example.com"])).as_deref(),
+            request_host(&origin, &headers(&["a.example.com"]), H1).as_deref(),
             Some("a.example.com")
         );
-        assert_eq!(request_host(&origin, &headers(&[])), None);
+        assert_eq!(request_host(&origin, &headers(&[]), H1), None);
         assert_eq!(
-            request_host(&origin, &headers(&["a.example.com", "a.example.com"])),
+            request_host(&origin, &headers(&["a.example.com", "a.example.com"]), H1),
             None
         );
-        assert_eq!(request_host(&origin, &headers(&["a@b"])), None);
+        assert_eq!(request_host(&origin, &headers(&["a@b"]), H1), None);
         assert_eq!(
-            request_host(&absolute, &headers(&["a.example.com"])).as_deref(),
+            request_host(&absolute, &headers(&["a.example.com"]), H1).as_deref(),
             Some("other.example.com")
         );
+    }
+
+    #[test]
+    fn on_http2_the_authority_names_the_host_and_a_different_host_field_is_refused() {
+        let h2 = Version::HTTP_2;
+        let authority: Uri = "https://Blog.example.com:443/x".parse().unwrap();
+        let origin: Uri = "/x".parse().unwrap();
+        assert_eq!(
+            request_host(&authority, &headers(&[]), h2).as_deref(),
+            Some("blog.example.com"),
+            ":authority alone"
+        );
+        assert_eq!(
+            request_host(&authority, &headers(&["blog.example.com"]), h2).as_deref(),
+            Some("blog.example.com")
+        );
+        assert_eq!(
+            request_host(&authority, &headers(&["other.example.com"]), h2),
+            None,
+            "RFC 9113 8.3.1: Host and :authority must agree"
+        );
+        assert_eq!(
+            request_host(&origin, &headers(&["blog.example.com"]), h2).as_deref(),
+            Some("blog.example.com"),
+            "Host alone"
+        );
+        assert_eq!(request_host(&origin, &headers(&[]), h2), None);
+        assert_eq!(request_host(&authority, &headers(&["a", "a"]), h2), None);
     }
 }

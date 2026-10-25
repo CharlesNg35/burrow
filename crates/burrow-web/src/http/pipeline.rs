@@ -28,7 +28,7 @@ pub(crate) async fn handle<U: Upstream>(
     if req.headers().len() > MAX_HEADERS {
         return Page::HeadersTooLarge.response();
     }
-    let Some(host) = request_host(req.uri(), req.headers()) else {
+    let Some(host) = request_host(req.uri(), req.headers(), req.version()) else {
         return Page::BadRequest.response();
     };
     if req.method() == Method::CONNECT {
