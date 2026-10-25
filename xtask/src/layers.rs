@@ -55,6 +55,7 @@ pub const UNITS: &[(&str, Layer)] = &[
     ("edit", Layer::Ops),
     ("init", Layer::Ops),
     ("instance", Layer::Ops),
+    ("mcp", Layer::Ops),
     ("service", Layer::Ops),
     ("status", Layer::Ops),
     ("update", Layer::Ops),

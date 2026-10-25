@@ -5,8 +5,8 @@ mod service;
 use std::path::PathBuf;
 
 pub use args::{
-    AdminArgs, ClientConfigArgs, EditArgs, ExportArgs, InitArgs, RunArgs, ServerArgs, StatusArgs,
-    UpdateArgs, ValidateArgs, VisitArgs, VisitorConfigArgs, parse_duration,
+    AdminArgs, ClientConfigArgs, EditArgs, ExportArgs, InitArgs, McpApp, McpArgs, RunArgs,
+    ServerArgs, StatusArgs, UpdateArgs, ValidateArgs, VisitArgs, VisitorConfigArgs, parse_duration,
 };
 pub use ca::{CaAction, CaExportArgs};
 use clap::{Parser, Subcommand, ValueEnum};
@@ -76,6 +76,7 @@ pub enum FileFormat {
 }
 
 pub const ADMIN_COMMAND: &str = "admin";
+pub const MCP_COMMAND: &str = "mcp";
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
@@ -92,6 +93,11 @@ pub enum Command {
         about = "Open the admin UI of a server in your browser, as a visitor with admin access"
     )]
     Admin(AdminArgs),
+    #[command(
+        name = MCP_COMMAND,
+        about = "Let an AI app (Claude Code, Claude Desktop, Cursor) read and change a server over MCP, as a visitor with admin access"
+    )]
+    Mcp(McpArgs),
     #[command(
         about = "Show the running burrow servers on this machine: clients, services, visitors and traffic"
     )]
@@ -190,7 +196,9 @@ fn service_word_hint(word: &str, rest: &str, supported: bool) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use burrow_syntax::ports::{ADMIN_PORT, FIRST_SERVICE_PORT, SERVER_PORT, WS_PORT, WSS_PORT};
+    use burrow_syntax::ports::{
+        ADMIN_PORT, FIRST_SERVICE_PORT, MCP_PORT, SERVER_PORT, WS_PORT, WSS_PORT,
+    };
     use clap::CommandFactory;
 
     fn help_of(cmd: &mut clap::Command, out: &mut String) {
@@ -267,6 +275,7 @@ mod tests {
             WS_PORT,
             WSS_PORT,
             ADMIN_PORT,
+            MCP_PORT,
             FIRST_SERVICE_PORT,
         ];
         let bytes = text.as_bytes();
@@ -286,6 +295,7 @@ mod tests {
             ("for example 127.0.0.1:", WS_PORT),
             ("or 0.0.0.0:", WSS_PORT),
             ("session's port or ", ADMIN_PORT),
+            ("for --http; ", MCP_PORT),
         ] {
             let found = numbers_after(&text, before);
             assert!(!found.is_empty(), "no text names a port after {before:?}");

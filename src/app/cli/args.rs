@@ -82,6 +82,76 @@ pub struct ServerArgs {
 }
 
 #[derive(Debug, Args)]
+pub struct McpArgs {
+    #[arg(
+        short,
+        long,
+        help = "Visitor config file; ./visitor.yaml, or the one installed visitor service, when omitted"
+    )]
+    pub config: Option<PathBuf>,
+    #[arg(
+        long,
+        value_name = "NAME",
+        conflicts_with = "config",
+        help = "Use the config of this installed visitor service"
+    )]
+    pub service: Option<String>,
+    #[arg(
+        long,
+        help = "Offer the tools that change the config (apply_change, revert_to_version); the visitor also needs admin: write"
+    )]
+    pub allow_write: bool,
+    #[arg(
+        long,
+        help = "Serve MCP over HTTP on 127.0.0.1 with a bearer token, instead of stdio"
+    )]
+    pub http: bool,
+    #[arg(
+        long,
+        requires = "http",
+        help = "Local port on 127.0.0.1 for --http; 7838 when omitted, 0 picks a free one"
+    )]
+    pub port: Option<u16>,
+    #[arg(
+        long,
+        requires = "http",
+        help = "Print only the URL when the HTTP server starts, not the header with the token; for services and logs"
+    )]
+    pub no_print_token: bool,
+    #[arg(
+        long,
+        conflicts_with = "print_config",
+        help = "Print the bearer token, and exit"
+    )]
+    pub print_token: bool,
+    #[arg(
+        long,
+        help = "Replace the bearer token; the old one stops working at once"
+    )]
+    pub new_token: bool,
+    #[arg(
+        long,
+        value_name = "FILE",
+        help = "Keep the bearer token in FILE, readable by you only; by default it is kept per visitor config in burrow's private state folder"
+    )]
+    pub token_file: Option<PathBuf>,
+    #[arg(
+        long,
+        value_enum,
+        value_name = "APP",
+        help = "Print a ready setup for this AI app, and exit; over stdio, or over HTTP with --http"
+    )]
+    pub print_config: Option<McpApp>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum McpApp {
+    Claude,
+    Codex,
+    Cursor,
+}
+
+#[derive(Debug, Args)]
 pub struct AdminArgs {
     #[arg(
         short,

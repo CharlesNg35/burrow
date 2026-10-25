@@ -35,6 +35,7 @@ pub mod forward;
 pub mod init;
 pub mod install;
 pub mod instance;
+pub mod mcp;
 pub mod metrics;
 pub mod policy;
 pub mod server;

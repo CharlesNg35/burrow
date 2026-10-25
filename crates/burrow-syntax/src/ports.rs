@@ -5,6 +5,7 @@ pub const MAX_RANGE: u16 = 1000;
 pub const SERVER_PORT: u16 = 7835;
 pub const WS_PORT: u16 = 7836;
 pub const WSS_PORT: u16 = 7837;
+pub const MCP_PORT: u16 = 7838;
 pub const ADMIN_PORT: u16 = 7839;
 pub const FIRST_SERVICE_PORT: u16 = 7840;
 

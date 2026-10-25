@@ -293,6 +293,7 @@ fn run(cli: Cli) -> Result<u8, Failure> {
         ),
         Command::Service { action } => service(action, logging),
         Command::Admin(args) => admin(args),
+        Command::Mcp(args) => mcp(args),
         Command::Server(args) => {
             if let Some(dir) = args.state_dir {
                 crate::install::choose_state_dir(dir);
@@ -471,6 +472,38 @@ fn admin(args: crate::app::cli::AdminArgs) -> Result<u8, Failure> {
         ui_dir: args.ui_dir,
     };
     crate::app::run::admin(&chosen.path, chosen.env, opts)
+}
+
+fn mcp(args: crate::app::cli::McpArgs) -> Result<u8, Failure> {
+    use crate::app::cli::McpApp;
+    use crate::mcp::setup::App;
+    let config_given = args.config.is_some();
+    let chosen = crate::admin_link::find::visitor(
+        args.config,
+        args.service.as_deref(),
+        crate::app::cli::MCP_COMMAND,
+        crate::service::saved_env,
+    )?;
+    if let Some(note) = &chosen.note {
+        crate::say_errln!("{note}");
+    }
+    let opts = crate::mcp::Options {
+        allow_write: args.allow_write,
+        http: args.http.then_some(crate::mcp::HttpOptions {
+            port: args.port.unwrap_or(burrow_syntax::ports::MCP_PORT),
+            show_token: !args.no_print_token,
+        }),
+        token_file: args.token_file,
+        new_token: args.new_token,
+        print_token: args.print_token,
+        print_config: args.print_config.map(|a| match a {
+            McpApp::Claude => App::Claude,
+            McpApp::Codex => App::Codex,
+            McpApp::Cursor => App::Cursor,
+        }),
+        config_given,
+    };
+    crate::app::run::mcp(&chosen.path, chosen.env, opts)
 }
 
 fn run_env(file: Option<&std::path::Path>) -> Result<crate::config::env::Env, Failure> {

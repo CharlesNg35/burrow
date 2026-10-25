@@ -199,6 +199,17 @@ fn visitor(path: &Path, env: &Env) -> Result<crate::config::settings::VisitorSet
     Ok(*settings)
 }
 
+pub fn mcp(path: &Path, env: Env, opts: crate::mcp::Options) -> Result<u8, Failure> {
+    let settings = visitor(path, &env)?;
+    if !crate::mcp::before_start(path, &opts)? {
+        return Ok(0);
+    }
+    drive(async move {
+        crate::mcp::serve(settings, path, opts, stop_on_signal(None)).await?;
+        Ok(0)
+    })
+}
+
 pub fn admin(path: &Path, env: Env, opts: crate::admin_local::Options) -> Result<u8, Failure> {
     let settings = visitor(path, &env)?;
     drive(async move {

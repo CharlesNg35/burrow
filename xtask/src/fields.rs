@@ -14,6 +14,7 @@ pub const FIELD_FREE: &[&str] = &[
     "src/admin",
     "src/admin_link",
     "src/admin_local",
+    "src/mcp",
 ];
 
 const COMMON_WORDS: &[&str] = &["file", "to", "api", "server", "service", "password"];
