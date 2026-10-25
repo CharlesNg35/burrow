@@ -215,7 +215,7 @@ async fn accept_loop<U: Upstream>(shared: Arc<Shared<U>>, listener: TcpListener)
         } else {
             shared.permits.try_take(peer.ip())
         };
-        let Some(permit) = permit else {
+        let Some(mut permit) = permit else {
             shared.up.refused();
             debug!(%peer, "web: too many connections that have not shown a TLS name yet, dropping");
             continue;
@@ -224,7 +224,7 @@ async fn accept_loop<U: Upstream>(shared: Arc<Shared<U>>, listener: TcpListener)
         tokio::spawn(async move {
             let mut stopped = shared.stop.clone();
             let seen = tokio::select! {
-                seen = greet(&shared, stream, peer, proxied) => seen,
+                seen = greet(&shared, stream, peer, proxied, &mut permit) => seen,
                 _ = stopped.wait_for(|s| *s) => None,
             };
             if let Some(seen) = seen {
@@ -303,11 +303,17 @@ async fn greet<U: Upstream>(
     stream: TcpStream,
     peer: SocketAddr,
     proxied: bool,
+    permit: &mut Permit,
 ) -> Option<Seen> {
     let accepted = Instant::now();
     let local = stream.local_addr().ok()?;
     shared.up.tune(&stream);
     let (mut early, peer) = after_proxy_header(stream, peer, proxied).await?;
+    if proxied && !shared.permits.claim_source(permit, peer.ip()) {
+        shared.up.refused();
+        debug!(%peer, "web: too many connections from this visitor behind a balancer that have not shown a TLS name yet, dropping");
+        return None;
+    }
     let (hello_limit, handshake) = shared.timing();
     let hello = match peek_sni(&mut early, hello_limit).await {
         Ok(Peek::Hello(h)) => h,

@@ -96,6 +96,21 @@ impl Permits {
         }
     }
 
+    pub fn claim_source(&self, permit: &mut Permit, ip: IpAddr) -> bool {
+        let (slots, total) = self.slots.read().expect("slots lock").clone();
+        let pressed = slots.available_permits() < total / 2;
+        match self.source_slot(source_key(ip), total, pressed) {
+            Ok(source) => {
+                permit._source = source;
+                true
+            }
+            Err(()) => {
+                self.refused.fetch_add(1, Ordering::Relaxed);
+                false
+            }
+        }
+    }
+
     fn source_slot(
         &self,
         key: Option<IpAddr>,
@@ -144,6 +159,27 @@ mod tests {
         assert_eq!(p.refused(), 2);
         drop(calm);
         drop(net);
+        assert!(p.sources.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_visitor_behind_a_balancer_gets_the_same_share_as_a_direct_one() {
+        let p = Permits::new(16);
+        let mut held = Vec::new();
+        let mut granted = 0;
+        for _ in 0..12 {
+            let mut permit = p.try_take_shared().unwrap();
+            if p.claim_source(&mut permit, ip("203.0.113.7")) {
+                granted += 1;
+                held.push(permit);
+            }
+        }
+        assert_eq!(granted, 8);
+        assert_eq!(p.refused(), 4);
+        let mut other = p.try_take_shared().unwrap();
+        assert!(p.claim_source(&mut other, ip("203.0.113.8")));
+        drop(held);
+        drop(other);
         assert!(p.sources.lock().unwrap().is_empty());
     }
 

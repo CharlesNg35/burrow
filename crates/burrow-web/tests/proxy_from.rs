@@ -81,3 +81,44 @@ async fn a_passthrough_visitor_behind_a_balancer_is_the_header_source() {
     assert_eq!(v.0, "nas");
     assert_eq!(v.1.addr, "203.0.113.9:40000".parse::<SocketAddr>().unwrap());
 }
+
+#[tokio::test]
+async fn one_visitor_behind_a_balancer_cannot_hold_every_pending_slot() {
+    let app = http_backend().await;
+    let (up, _) = Fake::new(4);
+    up.serve("blog", app.addr);
+    let proxy = start_with(
+        |s| {
+            s.sites = vec![https_site("blog", &["example.com"])];
+            s.forwarding.proxy_protocol_from = vec!["127.0.0.1/32".parse().unwrap()];
+            s.max_pending = 16;
+        },
+        up,
+        fixed(&["example.com"]),
+        false,
+    )
+    .await;
+    let addr = proxy.https_addr().unwrap();
+    let mut held = Vec::new();
+    for _ in 0..8 {
+        held.push(with_header(addr, V1).await);
+    }
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    let name = ServerName::try_from("example.com").unwrap();
+    let same = with_header(addr, V1).await;
+    let refused = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        connector().connect(name.clone(), same),
+    )
+    .await
+    .unwrap();
+    assert!(
+        refused.is_err(),
+        "the 9th pending connection of one visitor is closed"
+    );
+    let other = with_header(addr, b"PROXY TCP4 198.51.100.20 10.0.0.1 40001 443\r\n").await;
+    let mut t = connector().connect(name, other).await.unwrap();
+    let r = exchange(&mut t, GET.as_bytes()).await;
+    assert!(r.contains("x-real-ip: 198.51.100.20\n"), "{r}");
+    drop(held);
+}
