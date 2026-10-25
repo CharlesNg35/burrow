@@ -46,9 +46,7 @@ pub struct RedirectRule {
     #[schemars(
         description = "true: a permanent redirect (308) that browsers remember; false (the default): a temporary one (307)"
     )]
-    #[admin(
-        help = "Browsers remember a permanent redirect, so use it only when you are sure"
-    )]
+    #[admin(help = "Browsers remember a permanent redirect, so use it only when you are sure")]
     pub permanent: bool,
 }
 

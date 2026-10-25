@@ -73,10 +73,17 @@ mod tests {
 
     #[test]
     fn a_reference_is_one_variable_or_a_file_and_never_the_value() {
-        for yes in ["${CF_TOKEN}", " ${A_1} ", "file:/etc/burrow/cf.token", "file:cf.token"] {
+        for yes in [
+            "${CF_TOKEN}",
+            " ${A_1} ",
+            "file:/etc/burrow/cf.token",
+            "file:cf.token",
+        ] {
             assert!(is_reference(yes), "{yes}");
         }
-        for no in ["token", "", "file:", "file:  ", "${A}${B}", "x${A}", "${1A}", "$${A}"] {
+        for no in [
+            "token", "", "file:", "file:  ", "${A}${B}", "x${A}", "${1A}", "$${A}",
+        ] {
             assert!(!is_reference(no), "{no}");
         }
     }

@@ -180,7 +180,10 @@ mod tests {
         assert_eq!(dns[0]["cloudflare"]["token"], "${CF_TOKEN}");
         assert_eq!(dns[2]["rfc2136"]["secret"], "file:tsig.secret");
         let text = out.to_string();
-        assert!(!text.contains("pasted-inline") && !text.contains("cf-secret-value"), "{text}");
+        assert!(
+            !text.contains("pasted-inline") && !text.contains("cf-secret-value"),
+            "{text}"
+        );
     }
 
     #[test]

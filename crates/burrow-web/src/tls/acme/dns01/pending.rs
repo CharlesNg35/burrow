@@ -105,7 +105,10 @@ mod tests {
         remove(&p, &b.fqdn, "v2").unwrap();
         assert!(!p.exists());
         remove(&p, &b.fqdn, "v2").unwrap();
-        assert_eq!(stale(std::slice::from_ref(&a), 10 + GIVE_UP_SECS), vec![a.clone()]);
+        assert_eq!(
+            stale(std::slice::from_ref(&a), 10 + GIVE_UP_SECS),
+            vec![a.clone()]
+        );
         assert!(stale(&[a], 11).is_empty());
     }
 }

@@ -120,9 +120,7 @@ pub struct Rfc2136Dns {
     #[schemars(
         description = "The TSIG key's name, as in the server's key file, for example burrow-key"
     )]
-    #[admin(
-        help = "The TSIG key's name, as in the server's key file, for example burrow-key"
-    )]
+    #[admin(help = "The TSIG key's name, as in the server's key file, for example burrow-key")]
     pub key_name: String,
     #[schemars(
         description = "The TSIG secret in base64, as in the server's key file, from ${TSIG_SECRET} or file:path"
