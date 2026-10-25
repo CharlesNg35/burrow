@@ -112,6 +112,10 @@ impl Pebble {
     }
 
     pub async fn run_pebble(&self, env: &[&str]) {
+        self.run_pebble_with_dns(env, "127.0.0.1:8053").await;
+    }
+
+    pub async fn run_pebble_with_dns(&self, env: &[&str], dns: &str) {
         docker(&["rm", "-f", PEBBLE_NAME]).await;
         let mount = format!("{}:/burrow:ro", self.dir.path().display());
         let mut args = vec![
@@ -132,7 +136,7 @@ impl Pebble {
             "-config",
             "/burrow/pebble-config.json",
             "-dnsserver",
-            "127.0.0.1:8053",
+            dns,
         ]);
         docker(&args).await;
         for _ in 0..100 {
