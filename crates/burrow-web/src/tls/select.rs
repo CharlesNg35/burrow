@@ -103,6 +103,16 @@ pub fn cert_names(settings: &ProxySettings) -> Vec<CertName> {
     out
 }
 
+pub fn wildcard_checks(settings: &CertSettings, names: &[CertName]) -> CertSettings {
+    let mut out = settings.clone();
+    for n in names.iter().filter(|n| is_wildcard(&n.group)) {
+        out.choices
+            .entry(n.group.clone())
+            .or_insert(burrow_syntax::web::Challenge::Dns);
+    }
+    out
+}
+
 pub fn choose(settings: &CertSettings, name: &CertName) -> Choice {
     match &name.source {
         CertSource::OwnFile { cert, key } => Choice::File {
@@ -388,10 +398,15 @@ mod tests {
             https("shop", &["shop.example.com"], CertSource::Auto),
             https("own", &["own.example.com"], own("own.pem")),
         ];
-        let got: Vec<(String, String)> = cert_names(&p)
-            .into_iter()
-            .map(|n| (n.name, n.group))
-            .collect();
+        let names = cert_names(&p);
+        assert_eq!(
+            wildcard_checks(&p.certs, &names)
+                .choices
+                .get("*.example.com"),
+            Some(&burrow_syntax::web::Challenge::Dns),
+            "the parent name of a shared wildcard is checked over DNS too"
+        );
+        let got: Vec<(String, String)> = names.into_iter().map(|n| (n.name, n.group)).collect();
         let pair = |a: &str, b: &str| (a.to_string(), b.to_string());
         assert_eq!(
             got,

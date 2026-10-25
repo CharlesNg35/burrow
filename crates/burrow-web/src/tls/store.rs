@@ -368,6 +368,7 @@ impl Certificates for Store {
 
     fn apply<'a>(&'a self, settings: &'a CertSettings, names: &'a [CertName]) -> Applying<'a> {
         Box::pin(async move {
+            let settings = &super::select::wildcard_checks(settings, names);
             let plan: Vec<(&CertName, Choice)> =
                 names.iter().map(|n| (n, choose(settings, n))).collect();
             let mut pairs: Vec<Pair> = plan
