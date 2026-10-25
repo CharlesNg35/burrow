@@ -33,6 +33,7 @@ async fn printed(v: &Visitor, args: &[&str]) -> (String, String) {
 fn blocks(lang: &str) -> Vec<String> {
     let fence = format!("```{lang}\n");
     MCP_MD
+        .replace("\r\n", "\n")
         .split(&fence)
         .skip(1)
         .map(|b| b.split("```").next().unwrap().to_string())
