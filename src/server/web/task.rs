@@ -1,6 +1,5 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::time::Duration;
 
 use burrow_web::tls::Certificates;
 use burrow_web::{Listeners, Proxy, ProxySettings};
@@ -69,15 +68,7 @@ fn bind_ports(ports: Ports) -> Result<Listeners, Failure> {
 }
 
 async fn bind_with_retry(ports: Ports, tries: usize) -> Result<Listeners, Failure> {
-    let mut last = None;
-    for _ in 0..tries {
-        match bind_ports(ports) {
-            Ok(l) => return Ok(l),
-            Err(f) => last = Some(f),
-        }
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
-    Err(last.expect("at least one attempt"))
+    crate::base::ports::retry(tries, || async { bind_ports(ports) }).await
 }
 
 impl WebTask {

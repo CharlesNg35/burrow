@@ -206,15 +206,7 @@ pub(super) async fn bind_ws_with_retry(
     ws: &crate::config::settings::WebSocketSettings,
     tries: usize,
 ) -> Result<WsListener, Failure> {
-    let mut last = None;
-    for _ in 0..tries {
-        match WsListener::bind(ws) {
-            Ok(l) => return Ok(l),
-            Err(f) => last = Some(f),
-        }
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
-    Err(last.expect("at least one attempt"))
+    crate::base::ports::retry(tries, || async { WsListener::bind(ws) }).await
 }
 
 pub(super) const FREED_TRIES: usize = 20;
@@ -226,15 +218,7 @@ pub(super) async fn bind_with_retry(
     svc: &Service,
     tries: usize,
 ) -> Result<Vec<(u16, Bound)>, Failure> {
-    let mut last = None;
-    for _ in 0..tries {
-        match bind_service(name, svc).await {
-            Ok(b) => return Ok(b),
-            Err(f) => last = Some(f),
-        }
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
-    Err(last.expect("at least one attempt"))
+    crate::base::ports::retry(tries, || bind_service(name, svc)).await
 }
 
 pub(super) fn log_service(name: &str, svc: &Service, addr: Option<SocketAddr>) {
