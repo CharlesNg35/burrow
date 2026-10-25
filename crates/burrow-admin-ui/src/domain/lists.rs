@@ -274,6 +274,9 @@ pub(super) fn union_editor(fc: FieldCtx, u: UnionC) -> AnyView {
     if super::website::host_item(&u).is_some() {
         return super::website::website_editor(fc);
     }
+    if let Some(sh) = burrow_admin_logic::shorthand::of(&u) {
+        return super::keyed::shorthand_editor(fc, sh);
+    }
     let e = store().edit;
     let bool_branch = u
         .branches

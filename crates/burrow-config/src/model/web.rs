@@ -134,8 +134,7 @@ pub struct WebConfig {
         ty = map(key = text, value = object(RedirectTarget)),
         label = "Names that only redirect",
         help = "A name with no site of its own that sends visitors elsewhere, path and query kept, for example old.example.com to https://example.com, or example.com/shop to https://shop.example.net/",
-        empty_label = "None",
-        advanced
+        empty_label = "None"
     )]
     pub redirect_names: BTreeMap<String, RedirectTarget>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
