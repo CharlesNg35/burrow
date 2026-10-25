@@ -24,7 +24,14 @@ impl std::fmt::Debug for LogFile {
 }
 
 fn open(path: &Path) -> io::Result<File> {
-    OpenOptions::new().create(true).append(true).open(path)
+    let mut opts = OpenOptions::new();
+    opts.create(true).append(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.mode(0o640);
+    }
+    opts.open(path)
 }
 
 #[cfg(unix)]
@@ -315,6 +322,17 @@ mod tests {
         let later = w.dropped_note(start + Duration::from_secs(61)).unwrap();
         assert!(later.starts_with("web: 2 access log lines"), "{later}");
         assert_eq!(w.dropped_note(start + Duration::from_secs(200)), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_new_access_log_is_readable_by_its_owner_and_group_only() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("access.log");
+        let _log = LogFile::open(&path).unwrap();
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o640);
     }
 
     #[test]
