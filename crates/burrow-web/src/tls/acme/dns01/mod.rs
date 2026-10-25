@@ -9,6 +9,7 @@ use std::time::Duration;
 use hickory_proto::rr::Name;
 use zeroize::Zeroizing;
 
+pub mod acme_dns;
 pub mod cloudflare;
 pub mod command;
 mod fake;
