@@ -199,13 +199,14 @@ fn command(i: usize, c: &str, base_dir: &Path, spans: &Spans, out: &mut Vec<Diag
             .at(here)
             .help("give the full path of a program burrow's user can run, like /usr/local/bin/burrow-dns"),
         );
-        return;
     }
     #[cfg(unix)]
-    if meta.is_some_and(|m| {
-        use std::os::unix::fs::PermissionsExt as _;
-        m.permissions().mode() & 0o022 != 0
-    }) {
+    if runnable
+        && meta.is_some_and(|m| {
+            use std::os::unix::fs::PermissionsExt as _;
+            m.permissions().mode() & 0o022 != 0
+        })
+    {
         out.push(
             Diagnostic::warning(
                 "dns-command",
