@@ -176,7 +176,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [handshake, frames, config, update, patch, syntax_parsers, socks_udp_header, sni_peek, proxy_header, acme_meta, http_edge, host_header, path_normalize]
+        target: [handshake, frames, config, update, patch, syntax_parsers, socks_udp_header, sni_peek, proxy_header, acme_meta, http_edge, host_header, path_normalize, basic_auth_header]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install nightly

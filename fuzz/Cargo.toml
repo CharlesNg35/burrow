@@ -117,3 +117,10 @@ path = "fuzz_targets/path_normalize.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "basic_auth_header"
+path = "fuzz_targets/basic_auth_header.rs"
+test = false
+doc = false
+bench = false
