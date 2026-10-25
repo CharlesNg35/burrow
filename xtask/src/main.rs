@@ -5,6 +5,7 @@
 #![allow(clippy::disallowed_macros)]
 
 mod arch;
+mod compat;
 mod e2e;
 mod fields;
 mod layers;
@@ -30,12 +31,13 @@ fn main() -> ExitCode {
         Some("arch-check") if args.iter().any(|a| a == "--edges") => layers::print_edges(&root),
         Some("arch-check") => arch::run(&root),
         Some("tools") => tools::main(&root, &args[1..]),
+        Some("compat") => compat::run(&root),
         Some("ui") => ui::main(&root, &args[1..]),
         Some("e2e") => e2e::main(&root, &args[1..]),
         Some("surface") => surface::main(&root, &args[1..]),
         Some("size") => size::run(&root, args.iter().any(|a| a == "--budget")),
         _ => Err(
-            "usage: cargo xtask <arch-check [--edges] | tools [--no-chrome] | ui [--release | --watch] | size [--budget] | surface [--out FILE] [--check FILE] | e2e [flow-filter] [--jobs N] [--update-baselines]>"
+            "usage: cargo xtask <arch-check [--edges] | compat | tools [--no-chrome] | ui [--release | --watch] | size [--budget] | surface [--out FILE] [--check FILE] | e2e [flow-filter] [--jobs N] [--update-baselines]>"
                 .to_string(),
         ),
     };
