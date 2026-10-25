@@ -515,7 +515,7 @@ services:
 A long-lived gRPC stream is limited by burrow's timeouts like any request:
 
 - the app must start its answer within `response_header_timeout_secs` (60 by default); a server stream that sends its headers at once is fine;
-- a stream that moves no data at all for 10 seconds while the other side waits is reset, which keeps a stalled peer from holding memory;
+- a stream that makes no progress for 10 seconds is closed, which keeps a stalled peer from holding memory; a window opened one byte at a time does not count as progress;
 - a connection with nothing in flight is closed after `idle_timeout_secs`; an open stream keeps it alive, HTTP/2 PINGs alone do not.
 
 Raise `response_header_timeout_secs` on the site for a method that thinks a long time before its first answer.
