@@ -396,3 +396,56 @@ fn a_revert_to_another_order_keeps_each_entrys_files_with_it() {
         .to_json();
     assert_eq!(doc["web"]["certificates"], list, "{}", reverted.new_text);
 }
+
+#[test]
+fn a_short_web_form_cannot_be_turned_into_one_with_files() {
+    let site = site();
+    let files = format!(
+        "    web:\n      hosts: [nas.example.com]\n      tls: {{cert: {}, key: {}}}\n",
+        site.file("a.pem"),
+        site.file("a.key")
+    );
+    assert!(site.w.text.contains(&files));
+    let with_files = json!({"hosts": ["nas.example.com"], "tls": {"cert": site.file("b.pem"), "key": site.file("b.key")}});
+    for short in ["    web: [nas.example.com]\n", "    web: nas.example.com\n"] {
+        let core = core_for(&site.w.text.replace(&files, short));
+        let s = session(&site.w, AdminLevel::Write);
+        let ops = [Op::Set {
+            path: p(&["services", "nas", "web"]),
+            value: with_files.clone(),
+        }];
+        let what = refused(&core, &s, &ops);
+        assert!(what[0].contains("nas.web.tls."), "{what:?} for {short:?}");
+    }
+    let core = core_for(&site.w.text);
+    let s = session(&site.w, AdminLevel::Write);
+    let base = text::rev(&core.read().unwrap());
+    let back = [Op::Set {
+        path: p(&["services", "nas", "web"]),
+        value: json!(["nas.example.com"]),
+    }];
+    let c = plan::compute(&core, &s, &base, &back);
+    assert!(c.is_ok(), "{:?}", c.err().map(|e| e.message));
+}
+
+#[test]
+fn a_certificate_list_added_from_nothing_is_refused_and_removing_it_passes() {
+    let (site, text, list) = two_entries();
+    let core = core_for(&site.w.text);
+    let s = session(&site.w, AdminLevel::Write);
+    let ops = [Op::Set {
+        path: p(&["web", "certificates"]),
+        value: json!([list[0]]),
+    }];
+    assert_eq!(
+        refused(&core, &s, &ops),
+        vec!["web.certificates.0.cert".to_string()]
+    );
+    let core = core_for(&text);
+    let base = text::rev(&core.read().unwrap());
+    let ops = [Op::Remove {
+        path: p(&["web", "certificates"]),
+    }];
+    let c = plan::compute(&core, &s, &base, &ops);
+    assert!(c.is_ok(), "{:?}", c.err().map(|e| e.message));
+}

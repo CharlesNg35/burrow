@@ -56,18 +56,18 @@ fn expand(pattern: &[String], doc: &Value, at: &mut Vec<String>, out: &mut Vec<V
 pub(super) fn concrete_locks(
     schema: &burrow_admin_proto::schema::Schema,
     docs: [&Value; 2],
-) -> Vec<(Vec<String>, bool)> {
+) -> Vec<(Vec<String>, bool, Vec<usize>)> {
     let mut out = Vec::new();
-    for l in schema.locked_paths() {
+    for (l, lists) in schema.locks() {
         if !l.iter().any(|s| s == burrow_admin_proto::schema::ANY) {
-            out.push((l, false));
+            out.push((l, false, lists));
             continue;
         }
         let mut found = Vec::new();
         for doc in docs {
             expand(&l, doc, &mut Vec::new(), &mut found);
         }
-        out.extend(found.into_iter().map(|p| (p, true)));
+        out.extend(found.into_iter().map(|p| (p, true, lists.clone())));
     }
     out.sort();
     out.dedup();
@@ -94,8 +94,14 @@ pub(super) fn refuse_changed_locks(
     renames: &[patch::Rename],
 ) -> Result<(), ApiError> {
     let mut lists: BTreeMap<Vec<String>, BTreeSet<Vec<String>>> = BTreeMap::new();
-    for (path, entry) in concrete_locks(schema, [before, after]) {
-        if let Some(k) = list_at(&path, [before, after]) {
+    for (path, entry, at) in concrete_locks(schema, [before, after]) {
+        let list = |k: usize| {
+            let was = get(before, &renamed_from(&path[..k], renames));
+            let then = get(after, &path[..k]);
+            [was, then].iter().all(|v| v.is_none_or(Value::is_array))
+                && [was, then].iter().any(|v| v.is_some())
+        };
+        if let Some(k) = at.into_iter().find(|&k| list(k)) {
             lists
                 .entry(path[..k].to_vec())
                 .or_default()
@@ -132,13 +138,6 @@ pub(super) fn refuse_changed_locks(
     Ok(())
 }
 
-fn list_at(path: &[String], docs: [&Value; 2]) -> Option<usize> {
-    (0..path.len()).find(|&k| {
-        docs.iter()
-            .any(|d| get(d, &path[..k]).is_some_and(Value::is_array))
-    })
-}
-
 fn tuples<'a>(
     list: Option<&'a Value>,
     fields: &[Vec<String>],
@@ -171,12 +170,12 @@ pub(super) fn keep_locked(
     let mut notes = Vec::new();
     let kept = concrete_locks(schema, [current, target])
         .into_iter()
-        .filter(|(p, entry)| {
+        .filter(|(p, entry, _)| {
             !entry
                 || burrow_admin_proto::value::get(target, &p[..p.len() - 1])
                     .is_some_and(Value::is_object)
         })
-        .map(|(p, _)| p);
+        .map(|(p, _, _)| p);
     for path in kept {
         let now = burrow_admin_proto::value::get(current, &path).cloned();
         let then = burrow_admin_proto::value::get(target, &path).cloned();

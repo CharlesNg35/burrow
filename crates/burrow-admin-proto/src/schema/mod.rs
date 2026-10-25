@@ -25,10 +25,20 @@ pub struct Schema {
 
 impl Schema {
     pub fn locked_paths(&self) -> Vec<Path> {
-        fn walk(n: &Node, at: &mut Path, out: &mut Vec<Path>) {
+        self.locks().into_iter().map(|(p, _)| p).collect()
+    }
+
+    pub fn locks(&self) -> Vec<(Path, Vec<usize>)> {
+        fn walk(
+            n: &Node,
+            at: &mut Path,
+            lists: &mut Vec<usize>,
+            out: &mut Vec<(Path, Vec<usize>)>,
+        ) {
             if n.locked {
-                if !out.contains(at) {
-                    out.push(at.clone());
+                match out.iter_mut().find(|(p, _)| p == at) {
+                    Some((_, l)) => l.retain(|k| lists.contains(k)),
+                    None => out.push((at.clone(), lists.clone())),
                 }
                 return;
             }
@@ -36,31 +46,33 @@ impl Schema {
                 SemType::Object(o) => {
                     for f in &o.fields {
                         at.push(f.key.clone());
-                        walk(&f.node, at, out);
+                        walk(&f.node, at, lists, out);
                         at.pop();
                     }
                 }
-                SemType::Optional(o) => walk(&o.inner, at, out),
+                SemType::Optional(o) => walk(&o.inner, at, lists, out),
                 SemType::Union(u) => {
                     for b in &u.branches {
-                        walk(b, at, out);
+                        walk(b, at, lists, out);
                     }
                 }
                 SemType::Map(MapC { value, .. }) | SemType::RefMap(RefMapC { value, .. }) => {
                     at.push(ANY.into());
-                    walk(value, at, out);
+                    walk(value, at, lists, out);
                     at.pop();
                 }
                 SemType::List(l) => {
+                    lists.push(at.len());
                     at.push(ANY.into());
-                    walk(&l.item, at, out);
+                    walk(&l.item, at, lists, out);
                     at.pop();
+                    lists.pop();
                 }
                 _ => {}
             }
         }
         let mut out = Vec::new();
-        walk(&self.root, &mut Vec::new(), &mut out);
+        walk(&self.root, &mut Vec::new(), &mut Vec::new(), &mut out);
         out
     }
 
