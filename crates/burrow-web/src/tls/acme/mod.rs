@@ -1,5 +1,6 @@
 pub mod account;
 pub mod challenge;
+pub mod dns01;
 mod group;
 pub mod guard;
 pub mod http;
@@ -51,7 +52,8 @@ pub fn checks_of(
     choice: Option<burrow_syntax::web::Challenge>,
 ) -> Result<Vec<CertCheck>, String> {
     use burrow_syntax::web::{Check, NoCheck, checks_for};
-    match checks_for(name, settings.check_ports, settings.dns, choice) {
+    let dns = dns01::entry_for(&settings.dns, name).is_some();
+    match checks_for(name, settings.check_ports, dns, choice) {
         Ok(list) if list.contains(&Check::Dns) => {
             Err(format!("\"{name}\" needs a DNS check ({LATER})"))
         }
@@ -188,7 +190,7 @@ mod tests {
             profile: None,
             state_dir: None,
             check_ports: burrow_syntax::web::CheckPorts { https, http },
-            dns: false,
+            dns: Vec::new(),
             fallback_directory: None,
         }
     }

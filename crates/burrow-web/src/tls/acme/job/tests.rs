@@ -197,7 +197,7 @@ fn offline_plan(state: &Path, names: &[&str]) -> Plan {
                 https: Some(443),
                 http: None,
             },
-            dns: false,
+            dns: Vec::new(),
             fallback_directory: None,
         },
         groups: [("moved".to_string(), s(names))].into_iter().collect(),

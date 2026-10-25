@@ -31,7 +31,7 @@ fn proxy_settings(
             profile: None,
             state_dir: Some(state.to_path_buf()),
             check_ports: super::pebble::ports_of(checks),
-            dns: false,
+            dns: Vec::new(),
             fallback_directory: None,
         }),
         ..CertSettings::default()

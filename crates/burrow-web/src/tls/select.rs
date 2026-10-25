@@ -132,7 +132,7 @@ mod tests {
                 profile: None,
                 state_dir: None,
                 check_ports: Default::default(),
-                dns: false,
+                dns: Vec::new(),
                 fallback_directory: None,
             }),
             ..CertSettings::default()

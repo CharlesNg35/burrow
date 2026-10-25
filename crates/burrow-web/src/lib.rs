@@ -25,6 +25,7 @@ use tokio::net::TcpStream;
 pub use io::{BoxIo, Ending, Io, Pipe, Prefixed, pipe};
 pub use listen::{Listeners, Proxy};
 pub use permit::source_key;
+pub use tls::acme::dns01::{DnsEntry, DnsProvider, Secret};
 
 pub const HELLO_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -138,7 +139,7 @@ pub struct AcmeSettings {
     pub profile: Option<String>,
     pub state_dir: Option<PathBuf>,
     pub check_ports: burrow_syntax::web::CheckPorts,
-    pub dns: bool,
+    pub dns: Vec<DnsEntry>,
     pub fallback_directory: Option<String>,
 }
 

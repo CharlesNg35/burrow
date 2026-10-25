@@ -322,7 +322,7 @@ fn acme_on(state: &Path, https: u16) -> CertSettings {
                 https: Some(https),
                 http: None,
             },
-            dns: false,
+            dns: Vec::new(),
             fallback_directory: None,
         }),
         ..CertSettings::default()

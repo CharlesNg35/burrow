@@ -488,6 +488,7 @@ dependencies = [
  "tracing",
  "webpki-roots",
  "x509-cert",
+ "zeroize",
 ]
 
 [[package]]

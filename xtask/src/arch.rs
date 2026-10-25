@@ -88,6 +88,7 @@ const CRATE_DEPS: &[(&str, &[&str], &[&str])] = &[
             "tracing",
             "webpki-roots",
             "x509-cert",
+            "zeroize",
         ],
         &[
             "burrow",
