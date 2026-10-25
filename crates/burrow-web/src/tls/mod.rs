@@ -4,6 +4,7 @@ pub mod files;
 mod fixed;
 mod select;
 mod store;
+pub mod uploads;
 pub mod x509;
 
 use std::future::Future;
