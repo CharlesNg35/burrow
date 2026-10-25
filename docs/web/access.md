@@ -135,7 +135,7 @@ services:
 
 ### Your own device CA
 
-With [step-ca](https://smallstep.com/docs/step-ca/), turn on its CRL in `ca.json` (`"crl": {"enabled": true}`), give each device a certificate, and point `ca` at a file with step-ca's intermediate and root certificates. step-ca serves the list at `/1.0/crl`; fetch it into the file now and then, for example from cron:
+With [step-ca](https://smallstep.com/docs/step-ca/), turn on its CRL in `ca.json` with `"crl": {"enabled": true, "generateOnRevoke": true}`, give each device a certificate, and point `ca` at a file with step-ca's intermediate and root certificates. Without `generateOnRevoke`, step-ca writes a new list only every 16 hours or so ([its configuration docs](https://smallstep.com/docs/step-ca/configuration/): `generateOnRevoke` is off by default, and the list renews after about 2/3 of `cacheDuration`, 24 h), so a lost phone would stay admitted until then. step-ca serves the list at `/1.0/crl`; fetch it into the file after a revoke, and now and then, for example from cron:
 
 ```bash
 step ca revoke 2832... # the serial of the lost phone's certificate
