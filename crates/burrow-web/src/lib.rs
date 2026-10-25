@@ -11,6 +11,7 @@ pub mod peek;
 mod permit;
 pub mod proxy_header;
 pub mod route;
+pub mod site;
 mod terminate;
 pub mod tls;
 pub mod tunnel;
@@ -25,6 +26,9 @@ use tokio::net::TcpStream;
 pub use io::{BoxIo, Ending, Io, Pipe, Prefixed, pipe};
 pub use listen::{Listeners, Proxy};
 pub use permit::source_key;
+pub use site::{
+    AccessLog, Forwarding, HeaderRule, LogFormat, NameRedirect, Redirect, SiteOptions, TargetTls,
+};
 pub use tls::acme::dns01::{DnsEntry, DnsProvider, Secret};
 
 pub const HELLO_TIMEOUT: Duration = Duration::from_secs(10);
@@ -38,6 +42,10 @@ pub struct ProxySettings {
     pub timeouts: Timeouts,
     pub max_pending: usize,
     pub certs: CertSettings,
+    pub redirect_names: Vec<NameRedirect>,
+    pub forwarding: Forwarding,
+    pub access_log: Option<AccessLog>,
+    pub request_id: bool,
 }
 
 impl Default for ProxySettings {
@@ -50,6 +58,10 @@ impl Default for ProxySettings {
             timeouts: Timeouts::default(),
             max_pending: 256,
             certs: CertSettings::default(),
+            redirect_names: Vec::new(),
+            forwarding: Forwarding::default(),
+            access_log: None,
+            request_id: false,
         }
     }
 }
@@ -90,6 +102,7 @@ pub struct Site {
     pub hosts: Vec<String>,
     pub tls: SiteTls,
     pub https_redirect: bool,
+    pub options: SiteOptions,
 }
 
 impl Site {
@@ -99,6 +112,7 @@ impl Site {
             hosts,
             tls: SiteTls::Passthrough,
             https_redirect: true,
+            options: SiteOptions::default(),
         }
     }
 }

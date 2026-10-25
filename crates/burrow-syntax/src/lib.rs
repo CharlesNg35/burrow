@@ -16,6 +16,7 @@ pub mod ports;
 pub mod rate;
 pub mod rule;
 pub mod secret_fmt;
+pub mod size;
 pub mod target;
 pub mod unix;
 pub mod url_path;

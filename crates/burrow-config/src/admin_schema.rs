@@ -139,8 +139,9 @@ carriers!(RefList: Vec<String>);
 carriers!(Name: String);
 carriers!(Path: String);
 carriers!(UrlPath: String);
+carriers!(SecretRef: String);
 impl<V> Carrier<sem::RefMap> for BTreeMap<String, V> {}
-impl<V: AdminSchema> Carrier<sem::Map> for BTreeMap<String, V> {}
+impl<V> Carrier<sem::Map> for BTreeMap<String, V> {}
 impl<T> Carrier<sem::List> for Vec<T> {}
 
 #[doc(hidden)]

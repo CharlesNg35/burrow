@@ -13,6 +13,7 @@ use crate::config::settings::{LETSENCRYPT_PRODUCTION, LETSENCRYPT_STAGING};
 pub(super) fn site(
     cfg: &ServerConfig,
     web: &ServiceWeb,
+    target: &burrow_config::Target,
     hosts: Vec<String>,
     base_dir: &Path,
 ) -> WebSite {
@@ -36,11 +37,15 @@ pub(super) fn site(
         ServiceWeb::Site(s) => super::challenge::choice(s.challenge),
         _ => None,
     };
+    let options = cfg.web.as_ref().map_or_else(Default::default, |top| {
+        super::fill_site::options(top, web, target, base_dir)
+    });
     WebSite {
         hosts,
         tls,
         https_redirect,
         challenge,
+        options,
     }
 }
 
@@ -92,6 +97,7 @@ pub(in crate::config::check) fn settings(
             .filter(|p| !p.is_empty())
             .map(str::to_string),
     });
+    super::fill_site::site_wide(web, &mut s, base_dir);
     s.file_digest = crate::config::settings::digest_of(&s.cert_files());
     Some(s)
 }

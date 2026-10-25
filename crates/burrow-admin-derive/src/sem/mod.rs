@@ -304,12 +304,31 @@ fn composite_sem(
             }
         }
         "map" => {
-            let e = entity(Term::positional(args).first().copied(), span, errors);
-            let value_ty = ty.and_then(|t| strip(t, "BTreeMap")).cloned();
-            match value_ty {
-                Some(v) => quote!(#p::SemType::Map(#p::MapC {
-                    key: ::std::boxed::Box::new(#p::Node::new(#p::SemType::Name(#p::NameC { entity: #e, max_len: 64 }))),
-                    value: ::std::boxed::Box::new(<#v as #p::AdminSchema>::node()),
+            let key = match Term::value(args, "key") {
+                Some(k) => {
+                    let b = build(k, None, (None, None), errors);
+                    checks.extend(b.checks);
+                    b.node
+                }
+                None => {
+                    let e = entity(Term::positional(args).first().copied(), span, errors);
+                    quote!(#p::Node::new(#p::SemType::Name(#p::NameC { entity: #e, max_len: 64 })))
+                }
+            };
+            let value = match Term::value(args, "value") {
+                Some(v) => {
+                    let b = build(v, None, (None, None), errors);
+                    checks.extend(b.checks);
+                    Some(b.node)
+                }
+                None => ty
+                    .and_then(|t| strip(t, "BTreeMap"))
+                    .map(|v| quote!(<#v as #p::AdminSchema>::node())),
+            };
+            match value {
+                Some(value) => quote!(#p::SemType::Map(#p::MapC {
+                    key: ::std::boxed::Box::new(#key),
+                    value: ::std::boxed::Box::new(#value),
                 })),
                 None => {
                     errors.push(span, "`map` needs a BTreeMap<String, T> field");

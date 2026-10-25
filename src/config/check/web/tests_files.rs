@@ -25,7 +25,13 @@ fn web_in(dir: &Path) -> WebSettings {
     }))
     .unwrap();
     let web = cfg.services["blog"].web.as_ref().unwrap();
-    let blog = super::fill::site(&cfg, web, vec!["blog.example.com".into()], dir);
+    let blog = super::fill::site(
+        &cfg,
+        web,
+        &cfg.services["blog"].target,
+        vec!["blog.example.com".into()],
+        dir,
+    );
     let sites = [("blog".to_string(), blog)].into_iter().collect();
     super::fill::settings(
         &cfg,
@@ -116,7 +122,13 @@ fn a_sites_and_the_tunnels_chosen_check_reach_the_settings() {
     .unwrap();
     let dir = Path::new("/etc/burrow");
     let web = cfg.services["blog"].web.as_ref().unwrap();
-    let blog = super::fill::site(&cfg, web, vec!["blog.example.com".into()], dir);
+    let blog = super::fill::site(
+        &cfg,
+        web,
+        &cfg.services["blog"].target,
+        vec!["blog.example.com".into()],
+        dir,
+    );
     assert_eq!(blog.challenge, Some(burrow_syntax::web::Challenge::Http));
     let s = super::fill::settings(
         &cfg,

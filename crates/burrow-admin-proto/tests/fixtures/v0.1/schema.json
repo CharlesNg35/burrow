@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:813a5a721306378a",
+  "hash": "b2s:2fd62682ef847932",
   "root": {
     "label": "Server",
     "sem": {
@@ -375,6 +375,275 @@
                                     "advanced": true,
                                     "none_label": "The service's default"
                                   }
+                                },
+                                {
+                                  "key": "dns",
+                                  "node": {
+                                    "label": "DNS checks",
+                                    "help": "How burrow sets DNS records for Let's Encrypt's DNS check, needed for wildcards and names not reachable from the internet; each provider lists the domains it manages, for example example.com through Cloudflare",
+                                    "sem": {
+                                      "t": "list",
+                                      "item": {
+                                        "label": "DNS provider",
+                                        "sem": {
+                                          "t": "object",
+                                          "fields": [
+                                            {
+                                              "key": "domains",
+                                              "node": {
+                                                "label": "Domains",
+                                                "help": "The domains whose DNS records this provider can set, for example example.com; it covers every name under it, like wiki.example.com and *.apps.example.com",
+                                                "sem": {
+                                                  "t": "list",
+                                                  "item": {
+                                                    "sem": {
+                                                      "t": "host_name",
+                                                      "fallback": [
+                                                        {
+                                                          "t": "text"
+                                                        }
+                                                      ]
+                                                    }
+                                                  }
+                                                }
+                                              }
+                                            },
+                                            {
+                                              "key": "cloudflare",
+                                              "node": {
+                                                "label": "Cloudflare",
+                                                "help": "Cloudflare sets the records, with an API token allowed Zone:Read and DNS:Edit on these zones only",
+                                                "sem": {
+                                                  "t": "optional",
+                                                  "inner": {
+                                                    "label": "Cloudflare",
+                                                    "sem": {
+                                                      "t": "object",
+                                                      "fields": [
+                                                        {
+                                                          "key": "token",
+                                                          "node": {
+                                                            "label": "API token",
+                                                            "help": "An API token allowed Zone:Read and DNS:Edit on these zones only, from an environment variable like ${CF_TOKEN} or a file like file:/etc/burrow/cf.token",
+                                                            "sem": {
+                                                              "t": "secret_ref",
+                                                              "max": 1
+                                                            },
+                                                            "required": true
+                                                          }
+                                                        }
+                                                      ]
+                                                    }
+                                                  }
+                                                },
+                                                "none_label": "Not used"
+                                              }
+                                            },
+                                            {
+                                              "key": "rfc2136",
+                                              "node": {
+                                                "label": "RFC 2136 (BIND, Knot, PowerDNS)",
+                                                "help": "Your own DNS server sets the records by dynamic update signed with a TSIG key",
+                                                "sem": {
+                                                  "t": "optional",
+                                                  "inner": {
+                                                    "label": "RFC 2136",
+                                                    "sem": {
+                                                      "t": "object",
+                                                      "fields": [
+                                                        {
+                                                          "key": "server",
+                                                          "node": {
+                                                            "label": "Server",
+                                                            "help": "The zone's primary as host:port, for example 192.168.1.2:53; it may be on the LAN if it feeds the public nameservers",
+                                                            "sem": {
+                                                              "t": "text"
+                                                            },
+                                                            "required": true
+                                                          }
+                                                        },
+                                                        {
+                                                          "key": "key_name",
+                                                          "node": {
+                                                            "label": "Key name",
+                                                            "help": "The TSIG key's name, as in the server's key file, for example burrow-key",
+                                                            "sem": {
+                                                              "t": "text"
+                                                            },
+                                                            "required": true
+                                                          }
+                                                        },
+                                                        {
+                                                          "key": "secret",
+                                                          "node": {
+                                                            "label": "Key secret",
+                                                            "help": "The TSIG secret in base64, as in the server's key file, from an environment variable like ${TSIG_SECRET} or a file like file:/etc/burrow/tsig.secret",
+                                                            "sem": {
+                                                              "t": "secret_ref",
+                                                              "max": 1
+                                                            },
+                                                            "required": true
+                                                          }
+                                                        }
+                                                      ]
+                                                    }
+                                                  }
+                                                },
+                                                "none_label": "Not used"
+                                              }
+                                            },
+                                            {
+                                              "key": "acme_dns",
+                                              "node": {
+                                                "label": "acme-dns",
+                                                "help": "An acme-dns server sets the records; each name's _acme-challenge is a CNAME to it",
+                                                "sem": {
+                                                  "t": "optional",
+                                                  "inner": {
+                                                    "label": "acme-dns",
+                                                    "sem": {
+                                                      "t": "object",
+                                                      "fields": [
+                                                        {
+                                                          "key": "api",
+                                                          "node": {
+                                                            "label": "Server address",
+                                                            "help": "The acme-dns server's address, for example https://auth.example.org",
+                                                            "sem": {
+                                                              "t": "text"
+                                                            },
+                                                            "required": true
+                                                          }
+                                                        },
+                                                        {
+                                                          "key": "username",
+                                                          "node": {
+                                                            "label": "User name",
+                                                            "help": "The acme-dns account's user name, from an environment variable like ${ACMEDNS_USER} or a file",
+                                                            "sem": {
+                                                              "t": "secret_ref",
+                                                              "max": 1
+                                                            },
+                                                            "required": true
+                                                          }
+                                                        },
+                                                        {
+                                                          "key": "password",
+                                                          "node": {
+                                                            "label": "Password",
+                                                            "help": "The acme-dns account's password, from an environment variable like ${ACMEDNS_KEY} or a file",
+                                                            "sem": {
+                                                              "t": "secret_ref",
+                                                              "max": 1
+                                                            },
+                                                            "required": true
+                                                          }
+                                                        },
+                                                        {
+                                                          "key": "subdomain",
+                                                          "node": {
+                                                            "label": "Subdomain",
+                                                            "help": "The account's subdomain, which each name's _acme-challenge CNAME points to, for example d420c923-bbd7-4056-ab64-c3ca54c9b3cf",
+                                                            "sem": {
+                                                              "t": "text"
+                                                            },
+                                                            "required": true
+                                                          }
+                                                        }
+                                                      ]
+                                                    }
+                                                  }
+                                                },
+                                                "none_label": "Not used"
+                                              }
+                                            },
+                                            {
+                                              "key": "command",
+                                              "node": {
+                                                "label": "Command",
+                                                "help": "A program that sets the records with any provider, called with present or cleanup, the record's name and its value, for example /usr/local/bin/burrow-dns",
+                                                "sem": {
+                                                  "t": "optional",
+                                                  "inner": {
+                                                    "sem": {
+                                                      "t": "path",
+                                                      "must_exist": true,
+                                                      "relative_to": "config"
+                                                    }
+                                                  }
+                                                },
+                                                "locked": true,
+                                                "none_label": "Not used"
+                                              }
+                                            },
+                                            {
+                                              "key": "wildcards",
+                                              "node": {
+                                                "label": "Shared wildcards",
+                                                "help": "One certificate each for every site one label under it and its parent name, for example *.example.com",
+                                                "sem": {
+                                                  "t": "list",
+                                                  "item": {
+                                                    "sem": {
+                                                      "t": "host_name",
+                                                      "fallback": [
+                                                        {
+                                                          "t": "text"
+                                                        }
+                                                      ]
+                                                    }
+                                                  }
+                                                },
+                                                "empty_label": "None"
+                                              }
+                                            },
+                                            {
+                                              "key": "wait_secs",
+                                              "node": {
+                                                "label": "Wait for the record",
+                                                "help": "How long burrow waits for every nameserver of the zone to answer the new record, for example 120 seconds",
+                                                "sem": {
+                                                  "t": "optional",
+                                                  "inner": {
+                                                    "sem": {
+                                                      "t": "duration",
+                                                      "unit": "secs",
+                                                      "min": 10,
+                                                      "max": 3600
+                                                    }
+                                                  }
+                                                },
+                                                "advanced": true,
+                                                "none_label": "120 seconds"
+                                              }
+                                            },
+                                            {
+                                              "key": "resolvers",
+                                              "node": {
+                                                "label": "Resolvers",
+                                                "help": "Only used to find the zone's public nameservers, which burrow then asks directly, for example 1.1.1.1; they must give the public view",
+                                                "sem": {
+                                                  "t": "list",
+                                                  "item": {
+                                                    "sem": {
+                                                      "t": "ip",
+                                                      "v4": true,
+                                                      "v6": true,
+                                                      "unspecified_ok": true
+                                                    }
+                                                  }
+                                                },
+                                                "advanced": true,
+                                                "empty_label": "The system's"
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      }
+                                    },
+                                    "advanced": true,
+                                    "empty_label": "None"
+                                  }
                                 }
                               ]
                             }
@@ -488,6 +757,327 @@
                         },
                         "advanced": true,
                         "none_label": "60 seconds"
+                      }
+                    },
+                    {
+                      "key": "redirect_names",
+                      "node": {
+                        "label": "Names that only redirect",
+                        "help": "A name with no site of its own that sends visitors elsewhere, path and query kept, for example old.example.com to https://example.com, or example.com/shop to https://shop.example.net/",
+                        "sem": {
+                          "t": "map",
+                          "key": {
+                            "sem": {
+                              "t": "text"
+                            }
+                          },
+                          "value": {
+                            "sem": {
+                              "t": "union",
+                              "branches": [
+                                {
+                                  "sem": {
+                                    "t": "text"
+                                  }
+                                },
+                                {
+                                  "label": "Redirect",
+                                  "sem": {
+                                    "t": "object",
+                                    "fields": [
+                                      {
+                                        "key": "to",
+                                        "node": {
+                                          "label": "Send to",
+                                          "help": "A full address like https://example.com/new, or a path on the same name like /new; the rest of the path and the query are kept",
+                                          "sem": {
+                                            "t": "text"
+                                          },
+                                          "required": true
+                                        }
+                                      },
+                                      {
+                                        "key": "permanent",
+                                        "node": {
+                                          "label": "Permanent",
+                                          "help": "Browsers remember a permanent redirect, so use it only when you are sure",
+                                          "sem": {
+                                            "t": "bool"
+                                          },
+                                          "default": false
+                                        }
+                                      }
+                                    ]
+                                  }
+                                }
+                              ]
+                            }
+                          }
+                        },
+                        "advanced": true,
+                        "empty_label": "None"
+                      }
+                    },
+                    {
+                      "key": "trusted_proxies",
+                      "node": {
+                        "label": "Trusted proxies",
+                        "help": "HTTP proxies in front of burrow, like Cloudflare, whose X-Forwarded-For tells the visitor's address, for example 173.245.48.0/20; behind cloudflared, its own address like 127.0.0.1/32",
+                        "sem": {
+                          "t": "list",
+                          "item": {
+                            "sem": {
+                              "t": "cidr"
+                            }
+                          }
+                        },
+                        "advanced": true,
+                        "empty_label": "None"
+                      }
+                    },
+                    {
+                      "key": "proxy_protocol_from",
+                      "node": {
+                        "label": "PROXY headers from",
+                        "help": "Load balancers in front of burrow that send a PROXY header with the visitor's address, for example 10.0.0.5/32; they must send it, and nobody else may",
+                        "sem": {
+                          "t": "list",
+                          "item": {
+                            "sem": {
+                              "t": "cidr"
+                            }
+                          }
+                        },
+                        "advanced": true,
+                        "locked": true,
+                        "empty_label": "None"
+                      }
+                    },
+                    {
+                      "key": "access_log",
+                      "node": {
+                        "label": "Access log",
+                        "help": "One line per request, written to a file, for example logs/access.log, in the common format or as JSON",
+                        "sem": {
+                          "t": "optional",
+                          "inner": {
+                            "sem": {
+                              "t": "union",
+                              "branches": [
+                                {
+                                  "sem": {
+                                    "t": "path",
+                                    "must_exist": false,
+                                    "relative_to": "config"
+                                  }
+                                },
+                                {
+                                  "label": "Access log",
+                                  "sem": {
+                                    "t": "object",
+                                    "fields": [
+                                      {
+                                        "key": "file",
+                                        "node": {
+                                          "label": "File",
+                                          "help": "Where each request is written, one line each, for example logs/access.log",
+                                          "sem": {
+                                            "t": "path",
+                                            "must_exist": false,
+                                            "relative_to": "config"
+                                          },
+                                          "required": true
+                                        }
+                                      },
+                                      {
+                                        "key": "format",
+                                        "node": {
+                                          "label": "Format",
+                                          "help": "common is one line like nginx and Apache write; json suits log tools",
+                                          "sem": {
+                                            "t": "optional",
+                                            "inner": {
+                                              "sem": {
+                                                "t": "enum",
+                                                "options": [
+                                                  {
+                                                    "value": "common",
+                                                    "label": "Common",
+                                                    "help": "One line per request, like nginx and Apache"
+                                                  },
+                                                  {
+                                                    "value": "json",
+                                                    "label": "JSON",
+                                                    "help": "One JSON object per line, for log tools"
+                                                  }
+                                                ]
+                                              }
+                                            }
+                                          },
+                                          "none_label": "common"
+                                        }
+                                      }
+                                    ]
+                                  }
+                                }
+                              ]
+                            }
+                          }
+                        },
+                        "advanced": true,
+                        "locked": true,
+                        "none_label": "Off"
+                      }
+                    },
+                    {
+                      "key": "request_id",
+                      "node": {
+                        "label": "Request ids",
+                        "help": "Give each request an X-Request-Id that the app, the visitor and the access log all see; one from a trusted proxy is kept",
+                        "sem": {
+                          "t": "optional",
+                          "inner": {
+                            "sem": {
+                              "t": "bool"
+                            }
+                          }
+                        },
+                        "advanced": true,
+                        "none_label": "Off"
+                      }
+                    },
+                    {
+                      "key": "hsts",
+                      "node": {
+                        "label": "HSTS",
+                        "help": "For every HTTPS website: tell browsers to use only HTTPS for a year; a website can change it",
+                        "sem": {
+                          "t": "optional",
+                          "inner": {
+                            "sem": {
+                              "t": "bool"
+                            }
+                          }
+                        },
+                        "advanced": true,
+                        "none_label": "Off"
+                      }
+                    },
+                    {
+                      "key": "compress",
+                      "node": {
+                        "label": "Compress",
+                        "help": "For every website: gzip text answers like HTML, CSS and JSON when the browser accepts it; a website can change it",
+                        "sem": {
+                          "t": "optional",
+                          "inner": {
+                            "sem": {
+                              "t": "bool"
+                            }
+                          }
+                        },
+                        "advanced": true,
+                        "none_label": "Off"
+                      }
+                    },
+                    {
+                      "key": "max_body_size",
+                      "node": {
+                        "label": "Biggest upload",
+                        "help": "For every website: the biggest request body, for example 100MB; bigger uploads get 413; a website can change it",
+                        "sem": {
+                          "t": "optional",
+                          "inner": {
+                            "sem": {
+                              "t": "text"
+                            }
+                          }
+                        },
+                        "advanced": true,
+                        "none_label": "Unlimited"
+                      }
+                    },
+                    {
+                      "key": "response_header_timeout_secs",
+                      "node": {
+                        "label": "App answer timeout",
+                        "help": "For every website: how long the app may take to start its answer before the visitor gets 504, for example 60 seconds; a website can change it",
+                        "sem": {
+                          "t": "optional",
+                          "inner": {
+                            "sem": {
+                              "t": "duration",
+                              "unit": "secs",
+                              "min": 1
+                            }
+                          }
+                        },
+                        "advanced": true,
+                        "none_label": "60 seconds"
+                      }
+                    },
+                    {
+                      "key": "request_headers",
+                      "node": {
+                        "label": "Request headers",
+                        "help": "For every website: headers set on requests to the app, for example X-Frame-Options: DENY; an empty value removes one",
+                        "sem": {
+                          "t": "map",
+                          "key": {
+                            "sem": {
+                              "t": "text"
+                            }
+                          },
+                          "value": {
+                            "sem": {
+                              "t": "text"
+                            }
+                          }
+                        },
+                        "advanced": true,
+                        "empty_label": "None"
+                      }
+                    },
+                    {
+                      "key": "response_headers",
+                      "node": {
+                        "label": "Answer headers",
+                        "help": "For every website: headers set on answers, for example X-Content-Type-Options: nosniff; an empty value like Server: \"\" removes one",
+                        "sem": {
+                          "t": "map",
+                          "key": {
+                            "sem": {
+                              "t": "text"
+                            }
+                          },
+                          "value": {
+                            "sem": {
+                              "t": "text"
+                            }
+                          }
+                        },
+                        "advanced": true,
+                        "empty_label": "None"
+                      }
+                    },
+                    {
+                      "key": "error_pages",
+                      "node": {
+                        "label": "Error pages",
+                        "help": "For every website: a folder with your own pages, any of 404.html, 413.html, 429.html, 502.html, 503.html, 504.html and maintenance.html; the rest stay built in",
+                        "sem": {
+                          "t": "optional",
+                          "inner": {
+                            "sem": {
+                              "t": "path",
+                              "must_exist": true,
+                              "relative_to": "config"
+                            }
+                          }
+                        },
+                        "advanced": true,
+                        "locked": true,
+                        "none_label": "Built in"
                       }
                     }
                   ]
@@ -1445,6 +2035,493 @@
                                                       "off"
                                                     ]
                                                   }
+                                                ]
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      {
+                                        "key": "paths",
+                                        "node": {
+                                          "label": "Paths",
+                                          "help": "Only these paths on the names lead here, each with everything below it, for example /api for /api and /api/users but not /apix; the longest match wins",
+                                          "sem": {
+                                            "t": "list",
+                                            "item": {
+                                              "sem": {
+                                                "t": "url_path"
+                                              }
+                                            }
+                                          },
+                                          "empty_label": "All paths",
+                                          "relations": [
+                                            {
+                                              "r": "visible_if",
+                                              "cond": {
+                                                "ne": [
+                                                  "tls",
+                                                  "passthrough"
+                                                ]
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      {
+                                        "key": "app_path",
+                                        "node": {
+                                          "label": "Path on the app",
+                                          "help": "What the app sees in place of the matched path, for example /v1 sends /api/users as /v1/users, and / removes /api",
+                                          "sem": {
+                                            "t": "optional",
+                                            "inner": {
+                                              "sem": {
+                                                "t": "url_path"
+                                              }
+                                            }
+                                          },
+                                          "advanced": true,
+                                          "none_label": "The same path",
+                                          "relations": [
+                                            {
+                                              "r": "visible_if",
+                                              "cond": {
+                                                "all": [
+                                                  {
+                                                    "ne": [
+                                                      "tls",
+                                                      "passthrough"
+                                                    ]
+                                                  },
+                                                  {
+                                                    "len_ge": [
+                                                      "paths",
+                                                      1
+                                                    ]
+                                                  }
+                                                ]
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      {
+                                        "key": "redirect_from",
+                                        "node": {
+                                          "label": "Redirect from",
+                                          "help": "Names that send visitors to the first host name for good, path kept, for example www.example.com",
+                                          "sem": {
+                                            "t": "list",
+                                            "item": {
+                                              "sem": {
+                                                "t": "host_name",
+                                                "fallback": [
+                                                  {
+                                                    "t": "text"
+                                                  }
+                                                ]
+                                              }
+                                            }
+                                          },
+                                          "advanced": true,
+                                          "empty_label": "None",
+                                          "relations": [
+                                            {
+                                              "r": "visible_if",
+                                              "cond": {
+                                                "ne": [
+                                                  "tls",
+                                                  "passthrough"
+                                                ]
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      {
+                                        "key": "redirects",
+                                        "node": {
+                                          "label": "Redirects",
+                                          "help": "Paths that send visitors elsewhere, the rest of the path and the query kept, for example /old to /new or to https://example.net/new",
+                                          "sem": {
+                                            "t": "map",
+                                            "key": {
+                                              "sem": {
+                                                "t": "url_path"
+                                              }
+                                            },
+                                            "value": {
+                                              "sem": {
+                                                "t": "union",
+                                                "branches": [
+                                                  {
+                                                    "sem": {
+                                                      "t": "text"
+                                                    }
+                                                  },
+                                                  {
+                                                    "label": "Redirect",
+                                                    "sem": {
+                                                      "t": "object",
+                                                      "fields": [
+                                                        {
+                                                          "key": "to",
+                                                          "node": {
+                                                            "label": "Send to",
+                                                            "help": "A full address like https://example.com/new, or a path on the same name like /new; the rest of the path and the query are kept",
+                                                            "sem": {
+                                                              "t": "text"
+                                                            },
+                                                            "required": true
+                                                          }
+                                                        },
+                                                        {
+                                                          "key": "permanent",
+                                                          "node": {
+                                                            "label": "Permanent",
+                                                            "help": "Browsers remember a permanent redirect, so use it only when you are sure",
+                                                            "sem": {
+                                                              "t": "bool"
+                                                            },
+                                                            "default": false
+                                                          }
+                                                        }
+                                                      ]
+                                                    }
+                                                  }
+                                                ]
+                                              }
+                                            }
+                                          },
+                                          "advanced": true,
+                                          "empty_label": "None",
+                                          "relations": [
+                                            {
+                                              "r": "visible_if",
+                                              "cond": {
+                                                "ne": [
+                                                  "tls",
+                                                  "passthrough"
+                                                ]
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      {
+                                        "key": "maintenance",
+                                        "node": {
+                                          "label": "Maintenance",
+                                          "help": "Answer every visitor with the maintenance page instead of the app",
+                                          "sem": {
+                                            "t": "bool"
+                                          },
+                                          "default": false,
+                                          "relations": [
+                                            {
+                                              "r": "visible_if",
+                                              "cond": {
+                                                "ne": [
+                                                  "tls",
+                                                  "passthrough"
+                                                ]
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      {
+                                        "key": "target_tls",
+                                        "node": {
+                                          "label": "HTTPS to the app",
+                                          "help": "For an app that speaks HTTPS itself: check its certificate against the public CAs or your own CA, or not at all for a self-made one like Proxmox's",
+                                          "sem": {
+                                            "t": "optional",
+                                            "inner": {
+                                              "sem": {
+                                                "t": "union",
+                                                "branches": [
+                                                  {
+                                                    "sem": {
+                                                      "t": "bool"
+                                                    }
+                                                  },
+                                                  {
+                                                    "label": "The app's CA",
+                                                    "sem": {
+                                                      "t": "object",
+                                                      "fields": [
+                                                        {
+                                                          "key": "ca",
+                                                          "node": {
+                                                            "label": "CA file",
+                                                            "help": "The CA that signed the app's certificate, for example certs/corp-ca.pem",
+                                                            "sem": {
+                                                              "t": "path",
+                                                              "must_exist": true,
+                                                              "relative_to": "config"
+                                                            },
+                                                            "required": true,
+                                                            "locked": true
+                                                          }
+                                                        }
+                                                      ]
+                                                    }
+                                                  },
+                                                  {
+                                                    "label": "Unchecked HTTPS",
+                                                    "sem": {
+                                                      "t": "object",
+                                                      "fields": [
+                                                        {
+                                                          "key": "insecure_skip_verify",
+                                                          "node": {
+                                                            "label": "Skip the certificate check",
+                                                            "help": "For apps with a self-made certificate, like Proxmox, UniFi or DSM",
+                                                            "sem": {
+                                                              "t": "bool"
+                                                            },
+                                                            "required": true
+                                                          }
+                                                        }
+                                                      ]
+                                                    }
+                                                  }
+                                                ]
+                                              }
+                                            }
+                                          },
+                                          "advanced": true,
+                                          "none_label": "Off: plain HTTP to the app",
+                                          "relations": [
+                                            {
+                                              "r": "visible_if",
+                                              "cond": {
+                                                "ne": [
+                                                  "tls",
+                                                  "passthrough"
+                                                ]
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      {
+                                        "key": "hsts",
+                                        "node": {
+                                          "label": "HSTS",
+                                          "help": "Tell browsers to use only HTTPS for this site for a year",
+                                          "sem": {
+                                            "t": "optional",
+                                            "inner": {
+                                              "sem": {
+                                                "t": "bool"
+                                              }
+                                            }
+                                          },
+                                          "advanced": true,
+                                          "none_label": "As the web proxy says",
+                                          "relations": [
+                                            {
+                                              "r": "visible_if",
+                                              "cond": {
+                                                "all": [
+                                                  {
+                                                    "ne": [
+                                                      "tls",
+                                                      "passthrough"
+                                                    ]
+                                                  },
+                                                  {
+                                                    "ne": [
+                                                      "tls",
+                                                      "off"
+                                                    ]
+                                                  }
+                                                ]
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      {
+                                        "key": "compress",
+                                        "node": {
+                                          "label": "Compress",
+                                          "help": "Gzip text answers like HTML, CSS and JSON when the browser accepts it",
+                                          "sem": {
+                                            "t": "optional",
+                                            "inner": {
+                                              "sem": {
+                                                "t": "bool"
+                                              }
+                                            }
+                                          },
+                                          "advanced": true,
+                                          "none_label": "As the web proxy says",
+                                          "relations": [
+                                            {
+                                              "r": "visible_if",
+                                              "cond": {
+                                                "ne": [
+                                                  "tls",
+                                                  "passthrough"
+                                                ]
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      {
+                                        "key": "max_body_size",
+                                        "node": {
+                                          "label": "Biggest upload",
+                                          "help": "The biggest request body, for example 8GB for ISO uploads; bigger uploads get 413",
+                                          "sem": {
+                                            "t": "optional",
+                                            "inner": {
+                                              "sem": {
+                                                "t": "text"
+                                              }
+                                            }
+                                          },
+                                          "advanced": true,
+                                          "none_label": "As the web proxy says",
+                                          "relations": [
+                                            {
+                                              "r": "visible_if",
+                                              "cond": {
+                                                "ne": [
+                                                  "tls",
+                                                  "passthrough"
+                                                ]
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      {
+                                        "key": "response_header_timeout_secs",
+                                        "node": {
+                                          "label": "App answer timeout",
+                                          "help": "How long the app may take to start its answer before the visitor gets 504, for example 300 seconds for slow reports",
+                                          "sem": {
+                                            "t": "optional",
+                                            "inner": {
+                                              "sem": {
+                                                "t": "duration",
+                                                "unit": "secs",
+                                                "min": 1
+                                              }
+                                            }
+                                          },
+                                          "advanced": true,
+                                          "none_label": "As the web proxy says",
+                                          "relations": [
+                                            {
+                                              "r": "visible_if",
+                                              "cond": {
+                                                "ne": [
+                                                  "tls",
+                                                  "passthrough"
+                                                ]
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      {
+                                        "key": "request_headers",
+                                        "node": {
+                                          "label": "Request headers",
+                                          "help": "Headers set on requests to the app, for example Host: app.internal for an app that wants its own name; an empty value removes one",
+                                          "sem": {
+                                            "t": "map",
+                                            "key": {
+                                              "sem": {
+                                                "t": "text"
+                                              }
+                                            },
+                                            "value": {
+                                              "sem": {
+                                                "t": "text"
+                                              }
+                                            }
+                                          },
+                                          "advanced": true,
+                                          "empty_label": "As the web proxy says",
+                                          "relations": [
+                                            {
+                                              "r": "visible_if",
+                                              "cond": {
+                                                "ne": [
+                                                  "tls",
+                                                  "passthrough"
+                                                ]
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      {
+                                        "key": "response_headers",
+                                        "node": {
+                                          "label": "Answer headers",
+                                          "help": "Headers set on answers, for example Access-Control-Allow-Origin: https://example.com for CORS; an empty value removes one",
+                                          "sem": {
+                                            "t": "map",
+                                            "key": {
+                                              "sem": {
+                                                "t": "text"
+                                              }
+                                            },
+                                            "value": {
+                                              "sem": {
+                                                "t": "text"
+                                              }
+                                            }
+                                          },
+                                          "advanced": true,
+                                          "empty_label": "As the web proxy says",
+                                          "relations": [
+                                            {
+                                              "r": "visible_if",
+                                              "cond": {
+                                                "ne": [
+                                                  "tls",
+                                                  "passthrough"
+                                                ]
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      {
+                                        "key": "error_pages",
+                                        "node": {
+                                          "label": "Error pages",
+                                          "help": "A folder with this site's own pages, any of 404.html, 413.html, 429.html, 502.html, 503.html, 504.html and maintenance.html; the rest stay built in",
+                                          "sem": {
+                                            "t": "optional",
+                                            "inner": {
+                                              "sem": {
+                                                "t": "path",
+                                                "must_exist": true,
+                                                "relative_to": "config"
+                                              }
+                                            }
+                                          },
+                                          "advanced": true,
+                                          "locked": true,
+                                          "none_label": "As the web proxy says",
+                                          "relations": [
+                                            {
+                                              "r": "visible_if",
+                                              "cond": {
+                                                "ne": [
+                                                  "tls",
+                                                  "passthrough"
                                                 ]
                                               }
                                             }

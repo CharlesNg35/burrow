@@ -73,7 +73,13 @@ fn the_new_keys_are_wired_into_the_settings_once_their_refusal_is_lifted() {
     .unwrap();
     let base = Path::new("/etc/burrow");
     let web = cfg.services["blog"].web.as_ref().unwrap();
-    let blog = super::fill::site(&cfg, web, vec!["blog.example.com".into()], base);
+    let blog = super::fill::site(
+        &cfg,
+        web,
+        &cfg.services["blog"].target,
+        vec!["blog.example.com".into()],
+        base,
+    );
     assert_eq!(
         blog.tls,
         WebTls::Files {

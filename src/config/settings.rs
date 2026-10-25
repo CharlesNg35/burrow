@@ -11,7 +11,12 @@ use burrow_admin_proto::msg::AdminLevel;
 use burrow_config::{Cipher, Mode, Protocol};
 use burrow_syntax::endpoint::Endpoint;
 
+mod site;
 mod web;
+
+pub use site::{
+    LogFormat, NameRedirect, PathRedirect, RESPONSE_HEADER_TIMEOUT, SiteOptions, TargetTls,
+};
 
 pub use web::{
     CertFile, LETSENCRYPT_PRODUCTION, LETSENCRYPT_STAGING, LetsEncrypt, WebSettings, WebSite,

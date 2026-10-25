@@ -124,6 +124,7 @@ pub(super) fn proxy_settings(s: &ServerSettings) -> Result<Option<ProxySettings>
             hosts: site.hosts.clone(),
             tls: site_tls(&site.tls),
             https_redirect: site.https_redirect,
+            options: options::site_options(&site.options),
         })
         .collect();
     p.max_pending = s.max_handshakes;
@@ -131,6 +132,7 @@ pub(super) fn proxy_settings(s: &ServerSettings) -> Result<Option<ProxySettings>
     p.timeouts.request_header = web.request_header_timeout;
     p.timeouts.idle = web.idle_timeout;
     p.certs = cert_settings(s, web);
+    options::site_wide(web, &mut p);
     if let Some(ws) = s.websocket.as_ref()
         && let Some(host) = &ws.host
     {
@@ -219,6 +221,7 @@ fn cert_settings(s: &ServerSettings, web: &WebSettings) -> CertSettings {
     }
 }
 
+mod options;
 mod task;
 
 pub(super) use task::WebTask;

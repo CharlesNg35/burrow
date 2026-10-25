@@ -3,6 +3,9 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::time::Duration;
 
+use super::site::{LogFormat, NameRedirect, SiteOptions};
+use crate::policy::allowlist::Cidr;
+
 pub const REQUEST_HEADER_TIMEOUT: Duration = Duration::from_secs(10);
 pub const IDLE_TIMEOUT: Duration = Duration::from_secs(60);
 pub const LETSENCRYPT_PRODUCTION: &str = "https://acme-v02.api.letsencrypt.org/directory";
@@ -20,6 +23,11 @@ pub struct WebSettings {
     pub certificates: Vec<CertFile>,
     pub letsencrypt: Option<LetsEncrypt>,
     pub file_digest: u64,
+    pub redirect_names: Vec<NameRedirect>,
+    pub trusted_proxies: Vec<Cidr>,
+    pub proxy_protocol_from: Vec<Cidr>,
+    pub access_log: Option<(PathBuf, LogFormat)>,
+    pub request_id: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -28,6 +36,7 @@ pub struct WebSite {
     pub tls: WebTls,
     pub https_redirect: bool,
     pub challenge: Option<burrow_syntax::web::Challenge>,
+    pub options: SiteOptions,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -71,6 +80,11 @@ impl WebSettings {
             certificates: Vec::new(),
             letsencrypt: None,
             file_digest: 0,
+            redirect_names: Vec::new(),
+            trusted_proxies: Vec::new(),
+            proxy_protocol_from: Vec::new(),
+            access_log: None,
+            request_id: false,
         }
     }
 
@@ -100,6 +114,7 @@ impl WebSite {
             tls: WebTls::Passthrough,
             https_redirect: true,
             challenge: None,
+            options: SiteOptions::default(),
         }
     }
 }

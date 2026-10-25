@@ -2,6 +2,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::admin_schema::AdminSchema;
 
+use super::DnsEntry;
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, AdminSchema)]
 #[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
@@ -49,6 +51,18 @@ pub struct LetsEncrypt {
         advanced
     )]
     pub profile: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(
+        description = "DNS providers for DNS checks (wildcards and challenge: dns), each for the domains it lists, for example [{domains: [example.com], cloudflare: {token: \"${CF_TOKEN}\"}}]"
+    )]
+    #[admin(
+        ty = list(object(DnsEntry)),
+        label = "DNS checks",
+        help = "How burrow sets DNS records for Let's Encrypt's DNS check, needed for wildcards and names not reachable from the internet; each provider lists the domains it manages, for example example.com through Cloudflare",
+        empty_label = "None",
+        advanced
+    )]
+    pub dns: Vec<DnsEntry>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, AdminSchema)]

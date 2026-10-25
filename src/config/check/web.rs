@@ -322,7 +322,10 @@ pub(super) fn check_sites(
             served: Served::of(web, https.is_some()),
         };
         if let Some(hosts) = check_hosts(&place, web.hosts(), &mut owners, tunnel, out) {
-            sites.insert(name.clone(), fill::site(cfg, web, hosts, base_dir));
+            sites.insert(
+                name.clone(),
+                fill::site(cfg, web, &svc.target, hosts, base_dir),
+            );
         }
     }
     certs::check_sources(cfg, (https, http), spans, out);
@@ -525,6 +528,7 @@ mod certs;
 mod challenge;
 mod choices;
 mod fill;
+mod fill_site;
 #[cfg(feature = "web")]
 mod letsencrypt;
 mod low;
@@ -567,6 +571,9 @@ mod tests_settings;
 
 #[cfg(all(test, feature = "web"))]
 mod tests_sharing;
+
+#[cfg(all(test, feature = "web"))]
+mod tests_site_settings;
 
 #[cfg(all(test, not(feature = "web")))]
 mod tests_without_web;

@@ -1,9 +1,11 @@
 mod certs;
 mod client;
+mod dns;
 mod entries;
 mod options;
 mod server;
 mod site;
+mod site_keys;
 mod visitor;
 mod web;
 
@@ -11,6 +13,7 @@ pub use certs::{CertFile, Directory, DirectoryName, LetsEncrypt};
 pub use client::{
     CLIENT_MAX_CONNECTIONS, CLIENT_MAX_UDP_PEERS, Cipher, ClientConfig, OnRejected, Reconnect,
 };
+pub use dns::{AcmeDnsDns, CloudflareDns, DnsEntry, Rfc2136Dns};
 pub use entries::{
     Bind, ClientEntry, HealthCheck, HealthCheckSetting, Mode, Protocol, ProxyVersion, Reach,
     Secrets, ServiceEntry, Target, VisitorEntry,
@@ -20,6 +23,10 @@ pub use server::{
     MetricsConfig, SelfEntry, ServerConfig, TlsFiles, WebSocketConfig, default_ws_path,
 };
 pub use site::{ChallengeKind, SiteTls, TlsMode, WebSite};
+pub use site_keys::{
+    AccessLog, AccessLogFormat, AccessLogOptions, RedirectRule, RedirectTarget, TargetCa,
+    TargetTls, TargetUnchecked,
+};
 pub use visitor::{ForwardEntry, VisitorConfig, VisitorUdpOptions};
 pub use web::{ServiceWeb, WebConfig};
 

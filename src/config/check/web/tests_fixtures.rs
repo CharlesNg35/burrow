@@ -120,31 +120,19 @@ fn examples_2_and_3_wait_for_dns_checks_until_p6_flips_them_to_clean() {
     let pair = |c: &str, m: &str| (c.to_string(), m.to_string());
     assert_eq!(
         pinned(EXAMPLE_2),
-        [
-            pair(
-                "unknown-field",
-                "unknown field \"dns\" in \"web.letsencrypt\""
-            ),
-            pair(
-                "challenge-dns",
-                "services.lab.web.challenge: dns checks \"lab.example.net\" through a DNS record; DNS checks come in a later phase",
-            ),
-        ],
-        "P6 adds these keys and turns example 2 into a clean fixture"
+        [pair(
+            "challenge-dns",
+            "services.lab.web.challenge: dns checks \"lab.example.net\" through a DNS record; DNS checks come in a later phase",
+        ),],
+        "P6's validate turns example 2 into a clean fixture"
     );
     assert_eq!(
         pinned(EXAMPLE_3),
-        [
-            pair(
-                "unknown-field",
-                "unknown field \"dns\" in \"web.letsencrypt\""
-            ),
-            pair(
-                "challenge-dns",
-                "websocket.challenge: dns checks \"tunnel.example.com\" through a DNS record; DNS checks come in a later phase",
-            ),
-        ],
-        "P6 adds these keys and turns example 3 into a clean fixture"
+        [pair(
+            "challenge-dns",
+            "websocket.challenge: dns checks \"tunnel.example.com\" through a DNS record; DNS checks come in a later phase",
+        ),],
+        "P6's validate turns example 3 into a clean fixture"
     );
 }
 

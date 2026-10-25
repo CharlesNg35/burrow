@@ -30,6 +30,7 @@ fn field_paths(
         let terms = admin_attrs(&field.attrs, &mut terms_errors).unwrap_or_default();
         if let Some(Term::Call(kind, args, _)) = assigned(&terms, "ty")
             && kind == "map"
+            && Term::value(args, "key").is_none()
         {
             let (Some(entity), Some(value)) = (
                 args.first().and_then(Term::as_word),
