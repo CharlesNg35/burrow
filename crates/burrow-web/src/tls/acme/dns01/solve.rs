@@ -71,7 +71,7 @@ fn build(p: &DnsProvider, reach: &Reach) -> Result<Box<dyn Provider>, String> {
             username,
             password.clone(),
             subdomain,
-            client()?,
+            client()?.with_plain_private(),
         )),
         DnsProvider::Command { path } => Box::new(super::command::Command::new(path.clone())),
     })

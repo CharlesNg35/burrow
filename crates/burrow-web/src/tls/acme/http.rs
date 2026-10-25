@@ -1,4 +1,5 @@
 use std::future::Future;
+use std::net::{IpAddr, SocketAddr};
 use std::path::Path;
 use std::pin::Pin;
 use std::str::FromStr;
@@ -41,6 +42,35 @@ pub struct Client {
     tls: TlsConnector,
     limits: Limits,
     told_to_wait: Arc<Mutex<Option<Duration>>>,
+    plain_private: bool,
+}
+
+pub fn is_private(ip: IpAddr) -> bool {
+    match ip.to_canonical() {
+        IpAddr::V4(v4) => v4.is_loopback() || v4.is_private(),
+        IpAddr::V6(v6) => v6.is_loopback() || v6.is_unique_local(),
+    }
+}
+
+pub async fn private_addr(host: &str, port: u16) -> Result<SocketAddr, String> {
+    let addrs: Vec<SocketAddr> = tokio::net::lookup_host((host, port))
+        .await
+        .map_err(|e| format!("cannot find {host}: {e}"))?
+        .collect();
+    if let Some(public) = addrs.iter().find(|a| !is_private(a.ip())) {
+        let ip = public.ip().to_string();
+        let what = match host == ip {
+            true => format!("{host} is a public address"),
+            false => format!("{host} is {ip}, a public address"),
+        };
+        return Err(format!(
+            "{what}; plain http:// is allowed only to loopback or private addresses (10/8, 172.16/12, 192.168/16, fc00::/7), so use https://"
+        ));
+    }
+    addrs
+        .first()
+        .copied()
+        .ok_or_else(|| format!("{host} has no address"))
 }
 
 type Failure = Box<dyn std::error::Error + Send + Sync>;
@@ -86,7 +116,13 @@ impl Client {
             tls: TlsConnector::from(Arc::new(config)),
             limits,
             told_to_wait: Arc::new(Mutex::new(None)),
+            plain_private: false,
         })
+    }
+
+    pub fn with_plain_private(mut self) -> Client {
+        self.plain_private = true;
+        self
     }
 
     pub async fn fetch(&self, req: Request<Vec<u8>>) -> Result<Response<Bytes>, String> {
@@ -114,23 +150,47 @@ impl Client {
         req: Request<BodyWrapper<Bytes>>,
     ) -> Result<Response<Full<Bytes>>, Failure> {
         let uri = req.uri().clone();
-        if uri.scheme_str() != Some("https") {
-            return Err(format!("{uri}: only https is allowed").into());
-        }
-        let host = uri.host().ok_or("no host in the URL")?.to_string();
-        let port = uri.port_u16().unwrap_or(443);
+        let host = uri
+            .host()
+            .ok_or("no host in the URL")?
+            .trim_matches(['[', ']'])
+            .to_string();
         let limit = self.limits.connect;
-        let tcp = tokio::time::timeout(
-            limit,
-            TcpStream::connect((host.trim_matches(['[', ']']), port)),
-        )
-        .await
-        .map_err(|_| format!("connecting to {host}:{port} timed out"))??;
-        let name = ServerName::try_from(host.trim_matches(['[', ']']).to_string())?;
-        let tls = tokio::time::timeout(limit, self.tls.connect(name, tcp))
-            .await
-            .map_err(|_| format!("the TLS handshake with {host}:{port} timed out"))??;
-        let (mut sender, conn) = hyper::client::conn::http1::handshake(TokioIo::new(tls)).await?;
+        let late = |port: u16| format!("connecting to {host}:{port} timed out");
+        match uri.scheme_str() {
+            Some("https") => {
+                let port = uri.port_u16().unwrap_or(443);
+                let tcp = tokio::time::timeout(limit, TcpStream::connect((host.as_str(), port)))
+                    .await
+                    .map_err(|_| late(port))??;
+                let name = ServerName::try_from(host.clone())?;
+                let tls = tokio::time::timeout(limit, self.tls.connect(name, tcp))
+                    .await
+                    .map_err(|_| format!("the TLS handshake with {host}:{port} timed out"))??;
+                self.exchange(tls, &uri, req).await
+            }
+            Some("http") if self.plain_private => {
+                let port = uri.port_u16().unwrap_or(80);
+                let addr = private_addr(&host, port).await?;
+                let tcp = tokio::time::timeout(limit, TcpStream::connect(addr))
+                    .await
+                    .map_err(|_| late(port))??;
+                self.exchange(tcp, &uri, req).await
+            }
+            _ => Err(format!("{uri}: only https is allowed").into()),
+        }
+    }
+
+    async fn exchange<I>(
+        &self,
+        io: I,
+        uri: &http::Uri,
+        req: Request<BodyWrapper<Bytes>>,
+    ) -> Result<Response<Full<Bytes>>, Failure>
+    where
+        I: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+    {
+        let (mut sender, conn) = hyper::client::conn::http1::handshake(TokioIo::new(io)).await?;
         let _driver = Driver(tokio::spawn(conn));
         let (mut parts, body) = req.into_parts();
         let authority = uri.authority().ok_or("no host in the URL")?.as_str();
