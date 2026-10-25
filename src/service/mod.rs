@@ -1,4 +1,6 @@
 mod background;
+#[cfg(unix)]
+mod hand_over;
 mod logview;
 pub(crate) mod ports;
 mod stray;
@@ -92,9 +94,9 @@ pub trait Backend {
         }
     }
     fn prepare_dirs(&self, account: &str) -> Result<(), Failure>;
-    fn state_folder(&self, m: &Manifest) -> Result<(), Failure> {
+    fn state_folder(&self, m: &Manifest) -> Result<Vec<PathBuf>, Failure> {
         let Some(dir) = &m.web_state else {
-            return Ok(());
+            return Ok(Vec::new());
         };
         #[cfg(unix)]
         {
@@ -104,12 +106,12 @@ pub trait Backend {
                 Some(a) => crate::base::process::account_ids(a)?,
                 None => (0, 0),
             };
-            system::own_tree(dir, uid, gid);
-            Ok(())
+            Ok(hand_over::own_tree(dir, uid, gid))
         }
         #[cfg(not(unix))]
         {
             std::fs::create_dir_all(dir)
+                .map(|()| Vec::new())
                 .map_err(|e| Failure::new(format!("cannot create {}: {e}", dir.display())))
         }
     }

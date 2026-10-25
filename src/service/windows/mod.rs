@@ -178,9 +178,9 @@ impl Backend for WindowsService {
         )
     }
 
-    fn state_folder(&self, m: &Manifest) -> Result<(), Failure> {
+    fn state_folder(&self, m: &Manifest) -> Result<Vec<PathBuf>, Failure> {
         let Some(dir) = &m.web_state else {
-            return Ok(());
+            return Ok(Vec::new());
         };
         std::fs::create_dir_all(dir)
             .map_err(|e| Failure::new(format!("cannot create {}: {e}", dir.display())))?;
@@ -199,7 +199,8 @@ impl Backend for WindowsService {
                 &format!("{SYSTEM}:(OI)(CI)F"),
                 &format!("{ADMINS}:(OI)(CI)F"),
             ],
-        )
+        )?;
+        Ok(Vec::new())
     }
 
     fn prepare_dirs(&self, _account: &str) -> Result<(), Failure> {

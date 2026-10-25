@@ -212,8 +212,8 @@ impl Backend for Systemd {
         m.low_ports || m.account == "root"
     }
 
-    fn state_folder(&self, _m: &Manifest) -> Result<(), Failure> {
-        Ok(())
+    fn state_folder(&self, _m: &Manifest) -> Result<Vec<PathBuf>, Failure> {
+        Ok(Vec::new())
     }
 
     fn hidden(&self, file: &Path) -> Option<String> {

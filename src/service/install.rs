@@ -143,7 +143,7 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
     check_files_readable(&*backend, &checked, &account)?;
 
     backend.prepare_dirs(&account)?;
-    backend.state_folder(&manifest)?;
+    super::uninstall::say_skipped(&backend.state_folder(&manifest)?, &account, out)?;
     let kept_binary = keep_previous_binary(again.manifest, &binary, copy_binary, &current);
     let _leftover = Leftover(kept_binary.clone());
     if copy_binary && !system::same_content(&current, &binary) {

@@ -34,6 +34,23 @@ pub(super) fn give_history(config: &Path, uid: u32, gid: u32) {
     }
 }
 
+pub(super) fn say_skipped(
+    linked: &[PathBuf],
+    owner: &str,
+    out: &mut dyn Write,
+) -> Result<(), Failure> {
+    for p in linked {
+        say(
+            out,
+            format!(
+                "warning: {} has more than one hard link, so it was not given to {owner}; burrow never makes hard links, so check who made it",
+                p.display()
+            ),
+        )?;
+    }
+    Ok(())
+}
+
 pub(super) fn is_source(config: &Path, sources: &[&Path]) -> bool {
     let config = crate::base::fs::canonical_or_same(config);
     sources
@@ -124,7 +141,7 @@ pub fn uninstall(name: Option<&str>, purge: bool, out: &mut dyn Write) -> Result
     }
     #[cfg(unix)]
     if let Some(d) = state.as_deref().filter(|_| !purge) {
-        system::own_tree(d, 0, 0);
+        say_skipped(&super::hand_over::own_tree(d, 0, 0), "root", out)?;
     }
     let mut account_left = None;
     let last_account_user = m.created_account && !others.iter().any(|o| o.account == m.account);
