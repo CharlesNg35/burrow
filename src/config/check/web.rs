@@ -64,7 +64,19 @@ pub(super) fn check_http(
     spans: &Spans,
     out: &mut Vec<Diagnostic>,
 ) -> Option<SocketAddr> {
-    let given = cfg.web.as_ref().and_then(|w| w.http.as_ref())?;
+    let Some(given) = cfg.web.as_ref().and_then(|w| w.http.as_ref()) else {
+        if https.is_some() {
+            out.push(
+                Diagnostic::warning(
+                    "no-http",
+                    "web.http is not set: http:// addresses get no answer",
+                )
+                .at(spans.key(&["web"]))
+                .help("add http: 80 so http:// addresses are sent to https://"),
+            );
+        }
+        return None;
+    };
     let addr = web_port(&Port::HTTP, given, listen, spans, out)?;
     if let Some(h) = https.filter(|h| binds_conflict(*h, addr)) {
         out.push(
@@ -361,12 +373,7 @@ impl Served {
     }
 }
 
-fn tunnel_on_site(
-    place: &Place<'_>,
-    host: &str,
-    path: &str,
-    shares: Shares,
-) -> Option<Diagnostic> {
+fn tunnel_on_site(place: &Place<'_>, host: &str, path: &str, shares: Shares) -> Option<Diagnostic> {
     let own = "give the tunnel its own name, like tunnel.example.com";
     match place.served {
         Served::Passthrough => Some(

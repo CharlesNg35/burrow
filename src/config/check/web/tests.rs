@@ -198,6 +198,28 @@ fn web_needs_an_https_or_an_http_port() {
     );
 }
 
+pub(super) fn coded(o: &Outcome, code: &str) -> Vec<String> {
+    o.report
+        .diagnostics
+        .iter()
+        .filter(|d| d.code == code)
+        .map(|d| format!("{:?}: {}", d.severity, d.message))
+        .collect()
+}
+
+#[test]
+fn a_server_without_web_http_is_told_that_http_addresses_get_no_answer() {
+    let o = load(&format!("listen: 7835\nweb: {{ https: 443 }}\n{NAS}"));
+    assert_eq!(
+        coded(&o, "no-http"),
+        ["Warning: web.http is not set: http:// addresses get no answer"]
+    );
+    let both = load(&format!(
+        "listen: 7835\nweb: {{ https: 443, http: 80 }}\n{NAS}"
+    ));
+    assert!(coded(&both, "no-http").is_empty());
+}
+
 #[test]
 fn a_server_with_only_web_http_serves_every_site_as_plain_http() {
     let s = settings(load(
