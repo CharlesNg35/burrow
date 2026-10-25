@@ -113,7 +113,7 @@ pub(super) async fn serve(
             forbidden = true;
             break Outcome::Gone(None);
         }
-        let wait = shared.settings().heartbeat_interval * 3;
+        let wait = crate::wire::protocol::peer_timeout(shared.settings().heartbeat_interval);
         let opened = match open_udp(ch, &connect, wait).await {
             Ok(link) => link,
             Err(failed) => {
@@ -180,7 +180,7 @@ async fn relay(
         gauge: PeerGauge::new(shared.clone()),
         last: Instant::now(),
     });
-    let stall = shared.settings().heartbeat_interval * 3;
+    let stall = crate::wire::protocol::peer_timeout(shared.settings().heartbeat_interval);
     let up = async {
         loop {
             let rec = match vreader.recv(&mut vrd).await {

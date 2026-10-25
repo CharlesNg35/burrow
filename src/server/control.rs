@@ -109,7 +109,7 @@ pub(super) async fn control_session(
         interval,
     ));
 
-    let timeout = interval * 3;
+    let timeout = crate::wire::protocol::peer_timeout(interval);
     let reason = loop {
         tokio::select! {
             r = tokio::time::timeout(timeout, reader.recv(&mut rd)) => match r {

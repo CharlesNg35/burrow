@@ -251,7 +251,7 @@ fn opening_for<'a>(
         first,
         prefix,
         plaintext: settings.insecure_plaintext,
-        reply_timeout: settings.heartbeat_interval * 3,
+        reply_timeout: crate::wire::protocol::peer_timeout(settings.heartbeat_interval),
     }
 }
 

@@ -117,7 +117,7 @@ async fn relay(
         target: target.to_string(),
         only: None,
     };
-    let wait = shared.settings().heartbeat_interval * 3;
+    let wait = crate::wire::protocol::peer_timeout(shared.settings().heartbeat_interval);
     let link = match open_udp(ch, &connect.encode(), wait).await {
         Ok(link) => link,
         Err(Opening::Lost) => return Err(None),
@@ -154,7 +154,7 @@ async fn relay(
             limit: shared.limit(name),
             stats: shared.metrics.service(name),
         }),
-        stall: shared.settings().heartbeat_interval * 3,
+        stall: crate::wire::protocol::peer_timeout(shared.settings().heartbeat_interval),
     };
     let mut hooks = PublicPort {
         shared,

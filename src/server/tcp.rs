@@ -148,7 +148,7 @@ pub(super) async fn visit(
         first: &first,
         prefix: &prefix,
         plaintext: settings.insecure_plaintext,
-        reply_timeout: settings.heartbeat_interval * 3,
+        reply_timeout: crate::wire::protocol::peer_timeout(settings.heartbeat_interval),
     };
     let limit = shared.limit(&name);
     let meter = Meter {

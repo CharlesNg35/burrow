@@ -139,7 +139,7 @@ impl Client {
         let (ended, session_ended) = watch::channel(false);
         let _ended = CloseOnDrop(opening.clone(), ended);
         let strays = Arc::new(Strays::default());
-        let timeout = heartbeat * 3;
+        let timeout = crate::wire::protocol::peer_timeout(heartbeat);
         loop {
             let next = tokio::select! {
                 r = tokio::time::timeout(timeout, reader.recv(&mut rd)) => r,
