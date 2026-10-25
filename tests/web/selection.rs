@@ -122,6 +122,7 @@ async fn a_name_waiting_for_its_certificate_gets_the_pending_page_then_a_308_onc
         ca: None,
         profile: None,
         state_dir: Some(dir.path().join("state")),
+        dns: Vec::new(),
     });
     let srv = start_server(s.clone()).await;
     let r = plain_get(http, "blog.example.com", "/a?b=1").await;

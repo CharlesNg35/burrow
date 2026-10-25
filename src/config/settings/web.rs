@@ -61,6 +61,7 @@ pub struct LetsEncrypt {
     pub ca: Option<PathBuf>,
     pub profile: Option<String>,
     pub state_dir: Option<PathBuf>,
+    pub dns: Vec<super::dns::DnsSettings>,
 }
 
 impl WebSettings {

@@ -86,6 +86,7 @@ pub(in crate::config::check) fn settings(
         })
         .collect();
     s.letsencrypt = web.letsencrypt.as_ref().map(|l| LetsEncrypt {
+        dns: super::fill_dns::entries(&l.dns, base_dir),
         email: l.email.trim().to_string(),
         directory: directory_url(l.directory.as_ref()),
         ca: l.ca.as_ref().map(|c| base_dir.join(c)),

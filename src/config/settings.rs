@@ -11,9 +11,11 @@ use burrow_admin_proto::msg::AdminLevel;
 use burrow_config::{Cipher, Mode, Protocol};
 use burrow_syntax::endpoint::Endpoint;
 
+mod dns;
 mod site;
 mod web;
 
+pub use dns::{DNS_WAIT, DnsProvider, DnsSettings, SecretText};
 pub use site::{
     LogFormat, NameRedirect, PathRedirect, RESPONSE_HEADER_TIMEOUT, SiteOptions, TargetTls,
 };

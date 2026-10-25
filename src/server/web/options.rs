@@ -1,6 +1,6 @@
 use burrow_web::{
-    AccessLog, Forwarding, HeaderRule, LogFormat, NameRedirect, ProxySettings, Redirect,
-    SiteOptions, TargetTls,
+    AccessLog, DnsEntry, DnsProvider, Forwarding, HeaderRule, LogFormat, NameRedirect,
+    ProxySettings, Redirect, Secret, SiteOptions, TargetTls,
 };
 use http::{HeaderName, HeaderValue};
 
@@ -74,6 +74,46 @@ fn rules(list: &[(String, String)]) -> Vec<HeaderRule> {
                     Some(HeaderValue::from_str(value).ok()?)
                 },
             })
+        })
+        .collect()
+}
+
+pub(super) fn dns_entries(list: &[settings::DnsSettings]) -> Vec<DnsEntry> {
+    let secret = |s: &settings::SecretText| Secret::new(s.expose().to_string());
+    list.iter()
+        .map(|e| DnsEntry {
+            domains: e.domains.clone(),
+            provider: match &e.provider {
+                settings::DnsProvider::Cloudflare { token } => DnsProvider::Cloudflare {
+                    token: secret(token),
+                },
+                settings::DnsProvider::Rfc2136 {
+                    server,
+                    key_name,
+                    secret: s,
+                } => DnsProvider::Rfc2136 {
+                    server: server.clone(),
+                    key_name: key_name.clone(),
+                    secret: secret(s),
+                },
+                settings::DnsProvider::AcmeDns {
+                    api,
+                    username,
+                    password,
+                    subdomain,
+                } => DnsProvider::AcmeDns {
+                    api: api.clone(),
+                    username: username.expose().to_string(),
+                    password: secret(password),
+                    subdomain: subdomain.clone(),
+                },
+                settings::DnsProvider::Command { path } => {
+                    DnsProvider::Command { path: path.clone() }
+                }
+            },
+            wait: e.wait,
+            resolvers: e.resolvers.clone(),
+            wildcards: e.wildcards.clone(),
         })
         .collect()
 }

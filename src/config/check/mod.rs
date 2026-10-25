@@ -30,6 +30,7 @@ pub(crate) use burrow_syntax::ports::binds_conflict;
 pub struct Spans {
     map: HashMap<Vec<String>, (Span, Span)>,
     nulls: HashSet<Vec<String>>,
+    env: HashSet<Vec<String>>,
     root: Span,
 }
 
@@ -38,6 +39,7 @@ impl Spans {
         let mut spans = Spans {
             map: HashMap::new(),
             nulls: HashSet::new(),
+            env: HashSet::new(),
             root: Span::point(root.span.start),
         };
         fn walk(n: &Node, path: &mut Vec<String>, spans: &mut Spans) {
@@ -48,6 +50,9 @@ impl Spans {
                         spans.map.insert(path.clone(), (e.key_span, e.value.span));
                         if e.value.value == Value::Null {
                             spans.nulls.insert(path.clone());
+                        }
+                        if e.value.env != super::tree::FromEnv::No {
+                            spans.env.insert(path.clone());
                         }
                         walk(&e.value, path, spans);
                         path.pop();
@@ -91,6 +96,11 @@ impl Spans {
     pub fn is_null(&self, path: &[&str]) -> bool {
         let key: Vec<String> = path.iter().map(|s| s.to_string()).collect();
         self.nulls.contains(&key)
+    }
+
+    pub fn from_env(&self, path: &[&str]) -> bool {
+        let key: Vec<String> = path.iter().map(|s| s.to_string()).collect();
+        self.env.contains(&key)
     }
 
     pub fn has(&self, path: &[&str]) -> bool {
@@ -147,6 +157,25 @@ pub fn secret_spans(root: &Node) -> Vec<Span> {
             .for_each(|f| collect(&f.value, out)),
         _ => collect(n, out),
     };
+    let dns = root
+        .get("web")
+        .and_then(|w| w.get("letsencrypt"))
+        .and_then(|l| l.get("dns"));
+    if let Some(Node {
+        value: Value::Seq(entries),
+        ..
+    }) = dns
+    {
+        for e in entries {
+            if let Value::Map(providers) = &e.value {
+                providers
+                    .iter()
+                    .filter(|p| matches!(p.value.value, Value::Map(_)))
+                    .filter(|p| ["cloudflare", "rfc2136", "acme_dns"].contains(&p.key.as_str()))
+                    .for_each(|p| fields(&p.value, &mut out));
+            }
+        }
+    }
     for section in ["clients", "visitors"] {
         match root.get(section).map(|c| &c.value) {
             Some(Value::Map(sections)) => sections.iter().for_each(|c| fields(&c.value, &mut out)),

@@ -333,6 +333,8 @@ pub(super) fn check_sites(
     pem::check_files(cfg, base_dir, spans, out);
     #[cfg(feature = "web")]
     letsencrypt::check_letsencrypt(cfg, base_dir, spans, out);
+    #[cfg(feature = "web")]
+    dns_secrets::check_dns_secrets(cfg, base_dir, spans, out);
     choices::check_choices(cfg, (https, http), spans, out);
     low::check_low_ports((https, http), spans, out);
     sites
@@ -527,7 +529,10 @@ fn check_hosts(
 mod certs;
 mod challenge;
 mod choices;
+#[cfg(feature = "web")]
+mod dns_secrets;
 mod fill;
+mod fill_dns;
 mod fill_site;
 #[cfg(feature = "web")]
 mod letsencrypt;
@@ -547,6 +552,12 @@ mod tests_certs;
 
 #[cfg(all(test, feature = "web"))]
 mod tests_challenge;
+
+#[cfg(all(test, feature = "web"))]
+mod tests_dns_secrets;
+
+#[cfg(all(test, feature = "web"))]
+mod tests_dns_settings;
 
 #[cfg(all(test, feature = "web"))]
 mod tests_docs;
