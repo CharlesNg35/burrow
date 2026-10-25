@@ -16,6 +16,7 @@ mod start;
 mod status;
 mod tcp;
 mod udp;
+pub mod uploads;
 mod via;
 mod visit;
 mod visit_udp;
@@ -41,6 +42,8 @@ use crate::config::settings::ServerSettings;
 use crate::policy::ratelimit::Limit;
 pub use session::{ClientSession, PoolConfig, TakeError};
 pub use start::bind_error;
+#[cfg(feature = "web")]
+pub(crate) use start::private_write;
 use start::{
     BIND_RETRY, FREED_TRIES, MetricsTask, ServiceTask, Wanted, WsTask, accept_tcp, bind_metrics,
     bind_service, bind_with_retry, bind_ws_with_retry, log_service, spawn_service, take_channel,

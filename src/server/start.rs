@@ -405,13 +405,20 @@ impl Server {
 }
 
 #[cfg(feature = "web")]
+pub(crate) fn private_write(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
+    if cfg!(windows) {
+        let text = std::str::from_utf8(bytes).map_err(std::io::Error::other)?;
+        crate::base::fs::write_private(path, text)
+    } else {
+        burrow_web::tls::internal::default_writer()(path, bytes)
+    }
+}
+
+#[cfg(feature = "web")]
 fn certificate_store() -> Arc<burrow_web::tls::Store> {
     let store = burrow_web::tls::Store::new();
     if cfg!(windows) {
-        store.set_private_writer(Arc::new(|path: &std::path::Path, bytes: &[u8]| {
-            let text = std::str::from_utf8(bytes).map_err(std::io::Error::other)?;
-            crate::base::fs::write_private(path, text)
-        }));
+        store.set_private_writer(Arc::new(private_write));
     }
     store
 }

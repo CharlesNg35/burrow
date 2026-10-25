@@ -19,6 +19,8 @@ pub mod req {
     pub const HISTORY: &str = "history";
     pub const REVERT: &str = "revert";
     pub const PING: &str = "ping";
+    pub const UPLOAD: &str = "upload";
+    pub const LOCAL_CA: &str = "local_ca";
 }
 
 pub mod ev {
@@ -318,6 +320,42 @@ pub struct Apply {
 pub struct GeneratedSecret {
     pub handle: String,
     pub fp: String,
+}
+
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+pub struct Upload {
+    pub kind: String,
+    pub pem: String,
+    #[serde(default)]
+    pub hosts: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ca_of: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ca_upload: Option<String>,
+}
+
+impl std::fmt::Debug for Upload {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Upload")
+            .field("kind", &self.kind)
+            .field("pem", &format_args!("{} bytes", self.pem.len()))
+            .field("hosts", &self.hosts)
+            .finish_non_exhaustive()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct Uploaded {
+    pub id: String,
+    #[serde(default)]
+    pub warnings: Vec<String>,
+    #[serde(default)]
+    pub names: Vec<String>,
+    #[serde(default)]
+    pub issuer: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub not_after: Option<u64>,
+    pub sha256: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

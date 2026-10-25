@@ -32,6 +32,7 @@ pub mod features {
     pub const REVERT: &str = "revert";
     pub const OPS_RENAME: &str = "ops.rename";
     pub const SET_TEXT: &str = "ops.set-text";
+    pub const UPLOAD: &str = "upload";
 
     pub const ALL: &[&str] = &[
         STATUS_STREAM,
@@ -43,5 +44,6 @@ pub mod features {
         REVERT,
         OPS_RENAME,
         SET_TEXT,
+        UPLOAD,
     ];
 }

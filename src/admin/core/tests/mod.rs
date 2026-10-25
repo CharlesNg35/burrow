@@ -5,6 +5,7 @@ mod plans;
 mod refs;
 mod reverts;
 mod snippets;
+mod uploads;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
