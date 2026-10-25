@@ -1,4 +1,5 @@
 mod apply;
+mod locks;
 mod steps;
 
 use std::collections::BTreeSet;
@@ -17,10 +18,8 @@ use super::diags::Mapper;
 use super::ops::{self, Fresh};
 use super::{ApiError, Core, Session, text};
 pub use apply::{Begun, ReloadResult, apply_begin, finish, restore};
-use steps::{
-    Draft, assemble, conflict, judge, new_document, parse_current, refuse_changed_locks,
-    refuse_locked,
-};
+use locks::{refuse_changed_locks, refuse_locked};
+use steps::{Draft, assemble, conflict, judge, new_document, parse_current};
 
 pub struct Checked {
     pub raw: Option<Value>,

@@ -283,3 +283,116 @@ fn the_web_proxy_is_open_to_edits_except_its_ports_and_files() {
         assert!(c.is_ok(), "{ops:?}: {:?}", c.err().map(|e| e.message));
     }
 }
+
+fn two_entries() -> (Site, String, serde_json::Value) {
+    let site = site();
+    let key = rcgen::KeyPair::generate().unwrap();
+    let cert = rcgen::CertificateParams::new(vec!["*.other.test".to_string()])
+        .unwrap()
+        .self_signed(&key)
+        .unwrap();
+    std::fs::write(site.dir.path().join("c.pem"), cert.pem()).unwrap();
+    std::fs::write(site.dir.path().join("c.key"), key.serialize_pem()).unwrap();
+    let entry = |hosts: &str, stem: &str| json!({"hosts": [hosts], "cert": site.file(&format!("{stem}.pem")), "key": site.file(&format!("{stem}.key"))});
+    let list = json!([entry("*.example.com", "a"), entry("*.other.test", "c")]);
+    let text = site.w.text.replace(
+        "web:\n  https: 8443\n",
+        &format!(
+            "web:\n  https: 8443\n  certificates:\n    - {{hosts: [\"*.example.com\"], cert: {}, key: {}}}\n    - {{hosts: [\"*.other.test\"], cert: {}, key: {}}}\n",
+            site.file("a.pem"),
+            site.file("a.key"),
+            site.file("c.pem"),
+            site.file("c.key")
+        ),
+    );
+    (site, text, list)
+}
+
+#[test]
+fn certificate_entries_are_compared_by_their_own_files_not_by_place() {
+    let (site, text, list) = two_entries();
+    let core = core_for(&text);
+    let s = session(&site.w, AdminLevel::Write);
+    let base = text::rev(&core.read().unwrap());
+    let set = |v: serde_json::Value| {
+        vec![Op::Set {
+            path: p(&["web", "certificates"]),
+            value: v,
+        }]
+    };
+    let fine = [set(json!([list[1], list[0]])), set(json!([list[1]]))];
+    for ops in fine {
+        let c = plan::compute(&core, &s, &base, &ops);
+        assert!(c.is_ok(), "{ops:?}: {:?}", c.err().map(|e| e.message));
+    }
+    let mut moved = list.clone();
+    moved[1]["cert"] = json!(site.file("b.pem"));
+    let mut mixed = list.clone();
+    mixed[1]["key"] = json!(site.file("a.key"));
+    let mut twice = list.clone();
+    twice[1] = list[0].clone();
+    for (ops, at) in [
+        (set(moved), "web.certificates.1.cert"),
+        (set(mixed), "web.certificates.1.cert"),
+        (set(twice), "web.certificates.0.cert"),
+    ] {
+        assert_eq!(refused(&core, &s, &ops), vec![at.to_string()], "{ops:?}");
+    }
+    let mut swapped = list.clone();
+    for k in ["cert", "key"] {
+        swapped[0][k] = list[1][k].clone();
+        swapped[1][k] = list[0][k].clone();
+    }
+    let c = plan::compute(&core, &s, &base, &set(swapped)).unwrap();
+    assert!(
+        !c.plan.valid,
+        "validate refuses files that do not cover their hosts"
+    );
+    assert!(
+        c.plan.diags.iter().any(|d| d
+            .path
+            .as_ref()
+            .and_then(|p| p.first())
+            .is_some_and(|k| k == "web")),
+        "{:?}",
+        c.plan.diags
+    );
+}
+
+#[test]
+fn a_revert_to_another_order_keeps_each_entrys_files_with_it() {
+    let (site, text, list) = two_entries();
+    let core = core_for(&text);
+    let s = session(&site.w, AdminLevel::Write);
+    apply_now(
+        &core,
+        &s,
+        &[Op::Set {
+            path: p(&["web", "certificates"]),
+            value: json!([list[1], list[0]]),
+        }],
+        &[],
+    )
+    .unwrap();
+    let entry = core
+        .history(&HistoryRequest {
+            limit: None,
+            diff: None,
+        })
+        .unwrap()
+        .entries
+        .remove(0);
+    let reverted = plan::compute(
+        &core,
+        &s,
+        &text::rev(&core.read().unwrap()),
+        &[Op::ReplaceDocument {
+            from_history: entry.base.clone(),
+        }],
+    )
+    .unwrap();
+    let doc = crate::config::tree::parse(&crate::config::patch::split_text(&reverted.new_text).2)
+        .unwrap()
+        .to_json();
+    assert_eq!(doc["web"]["certificates"], list, "{}", reverted.new_text);
+}
