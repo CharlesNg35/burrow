@@ -128,7 +128,18 @@ fn proxy_note(
         .iter()
         .map(|c| c.hosts.as_slice())
         .collect();
-    let listed = |h: &str| !matches!(entry_for(files.iter().copied().enumerate(), h), Ok(None));
+    let shared: Vec<String> = web
+        .letsencrypt
+        .iter()
+        .flat_map(|l| l.dns.iter().flat_map(|e| e.wildcards.iter()))
+        .filter_map(|w| host_name(w, SingleLabel::Allowed).ok())
+        .collect();
+    let listed = |h: &str| {
+        shared
+            .iter()
+            .any(|w| w.strip_prefix("*.") == Some(h) || burrow_syntax::web::covers(w, h))
+            || !matches!(entry_for(files.iter().copied().enumerate(), h), Ok(None))
+    };
     let mut hosts: Vec<(String, String, Option<burrow_syntax::web::Challenge>)> = Vec::new();
     for (name, svc) in &cfg.services {
         let Some(site) = svc.web.as_ref().filter(|_| svc.protocol == Protocol::Tcp) else {

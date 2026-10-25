@@ -289,3 +289,37 @@ fn the_tunnel_name_takes_its_dns_check_through_the_entries_too() {
         ]
     );
 }
+
+#[test]
+fn a_name_under_a_shared_wildcard_needs_no_check_of_its_own() {
+    let dir = tempfile::tempdir().unwrap();
+    let text = format!(
+        "clients:\n  home: {{ secret: \"{SECRET}\" }}\nlisten: 7835\nweb:\n  https: 8443\n  letsencrypt:\n    email: ops@example.com\n    dns:\n      - domains: [example.com]\n        cloudflare: {{ token: \"${{CF}}\" }}\n        wildcards: [\"*.example.com\"]\nservices:\n{}{}",
+        site("wiki", "wiki.example.com"),
+        site("root", "example.com")
+    );
+    let env = |n: &str| (n == "CF").then(|| "token".to_string());
+    let o = load_str_in(
+        dir.path(),
+        "server.yaml",
+        &text,
+        Format::Yaml,
+        Some(Role::Server),
+        &env,
+    );
+    assert_eq!(
+        errors(&o),
+        Vec::<String>::new(),
+        "8443 and no port 80, but the wildcard covers both"
+    );
+    let bare = text.replace("        wildcards: [\"*.example.com\"]\n", "");
+    let o = load_str_in(
+        dir.path(),
+        "server.yaml",
+        &bare,
+        Format::Yaml,
+        Some(Role::Server),
+        &env,
+    );
+    assert_eq!(errors(&o).len(), 2, "{:#?}", errors(&o));
+}

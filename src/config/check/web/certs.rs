@@ -10,6 +10,7 @@ use burrow_syntax::web::{SingleLabel, entry_for, host_name};
 struct Sources<'a> {
     entries: Vec<&'a [String]>,
     letsencrypt: bool,
+    wildcards: Vec<String>,
 }
 
 impl<'a> Sources<'a> {
@@ -20,14 +21,24 @@ impl<'a> Sources<'a> {
                 .map(|w| w.certificates.iter().map(|c| c.hosts.as_slice()).collect())
                 .unwrap_or_default(),
             letsencrypt: web.is_some_and(|w| w.letsencrypt.is_some()),
+            wildcards: web
+                .and_then(|w| w.letsencrypt.as_ref())
+                .into_iter()
+                .flat_map(|l| l.dns.iter().flat_map(|e| e.wildcards.iter()))
+                .filter_map(|w| host_name(w, SingleLabel::Allowed).ok())
+                .collect(),
         }
     }
 
     fn lists(&self, host: &str) -> bool {
-        !matches!(
-            entry_for(self.entries.iter().copied().enumerate(), host),
-            Ok(None)
-        )
+        let shared = self.wildcards.iter().any(|w| {
+            w == host || w.strip_prefix("*.") == Some(host) || burrow_syntax::web::covers(w, host)
+        });
+        shared
+            || !matches!(
+                entry_for(self.entries.iter().copied().enumerate(), host),
+                Ok(None)
+            )
     }
 }
 

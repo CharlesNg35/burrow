@@ -59,6 +59,9 @@ fn automatic(web: &WebSettings, name: &str, choice: Option<Challenge>) -> (Strin
     if web.letsencrypt.is_none() {
         return ("no certificate".into(), String::new());
     }
+    if let Some(w) = shared_wildcard(web, name) {
+        return (format!("Let's Encrypt shared wildcard {w}"), String::new());
+    }
     let ports = CheckPorts {
         https: web.https.map(|a| a.port()),
         http: web.http.map(|a| a.port()),
@@ -93,6 +96,20 @@ pub(super) fn provider_label(p: &DnsProvider) -> &'static str {
         DnsProvider::AcmeDns { .. } => "acme-dns",
         DnsProvider::Command { .. } => "the command",
     }
+}
+
+fn shared_wildcard(web: &WebSettings, name: &str) -> Option<String> {
+    web.letsencrypt
+        .as_ref()?
+        .dns
+        .iter()
+        .flat_map(|e| e.wildcards.iter())
+        .find(|w| {
+            w.as_str() == name
+                || w.strip_prefix("*.") == Some(name)
+                || burrow_syntax::web::covers(w, name)
+        })
+        .cloned()
 }
 
 fn dns_for(web: &WebSettings, name: &str) -> Option<(String, String)> {

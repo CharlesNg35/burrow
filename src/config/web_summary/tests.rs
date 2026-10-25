@@ -302,4 +302,8 @@ fn the_summary_names_each_dns_provider_and_lists_the_shared_wildcards() {
         ]
         .map(String::from)
     );
+    assert_eq!(
+        lines[5],
+        "wiki.example.com: Let's Encrypt shared wildcard *.example.com -> service wiki"
+    );
 }
