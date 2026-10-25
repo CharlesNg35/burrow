@@ -1,3 +1,4 @@
+use std::num::NonZeroU32;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -16,6 +17,10 @@ pub struct SiteOptions {
     pub target_tls: TargetTls,
     pub target_name: String,
     pub target_http2: bool,
+    pub basic_auth: Vec<BasicUser>,
+    pub forward_auth: Option<ForwardAuth>,
+    pub rate_limit: Option<NonZeroU32>,
+    pub client_auth: Option<ClientAuth>,
     pub hsts: bool,
     pub compress: bool,
     pub max_body_size: Option<u64>,
@@ -36,6 +41,10 @@ impl Default for SiteOptions {
             target_tls: TargetTls::Off,
             target_name: String::new(),
             target_http2: false,
+            basic_auth: Vec::new(),
+            forward_auth: None,
+            rate_limit: None,
+            client_auth: None,
             hsts: false,
             compress: false,
             max_body_size: None,
@@ -45,6 +54,33 @@ impl Default for SiteOptions {
             error_pages: None,
         }
     }
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct BasicUser {
+    pub user: String,
+    pub hash: String,
+}
+
+impl std::fmt::Debug for BasicUser {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BasicUser")
+            .field("user", &self.user)
+            .finish_non_exhaustive()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ForwardAuth {
+    pub service: String,
+    pub path: String,
+    pub copy_headers: Vec<HeaderName>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClientAuth {
+    pub ca: PathBuf,
+    pub crl: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -119,6 +119,12 @@ impl WebSettings {
             out.extend([c.cert.clone(), c.key.clone()]);
         }
         out.extend(self.letsencrypt.as_ref().and_then(|l| l.ca.clone()));
+        for site in self.sites.values() {
+            if let Some(c) = &site.options.client_auth {
+                out.push(c.ca.clone());
+                out.extend(c.crl.clone());
+            }
+        }
         out
     }
 

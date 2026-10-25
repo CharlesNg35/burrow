@@ -1,6 +1,6 @@
 use burrow_web::{
-    AccessLog, DnsEntry, DnsProvider, Forwarding, HeaderRule, LogFormat, NameRedirect,
-    ProxySettings, Redirect, Secret, SiteOptions, TargetTls,
+    AccessLog, BasicUser, ClientAuth, DnsEntry, DnsProvider, ForwardAuth, Forwarding, HeaderRule,
+    LogFormat, NameRedirect, ProxySettings, Redirect, Secret, SiteOptions, TargetTls,
 };
 use http::{HeaderName, HeaderValue};
 
@@ -29,6 +29,28 @@ pub(super) fn site_options(o: &settings::SiteOptions) -> SiteOptions {
         },
         target_name: o.target_name.clone(),
         target_http2: o.target_http2,
+        basic_auth: o
+            .basic_auth
+            .iter()
+            .map(|(user, hash)| BasicUser {
+                user: user.clone(),
+                hash: hash.clone(),
+            })
+            .collect(),
+        forward_auth: o.forward_auth.as_ref().map(|f| ForwardAuth {
+            service: f.service.clone(),
+            path: f.path.clone(),
+            copy_headers: f
+                .copy_headers
+                .iter()
+                .filter_map(|h| HeaderName::from_bytes(h.as_bytes()).ok())
+                .collect(),
+        }),
+        rate_limit: o.rate_limit.and_then(std::num::NonZeroU32::new),
+        client_auth: o.client_auth.as_ref().map(|c| ClientAuth {
+            ca: c.ca.clone(),
+            crl: c.crl.clone(),
+        }),
         hsts: o.hsts,
         compress: o.compress,
         max_body_size: o.max_body_size,

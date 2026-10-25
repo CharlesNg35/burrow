@@ -3,12 +3,13 @@ use std::path::Path;
 use std::time::Duration;
 
 use crate::config::settings::{
-    LogFormat, NameRedirect, PathRedirect, RESPONSE_HEADER_TIMEOUT, SiteOptions, TargetTls,
-    WebSettings,
+    ForwardAuth, LogFormat, NameRedirect, PathRedirect, RESPONSE_HEADER_TIMEOUT, SiteOptions,
+    TargetTls, WebClientAuth, WebSettings,
 };
 use crate::policy::allowlist::Cidr;
 use burrow_config::{
-    AccessLogFormat, RedirectTarget, ServiceWeb, Target, TargetTls as TargetTlsKey, WebConfig,
+    AccessLogFormat, ForwardAuthSetting, RedirectTarget, ServiceWeb, Target,
+    TargetTls as TargetTlsKey, WebConfig,
 };
 use burrow_syntax::web::{SingleLabel, host_name};
 
@@ -26,6 +27,7 @@ pub(super) fn options(
         request_headers: headers(&top.request_headers, &BTreeMap::new()),
         response_headers: headers(&top.response_headers, &BTreeMap::new()),
         error_pages: top.error_pages.as_ref().map(|p| base_dir.join(p.trim())),
+        rate_limit: top.rate_limit.filter(|r| *r > 0),
         ..SiteOptions::default()
     };
     let ServiceWeb::Site(s) = web else {
@@ -49,6 +51,22 @@ pub(super) fn options(
         .collect();
     o.maintenance = s.maintenance;
     o.target_http2 = s.target_http2;
+    o.basic_auth = s
+        .basic_auth
+        .iter()
+        .map(|(u, h)| (u.trim().to_string(), h.trim().to_string()))
+        .collect();
+    o.basic_auth.sort();
+    o.forward_auth = match &s.forward_auth {
+        None | Some(ForwardAuthSetting::Shared(false)) => None,
+        Some(ForwardAuthSetting::Shared(true)) => top.forward_auth.as_ref().map(forward),
+        Some(ForwardAuthSetting::Own(f)) => Some(forward(f)),
+    };
+    o.rate_limit = s.rate_limit.or(top.rate_limit).filter(|r| *r > 0);
+    o.client_auth = s.client_auth.as_ref().map(|c| WebClientAuth {
+        ca: base_dir.join(c.ca.trim()),
+        crl: c.crl.as_ref().map(|p| base_dir.join(p.trim())),
+    });
     o.target_tls = match &s.target_tls {
         None | Some(TargetTlsKey::Checked(false)) => TargetTls::Off,
         Some(TargetTlsKey::Checked(true)) => TargetTls::PublicRoots,
@@ -105,6 +123,18 @@ fn name_redirect(name: &str, t: &RedirectTarget) -> Option<NameRedirect> {
         to: t.to().trim().to_string(),
         permanent: t.permanent(),
     })
+}
+
+fn forward(f: &burrow_config::ForwardAuthConfig) -> ForwardAuth {
+    ForwardAuth {
+        service: f.service.trim().to_string(),
+        path: path(&f.path),
+        copy_headers: f
+            .copy_headers
+            .iter()
+            .map(|h| h.trim().to_string())
+            .collect(),
+    }
 }
 
 fn path(p: &str) -> String {

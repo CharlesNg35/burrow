@@ -191,6 +191,8 @@ fn locked_fields_are_refused_even_from_a_crafted_client() {
             p(&["services", "*", "web", "tls", "cert"]),
             p(&["services", "*", "web", "tls", "key"]),
             p(&["services", "*", "web", "target_tls", "ca"]),
+            p(&["services", "*", "web", "client_auth", "ca"]),
+            p(&["services", "*", "web", "client_auth", "crl"]),
             p(&["services", "*", "web", "error_pages"]),
             p(&["insecure_plaintext"]),
             p(&["heartbeat", "interval_secs"]),

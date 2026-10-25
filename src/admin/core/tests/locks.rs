@@ -79,7 +79,7 @@ fn every_field_locked_before_stays_locked_and_the_web_proxy_keeps_its_ports_and_
     for old in BEFORE_P2.iter().filter(|o| **o != ["web"]) {
         assert!(now.contains(&p(old)), "{old:?} is still locked: {now:?}");
     }
-    let finer: [&[&str]; 20] = [
+    let finer: [&[&str]; 22] = [
         &["web", "https"],
         &["web", "http"],
         &["web", "letsencrypt", "ca"],
@@ -99,6 +99,8 @@ fn every_field_locked_before_stays_locked_and_the_web_proxy_keeps_its_ports_and_
         &["services", "*", "web", "tls", "cert"],
         &["services", "*", "web", "tls", "key"],
         &["services", "*", "web", "target_tls", "ca"],
+        &["services", "*", "web", "client_auth", "ca"],
+        &["services", "*", "web", "client_auth", "crl"],
         &["services", "*", "web", "error_pages"],
     ];
     for f in finer {

@@ -222,3 +222,47 @@ fn the_http_check_asks_the_first_plain_host_or_the_wildcards_base_name() {
     assert_eq!(http("lab").unwrap().host, "lab.example.com");
     assert_eq!(http("db"), None);
 }
+
+#[test]
+fn the_access_keys_reach_the_settings_with_the_web_defaults() {
+    let cfg: ServerConfig = serde_json::from_value(json!({
+        "web": {"https": 443, "rate_limit": 20, "forward_auth": {"service": "authelia", "path": "/api/authz/forward-auth/", "copy_headers": ["Remote-User"]}},
+        "services": {
+            "wiki": {"client": "home", "target": 3001, "web": {"hosts": ["wiki.example.com"], "forward_auth": true, "client_auth": {"ca": "certs/ca.pem", "crl": "certs/ca.crl"}}},
+            "status": {"client": "home", "target": 3003, "web": {"hosts": ["status.example.com"], "rate_limit": 5, "basic_auth": {"bob": "$2b$10$x", "alice": "$argon2id$y"}}}
+        }
+    }))
+    .unwrap();
+    let base = Path::new("/etc/burrow");
+    let site = |name: &str| {
+        let svc = &cfg.services[name];
+        super::fill::site(&cfg, svc.web.as_ref().unwrap(), &svc.target, vec![], base).options
+    };
+    let wiki = site("wiki");
+    assert_eq!(
+        wiki.forward_auth,
+        Some(crate::config::settings::ForwardAuth {
+            service: "authelia".into(),
+            path: "/api/authz/forward-auth".into(),
+            copy_headers: vec!["Remote-User".into()]
+        })
+    );
+    assert_eq!(wiki.rate_limit, Some(20));
+    assert_eq!(
+        wiki.client_auth,
+        Some(crate::config::settings::WebClientAuth {
+            ca: base.join("certs/ca.pem"),
+            crl: Some(base.join("certs/ca.crl"))
+        })
+    );
+    let status = site("status");
+    assert_eq!(status.rate_limit, Some(5));
+    assert_eq!(
+        status.basic_auth,
+        [
+            ("alice".to_string(), "$argon2id$y".to_string()),
+            ("bob".to_string(), "$2b$10$x".to_string())
+        ]
+    );
+    assert!(status.forward_auth.is_none() && status.client_auth.is_none());
+}

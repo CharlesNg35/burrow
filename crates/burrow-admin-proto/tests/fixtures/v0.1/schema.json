@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:546138daab74335b",
+  "hash": "b2s:2c6175331d9cf37a",
   "root": {
     "label": "Server",
     "sem": {
@@ -290,6 +290,85 @@
                         },
                         "advanced": true,
                         "none_label": "On"
+                      }
+                    },
+                    {
+                      "key": "forward_auth",
+                      "node": {
+                        "label": "Login service",
+                        "help": "The single sign-on service websites use with forward_auth: true, for example Authelia",
+                        "sem": {
+                          "t": "optional",
+                          "inner": {
+                            "label": "Login service",
+                            "sem": {
+                              "t": "object",
+                              "fields": [
+                                {
+                                  "key": "service",
+                                  "node": {
+                                    "label": "Service",
+                                    "help": "The service of the login portal that checks each visitor, for example authelia",
+                                    "sem": {
+                                      "t": "ref",
+                                      "entity": "service"
+                                    },
+                                    "required": true
+                                  }
+                                },
+                                {
+                                  "key": "path",
+                                  "node": {
+                                    "label": "Path",
+                                    "help": "Where the login service answers the check, for example /api/authz/forward-auth for Authelia or /outpost.goauthentik.io/auth/nginx for authentik",
+                                    "sem": {
+                                      "t": "url_path"
+                                    },
+                                    "required": true
+                                  }
+                                },
+                                {
+                                  "key": "copy_headers",
+                                  "node": {
+                                    "label": "Headers to the app",
+                                    "help": "Headers from the login service's answer that the app receives, for example Remote-User; a visitor's own copies are always removed",
+                                    "sem": {
+                                      "t": "list",
+                                      "item": {
+                                        "sem": {
+                                          "t": "text"
+                                        }
+                                      }
+                                    },
+                                    "empty_label": "None"
+                                  }
+                                }
+                              ]
+                            }
+                          }
+                        },
+                        "advanced": true,
+                        "none_label": "None"
+                      }
+                    },
+                    {
+                      "key": "rate_limit",
+                      "node": {
+                        "label": "Rate limit",
+                        "help": "For every website: how many requests per second one visitor may send, for example 20; a website can change it",
+                        "sem": {
+                          "t": "optional",
+                          "inner": {
+                            "sem": {
+                              "t": "integer",
+                              "min": 1,
+                              "max": 4294967295,
+                              "unit": "requests per second"
+                            }
+                          }
+                        },
+                        "advanced": true,
+                        "none_label": "Off"
                       }
                     },
                     {
@@ -2375,6 +2454,225 @@
                                                 "ne": [
                                                   "tls",
                                                   "passthrough"
+                                                ]
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      {
+                                        "key": "basic_auth",
+                                        "node": {
+                                          "label": "Passwords",
+                                          "help": "Visitors sign in with a user name and password, for example alice with a hash from burrow passwd alice",
+                                          "sem": {
+                                            "t": "map",
+                                            "key": {
+                                              "sem": {
+                                                "t": "text"
+                                              }
+                                            },
+                                            "value": {
+                                              "help": "The password hash, for example the line burrow passwd alice prints",
+                                              "sem": {
+                                                "t": "text"
+                                              }
+                                            }
+                                          },
+                                          "empty_label": "None",
+                                          "relations": [
+                                            {
+                                              "r": "visible_if",
+                                              "cond": {
+                                                "ne": [
+                                                  "tls",
+                                                  "passthrough"
+                                                ]
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      {
+                                        "key": "forward_auth",
+                                        "node": {
+                                          "label": "Login service",
+                                          "help": "Visitors log in at a single sign-on service like Authelia or authentik before they reach the app",
+                                          "sem": {
+                                            "t": "optional",
+                                            "inner": {
+                                              "sem": {
+                                                "t": "union",
+                                                "branches": [
+                                                  {
+                                                    "sem": {
+                                                      "t": "bool"
+                                                    }
+                                                  },
+                                                  {
+                                                    "label": "Login service",
+                                                    "sem": {
+                                                      "t": "object",
+                                                      "fields": [
+                                                        {
+                                                          "key": "service",
+                                                          "node": {
+                                                            "label": "Service",
+                                                            "help": "The service of the login portal that checks each visitor, for example authelia",
+                                                            "sem": {
+                                                              "t": "ref",
+                                                              "entity": "service"
+                                                            },
+                                                            "required": true
+                                                          }
+                                                        },
+                                                        {
+                                                          "key": "path",
+                                                          "node": {
+                                                            "label": "Path",
+                                                            "help": "Where the login service answers the check, for example /api/authz/forward-auth for Authelia or /outpost.goauthentik.io/auth/nginx for authentik",
+                                                            "sem": {
+                                                              "t": "url_path"
+                                                            },
+                                                            "required": true
+                                                          }
+                                                        },
+                                                        {
+                                                          "key": "copy_headers",
+                                                          "node": {
+                                                            "label": "Headers to the app",
+                                                            "help": "Headers from the login service's answer that the app receives, for example Remote-User; a visitor's own copies are always removed",
+                                                            "sem": {
+                                                              "t": "list",
+                                                              "item": {
+                                                                "sem": {
+                                                                  "t": "text"
+                                                                }
+                                                              }
+                                                            },
+                                                            "empty_label": "None"
+                                                          }
+                                                        }
+                                                      ]
+                                                    }
+                                                  }
+                                                ]
+                                              }
+                                            }
+                                          },
+                                          "none_label": "Off",
+                                          "relations": [
+                                            {
+                                              "r": "visible_if",
+                                              "cond": {
+                                                "ne": [
+                                                  "tls",
+                                                  "passthrough"
+                                                ]
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      {
+                                        "key": "rate_limit",
+                                        "node": {
+                                          "label": "Rate limit",
+                                          "help": "How many requests per second one visitor may send, for example 20; more get 429",
+                                          "sem": {
+                                            "t": "optional",
+                                            "inner": {
+                                              "sem": {
+                                                "t": "integer",
+                                                "min": 1,
+                                                "max": 4294967295,
+                                                "unit": "requests per second"
+                                              }
+                                            }
+                                          },
+                                          "advanced": true,
+                                          "none_label": "As the web proxy says",
+                                          "relations": [
+                                            {
+                                              "r": "visible_if",
+                                              "cond": {
+                                                "ne": [
+                                                  "tls",
+                                                  "passthrough"
+                                                ]
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      {
+                                        "key": "client_auth",
+                                        "node": {
+                                          "label": "Device certificates",
+                                          "help": "Only devices with a certificate from your own CA may open the site, for example company laptops",
+                                          "sem": {
+                                            "t": "optional",
+                                            "inner": {
+                                              "label": "Device certificates",
+                                              "sem": {
+                                                "t": "object",
+                                                "fields": [
+                                                  {
+                                                    "key": "ca",
+                                                    "node": {
+                                                      "label": "CA file",
+                                                      "help": "The CA that signs your devices' certificates, with its intermediates, for example certs/devices-ca.pem",
+                                                      "sem": {
+                                                        "t": "path",
+                                                        "must_exist": true,
+                                                        "relative_to": "config"
+                                                      },
+                                                      "required": true,
+                                                      "locked": true
+                                                    }
+                                                  },
+                                                  {
+                                                    "key": "crl",
+                                                    "node": {
+                                                      "label": "Revocation list",
+                                                      "help": "Devices you revoked, as the CA publishes them, for example certs/devices.crl; re-read when the file changes",
+                                                      "sem": {
+                                                        "t": "optional",
+                                                        "inner": {
+                                                          "sem": {
+                                                            "t": "path",
+                                                            "must_exist": true,
+                                                            "relative_to": "config"
+                                                          }
+                                                        }
+                                                      },
+                                                      "locked": true,
+                                                      "none_label": "None"
+                                                    }
+                                                  }
+                                                ]
+                                              }
+                                            }
+                                          },
+                                          "advanced": true,
+                                          "none_label": "Off",
+                                          "relations": [
+                                            {
+                                              "r": "visible_if",
+                                              "cond": {
+                                                "all": [
+                                                  {
+                                                    "ne": [
+                                                      "tls",
+                                                      "passthrough"
+                                                    ]
+                                                  },
+                                                  {
+                                                    "ne": [
+                                                      "tls",
+                                                      "off"
+                                                    ]
+                                                  }
                                                 ]
                                               }
                                             }

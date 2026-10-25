@@ -31,7 +31,8 @@ pub use io::{BoxIo, Ending, Io, Pipe, Prefixed, pipe};
 pub use listen::{Listeners, Proxy};
 pub use permit::source_key;
 pub use site::{
-    AccessLog, Forwarding, HeaderRule, LogFormat, NameRedirect, Redirect, SiteOptions, TargetTls,
+    AccessLog, BasicUser, ClientAuth, ForwardAuth, Forwarding, HeaderRule, LogFormat, NameRedirect,
+    Redirect, SiteOptions, TargetTls,
 };
 pub use tls::acme::dns01::{DnsEntry, DnsProvider, Secret};
 

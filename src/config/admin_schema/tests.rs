@@ -255,6 +255,15 @@ fn refs_agree_with_check_refs() {
             diag_paths(&yaml)
         );
     }
+    let login = base("    client: home\n    bind: 7840\n    target: 3000\n").replace(
+        "\nservices:\n",
+        "\nweb:\n  https: 8443\n  forward_auth: { service: nobody, path: /auth }\nservices:\n",
+    );
+    assert!(
+        reported_on(&login, &["web", "forward_auth", "service"]),
+        "{:?}",
+        diag_paths(&login)
+    );
     let yaml = base("    client: home\n    bind: 7840\n    target: 3000\n")
         .replace("reach: { home: any }", "reach: { nobody: any }");
     assert!(
@@ -282,6 +291,7 @@ fn refs_agree_with_check_refs() {
     assert_eq!(
         refs,
         [
+            "web.forward_auth.service",
             "visitors.*.reach",
             "services.*.client",
             "services.*.clients",

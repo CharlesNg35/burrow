@@ -23,10 +23,10 @@ fn unknown_ref(kind: &str, name: &str, known: &[&str], by: String, span: Span) -
         Some(s) => format!("did you mean \"{s}\"? {defined}"),
         None => format!("add it under \"{section}:\"; {defined}"),
     };
-    let code = if kind == "client" {
-        "unknown-client"
-    } else {
-        "unknown-visitor"
+    let code = match kind {
+        "client" => "unknown-client",
+        "service" => "unknown-service",
+        _ => "unknown-visitor",
     };
     Diagnostic::error(
         code,
@@ -37,12 +37,34 @@ fn unknown_ref(kind: &str, name: &str, known: &[&str], by: String, span: Span) -
     .help(help)
 }
 
+fn login_service(node: Option<&Node>, by: String, services: &[&str], out: &mut Vec<Diagnostic>) {
+    if let Some(service) = node.and_then(|f| f.get("service"))
+        && let Some(name) = service.as_str()
+        && !services.contains(&name)
+    {
+        out.push(unknown_ref("service", name, services, by, service.span));
+    }
+}
+
 pub fn check_refs(root: &Node, out: &mut Vec<Diagnostic>) {
     let clients = declared(root, "clients");
     let visitors = declared(root, "visitors");
+    let services = declared(root, "services");
+    login_service(
+        root.get("web").and_then(|w| w.get("forward_auth")),
+        "web.forward_auth".into(),
+        &services,
+        out,
+    );
     if let Some(Value::Map(services)) = root.get("services").map(|s| &s.value) {
         for svc in services {
             let by = || format!("service \"{}\"", svc.key);
+            login_service(
+                svc.value.get("web").and_then(|w| w.get("forward_auth")),
+                format!("the forward_auth of service \"{}\"", svc.key),
+                &declared(root, "services"),
+                out,
+            );
             if let Some(client) = svc.value.get("client")
                 && let Some(name) = client.as_str()
                 && name != SELF

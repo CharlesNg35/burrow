@@ -17,7 +17,8 @@ mod web;
 
 pub use dns::{DNS_WAIT, DnsProvider, DnsSettings, SecretText};
 pub use site::{
-    LogFormat, NameRedirect, PathRedirect, RESPONSE_HEADER_TIMEOUT, SiteOptions, TargetTls,
+    ForwardAuth, LogFormat, NameRedirect, PathRedirect, RESPONSE_HEADER_TIMEOUT, SiteOptions,
+    TargetTls, WebClientAuth,
 };
 
 pub use web::{

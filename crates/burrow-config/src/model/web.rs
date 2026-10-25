@@ -4,7 +4,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::admin_schema::AdminSchema;
 
-use super::{AccessLog, Bind, CertFile, LetsEncrypt, RedirectTarget, SiteTls, WebSite};
+use super::{
+    AccessLog, Bind, CertFile, ForwardAuthConfig, LetsEncrypt, RedirectTarget, SiteTls, WebSite,
+};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, AdminSchema)]
 #[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
@@ -57,6 +59,29 @@ pub struct WebConfig {
         advanced
     )]
     pub http2: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        description = "The login service sites use with forward_auth: true, {service, path, copy_headers}"
+    )]
+    #[admin(
+        label = "Login service",
+        help = "The single sign-on service websites use with forward_auth: true, for example Authelia",
+        none_label = "None",
+        advanced
+    )]
+    pub forward_auth: Option<ForwardAuthConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        description = "Default for every site: requests per second per visitor address (IPv6 per /64), bursts of twice that, 429 above"
+    )]
+    #[schemars(range(min = 1))]
+    #[admin(
+        ty = integer(unit = "requests per second"),
+        help = "For every website: how many requests per second one visitor may send, for example 20; a website can change it",
+        none_label = "Off",
+        advanced
+    )]
+    pub rate_limit: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
         description = "Automatic certificates from Let's Encrypt (or another ACME server); writing it accepts Let's Encrypt's terms, for example {email: ops@example.com}"

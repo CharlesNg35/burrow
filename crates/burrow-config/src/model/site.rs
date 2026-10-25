@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::admin_schema::AdminSchema;
 
-use super::{RedirectTarget, TargetTls, TlsFiles};
+use super::{ClientAuthFiles, ForwardAuthSetting, RedirectTarget, TargetTls, TlsFiles};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, AdminSchema)]
 #[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
@@ -136,6 +136,54 @@ pub struct WebSite {
         visible_if(ne(tls, "passthrough"))
     )]
     pub target_http2: bool,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    #[schemars(
+        description = "Users and their password hashes, user: hash, argon2id from burrow passwd or bcrypt from htpasswd -B"
+    )]
+    #[admin(
+        ty = map(key = text, value = text, value_help = "The password hash, for example the line burrow passwd alice prints"),
+        label = "Passwords",
+        help = "Visitors sign in with a user name and password, for example alice with a hash from burrow passwd alice",
+        empty_label = "None",
+        visible_if(ne(tls, "passthrough"))
+    )]
+    pub basic_auth: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        description = "Visitors log in at a login service first: true uses web.forward_auth, or its own {service, path, copy_headers}"
+    )]
+    #[admin(
+        label = "Login service",
+        help = "Visitors log in at a single sign-on service like Authelia or authentik before they reach the app",
+        none_label = "Off",
+        visible_if(ne(tls, "passthrough"))
+    )]
+    pub forward_auth: Option<ForwardAuthSetting>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        description = "Requests per second per visitor address (IPv6 per /64), bursts of twice that, 429 above; from web.rate_limit when not set"
+    )]
+    #[schemars(range(min = 1))]
+    #[admin(
+        ty = integer(unit = "requests per second"),
+        help = "How many requests per second one visitor may send, for example 20; more get 429",
+        none_label = "As the web proxy says",
+        advanced,
+        visible_if(ne(tls, "passthrough"))
+    )]
+    pub rate_limit: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        description = "Only devices with a certificate signed by this CA get in, checked in the TLS handshake: {ca, crl}"
+    )]
+    #[admin(
+        label = "Device certificates",
+        help = "Only devices with a certificate from your own CA may open the site, for example company laptops",
+        none_label = "Off",
+        advanced,
+        visible_if(all(ne(tls, "passthrough"), ne(tls, "off")))
+    )]
+    pub client_auth: Option<ClientAuthFiles>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
         description = "true sends Strict-Transport-Security for a year on this site's HTTPS answers; from web.hsts when not set"
