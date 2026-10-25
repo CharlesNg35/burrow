@@ -120,7 +120,24 @@ pub(super) fn unused_site(cfg: &ServerConfig, spans: &Spans, out: &mut Vec<Diagn
         let burrow_config::ServiceWeb::Site(site) = web else {
             continue;
         };
-        if site.challenge.is_none() {
+        let Some(kind) = site.challenge else {
+            continue;
+        };
+        let at = spans.value(&["services", name, "web", "challenge"]);
+        if cfg.web.is_some() && !https && web.tls() != Some(&SiteTls::Mode(TlsMode::Off)) {
+            let kind = match kind {
+                ChallengeKind::Dns => "dns",
+                ChallengeKind::Http => "http",
+                ChallengeKind::Tls => "tls",
+            };
+            out.push(
+                Diagnostic::error(
+                    super::choices::NEEDS_HTTPS,
+                    super::choices::needs_https(name, "challenge", kind),
+                )
+                .at(at)
+                .help("challenge only says how Let's Encrypt checks a site's names"),
+            );
             continue;
         }
         let why = match web.tls() {
@@ -128,7 +145,6 @@ pub(super) fn unused_site(cfg: &ServerConfig, spans: &Spans, out: &mut Vec<Diagn
                 "the app keeps its own certificate (tls: passthrough)"
             }
             Some(SiteTls::Mode(TlsMode::Off)) => "a site with tls: off has no HTTPS",
-            None if !https => "without web.https the site is plain HTTP",
             Some(SiteTls::Files(_)) => "the site uses its own certificate file",
             _ => continue,
         };
@@ -137,7 +153,7 @@ pub(super) fn unused_site(cfg: &ServerConfig, spans: &Spans, out: &mut Vec<Diagn
                 "challenge-unused",
                 format!("services.{name}.web.challenge: {why}; remove challenge"),
             )
-            .at(spans.value(&["services", name, "web", "challenge"]))
+            .at(at)
             .help("challenge only says how Let's Encrypt checks a site's names"),
         );
     }

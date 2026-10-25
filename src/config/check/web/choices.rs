@@ -9,6 +9,22 @@ pub(super) const PLAIN_NEEDS_HTTP: &str = "plain-needs-http";
 pub(super) const REDIRECT_PASSTHROUGH: &str = "redirect-passthrough";
 pub(super) const REDIRECT_PLAIN: &str = "redirect-plain";
 pub(super) const REDIRECT_NEEDS_HTTP: &str = "redirect-needs-http";
+pub(super) const NEEDS_HTTPS: &str = "needs-https";
+
+pub(super) fn needs_https(name: &str, key: &str, choice: &str) -> String {
+    format!(
+        "services.{name}.web.{key}: {choice} needs web.https; without web.https every site is plain HTTP. Add https: 443, or remove {key}"
+    )
+}
+
+fn https_choice(web: &ServiceWeb) -> Option<&'static str> {
+    match web.tls()? {
+        SiteTls::Mode(TlsMode::Auto) => Some("auto"),
+        SiteTls::Mode(TlsMode::Passthrough) => Some("passthrough"),
+        SiteTls::Mode(TlsMode::Off) => None,
+        SiteTls::Files(_) => Some("{cert, key}"),
+    }
+}
 
 fn error(code: &'static str, message: String, at: Span, help: &str) -> Diagnostic {
     Diagnostic::error(code, message).at(at).help(help)
@@ -28,6 +44,15 @@ pub(in crate::config::check) fn check_choices(
             continue;
         };
         let tls_at = spans.value(&["services", name, "web", "tls"]);
+        if let Some(choice) = https_choice(web).filter(|_| https.is_none()) {
+            out.push(error(
+                NEEDS_HTTPS,
+                needs_https(name, "tls", choice),
+                tls_at,
+                "for example web: {https: 443, http: 80}",
+            ));
+            continue;
+        }
         if http.is_none() && web.tls() == Some(&SiteTls::Mode(TlsMode::Off)) {
             out.push(error(
                 PLAIN_NEEDS_HTTP,

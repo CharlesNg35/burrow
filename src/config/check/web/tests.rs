@@ -212,6 +212,23 @@ fn a_server_with_only_web_http_serves_every_site_as_plain_http() {
 }
 
 #[test]
+fn an_https_choice_without_web_https_is_refused_per_site() {
+    let o = load(
+        "listen: 7835\nweb:\n  http: 8080\nservices:\n  a: {client: home, target: 1, web: {hosts: [a.example.com], tls: auto}}\n  b: {client: home, target: 2, web: {hosts: [b.example.com], tls: passthrough}}\n  c: {client: home, target: 3, web: {hosts: [c.example.com], tls: {cert: a.pem, key: a.key}}}\n  d: {client: home, target: 4, web: {hosts: [nas]}}\n  e: {client: home, target: 5, web: {hosts: [e.example.com], challenge: http}}\n",
+    );
+    let tail = "needs web.https; without web.https every site is plain HTTP. Add https: 443, or remove";
+    assert_eq!(
+        errors(&o),
+        [
+            format!("services.a.web.tls: auto {tail} tls"),
+            format!("services.b.web.tls: passthrough {tail} tls"),
+            format!("services.c.web.tls: {{cert, key}} {tail} tls"),
+            format!("services.e.web.challenge: http {tail} challenge"),
+        ]
+    );
+}
+
+#[test]
 fn web_http_must_not_share_a_port_with_another_listener() {
     for (yaml, want) in [
         (
