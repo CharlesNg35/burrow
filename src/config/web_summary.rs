@@ -75,7 +75,7 @@ fn automatic(web: &WebSettings, name: &str, choice: Option<Challenge>) -> (Strin
 }
 
 fn host(web: &WebSettings, service: &str, site: &WebSite, name: &str) -> HostLine {
-    let port = web.http.map_or(String::new(), |a| a.port().to_string());
+    let port = web.http.map_or(String::new(), |a| a.to_string());
     let (kind, certificate, check) = match &site.tls {
         WebTls::Passthrough => (
             "passthrough",
@@ -90,7 +90,7 @@ fn host(web: &WebSettings, service: &str, site: &WebSite, name: &str) -> HostLin
             };
             (
                 PLAIN,
-                format!("plain HTTP on :{port} only, unencrypted{why}"),
+                format!("plain HTTP on {port} only, unencrypted{why}"),
                 String::new(),
             )
         }

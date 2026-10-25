@@ -162,3 +162,18 @@ fn a_website_without_a_port_or_visitors_is_reachable() {
     let none = "listen: 7835\nservices:\n  wiki: { client: home, target: 3000 }\n";
     assert_eq!(found(none, "unreachable-service").len(), 1);
 }
+
+#[test]
+fn an_unknown_key_names_its_full_path() {
+    let e = super::tests::errors(&super::tests::load(
+        "listen: 7835\nweb:\n  https: 443\n  letsencrypt: { email: a@example.com, emial: b }\n  certificates:\n    - { hosts: [a.example.com], cert: a.pem, key: a.key, kye: x }\n",
+    ));
+    assert!(
+        e.contains(&"unknown field \"emial\" in \"web.letsencrypt\"".to_string()),
+        "{e:#?}"
+    );
+    assert!(
+        e.contains(&"unknown field \"kye\" in \"web.certificates[0]\"".to_string()),
+        "{e:#?}"
+    );
+}

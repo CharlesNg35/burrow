@@ -112,7 +112,7 @@ fn every_host_says_how_it_is_served_with_its_certificate_source_and_check() {
                 .to_string(),
             "203.0.113.10: Let's Encrypt short-lived (6 days), TLS check -> service kiosk"
                 .to_string(),
-            "dash.lan.example.com: plain HTTP on :80 only, unencrypted (tls: off) -> service intranet"
+            "dash.lan.example.com: plain HTTP on [::]:80 only, unencrypted (tls: off) -> service intranet"
                 .to_string(),
             format!("erp.corp.example.com: web.certificates[0] ({}) -> service erp", at("corp.pem")),
             "example.com: Let's Encrypt, TLS check -> service blog".to_string(),
@@ -151,7 +151,7 @@ fn without_https_every_site_is_plain_and_the_tunnel_names_its_certificate() {
         summary(&s).unwrap().lines(),
         [
             "web: http [::]:8080 (IPv4 and IPv6)",
-            "wiki.lan.example.com: plain HTTP on :8080 only, unencrypted -> service wiki",
+            "wiki.lan.example.com: plain HTTP on [::]:8080 only, unencrypted -> service wiki",
         ]
     );
     let t = settings(

@@ -119,6 +119,7 @@ Names:
 - **Time limits:** a visitor has 10 seconds to send a request's headers (`web.request_header_timeout_secs`, also how long an idle kept-alive connection stays open), and a connection that moves no data for 60 seconds is closed (`web.idle_timeout_secs`; WebSockets stay open).
 - **TLS 1.2 and 1.3.** TLS 1.0 and 1.1 are retired (RFC 8996); clients that only speak them cannot reach any site on the port, passthrough sites included.
 - Everything else a service does works for websites too: several clients with failover or balance, health checks, `allow_from`, `max_connections`, `bandwidth`.
+- **`allow_from` limits visitors, not Let's Encrypt:** burrow answers Let's Encrypt's checks before it looks at the site, so a site open only to `192.168.1.0/24` still gets its certificate. Behind a CDN or another proxy, `allow_from` sees the proxy's address, not the visitor's.
 
 ## Certificates
 
@@ -195,8 +196,11 @@ services:
   dashboard:
     client: home
     target: 3000
+    allow_from: [192.168.1.0/24] # only the home network
     web: dash.lan.example.com # no web.https: every site is plain HTTP
 ```
+
+`allow_from` keeps the site to your network only when the burrow server is on that network; a server on the internet sees your router's public address, so there use the router's address or a VPN range instead.
 
 - With both ports, mark a site `tls: off` to serve it as plain HTTP.
 - Anyone on the way can read and change plain-HTTP traffic. Keep such sites on networks you trust, or behind a proxy that does HTTPS. `burrow validate` marks every one as unencrypted, and so does the admin UI.

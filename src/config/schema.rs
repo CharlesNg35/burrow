@@ -49,8 +49,23 @@ pub fn owner_name(role: &str, path: &[&str]) -> String {
         ["visitors", name] => format!("visitor \"{name}\""),
         ["forwards", name] => format!("forward \"{name}\""),
         [section] => format!("\"{section}\""),
-        [.., last] => format!("\"{last}\""),
+        _ => format!("\"{}\"", dotted(path)),
     }
+}
+
+fn dotted(path: &[&str]) -> String {
+    let mut out = String::new();
+    for part in path {
+        if part.parse::<usize>().is_ok() {
+            out.push_str(&format!("[{part}]"));
+        } else {
+            if !out.is_empty() {
+                out.push('.');
+            }
+            out.push_str(part);
+        }
+    }
+    out
 }
 
 impl<'a> Checker<'a> {

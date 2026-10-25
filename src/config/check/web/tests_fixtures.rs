@@ -121,7 +121,10 @@ fn examples_2_and_3_wait_for_dns_checks_until_p6_flips_them_to_clean() {
     assert_eq!(
         pinned(EXAMPLE_2),
         [
-            pair("unknown-field", "unknown field \"dns\" in \"letsencrypt\""),
+            pair(
+                "unknown-field",
+                "unknown field \"dns\" in \"web.letsencrypt\""
+            ),
             pair(
                 "challenge-dns",
                 "services.lab.web.challenge: dns checks \"lab.example.net\" through a DNS record; DNS checks come in a later phase",
@@ -132,7 +135,10 @@ fn examples_2_and_3_wait_for_dns_checks_until_p6_flips_them_to_clean() {
     assert_eq!(
         pinned(EXAMPLE_3),
         [
-            pair("unknown-field", "unknown field \"dns\" in \"letsencrypt\""),
+            pair(
+                "unknown-field",
+                "unknown field \"dns\" in \"web.letsencrypt\""
+            ),
             pair(
                 "challenge-dns",
                 "websocket.challenge: dns checks \"tunnel.example.com\" through a DNS record; DNS checks come in a later phase",

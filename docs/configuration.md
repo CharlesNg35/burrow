@@ -12,6 +12,7 @@ You rarely write client.yaml or visitor.yaml by hand: `burrow client-config` and
 
 - YAML (`.yaml`, `.yml`) or JSON (`.json`). Both use the same keys.
 - `${VAR}` is replaced by the environment variable `VAR`, so secrets can stay out of the file. An unset variable is an error. Write `$${` for a literal `${`.
+- In YAML, a `${VAR}` inside `{ }` must be quoted: `{ secret: "${HOME_SECRET}" }`. On a line of its own, like `secret: ${HOME_SECRET}`, no quotes are needed.
 - Unknown keys are errors, so a typo never goes unnoticed.
 - Relative file paths, such as certificate files, are relative to the folder of the config file.
 - When you leave out `-c`, burrow uses `server.yaml`, `client.yaml` or `visitor.yaml` in the current folder.
@@ -125,6 +126,7 @@ services:
 | `websocket.listen` | none | accept clients over WebSocket on this address; a port alone means `0.0.0.0`, or, when it shares the port of a bare `web.https`, every IPv4 and IPv6 address (`[::]`) like `web.https`. See [websocket.md](websocket.md) and [web.md](web.md#the-tunnel-on-the-same-port) |
 | `websocket.path` | `/burrow` | URL path for WebSocket clients |
 | `websocket.host` | none | the tunnel's name when `websocket.listen` is the same port as `web.https`; required then. See [web.md](web.md#the-tunnel-on-the-same-port) |
+| `websocket.challenge` | automatic | the Let's Encrypt check for `websocket.host`, like a site's `challenge` |
 | `websocket.tls.cert` / `key` | none | serve `wss://` directly with these PEM files |
 | `websocket.keepalive_secs` | `25` | keepalive on idle connections, 5 to 30 |
 | `clients.<name>.secret` | required | a 256-bit secret (base64 or hex), or a list of up to 4 while you change it |
@@ -147,9 +149,21 @@ services:
 | `services.<name>.proxy_protocol` | off | `v1` or `v2`: send the real client address to the target |
 | `services.<name>.bandwidth` | unlimited | speed limit per direction, for example `40mbit` or `5MB` (per second) |
 | `services.<name>.max_connections` | unlimited | open connections for this TCP service |
-| `services.<name>.web` | none | names that lead to this TCP service on `web.https`: a name, a list of names, or `{ hosts, tls }`. `tls` is `auto` (the default), `passthrough`, `off` or `{cert, key}`; this build serves `passthrough` only. See [web.md](web.md) |
+| `services.<name>.web` | none | names that lead to this TCP service as a website: a name, a list of names, or `{ hosts, tls, https_redirect, challenge }`. See [web.md](web.md) |
+| `services.<name>.web.tls` | `auto` with `web.https`, else `off` | `auto` (a `web.certificates` file, else Let's Encrypt), `{cert, key}` (the site's own files), `passthrough` (the app does HTTPS) or `off` (plain HTTP on `web.http`) |
+| `services.<name>.web.https_redirect` | `web.https_redirect` | `true` sends `http://` visitors to `https://`; `false` serves plain HTTP too |
+| `services.<name>.web.challenge` | automatic | the Let's Encrypt check: `tls` (port 443), `http` (port 80) or `dns` (a later phase). Automatic tries TLS, then HTTP |
 | `self.allow` | none | what the server may connect to for itself, for `client: self` and `reach: self`. See [services.md](services.md#on-the-server-itself) |
-| `web.https` | none | the HTTPS port for websites and TLS services by name; a port alone means every IPv4 and IPv6 address, `0.0.0.0:443` IPv4 only. `web` needs a port, and in this build that is `https`. Off unless `web` is written. See [web.md](web.md) |
+| `web.https` | none | the HTTPS port for websites and TLS services by name; a port alone means every IPv4 and IPv6 address, `0.0.0.0:443` IPv4 only. Off unless `web` is written. See [web.md](web.md) |
+| `web.http` | none | the plain HTTP port: redirects to `https://`, plain-HTTP sites and Let's Encrypt's HTTP check. `web` needs `https`, `http` or both |
+| `web.https_redirect` | `true` | the default of every HTTPS site's `https_redirect` |
+| `web.letsencrypt.email` | none | turns on Let's Encrypt certificates; writing it accepts Let's Encrypt's terms |
+| `web.letsencrypt.directory` | `production` | `production`, `staging` (the test service) or the URL of another ACME server |
+| `web.letsencrypt.profile` | the CA's default | a certificate profile the CA offers, like `shortlived` |
+| `web.letsencrypt.ca` | none | a PEM file with the CA to trust for another ACME server |
+| `web.certificates` | none | your own files: a list of `{ hosts, cert, key }`; each name is listed in one entry only |
+| `web.request_header_timeout_secs` | `10` | time a visitor has to send a request's headers; also how long an idle kept-alive connection stays open |
+| `web.idle_timeout_secs` | `60` | a connection that moves no data for this long is closed; WebSockets stay open |
 | `metrics.listen` | off | address for Prometheus `/metrics`; a port alone means `127.0.0.1`. See [monitoring.md](monitoring.md) |
 | `insecure_plaintext` | `false` | send forwarded TCP data unencrypted on raw TCP links to clients; logging in stays encrypted |
 | `heartbeat.interval_secs` | `10` | ping interval; a peer times out after 3 missed pings |

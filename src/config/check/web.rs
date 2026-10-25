@@ -391,6 +391,24 @@ fn tunnel_on_site(place: &Place<'_>, host: &str, path: &str) -> Option<Diagnosti
     }
 }
 
+fn own_name_help(name: &str, host: &str) -> String {
+    let parent = host
+        .strip_prefix("*.")
+        .or_else(|| {
+            host.split_once('.')
+                .map(|(_, p)| p)
+                .filter(|p| p.contains('.'))
+        })
+        .or(Some(host))
+        .filter(|_| !burrow_syntax::web::is_ip(host));
+    match parent {
+        Some(parent) => format!(
+            "remove it from one of them, or give service \"{name}\" a name of its own, like {name}.{parent}"
+        ),
+        None => "remove it from one of them".into(),
+    }
+}
+
 fn check_hosts(
     place: &Place<'_>,
     given: &[String],
@@ -465,7 +483,7 @@ fn check_hosts(
                     ),
                 )
                 .at(at)
-                .help("remove it from one of them"),
+                .help(own_name_help(name, &host)),
             );
             continue;
         }

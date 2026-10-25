@@ -281,6 +281,27 @@ fn one_host_leads_to_one_service() {
         e,
         "host \"nas.example.com\" is used by services \"nas\" and \"nas2\"; each host name leads to one service"
     );
+    let help = |host: &str| {
+        let text = format!(
+            "listen: 7835\nweb: {{ https: 443 }}\nservices:\n  a: {{ client: home, target: 443, web: {{ hosts: [\"{host}\"], tls: passthrough }} }}\n  b: {{ client: home, target: 443, web: {{ hosts: [\"{host}\"], tls: passthrough }} }}\n"
+        );
+        load(&text)
+            .report
+            .diagnostics
+            .iter()
+            .find(|d| d.code == "duplicate-host")
+            .and_then(|d| d.help.clone())
+            .unwrap()
+    };
+    assert_eq!(
+        help("nas.example.com"),
+        "remove it from one of them, or give service \"b\" a name of its own, like b.example.com"
+    );
+    assert_eq!(
+        help("example.com"),
+        "remove it from one of them, or give service \"b\" a name of its own, like b.example.com"
+    );
+    assert_eq!(help("203.0.113.10"), "remove it from one of them");
 }
 
 #[test]

@@ -164,7 +164,7 @@ fn the_full_example_of_web_md_is_pinned_at_what_p2_builds() {
             "tunnel: wss://tunnel.example.com/burrow (Let's Encrypt, TLS check)",
             "203.0.113.10: Let's Encrypt short-lived (6 days), TLS check -> service kiosk",
             "auth.example.com: Let's Encrypt, TLS check -> service login",
-            "dash.lan.example.com: plain HTTP on :80 only, unencrypted (tls: off) -> service dashboard",
+            "dash.lan.example.com: plain HTTP on [::]:80 only, unencrypted (tls: off) -> service dashboard",
             "example.com: Let's Encrypt, TLS check -> service blog",
             "nas.example.com: passthrough, the app's own certificate -> service nas",
             "news.example.net: Let's Encrypt, HTTP check -> service news",

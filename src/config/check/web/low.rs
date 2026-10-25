@@ -88,6 +88,12 @@ pub(super) fn message(key: &str, addr: SocketAddr, os: Os) -> String {
     )
 }
 
+pub(super) fn help(port: u16) -> String {
+    format!(
+        "Let's Encrypt checks only ports 443 and 80 from the internet, so keep port {port} for them; to run burrow on a higher port behind a router, see \"Port forwarding at home\" in docs/web.md"
+    )
+}
+
 pub(in crate::config::check) fn check_low_ports(
     (https, http): (Option<SocketAddr>, Option<SocketAddr>),
     spans: &Spans,
@@ -101,7 +107,7 @@ pub(in crate::config::check) fn check_low_ports(
         out.push(
             Diagnostic::warning("low-port", message(key, addr, r.os))
                 .at(spans.value(&["web", key]))
-                .help("a port above 1023 needs no rights, for example behind a router that forwards 443 to it"),
+                .help(help(addr.port())),
         );
     }
 }
@@ -140,6 +146,10 @@ mod tests {
         assert_eq!(
             message("https", any, Os::Linux),
             "web.https [::]:443: port 443 needs root or CAP_NET_BIND_SERVICE; burrow service install grants it, or run burrow as root"
+        );
+        assert_eq!(
+            help(80),
+            "Let's Encrypt checks only ports 443 and 80 from the internet, so keep port 80 for them; to run burrow on a higher port behind a router, see \"Port forwarding at home\" in docs/web.md"
         );
     }
 }
