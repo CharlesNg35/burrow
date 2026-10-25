@@ -90,7 +90,7 @@ pub struct VisitorEntry {
         ty = list(cidr),
         label = "Admin only from",
         group = admin,
-        visible_if(set(admin)),
+        enabled_if(set(admin), "This applies only to a visitor with admin access"),
         empty_label = "Any address",
         reduce_only,
         advanced
@@ -190,13 +190,13 @@ pub struct ServiceEntry {
     #[schemars(
         description = "Several clients that can each reach the target, instead of client; see mode"
     )]
-    #[admin(help = "Clients that can each reach the target; with two or more, Mode appears to choose how one is picked", ty = ref_list(client, ordered, reserved = "self"), group = who, one_of = "who")]
+    #[admin(help = "Clients that can each reach the target; with two or more, Mode chooses how one is picked", ty = ref_list(client, ordered, reserved = "self"), group = who, one_of = "who")]
     pub clients: Vec<String>,
     #[serde(default, skip_serializing_if = "is_default")]
     #[schemars(
         description = "With several clients: failover uses the first one that is up, balance spreads new connections over all of them"
     )]
-    #[admin(group = who, visible_if(len_ge(clients, 2)))]
+    #[admin(group = who, enabled_if(len_ge(clients, 2), "This applies only with two or more clients"))]
     pub mode: Mode,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(

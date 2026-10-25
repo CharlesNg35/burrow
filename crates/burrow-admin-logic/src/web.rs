@@ -266,7 +266,7 @@ mod tests {
     }
 
     #[test]
-    fn the_redirect_choice_shows_only_where_burrow_does_https() {
+    fn the_redirect_choice_applies_only_where_burrow_does_https() {
         use crate::relations::field_state;
         use crate::tree::{fields, inner};
         use burrow_admin_proto::schema::SemType;
@@ -288,7 +288,7 @@ mod tests {
             .collect();
         let shown = |site: Value| {
             let doc = json!({"services": {"nas": {"web": site}}});
-            field_state(&redirect.node, &schema.root, &doc, &base).visible
+            field_state(&redirect.node, &schema.root, &doc, &base).enabled
         };
         assert!(shown(json!({"hosts": ["a.example.com"]})));
         assert!(shown(json!({"hosts": ["a.example.com"], "tls": "auto"})));

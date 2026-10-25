@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:0d990df14baff44b",
+  "hash": "b2s:779f2e1b71d6dca4",
   "root": {
     "label": "Server",
     "sem": {
@@ -1485,10 +1485,11 @@
                         "empty_label": "Any address",
                         "relations": [
                           {
-                            "r": "visible_if",
+                            "r": "enabled_if",
                             "cond": {
                               "set": "admin"
-                            }
+                            },
+                            "reason": "This applies only to a visitor with admin access"
                           }
                         ]
                       }
@@ -1606,7 +1607,7 @@
                       "key": "clients",
                       "node": {
                         "label": "Clients",
-                        "help": "Clients that can each reach the target; with two or more, Mode appears to choose how one is picked",
+                        "help": "Clients that can each reach the target; with two or more, Mode chooses how one is picked",
                         "sem": {
                           "t": "ref_list",
                           "entity": "client",
@@ -1649,13 +1650,14 @@
                         "group": "who",
                         "relations": [
                           {
-                            "r": "visible_if",
+                            "r": "enabled_if",
                             "cond": {
                               "len_ge": [
                                 "clients",
                                 2
                               ]
-                            }
+                            },
+                            "reason": "This applies only with two or more clients"
                           },
                           {
                             "r": "enabled_if",
@@ -2194,7 +2196,7 @@
                                           "none_label": "As the web proxy says",
                                           "relations": [
                                             {
-                                              "r": "visible_if",
+                                              "r": "enabled_if",
                                               "cond": {
                                                 "all": [
                                                   {
@@ -2217,7 +2219,8 @@
                                                     ]
                                                   }
                                                 ]
-                                              }
+                                              },
+                                              "reason": "This needs burrow to do the HTTPS, or Trusted proxies for a plain HTTP site"
                                             }
                                           ]
                                         }
@@ -2256,7 +2259,7 @@
                                           "none_label": "Automatic",
                                           "relations": [
                                             {
-                                              "r": "visible_if",
+                                              "r": "enabled_if",
                                               "cond": {
                                                 "all": [
                                                   {
@@ -2272,7 +2275,8 @@
                                                     ]
                                                   }
                                                 ]
-                                              }
+                                              },
+                                              "reason": "This needs burrow to do the HTTPS; this site uses passthrough or plain HTTP"
                                             }
                                           ]
                                         }
@@ -2293,13 +2297,14 @@
                                           "empty_label": "All paths",
                                           "relations": [
                                             {
-                                              "r": "visible_if",
+                                              "r": "enabled_if",
                                               "cond": {
                                                 "ne": [
                                                   "tls",
                                                   "passthrough"
                                                 ]
-                                              }
+                                              },
+                                              "reason": "This needs burrow to do the HTTPS; this site uses passthrough"
                                             }
                                           ]
                                         }
@@ -2321,7 +2326,7 @@
                                           "none_label": "The same path",
                                           "relations": [
                                             {
-                                              "r": "visible_if",
+                                              "r": "enabled_if",
                                               "cond": {
                                                 "all": [
                                                   {
@@ -2337,7 +2342,8 @@
                                                     ]
                                                   }
                                                 ]
-                                              }
+                                              },
+                                              "reason": "This needs burrow to do the HTTPS and at least one path"
                                             }
                                           ]
                                         }
@@ -2364,13 +2370,14 @@
                                           "empty_label": "None",
                                           "relations": [
                                             {
-                                              "r": "visible_if",
+                                              "r": "enabled_if",
                                               "cond": {
                                                 "ne": [
                                                   "tls",
                                                   "passthrough"
                                                 ]
-                                              }
+                                              },
+                                              "reason": "This needs burrow to do the HTTPS; this site uses passthrough"
                                             }
                                           ]
                                         }
@@ -2434,13 +2441,14 @@
                                           "empty_label": "None",
                                           "relations": [
                                             {
-                                              "r": "visible_if",
+                                              "r": "enabled_if",
                                               "cond": {
                                                 "ne": [
                                                   "tls",
                                                   "passthrough"
                                                 ]
-                                              }
+                                              },
+                                              "reason": "This needs burrow to do the HTTPS; this site uses passthrough"
                                             }
                                           ]
                                         }
@@ -2456,13 +2464,14 @@
                                           "default": false,
                                           "relations": [
                                             {
-                                              "r": "visible_if",
+                                              "r": "enabled_if",
                                               "cond": {
                                                 "ne": [
                                                   "tls",
                                                   "passthrough"
                                                 ]
-                                              }
+                                              },
+                                              "reason": "This needs burrow to do the HTTPS; this site uses passthrough"
                                             }
                                           ]
                                         }
@@ -2559,13 +2568,14 @@
                                           "none_label": "Off: plain HTTP to the app",
                                           "relations": [
                                             {
-                                              "r": "visible_if",
+                                              "r": "enabled_if",
                                               "cond": {
                                                 "ne": [
                                                   "tls",
                                                   "passthrough"
                                                 ]
-                                              }
+                                              },
+                                              "reason": "This needs burrow to do the HTTPS; this site uses passthrough"
                                             }
                                           ]
                                         }
@@ -2582,13 +2592,14 @@
                                           "advanced": true,
                                           "relations": [
                                             {
-                                              "r": "visible_if",
+                                              "r": "enabled_if",
                                               "cond": {
                                                 "ne": [
                                                   "tls",
                                                   "passthrough"
                                                 ]
-                                              }
+                                              },
+                                              "reason": "This needs burrow to do the HTTPS; this site uses passthrough"
                                             }
                                           ]
                                         }
@@ -2615,13 +2626,14 @@
                                           "empty_label": "None",
                                           "relations": [
                                             {
-                                              "r": "visible_if",
+                                              "r": "enabled_if",
                                               "cond": {
                                                 "ne": [
                                                   "tls",
                                                   "passthrough"
                                                 ]
-                                              }
+                                              },
+                                              "reason": "This needs burrow to do the HTTPS; this site uses passthrough"
                                             }
                                           ]
                                         }
@@ -2696,13 +2708,14 @@
                                           "none_label": "Off",
                                           "relations": [
                                             {
-                                              "r": "visible_if",
+                                              "r": "enabled_if",
                                               "cond": {
                                                 "ne": [
                                                   "tls",
                                                   "passthrough"
                                                 ]
-                                              }
+                                              },
+                                              "reason": "This needs burrow to do the HTTPS; this site uses passthrough"
                                             }
                                           ]
                                         }
@@ -2727,13 +2740,14 @@
                                           "none_label": "As the web proxy says",
                                           "relations": [
                                             {
-                                              "r": "visible_if",
+                                              "r": "enabled_if",
                                               "cond": {
                                                 "ne": [
                                                   "tls",
                                                   "passthrough"
                                                 ]
-                                              }
+                                              },
+                                              "reason": "This needs burrow to do the HTTPS; this site uses passthrough"
                                             }
                                           ]
                                         }
@@ -2840,7 +2854,7 @@
                                           "none_label": "Off",
                                           "relations": [
                                             {
-                                              "r": "visible_if",
+                                              "r": "enabled_if",
                                               "cond": {
                                                 "all": [
                                                   {
@@ -2856,7 +2870,8 @@
                                                     ]
                                                   }
                                                 ]
-                                              }
+                                              },
+                                              "reason": "This needs burrow to do the HTTPS; this site uses passthrough or plain HTTP"
                                             }
                                           ]
                                         }
@@ -2878,7 +2893,7 @@
                                           "none_label": "As the web proxy says",
                                           "relations": [
                                             {
-                                              "r": "visible_if",
+                                              "r": "enabled_if",
                                               "cond": {
                                                 "all": [
                                                   {
@@ -2894,7 +2909,8 @@
                                                     ]
                                                   }
                                                 ]
-                                              }
+                                              },
+                                              "reason": "This needs burrow to do the HTTPS; this site uses passthrough or plain HTTP"
                                             }
                                           ]
                                         }
@@ -2916,13 +2932,14 @@
                                           "none_label": "As the web proxy says",
                                           "relations": [
                                             {
-                                              "r": "visible_if",
+                                              "r": "enabled_if",
                                               "cond": {
                                                 "ne": [
                                                   "tls",
                                                   "passthrough"
                                                 ]
-                                              }
+                                              },
+                                              "reason": "This needs burrow to do the HTTPS; this site uses passthrough"
                                             }
                                           ]
                                         }
@@ -2944,13 +2961,14 @@
                                           "none_label": "As the web proxy says",
                                           "relations": [
                                             {
-                                              "r": "visible_if",
+                                              "r": "enabled_if",
                                               "cond": {
                                                 "ne": [
                                                   "tls",
                                                   "passthrough"
                                                 ]
-                                              }
+                                              },
+                                              "reason": "This needs burrow to do the HTTPS; this site uses passthrough"
                                             }
                                           ]
                                         }
@@ -2974,13 +2992,14 @@
                                           "none_label": "As the web proxy says",
                                           "relations": [
                                             {
-                                              "r": "visible_if",
+                                              "r": "enabled_if",
                                               "cond": {
                                                 "ne": [
                                                   "tls",
                                                   "passthrough"
                                                 ]
-                                              }
+                                              },
+                                              "reason": "This needs burrow to do the HTTPS; this site uses passthrough"
                                             }
                                           ]
                                         }
@@ -3008,13 +3027,14 @@
                                           "empty_label": "As the web proxy says",
                                           "relations": [
                                             {
-                                              "r": "visible_if",
+                                              "r": "enabled_if",
                                               "cond": {
                                                 "ne": [
                                                   "tls",
                                                   "passthrough"
                                                 ]
-                                              }
+                                              },
+                                              "reason": "This needs burrow to do the HTTPS; this site uses passthrough"
                                             }
                                           ]
                                         }
@@ -3042,13 +3062,14 @@
                                           "empty_label": "As the web proxy says",
                                           "relations": [
                                             {
-                                              "r": "visible_if",
+                                              "r": "enabled_if",
                                               "cond": {
                                                 "ne": [
                                                   "tls",
                                                   "passthrough"
                                                 ]
-                                              }
+                                              },
+                                              "reason": "This needs burrow to do the HTTPS; this site uses passthrough"
                                             }
                                           ]
                                         }
@@ -3073,13 +3094,14 @@
                                           "none_label": "As the web proxy says",
                                           "relations": [
                                             {
-                                              "r": "visible_if",
+                                              "r": "enabled_if",
                                               "cond": {
                                                 "ne": [
                                                   "tls",
                                                   "passthrough"
                                                 ]
-                                              }
+                                              },
+                                              "reason": "This needs burrow to do the HTTPS; this site uses passthrough"
                                             }
                                           ]
                                         }

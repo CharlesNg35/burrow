@@ -23,6 +23,41 @@ async fn add_name(c: &Ctx, id: &str, name: &str) {
     c.ui.wait_for(&format!("[data-chip='{name}']"), SECS).await;
 }
 
+async fn passthrough_shows_what_it_leaves_out(c: &mut Ctx) {
+    c.ui.nav("/services/nas?tab=settings").await;
+    let group = "[data-testid=off-group]";
+    let line =
+        c.ui.wait_text(group, "this site uses passthrough", SECS)
+            .await;
+    assert!(
+        line.contains("settings need burrow to do the HTTPS"),
+        "{line}"
+    );
+    both_widths(c, "passthrough-group-closed").await;
+    c.ui.click(group).await;
+    c.ui.wait_for("[data-off-group][open] [data-schema]", SECS)
+        .await;
+    both_widths(c, "passthrough-group-open").await;
+    edit_mode(c).await;
+    c.ui.wait_text(group, "this site uses passthrough", SECS)
+        .await;
+    c.ui.shot("passthrough-group-edit").await;
+    c.ui.click("[data-testid=discard-edit]").await;
+    c.ui.wait_gone("[data-testid=save-bar]", SECS).await;
+    c.ui.nav("/settings").await;
+    edit_mode(c).await;
+    let listen = "[data-schema=listen]";
+    let text = c.ui.wait_text(listen, "server.yaml", SECS).await;
+    assert!(
+        text.contains("burrow edit"),
+        "a locked field says where: {text}"
+    );
+    assert_eq!(c.ui.count(&format!("{listen} [data-locked]")).await, 1);
+    both_widths(c, "locked-field").await;
+    c.ui.click("[data-testid=discard-edit]").await;
+    c.ui.wait_gone("[data-testid=save-bar]", SECS).await;
+}
+
 async fn read_only_pages(c: &mut Ctx) {
     overview_tab(c, "websites").await;
     c.ui.wait_text("[data-testid=websites]", "nas.example.com", SECS)
@@ -162,6 +197,7 @@ async fn own_certificate(c: &mut Ctx) {
 fn websites(c: &mut Ctx) -> Flow<'_> {
     Box::pin(async move {
         open(c, "ops").await;
+        passthrough_shows_what_it_leaves_out(c).await;
         read_only_pages(c).await;
         edit_mode(c).await;
         c.ui.wait_for("[data-testid=website-editor]", SECS).await;

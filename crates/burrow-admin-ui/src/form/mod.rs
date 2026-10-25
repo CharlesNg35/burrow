@@ -1,6 +1,7 @@
 mod cards;
 mod controls;
 mod more;
+mod off_group;
 mod row;
 mod view;
 
@@ -163,45 +164,59 @@ struct Section<'a> {
 impl Section<'_> {
     fn rows(&self, mine: &[&Field]) -> Vec<AnyView> {
         let (path, spath, entity) = (self.path, self.spath, self.entity);
-        let mut rows: Vec<AnyView> = Vec::new();
+        let mut rows: Vec<(Option<off_group::Off>, AnyView)> = Vec::new();
         for f in mine {
             if let Some(single) = merged_single(self.node, &f.key) {
                 let sp = join(&child(spath, single));
                 let into = f.key.clone();
-                rows.push(
+                rows.push((
+                    None,
                     view! { <span hidden data-schema=sp data-merged-into=into></span> }.into_any(),
-                );
+                ));
             }
             if f.key == PROTOCOL
                 && let Some(public) = self.public
             {
-                rows.push(visibility_row(child(path, BIND), public));
+                rows.push((None, visibility_row(child(path, BIND), public)));
             }
             let (fp, fs) = (under(path, &f.key), under(spath, &f.key));
             if f.key.contains('/') {
-                rows.push(site_row((*f).clone(), fp, fs));
+                let site = fp[..fp.len() - 1].to_vec();
+                rows.push((
+                    off_group::off_of(&f.node, site),
+                    site_row((*f).clone(), fp, fs),
+                ));
                 continue;
             }
+            let off = off_group::off_of(&f.node, entity.clone());
             match (f.key.as_str(), self.public) {
                 (BIND, Some(public)) => {
                     let (f, entity) = ((*f).clone(), entity.clone());
-                    rows.push(
+                    rows.push((
+                        off,
                         (move || {
                             public
                                 .get()
                                 .then(|| row(f.clone(), fp.clone(), fs.clone(), entity.clone()))
                         })
                         .into_any(),
-                    );
+                    ));
                 }
                 (HEALTH_CHECK, Some(_)) => {
-                    rows.push(row((*f).clone(), fp.clone(), fs.clone(), entity.clone()));
-                    rows.push(domain::health_box(f.node.clone(), fp, fs, entity.clone()));
+                    let next = off_group::beside(&off);
+                    rows.push((
+                        off,
+                        row((*f).clone(), fp.clone(), fs.clone(), entity.clone()),
+                    ));
+                    rows.push((
+                        next,
+                        domain::health_box(f.node.clone(), fp, fs, entity.clone()),
+                    ));
                 }
-                _ => rows.push(row((*f).clone(), fp, fs, entity.clone())),
+                _ => rows.push((off, row((*f).clone(), fp, fs, entity.clone()))),
             }
         }
-        rows
+        off_group::assemble(rows)
     }
 }
 

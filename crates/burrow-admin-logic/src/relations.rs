@@ -252,8 +252,13 @@ mod tests {
             Some("UDP services do not support this")
         );
         let mode = &svc.field("mode").expect("field").node;
-        assert!(!field_state(mode, &s.root, &d, &p(&["services", "web"])).visible);
-        assert!(field_state(mode, &s.root, &d, &p(&["services", "both"])).visible);
+        let one = field_state(mode, &s.root, &d, &p(&["services", "web"]));
+        assert!(one.visible && !one.enabled, "shown, with its reason");
+        assert_eq!(
+            one.disabled_reason.as_deref(),
+            Some("This applies only with two or more clients")
+        );
+        assert!(field_state(mode, &s.root, &d, &p(&["services", "both"])).enabled);
         let vis = &s
             .root
             .at(&p(&["visitors", "x"]))
@@ -261,7 +266,8 @@ mod tests {
             .field("admin_from")
             .expect("f")
             .node;
-        assert!(!field_state(vis, &s.root, &d, &p(&["visitors", "laptop"])).visible);
+        let laptop = field_state(vis, &s.root, &d, &p(&["visitors", "laptop"]));
+        assert!(laptop.visible && !laptop.enabled);
     }
 
     #[test]

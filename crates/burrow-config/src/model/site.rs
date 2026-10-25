@@ -38,10 +38,13 @@ pub struct WebSite {
         label = "Send http:// to https://",
         help = "Send a visitor who types http://nas.example.com to https://nas.example.com, or answer plain HTTP too",
         none_label = "As the web proxy says",
-        visible_if(all(
-            ne(tls, "passthrough"),
-            any(ne(tls, "off"), set("/web/trusted_proxies"))
-        ))
+        enabled_if(
+            all(
+                ne(tls, "passthrough"),
+                any(ne(tls, "off"), set("/web/trusted_proxies"))
+            ),
+            "This needs burrow to do the HTTPS, or Trusted proxies for a plain HTTP site"
+        )
     )]
     pub https_redirect: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -53,7 +56,10 @@ pub struct WebSite {
         help = "How Let's Encrypt checks that the names are yours: over HTTP for a site behind Cloudflare's proxy, for example; automatic tries TLS on port 443 first, then HTTP on port 80",
         none_label = "Automatic",
         advanced,
-        visible_if(all(ne(tls, "passthrough"), ne(tls, "off")))
+        enabled_if(
+            all(ne(tls, "passthrough"), ne(tls, "off")),
+            "This needs burrow to do the HTTPS; this site uses passthrough or plain HTTP"
+        )
     )]
     pub challenge: Option<ChallengeKind>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -64,7 +70,7 @@ pub struct WebSite {
         ty = list(url_path),
         help = "Only these paths on the names lead here, each with everything below it, for example /api for /api and /api/users but not /apix; the longest match wins",
         empty_label = "All paths",
-        visible_if(ne(tls, "passthrough"))
+        enabled_if(ne(tls, "passthrough"), "This needs burrow to do the HTTPS; this site uses passthrough")
     )]
     pub paths: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -77,7 +83,7 @@ pub struct WebSite {
         help = "What the app sees in place of the matched path, for example /v1 sends /api/users as /v1/users, and / removes /api",
         none_label = "The same path",
         advanced,
-        visible_if(all(ne(tls, "passthrough"), len_ge(paths, 1)))
+        enabled_if(all(ne(tls, "passthrough"), len_ge(paths, 1)), "This needs burrow to do the HTTPS and at least one path")
     )]
     pub app_path: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -89,7 +95,7 @@ pub struct WebSite {
         help = "Names that send visitors to the first host name for good, path kept, for example www.example.com",
         empty_label = "None",
         advanced,
-        visible_if(ne(tls, "passthrough"))
+        enabled_if(ne(tls, "passthrough"), "This needs burrow to do the HTTPS; this site uses passthrough")
     )]
     pub redirect_from: Vec<String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -101,7 +107,7 @@ pub struct WebSite {
         help = "Paths that send visitors elsewhere, the rest of the path and the query kept, for example /old to /new or to https://example.net/new",
         empty_label = "None",
         advanced,
-        visible_if(ne(tls, "passthrough"))
+        enabled_if(ne(tls, "passthrough"), "This needs burrow to do the HTTPS; this site uses passthrough")
     )]
     pub redirects: BTreeMap<String, RedirectTarget>,
     #[serde(default, skip_serializing_if = "super::is_false")]
@@ -110,7 +116,10 @@ pub struct WebSite {
     )]
     #[admin(
         help = "Answer every visitor with the maintenance page instead of the app",
-        visible_if(ne(tls, "passthrough"))
+        enabled_if(
+            ne(tls, "passthrough"),
+            "This needs burrow to do the HTTPS; this site uses passthrough"
+        )
     )]
     pub maintenance: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -122,7 +131,10 @@ pub struct WebSite {
         help = "For an app that speaks HTTPS itself: check its certificate against the public CAs or your own CA, or not at all for a self-made one like Proxmox's",
         none_label = "Off: plain HTTP to the app",
         advanced,
-        visible_if(ne(tls, "passthrough"))
+        enabled_if(
+            ne(tls, "passthrough"),
+            "This needs burrow to do the HTTPS; this site uses passthrough"
+        )
     )]
     pub target_tls: Option<TargetTls>,
     #[serde(default, skip_serializing_if = "super::is_false")]
@@ -133,7 +145,10 @@ pub struct WebSite {
         label = "HTTP/2 to the app",
         help = "Speak HTTP/2 to the app, needed for gRPC: without HTTPS to the app it is plain h2c, with it h2 inside TLS",
         advanced,
-        visible_if(ne(tls, "passthrough"))
+        enabled_if(
+            ne(tls, "passthrough"),
+            "This needs burrow to do the HTTPS; this site uses passthrough"
+        )
     )]
     pub target_http2: bool,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -145,7 +160,7 @@ pub struct WebSite {
         label = "Passwords",
         help = "Visitors sign in with a user name and password; the password is stored only as a hash",
         empty_label = "None",
-        visible_if(ne(tls, "passthrough"))
+        enabled_if(ne(tls, "passthrough"), "This needs burrow to do the HTTPS; this site uses passthrough")
     )]
     pub basic_auth: BTreeMap<String, String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -156,7 +171,10 @@ pub struct WebSite {
         label = "Login service",
         help = "Visitors log in at a single sign-on service like Authelia or authentik before they reach the app",
         none_label = "Off",
-        visible_if(ne(tls, "passthrough"))
+        enabled_if(
+            ne(tls, "passthrough"),
+            "This needs burrow to do the HTTPS; this site uses passthrough"
+        )
     )]
     pub forward_auth: Option<ForwardAuthSetting>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -169,7 +187,7 @@ pub struct WebSite {
         help = "How many requests per second one visitor may send, for example 20; more get 429",
         none_label = "As the web proxy says",
         advanced,
-        visible_if(ne(tls, "passthrough"))
+        enabled_if(ne(tls, "passthrough"), "This needs burrow to do the HTTPS; this site uses passthrough")
     )]
     pub rate_limit: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -181,7 +199,10 @@ pub struct WebSite {
         help = "Only devices with a certificate from your own CA may open the site, for example company laptops",
         none_label = "Off",
         advanced,
-        visible_if(all(ne(tls, "passthrough"), ne(tls, "off")))
+        enabled_if(
+            all(ne(tls, "passthrough"), ne(tls, "off")),
+            "This needs burrow to do the HTTPS; this site uses passthrough or plain HTTP"
+        )
     )]
     pub client_auth: Option<ClientAuthFiles>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -193,7 +214,10 @@ pub struct WebSite {
         help = "Tell browsers to use only HTTPS for this site for a year",
         none_label = "As the web proxy says",
         advanced,
-        visible_if(all(ne(tls, "passthrough"), ne(tls, "off")))
+        enabled_if(
+            all(ne(tls, "passthrough"), ne(tls, "off")),
+            "This needs burrow to do the HTTPS; this site uses passthrough or plain HTTP"
+        )
     )]
     pub hsts: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -204,7 +228,10 @@ pub struct WebSite {
         help = "Gzip text answers like HTML, CSS and JSON when the browser accepts it",
         none_label = "As the web proxy says",
         advanced,
-        visible_if(ne(tls, "passthrough"))
+        enabled_if(
+            ne(tls, "passthrough"),
+            "This needs burrow to do the HTTPS; this site uses passthrough"
+        )
     )]
     pub compress: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -216,7 +243,10 @@ pub struct WebSite {
         help = "The biggest request body, for example 8GB for ISO uploads; bigger uploads get 413",
         none_label = "As the web proxy says",
         advanced,
-        visible_if(ne(tls, "passthrough"))
+        enabled_if(
+            ne(tls, "passthrough"),
+            "This needs burrow to do the HTTPS; this site uses passthrough"
+        )
     )]
     pub max_body_size: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -229,7 +259,10 @@ pub struct WebSite {
         help = "How long the app may take to start its answer before the visitor gets 504, for example 300 seconds for slow reports",
         none_label = "As the web proxy says",
         advanced,
-        visible_if(ne(tls, "passthrough"))
+        enabled_if(
+            ne(tls, "passthrough"),
+            "This needs burrow to do the HTTPS; this site uses passthrough"
+        )
     )]
     pub response_header_timeout_secs: Option<u64>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -241,7 +274,7 @@ pub struct WebSite {
         help = "Headers set on requests to the app, for example Host: app.internal for an app that wants its own name; an empty value removes one",
         empty_label = "As the web proxy says",
         advanced,
-        visible_if(ne(tls, "passthrough"))
+        enabled_if(ne(tls, "passthrough"), "This needs burrow to do the HTTPS; this site uses passthrough")
     )]
     pub request_headers: BTreeMap<String, String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -254,7 +287,7 @@ pub struct WebSite {
         help = "Headers set on answers, for example Access-Control-Allow-Origin: https://example.com for CORS; an empty value removes one",
         empty_label = "As the web proxy says",
         advanced,
-        visible_if(ne(tls, "passthrough"))
+        enabled_if(ne(tls, "passthrough"), "This needs burrow to do the HTTPS; this site uses passthrough")
     )]
     pub response_headers: BTreeMap<String, String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -267,7 +300,7 @@ pub struct WebSite {
         none_label = "As the web proxy says",
         advanced,
         locked,
-        visible_if(ne(tls, "passthrough"))
+        enabled_if(ne(tls, "passthrough"), "This needs burrow to do the HTTPS; this site uses passthrough")
     )]
     pub error_pages: Option<String>,
 }

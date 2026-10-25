@@ -363,13 +363,17 @@ fn schema_walk(c: &mut Ctx) -> Pin<Box<dyn Future<Output = ()> + '_>> {
         let mut seen: Vec<String> = Vec::new();
         let mut unset: Vec<String> = Vec::new();
         for (path, tabs) in [
-            ("/settings", &[][..]),
+            (
+                "/settings",
+                &["server", "connections", "proxy", "monitoring"][..],
+            ),
             ("/clients/office", &["settings", "secrets"][..]),
             ("/visitors/ops", &["access", "secrets"][..]),
             ("/visitors/laptop", &["access"][..]),
             ("/services/web", &["settings"][..]),
             ("/services/game", &["settings"][..]),
             ("/services/dns", &["settings"][..]),
+            ("/services/nas", &["settings"][..]),
         ] {
             c.ui.nav(path).await;
             let steps: Vec<Option<&str>> = if tabs.is_empty() {
@@ -418,11 +422,15 @@ fn every_server_config_field_is_shown_somewhere() {
     let opts = Options {
         clients: Some(vec!["home", "office"]),
         extra_services: format!(
-            "  game:\n    clients: [home, office]\n    mode: balance\n    health_check: true\n    bind: 127.0.0.1:{p}\n    target: 7000\n    max_connections: 9\n    allow_from: [127.0.0.1/32]\n    deny_from: [10.0.0.0/8]\n    proxy_protocol: v1\n    bandwidth: 5MB\n  dns:\n    client: office\n    protocol: udp\n    bind: 127.0.0.1:{q}\n    target: 53\n",
+            "  game:\n    clients: [home, office]\n    mode: balance\n    health_check: true\n    bind: 127.0.0.1:{p}\n    target: 7000\n    max_connections: 9\n    allow_from: [127.0.0.1/32]\n    deny_from: [10.0.0.0/8]\n    proxy_protocol: v1\n    bandwidth: 5MB\n  dns:\n    client: office\n    protocol: udp\n    bind: 127.0.0.1:{q}\n    target: 53\n  nas:\n    client: home\n    target: 8443\n    web: {{ hosts: [nas.example.com], tls: passthrough }}\n",
             p = world::free_port(),
             q = world::free_port()
         ),
         ..Options::default()
+    };
+    let opts = Options {
+        extra_top: "web:\n  https: 127.0.0.1:HTTPS_PORT\n".into(),
+        ..opts
     };
     run("schema-walk", opts, false, schema_walk);
 }

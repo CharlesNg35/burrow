@@ -56,14 +56,20 @@ fn add_service(c: &mut Ctx) -> Flow<'_> {
         c.ui.wait_for("[data-schema='services/*/clients'] [data-chip=home]", SECS)
             .await;
         c.ui.click("#f-services-game-clients").await;
+        let mode = c.ui.text("[data-schema='services/*/mode']").await;
+        assert!(
+            mode.contains("two or more clients"),
+            "mode shows why it needs two clients: {mode}"
+        );
         assert_eq!(
-            c.ui.count("[data-schema='services/*/mode']").await,
-            0,
-            "mode needs two clients"
+            c.ui.count("[data-schema='services/*/mode'] [data-editor]")
+                .await,
+            0
         );
         c.ui.click("[data-schema='services/*/clients'] [data-option=office] input")
             .await;
-        c.ui.wait_for("[data-schema='services/*/mode']", SECS).await;
+        c.ui.wait_for("[data-schema='services/*/mode'] [data-editor]", SECS)
+            .await;
         c.ui.shot("two-clients-show-mode").await;
         assert_eq!(
             c.ui.count("#f-services-game-bind").await,
