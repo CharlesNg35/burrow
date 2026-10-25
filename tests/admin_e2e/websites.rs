@@ -34,16 +34,13 @@ async fn read_only_pages(c: &mut Ctx) {
         .await;
     both_widths(c, "overview-websites").await;
     c.ui.nav("/settings").await;
-    c.ui.wait_for("[data-schema=web] [data-testid=locked-hint]", SECS)
-        .await;
     c.ui.wait_text("[data-schema='web/https']", "HTTPS port", SECS)
         .await;
     both_widths(c, "settings-web-proxy").await;
     edit_mode(c).await;
-    assert_eq!(
-        c.ui.count("[data-schema='web/https'] input").await,
-        0,
-        "the web proxy's port is changed in server.yaml only"
+    assert!(
+        c.ui.count("[data-schema='web/https'] input").await > 0,
+        "the web proxy's ports are edited here (owner 0x)"
     );
     c.ui.shot("settings-web-proxy-edit").await;
     c.ui.click("[data-testid=discard-edit]").await;
@@ -467,25 +464,38 @@ fn new_website_web_off(c: &mut Ctx) -> Flow<'_> {
         c.ui.click("[data-testid=new]").await;
         c.ui.click("[data-new=website]").await;
         c.ui.wait_for("[data-testid=web-off-new]", SECS).await;
-        assert!(
-            c.ui.text("[data-testid=web-off-new]")
-                .await
-                .contains("https: 443")
-        );
-        add_name(c, "new-website-names", "shop.example.com").await;
-        assert!(!c.ui.enabled("[data-testid=create]").await);
-        assert_eq!(
-            c.ui.count("[data-testid=new-website-problem]").await,
-            0,
-            "the callout says it once"
-        );
+        let shown: String =
+            c.ui.eval("document.querySelector('#new-website-https').value")
+                .await;
+        assert_eq!(shown, "443", "the web proxy starts on the usual ports");
         both_widths(c, "new-website-web-off").await;
+        let (https, http) = (c.world.ports["https"], c.world.ports["http"]);
+        c.ui.fill("#new-website-https", &format!("127.0.0.1:{https}"))
+            .await;
+        c.ui.fill("#new-website-http", &format!("127.0.0.1:{http}"))
+            .await;
+        add_name(c, "new-website-names", "shop.example.com").await;
+        c.ui.fill("#new-website-target", "8081").await;
+        click_js(c, "[data-testid=new-website-tls] input[value=passthrough]").await;
+        both_widths(c, "new-website-web-ports").await;
+        c.ui.click("[data-testid=create]").await;
+        c.ui.wait_for("[data-testid=entity-list] [data-row=shop]", SECS)
+            .await;
+        open_review(c, "new-website-web-on-review").await;
+        applied(c, "new-website-web-on-applied").await;
+        let text = c.world.config();
+        assert!(
+            text.contains(&format!("https: 127.0.0.1:{https}"))
+                && text.contains(&format!("http: 127.0.0.1:{http}"))
+                && text.contains("shop.example.com"),
+            "{text}"
+        );
         c.ui.assert_no_errors();
     })
 }
 
 #[test]
-fn a_new_website_with_the_web_proxy_off_says_which_lines_to_add() {
+fn a_new_website_on_a_server_without_web_turns_the_web_proxy_on() {
     run(
         "new-website-off",
         Options::default(),

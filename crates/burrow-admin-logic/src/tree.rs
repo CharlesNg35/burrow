@@ -108,6 +108,22 @@ pub fn merged_into<'a>(object: &'a Node, single_key: &str) -> Option<&'a str> {
         .map(|(_, l)| l)
 }
 
+pub fn holds(doc: &Value, pattern: &[String]) -> bool {
+    let Some((first, rest)) = pattern.split_first() else {
+        return !doc.is_null();
+    };
+    match doc {
+        Value::Object(m) if first == burrow_admin_proto::schema::ANY => {
+            m.values().any(|v| holds(v, rest))
+        }
+        Value::Array(a) if first == burrow_admin_proto::schema::ANY => {
+            a.iter().any(|v| holds(v, rest))
+        }
+        Value::Object(m) => m.get(first).is_some_and(|v| holds(v, rest)),
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -192,10 +192,11 @@ pub fn settings_card(c: &SettingsCard) -> AnyView {
         .schema
         .get_untracked()
         .is_some_and(|sc| sc.locked_paths().iter().any(|l| path.starts_with(l)));
+    let doc = untrack(|| e.doc());
     let ports = s.schema.get_untracked().is_some_and(|sc| {
-        sc.locked_paths()
-            .iter()
-            .any(|l| l.len() > path.len() && l.starts_with(&path))
+        sc.locked_paths().iter().any(|l| {
+            l.len() > path.len() && l.starts_with(&path) && burrow_admin_logic::tree::holds(&doc, l)
+        })
     });
     let can = s.can_write_now() && f.node.editable.is_yes() && !lock && !ports;
     let editing = editing_now();

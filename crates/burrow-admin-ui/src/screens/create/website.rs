@@ -1,13 +1,13 @@
 use burrow_admin_logic::web::{needs_letsencrypt, service_name, website};
-use burrow_admin_proto::serde_json::{Value, json};
+use burrow_admin_proto::serde_json::{self, Value, json};
 use burrow_config::admin_schema::AdminEnum;
 use burrow_config::{
     ClientEntry, Entry, LetsEncrypt, ServerConfig, ServiceEntry, TlsMode, WebConfig,
 };
 use burrow_syntax::web::{CheckPorts, checks_for};
 use burrow_ui_kit::{
-    Button, Callout, ChipInput, CodeBlock, ComboOption, Combobox, Edge, EdgeState, Hop, HopState,
-    PathData, PathDiagram, Segmented, TextInput, Tone,
+    Button, ChipInput, ComboOption, Combobox, Edge, EdgeState, Hop, HopState, PathData,
+    PathDiagram, Segmented, TextInput, Tone,
 };
 use leptos::prelude::*;
 
@@ -59,25 +59,56 @@ fn web_port(plain: bool) -> String {
     })
 }
 
-fn ports() -> Memo<Ports> {
-    let e = store().edit;
-    Memo::new(move |_| {
-        e.draft.with(|d| {
-            let web = ServerConfig::WEB.get(d.draft()).filter(|w| !w.is_null());
-            let has = |w: Option<&Value>, f: fn(&Value) -> Option<&Value>| {
-                w.and_then(f).is_some_and(|v| !v.is_null())
-            };
-            Ports {
-                on: web.is_some(),
-                https: has(web, |w| WebConfig::HTTPS.get(w)),
-                http: has(web, |w| WebConfig::HTTP.get(w)),
-                numbers: CheckPorts {
-                    https: web.and_then(|w| WebConfig::HTTPS.get(w)).and_then(port_of),
-                    http: web.and_then(|w| WebConfig::HTTP.get(w)).and_then(port_of),
-                },
-            }
-        })
+fn web_now() -> Option<Value> {
+    store().edit.draft.with(|d| {
+        ServerConfig::WEB
+            .get(d.draft())
+            .filter(|w| !w.is_null())
+            .cloned()
     })
+}
+
+fn port_value(text: &str) -> Option<Value> {
+    let t = text.trim();
+    if t.is_empty() {
+        return None;
+    }
+    Some(t.parse::<u16>().map_or_else(|_| json!(t), |n| json!(n)))
+}
+
+fn port_problem(label: &str, text: &str) -> Option<String> {
+    let v = port_value(text)?;
+    let ok = serde_json::from_value::<burrow_config::Bind>(v)
+        .ok()
+        .and_then(|b| b.ranged([0, 0, 0, 0], label).ok())
+        .is_some_and(|(_, n)| n == 1);
+    (!ok).then(|| format!("{label}: give one port, like 443, or an address like 0.0.0.0:443"))
+}
+
+fn planned(https: &str, http: &str) -> Value {
+    let mut web = serde_json::Map::new();
+    if let Some(v) = port_value(https) {
+        web.insert(WebConfig::HTTPS.key().into(), v);
+    }
+    if let Some(v) = port_value(http) {
+        web.insert(WebConfig::HTTP.key().into(), v);
+    }
+    Value::Object(web)
+}
+
+fn ports_of(web: Option<&Value>) -> Ports {
+    let has = |w: Option<&Value>, f: fn(&Value) -> Option<&Value>| {
+        w.and_then(f).is_some_and(|v| !v.is_null())
+    };
+    Ports {
+        on: web.is_some(),
+        https: has(web, |w| WebConfig::HTTPS.get(w)),
+        http: has(web, |w| WebConfig::HTTP.get(w)),
+        numbers: CheckPorts {
+            https: web.and_then(|w| WebConfig::HTTPS.get(w)).and_then(port_of),
+            http: web.and_then(|w| WebConfig::HTTP.get(w)).and_then(port_of),
+        },
+    }
 }
 
 fn path(names: &[String], client: &str, target: &str, server: &str) -> PathData {
@@ -166,7 +197,12 @@ fn site_value(names: &[String], client: &str, target: &str, tls: &str) -> Value 
 pub fn NewWebsite(open: RwSignal<bool>, draft_name: RwSignal<String>) -> impl IntoView {
     let s = store();
     let e = s.edit;
-    let p = ports();
+    let web_on = Memo::new(move |_| web_now().is_some());
+    let https_in = RwSignal::new("443".to_string());
+    let http_in = RwSignal::new("80".to_string());
+    let web =
+        Memo::new(move |_| web_now().unwrap_or_else(|| planned(&https_in.get(), &http_in.get())));
+    let p = Memo::new(move |_| ports_of(Some(&web.get())));
     let names: RwSignal<Vec<String>> = RwSignal::new(Vec::new());
     let client: RwSignal<Vec<String>> =
         RwSignal::new(clients().into_iter().take(1).map(|c| c.value).collect());
@@ -197,16 +233,18 @@ pub fn NewWebsite(open: RwSignal<bool>, draft_name: RwSignal<String>) -> impl In
         draft_name.set(n);
     });
     let asks_email = Memo::new(move |_| {
-        tls.get() == TlsMode::Auto.wire()
-            && e.draft.with(|d| {
-                ServerConfig::WEB
-                    .get(d.draft())
-                    .is_some_and(|w| needs_letsencrypt(&names.get(), w))
-            })
+        tls.get() == TlsMode::Auto.wire() && needs_letsencrypt(&names.get(), &web.get())
     });
     let problem = Memo::new(move |_| {
-        if !p.get().on {
-            return Some("Turn the web proxy on in server.yaml first".to_string());
+        if !web_on.get() {
+            let found = port_problem("HTTPS port", &https_in.get())
+                .or_else(|| port_problem("HTTP port", &http_in.get()));
+            if found.is_some() {
+                return found;
+            }
+            if !p.get().https && !p.get().http {
+                return Some("Give the web proxy an HTTPS port, an HTTP port or both".to_string());
+            }
         }
         if names.with(Vec::is_empty) {
             return Some("Add the website's name".to_string());
@@ -238,6 +276,9 @@ pub fn NewWebsite(open: RwSignal<bool>, draft_name: RwSignal<String>) -> impl In
         }
         let name = service.get_untracked();
         let c = client.get_untracked().first().cloned().unwrap_or_default();
+        if !web_on.get_untracked() {
+            e.set(&ServerConfig::WEB.path(), Some(web.get_untracked()));
+        }
         let value = site_value(
             &names.get_untracked(),
             &c,
@@ -274,18 +315,11 @@ pub fn NewWebsite(open: RwSignal<bool>, draft_name: RwSignal<String>) -> impl In
                 <h1 class="text-[25px] font-bold tracking-[-0.015em]">"New website"</h1>
                 <p class="mt-1 text-base text-text-muted">"A name visitors type, and the app on one of your clients that answers it."</p>
             </header>
-            {move || (!p.get().on).then(|| view! {
-                <div class="mb-4" data-testid="web-off-new">
-                    <Callout tone=Tone::Warning title="The web proxy is off">
-                        <p class="mb-2">"Its ports open listeners, so they are set in server.yaml (burrow edit). Add these lines, save, and come back:"</p>
-                        <CodeBlock text=Signal::stored(burrow_admin_logic::web::TURN_ON.to_string())/>
-                    </Callout>
-                </div>
-            })}
+            {move || (!web_on.get()).then(|| web_step(https_in, http_in))}
             <PathDiagram data=diagram testid="new-website-path"/>
             {steps(names, check_name, client, target, tls, p)}
             {move || asks_email.get().then(|| email_step(email))}
-            {move || problem.get().filter(|_| p.get().on && !names.with(Vec::is_empty)).map(|m| view! {
+            {move || problem.get().filter(|_| !names.with(Vec::is_empty)).map(|m| view! {
                 <p class="mb-2 flex items-center gap-1.5 text-sm text-danger" data-testid="new-website-problem">
                     <burrow_ui_kit::Icon name="alert-circle" small=true/>
                     {m}
@@ -367,6 +401,25 @@ fn steps(
                     <Segmented name="new-website-tls" options=tls_options(p.get()) value=Signal::derive(move || tls.get()) label="HTTPS" on_change=move |m: String| tls.set(m)/>
                 }}
                 <p class="mt-1.5 text-xs text-text-muted">"Automatic gets a certificate for every name. Your own certificate files are set in server.yaml (burrow edit). Each choice needs the web proxy's HTTPS or HTTP port to be on."</p>
+            </div>
+        </section>
+    }
+}
+
+fn web_step(https: RwSignal<String>, http: RwSignal<String>) -> impl IntoView {
+    view! {
+        <section class="mb-[26px] grid grid-cols-1 gap-x-6 gap-y-[22px] md:grid-cols-2" data-testid="web-off-new">
+            <div class="flex items-baseline gap-2.5 border-b border-border pb-2.5 md:col-span-2">
+                <h3 class="text-[14px] font-bold">"Web proxy"</h3>
+                <span class="text-[12.5px] text-text-muted">"The web proxy is off; this website turns it on with these ports."</span>
+            </div>
+            <div>
+                <TextInput id="new-website-https" value=Signal::derive(move || https.get()) on_input=move |t: String| https.set(t) label="HTTPS port" mono=true/>
+                <p class="mt-1.5 text-xs text-text-muted">"For example 443; empty for no HTTPS."</p>
+            </div>
+            <div>
+                <TextInput id="new-website-http" value=Signal::derive(move || http.get()) on_input=move |t: String| http.set(t) label="HTTP port" mono=true/>
+                <p class="mt-1.5 text-xs text-text-muted">"For example 80, for http:// and Let's Encrypt's HTTP check; empty for none."</p>
             </div>
         </section>
     }
