@@ -7,13 +7,14 @@ use bytes::Bytes;
 use hyper::body::{Body as HttpBody, Frame, SizeHint};
 
 use super::{Body, BoxError};
-use crate::log::{AccessLog, Entry, LogFormat, line};
+use crate::LogFormat;
+use crate::log::{Entry, LogFile, line};
 
 pub struct Logged {
     inner: Body,
     started: Instant,
     entry: Option<Entry>,
-    sink: Arc<AccessLog>,
+    sink: Arc<LogFile>,
     format: LogFormat,
 }
 
@@ -22,7 +23,7 @@ impl Logged {
         inner: Body,
         entry: Entry,
         started: Instant,
-        sink: Arc<AccessLog>,
+        sink: Arc<LogFile>,
         format: LogFormat,
     ) -> Logged {
         Logged {
@@ -117,7 +118,7 @@ mod tests {
     async fn one_line_is_written_when_the_body_ends_or_is_dropped() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("access.log");
-        let sink = Arc::new(AccessLog::open(&path).unwrap());
+        let sink = Arc::new(LogFile::open(&path).unwrap());
         let body = Logged::new(
             full("hello"),
             entry(),

@@ -10,17 +10,15 @@ use tracing::warn;
 pub const QUEUE: usize = 4096;
 const CHECK_EVERY: Duration = Duration::from_secs(1);
 
-pub struct AccessLog {
+pub struct LogFile {
     path: PathBuf,
     tx: SyncSender<String>,
     dropped: AtomicU64,
 }
 
-impl std::fmt::Debug for AccessLog {
+impl std::fmt::Debug for LogFile {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("AccessLog")
-            .field("path", &self.path)
-            .finish()
+        f.debug_struct("LogFile").field("path", &self.path).finish()
     }
 }
 
@@ -101,8 +99,8 @@ impl Writer {
     }
 }
 
-impl AccessLog {
-    pub fn open(path: &Path) -> io::Result<AccessLog> {
+impl LogFile {
+    pub fn open(path: &Path) -> io::Result<LogFile> {
         let file = open(path)?;
         let (tx, rx) = sync_channel(QUEUE);
         let writer = Writer {
@@ -113,7 +111,7 @@ impl AccessLog {
         std::thread::Builder::new()
             .name("burrow-access-log".into())
             .spawn(move || writer.run(&rx))?;
-        Ok(AccessLog {
+        Ok(LogFile {
             path: path.to_path_buf(),
             tx,
             dropped: AtomicU64::new(0),
@@ -158,7 +156,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("access.log");
         std::fs::write(&path, "old\n").unwrap();
-        let log = AccessLog::open(&path).unwrap();
+        let log = LogFile::open(&path).unwrap();
         log.write("one".into());
         log.write("two".into());
         assert_eq!(wait_for(&path, 3), "old\none\ntwo\n");
@@ -174,7 +172,7 @@ mod tests {
     #[test]
     fn a_log_that_cannot_be_opened_is_an_error() {
         let dir = tempfile::tempdir().unwrap();
-        let e = AccessLog::open(&dir.path().join("missing/access.log")).unwrap_err();
+        let e = LogFile::open(&dir.path().join("missing/access.log")).unwrap_err();
         assert_eq!(e.kind(), io::ErrorKind::NotFound);
     }
 }

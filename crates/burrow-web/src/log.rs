@@ -1,6 +1,6 @@
 mod file;
 
-pub use file::AccessLog;
+pub use file::LogFile;
 
 use std::fmt::Write as _;
 use std::net::IpAddr;
@@ -10,14 +10,9 @@ use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use ring::rand::{SecureRandom, SystemRandom};
 
-pub const MAX_KEPT_ID: usize = 128;
+use crate::LogFormat;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum LogFormat {
-    #[default]
-    Common,
-    Json,
-}
+pub const MAX_KEPT_ID: usize = 128;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Entry {
