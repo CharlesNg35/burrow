@@ -502,6 +502,9 @@ mod tests_certs;
 mod tests_challenge;
 
 #[cfg(all(test, feature = "web"))]
+mod tests_docs;
+
+#[cfg(all(test, feature = "web"))]
 mod tests_files;
 
 #[cfg(all(test, feature = "web"))]

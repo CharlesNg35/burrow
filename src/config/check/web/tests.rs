@@ -30,7 +30,7 @@ pub(super) fn load_in(dir: &Path, rest: &str) -> Outcome {
     )
 }
 
-fn paths_after(text: &str, field: &str) -> Vec<String> {
+pub(super) fn paths_after(text: &str, field: &str) -> Vec<String> {
     let mut found = Vec::new();
     let mut from = 0;
     while let Some(i) = text[from..].find(field) {

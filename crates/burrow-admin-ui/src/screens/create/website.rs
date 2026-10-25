@@ -17,8 +17,6 @@ const AUTO: &str = "auto";
 const PASSTHROUGH: &str = "passthrough";
 const OFF: &str = "off";
 const TERMS: &str = "https://letsencrypt.org/repository/";
-const TURN_ON: &str =
-    "# server.yaml\nweb:\n  https: 443\n  http: 80\n  letsencrypt:\n    email: you@example.com\n";
 
 #[derive(Clone, Copy, PartialEq)]
 struct Ports {
@@ -273,7 +271,7 @@ pub fn NewWebsite(open: RwSignal<bool>, draft_name: RwSignal<String>) -> impl In
                 <div class="mb-4" data-testid="web-off-new">
                     <Callout tone=Tone::Warning title="The web proxy is off">
                         <p class="mb-2">"Its ports open listeners, so they are set in server.yaml (burrow edit). Add these lines, save, and come back:"</p>
-                        <CodeBlock text=Signal::stored(TURN_ON.to_string())/>
+                        <CodeBlock text=Signal::stored(burrow_admin_logic::web::TURN_ON.to_string())/>
                     </Callout>
                 </div>
             })}

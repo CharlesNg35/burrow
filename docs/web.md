@@ -40,7 +40,7 @@ server.yaml: valid server config (1 client, 1 service)
 web: https [::]:443 (IPv4 and IPv6), http [::]:80 (IPv4 and IPv6)
 certificates: Let's Encrypt (production) as ops@example.com
 blog.example.com: Let's Encrypt, TLS check -> service blog
-http [::]:80: other HTTPS hosts redirect to https:// (308); Let's Encrypt HTTP checks answered
+http [::]:80: HTTPS hosts redirect to https:// (308); Let's Encrypt HTTP checks answered
 ```
 
 `burrow init server` can write this for you: answer yes to its website question, or pass `--web blog.example.com --email ops@example.com`.
@@ -76,6 +76,11 @@ A service becomes a website by having its own `web:`. The short forms `web: blog
 
 ```yaml
 # server.yaml
+web:
+  https: 443
+  http: 80
+  letsencrypt:
+    email: ops@example.com
 services:
   blog:
     client: home
@@ -202,6 +207,8 @@ With `tls: passthrough`, burrow decrypts nothing. It reads only the name at the 
 
 ```yaml
 # server.yaml
+web:
+  https: 443 # no certificate needed: the NAS keeps its own
 services:
   nas:
     client: home
@@ -214,9 +221,11 @@ services:
 
 On port 80, passthrough names get `404`: burrow cannot redirect a site whose HTTPS it does not do.
 
-## Recipes
+## Examples
 
-The everyday case: one site, its own certificate from Let's Encrypt:
+Each example is the web part of a `server.yaml`: add it to the `listen:` and `clients:` of [A first website](#a-first-website) (`office` is a second client, written like `home`). Every one of them is checked by burrow's tests.
+
+### The minimum: websites with automatic HTTPS
 
 ```yaml
 # server.yaml
@@ -226,10 +235,13 @@ web:
   letsencrypt:
     email: you@example.com
 services:
-  shop: { client: home, target: 8081, web: shop.example.com } # its own certificate (TLS or HTTP check)
+  shop:
+    client: home
+    target: 8081
+    web: shop.example.com
 ```
 
-A website with two names, with automatic HTTPS:
+### One site with two names
 
 ```yaml
 # server.yaml
@@ -242,50 +254,29 @@ services:
   wordpress:
     client: home
     target: 8080
-    web: [example.com, www.example.com]
+    web: [example.com, www.example.com] # one certificate for both names
 ```
 
-An app that runs on the server itself:
+A service's names get one certificate together: `example.com` and `www.example.com` above share one, and adding or removing a name orders a new one for the new set.
 
-```yaml
-# server.yaml
-services:
-  git:
-    client: self
-    target: 3000
-    web: git.example.com
-```
-
-A site for an IP address, with no domain:
+### Your own certificates only (Let's Encrypt never contacted)
 
 ```yaml
 # server.yaml
 web:
   https: 443
-  http: 80
-  letsencrypt:
-    email: ops@example.com
+  certificates:
+    - hosts: ["*.example.com"]
+      cert: certs/wildcard.example.com.pem
+      key: certs/wildcard.example.com.key
 services:
-  kiosk:
+  shop:
     client: home
-    target: 8080
-    web: 203.0.113.10 # the server's public address
+    target: 8081
+    web: shop.example.com
 ```
 
-A dashboard on the home network, without certificates:
-
-```yaml
-# server.yaml
-web:
-  http: 80
-services:
-  dashboard:
-    client: home
-    target: 3000
-    web: dash.lan.example.com
-```
-
-Your own wildcard certificate for many apps:
+### Many apps under your own wildcard file
 
 ```yaml
 # server.yaml
@@ -305,6 +296,70 @@ services:
     target: 8090
     web: wiki.apps.example.com
 ```
+
+### Plain HTTP only (LAN, or behind a proxy that does HTTPS)
+
+```yaml
+# server.yaml
+web:
+  http: 80 # no https port: every site is plain http, no certificates
+services:
+  dashboard:
+    client: home
+    target: 8095
+    allow_from: [192.168.1.0/24] # only devices on the home network
+    web: dash.lan.example.com
+```
+
+`allow_from` sees the address the server sees. It keeps the site to your network only when the burrow server is on that network too; a server on the internet sees your router's public address instead.
+
+### An app on the server itself
+
+```yaml
+# server.yaml
+web:
+  https: 443
+  http: 80
+  letsencrypt:
+    email: ops@example.com
+services:
+  git:
+    client: self # the server is its own client
+    target: 3000
+    web: git.example.com
+```
+
+`client: self` reaches its own target without a `self:` block; `self.allow` only limits what visitors may `reach` on the server ([services.md](services.md)).
+
+### A site for an IP address, with no domain
+
+```yaml
+# server.yaml
+web:
+  https: 443
+  letsencrypt:
+    email: ops@example.com
+services:
+  kiosk:
+    client: home
+    target: 8080
+    web: 203.0.113.10 # the server's public address; a short-lived certificate
+```
+
+### On the client
+
+A website's target is reached by its client, like any service. The client's `allow` list must permit it, and `burrow client-config home --server tunnel.example.com` prints a `client.yaml` that does:
+
+```yaml
+# client.yaml
+server: tunnel.example.com:7835 # the server's listen: port, where clients connect
+name: home
+secret: ${HOME_SECRET}
+allow:
+  - 127.0.0.1/32:8081 # the shop app on this machine
+```
+
+`listen: 7835` on the server is the tunnel's own port, for clients and visitors; it is not a website port. Clients can also come in on 443, see below.
 
 ## The tunnel on the same port
 
@@ -330,6 +385,157 @@ server: wss://tunnel.example.com/burrow
 - The tunnel's name gets its certificate like a site: `websocket.tls` files, else a file in `web.certificates`, else Let's Encrypt. A `web:` block with no websites is enough for that.
 - Write both ports the same way: `443` and `443`, or `0.0.0.0:443` and `0.0.0.0:443`.
 - The tunnel can also use a website's name, taking only its `path` there, or share the plain port `web.http` over `ws://` (still encrypted by burrow). See [websocket.md](websocket.md#automatic-https-for-the-tunnel).
+
+### The tunnel on port 80, plain ws (still encrypted by burrow)
+
+```yaml
+# server.yaml
+web:
+  http: 80
+websocket:
+  listen: 80
+  host: tunnel.example.com
+  path: /burrow # clients use ws://tunnel.example.com/burrow
+```
+
+## A full example
+
+Everything above in one `server.yaml`: the tunnel, the web settings and many kinds of website.
+
+```yaml
+# server.yaml
+# ─────────────────────────────────────────────────────────────
+# 1. THE TUNNEL
+# ─────────────────────────────────────────────────────────────
+listen: 7835 # clients and visitors connect here over TCP
+public_address: tunnel.example.com
+
+websocket: # clients can also connect over wss://
+  listen: 443 # same port as the websites: shared, told apart by name
+  host: tunnel.example.com # this name is the tunnel; it gets its own certificate
+  path: /burrow
+
+clients: # the machines that run your apps
+  home:
+    secret: ${HOME_SECRET}
+  office:
+    secret: ${OFFICE_SECRET}
+
+visitors: # people who reach private services with "burrow visit"
+  laptop:
+    secret: ${LAPTOP_SECRET}
+
+# ─────────────────────────────────────────────────────────────
+# 2. WEBSITES: settings for all sites
+#    Without this "web:" block, burrow serves no websites.
+# ─────────────────────────────────────────────────────────────
+web:
+  https: 443 # secure sites. Leave it out and every site is plain http
+  http: 80 # normal http://: redirects to https, plain sites, Let's Encrypt's HTTP check
+  https_redirect: true # secure sites send http:// visitors to https:// (the default)
+
+  letsencrypt: # free automatic certificates; writing this accepts Let's Encrypt's terms
+    email: you@example.com
+
+  certificates: # your own certificate files (hosts, cert and key all required)
+    - hosts: ["*.intranet.example.org"]
+      cert: certs/intranet-wildcard.pem
+      key: certs/intranet-wildcard.key
+
+  request_header_timeout_secs: 10 # a visitor must send its request within 10 s
+  idle_timeout_secs: 60 # a connection that moves nothing for 60 s is closed
+
+# ─────────────────────────────────────────────────────────────
+# 3. SERVICES: a service with "web:" is a website
+#    tls: auto (default) | passthrough | off | { cert, key }
+#    challenge: http | tls (optional; automatic when not set)
+# ─────────────────────────────────────────────────────────────
+services:
+
+  # The simplest website: its own certificate from Let's Encrypt
+  shop:
+    client: home
+    target: 8081
+    web: shop.example.com
+
+  # The main site with two names, on one certificate
+  blog:
+    clients: [office, home] # if office is down, home takes over
+    target: 8080
+    web: [example.com, www.example.com]
+
+  # An app on this server itself
+  login:
+    client: self # runs on this server, no client needed
+    target: 9091
+    web: auth.example.com
+
+  # Behind Cloudflare in "Full (strict)" mode: Cloudflare connects to burrow over HTTPS, so burrow
+  # still needs a certificate; the TLS check can't pass through Cloudflare, the HTTP check can
+  news:
+    client: home
+    target: 8097
+    web:
+      hosts: [news.example.net]
+      challenge: http # Let's Encrypt fetches a file on port 80, through Cloudflare
+
+  # Uses your own wildcard file (*.intranet.example.org)
+  portal:
+    client: office
+    target: 8085
+    web: portal.intranet.example.org
+
+  # A site with its own certificate file, written on the site itself
+  partner:
+    client: office
+    target: 8086
+    web:
+      hosts: [partner.example.net]
+      tls: { cert: certs/partner.pem, key: certs/partner.key }
+
+  # A NAS that keeps its own HTTPS; burrow only reads the name and passes it on
+  nas:
+    client: home
+    target: 192.168.1.20:443
+    proxy_protocol: v2 # the NAS sees the real visitor address
+    web:
+      hosts: [nas.example.com]
+      tls: passthrough
+
+  # A home dashboard without HTTPS
+  dashboard:
+    client: home
+    target: 8095
+    web:
+      hosts: [dash.lan.example.com]
+      tls: off # plain http only; burrow warns it is not encrypted
+
+  # A secure site that also answers on http:// (old devices)
+  updates:
+    client: office
+    target: 8096
+    web:
+      hosts: [updates.example.com]
+      https_redirect: false
+
+  # A kiosk reached by the server's IP address (a short-lived certificate; automatic check)
+  kiosk:
+    client: home
+    target: 8091
+    web: 203.0.113.10
+
+  # A normal TCP service, not a website
+  db:
+    client: home
+    target: 5432
+    visitors: [laptop] # only "laptop" can reach it, with burrow visit
+```
+
+Where each name gets its certificate:
+
+- **Its own Let's Encrypt certificate:** shop, blog (one for both names), login, news (the HTTP check, through Cloudflare), updates, kiosk (an IP address, short-lived) and the tunnel.
+- **Your files:** portal (the shared file) and partner (its own `tls` file).
+- **None from burrow:** nas (passthrough: the NAS keeps its own certificate), dashboard (`tls: off`) and db (not a website).
 
 ## What validate checks
 

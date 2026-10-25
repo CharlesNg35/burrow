@@ -15,7 +15,7 @@ pub(super) fn now() -> u64 {
 fn source(c: &CertStatus) -> String {
     let base = match &c.source {
         CertSourceStatus::OwnFile { path } => format!("own file {path}"),
-        CertSourceStatus::SharedFile { path } => format!("shared {path}"),
+        CertSourceStatus::SharedFile { path } => format!("web.certificates file {path}"),
         CertSourceStatus::TunnelFile { path } => format!("websocket.tls {path}"),
         CertSourceStatus::LetsEncrypt { .. } => "Let's Encrypt".into(),
         CertSourceStatus::Passthrough | CertSourceStatus::Plain => String::new(),

@@ -114,13 +114,13 @@ fn every_host_says_how_it_is_served_with_its_certificate_source_and_check() {
                 .to_string(),
             "dash.lan.example.com: plain HTTP on :80 only, unencrypted (tls: off) -> service intranet"
                 .to_string(),
-            format!("erp.corp.example.com: shared {} -> service erp", at("corp.pem")),
+            format!("erp.corp.example.com: web.certificates[0] ({}) -> service erp", at("corp.pem")),
             "example.com: Let's Encrypt, TLS check -> service blog".to_string(),
             "nas.example.com: passthrough, the app's own certificate -> service nas".to_string(),
             format!("portal.example.com: own file {} -> service portal", at("portal.pem")),
             "updates.example.com: Let's Encrypt, TLS check; http:// served too (https_redirect: false) -> service updates"
                 .to_string(),
-            "http [::]:80: other HTTPS hosts redirect to https:// (308); Let's Encrypt HTTP checks answered"
+            "http [::]:80: HTTPS hosts redirect to https:// (308); Let's Encrypt HTTP checks answered"
                 .to_string(),
         ]
     );

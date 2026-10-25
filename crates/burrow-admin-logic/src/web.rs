@@ -3,6 +3,9 @@ use burrow_config::{ServiceEntry, TlsMode, WebSite};
 
 use crate::Value;
 
+pub const TURN_ON: &str =
+    "# server.yaml\nweb:\n  https: 443\n  http: 80\n  letsencrypt:\n    email: you@example.com\n";
+
 pub fn hosts(svc: &Value) -> Vec<String> {
     ServiceEntry::WEB.get(svc).map(names).unwrap_or_default()
 }

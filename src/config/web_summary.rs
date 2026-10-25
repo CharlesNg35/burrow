@@ -5,7 +5,7 @@ use crate::config::settings::{
     WebSite, WebTls,
 };
 pub use burrow_admin_proto::web::{HostLine, PLAIN, TunnelLine, WebSummary};
-use burrow_syntax::web::{entry_for, is_ip};
+use burrow_syntax::web::{Challenge, Check, CheckPorts, checks_for, entry_for, is_ip};
 
 fn addresses(a: SocketAddr) -> &'static str {
     match (a.ip().is_unspecified(), a.is_ipv6()) {
@@ -38,7 +38,7 @@ fn account(l: &LetsEncrypt) -> String {
     out
 }
 
-fn automatic(web: &WebSettings, name: &str) -> (String, String) {
+fn automatic(web: &WebSettings, name: &str, choice: Option<Challenge>) -> (String, String) {
     let entries = web
         .certificates
         .iter()
@@ -46,17 +46,25 @@ fn automatic(web: &WebSettings, name: &str) -> (String, String) {
         .enumerate();
     if let Ok(Some(i)) = entry_for(entries, name) {
         return (
-            format!("shared {}", web.certificates[i].cert.display()),
+            format!(
+                "web.certificates[{i}] ({})",
+                web.certificates[i].cert.display()
+            ),
             String::new(),
         );
     }
     if web.letsencrypt.is_none() {
         return ("no certificate".into(), String::new());
     }
-    let check = if web.https.is_some() {
-        "TLS check"
-    } else {
-        "HTTP check"
+    let ports = CheckPorts {
+        https: web.https.map(|a| a.port()),
+        http: web.http.map(|a| a.port()),
+    };
+    let check = match checks_for(name, ports, false, choice).as_deref() {
+        Ok([Check::Tls, ..]) => "TLS check",
+        Ok([Check::Http, ..]) => "HTTP check",
+        Ok([Check::Dns, ..]) => "DNS check",
+        _ => "no check possible",
     };
     let source = if is_ip(name) {
         "Let's Encrypt short-lived (6 days)"
@@ -92,7 +100,7 @@ fn host(web: &WebSettings, service: &str, site: &WebSite, name: &str) -> HostLin
             String::new(),
         ),
         WebTls::Auto => {
-            let (source, check) = automatic(web, name);
+            let (source, check) = automatic(web, name, site.challenge);
             ("HTTPS", source, check)
         }
     };
@@ -118,7 +126,7 @@ fn http_note(web: &WebSettings) -> String {
         .values()
         .any(|s| matches!(s.tls, WebTls::Auto | WebTls::Files { .. }) && s.https_redirect);
     if redirects {
-        parts.push("other HTTPS hosts redirect to https:// (308)");
+        parts.push("HTTPS hosts redirect to https:// (308)");
     }
     if web.letsencrypt.is_some() {
         parts.push("Let's Encrypt HTTP checks answered");
@@ -133,7 +141,7 @@ fn tunnel_line(s: &ServerSettings, web: &WebSettings) -> Option<TunnelLine> {
         _ if ws.shares == Shares::Http => "plain ws://, burrow-encrypted".to_string(),
         (Some(t), _) => format!("websocket.tls {}", t.cert_path.display()),
         (None, Some(name)) => {
-            let (source, check) = automatic(web, name);
+            let (source, check) = automatic(web, name, web.tunnel_challenge);
             if check.is_empty() {
                 source
             } else {
