@@ -167,6 +167,14 @@ fn websites(c: &mut Ctx) -> Flow<'_> {
             .eval("(() => { const i = document.querySelector(\"[data-schema='services/*/web/tls'] input[value=files]\"); return !!i && i.disabled; })()")
             .await;
         assert!(files_off, "own certificate files are set in server.yaml");
+        let why =
+            c.ui.text("[data-schema='services/*/web/tls'] [data-testid=website-tls-reason]")
+                .await;
+        assert!(
+            why.contains("My own certificate file is chosen in server.yaml (burrow edit)"),
+            "the greyed choice says why: {why}"
+        );
+        both_widths(c, "nas-files-reason").await;
         click_js(
             c,
             "[data-schema='services/*/web/tls'] input[value=passthrough]",

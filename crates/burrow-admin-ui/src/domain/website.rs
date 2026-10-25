@@ -16,6 +16,8 @@ const AUTO: &str = "auto";
 const FILES: &str = "files";
 const OFF: &str = "off";
 const FILES_LABEL: &str = "My own certificate file";
+const FILES_IN_THE_FILE: &str =
+    "My own certificate file is chosen in server.yaml (burrow edit), where the files are named";
 
 pub(super) fn host_item(u: &UnionC) -> Option<Node> {
     u.branches
@@ -99,6 +101,7 @@ pub(super) fn tls_editor(fc: FieldCtx) -> AnyView {
     let value = Memo::new(move |_| e.value(&path));
     let mode = Signal::derive(move || mode_of(value.get().as_ref()));
     let Choices { options, files } = choices(Some(&fc.node));
+    let has_files = files.is_some();
     let off = Signal::derive(move || {
         if mode.get() == FILES {
             Vec::new()
@@ -114,9 +117,18 @@ pub(super) fn tls_editor(fc: FieldCtx) -> AnyView {
             e.set(&p2, (m != AUTO).then(|| Value::String(m)));
         }
     };
+    let reason = move || {
+        (has_files && mode.get() != FILES).then(|| view! {
+            <p class="mt-1.5 flex items-center gap-1.5 text-xs text-text-muted" data-testid="website-tls-reason">
+                <burrow_ui_kit::Icon name="lock" small=true/>
+                {FILES_IN_THE_FILE}
+            </p>
+        })
+    };
     view! {
         <div id=fc.id.clone() data-testid="website-tls">
             <Segmented name=format!("{}-choice", fc.id) options=options value=mode label=fc.node.label.clone() off=off on_change=on_mode/>
+            {reason}
             {files.map(|f| files_view(f, value))}
         </div>
     }
