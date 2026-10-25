@@ -145,6 +145,12 @@ pub fn entry_for<'a>(
 pub const LETSENCRYPT_PRODUCTION: &str = "https://acme-v02.api.letsencrypt.org/directory";
 pub const LETSENCRYPT_STAGING: &str = "https://acme-staging-v02.api.letsencrypt.org/directory";
 
+pub const EXPIRY_WARNING_SECS: u64 = 14 * 86_400;
+
+pub fn expires_soon(not_after: u64, now: u64) -> bool {
+    not_after.saturating_sub(now) < EXPIRY_WARNING_SECS
+}
+
 mod check;
 pub mod headers;
 pub mod pages;

@@ -308,3 +308,12 @@ fn a_dns_name_takes_the_entry_with_the_most_specific_domain() {
     let none: [(usize, &[String]); 0] = [];
     assert_eq!(dns_entry_for(none, "wiki.example.com"), None);
 }
+
+#[test]
+fn a_certificate_is_due_for_the_warning_strictly_inside_14_days() {
+    let now = 1_800_000_000;
+    assert!(!expires_soon(now + EXPIRY_WARNING_SECS, now));
+    assert!(expires_soon(now + EXPIRY_WARNING_SECS - 1, now));
+    assert!(expires_soon(now - 5, now));
+    assert!(LETSENCRYPT_STAGING.contains("acme-staging"));
+}

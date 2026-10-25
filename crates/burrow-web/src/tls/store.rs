@@ -14,8 +14,6 @@ use super::{Applying, CertName, CertOrigin, CertPhase, CertState, CertStatus, Ce
 use super::{files, x509};
 use crate::CertSettings;
 
-pub const EXPIRY_WARNING_SECS: u64 = 14 * 24 * 3600;
-
 #[derive(Debug, Clone)]
 struct Slot {
     key: Option<Arc<CertifiedKey>>,
@@ -73,7 +71,7 @@ fn warn_expiry(name: &str, path: &std::path::Path, expires: Option<u64>) -> bool
             "certificate for {name} ({}) has expired; replace the file",
             path.display()
         );
-    } else if at - now < EXPIRY_WARNING_SECS {
+    } else if burrow_syntax::web::expires_soon(at, now) {
         let days = (at - now) / 86_400;
         warn!(
             "certificate for {name} ({}) expires in {days} {}; replace the file",

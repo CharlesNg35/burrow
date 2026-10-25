@@ -5,7 +5,6 @@ use burrow_admin_proto::status::{
 use burrow_config::{LetsEncrypt, ServerConfig, WebConfig};
 
 const DAY: u64 = 86_400;
-const SOON: u64 = 14 * DAY;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Level {
@@ -83,7 +82,7 @@ fn expires(c: &CertStatus, now: u64) -> (String, Level) {
     match c.expires {
         None => ("—".into(), Level::Info),
         Some(t) if t <= now => (ends(t, now), Level::Bad),
-        Some(t) if t - now < SOON => (ends(t, now), Level::Warn),
+        Some(t) if burrow_syntax::web::expires_soon(t, now) => (ends(t, now), Level::Warn),
         Some(t) => (ends(t, now), Level::Good),
     }
 }
@@ -185,15 +184,19 @@ pub fn notices(status: &Status, now: u64) -> Vec<Notice> {
                 format!("The certificate for {} has expired", c.name),
                 "Browsers refuse the site until it is renewed.".into(),
             )),
-            Some(t) if t - now < SOON && c.state == CertStateStatus::Ok => out.push(notice(
-                Level::Warn,
-                format!(
-                    "The certificate for {} expires in {}",
-                    c.name,
-                    days(t - now)
-                ),
-                "Replace the file, or let Let's Encrypt renew it.".into(),
-            )),
+            Some(t)
+                if burrow_syntax::web::expires_soon(t, now) && c.state == CertStateStatus::Ok =>
+            {
+                out.push(notice(
+                    Level::Warn,
+                    format!(
+                        "The certificate for {} expires in {}",
+                        c.name,
+                        days(t - now)
+                    ),
+                    "Replace the file, or let Let's Encrypt renew it.".into(),
+                ))
+            }
             _ => {}
         }
     }

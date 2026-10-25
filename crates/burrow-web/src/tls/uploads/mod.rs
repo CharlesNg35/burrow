@@ -19,7 +19,6 @@ pub const CRL_LIMIT: usize = 1024 * 1024;
 const MAX_CHAIN: usize = 10;
 const MAX_CAS: usize = 100;
 const MAX_CRLS: usize = 16;
-const WARN_SECS: u64 = 14 * 24 * 3600;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
@@ -218,7 +217,7 @@ fn dates(der: &[u8], now: u64, warnings: &mut Vec<String>, what: &str) -> Result
     if facts.not_after <= now {
         return Err(format!("{what} has expired"));
     }
-    if facts.not_after <= now + WARN_SECS {
+    if burrow_syntax::web::expires_soon(facts.not_after, now) {
         warnings.push(format!(
             "{what} expires in {} days",
             (facts.not_after - now) / 86_400
