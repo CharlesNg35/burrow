@@ -76,6 +76,27 @@ jobs:
           BURROW_PEBBLE: "1"
         run: cargo test --locked -p burrow-web --features admin-test-hooks --test dns01 -- --nocapture
 
+  h2:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - name: Fetch h2spec 2.6.0, checked by sha256
+        run: |
+          curl -sSL -o h2spec.tar.gz https://github.com/summerwind/h2spec/releases/download/v2.6.0/h2spec_linux_amd64.tar.gz
+          echo "157ee0de702e01ad40e752dbf074b366027e550c8e7504f9450da2809e279318  h2spec.tar.gz" | sha256sum -c -
+          tar xzf h2spec.tar.gz h2spec
+      - name: h2spec against the HTTPS listener (non-strict)
+        env:
+          BURROW_H2SPEC: ${{ github.workspace }}/h2spec
+        run: cargo test --locked -p burrow-web --test h2 conformance -- --nocapture
+      - name: Pull Go 1.25 for the gRPC interop server
+        run: docker pull golang:1.25-alpine@sha256:1ae0735f00daffa3aaf1363a5184c0d2dc55c78e3db4ec70241cdac97bf84b59
+      - name: gRPC through burrow to the grpc-go 1.84.0 interop server, over h2c and over TLS
+        env:
+          BURROW_GRPC: "1"
+        run: cargo test --locked -p burrow-web --test grpc -- --nocapture
+
   platforms:
     strategy:
       fail-fast: false
