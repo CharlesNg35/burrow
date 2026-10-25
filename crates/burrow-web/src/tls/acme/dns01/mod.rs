@@ -1,18 +1,52 @@
 use std::fmt;
+use std::future::Future;
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 
+use hickory_proto::rr::Name;
 use zeroize::Zeroizing;
 
 mod fake;
 pub mod lookup;
 pub mod propagate;
+pub mod rfc2136;
 pub mod system;
 pub mod wire;
 
 pub const DEFAULT_WAIT: Duration = Duration::from_secs(120);
+pub const TXT_TTL: u32 = 60;
+
+pub type Fut<'a> = Pin<Box<dyn Future<Output = Result<(), Refusal>> + Send + 'a>>;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Refusal {
+    NotWritable(String),
+    Failed(String),
+}
+
+impl Refusal {
+    pub fn text(&self) -> &str {
+        match self {
+            Refusal::NotWritable(t) | Refusal::Failed(t) => t,
+        }
+    }
+}
+
+impl From<String> for Refusal {
+    fn from(text: String) -> Refusal {
+        Refusal::Failed(text)
+    }
+}
+
+pub trait Provider: Send + Sync {
+    fn present<'a>(&'a self, fqdn: &'a Name, value: &'a str) -> Fut<'a>;
+
+    fn cleanup<'a>(&'a self, fqdn: &'a Name, value: &'a str) -> Fut<'a>;
+}
+
 #[derive(Clone)]
 pub struct Secret(Arc<Zeroizing<String>>);
 
