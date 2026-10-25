@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:779f2e1b71d6dca4",
+  "hash": "b2s:731adf0269d9f9de",
   "root": {
     "label": "Server",
     "sem": {
@@ -1791,7 +1791,7 @@
                             }
                           }
                         },
-                        "group": "exposure",
+                        "group": "reach",
                         "none_label": "Private: no public port",
                         "relations": [
                           {
@@ -1869,7 +1869,7 @@
                             }
                           }
                         },
-                        "group": "traffic",
+                        "group": "access",
                         "advanced": true,
                         "none_label": "Unlimited",
                         "relations": [
@@ -1897,7 +1897,7 @@
                           "ordered": false,
                           "unique": true
                         },
-                        "group": "access",
+                        "group": "reach",
                         "wide": false,
                         "empty_label": "No visitors",
                         "relations": [
@@ -1999,7 +1999,7 @@
                             }
                           }
                         },
-                        "group": "traffic",
+                        "group": "access",
                         "advanced": true,
                         "wide": true,
                         "none_label": "Unlimited"
@@ -3139,8 +3139,13 @@
                   },
                   {
                     "key": "exposure",
-                    "label": "Exposure",
-                    "sub": "What opens on the server, and where it leads."
+                    "label": "Target",
+                    "sub": "The protocol, and where connections lead."
+                  },
+                  {
+                    "key": "reach",
+                    "label": "Reached by",
+                    "sub": "The ways in to this service; any mix of them works."
                   },
                   {
                     "key": "website",
@@ -3149,13 +3154,13 @@
                   },
                   {
                     "key": "access",
-                    "label": "Access",
-                    "sub": "Who may connect."
+                    "label": "Who may connect",
+                    "sub": "All ways in: the addresses that may connect, and limits."
                   },
                   {
                     "key": "traffic",
-                    "label": "Traffic",
-                    "sub": "Limits and what the target sees."
+                    "label": "What the target sees",
+                    "sub": "Whether the target learns the visitor's address."
                   }
                 ],
                 "entity": "service"

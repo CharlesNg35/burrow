@@ -49,6 +49,7 @@ That installed copy is then the config: the file you installed from was only its
 
 ## Locked fields, history and revert
 
+- A service page says how the service is reached: a public port, a website and visitors, in any mix. Turning one off keeps its values until you add the change, and Review says what goes: the port that closes, the website and its settings, or the visitors that can no longer reach it.
 - Settings has four tabs: Server (the listener, this server and security), Connections (WebSocket, the pool of idle channels, heartbeat, TCP, UDP and limits), Web (the web proxy and, once it is on, the local CA) and Monitoring. The search and the All, Restart and Changed filters above them look through every tab, and each tab says how many of its settings match, are changed or are locked.
 - Some settings are shown but are changed only in server.yaml on the server: `listen` (it needs a restart), `insecure_plaintext`, the heartbeat interval, the handshake limits and every file path. The server refuses changes to them.
 - The web proxy's ports are changed in Settings, and New website turns the web proxy on when the server has none. Review names each port a change opens and the websites a removal stops. A port the tunnel shares stays a file edit, and a port another program holds is refused before anything is written.

@@ -11,7 +11,7 @@ use crate::store::store;
 use super::more::{More, ROWS, more_settings};
 use super::{
     ADMIN, ADMIN_FROM, ALLOW_FROM, BANDWIDTH, BIND, CLIENTS, DENY_FROM, HEALTH_CHECK,
-    MAX_CONNECTIONS, MODE, PROTOCOL, PROXY_PROTOCOL, SERVICE_VISITORS, SERVICES, TARGET, VISITORS,
+    MAX_CONNECTIONS, MODE, PROTOCOL, SERVICE_VISITORS, SERVICES, TARGET, VISITORS, WEB,
     editing_now, join, locked_hint, object_view_marked, row,
 };
 use burrow_admin_logic::more::split;
@@ -243,12 +243,10 @@ pub fn settings_card(c: &SettingsCard) -> AnyView {
 pub(super) fn layout_order(spath: &[String], group: &str) -> Option<&'static [&'static str]> {
     match (spath.first().map(String::as_str), spath.len(), group) {
         (Some(SERVICES), 2, ServiceEntry::GROUP_WHO) => Some(&[CLIENTS, MODE, HEALTH_CHECK]),
-        (Some(SERVICES), 2, ServiceEntry::GROUP_EXPOSURE) => Some(&[PROTOCOL, BIND, TARGET]),
+        (Some(SERVICES), 2, ServiceEntry::GROUP_EXPOSURE) => Some(&[PROTOCOL, TARGET]),
+        (Some(SERVICES), 2, ServiceEntry::GROUP_REACH) => Some(&[BIND, WEB, SERVICE_VISITORS]),
         (Some(SERVICES), 2, ServiceEntry::GROUP_ACCESS) => {
-            Some(&[SERVICE_VISITORS, DENY_FROM, ALLOW_FROM])
-        }
-        (Some(SERVICES), 2, ServiceEntry::GROUP_TRAFFIC) => {
-            Some(&[BANDWIDTH, MAX_CONNECTIONS, PROXY_PROTOCOL])
+            Some(&[ALLOW_FROM, DENY_FROM, MAX_CONNECTIONS, BANDWIDTH])
         }
         (Some(VISITORS), 2, VisitorEntry::GROUP_ADMIN) => Some(&[ADMIN, ADMIN_FROM]),
         _ => None,

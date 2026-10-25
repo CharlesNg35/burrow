@@ -175,10 +175,11 @@ impl Secrets {
     label = "Service",
     groups(
         who = "Where it runs | Clients that reach the target.",
-        exposure = "Exposure | What opens on the server, and where it leads.",
+        exposure = "Target | The protocol, and where connections lead.",
+        reach = "Reached by | The ways in to this service; any mix of them works.",
         website = "Website | How the web proxy reaches it.",
-        access = "Access | Who may connect.",
-        traffic = "Traffic | Limits and what the target sees."
+        access = "Who may connect | All ways in: the addresses that may connect, and limits.",
+        traffic = "What the target sees | Whether the target learns the visitor's address."
     )
 )]
 pub struct ServiceEntry {
@@ -215,7 +216,7 @@ pub struct ServiceEntry {
     #[admin(help = "The address and port the server opens for this service, for example 8080 or 127.0.0.1:8080",
         ty = ip_port(ranges, max_range = 1000),
         label = "Public address",
-        group = exposure,
+        group = reach,
         none_label = "Private: no public port",
         cross(target, protocol)
     )]
@@ -242,7 +243,7 @@ pub struct ServiceEntry {
     #[schemars(range(min = 1))]
     #[admin(
         ty = integer(unit = "connections"),
-        group = traffic,
+        group = access,
         none_label = "Unlimited",
         advanced
     )]
@@ -251,7 +252,7 @@ pub struct ServiceEntry {
     #[schemars(description = "Visitors that may reach this service with burrow visit")]
     #[admin(
         ty = ref_list(visitor),
-        group = access,
+        group = reach,
         empty_label = "No visitors",
         inverse(entity = visitor, label = "Services it may use"),
         narrow
@@ -291,7 +292,7 @@ pub struct ServiceEntry {
     #[admin(help = "Speed limit in each direction, shared by all connections of this service, for example 40mbit or 5MB per second",
         ty = rate,
         label = "Speed limit",
-        group = traffic,
+        group = access,
         none_label = "Unlimited",
         wide,
         advanced

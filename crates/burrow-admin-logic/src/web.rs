@@ -119,6 +119,29 @@ pub fn exposure(svc: &Value) -> Option<String> {
     (!names.is_empty()).then(|| names.join(", "))
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Ways {
+    pub public: bool,
+    pub website: bool,
+    pub visitors: bool,
+}
+
+pub fn way_on(v: Option<&Value>) -> bool {
+    match v {
+        None | Some(Value::Null) => false,
+        Some(Value::Array(a)) => !a.is_empty(),
+        Some(_) => true,
+    }
+}
+
+pub fn ways(svc: &Value) -> Ways {
+    Ways {
+        public: way_on(ServiceEntry::BIND.get(svc)),
+        website: way_on(ServiceEntry::WEB.get(svc)),
+        visitors: way_on(ServiceEntry::VISITORS.get(svc)),
+    }
+}
+
 pub fn is_public(svc: &Value) -> bool {
     exposure(svc).is_some()
 }
@@ -189,6 +212,21 @@ pub fn site_kind(svc: &Value, https_on: bool) -> Option<SiteKind> {
 mod tests {
     use super::*;
     use burrow_admin_proto::serde_json::json;
+
+    #[test]
+    fn a_service_is_reached_by_any_mix_of_three_ways() {
+        let all = json!({"bind": 9000, "web": "nas.example.com", "visitors": ["laptop"]});
+        assert_eq!(
+            ways(&all),
+            Ways {
+                public: true,
+                website: true,
+                visitors: true
+            }
+        );
+        let none = json!({"visitors": [], "web": null});
+        assert_eq!(ways(&none), Ways::default());
+    }
 
     #[test]
     fn a_website_is_reached_by_its_names_in_all_three_forms() {

@@ -20,6 +20,8 @@ mod more;
 mod passwords;
 #[path = "common/ports.rs"]
 mod ports;
+#[path = "admin_e2e/reach.rs"]
+mod reach;
 #[path = "admin_e2e/reverts.rs"]
 mod reverts;
 #[path = "admin_e2e/screens.rs"]

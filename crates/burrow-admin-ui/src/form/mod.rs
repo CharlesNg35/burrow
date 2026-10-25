@@ -2,6 +2,7 @@ mod cards;
 mod controls;
 mod more;
 mod off_group;
+mod reach;
 mod row;
 mod view;
 
@@ -20,7 +21,6 @@ use crate::store::store;
 
 use cards::layout_order;
 pub(crate) use cards::{SettingsCard, card_fields, settings_card, settings_cards};
-use controls::visibility_row;
 use more::{More, more_settings};
 pub use more::{PageSearch, reveal};
 use row::row;
@@ -40,7 +40,6 @@ const DENY_FROM: &str = ServiceEntry::DENY_FROM.key();
 const ALLOW_FROM: &str = ServiceEntry::ALLOW_FROM.key();
 const BANDWIDTH: &str = ServiceEntry::BANDWIDTH.key();
 const MAX_CONNECTIONS: &str = ServiceEntry::MAX_CONNECTIONS.key();
-const PROXY_PROTOCOL: &str = ServiceEntry::PROXY_PROTOCOL.key();
 const ADMIN: &str = VisitorEntry::ADMIN.key();
 const WEB: &str = ServiceEntry::WEB.key();
 const SITE_HOSTS: &str = burrow_config::WebSite::HOSTS.key();
@@ -158,7 +157,6 @@ struct Section<'a> {
     path: &'a Path,
     spath: &'a Path,
     entity: &'a Path,
-    public: Option<RwSignal<bool>>,
 }
 
 impl Section<'_> {
@@ -174,11 +172,6 @@ impl Section<'_> {
                     view! { <span hidden data-schema=sp data-merged-into=into></span> }.into_any(),
                 ));
             }
-            if f.key == PROTOCOL
-                && let Some(public) = self.public
-            {
-                rows.push((None, visibility_row(child(path, BIND), public)));
-            }
             let (fp, fs) = (under(path, &f.key), under(spath, &f.key));
             if f.key.contains('/') {
                 let site = fp[..fp.len() - 1].to_vec();
@@ -189,20 +182,9 @@ impl Section<'_> {
                 continue;
             }
             let off = off_group::off_of(&f.node, entity.clone());
-            match (f.key.as_str(), self.public) {
-                (BIND, Some(public)) => {
-                    let (f, entity) = ((*f).clone(), entity.clone());
-                    rows.push((
-                        off,
-                        (move || {
-                            public
-                                .get()
-                                .then(|| row(f.clone(), fp.clone(), fs.clone(), entity.clone()))
-                        })
-                        .into_any(),
-                    ));
-                }
-                (HEALTH_CHECK, Some(_)) => {
+            let service = ServiceEntry::is_entry(spath);
+            match (f.key.as_str(), service) {
+                (HEALTH_CHECK, true) => {
                     let next = off_group::beside(&off);
                     rows.push((
                         off,
@@ -300,16 +282,11 @@ pub(crate) fn object_view_marked(
             groups.insert(0, (f.node.group.clone(), String::new(), String::new()));
         }
     }
-    let public = service.then(|| {
-        let bind = child(&path, BIND);
-        RwSignal::new(store().edit.peek(&bind).is_some_and(|v| !v.is_null()))
-    });
     let at = Section {
         node,
         path: &path,
         spath: &spath,
         entity: &entity,
-        public,
     };
     let sections = groups
         .into_iter()
@@ -329,6 +306,10 @@ pub(crate) fn object_view_marked(
             }
             let (essential, advanced) = split(&mine, all_advanced);
             let n = mine.len();
+            if service && key == ServiceEntry::GROUP_REACH {
+                let ways = reach::reached_by(path.clone(), spath.clone(), entity.clone(), &mine);
+                return Some(section_view(false, table, key, label, sub, n, vec![ways]));
+            }
             let mut rows = at.rows(&essential);
             if !advanced.is_empty() {
                 let more = More {
@@ -345,7 +326,17 @@ pub(crate) fn object_view_marked(
                 };
                 rows.push(more_settings(more, at.rows(&advanced)));
             }
-            (n > 0).then(|| section_view(table && path.is_empty(), table, key, label, sub, n, rows))
+            let site = service && key == ServiceEntry::GROUP_WEBSITE;
+            let view = (n > 0)
+                .then(|| section_view(table && path.is_empty(), table, key, label, sub, n, rows));
+            if site {
+                let p = child(&path, WEB);
+                let e = store().edit;
+                let on = Memo::new(move |_| e.value(&p).is_some_and(|v| !v.is_null()));
+                return view
+                    .map(|v| view! { <div class:hidden=move || !on.get()>{v}</div> }.into_any());
+            }
+            view
         })
         .collect_view();
     view! { <div class="max-w-[1120px]">{sections}</div> }.into_any()

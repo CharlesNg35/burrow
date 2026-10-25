@@ -124,9 +124,8 @@ fn new_menu(section: &str, site: RwSignal<bool>, adding: RwSignal<bool>) -> Opti
 
 type Filters = (Vec<(&'static str, String)>, Vec<&'static str>);
 
-fn filters_for(section: &str, rows: Memo<Vec<Row>>) -> Filters {
-    let s = store();
-    let (mut filters, groups): (Vec<(&'static str, String)>, Vec<&'static str>) =
+fn filters_for(section: &str) -> Filters {
+    let (filters, groups): (Vec<(&'static str, String)>, Vec<&'static str>) =
         match entity_of_section(section) {
             Some(Entity::Client) => (
                 vec![
@@ -147,27 +146,15 @@ fn filters_for(section: &str, rows: Memo<Vec<Row>>) -> Filters {
             _ => (
                 vec![
                     ("all", "All".into()),
-                    ("public", "Public".into()),
-                    ("private", "Private".into()),
+                    (route::PUBLIC_FILTER, "Public".into()),
+                    (route::WEBSITES_FILTER, "Websites".into()),
+                    (ServiceEntry::VISITORS.key(), "Visitors".into()),
                     (Protocol::Tcp.wire(), "TCP".into()),
                     (Protocol::Udp.wire(), "UDP".into()),
                 ],
                 vec!["Problems", "Up"],
             ),
         };
-    let sites = rows.with_untracked(|r| {
-        r.iter()
-            .any(|x| x.filters.contains(&route::WEBSITES_FILTER))
-    });
-    if sites
-        || s.edit.draft.with_untracked(|d| {
-            ServerConfig::WEB
-                .get(d.draft())
-                .is_some_and(|w| !w.is_null())
-        })
-    {
-        filters.push((route::WEBSITES_FILTER, "Websites".into()));
-    }
     (filters, groups)
 }
 
@@ -203,7 +190,7 @@ pub fn Entities(section: String, selected: Option<String>) -> impl IntoView {
         rows.with(|r| r.iter().filter(|x| x.icon != "trash").count())
             .to_string()
     });
-    let (filters, groups) = filters_for(&section, rows);
+    let (filters, groups) = filters_for(&section);
     let draft_name = RwSignal::new(String::new());
     let shown_rows = {
         let what = what.to_string();

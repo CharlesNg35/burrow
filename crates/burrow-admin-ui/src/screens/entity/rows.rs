@@ -227,6 +227,7 @@ pub(super) fn service_row(
         .and_then(|st| st.services.iter().find(|c| &c.name == name))
         .cloned();
     let public = burrow_admin_logic::web::is_public(v);
+    let ways = burrow_admin_logic::web::ways(v);
     let protocol = ServiceEntry::PROTOCOL
         .get(v)
         .map(plain)
@@ -246,6 +247,12 @@ pub(super) fn service_row(
         Some(SiteKind::Plain) => tags.push(("HTTP · unencrypted".into(), Tone::Warning)),
         Some(SiteKind::Passthrough) => tags.push(("passthrough".into(), Tone::Neutral)),
         None => {}
+    }
+    if ways.public {
+        tags.push(("public".into(), Tone::Neutral));
+    }
+    if ways.visitors {
+        tags.push((ServiceEntry::VISITORS.key().into(), Tone::Neutral));
     }
     if up == 0 && status.is_some() {
         tags.push(("✕ Down".into(), Tone::Danger));
@@ -283,9 +290,10 @@ pub(super) fn service_row(
         },
         pending,
         filters: [
-            Some(if public { "public" } else { "private" }),
+            ways.public.then_some(crate::route::PUBLIC_FILTER),
             Some(if udp { Protocol::Udp } else { Protocol::Tcp }.wire()),
             site.is_some().then_some(crate::route::WEBSITES_FILTER),
+            ways.visitors.then_some(ServiceEntry::VISITORS.key()),
         ]
         .into_iter()
         .flatten()

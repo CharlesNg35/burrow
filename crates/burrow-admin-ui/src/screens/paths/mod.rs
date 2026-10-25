@@ -281,7 +281,8 @@ pub fn udp(svc: &Value) -> bool {
         == Some(Protocol::Udp)
 }
 
-pub const PICK_VISITORS: &str = "Pick at least one visitor or switch back to Public port";
+pub const PICK_VISITORS: &str =
+    "Turn on a way in: Public port, Website, or Visitors with at least one visitor";
 
 pub fn add_blocker(svc: &Value) -> Option<&'static str> {
     let public = burrow_admin_logic::web::is_public(svc);

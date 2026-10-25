@@ -59,6 +59,7 @@ async fn passthrough_shows_what_it_leaves_out(c: &mut Ctx) {
 }
 
 async fn read_only_pages(c: &mut Ctx) {
+    c.ui.nav("/").await;
     overview_tab(c, "websites").await;
     c.ui.wait_text("[data-testid=websites]", "nas.example.com", SECS)
         .await;
@@ -107,8 +108,11 @@ async fn read_only_pages(c: &mut Ctx) {
         SECS,
     )
     .await;
-    let visibility = c.ui.text("[data-schema='services/*/visibility']").await;
-    assert!(visibility.contains("Website only"), "{visibility}");
+    let ways = c.ui.text("[data-testid=reached-by-view]").await;
+    assert!(
+        ways.contains("nas.example.com") && ways.contains("off"),
+        "one line per way in: {ways}"
+    );
     both_widths(c, "service-nas-settings").await;
 }
 
@@ -201,7 +205,11 @@ fn websites(c: &mut Ctx) -> Flow<'_> {
         read_only_pages(c).await;
         edit_mode(c).await;
         c.ui.wait_for("[data-testid=website-editor]", SECS).await;
-        assert_eq!(c.ui.count("[data-testid=pick-visitors]").await, 0);
+        c.ui.wait_for(
+            "[data-testid=website-summary] [data-testid=edit-website]",
+            SECS,
+        )
+        .await;
         both_widths(c, "nas-edit").await;
         add_name(c, "f-services-nas-web-hosts", "files.example.com").await;
         c.ui.shot("nas-name-added").await;
@@ -256,6 +264,7 @@ fn websites(c: &mut Ctx) -> Flow<'_> {
         c.ui.click("[role=tablist] [data-tab=settings]").await;
         edit_mode(c).await;
         toast_clear_of_the_bar(c).await;
+        click_js(c, "#f-services-web-reach-web").await;
         c.ui.wait_for("[data-testid=website-editor]", SECS).await;
         assert_eq!(
             c.ui.count("[data-schema='services/*/web/tls'] input").await,
@@ -400,6 +409,7 @@ fn web_off(c: &mut Ctx) -> Flow<'_> {
         c.ui.wait_for("[role=tablist]", SECS).await;
         c.ui.click("[role=tablist] [data-tab=settings]").await;
         edit_mode(c).await;
+        click_js(c, "#f-services-web-reach-web").await;
         c.ui.wait_text("[data-testid=web-off]", "The web proxy is off", SECS)
             .await;
         add_name(c, "f-services-web-web-hosts", "app.example.com").await;

@@ -19,6 +19,7 @@ pub enum Route {
 
 pub const FILTER_QUERY: &str = "filter";
 pub const WEBSITES_FILTER: &str = "websites";
+pub const PUBLIC_FILTER: &str = "public";
 pub const CARD_QUERY: &str = "card";
 pub const TAB_QUERY: &str = "tab";
 

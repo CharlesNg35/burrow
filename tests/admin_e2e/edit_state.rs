@@ -250,31 +250,28 @@ async fn service_problems_show_in_the_form(c: &mut Ctx) {
         "a default reads as a plain value: {protocol}"
     );
     edit_mode(c).await;
-    c.ui.choose("f-services-web-bind-visibility", "private")
+    click_js(c, "#f-services-web-reach-bind").await;
+    c.ui.wait_for("#f-services-web-reach-bind:not(:checked)", SECS)
         .await;
-    c.ui.wait_for("[data-testid=pick-visitors]", SECS).await;
     wait_checked(c).await;
     tokio::time::sleep(Duration::from_millis(600)).await;
     assert_eq!(
         c.ui.count("[data-testid=form-problems]").await,
         0,
-        "the hint asks for visitors; no red error while they are being picked"
+        "no red error while a way in is being picked"
     );
     assert!(
         !c.ui.enabled("[data-testid=save]").await,
-        "a private service without visitors cannot be added"
+        "a service with no way in cannot be added"
     );
     assert_eq!(
         c.ui.text("[data-testid=fields-changed]").await,
-        "Pick at least one visitor or switch back to Public port"
+        "Turn on a way in: Public port, Website, or Visitors with at least one visitor"
     );
     c.ui.shot("private-needs-visitors").await;
-    c.ui.click("[data-testid=pick-visitors] button").await;
-    c.ui.wait_for(
-        "#f-services-web-visitors:focus, #f-services-web-visitors:focus-within",
-        SECS,
-    )
-    .await;
+    click_js(c, "#f-services-web-reach-visitors").await;
+    c.ui.wait_for("[data-way=visitors] #f-services-web-visitors", SECS)
+        .await;
     clear_of_bar(c, "services/*/visitors").await;
     open_more(c, "services/*/max_connections").await;
     c.ui.fill("#f-services-web-max-connections", "abc").await;
@@ -333,9 +330,9 @@ async fn private_udp_needs_visitors(c: &mut Ctx) {
     c.ui.wait_gone(clear, SECS).await;
     wait_checked(c).await;
     assert_eq!(c.ui.count("[data-testid=form-problems]").await, 0);
-    c.ui.choose("f-services-web-bind-visibility", "private")
+    click_js(c, "#f-services-web-reach-bind").await;
+    c.ui.wait_for("#f-services-web-reach-bind:not(:checked)", SECS)
         .await;
-    c.ui.wait_for("[data-testid=pick-visitors]", SECS).await;
     wait_checked(c).await;
     tokio::time::sleep(Duration::from_millis(600)).await;
     assert_eq!(
@@ -345,15 +342,12 @@ async fn private_udp_needs_visitors(c: &mut Ctx) {
     );
     assert_eq!(
         c.ui.text("[data-testid=fields-changed]").await,
-        "Pick at least one visitor or switch back to Public port"
+        "Turn on a way in: Public port, Website, or Visitors with at least one visitor"
     );
     c.ui.shot("private-udp-needs-visitors").await;
-    c.ui.click("[data-testid=pick-visitors] button").await;
-    c.ui.wait_for(
-        "#f-services-web-visitors:focus, #f-services-web-visitors:focus-within",
-        SECS,
-    )
-    .await;
+    click_js(c, "#f-services-web-reach-visitors").await;
+    c.ui.wait_for("[data-way=visitors] #f-services-web-visitors", SECS)
+        .await;
     clear_of_bar(c, "services/*/visitors").await;
     let _: bool = c
         .ui

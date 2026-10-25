@@ -72,15 +72,13 @@ fn add_service(c: &mut Ctx) -> Flow<'_> {
             .await;
         c.ui.shot("two-clients-show-mode").await;
         assert_eq!(
-            c.ui.count("#f-services-game-bind").await,
+            c.ui.count("#f-services-game-reach-bind:checked").await,
             0,
-            "a new service starts private"
+            "a new service starts with no public port"
         );
-        click_js(
-            c,
-            "[data-schema='services/*/visibility'] input[value=public]",
-        )
-        .await;
+        click_js(c, "#f-services-game-reach-bind").await;
+        c.ui.wait_for("[data-way=bind] #f-services-game-bind", SECS)
+            .await;
 
         c.ui.fill(
             "#f-services-game-bind",
@@ -244,11 +242,7 @@ fn service_on_this_server(c: &mut Ctx) -> Flow<'_> {
             .await;
         c.ui.wait_for(&format!("{clients} [data-chip=self]"), SECS)
             .await;
-        click_js(
-            c,
-            "[data-schema='services/*/visibility'] input[value=public]",
-        )
-        .await;
+        click_js(c, "#f-services-local-reach-bind").await;
         c.ui.fill("#f-services-local-bind", &format!("127.0.0.1:{public}"))
             .await;
         c.ui.fill("#f-services-local-target", &format!("127.0.0.1:{echo}"))
