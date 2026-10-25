@@ -92,6 +92,11 @@ pub fn wildcard_of(name: &str) -> Option<String> {
     (!first.is_empty() && rest.contains('.')).then(|| format!("*.{rest}"))
 }
 
+pub fn is_email(text: &str) -> bool {
+    let e = text.trim();
+    matches!(e.split_once('@'), Some((who, domain)) if !who.is_empty() && domain.contains('.') && !domain.contains('@') && !e.contains(char::is_whitespace))
+}
+
 pub fn sni_name(raw: &str) -> String {
     raw.strip_suffix('.').unwrap_or(raw).to_ascii_lowercase()
 }

@@ -269,3 +269,20 @@ fn a_sent_name_is_matched_without_case_or_final_dot() {
     assert_eq!(sni_name("NAS.Example.com."), "nas.example.com");
     assert_eq!(sni_name("nas.example.com"), "nas.example.com");
 }
+
+#[test]
+fn an_email_has_a_name_an_at_and_a_domain_with_a_dot() {
+    for good in ["ops@example.com", " you@mail.example.org "] {
+        assert!(is_email(good), "{good}");
+    }
+    for bad in [
+        "ops",
+        "@example.com",
+        "ops@localhost",
+        "o ps@example.com",
+        "a@b@example.com",
+        "",
+    ] {
+        assert!(!is_email(bad), "{bad}");
+    }
+}

@@ -3,7 +3,7 @@ use serde_json::{Value, json};
 use super::{InitOptions, WebSocketInit};
 use crate::base::failure::Failure;
 use crate::base::prompt::Prompter;
-use burrow_syntax::web::{SingleLabel, host_name, is_wildcard};
+use burrow_syntax::web::{SingleLabel, host_name, is_email, is_wildcard};
 
 pub(super) const HTTPS_PORT: u16 = 443;
 const TERMS: &str = "https://letsencrypt.org/repository/";
@@ -15,11 +15,8 @@ pub(super) struct Tunnel {
 }
 
 pub(super) fn check_email(email: &str) -> Result<String, Failure> {
-    let e = email.trim();
-    match e.split_once('@') {
-        Some((who, domain)) if !who.is_empty() && domain.contains('.') && !e.contains(' ') => {
-            Ok(e.to_string())
-        }
+    match email.trim() {
+        e if is_email(e) => Ok(e.to_string()),
         _ => Err(
             Failure::usage(format!("--email \"{email}\" is not an email address"))
                 .hint("give Let's Encrypt's contact, like --email ops@example.com"),

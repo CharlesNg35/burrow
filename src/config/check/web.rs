@@ -328,6 +328,8 @@ pub(super) fn check_sites(
     certs::check_sources(cfg, (https, http), spans, out);
     #[cfg(feature = "web")]
     pem::check_files(cfg, base_dir, spans, out);
+    #[cfg(feature = "web")]
+    letsencrypt::check_letsencrypt(cfg, base_dir, spans, out);
     choices::check_choices(cfg, (https, http), spans, out);
     low::check_low_ports((https, http), spans, out);
     sites
@@ -517,6 +519,8 @@ mod certs;
 mod challenge;
 mod choices;
 mod fill;
+#[cfg(feature = "web")]
+mod letsencrypt;
 mod low;
 #[cfg(feature = "web")]
 mod pem;

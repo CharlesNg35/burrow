@@ -114,3 +114,78 @@ fn the_header_and_idle_timeouts_are_taken_from_the_config() {
     assert_eq!(web.request_header_timeout, Duration::from_secs(5));
     assert_eq!(web.idle_timeout, Duration::from_secs(30));
 }
+
+fn letsencrypt(dir: &Path, fields: &str) -> Vec<(String, Option<String>)> {
+    super::tests::load_in(
+        dir,
+        &format!(
+            "listen: 7835\nweb:\n  https: 443\n  letsencrypt: {{ {fields} }}\nservices:\n  blog: {{ client: home, target: 80, web: blog.example.com }}\n"
+        ),
+    )
+    .report
+    .diagnostics
+    .into_iter()
+    .filter(|d| d.is_error())
+    .map(|d| (d.message, d.help))
+    .collect()
+}
+
+#[test]
+fn the_letsencrypt_email_directory_and_ca_are_checked_at_validate() {
+    let dir = tempfile::tempdir().unwrap();
+    let only = |fields: &str| -> Vec<String> {
+        letsencrypt(dir.path(), fields)
+            .into_iter()
+            .map(|e| e.0)
+            .collect()
+    };
+    for fine in [
+        "email: ops@example.com",
+        "email: ops@example.com, directory: staging",
+        "email: ops@example.com, directory: https://ca.internal/acme/directory",
+    ] {
+        assert_eq!(only(fine), Vec::<String>::new(), "{fine}");
+    }
+    assert_eq!(
+        only("email: ops"),
+        ["web.letsencrypt.email \"ops\" is not an email address"]
+    );
+    let typo = letsencrypt(dir.path(), "email: ops@example.com, directory: stagging");
+    assert_eq!(
+        typo[0].0,
+        "web.letsencrypt.directory \"stagging\" is not production, staging or an https:// URL"
+    );
+    assert!(
+        typo[0]
+            .1
+            .as_deref()
+            .unwrap()
+            .starts_with("did you mean \"staging\"?"),
+        "{typo:?}"
+    );
+    for url in ["https//x", "http://ca.internal/acme/directory"] {
+        assert_eq!(
+            only(&format!("email: ops@example.com, directory: \"{url}\"")),
+            [format!(
+                "web.letsencrypt.directory \"{url}\" is not production, staging or an https:// URL"
+            )]
+        );
+    }
+    let ca = "email: ops@example.com, ca: certs/ca.pem";
+    assert_eq!(
+        only(ca),
+        ["web.letsencrypt.ca: cannot read certs/ca.pem: file not found"]
+    );
+    std::fs::create_dir_all(dir.path().join("certs")).unwrap();
+    std::fs::write(dir.path().join("certs/ca.pem"), "not a certificate\n").unwrap();
+    assert_eq!(
+        only(ca),
+        ["web.letsencrypt.ca: certs/ca.pem holds no certificate"]
+    );
+    let key = rcgen::KeyPair::generate().unwrap();
+    let mut params = rcgen::CertificateParams::new(Vec::<String>::new()).unwrap();
+    params.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
+    let cert = params.self_signed(&key).unwrap();
+    std::fs::write(dir.path().join("certs/ca.pem"), cert.pem()).unwrap();
+    assert_eq!(only(ca), Vec::<String>::new());
+}

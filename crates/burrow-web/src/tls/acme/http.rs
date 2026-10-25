@@ -45,22 +45,36 @@ pub struct Client {
 
 type Failure = Box<dyn std::error::Error + Send + Sync>;
 
+pub fn trusted_roots(ca_pem: Option<&[u8]>) -> Result<RootCertStore, String> {
+    let mut roots = RootCertStore {
+        roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
+    };
+    let Some(pem) = ca_pem else {
+        return Ok(roots);
+    };
+    let certs = CertificateDer::pem_slice_iter(pem)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| format!("is not a PEM certificate file ({e})"))?;
+    if certs.is_empty() {
+        return Err("holds no certificate".into());
+    }
+    for c in certs {
+        roots.add(c).map_err(|e| e.to_string())?;
+    }
+    Ok(roots)
+}
+
 impl Client {
     pub fn new(ca: Option<&Path>, limits: Limits) -> Result<Client, String> {
-        let mut roots = RootCertStore {
-            roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
-        };
-        if let Some(ca) = ca {
-            let certs = CertificateDer::pem_file_iter(ca)
-                .and_then(Iterator::collect::<Result<Vec<_>, _>>)
-                .map_err(|e| format!("cannot read {}: {e}", ca.display()))?;
-            if certs.is_empty() {
-                return Err(format!("{} holds no certificate", ca.display()));
-            }
-            for c in certs {
-                roots.add(c).map_err(|e| format!("{}: {e}", ca.display()))?;
-            }
-        }
+        let pem = ca
+            .map(|ca| std::fs::read(ca).map_err(|e| format!("cannot read {}: {e}", ca.display())))
+            .transpose()?;
+        let roots = trusted_roots(pem.as_deref()).map_err(|e| {
+            format!(
+                "{}: {e}",
+                ca.map_or(String::new(), |c| c.display().to_string())
+            )
+        })?;
         let provider = Arc::new(tokio_rustls::rustls::crypto::ring::default_provider());
         let mut config = ClientConfig::builder_with_provider(provider)
             .with_safe_default_protocol_versions()
