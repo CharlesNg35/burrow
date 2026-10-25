@@ -74,7 +74,7 @@ pub(super) fn text_editor(fc: FieldCtx, sem: Option<SemType>) -> AnyView {
                     suffix=unit.unwrap_or_default()
                 />
             </div>
-            {server_checked.then(|| view! { <span class="text-xs whitespace-nowrap text-info" data-render="server-checked">"Checked by the server"</span> })}
+            {server_checked.then(|| view! { <span data-render="server-checked">{crate::form::server_checked()}</span> })}
         </div>
     }
     .into_any()

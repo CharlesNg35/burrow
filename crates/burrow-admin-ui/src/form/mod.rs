@@ -23,6 +23,7 @@ use controls::visibility_row;
 use more::{More, more_settings};
 pub use more::{PageSearch, reveal};
 use row::row;
+pub(crate) use view::server_checked;
 use view::value_view;
 
 const SERVICES: &str = ServiceEntry::SECTION;

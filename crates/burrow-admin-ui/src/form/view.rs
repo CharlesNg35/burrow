@@ -5,7 +5,7 @@ use burrow_admin_proto::schema::{ListC, MapC, Node, RefListC, RefMapC, SemType, 
 use burrow_admin_proto::serde_json::{self, Value};
 use burrow_admin_proto::value::{SecretSrc, as_env, as_secret};
 use burrow_syntax::duration::human;
-use burrow_ui_kit::{Badge, Chip, Tone, chip_class};
+use burrow_ui_kit::{Chip, Tag, Tone, chip_class};
 use leptos::prelude::*;
 
 use crate::route::{Link, Route};
@@ -83,8 +83,8 @@ fn raw_view(v: Option<&Value>) -> AnyView {
     .into_any()
 }
 
-fn server_checked() -> AnyView {
-    view! { <Badge text="Checked by the server" tone=Tone::Info/> }.into_any()
+pub(crate) fn server_checked() -> AnyView {
+    view! { <Tag text="Checked by the server" tone=Tone::Info/> }.into_any()
 }
 
 pub(super) fn value_view(

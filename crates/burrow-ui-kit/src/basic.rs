@@ -163,24 +163,13 @@ pub fn SpinDot() -> impl IntoView {
 }
 
 #[component]
-pub fn Badge(
+pub fn Tag(
     #[prop(into)] text: Signal<String>,
     #[prop(optional)] tone: Tone,
-    #[prop(optional)] icon: &'static str,
-    #[prop(optional)] mono: bool,
     #[prop(optional, into)] title: Option<String>,
 ) -> impl IntoView {
     view! {
-        <span
-            class=format!(
-                "inline-flex h-5 items-center gap-1 rounded-[5px] px-[7px] text-[11px] font-semibold whitespace-nowrap {}{}",
-                tone.tag(),
-                if mono { " font-mono" } else { "" }
-            )
-            title=title
-            data-tone=tone.name()
-        >
-            {(!icon.is_empty()).then(|| view! { <Icon name=icon small=true/> })}
+        <span class=crate::tag_class(tone) title=title data-tone=tone.name()>
             {move || text.get()}
         </span>
     }
