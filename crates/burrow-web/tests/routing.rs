@@ -309,3 +309,35 @@ async fn a_path_route_matches_any_letter_case_and_the_app_keeps_the_case_sent() 
     assert!(r.contains("x-forwarded-prefix: /wp-admin\n"), "{r}");
     assert_eq!(served_by(&t), ["admin"]);
 }
+
+#[tokio::test]
+async fn an_outpost_path_on_a_wildcard_site_reaches_its_own_service() {
+    let t = two(|| {
+        vec![
+            https_site("blog", &["*.apps.example.com"]),
+            with(
+                https_site("admin", &["*.apps.example.com"]),
+                paths(&["/outpost.goauthentik.io"], None),
+            ),
+        ]
+    })
+    .await;
+    let r = over_tls(
+        t.proxy.https_addr().unwrap(),
+        "grafana.apps.example.com",
+        "GET /outpost.goauthentik.io/start?rd=x HTTP/1.1\r\nHost: grafana.apps.example.com\r\nConnection: close\r\n\r\n",
+    )
+    .await;
+    assert!(
+        r.contains("\nGET /outpost.goauthentik.io/start?rd=x\n"),
+        "{r}"
+    );
+    let r = over_tls(
+        t.proxy.https_addr().unwrap(),
+        "grafana.apps.example.com",
+        "GET / HTTP/1.1\r\nHost: grafana.apps.example.com\r\nConnection: close\r\n\r\n",
+    )
+    .await;
+    assert!(r.starts_with("HTTP/1.1 200"), "{r}");
+    assert_eq!(served_by(&t), ["admin", "blog"]);
+}

@@ -277,3 +277,40 @@ fn redirects_redirect_from_and_redirect_names_become_routes() {
         Some(Kind::Plain { .. })
     ));
 }
+
+#[test]
+fn a_path_route_on_a_wildcard_host_wins_over_the_wildcard_sites_root() {
+    let mut s = ProxySettings::new("[::]:443".parse().unwrap());
+    s.sites = vec![
+        https(
+            "apps",
+            &["*.apps.example.com"],
+            crate::SiteOptions::default(),
+        ),
+        https(
+            "outpost",
+            &["*.apps.example.com"],
+            paths(&["/outpost.goauthentik.io"], None),
+        ),
+        https(
+            "one",
+            &["one.apps.example.com"],
+            crate::SiteOptions::default(),
+        ),
+    ];
+    let t = Table::build(&s);
+    let svc = |n: &str| Some(Action::Service(n.into()));
+    assert_eq!(served(&t, "x.apps.example.com", "/"), svc("apps"));
+    assert_eq!(
+        served(&t, "x.apps.example.com", "/outpost.goauthentik.io/start"),
+        svc("outpost")
+    );
+    assert_eq!(
+        served(&t, "y.apps.example.com", "/outpost.goauthentik.io"),
+        svc("outpost")
+    );
+    assert_eq!(
+        served(&t, "one.apps.example.com", "/outpost.goauthentik.io"),
+        svc("one")
+    );
+}
