@@ -9,6 +9,7 @@ use hyper::client::conn::http1::SendRequest;
 use hyper_util::rt::TokioIo;
 use tracing::debug;
 
+use super::forwarded::{Client, strip_incoming};
 use super::idle::Activity;
 use super::pages::Page;
 use super::{Body, BoxError, MAX_HEAD, MAX_HEADERS};
@@ -40,7 +41,7 @@ pub(crate) struct Upstreams {
 pub(crate) struct Forward<'a> {
     pub service: &'a str,
     pub visitor: Visitor,
-    pub https: bool,
+    pub client: Client,
     pub response_header: Duration,
     pub activity: &'a Arc<Activity>,
 }
@@ -109,9 +110,15 @@ fn connection_tokens(h: &HeaderMap) -> Vec<HeaderName> {
         .collect()
 }
 
+fn protected(name: &HeaderName) -> bool {
+    *name == header::HOST || super::forwarded::managed(name)
+}
+
 pub fn strip_hop_by_hop(h: &mut HeaderMap) {
     for name in connection_tokens(h) {
-        h.remove(name);
+        if !protected(&name) {
+            h.remove(name);
+        }
     }
     for name in &HOP_BY_HOP {
         h.remove(name);
@@ -129,7 +136,7 @@ fn set(h: &mut HeaderMap, name: &'static str, value: &str) {
     }
 }
 
-pub fn rewrite_request<B>(req: &mut Request<B>, host: &str, from: &Visitor, https: bool) {
+pub fn rewrite_request<B>(req: &mut Request<B>, host: &str, client: &Client) {
     let upgrade = upgrade_of(req.headers());
     if req.uri().authority().is_some() {
         if let Ok(v) = HeaderValue::from_str(host) {
@@ -140,12 +147,18 @@ pub fn rewrite_request<B>(req: &mut Request<B>, host: &str, from: &Visitor, http
     }
     let h = req.headers_mut();
     strip_hop_by_hop(h);
-    let client = from.addr.ip().to_canonical().to_string();
-    set(h, "x-forwarded-for", &client);
-    set(h, "x-real-ip", &client);
-    set(h, "x-forwarded-proto", if https { "https" } else { "http" });
-    set(h, "x-forwarded-host", host);
-    set(h, "x-forwarded-port", &from.local.port().to_string());
+    strip_incoming(h, client.trusted_peer);
+    set(h, "x-forwarded-for", &client.forwarded_for);
+    set(h, "x-real-ip", &client.ip.to_string());
+    set(
+        h,
+        "x-forwarded-proto",
+        if client.https { "https" } else { "http" },
+    );
+    if !h.contains_key("x-forwarded-host") {
+        set(h, "x-forwarded-host", host);
+    }
+    set(h, "x-forwarded-port", &client.port.to_string());
     if let Some(u) = upgrade {
         h.insert(header::CONNECTION, HeaderValue::from_static("upgrade"));
         h.insert(header::UPGRADE, u);
@@ -161,7 +174,7 @@ pub(crate) async fn forward<U: Upstream>(
     let upgrading = upgrade_of(req.headers()).is_some();
     let downstream = upgrading.then(|| hyper::upgrade::on(&mut req));
     let host = f.visitor.host.clone();
-    rewrite_request(&mut req, &host, &f.visitor, f.https);
+    rewrite_request(&mut req, &host, &f.client);
     let req = req.map(|b| b.map_err(Into::into).boxed());
     let mut s = match ups.reuse(f.service).await {
         Some(s) => s,

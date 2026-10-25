@@ -43,10 +43,7 @@ async fn a_terminated_site_reaches_its_app_with_the_forwarded_headers() {
         lower.contains("x-forwarded-host: blog.example.com\n"),
         "{r}"
     );
-    assert!(
-        lower.contains(&format!("x-forwarded-port: {}\n", addr.port())),
-        "{r}"
-    );
+    assert!(lower.contains("x-forwarded-port: 443\n"), "{r}");
     assert!(
         lower.contains("host: blog.example.com:443\n"),
         "Host passes unchanged: {r}"

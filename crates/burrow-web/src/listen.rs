@@ -133,6 +133,10 @@ impl<U> Shared<U> {
         self.stop.clone()
     }
 
+    pub(crate) fn trusted_proxies(&self) -> &[burrow_syntax::cidr::Cidr] {
+        &[]
+    }
+
     pub(crate) fn timeouts(&self) -> Timeouts {
         *self.timing.read().expect("timing lock")
     }

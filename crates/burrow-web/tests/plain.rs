@@ -57,10 +57,7 @@ async fn plain_sites_and_https_sites_that_also_serve_plain_http_reach_their_app_
         assert!(r.starts_with("HTTP/1.1 200"), "{host}: {r}");
         assert!(r.contains("GET /a?b=1\n"), "{r}");
         assert!(r.contains("x-forwarded-proto: http\n"), "{r}");
-        assert!(
-            r.contains(&format!("x-forwarded-port: {}\n", http.port())),
-            "{r}"
-        );
+        assert!(r.contains("x-forwarded-port: 80\n"), "{r}");
     }
     assert!(
         closed_without_tls(s.proxy.https_addr().unwrap(), "wiki.lan.example.com").await,

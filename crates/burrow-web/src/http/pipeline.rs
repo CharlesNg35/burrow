@@ -1,3 +1,4 @@
+use std::net::SocketAddr;
 use std::sync::Arc;
 
 use bytes::Bytes;
@@ -5,6 +6,7 @@ use http::{HeaderValue, Method, Request, Response, StatusCode, header};
 use http_body_util::BodyExt;
 use hyper::body::Incoming;
 
+use super::forwarded;
 use super::host::request_host;
 use super::pages::Page;
 use super::upstream::{Forward, forward};
@@ -52,14 +54,20 @@ pub(crate) async fn handle<U: Upstream>(
         Action::Tunnel if conn.name.is_some() => by_path(shared, conn, req, &route.prefix),
         Action::Tunnel => Page::NotFound.response(),
         Action::Service(service) => {
+            let client = forwarded::client(
+                conn.peer,
+                req.headers(),
+                shared.trusted_proxies(),
+                conn.name.is_some(),
+            );
             let f = Forward {
                 service,
                 visitor: Visitor {
-                    addr: conn.peer,
+                    addr: SocketAddr::new(client.ip, conn.peer.port()),
                     local: conn.local,
                     host,
                 },
-                https: conn.name.is_some(),
+                client,
                 response_header: shared.timeouts().response_header,
                 activity: &conn.activity,
             };
