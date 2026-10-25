@@ -15,6 +15,8 @@ pub const FIELD_FREE: &[&str] = &[
     "src/admin_local",
 ];
 
+const COMMON_WORDS: &[&str] = &["file", "to", "api", "server"];
+
 pub fn keys() -> BTreeSet<String> {
     fn walk(node: &Node, out: &mut BTreeSet<String>) {
         match &node.sem {
@@ -38,6 +40,9 @@ pub fn keys() -> BTreeSet<String> {
         &mut out,
     );
     out.extend(entities().into_iter().flat_map(|e| e.path));
+    for word in COMMON_WORDS {
+        out.remove(*word);
+    }
     out
 }
 
@@ -182,6 +187,15 @@ mod tests {
             assert!(k.contains(key), "{key}");
         }
         assert!(!k.contains("online"));
+    }
+
+    #[test]
+    fn nested_keys_that_are_common_words_are_not_field_names() {
+        let k = keys();
+        for word in COMMON_WORDS {
+            assert!(!k.contains(*word), "{word}");
+        }
+        assert!(k.contains("cert") && k.contains("key") && k.contains("command"));
     }
 
     #[test]
