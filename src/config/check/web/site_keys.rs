@@ -6,17 +6,8 @@ use crate::base::failure::file_reason;
 use crate::config::diagnostics::Diagnostic;
 use burrow_config::{Protocol, ServerConfig, ServiceWeb, Target, TargetTls, WebSite};
 use burrow_syntax::url_path::{route_key, route_path};
+use burrow_syntax::web::pages::ERROR_PAGES as PAGES;
 use burrow_syntax::web::{SingleLabel, host_name, is_ip, is_wildcard};
-
-pub(super) const PAGES: [&str; 7] = [
-    "404.html",
-    "413.html",
-    "429.html",
-    "502.html",
-    "503.html",
-    "504.html",
-    "maintenance.html",
-];
 
 pub(super) struct At<'a> {
     pub spans: &'a Spans,

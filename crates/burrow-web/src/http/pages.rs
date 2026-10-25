@@ -134,14 +134,16 @@ impl Page {
 
 pub const MAX_PAGE: u64 = 1024 * 1024;
 
+const NAMES: [&str; 7] = burrow_syntax::web::pages::ERROR_PAGES;
+
 pub const PAGE_FILES: [(&str, &[Page]); 7] = [
-    ("404.html", &[Page::NotFound]),
-    ("413.html", &[Page::TooLarge]),
-    ("429.html", &[Page::TooMany]),
-    ("502.html", &[Page::BadGateway]),
-    ("503.html", &[Page::Unavailable, Page::Busy]),
-    ("504.html", &[Page::Timeout]),
-    ("maintenance.html", &[Page::Maintenance]),
+    (NAMES[0], &[Page::NotFound]),
+    (NAMES[1], &[Page::TooLarge]),
+    (NAMES[2], &[Page::TooMany]),
+    (NAMES[3], &[Page::BadGateway]),
+    (NAMES[4], &[Page::Unavailable, Page::Busy]),
+    (NAMES[5], &[Page::Timeout]),
+    (NAMES[6], &[Page::Maintenance]),
 ];
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
