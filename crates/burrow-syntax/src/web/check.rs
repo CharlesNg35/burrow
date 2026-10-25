@@ -75,6 +75,31 @@ pub fn checks_for(
     }
 }
 
+pub fn dns_entry_for<'a, D>(
+    entries: impl IntoIterator<Item = (usize, &'a [D])>,
+    name: &str,
+) -> Option<usize>
+where
+    D: AsRef<str> + 'a,
+{
+    let name = sni_name(name.trim());
+    let name = name.strip_prefix("*.").unwrap_or(&name);
+    let mut best: Option<(usize, usize)> = None;
+    for (i, domains) in entries {
+        for d in domains {
+            let d = sni_name(d.as_ref().trim());
+            let under = name == d
+                || name
+                    .strip_suffix(d.as_str())
+                    .is_some_and(|r| r.ends_with('.'));
+            if under && !d.is_empty() && best.is_none_or(|(_, len)| d.len() > len) {
+                best = Some((i, d.len()));
+            }
+        }
+    }
+    best.map(|(i, _)| i)
+}
+
 pub struct AutoName<'a> {
     pub label: &'a str,
     pub host: &'a str,

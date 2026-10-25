@@ -286,3 +286,25 @@ fn an_email_has_a_name_an_at_and_a_domain_with_a_dot() {
         assert!(!is_email(bad), "{bad}");
     }
 }
+
+#[test]
+fn a_dns_name_takes_the_entry_with_the_most_specific_domain() {
+    let cf = vec!["example.com".to_string(), "Example.NET.".to_string()];
+    let bind = vec!["apps.example.com".to_string()];
+    let entries = || [(0, cf.as_slice()), (1, bind.as_slice())];
+    assert_eq!(dns_entry_for(entries(), "wiki.example.com"), Some(0));
+    assert_eq!(dns_entry_for(entries(), "example.com"), Some(0));
+    assert_eq!(dns_entry_for(entries(), "lab.example.net"), Some(0));
+    assert_eq!(dns_entry_for(entries(), "*.example.com"), Some(0));
+    assert_eq!(dns_entry_for(entries(), "board.apps.example.com"), Some(1));
+    assert_eq!(dns_entry_for(entries(), "*.apps.example.com"), Some(1));
+    assert_eq!(dns_entry_for(entries(), "apps.example.com"), Some(1));
+    assert_eq!(dns_entry_for(entries(), "A.B.Apps.Example.com."), Some(1));
+    assert_eq!(dns_entry_for(entries(), "badexample.com"), None);
+    assert_eq!(dns_entry_for(entries(), "erp.corp.example.org"), None);
+    assert_eq!(dns_entry_for(entries(), "com"), None);
+    let twice = [(0, cf.as_slice()), (1, cf.as_slice())];
+    assert_eq!(dns_entry_for(twice, "wiki.example.com"), Some(0));
+    let none: [(usize, &[String]); 0] = [];
+    assert_eq!(dns_entry_for(none, "wiki.example.com"), None);
+}

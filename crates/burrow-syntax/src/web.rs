@@ -146,7 +146,7 @@ mod check;
 
 pub use check::{
     AutoName, Challenge, Check, CheckPorts, HTTP_PORT, NoCheck, PROXY_NOTE, TLS_PORT, checks_for,
-    proxy_note,
+    dns_entry_for, proxy_note,
 };
 
 #[cfg(test)]
