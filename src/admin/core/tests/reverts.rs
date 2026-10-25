@@ -116,8 +116,6 @@ fn locked_fields_are_refused_even_from_a_crafted_client() {
     let base = text::rev(&w.text);
     for (path, value) in [
         (p(&["listen"]), json!(7836)),
-        (p(&["websocket"]), json!({"listen": 7837})),
-        (p(&["websocket", "path"]), json!("/x")),
         (p(&["insecure_plaintext"]), json!(true)),
         (p(&["heartbeat", "interval_secs"]), json!(20)),
         (p(&["limits", "handshake_timeout_secs"]), json!(9)),
@@ -159,7 +157,7 @@ fn locked_fields_are_refused_even_from_a_crafted_client() {
         &base,
         &[Op::SetText {
             path: p(&["websocket"]),
-            text: "listen: 1\n".into(),
+            text: "listen: 1\ntls: { cert: a.pem, key: a.key }\n".into(),
         }],
     )
     .err()
@@ -170,7 +168,8 @@ fn locked_fields_are_refused_even_from_a_crafted_client() {
         core.schema.locked_paths(),
         vec![
             p(&["listen"]),
-            p(&["websocket"]),
+            p(&["websocket", "tls", "cert"]),
+            p(&["websocket", "tls", "key"]),
             p(&["web", "letsencrypt", "ca"]),
             p(&["web", "letsencrypt", "dns", "*", "cloudflare", "token"]),
             p(&["web", "letsencrypt", "dns", "*", "rfc2136", "server"]),

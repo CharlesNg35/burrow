@@ -666,3 +666,63 @@ async fn a_wss_client_with_a_wrong_secret_is_reported_as_rejected() {
     .is_ok_and(|r| r.is_ok());
     assert!(rejected, "a wrong secret over wss is not reported");
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn websocket_turned_off_cuts_its_clients_and_turned_on_again_takes_them() {
+    if ws_mode() {
+        return;
+    }
+    let secret = Secret::generate();
+    let s = ws_server(&secret, "/burrow", None);
+    let srv = start_server(s.clone()).await;
+    let ws = srv.ws_addr.unwrap();
+    let url = format!("ws://{ws}/burrow");
+    let mut cli = connected(&srv, ws_client(&url, secret.clone(), None)).await;
+    let mut off = s.clone();
+    off.websocket = None;
+    srv.reload(off.clone()).await;
+    let left = tokio::time::timeout(
+        Duration::from_secs(5),
+        cli.state.wait_for(|s| *s != State::Connected),
+    )
+    .await
+    .is_ok_and(|r| r.is_ok());
+    assert!(left, "a client stayed on a WebSocket that was turned off");
+    let shared = srv.shared.clone();
+    wait_for(|| shared.settings_snapshot().websocket.is_none()).await;
+    assert!(TcpStream::connect(ws).await.is_err(), "the port is closed");
+    let mut on = off;
+    on.websocket = s.websocket.clone();
+    on.websocket.as_mut().unwrap().listen = ws;
+    srv.reload(on).await;
+    wait_for(|| shared.settings_snapshot().websocket.is_some()).await;
+    let _again = connected(&srv, ws_client(&url, secret, None)).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_moved_websocket_listener_cuts_its_clients_and_serves_on_the_new_address() {
+    if ws_mode() {
+        return;
+    }
+    let secret = Secret::generate();
+    let s = ws_server(&secret, "/burrow", None);
+    let srv = start_server(s.clone()).await;
+    let ws = srv.ws_addr.unwrap();
+    let mut cli = connected(
+        &srv,
+        ws_client(&format!("ws://{ws}/burrow"), secret.clone(), None),
+    )
+    .await;
+    let to: SocketAddr = format!("127.0.0.1:{}", free_port()).parse().unwrap();
+    let mut next = s.clone();
+    next.websocket.as_mut().unwrap().listen = to;
+    srv.reload(next).await;
+    let left = tokio::time::timeout(
+        Duration::from_secs(5),
+        cli.state.wait_for(|s| *s != State::Connected),
+    )
+    .await
+    .is_ok_and(|r| r.is_ok());
+    assert!(left, "a client stayed on the old WebSocket address");
+    let _moved = connected(&srv, ws_client(&format!("ws://{to}/burrow"), secret, None)).await;
+}

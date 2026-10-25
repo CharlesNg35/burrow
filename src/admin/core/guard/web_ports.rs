@@ -3,7 +3,7 @@ use std::net::SocketAddr;
 use burrow_admin_proto::codes::{OPENS_PORT, PORT_IN_USE, STOPS_WEBSITES, WEB_PORT_SHARED};
 use burrow_admin_proto::diag::{Diag, Severity};
 use burrow_admin_proto::plan::{Impact, Level, Refusal};
-use burrow_config::{Protocol, ServerConfig, WebConfig};
+use burrow_config::{Protocol, ServerConfig, WebConfig, WebSocketConfig};
 
 use crate::config::check::binds_conflict;
 use crate::config::settings::{ServerSettings, Shares, WebTls};
@@ -147,26 +147,48 @@ fn held(s: &ServerSettings) -> Vec<SocketAddr> {
     out
 }
 
+fn wanted(running: &ServerSettings, next: &ServerSettings) -> Vec<(Vec<String>, SocketAddr)> {
+    let mut out: Vec<(Vec<String>, SocketAddr)> = Port::BOTH
+        .into_iter()
+        .filter_map(|p| {
+            let addr = p.of(next).filter(|a| p.of(running) != Some(*a))?;
+            Some((p.path(), addr))
+        })
+        .collect();
+    let own = |s: &ServerSettings| {
+        s.websocket
+            .as_ref()
+            .filter(|w| w.shares == Shares::Nothing)
+            .map(|w| w.listen)
+    };
+    if let Some(addr) = own(next).filter(|a| own(running) != Some(*a)) {
+        out.push((
+            ServerConfig::WEBSOCKET.then(WebSocketConfig::LISTEN).path(),
+            addr,
+        ));
+    }
+    out
+}
+
 pub fn busy(
     probe: &dyn Fn(SocketAddr) -> std::io::Result<()>,
     running: &ServerSettings,
     next: &ServerSettings,
 ) -> Vec<Diag> {
     let ours = held(running);
-    Port::BOTH
+    wanted(running, next)
         .into_iter()
-        .filter_map(|p| {
-            let addr = p.of(next).filter(|a| p.of(running) != Some(*a))?;
+        .filter_map(|(path, addr)| {
             if ours.iter().any(|h| binds_conflict(addr, *h)) {
                 return None;
             }
             let e = probe(addr).err()?;
-            let f = crate::server::bind_error(&p.key(), Protocol::Tcp, addr, &e);
+            let f = crate::server::bind_error(&path.join("."), Protocol::Tcp, addr, &e);
             Some(Diag {
                 severity: Severity::Error,
                 code: PORT_IN_USE.into(),
                 message: f.message,
-                path: Some(p.path()),
+                path: Some(path),
                 also: Vec::new(),
                 subjects: Vec::new(),
                 label: None,

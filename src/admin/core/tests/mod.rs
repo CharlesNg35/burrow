@@ -8,6 +8,7 @@ mod reverts;
 mod snippets;
 mod uploads;
 mod web_ports;
+mod websocket;
 mod wording;
 
 use std::collections::BTreeMap;
@@ -189,6 +190,10 @@ pub fn core_running(text: &str, running: &str) -> Core {
 }
 
 pub fn core_busy(text: &str, running: &str, busy: Vec<u16>) -> Core {
+    core_of(text, running, busy, Vec::new())
+}
+
+pub fn core_of(text: &str, running: &str, busy: Vec<u16>, sessions: Vec<LiveSession>) -> Core {
     let shared = Arc::new(Mutex::new(text.to_string()));
     let live_text = if text == running {
         shared.clone()
@@ -204,7 +209,7 @@ pub fn core_busy(text: &str, running: &str, busy: Vec<u16>) -> Core {
     let live = FakeLive {
         text: live_text,
         status: Mutex::new(Status::default()),
-        sessions: Mutex::new(Vec::new()),
+        sessions: Mutex::new(sessions),
         busy,
     };
     Core::new(Box::new(store), Box::new(live), Box::new(|_: &str| None))

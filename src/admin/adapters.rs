@@ -384,10 +384,11 @@ impl Live for ServerLive {
         self.0
             .client_sessions()
             .into_iter()
-            .map(|(client, secret_fp, from, _)| LiveSession {
-                client,
-                secret_fp,
-                from,
+            .map(|s| LiveSession {
+                client: s.name,
+                secret_fp: s.secret_fp,
+                from: s.from,
+                over_websocket: s.over_websocket,
             })
             .collect()
     }
@@ -396,7 +397,7 @@ impl Live for ServerLive {
         self.0
             .client_sessions()
             .into_iter()
-            .filter_map(|(c, _, _, allow)| allow.map(|a| (c, a)))
+            .filter_map(|s| s.allow.map(|a| (s.name, a)))
             .collect()
     }
 

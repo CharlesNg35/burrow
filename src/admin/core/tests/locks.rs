@@ -73,13 +73,18 @@ fn refused(core: &Core, s: &Session, ops: &[Op]) -> Vec<String> {
 }
 
 #[test]
-fn every_field_locked_before_stays_locked_and_the_web_proxy_keeps_its_ports_and_files() {
+fn every_field_locked_before_stays_locked_and_the_web_proxy_and_websocket_keep_their_files() {
     let core = core_for(&world().text);
     let now = core.schema.locked_paths();
-    for old in BEFORE_P2.iter().filter(|o| **o != ["web"]) {
+    for old in BEFORE_P2
+        .iter()
+        .filter(|o| **o != ["web"] && **o != ["websocket"])
+    {
         assert!(now.contains(&p(old)), "{old:?} is still locked: {now:?}");
     }
-    let finer: [&[&str]; 21] = [
+    let finer: [&[&str]; 23] = [
+        &["websocket", "tls", "cert"],
+        &["websocket", "tls", "key"],
         &["web", "letsencrypt", "ca"],
         &["web", "letsencrypt", "dns", "*", "cloudflare", "token"],
         &["web", "letsencrypt", "dns", "*", "rfc2136", "server"],
@@ -105,7 +110,7 @@ fn every_field_locked_before_stays_locked_and_the_web_proxy_keeps_its_ports_and_
     for f in finer {
         assert!(now.contains(&p(f)), "{f:?}: {now:?}");
     }
-    assert_eq!(now.len(), BEFORE_P2.len() - 1 + finer.len(), "{now:?}");
+    assert_eq!(now.len(), BEFORE_P2.len() - 2 + finer.len(), "{now:?}");
 }
 
 #[test]

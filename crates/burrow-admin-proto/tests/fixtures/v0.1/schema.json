@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:dd8b9ec743f53890",
+  "hash": "b2s:5308b1149cccdaef",
   "root": {
     "label": "Server",
     "sem": {
@@ -204,7 +204,6 @@
             },
             "applies": "reload",
             "group": "websocket",
-            "locked": true,
             "none_label": "Off"
           }
         },

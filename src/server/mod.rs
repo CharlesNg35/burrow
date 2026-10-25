@@ -81,6 +81,14 @@ pub struct Shared {
     certs: Arc<burrow_web::tls::Store>,
 }
 
+pub(crate) struct SessionInfo {
+    pub(crate) name: String,
+    pub(crate) secret_fp: String,
+    pub(crate) from: String,
+    pub(crate) allow: Option<Vec<String>>,
+    pub(crate) over_websocket: bool,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ApplyReport {
     pub seq: u64,
@@ -181,18 +189,17 @@ impl Shared {
         self.shutdown.clone()
     }
 
-    pub(crate) fn client_sessions(&self) -> Vec<(String, String, String, Option<Vec<String>>)> {
+    pub(crate) fn client_sessions(&self) -> Vec<SessionInfo> {
         self.sessions
             .lock()
             .expect("sessions lock")
             .values()
-            .map(|s| {
-                (
-                    s.name.clone(),
-                    s.secret.fingerprint(),
-                    s.peer.to_string(),
-                    s.allow(),
-                )
+            .map(|s| SessionInfo {
+                name: s.name.clone(),
+                secret_fp: s.secret.fingerprint(),
+                from: s.peer.to_string(),
+                allow: s.allow(),
+                over_websocket: s.over_websocket,
             })
             .collect()
     }

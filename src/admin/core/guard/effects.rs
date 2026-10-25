@@ -76,6 +76,7 @@ pub fn impacts(
     visitor_impacts(&cx, &mut out);
     setting_impacts(&cx, restart, &mut out);
     out.extend(super::web_ports::impacts(old, new));
+    out.extend(super::websocket::impacts(old, new, sessions));
     out
 }
 
@@ -444,15 +445,6 @@ fn setting_impacts(cx: &Before, restart: &[String], out: &mut Vec<Impact>) {
                 new.listen.map_or_else(|| "off".into(), |a| a.to_string())
             ),
             Some(ServerConfig::LISTEN.key().into()),
-        );
-    }
-    let ws = |s: &ServerSettings| s.websocket.as_ref().map(|w| (w.listen, w.path.clone()));
-    if ws(old) != ws(new) {
-        push(
-            Level::Danger,
-            "changes-websocket",
-            "changes the WebSocket listener; clients connected through it reconnect".to_string(),
-            Some(ServerConfig::WEBSOCKET.key().into()),
         );
     }
     if new.insecure_plaintext != old.insecure_plaintext {

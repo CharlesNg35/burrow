@@ -44,6 +44,7 @@ pub struct LiveSession {
     pub client: String,
     pub secret_fp: String,
     pub from: String,
+    pub over_websocket: bool,
 }
 
 pub trait Live: Send + Sync {

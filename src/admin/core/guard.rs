@@ -1,6 +1,7 @@
 mod effects;
 mod grants;
 mod web_ports;
+mod websocket;
 
 use std::net::SocketAddr;
 use std::path::Path;
@@ -98,12 +99,11 @@ pub fn refusals(who: &Who, change: &Change) -> Vec<Refusal> {
         ));
     }
     if who.via_websocket {
-        let kept =
-            matches!((&old.websocket, &new.websocket), (Some(a), Some(b)) if a.path == b.path);
+        let kept = matches!((&old.websocket, &new.websocket), (Some(a), Some(b)) if a.path == b.path && a.listen == b.listen);
         if !kept {
             out.push(refusal(
                 SELF_TRANSPORT,
-                "this session comes through the WebSocket listener, and this change removes it or changes its path".into(),
+                "this session comes through the WebSocket listener, and this change turns it off or changes its address or path; make that change in the config file on the server".into(),
             ));
         }
     } else if new.listen.is_none() && old.listen.is_some() {

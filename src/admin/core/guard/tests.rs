@@ -93,6 +93,7 @@ fn removing_the_secret_a_client_is_connected_with_disconnects_it() {
         client: "home".into(),
         secret_fp: w.home.fingerprint(),
         from: "198.51.100.4:1".into(),
+        over_websocket: false,
     }];
     let i = impacts(&old, &new, &Status::default(), &live, &[], &[]);
     assert!(
@@ -514,6 +515,7 @@ fn renaming_a_connected_client_says_it_is_locked_out_until_its_config_says_the_n
         client: "home".into(),
         secret_fp: String::new(),
         from: "198.51.100.4:1".into(),
+        over_websocket: false,
     }];
     let status = Status {
         clients: vec![crate::metrics::ClientStatus {

@@ -60,8 +60,7 @@ pub struct ServerConfig {
         label = "WebSocket listener",
         group = websocket,
         applies = reload,
-        none_label = "Off",
-        locked
+        none_label = "Off"
     )]
     pub websocket: Option<WebSocketConfig>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
