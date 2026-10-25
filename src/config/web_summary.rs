@@ -180,7 +180,33 @@ pub fn summary(s: &ServerSettings) -> Option<WebSummary> {
         tunnel,
         hosts,
         http_note: http_note(web),
+        account: String::new(),
     })
+}
+
+#[cfg(feature = "web")]
+pub fn account_url(s: &ServerSettings) -> String {
+    use burrow_web::tls::acme::account::{Saved, saved};
+    let Some(le) = s.web.as_ref().and_then(|w| w.letsencrypt.as_ref()) else {
+        return String::new();
+    };
+    let Some(state) = le.state_dir.as_deref() else {
+        return String::new();
+    };
+    let ca = match le.directory.as_str() {
+        LETSENCRYPT_PRODUCTION | LETSENCRYPT_STAGING => "letsencrypt.org",
+        _ => "the CA's name",
+    };
+    match saved(state, &le.directory) {
+        Saved::Account(url) => format!(
+            "{url}; a CAA record can let only this account get certificates: issue \"{ca}; accounturi={url}\""
+        ),
+        Saved::NotYet => "created on the first start; burrow status and validate then show its URL for a CAA accounturi record".into(),
+        Saved::Unreadable(e) => format!(
+            "not shown, this user cannot read {} ({e}); burrow status shows it",
+            state.display()
+        ),
+    }
 }
 
 pub fn text(s: &WebSummary) -> String {

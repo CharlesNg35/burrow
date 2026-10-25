@@ -175,7 +175,7 @@ web:
 - **Renewal** happens by itself, at the time Let's Encrypt suggests (ARI), else after two thirds of a certificate's life. A failed try is retried after 1 minute, 10 minutes, 100 minutes, then daily, and the old certificate keeps being served, even after it expires.
 - **No duplicates:** certificates are kept by their names. A restart, a renamed service or a name moved to another service orders nothing new, and at most 4 new certificates per set of names are ordered in 7 days.
 - **Where they are kept:** a private folder that `burrow status` names. An installed service keeps it in `/var/lib/burrow/<name>` on Linux, `/Library/Application Support/burrow/<name>` on macOS, `%ProgramData%\burrow\services\<name>` on Windows; `burrow service uninstall` keeps it and only `--purge` deletes it. A server run by hand uses one folder per config file; `burrow server --state-dir DIR` picks another.
-- **The account** is shown in `burrow status`, for a CAA DNS record with `accounturi` that lets only this account get certificates for your domain.
+- **The account** is shown in `burrow status` and `burrow validate` (once the first start has created it), for a CAA DNS record with `accounturi` that lets only this account get certificates for your domain.
 
 ### When a certificate fails
 

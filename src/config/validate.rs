@@ -72,6 +72,14 @@ pub fn summary_line(outcome: &Outcome, strict: bool) -> String {
 
 fn web_summary(outcome: &Outcome) -> Option<crate::config::web_summary::WebSummary> {
     match &outcome.loaded {
+        #[cfg(feature = "web")]
+        Some(Loaded::Server(s, _)) => {
+            crate::config::web_summary::summary(s).map(|w| crate::config::web_summary::WebSummary {
+                account: crate::config::web_summary::account_url(s),
+                ..w
+            })
+        }
+        #[cfg(not(feature = "web"))]
         Some(Loaded::Server(s, _)) => crate::config::web_summary::summary(s),
         _ => None,
     }

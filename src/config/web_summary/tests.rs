@@ -186,3 +186,66 @@ fn a_tunnel_on_the_plain_http_port_says_it_is_burrow_encrypted() {
         Some("ws://tunnel.example.com/burrow")
     );
 }
+
+#[test]
+fn validate_shows_the_acme_account_url_once_the_state_folder_holds_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut s = settings(
+        dir.path(),
+        "listen: 7835\nweb:\n  https: 443\n  letsencrypt: { email: ops@example.com }\nservices:\n  shop: { client: home, target: 8081, web: shop.example.com }\n",
+    );
+    let state = dir.path().join("state");
+    s.web
+        .as_mut()
+        .unwrap()
+        .letsencrypt
+        .as_mut()
+        .unwrap()
+        .state_dir = Some(state.clone());
+    assert_eq!(
+        account_url(&s),
+        "created on the first start; burrow status and validate then show its URL for a CAA accounturi record"
+    );
+    let at = burrow_web::tls::acme::storage::account_dir(&state, LETSENCRYPT_PRODUCTION);
+    std::fs::create_dir_all(&at).unwrap();
+    let url = "https://acme-v02.api.letsencrypt.org/acme/acct/42";
+    let key = pkcs8();
+    std::fs::write(
+        at.join("account.json"),
+        format!("{{\"id\": \"{url}\", \"key_pkcs8\": \"{key}\"}}"),
+    )
+    .unwrap();
+    let shown = account_url(&s);
+    assert_eq!(
+        shown,
+        format!(
+            "{url}; a CAA record can let only this account get certificates: issue \"letsencrypt.org; accounturi={url}\""
+        )
+    );
+    assert!(!shown.contains(&key), "no key material");
+    let summary = WebSummary {
+        account: shown,
+        ..summary(&s).unwrap()
+    };
+    assert!(
+        summary.lines()[2].starts_with(&format!("account: {url}")),
+        "{:?}",
+        summary.lines()
+    );
+    std::fs::remove_file(at.join("account.json")).unwrap();
+    std::fs::create_dir(at.join("account.json")).unwrap();
+    assert!(
+        account_url(&s).starts_with(&format!(
+            "not shown, this user cannot read {}",
+            state.display()
+        )),
+        "{}",
+        account_url(&s)
+    );
+}
+
+fn pkcs8() -> String {
+    use base64::Engine;
+    let key = rcgen::KeyPair::generate().unwrap();
+    base64::prelude::BASE64_URL_SAFE_NO_PAD.encode(key.serialize_der())
+}

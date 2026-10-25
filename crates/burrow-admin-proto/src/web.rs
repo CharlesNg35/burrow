@@ -22,6 +22,8 @@ pub struct WebSummary {
     pub hosts: Vec<HostLine>,
     #[serde(default)]
     pub http_note: String,
+    #[serde(default)]
+    pub account: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -77,6 +79,9 @@ impl WebSummary {
         let mut out = vec![self.head()];
         if !self.certificates.is_empty() {
             out.push(format!("certificates: {}", self.certificates));
+        }
+        if !self.account.is_empty() {
+            out.push(format!("account: {}", self.account));
         }
         if let Some(t) = &self.tunnel {
             out.push(format!("tunnel: {} ({})", t.url, t.certificate));

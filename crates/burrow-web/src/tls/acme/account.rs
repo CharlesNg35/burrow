@@ -12,6 +12,32 @@ pub struct Opened {
     pub created: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Saved {
+    Account(String),
+    NotYet,
+    Unreadable(String),
+}
+
+#[derive(serde::Deserialize)]
+struct SavedId {
+    id: String,
+}
+
+fn credentials(saved: &[u8]) -> Option<(AccountCredentials, String)> {
+    let creds = serde_json::from_slice::<AccountCredentials>(saved).ok()?;
+    let id = serde_json::from_slice::<SavedId>(saved).ok()?.id;
+    Some((creds, id))
+}
+
+pub fn saved(state: &Path, directory: &str) -> Saved {
+    match std::fs::read(account_dir(state, directory).join("account.json")) {
+        Ok(bytes) => credentials(&bytes).map_or(Saved::NotYet, |(_, id)| Saved::Account(id)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Saved::NotYet,
+        Err(e) => Saved::Unreadable(e.to_string()),
+    }
+}
+
 pub async fn open(
     client: &Client,
     state: &Path,
@@ -29,7 +55,7 @@ pub async fn open(
         .map_err(|e| e.to_string())?
     };
     if let (Some(saved), _) = &read
-        && let Ok(creds) = serde_json::from_slice::<AccountCredentials>(saved)
+        && let Some((creds, _)) = credentials(saved)
     {
         let account = Account::builder_with_http(Box::new(client.clone()))
             .from_credentials(creds)
@@ -89,6 +115,35 @@ fn pem_of(key: &PrivatePkcs8KeyDer<'_>) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_saved_account_shows_its_url_and_nothing_of_its_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let directory = "https://acme.example/directory";
+        assert_eq!(saved(dir.path(), directory), Saved::NotYet);
+        let (_, key) = Key::generate_pkcs8().unwrap();
+        let creds = serde_json::json!({
+            "id": "https://acme.example/acct/42",
+            "key_pkcs8": base64::Engine::encode(&base64::prelude::BASE64_URL_SAFE_NO_PAD, key.secret_pkcs8_der()),
+            "directory": directory,
+        });
+        let at = account_dir(dir.path(), directory);
+        std::fs::create_dir_all(&at).unwrap();
+        std::fs::write(at.join("account.json"), creds.to_string()).unwrap();
+        assert_eq!(
+            saved(dir.path(), directory),
+            Saved::Account("https://acme.example/acct/42".into())
+        );
+        assert_eq!(
+            saved(dir.path(), "https://other.example/directory"),
+            Saved::NotYet
+        );
+        std::fs::write(at.join("account.json"), "{}").unwrap();
+        assert_eq!(saved(dir.path(), directory), Saved::NotYet);
+        std::fs::remove_file(at.join("account.json")).unwrap();
+        std::fs::create_dir(at.join("account.json")).unwrap();
+        assert!(matches!(saved(dir.path(), directory), Saved::Unreadable(_)));
+    }
 
     #[test]
     fn the_account_key_is_written_as_pkcs8_pem_that_reads_back() {
