@@ -131,13 +131,13 @@ async fn shared_wildcard_over_rfc2136(p: &Pebble) {
 async fn cname_into_a_zone_the_entry_writes(p: &Pebble) {
     let state = tempfile::tempdir().unwrap();
     let mut ps = ProxySettings::new("127.0.0.1:443".parse().unwrap());
-    ps.sites = vec![site("erp", &["erp.corp.test"])];
+    ps.sites = vec![site("erp", &["erp.example.test"])];
     ps.certs.choices.insert("erp".into(), Challenge::Dns);
-    let dns = vec![entry(&["example.test", "corp.test"], rfc2136(SECRET), &[])];
+    let dns = vec![entry(&["example.test"], rfc2136(SECRET), &[])];
     ps.certs.acme = Some(acme(p, state.path(), dns));
     let store = run(&ps, reach(None)).await;
-    until(&store, "erp.corp.test", |s| s.phase == CertPhase::Ok).await;
-    no_txt("erp.example.test").await;
+    until(&store, "erp.example.test", |s| s.phase == CertPhase::Ok).await;
+    no_txt("acme-target.example.test").await;
 }
 
 async fn cloudflare_mock(p: &Pebble) {

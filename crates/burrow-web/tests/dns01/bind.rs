@@ -47,10 +47,6 @@ zone "example.test" {
   file "/var/cache/bind/example.test.zone";
   update-policy { grant burrow-key subdomain example.test. TXT; };
 };
-zone "corp.test" {
-  type primary;
-  file "/var/cache/bind/corp.test.zone";
-};
 "#;
 
 impl Bind {
@@ -66,15 +62,7 @@ impl Bind {
             dir.path().join("example.test.zone"),
             zone(
                 "example.test",
-                "ns IN A 127.0.0.1\n*.example.test. IN A 127.0.0.1\n",
-            ),
-        )
-        .unwrap();
-        std::fs::write(
-            dir.path().join("corp.test.zone"),
-            zone(
-                "corp.test",
-                "erp IN A 127.0.0.1\n_acme-challenge.erp IN CNAME erp.example.test.\n",
+                "ns IN A 127.0.0.1\n*.example.test. IN A 127.0.0.1\n_acme-challenge.erp IN CNAME acme-target.example.test.\n",
             ),
         )
         .unwrap();
