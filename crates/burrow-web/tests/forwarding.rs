@@ -224,46 +224,12 @@ async fn one_proxy_connection_carrying_two_visitors_checks_each_of_them() {
         .unwrap();
     let ask =
         |ip: &str| format!("GET / HTTP/1.1\r\nHost: example.com\r\nX-Forwarded-For: {ip}\r\n\r\n");
-    let first = read_one(&mut t, &ask("203.0.113.9")).await;
+    let first = read_response(&mut t, &ask("203.0.113.9")).await;
     assert!(first.starts_with("HTTP/1.1 200"), "{first}");
     assert!(first.contains("x-real-ip: 203.0.113.9\n"), "{first}");
-    let second = read_one(&mut t, &ask("198.51.100.66")).await;
+    let second = read_response(&mut t, &ask("198.51.100.66")).await;
     assert!(second.starts_with("HTTP/1.1 403"), "{second}");
-    let third = read_one(&mut t, &ask("203.0.113.10")).await;
+    let third = read_response(&mut t, &ask("203.0.113.10")).await;
     assert!(third.contains("x-real-ip: 203.0.113.10\n"), "{third}");
     assert_eq!(app.connections.load(std::sync::atomic::Ordering::SeqCst), 2);
-}
-
-async fn read_one<S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin>(
-    s: &mut S,
-    req: &str,
-) -> String {
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    s.write_all(req.as_bytes()).await.unwrap();
-    let mut out = Vec::new();
-    let mut buf = [0u8; 4096];
-    loop {
-        let n = tokio::time::timeout(Duration::from_secs(5), s.read(&mut buf))
-            .await
-            .unwrap()
-            .unwrap();
-        out.extend_from_slice(&buf[..n]);
-        let text = String::from_utf8_lossy(&out).into_owned();
-        if let Some(head_end) = text.find("\r\n\r\n") {
-            let len = text[..head_end]
-                .lines()
-                .find_map(|l| {
-                    l.to_ascii_lowercase()
-                        .strip_prefix("content-length: ")
-                        .map(|v| v.trim().parse::<usize>().unwrap())
-                })
-                .unwrap_or(0);
-            if out.len() >= head_end + 4 + len {
-                return text;
-            }
-        }
-        if n == 0 {
-            return text;
-        }
-    }
 }

@@ -510,3 +510,36 @@ impl burrow_web::tls::Certificates for Scripted {
         Vec::new()
     }
 }
+
+pub async fn read_response<S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin>(
+    s: &mut S,
+    req: &str,
+) -> String {
+    s.write_all(req.as_bytes()).await.unwrap();
+    let mut out = Vec::new();
+    let mut buf = [0u8; 4096];
+    loop {
+        let n = tokio::time::timeout(std::time::Duration::from_secs(5), s.read(&mut buf))
+            .await
+            .unwrap()
+            .unwrap();
+        out.extend_from_slice(&buf[..n]);
+        let text = String::from_utf8_lossy(&out).into_owned();
+        if let Some(end) = text.find("\r\n\r\n") {
+            let len = text[..end]
+                .lines()
+                .find_map(|l| {
+                    l.to_ascii_lowercase()
+                        .strip_prefix("content-length: ")
+                        .map(|v| v.trim().parse::<usize>().unwrap())
+                })
+                .unwrap_or(0);
+            if out.len() >= end + 4 + len {
+                return text;
+            }
+        }
+        if n == 0 {
+            return text;
+        }
+    }
+}
