@@ -28,13 +28,7 @@ async fn the_ninth_connection_is_turned_away_while_eight_stay_served() {
     let w = world().await;
     let v = visitor(&w, "viewer", &w.viewer);
     let h = start(&v, &["--no-print-token"]).await;
-    let token = std::fs::read_dir(v.sessions())
-        .unwrap()
-        .flatten()
-        .map(|e| e.path())
-        .find(|p| p.extension().is_some_and(|x| x == "token"))
-        .map(|p| std::fs::read_to_string(p).unwrap().trim().to_string())
-        .unwrap();
+    let token = token_of(&v);
     let body = modern("tools/list", "2026-07-28");
     let full = head(h.port, &token, body.len()) + &body;
     let (first, rest) = full.split_at(20);
@@ -85,6 +79,106 @@ async fn half_a_header_is_cut_after_the_header_timeout() {
     assert!(
         took >= limit - Duration::from_secs(1) && took < limit + Duration::from_secs(3),
         "half a header was cut after {took:?}"
+    );
+    let _ = w.stop.send(true);
+}
+
+fn token_of(v: &super::Visitor) -> String {
+    std::fs::read_dir(v.sessions())
+        .unwrap()
+        .flatten()
+        .map(|e| e.path())
+        .find(|p| p.extension().is_some_and(|x| x == "token"))
+        .map(|p| std::fs::read_to_string(p).unwrap().trim().to_string())
+        .unwrap()
+}
+
+#[tokio::test]
+async fn trickling_bodies_are_cut_and_a_good_client_gets_in_after_them() {
+    let w = world().await;
+    let v = visitor(&w, "viewer", &w.viewer);
+    let h = start(&v, &["--no-print-token"]).await;
+    let token = token_of(&v);
+    let mut tricklers = Vec::new();
+    for _ in 0..burrow::mcp::http::MAX_OPEN {
+        let mut s = TcpStream::connect(("127.0.0.1", h.port)).await.unwrap();
+        s.write_all(head(h.port, &token, 1000).as_bytes())
+            .await
+            .unwrap();
+        s.write_all(b"{").await.unwrap();
+        tricklers.push(s);
+    }
+    let started = Instant::now();
+    let keep = tokio::spawn(async move {
+        let mut cut = 0;
+        for mut s in tricklers {
+            let mut out = Vec::new();
+            loop {
+                if s.write_all(b" ").await.is_err() {
+                    break;
+                }
+                match tokio::time::timeout(Duration::from_millis(500), s.read_to_end(&mut out))
+                    .await
+                {
+                    Ok(_) => break,
+                    Err(_) => continue,
+                }
+            }
+            let text = String::from_utf8_lossy(&out).into_owned();
+            assert!(
+                text.is_empty() || text.starts_with("HTTP/1.1 408"),
+                "{text}"
+            );
+            cut += 1;
+        }
+        cut
+    });
+    let body = modern("tools/list", "2026-07-28");
+    let full = head(h.port, &token, body.len()) + &body;
+    let mut served = String::new();
+    while started.elapsed() < Duration::from_secs(30) {
+        let mut s = TcpStream::connect(("127.0.0.1", h.port)).await.unwrap();
+        s.write_all(full.as_bytes()).await.unwrap();
+        let (got, _) = answer(&mut s, Duration::from_secs(5)).await;
+        if got.starts_with("HTTP/1.1 200") {
+            served = got;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+    assert!(
+        served.starts_with("HTTP/1.1 200"),
+        "a good client never got in"
+    );
+    let waited = started.elapsed();
+    let limit = burrow::mcp::http::BODY_TIMEOUT;
+    assert!(
+        waited >= limit - Duration::from_secs(1),
+        "the slots were free too early: {waited:?}"
+    );
+    assert!(waited < limit + Duration::from_secs(8), "{waited:?}");
+    assert_eq!(keep.await.unwrap(), burrow::mcp::http::MAX_OPEN);
+    let _ = w.stop.send(true);
+}
+
+#[tokio::test]
+async fn a_refused_request_is_answered_and_closed_without_reading_its_body() {
+    let w = world().await;
+    let v = visitor(&w, "viewer", &w.viewer);
+    let h = start(&v, &["--no-print-token"]).await;
+    let mut s = TcpStream::connect(("127.0.0.1", h.port)).await.unwrap();
+    s.write_all(head(h.port, "wrong", 100_000).as_bytes())
+        .await
+        .unwrap();
+    let (got, took) = answer(&mut s, Duration::from_secs(5)).await;
+    assert!(got.starts_with("HTTP/1.1 401"), "{got}");
+    assert!(
+        got.to_ascii_lowercase().contains("connection: close"),
+        "{got}"
+    );
+    assert!(
+        took < Duration::from_secs(2),
+        "the connection stayed open for the body: {took:?}"
     );
     let _ = w.stop.send(true);
 }

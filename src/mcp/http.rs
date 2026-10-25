@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use bytes::Bytes;
-use http_body_util::{BodyExt, Full, combinators::BoxBody};
+use http_body_util::{BodyExt, Full, LengthLimitError, Limited, combinators::BoxBody};
 use hyper::body::Incoming;
 use hyper::service::service_fn;
 use hyper::{Request, Response, StatusCode};
@@ -21,6 +21,8 @@ pub const ENDPOINT: &str = "/mcp";
 pub const MAX_BODY: usize = 1024 * 1024;
 pub const MAX_OPEN: usize = 8;
 pub const HEADER_TIMEOUT: Duration = Duration::from_secs(5);
+pub const BODY_TIMEOUT: Duration = Duration::from_secs(10);
+const SLACK: Duration = Duration::from_secs(10);
 const MAX_HEAD: usize = 16 * 1024;
 
 type Body = BoxBody<Bytes, Infallible>;
@@ -30,7 +32,8 @@ fn plain(code: StatusCode, text: &str, extra: Option<(&str, &str)>) -> Response<
     let mut b = Response::builder()
         .status(code)
         .header("Content-Type", "text/plain; charset=utf-8")
-        .header("Cache-Control", "no-store");
+        .header("Cache-Control", "no-store")
+        .header("Connection", "close");
     if let Some((k, v)) = extra {
         b = b.header(k, v);
     }
@@ -59,7 +62,28 @@ async fn handle(req: Request<Incoming>, token: &Path, mcp: &Mcp) -> Response<Bod
             Some(("WWW-Authenticate", "Bearer")),
         );
     }
-    mcp.handle(req).await
+    let (parts, body) = req.into_parts();
+    let read = Limited::new(body, MAX_BODY).collect();
+    let bytes = match tokio::time::timeout(BODY_TIMEOUT, read).await {
+        Ok(Ok(b)) => b.to_bytes(),
+        Ok(Err(e)) if e.is::<LengthLimitError>() => {
+            return plain(
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "the request body is too large",
+                None,
+            );
+        }
+        Ok(Err(_)) => return plain(StatusCode::BAD_REQUEST, "the request body broke off", None),
+        Err(_) => {
+            return plain(
+                StatusCode::REQUEST_TIMEOUT,
+                "the request body came too slowly",
+                None,
+            );
+        }
+    };
+    mcp.handle(Request::from_parts(parts, Full::new(bytes)))
+        .await
 }
 
 fn service(tools: Tools, port: u16) -> Mcp {
@@ -93,8 +117,11 @@ async fn connection(stream: tokio::net::TcpStream, token: Arc<PathBuf>, mcp: Mcp
         .timer(TokioTimer::new())
         .header_read_timeout(HEADER_TIMEOUT)
         .max_buf_size(MAX_HEAD)
+        .keep_alive(false)
         .auto_date_header(false);
-    let _ = builder.serve_connection(TokioIo::new(stream), svc).await;
+    let longest = HEADER_TIMEOUT + BODY_TIMEOUT + crate::admin_link::client::ANSWER + SLACK;
+    let served = builder.serve_connection(TokioIo::new(stream), svc);
+    let _ = tokio::time::timeout(longest, served).await;
 }
 
 pub struct Started<'a> {
