@@ -280,6 +280,7 @@ pub(super) fn check_sites(
     out: &mut Vec<Diagnostic>,
 ) -> BTreeMap<String, WebSite> {
     let mut sites = BTreeMap::new();
+    health::check_health_paths(cfg, https.is_some(), spans, out);
     if !BUILT_WITH_WEB {
         no_web_proxy_for_sites(cfg, spans, out);
         return sites;
@@ -393,6 +394,7 @@ mod dns_secrets;
 mod fill;
 mod fill_dns;
 mod fill_site;
+mod health;
 mod hosts;
 #[cfg(feature = "web")]
 mod letsencrypt;
@@ -432,6 +434,9 @@ mod tests_files;
 
 #[cfg(all(test, feature = "web"))]
 mod tests_fixtures;
+
+#[cfg(all(test, feature = "web"))]
+mod tests_health;
 
 #[cfg(all(test, feature = "web"))]
 mod tests_keys;

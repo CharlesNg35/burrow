@@ -102,6 +102,9 @@ pub(super) fn check_site_keys(
             passthrough(site, &at, out);
             continue;
         }
+        if site.target_http2 {
+            grpc_notes(name, served, top.http2 == Some(false), &at, out);
+        }
         if served == Served::Plain && site.hsts == Some(true) {
             let off = matches!(
                 site.tls,
@@ -145,8 +148,9 @@ pub(super) fn check_site_keys(
 }
 
 fn passthrough(site: &WebSite, at: &At<'_>, out: &mut Vec<Diagnostic>) {
-    let set: [(&str, bool); 13] = [
+    let set: [(&str, bool); 14] = [
         ("paths", !site.paths.is_empty()),
+        ("target_http2", site.target_http2),
         ("app_path", site.app_path.is_some()),
         ("redirect_from", !site.redirect_from.is_empty()),
         ("redirects", !site.redirects.is_empty()),
@@ -472,4 +476,25 @@ fn not_a_ca(pem: &[u8]) -> Option<String> {
 #[cfg(not(feature = "web"))]
 fn not_a_ca(_pem: &[u8]) -> Option<String> {
     None
+}
+
+fn grpc_notes(name: &str, served: Served, http2_off: bool, at: &At<'_>, out: &mut Vec<Diagnostic>) {
+    let field = format!("services.{name}.web.target_http2");
+    let mut note = |message: String| {
+        out.push(
+            Diagnostic::warning("grpc-reach", message)
+                .at(at.value(&["target_http2"]))
+                .help("target_http2 also serves apps that only want HTTP/2 from burrow, so this is a note"),
+        );
+    };
+    if http2_off {
+        note(format!(
+            "{field}: web.http2 is false, so gRPC clients cannot reach this site (gRPC needs HTTP/2); turn http2 on"
+        ));
+    }
+    if served == Served::Plain {
+        note(format!(
+            "{field}: this site has tls: off; gRPC clients cannot connect, burrow accepts HTTP/2 from visitors only over TLS"
+        ));
+    }
 }
