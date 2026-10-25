@@ -58,7 +58,7 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
         .extension()
         .and_then(|e| e.to_str())
         .unwrap_or("yaml");
-    let short = name.strip_prefix("burrow-").unwrap_or(&name).to_string();
+    let short = crate::install::short_name(&name).to_string();
     let folder = platform.config_dir().join(&short);
     let writable =
         checked.role == Role::Server && (opts.admin_writable || !checked.admins.is_empty());

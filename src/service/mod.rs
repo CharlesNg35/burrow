@@ -172,12 +172,8 @@ pub fn service_name(config: &Path, given: Option<&str>) -> Result<String, Failur
                 .hint("pass --name with 1-48 letters, digits or dashes"),
         );
     }
-    let name = if clean == "burrow" || clean.starts_with("burrow-") {
-        clean
-    } else {
-        format!("burrow-{clean}")
-    };
-    let short = name.strip_prefix("burrow-").unwrap_or(&name);
+    let name = crate::install::service_name(&clean);
+    let short = crate::install::short_name(&name);
     if OWN_FOLDERS.contains(&short) {
         let source = if given.is_some() {
             "--name"

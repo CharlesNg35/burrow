@@ -16,7 +16,7 @@ pub enum Found {
 }
 
 fn same(name: &str, wanted: &str) -> bool {
-    name == wanted || name.strip_prefix("burrow-") == Some(wanted)
+    name == wanted || crate::install::short_name(name) == wanted
 }
 
 pub fn choose(

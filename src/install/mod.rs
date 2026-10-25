@@ -36,7 +36,7 @@ pub struct Manifest {
 
 impl Manifest {
     pub fn short(&self) -> &str {
-        self.name.strip_prefix("burrow-").unwrap_or(&self.name)
+        short_name(&self.name)
     }
 
     pub fn folder(&self) -> &Path {
@@ -51,6 +51,23 @@ impl Manifest {
     }
 }
 
+pub const SERVICE_PREFIX: &str = "burrow-";
+
+pub fn is_service_name(name: &str) -> bool {
+    name == "burrow" || name.starts_with(SERVICE_PREFIX)
+}
+
+pub fn service_name(short: &str) -> String {
+    match is_service_name(short) {
+        true => short.to_string(),
+        false => format!("{SERVICE_PREFIX}{short}"),
+    }
+}
+
+pub fn short_name(name: &str) -> &str {
+    name.strip_prefix(SERVICE_PREFIX).unwrap_or(name)
+}
+
 pub fn manifest_path(name: &str) -> PathBuf {
     Platform::current().state_dir().join(format!("{name}.json"))
 }
@@ -60,7 +77,7 @@ pub(crate) fn trustworthy(m: &Manifest, file: &Path) -> bool {
     let in_dir = |path: &Path, dir: &Path| path.parent() == Some(dir);
     let own_dir = p.config_dir().join(m.short());
     file.file_stem().is_some_and(|s| *s == *m.name)
-        && (m.name == "burrow" || m.name.starts_with("burrow-"))
+        && is_service_name(&m.name)
         && in_dir(&m.config, &own_dir)
         && m.env_file
             .as_deref()
@@ -134,4 +151,20 @@ pub fn writable_hint(config: &Path) -> String {
 
 pub fn in_service_folder(config: &Path) -> bool {
     config.parent().and_then(Path::parent) == Some(Platform::current().config_dir().as_path())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn service_names_carry_the_burrow_prefix_once() {
+        assert_eq!(service_name("home"), "burrow-home");
+        assert_eq!(service_name("burrow-home"), "burrow-home");
+        assert_eq!(service_name("burrow"), "burrow");
+        assert_eq!(short_name("burrow-home"), "home");
+        assert_eq!(short_name("home"), "home");
+        assert!(is_service_name("burrow") && is_service_name("burrow-x"));
+        assert!(!is_service_name("burrowed") && !is_service_name("nginx"));
+    }
 }
