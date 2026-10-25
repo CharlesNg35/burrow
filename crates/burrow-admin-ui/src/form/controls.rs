@@ -1,14 +1,12 @@
-use burrow_admin_logic::tree::inner;
 use burrow_admin_proto::Path;
-use burrow_admin_proto::schema::{Node, SemType};
+use burrow_admin_proto::schema::Node;
 use burrow_admin_proto::serde_json::Value;
-use burrow_syntax::duration::human;
 use burrow_ui_kit::FieldRow;
 use leptos::prelude::*;
 
 use crate::store::store;
 
-use super::{SERVICE_VISITORS, editing_now, field_id, join, plain};
+use super::{SERVICE_VISITORS, editing_now, field_id, join};
 
 pub(super) fn object_toggle(
     path: Path,
@@ -140,31 +138,14 @@ pub(super) fn locked_box(node: Node, path: Path, id: String) -> AnyView {
                 {move || {
                     let v = e.value(&path);
                     match v.or_else(|| node.default.clone()) {
-                        Some(v) => locked_text(&node, &v),
-                        None => node.none_label.clone().unwrap_or_else(|| "not set".into()),
+                        Some(v) => super::view::scalar_text(&node, &v),
+                        None => node.none_label.clone().unwrap_or_else(|| super::view::NOT_SET.into()),
                     }
                 }}
             </span>
         </div>
     }
     .into_any()
-}
-
-pub fn locked_text(node: &Node, v: &Value) -> String {
-    match (&inner(node).sem, v) {
-        (SemType::Bool, Value::Bool(b)) => {
-            if *b {
-                "on".into()
-            } else {
-                "off".into()
-            }
-        }
-        (SemType::Duration(c), Value::Number(n)) => n
-            .as_u64()
-            .map(|n| human(n, burrow_admin_logic::input::time_unit(c.unit)))
-            .unwrap_or_else(|| plain(v)),
-        _ => plain(v),
-    }
 }
 
 pub(super) fn reset_button(path: Path) -> impl IntoView {
