@@ -14,6 +14,7 @@ pub enum Page {
     NotFound,
     Misdirected,
     TooLarge,
+    HeadersTooLarge,
     TooMany,
     BadGateway,
     Unavailable,
@@ -33,6 +34,7 @@ impl Page {
             Page::NotFound => StatusCode::NOT_FOUND,
             Page::Misdirected => StatusCode::MISDIRECTED_REQUEST,
             Page::TooLarge => StatusCode::PAYLOAD_TOO_LARGE,
+            Page::HeadersTooLarge => StatusCode::REQUEST_HEADER_FIELDS_TOO_LARGE,
             Page::TooMany => StatusCode::TOO_MANY_REQUESTS,
             Page::BadGateway => StatusCode::BAD_GATEWAY,
             Page::Unavailable | Page::Busy | Page::Pending | Page::Maintenance => {
@@ -58,6 +60,10 @@ impl Page {
                 "This connection belongs to another site; open the address again.",
             ),
             Page::TooLarge => ("Too large", "The upload is too large for this site."),
+            Page::HeadersTooLarge => (
+                "Too many headers",
+                "The browser sent more request headers than this site takes.",
+            ),
             Page::TooMany => (
                 "Too many requests",
                 "Too many requests from your address; wait a moment.",
@@ -181,6 +187,7 @@ mod tests {
             (Page::BadRequest, 400),
             (Page::Forbidden, 403),
             (Page::Misdirected, 421),
+            (Page::HeadersTooLarge, 431),
         ];
         for (page, code) in all {
             let r = page.response();

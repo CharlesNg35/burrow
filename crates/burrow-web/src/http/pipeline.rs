@@ -11,7 +11,7 @@ use super::host::request_host;
 use super::pages::Page;
 use super::redirect;
 use super::stages::{Asked, to_service};
-use super::{Body, Conn, full};
+use super::{Body, Conn, MAX_HEADERS, full};
 use crate::Upstream;
 use crate::listen::Shared;
 use crate::route::{Action, Kind, Table};
@@ -25,6 +25,9 @@ pub(crate) async fn handle<U: Upstream>(
     conn: &Conn,
     mut req: Request<Incoming>,
 ) -> Response<Body> {
+    if req.headers().len() > MAX_HEADERS {
+        return Page::HeadersTooLarge.response();
+    }
     let Some(host) = request_host(req.uri(), req.headers()) else {
         return Page::BadRequest.response();
     };
