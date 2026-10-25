@@ -13,6 +13,7 @@ use hyper_util::rt::{TokioIo, TokioTimer};
 use tracing::debug;
 
 use super::idle::{Activity, Busy, Held, Watched};
+use super::stall::Stalls;
 use super::upstream::Upstreams;
 use super::{Body, MAX_HEAD, MAX_HEADERS, pipeline};
 use crate::Upstream;
@@ -34,6 +35,7 @@ pub(crate) struct Conn {
     pub name: Option<String>,
     pub ups: Upstreams,
     pub activity: Arc<Activity>,
+    pub stalls: Stalls,
 }
 
 impl Conn {
@@ -44,6 +46,7 @@ impl Conn {
             name,
             ups: Upstreams::default(),
             activity: Activity::new(),
+            stalls: Stalls::new(),
         }
     }
 }
@@ -52,6 +55,10 @@ type Wrap = fn(&Conn, Body, Busy) -> Body;
 
 fn held(_: &Conn, body: Body, busy: Busy) -> Body {
     Held::new(body, busy).boxed()
+}
+
+fn watched(conn: &Conn, body: Body, busy: Busy) -> Body {
+    conn.stalls.watch(body, busy).boxed()
 }
 
 fn service<U: Upstream>(
@@ -98,12 +105,12 @@ pub(crate) async fn serve<U: Upstream>(
                 .serve_connection(io, service(&shared, &conn, held))
                 .with_upgrades();
             let served = std::pin::pin!(served);
-            run(&shared, &conn, served, |s| s.graceful_shutdown()).await;
+            run(&shared, &conn, served, |s| s.graceful_shutdown(), false).await;
         }
         Proto::H2 => {
-            let served = super::h2::server().serve_connection(io, service(&shared, &conn, held));
+            let served = super::h2::server().serve_connection(io, service(&shared, &conn, watched));
             let served = std::pin::pin!(served);
-            run(&shared, &conn, served, |s| s.graceful_shutdown()).await;
+            run(&shared, &conn, served, |s| s.graceful_shutdown(), true).await;
         }
     }
 }
@@ -113,6 +120,7 @@ async fn run<U: Upstream, F: Future<Output = hyper::Result<()>>>(
     conn: &Conn,
     mut served: Pin<&mut F>,
     shut: impl FnOnce(Pin<&mut F>),
+    watch: bool,
 ) {
     let idle = shared.timeouts().idle;
     let mut stop = shared.stop();
@@ -125,12 +133,24 @@ async fn run<U: Upstream, F: Future<Output = hyper::Result<()>>>(
             debug!(peer = %conn.peer, "web: closing a connection idle for {idle:?}");
             return;
         }
+        () = stalled(conn, watch) => {
+            debug!(peer = %conn.peer, "web: closing a connection whose every response stalled");
+            return;
+        }
         _ = stop.wait_for(|s| *s) => {}
     }
     shut(served.as_mut());
     match tokio::time::timeout(DRAIN, served).await {
         Ok(r) => ended(conn, r),
         Err(_) => debug!(peer = %conn.peer, "web: a request outlasted the shutdown drain"),
+    }
+}
+
+async fn stalled(conn: &Conn, watch: bool) {
+    if watch {
+        conn.stalls.all_stalled().await;
+    } else {
+        std::future::pending::<()>().await;
     }
 }
 

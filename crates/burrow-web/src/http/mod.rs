@@ -13,6 +13,7 @@ pub mod redirect;
 mod serve;
 pub mod site;
 mod stages;
+mod stall;
 pub mod upstream;
 
 pub(crate) use serve::{Conn, Proto, serve};
