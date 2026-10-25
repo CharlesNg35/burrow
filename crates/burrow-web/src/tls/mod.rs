@@ -91,6 +91,7 @@ pub enum CertOrigin {
 pub enum CertCheck {
     Tls,
     Http,
+    Dns,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

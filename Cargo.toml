@@ -108,7 +108,7 @@ serde_json = "1.0.154"
 default = ["ring", "web"]
 ring = ["snow/ring-accelerated"]
 web = ["dep:burrow-web"]
-admin-test-hooks = []
+admin-test-hooks = ["burrow-web?/admin-test-hooks"]
 
 [profile.release]
 lto = "fat"

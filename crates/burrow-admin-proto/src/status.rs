@@ -169,6 +169,7 @@ pub enum CertSourceStatus {
 pub enum CertCheck {
     Tls,
     Http,
+    Dns,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

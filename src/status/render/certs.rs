@@ -23,6 +23,7 @@ fn source(c: &CertStatus) -> String {
     match c.check {
         Some(CertCheck::Tls) => format!("{base}, TLS check"),
         Some(CertCheck::Http) => format!("{base}, HTTP check"),
+        Some(CertCheck::Dns) => format!("{base}, DNS check"),
         None => base,
     }
 }

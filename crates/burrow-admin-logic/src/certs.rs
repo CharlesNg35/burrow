@@ -115,6 +115,7 @@ pub fn rows(status: &Status, now: u64) -> Vec<Row> {
             check: match c.check {
                 Some(CertCheck::Tls) => "TLS".into(),
                 Some(CertCheck::Http) => "HTTP".into(),
+                Some(CertCheck::Dns) => "DNS".into(),
                 None => "—".into(),
             },
             state: match &c.state {

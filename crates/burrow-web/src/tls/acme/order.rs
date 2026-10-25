@@ -1,4 +1,5 @@
 use std::net::IpAddr;
+use std::sync::Arc;
 use std::time::Duration;
 
 use instant_acme::{
@@ -7,6 +8,7 @@ use instant_acme::{
 };
 
 use super::challenge::Challenges;
+use super::dns01::solve::{Dns, Set};
 use super::{Problemish, describe, problem_text};
 use crate::tls::CertCheck;
 
@@ -15,6 +17,7 @@ pub const POLL_TIMEOUT: Duration = Duration::from_secs(180);
 pub struct Ask<'a> {
     pub names: &'a [String],
     pub check: CertCheck,
+    pub dns: &'a [String],
     pub profile: Option<&'a str>,
     pub replaces: Option<CertificateIdentifier<'static>>,
 }
@@ -41,6 +44,14 @@ impl Failed {
         }
     }
 
+    fn local(text: String) -> Failed {
+        Failed {
+            text,
+            kind: Problemish::Other,
+            validation: false,
+        }
+    }
+
     fn validation(text: String) -> Failed {
         Failed {
             text,
@@ -60,6 +71,7 @@ pub fn identifier(name: &str) -> Identifier {
 pub async fn issue(
     account: &Account,
     challenges: &Challenges,
+    dns: Option<&Arc<Dns>>,
     ask: Ask<'_>,
 ) -> Result<Issued, Failed> {
     let ids: Vec<Identifier> = ask.names.iter().map(|n| identifier(n)).collect();
@@ -67,30 +79,73 @@ pub async fn issue(
     if let Some(p) = ask.profile {
         new = new.profile(p);
     }
-    if let Some(r) = ask.replaces {
+    if let Some(r) = ask.replaces.clone() {
         new = new.replaces(r);
     }
     let mut order = account.new_order(&new).await.map_err(|e| Failed::of(&e))?;
     let mut tokens = Vec::new();
-    let answered = answer(&mut order, challenges, ask.check, &mut tokens).await;
+    let mut cleanup = Cleanup {
+        dns: dns.cloned(),
+        set: Vec::new(),
+    };
+    let answered = answer(&mut order, challenges, &ask, &mut tokens, &mut cleanup).await;
     let done = match answered {
         Ok(()) => finish(&mut order).await,
         Err(f) => Err(f),
     };
     challenges.forget(ask.names, &tokens);
+    cleanup.run().await;
     done
+}
+
+struct Cleanup {
+    dns: Option<Arc<Dns>>,
+    set: Vec<Set>,
+}
+
+impl Cleanup {
+    async fn run(&mut self) {
+        let set = std::mem::take(&mut self.set);
+        if let Some(d) = &self.dns {
+            d.cleanup(&set).await;
+        }
+    }
+}
+
+impl Drop for Cleanup {
+    fn drop(&mut self) {
+        let set = std::mem::take(&mut self.set);
+        if set.is_empty() {
+            return;
+        }
+        if let (Some(d), Ok(rt)) = (self.dns.clone(), tokio::runtime::Handle::try_current()) {
+            rt.spawn(async move { d.cleanup(&set).await });
+        }
+    }
+}
+
+fn kind_of(check: CertCheck) -> ChallengeType {
+    match check {
+        CertCheck::Tls => ChallengeType::TlsAlpn01,
+        CertCheck::Http => ChallengeType::Http01,
+        CertCheck::Dns => ChallengeType::Dns01,
+    }
+}
+
+fn same_name(a: &str, b: &str) -> bool {
+    a.trim_end_matches('.')
+        .eq_ignore_ascii_case(b.trim_end_matches('.'))
 }
 
 async fn answer(
     order: &mut instant_acme::Order,
     challenges: &Challenges,
-    check: CertCheck,
+    ask: &Ask<'_>,
     tokens: &mut Vec<String>,
+    cleanup: &mut Cleanup,
 ) -> Result<(), Failed> {
-    let kind = match check {
-        CertCheck::Tls => ChallengeType::TlsAlpn01,
-        CertCheck::Http => ChallengeType::Http01,
-    };
+    let mut ready: Vec<(String, ChallengeType)> = Vec::new();
+    let mut values: Vec<(String, String)> = Vec::new();
     let mut auths = order.authorizations();
     while let Some(a) = auths.next().await {
         let mut a = a.map_err(|e| Failed::of(&e))?;
@@ -105,7 +160,12 @@ async fn answer(
             }
         }
         let name = a.identifier().to_string();
-        let mut ch = a.challenge(kind.clone()).ok_or_else(|| {
+        let check = match ask.dns.iter().any(|d| same_name(d, &name)) {
+            true => CertCheck::Dns,
+            false => ask.check,
+        };
+        let kind = kind_of(check);
+        let ch = a.challenge(kind.clone()).ok_or_else(|| {
             Failed::validation(format!("the CA offers no {kind:?} check for {name}"))
         })?;
         let ka = ch.key_authorization();
@@ -115,8 +175,44 @@ async fn answer(
                 tokens.push(ch.token.clone());
                 challenges.answer_http(&ch.token, ka.as_str())
             }
+            CertCheck::Dns => {
+                values.push((name.clone(), ka.dns_value()));
+                Ok(())
+            }
         }
         .map_err(Failed::validation)?;
+        ready.push((name, kind));
+    }
+    if !values.is_empty() {
+        let dns = cleanup
+            .dns
+            .clone()
+            .ok_or_else(|| Failed::local("no web.letsencrypt.dns entry is set".into()))?;
+        dns.present(&values, &mut cleanup.set)
+            .await
+            .map_err(Failed::local)?;
+        dns.wait(&cleanup.set).await.map_err(Failed::local)?;
+    }
+    set_ready(order, &ready).await
+}
+
+async fn set_ready(
+    order: &mut instant_acme::Order,
+    ready: &[(String, ChallengeType)],
+) -> Result<(), Failed> {
+    let mut auths = order.authorizations();
+    while let Some(a) = auths.next().await {
+        let mut a = a.map_err(|e| Failed::of(&e))?;
+        if a.status != AuthorizationStatus::Pending {
+            continue;
+        }
+        let name = a.identifier().to_string();
+        let Some((_, kind)) = ready.iter().find(|(n, _)| *n == name) else {
+            continue;
+        };
+        let mut ch = a.challenge(kind.clone()).ok_or_else(|| {
+            Failed::validation(format!("the CA offers no {kind:?} check for {name}"))
+        })?;
         ch.set_ready().await.map_err(|e| Failed::of(&e))?;
     }
     Ok(())

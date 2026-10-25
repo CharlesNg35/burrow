@@ -73,6 +73,7 @@ fn line(s: tls::CertStatus) -> CertStatus {
         check: s.check.map(|c| match c {
             tls::CertCheck::Tls => CertCheck::Tls,
             tls::CertCheck::Http => CertCheck::Http,
+            tls::CertCheck::Dns => CertCheck::Dns,
         }),
         state: match s.phase {
             CertPhase::Ok => CertStateStatus::Ok,

@@ -8,6 +8,7 @@ use tokio::task::JoinHandle;
 use tokio_rustls::rustls::sign::CertifiedKey;
 
 use super::challenge::Challenges;
+use super::dns01::wire::Reach;
 use super::job::{Group, Held, Worker};
 use super::storage;
 use crate::AcmeSettings;
@@ -42,6 +43,7 @@ pub struct Acme {
     certs: RwLock<HashMap<String, Arc<CertifiedKey>>>,
     views: RwLock<BTreeMap<String, GroupView>>,
     account: RwLock<Option<String>>,
+    reach: RwLock<Reach>,
 }
 
 impl Acme {
@@ -70,6 +72,15 @@ impl Acme {
             .collect();
         q.sort_by_key(|o| (!o.running, o.at));
         q
+    }
+
+    pub(super) fn dns_reach(&self) -> Reach {
+        self.reach.read().expect("acme lock").clone()
+    }
+
+    #[cfg(any(test, feature = "admin-test-hooks"))]
+    pub fn set_dns_reach(&self, reach: Reach) {
+        *self.reach.write().expect("acme lock") = reach;
     }
 
     pub fn account(&self) -> Option<String> {
@@ -187,6 +198,7 @@ async fn run(acme: Arc<Acme>, mut rx: watch::Receiver<Plan>) {
         let plan = rx.borrow_and_update().clone();
         acme.keep_only(&plan);
         worker.adopt(&plan);
+        worker.replay().await;
         sync(&mut groups, &plan).await;
         for (name, g) in &groups {
             acme.publish(name, g.view(&worker.checks(name, g.names())));

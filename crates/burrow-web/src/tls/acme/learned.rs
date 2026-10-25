@@ -12,6 +12,7 @@ fn word(c: CertCheck) -> &'static str {
     match c {
         CertCheck::Tls => "tls",
         CertCheck::Http => "http",
+        CertCheck::Dns => "dns",
     }
 }
 
@@ -24,6 +25,7 @@ pub fn load(path: &Path) -> BTreeMap<String, CertCheck> {
         .filter_map(|(n, c)| match c.as_str() {
             "tls" => Some((n, CertCheck::Tls)),
             "http" => Some((n, CertCheck::Http)),
+            "dns" => Some((n, CertCheck::Dns)),
             _ => None,
         })
         .collect()

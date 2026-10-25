@@ -5,6 +5,7 @@ use std::sync::Arc;
 use instant_acme::{Account, CertificateIdentifier};
 use tracing::{error, info, warn};
 
+use super::dns01::solve::Dns;
 pub use super::group::{Group, Held};
 use super::http::{Client, Limits};
 use super::manager::{Acme, Plan};
@@ -15,11 +16,14 @@ use crate::tls::store::now_secs;
 
 const ARI_RECHECK: u64 = 6 * 3600;
 const STAGING_DELAY: u64 = 30;
+const REPLAY_EVERY: u64 = 600;
 
 pub struct Worker {
     acme: Arc<Acme>,
     plan: Option<Plan>,
     accounts: HashMap<String, (Account, Client)>,
+    dns: Option<Arc<Dns>>,
+    replayed: u64,
 }
 
 impl Worker {
@@ -28,11 +32,36 @@ impl Worker {
             acme,
             plan: None,
             accounts: HashMap::new(),
+            dns: None,
+            replayed: 0,
         }
     }
 
     pub fn adopt(&mut self, plan: &Plan) {
+        let same = self.plan.as_ref().is_some_and(|p| {
+            p.settings.dns == plan.settings.dns && p.settings.state_dir == plan.settings.state_dir
+        });
+        if !same || self.dns.is_none() {
+            self.dns = (!plan.settings.dns.is_empty()).then(|| {
+                Arc::new(Dns::new(
+                    &plan.settings.dns,
+                    self.acme.dns_reach(),
+                    plan.settings.state_dir.clone(),
+                ))
+            });
+        }
         self.plan = Some(plan.clone());
+    }
+
+    pub async fn replay(&mut self) {
+        let now = now_secs();
+        if now < self.replayed + REPLAY_EVERY {
+            return;
+        }
+        self.replayed = now;
+        if let Some(d) = &self.dns {
+            d.replay().await;
+        }
     }
 
     pub fn checks(&self, group: &str, names: &[String]) -> Vec<CertCheck> {
@@ -215,6 +244,7 @@ impl Worker {
             ));
         }
         let replaces = replaces(g, now_secs());
+        let dns = super::dns_names(&plan.settings, &g.names, plan.choices.get(name).copied());
         let mut last: Option<Failed> = None;
         for check in checks {
             let mut with = replaces.clone();
@@ -225,10 +255,11 @@ impl Worker {
                 let ask = Ask {
                     names: &g.names,
                     check,
+                    dns: &dns,
                     profile: profile.as_deref(),
                     replaces: with.clone(),
                 };
-                match issue(&account, &self.acme.challenges, ask).await {
+                match issue(&account, &self.acme.challenges, self.dns.as_ref(), ask).await {
                     Ok(issued) => {
                         self.note_issued(&g.names, with.is_some()).await;
                         self.learn(&g.names, check).await;
@@ -433,13 +464,17 @@ impl Worker {
                 return;
             }
         };
+        let dns = self.plan.as_ref().map_or_else(Vec::new, |p| {
+            super::dns_names(&p.settings, &g.names, p.choices.get(name).copied())
+        });
         let ask = Ask {
             names: &g.names,
             check,
+            dns: &dns,
             profile: None,
             replaces: None,
         };
-        match issue(&account, &self.acme.challenges, ask).await {
+        match issue(&account, &self.acme.challenges, self.dns.as_ref(), ask).await {
             Ok(_) => {
                 let earliest = g.prod_failed_at.unwrap_or(0) + schedule::BACKOFF_SECS[2];
                 if g.next > earliest {

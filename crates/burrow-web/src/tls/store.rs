@@ -102,6 +102,11 @@ impl Store {
         Arc::new(Store::default())
     }
 
+    #[cfg(any(test, feature = "admin-test-hooks"))]
+    pub fn set_dns_reach(&self, reach: super::acme::dns01::wire::Reach) {
+        self.acme.set_dns_reach(reach);
+    }
+
     fn slot_for(&self, name: &str) -> Option<(String, Slot)> {
         let inner = self.inner.read().expect("certificate lock");
         let name = sni_name(name);

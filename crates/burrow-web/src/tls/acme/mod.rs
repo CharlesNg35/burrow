@@ -44,8 +44,6 @@ fn short_type(t: &str) -> &str {
     t.strip_prefix("urn:ietf:params:acme:error:").unwrap_or(t)
 }
 
-const LATER: &str = "DNS checks come in a later phase";
-
 pub fn checks_of(
     settings: &crate::AcmeSettings,
     name: &str,
@@ -54,23 +52,23 @@ pub fn checks_of(
     use burrow_syntax::web::{Check, NoCheck, checks_for};
     let dns = dns01::entry_for(&settings.dns, name).is_some();
     match checks_for(name, settings.check_ports, dns, choice) {
-        Ok(list) if list.contains(&Check::Dns) => {
-            Err(format!("\"{name}\" needs a DNS check ({LATER})"))
-        }
         Ok(list) => Ok(list
             .into_iter()
             .map(|c| match c {
+                Check::Dns => CertCheck::Dns,
                 Check::Http => CertCheck::Http,
-                _ => CertCheck::Tls,
+                Check::Tls => CertCheck::Tls,
             })
             .collect()),
         Err(NoCheck::NoPort) => Err(format!(
-            "{name} cannot be checked by Let's Encrypt: open http: 80, or list a file for it in web.certificates ({LATER})"
+            "{name} cannot be checked by Let's Encrypt: open http: 80, list its domain in web.letsencrypt.dns, or list a file for it in web.certificates"
         )),
         Err(NoCheck::DnsForIp) => Err(format!(
             "\"{name}\" is an IP address; Let's Encrypt checks IP addresses only over HTTP or TLS, not DNS"
         )),
-        Err(NoCheck::DnsNotSet) => Err(format!("\"{name}\" needs a DNS check ({LATER})")),
+        Err(NoCheck::DnsNotSet) => Err(format!(
+            "\"{name}\" needs a DNS check, but no web.letsencrypt.dns entry lists its domain"
+        )),
         Err(NoCheck::NoHttpPort) => Err(format!(
             "{name}: http needs web.http on port 80: Let's Encrypt fetches a file there; add http: 80, or use challenge: tls or dns"
         )),
@@ -78,9 +76,21 @@ pub fn checks_of(
             "{name}: tls needs web.https on port 443: Let's Encrypt connects there; use https: 443, or use challenge: http or dns"
         )),
         Err(NoCheck::WildcardNotDns) => Err(format!(
-            "\"{name}\" is a wildcard, and Let's Encrypt gives wildcards only through DNS checks; use challenge: dns ({LATER}), or give a wildcard file in web.certificates"
+            "\"{name}\" is a wildcard, and Let's Encrypt gives wildcards only through DNS checks; use challenge: dns, or give a wildcard file in web.certificates"
         )),
     }
+}
+
+pub fn dns_names(
+    settings: &crate::AcmeSettings,
+    names: &[String],
+    choice: Option<burrow_syntax::web::Challenge>,
+) -> Vec<String> {
+    names
+        .iter()
+        .filter(|n| checks_of(settings, n, choice).is_ok_and(|c| c == [CertCheck::Dns]))
+        .cloned()
+        .collect()
 }
 
 pub fn checks_for_all(
@@ -91,7 +101,14 @@ pub fn checks_for_all(
     let each: Vec<Vec<CertCheck>> = names
         .iter()
         .filter_map(|n| checks_of(settings, n, choice).ok())
+        .filter(|l| l.as_slice() != [CertCheck::Dns])
         .collect();
+    if each.is_empty() {
+        return match dns_names(settings, names, choice).is_empty() {
+            true => Vec::new(),
+            false => vec![CertCheck::Dns],
+        };
+    }
     [CertCheck::Tls, CertCheck::Http]
         .into_iter()
         .filter(|c| each.iter().all(|l| l.contains(c)))
@@ -262,9 +279,9 @@ mod tests {
             checks_of(&le(Some(443), None), "a.example.com", Some(Challenge::Http)).unwrap_err();
         assert!(no80.contains("http needs web.http on port 80"), "{no80}");
         let wild = checks_of(&both, "*.example.com", None).unwrap_err();
-        assert!(
-            wild.ends_with("(DNS checks come in a later phase)"),
-            "{wild}"
+        assert_eq!(
+            wild,
+            "\"*.example.com\" needs a DNS check, but no web.letsencrypt.dns entry lists its domain"
         );
         let names = vec!["a.example.com".to_string(), "b.example.com".to_string()];
         assert_eq!(checks_for_all(&both, &names, None), vec![Tls, Http]);
@@ -276,5 +293,33 @@ mod tests {
             checks_for_all(&both, &names, Some(burrow_syntax::web::Challenge::Http)),
             vec![Http]
         );
+    }
+
+    #[test]
+    fn dns_names_are_checked_over_dns_and_the_rest_of_the_group_keeps_its_own_check() {
+        use crate::tls::CertCheck::{Dns, Http, Tls};
+        let mut both = le(Some(443), Some(80));
+        both.dns = vec![dns01::DnsEntry {
+            domains: vec!["example.com".into()],
+            provider: dns01::DnsProvider::Command {
+                path: "/usr/local/bin/burrow-dns".into(),
+            },
+            wait: dns01::DEFAULT_WAIT,
+            resolvers: Vec::new(),
+            wildcards: Vec::new(),
+        }];
+        assert_eq!(checks_of(&both, "*.example.com", None), Ok(vec![Dns]));
+        use burrow_syntax::web::Challenge;
+        assert_eq!(
+            checks_of(&both, "lab.example.com", Some(Challenge::Dns)),
+            Ok(vec![Dns])
+        );
+        let mixed = vec!["example.com".to_string(), "*.example.com".to_string()];
+        assert_eq!(checks_for_all(&both, &mixed, None), vec![Tls, Http]);
+        assert_eq!(dns_names(&both, &mixed, None), vec!["*.example.com"]);
+        let wild = vec!["*.example.com".to_string()];
+        assert_eq!(checks_for_all(&both, &wild, None), vec![Dns]);
+        let outside = vec!["*.example.org".to_string()];
+        assert!(checks_for_all(&both, &outside, None).is_empty());
     }
 }
