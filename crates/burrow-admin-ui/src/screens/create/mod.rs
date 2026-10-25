@@ -5,7 +5,7 @@ use burrow_admin_proto::msg::{self, GeneratedSecret};
 use burrow_admin_proto::schema::Entity;
 use burrow_admin_proto::serde_json::{self, Value, json};
 use burrow_config::{ClientEntry, Entry, ServiceEntry, VisitorEntry, entity_of_section};
-use burrow_syntax::name::check_name;
+use burrow_syntax::name::{MAX_NAME_LEN, check_name};
 use burrow_ui_kit::{Button, Dialog, Edge, EdgeState, Hop, HopState, PathData, TextInput, Tone};
 use leptos::prelude::*;
 
@@ -21,6 +21,40 @@ pub fn singular(section: &str) -> &'static str {
         Some(Entity::Client) => ClientEntry::ENTITY,
         Some(Entity::Visitor) => VisitorEntry::ENTITY,
         _ => ServiceEntry::ENTITY,
+    }
+}
+
+pub(super) fn name_input(
+    id: &'static str,
+    label: &'static str,
+    name: RwSignal<String>,
+    problem: Signal<Option<String>>,
+    available: bool,
+) -> impl IntoView {
+    let msg = format!("{id}-msg");
+    let ok = move || available && !name.get().is_empty() && problem.get().is_none();
+    view! {
+    <div>
+        <label class="mb-1.5 block text-sm font-semibold" for=id>{label}</label>
+        <div class="relative">
+            <TextInput
+                id=id
+                value=name
+                on_input=move |t: String| name.set(t)
+                invalid=Signal::derive(move || problem.get().is_some())
+                described_by=msg.clone()
+                mono=true
+            />
+            {move || ok().then(|| view! {
+                <span class="pointer-events-none absolute top-1/2 right-2.5 flex -translate-y-1/2 items-center gap-1 text-xs font-semibold text-success"><burrow_ui_kit::Icon name="check" small=true/>"available"</span>
+            })}
+        </div>
+        <p id=msg class="mt-1.5 text-xs text-danger">{move || problem.get()}</p>
+        <p class="text-xs text-text-muted">
+            {move || ok().then(|| view! { <span class="sr-only" data-testid="name-available">"available"</span> })}
+            {format!("Letters, digits, dot, dash, underscore; up to {MAX_NAME_LEN} characters.")}
+        </p>
+    </div>
     }
 }
 
@@ -209,17 +243,8 @@ pub fn RenameEntity(section: String, name: String, open: RwSignal<bool>) -> impl
     });
     view! {
         <Dialog open=open title=format!("Rename {what} {name}") testid="rename-entity">
-            <label class="mb-1 block font-medium" for="rename-to">"New name"</label>
-            <TextInput
-                id="rename-to"
-                value=to
-                on_input=move |t: String| to.set(t)
-                invalid=Signal::derive(move || problem.get().is_some())
-                described_by="rename-msg"
-                mono=true
-            />
-            <p id="rename-msg" class="mt-1 min-h-5 text-sm text-danger">{move || problem.get()}</p>
-            <p class=move || if same.get() { "mb-3 text-sm text-text-muted" } else { "mb-3 text-sm text-warning" }>{note}" References in server.yaml are updated too."</p>
+            {name_input("rename-to", "New name", to, problem, false)}
+            <p class=move || if same.get() { "my-3 text-sm text-text-muted" } else { "my-3 text-sm text-warning" }>{note}" References in server.yaml are updated too."</p>
             <div class="flex justify-end gap-2">
                 <Button label="Cancel" on_click=move |_| open.set(false)/>
                 <Button

@@ -101,7 +101,7 @@ pub fn NewEntity(
                     <h3 class="text-[14px] font-bold">"Identity"</h3>
                     <span class="text-[12.5px] text-text-muted">{if what == "service" { "The name is the key in server.yaml." } else { "The name goes into the config on that machine." }}</span>
                 </div>
-                {name_field(name, problem)}
+                {super::name_input("new-name", "Name", name, problem, true)}
                 {(what != "service").then(|| secret_field(secret))}
             </section>
             {(what != "service").then(|| limits_section(what, name, max, placeholder_max, options, links))}
@@ -155,32 +155,6 @@ fn placeholder_max(s: Store, client: bool) -> String {
         format!("Default: {}", crate::format::count(n))
     } else {
         "Unlimited".to_string()
-    }
-}
-
-fn name_field(name: RwSignal<String>, problem: Signal<Option<String>>) -> impl IntoView {
-    view! {
-    <div>
-        <label class="mb-1.5 block text-sm font-semibold" for="new-name">"Name"</label>
-        <div class="relative">
-            <TextInput
-                id="new-name"
-                value=name
-                on_input=move |t: String| name.set(t)
-                invalid=Signal::derive(move || problem.get().is_some())
-                described_by="new-name-msg"
-                mono=true
-            />
-            {move || (!name.get().is_empty() && problem.get().is_none()).then(|| view! {
-                <span class="pointer-events-none absolute top-1/2 right-2.5 flex -translate-y-1/2 items-center gap-1 text-xs font-semibold text-success"><burrow_ui_kit::Icon name="check" small=true/>"available"</span>
-            })}
-        </div>
-        <p id="new-name-msg" class="mt-1.5 text-xs text-danger">{move || problem.get()}</p>
-        <p class="text-xs text-text-muted">
-            {move || (!name.get().is_empty() && problem.get().is_none()).then(|| view! { <span class="sr-only" data-testid="name-available">"available"</span> })}
-            "Letters, digits, dot, dash, underscore; up to 64 characters."
-        </p>
-    </div>
     }
 }
 
