@@ -127,14 +127,16 @@ pub fn entity_problems(entity: &Node, value: &Value) -> Vec<(String, String)> {
                     None => groups.push((group.clone(), vec![f.key.clone()])),
                 },
                 Relation::SameLen(other) => {
-                    let count = |k: &str| value.get(k).and_then(port_count);
+                    let count = |k: &str| value.get(k).and_then(|v| port_count(k, v));
                     if let (Some(a), Some(b)) = (count(&f.key), count(other))
                         && a != b
-                        && a != 1
                     {
                         out.push((
                             f.key.clone(),
-                            format!("{a} ports here, but {other} has {b}"),
+                            format!(
+                                "{a} {} here, but {other} has {b}",
+                                if a == 1 { "port" } else { "ports" }
+                            ),
                         ));
                     }
                 }
@@ -158,22 +160,24 @@ pub fn entity_problems(entity: &Node, value: &Value) -> Vec<(String, String)> {
     out
 }
 
-fn port_count(v: &Value) -> Option<u32> {
-    let s = match v {
-        Value::Number(_) => return Some(1),
-        Value::String(s) => s,
-        _ => return None,
-    };
-    if burrow_syntax::unix::path_of(s).is_some() {
-        return Some(1);
-    }
-    let port = s.rsplit_once(':').map_or(s.as_str(), |(_, p)| p);
-    match port.split_once('-') {
-        Some((a, b)) => {
-            let (a, b) = (a.trim().parse::<u32>().ok()?, b.trim().parse::<u32>().ok()?);
-            (b >= a).then(|| b - a + 1)
-        }
-        None => port.trim().parse::<u32>().ok().map(|_| 1),
+pub fn bind_ports(v: &Value) -> Option<u16> {
+    let bind: burrow_config::Bind = burrow_admin_proto::serde_json::from_value(v.clone()).ok()?;
+    bind.ranged([0, 0, 0, 0], burrow_config::ServiceEntry::BIND.key())
+        .ok()
+        .map(|(_, n)| n)
+}
+
+pub fn target_ports(v: &Value) -> Option<u16> {
+    let target: burrow_config::Target =
+        burrow_admin_proto::serde_json::from_value(v.clone()).ok()?;
+    target.ports().ok()
+}
+
+fn port_count(key: &str, v: &Value) -> Option<u16> {
+    if key == burrow_config::ServiceEntry::TARGET.key() {
+        target_ports(v)
+    } else {
+        bind_ports(v)
     }
 }
 
@@ -298,12 +302,13 @@ mod tests {
             ranges,
             vec![("target".into(), "2 ports here, but bind has 3".into())]
         );
-        assert!(
+        assert_eq!(
             entity_problems(
                 svc,
                 &json!({"client": "a", "bind": "7000-7002", "target": 3000})
-            )
-            .is_empty()
+            ),
+            vec![("target".into(), "1 port here, but bind has 3".into())],
+            "validate refuses it too (range-mismatch)"
         );
     }
 }

@@ -24,6 +24,23 @@ pub fn names(web: &Value) -> Vec<String> {
     }
 }
 
+pub fn is_plain(tls: Option<&Value>, https_on: bool) -> bool {
+    match tls.filter(|t| !t.is_null()) {
+        Some(t) => t.as_str().and_then(TlsMode::from_wire) == Some(TlsMode::Off),
+        None => !https_on,
+    }
+}
+
+pub fn site_name_problem(text: &str, plain: bool) -> Option<String> {
+    use burrow_syntax::web::{SingleLabel, host_name};
+    let single = if plain {
+        SingleLabel::Allowed
+    } else {
+        SingleLabel::Refused
+    };
+    host_name(text, single).err()
+}
+
 pub fn passthrough() -> Value {
     json!(TlsMode::Passthrough)
 }
@@ -155,12 +172,17 @@ pub fn site_kind(svc: &Value, https_on: bool) -> Option<SiteKind> {
     if names(web).is_empty() {
         return None;
     }
-    Some(match tls_of(web).and_then(Value::as_str) {
-        Some("passthrough") => SiteKind::Passthrough,
-        Some("off") => SiteKind::Plain,
-        None if !https_on => SiteKind::Plain,
-        _ => SiteKind::Https,
-    })
+    Some(
+        match tls_of(web)
+            .and_then(Value::as_str)
+            .and_then(TlsMode::from_wire)
+        {
+            Some(TlsMode::Passthrough) => SiteKind::Passthrough,
+            Some(TlsMode::Off) => SiteKind::Plain,
+            None if !https_on => SiteKind::Plain,
+            _ => SiteKind::Https,
+        },
+    )
 }
 
 #[cfg(test)]

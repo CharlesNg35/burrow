@@ -40,28 +40,12 @@ fn collect(n: &Node, path: &mut Vec<String>, out: &mut Vec<Place>) {
     }
 }
 
-fn quoted_names(text: &str, after: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    let mut rest = text;
-    while let Some(at) = rest.find(after) {
-        let tail = &rest[at + after.len()..];
-        if let Some(q) = tail.strip_prefix('"')
-            && let Some(end) = q.find('"')
-        {
-            out.push(q[..end].to_string());
-            rest = &q[end..];
-        } else {
-            rest = tail;
-        }
-    }
-    out
-}
-
 fn also(d: &Diagnostic, path: Option<&[String]>) -> Vec<Vec<String>> {
     match d.code {
-        burrow_admin_proto::codes::DUPLICATE_BIND => quoted_names(&d.message, "service ")
-            .into_iter()
-            .map(|n| ServiceEntry::BIND.of(&n))
+        burrow_admin_proto::codes::DUPLICATE_BIND => d
+            .subjects
+            .iter()
+            .map(|n| ServiceEntry::BIND.of(n))
             .filter(|p| Some(p.as_slice()) != path)
             .collect(),
         burrow_admin_proto::codes::UNREACHABLE_SERVICE => match path {
@@ -122,6 +106,7 @@ impl Mapper {
                 .filter(|s| s.start.line > 0)
                 .map(|s| s.start.col as u32),
             before: false,
+            subjects: d.subjects.clone(),
         }
     }
 }

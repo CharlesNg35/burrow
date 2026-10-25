@@ -73,12 +73,7 @@ pub fn refused_line(path: Vec<String>) -> impl IntoView {
 }
 
 pub fn in_the_file() -> impl IntoView {
-    view! {
-        <p class="mt-1.5 flex items-center gap-1.5 text-xs text-text-muted" data-testid="grant-lock">
-            <burrow_ui_kit::Icon name="lock" small=true/>
-            {IN_THE_FILE}
-        </p>
-    }
+    view! { <burrow_ui_kit::LockLine text=IN_THE_FILE testid="grant-lock" class="mt-1.5"/> }
 }
 
 #[cfg(test)]

@@ -286,7 +286,7 @@ pub enum SiteTls {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, AdminSchema)]
 #[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
-#[admin(label = "Own certificate")]
+#[admin(label = "My own certificate")]
 pub struct SiteFiles {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(

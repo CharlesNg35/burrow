@@ -517,6 +517,7 @@ version = "0.1.2"
 dependencies = [
  "burrow-admin-derive",
  "burrow-admin-proto",
+ "burrow-syntax",
  "schemars",
  "serde",
 ]

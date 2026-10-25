@@ -20,36 +20,13 @@ const MAX_CHAIN: usize = 10;
 const MAX_CAS: usize = 100;
 const MAX_CRLS: usize = 16;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Kind {
-    Pair,
-    Ca,
-    Crl,
-}
+pub use burrow_syntax::upload::Kind;
 
-impl Kind {
-    pub fn prefix(self) -> &'static str {
-        match self {
-            Kind::Pair => "pair",
-            Kind::Ca => "ca",
-            Kind::Crl => "crl",
-        }
-    }
-
-    fn limit(self) -> usize {
-        match self {
-            Kind::Pair => PAIR_LIMIT,
-            Kind::Ca => CA_LIMIT,
-            Kind::Crl => CRL_LIMIT,
-        }
-    }
-
-    fn what(self) -> &'static str {
-        match self {
-            Kind::Pair => "a certificate and its key",
-            Kind::Ca => "a CA file",
-            Kind::Crl => "a CRL file",
-        }
+fn limit(kind: Kind) -> usize {
+    match kind {
+        Kind::Pair => PAIR_LIMIT,
+        Kind::Ca => CA_LIMIT,
+        Kind::Crl => CRL_LIMIT,
     }
 }
 
@@ -167,12 +144,12 @@ fn sections(pem: &[u8]) -> Result<Vec<(SectionKind, Vec<u8>)>, String> {
 
 pub fn check(up: &Upload<'_>, now: u64) -> Result<(Vec<String>, Described), String> {
     let kind = up.kind;
-    if up.pem.len() > kind.limit() {
+    if up.pem.len() > limit(kind) {
         return Err(format!(
             "is {} bytes; {} may be at most {} KiB",
             up.pem.len(),
             kind.what(),
-            kind.limit() / 1024
+            limit(kind) / 1024
         ));
     }
     let parts = sections(up.pem)?;

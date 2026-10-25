@@ -2,9 +2,8 @@ use burrow_admin_logic::fallback::needs_newer_ui;
 use burrow_admin_logic::tree::{fields, inner};
 use burrow_admin_proto::Path;
 use burrow_admin_proto::schema::{Field, Node, SemType};
-use burrow_admin_proto::serde_json::Value;
 use burrow_config::{ServiceEntry, VisitorEntry};
-use burrow_ui_kit::Toggle;
+
 use leptos::prelude::*;
 
 use crate::store::store;
@@ -13,7 +12,7 @@ use super::more::{More, ROWS, more_settings};
 use super::{
     ADMIN, ADMIN_FROM, ALLOW_FROM, BANDWIDTH, BIND, CLIENTS, DENY_FROM, HEALTH_CHECK,
     MAX_CONNECTIONS, MODE, PROTOCOL, PROXY_PROTOCOL, SERVICE_VISITORS, SERVICES, TARGET, VISITORS,
-    editing_now, field_id, join, locked_hint, object_view_marked, row,
+    editing_now, join, locked_hint, object_view_marked, row,
 };
 use burrow_admin_logic::more::split;
 
@@ -205,37 +204,11 @@ pub fn settings_card(c: &SettingsCard) -> AnyView {
     let advanced = f.node.advanced;
     let p2 = path.clone();
     let is_set = Memo::new(move |_| e.value(&p2).is_some_and(|v| !v.is_null()));
-    let (p3, tid) = (path.clone(), field_id(&path));
-    let toggle = move || {
-        (optional && can && editing.try_get().unwrap_or(false)).then(|| {
-            let p3 = p3.clone();
-            let id = tid.clone();
-            view! {
-                <Toggle
-                    id=id
-                    checked=is_set
-                    label=Signal::derive(move || if is_set.get() { "In use".to_string() } else { "Not set".to_string() })
-                    on_change=move |on: bool| {
-                        e.set(&p3, on.then(|| Value::Object(Default::default())));
-                    }
-                />
-            }
-        })
-    };
+    let toggle = super::controls::object_toggle(path.clone(), is_set, optional && can, editing);
     let right = view! {
         <span class="contents">
-            {lock.then(|| view! {
-                <span class="flex items-center gap-1.5 text-xs text-text-muted" data-testid="locked-hint">
-                    <burrow_ui_kit::Icon name="lock" small=true/>
-                    {locked_hint(&f.node)}
-                </span>
-            })}
-            {(ports && optional).then(|| view! {
-                <span class="flex items-center gap-1.5 text-xs text-text-muted" data-testid="locked-hint">
-                    <burrow_ui_kit::Icon name="lock" small=true/>
-                    "Turn it on or off in server.yaml (burrow edit)"
-                </span>
-            })}
+            {lock.then(|| view! { <burrow_ui_kit::LockLine text=locked_hint(&f.node) testid="locked-hint"/> })}
+            {(ports && optional).then(|| view! { <burrow_ui_kit::LockLine text=burrow_admin_logic::wording::TOGGLE_IN_FILE testid="locked-hint"/> })}
             {toggle}
         </span>
     }

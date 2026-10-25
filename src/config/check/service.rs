@@ -439,6 +439,8 @@ fn check_bind<'a>(
                     protocol.wire()
                 ),
             )
+            .about(name)
+            .about(*other)
             .at(at)
             .label("address already used")
             .help("pick a different port for one of the services"),

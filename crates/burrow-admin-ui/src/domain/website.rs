@@ -1,10 +1,8 @@
-use burrow_admin_logic::check::check;
 use burrow_admin_logic::tree::inner;
-use burrow_admin_logic::web::{names, tls_of, website};
+use burrow_admin_logic::web::{is_plain, names, site_name_problem, tls_of, website};
 use burrow_admin_proto::schema::{Node, ObjectC, SemType, UnionC};
 use burrow_admin_proto::serde_json::Value;
-use burrow_config::{Entry, ServerConfig, ServiceEntry, WebConfig, WebSite};
-use burrow_syntax::web::{SingleLabel, host_name};
+use burrow_config::{Entry, ServerConfig, ServiceEntry, TlsMode, WebConfig, WebSite};
 use burrow_ui_kit::{ChipInput, Segmented};
 use leptos::prelude::*;
 
@@ -12,10 +10,7 @@ use crate::store::store;
 
 use super::FieldCtx;
 
-const AUTO: &str = "auto";
 const FILES: &str = "files";
-const OFF: &str = "off";
-const FILES_LABEL: &str = "My own certificate";
 
 pub(super) fn host_item(u: &UnionC) -> Option<Node> {
     u.branches
@@ -32,6 +27,7 @@ struct Choices {
 fn choices(tls: Option<&Node>) -> Choices {
     let mut options = Vec::new();
     let mut files = None;
+    let mut files_label = String::new();
     if let Some(SemType::Union(u)) = tls.map(|n| &inner(n).sem) {
         for b in &u.branches {
             match &inner(b).sem {
@@ -40,20 +36,23 @@ fn choices(tls: Option<&Node>) -> Choices {
                         .iter()
                         .map(|o| (o.value.clone(), o.label.clone(), false)),
                 ),
-                SemType::Object(o) => files = Some(o.clone()),
+                SemType::Object(o) => {
+                    files = Some(o.clone());
+                    files_label = inner(b).label.clone();
+                }
                 _ => {}
             }
         }
     }
     if files.is_some() {
-        options.push((FILES.to_string(), FILES_LABEL.to_string(), false));
+        options.push((FILES.to_string(), files_label, false));
     }
     Choices { options, files }
 }
 
 fn mode_of(tls: Option<&Value>) -> String {
     match tls.filter(|t| !t.is_null()) {
-        None => AUTO.to_string(),
+        None => TlsMode::Auto.wire().to_string(),
         Some(Value::String(s)) => s.clone(),
         Some(_) => FILES.to_string(),
     }
@@ -86,11 +85,11 @@ pub(super) fn tls_editor(fc: FieldCtx) -> AnyView {
     let touched = fc.touched;
     let on_mode = move |m: String| {
         touched.set(true);
-        let v = match m.as_str() {
-            AUTO => None,
-            FILES if mode_of(e.value(&p2).as_ref()) == FILES => return,
-            FILES => Some(Value::Object(Default::default())),
-            _ => Some(Value::String(m)),
+        let v = match TlsMode::from_wire(&m) {
+            Some(TlsMode::Auto) => None,
+            Some(mode) => Some(Value::String(mode.wire().into())),
+            None if mode_of(e.value(&p2).as_ref()) == FILES => return,
+            None => Some(Value::Object(Default::default())),
         };
         e.set(&p2, v);
     };
@@ -122,14 +121,7 @@ fn web_off() -> impl IntoView {
     }
 }
 
-fn name_problem(item: &Node, text: &str, plain: bool) -> Option<String> {
-    if plain && host_name(text, SingleLabel::Allowed).is_ok() {
-        return None;
-    }
-    check(item, &Value::String(text.to_string())).err()
-}
-
-pub(super) fn website_editor(fc: FieldCtx, item: Node) -> AnyView {
+pub(super) fn website_editor(fc: FieldCtx) -> AnyView {
     let e = store().edit;
     let path = fc.path.clone();
     let value = Memo::new(move |_| e.value(&path));
@@ -140,21 +132,16 @@ pub(super) fn website_editor(fc: FieldCtx, item: Node) -> AnyView {
                 .get(d.draft())
                 .is_some_and(|w| WebConfig::HTTPS.get(w).is_some_and(|h| !h.is_null()))
         });
-        let tls = value.get().as_ref().and_then(tls_of).cloned();
-        match tls {
-            Some(t) => t == Value::String(OFF.into()),
-            None => !https,
-        }
+        is_plain(value.get().as_ref().and_then(tls_of), https)
     });
-    let one = item.clone();
-    let check_one = Callback::new(move |t: String| name_problem(&one, &t, plain.get_untracked()));
+    let check_one = Callback::new(move |t: String| site_name_problem(&t, plain.get_untracked()));
     let on_names = {
         let fc = fc.clone();
         move |list: Vec<String>| {
             fc.touched.set(true);
             let bad = list
                 .iter()
-                .find_map(|n| name_problem(&item, n, plain.get_untracked()));
+                .find_map(|n| site_name_problem(n, plain.get_untracked()));
             e.local_error(&fc.path, bad);
             let now = value.get_untracked();
             let tls = now.as_ref().and_then(tls_of).cloned();

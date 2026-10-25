@@ -482,3 +482,20 @@ pub fn Mono(children: Children) -> impl IntoView {
 pub fn Kbd(#[prop(into)] text: String) -> impl IntoView {
     view! { <kbd class="rounded-xs border border-border-strong px-1 font-mono text-2xs leading-4 text-text-muted">{text}</kbd> }
 }
+
+#[component]
+pub fn LockLine(
+    #[prop(into)] text: String,
+    #[prop(optional)] testid: &'static str,
+    #[prop(optional, into)] class: String,
+) -> impl IntoView {
+    view! {
+        <p
+            class=format!("flex items-center gap-1.5 text-xs text-text-muted {class}")
+            data-testid=(!testid.is_empty()).then_some(testid)
+        >
+            <Icon name="lock" small=true/>
+            {text}
+        </p>
+    }
+}

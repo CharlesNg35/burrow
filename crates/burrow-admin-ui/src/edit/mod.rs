@@ -101,7 +101,8 @@ fn outcome_of(err: &ErrorBody) -> Outcome {
     }
     match err.code {
         ErrorCode::LockedOut => Outcome::Refused(
-            serde_json::from_value(err.body.get("reasons").cloned().unwrap_or(Value::Null))
+            serde_json::from_value::<burrow_admin_proto::msg::LockedOut>(err.body.clone())
+                .map(|l| l.reasons)
                 .unwrap_or_default(),
         ),
         ErrorCode::ReloadFailed => match serde_json::from_value::<ReloadFailed>(err.body.clone()) {
@@ -131,12 +132,7 @@ fn revert_outcome(err: &ErrorBody) -> Outcome {
 fn conflict_of(err: &ErrorBody) -> Option<Conflict> {
     (err.code == ErrorCode::Conflict).then(|| {
         serde_json::from_value::<Conflict>(err.body.clone()).unwrap_or(Conflict {
-            current: err
-                .body
-                .get("current")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_string(),
+            current: String::new(),
             theirs: Vec::new(),
             known: false,
         })
@@ -481,7 +477,7 @@ mod tests {
         let conflict = ErrorBody {
             code: ErrorCode::Conflict,
             message: "changed".into(),
-            body: json!({"current": "b2s:1", "plan_changed": true}),
+            body: json!({"current": "b2s:1"}),
         };
         assert_eq!(
             conflict_of(&conflict).map(|c| c.current),

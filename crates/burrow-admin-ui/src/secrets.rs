@@ -466,7 +466,11 @@ pub fn ConnectPanel(section: String, name: String) -> impl IntoView {
     };
     let fetch = move |name: String, addr: Option<String>| {
         data.set(None);
-        let body = json!({ "kind": kind, "name": name, "address": addr });
+        let body = api::body(&msg::ConnectInfo {
+            kind: kind.to_string(),
+            name,
+            address: addr,
+        });
         api::request(msg::req::CONNECT_INFO, body, move |r| {
             let _ = data.try_set(Some(r.map_err(|e| e.message).and_then(|v| {
                 serde_json::from_value::<Snippets>(v).map_err(|e| e.to_string())

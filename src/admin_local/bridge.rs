@@ -9,43 +9,47 @@ use super::token::Token;
 use crate::dialer::Dialer;
 use crate::dialer::admin::{AdminOpenError, AdminRefusal, Heard};
 use burrow_admin_proto::frame::{AdminOpen, MAX_MESSAGE};
+use burrow_admin_proto::local::{Auth, BRIDGE_EVENT, Bridge, BridgeState, Reason};
 
 pub const AUTH_WAIT: Duration = Duration::from_secs(5);
 pub const CLOSE_WAIT: Duration = Duration::from_secs(1);
 
-fn bridge_event(state: &str, reason: &str, message: &str) -> Message {
-    let v = serde_json::json!({"ev": "bridge", "body": {"state": state, "reason": reason, "message": message}});
+fn bridge_event(b: &Bridge) -> Message {
+    let v =
+        burrow_admin_proto::msg::event(BRIDGE_EVENT, serde_json::to_value(b).unwrap_or_default());
     Message::text(v.to_string())
 }
 
-pub fn explain(e: &AdminOpenError, visitor: &str, server: &str) -> (&'static str, String) {
+pub fn explain(e: &AdminOpenError, visitor: &str, server: &str) -> (Reason, String) {
     match e {
         AdminOpenError::Refused(AdminRefusal::Forbidden) => (
-            "forbidden",
+            Reason::Forbidden,
             format!("visitor \"{visitor}\" has no admin rights on {server}"),
         ),
         AdminOpenError::Refused(AdminRefusal::Busy) => (
-            "busy",
+            Reason::Busy,
             format!(
                 "{server} already has the most admin sessions it allows for visitor \"{visitor}\"; close another admin tab"
             ),
         ),
         AdminOpenError::Refused(AdminRefusal::NoAdmin) => (
-            "no-admin",
+            Reason::NoAdmin,
             format!("{server} was built without the admin interface"),
         ),
-        AdminOpenError::Refused(AdminRefusal::Explained(t)) => ("refused", t.clone()),
+        AdminOpenError::Refused(AdminRefusal::Explained(t)) => (Reason::Refused, t.clone()),
         AdminOpenError::Refused(AdminRefusal::Other(code)) => (
-            "refused",
+            Reason::Refused,
             format!("{server} refused the admin session (status {code})"),
         ),
         AdminOpenError::Dial(crate::dialer::DialError::Rejected) => (
-            "rejected",
+            Reason::Rejected,
             format!("{server} rejected visitor \"{visitor}\"; check the name and secret"),
         ),
         AdminOpenError::Dial(crate::dialer::DialError::Unreachable(w))
-        | AdminOpenError::Dial(crate::dialer::DialError::Lost(w)) => ("unreachable", w.clone()),
-        AdminOpenError::Lost(w) => ("unreachable", w.clone()),
+        | AdminOpenError::Dial(crate::dialer::DialError::Lost(w)) => {
+            (Reason::Unreachable, w.clone())
+        }
+        AdminOpenError::Lost(w) => (Reason::Unreachable, w.clone()),
     }
 }
 
@@ -71,13 +75,8 @@ pub async fn serve<S: AsyncRead + AsyncWrite + Unpin>(
     let authed = match &first {
         Ok(Some(Ok(m))) => m
             .as_text()
-            .and_then(|t| serde_json::from_str::<serde_json::Value>(t).ok())
-            .and_then(|v| {
-                v.get("auth")
-                    .and_then(|a| a.as_str())
-                    .map(|s| token.matches(s))
-            })
-            .unwrap_or(false),
+            .and_then(|t| serde_json::from_str::<Auth>(t).ok())
+            .is_some_and(|a| token.matches(&a.auth)),
         _ => false,
     };
     if !authed {
@@ -97,13 +96,24 @@ pub async fn serve<S: AsyncRead + AsyncWrite + Unpin>(
         Ok(p) => p,
         Err(e) => {
             let (reason, message) = explain(&e, &visitor, &server);
-            let _ = ws.send(bridge_event("refused", reason, &message)).await;
+            let refused = Bridge {
+                state: BridgeState::Refused,
+                reason: Some(reason),
+                message,
+                server: String::new(),
+            };
+            let _ = ws.send(bridge_event(&refused)).await;
             let _ = ws.close().await;
             return;
         }
     };
-    let open = serde_json::json!({"ev": "bridge", "body": {"state": "open", "reason": "", "message": "", "server": server}});
-    if ws.send(Message::text(open.to_string())).await.is_err() {
+    let open = Bridge {
+        state: BridgeState::Open,
+        reason: None,
+        message: String::new(),
+        server,
+    };
+    if ws.send(bridge_event(&open)).await.is_err() {
         tx.close().await;
         return;
     }
@@ -154,7 +164,13 @@ pub async fn serve<S: AsyncRead + AsyncWrite + Unpin>(
             }
         }
     };
-    let _ = ws.send(bridge_event("server-closed", why, why)).await;
+    let closed = Bridge {
+        state: BridgeState::ServerClosed,
+        reason: None,
+        message: why.to_string(),
+        server: String::new(),
+    };
+    let _ = ws.send(bridge_event(&closed)).await;
     let _ = ws.close().await;
     tx.close().await;
 }

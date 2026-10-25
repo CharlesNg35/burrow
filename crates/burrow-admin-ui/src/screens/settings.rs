@@ -318,6 +318,7 @@ mod tests {
             line: None,
             col: None,
             before: false,
+            subjects: Vec::new(),
         }
     }
 

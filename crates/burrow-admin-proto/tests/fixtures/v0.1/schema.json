@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:07f784fc17df121c",
+  "hash": "b2s:dd8b9ec743f53890",
   "root": {
     "label": "Server",
     "sem": {
@@ -2106,7 +2106,7 @@
                                                     }
                                                   },
                                                   {
-                                                    "label": "Own certificate",
+                                                    "label": "My own certificate",
                                                     "sem": {
                                                       "t": "object",
                                                       "fields": [

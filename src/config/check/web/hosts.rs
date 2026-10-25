@@ -141,7 +141,9 @@ pub(super) fn check_hosts(
     let before = out.len();
     for (i, text) in given.iter().enumerate() {
         let at = (place.at)(i);
-        let localhost = place.tls == "internal" && text.trim().eq_ignore_ascii_case("localhost");
+        let localhost = place.tls
+            == burrow_config::admin_schema::AdminEnum::wire(&burrow_config::TlsMode::Internal)
+            && text.trim().eq_ignore_ascii_case("localhost");
         let single = if matches!(place.served, Served::Plain) || localhost {
             SingleLabel::Allowed
         } else {
@@ -151,7 +153,10 @@ pub(super) fn check_hosts(
             Ok(h) => h,
             Err(_) if host_name(text, SingleLabel::Allowed).is_ok() => {
                 let short = text.trim().to_lowercase();
-                let like = if place.tls == "internal" {
+                let like = if place.tls
+                    == burrow_config::admin_schema::AdminEnum::wire(
+                        &burrow_config::TlsMode::Internal,
+                    ) {
                     format!("{short}.lan or {short}.home.arpa")
                 } else {
                     format!("{short}.home.example.com")
@@ -220,12 +225,9 @@ pub(super) fn tls_key(web: &burrow_config::ServiceWeb, https: bool) -> String {
             let text = |v: &Option<String>| v.as_deref().unwrap_or_default().trim().to_string();
             format!("files {} {}", text(&f.cert), text(&f.key))
         }
-        Some(SiteTls::Mode(TlsMode::Passthrough)) => "passthrough".into(),
-        Some(SiteTls::Mode(TlsMode::Off)) => "off".into(),
-        Some(SiteTls::Mode(TlsMode::Auto)) => "auto".into(),
-        Some(SiteTls::Mode(TlsMode::Internal)) => "internal".into(),
-        None if https => "auto".into(),
-        None => "off".into(),
+        Some(SiteTls::Mode(mode)) => mode.wire().into(),
+        None if https => TlsMode::Auto.wire().into(),
+        None => TlsMode::Off.wire().into(),
     }
 }
 

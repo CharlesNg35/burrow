@@ -3,6 +3,7 @@ use std::path::Path;
 use super::Spans;
 use crate::config::diagnostics::Diagnostic;
 use burrow_config::{ServerConfig, ServiceWeb, SiteTls, TargetTls};
+use burrow_syntax::upload::Kind;
 
 struct Slot<'a> {
     place: String,
@@ -25,14 +26,14 @@ impl Slot<'_> {
     fn file(
         &self,
         id: &str,
-        kind: &str,
+        kind: Kind,
         spans: &Spans,
         out: &mut Vec<Diagnostic>,
     ) -> Option<String> {
         if burrow_syntax::upload::kind_of(id.trim()) != Some(kind) {
             out.push(self.error(
                 spans,
-                format!("\"{}\" is not an upload of {}", id.trim(), what(kind)),
+                format!("\"{}\" is not an upload of {}", id.trim(), kind.what()),
                 "upload the file again in the admin UI",
             ));
             return None;
@@ -62,14 +63,6 @@ impl Slot<'_> {
     }
 }
 
-fn what(kind: &str) -> &'static str {
-    match kind {
-        "pair" => "a certificate and its key",
-        "crl" => "a revocation list",
-        _ => "a CA",
-    }
-}
-
 fn pair(
     slot: &Slot<'_>,
     (cert, key): (&mut Option<String>, &mut Option<String>),
@@ -96,7 +89,7 @@ fn pair(
             *key = None;
         }
         (_, _, Some(id)) => {
-            let file = slot.file(id, "pair", spans, out);
+            let file = slot.file(id, Kind::Pair, spans, out);
             *key = file.clone();
             *cert = file;
         }
@@ -106,7 +99,7 @@ fn pair(
 fn one(
     slot: &Slot<'_>,
     path: &mut Option<String>,
-    (upload, kind): (Option<&str>, &str),
+    (upload, kind): (Option<&str>, Kind),
     required: bool,
     spans: &Spans,
     out: &mut Vec<Diagnostic>,
@@ -123,7 +116,7 @@ fn one(
         (false, Some(id)) => *path = slot.file(id, kind, spans, out),
         (false, None) if required => out.push(slot.error(
             spans,
-            format!("needs {}: a file, or an upload", what(kind)),
+            format!("needs {}: a path, or an upload", kind.what()),
             "for example ca: certs/ca.pem",
         )),
         _ => {}
@@ -157,7 +150,7 @@ fn site(
         one(
             &slot("target_tls"),
             &mut c.ca,
-            (upload.as_deref(), "ca"),
+            (upload.as_deref(), Kind::Ca),
             true,
             spans,
             out,
@@ -168,7 +161,7 @@ fn site(
         one(
             &slot("client_auth"),
             &mut c.ca,
-            (ca.as_deref(), "ca"),
+            (ca.as_deref(), Kind::Ca),
             true,
             spans,
             out,
@@ -176,7 +169,7 @@ fn site(
         one(
             &slot("client_auth"),
             &mut c.crl,
-            (crl.as_deref(), "crl"),
+            (crl.as_deref(), Kind::Crl),
             false,
             spans,
             out,
@@ -225,7 +218,7 @@ pub(in crate::config::check) fn resolve(
         one(
             &slot,
             &mut le.ca,
-            (upload.as_deref(), "ca"),
+            (upload.as_deref(), Kind::Ca),
             false,
             spans,
             out,

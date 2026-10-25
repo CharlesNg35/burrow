@@ -42,7 +42,10 @@ fn token() -> Option<String> {
     let w = window();
     let storage = w.session_storage().ok().flatten();
     let hash = w.location().hash().unwrap_or_default();
-    if let Some(t) = hash.strip_prefix("#token=").filter(|t| !t.is_empty()) {
+    if let Some(t) = hash
+        .strip_prefix(burrow_admin_proto::local::TOKEN_FRAGMENT)
+        .filter(|t| !t.is_empty())
+    {
         if let Some(s) = &storage {
             let _ = s.set_item(TOKEN_KEY, t);
         }
@@ -66,13 +69,15 @@ pub fn connect(store: Store) {
     let loc = window().location();
     let host = loc.host().unwrap_or_default();
     let prefix = crate::route::run_prefix();
-    let Ok(ws) = WebSocket::new(&format!("ws://{host}{prefix}/api")) else {
+    let api = burrow_admin_proto::local::API_PATH;
+    let Ok(ws) = WebSocket::new(&format!("ws://{host}{prefix}{api}")) else {
         store.conn.set(Conn::Closed {
             message: "The browser could not open a connection to burrow admin.".into(),
         });
         return;
     };
-    let auth = json!({ "auth": token }).to_string();
+    let auth =
+        serde_json::to_string(&burrow_admin_proto::local::Auth { auth: token }).unwrap_or_default();
     let ws_open = ws.clone();
     let on_open = Closure::<dyn FnMut()>::new(move || {
         let _ = ws_open.send_with_str(&auth);
@@ -205,6 +210,10 @@ pub fn reconnect(store: Store) {
     connect(store);
 }
 
+pub fn body<T: burrow_admin_proto::serde::Serialize>(b: &T) -> Value {
+    serde_json::to_value(b).unwrap_or(Value::Null)
+}
+
 pub fn request(t: &str, body: Value, done: impl FnOnce(Reply) + 'static) {
     let mut done: Option<Box<dyn FnOnce(Reply)>> = Some(Box::new(done));
     CLIENT.with(|c| {
@@ -217,7 +226,12 @@ pub fn request(t: &str, body: Value, done: impl FnOnce(Reply) + 'static) {
         };
         let id = c.next;
         c.next = c.next.wrapping_add(1).max(1);
-        let text = json!({ "id": id, "t": t, "body": body }).to_string();
+        let text = serde_json::to_string(&msg::Request {
+            id,
+            t: t.to_string(),
+            body: body.clone(),
+        })
+        .unwrap_or_default();
         if c.ws.send_with_str(&text).is_ok()
             && let Some(f) = done.take()
         {
@@ -252,31 +266,28 @@ fn incoming(store: Store, text: &str) {
     }
 }
 
-fn str_of(v: &Value, k: &str) -> String {
-    v.get(k)
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_string()
-}
-
 fn event(store: Store, ev: &str, body: Value) {
     match ev {
-        "bridge" => match str_of(&body, "state").as_str() {
-            "open" => {
-                ATTEMPT.with(|a| *a.borrow_mut() = 0);
-                set_ready(true);
-                store.server_addr.set(str_of(&body, "server"));
-                start(store);
+        burrow_admin_proto::local::BRIDGE_EVENT => {
+            use burrow_admin_proto::local::{Bridge, BridgeState, Reason};
+            match serde_json::from_value::<Bridge>(body) {
+                Ok(b) if b.state == BridgeState::Open => {
+                    ATTEMPT.with(|a| *a.borrow_mut() = 0);
+                    set_ready(true);
+                    store.server_addr.set(b.server);
+                    start(store);
+                }
+                Ok(b) if b.state == BridgeState::Refused => {
+                    let reason = b.reason.unwrap_or(Reason::Other);
+                    store.conn.set(after_refusal(
+                        &store.conn.get_untracked(),
+                        reason,
+                        b.message,
+                    ));
+                }
+                _ => lost(store),
             }
-            "refused" => {
-                let reason = str_of(&body, "reason");
-                let message = str_of(&body, "message");
-                store
-                    .conn
-                    .set(after_refusal(&store.conn.get_untracked(), reason, message));
-            }
-            _ => lost(store),
-        },
+        }
         msg::ev::STATUS => {
             if let Ok(s) = serde_json::from_value::<Status>(body) {
                 store.take_status(s, now_ms());
@@ -339,13 +350,19 @@ fn lost(store: Store) {
     });
 }
 
-fn after_refusal(now: &Conn, reason: String, message: String) -> Conn {
+fn after_refusal(now: &Conn, reason: burrow_admin_proto::local::Reason, message: String) -> Conn {
+    use burrow_admin_proto::local::Reason;
     match now {
         Conn::Revoked { .. } => now.clone(),
-        Conn::Reconnecting { .. } if reason == "unreachable" || reason == "busy" => now.clone(),
-        _ if reason == "unreachable" || reason == "busy" => Conn::Reconnecting { attempt: 0 },
-        Conn::Reconnecting { .. } if reason == "forbidden" => Conn::Revoked { reason: message },
-        _ => Conn::Refused { reason, message },
+        Conn::Reconnecting { .. } if reason.passes() => now.clone(),
+        _ if reason.passes() => Conn::Reconnecting { attempt: 0 },
+        Conn::Reconnecting { .. } if reason == Reason::Forbidden => {
+            Conn::Revoked { reason: message }
+        }
+        _ => Conn::Refused {
+            reason: reason.as_str().to_string(),
+            message,
+        },
     }
 }
 
@@ -368,24 +385,29 @@ fn start(store: Store) {
 }
 
 fn load_schema(store: Store, have: String) {
-    request(msg::req::SCHEMA, json!({ "have": have }), move |r| match r
-        .map(serde_json::from_value::<SchemaReply>)
-    {
-        Ok(Ok(reply)) => {
-            if let Some(s) = reply.schema {
-                store.schema.set(Some(Arc::new(s)));
+    request(
+        msg::req::SCHEMA,
+        body(&msg::SchemaRequest { have }),
+        move |r| match r.map(serde_json::from_value::<SchemaReply>) {
+            Ok(Ok(reply)) => {
+                if let Some(s) = reply.schema {
+                    store.schema.set(Some(Arc::new(s)));
+                }
+                load_state(store);
+                request(
+                    msg::req::SUBSCRIBE,
+                    body(&msg::Subscribe {
+                        status_ms: STATUS_MS,
+                        config: true,
+                    }),
+                    |_| {},
+                );
+                load_history(store);
             }
-            load_state(store);
-            request(
-                msg::req::SUBSCRIBE,
-                json!({ "status_ms": STATUS_MS, "config": true }),
-                |_| {},
-            );
-            load_history(store);
-        }
-        Ok(Err(e)) => store.error.set(Some(format!("unreadable schema: {e}"))),
-        Err(e) => store.error.set(Some(e.message)),
-    });
+            Ok(Err(e)) => store.error.set(Some(format!("unreadable schema: {e}"))),
+            Err(e) => store.error.set(Some(e.message)),
+        },
+    );
 }
 
 pub fn load_state(store: Store) {
@@ -408,7 +430,11 @@ pub fn load_state(store: Store) {
 }
 
 pub fn load_history(store: Store) {
-    request(msg::req::HISTORY, json!({ "limit": 20 }), move |r| {
+    let first = msg::HistoryRequest {
+        limit: Some(20),
+        diff: None,
+    };
+    request(msg::req::HISTORY, body(&first), move |r| {
         if let Ok(Ok(h)) = r.map(serde_json::from_value::<HistoryReply>) {
             store.history.set(Some(h.entries));
         } else {
@@ -442,23 +468,24 @@ mod tests {
 
     #[test]
     fn refusals_while_reconnecting_keep_trying_or_mean_revoked() {
+        use burrow_admin_proto::local::Reason;
         let r = Conn::Reconnecting { attempt: 2 };
-        assert_eq!(after_refusal(&r, "unreachable".into(), "x".into()), r);
+        assert_eq!(after_refusal(&r, Reason::Unreachable, "x".into()), r);
         assert!(
-            matches!(after_refusal(&r, "forbidden".into(), "gone".into()), Conn::Revoked { reason } if reason == "gone")
+            matches!(after_refusal(&r, Reason::Forbidden, "gone".into()), Conn::Revoked { reason } if reason == "gone")
         );
         let revoked = Conn::Revoked { reason: "x".into() };
         assert_eq!(
-            after_refusal(&revoked, "forbidden".into(), "y".into()),
+            after_refusal(&revoked, Reason::Forbidden, "y".into()),
             revoked
         );
         assert!(matches!(
-            after_refusal(&Conn::Connecting, "forbidden".into(), "y".into()),
+            after_refusal(&Conn::Connecting, Reason::Forbidden, "y".into()),
             Conn::Refused { .. }
         ));
-        for transient in ["unreachable", "busy"] {
+        for transient in [Reason::Unreachable, Reason::Busy] {
             assert_eq!(
-                after_refusal(&Conn::Connecting, transient.into(), "timed out".into()),
+                after_refusal(&Conn::Connecting, transient, "timed out".into()),
                 Conn::Reconnecting { attempt: 0 },
                 "a slow or busy server on the first try is retried, not final"
             );

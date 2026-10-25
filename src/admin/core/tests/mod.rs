@@ -8,6 +8,7 @@ mod reverts;
 mod snippets;
 mod uploads;
 mod web_ports;
+mod wording;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};

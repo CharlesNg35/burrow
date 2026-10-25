@@ -1,3 +1,5 @@
+use burrow_admin_proto::local::{API_PATH, RUN_PREFIX};
+
 pub const MAX_HEAD: usize = 64 * 1024;
 
 pub const SECURITY_HEADERS: [(&str, &str); 6] = [
@@ -76,7 +78,7 @@ pub fn run_prefix() -> String {
     let mut bytes = [0u8; 16];
     getrandom::fill(&mut bytes).expect("operating system random source is available");
     let hex = hex::encode(bytes);
-    format!("/r-{hex}")
+    format!("{RUN_PREFIX}{hex}")
 }
 
 pub fn is_file(path: &str) -> bool {
@@ -102,7 +104,7 @@ fn climbs(path: &str) -> bool {
 }
 
 fn without_run(path: &str) -> &str {
-    match path.strip_prefix("/r-") {
+    match path.strip_prefix(RUN_PREFIX) {
         Some(rest) => rest.find('/').map_or("/", |i| &rest[i..]),
         None => path,
     }
@@ -113,7 +115,7 @@ pub fn route(target: &str, prefix: &str, upgrade: bool) -> Decision {
     let inner = path
         .strip_prefix(prefix)
         .filter(|rest| rest.starts_with('/'));
-    if inner == Some("/api") {
+    if inner == Some(API_PATH) {
         return Decision::Api;
     }
     if !path.starts_with('/') || climbs(path) {
@@ -128,7 +130,7 @@ pub fn route(target: &str, prefix: &str, upgrade: bool) -> Decision {
     }
     let rest = without_run(path);
     let last = rest.rsplit('/').next().unwrap_or("");
-    if rest == "/api" || (upgrade && last == "api") || is_file(rest) {
+    if rest == API_PATH || (upgrade && last == API_PATH.trim_start_matches('/')) || is_file(rest) {
         return Decision::NotFound;
     }
     let query = target

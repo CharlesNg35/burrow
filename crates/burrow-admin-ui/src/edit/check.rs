@@ -4,7 +4,7 @@ use std::sync::Arc;
 use burrow_admin_proto::msg::{self, ErrorBody, ErrorCode};
 use burrow_admin_proto::ops::Op;
 use burrow_admin_proto::plan::{Applied, Plan};
-use burrow_admin_proto::serde_json::{self, Value, json};
+use burrow_admin_proto::serde_json::{self, Value};
 use leptos::prelude::*;
 
 use crate::api;
@@ -34,7 +34,10 @@ impl Edit {
         }
         let me = *self;
         self.checking.set(true);
-        let body = json!({ "base": self.base_rev.get_untracked(), "ops": self.ops() });
+        let body = api::body(&msg::Validate {
+            base: self.base_rev.get_untracked(),
+            ops: self.ops(),
+        });
         api::request(msg::req::VALIDATE, body, move |r| {
             if me.seq.get_value() != n {
                 return;
@@ -94,7 +97,7 @@ impl Edit {
         let me = *self;
         api::request(
             msg::req::VALIDATE,
-            json!({ "base": base, "ops": ops }),
+            api::body(&msg::Validate { base, ops }),
             move |r| match r {
                 Ok(v) => {
                     if let Ok(p) = serde_json::from_value::<Plan>(v) {
@@ -137,7 +140,10 @@ impl Edit {
         let me = *self;
         api::request(
             msg::req::REVERT,
-            json!({ "to": to, "base": base }),
+            api::body(&msg::Revert {
+                to: to.clone(),
+                base,
+            }),
             move |r| match r.and_then(|v| {
                 serde_json::from_value::<Plan>(v).map_err(|e| ErrorBody {
                     code: ErrorCode::Unknown,
@@ -213,7 +219,13 @@ impl Edit {
         self.outcome.set(None);
         let me = *self;
         let address = store.server_addr.get_untracked();
-        let body = json!({ "base": base, "ops": ops, "plan": plan.plan, "confirm": confirm, "address": (!address.is_empty()).then_some(address) });
+        let body = api::body(&msg::Apply {
+            base,
+            ops,
+            plan: plan.plan.clone(),
+            confirm,
+            address: (!address.is_empty()).then_some(address),
+        });
         api::request(msg::req::APPLY, body, move |r| {
             me.applying.set(false);
             match r {

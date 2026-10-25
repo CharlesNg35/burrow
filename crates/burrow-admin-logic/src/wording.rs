@@ -4,10 +4,6 @@ use burrow_admin_proto::codes::{
     REDIRECT_PASSTHROUGH, REDIRECT_PLAIN, WEB_OFF, WEB_TCP_ONLY, WILDCARD_NEEDS_DNS,
 };
 
-fn quoted(message: &str) -> &str {
-    message.split('"').nth(1).unwrap_or_default()
-}
-
 const TCP_ONLY: [(&str, &str); 5] = [
     (
         WEB_TCP_ONLY,
@@ -38,7 +34,8 @@ fn key_path(head: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | '*'))
 }
 
-pub fn shown(code: &str, message: &str) -> String {
+pub fn shown(code: &str, message: &str, subjects: &[String]) -> String {
+    let subject = subjects.first().map_or("", String::as_str);
     if code == REDIRECT_NEEDS_HTTP {
         return "answering plain HTTP too needs the web proxy's HTTP port, which is not set; add http: 80 under web in server.yaml (burrow edit), or send http:// to https://".into();
     }
@@ -46,12 +43,8 @@ pub fn shown(code: &str, message: &str) -> String {
         return "plain HTTP needs the web proxy's HTTP port, which is not set; add http: 80 under web in server.yaml (burrow edit), or choose another HTTPS option".into();
     }
     if code == NO_CHECK {
-        let name = message
-            .split([' ', '"'])
-            .find(|w| !w.is_empty() && *w != "websocket.host")
-            .unwrap_or_default();
         return format!(
-            "Let's Encrypt cannot check {name}: its TLS and HTTP checks reach only ports 443 and 80; open port 80 in server.yaml (burrow edit), use the DNS check (a DNS provider under Settings, Web proxy, Let's Encrypt), or use your own certificate file"
+            "Let's Encrypt cannot check {subject}: its TLS and HTTP checks reach only ports 443 and 80; open port 80 in server.yaml (burrow edit), use the DNS check (a DNS provider under Settings, Web proxy, Let's Encrypt), or use your own certificate file"
         );
     }
     if code == WEB_OFF {
@@ -59,21 +52,18 @@ pub fn shown(code: &str, message: &str) -> String {
     }
     if code == NO_CERTIFICATE {
         return format!(
-            "{} has no certificate: turn on Let's Encrypt under Settings, Web proxy, choose My own certificate under HTTPS, or list the name in the web proxy's Certificate files",
-            quoted(message)
+            "{subject} has no certificate: turn on Let's Encrypt under Settings, Web proxy, choose My own certificate under HTTPS, or list the name in the web proxy's Certificate files"
         );
     }
     if code == WILDCARD_NEEDS_DNS {
         return format!(
-            "Let's Encrypt gives {} only through a DNS check: add a DNS provider for its domain under Settings, Web proxy, Let's Encrypt, or use your own certificate file for it",
-            quoted(message)
+            "Let's Encrypt gives {subject} only through a DNS check: add a DNS provider for its domain under Settings, Web proxy, Let's Encrypt, or use your own certificate file for it"
         );
     }
     if code == PLAIN_HTTP {
-        let service = message
-            .strip_prefix("services.")
-            .and_then(|m| m.split_once(':'))
-            .map_or("this website", |(name, _)| name);
+        let service = Some(subject)
+            .filter(|s| !s.is_empty())
+            .unwrap_or("this website");
         return format!(
             "{service} is served as plain HTTP: anyone on the path can read and change its traffic"
         );
@@ -110,6 +100,13 @@ pub fn needs_write_admin(action: WriteAction, visitor: Option<&str>) -> String {
     }
 }
 
+pub const CHANGE_IN_FILE: &str = "Change this in server.yaml (burrow edit)";
+pub const CHANGE_IN_FILE_THEN_RESTART: &str =
+    "Change this in server.yaml (burrow edit), then restart the server";
+pub const TOGGLE_IN_FILE: &str = "Turn it on or off in server.yaml (burrow edit)";
+pub const NAMED_IN_FILE: &str =
+    "named in server.yaml (burrow edit); remove it there to upload one here";
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -136,7 +133,7 @@ mod tests {
             "blog.example.com (service \"blog\") cannot be checked by Let's Encrypt: open http: 80, ...",
             "websocket.host \"blog.example.com\" cannot be checked: open http: 80, ...",
         ] {
-            let shown = shown(NO_CHECK, m);
+            let shown = shown(NO_CHECK, m, &["blog.example.com".into()]);
             assert!(
                 shown.starts_with("Let's Encrypt cannot check blog.example.com:"),
                 "{shown}"
@@ -149,6 +146,7 @@ mod tests {
         let m = shown(
             WEB_OFF,
             "services.blog.web: the web proxy is off; add a top-level web: with its ports, like web: {https: 443, http: 80}",
+            &[],
         );
         assert!(
             m.contains("Settings, Web proxy") && !m.contains("web:"),
@@ -164,6 +162,7 @@ mod tests {
                 &format!(
                     "services.{name}: served as plain HTTP; anyone on the path can read and change its traffic"
                 ),
+                &[name.to_string()],
             )
         };
         assert_eq!(
@@ -178,6 +177,7 @@ mod tests {
         let m = shown(
             NO_CERTIFICATE,
             "host \"nas.example.com\" (service \"nas\") has no certificate; add web.letsencrypt for automatic certificates, tls: {cert, key} on service \"nas\", or an entry in web.certificates whose hosts lists it",
+            &["nas.example.com".into()],
         );
         assert!(
             m.starts_with("nas.example.com has no certificate: turn on Let's Encrypt"),
@@ -187,6 +187,7 @@ mod tests {
         let w = shown(
             WILDCARD_NEEDS_DNS,
             "services.apps.web.hosts: \"*.apps.example.com\" needs DNS-01 (...)",
+            &["*.apps.example.com".into()],
         );
         assert!(
             w.contains("*.apps.example.com only through a DNS check"),
@@ -199,10 +200,11 @@ mod tests {
         let too = shown(
             REDIRECT_NEEDS_HTTP,
             "services.nas.web.https_redirect: false serves plain HTTP too, but web.http is not set; add http: 80",
+            &[],
         );
         assert!(too.starts_with("answering plain HTTP too"), "{too}");
         for code in [REDIRECT_PASSTHROUGH, REDIRECT_PLAIN] {
-            let m = shown(code, "services.nas.web.https_redirect: ...");
+            let m = shown(code, "services.nas.web.https_redirect: ...", &[]);
             assert!(
                 !m.contains("https_redirect") && !m.contains("services."),
                 "{m}"
@@ -235,8 +237,11 @@ mod tests {
             ),
         ];
         for (code, cli, ui) in cases {
-            assert_eq!(shown(code, cli), ui, "{code}");
-            assert!(!shown(code, cli).contains('_'), "{code}: no config keys");
+            assert_eq!(shown(code, cli, &[]), ui, "{code}");
+            assert!(
+                !shown(code, cli, &[]).contains('_'),
+                "{code}: no config keys"
+            );
         }
     }
 
@@ -245,36 +250,44 @@ mod tests {
         assert_eq!(
             shown(
                 "invalid-host",
-                "services.nas.web.hosts: \"x\" is not a host name"
+                "services.nas.web.hosts: \"x\" is not a host name",
+                &[],
             ),
             "\"x\" is not a host name"
         );
         assert_eq!(
-            shown("tunnel-host", "websocket.host: \"*.a.b\" is a wildcard"),
+            shown(
+                "tunnel-host",
+                "websocket.host: \"*.a.b\" is a wildcard",
+                &[]
+            ),
             "\"*.a.b\" is a wildcard"
         );
         assert_eq!(
             shown(
                 "duplicate-host",
-                "host \"a.example.com\" is used by services \"x\" and \"y\""
+                "host \"a.example.com\" is used by services \"x\" and \"y\"",
+                &[],
             ),
             "host \"a.example.com\" is used by services \"x\" and \"y\""
         );
         assert_eq!(
-            shown("x", "invalid bind address for service \"web\": bad"),
+            shown("x", "invalid bind address for service \"web\": bad", &[]),
             "invalid bind address for service \"web\": bad"
         );
         assert_eq!(
             shown(
                 WEB_TCP_ONLY,
-                "service \"dns\" is udp, but web only works for tcp services; remove web:, or set protocol: tcp"
+                "service \"dns\" is udp, but web only works for tcp services; remove web:, or set protocol: tcp",
+                &[],
             ),
             "a website only works for TCP services; set Protocol to TCP, or remove the website"
         );
         assert_eq!(
             shown(
                 PLAIN_NEEDS_HTTP,
-                "services.wiki.web.tls: off serves plain HTTP, but web.http is not set; add http: 80"
+                "services.wiki.web.tls: off serves plain HTTP, but web.http is not set; add http: 80",
+                &[],
             ),
             "plain HTTP needs the web proxy's HTTP port, which is not set; add http: 80 under web in server.yaml (burrow edit), or choose another HTTPS option"
         );

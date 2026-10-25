@@ -1,6 +1,6 @@
 use burrow_admin_proto::msg::{self, AuditEntry, HistoryReply};
 use burrow_admin_proto::plan::Diff;
-use burrow_admin_proto::serde_json::{self, json};
+use burrow_admin_proto::serde_json;
 use burrow_ui_kit::{Button, DiffLine, DiffView, EmptyState, Skeleton, Stat, Stats, Tone};
 use leptos::prelude::*;
 
@@ -138,7 +138,10 @@ fn Version(entry: AuditEntry, newer: Vec<AuditEntry>) -> impl IntoView {
     if entry.details_kept {
         api::request(
             msg::req::HISTORY,
-            json!({ "limit": 1, "diff": entry.rev.clone() }),
+            api::body(&msg::HistoryRequest {
+                limit: Some(1),
+                diff: Some(entry.rev.clone()),
+            }),
             move |r| {
                 let lines = r
                     .map_err(|e| e.message)

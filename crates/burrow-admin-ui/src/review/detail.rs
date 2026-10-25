@@ -216,7 +216,7 @@ fn diags_view(new_diags: &[Diag]) -> impl IntoView + use<> {
                 .unwrap_or_default();
             view! {
                 <li class=format!("rounded-input border px-3 py-2 text-sm {}", severity_tone(d).soft()) data-diag=d.code.clone()>
-                    <strong>{where_}</strong>" "{burrow_admin_logic::wording::shown(&d.code, &d.message)}
+                    <strong>{where_}</strong>" "{burrow_admin_logic::wording::shown(&d.code, &d.message, &d.subjects)}
                 </li>
             }
         })

@@ -465,6 +465,11 @@ pub struct InvalidBody {
     pub diags: Vec<Diag>,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConfirmBody {
+    pub confirm: Vec<String>,
+}
+
 pub fn path(parts: &[&str]) -> Path {
     parts.iter().map(|s| s.to_string()).collect()
 }

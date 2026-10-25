@@ -487,24 +487,34 @@ fn check_metrics(
         (taken.web_http, "web.http".to_string()),
     ]
     .into_iter()
-    .filter_map(|(a, what)| a.map(|a| (a, 1, what)))
+    .filter_map(|(a, what)| a.map(|a| (a, 1, what, None)))
     .chain(
         taken
             .binds
             .iter()
             .filter(|(_, _, p, _)| *p == Protocol::Tcp)
-            .map(|(a, n, _, name)| (*a, *n, format!("service \"{name}\""))),
+            .map(|(a, n, _, name)| {
+                (
+                    *a,
+                    *n,
+                    format!("service \"{name}\""),
+                    Some(name.to_string()),
+                )
+            }),
     )
-    .find(|(a, n, _)| ranges_conflict(*a, *n, addr, 1));
-    if let Some((_, _, what)) = clash {
+    .find(|(a, n, _, _)| ranges_conflict(*a, *n, addr, 1));
+    if let Some((_, _, what, service)) = clash {
+        let mut d = Diagnostic::error(
+            burrow_admin_proto::codes::DUPLICATE_BIND,
+            format!("metrics.listen {addr} is already used by {what}"),
+        );
+        if let Some(s) = service {
+            d = d.about(s);
+        }
         out.push(
-            Diagnostic::error(
-                burrow_admin_proto::codes::DUPLICATE_BIND,
-                format!("metrics.listen {addr} is already used by {what}"),
-            )
-            .at(at)
-            .label("address already used")
-            .help("pick another port for the metrics endpoint"),
+            d.at(at)
+                .label("address already used")
+                .help("pick another port for the metrics endpoint"),
         );
         return None;
     }

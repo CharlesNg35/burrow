@@ -188,7 +188,7 @@ pub fn no_token() -> impl IntoView {
                         <pre class="overflow-x-auto whitespace-pre-wrap break-all">
                             <span class="text-code-text/55">"$ "</span>"burrow admin -c visitor.yaml --print-url\n"
                             <span class="text-code-text/55">{format!("burrow admin for … listens on http://127.0.0.1:{port}\nopen: ")}</span>
-                            <span class="text-[#7cb7ff] underline">{format!("http://127.0.0.1:{port}/#token=…")}</span>
+                            <span class="text-[#7cb7ff] underline">{format!("http://127.0.0.1:{port}/{}…", burrow_admin_proto::local::TOKEN_FRAGMENT)}</span>
                             <span class="text-code-text/55">"\nstop it with Ctrl-C"</span>
                         </pre>
                     </div>

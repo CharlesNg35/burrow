@@ -1,5 +1,5 @@
 use burrow_admin_proto::msg::{AdminLevel, ErrorCode, Upload, Uploaded, req};
-use burrow_syntax::upload::KINDS;
+use burrow_syntax::upload::Kind;
 use serde_json::json;
 
 use super::{core_for, session, world};
@@ -31,7 +31,7 @@ fn a_write_admin_uploads_a_pair_and_gets_its_id_and_facts_never_the_key() {
     let core = core_for(&w.text);
     let s = session(&w, AdminLevel::Write);
     let pem = pair("nas.example.com");
-    let b = body(KINDS[0], &pem, &["nas.example.com"]);
+    let b = body(Kind::Pair.prefix(), &pem, &["nas.example.com"]);
     let reply = dispatch(&core, &s, req::UPLOAD, &b).unwrap();
     let up: Uploaded = serde_json::from_value(reply.clone()).unwrap();
     assert!(up.id.starts_with("pair-"), "{}", up.id);
@@ -54,15 +54,21 @@ fn an_upload_is_refused_to_read_admins_and_when_it_does_not_fit() {
     let core = core_for(&w.text);
     let pem = pair("nas.example.com");
     let read = session(&w, AdminLevel::Read);
-    let e = dispatch(&core, &read, req::UPLOAD, &body(KINDS[0], &pem, &[])).unwrap_err();
+    let e = dispatch(
+        &core,
+        &read,
+        req::UPLOAD,
+        &body(Kind::Pair.prefix(), &pem, &[]),
+    )
+    .unwrap_err();
     assert_eq!(e.code, ErrorCode::Forbidden);
     let s = session(&w, AdminLevel::Write);
     let e = dispatch(&core, &s, req::UPLOAD, &body("nonsense", &pem, &[])).unwrap_err();
     assert_eq!(e.code, ErrorCode::BadRequest);
-    let wrong = body(KINDS[0], &pem, &["other.example.com"]);
+    let wrong = body(Kind::Pair.prefix(), &pem, &["other.example.com"]);
     let e = dispatch(&core, &s, req::UPLOAD, &wrong).unwrap_err();
     assert_eq!(e.code, ErrorCode::Invalid);
-    let e = dispatch(&core, &s, req::UPLOAD, &body(KINDS[2], "x", &[])).unwrap_err();
+    let e = dispatch(&core, &s, req::UPLOAD, &body(Kind::Crl.prefix(), "x", &[])).unwrap_err();
     assert_eq!(e.code, ErrorCode::Invalid);
     assert!(!core.store.state_dir().join("files").exists());
 }

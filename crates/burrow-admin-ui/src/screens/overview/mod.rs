@@ -107,7 +107,7 @@ fn state_items(st: &State, out: &mut Vec<Item>) {
                 d.path.as_ref().map(|p| p.join(".")).unwrap_or_default()
             ),
             tone: Tone::Warning,
-            title: burrow_admin_logic::wording::shown(&d.code, &d.message),
+            title: burrow_admin_logic::wording::shown(&d.code, &d.message, &d.subjects),
             detail: d
                 .help
                 .clone()

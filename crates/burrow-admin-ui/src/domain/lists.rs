@@ -271,8 +271,8 @@ pub(super) fn union_editor(fc: FieldCtx, u: UnionC) -> AnyView {
     if super::target_tls::is_target_tls(&fc) {
         return super::target_tls::target_tls_editor(fc);
     }
-    if let Some(item) = super::website::host_item(&u) {
-        return super::website::website_editor(fc, item);
+    if super::website::host_item(&u).is_some() {
+        return super::website::website_editor(fc);
     }
     let e = store().edit;
     let bool_branch = u

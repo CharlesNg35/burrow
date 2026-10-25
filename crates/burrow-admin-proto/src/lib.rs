@@ -7,6 +7,7 @@ pub mod codes;
 pub mod date;
 pub mod diag;
 pub mod frame;
+pub mod local;
 pub mod msg;
 pub mod ops;
 pub mod plan;
@@ -15,6 +16,7 @@ pub mod status;
 pub mod value;
 pub mod web;
 
+pub use serde;
 pub use serde_json;
 
 pub type Path = Vec<String>;

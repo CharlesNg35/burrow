@@ -50,12 +50,12 @@ pub fn upload(core: &Core, s: &Session, req: &Upload) -> Result<Uploaded, ApiErr
             "read access cannot upload files",
         ));
     }
-    if !burrow_syntax::upload::KINDS.contains(&req.kind.as_str()) {
+    let Some(kind) = burrow_syntax::upload::Kind::parse(&req.kind) else {
         return Err(ApiError::new(
             ErrorCode::BadRequest,
             format!("unknown upload kind \"{}\"", req.kind),
         ));
-    }
+    };
     if let Some(why) = crate::install::missing_state_folder(core.store.path()) {
         return Err(ApiError::new(ErrorCode::Invalid, why));
     }
@@ -68,8 +68,7 @@ pub fn upload(core: &Core, s: &Session, req: &Upload) -> Result<Uploaded, ApiErr
             ),
         ));
     }
-    let needs_cas = req.kind == burrow_syntax::upload::KINDS[2];
-    let cas = if needs_cas {
+    let cas = if kind == burrow_syntax::upload::Kind::Crl {
         cas(core, req)?
     } else {
         Zeroizing::new(Vec::new())
@@ -78,7 +77,7 @@ pub fn upload(core: &Core, s: &Session, req: &Upload) -> Result<Uploaded, ApiErr
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_secs());
     let r = files::Request {
-        kind: &req.kind,
+        kind,
         pem: req.pem.as_bytes(),
         hosts: &req.hosts,
         cas: &cas,

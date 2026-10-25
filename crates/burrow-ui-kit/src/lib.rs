@@ -17,10 +17,11 @@ mod spark;
 mod toast;
 
 pub use basic::{
-    Badge, Button, Card, Chip, Fact, Facts, Kbd, Kpi, LABEL, LINK, MONO, Mono, Muted, PageHeader,
-    PillTabs, SpinDot, Stat, Stats, StatusDot, Table, Tabs, Tone, button_class, chip_class,
+    Badge, Button, Card, Chip, Fact, Facts, Kbd, Kpi, LABEL, LINK, LockLine, MONO, Mono, Muted,
+    PageHeader, PillTabs, SpinDot, Stat, Stats, StatusDot, Table, Tabs, Tone, button_class,
+    chip_class,
 };
-pub use code::{CodeBlock, DiffLine, DiffView, copy_text, download_text};
+pub use code::{CodeBlock, DiffLine, DiffView, copy_text, download, download_text};
 pub use combo::{ComboOption, Combobox, filter_options};
 pub use disclosure::Disclosure;
 pub use feedback::{Banner, Callout, EmptyState, Skeleton, Spinner};

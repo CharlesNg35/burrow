@@ -19,10 +19,8 @@ pub(super) fn needs_https(name: &str, key: &str, choice: &str) -> String {
 
 fn https_choice(web: &ServiceWeb) -> Option<&'static str> {
     match web.tls()? {
-        SiteTls::Mode(TlsMode::Auto) => Some("auto"),
-        SiteTls::Mode(TlsMode::Passthrough) => Some("passthrough"),
         SiteTls::Mode(TlsMode::Off) => None,
-        SiteTls::Mode(TlsMode::Internal) => Some("internal"),
+        SiteTls::Mode(mode) => Some(mode.wire()),
         SiteTls::Files(_) => Some("{cert, key}"),
     }
 }
@@ -68,6 +66,7 @@ pub(in crate::config::check) fn check_choices(
                         "services.{name}: served as plain HTTP; anyone on the path can read and change its traffic"
                     ),
                 )
+                .about(name.as_str())
                 .at(spans.value(&["services", name, "web"]))
                 .help(if written {
                     "for a site reached over the internet, remove tls: off so burrow serves it over HTTPS"

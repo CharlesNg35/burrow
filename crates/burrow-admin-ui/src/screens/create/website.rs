@@ -1,7 +1,10 @@
 use burrow_admin_logic::web::{needs_letsencrypt, service_name, website};
 use burrow_admin_proto::serde_json::{Value, json};
-use burrow_config::{ClientEntry, Entry, LetsEncrypt, ServerConfig, ServiceEntry, WebConfig};
-use burrow_syntax::web::{CheckPorts, SingleLabel, checks_for, host_name};
+use burrow_config::admin_schema::AdminEnum;
+use burrow_config::{
+    ClientEntry, Entry, LetsEncrypt, ServerConfig, ServiceEntry, TlsMode, WebConfig,
+};
+use burrow_syntax::web::{CheckPorts, checks_for};
 use burrow_ui_kit::{
     Button, Callout, ChipInput, CodeBlock, ComboOption, Combobox, Edge, EdgeState, Hop, HopState,
     PathData, PathDiagram, Segmented, TextInput, Tone,
@@ -13,8 +16,6 @@ use crate::store::store;
 
 use super::{name_problem, taken};
 
-const AUTO: &str = "auto";
-const OFF: &str = "off";
 const TERMS: &str = "https://letsencrypt.org/repository/";
 
 #[derive(Clone, Copy, PartialEq)]
@@ -121,11 +122,14 @@ fn path(names: &[String], client: &str, target: &str, server: &str) -> PathData 
 }
 
 fn tls_options(p: Ports) -> Vec<(String, String, bool)> {
-    use burrow_config::admin_schema::AdminEnum;
     burrow_config::TlsMode::options()
         .into_iter()
         .map(|o| {
-            let off = if o.value == OFF { !p.http } else { !p.https };
+            let off = if o.value == TlsMode::Off.wire() {
+                !p.http
+            } else {
+                !p.https
+            };
             (o.value, o.label, off)
         })
         .collect()
@@ -148,7 +152,7 @@ fn site_value(names: &[String], client: &str, target: &str, tls: &str) -> Value 
         .trim()
         .parse::<u16>()
         .map_or_else(|_| json!(target.trim()), |p| json!(p));
-    let tls = (tls != AUTO).then(|| json!(tls));
+    let tls = (tls != TlsMode::Auto.wire()).then(|| json!(tls));
     let mut v = json!({});
     ServiceEntry::CLIENT.set(&mut v, json!(client));
     ServiceEntry::TARGET.set(&mut v, target);
@@ -167,16 +171,21 @@ pub fn NewWebsite(open: RwSignal<bool>, draft_name: RwSignal<String>) -> impl In
     let client: RwSignal<Vec<String>> =
         RwSignal::new(clients().into_iter().take(1).map(|c| c.value).collect());
     let target = RwSignal::new("8080".to_string());
-    let tls = RwSignal::new(if p.get_untracked().https { AUTO } else { OFF }.to_string());
-    let email = RwSignal::new(String::new());
-    let plain = Signal::derive(move || tls.get() == OFF);
-    let check_name = Callback::new(move |t: String| {
-        let single = if plain.get_untracked() {
-            SingleLabel::Allowed
+    let tls = RwSignal::new(
+        if p.get_untracked().https {
+            TlsMode::Auto
         } else {
-            SingleLabel::Refused
-        };
-        host_name(&t, single).err()
+            TlsMode::Off
+        }
+        .wire()
+        .to_string(),
+    );
+    let email = RwSignal::new(String::new());
+    let plain = Signal::derive(move || {
+        burrow_admin_logic::web::is_plain(Some(&Value::String(tls.get())), true)
+    });
+    let check_name = Callback::new(move |t: String| {
+        burrow_admin_logic::web::site_name_problem(&t, plain.get_untracked())
     });
     let service = Memo::new(move |_| service_name(&names.get(), &taken(ServiceEntry::section())));
     Effect::new(move |_| {
@@ -188,7 +197,7 @@ pub fn NewWebsite(open: RwSignal<bool>, draft_name: RwSignal<String>) -> impl In
         draft_name.set(n);
     });
     let asks_email = Memo::new(move |_| {
-        tls.get() == AUTO
+        tls.get() == TlsMode::Auto.wire()
             && e.draft.with(|d| {
                 ServerConfig::WEB
                     .get(d.draft())

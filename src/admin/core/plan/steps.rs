@@ -188,6 +188,7 @@ fn listen_clash(c: crate::config::settings::ListenClash) -> Diag {
         line: None,
         col: None,
         before: false,
+        subjects: Vec::new(),
     }
 }
 

@@ -384,6 +384,20 @@ pub enum Bind {
     Addr(String),
 }
 
+impl Bind {
+    pub fn ranged(
+        &self,
+        default_ip: [u8; 4],
+        what: &str,
+    ) -> Result<(std::net::SocketAddr, u16), String> {
+        match self {
+            Bind::Port(0) => Err("port 0 is not allowed".into()),
+            Bind::Port(p) => Ok((std::net::SocketAddr::from((default_ip, *p)), 1)),
+            Bind::Addr(s) => burrow_syntax::ports::parse_ranged_text(s, default_ip, what),
+        }
+    }
+}
+
 impl std::fmt::Display for Bind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -405,6 +419,14 @@ pub enum Target {
 }
 
 impl Target {
+    pub fn ports(&self) -> Result<u16, String> {
+        let text = self.host_port();
+        if burrow_syntax::unix::path_of(&text).is_some() {
+            return Ok(1);
+        }
+        burrow_syntax::ports::split_target(&text).map(|(_, n)| n)
+    }
+
     pub fn host_port(&self) -> String {
         match self {
             Target::Port(p) => format!("127.0.0.1:{p}"),

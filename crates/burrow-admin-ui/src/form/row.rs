@@ -6,7 +6,7 @@ use burrow_admin_proto::diag::Severity;
 use burrow_admin_proto::schema::{Field, Node, SemType};
 use burrow_admin_proto::serde_json::Value;
 use burrow_admin_proto::value::as_env;
-use burrow_ui_kit::{FieldRow, FieldState, Toggle, Tone};
+use burrow_ui_kit::{FieldRow, FieldState, Tone};
 use leptos::prelude::*;
 
 use crate::domain::{self, FieldCtx};
@@ -157,23 +157,7 @@ fn object_row(p: &Parts, n: Node, lock_here: bool, hint: String) -> AnyView {
     let help = node.help.clone();
     let p2 = path.clone();
     let is_set = Memo::new(move |_| e.value(&p2).is_some_and(|v| !v.is_null()));
-    let (p3, tid) = (path.clone(), field_id(&path));
-    let toggle = move || {
-        (optional && can && editing.try_get().unwrap_or(false)).then(|| {
-            let p3 = p3.clone();
-            let id = tid.clone();
-            view! {
-                <Toggle
-                    id=id
-                    checked=is_set
-                    label=Signal::derive(move || if is_set.get() { "In use".to_string() } else { "Not set".to_string() })
-                    on_change=move |on: bool| {
-                        e.set(&p3, on.then(|| Value::Object(Default::default())));
-                    }
-                />
-            }
-        })
-    };
+    let toggle = super::controls::object_toggle(path.clone(), is_set, optional && can, editing);
     let none_label = node.none_label.clone().unwrap_or_else(|| "Not set".into());
     let (p4, sp4, en4) = (path.clone(), spath.clone(), entity.clone());
     let body = move || {
@@ -194,12 +178,7 @@ fn object_row(p: &Parts, n: Node, lock_here: bool, hint: String) -> AnyView {
                     <legend class="px-1 text-sm font-semibold">{label.clone()}</legend>
                     <div class="mb-3 flex flex-wrap items-center gap-3">
                         <p class="flex-1 text-xs text-text-muted">{help.clone()}</p>
-                        {lock_here.then(|| view! {
-                            <p class="flex items-center gap-1.5 text-xs text-text-muted" data-testid="locked-hint">
-                                <burrow_ui_kit::Icon name="lock" small=true/>
-                                {hint.clone()}
-                            </p>
-                        })}
+                        {lock_here.then(|| view! { <burrow_ui_kit::LockLine text=hint.clone() testid="locked-hint"/> })}
                         {toggle}
                     </div>
                     {body}
@@ -228,7 +207,7 @@ fn field_state_of(p: &Parts, touched: RwSignal<bool>, items: bool) -> Signal<Fie
                 .map(|d| {
                     (
                         d.severity,
-                        burrow_admin_logic::wording::shown(&d.code, &d.message),
+                        burrow_admin_logic::wording::shown(&d.code, &d.message, &d.subjects),
                     )
                 })
                 .collect::<Vec<_>>()

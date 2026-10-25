@@ -5,7 +5,7 @@ use burrow_admin_proto::msg::Uploaded;
 pub const MAX_KEPT: usize = 64;
 
 pub struct Request<'a> {
-    pub kind: &'a str,
+    pub kind: burrow_syntax::upload::Kind,
     pub pem: &'a [u8],
     pub hosts: &'a [String],
     pub cas: &'a [u8],
@@ -32,15 +32,9 @@ pub fn root_pem(state: &Path) -> PathBuf {
 
 #[cfg(feature = "web")]
 pub fn store(state: &Path, req: &Request<'_>, now: u64) -> Result<Uploaded, String> {
-    use burrow_web::tls::uploads::{self, Kind};
-    let kind = match req.kind {
-        "pair" => Kind::Pair,
-        "ca" => Kind::Ca,
-        "crl" => Kind::Crl,
-        other => return Err(format!("kind \"{other}\" is not pair, ca or crl")),
-    };
+    use burrow_web::tls::uploads;
     let up = uploads::Upload {
-        kind,
+        kind: req.kind,
         pem: req.pem,
         hosts: req.hosts,
         cas: req.cas,

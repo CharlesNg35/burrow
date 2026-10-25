@@ -1,10 +1,11 @@
 use burrow_admin_proto::Path;
+use burrow_admin_proto::serde_json::Value;
 use burrow_admin_proto::value::get;
 use burrow_config::ServiceEntry;
 use burrow_ui_kit::{Callout, Tone};
 use leptos::prelude::*;
 
-use crate::screens::paths::{self, Problems};
+use crate::screens::paths::Problems;
 use crate::screens::placement;
 use crate::store::store;
 
@@ -31,7 +32,14 @@ pub(super) fn problems_for(path: &Path) -> Problems {
                         .filter(|d| d.is_error())
                         .filter_map(|d| {
                             d.path.clone().map(|x| {
-                                (x, burrow_admin_logic::wording::shown(&d.code, &d.message))
+                                (
+                                    x,
+                                    burrow_admin_logic::wording::shown(
+                                        &d.code,
+                                        &d.message,
+                                        &d.subjects,
+                                    ),
+                                )
                             })
                         })
                         .collect::<Vec<_>>()
@@ -47,22 +55,29 @@ pub(super) fn problems_for(path: &Path) -> Problems {
     };
     let doc = e.doc();
     let ports = at(ServiceEntry::TARGET.key()).map(|_| {
-        let b = paths::port_count(get(
-            &doc,
-            &[
-                path[0].clone(),
-                path[1].clone(),
-                ServiceEntry::BIND.key().into(),
-            ],
-        ));
-        let t = paths::port_count(get(
-            &doc,
-            &[
-                path[0].clone(),
-                path[1].clone(),
-                ServiceEntry::TARGET.key().into(),
-            ],
-        ));
+        let count = |v: Option<&Value>, f: fn(&Value) -> Option<u16>| v.and_then(f).unwrap_or(1);
+        let b = count(
+            get(
+                &doc,
+                &[
+                    path[0].clone(),
+                    path[1].clone(),
+                    ServiceEntry::BIND.key().into(),
+                ],
+            ),
+            burrow_admin_logic::relations::bind_ports,
+        );
+        let t = count(
+            get(
+                &doc,
+                &[
+                    path[0].clone(),
+                    path[1].clone(),
+                    ServiceEntry::TARGET.key().into(),
+                ],
+            ),
+            burrow_admin_logic::relations::target_ports,
+        );
         format!("{t} ≠ {b} ports")
     });
     Problems {
@@ -118,7 +133,10 @@ pub(super) fn problems_of(section: &str, entity: &Path) -> Vec<Problem> {
                             .max_by_key(|x| x.len())
                             .cloned()
                             .unwrap_or_else(|| entity.clone());
-                        (at, burrow_admin_logic::wording::shown(&d.code, &d.message))
+                        (
+                            at,
+                            burrow_admin_logic::wording::shown(&d.code, &d.message, &d.subjects),
+                        )
                     })
                     .filter(|(at, _)| field(at).is_none_or(|f| !flagged.contains(&f)))
                     .collect::<Vec<_>>()

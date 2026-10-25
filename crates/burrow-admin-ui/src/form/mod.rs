@@ -48,10 +48,8 @@ const MAX_TEXT: usize = 4096;
 
 pub fn locked_hint(n: &Node) -> String {
     match n.applies {
-        Some(Applies::Restart) => {
-            "Change this in server.yaml (burrow edit), then restart the server".into()
-        }
-        _ => "Change this in server.yaml (burrow edit)".into(),
+        Some(Applies::Restart) => burrow_admin_logic::wording::CHANGE_IN_FILE_THEN_RESTART.into(),
+        _ => burrow_admin_logic::wording::CHANGE_IN_FILE.into(),
     }
 }
 

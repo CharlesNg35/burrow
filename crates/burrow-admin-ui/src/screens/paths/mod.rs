@@ -21,22 +21,6 @@ pub fn clients_of(svc: &Value) -> Vec<String> {
     }
 }
 
-pub fn port_count(v: Option<&Value>) -> u32 {
-    let Some(v) = v else { return 0 };
-    let s = plain(v);
-    if s.starts_with("unix:") {
-        return 1;
-    }
-    let port = s.rsplit_once(':').map_or(s.as_str(), |(_, p)| p);
-    match port.split_once('-') {
-        Some((a, b)) => match (a.trim().parse::<u32>(), b.trim().parse::<u32>()) {
-            (Ok(a), Ok(b)) if b >= a => b - a + 1,
-            _ => 1,
-        },
-        None => 1,
-    }
-}
-
 pub fn online(status: Option<&Status>, client: &str) -> bool {
     status
         .and_then(|s| s.clients.iter().find(|c| c.name == client))
@@ -412,8 +396,6 @@ mod tests {
         );
         assert_eq!(p.hops[1].value, "private");
         assert_eq!(p.hops[1].unit, "TCP");
-        assert_eq!(port_count(Some(&json!("unix:/run/x.sock"))), 1);
-        assert_eq!(port_count(Some(&json!(7840))), 1);
     }
 
     #[test]

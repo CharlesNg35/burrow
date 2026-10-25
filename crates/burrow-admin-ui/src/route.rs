@@ -78,11 +78,14 @@ impl Route {
 }
 
 fn split_run(path: &str) -> (&str, &str) {
-    let Some(rest) = path.strip_prefix("/r-") else {
+    let Some(rest) = path.strip_prefix(burrow_admin_proto::local::RUN_PREFIX) else {
         return ("", path);
     };
     match rest.find('/') {
-        Some(i) => (&path[..i + 3], &path[i + 3..]),
+        Some(i) => {
+            let at = i + burrow_admin_proto::local::RUN_PREFIX.len();
+            (&path[..at], &path[at..])
+        }
         None => (path, "/"),
     }
 }

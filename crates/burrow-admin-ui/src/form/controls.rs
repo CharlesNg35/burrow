@@ -10,6 +10,32 @@ use crate::store::store;
 
 use super::{SERVICE_VISITORS, editing_now, field_id, join, plain};
 
+pub(super) fn object_toggle(
+    path: Path,
+    is_set: Memo<bool>,
+    allowed: bool,
+    editing: Signal<bool>,
+) -> impl Fn() -> Option<AnyView> + Clone + Send + Sync + 'static {
+    let e = store().edit;
+    let id = field_id(&path);
+    move || {
+        (allowed && editing.try_get().unwrap_or(false)).then(|| {
+            let (p, id) = (path.clone(), id.clone());
+            view! {
+                <burrow_ui_kit::Toggle
+                    id=id
+                    checked=is_set
+                    label=Signal::derive(move || if is_set.get() { "In use".to_string() } else { "Not set".to_string() })
+                    on_change=move |on: bool| {
+                        e.set(&p, on.then(|| Value::Object(Default::default())));
+                    }
+                />
+            }
+            .into_any()
+        })
+    }
+}
+
 pub(super) fn visibility_row(bind: Path, public: RwSignal<bool>) -> AnyView {
     let e = store().edit;
     let editing = editing_now();

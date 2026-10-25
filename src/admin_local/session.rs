@@ -101,7 +101,9 @@ fn file_for(dir: &Path, config: &Path) -> PathBuf {
 fn valid(s: &Stored) -> bool {
     let hex_of = |t: &str, n: usize| t.len() == n && t.bytes().all(|b| b.is_ascii_hexdigit());
     hex_of(&s.token, 64)
-        && s.prefix.strip_prefix("/r-").is_some_and(|h| hex_of(h, 32))
+        && s.prefix
+            .strip_prefix(burrow_admin_proto::local::RUN_PREFIX)
+            .is_some_and(|h| hex_of(h, 32))
         && s.port != 0
 }
 

@@ -109,7 +109,7 @@ fn a_file_comes_from_a_path_or_an_upload_never_both_or_neither() {
     );
     assert_eq!(
         errs("{ hosts: [nas.lan], tls: internal, target_tls: {} }"),
-        ["services.nas.web.target_tls: needs a CA: a file, or an upload"]
+        ["services.nas.web.target_tls: needs a CA file: a path, or an upload"]
     );
 }
 

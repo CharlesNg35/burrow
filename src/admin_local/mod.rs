@@ -13,6 +13,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
+use burrow_admin_proto::local::{Reason, TOKEN_FRAGMENT};
 use hyper::body::Incoming;
 use hyper::service::service_fn;
 use hyper::{Request, Response};
@@ -79,12 +80,12 @@ pub async fn check_access(settings: &VisitorSettings) -> Result<(), Failure> {
             let (reason, message) = bridge::explain(&e, &settings.name, &settings.server);
             let f = Failure::new(message);
             Err(match reason {
-                "forbidden" => f.hint(format!(
+                Reason::Forbidden => f.hint(format!(
                     "add \"admin: write\" (or \"admin: read\") to visitors.{} in server.yaml on the server",
                     settings.name
                 )),
-                "rejected" => f.hint("check name and secret against visitors in the server config"),
-                "no-admin" => f.hint("update burrow on the server"),
+                Reason::Rejected => f.hint("check name and secret against visitors in the server config"),
+                Reason::NoAdmin => f.hint("update burrow on the server"),
                 _ => f,
             })
         }
@@ -401,7 +402,7 @@ pub async fn serve_session(
     };
     touch(&session);
     let url = format!(
-        "http://127.0.0.1:{}{}/#token={}",
+        "http://127.0.0.1:{}{}/{TOKEN_FRAGMENT}{}",
         addr.port(),
         session.prefix,
         session.token.as_str()

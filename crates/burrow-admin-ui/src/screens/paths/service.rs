@@ -5,7 +5,7 @@ use burrow_ui_kit::{Edge, EdgeState, Hop, HopState, PathData, Tone};
 
 use crate::form::plain;
 
-use super::{Problems, clients_of, online, port_count};
+use super::{Problems, clients_of, online};
 
 pub fn service(
     name: &str,
@@ -197,7 +197,10 @@ fn server_hop(svc: &Value, public: bool, running: bool) -> Hop {
     if !bound(svc) && !names.is_empty() {
         return website_hop(&names, protocol, running);
     }
-    let ports = port_count(ServiceEntry::BIND.get(svc)).max(1);
+    let ports = ServiceEntry::BIND
+        .get(svc)
+        .and_then(burrow_admin_logic::relations::bind_ports)
+        .unwrap_or(1);
     Hop {
         icon: "box",
         head: "Server".into(),

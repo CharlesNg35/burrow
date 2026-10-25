@@ -190,11 +190,10 @@ pub fn upload_editor(fc: FieldCtx, kind: String) -> AnyView {
     let current = move || {
         match (in_file.get(), id.get()) {
         (Some(p), _) => view! {
-            <p class="flex items-center gap-1.5 text-[13px]" data-testid="upload-in-file">
-                <burrow_ui_kit::Icon name="lock" small=true/>
-                <span class="font-mono" data-locked="">{p}</span>
-                <span class="text-xs text-text-muted">"named in server.yaml; remove it there to upload one here"</span>
-            </p>
+            <div data-testid="upload-in-file">
+                <span class="font-mono text-[13px]" data-locked="">{p}</span>
+                <burrow_ui_kit::LockLine text=burrow_admin_logic::wording::NAMED_IN_FILE/>
+            </div>
         }
         .into_any(),
         (None, Some(i)) => {
@@ -215,11 +214,11 @@ pub fn upload_editor(fc: FieldCtx, kind: String) -> AnyView {
                     type="file"
                     class="hidden"
                     accept=ACCEPT
-                    multiple=kind == burrow_syntax::upload::KINDS[0]
+                    multiple=kind == burrow_syntax::upload::Kind::Pair.prefix()
                     data-testid="upload-input"
                     on:change=on_files
                 />
-                {(kind == burrow_syntax::upload::KINDS[0]).then(|| view! { <span class="text-xs text-text-muted">"the certificate chain and its key, in one file or two"</span> })}
+                {(kind == burrow_syntax::upload::Kind::Pair.prefix()).then(|| view! { <span class="text-xs text-text-muted">"the certificate chain and its key, in one file or two"</span> })}
             </div>
             {move || note.get().map(|(warn, m)| {
                 let class = if warn { "text-xs text-warning" } else { "text-xs text-danger" };
@@ -232,29 +231,12 @@ pub fn upload_editor(fc: FieldCtx, kind: String) -> AnyView {
 
 pub fn download_local_ca() {
     crate::api::request(msg::req::LOCAL_CA, json!({}), |r| {
-        let Some(pem) = r
+        if let Some(pem) = r
             .ok()
             .and_then(|v| v.get("pem").and_then(Value::as_str).map(str::to_string))
-        else {
-            return;
-        };
-        let parts = js_sys::Array::of1(&wasm_bindgen::JsValue::from_str(&pem));
-        let opts = web_sys::BlobPropertyBag::new();
-        opts.set_type("application/x-x509-ca-cert");
-        let Ok(blob) = web_sys::Blob::new_with_str_sequence_and_options(&parts, &opts) else {
-            return;
-        };
-        let Ok(url) = web_sys::Url::create_object_url_with_blob(&blob) else {
-            return;
-        };
-        if let Ok(a) = document().create_element("a")
-            && let Ok(a) = a.dyn_into::<web_sys::HtmlAnchorElement>()
         {
-            a.set_href(&url);
-            a.set_download("burrow-local-ca.crt");
-            a.click();
+            burrow_ui_kit::download("burrow-local-ca.crt", &pem, "application/x-x509-ca-cert");
         }
-        let _ = web_sys::Url::revoke_object_url(&url);
     });
 }
 

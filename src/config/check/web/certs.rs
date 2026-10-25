@@ -165,6 +165,7 @@ fn redirect_sources(
                         "host \"{host}\" ({owner}) has no certificate; add web.letsencrypt for automatic certificates, or an entry in web.certificates whose hosts lists it"
                     ),
                 )
+                .about(host.as_str())
                 .at(at)
                 .help("a name that only redirects still needs a certificate for https:// visitors"),
             );
@@ -183,6 +184,7 @@ fn no_certificate(name: &str, host: &str, at: Span) -> Diagnostic {
             "host \"{host}\" (service \"{name}\") has no certificate; add web.letsencrypt for automatic certificates, tls: {{cert, key}} on service \"{name}\", or an entry in web.certificates whose hosts lists it"
         ),
     )
+    .about(host)
     .at(at)
     .help("for example letsencrypt: {email: ops@example.com} under web")
 }

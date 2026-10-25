@@ -23,6 +23,7 @@ pub struct Diagnostic {
     pub label: Option<String>,
     pub help: Option<String>,
     pub snippet: bool,
+    pub subjects: Vec<String>,
 }
 
 impl Diagnostic {
@@ -35,6 +36,7 @@ impl Diagnostic {
             label: None,
             help: None,
             snippet: true,
+            subjects: Vec::new(),
         }
     }
 
@@ -57,6 +59,11 @@ impl Diagnostic {
 
     pub fn help(mut self, help: impl Into<String>) -> Self {
         self.help = Some(help.into());
+        self
+    }
+
+    pub fn about(mut self, subject: impl Into<String>) -> Self {
+        self.subjects.push(subject.into());
         self
     }
 

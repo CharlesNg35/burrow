@@ -125,7 +125,12 @@ pub(super) fn check(
             wild(),
         ),
     };
-    Some(Diagnostic::error(code, message).at(at).help(help))
+    Some(
+        Diagnostic::error(code, message)
+            .about(host)
+            .at(at)
+            .help(help),
+    )
 }
 
 fn kind_word(kind: Option<ChallengeKind>) -> &'static str {
@@ -164,6 +169,7 @@ fn no_dns(who: Who<'_>, host: &str, kind: Option<ChallengeKind>, some: bool) -> 
             ),
         };
         return Diagnostic::error(code, message)
+            .about(host)
             .help("for example dns: [{domains: [example.com], cloudflare: {token: \"${CF_TOKEN}\"}}] under web.letsencrypt");
     }
     let bare = host.strip_prefix("*.").unwrap_or(host);
