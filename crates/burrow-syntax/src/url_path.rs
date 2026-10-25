@@ -138,7 +138,7 @@ fn segments(path: &str) -> impl Iterator<Item = Segment> + '_ {
 }
 
 fn same_name(a: &str, b: &str) -> bool {
-    a == b
+    a.eq_ignore_ascii_case(b)
 }
 
 pub fn match_view(normalized: &str) -> Cow<'_, str> {
@@ -146,7 +146,7 @@ pub fn match_view(normalized: &str) -> Cow<'_, str> {
     for seg in segments(normalized) {
         if seg.name_end > seg.start {
             view.push('/');
-            view.push_str(&normalized[seg.start..seg.name_end]);
+            view.push_str(&normalized[seg.start..seg.name_end].to_ascii_lowercase());
         }
     }
     if view.is_empty() || normalized.ends_with('/') {
@@ -199,6 +199,10 @@ pub fn route_path(text: &str) -> Result<String, String> {
     } else {
         trimmed.to_string()
     })
+}
+
+pub fn route_key(text: &str) -> Result<String, String> {
+    route_path(text).map(|p| p.to_ascii_lowercase())
 }
 
 #[cfg(test)]

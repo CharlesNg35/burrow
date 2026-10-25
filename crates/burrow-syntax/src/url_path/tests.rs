@@ -173,3 +173,17 @@ fn a_dot_segment_hidden_behind_parameters_is_refused() {
     assert_eq!(ok("/a;x/b"), "/a;x/b");
     assert_eq!(ok("/...;x"), "/...;x");
 }
+
+#[test]
+fn routes_match_paths_whatever_their_letter_case() {
+    assert!(path_matches("/admin", "/ADMIN"));
+    assert!(path_matches("/wp-admin", "/WP-Admin/x"));
+    assert!(path_matches("/Admin", "/admin"));
+    assert!(!path_matches("/admin", "/ADMINX"));
+    assert_eq!(match_view("/WP-Admin%2FX;Y"), "/wp-admin/x");
+    assert_eq!(match_view("/%C3%A9"), "/%c3%a9");
+    assert_eq!(match_view(&match_view("/A/B")), "/a/b");
+    assert_eq!(route_key("/API/").unwrap(), "/api");
+    assert_eq!(route_key("/%61pi").unwrap(), route_key("/API").unwrap());
+    assert!(route_key("/a?b").is_err());
+}

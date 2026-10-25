@@ -291,3 +291,21 @@ async fn encoded_slashes_and_segment_parameters_cannot_slip_past_a_path_route() 
     let r = get(&t.proxy, "/..;/admin", "").await;
     assert!(r.starts_with("HTTP/1.1 400"), "{r}");
 }
+
+#[tokio::test]
+async fn a_path_route_matches_any_letter_case_and_the_app_keeps_the_case_sent() {
+    let t = two(|| {
+        vec![
+            https_site("blog", &["example.com"]),
+            with(
+                https_site("admin", &["example.com"]),
+                paths(&["/wp-admin"], Some("/")),
+            ),
+        ]
+    })
+    .await;
+    let r = get(&t.proxy, "/WP-ADMIN/Install.php", "").await;
+    assert!(r.contains("\nGET /Install.php\n"), "{r}");
+    assert!(r.contains("x-forwarded-prefix: /wp-admin\n"), "{r}");
+    assert_eq!(served_by(&t), ["admin"]);
+}
