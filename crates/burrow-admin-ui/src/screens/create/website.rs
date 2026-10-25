@@ -262,7 +262,7 @@ pub fn NewWebsite(open: RwSignal<bool>, draft_name: RwSignal<String>) -> impl In
                 .find(|n| checks_for(n, p.get().numbers, false, None).is_err())
         {
             return Some(format!(
-                "Let's Encrypt cannot check {n}: its checks reach only ports 443 and 80; open port 80 in server.yaml, or choose another HTTPS option"
+                "Let's Encrypt cannot check {n}: its checks reach only ports 443 and 80; set the HTTP port to 80 in Settings, Web proxy, or choose another HTTPS option"
             ));
         }
         if asks_email.get() && !email.with(|m| m.contains('@')) {

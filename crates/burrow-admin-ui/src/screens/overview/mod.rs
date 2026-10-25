@@ -122,13 +122,11 @@ fn state_items(st: &State, out: &mut Vec<Item>) {
             ),
             tone: Tone::Warning,
             title: burrow_admin_logic::wording::shown(&d.code, &d.message, &d.subjects),
-            detail: d
-                .help
-                .clone()
+            detail: burrow_admin_logic::wording::help_shown(&d.code, d.help.as_deref())
                 .map(|h| format!("{} · {h}", d.code))
                 .unwrap_or_else(|| d.code.clone()),
             to: d.path.as_deref().and_then(link_of),
-            field: None,
+            field: burrow_admin_logic::wording::field_for(&d.code),
         });
     }
 }

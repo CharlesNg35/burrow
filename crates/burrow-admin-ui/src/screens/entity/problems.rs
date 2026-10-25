@@ -219,7 +219,10 @@ pub(super) fn apply_notes() -> Option<AnyView> {
 }
 
 pub fn go_to_field(path: &[String]) {
-    let ids: Vec<String> = (3..=path.len())
+    let entity = path
+        .first()
+        .is_some_and(|s| crate::route::SECTIONS.contains(&s.as_str()));
+    let ids: Vec<String> = (if entity { 3 } else { 1 }..=path.len())
         .rev()
         .map(|n| crate::form::field_id(&path[..n]))
         .collect();

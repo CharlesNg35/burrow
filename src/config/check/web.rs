@@ -67,7 +67,7 @@ pub(super) fn check_http(
         if https.is_some() && cfg.services.values().any(|s| s.web.is_some()) {
             out.push(
                 Diagnostic::warning(
-                    "no-http",
+                    burrow_admin_proto::codes::NO_HTTP,
                     "web.http is not set: http:// addresses get no answer",
                 )
                 .at(spans.key(&["web"]))

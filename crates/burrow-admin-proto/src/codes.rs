@@ -23,11 +23,12 @@ pub const WEBSOCKET_HOST: &str = "websocket-host";
 pub const UNREACHABLE_SERVICE: &str = "unreachable-service";
 pub const ADDS_CLIENT: &str = "adds-client";
 pub const PUBLIC_PORT_SKIPS_LOGIN: &str = "public-port-skips-login";
+pub const NO_HTTP: &str = "no-http";
 pub const CLOSES_PORT: &str = "closes-port";
 pub const STOPS_WEBSITE: &str = "stops-website";
 pub const REMOVES_VISITORS: &str = "removes-visitors";
 
-pub const READ_BY_THE_UI: [&str; 16] = [
+pub const READ_BY_THE_UI: [&str; 17] = [
     PLAIN_NEEDS_HTTP,
     REDIRECT_PASSTHROUGH,
     REDIRECT_PLAIN,
@@ -44,4 +45,5 @@ pub const READ_BY_THE_UI: [&str; 16] = [
     HEALTH_CHECK_TCP_ONLY,
     DUPLICATE_BIND,
     UNREACHABLE_SERVICE,
+    NO_HTTP,
 ];

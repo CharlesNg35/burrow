@@ -1,6 +1,6 @@
 use burrow_admin_proto::codes::{
     BALANCE_TCP_ONLY, HEALTH_CHECK_TCP_ONLY, MAX_CONNECTIONS_TCP_ONLY, NO_CERTIFICATE, NO_CHECK,
-    PLAIN_HTTP, PLAIN_NEEDS_HTTP, PROXY_PROTOCOL_TCP_ONLY, REDIRECT_NEEDS_HTTP,
+    NO_HTTP, PLAIN_HTTP, PLAIN_NEEDS_HTTP, PROXY_PROTOCOL_TCP_ONLY, REDIRECT_NEEDS_HTTP,
     REDIRECT_PASSTHROUGH, REDIRECT_PLAIN, WEB_OFF, WEB_TCP_ONLY, WILDCARD_NEEDS_DNS,
 };
 
@@ -34,21 +34,33 @@ fn key_path(head: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | '*'))
 }
 
+pub fn help_shown(code: &str, help: Option<&str>) -> Option<String> {
+    if code == NO_HTTP {
+        return Some("Set the HTTP port (80) in Settings, Web proxy so http:// addresses are sent to https://".into());
+    }
+    help.map(str::to_string)
+}
+
+pub fn field_for(code: &str) -> Option<Vec<String>> {
+    use burrow_config::{ServerConfig, WebConfig};
+    (code == NO_HTTP).then(|| ServerConfig::WEB.then(WebConfig::HTTP).path())
+}
+
 pub fn shown(code: &str, message: &str, subjects: &[String]) -> String {
     let subject = subjects.first().map_or("", String::as_str);
     if code == REDIRECT_NEEDS_HTTP {
-        return "answering plain HTTP too needs the web proxy's HTTP port, which is not set; add http: 80 under web in server.yaml (burrow edit), or send http:// to https://".into();
+        return "answering plain HTTP too needs the web proxy's HTTP port, which is not set; set the HTTP port (80) in Settings, Web proxy, or send http:// to https://".into();
     }
     if code == PLAIN_NEEDS_HTTP {
-        return "plain HTTP needs the web proxy's HTTP port, which is not set; add http: 80 under web in server.yaml (burrow edit), or choose another HTTPS option".into();
+        return "plain HTTP needs the web proxy's HTTP port, which is not set; set the HTTP port (80) in Settings, Web proxy, or choose another HTTPS option".into();
     }
     if code == NO_CHECK {
         return format!(
-            "Let's Encrypt cannot check {subject}: its TLS and HTTP checks reach only ports 443 and 80; open port 80 in server.yaml (burrow edit), use the DNS check (a DNS provider under Settings, Web proxy, Let's Encrypt), or use your own certificate file"
+            "Let's Encrypt cannot check {subject}: its TLS and HTTP checks reach only ports 443 and 80; set the HTTPS port to 443 or the HTTP port to 80 in Settings, Web proxy, use the DNS check (a DNS provider under Settings, Web proxy, Let's Encrypt), or use your own certificate file"
         );
     }
     if code == WEB_OFF {
-        return "the web proxy is off; turn it on in server.yaml (burrow edit) with its ports, as Settings, Web proxy shows".into();
+        return "the web proxy is off; turn it on with its ports in Settings, Web proxy".into();
     }
     if code == NO_CERTIFICATE {
         return format!(
@@ -289,7 +301,23 @@ mod tests {
                 "services.wiki.web.tls: off serves plain HTTP, but web.http is not set; add http: 80",
                 &[],
             ),
-            "plain HTTP needs the web proxy's HTTP port, which is not set; add http: 80 under web in server.yaml (burrow edit), or choose another HTTPS option"
+            "plain HTTP needs the web proxy's HTTP port, which is not set; set the HTTP port (80) in Settings, Web proxy, or choose another HTTPS option"
         );
+        assert_eq!(
+            help_shown(
+                NO_HTTP,
+                Some("add http: 80 so http:// addresses are sent to https://")
+            )
+            .as_deref(),
+            Some(
+                "Set the HTTP port (80) in Settings, Web proxy so http:// addresses are sent to https://"
+            ),
+            "the UI says where, not the config syntax"
+        );
+        assert_eq!(
+            field_for(NO_HTTP),
+            Some(vec!["web".to_string(), "http".to_string()])
+        );
+        assert_eq!(help_shown("other", Some("x")).as_deref(), Some("x"));
     }
 }
