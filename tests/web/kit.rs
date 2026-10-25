@@ -17,23 +17,6 @@ use tokio_rustls::{TlsAcceptor, TlsConnector};
 
 use crate::common::*;
 
-pub struct Cert {
-    pub cert_pem: String,
-    pub key_pem: String,
-}
-
-pub fn cert(names: &[&str]) -> Cert {
-    let key = rcgen::KeyPair::generate().unwrap();
-    let params =
-        rcgen::CertificateParams::new(names.iter().map(|n| n.to_string()).collect::<Vec<_>>())
-            .unwrap();
-    let c = params.self_signed(&key).unwrap();
-    Cert {
-        cert_pem: c.pem(),
-        key_pem: key.serialize_pem(),
-    }
-}
-
 fn provider() -> Arc<rustls::crypto::CryptoProvider> {
     Arc::new(rustls::crypto::ring::default_provider())
 }

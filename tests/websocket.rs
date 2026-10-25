@@ -12,21 +12,6 @@ use burrow_syntax::endpoint::Endpoint;
 use common::*;
 use tokio::net::{TcpListener, TcpStream};
 
-struct Cert {
-    cert_pem: String,
-    key_pem: String,
-}
-
-fn self_signed() -> Cert {
-    let key = rcgen::KeyPair::generate().unwrap();
-    let params = rcgen::CertificateParams::new(vec!["localhost".to_string()]).unwrap();
-    let cert = params.self_signed(&key).unwrap();
-    Cert {
-        cert_pem: cert.pem(),
-        key_pem: key.serialize_pem(),
-    }
-}
-
 fn ws_server(secret: &Secret, path: &str, tls: Option<&Cert>) -> ServerSettings {
     let mut s = server_settings(vec![secret.clone()]);
     s.listen = None;
@@ -111,7 +96,7 @@ async fn websocket_only_server_forwards_tcp_and_udp() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn wss_with_own_certificate() {
     let echo = echo_server().await;
-    let cert = self_signed();
+    let cert = cert(&["localhost"]);
     let secret = Secret::generate();
     let mut s = ws_server(&secret, "/t", Some(&cert));
     s.services
@@ -129,7 +114,7 @@ async fn wss_with_own_certificate() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn wss_without_trusting_the_certificate_fails() {
-    let cert = self_signed();
+    let cert = cert(&["localhost"]);
     let secret = Secret::generate();
     let srv = start_server(ws_server(&secret, "/t", Some(&cert))).await;
     let port = srv.ws_addr.unwrap().port();
@@ -181,7 +166,7 @@ async fn tls_terminating_proxy(
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn behind_a_tls_terminating_proxy() {
     let echo = echo_server().await;
-    let cert = self_signed();
+    let cert = cert(&["localhost"]);
     let secret = Secret::generate();
     let mut s = ws_server(&secret, "/burrow", None);
     s.services
@@ -436,21 +421,10 @@ async fn path_change_swaps_the_route_and_sends_old_path_clients_away() {
     );
 }
 
-fn self_signed_ca_flagged() -> Cert {
-    let key = rcgen::KeyPair::generate().unwrap();
-    let mut params = rcgen::CertificateParams::new(vec!["localhost".to_string()]).unwrap();
-    params.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
-    let cert = params.self_signed(&key).unwrap();
-    Cert {
-        cert_pem: cert.pem(),
-        key_pem: key.serialize_pem(),
-    }
-}
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn pinned_self_signed_certificate_marked_as_ca_is_accepted() {
     let echo = echo_server().await;
-    let cert = self_signed_ca_flagged();
+    let cert = ca_flagged(&["localhost"]);
     let secret = Secret::generate();
     let mut s = ws_server(&secret, "/t", Some(&cert));
     s.services
@@ -467,8 +441,8 @@ async fn pinned_self_signed_certificate_marked_as_ca_is_accepted() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn pinning_a_different_certificate_is_refused() {
-    let cert = self_signed_ca_flagged();
-    let other = self_signed_ca_flagged();
+    let cert = ca_flagged(&["localhost"]);
+    let other = ca_flagged(&["localhost"]);
     let secret = Secret::generate();
     let srv = start_server(ws_server(&secret, "/t", Some(&cert))).await;
     let port = srv.ws_addr.unwrap().port();
@@ -505,7 +479,7 @@ async fn dial(d: &burrow::dialer::Dialer) -> burrow::dialer::DialError {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn an_untrusted_certificate_fails_at_once_instead_of_being_retried() {
     use burrow::dialer::DialError;
-    let cert = self_signed();
+    let cert = cert(&["localhost"]);
     let srv = start_server(ws_server(&Secret::generate(), "/t", Some(&cert))).await;
     let port = srv.ws_addr.unwrap().port();
     let e = dial(&dialer_for(&format!("wss://localhost:{port}/t"), None)).await;
@@ -674,7 +648,7 @@ async fn clients_of_a_websocket_path_that_changed_are_sent_to_reconnect() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_wss_client_with_a_wrong_secret_is_reported_as_rejected() {
     logs();
-    let cert = self_signed();
+    let cert = cert(&["localhost"]);
     let secret = Secret::generate();
     let srv = start_server(ws_server(&secret, "/t", Some(&cert))).await;
     let port = srv.ws_addr.unwrap().port();
