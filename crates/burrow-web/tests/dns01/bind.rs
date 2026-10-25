@@ -7,6 +7,11 @@ use hickory_proto::rr::{Name, RData, RecordType};
 pub const ADDR: &str = "127.0.0.1:5399";
 pub const KEY: &str = "burrow-key";
 pub const SECRET: &str = "DeMe+aO2zaj8MLjzn5TsmuIjSk+5vtEvG3W7kq/1j04=";
+pub const KEY_384: &str = "burrow-key-384";
+pub const SECRET_384: &str = "r2F4xx/e095hTZXFDba7O5Lon/p4i5QLiZgIGTzz4Ldl7wd6BOXhVzwXCCz3tQJj";
+pub const KEY_512: &str = "burrow-key-512";
+pub const SECRET_512: &str =
+    "JcVH5r9JhcHXNC/6Y7NX+s68xVzS2QyiRINH0qfiqib6ZLCa8/f6LYZGEIlD52BqBNNKmZokhJMa3miqkCVcnA==";
 const IMAGE: &str = "internetsystemsconsortium/bind9:9.20@sha256:66092edb53c081fa11b1fa8219e99065b0f497cb38f568ba789702a4c10e2590";
 const NAME: &str = "burrow-test-bind";
 
@@ -42,10 +47,16 @@ const CONF: &str = r#"options {
   dnssec-validation no;
 };
 key "burrow-key" { algorithm hmac-sha256; secret "DeMe+aO2zaj8MLjzn5TsmuIjSk+5vtEvG3W7kq/1j04="; };
+key "burrow-key-384" { algorithm hmac-sha384; secret "r2F4xx/e095hTZXFDba7O5Lon/p4i5QLiZgIGTzz4Ldl7wd6BOXhVzwXCCz3tQJj"; };
+key "burrow-key-512" { algorithm hmac-sha512; secret "JcVH5r9JhcHXNC/6Y7NX+s68xVzS2QyiRINH0qfiqib6ZLCa8/f6LYZGEIlD52BqBNNKmZokhJMa3miqkCVcnA=="; };
 zone "example.test" {
   type primary;
   file "/var/cache/bind/example.test.zone";
-  update-policy { grant burrow-key subdomain example.test. TXT; };
+  update-policy {
+    grant burrow-key subdomain example.test. TXT;
+    grant burrow-key-384 subdomain example.test. TXT;
+    grant burrow-key-512 subdomain example.test. TXT;
+  };
 };
 "#;
 

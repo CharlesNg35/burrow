@@ -119,6 +119,7 @@ pub(super) fn dns_entries(list: &[settings::DnsSettings]) -> Vec<DnsEntry> {
                     server: server.clone(),
                     key_name: key_name.clone(),
                     secret: secret(s),
+                    algorithm: burrow_web::TsigAlgorithm::default(),
                 },
                 settings::DnsProvider::AcmeDns {
                     api,

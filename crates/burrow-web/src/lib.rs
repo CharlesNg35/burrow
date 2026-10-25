@@ -35,7 +35,7 @@ pub use site::{
     AccessLog, BasicUser, ClientAuth, ForwardAuth, Forwarding, HeaderRule, LogFormat, NameRedirect,
     Redirect, SiteOptions, TargetTls,
 };
-pub use tls::acme::dns01::{DnsEntry, DnsProvider, Secret};
+pub use tls::acme::dns01::{DnsEntry, DnsProvider, Secret, TsigAlgorithm};
 
 pub const HELLO_TIMEOUT: Duration = Duration::from_secs(10);
 

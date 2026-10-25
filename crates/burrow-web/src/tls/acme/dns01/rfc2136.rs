@@ -17,10 +17,15 @@ pub struct Rfc2136 {
     server: String,
     key_name: Name,
     secret: Secret,
+    algorithm: super::TsigAlgorithm,
 }
 
-pub fn algorithm() -> TsigAlgorithm {
-    TsigAlgorithm::HmacSha256
+pub fn algorithm(a: super::TsigAlgorithm) -> TsigAlgorithm {
+    match a {
+        super::TsigAlgorithm::HmacSha256 => TsigAlgorithm::HmacSha256,
+        super::TsigAlgorithm::HmacSha384 => TsigAlgorithm::HmacSha384,
+        super::TsigAlgorithm::HmacSha512 => TsigAlgorithm::HmacSha512,
+    }
 }
 
 pub fn decode_secret(secret: &Secret) -> Result<Zeroizing<Vec<u8>>, String> {
@@ -31,12 +36,18 @@ pub fn decode_secret(secret: &Secret) -> Result<Zeroizing<Vec<u8>>, String> {
 }
 
 impl Rfc2136 {
-    pub fn new(server: &str, key_name: &str, secret: Secret) -> Result<Rfc2136, String> {
+    pub fn new(
+        server: &str,
+        key_name: &str,
+        secret: Secret,
+        algorithm: super::TsigAlgorithm,
+    ) -> Result<Rfc2136, String> {
         decode_secret(&secret)?;
         Ok(Rfc2136 {
             server: server.trim().to_string(),
             key_name: wire::name(key_name)?.to_lowercase(),
             secret,
+            algorithm,
         })
     }
 
@@ -50,8 +61,13 @@ impl Rfc2136 {
 
     fn signer(&self) -> Result<TSigner, String> {
         let key = decode_secret(&self.secret)?;
-        TSigner::new(key.to_vec(), algorithm(), self.key_name.clone(), FUDGE)
-            .map_err(|e| format!("cannot use the TSIG key: {e}"))
+        TSigner::new(
+            key.to_vec(),
+            algorithm(self.algorithm),
+            self.key_name.clone(),
+            FUDGE,
+        )
+        .map_err(|e| format!("cannot use the TSIG key: {e}"))
     }
 
     async fn update(&self, fqdn: &Name, value: &str, add: bool) -> Result<(), Refusal> {
@@ -83,6 +99,7 @@ impl Rfc2136 {
         let reply = wire::reply_to(&msg, &raw).map_err(|e| format!("{addr} sent {e}"))?;
         let ask = Asked {
             server: addr,
+            algorithm: self.algorithm,
             key: &self.key_name,
             zone: &zone,
             fqdn,
@@ -93,6 +110,7 @@ impl Rfc2136 {
 
 struct Asked<'a> {
     server: SocketAddr,
+    algorithm: super::TsigAlgorithm,
     key: &'a Name,
     zone: &'a Name,
     fqdn: &'a Name,
@@ -111,7 +129,8 @@ impl Asked<'_> {
         if !signed {
             return Err(match (code, error) {
                 (ResponseCode::NotAuth, Some(TsigError::BadKey)) => format!(
-                    "{server} does not know the key {key} (BADKEY): check key_name and that the key is hmac-sha256"
+                    "{server} does not know the key {key} with {} (BADKEY): check key_name and algorithm",
+                    self.algorithm.name()
                 ),
                 (ResponseCode::NotAuth, Some(TsigError::BadSig)) => format!(
                     "{server} refused the signature of the key {key} (BADSIG): check the secret"

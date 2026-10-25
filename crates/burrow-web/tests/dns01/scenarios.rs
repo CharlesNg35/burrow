@@ -7,9 +7,10 @@ use burrow_web::tls::acme::dns01::wire::Reach;
 use burrow_web::tls::{CertCheck, CertPhase, CertStatus, Certificates, Store, cert_names};
 use burrow_web::{
     AcmeSettings, CertSource, DnsEntry, DnsProvider, ProxySettings, Secret, Site, SiteTls,
+    TsigAlgorithm,
 };
 
-use super::bind::{self, ADDR, Bind, KEY, SECRET};
+use super::bind::{self, ADDR, Bind, KEY, KEY_384, KEY_512, SECRET, SECRET_384, SECRET_512};
 use super::cloudflare::{Mock, TOKEN};
 use super::pebble::{DIRECTORY, Pebble};
 
@@ -37,10 +38,15 @@ fn entry(domains: &[&str], provider: DnsProvider, wildcards: &[&str]) -> DnsEntr
 }
 
 fn rfc2136(secret: &str) -> DnsProvider {
+    rfc2136_with(KEY, secret, TsigAlgorithm::HmacSha256)
+}
+
+fn rfc2136_with(key: &str, secret: &str, algorithm: TsigAlgorithm) -> DnsProvider {
     DnsProvider::Rfc2136 {
         server: ADDR.into(),
-        key_name: KEY.into(),
+        key_name: key.into(),
         secret: Secret::new(secret.into()),
+        algorithm,
     }
 }
 
@@ -181,9 +187,32 @@ async fn a_wrong_secret_is_a_status_error_and_nothing_is_set(p: &Pebble) {
     no_txt("_acme-challenge.bad.example.test").await;
 }
 
+async fn keys_of_other_algorithms(p: &Pebble) {
+    for (name, key, secret, alg) in [
+        ("k384", KEY_384, SECRET_384, TsigAlgorithm::HmacSha384),
+        ("k512", KEY_512, SECRET_512, TsigAlgorithm::HmacSha512),
+    ] {
+        let state = tempfile::tempdir().unwrap();
+        let host = format!("{name}.example.test");
+        let mut ps = ProxySettings::new("127.0.0.1:443".parse().unwrap());
+        ps.sites = vec![site(name, &[host.as_str()])];
+        ps.certs.choices.insert(name.into(), Challenge::Dns);
+        let dns = vec![entry(
+            &["example.test"],
+            rfc2136_with(key, secret, alg),
+            &[],
+        )];
+        ps.certs.acme = Some(acme(p, state.path(), dns));
+        let store = run(&ps, reach(None)).await;
+        until(&store, &host, |s| s.phase == CertPhase::Ok).await;
+        no_txt(&format!("_acme-challenge.{host}")).await;
+    }
+}
+
 pub async fn all(p: Pebble, _bind: Bind) {
     shared_wildcard_over_rfc2136(&p).await;
     cname_into_a_zone_the_entry_writes(&p).await;
     cloudflare_mock(&p).await;
     a_wrong_secret_is_a_status_error_and_nothing_is_set(&p).await;
+    keys_of_other_algorithms(&p).await;
 }

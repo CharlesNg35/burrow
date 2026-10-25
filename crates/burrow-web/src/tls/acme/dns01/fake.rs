@@ -226,7 +226,7 @@ fn update(req: &Message, raw: &[u8], s: &mut State, mut out: Message) -> Option<
         out.metadata.response_code = ResponseCode::Refused;
         return out.to_vec().ok();
     };
-    let known = sig.name == *key.signer_name();
+    let known = sig.name == *key.signer_name() && sig.data.algorithm == *key.algorithm();
     let good = known && key.verify_message_byte(raw, None, true).is_ok();
     let ctx = if !known {
         TSigResponseContext::unknown_key(req.metadata.id, now, sig.name.clone())

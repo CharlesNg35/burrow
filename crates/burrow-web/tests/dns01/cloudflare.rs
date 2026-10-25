@@ -134,6 +134,7 @@ impl Mock {
                 super::bind::ADDR,
                 super::bind::KEY,
                 Secret::new(super::bind::SECRET.into()),
+                burrow_web::TsigAlgorithm::HmacSha256,
             )
             .unwrap(),
             next: Mutex::new(0),

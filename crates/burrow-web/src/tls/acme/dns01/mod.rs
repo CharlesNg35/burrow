@@ -98,6 +98,7 @@ pub enum DnsProvider {
         server: String,
         key_name: String,
         secret: Secret,
+        algorithm: TsigAlgorithm,
     },
     AcmeDns {
         api: String,
@@ -108,6 +109,43 @@ pub enum DnsProvider {
     Command {
         path: PathBuf,
     },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TsigAlgorithm {
+    #[default]
+    HmacSha256,
+    HmacSha384,
+    HmacSha512,
+}
+
+impl TsigAlgorithm {
+    pub const ALL: [TsigAlgorithm; 3] = [
+        TsigAlgorithm::HmacSha256,
+        TsigAlgorithm::HmacSha384,
+        TsigAlgorithm::HmacSha512,
+    ];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            TsigAlgorithm::HmacSha256 => "hmac-sha256",
+            TsigAlgorithm::HmacSha384 => "hmac-sha384",
+            TsigAlgorithm::HmacSha512 => "hmac-sha512",
+        }
+    }
+
+    pub fn parse(text: &str) -> Option<TsigAlgorithm> {
+        let t = text.trim().trim_end_matches('.').to_ascii_lowercase();
+        TsigAlgorithm::ALL.into_iter().find(|a| a.name() == t)
+    }
+
+    pub fn mac_bytes(self) -> usize {
+        match self {
+            TsigAlgorithm::HmacSha256 => 32,
+            TsigAlgorithm::HmacSha384 => 48,
+            TsigAlgorithm::HmacSha512 => 64,
+        }
+    }
 }
 
 impl DnsProvider {

@@ -54,10 +54,12 @@ fn build(p: &DnsProvider, reach: &Reach) -> Result<Box<dyn Provider>, String> {
             server,
             key_name,
             secret,
+            algorithm,
         } => Box::new(super::rfc2136::Rfc2136::new(
             server,
             key_name,
             secret.clone(),
+            *algorithm,
         )?),
         DnsProvider::AcmeDns {
             api,
