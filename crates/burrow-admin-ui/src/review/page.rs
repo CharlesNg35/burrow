@@ -74,6 +74,13 @@ fn follow_applied(s: Store) {
             && prev.as_ref() != Some(&rev)
         {
             s.toast(Tone::Success, format!("Applied rev {}", short_rev(r)), None);
+            let waits = e.outcome.with_untracked(|o| match o {
+                Some(Outcome::Applied(a)) => a.not_listening.clone(),
+                _ => Vec::new(),
+            });
+            for w in waits {
+                s.toast(Tone::Warning, w, None);
+            }
             let shown = e.outcome.with_untracked(|o| match o {
                 Some(Outcome::Applied(a)) => a
                     .secrets

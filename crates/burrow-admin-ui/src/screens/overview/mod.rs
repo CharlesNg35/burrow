@@ -70,10 +70,23 @@ pub fn attention(
             out.push(client_item(c, down, partial, status));
         }
         out.extend(own);
+        out.extend(status.web_waiting.as_ref().map(web_wait_item));
         out.extend(certs::items(status, now));
     }
     out.sort_by_key(|i| rank(i.tone));
     out
+}
+
+fn web_wait_item(w: &burrow_admin_proto::status::PortWait) -> Item {
+    let field: Vec<String> = w.key.split('.').map(str::to_string).collect();
+    Item {
+        key: format!("web-wait:{}", w.key),
+        tone: Tone::Warning,
+        title: w.line(),
+        detail: "Free the port, or pick another one in Settings.".into(),
+        to: Some(Route::Settings),
+        field: Some(field),
+    }
 }
 
 fn state_items(st: &State, out: &mut Vec<Item>) {
@@ -578,5 +591,28 @@ mod tests {
         let d = chart(&full, &full, 900);
         assert_eq!(d.a.len(), 900);
         assert!(d.empty_note.is_none());
+    }
+
+    #[test]
+    fn a_web_port_that_waits_needs_attention_and_links_to_its_field() {
+        let mut st = status(&[], &[]);
+        st.web_waiting = Some(burrow_admin_proto::status::PortWait {
+            key: "web.https".into(),
+            addr: "[::]:443".into(),
+            reason: "in use by another program".into(),
+            stays: String::new(),
+            retry_secs: 30,
+        });
+        let items = attention(&json!({}), None, Some(&st), 0);
+        let w = items
+            .iter()
+            .find(|i| i.key == "web-wait:web.https")
+            .expect("the wait is listed");
+        assert_eq!(w.title, st.web_waiting.as_ref().unwrap().line());
+        assert_eq!(
+            w.field.as_deref(),
+            Some(&["web".to_string(), "https".to_string()][..])
+        );
+        assert_eq!(w.tone, Tone::Warning);
     }
 }
