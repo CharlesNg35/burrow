@@ -255,6 +255,7 @@ fn host(web: &WebSettings, service: &str, site: &WebSite, name: &str) -> HostLin
         },
         service: service.to_string(),
         routes: Vec::new(),
+        also: String::new(),
     }
 }
 
@@ -294,11 +295,47 @@ fn tunnel_line(s: &ServerSettings, web: &WebSettings) -> Option<TunnelLine> {
     Some(TunnelLine { url, certificate })
 }
 
+fn also(s: &ServerSettings, service: &str) -> String {
+    let Some((svc, b)) = s
+        .services
+        .get(service)
+        .and_then(|svc| svc.bind.map(|b| (svc, b)))
+    else {
+        return String::new();
+    };
+    let port = match svc.ports {
+        0 | 1 => b.to_string(),
+        n => format!("{b}-{}", b.port().saturating_add(n - 1)),
+    };
+    if b.ip().is_loopback() {
+        format!("also on {port}")
+    } else if !svc.sources.allow.is_empty() {
+        format!("also on {port} for allow_from")
+    } else {
+        format!("also public on {port}")
+    }
+}
+
+fn with_ports(s: &ServerSettings, mut hosts: Vec<HostLine>) -> Vec<HostLine> {
+    for h in &mut hosts {
+        if !h.service.is_empty() {
+            h.also = also(s, &h.service);
+        }
+        for r in &mut h.routes {
+            let a = also(s, &r.service);
+            if !r.service.is_empty() && !a.is_empty() {
+                r.to.push_str(&format!(" ({a})"));
+            }
+        }
+    }
+    hosts
+}
+
 pub fn summary(s: &ServerSettings) -> Option<WebSummary> {
     let web = s.web.as_ref().filter(|_| cfg!(feature = "web"))?;
     let tunnel = tunnel_line(s, web);
     let shares = s.websocket.as_ref().map_or(Shares::Nothing, |w| w.shares);
-    let hosts = routes::hosts(web);
+    let hosts = with_ports(s, routes::hosts(web));
     let (https, addresses) = shown(web.https);
     let (http, http_addresses) = shown(web.http);
     Some(WebSummary {

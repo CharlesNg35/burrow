@@ -4,7 +4,7 @@ use super::site_keys::At;
 use super::{Served, Spans};
 use crate::base::failure::file_reason;
 use crate::config::diagnostics::Diagnostic;
-use burrow_config::{ForwardAuthSetting, Protocol, ServerConfig, ServiceWeb, WebSite};
+use burrow_config::{Bind, ForwardAuthSetting, Protocol, ServerConfig, ServiceWeb, WebSite};
 use burrow_syntax::passwd::valid_user;
 use burrow_syntax::web::{SingleLabel, host_name};
 
@@ -43,10 +43,55 @@ pub(super) fn check_access(
                 .help("keep forward_auth for single sign-on, or basic_auth for a few passwords"),
             );
         }
+        if let Some(bind) = svc.bind.as_ref().filter(|_| svc.allow_from.is_empty()) {
+            let svc_at = At {
+                spans,
+                base: vec!["services".into(), name.clone()],
+            };
+            public_port(name, bind, site, &svc_at, out);
+        }
         passwords(name, site, served, &at, out);
         forward(cfg, name, site, served, &at, out);
         client_auth(name, site, served, tunnel, base_dir, &at, out);
     }
+}
+
+fn loopback(bind: &Bind) -> bool {
+    let Bind::Addr(a) = bind else {
+        return false;
+    };
+    let host = a.rsplit_once(':').map_or(a.as_str(), |(h, _)| h);
+    host.trim_matches(|c| c == '[' || c == ']')
+        .parse::<std::net::IpAddr>()
+        .is_ok_and(|ip| ip.is_loopback())
+}
+
+fn public_port(name: &str, bind: &Bind, site: &WebSite, at: &At<'_>, out: &mut Vec<Diagnostic>) {
+    let logins: Vec<&str> = [
+        (!site.basic_auth.is_empty()).then_some("basic_auth"),
+        site.forward_auth
+            .as_ref()
+            .filter(|f| on(f))
+            .map(|_| "forward_auth"),
+        site.client_auth.as_ref().map(|_| "client_auth"),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    if logins.is_empty() || loopback(bind) {
+        return;
+    }
+    out.push(
+        Diagnostic::warning(
+            burrow_admin_proto::codes::PUBLIC_PORT_SKIPS_LOGIN,
+            format!(
+                "services.{name}.bind: bind {bind} reaches the app directly, without the website's {}; remove bind, or limit it with allow_from",
+                logins.join(" and ")
+            ),
+        )
+        .at(at.value(&["bind"]))
+        .help("visitors still need their burrow login; allow_from limits both the website and the port"),
+    );
 }
 
 fn on(f: &ForwardAuthSetting) -> bool {

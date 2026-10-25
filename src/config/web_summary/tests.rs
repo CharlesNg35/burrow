@@ -354,3 +354,26 @@ fn the_summary_shows_references_as_written_never_their_values() {
     );
     assert!(!format!("{:?}", s.web.as_ref().unwrap().written).contains("s3cr3t"));
 }
+
+#[test]
+fn a_site_with_its_own_port_says_where_else_it_is_reached() {
+    let s = settings(
+        std::path::Path::new("."),
+        "listen: 7835\nweb: { https: 443 }\nservices:\n  nas:\n    client: home\n    bind: 9000\n    target: 192.168.1.20:443\n    web: { hosts: [nas.example.com], tls: passthrough }\n  git:\n    client: home\n    bind: 127.0.0.1:9001\n    target: 3000\n    web: { hosts: [git.example.com], tls: passthrough }\n  box:\n    client: home\n    target: 3001\n    web: { hosts: [box.example.com], tls: passthrough }\n",
+    );
+    let lines = summary(&s).unwrap().lines();
+    assert!(
+        lines.contains(&"nas.example.com: passthrough, the app's own certificate -> service nas (also public on 0.0.0.0:9000)".to_string()),
+        "{lines:#?}"
+    );
+    assert!(
+        lines.contains(&"git.example.com: passthrough, the app's own certificate -> service git (also on 127.0.0.1:9001)".to_string()),
+        "{lines:#?}"
+    );
+    assert!(
+        lines.contains(
+            &"box.example.com: passthrough, the app's own certificate -> service box".to_string()
+        ),
+        "{lines:#?}"
+    );
+}

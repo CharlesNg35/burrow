@@ -12,6 +12,8 @@ In [How it works](how-it-works.md): device certificates are checked in the hands
 
 A site takes one kind of login: `basic_auth` or `forward_auth`, never both. All of them need burrow to do HTTPS (not `tls: passthrough`), and `client_auth` needs HTTPS (not `tls: off`).
 
+The logins guard the website only. A service that also has its own `bind` port is reached there without them, so `burrow validate` warns when a site with a login has a public `bind` and no `allow_from`, and its summary line names that port. Remove `bind`, or limit it with `allow_from`, which applies to both. Visitors with `burrow visit` still need their own burrow login.
+
 ## Addresses
 
 A service's `allow_from` and `deny_from` ([Who may connect](../services.md#who-may-connect)) apply to its website too, before any password, so a refused address costs no work. Behind a proxy in `web.trusted_proxies`, the address is the visitor's own, from `X-Forwarded-For` ([Behind Cloudflare or a load balancer](proxies.md#behind-cloudflare-or-a-load-balancer)). Let's Encrypt's checks are answered before this, so a site open only to your network still gets its certificate.

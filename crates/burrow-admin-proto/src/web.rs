@@ -56,6 +56,8 @@ pub struct HostLine {
     pub service: String,
     #[serde(default)]
     pub routes: Vec<RouteLine>,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub also: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -152,8 +154,13 @@ impl HostLine {
         if !self.routes.is_empty() {
             return format!("{}: {}", self.name, self.served());
         }
+        let also = if self.also.is_empty() {
+            String::new()
+        } else {
+            format!(" ({})", self.also)
+        };
         format!(
-            "{}: {} -> service {}",
+            "{}: {} -> service {}{also}",
             self.name,
             self.served(),
             self.service

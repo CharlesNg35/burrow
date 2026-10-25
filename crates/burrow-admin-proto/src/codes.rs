@@ -19,6 +19,7 @@ pub const OPENS_PORT: &str = "opens-port";
 pub const STOPS_WEBSITES: &str = "stops-websites";
 pub const UNREACHABLE_SERVICE: &str = "unreachable-service";
 pub const ADDS_CLIENT: &str = "adds-client";
+pub const PUBLIC_PORT_SKIPS_LOGIN: &str = "public-port-skips-login";
 
 pub const READ_BY_THE_UI: [&str; 16] = [
     PLAIN_NEEDS_HTTP,

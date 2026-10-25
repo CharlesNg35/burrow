@@ -57,7 +57,7 @@ fn rows(web: WebSummary) -> impl IntoView {
         .into_iter()
         .map(|h| {
             let (row, kind, plain) = (h.name.clone(), h.served(), h.unencrypted());
-            let single = h.routes.is_empty().then(|| service_link(h.service.clone(), String::new()));
+            let single = h.routes.is_empty().then(|| service_link(h.service.clone(), h.also.clone()));
             let routes = (!h.routes.is_empty()).then(|| routes(h.routes.clone()));
             view! {
                 <li class="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 px-4 py-2.5" data-web-row=row>

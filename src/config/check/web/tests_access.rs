@@ -273,3 +273,38 @@ fn validate_accepts_a_hash_exactly_when_the_server_lets_its_password_in() {
         assert_eq!(logs_in, want, "the server on {hash:?}");
     }
 }
+
+#[test]
+fn a_public_port_beside_a_login_says_it_skips_the_login() {
+    let site = |extra: &str| {
+        format!(
+            "  nas:\n    client: home\n    target: 8080\n{extra}    web: {{ hosts: [nas.example.com], basic_auth: {{ alice: \"{HASH}\" }} }}\n"
+        )
+    };
+    let top = "";
+    let found = |extra: &str| {
+        let (_dir, o) = run(top, &site(extra));
+        assert!(errors(&o).is_empty(), "{:#?}", errors(&o));
+        warnings(&o)
+            .into_iter()
+            .filter(|w| w.contains("reaches the app directly"))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        found("    bind: 9000\n"),
+        [
+            "services.nas.bind: bind 9000 reaches the app directly, without the website's basic_auth; remove bind, or limit it with allow_from"
+        ]
+    );
+    assert!(found("").is_empty(), "no bind, no warning");
+    assert!(found("    bind: 9000\n    allow_from: [10.0.0.0/8]\n").is_empty());
+    assert!(found("    bind: 127.0.0.1:9000\n").is_empty());
+    let (_dir, o) = run(top, &site("    bind: 9000\n"));
+    let d = o
+        .report
+        .diagnostics
+        .iter()
+        .find(|d| d.code == burrow_admin_proto::codes::PUBLIC_PORT_SKIPS_LOGIN)
+        .expect("the code");
+    assert!(!d.is_error());
+}
