@@ -20,5 +20,6 @@ pub mod secret_fmt;
 pub mod size;
 pub mod target;
 pub mod unix;
+pub mod upload;
 pub mod url_path;
 pub mod web;

@@ -13,7 +13,7 @@ use burrow_admin_proto::schema::{Applies, SemType};
 use serde_json::Value;
 
 use crate::config::settings::ServerSettings;
-use crate::config::{Loaded, Role, load::load_str_in, patch, tree};
+use crate::config::{Loaded, Role, load::load_str_at, patch, tree};
 
 use super::diags::Mapper;
 use super::ops::{self, Fresh};
@@ -39,8 +39,9 @@ pub fn check_text(core: &Core, text: &str) -> Checked {
         .filter(|d| !d.as_os_str().is_empty())
         .unwrap_or(std::path::Path::new("."))
         .to_path_buf();
-    let outcome = load_str_in(
-        &dir,
+    let state = core.store.state_dir();
+    let outcome = load_str_at(
+        (&dir, Some(&state)),
         &core.store.path().display().to_string(),
         text,
         core.store.format(),

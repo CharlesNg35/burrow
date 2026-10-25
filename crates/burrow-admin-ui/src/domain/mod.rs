@@ -121,6 +121,7 @@ fn by_sem(fc: FieldCtx, sem: &SemType) -> AnyView {
         | SemType::Host
         | SemType::HostName(_)
         | SemType::Path(_)
+        | SemType::Upload(_)
         | SemType::UrlPath
         | SemType::Name(_)
         | SemType::Ip(_)

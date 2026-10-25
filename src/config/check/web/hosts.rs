@@ -141,7 +141,8 @@ pub(super) fn check_hosts(
     let before = out.len();
     for (i, text) in given.iter().enumerate() {
         let at = (place.at)(i);
-        let single = if matches!(place.served, Served::Plain) {
+        let localhost = place.tls == "internal" && text.trim().eq_ignore_ascii_case("localhost");
+        let single = if matches!(place.served, Served::Plain) || localhost {
             SingleLabel::Allowed
         } else {
             SingleLabel::Refused
@@ -149,13 +150,18 @@ pub(super) fn check_hosts(
         let host = match host_name(text, single) {
             Ok(h) => h,
             Err(_) if host_name(text, SingleLabel::Allowed).is_ok() => {
+                let short = text.trim().to_lowercase();
+                let like = if place.tls == "internal" {
+                    format!("{short}.lan or {short}.home.arpa")
+                } else {
+                    format!("{short}.home.example.com")
+                };
                 out.push(
                     Diagnostic::error(
                         "single-label-host",
                         format!(
-                            "services.{name}.web.hosts: \"{}\" is a single-label name; HTTPS finds sites by their full name, so use a full name like {}.home.example.com, or set tls: off to serve it as plain HTTP",
+                            "services.{name}.web.hosts: \"{}\" is a single-label name; HTTPS finds sites by their full name, so use a full name like {like}, or set tls: off to serve it as plain HTTP",
                             text.trim(),
-                            text.trim().to_lowercase()
                         ),
                     )
                     .at(at)
@@ -210,10 +216,14 @@ pub(super) fn check_hosts(
 pub(super) fn tls_key(web: &burrow_config::ServiceWeb, https: bool) -> String {
     use burrow_config::{SiteTls, TlsMode};
     match web.tls() {
-        Some(SiteTls::Files(f)) => format!("files {} {}", f.cert.trim(), f.key.trim()),
+        Some(SiteTls::Files(f)) => {
+            let text = |v: &Option<String>| v.as_deref().unwrap_or_default().trim().to_string();
+            format!("files {} {}", text(&f.cert), text(&f.key))
+        }
         Some(SiteTls::Mode(TlsMode::Passthrough)) => "passthrough".into(),
         Some(SiteTls::Mode(TlsMode::Off)) => "off".into(),
         Some(SiteTls::Mode(TlsMode::Auto)) => "auto".into(),
+        Some(SiteTls::Mode(TlsMode::Internal)) => "internal".into(),
         None if https => "auto".into(),
         None => "off".into(),
     }
@@ -313,9 +323,10 @@ pub(super) fn check_redirect_hosts(
 
 pub(super) fn client_ca(web: &burrow_config::ServiceWeb) -> Option<String> {
     match web {
-        burrow_config::ServiceWeb::Site(s) => {
-            s.client_auth.as_ref().map(|c| c.ca.trim().to_string())
-        }
+        burrow_config::ServiceWeb::Site(s) => s
+            .client_auth
+            .as_ref()
+            .map(|c| c.ca.as_deref().unwrap_or_default().trim().to_string()),
         _ => None,
     }
 }

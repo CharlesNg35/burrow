@@ -1,5 +1,5 @@
-use super::tests::{SECRET, files_for, paths_after};
-use crate::config::load::load_str_in;
+use super::tests::{SECRET, files_for, names_in, paths_after};
+use crate::config::load::load_str_at;
 use crate::config::{Format, Outcome, Role};
 
 const WEB_MD: &str = include_str!("../../../../docs/web.md");
@@ -211,8 +211,20 @@ fn validate_in(block: &str) -> (tempfile::TempDir, Outcome) {
         std::fs::create_dir_all(&folder).unwrap();
         std::fs::write(folder.join("404.html"), "not here").unwrap();
     }
-    let o = load_str_in(
-        dir.path(),
+    let state = dir.path().join("state");
+    for id in paths_after(&text, "upload:") {
+        let key = rcgen::KeyPair::generate().unwrap();
+        let cert = rcgen::CertificateParams::new(names_in(&text))
+            .unwrap()
+            .self_signed(&key)
+            .unwrap();
+        let file = state.join("files").join(format!("{id}.pem"));
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(file, format!("{}{}", cert.pem(), key.serialize_pem())).unwrap();
+    }
+    let uploads = !paths_after(&text, "upload:").is_empty();
+    let o = load_str_at(
+        (dir.path(), uploads.then_some(state.as_path())),
         "config.yaml",
         &text,
         Format::Yaml,

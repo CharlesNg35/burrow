@@ -225,8 +225,11 @@ fn client_auth(
             .help("for example websocket.host: tunnel.example.com"),
         );
     }
+    if c.ca.is_none() {
+        return;
+    }
     for (key, file) in
-        std::iter::once(("ca", Some(&c.ca))).chain(std::iter::once(("crl", c.crl.as_ref())))
+        std::iter::once(("ca", c.ca.as_ref())).chain(std::iter::once(("crl", c.crl.as_ref())))
     {
         let Some(file) = file.map(|f| f.trim()) else {
             continue;
@@ -257,7 +260,7 @@ fn files(
     use burrow_web::tls::client_auth::{ClientAuthProblem, check_files};
     let crl = c.crl.as_ref().map(|p| base_dir.join(p.trim()));
     match check_files(
-        &base_dir.join(c.ca.trim()),
+        &base_dir.join(c.ca.as_deref().unwrap_or_default().trim()),
         crl.as_deref(),
         std::time::SystemTime::now(),
     ) {

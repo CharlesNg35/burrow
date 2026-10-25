@@ -52,8 +52,7 @@ pub(super) fn paths_after(text: &str, field: &str) -> Vec<String> {
     found
 }
 
-pub(super) fn files_for(text: &str) -> tempfile::TempDir {
-    let dir = tempfile::tempdir().unwrap();
+pub(super) fn names_in(text: &str) -> Vec<String> {
     let names: Vec<String> = text
         .split(|c: char| c.is_whitespace() || "[]{},:\"'#".contains(c))
         .filter(|t| {
@@ -63,11 +62,16 @@ pub(super) fn files_for(text: &str) -> tempfile::TempDir {
             burrow_syntax::web::host_name(t, burrow_syntax::web::SingleLabel::Allowed).ok()
         })
         .collect();
-    let names = if names.is_empty() {
+    if names.is_empty() {
         vec!["example.com".to_string()]
     } else {
         names
-    };
+    }
+}
+
+pub(super) fn files_for(text: &str) -> tempfile::TempDir {
+    let dir = tempfile::tempdir().unwrap();
+    let names = names_in(text);
     for (cert, key) in paths_after(text, "cert:")
         .into_iter()
         .zip(paths_after(text, "key:"))

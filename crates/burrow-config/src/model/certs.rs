@@ -42,6 +42,18 @@ pub struct LetsEncrypt {
     pub ca: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
+        description = "The CA to trust for that ACME server, uploaded in the admin UI, for example ca-1a2b3c4d5e6f7a8b"
+    )]
+    #[admin(
+        ty = upload(ca),
+        label = "Uploaded trusted CA",
+        help = "The CA certificate to trust for another ACME server, uploaded here",
+        none_label = "None",
+        advanced
+    )]
+    pub ca_upload: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
         description = "The certificate profile to ask the CA for, for example shortlived for 6-day certificates; IP addresses always use shortlived; the CA's default when not set"
     )]
     #[admin(
@@ -103,22 +115,37 @@ pub struct CertFile {
         help = "The names this file is used for, for example *.example.com and example.com; the certificate must cover each"
     )]
     pub hosts: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
         description = "Certificate chain PEM file, relative to the config file, for example certs/fullchain.pem"
     )]
     #[admin(
         ty = path(must_exist, relative_to = "config"),
         label = "Certificate file",
+        none_label = "Not set",
         locked
     )]
-    pub cert: String,
+    pub cert: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
         description = "Private key PEM file, relative to the config file, for example certs/privkey.pem"
     )]
     #[admin(
         ty = path(must_exist, relative_to = "config"),
         label = "Private key file",
+        none_label = "Not set",
         locked
     )]
-    pub key: String,
+    pub key: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        description = "A certificate and its key uploaded in the admin UI, kept in the state folder, for example pair-1a2b3c4d5e6f7a8b"
+    )]
+    #[admin(
+        ty = upload(pair),
+        label = "Uploaded certificate",
+        help = "A certificate with its private key, uploaded here and kept in burrow's state folder",
+        none_label = "None"
+    )]
+    pub upload: Option<String>,
 }

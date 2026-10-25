@@ -68,6 +68,7 @@ pub enum TargetTls {
 #[serde(deny_unknown_fields)]
 #[admin(label = "The app's CA")]
 pub struct TargetCa {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
         description = "PEM file of the CA that signed the app's certificate, relative to the config file, for example certs/corp-ca.pem"
     )]
@@ -75,9 +76,21 @@ pub struct TargetCa {
         ty = path(must_exist, relative_to = "config"),
         label = "CA file",
         help = "The CA that signed the app's certificate, for example certs/corp-ca.pem",
+        none_label = "Not set",
         locked
     )]
-    pub ca: String,
+    pub ca: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        description = "The CA that signed the app's certificate, uploaded in the admin UI, for example ca-1a2b3c4d5e6f7a8b"
+    )]
+    #[admin(
+        ty = upload(ca),
+        label = "Uploaded CA",
+        help = "The CA that signed the app's certificate, uploaded here",
+        none_label = "None"
+    )]
+    pub ca_upload: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, AdminSchema)]

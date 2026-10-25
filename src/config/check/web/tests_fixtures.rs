@@ -132,14 +132,23 @@ fn examples_2_and_3_of_section_3_15_validate_cleanly_with_their_dns_providers() 
 }
 
 #[test]
-fn a_certificate_entry_needs_hosts_cert_and_key() {
+fn a_certificate_entry_needs_hosts_and_its_files() {
     let text =
         "listen: 7835\nweb:\n  https: 443\n  certificates:\n    - hosts: [\"*.example.com\"]\n";
     assert_eq!(
         codes(text),
         [(
+            "certificate-source".to_string(),
+            "web.certificates[0]: needs cert and key, or an uploaded certificate".to_string()
+        )]
+    );
+    let text =
+        "listen: 7835\nweb:\n  https: 443\n  certificates:\n    - { cert: a.pem, key: a.key }\n";
+    assert_eq!(
+        codes(text),
+        [(
             "certificate-entry".to_string(),
-            "web.certificates[0] needs hosts, cert and key: hosts names which names use the file, cert and key are the files".to_string()
+            "web.certificates[0] needs hosts, the names that use the file, and the file itself: cert and key, or an upload".to_string()
         )]
     );
 }

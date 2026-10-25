@@ -24,17 +24,17 @@ impl Files {
     fn site(&mut self, name: &str, site: &WebSite) {
         let at = |key: &str| format!("services.{name}.web.{key}");
         if let Some(SiteTls::Files(f)) = &site.tls {
-            self.add(at("tls.cert"), &f.cert);
-            self.add(at("tls.key"), &f.key);
+            f.cert.iter().for_each(|p| self.add(at("tls.cert"), p));
+            f.key.iter().for_each(|p| self.add(at("tls.key"), p));
         }
         if let Some(TargetTls::Ca(c)) = &site.target_tls {
-            self.add(at("target_tls.ca"), &c.ca);
+            c.ca.iter().for_each(|p| self.add(at("target_tls.ca"), p));
         }
         if let Some(p) = &site.error_pages {
             self.add(at("error_pages"), p);
         }
         if let Some(c) = &site.client_auth {
-            self.add(at("client_auth.ca"), &c.ca);
+            c.ca.iter().for_each(|p| self.add(at("client_auth.ca"), p));
             if let Some(crl) = &c.crl {
                 self.add(at("client_auth.crl"), crl);
             }
@@ -53,8 +53,12 @@ pub(super) fn read(cfg: &ServerConfig) -> Vec<(String, PathBuf)> {
         return files.0;
     };
     for (i, c) in web.certificates.iter().enumerate() {
-        files.add(format!("web.certificates[{i}].cert"), &c.cert);
-        files.add(format!("web.certificates[{i}].key"), &c.key);
+        c.cert
+            .iter()
+            .for_each(|p| files.add(format!("web.certificates[{i}].cert"), p));
+        c.key
+            .iter()
+            .for_each(|p| files.add(format!("web.certificates[{i}].key"), p));
     }
     if let Some(p) = &web.error_pages {
         files.add("web.error_pages".into(), p);

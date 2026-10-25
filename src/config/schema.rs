@@ -318,7 +318,7 @@ impl<'a> Checker<'a> {
                     Diagnostic::error(
                         "certificate-entry",
                         format!(
-                            "web.certificates[{i}] needs hosts, cert and key: hosts names which names use the file, cert and key are the files"
+                            "web.certificates[{i}] needs hosts, the names that use the file, and the file itself: cert and key, or an upload"
                         ),
                     )
                     .at(ctx.owner_span)

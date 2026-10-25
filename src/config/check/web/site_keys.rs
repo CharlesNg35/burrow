@@ -354,8 +354,9 @@ fn target_tls(
 ) {
     match &site.target_tls {
         Some(TargetTls::Ca(c)) => {
-            let ca = c.ca.trim();
+            let ca = c.ca.as_deref().unwrap_or_default().trim();
             let problem = match std::fs::read(base_dir.join(ca)) {
+                _ if ca.is_empty() => None,
                 Err(e) => Some(format!("cannot read {ca}: {}", file_reason(&e))),
                 Ok(pem) => not_a_ca(&pem).map(|e| format!("{ca} {e}")),
             };

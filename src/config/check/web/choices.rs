@@ -24,6 +24,7 @@ fn https_choice(web: &ServiceWeb) -> Option<&'static str> {
         SiteTls::Mode(TlsMode::Auto) => Some("auto"),
         SiteTls::Mode(TlsMode::Passthrough) => Some("passthrough"),
         SiteTls::Mode(TlsMode::Off) => None,
+        SiteTls::Mode(TlsMode::Internal) => Some("internal"),
         SiteTls::Files(_) => Some("{cert, key}"),
     }
 }

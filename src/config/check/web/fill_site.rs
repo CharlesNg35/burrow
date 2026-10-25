@@ -64,13 +64,15 @@ pub(super) fn options(
     };
     o.rate_limit = s.rate_limit.or(top.rate_limit).filter(|r| *r > 0);
     o.client_auth = s.client_auth.as_ref().map(|c| WebClientAuth {
-        ca: base_dir.join(c.ca.trim()),
+        ca: base_dir.join(c.ca.as_deref().unwrap_or_default().trim()),
         crl: c.crl.as_ref().map(|p| base_dir.join(p.trim())),
     });
     o.target_tls = match &s.target_tls {
         None | Some(TargetTlsKey::Checked(false)) => TargetTls::Off,
         Some(TargetTlsKey::Checked(true)) => TargetTls::PublicRoots,
-        Some(TargetTlsKey::Ca(c)) => TargetTls::Ca(base_dir.join(c.ca.trim())),
+        Some(TargetTlsKey::Ca(c)) => {
+            TargetTls::Ca(base_dir.join(c.ca.as_deref().unwrap_or_default().trim()))
+        }
         Some(TargetTlsKey::Unchecked(u)) if u.insecure_skip_verify => TargetTls::Unchecked,
         Some(TargetTlsKey::Unchecked(_)) => TargetTls::PublicRoots,
     };

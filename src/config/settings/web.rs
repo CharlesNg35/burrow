@@ -30,6 +30,7 @@ pub struct WebSettings {
     pub request_id: bool,
     pub written: Written,
     pub http2: bool,
+    pub state_dir: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -47,6 +48,7 @@ pub enum WebTls {
     Auto,
     Files { cert: PathBuf, key: PathBuf },
     Off,
+    Internal,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -105,6 +107,7 @@ impl WebSettings {
             request_id: false,
             written: Written::default(),
             http2: true,
+            state_dir: None,
         }
     }
 

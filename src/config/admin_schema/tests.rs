@@ -372,6 +372,7 @@ fn carriers_cover_semtypes() {
             SemType::Name(_) => assert_carrier::<String, sem::Name>(),
             SemType::SecretRef(_) => assert_carrier::<Secrets, sem::SecretRef>(),
             SemType::Path(_) => assert_carrier::<String, sem::Path>(),
+            SemType::Upload(_) => assert_carrier::<String, sem::Upload>(),
             SemType::UrlPath => assert_carrier::<String, sem::UrlPath>(),
             SemType::Object(_) => assert_carrier::<ServerConfig, sem::Object>(),
             SemType::Map(_) => assert_carrier::<BTreeMap<String, ClientEntry>, sem::Map>(),

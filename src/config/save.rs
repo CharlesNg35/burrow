@@ -2,7 +2,7 @@ use std::io::Write;
 use std::path::Path;
 
 use crate::config::env::EnvSource;
-use crate::config::load::load_str_in;
+use crate::config::load::load_str_at;
 use crate::config::{Format, Outcome, Role};
 
 pub fn check(
@@ -13,8 +13,9 @@ pub fn check(
     env: &dyn EnvSource,
 ) -> Outcome {
     let dir = original.parent().unwrap_or(Path::new("."));
-    load_str_in(
-        dir,
+    let state = crate::install::state_dir_for(original);
+    load_str_at(
+        (dir, Some(&state)),
         &original.display().to_string(),
         text,
         format,

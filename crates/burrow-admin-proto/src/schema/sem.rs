@@ -166,6 +166,23 @@ pub struct PathC {
     pub relative_to: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UploadC {
+    #[serde(default)]
+    pub kind: String,
+    #[serde(default = "text_fallback")]
+    pub fallback: Vec<Value>,
+}
+
+impl UploadC {
+    pub fn new(kind: &str) -> UploadC {
+        UploadC {
+            kind: kind.to_string(),
+            fallback: text_fallback(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct ObjectC {
     pub fields: Vec<Field>,
@@ -273,6 +290,7 @@ sem_types! {
     Name "name" (NameC),
     SecretRef "secret_ref" (SecretRefC),
     Path "path" (PathC),
+    Upload "upload" (UploadC),
     UrlPath "url_path",
     Object "object" (ObjectC),
     Map "map" (MapC),
@@ -366,6 +384,7 @@ impl SemType {
             | SemType::Ref(_)
             | SemType::Name(_)
             | SemType::Path(_)
+            | SemType::Upload(_)
             | SemType::UrlPath => true,
         }
     }

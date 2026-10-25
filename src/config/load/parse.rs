@@ -27,6 +27,17 @@ pub fn load_str_in(
     role: Option<Role>,
     env: &dyn EnvSource,
 ) -> Outcome {
+    load_str_at((base_dir, None), name, src, format, role, env)
+}
+
+pub fn load_str_at(
+    (base_dir, state): (&Path, Option<&Path>),
+    name: &str,
+    src: &str,
+    format: Format,
+    role: Option<Role>,
+    env: &dyn EnvSource,
+) -> Outcome {
     let src = src.strip_prefix('\u{feff}').unwrap_or(src);
     let mut report = Report::new(name, src);
     let fail = |mut report: Report, role| {
@@ -124,7 +135,7 @@ pub fn load_str_in(
             &root,
             pruned,
             structural_ok,
-            base_dir,
+            (base_dir, state),
             &env_spans,
             &mut report,
         );
@@ -198,7 +209,7 @@ fn check_semantics(
     root: &Node,
     pruned: Node,
     structural_ok: bool,
-    base_dir: &Path,
+    (base_dir, state): (&Path, Option<&Path>),
     env_spans: &[Span],
     report: &mut Report,
 ) -> Option<Loaded> {
@@ -209,7 +220,7 @@ fn check_semantics(
     match role {
         Role::Server => match serde_json::from_value::<ServerConfig>(json) {
             Ok(cfg) => {
-                if let Some(s) = check_server(&cfg, &spans, base_dir, &mut sem) {
+                if let Some(s) = check_server(&cfg, &spans, (base_dir, state), &mut sem) {
                     loaded = Some(Loaded::Server(Box::new(s), Box::new(cfg)));
                 }
             }

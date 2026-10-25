@@ -347,6 +347,8 @@ pub(super) fn check_sites(
     #[cfg(feature = "web")]
     pem::check_files(cfg, base_dir, spans, out);
     #[cfg(feature = "web")]
+    internal::check_internal(cfg, spans, out);
+    #[cfg(feature = "web")]
     letsencrypt::check_letsencrypt(cfg, base_dir, spans, out);
     #[cfg(feature = "web")]
     dns_secrets::check_dns_secrets(cfg, base_dir, spans, out);
@@ -407,6 +409,8 @@ mod fill_site;
 mod health;
 mod hosts;
 #[cfg(feature = "web")]
+mod internal;
+#[cfg(feature = "web")]
 mod letsencrypt;
 mod low;
 #[cfg(feature = "web")]
@@ -414,8 +418,23 @@ mod pem;
 mod share;
 mod site_keys;
 mod site_wide;
+#[cfg(feature = "web")]
+mod uploads;
 
 pub(super) use fill::{settings, written};
+
+#[cfg(feature = "web")]
+pub(in crate::config::check) use uploads::resolve as resolve_uploads;
+
+#[cfg(not(feature = "web"))]
+pub(in crate::config::check) fn resolve_uploads(
+    cfg: &ServerConfig,
+    _: Option<&Path>,
+    _: &Spans,
+    _: &mut Vec<Diagnostic>,
+) -> ServerConfig {
+    cfg.clone()
+}
 pub(super) use share::share_tunnel;
 
 #[cfg(test)]
@@ -474,6 +493,9 @@ mod tests_site_keys;
 
 #[cfg(all(test, feature = "web"))]
 mod tests_site_wide;
+
+#[cfg(all(test, feature = "web"))]
+mod tests_uploads;
 
 #[cfg(all(test, not(feature = "web")))]
 mod tests_without_web;

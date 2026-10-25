@@ -222,6 +222,10 @@ impl Store for FileStore {
         &self.path
     }
 
+    fn state_dir(&self) -> PathBuf {
+        crate::install::state_dir_for(&self.path)
+    }
+
     fn format(&self) -> Format {
         self.format
     }

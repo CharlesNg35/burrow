@@ -21,10 +21,12 @@ use secrets::{check_secrets, check_websocket};
 pub fn check_server(
     cfg: &ServerConfig,
     spans: &Spans,
-    base_dir: &Path,
+    (base_dir, state): (&Path, Option<&Path>),
     out: &mut Vec<Diagnostic>,
 ) -> Option<ServerSettings> {
     let errors_before = out.iter().filter(|d| d.is_error()).count();
+    let resolved = super::web::resolve_uploads(cfg, state, spans, out);
+    let cfg = &resolved;
 
     let listen = check_listen(cfg, spans, out);
     let https = super::web::check_https(cfg, listen, spans, out);
@@ -119,6 +121,10 @@ pub fn check_server(
         web: super::web::settings(cfg, (https, http), sites, websocket.as_ref(), base_dir).map(
             |mut w| {
                 w.written = super::web::written(spans);
+                w.state_dir = state.map(Path::to_path_buf);
+                if let Some(le) = w.letsencrypt.as_mut() {
+                    le.state_dir = w.state_dir.clone();
+                }
                 w
             },
         ),

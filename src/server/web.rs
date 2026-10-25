@@ -176,7 +176,7 @@ pub(super) fn proxy_settings(s: &ServerSettings) -> Result<Option<ProxySettings>
 fn tunnel_mode(web: &WebSettings, host: &str, shares: Shares) -> TunnelMode {
     let on_site = web.sites.values().any(|site| {
         let served = match site.tls {
-            WebTls::Auto | WebTls::Files { .. } => true,
+            WebTls::Auto | WebTls::Files { .. } | WebTls::Internal => true,
             WebTls::Off => shares == Shares::Http,
             WebTls::Passthrough => false,
         };
@@ -198,6 +198,7 @@ fn site_tls(tls: &WebTls) -> SiteTls {
             key: key.clone(),
         }),
         WebTls::Off => SiteTls::Plain,
+        WebTls::Internal => SiteTls::Https(CertSource::Internal),
     }
 }
 
@@ -228,7 +229,7 @@ fn cert_settings(s: &ServerSettings, web: &WebSettings) -> CertSettings {
                     .map(|c| (burrow_web::tls::TUNNEL_GROUP.to_string(), c)),
             )
             .collect(),
-        state_dir: web.letsencrypt.as_ref().and_then(|l| l.state_dir.clone()),
+        state_dir: web.state_dir.clone(),
         acme: web.letsencrypt.as_ref().map(|l| AcmeSettings {
             directory_url: l.directory.clone(),
             ca: l.ca.clone(),

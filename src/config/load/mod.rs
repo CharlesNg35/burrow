@@ -7,7 +7,7 @@ use super::settings::{ClientSettings, ServerSettings, VisitorSettings};
 use super::tree::{self, Node, Pos, Span, Value};
 use crate::config::diagnostics::{Diagnostic, Report};
 use burrow_config::{ClientConfig, ServerConfig, VisitorConfig};
-pub use parse::load_str_in;
+pub use parse::{load_str_at, load_str_in};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Role {
@@ -141,12 +141,15 @@ pub fn load_file(
         .and_then(|s| s.to_str())
         .is_some_and(|s| s.to_ascii_lowercase().ends_with("visitor"));
     let role = role.or_else(|| named.then(|| visitor_by_name(&src)).flatten());
-    let mut outcome = load_str_in(base, &path.display().to_string(), &src, format, role, env);
-    if let Some(Loaded::Server(s, _)) = outcome.loaded.as_mut()
-        && let Some(le) = s.web.as_mut().and_then(|w| w.letsencrypt.as_mut())
-    {
-        le.state_dir = Some(crate::install::state_dir_for(path));
-    }
+    let state = crate::install::state_dir_for(path);
+    let mut outcome = load_str_at(
+        (base, Some(&state)),
+        &path.display().to_string(),
+        &src,
+        format,
+        role,
+        env,
+    );
     if let Some(w) = permission_warning(path) {
         outcome.report.push(w);
         outcome.report.sort();

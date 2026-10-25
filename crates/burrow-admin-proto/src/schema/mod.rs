@@ -10,7 +10,7 @@ pub use relation::{Cond, Relation};
 pub use sem::{
     DurationC, DurationUnit, EnumC, EnumOption, HostNameC, IntegerC, IpC, IpPortC, ListC, MapC,
     NameC, ObjectC, OptionalC, PathC, PortRangeC, RefC, RefListC, RefMapC, SecretRefC, SemType,
-    SizeC, TargetC, TextC, UnionC, UnknownType,
+    SizeC, TargetC, TextC, UnionC, UnknownType, UploadC,
 };
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

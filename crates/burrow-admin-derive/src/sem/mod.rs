@@ -58,6 +58,7 @@ pub fn marker(t: &Term) -> Option<syn::Ident> {
         "name" => "Name",
         "secret_ref" => "SecretRef",
         "path" => "Path",
+        "upload" => "Upload",
         "url_path" => "UrlPath",
         "object" => "Object",
         "map" => "Map",
@@ -273,6 +274,16 @@ fn scalar_sem(
             let must = Term::flag(args, "must_exist");
             let rel = opt_str(Term::value(args, "relative_to").and_then(Term::as_str));
             quote!(#p::SemType::Path(#p::PathC { must_exist: #must, relative_to: #rel }))
+        }
+        "upload" => {
+            let kind = match Term::positional(args).first().and_then(|t| t.as_word()) {
+                Some(w @ ("pair" | "ca" | "crl")) => w,
+                _ => {
+                    errors.push(span, "expected an upload kind: pair, ca or crl");
+                    "pair"
+                }
+            };
+            quote!(#p::SemType::Upload(#p::UploadC::new(#kind)))
         }
         _ => unreachable!("marker() covers every name"),
     }

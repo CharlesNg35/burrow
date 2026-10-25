@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::admin_schema::AdminSchema;
 
-use super::{ClientAuthFiles, ForwardAuthSetting, RedirectTarget, TargetTls, TlsFiles};
+use super::{ClientAuthFiles, ForwardAuthSetting, RedirectTarget, TargetTls};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, AdminSchema)]
 #[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
@@ -26,7 +26,7 @@ pub struct WebSite {
     )]
     #[admin(
         label = "HTTPS",
-        help = "Who does HTTPS for this website: burrow with an automatic certificate, the app itself (burrow only reads the name), nobody (plain HTTP), or burrow with your own certificate file",
+        help = "Who does HTTPS for this website: burrow with an automatic certificate, the app itself (burrow only reads the name), nobody (plain HTTP), burrow with its local CA for names on your network, or burrow with your own certificate",
         none_label = "Automatic"
     )]
     pub tls: Option<SiteTls>,
@@ -275,12 +275,52 @@ pub struct WebSite {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, AdminSchema)]
 #[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
 #[serde(untagged)]
-#[admin(semantic = union(enum_(TlsMode), object(TlsFiles)))]
+#[admin(semantic = union(enum_(TlsMode), object(SiteFiles)))]
 pub enum SiteTls {
     #[admin(label = "Choice")]
     Mode(TlsMode),
-    #[admin(label = "My own certificate file")]
-    Files(TlsFiles),
+    #[admin(label = "My own certificate")]
+    Files(SiteFiles),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, AdminSchema)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+#[admin(label = "Own certificate")]
+pub struct SiteFiles {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        description = "Certificate chain PEM file, relative to the config file, for example certs/fullchain.pem; with key, or upload instead"
+    )]
+    #[admin(
+        ty = path(must_exist, relative_to = "config"),
+        label = "Certificate file",
+        none_label = "Not set",
+        locked
+    )]
+    pub cert: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        description = "Private key PEM file, relative to the config file, for example certs/privkey.pem"
+    )]
+    #[admin(
+        ty = path(must_exist, relative_to = "config"),
+        label = "Private key file",
+        none_label = "Not set",
+        locked
+    )]
+    pub key: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        description = "A certificate and its key uploaded in the admin UI, kept in the state folder, for example pair-1a2b3c4d5e6f7a8b"
+    )]
+    #[admin(
+        ty = upload(pair),
+        label = "Uploaded certificate",
+        help = "A certificate with its private key, uploaded here and kept in burrow's state folder",
+        none_label = "None"
+    )]
+    pub upload: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, AdminSchema)]
@@ -302,6 +342,11 @@ pub enum TlsMode {
         help = "No HTTPS: the website is served as plain HTTP"
     )]
     Off,
+    #[admin(
+        label = "Local CA, for names on your network",
+        help = "burrow's own certificate authority signs certificates for names like nas.lan; install its certificate on your devices once"
+    )]
+    Internal,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, AdminSchema)]

@@ -232,6 +232,9 @@ pub(super) fn unused_site(cfg: &ServerConfig, spans: &Spans, out: &mut Vec<Diagn
             }
             Some(SiteTls::Mode(TlsMode::Off)) => "a site with tls: off has no HTTPS",
             Some(SiteTls::Files(_)) => "the site uses its own certificate file",
+            Some(SiteTls::Mode(TlsMode::Internal)) => {
+                "the local CA signs its certificates, so Let's Encrypt never checks it (tls: internal)"
+            }
             _ => continue,
         };
         out.push(

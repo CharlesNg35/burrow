@@ -236,6 +236,11 @@ fn host(web: &WebSettings, service: &str, site: &WebSite, name: &str) -> HostLin
             let (source, check) = automatic(web, name, site.challenge);
             ("HTTPS", source, check)
         }
+        WebTls::Internal => (
+            "HTTPS",
+            "local CA, 12-hour certificates (tls: internal)".to_string(),
+            String::new(),
+        ),
     };
     let both = kind == "HTTPS" && !site.https_redirect && web.http.is_some();
     HostLine {
@@ -255,10 +260,12 @@ fn host(web: &WebSettings, service: &str, site: &WebSite, name: &str) -> HostLin
 
 fn http_note(web: &WebSettings) -> String {
     let mut parts = Vec::new();
-    let redirects = web
-        .sites
-        .values()
-        .any(|s| matches!(s.tls, WebTls::Auto | WebTls::Files { .. }) && s.https_redirect);
+    let redirects = web.sites.values().any(|s| {
+        matches!(
+            s.tls,
+            WebTls::Auto | WebTls::Files { .. } | WebTls::Internal
+        ) && s.https_redirect
+    });
     if redirects {
         parts.push("HTTPS hosts redirect to https:// (308)");
     }

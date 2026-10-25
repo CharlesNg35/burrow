@@ -106,6 +106,7 @@ pub mod sem {
         Name,
         SecretRef,
         Path,
+        Upload,
         UrlPath,
         Object,
         Map,
@@ -138,6 +139,7 @@ carriers!(Ref: String);
 carriers!(RefList: Vec<String>);
 carriers!(Name: String);
 carriers!(Path: String);
+carriers!(Upload: String);
 carriers!(UrlPath: String);
 carriers!(SecretRef: String);
 impl<V> Carrier<sem::RefMap> for BTreeMap<String, V> {}
@@ -154,7 +156,7 @@ pub mod __private {
         Applies, Cond, DurationC, DurationUnit, Editable, EnumC, EnumOption, Field, Group,
         HostNameC, IntegerC, IpC, IpPortC, ListC, MapC, NameC, Node, ObjectC, OptionalC, PathC,
         PortRangeC, RefC, RefListC, RefMapC, Relation, SecretRefC, SemType, SizeC, TargetC, TextC,
-        UnionC,
+        UnionC, UploadC,
     };
     use burrow_admin_proto::serde_json;
     pub use serde_json::json;

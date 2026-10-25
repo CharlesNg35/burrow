@@ -25,11 +25,15 @@ pub struct MemStore {
     pub text: Arc<Mutex<String>>,
     pub kept: Mutex<Vec<(Version, String)>>,
     pub read_only: bool,
+    pub state: tempfile::TempDir,
 }
 
 impl Store for MemStore {
     fn path(&self) -> &Path {
         Path::new("server.yaml")
+    }
+    fn state_dir(&self) -> PathBuf {
+        self.state.path().to_path_buf()
     }
     fn format(&self) -> Format {
         Format::Yaml
@@ -180,6 +184,7 @@ pub fn core_running(text: &str, running: &str) -> Core {
         text: shared.clone(),
         kept: Mutex::new(Vec::new()),
         read_only: false,
+        state: tempfile::tempdir().unwrap(),
     };
     let live = FakeLive {
         text: live_text,

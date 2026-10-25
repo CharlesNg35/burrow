@@ -22,9 +22,10 @@ pub(super) fn site(
         Some(SiteTls::Mode(TlsMode::Passthrough)) => WebTls::Passthrough,
         Some(SiteTls::Mode(TlsMode::Auto)) => WebTls::Auto,
         Some(SiteTls::Mode(TlsMode::Off)) => WebTls::Off,
+        Some(SiteTls::Mode(TlsMode::Internal)) => WebTls::Internal,
         Some(SiteTls::Files(f)) => WebTls::Files {
-            cert: base_dir.join(&f.cert),
-            key: base_dir.join(&f.key),
+            cert: base_dir.join(f.cert.as_deref().unwrap_or_default()),
+            key: base_dir.join(f.key.as_deref().unwrap_or_default()),
         },
         None if https => WebTls::Auto,
         None => WebTls::Off,
@@ -86,8 +87,8 @@ pub(in crate::config::check) fn settings(
         .iter()
         .map(|c| CertFile {
             hosts: c.hosts.clone(),
-            cert: base_dir.join(&c.cert),
-            key: base_dir.join(&c.key),
+            cert: base_dir.join(c.cert.as_deref().unwrap_or_default()),
+            key: base_dir.join(c.key.as_deref().unwrap_or_default()),
         })
         .collect();
     s.letsencrypt = web.letsencrypt.as_ref().map(|l| LetsEncrypt {

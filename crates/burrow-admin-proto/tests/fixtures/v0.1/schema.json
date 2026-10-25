@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:25f9812e98ac30fe",
+  "hash": "b2s:ccbeeda2d5b55d71",
   "root": {
     "label": "Server",
     "sem": {
@@ -456,6 +456,29 @@
                                   }
                                 },
                                 {
+                                  "key": "ca_upload",
+                                  "node": {
+                                    "label": "Uploaded trusted CA",
+                                    "help": "The CA certificate to trust for another ACME server, uploaded here",
+                                    "sem": {
+                                      "t": "optional",
+                                      "inner": {
+                                        "sem": {
+                                          "t": "upload",
+                                          "kind": "ca",
+                                          "fallback": [
+                                            {
+                                              "t": "text"
+                                            }
+                                          ]
+                                        }
+                                      }
+                                    },
+                                    "advanced": true,
+                                    "none_label": "None"
+                                  }
+                                },
+                                {
                                   "key": "profile",
                                   "node": {
                                     "label": "Certificate profile",
@@ -814,12 +837,17 @@
                                     "label": "Certificate file",
                                     "help": "Certificate chain PEM file, relative to the config file, for example certs/fullchain.pem",
                                     "sem": {
-                                      "t": "path",
-                                      "must_exist": true,
-                                      "relative_to": "config"
+                                      "t": "optional",
+                                      "inner": {
+                                        "sem": {
+                                          "t": "path",
+                                          "must_exist": true,
+                                          "relative_to": "config"
+                                        }
+                                      }
                                     },
-                                    "required": true,
-                                    "locked": true
+                                    "locked": true,
+                                    "none_label": "Not set"
                                   }
                                 },
                                 {
@@ -828,12 +856,39 @@
                                     "label": "Private key file",
                                     "help": "Private key PEM file, relative to the config file, for example certs/privkey.pem",
                                     "sem": {
-                                      "t": "path",
-                                      "must_exist": true,
-                                      "relative_to": "config"
+                                      "t": "optional",
+                                      "inner": {
+                                        "sem": {
+                                          "t": "path",
+                                          "must_exist": true,
+                                          "relative_to": "config"
+                                        }
+                                      }
                                     },
-                                    "required": true,
-                                    "locked": true
+                                    "locked": true,
+                                    "none_label": "Not set"
+                                  }
+                                },
+                                {
+                                  "key": "upload",
+                                  "node": {
+                                    "label": "Uploaded certificate",
+                                    "help": "A certificate with its private key, uploaded here and kept in burrow's state folder",
+                                    "sem": {
+                                      "t": "optional",
+                                      "inner": {
+                                        "sem": {
+                                          "t": "upload",
+                                          "kind": "pair",
+                                          "fallback": [
+                                            {
+                                              "t": "text"
+                                            }
+                                          ]
+                                        }
+                                      }
+                                    },
+                                    "none_label": "None"
                                   }
                                 }
                               ]
@@ -2018,7 +2073,7 @@
                                         "key": "tls",
                                         "node": {
                                           "label": "HTTPS",
-                                          "help": "Who does HTTPS for this website: burrow with an automatic certificate, the app itself (burrow only reads the name), nobody (plain HTTP), or burrow with your own certificate file",
+                                          "help": "Who does HTTPS for this website: burrow with an automatic certificate, the app itself (burrow only reads the name), nobody (plain HTTP), burrow with its local CA for names on your network, or burrow with your own certificate",
                                           "sem": {
                                             "t": "optional",
                                             "inner": {
@@ -2043,12 +2098,17 @@
                                                           "value": "off",
                                                           "label": "Off: plain HTTP",
                                                           "help": "No HTTPS: the website is served as plain HTTP"
+                                                        },
+                                                        {
+                                                          "value": "internal",
+                                                          "label": "Local CA, for names on your network",
+                                                          "help": "burrow's own certificate authority signs certificates for names like nas.lan; install its certificate on your devices once"
                                                         }
                                                       ]
                                                     }
                                                   },
                                                   {
-                                                    "label": "TLS files",
+                                                    "label": "Own certificate",
                                                     "sem": {
                                                       "t": "object",
                                                       "fields": [
@@ -2056,14 +2116,19 @@
                                                           "key": "cert",
                                                           "node": {
                                                             "label": "Certificate file",
-                                                            "help": "Certificate chain PEM file, relative to the config file, for example certs/fullchain.pem",
+                                                            "help": "Certificate chain PEM file, relative to the config file, for example certs/fullchain.pem; with key, or upload instead",
                                                             "sem": {
-                                                              "t": "path",
-                                                              "must_exist": true,
-                                                              "relative_to": "config"
+                                                              "t": "optional",
+                                                              "inner": {
+                                                                "sem": {
+                                                                  "t": "path",
+                                                                  "must_exist": true,
+                                                                  "relative_to": "config"
+                                                                }
+                                                              }
                                                             },
-                                                            "required": true,
-                                                            "locked": true
+                                                            "locked": true,
+                                                            "none_label": "Not set"
                                                           }
                                                         },
                                                         {
@@ -2072,12 +2137,39 @@
                                                             "label": "Private key file",
                                                             "help": "Private key PEM file, relative to the config file, for example certs/privkey.pem",
                                                             "sem": {
-                                                              "t": "path",
-                                                              "must_exist": true,
-                                                              "relative_to": "config"
+                                                              "t": "optional",
+                                                              "inner": {
+                                                                "sem": {
+                                                                  "t": "path",
+                                                                  "must_exist": true,
+                                                                  "relative_to": "config"
+                                                                }
+                                                              }
                                                             },
-                                                            "required": true,
-                                                            "locked": true
+                                                            "locked": true,
+                                                            "none_label": "Not set"
+                                                          }
+                                                        },
+                                                        {
+                                                          "key": "upload",
+                                                          "node": {
+                                                            "label": "Uploaded certificate",
+                                                            "help": "A certificate with its private key, uploaded here and kept in burrow's state folder",
+                                                            "sem": {
+                                                              "t": "optional",
+                                                              "inner": {
+                                                                "sem": {
+                                                                  "t": "upload",
+                                                                  "kind": "pair",
+                                                                  "fallback": [
+                                                                    {
+                                                                      "t": "text"
+                                                                    }
+                                                                  ]
+                                                                }
+                                                              }
+                                                            },
+                                                            "none_label": "None"
                                                           }
                                                         }
                                                       ]
@@ -2406,12 +2498,39 @@
                                                             "label": "CA file",
                                                             "help": "The CA that signed the app's certificate, for example certs/corp-ca.pem",
                                                             "sem": {
-                                                              "t": "path",
-                                                              "must_exist": true,
-                                                              "relative_to": "config"
+                                                              "t": "optional",
+                                                              "inner": {
+                                                                "sem": {
+                                                                  "t": "path",
+                                                                  "must_exist": true,
+                                                                  "relative_to": "config"
+                                                                }
+                                                              }
                                                             },
-                                                            "required": true,
-                                                            "locked": true
+                                                            "locked": true,
+                                                            "none_label": "Not set"
+                                                          }
+                                                        },
+                                                        {
+                                                          "key": "ca_upload",
+                                                          "node": {
+                                                            "label": "Uploaded CA",
+                                                            "help": "The CA that signed the app's certificate, uploaded here",
+                                                            "sem": {
+                                                              "t": "optional",
+                                                              "inner": {
+                                                                "sem": {
+                                                                  "t": "upload",
+                                                                  "kind": "ca",
+                                                                  "fallback": [
+                                                                    {
+                                                                      "t": "text"
+                                                                    }
+                                                                  ]
+                                                                }
+                                                              }
+                                                            },
+                                                            "none_label": "None"
                                                           }
                                                         }
                                                       ]
@@ -2641,12 +2760,39 @@
                                                       "label": "CA file",
                                                       "help": "The CA that signs your devices' certificates, with its intermediates, for example certs/devices-ca.pem",
                                                       "sem": {
-                                                        "t": "path",
-                                                        "must_exist": true,
-                                                        "relative_to": "config"
+                                                        "t": "optional",
+                                                        "inner": {
+                                                          "sem": {
+                                                            "t": "path",
+                                                            "must_exist": true,
+                                                            "relative_to": "config"
+                                                          }
+                                                        }
                                                       },
-                                                      "required": true,
-                                                      "locked": true
+                                                      "locked": true,
+                                                      "none_label": "Not set"
+                                                    }
+                                                  },
+                                                  {
+                                                    "key": "ca_upload",
+                                                    "node": {
+                                                      "label": "Uploaded CA",
+                                                      "help": "The CA that signs your devices' certificates, with its intermediates, uploaded here",
+                                                      "sem": {
+                                                        "t": "optional",
+                                                        "inner": {
+                                                          "sem": {
+                                                            "t": "upload",
+                                                            "kind": "ca",
+                                                            "fallback": [
+                                                              {
+                                                                "t": "text"
+                                                              }
+                                                            ]
+                                                          }
+                                                        }
+                                                      },
+                                                      "none_label": "None"
                                                     }
                                                   },
                                                   {
@@ -2665,6 +2811,28 @@
                                                         }
                                                       },
                                                       "locked": true,
+                                                      "none_label": "None"
+                                                    }
+                                                  },
+                                                  {
+                                                    "key": "crl_upload",
+                                                    "node": {
+                                                      "label": "Uploaded revocation list",
+                                                      "help": "Devices you revoked, as the CA publishes them, uploaded here; upload a new list to replace it",
+                                                      "sem": {
+                                                        "t": "optional",
+                                                        "inner": {
+                                                          "sem": {
+                                                            "t": "upload",
+                                                            "kind": "crl",
+                                                            "fallback": [
+                                                              {
+                                                                "t": "text"
+                                                              }
+                                                            ]
+                                                          }
+                                                        }
+                                                      },
                                                       "none_label": "None"
                                                     }
                                                   }

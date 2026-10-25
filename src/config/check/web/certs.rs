@@ -127,7 +127,9 @@ fn redirect_sources(
         if svc.protocol != Protocol::Tcp
             || matches!(
                 site.tls,
-                Some(SiteTls::Mode(TlsMode::Passthrough | TlsMode::Off))
+                Some(SiteTls::Mode(
+                    TlsMode::Passthrough | TlsMode::Off | TlsMode::Internal
+                ))
             )
         {
             continue;

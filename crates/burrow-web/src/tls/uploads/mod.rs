@@ -83,14 +83,7 @@ pub fn folder(state: &Path) -> PathBuf {
 }
 
 pub fn valid_id(id: &str) -> bool {
-    let Some((kind, hash)) = id.split_once('-') else {
-        return false;
-    };
-    ["pair", "ca", "crl"].contains(&kind)
-        && hash.len() == 16
-        && hash
-            .bytes()
-            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    burrow_syntax::upload::kind_of(id).is_some()
 }
 
 pub fn path(state: &Path, id: &str) -> Option<PathBuf> {

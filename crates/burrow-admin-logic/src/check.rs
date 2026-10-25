@@ -140,6 +140,12 @@ fn check_sem(sem: &SemType, v: &Value) -> Result<(), String> {
                 .then_some(())
                 .ok_or_else(|| "a path is required".to_string())
         }
+        SemType::Upload(c) => {
+            let s = want_str(v)?;
+            (burrow_syntax::upload::kind_of(s.trim()) == Some(c.kind.as_str()))
+                .then_some(())
+                .ok_or_else(|| "upload the file again".to_string())
+        }
         SemType::UrlPath => {
             let s = want_text(v)?;
             s.starts_with('/')

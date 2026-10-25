@@ -139,6 +139,7 @@ fn sem_view(sem: &SemType, node: &Node, v: &Value, ctx: &Ctx) -> AnyView {
         | SemType::HostName(_)
         | SemType::ServerAddress
         | SemType::Path(_)
+        | SemType::Upload(_)
         | SemType::UrlPath
         | SemType::Name(_) => mono(v),
         SemType::Ip(_)

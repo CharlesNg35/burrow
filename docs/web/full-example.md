@@ -240,7 +240,7 @@ Where each name gets its certificate:
 | Let's Encrypt cannot check a name | `blog.example.com (service "blog") cannot be checked by Let's Encrypt: open http: 80, add challenge: dns, or list a file for it in web.certificates` |
 | a check without its port | `services.blog.web.challenge: http needs web.http on port 80: Let's Encrypt fetches a file there; add http: 80, or use challenge: tls or dns` |
 | a check where no certificate is ordered | `services.nas.web.challenge: the app keeps its own certificate (tls: passthrough); remove challenge` |
-| an entry in `web.certificates` without its files | `web.certificates[0] needs hosts, cert and key: hosts names which names use the file, cert and key are the files` |
+| an entry in `web.certificates` without its files | `web.certificates[0]: needs cert and key, or an uploaded certificate` |
 | a wildcard from Let's Encrypt without a DNS provider | `services.apps.web.hosts: "*.apps.example.com" needs DNS-01 (Let's Encrypt gives wildcard certificates only through DNS): add web.letsencrypt.dns, or a certificate file under web.certificates or tls` |
 | a DNS check under no provider's domain | `services.erp.web.hosts: "erp.corp.example.org" needs a DNS check (challenge: dns), but no web.letsencrypt.dns entry lists corp.example.org (or a domain above it)` |
 | a DNS entry without one provider, or without domains | `web.letsencrypt.dns[1]: name exactly one of cloudflare, rfc2136, acme_dns or command`; `web.letsencrypt.dns[1].domains is required: the domains this provider manages, like domains: [example.com]` |

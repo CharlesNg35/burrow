@@ -50,6 +50,7 @@ pub enum ForwardAuthSetting {
 #[serde(deny_unknown_fields)]
 #[admin(label = "Device certificates")]
 pub struct ClientAuthFiles {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
         description = "PEM file with the CA (and its intermediates) that signs the devices' certificates, relative to the config file, for example certs/devices-ca.pem"
     )]
@@ -57,9 +58,21 @@ pub struct ClientAuthFiles {
         ty = path(must_exist, relative_to = "config"),
         label = "CA file",
         help = "The CA that signs your devices' certificates, with its intermediates, for example certs/devices-ca.pem",
+        none_label = "Not set",
         locked
     )]
-    pub ca: String,
+    pub ca: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        description = "The devices' CA, uploaded in the admin UI, for example ca-1a2b3c4d5e6f7a8b"
+    )]
+    #[admin(
+        ty = upload(ca),
+        label = "Uploaded CA",
+        help = "The CA that signs your devices' certificates, with its intermediates, uploaded here",
+        none_label = "None"
+    )]
+    pub ca_upload: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
         description = "Revocation lists (PEM or DER) of that CA, re-read when the file changes, for example certs/devices.crl"
@@ -72,4 +85,15 @@ pub struct ClientAuthFiles {
         locked
     )]
     pub crl: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        description = "The CA's revocation lists, uploaded in the admin UI, for example crl-1a2b3c4d5e6f7a8b"
+    )]
+    #[admin(
+        ty = upload(crl),
+        label = "Uploaded revocation list",
+        help = "Devices you revoked, as the CA publishes them, uploaded here; upload a new list to replace it",
+        none_label = "None"
+    )]
+    pub crl_upload: Option<String>,
 }

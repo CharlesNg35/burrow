@@ -24,7 +24,7 @@ pub use options::{ClientUdpOptions, Heartbeat, Limits, Pool, TcpOptions, UdpOpti
 pub use server::{
     MetricsConfig, SelfEntry, ServerConfig, TlsFiles, WebSocketConfig, default_ws_path,
 };
-pub use site::{ChallengeKind, SiteTls, TlsMode, WebSite};
+pub use site::{ChallengeKind, SiteFiles, SiteTls, TlsMode, WebSite};
 pub use site_keys::{
     AccessLog, AccessLogFormat, AccessLogOptions, RedirectRule, RedirectTarget, TargetCa,
     TargetTls, TargetUnchecked,

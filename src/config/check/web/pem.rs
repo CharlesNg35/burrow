@@ -82,14 +82,17 @@ pub(super) fn check_files(
         return;
     };
     for (i, entry) in web.certificates.iter().enumerate() {
-        if entry.cert.is_empty() || entry.key.is_empty() {
+        let (Some(cert), Some(key)) = (entry.cert.as_deref(), entry.key.as_deref()) else {
+            continue;
+        };
+        if cert.is_empty() || key.is_empty() {
             continue;
         }
         let pair = Pair {
             place: format!("web.certificates[{i}]"),
             at: spans.value(&["web", "certificates", &i.to_string()]),
-            cert: &entry.cert,
-            key: &entry.key,
+            cert,
+            key,
         };
         let Some(ck) = load(&pair, base, out) else {
             continue;
@@ -137,11 +140,14 @@ pub(super) fn check_files(
         let Some(SiteTls::Files(files)) = site.tls.as_ref() else {
             continue;
         };
+        let (Some(cert), Some(key)) = (files.cert.as_deref(), files.key.as_deref()) else {
+            continue;
+        };
         let pair = Pair {
             place: format!("services.{name}.web.tls"),
             at: spans.value(&["services", name, "web", "tls"]),
-            cert: &files.cert,
-            key: &files.key,
+            cert,
+            key,
         };
         let Some(ck) = load(&pair, base, out) else {
             continue;

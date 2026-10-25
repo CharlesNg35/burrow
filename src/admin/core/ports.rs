@@ -27,6 +27,7 @@ pub struct Version {
 
 pub trait Store: Send + Sync {
     fn path(&self) -> &Path;
+    fn state_dir(&self) -> PathBuf;
     fn format(&self) -> Format;
     fn read(&self) -> std::io::Result<String>;
     fn write(&self, before: &str, after: &str) -> Result<(), WriteError>;
