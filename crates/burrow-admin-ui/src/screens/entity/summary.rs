@@ -124,6 +124,7 @@ pub(super) fn overview(section: &str, name: &str, stats: bool) -> impl IntoView 
                         let cs = st.as_ref().and_then(|x| x.clients.iter().find(|y| y.name == c)).cloned();
                         let on = cs.as_ref().is_some_and(|y| y.connected);
                         let h = health.iter().find(|h| h.client == c).map(|h| h.up);
+                        let why = health.iter().find(|h| h.client == c).and_then(|h| h.reason.clone());
                         let set = aside.iter().find(|a| a.client == c).map(|a| if a.refused { "set aside (refused)" } else { "set aside" }).unwrap_or("not set aside");
                         let label = c.clone();
                         view! {
@@ -132,7 +133,10 @@ pub(super) fn overview(section: &str, name: &str, stats: bool) -> impl IntoView 
                                 <td class="font-mono text-[13px] text-text-muted max-sm:hidden">{cs.and_then(|y| y.from).unwrap_or_else(|| "offline".into())}</td>
                                 <td>{match h {
                                     Some(true) => view! { <span class=tag_class(Tone::Success)>"up"</span> }.into_any(),
-                                    Some(false) => view! { <span class=tag_class(Tone::Danger)>"down"</span> }.into_any(),
+                                    Some(false) => view! {
+                                        <span class=tag_class(Tone::Danger)>"down"</span>
+                                        {why.map(|w| view! { <span class="ml-2 text-xs text-text-muted" data-testid="health-reason">{w}</span> })}
+                                    }.into_any(),
                                     None => view! { <span class="text-text-faint">"not checked"</span> }.into_any(),
                                 }}</td>
                                 <td class="max-sm:hidden">{set}</td>
