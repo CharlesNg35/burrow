@@ -15,7 +15,7 @@ pub use ca::{
 pub const CHECK_EVERY_SECS: u64 = 600;
 
 pub type Write<'a> = &'a dyn Fn(&Path, &[u8]) -> std::io::Result<()>;
-pub type Writer = Arc<dyn Fn(&Path, &[u8]) -> std::io::Result<()> + Send + Sync>;
+pub type Writer = crate::tls::acme::storage::Writer;
 
 pub fn default_writer() -> Writer {
     Arc::new(|p: &Path, b: &[u8]| crate::tls::acme::storage::write_private(p, b))

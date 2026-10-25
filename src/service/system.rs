@@ -108,77 +108,17 @@ pub fn write_file(to: &Path, bytes: &[u8]) -> Result<(), Failure> {
 }
 
 pub fn write_file_mode(to: &Path, bytes: &[u8], mode: u32) -> Result<(), Failure> {
-    use std::io::Write;
     if let Some(dir) = to.parent() {
         std::fs::create_dir_all(dir)
             .map_err(|e| Failure::new(format!("cannot create {}: {e}", dir.display())))?;
     }
-    let tmp = to.with_extension("burrow-new");
-    let _ = std::fs::remove_file(&tmp);
-    let written = (|| {
-        let mut opts = std::fs::OpenOptions::new();
-        opts.write(true).create_new(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            opts.mode(0o600);
-        }
-        let mut f = opts.open(&tmp)?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            f.set_permissions(std::fs::Permissions::from_mode(mode))?;
-        }
-        #[cfg(not(unix))]
-        let _ = mode;
-        f.write_all(bytes)?;
-        f.sync_all()
-    })();
-    if let Err(e) = written {
-        let _ = std::fs::remove_file(&tmp);
-        return Err(Failure::new(format!("cannot write {}: {e}", to.display())));
-    }
-    replace(&tmp, to)
+    crate::base::fs::write_atomic(to, bytes, mode)
+        .map_err(|e| Failure::new(format!("cannot write {}: {e}", to.display())))
 }
 
 fn replace(tmp: &Path, to: &Path) -> Result<(), Failure> {
-    let mut tries = 0;
-    let mut moved_aside = None;
-    loop {
-        match std::fs::rename(tmp, to) {
-            Ok(()) => return Ok(()),
-            Err(e)
-                if cfg!(windows)
-                    && tries < 8
-                    && e.kind() == std::io::ErrorKind::PermissionDenied =>
-            {
-                tries += 1;
-                std::thread::sleep(std::time::Duration::from_millis(250));
-            }
-            Err(e)
-                if cfg!(windows)
-                    && tries == 8
-                    && e.kind() == std::io::ErrorKind::PermissionDenied =>
-            {
-                tries += 1;
-                let aside = to.with_extension("old");
-                let _ = std::fs::remove_file(&aside);
-                if std::fs::rename(to, &aside).is_ok() {
-                    moved_aside = Some(aside);
-                }
-            }
-            Err(e) => {
-                let _ = std::fs::remove_file(tmp);
-                if let Some(aside) = &moved_aside {
-                    let _ = std::fs::rename(aside, to);
-                }
-                return Err(Failure::new(format!(
-                    "cannot replace {}: {e}",
-                    to.display()
-                )));
-            }
-        }
-    }
+    crate::base::fs::replace(tmp, to)
+        .map_err(|e| Failure::new(format!("cannot replace {}: {e}", to.display())))
 }
 
 pub fn binary_version(path: &Path) -> String {

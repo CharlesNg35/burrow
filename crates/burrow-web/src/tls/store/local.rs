@@ -6,16 +6,8 @@ use super::{CertOrigin, CertPhase, CertStatus, Slot, Store, now_secs};
 use crate::CertSettings;
 
 impl Store {
-    pub fn set_private_writer(&self, writer: Writer) {
-        *self.writer.write().expect("writer lock") = Some(writer);
-    }
-
     pub(super) fn private_writer(&self) -> Writer {
-        self.writer
-            .read()
-            .expect("writer lock")
-            .clone()
-            .unwrap_or_else(default_writer)
+        default_writer()
     }
 
     pub(super) async fn run_local(&self, settings: &CertSettings) {

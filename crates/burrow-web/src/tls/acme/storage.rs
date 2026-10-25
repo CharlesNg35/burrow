@@ -1,5 +1,7 @@
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, OnceLock};
 
 use serde::{Deserialize, Serialize};
 
@@ -79,22 +81,52 @@ pub fn make_dir(dir: &Path) -> std::io::Result<()> {
     b.create(dir)
 }
 
+pub type Writer = Arc<dyn Fn(&Path, &[u8]) -> std::io::Result<()> + Send + Sync>;
+
+static WRITER: OnceLock<Writer> = OnceLock::new();
+static TEMP_SEQ: AtomicU64 = AtomicU64::new(0);
+
+pub fn use_private_writer(writer: Writer) {
+    let _ = WRITER.set(writer);
+}
+
 pub fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    let dir = path.parent().unwrap_or(Path::new("."));
-    make_dir(dir)?;
-    let tmp = path.with_extension("tmp");
-    let mut o = std::fs::OpenOptions::new();
-    o.write(true).create(true).truncate(true);
-    #[cfg(unix)]
-    std::os::unix::fs::OpenOptionsExt::mode(&mut o, 0o600);
-    let mut f = o.open(&tmp)?;
-    f.write_all(bytes)?;
-    f.sync_all()?;
-    drop(f);
-    std::fs::rename(&tmp, path)?;
-    #[cfg(unix)]
-    std::fs::File::open(dir)?.sync_all()?;
-    Ok(())
+    make_dir(path.parent().unwrap_or(Path::new(".")))?;
+    match WRITER.get() {
+        Some(w) => w(path, bytes),
+        None => write_atomic(path, bytes),
+    }
+}
+
+fn temp_for(path: &Path) -> PathBuf {
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let n = TEMP_SEQ.fetch_add(1, Ordering::Relaxed);
+    path.with_file_name(format!(".{name}.{}-{n}.tmp", std::process::id()))
+}
+
+fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    let tmp = temp_for(path);
+    let written = (|| {
+        let mut o = std::fs::OpenOptions::new();
+        o.write(true).create_new(true);
+        #[cfg(unix)]
+        std::os::unix::fs::OpenOptionsExt::mode(&mut o, 0o600);
+        let mut f = o.open(&tmp)?;
+        f.write_all(bytes)?;
+        f.sync_all()?;
+        drop(f);
+        std::fs::rename(&tmp, path)?;
+        #[cfg(unix)]
+        std::fs::File::open(path.parent().unwrap_or(Path::new(".")))?.sync_all()?;
+        Ok(())
+    })();
+    if written.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    written
 }
 
 pub fn save(dir: &Path, stored: &Stored) -> std::io::Result<()> {
@@ -168,7 +200,12 @@ mod tests {
             (back.chain_pem.as_str(), back.key_pem.as_str()),
             ("chain", "key")
         );
-        assert!(!dir.join("key.tmp").exists());
+        let names: Vec<String> = std::fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(names.len(), 3, "no drafts are left: {names:?}");
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -177,6 +214,19 @@ mod tests {
             assert_eq!(mode(&dir), 0o700);
             assert_eq!(mode(&state.path().join("certs")), 0o700);
         }
+    }
+
+    #[test]
+    fn files_that_share_a_stem_never_share_a_draft() {
+        let dir = tempfile::tempdir().unwrap();
+        let key = dir.path().join("account.key");
+        let json = dir.path().join("account.json");
+        assert_ne!(temp_for(&key), temp_for(&json));
+        assert_ne!(temp_for(&key), temp_for(&key));
+        write_atomic(&key, b"k").unwrap();
+        write_atomic(&json, b"j").unwrap();
+        assert_eq!(std::fs::read(&key).unwrap(), b"k");
+        assert_eq!(std::fs::read(&json).unwrap(), b"j");
     }
 
     #[test]

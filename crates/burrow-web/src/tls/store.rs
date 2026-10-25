@@ -42,7 +42,6 @@ pub struct Store {
     warned: std::sync::atomic::AtomicU64,
     local: Arc<super::internal::Internal>,
     local_task: Mutex<Option<tokio::task::JoinHandle<()>>>,
-    writer: RwLock<Option<super::internal::Writer>>,
 }
 
 impl std::fmt::Debug for Store {
