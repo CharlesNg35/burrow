@@ -1,58 +1,13 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use tokio_rustls::rustls::client::danger::{
-    HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier,
-};
-use tokio_rustls::rustls::pki_types::{CertificateDer, ServerName, UnixTime};
-use tokio_rustls::rustls::{
-    self, ClientConfig, DigitallySignedStruct, ServerConfig, SignatureScheme,
-};
+use tokio_rustls::rustls::pki_types::{CertificateDer, ServerName};
+use tokio_rustls::rustls::{self, ClientConfig, ServerConfig};
 use tokio_rustls::{TlsAcceptor, TlsConnector};
 
 use super::*;
 use crate::tls::files::tests::write_pair;
 use crate::{CertSource, SharedFile};
-
-#[derive(Debug)]
-struct Any;
-
-impl ServerCertVerifier for Any {
-    fn verify_server_cert(
-        &self,
-        _: &CertificateDer<'_>,
-        _: &[CertificateDer<'_>],
-        _: &ServerName<'_>,
-        _: &[u8],
-        _: UnixTime,
-    ) -> Result<ServerCertVerified, rustls::Error> {
-        Ok(ServerCertVerified::assertion())
-    }
-
-    fn verify_tls12_signature(
-        &self,
-        _: &[u8],
-        _: &CertificateDer<'_>,
-        _: &DigitallySignedStruct,
-    ) -> Result<HandshakeSignatureValid, rustls::Error> {
-        Ok(HandshakeSignatureValid::assertion())
-    }
-
-    fn verify_tls13_signature(
-        &self,
-        _: &[u8],
-        _: &CertificateDer<'_>,
-        _: &DigitallySignedStruct,
-    ) -> Result<HandshakeSignatureValid, rustls::Error> {
-        Ok(HandshakeSignatureValid::assertion())
-    }
-
-    fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
-        rustls::crypto::ring::default_provider()
-            .signature_verification_algorithms
-            .supported_schemes()
-    }
-}
 
 async fn served(store: Arc<Store>, name: &str) -> Option<CertificateDer<'static>> {
     let provider = Arc::new(rustls::crypto::ring::default_provider());
@@ -65,7 +20,7 @@ async fn served(store: Arc<Store>, name: &str) -> Option<CertificateDer<'static>
         .with_safe_default_protocol_versions()
         .unwrap()
         .dangerous()
-        .with_custom_certificate_verifier(Arc::new(Any))
+        .with_custom_certificate_verifier(crate::http::upstream::target_tls::any_certificate())
         .with_no_client_auth();
     let (a, b) = tokio::io::duplex(64 * 1024);
     let accept = TlsAcceptor::from(Arc::new(server));

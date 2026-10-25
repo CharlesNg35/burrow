@@ -1,13 +1,8 @@
 use std::net::SocketAddr;
-use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use rcgen::{
-    BasicConstraints, CertificateParams, CertificateRevocationListParams, DistinguishedName,
-    DnType, IsCa, Issuer, KeyIdMethod, KeyPair, KeyUsagePurpose, RevokedCertParams, SerialNumber,
-};
-use time::OffsetDateTime;
+use rcgen::{CertificateParams, DistinguishedName, DnType, Issuer, KeyPair, SerialNumber};
 use tokio::net::TcpStream;
 use tokio_rustls::TlsConnector;
 use tokio_rustls::client::TlsStream;
@@ -15,34 +10,9 @@ use tokio_rustls::rustls::client::{ClientSessionMemoryCache, ClientSessionStore,
 use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName};
 use tokio_rustls::rustls::{self, ClientConfig, HandshakeKind, NamedGroup};
 
-use super::{AnyCert, provider};
-
-pub struct DeviceCa {
-    pub params: CertificateParams,
-    pub key: KeyPair,
-    pub pem: String,
-}
-
-pub fn device_ca(name: &str, parent: Option<&DeviceCa>) -> DeviceCa {
-    let key = KeyPair::generate().unwrap();
-    let mut params = CertificateParams::new(Vec::<String>::new()).unwrap();
-    let mut dn = DistinguishedName::new();
-    dn.push(DnType::CommonName, name);
-    params.distinguished_name = dn;
-    params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
-    params.key_usages = vec![KeyUsagePurpose::KeyCertSign, KeyUsagePurpose::CrlSign];
-    let cert = match parent {
-        Some(p) => params
-            .signed_by(&key, &Issuer::from_params(&p.params, &p.key))
-            .unwrap(),
-        None => params.self_signed(&key).unwrap(),
-    };
-    DeviceCa {
-        pem: cert.pem(),
-        params,
-        key,
-    }
-}
+#[allow(unused_imports)]
+pub use super::pki::{DeviceCa, crl, device_ca, next_week, write};
+use super::provider;
 
 pub struct Device {
     pub chain: Vec<CertificateDer<'static>>,
@@ -68,39 +38,6 @@ pub fn device(ca: &DeviceCa, serial: u64, chain_extra: &[&DeviceCa]) -> Device {
         chain,
         key: Arc::new(key),
     }
-}
-
-pub fn crl(by: &DeviceCa, revoked: &[u64], next: OffsetDateTime) -> Vec<u8> {
-    let params = CertificateRevocationListParams {
-        this_update: next - time::Duration::days(30),
-        next_update: next,
-        crl_number: SerialNumber::from(1u64),
-        issuing_distribution_point: None,
-        revoked_certs: revoked
-            .iter()
-            .map(|s| RevokedCertParams {
-                serial_number: SerialNumber::from(*s),
-                revocation_time: next - time::Duration::days(31),
-                reason_code: None,
-                invalidity_date: None,
-            })
-            .collect(),
-        key_identifier_method: KeyIdMethod::Sha256,
-    };
-    let c = params
-        .signed_by(&Issuer::from_params(&by.params, &by.key))
-        .unwrap();
-    c.pem().unwrap().into_bytes()
-}
-
-pub fn next_week() -> OffsetDateTime {
-    OffsetDateTime::now_utc() + time::Duration::days(7)
-}
-
-pub fn write(dir: &Path, name: &str, bytes: &[u8]) -> PathBuf {
-    let p = dir.join(name);
-    std::fs::write(&p, bytes).unwrap();
-    p
 }
 
 #[derive(Debug)]
@@ -156,11 +93,14 @@ pub fn name_blind() -> Arc<NameBlind> {
 }
 
 pub fn client(device: Option<&Device>, store: Option<Arc<NameBlind>>) -> TlsConnector {
-    let b = ClientConfig::builder_with_provider(provider())
-        .with_safe_default_protocol_versions()
-        .unwrap()
-        .dangerous()
-        .with_custom_certificate_verifier(Arc::new(AnyCert));
+    let b =
+        ClientConfig::builder_with_provider(provider())
+            .with_safe_default_protocol_versions()
+            .unwrap()
+            .dangerous()
+            .with_custom_certificate_verifier(
+                burrow_web::http::upstream::target_tls::any_certificate(),
+            );
     let mut config = match device {
         Some(d) => {
             let key = PrivateKeyDer::try_from(d.key.serialize_der()).unwrap();

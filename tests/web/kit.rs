@@ -194,52 +194,12 @@ pub fn share_tunnel(s: &mut ServerSettings, host: &str, c: &Cert) {
     s.web.as_mut().unwrap().tunnel = Some(host.into());
 }
 
-#[derive(Debug)]
-struct AnyCert;
-
-impl rustls::client::danger::ServerCertVerifier for AnyCert {
-    fn verify_server_cert(
-        &self,
-        _: &CertificateDer<'_>,
-        _: &[CertificateDer<'_>],
-        _: &ServerName<'_>,
-        _: &[u8],
-        _: rustls::pki_types::UnixTime,
-    ) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
-        Ok(rustls::client::danger::ServerCertVerified::assertion())
-    }
-
-    fn verify_tls12_signature(
-        &self,
-        _: &[u8],
-        _: &CertificateDer<'_>,
-        _: &rustls::DigitallySignedStruct,
-    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
-        Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
-    }
-
-    fn verify_tls13_signature(
-        &self,
-        _: &[u8],
-        _: &CertificateDer<'_>,
-        _: &rustls::DigitallySignedStruct,
-    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
-        Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
-    }
-
-    fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
-        provider()
-            .signature_verification_algorithms
-            .supported_schemes()
-    }
-}
-
 pub async fn closed(addr: SocketAddr, name: &str) -> bool {
     let config = ClientConfig::builder_with_provider(provider())
         .with_safe_default_protocol_versions()
         .unwrap()
         .dangerous()
-        .with_custom_certificate_verifier(Arc::new(AnyCert))
+        .with_custom_certificate_verifier(burrow_web::http::upstream::target_tls::any_certificate())
         .with_no_client_auth();
     let Ok(tcp) = TcpStream::connect(addr).await else {
         return true;
@@ -258,7 +218,7 @@ pub fn client_hello(name: &str) -> Vec<u8> {
         .with_safe_default_protocol_versions()
         .unwrap()
         .dangerous()
-        .with_custom_certificate_verifier(Arc::new(AnyCert))
+        .with_custom_certificate_verifier(burrow_web::http::upstream::target_tls::any_certificate())
         .with_no_client_auth();
     let name = ServerName::try_from(name.to_string()).unwrap();
     let mut conn = rustls::ClientConnection::new(Arc::new(config), name).unwrap();

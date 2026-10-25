@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 pub mod devices;
+pub mod pki;
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -39,46 +40,6 @@ pub fn acceptor(names: &[&str]) -> TlsAcceptor {
     TlsAcceptor::from(Arc::new(config))
 }
 
-#[derive(Debug)]
-struct AnyCert;
-
-impl rustls::client::danger::ServerCertVerifier for AnyCert {
-    fn verify_server_cert(
-        &self,
-        _: &CertificateDer<'_>,
-        _: &[CertificateDer<'_>],
-        _: &ServerName<'_>,
-        _: &[u8],
-        _: rustls::pki_types::UnixTime,
-    ) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
-        Ok(rustls::client::danger::ServerCertVerified::assertion())
-    }
-
-    fn verify_tls12_signature(
-        &self,
-        _: &[u8],
-        _: &CertificateDer<'_>,
-        _: &rustls::DigitallySignedStruct,
-    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
-        Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
-    }
-
-    fn verify_tls13_signature(
-        &self,
-        _: &[u8],
-        _: &CertificateDer<'_>,
-        _: &rustls::DigitallySignedStruct,
-    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
-        Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
-    }
-
-    fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
-        provider()
-            .signature_verification_algorithms
-            .supported_schemes()
-    }
-}
-
 pub fn connector() -> TlsConnector {
     connector_alpn(&[b"http/1.1"])
 }
@@ -88,7 +49,7 @@ pub fn connector_alpn(alpn: &[&[u8]]) -> TlsConnector {
         .with_safe_default_protocol_versions()
         .unwrap()
         .dangerous()
-        .with_custom_certificate_verifier(Arc::new(AnyCert))
+        .with_custom_certificate_verifier(burrow_web::http::upstream::target_tls::any_certificate())
         .with_no_client_auth();
     config.alpn_protocols = alpn.iter().map(|p| p.to_vec()).collect();
     TlsConnector::from(Arc::new(config))

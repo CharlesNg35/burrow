@@ -1,10 +1,7 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::{Duration, SystemTime};
 
-use rcgen::{
-    BasicConstraints, CertificateParams, CertificateRevocationListParams, DistinguishedName,
-    DnType, IsCa, Issuer, KeyIdMethod, KeyPair, KeyUsagePurpose, RevokedCertParams, SerialNumber,
-};
+use rcgen::{CertificateParams, KeyPair};
 use time::OffsetDateTime;
 use tokio_rustls::rustls::pki_types::CertificateRevocationListDer;
 use tokio_rustls::rustls::pki_types::pem::PemObject;
@@ -12,65 +9,11 @@ use x509_cert::der::Encode;
 
 use super::*;
 
-struct TestCa {
-    params: CertificateParams,
-    key: KeyPair,
-    pem: String,
-}
+#[allow(dead_code)]
+#[path = "../../../tests/common/pki.rs"]
+mod pki;
 
-fn ca(name: &str, parent: Option<&TestCa>) -> TestCa {
-    let key = KeyPair::generate().unwrap();
-    let mut params = CertificateParams::new(Vec::<String>::new()).unwrap();
-    let mut dn = DistinguishedName::new();
-    dn.push(DnType::CommonName, name);
-    params.distinguished_name = dn;
-    params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
-    params.key_usages = vec![KeyUsagePurpose::KeyCertSign, KeyUsagePurpose::CrlSign];
-    let cert = match parent {
-        Some(p) => params
-            .signed_by(&key, &Issuer::from_params(&p.params, &p.key))
-            .unwrap(),
-        None => params.self_signed(&key).unwrap(),
-    };
-    TestCa {
-        pem: cert.pem(),
-        params,
-        key,
-    }
-}
-
-fn crl(by: &TestCa, revoked: &[u64], next: OffsetDateTime) -> Vec<u8> {
-    let params = CertificateRevocationListParams {
-        this_update: next - time::Duration::days(30),
-        next_update: next,
-        crl_number: SerialNumber::from(1u64),
-        issuing_distribution_point: None,
-        revoked_certs: revoked
-            .iter()
-            .map(|s| RevokedCertParams {
-                serial_number: SerialNumber::from(*s),
-                revocation_time: next - time::Duration::days(31),
-                reason_code: None,
-                invalidity_date: None,
-            })
-            .collect(),
-        key_identifier_method: KeyIdMethod::Sha256,
-    };
-    let c = params
-        .signed_by(&Issuer::from_params(&by.params, &by.key))
-        .unwrap();
-    c.pem().unwrap().into_bytes()
-}
-
-fn soon() -> OffsetDateTime {
-    OffsetDateTime::now_utc() + time::Duration::days(7)
-}
-
-fn write(dir: &Path, name: &str, bytes: &[u8]) -> PathBuf {
-    let p = dir.join(name);
-    std::fs::write(&p, bytes).unwrap();
-    p
-}
+use pki::{crl, device_ca as ca, next_week as soon, write};
 
 fn check(ca: &[u8], crl: Option<&[u8]>) -> Result<Vec<CrlNote>, ClientAuthProblem> {
     let dir = tempfile::tempdir().unwrap();

@@ -76,9 +76,12 @@ impl ServerCertVerifier for AnyCertificate {
     }
 }
 
+pub fn any_certificate() -> Arc<dyn ServerCertVerifier> {
+    Arc::new(AnyCertificate(provider().signature_verification_algorithms))
+}
+
 pub fn connector(check: &Check, http2: bool) -> Result<TlsConnector, String> {
     let provider = provider();
-    let algorithms = provider.signature_verification_algorithms;
     let builder = ClientConfig::builder_with_provider(provider)
         .with_safe_default_protocol_versions()
         .map_err(|e| e.to_string())?;
@@ -93,7 +96,7 @@ pub fn connector(check: &Check, http2: bool) -> Result<TlsConnector, String> {
             .with_no_client_auth(),
         Check::Unchecked => builder
             .dangerous()
-            .with_custom_certificate_verifier(Arc::new(AnyCertificate(algorithms)))
+            .with_custom_certificate_verifier(any_certificate())
             .with_no_client_auth(),
     };
     config.alpn_protocols = if http2 {
