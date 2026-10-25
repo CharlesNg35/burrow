@@ -93,6 +93,14 @@ pub fn name_blind() -> Arc<NameBlind> {
 }
 
 pub fn client(device: Option<&Device>, store: Option<Arc<NameBlind>>) -> TlsConnector {
+    client_alpn(device, store, &[b"http/1.1"])
+}
+
+pub fn client_alpn(
+    device: Option<&Device>,
+    store: Option<Arc<NameBlind>>,
+    alpn: &[&[u8]],
+) -> TlsConnector {
     let b =
         ClientConfig::builder_with_provider(provider())
             .with_safe_default_protocol_versions()
@@ -108,7 +116,7 @@ pub fn client(device: Option<&Device>, store: Option<Arc<NameBlind>>) -> TlsConn
         }
         None => b.with_no_client_auth(),
     };
-    config.alpn_protocols = vec![b"http/1.1".to_vec()];
+    config.alpn_protocols = alpn.iter().map(|p| p.to_vec()).collect();
     if let Some(s) = store {
         config.resumption = Resumption::store(s);
     }
@@ -130,6 +138,29 @@ pub async fn get(addr: SocketAddr, name: &str, host: &str, c: &TlsConnector) -> 
     let req = format!("GET / HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n");
     let text = super::exchange(&mut t, req.as_bytes()).await;
     (!text.is_empty()).then_some(text)
+}
+
+pub async fn get_h2(addr: SocketAddr, name: &str, host: &str, c: &TlsConnector) -> Option<u16> {
+    let t = shake(addr, name, c).await.ok()?;
+    assert_eq!(
+        t.get_ref().1.alpn_protocol(),
+        Some(&b"h2"[..]),
+        "the connector offered h2 and the server agreed"
+    );
+    let (send, conn) = h2::client::handshake(t).await.ok()?;
+    tokio::spawn(async move {
+        let _ = conn.await;
+    });
+    let mut send = send.ready().await.ok()?;
+    let req = http::Request::get(format!("https://{host}/"))
+        .body(())
+        .unwrap();
+    let (resp, _) = send.send_request(req, true).ok()?;
+    let resp = tokio::time::timeout(Duration::from_secs(5), resp)
+        .await
+        .ok()?
+        .ok()?;
+    Some(resp.status().as_u16())
 }
 
 pub async fn kind(addr: SocketAddr, name: &str, c: &TlsConnector) -> Option<HandshakeKind> {
