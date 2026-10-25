@@ -1,5 +1,6 @@
 pub mod compress;
 pub mod forwarded;
+pub mod headers;
 pub mod host;
 mod idle;
 pub mod pages;
