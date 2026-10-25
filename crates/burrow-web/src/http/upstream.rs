@@ -1,11 +1,8 @@
-use std::net::IpAddr;
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::sync::Arc;
 
 use http::header::{self, HeaderMap, HeaderName, HeaderValue};
 use http::{Request, Response, StatusCode, Uri, Version};
 use http_body_util::BodyExt;
-use hyper::client::conn::http1::SendRequest;
 use hyper_util::rt::TokioIo;
 use tracing::debug;
 
@@ -15,10 +12,12 @@ use super::pages::Page;
 use super::site::{Hop, SiteRun};
 use super::{Body, BoxError, MAX_HEAD, MAX_HEADERS};
 use crate::{BoxIo, Ending, Io, Refused, Upstream, Visitor};
+use pool::{Slotted, Stream};
 
+pub(crate) use pool::Upstreams;
+
+pub mod pool;
 pub mod target_tls;
-
-const REUSE_WAIT: Duration = Duration::from_secs(1);
 
 const HOP_BY_HOP: [HeaderName; 7] = [
     header::CONNECTION,
@@ -29,18 +28,6 @@ const HOP_BY_HOP: [HeaderName; 7] = [
     header::TRANSFER_ENCODING,
     header::UPGRADE,
 ];
-
-struct Stream {
-    service: String,
-    client: IpAddr,
-    tx: SendRequest<Body>,
-    ending: Option<Ending>,
-}
-
-#[derive(Default)]
-pub(crate) struct Upstreams {
-    slot: Mutex<Option<Stream>>,
-}
 
 pub(crate) struct Forward<'a> {
     pub site: &'a SiteRun,
@@ -60,21 +47,6 @@ impl Forward<'_> {
 enum Failed {
     Refused(Refused),
     Broken,
-}
-
-impl Upstreams {
-    async fn reuse(&self, service: &str, client: IpAddr) -> Option<Stream> {
-        let mut s = self.slot.lock().expect("upstream lock").take()?;
-        if s.service != service || s.client != client {
-            return None;
-        }
-        let ready = tokio::time::timeout(REUSE_WAIT, s.tx.ready()).await;
-        matches!(ready, Ok(Ok(()))).then_some(s)
-    }
-
-    fn keep(&self, s: Stream) {
-        *self.slot.lock().expect("upstream lock") = Some(s);
-    }
 }
 
 async fn hop(io: BoxIo, how: &Hop) -> Result<BoxIo, Failed> {
@@ -241,6 +213,9 @@ pub(crate) async fn forward<U: Upstream>(
     prepare(&mut req, &f);
     let service = f.site.service.as_str();
     let deadline = tokio::time::Instant::now() + f.site.options.response_header_timeout;
+    let Some(slot) = ups.slot(deadline).await else {
+        return f.page(Page::Timeout);
+    };
     let mut s = match ups.reuse(service, f.client.ip).await {
         Some(s) => s,
         None => match tokio::time::timeout_at(deadline, open(up, &f)).await {
@@ -272,11 +247,13 @@ pub(crate) async fn forward<U: Upstream>(
     }
     let activity = f.activity.clone();
     resp.map(move |b| {
-        b.map_err(move |e| {
-            activity.fail();
-            BoxError::from(e)
-        })
-        .boxed()
+        let b = b
+            .map_err(move |e| {
+                activity.fail();
+                BoxError::from(e)
+            })
+            .boxed();
+        Slotted::new(b, slot).boxed()
     })
 }
 
