@@ -110,3 +110,10 @@ path = "fuzz_targets/host_header.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "path_normalize"
+path = "fuzz_targets/path_normalize.rs"
+test = false
+doc = false
+bench = false
