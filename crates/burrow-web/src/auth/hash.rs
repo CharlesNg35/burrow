@@ -4,10 +4,9 @@ use argon2::password_hash::phc::PasswordHash;
 use argon2::password_hash::{PasswordHasher, PasswordVerifier};
 use argon2::{Algorithm, Argon2, Params};
 
-pub const ARGON2_MAX_MEMORY_KIB: u32 = 65536;
-pub const ARGON2_MAX_TIME: u32 = 10;
-pub const ARGON2_MAX_LANES: u32 = 4;
-pub const BCRYPT_COSTS: std::ops::RangeInclusive<u32> = 4..=14;
+pub use burrow_syntax::passwd::{
+    ARGON2_MAX_LANES, ARGON2_MAX_MEMORY_KIB, ARGON2_MAX_TIME, BCRYPT_COSTS,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HashProblem {
@@ -73,12 +72,15 @@ fn bcrypt_cost(hash: &str) -> Option<Result<u32, HashProblem>> {
 }
 
 fn argon2_hash(hash: &str) -> Result<PasswordHash, HashProblem> {
-    let parsed = PasswordHash::new(hash).map_err(|_| HashProblem::NotSupported)?;
-    match parsed.algorithm.as_str() {
-        "argon2id" => {}
-        "argon2i" => return Err(HashProblem::Argon2Variant("argon2i")),
-        "argon2d" => return Err(HashProblem::Argon2Variant("argon2d")),
+    match hash.split('$').nth(1) {
+        Some("argon2id") => {}
+        Some("argon2i") => return Err(HashProblem::Argon2Variant("argon2i")),
+        Some("argon2d") => return Err(HashProblem::Argon2Variant("argon2d")),
         _ => return Err(HashProblem::NotSupported),
+    }
+    let parsed = PasswordHash::new(hash).map_err(|_| HashProblem::NotSupported)?;
+    if parsed.algorithm.as_str() != "argon2id" {
+        return Err(HashProblem::NotSupported);
     }
     if parsed.salt.is_none() || parsed.hash.is_none() {
         return Err(HashProblem::NotSupported);
@@ -86,8 +88,8 @@ fn argon2_hash(hash: &str) -> Result<PasswordHash, HashProblem> {
     let params = Params::try_from(&parsed).map_err(|_| HashProblem::NotSupported)?;
     let caps = [
         ("memory", params.m_cost(), ARGON2_MAX_MEMORY_KIB),
-        ("t", params.t_cost(), ARGON2_MAX_TIME),
-        ("p", params.p_cost(), ARGON2_MAX_LANES),
+        ("time cost", params.t_cost(), ARGON2_MAX_TIME),
+        ("parallelism", params.p_cost(), ARGON2_MAX_LANES),
     ];
     if let Some((what, asked, most)) = caps.into_iter().find(|(_, a, m)| a > m) {
         return Err(HashProblem::TooCostly { what, asked, most });
@@ -96,6 +98,7 @@ fn argon2_hash(hash: &str) -> Result<PasswordHash, HashProblem> {
 }
 
 pub(crate) fn stored(hash: &str) -> Result<Stored, HashProblem> {
+    let hash = hash.trim();
     match bcrypt_cost(hash) {
         Some(Ok(_)) => Ok(Stored::Bcrypt(hash.to_string())),
         Some(Err(e)) => Err(e),

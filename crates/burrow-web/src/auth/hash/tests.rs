@@ -77,12 +77,18 @@ fn argon2i_argon2d_and_costly_argon2id_are_refused() {
     let slow = fine.replacen("t=10,", "t=11,", 1);
     assert!(matches!(
         check_hash(&slow),
-        Err(HashProblem::TooCostly { what: "t", .. })
+        Err(HashProblem::TooCostly {
+            what: "time cost",
+            ..
+        })
     ));
     let wide = fine.replacen("p=4$", "p=5$", 1);
     assert!(matches!(
         check_hash(&wide),
-        Err(HashProblem::TooCostly { what: "p", .. })
+        Err(HashProblem::TooCostly {
+            what: "parallelism",
+            ..
+        })
     ));
 }
 

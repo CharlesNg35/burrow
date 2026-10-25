@@ -1,7 +1,7 @@
 use super::tests::{errors, load_in};
 use super::tests_site_keys::{TOP, errs, run, warnings};
 
-const HASH: &str = "$argon2id$v=19$m=19456,t=2,p=1$c2FsdHNhbHQ$aGFzaGhhc2g";
+const HASH: &str = "$argon2id$v=19$m=19456,t=2,p=1$3Zrnt9ZV6D9A/Ed3Je/Hww$lg26ncNCHaoX2amIl0p8mWtR1BCyscvYzi1EmeCfbvg";
 
 fn svc(name: &str, web: &str) -> String {
     format!("  {name}:\n    client: home\n    target: 8080\n    web: {web}\n")
@@ -90,13 +90,13 @@ fn password_hashes_are_argon2id_or_bcrypt_within_the_cost_caps() {
         ]
     );
     assert_eq!(
-        one("bob", "$argon2d$v=19$m=19456,t=2,p=1$c2FsdA$aGFzaA"),
+        one("bob", &HASH.replacen("$argon2id$", "$argon2d$", 1)),
         [
             "services.status.web.basic_auth: the hash for \"bob\" is argon2d; only argon2id is accepted"
         ]
     );
     assert_eq!(
-        one("bob", "$argon2id$v=19$m=4194304,t=2,p=1$c2FsdA$aGFzaA"),
+        one("bob", &HASH.replacen("m=19456", "m=4194304", 1)),
         [
             "services.status.web.basic_auth: the hash for \"bob\" asks for more work than burrow allows (argon2 memory 4194304 KiB, at most 65536 KiB); make one with burrow passwd bob"
         ]
@@ -216,4 +216,60 @@ fn a_login_service_that_speaks_only_http2_to_its_app_gets_a_note() {
         "{:#?}",
         warnings(&o)
     );
+}
+
+fn argon2(alg: argon2::Algorithm, m: u32, t: u32, p: u32) -> String {
+    use argon2::password_hash::PasswordHasher;
+    let params = argon2::Params::new(m, t, p, None).unwrap();
+    argon2::Argon2::new(alg, argon2::Version::V0x13, params)
+        .hash_password(b"pw")
+        .unwrap()
+        .to_string()
+}
+
+fn bcrypt_as(v: bcrypt::Version, cost: u32) -> String {
+    bcrypt::hash_with_result("pw", cost)
+        .unwrap()
+        .format_for_version(v)
+}
+
+#[test]
+fn validate_accepts_a_hash_exactly_when_the_server_lets_its_password_in() {
+    use argon2::Algorithm::{Argon2d, Argon2i, Argon2id};
+    let default = burrow_web::auth::hash_password(b"pw");
+    let b4 = bcrypt_as(bcrypt::Version::TwoB, 4);
+    let table: Vec<(String, bool)> = vec![
+        (default.clone(), true),
+        (default.replacen("v=19$", "", 1), true),
+        (format!("{default} "), true),
+        (argon2(Argon2id, 8, 1, 1), true),
+        (argon2(Argon2id, 65536, 10, 4), true),
+        (
+            "$argon2id$v=19$m=1,t=1,p=1$c2FsdHNhbHQ$aGFzaGhhc2g".into(),
+            false,
+        ),
+        (argon2(Argon2id, 65537, 1, 1), false),
+        (argon2(Argon2id, 64, 11, 1), false),
+        (argon2(Argon2id, 64, 1, 5), false),
+        (argon2(Argon2i, 64, 1, 1), false),
+        (argon2(Argon2d, 64, 1, 1), false),
+        (bcrypt_as(bcrypt::Version::TwoA, 4), true),
+        (b4.clone(), true),
+        (bcrypt_as(bcrypt::Version::TwoY, 4), true),
+        (bcrypt_as(bcrypt::Version::TwoX, 4), false),
+        (format!("{}15{}", &b4[..4], &b4[6..]), false),
+        (format!("{}03{}", &b4[..4], &b4[6..]), false),
+        ("hunter2".into(), false),
+        ("{SHA}abc".into(), false),
+    ];
+    for (hash, want) in table {
+        let config = svc(
+            "status",
+            &format!("{{ hosts: [status.example.com], basic_auth: {{ bob: \"{hash}\" }} }}"),
+        );
+        let validated = errs("", &config).is_empty();
+        let logs_in = burrow_web::auth::verify_hash(b"pw", &hash);
+        assert_eq!(validated, want, "validate on {hash:?}");
+        assert_eq!(logs_in, want, "the server on {hash:?}");
+    }
 }

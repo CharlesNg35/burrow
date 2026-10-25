@@ -5,7 +5,7 @@ use super::{Served, Spans};
 use crate::base::failure::file_reason;
 use crate::config::diagnostics::Diagnostic;
 use burrow_config::{ForwardAuthSetting, Protocol, ServerConfig, ServiceWeb, WebSite};
-use burrow_syntax::passwd::{HashProblem, check_hash, valid_user};
+use burrow_syntax::passwd::valid_user;
 use burrow_syntax::web::{SingleLabel, host_name};
 
 pub(super) fn check_access(
@@ -53,6 +53,22 @@ fn on(f: &ForwardAuthSetting) -> bool {
     !matches!(f, ForwardAuthSetting::Shared(false))
 }
 
+#[cfg(feature = "web")]
+fn hash_problem(user: &str, hash: &str) -> Option<String> {
+    use burrow_web::auth::{HashProblem, check_hash};
+    let e = check_hash(hash).err()?;
+    Some(match e {
+        HashProblem::Argon2Variant(_) => e.to_string(),
+        HashProblem::Bcrypt2x => format!("{e}; make a new one with burrow passwd {user}"),
+        _ => format!("{e}; make one with burrow passwd {user}"),
+    })
+}
+
+#[cfg(not(feature = "web"))]
+fn hash_problem(_user: &str, _hash: &str) -> Option<String> {
+    None
+}
+
 fn passwords(name: &str, site: &WebSite, served: Served, at: &At<'_>, out: &mut Vec<Diagnostic>) {
     let field = format!("services.{name}.web.basic_auth");
     for (user, hash) in &site.basic_auth {
@@ -61,21 +77,7 @@ fn passwords(name: &str, site: &WebSite, served: Served, at: &At<'_>, out: &mut 
                 "{field}: user name \"{user}\" must not be empty or hold \":\""
             ))
         } else {
-            match check_hash(hash) {
-                Ok(()) => None,
-                Err(HashProblem::Unknown) => Some(format!(
-                    "{field}: the hash for \"{user}\" is not argon2id or bcrypt; make one with burrow passwd {user}"
-                )),
-                Err(HashProblem::OldBcrypt) => Some(format!(
-                    "{field}: the hash for \"{user}\" is bcrypt $2x$, an old variant with a known bug; make a new one with burrow passwd {user}"
-                )),
-                Err(HashProblem::Argon2Variant(v)) => Some(format!(
-                    "{field}: the hash for \"{user}\" is {v}; only argon2id is accepted"
-                )),
-                Err(HashProblem::TooCostly(what)) => Some(format!(
-                    "{field}: the hash for \"{user}\" asks for more work than burrow allows ({what}); make one with burrow passwd {user}"
-                )),
-            }
+            hash_problem(user, hash).map(|why| format!("{field}: the hash for \"{user}\" {why}"))
         };
         if let Some(m) = problem {
             out.push(

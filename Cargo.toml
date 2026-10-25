@@ -93,6 +93,8 @@ mimalloc = { version = "0.1", default-features = false }
 
 [dev-dependencies]
 arbtest = "0.3"
+argon2 = { version = "0.6.0", default-features = false, features = ["alloc", "password-hash", "getrandom"] }
+bcrypt = { version = "0.19.3", default-features = false, features = ["std"] }
 burrow-admin-logic = { path = "crates/burrow-admin-logic" }
 chromiumoxide = { version = "=0.9.1", default-features = false }
 image = { version = "0.25.10", default-features = false, features = ["png"] }
