@@ -11,7 +11,7 @@ use super::{
     bind_with_retry, bind_ws_with_retry, fields, listen, log_service, spawn_service,
 };
 use crate::config::settings::ServerSettings;
-use crate::config::settings::WebSocketSettings;
+use crate::config::settings::{Shares, WebSocketSettings};
 use crate::wire::protocol::{ByeReason, ServerMsg};
 use burrow_config::Protocol;
 
@@ -115,11 +115,10 @@ impl Server {
         s: &ServerSettings,
     ) -> (Option<SocketAddr>, Option<String>, Option<String>) {
         let ws = s.websocket.as_ref();
-        let shared = ws.is_some_and(|w| w.host.is_some());
-        let addr = if shared {
-            self.web_addr()
-        } else {
-            self.websocket_addr()
+        let addr = match ws.map(|w| w.shares) {
+            Some(Shares::Https) => self.web_addr(),
+            Some(Shares::Http) => self.web_http_addr(),
+            Some(Shares::Nothing) | None => self.websocket_addr(),
         };
         (
             addr,

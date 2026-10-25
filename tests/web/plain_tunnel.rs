@@ -94,3 +94,34 @@ async fn a_plain_web_block_without_sites_serves_the_tunnel_on_port_80() {
     let r = plain_get(http, "other.example.com", "/").await;
     assert!(r.starts_with("HTTP/1.1 404"), "{r}");
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn moving_the_tunnel_on_web_http_closes_its_clients_and_an_unchanged_save_does_not() {
+    let echo = echo_server().await;
+    let secret = Secret::generate();
+    let mut s = plain_server(&secret, &[]);
+    s.services.insert("db".into(), service(echo, Protocol::Tcp));
+    tunnel_on_http(&mut s, "localhost");
+    let (srv, mut cli) = connected_over_ws(s.clone(), secret).await;
+    srv.reload(s.clone()).await;
+    let stayed = tokio::time::timeout(
+        Duration::from_secs(2),
+        cli.state.wait_for(|st| *st != State::Connected),
+    )
+    .await
+    .is_err();
+    assert!(stayed, "an unchanged save keeps the client");
+    let mut moved = s.clone();
+    let port: std::net::SocketAddr = format!("127.0.0.1:{}", free_port()).parse().unwrap();
+    moved.web.as_mut().unwrap().http = Some(port);
+    moved.websocket.as_mut().unwrap().listen = port;
+    srv.reload(moved).await;
+    tokio::time::timeout(
+        Duration::from_secs(5),
+        cli.state.wait_for(|st| *st != State::Connected),
+    )
+    .await
+    .expect("the client of the moved tunnel is told to reconnect")
+    .map(|_| ())
+    .unwrap();
+}
