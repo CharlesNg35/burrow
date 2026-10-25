@@ -1,4 +1,3 @@
-use std::net::SocketAddr;
 use std::sync::Arc;
 
 use burrow_syntax::url_path::normalize_path;
@@ -10,10 +9,10 @@ use hyper::body::Incoming;
 use super::forwarded;
 use super::host::request_host;
 use super::pages::Page;
-use super::upstream::{Forward, forward};
+use super::redirect;
+use super::stages::{Asked, to_service};
 use super::{Body, Conn, full};
 use crate::Upstream;
-use crate::Visitor;
 use crate::listen::Shared;
 use crate::route::{Action, Kind, Table};
 use crate::tls::CertState;
@@ -49,7 +48,7 @@ pub(crate) async fn handle<U: Upstream>(
         if let Some(prefix) = table.plain_tunnel(&host, req.uri().path()) {
             return by_path(shared, conn, req, prefix);
         }
-        if let Some(answer) = on_plain(shared, &table, &host, &req) {
+        if let Some(answer) = on_plain(shared, conn, &table, &host, &req) {
             return answer;
         }
     }
@@ -59,25 +58,17 @@ pub(crate) async fn handle<U: Upstream>(
     match &route.action {
         Action::Tunnel if conn.name.is_some() => by_path(shared, conn, req, &route.prefix),
         Action::Tunnel => Page::NotFound.response(),
+        Action::Redirect { to, permanent } => {
+            let l = redirect::location(&route.prefix, to, req.uri().path(), req.uri().query());
+            redirect::response(&l, *permanent)
+        }
         Action::Service(service) => {
-            let client = forwarded::client(
-                conn.peer,
-                req.headers(),
-                shared.trusted_proxies(),
-                conn.name.is_some(),
-            );
-            let f = Forward {
-                service,
-                visitor: Visitor {
-                    addr: SocketAddr::new(client.ip, conn.peer.port()),
-                    local: conn.local,
-                    host,
-                },
-                client,
-                response_header: shared.timeouts().response_header,
-                activity: &conn.activity,
+            let asked = Asked {
+                host,
+                route: route.clone(),
+                service: service.clone(),
             };
-            forward(shared.up.as_ref(), &conn.ups, req, f).await
+            to_service(shared, conn, &table, asked, req).await
         }
     }
 }
@@ -128,18 +119,27 @@ fn challenge<U: Upstream>(shared: &Shared<U>, req: &Request<Incoming>) -> Option
 
 fn on_plain<U: Upstream>(
     shared: &Shared<U>,
+    conn: &Conn,
     table: &Table,
     host: &str,
     req: &Request<Incoming>,
 ) -> Option<Response<Body>> {
-    let kind = table.kind(host);
-    match kind {
-        Some(Kind::Plain(_)) => None,
+    let proxied_https = || {
+        let trusted = &table.forwarding.trusted_proxies;
+        forwarded::client(conn.peer, req.headers(), trusted, false).https
+    };
+    match table.kind(host) {
+        Some(Kind::Plain {
+            redirect: false, ..
+        }) => None,
+        Some(Kind::Plain { redirect: true, .. }) if proxied_https() => None,
+        Some(Kind::Plain { redirect: true, .. }) => Some(to_https(host, None, req)),
         Some(
             k @ Kind::Http {
                 redirect: false, ..
             },
         ) if !only_tunnel(k) => None,
+        Some(k @ Kind::Http { redirect: true, .. }) if !only_tunnel(k) && proxied_https() => None,
         Some(k @ Kind::Http { redirect: true, .. }) if !only_tunnel(k) => {
             Some(match shared.certs.state(host) {
                 CertState::Ready => to_https(host, shared.https_port, req),

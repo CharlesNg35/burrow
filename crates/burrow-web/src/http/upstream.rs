@@ -4,7 +4,6 @@ use std::time::Duration;
 use http::header::{self, HeaderMap, HeaderName, HeaderValue};
 use http::{Request, Response, StatusCode, Uri};
 use http_body_util::BodyExt;
-use hyper::body::Incoming;
 use hyper::client::conn::http1::SendRequest;
 use hyper_util::rt::TokioIo;
 use tracing::debug;
@@ -12,8 +11,9 @@ use tracing::debug;
 use super::forwarded::{Client, strip_incoming};
 use super::idle::Activity;
 use super::pages::Page;
+use super::site::{Hop, SiteRun};
 use super::{Body, BoxError, MAX_HEAD, MAX_HEADERS};
-use crate::{Ending, Io, Refused, Upstream, Visitor};
+use crate::{BoxIo, Ending, Io, Refused, Upstream, Visitor};
 
 pub mod target_tls;
 
@@ -41,11 +41,18 @@ pub(crate) struct Upstreams {
 }
 
 pub(crate) struct Forward<'a> {
-    pub service: &'a str,
+    pub site: &'a SiteRun,
     pub visitor: Visitor,
     pub client: Client,
-    pub response_header: Duration,
+    pub prefix: Option<&'a str>,
+    pub request_id: Option<&'a str>,
     pub activity: &'a Arc<Activity>,
+}
+
+impl Forward<'_> {
+    fn page(&self, page: Page) -> Response<Body> {
+        page.response_from(&self.site.pages)
+    }
 }
 
 enum Failed {
@@ -68,12 +75,27 @@ impl Upstreams {
     }
 }
 
+async fn hop(io: BoxIo, how: &Hop) -> Result<BoxIo, Failed> {
+    match how {
+        Hop::Plain => Ok(io),
+        Hop::Tls(connector, name) => match connector.connect(name.clone(), io).await {
+            Ok(tls) => Ok(Box::new(tls)),
+            Err(e) => {
+                debug!("web: TLS to the app failed: {e}");
+                Err(Failed::Broken)
+            }
+        },
+        Hop::Broken => Err(Failed::Broken),
+    }
+}
+
 async fn open<U: Upstream>(up: &U, f: &Forward<'_>) -> Result<Stream, Failed> {
     let io = up
-        .open(f.service, &f.visitor)
+        .open(&f.site.service, &f.visitor)
         .await
         .map_err(Failed::Refused)?;
     let ending = io.ending();
+    let io = hop(io, &f.site.hop).await?;
     let (tx, conn) = hyper::client::conn::http1::Builder::new()
         .max_header_size(MAX_HEAD)
         .max_headers(MAX_HEADERS)
@@ -86,7 +108,7 @@ async fn open<U: Upstream>(up: &U, f: &Forward<'_>) -> Result<Stream, Failed> {
         }
     });
     Ok(Stream {
-        service: f.service.to_string(),
+        service: f.site.service.clone(),
         tx,
         ending,
     })
@@ -167,33 +189,45 @@ pub fn rewrite_request<B>(req: &mut Request<B>, host: &str, client: &Client) {
     }
 }
 
+fn prepare(req: &mut Request<Body>, f: &Forward<'_>) {
+    rewrite_request(req, &f.visitor.host, &f.client);
+    let h = req.headers_mut();
+    if let Some(p) = f.prefix {
+        set(h, "x-forwarded-prefix", p);
+    }
+    if let Some(id) = f.request_id {
+        set(h, "x-request-id", id);
+    }
+    super::headers::apply(&f.site.options.request_headers, h);
+}
+
 pub(crate) async fn forward<U: Upstream>(
     up: &U,
     ups: &Upstreams,
-    mut req: Request<Incoming>,
+    mut req: Request<Body>,
     f: Forward<'_>,
 ) -> Response<Body> {
     let upgrading = upgrade_of(req.headers()).is_some();
     let downstream = upgrading.then(|| hyper::upgrade::on(&mut req));
-    let host = f.visitor.host.clone();
-    rewrite_request(&mut req, &host, &f.client);
-    let req = req.map(|b| b.map_err(Into::into).boxed());
-    let mut s = match ups.reuse(f.service).await {
+    prepare(&mut req, &f);
+    let service = f.site.service.as_str();
+    let mut s = match ups.reuse(service).await {
         Some(s) => s,
         None => match open(up, &f).await {
             Ok(s) => s,
-            Err(Failed::Refused(why)) => return refusal_page(why).response(),
-            Err(Failed::Broken) => return Page::BadGateway.response(),
+            Err(Failed::Refused(why)) => return f.page(refusal_page(why)),
+            Err(Failed::Broken) => return f.page(Page::BadGateway),
         },
     };
-    let mut resp = match tokio::time::timeout(f.response_header, s.tx.send_request(req)).await {
+    let wait = f.site.options.response_header_timeout;
+    let mut resp = match tokio::time::timeout(wait, s.tx.send_request(req)).await {
         Ok(Ok(r)) => r,
         Ok(Err(e)) => {
-            debug!(peer = %f.visitor.addr, "web: service \"{}\" did not answer: {e}", f.service);
+            debug!(peer = %f.visitor.addr, "web: service \"{service}\" did not answer: {e}");
             let why = s.ending.as_ref().and_then(Ending::refused);
-            return why.map_or(Page::BadGateway, refusal_page).response();
+            return f.page(why.map_or(Page::BadGateway, refusal_page));
         }
-        Err(_) => return Page::Timeout.response(),
+        Err(_) => return f.page(Page::Timeout),
     };
     if resp.status() == StatusCode::SWITCHING_PROTOCOLS {
         if let Some(down) = downstream {

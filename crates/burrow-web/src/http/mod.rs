@@ -9,6 +9,8 @@ pub mod pages;
 mod pipeline;
 pub mod redirect;
 mod serve;
+pub mod site;
+mod stages;
 pub mod upstream;
 
 pub(crate) use serve::{Conn, serve};

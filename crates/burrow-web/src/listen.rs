@@ -15,7 +15,8 @@ use crate::peek::{Peek, peek_sni};
 use crate::permit::{Permit, Permits};
 use crate::route::{Action, Kind, Table};
 use crate::tls::{Certificates, cert_names};
-use crate::{ProxySettings, Timeouts, TunnelConn, Upstream, Visitor};
+use crate::log::LogFile;
+use crate::{AccessLog, LogFormat, ProxySettings, Timeouts, TunnelConn, Upstream, Visitor};
 use tokio_rustls::TlsAcceptor;
 
 pub(crate) struct Shared<U> {
@@ -25,6 +26,7 @@ pub(crate) struct Shared<U> {
     site_tls: TlsAcceptor,
     table: RwLock<Arc<Table>>,
     timing: RwLock<Timeouts>,
+    log: RwLock<Option<(Arc<LogFile>, LogFormat)>>,
     permits: Permits,
     stop: watch::Receiver<bool>,
 }
@@ -64,9 +66,11 @@ impl<U: Upstream> Proxy<U> {
             https_port: https.map(|a| a.port()),
             table: RwLock::new(Arc::new(Table::build(&settings))),
             timing: RwLock::new(settings.timeouts),
+            log: RwLock::new(None),
             permits: Permits::new(settings.max_pending),
             stop: stopped,
         });
+        shared.open_log(settings.access_log.as_ref());
         let mut tasks = Vec::new();
         if let Some(l) = listeners.https {
             tasks.push(tokio::spawn(accept_loop(shared.clone(), l)));
@@ -90,6 +94,7 @@ impl<U: Upstream> Proxy<U> {
             .await;
         *self.shared.table.write().expect("table lock") = Arc::new(Table::build(settings));
         *self.shared.timing.write().expect("timing lock") = settings.timeouts;
+        self.shared.open_log(settings.access_log.as_ref());
         self.shared.permits.resize(settings.max_pending);
     }
 
@@ -133,8 +138,30 @@ impl<U> Shared<U> {
         self.stop.clone()
     }
 
-    pub(crate) fn trusted_proxies(&self) -> &[burrow_syntax::cidr::Cidr] {
-        &[]
+    pub(crate) fn access_log(&self) -> Option<(Arc<LogFile>, LogFormat)> {
+        self.log.read().expect("log lock").clone()
+    }
+
+    fn open_log(&self, wanted: Option<&AccessLog>) {
+        let mut held = self.log.write().expect("log lock");
+        let Some(wanted) = wanted else {
+            *held = None;
+            return;
+        };
+        if let Some((file, _)) = held.as_ref().filter(|(f, _)| f.path() == wanted.file) {
+            *held = Some((file.clone(), wanted.format));
+            return;
+        }
+        match LogFile::open(&wanted.file) {
+            Ok(file) => *held = Some((Arc::new(file), wanted.format)),
+            Err(e) => {
+                warn!(
+                    "web: cannot open the access log {}: {e}",
+                    wanted.file.display()
+                );
+                *held = None;
+            }
+        }
     }
 
     pub(crate) fn timeouts(&self) -> Timeouts {
@@ -319,7 +346,7 @@ async fn dispatch<U: Upstream>(shared: &Arc<Shared<U>>, seen: Seen, permit: Perm
             };
             crate::tunnel::serve_by_path(shared.up.clone(), &table, &host, conn).await;
         }
-        Kind::Http { .. } | Kind::Plain(_) => {
+        Kind::Http { .. } | Kind::Plain { .. } => {
             let Some(acceptor) =
                 crate::terminate::acceptor_for(&shared.site_tls, shared.certs.as_ref(), &host, sni)
             else {

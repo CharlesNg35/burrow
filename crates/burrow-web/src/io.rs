@@ -49,6 +49,16 @@ impl<S: Io> Io for tokio_rustls::server::TlsStream<S> {
     }
 }
 
+impl<S: Io> Io for tokio_rustls::client::TlsStream<S> {
+    fn reset_on_close(&self) {
+        self.get_ref().0.reset_on_close();
+    }
+
+    fn ending(&self) -> Option<Ending> {
+        self.get_ref().0.ending()
+    }
+}
+
 pub struct Prefixed<S> {
     prefix: Vec<u8>,
     pos: usize,

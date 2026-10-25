@@ -63,11 +63,20 @@ pub fn cert_names(settings: &ProxySettings) -> Vec<CertName> {
     };
     for site in &settings.sites {
         if let SiteTls::Https(source) = &site.tls {
-            for host in &site.hosts {
+            for host in site.hosts.iter().chain(&site.options.redirect_from) {
                 if !(*source == CertSource::Auto && shares(host)) {
                     push(host, source.clone(), &site.service);
                 }
             }
+        }
+    }
+    if settings.https.is_some() {
+        for r in settings.redirect_names.iter().filter(|r| !shares(&r.host)) {
+            push(
+                &r.host,
+                CertSource::Auto,
+                &format!("web.redirect_names {}", r.host),
+            );
         }
     }
     for w in &wildcards {
@@ -394,5 +403,39 @@ mod tests {
                 pair("example.com", "*.example.com"),
             ]
         );
+    }
+
+    #[test]
+    fn names_that_only_redirect_get_certificates_too() {
+        let mut p = ProxySettings::new("[::]:443".parse().unwrap());
+        let mut blog = Site {
+            tls: SiteTls::Https(CertSource::Auto),
+            ..Site::passthrough("blog", vec!["blog.example.com".into()])
+        };
+        blog.options.redirect_from = vec!["www.blog.example.com".into()];
+        p.sites = vec![blog];
+        p.redirect_names = vec![crate::NameRedirect {
+            host: "old.example.com".into(),
+            path: "/".into(),
+            to: "https://blog.example.com".into(),
+            permanent: false,
+        }];
+        let got: Vec<(String, String)> = cert_names(&p)
+            .into_iter()
+            .map(|n| (n.name, n.group))
+            .collect();
+        assert_eq!(
+            got,
+            [
+                ("blog.example.com".into(), "blog".into()),
+                ("www.blog.example.com".into(), "blog".into()),
+                (
+                    "old.example.com".into(),
+                    "web.redirect_names old.example.com".into()
+                ),
+            ]
+        );
+        p.https = None;
+        assert_eq!(cert_names(&p).len(), 2);
     }
 }
