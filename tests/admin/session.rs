@@ -234,7 +234,7 @@ async fn a_crafted_change_of_a_locked_field_is_refused_and_nothing_is_written() 
     for ops in [
         json!([{"op": "set", "path": ["listen"], "value": 7999}]),
         json!([{"op": "set", "path": ["insecure_plaintext"], "value": true}]),
-        json!([{"op": "add", "path": ["websocket"], "value": {"listen": 7998, "tls": {"cert": "a.pem", "key": "a.key"}}}]),
+        json!([{"op": "set", "path": ["websocket", "tls"], "value": {"cert": "a.pem", "key": "a.key"}}]),
     ] {
         let e = a.plan(ops.clone()).await.unwrap_err();
         assert_eq!(e.code, ErrorCode::LockedField, "{ops}");
