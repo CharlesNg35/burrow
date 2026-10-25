@@ -222,13 +222,15 @@ async fn an_app_that_never_answers_is_down_after_the_timeout() {
     assert_eq!(why.as_deref(), Some("no answer within 1s"));
 }
 
-async fn tls_app(c: &Cert) -> SocketAddr {
+async fn tls_app(c: &Cert) -> (SocketAddr, Arc<Mutex<usize>>) {
     let acceptor = acceptor(c);
     let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = l.local_addr().unwrap();
+    let served = Arc::new(Mutex::new(0));
+    let count = served.clone();
     tokio::spawn(async move {
         while let Ok((s, _)) = l.accept().await {
-            let acceptor = acceptor.clone();
+            let (acceptor, count) = (acceptor.clone(), count.clone());
             tokio::spawn(async move {
                 let Ok(mut tls) = acceptor.accept(s).await else {
                     return;
@@ -239,10 +241,11 @@ async fn tls_app(c: &Cert) -> SocketAddr {
                     .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n")
                     .await;
                 let _ = tls.flush().await;
+                *count.lock().unwrap() += 1;
             });
         }
     });
-    addr
+    (addr, served)
 }
 
 fn with_ca(s: &mut ServerSettings, ca: &std::path::Path) {
@@ -254,7 +257,7 @@ fn with_ca(s: &mut ServerSettings, ca: &std::path::Path) {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_tls_app_is_checked_with_its_ca_and_a_wrong_ca_is_down_with_the_tls_reason() {
     let own = cert(&["app.lan"]);
-    let app = tls_app(&own).await;
+    let (app, served) = tls_app(&own).await;
     let dir = tempfile::tempdir().unwrap();
     let (right, wrong) = (dir.path().join("right.pem"), dir.path().join("wrong.pem"));
     std::fs::write(&right, &own.cert_pem).unwrap();
@@ -263,6 +266,7 @@ async fn a_tls_app_is_checked_with_its_ca_and_a_wrong_ca_is_down_with_the_tls_re
     let mut s = server(&secret, checked(app, "/"));
     with_ca(&mut s, &right);
     let t = tunnel_with(s.clone(), Vec::new(), |c| c, secret).await;
+    wait_for(|| *served.lock().unwrap() >= 2).await;
     assert_eq!(wait_health(&t, true).await, None);
     with_ca(&mut s, &wrong);
     t.server.reload(s).await;
@@ -301,7 +305,7 @@ async fn a_proxy_protocol_service_sends_the_local_header_before_the_request() {
         ..checked(addr, "/")
     };
     let t = tunnel_with(server(&secret, svc), Vec::new(), |c| c, secret).await;
-    wait_for(|| !firsts.lock().unwrap().is_empty()).await;
+    wait_for(|| firsts.lock().unwrap().len() >= 2).await;
     let first = String::from_utf8_lossy(&firsts.lock().unwrap()[0]).into_owned();
     assert!(first.starts_with("PROXY UNKNOWN\r\n"), "{first}");
     assert_eq!(wait_health(&t, true).await, None);
@@ -311,7 +315,7 @@ async fn a_proxy_protocol_service_sends_the_local_header_before_the_request() {
 async fn a_new_path_on_reload_starts_the_check_afresh() {
     let answer: Answer = Arc::new(|head: &str| {
         let line = if head.starts_with("get /ready ") {
-            "200 OK"
+            "500 Internal Server Error"
         } else {
             "404 Not Found"
         };
@@ -331,8 +335,26 @@ async fn a_new_path_on_reload_starts_the_check_afresh() {
     let svc = next.services.get_mut("blog").unwrap();
     svc.health.as_mut().unwrap().http.as_mut().unwrap().path = "/ready".into();
     t.server.reload(next).await;
-    assert_eq!(wait_health(&t, true).await, None);
-    assert!(app.checks().iter().any(|h| h.starts_with("get /ready ")));
+    wait_for(|| {
+        t.server.shared.status().services[0]
+            .health
+            .first()
+            .and_then(|h| h.reason.clone())
+            .as_deref()
+            == Some("answered 500 Internal Server Error")
+    })
+    .await;
+    assert!(!health_of(&t).0);
+    let asked: Vec<String> = app
+        .checks()
+        .iter()
+        .map(|h| h[..h.find('\r').unwrap_or(h.len())].to_string())
+        .collect();
+    assert_eq!(
+        asked,
+        ["get /old http/1.1", "get /ready http/1.1"],
+        "one check per path, none waiting out the hour"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -344,7 +366,7 @@ async fn a_site_served_by_self_is_checked_over_http_too() {
         ..checked(app.addr, "/healthz")
     };
     let t = tunnel_with(server(&secret, svc), Vec::new(), |c| c, secret).await;
-    wait_for(|| !app.checks().is_empty()).await;
+    wait_for(|| app.checks().len() >= 2).await;
     assert_eq!(wait_health(&t, true).await, None);
     assert!(app.checks()[0].contains("\r\nhost: blog.example.com\r\n"));
     app.set(status("503 Service Unavailable"));
@@ -383,7 +405,7 @@ async fn a_target_http2_site_is_checked_over_h2c_through_the_tunnel() {
     let site = s.web.as_mut().unwrap().sites.get_mut("blog").unwrap();
     site.options.target_http2 = true;
     let t = tunnel_with(s, Vec::new(), |c| c, secret).await;
-    wait_for(|| !seen.lock().unwrap().is_empty()).await;
+    wait_for(|| seen.lock().unwrap().len() >= 2).await;
     assert_eq!(wait_health(&t, true).await, None);
     let (version, uri) = seen.lock().unwrap()[0].clone();
     assert_eq!(version, http::Version::HTTP_2);

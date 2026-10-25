@@ -1,6 +1,6 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU16, Ordering};
+use std::sync::atomic::{AtomicU16, AtomicUsize, Ordering};
 use std::time::Duration;
 
 use burrow::config::settings::{Health, HttpCheck, WebSettings, WebSite, WebTls};
@@ -13,11 +13,13 @@ use super::{Farm, web};
 
 const HOST: &str = "app.example.com";
 
-async fn http_app(addr: SocketAddr, tag: char, code: Arc<AtomicU16>) {
+async fn http_app(addr: SocketAddr, tag: char, code: Arc<AtomicU16>) -> Arc<AtomicUsize> {
     let l = TcpListener::bind(addr).await.unwrap();
+    let asked = Arc::new(AtomicUsize::new(0));
+    let count = asked.clone();
     tokio::spawn(async move {
         while let Ok((mut s, _)) = l.accept().await {
-            let code = code.clone();
+            let (code, count) = (code.clone(), count.clone());
             tokio::spawn(async move {
                 let mut head = Vec::new();
                 let mut one = [0u8; 1];
@@ -32,9 +34,14 @@ async fn http_app(addr: SocketAddr, tag: char, code: Arc<AtomicU16>) {
                     code.load(Ordering::SeqCst)
                 );
                 let _ = s.write_all(reply.as_bytes()).await;
+                let head = String::from_utf8_lossy(&head).to_ascii_lowercase();
+                if head.contains("\r\nuser-agent: burrow-health-check/") {
+                    count.fetch_add(1, Ordering::SeqCst);
+                }
             });
         }
     });
+    asked
 }
 
 fn checked() -> Option<Health> {
@@ -94,10 +101,12 @@ async fn an_app_answering_500_moves_new_requests_to_the_other_client_and_back_af
     })
     .await;
     let codes = [Arc::new(AtomicU16::new(200)), Arc::new(AtomicU16::new(200))];
+    let mut asked = Vec::new();
     for (i, tag) in [(0, 'A'), (1, 'B')] {
         farm.stop_target(i).await;
-        http_app(farm.sites[i].target, tag, codes[i].clone()).await;
+        asked.push(http_app(farm.sites[i].target, tag, codes[i].clone()).await);
     }
+    wait_for(|| asked.iter().all(|n| n.load(Ordering::SeqCst) >= 2)).await;
     wait_health(&farm, &[("a", true), ("b", true)]).await;
     assert_eq!(served_by(http).await, Some('A'));
     codes[0].store(500, Ordering::SeqCst);
