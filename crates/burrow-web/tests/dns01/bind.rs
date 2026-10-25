@@ -7,8 +7,7 @@ use hickory_proto::rr::{Name, RData, RecordType};
 pub const ADDR: &str = "127.0.0.1:5399";
 pub const KEY: &str = "burrow-key";
 pub const SECRET: &str = "DeMe+aO2zaj8MLjzn5TsmuIjSk+5vtEvG3W7kq/1j04=";
-const IMAGE: &str =
-    "internetsystemsconsortium/bind9:9.20@sha256:66092edb53c081fa11b1fa8219e99065b0f497cb38f568ba789702a4c10e2590";
+const IMAGE: &str = "internetsystemsconsortium/bind9:9.20@sha256:66092edb53c081fa11b1fa8219e99065b0f497cb38f568ba789702a4c10e2590";
 const NAME: &str = "burrow-test-bind";
 
 pub struct Bind {
@@ -51,12 +50,13 @@ zone "example.test" {
 "#;
 
 impl Bind {
-    pub async fn start() -> Bind {
+    pub async fn start() -> Result<Bind, String> {
         let running = docker(&["ps", "-q", "-f", &format!("name=^{NAME}$")]).await;
         assert!(
             running.is_empty(),
             "{NAME} is already running: another DNS-01 run is in progress"
         );
+        remove().await;
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("named.conf"), CONF).unwrap();
         std::fs::write(
@@ -69,17 +69,29 @@ impl Bind {
         .unwrap();
         let mount = format!("{}:/conf:ro", dir.path().display());
         docker(&[
-            "run", "-d", "--rm", "--network", "host", "--name", NAME, "-v", &mount, "--entrypoint", "sh", IMAGE, "-c",
+            "run", "-d", "--network", "host", "--name", NAME, "-v", &mount, "--entrypoint", "sh", IMAGE, "-c",
             "cp /conf/*.zone /var/cache/bind/ && chown -R bind /var/cache/bind && exec named -u bind -g -c /conf/named.conf",
         ])
         .await;
-        for _ in 0..100 {
+        for _ in 0..40 {
             if txt("example.test").await.is_some() {
-                break;
+                return Ok(Bind { _dir: dir });
             }
-            tokio::time::sleep(Duration::from_millis(100)).await;
+            tokio::time::sleep(Duration::from_millis(250)).await;
         }
-        Bind { _dir: dir }
+        let out = tokio::process::Command::new("docker")
+            .args(["logs", NAME])
+            .output()
+            .await
+            .map(|o| {
+                format!(
+                    "{}{}",
+                    String::from_utf8_lossy(&o.stdout),
+                    String::from_utf8_lossy(&o.stderr)
+                )
+            })
+            .unwrap_or_default();
+        Err(format!("BIND did not answer on {ADDR}; its log:\n{out}"))
     }
 }
 

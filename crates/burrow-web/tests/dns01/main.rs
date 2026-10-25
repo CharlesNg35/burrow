@@ -11,7 +11,14 @@ async fn pebble_checks_names_over_dns_through_bind_and_cloudflare() {
         return;
     }
     let p = pebble::Pebble::start().await;
-    let b = bind::Bind::start().await;
+    let b = match bind::Bind::start().await {
+        Ok(b) => b,
+        Err(why) => {
+            pebble::remove_containers().await;
+            bind::remove().await;
+            panic!("{why}");
+        }
+    };
     p.run_pebble_with_dns(&["PEBBLE_AUTHZREUSE=0"], bind::ADDR)
         .await;
     let run = tokio::spawn(scenarios::all(p, b));
