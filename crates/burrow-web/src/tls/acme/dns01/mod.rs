@@ -10,6 +10,7 @@ use hickory_proto::rr::Name;
 use zeroize::Zeroizing;
 
 pub mod cloudflare;
+pub mod command;
 mod fake;
 pub mod lookup;
 mod mock_api;
