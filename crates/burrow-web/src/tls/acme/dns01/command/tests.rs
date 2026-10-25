@@ -95,3 +95,45 @@ fn long_output_keeps_its_last_part_on_one_line() {
     assert_eq!(t.chars().count(), 300);
     assert!(t.ends_with("x last words"));
 }
+
+#[tokio::test]
+async fn a_hook_that_prints_without_end_keeps_only_the_start_of_its_output() {
+    let dir = tempfile::tempdir().unwrap();
+    let hook = script(
+        &dir,
+        "echo first-line >&2\nyes flood | head -c 5000000 >&2\nexit 4",
+    );
+    let err = Command::new(hook.clone())
+        .present(&name("_acme-challenge.a.example.com").unwrap(), "v")
+        .await
+        .unwrap_err();
+    let text = err.text();
+    assert!(
+        text.starts_with(&format!(
+            "{} present failed (exit status: 4): first-line flood flood",
+            hook.display()
+        )),
+        "{}",
+        &text[..200.min(text.len())]
+    );
+    assert!(
+        text.ends_with(" … (more output was cut)"),
+        "{}",
+        &text[text.len().saturating_sub(80)..]
+    );
+    assert!(text.len() < 1000);
+    let endless = script(&dir, "yes flood");
+    let start = Instant::now();
+    let err = Command::new(endless)
+        .with_timeout(Duration::from_millis(500))
+        .present(&name("_acme-challenge.a.example.com").unwrap(), "v")
+        .await
+        .unwrap_err();
+    assert!(start.elapsed() < Duration::from_secs(5));
+    assert!(
+        err.text()
+            .ends_with("did not finish within 0 s and was stopped"),
+        "{}",
+        err.text()
+    );
+}
