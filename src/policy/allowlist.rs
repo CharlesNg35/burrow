@@ -1,7 +1,6 @@
 use std::net::{IpAddr, SocketAddr};
 
 pub use burrow_syntax::cidr::Cidr;
-use burrow_syntax::cidr::canonical;
 
 use burrow_config::Protocol;
 pub use burrow_syntax::rule::{NetRule, Rule, RuleError, SocketRule};
@@ -81,14 +80,14 @@ impl AllowList {
     }
 
     pub fn range_suggestion(ip: IpAddr, first: u16, last: u16) -> String {
-        match canonical(ip) {
+        match ip.to_canonical() {
             IpAddr::V4(ip) => format!("{ip}/32:{first}-{last}"),
             IpAddr::V6(ip) => format!("[{ip}/128]:{first}-{last}"),
         }
     }
 
     pub fn suggestion(target: SocketAddr) -> String {
-        match canonical(target.ip()) {
+        match target.ip().to_canonical() {
             IpAddr::V4(ip) => format!("{ip}/32:{}", target.port()),
             IpAddr::V6(ip) => format!("[{ip}/128]:{}", target.port()),
         }
@@ -120,7 +119,7 @@ fn source_towards(ip: IpAddr) -> Option<IpAddr> {
     };
     let probe = std::net::UdpSocket::bind(any).ok()?;
     probe.connect(SocketAddr::new(ip, 9)).ok()?;
-    probe.local_addr().ok().map(|a| canonical(a.ip()))
+    probe.local_addr().ok().map(|a| a.ip().to_canonical())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -152,7 +151,7 @@ impl Gate {
     }
 
     pub fn refusal(&self, protocol: Protocol, target: SocketAddr) -> Option<Refusal> {
-        let target = SocketAddr::new(canonical(target.ip()), target.port());
+        let target = SocketAddr::new(target.ip().to_canonical(), target.port());
         if let Some((_, own)) = self
             .own
             .iter()
@@ -197,7 +196,7 @@ const METADATA: [IpAddr; 2] = [
 ];
 
 pub fn named_only(ip: IpAddr) -> bool {
-    let ip = canonical(ip);
+    let ip = ip.to_canonical();
     METADATA.contains(&ip)
         || match ip {
             IpAddr::V4(v4) => v4.is_link_local(),

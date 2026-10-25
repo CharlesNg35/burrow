@@ -1,6 +1,6 @@
 use std::net::{IpAddr, SocketAddr};
 
-use burrow_syntax::cidr::{Cidr, canonical};
+use burrow_syntax::cidr::Cidr;
 use http::HeaderMap;
 use http::header::{self, HeaderName};
 
@@ -55,17 +55,17 @@ fn values<'a>(h: &'a HeaderMap, name: &'static str) -> impl Iterator<Item = &'a 
 
 pub fn entry_ip(entry: &str) -> Option<IpAddr> {
     if let Ok(ip) = entry.parse::<IpAddr>() {
-        return Some(canonical(ip));
+        return Some(ip.to_canonical());
     }
     if let Ok(sa) = entry.parse::<SocketAddr>() {
-        return Some(canonical(sa.ip()));
+        return Some(sa.ip().to_canonical());
     }
     let inner = entry.strip_prefix('[')?.strip_suffix(']')?;
-    inner.parse::<IpAddr>().ok().map(canonical)
+    inner.parse::<IpAddr>().ok().map(|ip| ip.to_canonical())
 }
 
 pub fn client_ip(peer: IpAddr, h: &HeaderMap, trusted: &[Cidr]) -> IpAddr {
-    let peer = canonical(peer);
+    let peer = peer.to_canonical();
     if !is_trusted(trusted, peer) {
         return peer;
     }
@@ -115,7 +115,7 @@ pub fn client(peer: SocketAddr, h: &HeaderMap, trusted: &[Cidr], tls: bool) -> C
     let port = given_port
         .or_else(|| host_port(h))
         .unwrap_or(if https { 443 } else { 80 });
-    let peer_ip = canonical(peer.ip()).to_string();
+    let peer_ip = peer.ip().to_canonical().to_string();
     let chain: Vec<&str> = if trusted_peer {
         values(h, FORWARDED_FOR).filter(|v| !v.is_empty()).collect()
     } else {

@@ -167,7 +167,7 @@ pub(super) async fn associate(a: Association) {
     let Ok(local) = stream.local_addr() else {
         return;
     };
-    let near = canonical(local.ip());
+    let near = local.ip().to_canonical();
     let relay = match bind_udp_now(SocketAddr::new(near, 0)) {
         Ok(s) => Arc::new(s),
         Err(e) => {
@@ -186,7 +186,7 @@ pub(super) async fn associate(a: Association) {
         return;
     }
     debug!(%peer, "forward \"{name}\": UDP ASSOCIATE relay on {bound}");
-    if let Some(named) = hint.ip.filter(|ip| canonical(*ip) != canonical(peer.ip())) {
+    if let Some(named) = hint.ip.filter(|ip| !same_ip(*ip, peer.ip())) {
         debug!(%peer, "forward \"{name}\": the SOCKS app named {named} as its UDP source; only its own address {} is admitted", peer.ip());
     }
     let expected = Source::new(hint, peer.ip());
@@ -313,24 +313,21 @@ struct Source {
 impl Source {
     fn new(hint: Hint, peer: IpAddr) -> Source {
         Source {
-            ip: canonical(peer),
+            ip: peer.to_canonical(),
             port: (hint.port != 0).then_some(hint.port),
         }
     }
 
     fn admits(&self, from: SocketAddr, locked: Option<SocketAddr>) -> bool {
         if let Some(l) = locked {
-            return canonical(l.ip()) == canonical(from.ip()) && l.port() == from.port();
+            return same_ip(l.ip(), from.ip()) && l.port() == from.port();
         }
-        canonical(from.ip()) == self.ip && self.port.is_none_or(|p| p == from.port())
+        from.ip().to_canonical() == self.ip && self.port.is_none_or(|p| p == from.port())
     }
 }
 
-fn canonical(ip: IpAddr) -> IpAddr {
-    match ip {
-        IpAddr::V6(v6) => v6.to_ipv4_mapped().map_or(ip, IpAddr::V4),
-        v4 => v4,
-    }
+fn same_ip(a: IpAddr, b: IpAddr) -> bool {
+    a.to_canonical() == b.to_canonical()
 }
 
 impl BadHeader {

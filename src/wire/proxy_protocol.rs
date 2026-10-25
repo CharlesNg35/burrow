@@ -4,15 +4,8 @@ use burrow_config::ProxyVersion;
 
 pub const V2_SIGNATURE: [u8; 12] = *b"\r\n\r\n\0\r\nQUIT\n";
 
-fn canonical(ip: IpAddr) -> IpAddr {
-    match ip {
-        IpAddr::V6(v6) => v6.to_ipv4_mapped().map_or(ip, IpAddr::V4),
-        v4 => v4,
-    }
-}
-
 fn same_family(src: SocketAddr, dst: SocketAddr) -> (IpAddr, IpAddr) {
-    match (canonical(src.ip()), canonical(dst.ip())) {
+    match (src.ip().to_canonical(), dst.ip().to_canonical()) {
         (IpAddr::V4(s), IpAddr::V4(d)) => (IpAddr::V4(s), IpAddr::V4(d)),
         (s, d) => (IpAddr::V6(v6(s)), IpAddr::V6(v6(d))),
     }

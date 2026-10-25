@@ -14,7 +14,7 @@ pub fn parse_ip(text: &str) -> Result<IpAddr, String> {
     if t.contains(':') {
         return t
             .parse::<Ipv6Addr>()
-            .map(normalize6)
+            .map(|ip| IpAddr::V6(ip).to_canonical())
             .map_err(|_| format!("\"{t}\" is not an IPv6 address"));
     }
     let parts: Vec<&str> = t.split('.').collect();
@@ -44,10 +44,6 @@ pub fn parse_ip(text: &str) -> Result<IpAddr, String> {
         octets[i] = n as u8;
     }
     Ok(IpAddr::V4(Ipv4Addr::from(octets)))
-}
-
-fn normalize6(ip: Ipv6Addr) -> IpAddr {
-    ip.to_ipv4_mapped().map_or(IpAddr::V6(ip), IpAddr::V4)
 }
 
 pub fn kind(ip: IpAddr) -> &'static str {
