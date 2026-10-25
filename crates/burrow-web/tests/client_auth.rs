@@ -119,6 +119,42 @@ async fn one_wildcard_over_an_open_and_a_protected_site_gives_421_across() {
 }
 
 #[tokio::test]
+async fn one_wildcard_over_an_open_and_a_protected_site_gives_421_across_http2() {
+    let dir = tempfile::tempdir().unwrap();
+    let ca = device_ca("Devices CA", None);
+    let key = files(dir.path(), &ca, None);
+    let w = world(
+        vec![
+            https_site("apps", &["*.example.com"]),
+            protected("secret", &["secret.example.com"], &key),
+        ],
+        &["*.example.com"],
+    )
+    .await;
+    let open = "www.example.com";
+    let secret = "secret.example.com";
+    let alpn = &[b"h2".as_slice(), b"http/1.1".as_slice()];
+    let on_open = client_alpn(None, None, alpn);
+    assert_eq!(
+        get_h2(w.addr(), open, secret, &on_open).await,
+        Some(421),
+        "a request for the protected name on the open connection is misdirected"
+    );
+    let mine = device(&ca, 1, &[]);
+    let on_secret = client_alpn(Some(&mine), None, alpn);
+    assert_eq!(
+        get_h2(w.addr(), secret, open, &on_secret).await,
+        Some(421),
+        "and the other way across the same wildcard"
+    );
+    assert_eq!(
+        get_h2(w.addr(), secret, secret, &on_secret).await,
+        Some(200),
+        "the matching name with the device certificate is served"
+    );
+}
+
+#[tokio::test]
 async fn a_session_from_the_open_name_never_resumes_on_the_protected_one() {
     let dir = tempfile::tempdir().unwrap();
     let ca = device_ca("Devices CA", None);
