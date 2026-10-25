@@ -50,14 +50,17 @@ fn plain_by_path(site: &str) -> Vec<String> {
     o.report
         .diagnostics
         .iter()
-        .filter(|d| d.code != "low-port")
+        .filter(|d| !["low-port", "plain-http"].contains(&d.code))
         .map(|d| format!("{}: {}", d.code, d.message))
         .collect()
 }
 
 #[test]
 fn the_tunnel_on_web_http_takes_a_path_on_a_plain_sites_name() {
-    for site in ["{ hosts: [blog.example.com], tls: off }", "blog.example.com"] {
+    for site in [
+        "{ hosts: [blog.example.com], tls: off }",
+        "blog.example.com",
+    ] {
         assert_eq!(plain_by_path(site), Vec::<String>::new(), "{site}");
     }
     let o = load(

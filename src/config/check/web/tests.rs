@@ -234,6 +234,42 @@ fn a_server_with_only_web_http_serves_every_site_as_plain_http() {
 }
 
 #[test]
+fn a_plain_http_site_is_warned_that_its_traffic_is_open() {
+    let site = |ports: &str, web: &str| {
+        load(&format!(
+            "listen: 7835\nweb: {{ {ports} }}\nservices:\n  wiki:\n    client: home\n    target: 3000\n    web: {web}\n"
+        ))
+    };
+    let warned = [
+        "Warning: services.wiki: served as plain HTTP; anyone on the path can read and change its traffic",
+    ];
+    assert_eq!(
+        coded(&site("http: 80", "wiki.lan.example.com"), "plain-http"),
+        warned
+    );
+    assert_eq!(
+        coded(
+            &site(
+                "https: 443, http: 80",
+                "{ hosts: [wiki.example.com], tls: off }"
+            ),
+            "plain-http"
+        ),
+        warned
+    );
+    assert!(
+        coded(
+            &site(
+                "https: 443, http: 80",
+                "{ hosts: [wiki.example.com], tls: { cert: w.pem, key: w.key } }"
+            ),
+            "plain-http"
+        )
+        .is_empty()
+    );
+}
+
+#[test]
 fn an_https_choice_without_web_https_is_refused_per_site() {
     let o = load(
         "listen: 7835\nweb:\n  http: 8080\nservices:\n  a: {client: home, target: 1, web: {hosts: [a.example.com], tls: auto}}\n  b: {client: home, target: 2, web: {hosts: [b.example.com], tls: passthrough}}\n  c: {client: home, target: 3, web: {hosts: [c.example.com], tls: {cert: a.pem, key: a.key}}}\n  d: {client: home, target: 4, web: {hosts: [nas]}}\n  e: {client: home, target: 5, web: {hosts: [e.example.com], challenge: http}}\n",
@@ -247,6 +283,18 @@ fn an_https_choice_without_web_https_is_refused_per_site() {
             format!("services.c.web.tls: {{cert, key}} {tail} tls"),
             format!("services.e.web.challenge: http {tail} challenge"),
         ]
+    );
+}
+
+#[test]
+fn an_invalid_web_https_address_gives_only_the_address_error() {
+    let e = errors(&load(
+        "listen: 7835\nweb: { https: \"nope\", http: 80 }\nservices:\n  a: {client: home, target: 1, web: {hosts: [a.example.com], tls: auto}}\n",
+    ));
+    assert_eq!(e.len(), 1, "{e:#?}");
+    assert!(
+        e[0].starts_with("invalid web.https address \"nope\""),
+        "{e:#?}"
     );
 }
 

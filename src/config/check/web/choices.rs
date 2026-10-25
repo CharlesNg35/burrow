@@ -10,6 +10,7 @@ pub(super) const REDIRECT_PASSTHROUGH: &str = "redirect-passthrough";
 pub(super) const REDIRECT_PLAIN: &str = "redirect-plain";
 pub(super) const REDIRECT_NEEDS_HTTP: &str = "redirect-needs-http";
 pub(super) const NEEDS_HTTPS: &str = "needs-https";
+pub(super) const PLAIN_HTTP: &str = "plain-http";
 
 pub(super) fn needs_https(name: &str, key: &str, choice: &str) -> String {
     format!(
@@ -39,12 +40,13 @@ pub(in crate::config::check) fn check_choices(
     if cfg.web.is_none() || (https.is_none() && http.is_none()) {
         return;
     }
+    let written = cfg.web.as_ref().is_some_and(|w| w.https.is_some());
     for (name, svc) in &cfg.services {
         let Some(web) = svc.web.as_ref().filter(|_| svc.protocol == Protocol::Tcp) else {
             continue;
         };
         let tls_at = spans.value(&["services", name, "web", "tls"]);
-        if let Some(choice) = https_choice(web).filter(|_| https.is_none()) {
+        if let Some(choice) = https_choice(web).filter(|_| !written) {
             out.push(error(
                 NEEDS_HTTPS,
                 needs_https(name, "tls", choice),
@@ -52,6 +54,23 @@ pub(in crate::config::check) fn check_choices(
                 "for example web: {https: 443, http: 80}",
             ));
             continue;
+        }
+        let plain = match web.tls() {
+            Some(SiteTls::Mode(TlsMode::Off)) => true,
+            None => !written,
+            _ => false,
+        };
+        if plain && http.is_some() {
+            out.push(
+                Diagnostic::warning(
+                    PLAIN_HTTP,
+                    format!(
+                        "services.{name}: served as plain HTTP; anyone on the path can read and change its traffic"
+                    ),
+                )
+                .at(spans.value(&["services", name, "web"]))
+                .help("for a site reached over the internet, use HTTPS: add web.https, and remove tls: off"),
+            );
         }
         if http.is_none() && web.tls() == Some(&SiteTls::Mode(TlsMode::Off)) {
             out.push(error(

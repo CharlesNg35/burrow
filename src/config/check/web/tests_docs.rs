@@ -146,7 +146,9 @@ fn the_full_example_of_web_md_is_pinned_at_what_p2_builds() {
         .collect();
     assert_eq!(
         others,
-        Vec::<String>::new(),
+        [
+            "plain-http: services.dashboard: served as plain HTTP; anyone on the path can read and change its traffic"
+        ],
         "only the machine's low-port warnings, and the notes for the test files, which name every host of the block"
     );
     let root = dir.path().display().to_string();
