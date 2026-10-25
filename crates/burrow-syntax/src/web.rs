@@ -142,6 +142,9 @@ pub fn entry_for<'a>(
     }
 }
 
+pub const LETSENCRYPT_PRODUCTION: &str = "https://acme-v02.api.letsencrypt.org/directory";
+pub const LETSENCRYPT_STAGING: &str = "https://acme-staging-v02.api.letsencrypt.org/directory";
+
 mod check;
 pub mod headers;
 pub mod pages;

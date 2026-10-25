@@ -6,7 +6,6 @@ use burrow_config::{LetsEncrypt, ServerConfig, WebConfig};
 
 const DAY: u64 = 86_400;
 const SOON: u64 = 14 * DAY;
-const STAGING: &str = "acme-staging";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Level {
@@ -59,7 +58,9 @@ fn source(c: &CertStatus) -> String {
         CertSourceStatus::OwnFile { path } => format!("Own file {path}"),
         CertSourceStatus::SharedFile { path } => format!("Shared file {path}"),
         CertSourceStatus::TunnelFile { path } => format!("The tunnel's file {path}"),
-        CertSourceStatus::LetsEncrypt { directory } if directory.contains(STAGING) => {
+        CertSourceStatus::LetsEncrypt { directory }
+            if directory == burrow_syntax::web::LETSENCRYPT_STAGING =>
+        {
             "Let's Encrypt (test service)".into()
         }
         CertSourceStatus::LetsEncrypt { .. } => "Let's Encrypt".into(),

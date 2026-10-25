@@ -7,8 +7,7 @@ use super::site::{LogFormat, NameRedirect, SiteOptions};
 use crate::policy::allowlist::Cidr;
 
 pub use burrow_syntax::defaults::{IDLE_TIMEOUT, REQUEST_HEADER_TIMEOUT};
-pub const LETSENCRYPT_PRODUCTION: &str = "https://acme-v02.api.letsencrypt.org/directory";
-pub const LETSENCRYPT_STAGING: &str = "https://acme-staging-v02.api.letsencrypt.org/directory";
+pub use burrow_syntax::web::{LETSENCRYPT_PRODUCTION, LETSENCRYPT_STAGING};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WebSettings {

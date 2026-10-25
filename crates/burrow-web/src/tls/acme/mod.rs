@@ -15,8 +15,7 @@ pub use manager::{Acme, GroupView, Handle, Plan};
 
 use crate::tls::CertCheck;
 
-pub const LETSENCRYPT_PRODUCTION: &str = "https://acme-v02.api.letsencrypt.org/directory";
-pub const LETSENCRYPT_STAGING: &str = "https://acme-staging-v02.api.letsencrypt.org/directory";
+pub use burrow_syntax::web::{LETSENCRYPT_PRODUCTION, LETSENCRYPT_STAGING};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Problemish {
