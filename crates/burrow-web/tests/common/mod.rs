@@ -156,6 +156,7 @@ pub struct Fake {
     pub backends: Mutex<HashMap<String, SocketAddr>>,
     pub visitors: Mutex<Vec<(String, Visitor)>>,
     pub refuse: Mutex<Option<Refused>>,
+    pub denied: Mutex<Vec<std::net::IpAddr>>,
     pub tunnel_slots: Arc<Semaphore>,
     pub tunneled: mpsc::UnboundedSender<Tunneled>,
 }
@@ -168,6 +169,7 @@ impl Fake {
             backends: Mutex::default(),
             visitors: Mutex::default(),
             refuse: Mutex::default(),
+            denied: Mutex::default(),
             tunnel_slots: Arc::new(Semaphore::new(slots)),
             tunneled: tx,
         };
@@ -188,6 +190,9 @@ impl Upstream for Fake {
     async fn open(&self, service: &str, from: &Visitor) -> Result<BoxIo, Refused> {
         if let Some(r) = *self.refuse.lock().unwrap() {
             return Err(r);
+        }
+        if self.denied.lock().unwrap().contains(&from.addr.ip()) {
+            return Err(Refused::NotAllowed);
         }
         if let Some(script) = *self.script.lock().unwrap() {
             return Ok(Box::new(scripted(script)));

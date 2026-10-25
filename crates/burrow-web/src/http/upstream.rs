@@ -1,3 +1,4 @@
+use std::net::IpAddr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -31,6 +32,7 @@ const HOP_BY_HOP: [HeaderName; 7] = [
 
 struct Stream {
     service: String,
+    client: IpAddr,
     tx: SendRequest<Body>,
     ending: Option<Ending>,
 }
@@ -61,9 +63,9 @@ enum Failed {
 }
 
 impl Upstreams {
-    async fn reuse(&self, service: &str) -> Option<Stream> {
+    async fn reuse(&self, service: &str, client: IpAddr) -> Option<Stream> {
         let mut s = self.slot.lock().expect("upstream lock").take()?;
-        if s.service != service {
+        if s.service != service || s.client != client {
             return None;
         }
         let ready = tokio::time::timeout(REUSE_WAIT, s.tx.ready()).await;
@@ -109,6 +111,7 @@ async fn open<U: Upstream>(up: &U, f: &Forward<'_>) -> Result<Stream, Failed> {
     });
     Ok(Stream {
         service: f.site.service.clone(),
+        client: f.client.ip,
         tx,
         ending,
     })
@@ -211,7 +214,7 @@ pub(crate) async fn forward<U: Upstream>(
     let downstream = upgrading.then(|| hyper::upgrade::on(&mut req));
     prepare(&mut req, &f);
     let service = f.site.service.as_str();
-    let mut s = match ups.reuse(service).await {
+    let mut s = match ups.reuse(service, f.client.ip).await {
         Some(s) => s,
         None => match open(up, &f).await {
             Ok(s) => s,
