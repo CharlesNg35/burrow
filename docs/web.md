@@ -107,7 +107,7 @@ Names:
 - `hosts` takes DNS names, like `blog.example.com`, wildcards of one label, like `*.apps.example.com`, and IP addresses, like `203.0.113.10`.
 - A wildcard covers exactly one label: `*.apps.example.com` covers `x.apps.example.com`, not `apps.example.com` and not `a.b.apps.example.com`. An exact name in another service wins over a wildcard.
 - Each name leads to one service. Upper and lower case do not matter, and a final dot is ignored.
-- A name without a dot, like `nas`, is allowed only on a plain-HTTP site (`tls: off`). HTTPS needs a full name, like `nas.home.example.com`: browsers send only full names when they connect, and no public CA issues certificates for short ones.
+- A name without a dot, like `nas`, is allowed only on a plain-HTTP site (`tls: off`). HTTPS needs a full name, like `nas.home.example.com`: the name a browser sends in TLS (SNI) is a fully qualified DNS name (RFC 6066 section 3), and public CAs do not issue certificates for single-label names.
 - Names are added and removed when you save the config.
 
 ### What burrow does for a website

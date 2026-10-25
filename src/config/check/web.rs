@@ -456,7 +456,9 @@ fn check_hosts(
                         ),
                     )
                     .at(at)
-                    .help("browsers send only full names when they connect, and public CAs issue certificates for full names only"),
+                    .help(
+                        "SNI carries a fully qualified DNS name (RFC 6066 section 3), and public CAs do not issue certificates for single-label names",
+                    ),
                 );
                 continue;
             }
