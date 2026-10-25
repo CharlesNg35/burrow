@@ -100,9 +100,9 @@ pub fn connector(check: &Check, http2: bool) -> Result<TlsConnector, String> {
             .with_no_client_auth(),
     };
     config.alpn_protocols = if http2 {
-        vec![b"h2".to_vec()]
+        vec![crate::terminate::H2.to_vec()]
     } else {
-        vec![b"http/1.1".to_vec()]
+        vec![crate::terminate::HTTP_1_1.to_vec()]
     };
     Ok(TlsConnector::from(Arc::new(config)))
 }

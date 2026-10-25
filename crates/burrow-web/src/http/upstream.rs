@@ -48,7 +48,7 @@ pub(super) async fn hop(io: BoxIo, how: &Hop, http2: bool) -> Result<BoxIo, Fail
     match how {
         Hop::Plain => Ok(io),
         Hop::Tls(connector, name) => match connector.connect(name.clone(), io).await {
-            Ok(tls) if http2 && tls.get_ref().1.alpn_protocol() != Some(b"h2") => {
+            Ok(tls) if http2 && tls.get_ref().1.alpn_protocol() != Some(crate::terminate::H2) => {
                 debug!("web: the app did not agree to HTTP/2 over TLS (ALPN h2)");
                 Err(Failed::Broken)
             }

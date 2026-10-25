@@ -111,7 +111,7 @@ impl Client {
             .map_err(|e| e.to_string())?
             .with_root_certificates(roots)
             .with_no_client_auth();
-        config.alpn_protocols = vec![b"http/1.1".to_vec()];
+        config.alpn_protocols = vec![crate::terminate::HTTP_1_1.to_vec()];
         Ok(Client {
             tls: TlsConnector::from(Arc::new(config)),
             limits,

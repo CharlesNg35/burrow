@@ -108,7 +108,10 @@ impl HealthCheck {
         match &self.hop {
             Ok(Hop::Plain) => Ok(io),
             Ok(Hop::Tls(connector, name)) => match connector.connect(name.clone(), io).await {
-                Ok(tls) if self.http2 && tls.get_ref().1.alpn_protocol() != Some(b"h2") => {
+                Ok(tls)
+                    if self.http2
+                        && tls.get_ref().1.alpn_protocol() != Some(crate::terminate::H2) =>
+                {
                     Err("the app did not agree to HTTP/2 over TLS (ALPN h2)".into())
                 }
                 Ok(tls) => Ok(Box::new(tls)),
