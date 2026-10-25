@@ -214,16 +214,17 @@ pub(crate) async fn forward<U: Upstream>(
     let downstream = upgrading.then(|| hyper::upgrade::on(&mut req));
     prepare(&mut req, &f);
     let service = f.site.service.as_str();
+    let deadline = tokio::time::Instant::now() + f.site.options.response_header_timeout;
     let mut s = match ups.reuse(service, f.client.ip).await {
         Some(s) => s,
-        None => match open(up, &f).await {
-            Ok(s) => s,
-            Err(Failed::Refused(why)) => return f.page(refusal_page(why)),
-            Err(Failed::Broken) => return f.page(Page::BadGateway),
+        None => match tokio::time::timeout_at(deadline, open(up, &f)).await {
+            Ok(Ok(s)) => s,
+            Ok(Err(Failed::Refused(why))) => return f.page(refusal_page(why)),
+            Ok(Err(Failed::Broken)) => return f.page(Page::BadGateway),
+            Err(_) => return f.page(Page::Timeout),
         },
     };
-    let wait = f.site.options.response_header_timeout;
-    let mut resp = match tokio::time::timeout(wait, s.tx.send_request(req)).await {
+    let mut resp = match tokio::time::timeout_at(deadline, s.tx.send_request(req)).await {
         Ok(Ok(r)) => r,
         Ok(Err(e)) => {
             debug!(peer = %f.visitor.addr, "web: service \"{service}\" did not answer: {e}");

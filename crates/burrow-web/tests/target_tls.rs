@@ -149,3 +149,37 @@ async fn a_plain_http_app_behind_target_tls_is_a_clear_502() {
     let r = ask(plain.addr, TargetTls::Unchecked, "erp.lan").await;
     assert_eq!(status(&r), "502", "{r}");
 }
+
+#[tokio::test]
+async fn a_target_that_never_finishes_its_tls_handshake_gets_504_in_time() {
+    let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let silent = l.local_addr().unwrap();
+    tokio::spawn(async move {
+        let mut held = Vec::new();
+        while let Ok((s, _)) = l.accept().await {
+            held.push(s);
+        }
+    });
+    let (up, _) = Fake::new(4);
+    up.serve("erp", silent);
+    let options = SiteOptions {
+        target_tls: TargetTls::Unchecked,
+        target_name: "erp.lan".into(),
+        response_header_timeout: std::time::Duration::from_millis(300),
+        ..SiteOptions::default()
+    };
+    let site = Site {
+        options,
+        ..https_site("erp", &["erp.example.com"])
+    };
+    let proxy = start(|s| s.sites = vec![site], up).await;
+    let started = std::time::Instant::now();
+    let r = over_tls(
+        proxy.https_addr().unwrap(),
+        "erp.example.com",
+        "GET /x HTTP/1.1\r\nHost: erp.example.com\r\nConnection: close\r\n\r\n",
+    )
+    .await;
+    assert_eq!(status(&r), "504", "{r}");
+    assert!(started.elapsed() < std::time::Duration::from_secs(3));
+}
