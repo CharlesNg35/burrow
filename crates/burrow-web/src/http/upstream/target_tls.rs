@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+pub use crate::tls::files::ca_roots;
 use tokio_rustls::TlsConnector;
 use tokio_rustls::rustls::client::danger::{
     HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier,
@@ -7,7 +8,6 @@ use tokio_rustls::rustls::client::danger::{
 use tokio_rustls::rustls::crypto::{
     CryptoProvider, WebPkiSupportedAlgorithms, verify_tls12_signature, verify_tls13_signature,
 };
-use tokio_rustls::rustls::pki_types::pem::PemObject;
 use tokio_rustls::rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use tokio_rustls::rustls::{
     ClientConfig, DigitallySignedStruct, Error as TlsError, RootCertStore, SignatureScheme,
@@ -22,20 +22,6 @@ pub enum Check {
 
 fn provider() -> Arc<CryptoProvider> {
     Arc::new(tokio_rustls::rustls::crypto::ring::default_provider())
-}
-
-pub fn ca_roots(pem: &[u8]) -> Result<RootCertStore, String> {
-    let certs = CertificateDer::pem_slice_iter(pem)
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| format!("is not a PEM certificate file ({e})"))?;
-    if certs.is_empty() {
-        return Err("holds no certificate".into());
-    }
-    let mut roots = RootCertStore::empty();
-    for c in certs {
-        roots.add(c).map_err(|e| e.to_string())?;
-    }
-    Ok(roots)
 }
 
 #[derive(Debug)]
@@ -145,6 +131,18 @@ mod tests {
         );
         let cert = rcgen::generate_simple_self_signed(vec!["erp.lan".into()]).unwrap();
         assert_eq!(ca_roots(cert.cert.pem().as_bytes()).unwrap().len(), 1);
+        let trusted = crate::tls::acme::http::trusted_roots;
+        let pem = cert.cert.pem();
+        assert_eq!(
+            trusted(Some(pem.as_bytes())).unwrap().len(),
+            webpki_roots::TLS_SERVER_ROOTS.len() + 1
+        );
+        for bad in [
+            &b""[..],
+            b"-----BEGIN CERTIFICATE-----\nnot base64\n-----END CERTIFICATE-----\n",
+        ] {
+            assert_eq!(trusted(Some(bad)).err(), ca_roots(bad).err());
+        }
         for check in [
             Check::PublicRoots,
             Check::OwnCa(cert.cert.pem().into_bytes()),

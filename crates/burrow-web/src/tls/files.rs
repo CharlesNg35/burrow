@@ -1,10 +1,25 @@
 use std::path::Path;
 use std::sync::Arc;
 
+use tokio_rustls::rustls::RootCertStore;
 use tokio_rustls::rustls::crypto::ring::default_provider;
 use tokio_rustls::rustls::pki_types::pem::PemObject;
 use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName};
 use tokio_rustls::rustls::sign::CertifiedKey;
+
+pub fn ca_roots(pem: &[u8]) -> Result<RootCertStore, String> {
+    let certs = CertificateDer::pem_slice_iter(pem)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| format!("is not a PEM certificate file ({e})"))?;
+    if certs.is_empty() {
+        return Err("holds no certificate".into());
+    }
+    let mut roots = RootCertStore::empty();
+    for c in certs {
+        roots.add(c).map_err(|e| e.to_string())?;
+    }
+    Ok(roots)
+}
 
 pub fn load(cert: &Path, key: &Path) -> Result<Arc<CertifiedKey>, String> {
     let chain = CertificateDer::pem_file_iter(cert)

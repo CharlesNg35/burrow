@@ -465,7 +465,7 @@ fn pages(dir: &str, at: &At<'_>, base_dir: &Path, out: &mut Vec<Diagnostic>) {
 
 #[cfg(feature = "web")]
 fn not_a_ca(pem: &[u8]) -> Option<String> {
-    burrow_web::tls::acme::http::trusted_roots(Some(pem)).err()
+    burrow_web::tls::files::ca_roots(pem).err()
 }
 
 #[cfg(not(feature = "web"))]

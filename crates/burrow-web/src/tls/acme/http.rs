@@ -14,8 +14,7 @@ use hyper_util::rt::TokioIo;
 use instant_acme::{BodyWrapper, BytesResponse, HttpClient};
 use tokio::net::TcpStream;
 use tokio_rustls::TlsConnector;
-use tokio_rustls::rustls::pki_types::pem::PemObject;
-use tokio_rustls::rustls::pki_types::{CertificateDer, ServerName};
+use tokio_rustls::rustls::pki_types::ServerName;
 use tokio_rustls::rustls::{ClientConfig, RootCertStore};
 
 pub const MAX_RETRY_AFTER: Duration = Duration::from_secs(30 * 24 * 3600);
@@ -82,15 +81,7 @@ pub fn trusted_roots(ca_pem: Option<&[u8]>) -> Result<RootCertStore, String> {
     let Some(pem) = ca_pem else {
         return Ok(roots);
     };
-    let certs = CertificateDer::pem_slice_iter(pem)
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| format!("is not a PEM certificate file ({e})"))?;
-    if certs.is_empty() {
-        return Err("holds no certificate".into());
-    }
-    for c in certs {
-        roots.add(c).map_err(|e| e.to_string())?;
-    }
+    roots.roots.extend(crate::tls::files::ca_roots(pem)?.roots);
     Ok(roots)
 }
 
