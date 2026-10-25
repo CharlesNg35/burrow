@@ -345,3 +345,33 @@ fn a_name_under_a_shared_wildcard_needs_no_check_of_its_own() {
     );
     assert_eq!(errors(&o).len(), 2, "{:#?}", errors(&o));
 }
+
+#[cfg(feature = "web")]
+#[test]
+fn the_tsig_algorithm_is_one_of_three_and_the_secret_should_be_as_long_as_its_mac() {
+    let rfc = |alg: &str| {
+        entry(
+            "[example.com]",
+            &format!(
+                "rfc2136: {{ server: \"ns1:53\", key_name: k, secret: \"${{TSIG}}\", algorithm: \"{alg}\" }}"
+            ),
+        )
+    };
+    assert_eq!(errs(&rfc("HMAC-SHA384."), ""), Vec::<String>::new());
+    assert!(
+        warns(&rfc("hmac-sha256"), "")
+            .iter()
+            .all(|w| !w.contains("bytes"))
+    );
+    assert!(
+        warns(&rfc("hmac-sha512"), "").contains(
+            &"web.letsencrypt.dns[0].rfc2136.secret is 32 bytes; RFC 8945 asks for at least 64 for hmac-sha512".to_string()
+        )
+    );
+    assert_eq!(
+        errs(&rfc("hmac-md5"), ""),
+        [
+            "web.letsencrypt.dns[0].rfc2136.algorithm: \"hmac-md5\" is not hmac-sha256, hmac-sha384 or hmac-sha512"
+        ]
+    );
+}

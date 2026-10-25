@@ -50,6 +50,7 @@ fn a_dns_entry_reaches_the_settings_with_its_defaults_and_its_secret_from_a_file
             server,
             key_name,
             secret,
+            ..
         } => {
             assert_eq!(
                 (server.as_str(), key_name.as_str()),
@@ -87,4 +88,21 @@ fn an_entry_without_exactly_one_provider_or_with_an_unreadable_or_empty_secret_i
         dir.path(),
     );
     assert!(got.is_empty(), "{got:?}");
+}
+
+#[test]
+fn the_tsig_algorithm_reaches_the_settings_as_written() {
+    let dir = tempfile::tempdir().unwrap();
+    let got = entries(
+        json!([
+            {"domains": ["a.example.org"], "rfc2136": {"server": "10.0.0.53:53", "key_name": "k", "secret": "c2VjcmV0", "algorithm": " HMAC-SHA512 "}},
+            {"domains": ["b.example.org"], "rfc2136": {"server": "10.0.0.53:53", "key_name": "k", "secret": "c2VjcmV0"}}
+        ]),
+        dir.path(),
+    );
+    let alg = |i: usize| match &got[i].provider {
+        DnsProvider::Rfc2136 { algorithm, .. } => algorithm.clone(),
+        other => panic!("{other:?}"),
+    };
+    assert_eq!((alg(0), alg(1)), (Some("HMAC-SHA512".to_string()), None));
 }

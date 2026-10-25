@@ -33,6 +33,7 @@ fn provider(e: &DnsEntry, base_dir: &Path) -> Option<DnsProvider> {
             server: r.server.trim().to_string(),
             key_name: r.key_name.trim().to_string(),
             secret: secret(&r.secret)?,
+            algorithm: r.algorithm.as_deref().map(|a| a.trim().to_string()),
         }),
         (None, None, Some(a), None) => Some(DnsProvider::AcmeDns {
             api: a.api.trim().to_string(),

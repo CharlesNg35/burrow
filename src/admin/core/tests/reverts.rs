@@ -179,6 +179,7 @@ fn locked_fields_are_refused_even_from_a_crafted_client() {
             p(&["web", "letsencrypt", "dns", "*", "rfc2136", "server"]),
             p(&["web", "letsencrypt", "dns", "*", "rfc2136", "key_name"]),
             p(&["web", "letsencrypt", "dns", "*", "rfc2136", "secret"]),
+            p(&["web", "letsencrypt", "dns", "*", "rfc2136", "algorithm"]),
             p(&["web", "letsencrypt", "dns", "*", "acme_dns", "api"]),
             p(&["web", "letsencrypt", "dns", "*", "acme_dns", "username"]),
             p(&["web", "letsencrypt", "dns", "*", "acme_dns", "password"]),

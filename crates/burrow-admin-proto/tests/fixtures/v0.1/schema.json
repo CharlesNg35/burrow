@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:70191a3167c9080c",
+  "hash": "b2s:25f9812e98ac30fe",
   "root": {
     "label": "Server",
     "sem": {
@@ -585,6 +585,24 @@
                                                             },
                                                             "required": true,
                                                             "locked": true
+                                                          }
+                                                        },
+                                                        {
+                                                          "key": "algorithm",
+                                                          "node": {
+                                                            "label": "Algorithm",
+                                                            "help": "The TSIG key's algorithm, as in the server's key file, for example hmac-sha512",
+                                                            "sem": {
+                                                              "t": "optional",
+                                                              "inner": {
+                                                                "sem": {
+                                                                  "t": "text"
+                                                                }
+                                                              }
+                                                            },
+                                                            "advanced": true,
+                                                            "locked": true,
+                                                            "none_label": "hmac-sha256"
                                                           }
                                                         }
                                                       ]

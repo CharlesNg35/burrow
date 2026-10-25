@@ -43,6 +43,7 @@ pub enum DnsProvider {
         server: String,
         key_name: String,
         secret: SecretText,
+        algorithm: Option<String>,
     },
     AcmeDns {
         api: String,

@@ -178,6 +178,7 @@ services:
 | `web.request_header_timeout_secs` | `10` | time a visitor has to send a request's headers; also how long an idle kept-alive connection stays open |
 | `web.idle_timeout_secs` | `60` | a connection that moves no data for this long is closed; WebSockets stay open |
 | `web.letsencrypt.dns` | none | DNS providers for DNS checks: a list of `{ domains, cloudflare \| rfc2136 \| acme_dns \| command, wildcards, wait_secs, resolvers }`. See [DNS checks](web/certificates.md#dns-checks-wildcards-and-names-the-internet-cannot-reach) |
+| `web.letsencrypt.dns[].rfc2136.algorithm` | `hmac-sha256` | the TSIG key's algorithm: `hmac-sha256`, `hmac-sha384` or `hmac-sha512`, as in the server's key file |
 | `web.letsencrypt.dns[].wildcards` | none | shared wildcard certificates got through this provider, like `["*.example.com"]`; each also covers its parent name |
 | `web.letsencrypt.dns[].wait_secs` | `120` | how long burrow waits for every nameserver of the zone to answer the record, 10 to 3600 |
 | `web.letsencrypt.dns[].resolvers` | the system's | resolvers used only to find the zone's nameservers, like `[1.1.1.1, 9.9.9.9]` |

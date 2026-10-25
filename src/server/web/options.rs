@@ -115,11 +115,15 @@ pub(super) fn dns_entries(list: &[settings::DnsSettings]) -> Vec<DnsEntry> {
                     server,
                     key_name,
                     secret: s,
+                    algorithm,
                 } => DnsProvider::Rfc2136 {
                     server: server.clone(),
                     key_name: key_name.clone(),
                     secret: secret(s),
-                    algorithm: burrow_web::TsigAlgorithm::default(),
+                    algorithm: algorithm
+                        .as_deref()
+                        .and_then(burrow_web::TsigAlgorithm::parse)
+                        .unwrap_or_default(),
                 },
                 settings::DnsProvider::AcmeDns {
                     api,
@@ -141,4 +145,39 @@ pub(super) fn dns_entries(list: &[settings::DnsSettings]) -> Vec<DnsEntry> {
             wildcards: e.wildcards.clone(),
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use burrow_web::TsigAlgorithm;
+
+    fn algorithm_of(written: Option<&str>) -> TsigAlgorithm {
+        let entry = settings::DnsSettings {
+            domains: vec!["example.org".into()],
+            provider: settings::DnsProvider::Rfc2136 {
+                server: "10.0.0.53:53".into(),
+                key_name: "k".into(),
+                secret: settings::SecretText::new("c2VjcmV0".into()),
+                algorithm: written.map(str::to_string),
+            },
+            wait: std::time::Duration::from_secs(120),
+            resolvers: Vec::new(),
+            wildcards: Vec::new(),
+        };
+        match &dns_entries(&[entry])[0].provider {
+            DnsProvider::Rfc2136 { algorithm, .. } => *algorithm,
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn the_tsig_algorithm_reaches_burrow_web_and_is_hmac_sha256_when_not_written() {
+        assert_eq!(algorithm_of(Some("HMAC-SHA512")), TsigAlgorithm::HmacSha512);
+        assert_eq!(
+            algorithm_of(Some("hmac-sha384.")),
+            TsigAlgorithm::HmacSha384
+        );
+        assert_eq!(algorithm_of(None), TsigAlgorithm::HmacSha256);
+    }
 }

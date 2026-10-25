@@ -157,26 +157,64 @@ fn provider(i: usize, e: &DnsEntry, base_dir: &Path, spans: &Spans, out: &mut Ve
                 .help("the zone's primary nameserver, usually on port 53"),
             );
         }
+        let alg = tsig(r.algorithm.as_deref());
+        if let Some(Err(m)) = &alg {
+            out.push(
+                Diagnostic::error("dns-rfc2136", format!("{name}.rfc2136.algorithm: {m}"))
+                    .at(span(spans, &at(i, &["rfc2136", "algorithm"])))
+                    .help("write the algorithm of the server's key file; hmac-md5 and hmac-sha1 are not safe enough (RFC 8945 section 6)"),
+            );
+        }
+        let wanted = alg.and_then(Result::ok);
         if let Some(secret) = super::fill_dns::secret(&r.secret, base_dir) {
             use base64::Engine as _;
             match base64::engine::general_purpose::STANDARD.decode(secret.expose()) {
                 Err(_) => out.push(
-                    Diagnostic::error("dns-rfc2136", format!("{name}.rfc2136.secret is not base64"))
-                        .at(span(spans, &at(i, &["rfc2136", "secret"])))
-                        .help("copy the secret from the server's key file, as tsig-keygen writes it"),
+                    Diagnostic::error(
+                        "dns-rfc2136",
+                        format!("{name}.rfc2136.secret is not base64"),
+                    )
+                    .at(span(spans, &at(i, &["rfc2136", "secret"])))
+                    .help("copy the secret from the server's key file, as tsig-keygen writes it"),
                 ),
-                Ok(bytes) if bytes.len() < 32 => out.push(
-                    Diagnostic::warning("dns-rfc2136", format!("{name}.rfc2136.secret is {} bytes; RFC 8945 asks for at least 32 for hmac-sha256", bytes.len()))
-                        .at(span(spans, &at(i, &["rfc2136", "secret"])))
-                        .help("make a new key with tsig-keygen -a hmac-sha256"),
-                ),
-                Ok(_) => {}
+                Ok(bytes) => {
+                    if let Some((alg, mac)) = wanted.filter(|(_, mac)| bytes.len() < *mac) {
+                        out.push(
+                            Diagnostic::warning("dns-rfc2136", format!("{name}.rfc2136.secret is {} bytes; RFC 8945 asks for at least {mac} for {alg}", bytes.len()))
+                                .at(span(spans, &at(i, &["rfc2136", "secret"])))
+                                .help(format!("make a new key with tsig-keygen -a {alg}")),
+                        );
+                    }
+                }
             }
         }
     }
     if let Some(c) = &e.command {
         command(i, c.trim(), base_dir, spans, out);
     }
+}
+
+#[cfg(feature = "web")]
+fn tsig(written: Option<&str>) -> Option<Result<(&'static str, usize), String>> {
+    use burrow_web::TsigAlgorithm;
+    let found = match written {
+        None => Some(TsigAlgorithm::default()),
+        Some(w) => TsigAlgorithm::parse(w),
+    };
+    Some(found.map(|a| (a.name(), a.mac_bytes())).ok_or_else(|| {
+        let names: Vec<&str> = TsigAlgorithm::ALL.iter().map(|a| a.name()).collect();
+        let (last, rest) = names.split_last().expect("three algorithms");
+        format!(
+            "\"{}\" is not {} or {last}",
+            written.unwrap_or_default().trim(),
+            rest.join(", ")
+        )
+    }))
+}
+
+#[cfg(not(feature = "web"))]
+fn tsig(_: Option<&str>) -> Option<Result<(&'static str, usize), String>> {
+    None
 }
 
 fn command(i: usize, c: &str, base_dir: &Path, spans: &Spans, out: &mut Vec<Diagnostic>) {

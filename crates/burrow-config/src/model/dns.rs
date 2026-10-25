@@ -137,6 +137,17 @@ pub struct Rfc2136Dns {
         locked
     )]
     pub secret: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        description = "The TSIG key's algorithm, as in the server's key file: hmac-sha256 (the default), hmac-sha384 or hmac-sha512"
+    )]
+    #[admin(
+        help = "The TSIG key's algorithm, as in the server's key file, for example hmac-sha512",
+        none_label = "hmac-sha256",
+        advanced,
+        locked
+    )]
+    pub algorithm: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, AdminSchema)]

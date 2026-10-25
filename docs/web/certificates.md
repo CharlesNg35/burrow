@@ -108,7 +108,7 @@ Create an API token at <https://dash.cloudflare.com/profile/api-tokens> with **Z
 
 #### RFC 2136: BIND, Knot, PowerDNS, Technitium
 
-burrow sends a dynamic update signed with a TSIG key (hmac-sha256) to `server`, the zone's primary, and finds the zone itself. Make a key, and allow it to change only the `_acme-challenge` TXT records:
+burrow sends a dynamic update signed with a TSIG key to `server`, the zone's primary, and finds the zone itself. Make a key, and allow it to change only the `_acme-challenge` TXT records:
 
 ```text
 # BIND: tsig-keygen -a hmac-sha256 burrow-key > /etc/bind/burrow-key.conf, then in the zone:
@@ -123,7 +123,7 @@ zone "example.org" {
 - **PowerDNS:** set `dnsupdate=yes` in `pdns.conf`, make the key with `pdnsutil tsigkey generate burrow-key hmac-sha256` (before 5.0: `pdnsutil generate-tsig-key`), and allow it on the zone with `pdnsutil metadata add example.org TSIG-ALLOW-DNSUPDATE burrow-key`. Limiting the key to `_acme-challenge` names needs PowerDNS's Lua update policy.
 - **Technitium:** allow dynamic updates for the zone with a TSIG key in the zone's options, as Technitium's documentation describes, limited to the `_acme-challenge` TXT records where it offers that.
 
-`secret` is the key's base64 secret, as in the key file.
+`secret` is the key's base64 secret, as in the key file. `algorithm` is the key's algorithm: `hmac-sha256` (the default), `hmac-sha384` or `hmac-sha512`; it must be the one in the server's key file, or the server answers BADKEY. `hmac-md5` and `hmac-sha1` are refused, as RFC 8945 advises against them. A secret shorter than the algorithm's output (32, 48 or 64 bytes) is a warning; `tsig-keygen -a` makes one of the right length.
 
 #### acme-dns
 
