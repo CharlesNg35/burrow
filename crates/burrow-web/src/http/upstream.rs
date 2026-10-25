@@ -15,6 +15,8 @@ use super::pages::Page;
 use super::{Body, BoxError, MAX_HEAD, MAX_HEADERS};
 use crate::{Ending, Io, Refused, Upstream, Visitor};
 
+pub mod target_tls;
+
 const REUSE_WAIT: Duration = Duration::from_secs(1);
 
 const HOP_BY_HOP: [HeaderName; 7] = [
