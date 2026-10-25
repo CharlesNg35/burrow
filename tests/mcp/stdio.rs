@@ -123,6 +123,24 @@ async fn a_checked_plan_is_applied_and_reverted_through_the_same_tool() {
     let versions = a.ok("list_versions", json!({ "limit": 5 })).await;
     let before = versions["entries"][0]["base"].clone();
     assert!(before.is_string(), "{versions}");
+    let newest = &versions["entries"][0];
+    let by_id = a
+        .ok(
+            "list_versions",
+            json!({ "limit": 1, "entry": newest["id"] }),
+        )
+        .await;
+    let by_rev = a
+        .ok(
+            "list_versions",
+            json!({ "limit": 1, "version": newest["rev"] }),
+        )
+        .await;
+    assert!(
+        by_id["diff"]["unified"].as_str().unwrap().contains("3001"),
+        "{by_id}"
+    );
+    assert_eq!(by_id["diff"], by_rev["diff"]);
     let back = a
         .ok("revert_to_version", json!({ "version": before }))
         .await;

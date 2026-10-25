@@ -158,23 +158,10 @@ pub struct Core {
 const SEEN: usize = 8;
 
 pub fn features() -> Vec<String> {
-    use burrow_admin_proto::features::*;
-    [
-        STATUS_STREAM,
-        CONFIG_EVENTS,
-        SECRET_GENERATE,
-        CONNECT_SNIPPETS,
-        SUGGEST_FREE_PORT,
-        HISTORY,
-        REVERT,
-        OPS_RENAME,
-        SET_TEXT,
-        UPLOAD,
-        PASSWORDS,
-    ]
-    .iter()
-    .map(|s| s.to_string())
-    .collect()
+    burrow_admin_proto::features::ALL
+        .iter()
+        .map(|s| s.to_string())
+        .collect()
 }
 
 impl Core {
@@ -486,18 +473,26 @@ impl Core {
                 e
             })
             .collect();
-        let diff = match &req.diff {
-            Some(id) => {
+        let missing = match (req.entry, &req.diff) {
+            (Some(id), _) => Some(format!("no history entry {id}")),
+            (None, Some(rev)) => Some(format!("no history entry for {rev}")),
+            (None, None) => None,
+        };
+        let wanted = |e: &AuditEntry| match (req.entry, &req.diff) {
+            (Some(id), _) => e.id == id,
+            (None, Some(rev)) => e.rev == *rev,
+            (None, None) => false,
+        };
+        let diff = match missing {
+            Some(missing) => {
                 let entry = self
                     .audit
                     .lock()
                     .expect("audit lock")
                     .iter()
-                    .find(|e| e.id == *id)
+                    .find(|e| wanted(e))
                     .cloned()
-                    .ok_or_else(|| {
-                        ApiError::new(ErrorCode::BadRequest, format!("no history entry {id}"))
-                    })?;
+                    .ok_or_else(|| ApiError::new(ErrorCode::BadRequest, missing))?;
                 let after = self.store.version(&entry.rev);
                 let before = self.store.version(&entry.base);
                 match (before, after) {

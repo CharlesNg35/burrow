@@ -200,6 +200,7 @@ fn the_files_stay_editable_by_file_and_a_revert_keeps_the_current_ones() {
         .history(&HistoryRequest {
             limit: None,
             diff: None,
+            entry: None,
         })
         .unwrap()
         .entries
@@ -397,6 +398,7 @@ fn a_revert_to_another_order_keeps_each_entrys_files_with_it() {
         .history(&HistoryRequest {
             limit: None,
             diff: None,
+            entry: None,
         })
         .unwrap()
         .entries

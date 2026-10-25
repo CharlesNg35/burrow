@@ -432,11 +432,13 @@ pub fn load_state(store: Store) {
 pub fn load_history(store: Store) {
     let first = msg::HistoryRequest {
         limit: Some(20),
-        diff: None,
+        ..msg::HistoryRequest::default()
     };
     request(msg::req::HISTORY, body(&first), move |r| {
         if let Ok(Ok(h)) = r.map(serde_json::from_value::<HistoryReply>) {
-            store.history.set(Some(h.entries));
+            store
+                .history
+                .set(Some(burrow_admin_logic::history::with_ids(h.entries)));
         } else {
             store.history.set(Some(Vec::<AuditEntry>::new()));
         }

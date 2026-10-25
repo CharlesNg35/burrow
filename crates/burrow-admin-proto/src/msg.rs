@@ -407,8 +407,10 @@ pub struct Suggestions {
 pub struct HistoryRequest {
     #[serde(default)]
     pub limit: Option<u32>,
-    #[serde(default)]
-    pub diff: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diff: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub entry: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]

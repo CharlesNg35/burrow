@@ -37,6 +37,7 @@ pub mod features {
     pub const SET_TEXT: &str = "ops.set-text";
     pub const UPLOAD: &str = "upload";
     pub const PASSWORDS: &str = "passwords";
+    pub const HISTORY_IDS: &str = "history.ids";
 
     pub const ALL: &[&str] = &[
         STATUS_STREAM,
@@ -50,5 +51,6 @@ pub mod features {
         SET_TEXT,
         UPLOAD,
         PASSWORDS,
+        HISTORY_IDS,
     ];
 }

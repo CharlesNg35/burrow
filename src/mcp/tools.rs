@@ -46,7 +46,12 @@ pub struct VersionsArgs {
         description = "The id of a history entry whose diff against its own base is included"
     )]
     #[serde(default)]
-    pub diff: Option<u64>,
+    pub entry: Option<u64>,
+    #[schemars(
+        description = "A version (rev) whose newest entry's diff is included; for servers that give no entry ids"
+    )]
+    #[serde(default)]
+    pub version: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -232,9 +237,20 @@ impl Tools {
         annotations(read_only_hint = true, open_world_hint = false)
     )]
     async fn list_versions(&self, Parameters(a): Parameters<VersionsArgs>) -> CallToolResult {
+        let ids = match self.link.welcome().await {
+            Ok(w) => w.has(burrow_admin_proto::features::HISTORY_IDS),
+            Err(e) => return failed(e),
+        };
+        if a.entry.is_some() && !ids {
+            return refused(
+                "no-entry-ids",
+                "this server is older and gives no entry ids; ask for the diff by version",
+            );
+        }
         let asked = match body(&HistoryRequest {
             limit: a.limit,
-            diff: a.diff,
+            diff: a.version,
+            entry: a.entry,
         }) {
             Ok(b) => b,
             Err(e) => return failed(e),

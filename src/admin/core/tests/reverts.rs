@@ -28,6 +28,7 @@ fn an_applied_revert_is_recorded_with_the_rev_it_went_back_to() {
         core.history(&HistoryRequest {
             limit: None,
             diff: None,
+            entry: None,
         })
         .unwrap()
         .entries
@@ -68,6 +69,7 @@ fn a_revert_is_an_ordinary_plan() {
         .history(&HistoryRequest {
             limit: None,
             diff: None,
+            entry: None,
         })
         .unwrap()
         .entries
@@ -85,7 +87,8 @@ fn a_revert_is_an_ordinary_plan() {
     let with_diff = core
         .history(&HistoryRequest {
             limit: None,
-            diff: Some(entry.id),
+            diff: None,
+            entry: Some(entry.id),
         })
         .unwrap();
     assert!(with_diff.diff.unwrap().unified.contains("target: 3001"));
@@ -102,7 +105,8 @@ fn a_revert_is_an_ordinary_plan() {
     let older = core
         .history(&HistoryRequest {
             limit: Some(1),
-            diff: Some(entry.id),
+            diff: None,
+            entry: Some(entry.id),
         })
         .expect("an older entry's diff is found whatever the limit");
     assert!(older.diff.unwrap().unified.contains("target: 3001"));
@@ -218,6 +222,7 @@ fn a_revert_keeps_the_current_values_of_locked_fields() {
         .history(&HistoryRequest {
             limit: None,
             diff: None,
+            entry: None,
         })
         .unwrap()
         .entries
@@ -387,6 +392,7 @@ fn a_rejected_reload_is_reported_with_the_restore() {
         .history(&HistoryRequest {
             limit: None,
             diff: None,
+            entry: None,
         })
         .unwrap();
     assert_eq!(h.entries[0].result, "rejected, restored");
@@ -413,6 +419,7 @@ fn the_same_file_twice_gives_two_entries_each_with_its_own_diff() {
         .history(&HistoryRequest {
             limit: None,
             diff: None,
+            entry: None,
         })
         .unwrap()
         .entries;
@@ -429,7 +436,8 @@ fn the_same_file_twice_gives_two_entries_each_with_its_own_diff() {
     let diff_of = |id: u64| {
         core.history(&HistoryRequest {
             limit: Some(1),
-            diff: Some(id),
+            diff: None,
+            entry: Some(id),
         })
         .unwrap()
         .diff
@@ -446,6 +454,28 @@ fn the_same_file_twice_gives_two_entries_each_with_its_own_diff() {
         "the older one starts from the first file: {o}"
     );
     assert!(o.contains("3001"), "{o}");
+    let by_rev = core
+        .history(&HistoryRequest {
+            limit: Some(1),
+            diff: Some(newer.rev.clone()),
+            entry: None,
+        })
+        .unwrap()
+        .diff
+        .unwrap()
+        .unified;
+    assert_eq!(
+        by_rev, n,
+        "a v0.1.2 UI asks by rev and gets the newest entry with it"
+    );
+    let old_shape: HistoryRequest = serde_json::from_value(json!({"diff": older.rev})).unwrap();
+    assert_eq!(old_shape.diff.as_deref(), Some(older.rev.as_str()));
+    let missing = core.history(&HistoryRequest {
+        limit: None,
+        diff: Some("b2s:none".into()),
+        entry: None,
+    });
+    assert!(missing.is_err());
     let now = core.read().unwrap();
     for e in [newer, older] {
         let reply = dispatch(

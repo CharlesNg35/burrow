@@ -5,6 +5,8 @@ mod grants;
 mod launch;
 #[path = "admin/local_page.rs"]
 mod local_page;
+#[path = "admin/older.rs"]
+mod older;
 #[path = "admin/session.rs"]
 mod session;
 

@@ -9,6 +9,7 @@ pub mod changeset;
 pub mod check;
 pub mod fallback;
 pub mod grant;
+pub mod history;
 pub mod input;
 pub mod more;
 pub mod off;

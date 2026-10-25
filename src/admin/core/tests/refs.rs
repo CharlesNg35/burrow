@@ -138,6 +138,7 @@ fn a_revert_brings_a_reference_back_only_where_the_file_still_has_it() {
         .history(&HistoryRequest {
             limit: None,
             diff: None,
+            entry: None,
         })
         .unwrap()
         .entries

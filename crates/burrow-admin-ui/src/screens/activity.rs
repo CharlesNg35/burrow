@@ -137,27 +137,24 @@ fn rows_of(entries: &[AuditEntry], can_write: bool, current: &str) -> Vec<Row> {
 fn Version(entry: AuditEntry, newer: Vec<AuditEntry>) -> impl IntoView {
     let s = store();
     let diff: RwSignal<Option<Result<Vec<DiffLine>, String>>> = RwSignal::new(None);
-    if entry.details_kept {
-        api::request(
-            msg::req::HISTORY,
-            api::body(&msg::HistoryRequest {
-                limit: Some(1),
-                diff: Some(entry.id),
-            }),
-            move |r| {
-                let lines = r
-                    .map_err(|e| e.message)
-                    .and_then(|v| {
-                        serde_json::from_value::<HistoryReply>(v).map_err(|e| e.to_string())
-                    })
-                    .and_then(|h| {
-                        h.diff.map(|d| diff_lines(&d)).ok_or_else(|| {
-                            "The details of this change are no longer kept.".to_string()
-                        })
-                    });
-                let _ = diff.try_set(Some(lines));
-            },
-        );
+    let ids = burrow_admin_logic::history::has_ids(s.welcome.get_untracked().as_deref());
+    let asked = burrow_admin_logic::history::diff_request(&entry, &newer, ids);
+    if entry.details_kept
+        && let Some(asked) = asked
+    {
+        api::request(msg::req::HISTORY, api::body(&asked), move |r| {
+            let lines = r
+                .map_err(|e| e.message)
+                .and_then(|v| serde_json::from_value::<HistoryReply>(v).map_err(|e| e.to_string()))
+                .and_then(|h| {
+                    h.diff
+                        .map(|d| diff_lines(&d))
+                        .ok_or_else(|| "The details of this change are no longer kept.".to_string())
+                });
+            let _ = diff.try_set(Some(lines));
+        });
+    } else if entry.details_kept {
+        diff.set(Some(Err(burrow_admin_logic::history::OLDER_REPEAT.into())));
     } else {
         diff.set(Some(Err(
             "The details of this change are no longer kept.".into()

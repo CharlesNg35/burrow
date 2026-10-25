@@ -62,6 +62,7 @@ fn secrets_are_revealed_once_and_destructive_changes_need_confirmation() {
         .history(&HistoryRequest {
             limit: None,
             diff: None,
+            entry: None,
         })
         .unwrap();
     assert_eq!(h.entries.len(), 2);
