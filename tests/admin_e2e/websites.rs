@@ -74,6 +74,11 @@ async fn read_only_pages(c: &mut Ctx) {
     both_widths(c, "service-nas-settings").await;
 }
 
+async fn website_more(c: &Ctx) -> bool {
+    c.ui.eval("[...document.querySelectorAll('[data-more]')].some(d => !d.hidden && d.dataset.more.endsWith('.website'))")
+        .await
+}
+
 async fn toast_clear_of_the_bar(c: &mut Ctx) {
     for (w, h) in [(1440, 900), (420, 900)] {
         c.ui.viewport(w, h).await;
@@ -198,8 +203,16 @@ fn websites(c: &mut Ctx) -> Flow<'_> {
             0,
             "the HTTPS choice appears only once the site has a name, so it never takes clicks that do nothing"
         );
+        assert!(
+            !website_more(c).await,
+            "the site's More settings appear only once it has a name"
+        );
         both_widths(c, "web-not-a-website").await;
         add_name(c, "f-services-web-web-hosts", "app.example.com").await;
+        assert!(
+            website_more(c).await,
+            "a named site shows its More settings"
+        );
         click_js(
             c,
             "[data-schema='services/*/web/tls'] input[value=passthrough]",

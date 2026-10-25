@@ -237,14 +237,17 @@ fn site_fields(node: &Node, skip: &[&str]) -> Vec<Field> {
         .collect()
 }
 
+pub(super) fn site_named(site: &[String]) -> bool {
+    store()
+        .edit
+        .value(site)
+        .is_some_and(|v| !burrow_admin_logic::web::names(&v).is_empty())
+}
+
 fn site_row(f: Field, path: Path, spath: Path) -> AnyView {
-    let e = store().edit;
     let site = path[..path.len() - 1].to_vec();
     let entity = site.clone();
-    let named = Memo::new(move |_| {
-        e.value(&site)
-            .is_some_and(|v| !burrow_admin_logic::web::names(&v).is_empty())
-    });
+    let named = Memo::new(move |_| site_named(&site));
     (move || {
         named
             .get()

@@ -63,17 +63,23 @@ fn visible_fields(m: &More) -> Memo<Vec<(Node, Path)>> {
         let Some(schema) = store().schema.get() else {
             return Vec::new();
         };
+        let named: Vec<bool> = fields
+            .iter()
+            .map(|(f, p)| !f.key.contains('/') || super::site_named(&p[..p.len() - 1]))
+            .collect();
         e.draft.with(|d| {
             fields
                 .iter()
-                .filter(|(f, p)| {
+                .zip(named)
+                .filter(|((f, p), named)| {
                     let base = if f.key.contains('/') {
                         &p[..p.len() - 1]
                     } else {
                         entity.as_slice()
                     };
-                    field_state(&f.node, &schema.root, d.draft(), base).visible
+                    *named && field_state(&f.node, &schema.root, d.draft(), base).visible
                 })
+                .map(|(fp, _)| fp)
                 .map(|(f, p)| (f.node.clone(), p.clone()))
                 .collect()
         })
