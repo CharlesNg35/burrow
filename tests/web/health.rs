@@ -351,3 +351,41 @@ async fn a_site_served_by_self_is_checked_over_http_too() {
     let why = wait_health(&t, false).await;
     assert_eq!(why.as_deref(), Some("answered 503 Service Unavailable"));
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_target_http2_site_is_checked_over_h2c_through_the_tunnel() {
+    let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = l.local_addr().unwrap();
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let log = seen.clone();
+    tokio::spawn(async move {
+        while let Ok((s, _)) = l.accept().await {
+            let log = log.clone();
+            let service =
+                hyper::service::service_fn(move |req: hyper::Request<hyper::body::Incoming>| {
+                    log.lock()
+                        .unwrap()
+                        .push((req.version(), req.uri().to_string()));
+                    async {
+                        Ok::<_, std::convert::Infallible>(hyper::Response::new(
+                            http_body_util::Empty::<bytes::Bytes>::new(),
+                        ))
+                    }
+                });
+            tokio::spawn(
+                hyper::server::conn::http2::Builder::new(hyper_util::rt::TokioExecutor::new())
+                    .serve_connection(hyper_util::rt::TokioIo::new(s), service),
+            );
+        }
+    });
+    let secret = Secret::generate();
+    let mut s = server(&secret, checked(addr, "/healthz"));
+    let site = s.web.as_mut().unwrap().sites.get_mut("blog").unwrap();
+    site.options.target_http2 = true;
+    let t = tunnel_with(s, Vec::new(), |c| c, secret).await;
+    wait_for(|| !seen.lock().unwrap().is_empty()).await;
+    assert_eq!(wait_health(&t, true).await, None);
+    let (version, uri) = seen.lock().unwrap()[0].clone();
+    assert_eq!(version, http::Version::HTTP_2);
+    assert_eq!(uri, "http://blog.example.com/healthz");
+}

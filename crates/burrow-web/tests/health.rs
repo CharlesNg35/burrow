@@ -208,3 +208,89 @@ async fn an_unchecked_tls_target_passes_with_a_self_signed_certificate() {
         Ok(())
     );
 }
+
+type Seen = Arc<Mutex<Vec<(http::Version, String, String)>>>;
+
+async fn h2_answer<S: AsyncRead + AsyncWrite + Unpin + Send + 'static>(io: S, seen: Seen) {
+    let service = hyper::service::service_fn(move |req: hyper::Request<hyper::body::Incoming>| {
+        let seen = seen.clone();
+        async move {
+            let ua = req
+                .headers()
+                .get("user-agent")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or_default()
+                .to_string();
+            seen.lock()
+                .unwrap()
+                .push((req.version(), req.uri().to_string(), ua));
+            let mut r = hyper::Response::new(http_body_util::Empty::<bytes::Bytes>::new());
+            *r.status_mut() = http::StatusCode::NO_CONTENT;
+            Ok::<_, std::convert::Infallible>(r)
+        }
+    });
+    let _ = hyper::server::conn::http2::Builder::new(hyper_util::rt::TokioExecutor::new())
+        .serve_connection(hyper_util::rt::TokioIo::new(io), service)
+        .await;
+}
+
+fn h2_options(target_tls: TargetTls) -> SiteOptions {
+    SiteOptions {
+        target_tls,
+        target_name: "grpc.lan".into(),
+        target_http2: true,
+        ..SiteOptions::default()
+    }
+}
+
+fn h2_tls_app(alpn: &[&[u8]]) -> (BoxIo, Seen) {
+    let cert = leaf(None, &["grpc.lan"]);
+    let mut config = ServerConfig::builder_with_provider(provider())
+        .with_safe_default_protocol_versions()
+        .unwrap()
+        .with_no_client_auth()
+        .with_single_cert(vec![cert.0], cert.1)
+        .unwrap();
+    config.alpn_protocols = alpn.iter().map(|p| p.to_vec()).collect();
+    let acceptor = TlsAcceptor::from(Arc::new(config));
+    let (ours, theirs) = pipe();
+    let seen = Seen::default();
+    let log = seen.clone();
+    tokio::spawn(async move {
+        if let Ok(tls) = acceptor.accept(theirs).await {
+            h2_answer(tls, log).await;
+        }
+    });
+    (Box::new(ours), seen)
+}
+
+#[tokio::test]
+async fn a_target_http2_app_without_tls_is_checked_over_h2c() {
+    let (ours, theirs) = pipe();
+    let seen = Seen::default();
+    tokio::spawn(h2_answer(theirs, seen.clone()));
+    let check = checked("grpc.example.com", h2_options(TargetTls::Off), "/healthz");
+    assert_eq!(run(&check, Box::new(ours)).await, Ok(()));
+    let (version, uri, ua) = seen.lock().unwrap()[0].clone();
+    assert_eq!(version, http::Version::HTTP_2);
+    assert_eq!(uri, "http://grpc.example.com/healthz");
+    assert_eq!(ua, AGENT);
+}
+
+#[tokio::test]
+async fn a_target_http2_app_over_tls_is_checked_over_h2_and_must_agree_to_it() {
+    let (io, seen) = h2_tls_app(&[b"h2"]);
+    let check = checked(
+        "grpc.example.com",
+        h2_options(TargetTls::Unchecked),
+        "/ready",
+    );
+    assert_eq!(run(&check, io).await, Ok(()));
+    let (version, uri, _) = seen.lock().unwrap()[0].clone();
+    assert_eq!(version, http::Version::HTTP_2);
+    assert_eq!(uri, "https://grpc.example.com/ready");
+    let (io, seen) = h2_tls_app(&[]);
+    let why = run(&check, io).await.unwrap_err();
+    assert!(why.contains("did not agree to HTTP/2"), "{why}");
+    assert!(seen.lock().unwrap().is_empty());
+}

@@ -1,7 +1,7 @@
 use bytes::Bytes;
 use http::header::{ACCEPT, CONNECTION, HOST, USER_AGENT};
 use http::uri::PathAndQuery;
-use http::{HeaderValue, Request, StatusCode};
+use http::{HeaderValue, Request, StatusCode, Uri, Version};
 use http_body_util::Empty;
 use hyper_util::rt::TokioIo;
 
@@ -14,6 +14,7 @@ pub struct HealthCheck {
     host: HeaderValue,
     path: PathAndQuery,
     agent: HeaderValue,
+    http2: bool,
 }
 
 impl std::fmt::Debug for HealthCheck {
@@ -66,24 +67,50 @@ impl HealthCheck {
             path: origin_form(path)?,
             agent: HeaderValue::from_str(agent)
                 .map_err(|_| format!("\"{agent}\" is not a User-Agent"))?,
+            http2: site.target_http2,
         })
     }
 
     fn request(&self) -> Request<Empty<Bytes>> {
         let mut req = Request::new(Empty::new());
+        let h = req.headers_mut();
+        h.insert(USER_AGENT, self.agent.clone());
+        h.insert(ACCEPT, HeaderValue::from_static("*/*"));
+        req
+    }
+
+    fn h1_request(&self) -> Request<Empty<Bytes>> {
+        let mut req = self.request();
         *req.uri_mut() = self.path.clone().into();
         let h = req.headers_mut();
         h.insert(HOST, self.host.clone());
-        h.insert(USER_AGENT, self.agent.clone());
-        h.insert(ACCEPT, HeaderValue::from_static("*/*"));
         h.insert(CONNECTION, HeaderValue::from_static("close"));
         req
+    }
+
+    fn h2_request(&self) -> Result<Request<Empty<Bytes>>, String> {
+        let scheme = if matches!(self.hop, Ok(Hop::Tls(..))) {
+            "https"
+        } else {
+            "http"
+        };
+        let host = self.host.to_str().unwrap_or_default();
+        let uri: Uri = format!("{scheme}://{host}{}", self.path)
+            .parse()
+            .map_err(|_| format!("\"{host}\" is not a host name"))?;
+        let mut req = self.request();
+        *req.uri_mut() = uri;
+        *req.version_mut() = Version::HTTP_2;
+        Ok(req)
     }
 
     async fn secure(&self, io: BoxIo) -> Result<BoxIo, String> {
         match &self.hop {
             Ok(Hop::Plain) => Ok(io),
             Ok(Hop::Tls(connector, name)) => match connector.connect(name.clone(), io).await {
+                Ok(tls) if self.http2 && tls.get_ref().1.alpn_protocol() != Some(b"h2") => {
+                    Err("the app did not agree to HTTP/2 over TLS (ALPN h2)".into())
+                }
                 Ok(tls) => Ok(Box::new(tls)),
                 Err(e) => Err(format!("TLS to the app failed: {e}")),
             },
@@ -93,14 +120,23 @@ impl HealthCheck {
     }
 
     pub async fn run(&self, io: BoxIo) -> Result<(), String> {
-        let io = self.secure(io).await?;
+        let io = TokioIo::new(self.secure(io).await?);
+        let status = if self.http2 {
+            self.over_h2(io).await?
+        } else {
+            self.over_h1(io).await?
+        };
+        verdict(status)
+    }
+
+    async fn over_h1(&self, io: TokioIo<BoxIo>) -> Result<StatusCode, String> {
         let (mut tx, conn) = hyper::client::conn::http1::Builder::new()
             .max_header_size(MAX_HEAD)
             .max_headers(MAX_HEADERS)
-            .handshake(TokioIo::new(io))
+            .handshake(io)
             .await
             .map_err(|e| no_http(&e))?;
-        let send = tx.send_request(self.request());
+        let send = tx.send_request(self.h1_request());
         tokio::pin!(conn, send);
         let answer = tokio::select! {
             biased;
@@ -110,8 +146,26 @@ impl HealthCheck {
                 Err(e) => return Err(no_http(&e)),
             },
         };
-        let answer = answer.map_err(|e| no_http(&e))?;
-        verdict(answer.status())
+        Ok(answer.map_err(|e| no_http(&e))?.status())
+    }
+
+    async fn over_h2(&self, io: TokioIo<BoxIo>) -> Result<StatusCode, String> {
+        let req = self.h2_request()?;
+        let (mut tx, conn) = super::h2::client()
+            .handshake(io)
+            .await
+            .map_err(|e| no_http(&e))?;
+        let send = tx.send_request(req);
+        tokio::pin!(conn, send);
+        let answer = tokio::select! {
+            biased;
+            r = &mut send => r,
+            r = &mut conn => match r {
+                Ok(()) => send.await,
+                Err(e) => return Err(no_http(&e)),
+            },
+        };
+        Ok(answer.map_err(|e| no_http(&e))?.status())
     }
 }
 
