@@ -39,6 +39,7 @@ burrow cleans each request's path once, before it picks a route, and sends the c
 - escapes of plain characters are decoded and the others written in capitals: `/%61pi` is `/api`, and `%2f` is `%2F`;
 - a `.` or `..` segment is refused with `400`, also when it is encoded (`%2E%2E`) or hides behind an encoded slash (`/public%2F..%2Fadmin`, `/a%5C..%5Cb`);
 - an encoded slash on its own is data and passes unchanged, like GitLab's `/api/v4/projects/group%2Fproject`.
+- letters match whatever their case: `/API/users` takes the route `/api`, and the app gets `/API/users` as it was sent. So two paths that differ only by case, like `/api` and `/API`, are one path, and validate refuses them.
 
 So a password on `/wp-admin` cannot be walked around with `//wp-admin` or `/%77p-admin`. The paths you write in the config are cleaned the same way.
 

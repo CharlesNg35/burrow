@@ -5,7 +5,7 @@ use super::{Served, Spans};
 use crate::base::failure::file_reason;
 use crate::config::diagnostics::Diagnostic;
 use burrow_config::{Protocol, ServerConfig, ServiceWeb, Target, TargetTls, WebSite};
-use burrow_syntax::url_path::route_path;
+use burrow_syntax::url_path::{route_key, route_path};
 use burrow_syntax::web::{SingleLabel, host_name, is_ip, is_wildcard};
 
 pub(super) const PAGES: [&str; 7] = [
@@ -187,19 +187,29 @@ fn passthrough(site: &WebSite, at: &At<'_>, out: &mut Vec<Diagnostic>) {
 }
 
 fn paths(site: &WebSite, at: &At<'_>, out: &mut Vec<Diagnostic>) {
-    let mut seen: Vec<String> = Vec::new();
+    let mut seen: BTreeMap<String, String> = BTreeMap::new();
     for (i, p) in site.paths.iter().enumerate() {
         let n = i.to_string();
-        match route_path(p) {
-            Ok(norm) if seen.contains(&norm) => out.push(
-                Diagnostic::error(
-                    "duplicate-path",
-                    format!("{} lists \"{norm}\" twice", at.name(&["paths"])),
+        match route_path(p).and_then(|norm| Ok((route_key(p)?, norm))) {
+            Ok((key, norm)) if seen.contains_key(&key) => {
+                let first = &seen[&key];
+                let message = if *first == norm {
+                    format!("{} lists \"{norm}\" twice", at.name(&["paths"]))
+                } else {
+                    format!(
+                        "{}: \"{first}\" and \"{norm}\" are the same path; paths match whatever the letter case",
+                        at.name(&["paths"])
+                    )
+                };
+                out.push(
+                    Diagnostic::error("duplicate-path", message)
+                        .at(at.value(&["paths", &n]))
+                        .help("list each path once; /api already covers /api/..."),
                 )
-                .at(at.value(&["paths", &n]))
-                .help("list each path once; /api already covers /api/..."),
-            ),
-            Ok(norm) => seen.push(norm),
+            }
+            Ok((key, norm)) => {
+                seen.insert(key, norm);
+            }
             Err(e) => out.push(
                 Diagnostic::error("invalid-path", format!("{}: {e}", at.name(&["paths"])))
                     .at(at.value(&["paths", &n]))
@@ -261,7 +271,7 @@ fn redirects(
         let key = at.key(&["redirects", from]);
         match route_path(from) {
             Ok(norm) => {
-                if let Some(first) = seen.insert(norm.clone(), from) {
+                if let Some(first) = seen.insert(route_key(from).unwrap_or_default(), from) {
                     out.push(
                         Diagnostic::error(
                             "duplicate-path",

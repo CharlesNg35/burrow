@@ -160,3 +160,24 @@ fn an_access_log_in_a_missing_folder_is_a_warning() {
         warnings(&o)
     );
 }
+
+#[test]
+fn a_redirect_name_differing_only_by_letter_case_is_the_same_route() {
+    let s = svc("site", "example.com") + &svc("api", "{ hosts: [example.com], paths: [/api] }");
+    assert_eq!(
+        errs(
+            "  redirect_names:\n    example.com/API: \"https://api.example.net\"\n",
+            &s
+        ),
+        ["web.redirect_names: \"example.com/API\" is also served by service \"api\""]
+    );
+    assert_eq!(
+        errs(
+            "  redirect_names:\n    example.com/Shop: \"https://a.example.net\"\n    Example.com/shop/: \"https://b.example.net\"\n",
+            &s
+        ),
+        [
+            "web.redirect_names: \"Example.com/shop/\" and \"example.com/Shop\" are the same route; paths match whatever the letter case"
+        ]
+    );
+}

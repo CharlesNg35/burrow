@@ -72,3 +72,13 @@ fn the_tunnel_on_web_http_takes_a_path_on_a_plain_sites_name() {
         errors(&o)
     );
 }
+
+#[test]
+fn a_site_path_differing_from_the_tunnel_path_only_by_case_is_refused() {
+    let text = "web: { https: 443, http: 80 }\nwebsocket: { listen: 443, host: blog.example.com, path: /burrow }\nservices:\n  blog:\n    client: home\n    target: 8080\n    web: { hosts: [blog.example.com], tls: { cert: certs/blog.pem, key: certs/blog.key } }\n  app:\n    client: home\n    target: 8081\n    web: { hosts: [blog.example.com], paths: [/Burrow/x], tls: { cert: certs/blog.pem, key: certs/blog.key } }\n";
+    let e = errors(&load(text));
+    assert!(
+        e.contains(&"websocket.path \"/burrow\" on \"blog.example.com\" is also served by service \"app\"; give the tunnel another path".to_string()),
+        "{e:?}"
+    );
+}

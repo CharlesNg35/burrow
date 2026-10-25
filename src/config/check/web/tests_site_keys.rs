@@ -292,3 +292,26 @@ fn target_tls_reads_its_ca_and_says_what_is_not_checked() {
     assert!(errors(&o).is_empty(), "{:#?}", errors(&o));
     assert!(warnings(&o).contains(&"services.pve: the app's certificate is not checked (insecure_skip_verify); use ca: for apps with a real certificate".to_string()), "{:#?}", warnings(&o));
 }
+
+#[test]
+fn paths_differing_only_by_letter_case_are_one_path() {
+    let one = |web: &str| errs("", &svc("api", web));
+    assert_eq!(
+        one("{ hosts: [example.com], paths: [/api, /API/] }"),
+        [
+            "services.api.web.paths: \"/api\" and \"/API\" are the same path; paths match whatever the letter case"
+        ]
+    );
+    assert_eq!(
+        one("{ hosts: [example.com], redirects: { /Old: /new, /old/: /x } }"),
+        ["services.api.web.redirects: \"/Old\" and \"/old/\" are the same path /old"]
+    );
+    let two = svc("a", "{ hosts: [example.com], paths: [/api] }")
+        + &svc("b", "{ hosts: [example.com], paths: [/Api] }");
+    assert_eq!(
+        errs("", &two),
+        [
+            "host \"example.com\" is used by services \"a\" and \"b\"; give one of them other paths, like paths: [/api]"
+        ]
+    );
+}

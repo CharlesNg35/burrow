@@ -7,7 +7,7 @@ use crate::config::diagnostics::Diagnostic;
 use crate::policy::allowlist::Cidr;
 use burrow_config::ServerConfig;
 use burrow_config::{Protocol, ServiceWeb, SiteTls, TlsMode};
-use burrow_syntax::url_path::route_path;
+use burrow_syntax::url_path::route_key;
 use burrow_syntax::web::{AutoName, SingleLabel, entry_for, host_name, proxy_note as note_for};
 
 pub(super) fn check_site_wide(
@@ -64,6 +64,7 @@ pub(super) fn check_site_wide(
             );
         }
     }
+    let mut seen: Vec<(String, String, &str)> = Vec::new();
     for (name, to) in &web.redirect_names {
         let at = spans.key(&["web", "redirect_names", name]);
         let text = name.trim();
@@ -71,10 +72,18 @@ pub(super) fn check_site_wide(
             Some(i) => (&text[..i], &text[i..]),
             None => (text, "/"),
         };
-        let problem = match (host_name(host, SingleLabel::Allowed), route_path(path)) {
+        let problem = match (host_name(host, SingleLabel::Allowed), route_key(path)) {
             (Err(e), _) => Some(format!("web.redirect_names: {e}")),
             (_, Err(e)) => Some(format!("web.redirect_names: \"{text}\": {e}")),
-            _ => None,
+            (Ok(host), Ok(key)) => match seen.iter().find(|(h, k, _)| *h == host && *k == key) {
+                Some((_, _, first)) => Some(format!(
+                    "web.redirect_names: \"{first}\" and \"{text}\" are the same route; paths match whatever the letter case"
+                )),
+                None => {
+                    seen.push((host, key, text));
+                    None
+                }
+            },
         };
         if let Some(m) = problem {
             out.push(Diagnostic::error("redirect-name", m).at(at).help(

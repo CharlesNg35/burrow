@@ -79,7 +79,11 @@ fn tunnel_on_site(place: &Place<'_>, host: &str, path: &str, shares: Shares) -> 
             .help(own),
         ),
         Served::Terminated | Served::Plain
-            if path == "/" || place.paths.iter().any(|p| burrow_syntax::url_path::on_prefix(path, p)) =>
+            if path == "/"
+                || place.paths.iter().any(|p| {
+                    let key = burrow_syntax::url_path::route_key(path);
+                    burrow_syntax::url_path::on_prefix(key.as_deref().unwrap_or(path), p)
+                }) =>
         {
             Some(
             Diagnostic::error(
@@ -222,7 +226,7 @@ pub(super) fn paths_of(web: &burrow_config::ServiceWeb) -> Vec<String> {
     };
     let mut out: Vec<String> = given
         .iter()
-        .filter_map(|p| burrow_syntax::url_path::route_path(p).ok())
+        .filter_map(|p| burrow_syntax::url_path::route_key(p).ok())
         .collect();
     if given.is_empty() {
         out.push("/".into());
@@ -275,7 +279,7 @@ pub(super) fn check_redirect_hosts(
         };
         let (Ok(host), Ok(path)) = (
             host_name(host, SingleLabel::Allowed),
-            burrow_syntax::url_path::route_path(path),
+            burrow_syntax::url_path::route_key(path),
         ) else {
             continue;
         };
