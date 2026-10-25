@@ -102,9 +102,42 @@ pub fn shown(code: &str, message: &str) -> String {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WriteAction {
+    Add,
+    Edit,
+}
+
+pub fn needs_write_admin(action: WriteAction, visitor: Option<&str>) -> String {
+    let what = match action {
+        WriteAction::Add => "Adding",
+        WriteAction::Edit => "Editing",
+    };
+    match visitor.filter(|v| !v.is_empty()) {
+        Some(v) => format!("{what} needs write admin. {v} has read."),
+        None => format!("{what} needs write admin."),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_read_admin_is_told_once_in_one_wording_why_a_change_is_off() {
+        assert_eq!(
+            needs_write_admin(WriteAction::Add, None),
+            "Adding needs write admin."
+        );
+        assert_eq!(
+            needs_write_admin(WriteAction::Edit, Some("alice")),
+            "Editing needs write admin. alice has read."
+        );
+        assert_eq!(
+            needs_write_admin(WriteAction::Edit, Some("")),
+            "Editing needs write admin."
+        );
+    }
 
     #[test]
     fn a_name_let_s_encrypt_cannot_check_says_which_ports_it_needs() {
