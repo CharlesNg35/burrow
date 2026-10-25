@@ -29,7 +29,7 @@ fn dns_world() -> Dns {
     w.text = w.text.replace(
         "\nservices:\n",
         &format!(
-            "\nweb:\n  https: 8443\n  http: 8080\n  letsencrypt:\n    email: ops@example.com\n    dns:\n      - domains: [example.com]\n        cloudflare: {{ token: \"file:{token}\" }}\n\nservices:\n  app:\n    client: home\n    target: 9000\n    web: {{ hosts: [app.example.com], tls: off }}\n"
+            "\nweb:\n  https: 8443\n  http: 8080\n  letsencrypt:\n    email: ops@example.com\n    dns:\n      - domains: [example.com]\n        cloudflare: {{ token: 'file:{token}' }}\n\nservices:\n  app:\n    client: home\n    target: 9000\n    web: {{ hosts: [app.example.com], tls: off }}\n"
         ),
     );
     Dns {
