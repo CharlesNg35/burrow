@@ -63,8 +63,25 @@ websocket:
 Point `tunnel.example.com` at the server, open port 443, and start. Clients use `wss://tunnel.example.com/burrow`, which `burrow client-config` prints. Other names on port 443 are closed until you add websites ([web.md](web.md)).
 
 - **Your own files still work:** `websocket.tls` with `cert` and `key` takes precedence over Let's Encrypt, and a file renewed on disk is used from the next reload.
-- **Another HTTPS port:** sharing needs `websocket.listen` to equal `web.https` in port and address, like `8443` and `8443`; clients then use `wss://tunnel.example.com:8443/burrow`. Let's Encrypt only checks ports 443 and 80, so on another port add `http: 80` (with port 80 open) or use your own files; `burrow validate` says so.
-- **Behind a home router:** burrow only sees the port it listens on. If the router forwards the internet's 443 to burrow's 8443, Let's Encrypt's check would reach burrow, but burrow cannot know that, so validate still asks for port 80 or files. Forward port 80 to `web.http: 80` as well.
+- **Another HTTPS port:** sharing needs `websocket.listen` to equal `web.https` in port and address, like `8443` and `8443`; clients then use `wss://tunnel.example.com:8443/burrow`. Let's Encrypt's TLS and HTTP checks only reach ports 443 and 80, so on another port add `http: 80` (with port 80 open), use the DNS check, or use your own files; `burrow validate` says so.
+- **Behind a home router:** burrow only sees the port it listens on. If the router forwards the internet's 443 to burrow's 8443, Let's Encrypt's check would reach burrow, but burrow cannot know that, so validate still asks for port 80, the DNS check or files. Forward port 80 to `web.http: 80` as well, or use the DNS check.
+- **The DNS check, with no open port:** `websocket.challenge: dns` gets the tunnel's certificate through a DNS provider in `web.letsencrypt.dns`, so neither 80 nor 443 has to be reachable from the internet ([web.md](web.md#dns-checks-wildcards-and-names-the-internet-cannot-reach)):
+
+  ```yaml
+  # server.yaml
+  web:
+    https: 8443
+    letsencrypt:
+      email: you@example.com
+      dns:
+        - domains: [example.com]
+          cloudflare: { token: "${CF_TOKEN}" }
+  websocket:
+    listen: 8443
+    host: tunnel.example.com
+    path: /burrow
+    challenge: dns # clients use wss://tunnel.example.com:8443/burrow
+  ```
 - **Port 80 instead:** `websocket.listen` may equal `web.http`, like `80`. Clients then use `ws://tunnel.example.com/burrow`. No certificate is needed: burrow's own encryption still protects the tunnel's data, and only the host, path, sizes and timing are visible on the network.
 
   ```yaml

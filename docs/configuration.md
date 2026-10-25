@@ -152,7 +152,14 @@ services:
 | `services.<name>.web` | none | names that lead to this TCP service as a website: a name, a list of names, or `{ hosts, tls, https_redirect, challenge }`. See [web.md](web.md) |
 | `services.<name>.web.tls` | `auto` with `web.https`, else `off` | `auto` (a `web.certificates` file, else Let's Encrypt), `{cert, key}` (the site's own files), `passthrough` (the app does HTTPS) or `off` (plain HTTP on `web.http`) |
 | `services.<name>.web.https_redirect` | `web.https_redirect` | `true` sends `http://` visitors to `https://`; `false` serves plain HTTP too |
-| `services.<name>.web.challenge` | automatic | the Let's Encrypt check: `tls` (port 443), `http` (port 80) or `dns` (a later phase). Automatic tries TLS, then HTTP |
+| `services.<name>.web.challenge` | automatic | the Let's Encrypt check: `tls` (port 443), `http` (port 80) or `dns` (through `web.letsencrypt.dns`). Automatic tries TLS, then HTTP |
+| `services.<name>.web.paths` | all paths | only these paths on the names, each with everything below it, like `[/api]`; the longest match wins. See [web.md](web.md#paths-several-apps-on-one-name) |
+| `services.<name>.web.app_path` | the same path | what the app sees in place of the matched path: `/v1`, or `/` to remove the prefix; needs `paths` |
+| `services.<name>.web.redirect_from` | none | names that redirect permanently to the first host, path and query kept, like `[www.example.com]` |
+| `services.<name>.web.redirects` | none | paths that redirect: `/old: /new` (temporary) or `/old: {to: /new, permanent: true}`. See [web.md](web.md#redirects) |
+| `services.<name>.web.maintenance` | `false` | answer every request with the maintenance page (503 with `Retry-After`) |
+| `services.<name>.web.target_tls` | off | HTTPS to the app: `true` (public CAs), `{ca: file}` (your CA) or `{insecure_skip_verify: true}` (not checked) |
+| `services.<name>.web.hsts`, `compress`, `max_body_size`, `response_header_timeout_secs`, `request_headers`, `response_headers`, `error_pages` | from `web` | the site's own value of the `web` key of the same name |
 | `self.allow` | none | what the server may connect to for itself, for `client: self` and `reach: self`. See [services.md](services.md#on-the-server-itself) |
 | `web.https` | none | the HTTPS port for websites and TLS services by name; a port alone means every IPv4 and IPv6 address, `0.0.0.0:443` IPv4 only. Off unless `web` is written. See [web.md](web.md) |
 | `web.http` | none | the plain HTTP port: redirects to `https://`, plain-HTTP sites and Let's Encrypt's HTTP check. `web` needs `https`, `http` or both |
@@ -164,6 +171,21 @@ services:
 | `web.certificates` | none | your own files: a list of `{ hosts, cert, key }`; each name is listed in one entry only |
 | `web.request_header_timeout_secs` | `10` | time a visitor has to send a request's headers; also how long an idle kept-alive connection stays open |
 | `web.idle_timeout_secs` | `60` | a connection that moves no data for this long is closed; WebSockets stay open |
+| `web.letsencrypt.dns` | none | DNS providers for DNS checks: a list of `{ domains, cloudflare \| rfc2136 \| acme_dns \| command, wildcards, wait_secs, resolvers }`. See [web.md](web.md#dns-checks-wildcards-and-names-the-internet-cannot-reach) |
+| `web.letsencrypt.dns[].wildcards` | none | shared wildcard certificates got through this provider, like `["*.example.com"]`; each also covers its parent name |
+| `web.letsencrypt.dns[].wait_secs` | `120` | how long burrow waits for every nameserver of the zone to answer the record, 10 to 3600 |
+| `web.letsencrypt.dns[].resolvers` | the system's | resolvers used only to find the zone's nameservers, like `[1.1.1.1, 9.9.9.9]` |
+| `web.redirect_names` | none | names (or a name and a path) with no site of their own that only redirect, like `old.example.com: https://example.com` |
+| `web.trusted_proxies` | none | address ranges of HTTP proxies whose `X-Forwarded-For` and `X-Forwarded-Proto` are believed |
+| `web.proxy_protocol_from` | none | address ranges of TCP load balancers that must send a PROXY header (v1 or v2) |
+| `web.access_log` | off | a file, or `{ file, format: common \| json }`: one line per request |
+| `web.request_id` | `false` | an `X-Request-Id` for each request, sent to the app, returned to the visitor and logged |
+| `web.hsts` | `false` | `Strict-Transport-Security` for a year on HTTPS answers |
+| `web.compress` | `false` | gzip text answers when the browser accepts it |
+| `web.max_body_size` | unlimited | the biggest request body, like `100MB`; above it 413 |
+| `web.response_header_timeout_secs` | `60` | how long the app may take to start its answer; 504 after |
+| `web.request_headers`, `web.response_headers` | none | `Name: value` set on requests to the app or on answers; `""` removes a header |
+| `web.error_pages` | built in | a folder with any of `404.html`, `413.html`, `429.html`, `502.html`, `503.html`, `504.html`, `maintenance.html` |
 | `metrics.listen` | off | address for Prometheus `/metrics`; a port alone means `127.0.0.1`. See [monitoring.md](monitoring.md) |
 | `insecure_plaintext` | `false` | send forwarded TCP data unencrypted on raw TCP links to clients; logging in stays encrypted |
 | `heartbeat.interval_secs` | `10` | ping interval; a peer times out after 3 missed pings |

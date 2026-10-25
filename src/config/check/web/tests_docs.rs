@@ -85,6 +85,23 @@ fn validate_in(block: &str) -> (tempfile::TempDir, Outcome) {
         }
     }
     let dir = files_for(&text);
+    for ca in paths_after(&text, "ca:") {
+        let path = dir.path().join(ca);
+        if path.exists() {
+            continue;
+        }
+        let key = rcgen::KeyPair::generate().unwrap();
+        let mut params = rcgen::CertificateParams::new(Vec::<String>::new()).unwrap();
+        params.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
+        let cert = params.self_signed(&key).unwrap();
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, cert.pem()).unwrap();
+    }
+    for folder in paths_after(&text, "error_pages:") {
+        let folder = dir.path().join(folder);
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(folder.join("404.html"), "not here").unwrap();
+    }
     let o = load_str_in(
         dir.path(),
         "config.yaml",
@@ -131,7 +148,7 @@ fn the_admin_uis_lines_to_add_validate() {
 }
 
 #[test]
-fn the_full_example_of_web_md_is_pinned_at_what_p2_builds() {
+fn the_full_example_of_web_md_is_pinned_at_what_p3_and_p6_build() {
     let block = yaml_blocks(WEB_MD)
         .into_iter()
         .find(|b| b.contains("1. THE TUNNEL"))
@@ -147,9 +164,15 @@ fn the_full_example_of_web_md_is_pinned_at_what_p2_builds() {
     assert_eq!(
         others,
         [
-            "plain-http: services.dashboard: served as plain HTTP; anyone on the path can read and change its traffic"
+            "dns-rfc2136: web.letsencrypt.dns[1].rfc2136.secret is 6 bytes; RFC 8945 asks for at least 32 for hmac-sha256",
+            "proxy-tls-check: a proxy is in front (web.trusted_proxies is set); if it does the HTTPS, like Cloudflare's proxy, Let's Encrypt's TLS check cannot reach burrow: set challenge: http (with http: 80) or challenge: dns on these sites: kiosk",
+            "access-log: web.access_log: the folder of logs/access.log does not exist yet",
+            "target-unchecked: services.pve: the app's certificate is not checked (insecure_skip_verify); use ca: for apps with a real certificate",
+            "plain-http: services.dashboard: served as plain HTTP; anyone on the path can read and change its traffic",
+            "plain-http: services.wiki: served as plain HTTP; anyone on the path can read and change its traffic",
+            "redirect-by-proxy: services.wiki: http:// visitors are sent to https:// by the X-Forwarded-Proto of the trusted proxies; if they do not send it, every request redirects",
         ],
-        "only the machine's low-port warnings, and the notes for the test files, which name every host of the block"
+        "the machine's low-port warnings and the notes for the test files aside, the notes the example's comments promise (the test's short TSIG secret aside)"
     );
     let root = dir.path().display().to_string();
     let lines: Vec<String> = crate::config::web_summary::summary(&super::tests::settings(o))
@@ -165,21 +188,42 @@ fn the_full_example_of_web_md_is_pinned_at_what_p2_builds() {
         lines,
         [
             "web: https [::]:443 (IPv4 and IPv6; shared with the tunnel), http [::]:80 (IPv4 and IPv6)",
-            "certificates: Let's Encrypt (production) as you@example.com",
-            "tunnel: wss://tunnel.example.com/burrow (Let's Encrypt, TLS check)",
+            "X-Forwarded-For believed from 173.245.48.0/20",
+            "certificates: Let's Encrypt (production) as you@example.com; DNS checks through Cloudflare for example.com, example.net, nameservers found via the system resolvers; DNS checks through RFC 2136 for corp.example.org, nameservers found via the system resolvers",
+            "tunnel: wss://tunnel.example.com/burrow (Let's Encrypt shared wildcard *.example.com)",
+            "wildcard *.example.com (+ example.com): Let's Encrypt, DNS check; used by api, blog, login, pve, shop, store, updates",
+            "wildcard *.apps.example.com (+ apps.example.com): Let's Encrypt, DNS check; used by apps",
+            "*.apps.example.com: Let's Encrypt shared wildcard *.apps.example.com -> service apps",
             "203.0.113.10: Let's Encrypt short-lived (6 days), TLS check -> service kiosk",
-            "auth.example.com: Let's Encrypt, TLS check -> service login",
+            "auth.example.com: Let's Encrypt shared wildcard *.example.com -> service login",
             "dash.lan.example.com: plain HTTP on [::]:80 only, unencrypted (tls: off) -> service dashboard",
-            "example.com: Let's Encrypt, TLS check -> service blog",
+            "erp.corp.example.org: Let's Encrypt, DNS check through RFC 2136 (corp.example.org) (challenge: dns)",
+            "  /           -> service erp (HTTPS to the app, checked with certs/corp-ca.pem)",
+            "example.com: Let's Encrypt shared wildcard *.example.com",
+            "  /2019       -> redirect /archive/2019 (permanent)",
+            "  /feed       -> redirect https://feeds.example.net/blog (temporary)",
+            "  /api        -> service api (app sees /v1, X-Forwarded-Prefix /api)",
+            "  /           -> service blog",
+            "example.io: Let's Encrypt, TLS check",
+            "  /           -> redirect https://example.com (permanent)",
             "nas.example.com: passthrough, the app's own certificate -> service nas",
             "news.example.net: Let's Encrypt, HTTP check -> service news",
+            "old-blog.example.com: Let's Encrypt shared wildcard *.example.com",
+            "  /           -> redirect https://example.com (temporary)",
             "partner.example.net: own file certs/partner.pem -> service partner",
             "portal.intranet.example.org: web.certificates[0] (certs/intranet-wildcard.pem) -> service portal",
-            "shop.example.com: Let's Encrypt, TLS check -> service shop",
-            "updates.example.com: Let's Encrypt, TLS check; http:// served too (https_redirect: false) -> service updates",
-            "www.example.com: Let's Encrypt, TLS check -> service blog",
+            "pve.example.com: Let's Encrypt shared wildcard *.example.com",
+            "  /           -> service pve (HTTPS to the app, not checked)",
+            "shop.example.com: Let's Encrypt shared wildcard *.example.com -> service shop",
+            "store.example.com: Let's Encrypt shared wildcard *.example.com",
+            "  /           -> service store (maintenance page)",
+            "updates.example.com: Let's Encrypt shared wildcard *.example.com; http:// served too (https_redirect: false) -> service updates",
+            "wiki.example.net: plain HTTP on [::]:80 only, unencrypted (tls: off)",
+            "  /           -> service wiki (http:// at the proxy redirects to https:// by X-Forwarded-Proto)",
+            "www.example.com: Let's Encrypt shared wildcard *.example.com",
+            "  /           -> redirect https://example.com (permanent)",
             "http [::]:80: HTTPS hosts redirect to https:// (308); Let's Encrypt HTTP checks answered",
         ],
-        "P3 adds trusted_proxies and its note for kiosk, P6 the DNS wildcards"
+        "each name says where its certificate comes from, as the list under the example does"
     );
 }
