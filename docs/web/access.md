@@ -59,6 +59,7 @@ services:
 
 The browser asks for a user name and password; the app never sees them, as burrow removes the `Authorization` header.
 
+- **In the admin UI**, a site's **Passwords** list takes a user name and a password. The server hashes it the way `burrow passwd` does and writes only the hash; nobody can read a password back, and existing users show as set. **Paste a hash instead** takes one from `burrow passwd` or `htpasswd -B`.
 - **Make a hash** with `burrow passwd alice`: it asks for the password twice without showing it and prints the line to paste, `alice: $argon2id$...`. Piped in, it reads one line, for scripts.
 - **Hashes** are argon2id, or bcrypt (`$2a$`, `$2b$`, `$2y$`) from tools like `htpasswd -B` or `caddy hash-password`. Validate refuses other kinds, and a hash that asks for more work than burrow allows (argon2 up to 64 MiB, 10 passes and 4 lanes; bcrypt cost 4 to 14), which would let one visitor keep the server busy. bcrypt reads only the first 72 bytes of a password.
 - **Wrong passwords:** each visitor address (IPv6 per /64) may get the password wrong 10 times a minute, on all sites together. After that, even the right password gets `429` with `Retry-After` until the budget refills, a few seconds per attempt. A request without a password, or with an unreadable one, does not count: a browser asks once without one before it shows the login box.

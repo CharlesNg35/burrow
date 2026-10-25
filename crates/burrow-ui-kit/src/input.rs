@@ -30,6 +30,7 @@ pub fn TextInput(
     #[prop(optional, into)] label: Option<String>,
     #[prop(optional, into)] prefix: Option<String>,
     #[prop(optional, into)] suffix: Option<String>,
+    #[prop(optional)] new_password: bool,
 ) -> impl IntoView {
     let suffix = suffix.filter(|x| !x.is_empty());
     let pad = format!(
@@ -42,10 +43,10 @@ pub fn TextInput(
             {prefix.map(|p| view! { <span class="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 font-mono text-[13px] font-bold text-text-faint">{p}</span> })}
             <input
                 id=id
-                type="text"
+                type=if new_password { "password" } else { "text" }
                 class=move || format!("{}{}{}", field_class(invalid.get(), mono), pad, if numeric { " tabular-nums" } else { "" })
                 inputmode=numeric.then_some("numeric")
-                autocomplete="off"
+                autocomplete=if new_password { "new-password" } else { "off" }
                 spellcheck="false"
                 placeholder=placeholder
                 aria-label=label

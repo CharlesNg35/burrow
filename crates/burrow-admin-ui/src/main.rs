@@ -13,6 +13,7 @@ mod edit;
 mod form;
 mod format;
 mod grants;
+mod passwords;
 mod review;
 mod route;
 mod screens;

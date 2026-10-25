@@ -360,6 +360,11 @@ impl Edit {
         self.changed();
     }
 
+    pub fn set_password(&self, path: &[String], handle: &str) {
+        self.draft.update(|d| d.set_password(path, handle));
+        self.changed();
+    }
+
     pub fn remove_secret(&self, path: &[String], fp: &str) {
         self.draft.update(|d| d.remove_secret(path, fp));
         self.changed();

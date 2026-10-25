@@ -139,6 +139,9 @@ fn by_sem(fc: FieldCtx, sem: &SemType) -> AnyView {
         SemType::RefList(r) => crate::addr::picker(fc, r.entity.clone(), true),
         SemType::List(l) => list_editor(fc, (*l.item).clone()),
         SemType::RefMap(m) => map_editor(fc, Some(m.entity.clone()), None, (*m.value).clone()),
+        SemType::Map(m) if matches!(inner(&m.value).sem, SemType::PasswordHash) => {
+            crate::passwords::passwords_editor(fc)
+        }
         SemType::Map(m) => map_editor(fc, None, Some((*m.key).clone()), (*m.value).clone()),
         SemType::SecretRef(c) if c.reference => text_editor(fc, Some(sem.clone())),
         SemType::SecretRef(c) => crate::secrets::secret_list(fc.path.clone(), fc.id.clone(), c.max),
