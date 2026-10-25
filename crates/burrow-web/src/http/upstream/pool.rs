@@ -29,9 +29,18 @@ impl Stream {
     }
 }
 
+#[derive(Clone)]
+pub(crate) struct H2App {
+    pub service: String,
+    pub client: IpAddr,
+    pub tx: hyper::client::conn::http2::SendRequest<Body>,
+    pub ending: Option<Ending>,
+}
+
 pub(crate) struct Upstreams {
     idle: Mutex<Vec<Stream>>,
     slots: Arc<Semaphore>,
+    h2: Mutex<Option<H2App>>,
 }
 
 impl Default for Upstreams {
@@ -39,6 +48,7 @@ impl Default for Upstreams {
         Upstreams {
             idle: Mutex::default(),
             slots: Arc::new(Semaphore::new(APP_CONNECTIONS)),
+            h2: Mutex::default(),
         }
     }
 }
@@ -74,6 +84,17 @@ impl Upstreams {
         };
         let ready = tokio::time::timeout(REUSE_WAIT, s.tx.ready()).await;
         matches!(ready, Ok(Ok(()))).then_some(s)
+    }
+
+    pub(crate) fn shared_h2(&self, service: &str, client: IpAddr) -> Option<H2App> {
+        let held = self.h2.lock().expect("upstream lock");
+        held.as_ref()
+            .filter(|s| s.service == service && s.client == client && !s.tx.is_closed())
+            .cloned()
+    }
+
+    pub(crate) fn keep_h2(&self, s: H2App) {
+        *self.h2.lock().expect("upstream lock") = Some(s);
     }
 
     pub(crate) fn keep(&self, s: Stream) {

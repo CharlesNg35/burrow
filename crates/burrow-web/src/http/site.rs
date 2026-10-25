@@ -57,7 +57,7 @@ pub(crate) fn hop(o: &SiteOptions) -> Result<Hop, String> {
         return Ok(Hop::Plain);
     };
     Ok(Hop::Tls(
-        connector(&check, false)?,
+        connector(&check, o.target_http2)?,
         server_name(&o.target_name)?,
     ))
 }

@@ -18,6 +18,7 @@ pub(crate) use pool::Upstreams;
 
 pub mod pool;
 pub mod target_tls;
+pub mod to_h2;
 
 const HOP_BY_HOP: [HeaderName; 7] = [
     header::CONNECTION,
@@ -44,15 +45,19 @@ impl Forward<'_> {
     }
 }
 
-enum Failed {
+pub(super) enum Failed {
     Refused(Refused),
     Broken,
 }
 
-async fn hop(io: BoxIo, how: &Hop) -> Result<BoxIo, Failed> {
+pub(super) async fn hop(io: BoxIo, how: &Hop, http2: bool) -> Result<BoxIo, Failed> {
     match how {
         Hop::Plain => Ok(io),
         Hop::Tls(connector, name) => match connector.connect(name.clone(), io).await {
+            Ok(tls) if http2 && tls.get_ref().1.alpn_protocol() != Some(b"h2") => {
+                debug!("web: the app did not agree to HTTP/2 over TLS (ALPN h2)");
+                Err(Failed::Broken)
+            }
             Ok(tls) => Ok(Box::new(tls)),
             Err(e) => {
                 debug!("web: TLS to the app failed: {e}");
@@ -69,7 +74,7 @@ async fn open<U: Upstream>(up: &U, f: &Forward<'_>) -> Result<Stream, Failed> {
         .await
         .map_err(Failed::Refused)?;
     let ending = io.ending();
-    let io = hop(io, &f.site.hop).await?;
+    let io = hop(io, &f.site.hop, false).await?;
     let (tx, conn) = hyper::client::conn::http1::Builder::new()
         .max_buf_size(super::h2::APP_READ_BUF)
         .max_header_size(MAX_HEAD)
@@ -193,6 +198,10 @@ pub fn rewrite_request<B>(req: &mut Request<B>, host: &str, client: &Client) {
 
 fn prepare(req: &mut Request<Body>, f: &Forward<'_>) {
     rewrite_request(req, &f.visitor.host, &f.client);
+    extras(req, f);
+}
+
+pub(super) fn extras(req: &mut Request<Body>, f: &Forward<'_>) {
     let h = req.headers_mut();
     if let Some(p) = f.prefix {
         set(h, "x-forwarded-prefix", p);
@@ -209,6 +218,9 @@ pub(crate) async fn forward<U: Upstream>(
     mut req: Request<Body>,
     f: Forward<'_>,
 ) -> Response<Body> {
+    if f.site.options.target_http2 {
+        return to_h2::forward(up, ups, req, f).await;
+    }
     let upgrading = upgrade_of(req.headers()).is_some();
     let downstream = upgrading.then(|| hyper::upgrade::on(&mut req));
     prepare(&mut req, &f);
