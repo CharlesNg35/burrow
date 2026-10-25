@@ -335,6 +335,24 @@ services:
 
 `client: self` reaches its own target without a `self:` block; `self.allow` only limits what visitors may `reach` on the server ([services.md](services.md)).
 
+### Home Assistant
+
+```yaml
+# server.yaml
+web:
+  https: 443
+  http: 80
+  letsencrypt:
+    email: ops@example.com
+services:
+  homeassistant:
+    client: home
+    target: 127.0.0.1:8123 # Home Assistant Container; Home Assistant OS uses port 80 since 2026.8
+    web: ha.example.com
+```
+
+Home Assistant's pages and apps keep a WebSocket open (`/api/websocket`), which burrow passes through like any other request. Home Assistant blocks requests that come through a reverse proxy it does not trust, so in Home Assistant open Settings > System > Network, and under HTTP server turn on Trust X-Forwarded-For and add the address of the machine that runs the burrow client to Trusted proxies (`127.0.0.1` when the client runs on the Home Assistant machine), as its [HTTP integration docs](https://www.home-assistant.io/integrations/http/) say.
+
 ### A site for an IP address, with no domain
 
 ```yaml
