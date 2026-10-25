@@ -96,7 +96,7 @@ pub fn run(root: &Path) -> Result<(), String> {
     let bin = older_binary(root)?;
     println!("burrow {OLDER}: {}", bin.display());
     let status = Command::new("cargo")
-        .args(["test", "-p", "burrow", "--test", "compat"])
+        .args(["test", "--locked", "-p", "burrow", "--test", "compat"])
         .env("BURROW_COMPAT_BIN", &bin)
         .current_dir(root)
         .status()

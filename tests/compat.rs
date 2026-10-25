@@ -238,6 +238,11 @@ async fn burrow_mcp_reads_and_changes_an_older_server() {
     assert!(!failed && plan["can_apply"] == true, "{plan}");
     let (failed, applied) = call(&c, "apply_change", json!({ "plan": plan["plan"] })).await;
     assert!(!failed, "{applied}");
+    let written = std::fs::read_to_string(&config).unwrap();
+    assert!(
+        written.contains(&format!("target: 127.0.0.1:{}", target + 1)),
+        "the older server wrote the change to its file: {written}"
+    );
     let (failed, versions) = call(&c, "list_versions", json!({ "limit": 5 })).await;
     assert!(!failed, "{versions}");
     let rev = versions["entries"][0]["rev"].clone();
