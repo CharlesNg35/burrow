@@ -1,6 +1,7 @@
 mod common;
 
-use std::sync::atomic::Ordering;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use common::*;
@@ -327,6 +328,115 @@ async fn a_quiet_streaming_response_is_not_cut_by_the_idle_timeout() {
     assert!(
         r.contains("hello"),
         "the body sent after a quiet spell arrives: {r}"
+    );
+}
+
+async fn raw_app(
+    answer: impl Fn(tokio::net::TcpStream, Arc<AtomicBool>) -> BoxFuture + Send + Sync + 'static,
+) -> (std::net::SocketAddr, Arc<AtomicBool>) {
+    let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = l.local_addr().unwrap();
+    let ended = Arc::new(AtomicBool::new(false));
+    let flag = ended.clone();
+    tokio::spawn(async move {
+        while let Ok((mut s, _)) = l.accept().await {
+            let mut buf = [0u8; 4096];
+            let _ = s.read(&mut buf).await;
+            tokio::spawn(answer(s, flag.clone()));
+        }
+    });
+    (addr, ended)
+}
+
+type BoxFuture = std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>;
+
+async fn idle_one_second(app: std::net::SocketAddr) -> burrow_web::Proxy<Fake> {
+    let (up, _) = Fake::new(4);
+    up.serve("blog", app);
+    start(
+        |s| {
+            s.sites = vec![https_site("blog", &["blog.example.com"])];
+            s.timeouts.idle = Duration::from_secs(1);
+        },
+        up,
+    )
+    .await
+}
+
+const EVENTS: &[u8] = b"GET /events HTTP/1.1\r\nHost: blog.example.com\r\n\r\n";
+
+#[tokio::test]
+async fn a_visitor_who_stops_reading_a_big_answer_is_closed_by_the_idle_timeout() {
+    let (app, ended) = raw_app(|mut s, ended| {
+        Box::pin(async move {
+            let _ = s
+                .write_all(b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n")
+                .await;
+            let chunk = format!("10000\r\n{}\r\n", "a".repeat(0x10000));
+            while s.write_all(chunk.as_bytes()).await.is_ok() {}
+            ended.store(true, Ordering::SeqCst);
+        })
+    })
+    .await;
+    let proxy = idle_one_second(app).await;
+    let mut t = tls(proxy.https_addr().unwrap(), "blog.example.com")
+        .await
+        .unwrap();
+    t.write_all(EVENTS).await.unwrap();
+    let mut head = [0u8; 64];
+    t.read_exact(&mut head).await.unwrap();
+    assert!(head.starts_with(b"HTTP/1.1 200"));
+    tokio::time::sleep(Duration::from_secs(4)).await;
+    let closed = tokio::time::timeout(
+        Duration::from_secs(10),
+        closed_within(&mut t, Duration::from_secs(5)),
+    )
+    .await;
+    assert_eq!(
+        closed,
+        Ok(true),
+        "the stalled visitor's connection is closed"
+    );
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while !ended.load(Ordering::SeqCst) && std::time::Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(
+        ended.load(Ordering::SeqCst),
+        "the app's connection is let go too"
+    );
+}
+
+#[tokio::test]
+async fn an_app_quiet_mid_body_stays_open_until_the_visitor_leaves() {
+    let (app, ended) = raw_app(|mut s, ended| {
+        Box::pin(async move {
+            let _ = s
+                .write_all(b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nfirst\r\n")
+                .await;
+            let mut buf = [0u8; 16];
+            let _ = s.read(&mut buf).await;
+            ended.store(true, Ordering::SeqCst);
+        })
+    })
+    .await;
+    let proxy = idle_one_second(app).await;
+    let mut t = tls(proxy.https_addr().unwrap(), "blog.example.com")
+        .await
+        .unwrap();
+    t.write_all(EVENTS).await.unwrap();
+    assert!(
+        !closed_within(&mut t, Duration::from_secs(3)).await,
+        "a quiet app is still answering"
+    );
+    drop(t);
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while !ended.load(Ordering::SeqCst) && std::time::Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(
+        ended.load(Ordering::SeqCst),
+        "the app's connection closes once the visitor has gone"
     );
 }
 

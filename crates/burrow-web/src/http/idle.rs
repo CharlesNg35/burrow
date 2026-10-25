@@ -21,13 +21,19 @@ pub(crate) struct Busy(Arc<Activity>);
 
 pub(crate) struct Held {
     inner: super::Body,
-    busy: Option<Busy>,
+    activity: Arc<Activity>,
+    waiting: Option<Busy>,
 }
 
 impl Held {
     pub(crate) fn new(inner: super::Body, busy: Busy) -> Held {
-        let busy = (!hyper::body::Body::is_end_stream(&inner)).then_some(busy);
-        Held { inner, busy }
+        let activity = busy.0.clone();
+        drop(busy);
+        Held {
+            inner,
+            activity,
+            waiting: None,
+        }
     }
 }
 
@@ -41,8 +47,12 @@ impl hyper::body::Body for Held {
     ) -> Poll<Option<Result<hyper::body::Frame<bytes::Bytes>, super::BoxError>>> {
         let this = &mut *self;
         let polled = Pin::new(&mut this.inner).poll_frame(cx);
-        if matches!(polled, Poll::Ready(None | Some(Err(_)))) {
-            this.busy = None;
+        if polled.is_pending() {
+            if this.waiting.is_none() {
+                this.waiting = Some(this.activity.enter());
+            }
+        } else {
+            this.waiting = None;
         }
         polled
     }
