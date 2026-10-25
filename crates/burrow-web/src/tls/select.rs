@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::path::PathBuf;
 
-use burrow_syntax::web::{Twice, entry_for};
+use burrow_syntax::web::{Twice, covers, entry_for, is_wildcard, sni_name};
 
 use super::{CertName, CertOrigin};
 use crate::{CertSettings, CertSource, ProxySettings, SiteTls, TunnelMode, TunnelPort};
@@ -19,6 +19,19 @@ pub enum Choice {
     Missing(String),
 }
 
+fn listed_wildcards(settings: &ProxySettings) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for e in settings.certs.acme.iter().flat_map(|a| a.dns.iter()) {
+        for w in &e.wildcards {
+            let w = sni_name(w.trim());
+            if is_wildcard(&w) && !out.contains(&w) {
+                out.push(w);
+            }
+        }
+    }
+    out
+}
+
 pub fn cert_names(settings: &ProxySettings) -> Vec<CertName> {
     let mut seen = HashSet::new();
     let mut out = Vec::new();
@@ -31,12 +44,35 @@ pub fn cert_names(settings: &ProxySettings) -> Vec<CertName> {
             });
         }
     };
+    let wildcards = listed_wildcards(settings);
+    let shared = |host: &str| {
+        let entries = settings
+            .certs
+            .shared
+            .iter()
+            .enumerate()
+            .map(|(i, f)| (i, f.hosts.as_slice()));
+        entry_for(entries, host) != Ok(None)
+    };
+    let shares = |host: &str| {
+        let h = sni_name(host);
+        !shared(&h)
+            && wildcards
+                .iter()
+                .any(|w| covers(w, &h) || w.strip_prefix("*.") == Some(h.as_str()))
+    };
     for site in &settings.sites {
         if let SiteTls::Https(source) = &site.tls {
             for host in &site.hosts {
-                push(host, source.clone(), &site.service);
+                if !(*source == CertSource::Auto && shares(host)) {
+                    push(host, source.clone(), &site.service);
+                }
             }
         }
+    }
+    for w in &wildcards {
+        push(w, CertSource::Auto, w);
+        push(w.trim_start_matches("*."), CertSource::Auto, w);
     }
     if let Some(t) = settings
         .tunnel
@@ -51,7 +87,9 @@ pub fn cert_names(settings: &ProxySettings) -> Vec<CertName> {
                 cert: cert.clone(),
                 key: key.clone(),
             });
-        push(&t.host, source, TUNNEL_GROUP);
+        if !(source == CertSource::Auto && shares(&t.host)) {
+            push(&t.host, source, TUNNEL_GROUP);
+        }
     }
     out
 }
@@ -302,5 +340,59 @@ mod tests {
         assert!(cert_names(&p).is_empty());
         p.tunnel.as_mut().unwrap().port = crate::TunnelPort::Https;
         assert_eq!(cert_names(&p).len(), 1);
+    }
+
+    #[test]
+    fn sites_one_label_under_a_listed_wildcard_share_its_one_certificate() {
+        let mut p = ProxySettings::new("[::]:443".parse().unwrap());
+        let mut c = certs(true);
+        c.shared.clear();
+        c.shared.push(SharedFile {
+            hosts: vec!["shop.example.com".into()],
+            cert: "shop.pem".into(),
+            key: "shop.key".into(),
+        });
+        if let Some(a) = c.acme.as_mut() {
+            a.dns = vec![crate::DnsEntry {
+                domains: vec!["example.com".into()],
+                provider: crate::DnsProvider::Command {
+                    path: "/usr/local/bin/burrow-dns".into(),
+                },
+                wait: crate::tls::acme::dns01::DEFAULT_WAIT,
+                resolvers: Vec::new(),
+                wildcards: vec!["*.Example.com".into()],
+            }];
+        }
+        p.certs = c;
+        let https = |svc: &str, hosts: &[&str], tls: CertSource| Site {
+            tls: SiteTls::Https(tls),
+            ..Site::passthrough(svc, hosts.iter().map(|h| h.to_string()).collect())
+        };
+        p.sites = vec![
+            https(
+                "wiki",
+                &["wiki.example.com", "example.com"],
+                CertSource::Auto,
+            ),
+            https("all", &["*.example.com"], CertSource::Auto),
+            https("deep", &["a.b.example.com"], CertSource::Auto),
+            https("shop", &["shop.example.com"], CertSource::Auto),
+            https("own", &["own.example.com"], own("own.pem")),
+        ];
+        let got: Vec<(String, String)> = cert_names(&p)
+            .into_iter()
+            .map(|n| (n.name, n.group))
+            .collect();
+        let pair = |a: &str, b: &str| (a.to_string(), b.to_string());
+        assert_eq!(
+            got,
+            vec![
+                pair("a.b.example.com", "deep"),
+                pair("shop.example.com", "shop"),
+                pair("own.example.com", "own"),
+                pair("*.example.com", "*.example.com"),
+                pair("example.com", "*.example.com"),
+            ]
+        );
     }
 }
