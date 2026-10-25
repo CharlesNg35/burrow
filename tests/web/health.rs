@@ -334,3 +334,20 @@ async fn a_new_path_on_reload_starts_the_check_afresh() {
     assert_eq!(wait_health(&t, true).await, None);
     assert!(app.checks().iter().any(|h| h.starts_with("get /ready ")));
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_site_served_by_self_is_checked_over_http_too() {
+    let app = app(status("200 OK")).await;
+    let secret = Secret::generate();
+    let svc = Service {
+        clients: vec!["self".into()],
+        ..checked(app.addr, "/healthz")
+    };
+    let t = tunnel_with(server(&secret, svc), Vec::new(), |c| c, secret).await;
+    wait_for(|| !app.checks().is_empty()).await;
+    assert_eq!(wait_health(&t, true).await, None);
+    assert!(app.checks()[0].contains("\r\nhost: blog.example.com\r\n"));
+    app.set(status("503 Service Unavailable"));
+    let why = wait_health(&t, false).await;
+    assert_eq!(why.as_deref(), Some("answered 503 Service Unavailable"));
+}
