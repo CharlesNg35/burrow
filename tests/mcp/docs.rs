@@ -155,10 +155,20 @@ fn an_unknown_app_lists_the_three() {
 fn every_setup_in_mcp_md_is_valid() {
     let json = blocks("json");
     assert!(json.len() >= 3, "{json:?}");
+    let md = MCP_MD.replace("\r\n", "\n");
+    for before in md.split("```json\n").take(json.len()) {
+        let said = before.trim_end().lines().last().unwrap_or_default();
+        assert!(
+            said.contains(" `") && said.ends_with("`:"),
+            "a JSON block is not named in the line above it: {said}"
+        );
+    }
     for b in &json {
-        let (first, rest) = b.split_once('\n').unwrap();
-        assert!(first.starts_with("// "), "{b}");
-        let v: Value = serde_json::from_str(rest).unwrap_or_else(|e| panic!("{e}: {b}"));
+        assert!(
+            b.starts_with('{'),
+            "a JSON block is pure JSON, with no comment line: {b}"
+        );
+        let v: Value = serde_json::from_str(b).unwrap_or_else(|e| panic!("{e}: {b}"));
         let entry = &v["mcpServers"]["burrow"];
         if let Some(args) = entry["args"].as_array() {
             let mut line = vec!["burrow".to_string()];

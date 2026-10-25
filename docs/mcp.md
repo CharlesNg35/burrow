@@ -31,10 +31,9 @@ command = "burrow"
 args = ["mcp", "-c", "/home/me/ops-laptop.yaml"]
 ```
 
-Cursor:
+Cursor, in `~/.cursor/mcp.json`:
 
 ```json
-// ~/.cursor/mcp.json
 {
   "mcpServers": {
     "burrow": {
@@ -45,10 +44,9 @@ Cursor:
 }
 ```
 
-Claude Desktop takes the same entry as Cursor:
+Claude Desktop takes the same entry as Cursor, in `claude_desktop_config.json`:
 
 ```json
-// claude_desktop_config.json
 {
   "mcpServers": {
     "burrow": {
@@ -129,8 +127,9 @@ bearer_token_env_var = "BURROW_MCP_TOKEN"
 
 Codex reads the token from `BURROW_MCP_TOKEN`, so it stays out of the file: `--print-config codex` also prints the `export BURROW_MCP_TOKEN=...` line for the shell that starts Codex.
 
+Cursor, in `~/.cursor/mcp.json`:
+
 ```json
-// ~/.cursor/mcp.json
 {
   "mcpServers": {
     "burrow": {
