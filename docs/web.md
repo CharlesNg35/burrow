@@ -151,6 +151,7 @@ On port 80, passthrough names get `404`: burrow cannot redirect a site whose HTT
 
 | Page | What it covers |
 | --- | --- |
+| [How it works](web/how-it-works.md) | what burrow does with a connection and a request, step by step, in the order the code runs |
 | [Certificates](web/certificates.md) | your own files, Let's Encrypt, DNS checks and shared wildcards, when a certificate fails |
 | [Paths and redirects](web/routing.md) | several apps on one name, how a path is read, redirects |
 | [Headers, limits and pages](web/headers-limits-pages.md) | header rules, upload limits, timeouts, error pages, HTTPS to the app |

@@ -1,5 +1,7 @@
 # The tunnel on the web ports
 
+In [How it works](how-it-works.md): the tunnel takes its name in [step 1](how-it-works.md#1-a-connection-arrives-on-the-https-port), its path in [step 2](how-it-works.md#2-a-request-is-answered), and port 80 in [step 6](how-it-works.md#6-port-80).
+
 ## The tunnel on the same port
 
 burrow clients can connect over `wss://` on the same port as the websites, to a name of their own:

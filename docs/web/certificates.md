@@ -1,5 +1,7 @@
 # Certificates
 
+In [How it works](how-it-works.md): [step 3](how-it-works.md#3-which-certificate-a-name-gets) picks the certificate, [step 4](how-it-works.md#4-lets-encrypt-checks-and-renewal) gets it from Let's Encrypt.
+
 For each name of an HTTPS site, burrow takes the first that applies:
 
 1. the site's own `tls: {cert, key}`;

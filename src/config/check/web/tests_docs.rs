@@ -6,6 +6,10 @@ const WEB_MD: &str = include_str!("../../../../docs/web.md");
 const WEB_PAGES: &[(&str, &str)] = &[
     ("web.md", WEB_MD),
     (
+        "web/how-it-works.md",
+        include_str!("../../../../docs/web/how-it-works.md"),
+    ),
+    (
         "web/certificates.md",
         include_str!("../../../../docs/web/certificates.md"),
     ),
@@ -263,6 +267,16 @@ fn every_page_in_docs_web_is_checked() {
         .collect();
     checked.sort();
     assert_eq!(pages, checked);
+}
+
+#[test]
+fn every_topic_page_links_to_how_it_works() {
+    let missing: Vec<&str> = WEB_PAGES
+        .iter()
+        .filter(|(name, md)| *name != "web/how-it-works.md" && !md.contains("how-it-works.md"))
+        .map(|(name, _)| *name)
+        .collect();
+    assert!(missing.is_empty(), "{missing:?}");
 }
 
 #[test]

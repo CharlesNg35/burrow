@@ -1,5 +1,7 @@
 # Behind a proxy, a load balancer or a home router
 
+In [How it works](how-it-works.md): the PROXY header is read in [step 1](how-it-works.md#1-a-connection-arrives-on-the-https-port), `X-Forwarded-*` is believed in [step 2](how-it-works.md#2-a-request-is-answered) and [step 6](how-it-works.md#6-port-80).
+
 ## Behind Cloudflare or a load balancer
 
 ```yaml

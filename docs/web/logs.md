@@ -1,5 +1,7 @@
 # Access log and request ids
 
+In [How it works](how-it-works.md): the request id and the log line belong to [step 2](how-it-works.md#2-a-request-is-answered).
+
 ```yaml
 # server.yaml
 web:

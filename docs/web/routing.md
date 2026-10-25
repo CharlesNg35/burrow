@@ -1,5 +1,7 @@
 # Paths and redirects
 
+In [How it works](how-it-works.md): routes are picked in [step 2](how-it-works.md#2-a-request-is-answered), and on port 80 in [step 6](how-it-works.md#6-port-80).
+
 ## Paths: several apps on one name
 
 One name can be split between services by `paths`. The longest matching path wins, and a path covers itself and everything below it: `/api` matches `/api` and `/api/users`, never `/apix`. A service without `paths` takes everything the others leave.

@@ -1,5 +1,7 @@
 # Health checks for websites
 
+In [How it works](how-it-works.md): a service whose clients are all down answers `503` in [step 2](how-it-works.md#2-a-request-is-answered).
+
 `health_check` (see [services.md](../services.md)) checks through each client that the app answers. For a website, `path` makes it ask the app for a page instead of only opening a connection:
 
 ```yaml

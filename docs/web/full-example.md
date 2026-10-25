@@ -1,5 +1,7 @@
 # A full example and what validate checks
 
+Each part of the example goes through the steps of [How it works](how-it-works.md); [step 5](how-it-works.md#5-saving-a-config) says what happens when you save it.
+
 ## A full example
 
 Everything above in one `server.yaml`: the tunnel, the web settings and many kinds of website.

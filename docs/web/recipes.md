@@ -1,5 +1,7 @@
 # Recipes
 
+Each recipe goes through the steps of [How it works](how-it-works.md).
+
 ## Examples
 
 Each example is the web part of a `server.yaml`: add it to the `listen:` and `clients:` of [A first website](../web.md#a-first-website) (`office` is a second client, written like `home`). Every one of them is checked by burrow's tests.

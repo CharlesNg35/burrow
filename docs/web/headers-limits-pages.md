@@ -1,5 +1,7 @@
 # Headers, limits and pages
 
+In [How it works](how-it-works.md): [step 2](how-it-works.md#2-a-request-is-answered) says when each key applies and which page answers.
+
 These keys work under `web:` for every site, and in a service's `web:` for that site; the site's own value wins.
 
 ```yaml

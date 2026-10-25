@@ -1,5 +1,7 @@
 # HTTP/2 and gRPC
 
+In [How it works](how-it-works.md): HTTP/2 is agreed in [step 1](how-it-works.md#1-a-connection-arrives-on-the-https-port); [step 2](how-it-works.md#2-a-request-is-answered) says what happens when a stream fails.
+
 ## HTTP/2
 
 Browsers use HTTP/2 on `web.https` when they can, which loads pages with many parts faster; others keep HTTP/1.1. burrow talks to the app over HTTP/1.1 either way, unless the site says `target_http2`. `web.http2: false` keeps every site on HTTP/1.1, for a client that breaks with HTTP/2. `burrow validate` shows which is on: `web: https [::]:443 (HTTP/2 and HTTP/1.1, IPv4 and IPv6)`.
