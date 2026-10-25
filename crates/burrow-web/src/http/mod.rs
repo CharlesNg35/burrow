@@ -3,6 +3,7 @@ pub mod forwarded;
 pub mod headers;
 pub mod host;
 mod idle;
+pub mod limit;
 pub mod pages;
 mod pipeline;
 pub mod redirect;
