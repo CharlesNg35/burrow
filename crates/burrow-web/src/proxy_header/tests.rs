@@ -101,7 +101,7 @@ fn the_parsing_table() {
         ),
         (
             "v2 over the cap",
-            v2(1, 0x11, &vec![0; 600]),
+            v2(1, 0x11, &vec![0; 2100]),
             Parsed::Invalid,
         ),
     ];
@@ -144,4 +144,65 @@ async fn a_missing_or_slow_header_is_refused() {
         .err()
         .unwrap();
     assert_eq!(e.kind(), io::ErrorKind::TimedOut);
+}
+
+fn with_noop_tlv(total: usize) -> Vec<u8> {
+    let mut block = ipv4_block();
+    let pad = total - 16 - block.len() - 3;
+    block.push(0x04);
+    block.extend_from_slice(&(pad as u16).to_be_bytes());
+    block.extend(std::iter::repeat_n(0u8, pad));
+    v2(1, 0x11, &block)
+}
+
+#[test]
+fn a_v1_line_may_take_107_bytes_and_no_more() {
+    let line = b"PROXY TCP4 198.51.100.7 10.0.0.1 40000 443".to_vec();
+    let exact = b"PROXY UNKNOWN ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff 65535 65535\r\n";
+    assert_eq!(exact.len(), MAX_V1);
+    assert_eq!(
+        parse(exact),
+        Parsed::Header {
+            len: MAX_V1,
+            source: None
+        }
+    );
+    let mut long = exact[..MAX_V1 - 2].to_vec();
+    long.extend_from_slice(b"5 ");
+    assert_eq!(parse(&long), Parsed::Invalid);
+    assert_eq!(parse(&line), Parsed::More);
+}
+
+#[test]
+fn the_v2_length_is_read_from_bytes_14_and_15_and_capped_before_the_body_arrives() {
+    let at_cap = with_noop_tlv(MAX_HEADER);
+    assert_eq!(at_cap.len(), MAX_HEADER);
+    assert_eq!(
+        parse(&at_cap),
+        Parsed::Header {
+            len: MAX_HEADER,
+            source: Some("198.51.100.7:40000".parse().unwrap())
+        }
+    );
+    assert_eq!(parse(&at_cap[..MAX_HEADER - 1]), Parsed::More);
+    let over = with_noop_tlv(MAX_HEADER + 1);
+    assert_eq!(parse(&over[..16]), Parsed::Invalid);
+    let mut fixed = over[..16].to_vec();
+    fixed[14] = 0;
+    fixed[15] = 12;
+    assert_eq!(parse(&fixed), Parsed::More);
+}
+
+#[tokio::test]
+async fn a_header_over_the_cap_is_refused_without_waiting_for_its_body() {
+    let over = with_noop_tlv(MAX_HEADER + 1);
+    let (mut client, mut server) = tokio::io::duplex(64);
+    tokio::io::AsyncWriteExt::write_all(&mut client, &over[..16])
+        .await
+        .unwrap();
+    let e = read_proxy_header(&mut server, Duration::from_secs(5))
+        .await
+        .err()
+        .unwrap();
+    assert_eq!(e.kind(), io::ErrorKind::InvalidData);
 }

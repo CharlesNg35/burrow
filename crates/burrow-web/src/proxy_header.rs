@@ -5,8 +5,17 @@ use std::time::Duration;
 use ppp::{HeaderResult, PartialResult};
 use tokio::io::{AsyncRead, AsyncReadExt};
 
-pub const MAX_HEADER: usize = 536;
+pub const MAX_HEADER: usize = 2048;
 pub const MAX_V1: usize = 107;
+const V2_SIGNATURE: &[u8; 12] = b"\r\n\r\n\0\r\nQUIT\n";
+const V2_FIXED: usize = 16;
+
+fn v2_total(buf: &[u8]) -> Option<usize> {
+    if buf.len() < V2_FIXED || !buf.starts_with(V2_SIGNATURE) {
+        return None;
+    }
+    Some(V2_FIXED + usize::from(u16::from_be_bytes([buf[14], buf[15]])))
+}
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Parsed {
@@ -19,6 +28,11 @@ pub enum Parsed {
 }
 
 pub fn parse(buf: &[u8]) -> Parsed {
+    match v2_total(buf) {
+        Some(total) if total > MAX_HEADER => return Parsed::Invalid,
+        Some(total) if buf.len() < total => return Parsed::More,
+        _ => {}
+    }
     let header = HeaderResult::parse(buf);
     if header.is_incomplete() {
         let v1_line_done = buf.starts_with(b"PROXY")
