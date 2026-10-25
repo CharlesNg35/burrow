@@ -117,11 +117,11 @@ fn by_sem(fc: FieldCtx, sem: &SemType) -> AnyView {
             },
         ),
         SemType::ServerAddress => crate::addr::server_editor(fc),
+        SemType::Upload(c) => crate::uploads::upload_editor(fc, c.kind.clone()),
         SemType::Text(_)
         | SemType::Host
         | SemType::HostName(_)
         | SemType::Path(_)
-        | SemType::Upload(_)
         | SemType::UrlPath
         | SemType::Name(_)
         | SemType::Ip(_)

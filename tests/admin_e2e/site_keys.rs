@@ -66,12 +66,21 @@ async fn a_header_and_a_path(c: &mut Ctx) {
     c.ui.fill(value, "DENY").await;
     super::edits::click_js(
         c,
+        "[data-schema='services/*/web/target_tls'] input[value=own-ca]",
+    )
+    .await;
+    c.ui.wait_for(
+        "[data-schema='services/*/web/target_tls'] [data-testid=file-upload][data-kind=ca]",
+        SECS,
+    )
+    .await;
+    both_widths(c, "site-target-own-ca").await;
+    super::edits::click_js(
+        c,
         "[data-schema='services/*/web/target_tls'] input[value=unchecked]",
     )
     .await;
     wait_checked(c).await;
-    let why = c.ui.text("[data-testid=target-tls-reason]").await;
-    assert!(why.contains("chosen in server.yaml"), "{why}");
     both_widths(c, "site-header-added").await;
     open_review(c, "site-header-review").await;
     applied(c, "site-header-applied").await;

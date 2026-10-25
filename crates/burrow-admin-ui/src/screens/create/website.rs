@@ -14,7 +14,6 @@ use crate::store::store;
 use super::{name_problem, taken};
 
 const AUTO: &str = "auto";
-const PASSTHROUGH: &str = "passthrough";
 const OFF: &str = "off";
 const TERMS: &str = "https://letsencrypt.org/repository/";
 
@@ -122,15 +121,14 @@ fn path(names: &[String], client: &str, target: &str, server: &str) -> PathData 
 }
 
 fn tls_options(p: Ports) -> Vec<(String, String, bool)> {
-    vec![
-        (AUTO.into(), "Automatic".into(), !p.https),
-        (
-            PASSTHROUGH.into(),
-            "The app does its own HTTPS".into(),
-            !p.https,
-        ),
-        (OFF.into(), "Off: plain HTTP".into(), !p.http),
-    ]
+    use burrow_config::admin_schema::AdminEnum;
+    burrow_config::TlsMode::options()
+        .into_iter()
+        .map(|o| {
+            let off = if o.value == OFF { !p.http } else { !p.https };
+            (o.value, o.label, off)
+        })
+        .collect()
 }
 
 fn clients() -> Vec<ComboOption> {

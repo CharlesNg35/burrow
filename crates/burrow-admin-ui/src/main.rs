@@ -18,6 +18,7 @@ mod route;
 mod screens;
 mod secrets;
 mod store;
+mod uploads;
 
 fn main() {
     console_error_panic_hook::set_once();

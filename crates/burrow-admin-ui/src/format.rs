@@ -123,6 +123,11 @@ pub fn relative(unix: u64) -> String {
     }
 }
 
+pub fn day(unix: u64) -> String {
+    let d = js_sys::Date::new(&wasm_bindgen::JsValue::from_f64(unix as f64 * 1000.0));
+    String::from(d.to_iso_string()).chars().take(10).collect()
+}
+
 pub fn clock(ms: f64) -> String {
     if ms <= 0.0 {
         return "--:--:--".into();

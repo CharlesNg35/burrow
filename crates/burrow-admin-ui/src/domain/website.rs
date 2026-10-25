@@ -15,9 +15,7 @@ use super::FieldCtx;
 const AUTO: &str = "auto";
 const FILES: &str = "files";
 const OFF: &str = "off";
-const FILES_LABEL: &str = "My own certificate file";
-const FILES_IN_THE_FILE: &str =
-    "My own certificate file is chosen in server.yaml (burrow edit), where the files are named";
+const FILES_LABEL: &str = "My own certificate";
 
 pub(super) fn host_item(u: &UnionC) -> Option<Node> {
     u.branches
@@ -61,32 +59,15 @@ fn mode_of(tls: Option<&Value>) -> String {
     }
 }
 
-fn files_view(files: ObjectC, tls: Memo<Option<Value>>) -> impl IntoView {
+fn files_view(fc: FieldCtx, files: ObjectC, tls: Memo<Option<Value>>) -> impl IntoView {
     move || {
-        let tls = tls.get();
-        let rows = files
-            .fields
-            .iter()
-            .map(|f| {
-                let shown = tls
-                    .as_ref()
-                    .and_then(|t| t.get(&f.key))
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .to_string();
-                view! {
-                    <p class="flex flex-wrap gap-x-2 text-[13px]">
-                        <span class="font-medium">{f.node.label.clone()}</span>
-                        <span class="font-mono" data-locked="">{shown}</span>
-                    </p>
-                }
-            })
-            .collect_view();
-        (mode_of(tls.as_ref()) == FILES).then(|| view! {
-            <div class="mt-2 rounded-input border border-border bg-surface-2 px-2.5 py-2" data-testid="website-files">
-                {rows}
-                <p class="text-xs text-text-muted">"Change the certificate files in server.yaml (burrow edit)."</p>
-            </div>
+        let mode = mode_of(tls.get().as_ref());
+        (mode == FILES).then(|| {
+            view! {
+                <div class="mt-2 rounded-input border border-border bg-surface-2 px-2.5 py-2" data-testid="website-files">
+                    {crate::uploads::certificate_source(&fc, &files)}
+                </div>
+            }
         })
     }
 }
@@ -101,35 +82,23 @@ pub(super) fn tls_editor(fc: FieldCtx) -> AnyView {
     let value = Memo::new(move |_| e.value(&path));
     let mode = Signal::derive(move || mode_of(value.get().as_ref()));
     let Choices { options, files } = choices(Some(&fc.node));
-    let has_files = files.is_some();
-    let off = Signal::derive(move || {
-        if mode.get() == FILES {
-            Vec::new()
-        } else {
-            vec![FILES.to_string()]
-        }
-    });
     let p2 = fc.path.clone();
     let touched = fc.touched;
     let on_mode = move |m: String| {
-        if m != FILES {
-            touched.set(true);
-            e.set(&p2, (m != AUTO).then(|| Value::String(m)));
-        }
+        touched.set(true);
+        let v = match m.as_str() {
+            AUTO => None,
+            FILES if mode_of(e.value(&p2).as_ref()) == FILES => return,
+            FILES => Some(Value::Object(Default::default())),
+            _ => Some(Value::String(m)),
+        };
+        e.set(&p2, v);
     };
-    let reason = move || {
-        (has_files && mode.get() != FILES).then(|| view! {
-            <p class="mt-1.5 flex items-center gap-1.5 text-xs text-text-muted" data-testid="website-tls-reason">
-                <burrow_ui_kit::Icon name="lock" small=true/>
-                {FILES_IN_THE_FILE}
-            </p>
-        })
-    };
+    let fc2 = fc.clone();
     view! {
         <div id=fc.id.clone() data-testid="website-tls">
-            <Segmented name=format!("{}-choice", fc.id) options=options value=mode label=fc.node.label.clone() off=off on_change=on_mode/>
-            {reason}
-            {files.map(|f| files_view(f, value))}
+            <Segmented name=format!("{}-choice", fc.id) options=options value=mode label=fc.node.label.clone() on_change=on_mode/>
+            {files.map(|f| files_view(fc2, f, value))}
         </div>
     }
     .into_any()

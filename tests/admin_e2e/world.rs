@@ -193,6 +193,7 @@ impl World {
             .current_dir(self.dir.path())
             .env("BURROW_INSTANCE_DIR", self.file(&format!("inst-{name}")))
             .env("BURROW_ADMIN_SESSION_DIR", self.file("admin-sessions"))
+            .env("XDG_STATE_HOME", self.file("state"))
             .stdin(Stdio::null())
             .stdout(out)
             .stderr(err);

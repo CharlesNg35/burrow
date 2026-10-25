@@ -120,7 +120,7 @@ pub fn Settings() -> impl IntoView {
         let skip: Vec<&str> = skip.iter().map(String::as_str).collect();
         let cards = settings_cards(&schema.root, &skip);
         Some(
-            view! { <div class="max-w-[1120px]">{cards.iter().map(settings_card).collect_view()}</div> },
+            view! { <div class="max-w-[1120px]">{cards.iter().map(settings_card).collect_view()}{super::local_ca::local_ca_card()}</div> },
         )
     };
     let e = s.edit;

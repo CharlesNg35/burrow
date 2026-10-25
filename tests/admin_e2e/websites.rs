@@ -124,6 +124,38 @@ async fn plain_with_the_http_port(c: &mut Ctx) {
     );
 }
 
+async fn own_certificate(c: &mut Ctx) {
+    click_js(c, "[data-schema='services/*/web/tls'] input[value=files]").await;
+    let input = "[data-schema='services/*/web/tls'] [data-testid=upload-input]";
+    c.ui.wait_for(input, SECS).await;
+    both_widths(c, "nas-own-certificate").await;
+    let key = rcgen::KeyPair::generate().expect("a key");
+    let names = ["nas.example.com", "*.nas.example.com", "files.example.com"];
+    let cert = rcgen::CertificateParams::new(names.map(String::from).to_vec())
+        .expect("params")
+        .self_signed(&key)
+        .expect("a certificate");
+    c.ui.upload_file(input, "chain-only.pem", &cert.pem()).await;
+    c.ui.wait_for(
+        "[data-schema='services/*/web/tls'] [data-testid=upload-note]",
+        SECS,
+    )
+    .await;
+    both_widths(c, "nas-upload-refused").await;
+    let pem = format!("{}{}", cert.pem(), key.serialize_pem());
+    c.ui.upload_file(input, "files.pem", &pem).await;
+    c.ui.wait_text(
+        "[data-schema='services/*/web/tls'] [data-testid=upload-set]",
+        "files.example.com",
+        SECS,
+    )
+    .await;
+    wait_checked(c).await;
+    let shown: String = c.ui.eval("document.body.innerText").await;
+    assert!(!shown.contains("PRIVATE KEY"), "the key is never shown");
+    both_widths(c, "nas-uploaded").await;
+}
+
 fn websites(c: &mut Ctx) -> Flow<'_> {
     Box::pin(async move {
         open(c, "ops").await;
@@ -167,19 +199,7 @@ fn websites(c: &mut Ctx) -> Flow<'_> {
             "{err}"
         );
         both_widths(c, "nas-plain-http-needs-the-port").await;
-        let files_off: bool = c
-            .ui
-            .eval("(() => { const i = document.querySelector(\"[data-schema='services/*/web/tls'] input[value=files]\"); return !!i && i.disabled; })()")
-            .await;
-        assert!(files_off, "own certificate files are set in server.yaml");
-        let why =
-            c.ui.text("[data-schema='services/*/web/tls'] [data-testid=website-tls-reason]")
-                .await;
-        assert!(
-            why.contains("My own certificate file is chosen in server.yaml (burrow edit)"),
-            "the greyed choice says why: {why}"
-        );
-        both_widths(c, "nas-files-reason").await;
+        own_certificate(c).await;
         click_js(
             c,
             "[data-schema='services/*/web/tls'] input[value=passthrough]",
@@ -282,6 +302,38 @@ fn certificates(c: &mut Ctx) -> Flow<'_> {
 #[test]
 fn certificates_are_listed_on_the_overview() {
     run("certificates", opts(), false, certificates);
+}
+
+fn local_ca(c: &mut Ctx) -> Flow<'_> {
+    Box::pin(async move {
+        open(c, "ops").await;
+        c.world.hand_edit(|t| {
+            format!(
+                "{t}  printer:\n    client: home\n    target: 8443\n    web:\n      hosts: [printer.lan]\n      tls: internal\n"
+            )
+        });
+        c.ui.nav("/settings").await;
+        let print =
+            c.ui.wait_text(
+                "[data-testid=local-ca-fingerprint]",
+                ":",
+                std::time::Duration::from_secs(20),
+            )
+            .await;
+        assert_eq!(print.split(':').count(), 32, "{print}");
+        let sites = c.ui.text("[data-testid=local-ca-sites]").await;
+        assert!(sites.contains("printer"), "{sites}");
+        c.ui.wait_for("[data-testid=local-ca-download]", SECS).await;
+        c.ui.eval::<bool>("(() => { document.querySelector('[data-card=local_ca]').scrollIntoView(); return true; })()")
+            .await;
+        both_widths(c, "settings-local-ca").await;
+        c.ui.assert_no_errors();
+    })
+}
+
+#[test]
+fn the_local_ca_shows_in_settings_with_its_fingerprint() {
+    run("local-ca", opts(), false, local_ca);
 }
 
 fn web_off(c: &mut Ctx) -> Flow<'_> {

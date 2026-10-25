@@ -505,6 +505,7 @@ dependencies = [
  "js-sys",
  "leptos",
  "wasm-bindgen",
+ "wasm-bindgen-futures",
  "web-sys",
 ]
 

@@ -331,6 +331,19 @@ impl Ui {
             .await;
     }
 
+    pub async fn upload_file(&self, css: &str, name: &str, text: &str) {
+        self.wait_for(css, Duration::from_secs(10)).await;
+        let ok: bool = self
+            .eval(&format!(
+                "(() => {{ const i = document.querySelector({}); const dt = new DataTransfer(); dt.items.add(new File([{}], {}, {{ type: 'application/x-pem-file' }})); i.files = dt.files; i.dispatchEvent(new Event('change', {{ bubbles: true }})); return true; }})()",
+                js_str(css),
+                js_str(text),
+                js_str(name)
+            ))
+            .await;
+        assert!(ok, "could not choose a file in {css}");
+    }
+
     pub async fn select(&self, css: &str, value: &str) {
         self.wait_for(css, Duration::from_secs(10)).await;
         let ok: bool = self
