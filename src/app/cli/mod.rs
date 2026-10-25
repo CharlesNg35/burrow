@@ -1,4 +1,5 @@
 mod args;
+mod ca;
 mod service;
 
 use std::path::PathBuf;
@@ -7,6 +8,7 @@ pub use args::{
     AdminArgs, ClientConfigArgs, EditArgs, ExportArgs, InitArgs, RunArgs, ServerArgs, StatusArgs,
     UpdateArgs, ValidateArgs, VisitArgs, VisitorConfigArgs, parse_duration,
 };
+pub use ca::{CaAction, CaExportArgs};
 use clap::{Parser, Subcommand, ValueEnum};
 pub use service::{
     ServiceAction, ServiceControlArgs, ServiceInstallArgs, ServiceLogsArgs, ServiceName,
@@ -137,6 +139,11 @@ pub enum Command {
     Service {
         #[command(subcommand)]
         action: ServiceAction,
+    },
+    #[command(about = "Burrow's local certificate authority for tls: internal sites")]
+    Ca {
+        #[command(subcommand)]
+        action: CaAction,
     },
 }
 

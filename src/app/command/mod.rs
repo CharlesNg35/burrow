@@ -1,3 +1,4 @@
+mod ca;
 #[cfg(feature = "web")]
 mod passwd;
 mod pick;
@@ -254,6 +255,9 @@ fn run(cli: Cli) -> Result<u8, Failure> {
             &mut std::io::stdout().lock(),
         ),
         Command::Status(a) => status(a),
+        Command::Ca {
+            action: crate::app::cli::CaAction::Export(a),
+        } => ca::export(&a, &mut std::io::stdout().lock()),
         Command::Update(a) => {
             let mut out = std::io::stdout().lock();
             crate::update::run(
