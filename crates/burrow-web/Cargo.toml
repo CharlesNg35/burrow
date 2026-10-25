@@ -17,6 +17,7 @@ bcrypt = { version = "0.19.3", default-features = false, features = ["std", "zer
 burrow-syntax = { path = "../burrow-syntax" }
 bytes = "1.12.1"
 governor = { version = "0.10.4", default-features = false, features = ["std"] }
+h2 = "0.4.20"
 hickory-proto = { version = "0.26.3", default-features = false, features = ["std", "dnssec-ring"] }
 http = "1.5.0"
 http-body-util = "0.1.5"
@@ -47,7 +48,6 @@ ipconfig = { version = "0.3.4", default-features = false }
 [dev-dependencies]
 flate2 = "1.1.10"
 futures-util = { version = "0.3.34", default-features = false, features = ["sink"] }
-h2 = "0.4.20"
 tempfile = "3.27.0"
 time = "0.3.55"
 tokio = { version = "1.53.3", features = ["rt-multi-thread", "test-util", "process"] }

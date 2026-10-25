@@ -83,7 +83,21 @@ impl Answer {
     }
 }
 
-async fn finish(resp: h2::client::ResponseFuture) -> Answer {
+fn grpc_answer(what: &str, status: u16, headers: &http::HeaderMap, data: &[u8]) -> Vec<Vec<u8>> {
+    let kind = headers.get("content-type").and_then(|v| v.to_str().ok());
+    assert!(
+        kind.is_some_and(|k| k.starts_with("application/grpc")),
+        "{what}: not a gRPC answer: status {status}, content-type {kind:?}, body starts {:?}",
+        head_of(data)
+    );
+    messages(data).unwrap_or_else(|e| panic!("{what}: status {status}: {e}"))
+}
+
+fn frames(what: &str, data: &[u8]) -> Vec<Vec<u8>> {
+    messages(data).unwrap_or_else(|e| panic!("{what}: {e}"))
+}
+
+async fn finish(what: &str, resp: h2::client::ResponseFuture) -> Answer {
     let resp = tokio::time::timeout(Duration::from_secs(20), resp)
         .await
         .expect("an answer in time")
@@ -98,11 +112,12 @@ async fn finish(resp: h2::client::ResponseFuture) -> Answer {
         data.extend_from_slice(&chunk);
     }
     let trailers = body.trailers().await.unwrap().unwrap_or_default();
+    let replies = grpc_answer(what, status, &headers, &data);
     Answer {
         status,
         headers,
         trailers,
-        replies: messages(&data),
+        replies,
     }
 }
 
@@ -116,7 +131,7 @@ async fn unary(
     let mut c = c.clone().ready().await.unwrap();
     let (resp, mut tx) = c.send_request(grpc(host, method, extra), false).unwrap();
     tx.send_data(Bytes::from(message(proto)), true).unwrap();
-    finish(resp).await
+    finish(&format!("{host} {method}"), resp).await
 }
 
 async fn calls_work(addr: SocketAddr, host: &str) {
@@ -160,7 +175,7 @@ async fn calls_work(addr: SocketAddr, host: &str) {
             .unwrap();
     }
     tx.send_data(Bytes::new(), true).unwrap();
-    let a = finish(resp).await;
+    let a = finish(&format!("{host} StreamingInputCall"), resp).await;
     assert_eq!(a.grpc_status(), Some("0"));
     assert_eq!(a.replies, [number(1, 60)], "{host}: client stream");
 }
@@ -178,6 +193,8 @@ async fn streams_flow(addr: SocketAddr, host: &str) {
     )
     .unwrap();
     let resp = resp.await.unwrap();
+    let what = format!("{host} StreamingOutputCall");
+    grpc_answer(&what, resp.status().as_u16(), resp.headers(), &[]);
     let mut body = resp.into_body();
     let first = body.data().await.unwrap().unwrap();
     let _ = body.flow_control().release_capacity(first.len());
@@ -198,12 +215,15 @@ async fn streams_flow(addr: SocketAddr, host: &str) {
         .unwrap();
     tx.send_data(Bytes::from(message(&output_request(&[4], 0))), false)
         .unwrap();
-    let mut body = resp.await.unwrap().into_body();
+    let resp = resp.await.unwrap();
+    let what = format!("{host} FullDuplexCall");
+    grpc_answer(&what, resp.status().as_u16(), resp.headers(), &[]);
+    let mut body = resp.into_body();
     for round in 0..3 {
         let got = body.data().await.unwrap().unwrap();
         let _ = body.flow_control().release_capacity(got.len());
         assert_eq!(
-            messages(&got).len(),
+            frames(&what, &got).len(),
             1,
             "{host}: reply {round} before the next send"
         );
@@ -220,12 +240,30 @@ async fn deadlines_pass(addr: SocketAddr, host: &str) {
     let c = client(addr, host).await;
     let mut s = c.clone().ready().await.unwrap();
     let req = grpc(host, "FullDuplexCall", &[("grpc-timeout", "300m")]);
+    let started = Instant::now();
     let (resp, _tx) = s.send_request(req, false).unwrap();
-    let a = finish(resp).await;
-    assert_eq!(
-        a.grpc_status(),
-        Some("4"),
-        "{host}: grpc-timeout reached the app (DEADLINE_EXCEEDED)"
+    let ended = tokio::time::timeout(Duration::from_secs(10), resp)
+        .await
+        .expect("the app ends the call at its deadline");
+    let took = started.elapsed();
+    match ended {
+        Err(e) => assert_eq!(
+            e.reason(),
+            Some(h2::Reason::CANCEL),
+            "{host}: the app's reset at the deadline reaches the visitor as is: {e:?}"
+        ),
+        Ok(resp) => {
+            let status = resp.status().as_u16();
+            let headers = resp.headers().clone();
+            assert!(
+                headers.get("grpc-status").is_some_and(|v| v == "4"),
+                "{host}: DEADLINE_EXCEEDED, got status {status} {headers:?}"
+            );
+        }
+    }
+    assert!(
+        took >= Duration::from_millis(250) && took < Duration::from_secs(5),
+        "{host}: grpc-timeout reached the app, which ended the call after {took:?}"
     );
 }
 

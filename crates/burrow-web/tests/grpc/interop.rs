@@ -95,14 +95,26 @@ pub fn message(proto: &[u8]) -> Vec<u8> {
     out
 }
 
-pub fn messages(mut data: &[u8]) -> Vec<Vec<u8>> {
+pub fn head_of(data: &[u8]) -> String {
+    String::from_utf8_lossy(&data[..data.len().min(80)]).into_owned()
+}
+
+pub fn messages(mut data: &[u8]) -> Result<Vec<Vec<u8>>, String> {
+    let all = data;
     let mut out = Vec::new();
-    while data.len() >= 5 {
+    while !data.is_empty() {
+        let bad = |why: &str| format!("{why} in {} bytes starting {:?}", all.len(), head_of(all));
+        if data.len() < 5 || data[0] > 1 {
+            return Err(bad("not a gRPC message frame"));
+        }
         let len = usize::try_from(u32::from_be_bytes(data[1..5].try_into().unwrap())).unwrap();
+        if data.len() - 5 < len {
+            return Err(bad("a gRPC message longer than the body"));
+        }
         out.push(data[5..5 + len].to_vec());
         data = &data[5 + len..];
     }
-    out
+    Ok(out)
 }
 
 pub fn status_request(code: u64, text: &str) -> Vec<u8> {
@@ -123,4 +135,17 @@ pub fn output_request(sizes: &[u64], interval_us: u64) -> Vec<u8> {
 
 pub fn input_request(body: usize) -> Vec<u8> {
     field(1, &field(2, &vec![b'p'; body]))
+}
+
+#[test]
+fn a_body_that_is_not_grpc_is_named_with_its_first_bytes() {
+    assert_eq!(messages(&[0, 0, 0, 0, 1, 7]).unwrap(), [vec![7]]);
+    let page = b"<!doctype html>\n<html lang=\"en\">";
+    let e = messages(page).unwrap_err();
+    assert!(
+        e.contains("not a gRPC message frame") && e.contains("<!doctype html>"),
+        "{e}"
+    );
+    let e = messages(&[0, 0, 0, 9, 0, 1]).unwrap_err();
+    assert!(e.contains("longer than the body"), "{e}");
 }

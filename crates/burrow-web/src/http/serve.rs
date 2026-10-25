@@ -1,4 +1,3 @@
-use std::convert::Infallible;
 use std::future::Future;
 use std::net::SocketAddr;
 use std::pin::Pin;
@@ -15,6 +14,7 @@ use tracing::debug;
 use super::idle::{Activity, Busy, Held, Watched};
 use super::stall::Stalls;
 use super::upstream::Upstreams;
+use super::upstream::to_h2::StreamReset;
 use super::{Body, MAX_HEAD, MAX_HEADERS, pipeline};
 use crate::Upstream;
 use crate::io::BoxIo;
@@ -68,7 +68,7 @@ fn service<U: Upstream>(
 ) -> impl hyper::service::Service<
     Request<Incoming>,
     Response = Response<Body>,
-    Error = Infallible,
+    Error = h2::Error,
     Future: Send + 'static,
 > + Clone
 + Send
@@ -79,7 +79,10 @@ fn service<U: Upstream>(
         let busy = conn.activity.enter();
         async move {
             let r = pipeline::handle(&shared, &conn, req).await;
-            Ok::<_, Infallible>(r.map(|b| wrap(&conn, b, busy)))
+            if let Some(StreamReset(reason)) = r.extensions().get::<StreamReset>() {
+                return Err(h2::Error::from(*reason));
+            }
+            Ok(r.map(|b| wrap(&conn, b, busy)))
         }
     })
 }

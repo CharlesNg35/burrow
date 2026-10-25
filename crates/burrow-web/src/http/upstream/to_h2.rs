@@ -12,6 +12,22 @@ use crate::http::site::Hop;
 use crate::http::{Body, BoxError};
 use crate::{Ending, Io, Upstream};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StreamReset(pub h2::Reason);
+
+pub fn app_reset(e: &(dyn std::error::Error + 'static)) -> Option<h2::Reason> {
+    let mut at = Some(e);
+    while let Some(err) = at {
+        if let Some(h2) = err.downcast_ref::<h2::Error>() {
+            return (h2.is_reset() && h2.is_remote())
+                .then(|| h2.reason())
+                .flatten();
+        }
+        at = err.source();
+    }
+    None
+}
+
 fn wants_trailers(h: &HeaderMap) -> bool {
     h.get_all(header::TE)
         .iter()
@@ -88,6 +104,7 @@ pub(crate) async fn forward<U: Upstream>(
     mut req: Request<Body>,
     f: Forward<'_>,
 ) -> Response<Body> {
+    let visitor_h2 = req.version() == Version::HTTP_2;
     let https = matches!(f.site.hop, Hop::Tls(..));
     rewrite_for_h2(&mut req, &f.visitor.host, &f.client, https);
     extras(&mut req, &f);
@@ -114,7 +131,11 @@ pub(crate) async fn forward<U: Upstream>(
         Ok(Err(e)) => {
             debug!(peer = %f.visitor.addr, "web: service \"{service}\" did not answer over HTTP/2: {e}");
             let why = app.ending.as_ref().and_then(Ending::refused);
-            return f.page(why.map_or(Page::BadGateway, refusal_page));
+            let mut page = f.page(why.map_or(Page::BadGateway, refusal_page));
+            if let Some(reason) = app_reset(&e).filter(|_| visitor_h2) {
+                page.extensions_mut().insert(StreamReset(reason));
+            }
+            return page;
         }
         Err(_) => return f.page(Page::Timeout),
     };
@@ -189,5 +210,17 @@ mod tests {
         assert!(!req.headers().contains_key("upgrade"));
         assert!(!req.headers().contains_key("connection"));
         assert_eq!(req.uri(), "http://grpc.example.com/s");
+    }
+
+    #[test]
+    fn only_a_reset_received_from_the_app_carries_its_reason() {
+        let local = h2::Error::from(h2::Reason::CANCEL);
+        assert_eq!(app_reset(&local), None, "not sent by the app");
+        let io = std::io::Error::other("closed");
+        assert_eq!(
+            app_reset(&io),
+            None,
+            "a broken connection keeps the 502 page"
+        );
     }
 }
