@@ -106,6 +106,17 @@ pub enum Command {
     VisitorConfig(VisitorConfigArgs),
     #[command(about = "Print a new random 256-bit secret")]
     Gensecret,
+    #[cfg(feature = "web")]
+    #[command(
+        about = "Ask for a password without showing it and print its hash for a website's basic_auth"
+    )]
+    Passwd {
+        #[arg(
+            value_name = "USER",
+            help = "Print the line as USER: hash, ready for basic_auth"
+        )]
+        user: Option<String>,
+    },
     #[command(about = "Print the JSON Schema of a config file")]
     Schema {
         #[arg(value_enum)]

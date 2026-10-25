@@ -1,3 +1,5 @@
+#[cfg(feature = "web")]
+mod passwd;
 mod pick;
 
 use std::io::{IsTerminal, Write};
@@ -232,6 +234,11 @@ fn run(cli: Cli) -> Result<u8, Failure> {
                 "{}\n",
                 crate::wire::secret::Secret::generate().encode()
             ))?;
+            Ok(0)
+        }
+        #[cfg(feature = "web")]
+        Command::Passwd { user } => {
+            print(&passwd::run(user.as_deref())?)?;
             Ok(0)
         }
         Command::Version => {
