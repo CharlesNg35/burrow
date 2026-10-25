@@ -149,12 +149,15 @@ fn the_full_example_of_web_md_is_pinned_at_what_p2_builds() {
         Vec::<String>::new(),
         "only the machine's low-port warnings"
     );
-    let at = format!("{}/", dir.path().display());
+    let root = dir.path().display().to_string();
     let lines: Vec<String> = crate::config::web_summary::summary(&super::tests::settings(o))
         .unwrap()
         .lines()
         .iter()
-        .map(|l| l.replace(&at, ""))
+        .map(|l| {
+            l.replace(&format!("{root}{}", std::path::MAIN_SEPARATOR), "")
+                .replace(&format!("{root}/"), "")
+        })
         .collect();
     assert_eq!(
         lines,
