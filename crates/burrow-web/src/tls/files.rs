@@ -58,6 +58,12 @@ pub(crate) mod tests {
 
     use super::*;
 
+    pub(crate) fn certified_for(name: &str) -> Arc<CertifiedKey> {
+        let dir = tempfile::tempdir().unwrap();
+        let (c, k) = write_pair(dir.path(), "x", &[name]);
+        load(&c, &k).unwrap()
+    }
+
     pub(crate) fn write_pair(dir: &Path, stem: &str, names: &[&str]) -> (PathBuf, PathBuf) {
         let key = rcgen::KeyPair::generate().unwrap();
         let params =

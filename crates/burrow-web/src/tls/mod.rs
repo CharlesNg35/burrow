@@ -1,4 +1,5 @@
 pub mod acme;
+pub mod client_auth;
 pub mod files;
 mod fixed;
 mod select;

@@ -33,6 +33,12 @@ impl Files {
         if let Some(p) = &site.error_pages {
             self.add(at("error_pages"), p);
         }
+        if let Some(c) = &site.client_auth {
+            self.add(at("client_auth.ca"), &c.ca);
+            if let Some(crl) = &c.crl {
+                self.add(at("client_auth.crl"), crl);
+            }
+        }
     }
 }
 

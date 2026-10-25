@@ -77,7 +77,7 @@ pub struct ForwardAuth {
     pub copy_headers: Vec<HeaderName>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ClientAuth {
     pub ca: PathBuf,
     pub crl: Option<PathBuf>,

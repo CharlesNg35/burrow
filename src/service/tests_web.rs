@@ -124,17 +124,20 @@ fn web_config(root: &str) -> burrow_config::ServerConfig {
             "hosts": ["blog.example.net"],
             "tls": {"cert": at("certs/b.pem"), "key": at("certs/b.key")},
             "error_pages": at("blog-pages"),
-            "target_tls": {"ca": at("certs/app-ca.pem")}
+            "target_tls": {"ca": at("certs/app-ca.pem")},
+            "client_auth": {"ca": at("certs/devices-ca.pem"), "crl": at("certs/devices.crl")}
         }}}
     }))
     .unwrap()
 }
 
-const WEB_FIELDS: [&str; 10] = [
+const WEB_FIELDS: [&str; 12] = [
     "services.blog.web.tls.cert",
     "services.blog.web.tls.key",
     "services.blog.web.target_tls.ca",
     "services.blog.web.error_pages",
+    "services.blog.web.client_auth.ca",
+    "services.blog.web.client_auth.crl",
     "web.certificates[0].cert",
     "web.certificates[0].key",
     "web.error_pages",
@@ -149,7 +152,7 @@ fn every_file_the_web_proxy_reads_is_refused_at_install_when_relative() {
     let files = super::web_files::read(&cfg);
     let fields: Vec<&str> = files.iter().map(|(f, _)| f.as_str()).collect();
     assert_eq!(fields, WEB_FIELDS);
-    assert_eq!(files[8].1, PathBuf::from("cf.token"));
+    assert_eq!(files[10].1, PathBuf::from("cf.token"));
     for (field, path) in &files {
         let refused = super::checks::refuse_relative(&[(field.clone(), path.clone())])
             .expect_err(field)
@@ -179,7 +182,7 @@ fn a_web_file_the_service_account_cannot_read_or_reach_is_reported() {
         );
     }
     let home = super::web_files::read(&web_config("/home/someone/"));
-    let (field, path) = &home[6];
+    let (field, path) = &home[8];
     assert_eq!(field, "web.error_pages");
     assert_eq!(
         Systemd.cannot_use(&m, path).as_deref(),

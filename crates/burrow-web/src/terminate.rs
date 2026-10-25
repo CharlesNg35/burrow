@@ -7,8 +7,10 @@ use tokio_rustls::rustls::server::ResolvesServerCert;
 use tokio_rustls::rustls::{self, ServerConfig};
 use tracing::debug;
 
+use crate::ClientAuth;
 use crate::http::Proto;
 use crate::io::{BoxIo, Prefixed};
+use crate::tls::client_auth::{Verifier, Verifiers};
 use crate::tls::{Certificates, Fixed};
 
 pub const H2: &[u8] = b"h2";
@@ -19,15 +21,30 @@ pub fn protocols(http2: bool) -> &'static [&'static [u8]] {
     if http2 { &[H2, HTTP_1_1] } else { &[HTTP_1_1] }
 }
 
-fn config(resolver: Arc<dyn ResolvesServerCert>, alpn: &[&[u8]]) -> Arc<ServerConfig> {
+fn config(
+    resolver: Arc<dyn ResolvesServerCert>,
+    alpn: &[&[u8]],
+    verifier: Option<Verifier>,
+) -> Arc<ServerConfig> {
     let provider = Arc::new(rustls::crypto::ring::default_provider());
-    let mut c = ServerConfig::builder_with_provider(provider)
+    let versions = ServerConfig::builder_with_provider(provider)
         .with_safe_default_protocol_versions()
-        .expect("ring supports the default TLS versions")
-        .with_no_client_auth()
-        .with_cert_resolver(resolver);
+        .expect("ring supports the default TLS versions");
+    let mut c = match verifier {
+        Some(v) => versions.with_client_cert_verifier(v),
+        None => versions.with_no_client_auth(),
+    }
+    .with_cert_resolver(resolver);
     c.alpn_protocols = alpn.iter().map(|p| p.to_vec()).collect();
     Arc::new(c)
+}
+
+pub(crate) fn site_config(
+    resolver: Arc<dyn ResolvesServerCert>,
+    verifier: Option<Verifier>,
+    http2: bool,
+) -> Arc<ServerConfig> {
+    config(resolver, protocols(http2), verifier)
 }
 
 pub(crate) struct SiteTls {
@@ -39,8 +56,8 @@ impl SiteTls {
     pub(crate) fn new(certs: Arc<dyn Certificates>) -> SiteTls {
         let resolver: Arc<dyn ResolvesServerCert> = certs;
         SiteTls {
-            h1: TlsAcceptor::from(config(resolver.clone(), protocols(false))),
-            h2: TlsAcceptor::from(config(resolver, protocols(true))),
+            h1: TlsAcceptor::from(site_config(resolver.clone(), None, false)),
+            h2: TlsAcceptor::from(site_config(resolver, None, true)),
         }
     }
 
@@ -49,20 +66,32 @@ impl SiteTls {
     }
 }
 
+pub(crate) struct Picked<'a> {
+    pub name: &'a str,
+    pub sni: bool,
+    pub http2: bool,
+    pub client_auth: Option<&'a ClientAuth>,
+}
+
 pub(crate) fn acceptor_for(
     site: &SiteTls,
     certs: &dyn Certificates,
-    (name, sni): (&str, bool),
-    http2: bool,
+    verifiers: &Verifiers,
+    picked: &Picked<'_>,
 ) -> Option<TlsAcceptor> {
-    if sni {
-        return Some(site.shared(http2).clone());
+    let http2 = picked.http2;
+    match (picked.sni, picked.client_auth) {
+        (true, None) => Some(site.shared(http2).clone()),
+        (true, Some(key)) => verifiers.config(key, http2).map(TlsAcceptor::from),
+        (false, key) => {
+            let verifier = match key {
+                Some(k) => Some(verifiers.verifier(k)?),
+                None => None,
+            };
+            let fixed = Arc::new(Fixed::new(certs.certificate(picked.name)?));
+            Some(TlsAcceptor::from(site_config(fixed, verifier, http2)))
+        }
     }
-    let key = certs.certificate(name)?;
-    Some(TlsAcceptor::from(config(
-        Arc::new(Fixed::new(key)),
-        protocols(http2),
-    )))
 }
 
 pub(crate) async fn accept(
@@ -101,7 +130,7 @@ pub(crate) async fn answer_challenge(
     hello: Vec<u8>,
     deadline: Instant,
 ) {
-    let acceptor = TlsAcceptor::from(config(Arc::new(Fixed::new(key)), &[ACME_TLS]));
+    let acceptor = TlsAcceptor::from(config(Arc::new(Fixed::new(key)), &[ACME_TLS], None));
     if let Some((mut tls, _)) = accept(acceptor, Prefixed::new(hello, io), deadline).await {
         let _ =
             tokio::time::timeout_at(deadline, tokio::io::AsyncWriteExt::shutdown(&mut tls)).await;

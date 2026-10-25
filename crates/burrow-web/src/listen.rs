@@ -17,6 +17,8 @@ use crate::permit::{Permit, Permits};
 use crate::proxy_header::read_proxy_header;
 use crate::route::{Action, Kind, Table};
 use crate::terminate::SiteTls;
+use crate::terminate::{Picked, acceptor_for};
+use crate::tls::client_auth::Verifiers;
 use crate::tls::{Certificates, cert_names};
 use crate::{AccessLog, LogFormat, ProxySettings, Timeouts, TunnelConn, Upstream, Visitor};
 
@@ -26,6 +28,7 @@ pub(crate) struct Shared<U> {
     pub(crate) https_port: Option<u16>,
     site_tls: SiteTls,
     http2: AtomicBool,
+    verifiers: Verifiers,
     table: RwLock<Arc<Table>>,
     timing: RwLock<Timeouts>,
     log: RwLock<Option<(Arc<LogFile>, LogFormat)>>,
@@ -61,13 +64,17 @@ impl<U: Upstream> Proxy<U> {
         let http = listeners.http.as_ref().and_then(addr_of);
         let (stop, stopped) = watch::channel(false);
         certs.apply(&settings.certs, &cert_names(&settings)).await;
+        let table = Table::build(&settings);
+        let verifiers = Verifiers::new(certs.clone());
+        verifiers.refresh(table.client_auths());
         let shared = Arc::new(Shared {
             up,
             site_tls: SiteTls::new(certs.clone()),
             http2: AtomicBool::new(settings.http2),
+            verifiers,
             certs,
             https_port: https.map(|a| a.port()),
-            table: RwLock::new(Arc::new(Table::build(&settings))),
+            table: RwLock::new(Arc::new(table)),
             timing: RwLock::new(settings.timeouts),
             log: RwLock::new(None),
             permits: Permits::new(settings.max_pending),
@@ -95,7 +102,9 @@ impl<U: Upstream> Proxy<U> {
             .certs
             .apply(&settings.certs, &cert_names(settings))
             .await;
-        *self.shared.table.write().expect("table lock") = Arc::new(Table::build(settings));
+        let table = Table::build(settings);
+        self.shared.verifiers.refresh(table.client_auths());
+        *self.shared.table.write().expect("table lock") = Arc::new(table);
         *self.shared.timing.write().expect("timing lock") = settings.timeouts;
         self.shared.open_log(settings.access_log.as_ref());
         self.shared.permits.resize(settings.max_pending);
@@ -116,6 +125,19 @@ impl<U: Upstream> Proxy<U> {
 
     pub fn table(&self) -> Arc<Table> {
         self.shared.table()
+    }
+
+    pub fn access_notes(&self) -> Vec<(String, String)> {
+        let table = self.shared.table();
+        let mut out = Vec::new();
+        for (key, note) in self.shared.verifiers.notes(std::time::SystemTime::now()) {
+            for service in table.services_with(&key) {
+                out.push((service.to_string(), note.clone()));
+            }
+        }
+        out.sort();
+        out.dedup();
+        out
     }
 
     pub fn certificates(&self) -> Arc<dyn Certificates> {
@@ -408,12 +430,17 @@ async fn dispatch<U: Upstream>(shared: &Arc<Shared<U>>, seen: Seen, permit: Perm
             crate::tunnel::serve_by_path(shared.up.clone(), &table, &host, conn).await;
         }
         Kind::Http { .. } | Kind::Plain { .. } => {
-            let named = (host.as_str(), sni);
-            let Some(acceptor) = crate::terminate::acceptor_for(
+            let picked = Picked {
+                name: &host,
+                sni,
+                http2: shared.http2(),
+                client_auth: table.client_auth(&host),
+            };
+            let Some(acceptor) = acceptor_for(
                 &shared.site_tls,
                 shared.certs.as_ref(),
-                named,
-                shared.http2(),
+                &shared.verifiers,
+                &picked,
             ) else {
                 debug!(%peer, "web: no certificate for \"{host}\", closing");
                 return;
@@ -485,11 +512,17 @@ async fn start_tunnel<U: Upstream>(
 ) -> Option<Started<U::Permit>> {
     let tunnel_permit = shared.up.tunnel_permit(peer)?;
     drop(permit);
-    let acceptor = crate::terminate::acceptor_for(
+    let picked = Picked {
+        name: host,
+        sni,
+        http2: false,
+        client_auth: None,
+    };
+    let acceptor = acceptor_for(
         &shared.site_tls,
         shared.certs.as_ref(),
-        (host, sni),
-        false,
+        &shared.verifiers,
+        &picked,
     )?;
     match tokio::time::timeout_at(deadline, acceptor.accept(io)).await {
         Ok(Ok(tls)) => Some(Started {

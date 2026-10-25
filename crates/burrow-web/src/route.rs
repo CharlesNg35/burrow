@@ -7,7 +7,9 @@ pub use burrow_syntax::url_path::{on_prefix, path_matches};
 use burrow_syntax::web::wildcard_of;
 
 use crate::http::site::SiteRun;
-use crate::{Forwarding, ProxySettings, Site, SiteTls, TunnelMode, TunnelPort, TunnelSettings};
+use crate::{
+    ClientAuth, Forwarding, ProxySettings, Site, SiteTls, TunnelMode, TunnelPort, TunnelSettings,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Kind {
@@ -36,6 +38,7 @@ pub struct Table {
     hosts: HashMap<String, Kind>,
     plain_tunnel: Option<PlainTunnel>,
     sites: HashMap<String, Arc<SiteRun>>,
+    client_auth: HashMap<String, ClientAuth>,
     pub forwarding: Forwarding,
     pub request_id: bool,
 }
@@ -147,10 +150,17 @@ impl Table {
     pub fn build(settings: &ProxySettings) -> Table {
         let mut hosts = HashMap::new();
         let mut sites = HashMap::new();
+        let mut client_auth = HashMap::new();
         for site in &settings.sites {
             add_site(&mut hosts, site);
-            if !matches!(site.tls, SiteTls::Passthrough) {
-                sites.insert(site.service.clone(), SiteRun::build(site));
+            if matches!(site.tls, SiteTls::Passthrough) {
+                continue;
+            }
+            sites.insert(site.service.clone(), SiteRun::build(site));
+            if let Some(c) = &site.options.client_auth {
+                for host in &site.hosts {
+                    client_auth.insert(host.clone(), c.clone());
+                }
             }
         }
         let named = if settings.https.is_some() {
@@ -192,6 +202,7 @@ impl Table {
             hosts,
             plain_tunnel,
             sites,
+            client_auth,
             forwarding: settings.forwarding.clone(),
             request_id: settings.request_id,
         }
@@ -199,6 +210,24 @@ impl Table {
 
     pub fn site(&self, service: &str) -> Option<&Arc<SiteRun>> {
         self.sites.get(service)
+    }
+
+    pub fn client_auth(&self, name: &str) -> Option<&ClientAuth> {
+        if self.hosts.contains_key(name) {
+            return self.client_auth.get(name);
+        }
+        self.client_auth.get(&wildcard_of(name)?)
+    }
+
+    pub fn services_with<'a>(&'a self, key: &'a ClientAuth) -> impl Iterator<Item = &'a str> {
+        self.sites
+            .values()
+            .filter(move |s| s.options.client_auth.as_ref() == Some(key))
+            .map(|s| s.service.as_str())
+    }
+
+    pub fn client_auths(&self) -> impl Iterator<Item = &ClientAuth> {
+        self.client_auth.values()
     }
 
     pub fn plain_tunnel(&self, host: &str, path: &str) -> Option<&str> {
