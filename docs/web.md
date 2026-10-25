@@ -545,7 +545,7 @@ Where each name gets its certificate:
 
 | Problem | What validate says |
 | --- | --- |
-| a service has `web` but there is no top-level `web` | `services.blog.web: the web proxy is off; add a top-level web: with its port, like web: {https: 443}` |
+| a service has `web` but there is no top-level `web` | `services.blog.web: the web proxy is off; add a top-level web: with its ports, like web: {https: 443, http: 80}` |
 | `web` has no port | `web needs a port: https for HTTPS sites, like https: 443, or http for plain HTTP sites, like http: 80` |
 | a website with `tls: off` but no `web.http` | `services.wiki.web.tls: off serves plain HTTP, but web.http is not set; add http: 80` |
 | an HTTPS choice (`tls: auto`, `passthrough` or `{cert, key}`, or a `challenge`) with no `web.https` | `services.blog.web.tls: auto needs web.https; without web.https every site is plain HTTP. Add https: 443, or remove tls` |

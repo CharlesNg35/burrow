@@ -114,7 +114,7 @@ mod tests {
     fn a_website_with_the_web_proxy_off_says_where_to_turn_it_on() {
         let m = shown(
             WEB_OFF,
-            "services.blog.web: the web proxy is off; add a top-level web: with its port, like web: {https: 443}",
+            "services.blog.web: the web proxy is off; add a top-level web: with its ports, like web: {https: 443, http: 80}",
         );
         assert!(
             m.contains("Settings, Web proxy") && !m.contains("web:"),

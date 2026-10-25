@@ -297,7 +297,7 @@ pub(super) fn check_sites(
                 Diagnostic::error(
                     "web-off",
                     format!(
-                        "services.{name}.web: the web proxy is off; add a top-level web: with its port, like web: {{https: 443}}"
+                        "services.{name}.web: the web proxy is off; add a top-level web: with its ports, like web: {{https: 443, http: 80}}"
                     ),
                 )
                 .at(at)

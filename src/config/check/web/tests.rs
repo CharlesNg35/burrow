@@ -135,7 +135,7 @@ fn a_site_without_a_top_level_web_is_refused() {
     let e = one_error(&format!("listen: 7835\n{NAS}"));
     assert_eq!(
         e,
-        "services.nas.web: the web proxy is off; add a top-level web: with its port, like web: {https: 443}"
+        "services.nas.web: the web proxy is off; add a top-level web: with its ports, like web: {https: 443, http: 80}"
     );
 }
 
@@ -274,7 +274,8 @@ fn an_https_choice_without_web_https_is_refused_per_site() {
     let o = load(
         "listen: 7835\nweb:\n  http: 8080\nservices:\n  a: {client: home, target: 1, web: {hosts: [a.example.com], tls: auto}}\n  b: {client: home, target: 2, web: {hosts: [b.example.com], tls: passthrough}}\n  c: {client: home, target: 3, web: {hosts: [c.example.com], tls: {cert: a.pem, key: a.key}}}\n  d: {client: home, target: 4, web: {hosts: [nas]}}\n  e: {client: home, target: 5, web: {hosts: [e.example.com], challenge: http}}\n",
     );
-    let tail = "needs web.https; without web.https every site is plain HTTP. Add https: 443, or remove";
+    let tail =
+        "needs web.https; without web.https every site is plain HTTP. Add https: 443, or remove";
     assert_eq!(
         errors(&o),
         [
