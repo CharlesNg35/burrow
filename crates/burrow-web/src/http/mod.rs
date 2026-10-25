@@ -4,6 +4,7 @@ pub mod host;
 mod idle;
 pub mod pages;
 mod pipeline;
+pub mod redirect;
 mod serve;
 pub mod upstream;
 
