@@ -96,7 +96,7 @@ fn example_1_of_section_3_15_validates_and_says_how_the_site_is_served() {
     assert_eq!(
         sum.lines(),
         [
-            "web: https [::]:443 (IPv4 and IPv6), http [::]:80 (IPv4 and IPv6)",
+            "web: https [::]:443 (HTTP/2 and HTTP/1.1, IPv4 and IPv6), http [::]:80 (IPv4 and IPv6)",
             "certificates: Let's Encrypt (production) as you@example.com",
             "shop.example.com: Let's Encrypt, TLS check -> service shop",
             "http [::]:80: HTTPS hosts redirect to https:// (308); Let's Encrypt HTTP checks answered",

@@ -39,7 +39,7 @@ fn the_summary_lists_the_port_the_tunnel_and_each_name() {
     assert_eq!(
         sum.lines(),
         [
-            "web: https [::]:443 (IPv4 and IPv6; shared with the tunnel)",
+            "web: https [::]:443 (HTTP/2 and HTTP/1.1, IPv4 and IPv6; shared with the tunnel)",
             "tunnel: wss://tunnel.example.com/burrow (websocket.tls cert.pem)",
             "*.nas.example.com: passthrough, the app's own certificate -> service nas",
             "git.example.com: passthrough, the app's own certificate -> service git",
@@ -71,7 +71,7 @@ fn an_ipv4_port_without_names_says_so() {
     assert_eq!(
         summary(&s).unwrap().lines(),
         [
-            "web: https 0.0.0.0:8443 (IPv4 only)",
+            "web: https 0.0.0.0:8443 (HTTP/2 and HTTP/1.1, IPv4 only)",
             "no names yet: every connection is closed",
         ]
     );
@@ -107,7 +107,7 @@ fn every_host_says_how_it_is_served_with_its_certificate_source_and_check() {
     assert_eq!(
         summary(&s).unwrap().lines(),
         [
-            "web: https [::]:443 (IPv4 and IPv6), http [::]:80 (IPv4 and IPv6)".to_string(),
+            "web: https [::]:443 (HTTP/2 and HTTP/1.1, IPv4 and IPv6), http [::]:80 (IPv4 and IPv6)".to_string(),
             "certificates: Let's Encrypt (production) as ops@example.com, profile shortlived"
                 .to_string(),
             "203.0.113.10: Let's Encrypt short-lived (6 days), TLS check -> service kiosk"
@@ -161,7 +161,7 @@ fn without_https_every_site_is_plain_and_the_tunnel_names_its_certificate() {
     assert_eq!(
         summary(&t).unwrap().lines()[..3],
         [
-            "web: https [::]:443 (IPv4 and IPv6; shared with the tunnel)",
+            "web: https [::]:443 (HTTP/2 and HTTP/1.1, IPv4 and IPv6; shared with the tunnel)",
             "certificates: Let's Encrypt (staging) as ops@example.com",
             "tunnel: wss://tunnel.example.com/burrow (Let's Encrypt, TLS check)",
         ]
@@ -259,7 +259,7 @@ fn the_summary_lists_each_hosts_routes_redirects_and_the_proxies_in_front() {
     );
     let lines = summary(&s).unwrap().lines();
     let want = [
-        "web: https [::]:443 (IPv4 and IPv6), http [::]:80 (IPv4 and IPv6)",
+        "web: https [::]:443 (HTTP/2 and HTTP/1.1, IPv4 and IPv6), http [::]:80 (IPv4 and IPv6)",
         "PROXY headers required from 10.0.0.0/8; X-Forwarded-For believed from 173.245.48.0/20",
         "certificates: Let's Encrypt (production) as ops@example.com",
         "docs.example.com: Let's Encrypt, HTTP check",

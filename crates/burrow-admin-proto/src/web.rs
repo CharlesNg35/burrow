@@ -27,6 +27,8 @@ pub struct WebSummary {
     #[serde(default)]
     pub front: String,
     #[serde(default)]
+    pub protocols: String,
+    #[serde(default)]
     pub wildcards: Vec<String>,
 }
 
@@ -75,7 +77,15 @@ impl WebSummary {
         };
         let mut ports = Vec::new();
         if !self.https.is_empty() {
-            ports.push(format!("https {} ({}{shared})", self.https, self.addresses));
+            let protocols = if self.protocols.is_empty() {
+                String::new()
+            } else {
+                format!("{}, ", self.protocols)
+            };
+            ports.push(format!(
+                "https {} ({protocols}{}{shared})",
+                self.https, self.addresses
+            ));
         }
         if !self.http.is_empty() {
             let shared = if self.http_shared_with_tunnel {

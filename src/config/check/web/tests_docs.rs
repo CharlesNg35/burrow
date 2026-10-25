@@ -187,7 +187,7 @@ fn the_full_example_of_web_md_is_pinned_at_what_p3_and_p6_build() {
     assert_eq!(
         lines,
         [
-            "web: https [::]:443 (IPv4 and IPv6; shared with the tunnel), http [::]:80 (IPv4 and IPv6)",
+            "web: https [::]:443 (HTTP/2 and HTTP/1.1, IPv4 and IPv6; shared with the tunnel), http [::]:80 (IPv4 and IPv6)",
             "X-Forwarded-For believed from 173.245.48.0/20",
             "certificates: Let's Encrypt (production) as you@example.com; DNS checks through Cloudflare for example.com, example.net, nameservers found via the system resolvers; DNS checks through RFC 2136 for corp.example.org, nameservers found via the system resolvers",
             "tunnel: wss://tunnel.example.com/burrow (Let's Encrypt shared wildcard *.example.com)",

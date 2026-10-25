@@ -314,6 +314,11 @@ pub fn summary(s: &ServerSettings) -> Option<WebSummary> {
         http_note: http_note(web),
         account: String::new(),
         front: front(web),
+        protocols: match (web.https.is_some(), web.http2) {
+            (false, _) => String::new(),
+            (true, true) => "HTTP/2 and HTTP/1.1".into(),
+            (true, false) => "HTTP/1.1 only".into(),
+        },
         wildcards: wildcard_lines(web),
     })
 }

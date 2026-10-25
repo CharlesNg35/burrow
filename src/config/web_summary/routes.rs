@@ -20,6 +20,9 @@ fn extras(site: &WebSite, path: &str, trusted: bool) -> String {
         TargetTls::Ca(ca) => parts.push(format!("HTTPS to the app, checked with {}", ca.display())),
         TargetTls::Unchecked => parts.push("HTTPS to the app, not checked".to_string()),
     }
+    if o.target_http2 {
+        parts.push("HTTP/2 to the app".into());
+    }
     if o.maintenance {
         parts.push("maintenance page".into());
     }
