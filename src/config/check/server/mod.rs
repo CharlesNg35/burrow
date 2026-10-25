@@ -48,10 +48,8 @@ pub fn check_server(
 
     let (services, taken) =
         check_all_services(cfg, listen, websocket.as_ref(), (https, http), spans, out);
-    let tunnel = websocket
-        .as_ref()
-        .and_then(|w| w.host.as_deref().map(|h| (h, w.path.as_str())));
-    let sites = super::web::check_sites(cfg, (https, http), tunnel, spans, base_dir, out);
+    let sites =
+        super::web::check_sites(cfg, (https, http), websocket.as_ref(), spans, base_dir, out);
 
     warn_proxied_sources(websocket.as_ref(), &services, spans, out);
 

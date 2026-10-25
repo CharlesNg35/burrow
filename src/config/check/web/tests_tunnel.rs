@@ -42,3 +42,30 @@ fn the_tunnel_path_must_leave_the_site_the_rest_of_its_name() {
         "{e:?}"
     );
 }
+
+fn plain_by_path(site: &str) -> Vec<String> {
+    let o = load(&format!(
+        "listen: 7835\nweb: {{ http: 80 }}\nwebsocket: {{ listen: 80, host: blog.example.com, path: /burrow }}\nservices:\n  blog:\n    client: home\n    target: 8080\n    web: {site}\n"
+    ));
+    o.report
+        .diagnostics
+        .iter()
+        .filter(|d| d.code != "low-port")
+        .map(|d| format!("{}: {}", d.code, d.message))
+        .collect()
+}
+
+#[test]
+fn the_tunnel_on_web_http_takes_a_path_on_a_plain_sites_name() {
+    for site in ["{ hosts: [blog.example.com], tls: off }", "blog.example.com"] {
+        assert_eq!(plain_by_path(site), Vec::<String>::new(), "{site}");
+    }
+    let o = load(
+        "listen: 7835\nweb: { http: 80 }\nwebsocket: { listen: 80, host: blog.example.com, path: / }\nservices:\n  blog:\n    client: home\n    target: 8080\n    web: blog.example.com\n",
+    );
+    assert!(
+        errors(&o).contains(&"websocket.path \"/\" on \"blog.example.com\" is also served by service \"blog\"; give the tunnel another path".to_string()),
+        "{:?}",
+        errors(&o)
+    );
+}

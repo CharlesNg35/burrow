@@ -263,7 +263,7 @@ pub(super) fn on_terminated_site(cfg: &ServerConfig, host: &str) -> bool {
 pub(super) fn check_sites(
     cfg: &ServerConfig,
     (https, http): (Option<SocketAddr>, Option<SocketAddr>),
-    tunnel: Option<(&str, &str)>,
+    tunnel: Option<&WebSocketSettings>,
     spans: &Spans,
     base_dir: &Path,
     out: &mut Vec<Diagnostic>,
@@ -273,6 +273,7 @@ pub(super) fn check_sites(
         no_web_proxy_for_sites(cfg, spans, out);
         return sites;
     }
+    let tunnel = tunnel.and_then(|w| w.host.as_deref().map(|h| (h, w.path.as_str(), w.shares)));
     let mut owners: BTreeMap<String, String> = BTreeMap::new();
     for (name, svc) in &cfg.services {
         let Some(web) = &svc.web else {
@@ -360,7 +361,12 @@ impl Served {
     }
 }
 
-fn tunnel_on_site(place: &Place<'_>, host: &str, path: &str) -> Option<Diagnostic> {
+fn tunnel_on_site(
+    place: &Place<'_>,
+    host: &str,
+    path: &str,
+    shares: Shares,
+) -> Option<Diagnostic> {
     let own = "give the tunnel its own name, like tunnel.example.com";
     match place.served {
         Served::Passthrough => Some(
@@ -370,14 +376,14 @@ fn tunnel_on_site(place: &Place<'_>, host: &str, path: &str) -> Option<Diagnosti
             )
             .help(own),
         ),
-        Served::Plain => Some(
+        Served::Plain if shares == Shares::Https => Some(
             Diagnostic::error(
                 "tunnel-host",
                 format!("websocket.host \"{host}\" is a plain-HTTP site (tls: off); the tunnel needs HTTPS"),
             )
             .help(own),
         ),
-        Served::Terminated if path == "/" => Some(
+        Served::Terminated | Served::Plain if path == "/" => Some(
             Diagnostic::error(
                 "tunnel-path",
                 format!(
@@ -387,7 +393,7 @@ fn tunnel_on_site(place: &Place<'_>, host: &str, path: &str) -> Option<Diagnosti
             )
             .help("for example path: /burrow under websocket"),
         ),
-        Served::Terminated => None,
+        Served::Terminated | Served::Plain => None,
     }
 }
 
@@ -413,7 +419,7 @@ fn check_hosts(
     place: &Place<'_>,
     given: &[String],
     owners: &mut BTreeMap<String, String>,
-    tunnel: Option<(&str, &str)>,
+    tunnel: Option<(&str, &str, Shares)>,
     out: &mut Vec<Diagnostic>,
 ) -> Option<Vec<String>> {
     let name = place.name;
@@ -487,8 +493,8 @@ fn check_hosts(
             );
             continue;
         }
-        if let Some((_, path)) = tunnel.filter(|(t, _)| *t == host)
-            && let Some(d) = tunnel_on_site(place, &host, path)
+        if let Some((_, path, shares)) = tunnel.filter(|(t, _, _)| *t == host)
+            && let Some(d) = tunnel_on_site(place, &host, path, shares)
         {
             out.push(d.at(at));
             continue;
