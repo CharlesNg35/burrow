@@ -1,3 +1,4 @@
+pub mod compress;
 pub mod forwarded;
 pub mod host;
 mod idle;

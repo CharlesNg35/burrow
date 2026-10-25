@@ -67,6 +67,7 @@ const CRATE_DEPS: &[(&str, &[&str], &[&str])] = &[
     (
         "burrow-web",
         &[
+            "async-compression",
             "base64",
             "burrow-syntax",
             "bytes",
@@ -88,6 +89,7 @@ const CRATE_DEPS: &[(&str, &[&str], &[&str])] = &[
             "socket2",
             "tokio",
             "tokio-rustls",
+            "tokio-util",
             "tracing",
             "webpki-roots",
             "x509-cert",
