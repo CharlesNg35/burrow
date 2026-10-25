@@ -6,7 +6,8 @@ use tokio::io::AsyncWriteExt;
 use tracing::{info, warn};
 
 use super::Shared;
-use crate::config::settings::Health;
+use super::web::{Checks, Http, exchange};
+use crate::config::settings::HttpCheck;
 use crate::wire::protocol::{Connect, Status};
 use burrow_config::Protocol;
 
@@ -19,6 +20,7 @@ pub(crate) struct Probe {
     last: Option<Instant>,
     running: bool,
     reason: Option<String>,
+    http: Option<HttpCheck>,
 }
 
 impl Default for Probe {
@@ -29,6 +31,7 @@ impl Default for Probe {
             last: None,
             running: false,
             reason: None,
+            http: None,
         }
     }
 }
@@ -52,7 +55,7 @@ impl Shared {
             .and_then(|p| p.reason.clone())
     }
 
-    fn record(&self, service: &str, client: &str, health: Health, result: Result<(), String>) {
+    fn record(&self, service: &str, client: &str, failures: u32, result: Result<(), String>) {
         let mut probes = self.probes.lock().expect("probes lock");
         let Some(p) = probes.get_mut(&(service.to_string(), client.to_string())) else {
             return;
@@ -69,7 +72,7 @@ impl Shared {
             }
             Err(why) => {
                 p.fails += 1;
-                if p.up && p.fails >= health.failures {
+                if p.up && p.fails >= failures {
                     p.up = false;
                     warn!(
                         "service \"{service}\": client \"{client}\" is down ({why}); new connections go to the other clients"
@@ -83,9 +86,11 @@ impl Shared {
 
 pub(super) async fn run(shared: Arc<Shared>) {
     let mut tick = tokio::time::interval(TICK);
+    let mut checks = Checks::new();
     loop {
         tick.tick().await;
         let settings = shared.settings();
+        checks.refresh(&settings);
         let connected: Vec<String> = settings
             .services
             .values()
@@ -96,46 +101,60 @@ pub(super) async fn run(shared: Arc<Shared>) {
         let mut due = Vec::new();
         {
             let mut probes = shared.probes.lock().expect("probes lock");
-            probes.retain(|(service, client), _| {
-                settings
-                    .services
-                    .get(service)
-                    .is_some_and(|s| s.health.is_some() && s.clients.contains(client))
+            probes.retain(|(service, client), p| {
+                settings.services.get(service).is_some_and(|s| {
+                    s.clients.contains(client)
+                        && s.health.as_ref().is_some_and(|h| h.http == p.http)
+                })
             });
             for (name, svc) in &settings.services {
-                let Some(health) = svc.health.clone() else {
-                    continue;
-                };
+                let Some(health) = &svc.health else { continue };
                 for client in svc.clients.iter().filter(|c| connected.contains(c)) {
                     let client = client.clone();
-                    let p = probes.entry((name.clone(), client.clone())).or_default();
+                    let p = probes
+                        .entry((name.clone(), client.clone()))
+                        .or_insert_with(|| Probe {
+                            http: health.http.clone(),
+                            ..Probe::default()
+                        });
                     if !p.running && p.last.is_none_or(|t| t.elapsed() >= health.interval) {
                         p.running = true;
                         p.last = Some(Instant::now());
-                        due.push((name.clone(), client, svc.target_at(0), health.clone()));
+                        let check = Check {
+                            target: svc.target_at(0),
+                            http: checks.of(name),
+                            timeout: health.timeout,
+                            failures: health.failures,
+                        };
+                        due.push((name.clone(), client, check));
                     }
                 }
             }
         }
-        for (service, client, target, health) in due {
+        for (service, client, check) in due {
             let shared = shared.clone();
             tokio::spawn(async move {
-                let result = tokio::time::timeout(
-                    health.timeout,
-                    probe(&shared, &service, &client, &target),
-                )
-                .await
-                .unwrap_or_else(|_| Err(format!("no answer within {}s", health.timeout.as_secs())));
-                if result.is_ok() {
-                    shared.accepted(&service, &client, &target);
-                }
-                shared.record(&service, &client, health, result);
+                let result =
+                    tokio::time::timeout(check.timeout, probe(&shared, &service, &client, &check))
+                        .await
+                        .unwrap_or_else(|_| {
+                            Err(format!("no answer within {}s", check.timeout.as_secs()))
+                        });
+                shared.record(&service, &client, check.failures, result);
             });
         }
     }
 }
 
-async fn probe(shared: &Shared, service: &str, client: &str, target: &str) -> Result<(), String> {
+struct Check {
+    target: String,
+    http: Option<Http>,
+    timeout: Duration,
+    failures: u32,
+}
+
+async fn probe(shared: &Shared, service: &str, client: &str, check: &Check) -> Result<(), String> {
+    let target = check.target.as_str();
     let session = shared
         .via(client)
         .ok_or_else(|| "the client disconnected".to_string())?;
@@ -175,6 +194,12 @@ async fn probe(shared: &Shared, service: &str, client: &str, target: &str) -> Re
         Ok(Some(b)) => Status::decode(b).map_err(|_| "invalid reply".to_string())?,
         _ => return Err("the client closed the check".into()),
     };
+    if answer == Status::Ok {
+        shared.accepted(service, client, target);
+        if let Some(http) = &check.http {
+            return exchange(ch, settings.insecure_plaintext, http).await;
+        }
+    }
     if !raw {
         let _ = ch.writer.send(&mut ch.stream, &[]).await;
         let _ = ch.stream.flush().await;

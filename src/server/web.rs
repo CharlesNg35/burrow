@@ -225,7 +225,9 @@ fn cert_settings(s: &ServerSettings, web: &WebSettings) -> CertSettings {
     }
 }
 
+mod health;
 mod options;
 mod task;
 
+pub(super) use health::{Checks, Http, exchange};
 pub(super) use task::WebTask;

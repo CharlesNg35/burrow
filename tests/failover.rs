@@ -1,6 +1,9 @@
 mod common;
 #[path = "failover/health.rs"]
 mod health;
+#[cfg(feature = "web")]
+#[path = "failover/http_check.rs"]
+mod http_check;
 #[path = "failover/selection.rs"]
 mod selection;
 #[path = "failover/udp_moves.rs"]

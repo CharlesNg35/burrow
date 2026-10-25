@@ -4,6 +4,7 @@ use std::sync::Arc;
 use super::{Server, Shared};
 use crate::base::failure::Failure;
 use crate::config::settings::ServerSettings;
+use crate::wire::transport::Channel;
 
 pub(super) enum WebTask {}
 
@@ -34,4 +35,24 @@ impl Server {
     pub(super) async fn web_waiting(&mut self, _: &mut ServerSettings) -> bool {
         false
     }
+}
+
+pub(super) enum Http {}
+
+pub(super) struct Checks;
+
+impl Checks {
+    pub(super) fn new() -> Checks {
+        Checks
+    }
+
+    pub(super) fn refresh(&mut self, _: &Arc<ServerSettings>) {}
+
+    pub(super) fn of(&self, _: &str) -> Option<Http> {
+        None
+    }
+}
+
+pub(super) async fn exchange(_: Channel, _: bool, http: &Http) -> Result<(), String> {
+    match *http {}
 }
