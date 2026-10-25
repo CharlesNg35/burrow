@@ -148,6 +148,10 @@ fn add_site(hosts: &mut HashMap<String, Kind>, site: &Site) {
 
 impl Table {
     pub fn build(settings: &ProxySettings) -> Table {
+        Table::build_after(settings, None)
+    }
+
+    pub fn build_after(settings: &ProxySettings, old: Option<&Table>) -> Table {
         let mut hosts = HashMap::new();
         let mut sites = HashMap::new();
         let mut client_auth = HashMap::new();
@@ -156,7 +160,8 @@ impl Table {
             if matches!(site.tls, SiteTls::Passthrough) {
                 continue;
             }
-            sites.insert(site.service.clone(), SiteRun::build(site));
+            let before = old.and_then(|t| t.site(&site.service)).map(Arc::as_ref);
+            sites.insert(site.service.clone(), SiteRun::build_after(site, before));
             if let Some(c) = &site.options.client_auth {
                 for host in &site.hosts {
                     client_auth.insert(host.clone(), c.clone());
@@ -217,6 +222,10 @@ impl Table {
             return self.client_auth.get(name);
         }
         self.client_auth.get(&wildcard_of(name)?)
+    }
+
+    pub fn limits(&self) -> impl Iterator<Item = &Arc<crate::auth::Limit>> {
+        self.sites.values().filter_map(|s| s.limit.as_ref())
     }
 
     pub fn services_with<'a>(&'a self, key: &'a ClientAuth) -> impl Iterator<Item = &'a str> {

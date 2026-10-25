@@ -6,6 +6,7 @@ use tracing::warn;
 
 use super::pages::ErrorPages;
 use super::upstream::target_tls::{Check, connector, server_name};
+use crate::auth::{Limit, Users};
 use crate::{Site, SiteOptions, TargetTls};
 
 #[derive(Clone)]
@@ -20,6 +21,8 @@ pub struct SiteRun {
     pub options: SiteOptions,
     pub pages: ErrorPages,
     pub hop: Hop,
+    pub(crate) users: Users,
+    pub limit: Option<Arc<Limit>>,
 }
 
 impl std::fmt::Debug for SiteRun {
@@ -62,8 +65,20 @@ pub(crate) fn hop(o: &SiteOptions) -> Result<Hop, String> {
     ))
 }
 
+fn limit(o: &SiteOptions, old: Option<&SiteRun>) -> Option<Arc<Limit>> {
+    let rate = o.rate_limit?;
+    match old.and_then(|s| s.limit.as_ref()) {
+        Some(l) if l.rate() == rate => Some(l.clone()),
+        _ => Some(Arc::new(Limit::per_second(rate))),
+    }
+}
+
 impl SiteRun {
     pub fn build(site: &Site) -> Arc<SiteRun> {
+        SiteRun::build_after(site, None)
+    }
+
+    pub fn build_after(site: &Site, old: Option<&SiteRun>) -> Arc<SiteRun> {
         let o = &site.options;
         let pages = o
             .error_pages
@@ -82,6 +97,8 @@ impl SiteRun {
             options: o.clone(),
             pages,
             hop,
+            users: Users::build(&site.service, &o.basic_auth),
+            limit: limit(o, old),
         })
     }
 }

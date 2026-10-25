@@ -40,6 +40,14 @@ impl Upstream for Doorway {
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     }
 
+    fn allowed(&self, service: &str, from: &Visitor) -> bool {
+        let ok = self.0.source_allowed(service, from.addr.ip());
+        if !ok {
+            self.0.metrics.refuse(service);
+        }
+        ok
+    }
+
     async fn open(&self, service: &str, from: &Visitor) -> Result<BoxIo, Refused> {
         let shared = &self.0;
         let settings = shared.settings();

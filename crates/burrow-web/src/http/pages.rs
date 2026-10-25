@@ -10,6 +10,7 @@ use super::{Body, full};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Page {
     BadRequest,
+    LoginNeeded,
     Forbidden,
     NotFound,
     Misdirected,
@@ -30,6 +31,7 @@ impl Page {
     pub fn status(self) -> StatusCode {
         match self {
             Page::BadRequest => StatusCode::BAD_REQUEST,
+            Page::LoginNeeded => StatusCode::UNAUTHORIZED,
             Page::Forbidden => StatusCode::FORBIDDEN,
             Page::NotFound => StatusCode::NOT_FOUND,
             Page::Misdirected => StatusCode::MISDIRECTED_REQUEST,
@@ -50,6 +52,7 @@ impl Page {
                 "Bad request",
                 "The browser sent a request this site cannot read.",
             ),
+            Page::LoginNeeded => ("Login needed", "This site needs a user name and password."),
             Page::Forbidden => (
                 "Not allowed",
                 "This site does not take visitors from your address.",

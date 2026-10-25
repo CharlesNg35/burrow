@@ -10,10 +10,13 @@ publish = false
 admin-test-hooks = []
 
 [dependencies]
+argon2 = { version = "0.6.0", default-features = false, features = ["alloc", "password-hash", "getrandom", "zeroize"] }
 async-compression = { version = "0.4.51", default-features = false, features = ["tokio", "gzip"] }
 base64 = "0.23.1"
+bcrypt = { version = "0.19.3", default-features = false, features = ["std", "zeroize"] }
 burrow-syntax = { path = "../burrow-syntax" }
 bytes = "1.12.1"
+governor = { version = "0.10.4", default-features = false, features = ["std"] }
 hickory-proto = { version = "0.26.3", default-features = false, features = ["std", "dnssec-ring"] }
 http = "1.5.0"
 http-body-util = "0.1.5"

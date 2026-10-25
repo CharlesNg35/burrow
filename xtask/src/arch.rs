@@ -67,10 +67,13 @@ const CRATE_DEPS: &[(&str, &[&str], &[&str])] = &[
     (
         "burrow-web",
         &[
+            "argon2",
             "async-compression",
             "base64",
+            "bcrypt",
             "burrow-syntax",
             "bytes",
+            "governor",
             "hickory-proto",
             "http",
             "http-body-util",

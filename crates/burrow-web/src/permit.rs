@@ -35,15 +35,15 @@ impl Drop for SourceSlot {
     }
 }
 
-pub fn source_key(ip: IpAddr) -> Option<IpAddr> {
-    let ip = ip.to_canonical();
-    if ip.is_loopback() {
-        return None;
-    }
-    Some(match ip {
+pub fn subnet_key(ip: IpAddr) -> IpAddr {
+    match ip.to_canonical() {
         IpAddr::V6(v6) => IpAddr::V6((v6.to_bits() >> 64 << 64).into()),
         v4 => v4,
-    })
+    }
+}
+
+pub fn source_key(ip: IpAddr) -> Option<IpAddr> {
+    (!ip.to_canonical().is_loopback()).then(|| subnet_key(ip))
 }
 
 impl Permits {

@@ -6,6 +6,7 @@ use http::{HeaderMap, HeaderValue, Method, Request, Response, Version};
 use http_body_util::BodyExt;
 use hyper::body::Incoming;
 
+use super::access::Gate;
 use super::forwarded::{self, Client};
 use super::limit::{Capped, declared_over};
 use super::logged::Logged;
@@ -98,7 +99,16 @@ pub(crate) async fn to_service<U: Upstream>(
         .map(|_| entry(&req, &client, &asked, id.as_deref()));
     let method = req.method().clone();
     let gzip = compress::accepts_gzip(req.headers());
-    let mut resp = answer(shared, conn, &site, &asked, client, id.as_deref(), req).await;
+    let mut resp = answer(
+        shared,
+        conn,
+        (table, &site),
+        &asked,
+        client,
+        id.as_deref(),
+        req,
+    )
+    .await;
     finish(&site, &method, https, gzip, id.as_deref(), &mut resp);
     shared.up.answered(&asked.service, resp.status());
     if let (Some((sink, format)), Some(mut e)) = (log, logged) {
@@ -134,15 +144,33 @@ fn finish(
 async fn answer<U: Upstream>(
     shared: &Arc<Shared<U>>,
     conn: &Conn,
-    site: &SiteRun,
+    (_, site): (&Table, &SiteRun),
     asked: &Asked,
     client: Client,
     id: Option<&str>,
-    req: Request<Incoming>,
+    mut req: Request<Incoming>,
 ) -> Response<Body> {
     let o = &site.options;
+    let visitor = Visitor {
+        addr: SocketAddr::new(client.ip, conn.peer.port()),
+        local: conn.local,
+        host: asked.host.clone(),
+    };
+    let gate = Gate {
+        up: shared.up.as_ref(),
+        access: &shared.access,
+        site,
+        visitor: &visitor,
+        client: &client,
+    };
+    if let Some(denied) = gate.allowed() {
+        return denied;
+    }
     if o.maintenance {
         return Page::Maintenance.response_from(&site.pages);
+    }
+    if let Some(refused) = gate.check(&mut req).await {
+        return refused;
     }
     let mut overflow = None;
     let mut req = match o.max_body_size {
@@ -159,11 +187,7 @@ async fn answer<U: Upstream>(
     let prefix = app_target(&mut req, &asked.route);
     let f = Forward {
         site,
-        visitor: Visitor {
-            addr: SocketAddr::new(client.ip, conn.peer.port()),
-            local: conn.local,
-            host: asked.host.clone(),
-        },
+        visitor,
         client,
         prefix: prefix.as_deref(),
         request_id: id,

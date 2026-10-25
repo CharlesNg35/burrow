@@ -199,6 +199,10 @@ impl Upstream for Fake {
             .push((service.to_string(), status.as_u16()));
     }
 
+    fn allowed(&self, _service: &str, from: &Visitor) -> bool {
+        !self.denied.lock().unwrap().contains(&from.addr.ip())
+    }
+
     async fn open(&self, service: &str, from: &Visitor) -> Result<BoxIo, Refused> {
         if let Some(r) = *self.refuse.lock().unwrap() {
             return Err(r);

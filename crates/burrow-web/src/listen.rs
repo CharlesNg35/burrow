@@ -9,6 +9,7 @@ use tokio::task::JoinHandle;
 use tokio::time::Instant;
 use tracing::{debug, warn};
 
+use crate::auth::Access;
 use crate::http::{Conn, Proto, serve};
 use crate::io::{Io, Prefixed};
 use crate::log::LogFile;
@@ -29,6 +30,7 @@ pub(crate) struct Shared<U> {
     site_tls: SiteTls,
     http2: AtomicBool,
     verifiers: Verifiers,
+    pub(crate) access: Access,
     table: RwLock<Arc<Table>>,
     timing: RwLock<Timeouts>,
     log: RwLock<Option<(Arc<LogFile>, LogFormat)>>,
@@ -72,6 +74,7 @@ impl<U: Upstream> Proxy<U> {
             site_tls: SiteTls::new(certs.clone()),
             http2: AtomicBool::new(settings.http2),
             verifiers,
+            access: Access::default(),
             certs,
             https_port: https.map(|a| a.port()),
             table: RwLock::new(Arc::new(table)),
@@ -81,7 +84,7 @@ impl<U: Upstream> Proxy<U> {
             stop: stopped,
         });
         shared.open_log(settings.access_log.as_ref());
-        let mut tasks = Vec::new();
+        let mut tasks = vec![tokio::spawn(sweep(shared.clone()))];
         if let Some(l) = listeners.https {
             tasks.push(tokio::spawn(accept_loop(shared.clone(), l)));
         }
@@ -102,7 +105,7 @@ impl<U: Upstream> Proxy<U> {
             .certs
             .apply(&settings.certs, &cert_names(settings))
             .await;
-        let table = Table::build(settings);
+        let table = Table::build_after(settings, Some(&self.shared.table()));
         self.shared.verifiers.refresh(table.client_auths());
         *self.shared.table.write().expect("table lock") = Arc::new(table);
         *self.shared.timing.write().expect("timing lock") = settings.timeouts;
@@ -210,6 +213,19 @@ impl<U> Shared<U> {
 }
 
 const PROXY_HEADER_TIMEOUT: Duration = Duration::from_secs(10);
+pub const SWEEP: Duration = Duration::from_secs(60);
+
+async fn sweep<U: Upstream>(shared: Arc<Shared<U>>) {
+    let mut every = tokio::time::interval(SWEEP);
+    every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    loop {
+        every.tick().await;
+        shared.access.sweep();
+        for l in shared.table().limits() {
+            l.sweep();
+        }
+    }
+}
 
 static LAST_WARNED: AtomicU64 = AtomicU64::new(0);
 

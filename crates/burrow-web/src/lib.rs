@@ -7,6 +7,7 @@
 #[cfg(all(feature = "admin-test-hooks", not(debug_assertions)))]
 compile_error!("admin-test-hooks is for tests only and never goes into a release build");
 
+pub mod auth;
 pub mod http;
 pub mod io;
 mod listen;
@@ -249,6 +250,10 @@ pub trait Upstream: Send + Sync + 'static {
         service: &str,
         from: &Visitor,
     ) -> impl Future<Output = Result<BoxIo, Refused>> + Send;
+
+    fn allowed(&self, _service: &str, _from: &Visitor) -> bool {
+        true
+    }
 
     fn tunnel_permit(&self, peer: SocketAddr) -> Option<Self::Permit>;
 
