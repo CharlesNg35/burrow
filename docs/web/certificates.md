@@ -235,7 +235,7 @@ Scripts written for lego's exec provider work unchanged when they read their cre
 
 ### When a certificate fails
 
-`burrow status` lists every certificate with where it comes from, its state, when it expires and when it is renewed; a failing one says why. The admin UI shows the same on the Overview and lists problems under Needs attention. Check, in order:
+`burrow status` lists every certificate with where it comes from, its state, when it expires and when it is renewed; a failing one says why. The admin UI shows the same in the Certificates tab of the Overview, with a count of the ones that expire soon or fail, and lists problems under Needs attention. Check, in order:
 
 1. **DNS:** the name points at this server (`dig +short blog.example.com`), for IPv6 too if you have an `AAAA` record.
 2. **Ports:** port 443 (or 80) reaches burrow from the internet, not only from your network. A router must forward it.

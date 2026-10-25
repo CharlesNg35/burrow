@@ -5,7 +5,6 @@ use burrow_ui_kit::{Tone, tag_class};
 use leptos::prelude::*;
 
 use crate::route::Route;
-use crate::store::store;
 
 use super::Item;
 
@@ -84,67 +83,59 @@ fn table(status: &Status, now: u64) -> impl IntoView + use<> {
     }
 }
 
-#[component]
-pub(super) fn Certificates() -> impl IntoView {
-    let s = store();
-    move || {
-        let status = s.status.get()?;
-        let now = (s.now.get() / 1000.0) as u64;
-        if rows(&status, now).is_empty() {
-            return None;
+pub(super) fn certificates_panel(status: Option<&Status>, now: u64) -> impl IntoView + use<> {
+    let Some(status) = status.filter(|st| !rows(st, now).is_empty()) else {
+        return view! { <p class="px-4 py-3 text-[13px] text-text-muted" data-testid="certs-empty">"No certificates yet: they appear when a website uses HTTPS."</p> }.into_any();
+    };
+    let account = status.acme.clone().map(|a| {
+        let who = a
+            .account
+            .map_or_else(|| "not created yet".to_string(), |u| u.clone());
+        view! {
+            <p class="border-t border-border px-4 py-2.5 text-xs text-text-muted" data-testid="acme-account">
+                "Let's Encrypt account: "<span class="font-mono">{who}</span>
+                {(!a.state_dir.is_empty()).then(|| view! { <span>" · kept in "<span class="font-mono">{a.state_dir.clone()}</span></span> })}
+            </p>
         }
-        let account = status.acme.clone().map(|a| {
-            let who = a
-                .account
-                .map_or_else(|| "not created yet".to_string(), |u| u.clone());
-            view! {
-                <p class="border-t border-border px-4 py-2.5 text-xs text-text-muted" data-testid="acme-account">
-                    "Let's Encrypt account: "<span class="font-mono">{who}</span>
-                    {(!a.state_dir.is_empty()).then(|| view! { <span>" · kept in "<span class="font-mono">{a.state_dir.clone()}</span></span> })}
-                </p>
-            }
-        });
-        let queue = status
-            .acme
-            .as_ref()
-            .map(|a| a.queue.clone())
-            .unwrap_or_default();
-        let orders = (!queue.is_empty()).then(|| {
-            let items = queue
-                .into_iter()
-                .map(|o| {
-                    let when = if o.running {
-                        "ordering now".to_string()
-                    } else if o.at <= now {
-                        "next in line".to_string()
-                    } else {
-                        format!("next try {}", crate::format::relative(o.at))
-                    };
-                    view! {
-                        <li class="flex flex-wrap gap-x-2 px-4 py-1.5 text-[13px]" data-order=o.service.clone()>
-                            <span class="font-semibold">{o.service.clone()}</span>
-                            <span class="font-mono text-text-muted">{o.names.join(", ")}</span>
-                            <span class="ml-auto">{when}</span>
-                        </li>
-                    }
-                })
-                .collect_view();
-            view! {
-                <div class="border-t border-border py-2" data-testid="cert-orders">
-                    <p class="px-4 pb-1 text-xs font-semibold text-text-muted">"Certificate orders, one at a time"</p>
-                    <ul>{items}</ul>
-                </div>
-            }
-        });
-        Some(view! {
-            <section class="col-span-2 rounded-card border border-border bg-surface md:col-span-6 xl:col-span-12" data-testid="certs-card">
-                <header class="border-b border-border px-4 py-3">
-                    <h2 class="text-sm font-semibold">"Certificates"</h2>
-                </header>
-                {table(&status, now)}
-                {orders}
-                {account}
-            </section>
-        })
+    });
+    let queue = status
+        .acme
+        .as_ref()
+        .map(|a| a.queue.clone())
+        .unwrap_or_default();
+    let orders = (!queue.is_empty()).then(|| {
+        let items = queue
+            .into_iter()
+            .map(|o| {
+                let when = if o.running {
+                    "ordering now".to_string()
+                } else if o.at <= now {
+                    "next in line".to_string()
+                } else {
+                    format!("next try {}", crate::format::relative(o.at))
+                };
+                view! {
+                    <li class="flex flex-wrap gap-x-2 px-4 py-1.5 text-[13px]" data-order=o.service.clone()>
+                        <span class="font-semibold">{o.service.clone()}</span>
+                        <span class="font-mono text-text-muted">{o.names.join(", ")}</span>
+                        <span class="ml-auto">{when}</span>
+                    </li>
+                }
+            })
+            .collect_view();
+        view! {
+            <div class="border-t border-border py-2" data-testid="cert-orders">
+                <p class="px-4 pb-1 text-xs font-semibold text-text-muted">"Certificate orders, one at a time"</p>
+                <ul>{items}</ul>
+            </div>
+        }
+    });
+    view! {
+        <div data-testid="certs-card">
+            {table(status, now)}
+            {orders}
+            {account}
+        </div>
     }
+    .into_any()
 }

@@ -10,6 +10,37 @@ use crate::route::Route;
 use crate::screens::{DetailPane, ListPane, Row, master_detail};
 use crate::store::store;
 
+fn show_card(key: &str) {
+    if let Ok(Some(el)) = document().query_selector(&format!("#detail [data-card=\"{key}\"]")) {
+        el.scroll_into_view();
+    }
+}
+
+fn open_asked_card(current: RwSignal<Option<String>>) {
+    let Some(want) = crate::route::query(crate::route::CARD_QUERY) else {
+        return;
+    };
+    let s = store();
+    Effect::new(move |done: Option<bool>| {
+        if done == Some(true) {
+            return true;
+        }
+        let Some(schema) = s.schema.get() else {
+            return false;
+        };
+        let skip = sections(&schema);
+        let skip: Vec<&str> = skip.iter().map(String::as_str).collect();
+        let card = settings_cards(&schema.root, &skip)
+            .into_iter()
+            .find(|c| c.fields.iter().any(|f| f.key == want));
+        if let Some(c) = card {
+            current.set(Some(c.key.clone()));
+            request_animation_frame(move || show_card(&c.key));
+        }
+        true
+    });
+}
+
 fn sections(schema: &Schema) -> Vec<String> {
     schema
         .entities
@@ -114,6 +145,7 @@ pub fn Settings() -> impl IntoView {
     });
     let count = Signal::derive(move || rows.with(Vec::len).to_string());
     let list = settings_list(rows, count, current, query);
+    open_asked_card(current);
     let body = move || {
         let schema = s.schema.get()?;
         let skip = sections(&schema);
@@ -198,9 +230,7 @@ fn settings_list(
                     .and_then(|el| el.get_attribute("data-row"));
                 if let Some(key) = hit {
                     current.set(Some(key.clone()));
-                    if let Ok(Some(el)) = document().query_selector(&format!("#detail [data-card=\"{key}\"]")) {
-                        el.scroll_into_view();
-                    }
+                    show_card(&key);
                 }
             }
         >

@@ -1,6 +1,6 @@
 use super::edits::{Flow, click_js, row_clean, row_error};
 use super::world::Options;
-use super::{Ctx, SECS, applied, edit_mode, open, open_review, run, wait_checked};
+use super::{Ctx, SECS, applied, edit_mode, open, open_review, overview_tab, run, wait_checked};
 
 const WEB_TOP: &str = "web:\n  https: 127.0.0.1:HTTPS_PORT\n";
 const NAS: &str = "  nas:\n    client: home\n    target: 192.168.1.20:443\n    web:\n      hosts: [nas.example.com, \"*.nas.example.com\"]\n      tls: passthrough\n";
@@ -30,9 +30,21 @@ async fn add_name(c: &Ctx, id: &str, name: &str) {
 }
 
 async fn read_only_pages(c: &mut Ctx) {
+    overview_tab(c, "websites").await;
     c.ui.wait_text("[data-testid=websites]", "nas.example.com", SECS)
         .await;
     both_widths(c, "overview-websites").await;
+    c.ui.click("[data-testid=overview-open]").await;
+    c.ui.wait_for("[data-filter=websites][aria-pressed=true]", SECS)
+        .await;
+    c.ui.wait_for("[data-testid=entity-list] [data-row=nas]", SECS)
+        .await;
+    assert_eq!(
+        c.ui.count("[data-testid=entity-list] [data-row=web]").await,
+        0,
+        "the Websites filter leaves out plain services"
+    );
+    both_widths(c, "services-websites-filter").await;
     c.ui.nav("/settings").await;
     c.ui.wait_text("[data-schema='web/https']", "HTTPS port", SECS)
         .await;
@@ -244,6 +256,7 @@ fn websites(c: &mut Ctx) -> Flow<'_> {
         assert!(text.contains("app.example.com"), "{text}");
         assert!(text.contains("# keep this comment"), "{text}");
         c.ui.nav("/").await;
+        overview_tab(c, "websites").await;
         c.ui.wait_text("[data-testid=websites]", "app.example.com", SECS)
             .await;
         both_widths(c, "overview-after").await;
@@ -273,6 +286,7 @@ fn certificates(c: &mut Ctx) -> Flow<'_> {
             )
         });
         c.ui.nav("/").await;
+        overview_tab(c, "certs").await;
         let row = "[data-testid=certs-card] [data-cert='portal.example.com']";
         let text =
             c.ui.wait_text(row, "Own file", std::time::Duration::from_secs(20))
@@ -285,13 +299,27 @@ fn certificates(c: &mut Ctx) -> Flow<'_> {
             text.contains(" 4096") && !text.contains("years"),
             "a far expiry reads as a date: {text}"
         );
-        c.ui.wait_text(
-            "[data-testid=overview-tabs]",
-            "portal",
-            std::time::Duration::from_millis(1500),
+        both_widths(c, "overview-certificates").await;
+        let pill =
+            c.ui.text("[data-testid=overview-tabs] [data-tab=certs]")
+                .await;
+        assert!(
+            pill.contains("Certificates") && pill.contains('1'),
+            "{pill}"
+        );
+        assert_eq!(
+            c.ui.count("[data-testid=overview] > div > [data-testid=certs-card]")
+                .await,
+            0
+        );
+        c.ui.click("[data-testid=overview-open]").await;
+        c.ui.wait_for("[data-testid=settings]", SECS).await;
+        c.ui.wait_for(
+            "[data-testid=settings-list] [data-row=web][data-selected=true]",
+            SECS,
         )
         .await;
-        both_widths(c, "overview-certificates").await;
+        both_widths(c, "overview-open-certificates").await;
         c.ui.assert_no_errors();
     })
 }
@@ -371,6 +399,7 @@ fn profile_link(c: &mut Ctx) -> Flow<'_> {
         let item = "[data-testid=attention] [data-item='cert:blog.example.com']";
         let text = c.ui.wait_text(item, "cannot be renewed", SECS).await;
         assert!(text.contains("does not offer the profile"), "{text}");
+        overview_tab(c, "certs").await;
         let orders =
             c.ui.wait_text("[data-testid=cert-orders]", "blog", SECS)
                 .await;

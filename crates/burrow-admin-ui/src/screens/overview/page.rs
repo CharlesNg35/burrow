@@ -1,20 +1,17 @@
 use std::collections::VecDeque;
 
 use burrow_admin_logic::rates::human_bits;
-use burrow_admin_proto::schema::Entity;
 use burrow_admin_proto::serde_json::Value;
-use burrow_config::{ClientEntry, Entry, ServiceEntry, VisitorEntry, entity_of_section};
-use burrow_ui_kit::{Icon, Kbd, Kpi, LineChart, PillTabs, Segmented, Select, button_class};
+use burrow_config::{ClientEntry, Entry, ServiceEntry, VisitorEntry};
+use burrow_ui_kit::{Icon, Kbd, Kpi, LineChart, Segmented, Select, button_class};
 use leptos::prelude::*;
 
 use crate::format;
-use crate::route::{self, Link, Route};
+use crate::route::{Link, Route};
 use crate::store::{Store, store};
 
 use super::attention::Attention;
-use super::certs::Certificates;
-use super::tables::{clients_table, services_table, visitors_table};
-use super::web::Websites;
+use super::tabs::tab_box;
 use super::{Problem, chart, healthy_detail, names, service_problems};
 
 #[component]
@@ -172,13 +169,6 @@ pub fn Overview() -> impl IntoView {
         }
         parts.join(" · ")
     };
-    let tab = RwSignal::new(
-        match route::query("tab").as_deref().and_then(entity_of_section) {
-            Some(Entity::Client) => ClientEntry::section(),
-            Some(Entity::Visitor) => VisitorEntry::section(),
-            _ => ServiceEntry::section(),
-        },
-    );
     view! {
         <div class="px-8 pt-7 pb-12 max-sm:px-4" data-testid="overview">
             <header class="mb-[22px] flex flex-wrap items-start gap-3">
@@ -198,35 +188,7 @@ pub fn Overview() -> impl IntoView {
                     <Traffic/>
                     <Attention/>
                 </div>
-                <section class="col-span-2 rounded-card border border-border bg-surface md:col-span-6 xl:col-span-12" data-testid="overview-tabs">
-                    <div class="flex flex-wrap items-center gap-3 border-b border-border px-3 py-2.5">
-                        <PillTabs
-                            tabs=vec![(ServiceEntry::section(), "Services".into()), (ClientEntry::section(), "Clients".into()), (VisitorEntry::section(), "Visitors".into())]
-                            active=tab
-                            counts=counts
-                            on_change=Callback::new(move |t: &'static str| {
-                                tab.set(t);
-                                route::set_query("tab", t);
-                            })
-                        />
-                        <span class="ml-auto text-xs text-text-muted">
-                            "current rates · "
-                            {move || {
-                                let t = tab.get();
-                                view! { <Link to=Route::List(t.to_string()) class="font-semibold text-accent-ink no-underline hover:underline">{format!("Open {t} →")}</Link> }
-                            }}
-                        </span>
-                    </div>
-                    <div role="tabpanel">
-                        {move || match entity_of_section(tab.get()) {
-                            Some(Entity::Client) => clients_table(s, values).into_any(),
-                            Some(Entity::Visitor) => visitors_table(s, values).into_any(),
-                            _ => services_table(s, values).into_any(),
-                        }}
-                    </div>
-                </section>
-                <Websites/>
-                <Certificates/>
+                {tab_box(values, counts)}
             </div>
         </div>
     }

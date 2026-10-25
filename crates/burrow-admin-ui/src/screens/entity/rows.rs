@@ -191,7 +191,8 @@ pub(super) fn service_row(
         protocol.to_uppercase(),
         if udp { Tone::Violet } else { Tone::Accent },
     )];
-    match burrow_admin_logic::web::site_kind(v, https_on) {
+    let site = burrow_admin_logic::web::site_kind(v, https_on);
+    match site {
         Some(SiteKind::Https) => tags.push(("HTTPS".into(), Tone::Success)),
         Some(SiteKind::Plain) => tags.push(("HTTP · unencrypted".into(), Tone::Warning)),
         Some(SiteKind::Passthrough) => tags.push(("passthrough".into(), Tone::Neutral)),
@@ -232,10 +233,14 @@ pub(super) fn service_row(
             "Up".into()
         },
         pending,
-        filters: vec![
-            if public { "public" } else { "private" },
-            if udp { Protocol::Udp } else { Protocol::Tcp }.wire(),
-        ],
+        filters: [
+            Some(if public { "public" } else { "private" }),
+            Some(if udp { Protocol::Udp } else { Protocol::Tcp }.wire()),
+            site.is_some().then_some(crate::route::WEBSITES_FILTER),
+        ]
+        .into_iter()
+        .flatten()
+        .collect(),
         actions: Vec::new(),
         ..Row::default()
     }

@@ -2,6 +2,7 @@ mod attention;
 mod certs;
 mod page;
 mod tables;
+mod tabs;
 mod web;
 
 use burrow_admin_logic::rates::{axis_max, mbit};

@@ -1,6 +1,6 @@
 use super::edits::Flow;
 use super::world::Options;
-use super::{Ctx, SECS, applied, edit_mode, open, open_review, run, wait_checked};
+use super::{Ctx, SECS, applied, edit_mode, open, open_review, overview_tab, run, wait_checked};
 
 const TOP: &str = "web:\n  https: 127.0.0.1:HTTPS_PORT\n  http: 127.0.0.1:HTTP_PORT\n  trusted_proxies: [127.0.0.1/32]\n  letsencrypt:\n    email: ops@example.com\n    directory: https://127.0.0.1:1/directory\n    dns:\n      - domains: [example.org]\n        cloudflare: { token: \"${CF_TOKEN}\" }\n";
 const SITES: &str = "  site:\n    client: home\n    target: 8080\n    web: { hosts: [example.com], tls: off }\n  api:\n    client: home\n    target: 9000\n    web: { hosts: [example.com], tls: off, paths: [/api], app_path: / }\n";
@@ -42,6 +42,7 @@ async fn settings_of(c: &Ctx, service: &str) {
 }
 
 async fn routes_on_the_overview(c: &mut Ctx) {
+    overview_tab(c, "websites").await;
     c.ui.wait_for("[data-web-row='example.com'] [data-web-route='/api']", SECS)
         .await;
     let row = c.ui.text("[data-web-row='example.com']").await;

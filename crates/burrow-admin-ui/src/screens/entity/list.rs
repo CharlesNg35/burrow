@@ -125,35 +125,12 @@ fn new_menu(section: &str, site: RwSignal<bool>, adding: RwSignal<bool>) -> Opti
     })
 }
 
-#[component]
-pub fn Entities(section: String, selected: Option<String>) -> impl IntoView {
+type Filters = (Vec<(&'static str, String)>, Vec<&'static str>);
+
+fn filters_for(section: &str, rows: Memo<Vec<Row>>) -> Filters {
     let s = store();
-    let sec = section.clone();
-    let rows = Memo::new(move |_| rows_for(&sec));
-    if selected.is_none()
-        && wide()
-        && let Some(first) = rows.get_untracked().into_iter().find(|r| r.icon != "trash")
-    {
-        route::replace(first.to);
-    }
-    let adding = RwSignal::new(false);
-    let site = RwSignal::new(false);
-    {
-        let sec = section.clone();
-        Effect::new(move |_| {
-            if s.creating.get().as_deref() == Some(sec.as_str()) {
-                s.creating.set(None);
-                adding.set(true);
-            }
-        });
-    }
-    let what = singular(&section);
-    let count = Signal::derive(move || {
-        rows.with(|r| r.iter().filter(|x| x.icon != "trash").count())
-            .to_string()
-    });
-    let (filters, groups): (Vec<(&'static str, String)>, Vec<&'static str>) =
-        match entity_of_section(&section) {
+    let (mut filters, groups): (Vec<(&'static str, String)>, Vec<&'static str>) =
+        match entity_of_section(section) {
             Some(Entity::Client) => (
                 vec![
                     ("all", "All".into()),
@@ -181,6 +158,55 @@ pub fn Entities(section: String, selected: Option<String>) -> impl IntoView {
                 vec!["Problems", "Up"],
             ),
         };
+    let sites = rows.with_untracked(|r| {
+        r.iter()
+            .any(|x| x.filters.contains(&route::WEBSITES_FILTER))
+    });
+    if sites
+        || s.edit.draft.with_untracked(|d| {
+            ServerConfig::WEB
+                .get(d.draft())
+                .is_some_and(|w| !w.is_null())
+        })
+    {
+        filters.push((route::WEBSITES_FILTER, "Websites".into()));
+    }
+    (filters, groups)
+}
+
+#[component]
+pub fn Entities(section: String, selected: Option<String>) -> impl IntoView {
+    let s = store();
+    let sec = section.clone();
+    let rows = Memo::new(move |_| rows_for(&sec));
+    if selected.is_none()
+        && wide()
+        && let Some(first) = {
+            let asked = route::query(route::FILTER_QUERY);
+            rows.get_untracked().into_iter().find(|r| {
+                r.icon != "trash" && asked.as_deref().is_none_or(|a| r.filters.contains(&a))
+            })
+        }
+    {
+        route::replace(first.to);
+    }
+    let adding = RwSignal::new(false);
+    let site = RwSignal::new(false);
+    {
+        let sec = section.clone();
+        Effect::new(move |_| {
+            if s.creating.get().as_deref() == Some(sec.as_str()) {
+                s.creating.set(None);
+                adding.set(true);
+            }
+        });
+    }
+    let what = singular(&section);
+    let count = Signal::derive(move || {
+        rows.with(|r| r.iter().filter(|x| x.icon != "trash").count())
+            .to_string()
+    });
+    let (filters, groups) = filters_for(&section, rows);
     let draft_name = RwSignal::new(String::new());
     let shown_rows = {
         let what = what.to_string();

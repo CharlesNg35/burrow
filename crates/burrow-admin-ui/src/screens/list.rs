@@ -106,7 +106,12 @@ pub fn ListPane(
     #[prop(default = None)] new_menu: Option<Vec<NewChoice>>,
 ) -> impl IntoView {
     let q = query.unwrap_or_else(|| RwSignal::new(String::new()));
-    let filter = RwSignal::new(default_filter.unwrap_or("all"));
+    let asked = route::query(route::FILTER_QUERY);
+    let first = filters
+        .iter()
+        .map(|(k, _)| *k)
+        .find(|k| asked.as_deref() == Some(*k));
+    let filter = RwSignal::new(first.or(default_filter).unwrap_or("all"));
     let visible = Memo::new(move |_| {
         let needle = q.get().to_lowercase();
         let f = filter.get();

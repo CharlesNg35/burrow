@@ -4,7 +4,6 @@ use burrow_ui_kit::{Tone, tag_class};
 use leptos::prelude::*;
 
 use crate::route::{Link, Route};
-use crate::store::store;
 
 fn service_link(service: String, rest: String) -> impl IntoView {
     let to = Route::Detail(ServiceEntry::section().into(), service.clone());
@@ -74,24 +73,15 @@ fn rows(web: WebSummary) -> impl IntoView {
     view! { <ul class="divide-y divide-border">{tunnel}{hosts}{empty}</ul> }
 }
 
-#[component]
-pub fn Websites() -> impl IntoView {
-    let s = store();
-    let web = Memo::new(move |_| {
-        s.status
-            .with(|st| st.as_ref().and_then(|st| st.web.clone()))
-    });
-    move || {
-        web.get().map(|w| {
-            view! {
-                <section class="col-span-2 rounded-card border border-border bg-surface md:col-span-6 xl:col-span-12" data-testid="websites">
-                    <header class="flex flex-wrap items-baseline gap-x-3 border-b border-border px-4 py-3">
-                        <h2 class="text-sm font-semibold">"Websites"</h2>
-                        <span class="text-xs text-text-muted" data-testid="websites-port">{w.head().trim_start_matches("web: ").to_string()}</span>
-                    </header>
-                    {rows(w.clone())}
-                </section>
-            }
-        })
+pub(super) fn websites_panel(web: Option<WebSummary>) -> impl IntoView {
+    let Some(w) = web else {
+        return view! { <p class="px-4 py-3 text-[13px] text-text-muted" data-testid="websites">"The web proxy is not running yet."</p> }.into_any();
+    };
+    view! {
+        <div data-testid="websites">
+            <p class="border-b border-border px-4 py-2.5 text-xs text-text-muted" data-testid="websites-port">{w.head().trim_start_matches("web: ").to_string()}</p>
+            {rows(w)}
+        </div>
     }
+    .into_any()
 }

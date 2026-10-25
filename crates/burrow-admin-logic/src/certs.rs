@@ -137,6 +137,23 @@ pub fn rows(status: &Status, now: u64) -> Vec<Row> {
         .collect()
 }
 
+pub fn count(status: &Status, now: u64) -> String {
+    let all = rows(status, now);
+    let expiring = all
+        .iter()
+        .filter(|r| matches!(r.expires.1, Level::Warn | Level::Bad))
+        .count();
+    let failing = all.iter().filter(|r| r.state.1 == Level::Bad).count();
+    let mut out = all.len().to_string();
+    if expiring > 0 {
+        out.push_str(&format!(" · {expiring} expiring"));
+    }
+    if failing > 0 {
+        out.push_str(&format!(" · {failing} failing"));
+    }
+    out
+}
+
 fn service_of(status: &Status, name: &str) -> Option<String> {
     let web = status.web.as_ref()?;
     web.hosts
@@ -283,6 +300,29 @@ mod tests {
         assert_eq!(r[1].state.1, Level::Bad);
         assert_eq!(r[1].next, "next try in 10 min");
         assert_eq!(r[1].problem.as_deref(), Some("the DNS name does not exist"));
+    }
+
+    #[test]
+    fn the_count_says_how_many_certificates_expire_soon_or_fail() {
+        let ok = cert("a.example.com", CertStateStatus::Ok, Some(NOW + 60 * DAY));
+        assert_eq!(count(&status(vec![ok.clone()]), NOW), "1");
+        let soon = cert("b.example.com", CertStateStatus::Ok, Some(NOW + 5 * DAY));
+        let failing = cert(
+            "c.example.com",
+            CertStateStatus::Failing {
+                reason: "rate limited".into(),
+            },
+            Some(NOW + 60 * DAY),
+        );
+        let app = CertStatus {
+            source: CertSourceStatus::Passthrough,
+            ..cert("d.example.com", CertStateStatus::Ok, None)
+        };
+        assert_eq!(
+            count(&status(vec![ok, soon, failing, app]), NOW),
+            "3 · 1 expiring · 1 failing"
+        );
+        assert_eq!(count(&status(Vec::new()), NOW), "0");
     }
 
     #[test]

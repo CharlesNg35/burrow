@@ -239,6 +239,14 @@ pub async fn edit_mode(c: &Ctx) {
     c.ui.wait_for("[data-testid=save-bar]", SECS).await;
 }
 
+pub async fn overview_tab(c: &Ctx, tab: &str) {
+    let pill = format!("[data-testid=overview-tabs] [data-tab={tab}]");
+    c.ui.wait_for(&pill, SECS).await;
+    c.ui.click(&pill).await;
+    c.ui.wait_for(&format!("{pill}[aria-selected=true]"), SECS)
+        .await;
+}
+
 pub async fn open_review(c: &mut Ctx, step: &str) {
     review_now(c).await;
     c.ui.wait_for("[data-testid=review]", SECS).await;
