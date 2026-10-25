@@ -6,8 +6,13 @@ use std::time::Duration;
 
 use zeroize::Zeroizing;
 
-pub const DEFAULT_WAIT: Duration = Duration::from_secs(120);
+mod fake;
+pub mod lookup;
+pub mod propagate;
+pub mod system;
+pub mod wire;
 
+pub const DEFAULT_WAIT: Duration = Duration::from_secs(120);
 #[derive(Clone)]
 pub struct Secret(Arc<Zeroizing<String>>);
 
