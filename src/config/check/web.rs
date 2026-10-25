@@ -403,7 +403,7 @@ mod share;
 mod site_keys;
 mod site_wide;
 
-pub(super) use fill::settings;
+pub(super) use fill::{settings, written};
 pub(super) use share::share_tunnel;
 
 #[cfg(test)]

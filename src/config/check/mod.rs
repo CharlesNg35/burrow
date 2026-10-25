@@ -31,6 +31,7 @@ pub struct Spans {
     map: HashMap<Vec<String>, (Span, Span)>,
     nulls: HashSet<Vec<String>>,
     env: HashSet<Vec<String>>,
+    written: Vec<(Vec<String>, String, String)>,
     root: Span,
 }
 
@@ -40,6 +41,7 @@ impl Spans {
             map: HashMap::new(),
             nulls: HashSet::new(),
             env: HashSet::new(),
+            written: Vec::new(),
             root: Span::point(root.span.start),
         };
         fn walk(n: &Node, path: &mut Vec<String>, spans: &mut Spans) {
@@ -53,6 +55,9 @@ impl Spans {
                         }
                         if e.value.env != super::tree::FromEnv::No {
                             spans.env.insert(path.clone());
+                        }
+                        if let (Some(raw), Value::Str(now)) = (&e.value.raw, &e.value.value) {
+                            spans.written.push((path.clone(), now.clone(), raw.clone()));
                         }
                         walk(&e.value, path, spans);
                         path.pop();
@@ -96,6 +101,10 @@ impl Spans {
     pub fn is_null(&self, path: &[&str]) -> bool {
         let key: Vec<String> = path.iter().map(|s| s.to_string()).collect();
         self.nulls.contains(&key)
+    }
+
+    pub fn written(&self) -> &[(Vec<String>, String, String)] {
+        &self.written
     }
 
     pub fn from_env(&self, path: &[&str]) -> bool {

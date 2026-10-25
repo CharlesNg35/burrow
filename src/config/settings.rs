@@ -22,7 +22,7 @@ pub use site::{
 
 pub use web::{
     CertFile, LETSENCRYPT_PRODUCTION, LETSENCRYPT_STAGING, LetsEncrypt, WebSettings, WebSite,
-    WebTls, digest_of,
+    WebTls, Written, digest_of,
 };
 
 #[derive(Debug, Clone, PartialEq)]

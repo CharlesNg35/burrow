@@ -33,14 +33,19 @@ fn extras(site: &WebSite, path: &str, trusted: bool) -> String {
     }
 }
 
-fn site_routes(service: &str, site: &WebSite, trusted: bool) -> Vec<RouteLine> {
+fn site_routes(service: &str, site: &WebSite, web: &WebSettings) -> Vec<RouteLine> {
+    let trusted = !web.trusted_proxies.is_empty();
     let mut out: Vec<RouteLine> = site
         .options
         .redirects
         .iter()
         .map(|r| RouteLine {
             path: r.from.clone(),
-            to: format!("redirect {} ({})", r.to, kind(r.permanent)),
+            to: format!(
+                "redirect {} ({})",
+                web.written.shown(&r.to),
+                kind(r.permanent)
+            ),
             service: String::new(),
         })
         .collect();
@@ -72,7 +77,6 @@ fn sorted(mut routes: Vec<RouteLine>) -> Vec<RouteLine> {
 }
 
 pub(super) fn hosts(web: &WebSettings) -> Vec<HostLine> {
-    let trusted = !web.trusted_proxies.is_empty();
     let mut lines: BTreeMap<String, (HostLine, Vec<RouteLine>, usize)> = BTreeMap::new();
     for (service, site) in &web.sites {
         for name in &site.hosts {
@@ -80,7 +84,7 @@ pub(super) fn hosts(web: &WebSettings) -> Vec<HostLine> {
                 .entry(name.clone())
                 .or_insert_with(|| (host(web, service, site, name), Vec::new(), 0));
             if site.tls != WebTls::Passthrough {
-                entry.1.extend(site_routes(service, site, trusted));
+                entry.1.extend(site_routes(service, site, web));
             }
             entry.2 += 1;
         }
@@ -107,7 +111,11 @@ pub(super) fn hosts(web: &WebSettings) -> Vec<HostLine> {
     for r in &web.redirect_names {
         let route = RouteLine {
             path: r.path.clone(),
-            to: format!("redirect {} ({})", r.to, kind(r.permanent)),
+            to: format!(
+                "redirect {} ({})",
+                web.written.shown(&r.to),
+                kind(r.permanent)
+            ),
             service: String::new(),
         };
         let entry = lines.entry(r.host.clone()).or_insert_with(|| {

@@ -28,6 +28,7 @@ pub struct WebSettings {
     pub proxy_protocol_from: Vec<Cidr>,
     pub access_log: Option<(PathBuf, LogFormat)>,
     pub request_id: bool,
+    pub written: Written,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -64,6 +65,21 @@ pub struct LetsEncrypt {
     pub dns: Vec<super::dns::DnsSettings>,
 }
 
+#[derive(Clone, Default, PartialEq, Eq)]
+pub struct Written(pub BTreeMap<String, String>);
+
+impl Written {
+    pub fn shown<'a>(&'a self, value: &'a str) -> &'a str {
+        self.0.get(value).map_or(value, String::as_str)
+    }
+}
+
+impl std::fmt::Debug for Written {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Written({} values from the environment)", self.0.len())
+    }
+}
+
 impl WebSettings {
     pub fn new(https: SocketAddr) -> WebSettings {
         WebSettings::on((Some(https), None))
@@ -86,6 +102,7 @@ impl WebSettings {
             proxy_protocol_from: Vec::new(),
             access_log: None,
             request_id: false,
+            written: Written::default(),
         }
     }
 

@@ -3,7 +3,7 @@ use std::net::SocketAddr;
 use crate::config::settings::DnsProvider;
 use crate::config::settings::{
     LETSENCRYPT_PRODUCTION, LETSENCRYPT_STAGING, LetsEncrypt, ServerSettings, Shares, WebSettings,
-    WebSite, WebTls,
+    WebSite, WebTls, Written,
 };
 pub use burrow_admin_proto::web::{HostLine, PLAIN, TunnelLine, WebSummary};
 use burrow_syntax::web::{
@@ -22,15 +22,15 @@ fn shown(a: Option<SocketAddr>) -> (String, String) {
     a.map_or_else(Default::default, |a| (a.to_string(), addresses(a).into()))
 }
 
-fn account(l: &LetsEncrypt) -> String {
+fn account(l: &LetsEncrypt, written: &Written) -> String {
     let directory = match l.directory.as_str() {
         LETSENCRYPT_PRODUCTION => "Let's Encrypt (production)".to_string(),
         LETSENCRYPT_STAGING => "Let's Encrypt (staging)".to_string(),
-        other => format!("the ACME server {other}"),
+        other => format!("the ACME server {}", written.shown(other)),
     };
-    let mut out = format!("{directory} as {}", l.email);
+    let mut out = format!("{directory} as {}", written.shown(&l.email));
     if let Some(p) = &l.profile {
-        out.push_str(&format!(", profile {p}"));
+        out.push_str(&format!(", profile {}", written.shown(p)));
     }
     if let Some(ca) = &l.ca {
         out.push_str(&format!(", trusting {}", ca.display()));
@@ -305,8 +305,8 @@ pub fn summary(s: &ServerSettings) -> Option<WebSummary> {
             .letsencrypt
             .as_ref()
             .map(|l| match dns_line(l) {
-                d if d.is_empty() => account(l),
-                d => format!("{}; {d}", account(l)),
+                d if d.is_empty() => account(l, &web.written),
+                d => format!("{}; {d}", account(l, &web.written)),
             })
             .unwrap_or_default(),
         tunnel,

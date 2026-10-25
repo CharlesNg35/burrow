@@ -107,3 +107,26 @@ pub(in crate::config::check) fn settings(
     s.file_digest = crate::config::settings::digest_of(&s.cert_files());
     Some(s)
 }
+
+pub(in crate::config::check) fn written(
+    spans: &crate::config::check::Spans,
+) -> crate::config::settings::Written {
+    let shown = |p: &[String]| match p {
+        [web, letsencrypt, dns, ..]
+            if web == "web" && letsencrypt == "letsencrypt" && dns == "dns" =>
+        {
+            false
+        }
+        [web, ..] if web == "web" => true,
+        [services, _, web, ..] => services == "services" && web == "web",
+        _ => false,
+    };
+    crate::config::settings::Written(
+        spans
+            .written()
+            .iter()
+            .filter(|(p, _, _)| shown(p))
+            .map(|(_, now, raw)| (now.clone(), raw.clone()))
+            .collect(),
+    )
+}

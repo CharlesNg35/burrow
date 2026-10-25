@@ -1,5 +1,6 @@
 mod apply;
 mod locks;
+mod refs;
 mod steps;
 
 use std::collections::BTreeSet;
@@ -19,6 +20,7 @@ use super::ops::{self, Fresh};
 use super::{ApiError, Core, Session, text};
 pub use apply::{Begun, ReloadResult, apply_begin, finish, restore};
 use locks::{refuse_changed_locks, refuse_locked};
+use refs::refuse_new_references;
 use steps::{Draft, assemble, conflict, judge, new_document, parse_current};
 
 pub struct Checked {
@@ -184,6 +186,7 @@ pub fn compute(
         .map(|n| n.to_json())
         .unwrap_or(Value::Null);
     refuse_changed_locks(&core.schema, (&raw, &new_raw), &applied.renames)?;
+    refuse_new_references((&raw, &new_raw), &applied.renames)?;
     let running = core.live.settings();
     let file = check_text(core, &old_text);
     let d = Draft {

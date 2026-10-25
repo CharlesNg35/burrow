@@ -2,6 +2,7 @@ mod files;
 mod locks;
 mod locks_web;
 mod plans;
+mod refs;
 mod reverts;
 mod snippets;
 

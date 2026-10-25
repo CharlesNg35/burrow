@@ -317,3 +317,40 @@ fn the_summary_names_each_dns_provider_and_lists_the_shared_wildcards() {
         "wiki.example.com: Let's Encrypt shared wildcard *.example.com -> service wiki"
     );
 }
+
+#[test]
+fn the_summary_shows_references_as_written_never_their_values() {
+    let dir = tempfile::tempdir().unwrap();
+    let text = "clients:\n  home: { secret: \"yjgGDKUL5TY/9SCE2jvBsr2z5zLSKl+x1p76T98Vf/U=\" }\nlisten: 7835\nweb:\n  https: 443\n  letsencrypt:\n    email: \"${EMAIL}\"\n  redirect_names:\n    old.example.com: \"https://example.com/${WHERE}\"\nservices:\n  blog:\n    client: home\n    target: 8080\n    web:\n      hosts: [example.com]\n      redirects: { /go: \"https://example.net/${WHERE}\" }\n";
+    let env = |n: &str| match n {
+        "EMAIL" => Some("hidden@example.com".to_string()),
+        "WHERE" => Some("s3cr3t".to_string()),
+        _ => None,
+    };
+    let o = load_str_in(
+        dir.path(),
+        "server.yaml",
+        text,
+        Format::Yaml,
+        Some(Role::Server),
+        &env,
+    );
+    let Some(Loaded::Server(s, _)) = o.loaded else {
+        panic!("{:?}", o.report.diagnostics)
+    };
+    let shown = summary(&s).unwrap().lines().join("\n");
+    assert!(shown.contains("as ${EMAIL}"), "{shown}");
+    assert!(
+        shown.contains("redirect https://example.net/${WHERE} (temporary)"),
+        "{shown}"
+    );
+    assert!(
+        shown.contains("redirect https://example.com/${WHERE} (temporary)"),
+        "{shown}"
+    );
+    assert!(
+        !shown.contains("s3cr3t") && !shown.contains("hidden@"),
+        "{shown}"
+    );
+    assert!(!format!("{:?}", s.web.as_ref().unwrap().written).contains("s3cr3t"));
+}

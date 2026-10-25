@@ -291,6 +291,7 @@ fn fill_root_placeholders(node: &mut Node, role: Role) {
                     span: Span::default(),
                     quoted: true,
                     env: tree::FromEnv::No,
+                    raw: None,
                 },
             });
         }
