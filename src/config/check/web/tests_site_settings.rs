@@ -170,3 +170,55 @@ fn web_https_redirect_is_the_default_of_https_sites_only() {
     );
     assert!(redirect("shop"));
 }
+
+#[test]
+fn http2_target_http2_and_the_http_check_reach_the_settings() {
+    let cfg: ServerConfig = serde_json::from_value(json!({
+        "web": {"https": 443, "http2": false},
+        "services": {
+            "grpc": {"client": "home", "target": 50051, "web": {"hosts": ["*.grpc.example.com", "grpc.example.com"], "target_http2": true}},
+            "apps": {"client": "home", "target": 3000, "health_check": {"path": "/healthz/"}, "web": ["*.apps.example.com"]}
+        }
+    }))
+    .unwrap();
+    let base = Path::new("/etc/burrow");
+    let svc = &cfg.services["grpc"];
+    let grpc = super::fill::site(&cfg, svc.web.as_ref().unwrap(), &svc.target, vec![], base);
+    assert!(grpc.options.target_http2);
+    let s = super::fill::settings(
+        &cfg,
+        (Some("[::]:443".parse().unwrap()), None),
+        Default::default(),
+        None,
+        base,
+    )
+    .unwrap();
+    assert!(!s.http2);
+    let defaults: ServerConfig = serde_json::from_value(json!({"web": {"https": 443}})).unwrap();
+    let d = super::fill::settings(
+        &defaults,
+        (Some("[::]:443".parse().unwrap()), None),
+        Default::default(),
+        None,
+        base,
+    )
+    .unwrap();
+    assert!(d.http2, "HTTP/2 is on unless web.http2 is false");
+}
+
+#[test]
+fn the_http_check_asks_the_first_plain_host_or_the_wildcards_base_name() {
+    let s = super::tests::settings(super::tests::load(
+        "listen: 7835\nweb:\n  https: 443\n  certificates: [{ hosts: [\"*.apps.example.com\", \"*.lab.example.com\", lab.example.com], cert: w.pem, key: w.key }]\nservices:\n  apps:\n    client: home\n    target: 3000\n    health_check: { path: \"/healthz/\" }\n    web: [\"*.apps.example.com\"]\n  lab:\n    client: home\n    target: 3001\n    health_check: { path: /up }\n    web: [\"*.lab.example.com\", lab.example.com]\n  db:\n    client: home\n    bind: 5432\n    target: 5432\n    health_check: true\n",
+    ));
+    let http = |name: &str| s.services[name].health.as_ref().unwrap().http.clone();
+    assert_eq!(
+        http("apps"),
+        Some(crate::config::settings::HttpCheck {
+            path: "/healthz".into(),
+            host: "apps.example.com".into()
+        })
+    );
+    assert_eq!(http("lab").unwrap().host, "lab.example.com");
+    assert_eq!(http("db"), None);
+}

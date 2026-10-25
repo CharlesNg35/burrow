@@ -235,6 +235,7 @@ async fn health_checks_of_a_proxy_protocol_service_send_a_header_too() {
                 interval: Duration::from_millis(200),
                 timeout: Duration::from_secs(1),
                 failures: 3,
+                http: None,
             }),
             ..service(target, Protocol::Tcp)
         },

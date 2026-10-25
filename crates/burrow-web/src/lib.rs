@@ -50,6 +50,7 @@ pub struct ProxySettings {
     pub forwarding: Forwarding,
     pub access_log: Option<AccessLog>,
     pub request_id: bool,
+    pub http2: bool,
 }
 
 impl Default for ProxySettings {
@@ -66,6 +67,7 @@ impl Default for ProxySettings {
             forwarding: Forwarding::default(),
             access_log: None,
             request_id: false,
+            http2: true,
         }
     }
 }

@@ -39,6 +39,7 @@ fn quick() -> Option<Health> {
         interval: Duration::from_millis(200),
         timeout: Duration::from_secs(1),
         failures: 1,
+        http: None,
     })
 }
 
@@ -266,6 +267,7 @@ async fn many_probes_leave_no_open_connections_or_drained_pool() {
             interval: Duration::from_millis(1),
             timeout: Duration::from_secs(1),
             failures: 1,
+            http: None,
         }),
         ..service(target, Protocol::Tcp)
     };
@@ -431,6 +433,7 @@ async fn a_reconnecting_client_with_a_dead_target_does_not_take_traffic_back() {
             interval: Duration::from_millis(500),
             timeout: Duration::from_secs(1),
             failures: 2,
+            http: None,
         }),
         ..service(eb, Protocol::Tcp)
     };

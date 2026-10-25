@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:a0dc037a6d031381",
+  "hash": "b2s:546138daab74335b",
   "root": {
     "label": "Server",
     "sem": {
@@ -273,6 +273,23 @@
                         },
                         "advanced": true,
                         "none_label": "Yes"
+                      }
+                    },
+                    {
+                      "key": "http2",
+                      "node": {
+                        "label": "HTTP/2",
+                        "help": "Let browsers use HTTP/2 on the HTTPS port, faster for pages with many parts; turn it off only for a client that breaks with it",
+                        "sem": {
+                          "t": "optional",
+                          "inner": {
+                            "sem": {
+                              "t": "bool"
+                            }
+                          }
+                        },
+                        "advanced": true,
+                        "none_label": "On"
                       }
                     },
                     {
@@ -1567,6 +1584,22 @@
                                           },
                                           "default": 2
                                         }
+                                      },
+                                      {
+                                        "key": "path",
+                                        "node": {
+                                          "label": "Path to check",
+                                          "help": "For a website: ask the app for this path through each client, for example /healthz; an answer of 2xx or 3xx counts as up, and the path must not need a login",
+                                          "sem": {
+                                            "t": "optional",
+                                            "inner": {
+                                              "sem": {
+                                                "t": "url_path"
+                                              }
+                                            }
+                                          },
+                                          "none_label": "Only open a connection"
+                                        }
                                       }
                                     ]
                                   }
@@ -2312,6 +2345,29 @@
                                           },
                                           "advanced": true,
                                           "none_label": "Off: plain HTTP to the app",
+                                          "relations": [
+                                            {
+                                              "r": "visible_if",
+                                              "cond": {
+                                                "ne": [
+                                                  "tls",
+                                                  "passthrough"
+                                                ]
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      {
+                                        "key": "target_http2",
+                                        "node": {
+                                          "label": "HTTP/2 to the app",
+                                          "help": "Speak HTTP/2 to the app, needed for gRPC: without HTTPS to the app it is plain h2c, with it h2 inside TLS",
+                                          "sem": {
+                                            "t": "bool"
+                                          },
+                                          "default": false,
+                                          "advanced": true,
                                           "relations": [
                                             {
                                               "r": "visible_if",

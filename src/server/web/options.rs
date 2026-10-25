@@ -28,6 +28,7 @@ pub(super) fn site_options(o: &settings::SiteOptions) -> SiteOptions {
             settings::TargetTls::Unchecked => TargetTls::Unchecked,
         },
         target_name: o.target_name.clone(),
+        target_http2: o.target_http2,
         hsts: o.hsts,
         compress: o.compress,
         max_body_size: o.max_body_size,
@@ -61,6 +62,7 @@ pub(super) fn site_wide(web: &WebSettings, p: &mut ProxySettings) {
         },
     });
     p.request_id = web.request_id;
+    p.http2 = web.http2;
 }
 
 fn rules(list: &[(String, String)]) -> Vec<HeaderRule> {

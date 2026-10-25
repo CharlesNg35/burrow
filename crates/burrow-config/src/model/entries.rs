@@ -349,6 +349,17 @@ pub struct HealthCheck {
     #[schemars(range(min = 1, max = 100))]
     #[admin(ty = integer(unit = "checks"), label = "Failures before down")]
     pub failures: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        description = "For a website: check with GET of this path through each client, 2xx or 3xx is up, for example /healthz; without it the check opens a TCP connection"
+    )]
+    #[admin(
+        ty = url_path,
+        label = "Path to check",
+        help = "For a website: ask the app for this path through each client, for example /healthz; an answer of 2xx or 3xx counts as up, and the path must not need a login",
+        none_label = "Only open a connection"
+    )]
+    pub path: Option<String>,
 }
 
 impl Default for HealthCheck {
@@ -357,6 +368,7 @@ impl Default for HealthCheck {
             interval_secs: 10,
             timeout_secs: 3,
             failures: 2,
+            path: None,
         }
     }
 }

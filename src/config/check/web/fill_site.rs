@@ -48,6 +48,7 @@ pub(super) fn options(
         })
         .collect();
     o.maintenance = s.maintenance;
+    o.target_http2 = s.target_http2;
     o.target_tls = match &s.target_tls {
         None | Some(TargetTlsKey::Checked(false)) => TargetTls::Off,
         Some(TargetTlsKey::Checked(true)) => TargetTls::PublicRoots,

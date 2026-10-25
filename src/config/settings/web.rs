@@ -29,6 +29,7 @@ pub struct WebSettings {
     pub access_log: Option<(PathBuf, LogFormat)>,
     pub request_id: bool,
     pub written: Written,
+    pub http2: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -103,6 +104,7 @@ impl WebSettings {
             access_log: None,
             request_id: false,
             written: Written::default(),
+            http2: true,
         }
     }
 

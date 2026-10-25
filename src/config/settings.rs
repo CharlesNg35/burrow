@@ -146,11 +146,18 @@ impl VisitorAuth {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Health {
     pub interval: Duration,
     pub timeout: Duration,
     pub failures: u32,
+    pub http: Option<HttpCheck>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct HttpCheck {
+    pub path: String,
+    pub host: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

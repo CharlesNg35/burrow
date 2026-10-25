@@ -125,6 +125,17 @@ pub struct WebSite {
         visible_if(ne(tls, "passthrough"))
     )]
     pub target_tls: Option<TargetTls>,
+    #[serde(default, skip_serializing_if = "super::is_false")]
+    #[schemars(
+        description = "true speaks HTTP/2 to the app: h2c, or h2 inside target_tls; for gRPC apps"
+    )]
+    #[admin(
+        label = "HTTP/2 to the app",
+        help = "Speak HTTP/2 to the app, needed for gRPC: without HTTPS to the app it is plain h2c, with it h2 inside TLS",
+        advanced,
+        visible_if(ne(tls, "passthrough"))
+    )]
+    pub target_http2: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
         description = "true sends Strict-Transport-Security for a year on this site's HTTPS answers; from web.hsts when not set"

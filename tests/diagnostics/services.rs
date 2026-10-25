@@ -253,12 +253,12 @@ fn several_clients() {
     let web = &s.services["web"];
     assert_eq!(web.clients, ["home", "office"]);
     assert_eq!(web.mode, Mode::Balance);
-    let h = web.health.unwrap();
+    let h = web.health.clone().unwrap();
     assert_eq!(
         (h.interval.as_secs(), h.timeout.as_secs(), h.failures),
         (10, 3, 2)
     );
-    let h = s.services["db"].health.unwrap();
+    let h = s.services["db"].health.clone().unwrap();
     assert_eq!((h.interval.as_secs(), h.failures), (5, 3));
     assert_eq!(s.services["db"].mode, Mode::Failover);
     insta::assert_snapshot!(render("server.yaml", &server("  a:\n    client: home\n    clients: [office]\n    bind: 4000\n    target: 4000\n  b:\n    bind: 4001\n    target: 4001\n  c:\n    clients: [home, home, ofice]\n    bind: 4002\n    target: 4002\n  d:\n    clients: [home, office]\n    mode: balance\n    health_check: true\n    protocol: udp\n    bind: 4003\n    target: 4003\n  e:\n    client: home\n    mode: random\n    health_check: often\n    bind: 4004\n    target: 4004\n"), None), @r#"

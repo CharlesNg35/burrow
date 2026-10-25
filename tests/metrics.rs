@@ -91,6 +91,7 @@ async fn refusals_and_health_show_up() {
             interval: Duration::from_millis(200),
             timeout: Duration::from_secs(1),
             failures: 1,
+            http: None,
         }),
         ..service(echo, Protocol::Tcp)
     };
@@ -396,6 +397,7 @@ async fn prometheus_text_has_each_family_once_and_unique_series() {
             interval: Duration::from_millis(200),
             timeout: Duration::from_secs(1),
             failures: 1,
+            http: None,
         }),
         ..service(echo, Protocol::Tcp)
     };

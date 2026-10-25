@@ -242,6 +242,7 @@ async fn failover_moves_between_self_and_a_remote_client() {
                 interval: Duration::from_millis(200),
                 timeout: Duration::from_secs(1),
                 failures: 1,
+                http: None,
             }),
             ..service(echo, Protocol::Tcp)
         },
@@ -284,6 +285,7 @@ async fn self_takes_over_when_the_remote_client_cannot_reach_the_target() {
                 interval: Duration::from_millis(200),
                 timeout: Duration::from_secs(1),
                 failures: 1,
+                http: None,
             }),
             ..service(echo, Protocol::Tcp)
         },

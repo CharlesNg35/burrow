@@ -1,7 +1,7 @@
 use std::net::SocketAddr;
 use std::time::Duration;
 
-use super::super::settings::{Health, Service};
+use super::super::settings::{Health, HttpCheck, Service};
 use super::ports::{parse_ranged, ranges_conflict, show_addr, split_target};
 use super::{
     MAX_TARGET_LEN, SENSITIVE_PORTS, Spans, name_error, parse_host_port, unix, valid_name,
@@ -276,11 +276,37 @@ fn health(svc: &ServiceEntry) -> Option<Health> {
         Some(HealthCheckSetting::On(true)) => HealthCheck::default(),
         Some(HealthCheckSetting::Tuned(h)) => h.clone(),
     };
+    let http = tuned
+        .path
+        .as_deref()
+        .zip(check_host(svc))
+        .map(|(path, host)| HttpCheck {
+            path: burrow_syntax::url_path::route_path(path)
+                .unwrap_or_else(|_| path.trim().to_string()),
+            host,
+        });
     Some(Health {
         interval: Duration::from_secs(tuned.interval_secs.into()),
         timeout: Duration::from_secs(tuned.timeout_secs.into()),
         failures: tuned.failures.max(1),
+        http,
     })
+}
+
+fn check_host(svc: &ServiceEntry) -> Option<String> {
+    use burrow_syntax::web::{SingleLabel, host_name, is_wildcard};
+    let hosts: Vec<String> = svc
+        .web
+        .as_ref()?
+        .hosts()
+        .iter()
+        .filter_map(|h| host_name(h, SingleLabel::Allowed).ok())
+        .collect();
+    hosts
+        .iter()
+        .find(|h| !is_wildcard(h))
+        .or(hosts.first())
+        .map(|h| h.strip_prefix("*.").unwrap_or(h).to_string())
 }
 
 fn is_set(svc: &ServiceEntry, field: &str) -> bool {

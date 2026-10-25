@@ -104,6 +104,7 @@ pub(in crate::config::check) fn settings(
             .map(str::to_string),
     });
     super::fill_site::site_wide(web, &mut s, base_dir);
+    s.http2 = web.http2.unwrap_or(true);
     s.file_digest = crate::config::settings::digest_of(&s.cert_files());
     Some(s)
 }

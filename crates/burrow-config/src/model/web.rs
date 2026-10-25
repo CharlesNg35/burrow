@@ -48,6 +48,17 @@ pub struct WebConfig {
     pub https_redirect: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
+        description = "true (the default) lets browsers use HTTP/2 on web.https; false keeps HTTP/1.1 only"
+    )]
+    #[admin(
+        label = "HTTP/2",
+        help = "Let browsers use HTTP/2 on the HTTPS port, faster for pages with many parts; turn it off only for a client that breaks with it",
+        none_label = "On",
+        advanced
+    )]
+    pub http2: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
         description = "Automatic certificates from Let's Encrypt (or another ACME server); writing it accepts Let's Encrypt's terms, for example {email: ops@example.com}"
     )]
     #[admin(

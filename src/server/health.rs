@@ -91,14 +91,16 @@ pub(super) async fn run(shared: Arc<Shared>) {
                     .is_some_and(|s| s.health.is_some() && s.clients.contains(client))
             });
             for (name, svc) in &settings.services {
-                let Some(health) = svc.health else { continue };
+                let Some(health) = svc.health.clone() else {
+                    continue;
+                };
                 for client in svc.clients.iter().filter(|c| connected.contains(c)) {
                     let client = client.clone();
                     let p = probes.entry((name.clone(), client.clone())).or_default();
                     if !p.running && p.last.is_none_or(|t| t.elapsed() >= health.interval) {
                         p.running = true;
                         p.last = Some(Instant::now());
-                        due.push((name.clone(), client, svc.target_at(0), health));
+                        due.push((name.clone(), client, svc.target_at(0), health.clone()));
                     }
                 }
             }

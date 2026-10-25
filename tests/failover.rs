@@ -255,5 +255,6 @@ fn quick_health() -> Option<Health> {
         interval: Duration::from_millis(300),
         timeout: Duration::from_secs(1),
         failures: 1,
+        http: None,
     })
 }
