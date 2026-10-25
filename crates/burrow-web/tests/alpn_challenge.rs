@@ -73,9 +73,13 @@ async fn the_shared_config_never_negotiates_acme_tls() {
         .await
         .unwrap();
     assert_eq!(t.get_ref().1.alpn_protocol(), Some(&b"http/1.1"[..]));
-    assert!(
-        hello(addr, "blog.example.com", &[b"h2"]).await.is_err(),
-        "h2 is not offered yet"
+    let t = hello(addr, "blog.example.com", &[ACME, b"h2"])
+        .await
+        .unwrap();
+    assert_eq!(
+        t.get_ref().1.alpn_protocol(),
+        Some(&b"h2"[..]),
+        "a site name offers h2, never acme-tls/1"
     );
 }
 

@@ -1,5 +1,5 @@
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
@@ -9,22 +9,23 @@ use tokio::task::JoinHandle;
 use tokio::time::Instant;
 use tracing::{debug, warn};
 
-use crate::http::{Conn, serve};
+use crate::http::{Conn, Proto, serve};
 use crate::io::{Io, Prefixed};
 use crate::log::LogFile;
 use crate::peek::{Peek, peek_sni};
 use crate::permit::{Permit, Permits};
 use crate::proxy_header::read_proxy_header;
 use crate::route::{Action, Kind, Table};
+use crate::terminate::SiteTls;
 use crate::tls::{Certificates, cert_names};
 use crate::{AccessLog, LogFormat, ProxySettings, Timeouts, TunnelConn, Upstream, Visitor};
-use tokio_rustls::TlsAcceptor;
 
 pub(crate) struct Shared<U> {
     pub(crate) up: Arc<U>,
     pub(crate) certs: Arc<dyn Certificates>,
     pub(crate) https_port: Option<u16>,
-    site_tls: TlsAcceptor,
+    site_tls: SiteTls,
+    http2: AtomicBool,
     table: RwLock<Arc<Table>>,
     timing: RwLock<Timeouts>,
     log: RwLock<Option<(Arc<LogFile>, LogFormat)>>,
@@ -62,7 +63,8 @@ impl<U: Upstream> Proxy<U> {
         certs.apply(&settings.certs, &cert_names(&settings)).await;
         let shared = Arc::new(Shared {
             up,
-            site_tls: crate::terminate::site_acceptor(certs.clone()),
+            site_tls: SiteTls::new(certs.clone()),
+            http2: AtomicBool::new(settings.http2),
             certs,
             https_port: https.map(|a| a.port()),
             table: RwLock::new(Arc::new(Table::build(&settings))),
@@ -97,6 +99,7 @@ impl<U: Upstream> Proxy<U> {
         *self.shared.timing.write().expect("timing lock") = settings.timeouts;
         self.shared.open_log(settings.access_log.as_ref());
         self.shared.permits.resize(settings.max_pending);
+        self.shared.http2.store(settings.http2, Ordering::Release);
     }
 
     pub fn https_addr(&self) -> Option<SocketAddr> {
@@ -133,6 +136,10 @@ impl<U: Upstream> Proxy<U> {
 impl<U> Shared<U> {
     pub(crate) fn table(&self) -> Arc<Table> {
         self.table.read().expect("table lock").clone()
+    }
+
+    pub(crate) fn http2(&self) -> bool {
+        self.http2.load(Ordering::Acquire)
     }
 
     pub(crate) fn stop(&self) -> watch::Receiver<bool> {
@@ -262,7 +269,13 @@ async fn plain_loop<U: Upstream>(shared: Arc<Shared<U>>, listener: TcpListener) 
             let Some((io, peer)) = after_proxy_header(stream, peer, proxied).await else {
                 return;
             };
-            serve(shared, Box::new(io), Conn::new(peer, local, None)).await;
+            serve(
+                shared,
+                Box::new(io),
+                Conn::new(peer, local, None),
+                Proto::H1,
+            )
+            .await;
         });
     }
 }
@@ -395,16 +408,26 @@ async fn dispatch<U: Upstream>(shared: &Arc<Shared<U>>, seen: Seen, permit: Perm
             crate::tunnel::serve_by_path(shared.up.clone(), &table, &host, conn).await;
         }
         Kind::Http { .. } | Kind::Plain { .. } => {
-            let Some(acceptor) =
-                crate::terminate::acceptor_for(&shared.site_tls, shared.certs.as_ref(), &host, sni)
-            else {
+            let named = (host.as_str(), sni);
+            let Some(acceptor) = crate::terminate::acceptor_for(
+                &shared.site_tls,
+                shared.certs.as_ref(),
+                named,
+                shared.http2(),
+            ) else {
                 debug!(%peer, "web: no certificate for \"{host}\", closing");
                 return;
             };
             let tls = crate::terminate::accept(acceptor, io, deadline).await;
             drop(permit);
-            if let Some(tls) = tls {
-                serve(shared.clone(), tls, Conn::new(peer, local, Some(host))).await;
+            if let Some((tls, proto)) = tls {
+                serve(
+                    shared.clone(),
+                    tls,
+                    Conn::new(peer, local, Some(host)),
+                    proto,
+                )
+                .await;
             }
         }
     }
@@ -462,8 +485,12 @@ async fn start_tunnel<U: Upstream>(
 ) -> Option<Started<U::Permit>> {
     let tunnel_permit = shared.up.tunnel_permit(peer)?;
     drop(permit);
-    let acceptor =
-        crate::terminate::acceptor_for(&shared.site_tls, shared.certs.as_ref(), host, sni)?;
+    let acceptor = crate::terminate::acceptor_for(
+        &shared.site_tls,
+        shared.certs.as_ref(),
+        (host, sni),
+        false,
+    )?;
     match tokio::time::timeout_at(deadline, acceptor.accept(io)).await {
         Ok(Ok(tls)) => Some(Started {
             io: Box::new(tls),

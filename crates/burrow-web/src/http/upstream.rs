@@ -71,6 +71,7 @@ async fn open<U: Upstream>(up: &U, f: &Forward<'_>) -> Result<Stream, Failed> {
     let ending = io.ending();
     let io = hop(io, &f.site.hop).await?;
     let (tx, conn) = hyper::client::conn::http1::Builder::new()
+        .max_buf_size(super::h2::APP_READ_BUF)
         .max_header_size(MAX_HEAD)
         .max_headers(MAX_HEADERS)
         .handshake(TokioIo::new(io))

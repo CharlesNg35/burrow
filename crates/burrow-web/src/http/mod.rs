@@ -1,5 +1,6 @@
 pub mod compress;
 pub mod forwarded;
+pub mod h2;
 pub mod headers;
 pub mod health;
 pub mod host;
@@ -14,7 +15,7 @@ pub mod site;
 mod stages;
 pub mod upstream;
 
-pub(crate) use serve::{Conn, serve};
+pub(crate) use serve::{Conn, Proto, serve};
 
 use bytes::Bytes;
 use http_body_util::combinators::BoxBody;

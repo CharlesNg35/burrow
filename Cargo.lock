@@ -481,6 +481,7 @@ dependencies = [
  "bytes",
  "flate2",
  "futures-util",
+ "h2",
  "hickory-proto",
  "http",
  "http-body-util",

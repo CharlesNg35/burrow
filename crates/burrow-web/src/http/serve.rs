@@ -1,23 +1,32 @@
 use std::convert::Infallible;
+use std::future::Future;
 use std::net::SocketAddr;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 
+use http::{Request, Response};
 use http_body_util::BodyExt;
 use hyper::body::Incoming;
 use hyper::server::conn::http1;
 use hyper_util::rt::{TokioIo, TokioTimer};
 use tracing::debug;
 
-use super::idle::{Activity, Held, Watched};
+use super::idle::{Activity, Busy, Held, Watched};
 use super::upstream::Upstreams;
-use super::{MAX_HEAD, MAX_HEADERS, pipeline};
+use super::{Body, MAX_HEAD, MAX_HEADERS, pipeline};
 use crate::Upstream;
 use crate::io::BoxIo;
 use crate::listen::Shared;
 
 const LEAST: Duration = Duration::from_secs(1);
 pub const DRAIN: Duration = Duration::from_secs(10);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Proto {
+    H1,
+    H2,
+}
 
 pub(crate) struct Conn {
     pub peer: SocketAddr,
@@ -39,47 +48,88 @@ impl Conn {
     }
 }
 
-pub(crate) async fn serve<U: Upstream>(shared: Arc<Shared<U>>, io: BoxIo, conn: Conn) {
+type Wrap = fn(&Conn, Body, Busy) -> Body;
+
+fn held(_: &Conn, body: Body, busy: Busy) -> Body {
+    Held::new(body, busy).boxed()
+}
+
+fn service<U: Upstream>(
+    shared: &Arc<Shared<U>>,
+    conn: &Arc<Conn>,
+    wrap: Wrap,
+) -> impl hyper::service::Service<
+    Request<Incoming>,
+    Response = Response<Body>,
+    Error = Infallible,
+    Future: Send + 'static,
+> + Clone
++ Send
++ 'static {
+    let (shared, conn) = (shared.clone(), conn.clone());
+    hyper::service::service_fn(move |req: Request<Incoming>| {
+        let (shared, conn) = (shared.clone(), conn.clone());
+        let busy = conn.activity.enter();
+        async move {
+            let r = pipeline::handle(&shared, &conn, req).await;
+            Ok::<_, Infallible>(r.map(|b| wrap(&conn, b, busy)))
+        }
+    })
+}
+
+pub(crate) async fn serve<U: Upstream>(
+    shared: Arc<Shared<U>>,
+    io: BoxIo,
+    conn: Conn,
+    proto: Proto,
+) {
     let conn = Arc::new(conn);
-    let timeouts = shared.timeouts();
     let activity = conn.activity.clone();
-    let io: BoxIo = Box::new(Watched::new(io, activity.clone()));
-    let service = {
-        let (shared, conn, activity) = (shared.clone(), conn.clone(), activity.clone());
-        hyper::service::service_fn(move |req: hyper::Request<Incoming>| {
-            let (shared, conn) = (shared.clone(), conn.clone());
-            let busy = activity.enter();
-            async move {
-                let r = pipeline::handle(&shared, &conn, req).await;
-                Ok::<_, Infallible>(r.map(|b| Held::new(b, busy).boxed()))
-            }
-        })
-    };
-    let served = http1::Builder::new()
-        .timer(TokioTimer::new())
-        .header_read_timeout(timeouts.request_header.max(LEAST))
-        .max_header_size(MAX_HEAD)
-        .max_headers(MAX_HEADERS)
-        .keep_alive(true)
-        .half_close(false)
-        .serve_connection(TokioIo::new(io), service)
-        .with_upgrades();
-    let mut served = std::pin::pin!(served);
+    let io = TokioIo::new(Box::new(Watched::new(io, activity, proto == Proto::H1)) as BoxIo);
+    match proto {
+        Proto::H1 => {
+            let served = http1::Builder::new()
+                .timer(TokioTimer::new())
+                .header_read_timeout(shared.timeouts().request_header.max(LEAST))
+                .max_header_size(MAX_HEAD)
+                .max_headers(MAX_HEADERS)
+                .keep_alive(true)
+                .half_close(false)
+                .serve_connection(io, service(&shared, &conn, held))
+                .with_upgrades();
+            let served = std::pin::pin!(served);
+            run(&shared, &conn, served, |s| s.graceful_shutdown()).await;
+        }
+        Proto::H2 => {
+            let served = super::h2::server().serve_connection(io, service(&shared, &conn, held));
+            let served = std::pin::pin!(served);
+            run(&shared, &conn, served, |s| s.graceful_shutdown()).await;
+        }
+    }
+}
+
+async fn run<U: Upstream, F: Future<Output = hyper::Result<()>>>(
+    shared: &Shared<U>,
+    conn: &Conn,
+    mut served: Pin<&mut F>,
+    shut: impl FnOnce(Pin<&mut F>),
+) {
+    let idle = shared.timeouts().idle;
     let mut stop = shared.stop();
     tokio::select! {
         r = served.as_mut() => {
-            ended(&conn, r);
+            ended(conn, r);
             return;
         }
-        () = activity.idle(timeouts.idle.max(LEAST)) => {
-            debug!(peer = %conn.peer, "web: closing a connection idle for {:?}", timeouts.idle);
+        () = conn.activity.idle(idle.max(LEAST)) => {
+            debug!(peer = %conn.peer, "web: closing a connection idle for {idle:?}");
             return;
         }
         _ = stop.wait_for(|s| *s) => {}
     }
-    served.as_mut().graceful_shutdown();
+    shut(served.as_mut());
     match tokio::time::timeout(DRAIN, served).await {
-        Ok(r) => ended(&conn, r),
+        Ok(r) => ended(conn, r),
         Err(_) => debug!(peer = %conn.peer, "web: a request outlasted the shutdown drain"),
     }
 }

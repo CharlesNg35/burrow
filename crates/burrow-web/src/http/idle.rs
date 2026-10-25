@@ -116,12 +116,17 @@ impl Activity {
 pub(crate) struct Watched {
     inner: BoxIo,
     activity: Arc<Activity>,
+    bytes: bool,
 }
 
 impl Watched {
-    pub(crate) fn new(inner: BoxIo, activity: Arc<Activity>) -> Watched {
+    pub(crate) fn new(inner: BoxIo, activity: Arc<Activity>, bytes: bool) -> Watched {
         activity.touch();
-        Watched { inner, activity }
+        Watched {
+            inner,
+            activity,
+            bytes,
+        }
     }
 }
 
@@ -148,7 +153,7 @@ impl AsyncRead for Watched {
         let me = self.get_mut();
         let before = buf.filled().len();
         let r = Pin::new(&mut me.inner).poll_read(cx, buf);
-        if buf.filled().len() > before {
+        if me.bytes && buf.filled().len() > before {
             me.activity.touch();
         }
         r
@@ -163,7 +168,7 @@ impl AsyncWrite for Watched {
     ) -> Poll<io::Result<usize>> {
         let me = self.get_mut();
         let r = Pin::new(&mut me.inner).poll_write(cx, buf);
-        if matches!(r, Poll::Ready(Ok(n)) if n > 0) {
+        if me.bytes && matches!(r, Poll::Ready(Ok(n)) if n > 0) {
             me.activity.touch();
         }
         r
@@ -187,7 +192,7 @@ mod tests {
     async fn quiet_means_no_bytes_either_way_and_nothing_in_flight() {
         let activity = Activity::new();
         let (a, mut b) = crate::pipe();
-        let mut w = Watched::new(Box::new(a), activity.clone());
+        let mut w = Watched::new(Box::new(a), activity.clone(), true);
         let limit = Duration::from_secs(60);
         tokio::time::advance(Duration::from_secs(50)).await;
         w.write_all(b"x").await.unwrap();
@@ -214,6 +219,29 @@ mod tests {
             started.elapsed(),
             limit,
             "the clock starts when the request ends"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn on_http2_bytes_such_as_pings_do_not_keep_a_connection_open() {
+        let activity = Activity::new();
+        let (a, mut b) = crate::pipe();
+        let mut w = Watched::new(Box::new(a), activity.clone(), false);
+        let limit = Duration::from_secs(60);
+        let started = Instant::now();
+        for _ in 0..5 {
+            tokio::time::advance(Duration::from_secs(10)).await;
+            w.write_all(b"ping").await.unwrap();
+            let mut four = [0u8; 4];
+            b.read_exact(&mut four).await.unwrap();
+            b.write_all(b"pong").await.unwrap();
+            w.read_exact(&mut four).await.unwrap();
+        }
+        activity.idle(limit).await;
+        assert_eq!(
+            started.elapsed(),
+            limit,
+            "only requests and open streams count"
         );
     }
 }
