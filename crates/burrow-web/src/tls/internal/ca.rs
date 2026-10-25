@@ -297,7 +297,10 @@ pub fn due(not_before: u64, not_after: u64, now: u64) -> bool {
     now + life / 5 >= not_after
 }
 
+pub fn leaf_renew_at(not_before: u64, not_after: u64) -> u64 {
+    not_after - not_after.saturating_sub(not_before) / 3
+}
+
 pub fn leaf_due(not_before: u64, not_after: u64, now: u64) -> bool {
-    let life = not_after.saturating_sub(not_before);
-    now + life / 3 >= not_after
+    now >= leaf_renew_at(not_before, not_after)
 }

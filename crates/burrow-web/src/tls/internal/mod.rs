@@ -9,7 +9,7 @@ use tracing::{info, warn};
 
 pub use ca::{
     Ca, INTERMEDIATE_SECS, LEAF_SECS, PERMITTED_NAMES, PERMITTED_NETS, ROOT_SECS,
-    ROOT_WARNING_SECS, SKEW_SECS, due, fingerprint, leaf_due,
+    ROOT_WARNING_SECS, SKEW_SECS, due, fingerprint, leaf_due, leaf_renew_at,
 };
 
 pub const CHECK_EVERY_SECS: u64 = 600;

@@ -61,7 +61,7 @@ impl Store {
             expires: leaf.as_ref().map(|l| l.not_after),
             next_renewal: leaf
                 .as_ref()
-                .map(|l| l.not_after - l.not_after.saturating_sub(l.not_before) / 3),
+                .map(|l| super::super::internal::leaf_renew_at(l.not_before, l.not_after)),
             last_error: error,
             code: None,
             explanation: None,
