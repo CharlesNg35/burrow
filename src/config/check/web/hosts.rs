@@ -10,6 +10,54 @@ pub(super) struct Place<'a> {
     pub name: &'a str,
     pub at: &'a dyn Fn(usize) -> Span,
     pub served: Served,
+    pub tls: String,
+    pub paths: Vec<String>,
+}
+
+pub(super) struct Owner {
+    pub service: String,
+    pub served: Served,
+    pub tls: String,
+    pub paths: Vec<String>,
+}
+
+pub(super) type Owners = BTreeMap<String, Vec<Owner>>;
+
+fn clash(place: &Place<'_>, host: &str, owners: &Owners) -> Option<Diagnostic> {
+    let name = place.name;
+    for o in owners.get(host).into_iter().flatten() {
+        let other = &o.service;
+        let pass = match (o.served, place.served) {
+            (Served::Passthrough, Served::Passthrough) => None,
+            (Served::Passthrough, _) => Some(other.as_str()),
+            (_, Served::Passthrough) => Some(name),
+            _ => None,
+        };
+        let message = if let Some(pass) = pass {
+            format!("host \"{host}\" is used by a passthrough service \"{pass}\" and by a website")
+        } else if o.served == Served::Passthrough {
+            format!(
+                "host \"{host}\" is used by services \"{other}\" and \"{name}\"; each host name leads to one service"
+            )
+        } else if o.tls != place.tls {
+            format!(
+                "host \"{host}\": services \"{other}\" and \"{name}\" share it but choose different certificates; set tls for it in one service only"
+            )
+        } else if let Some(p) = o.paths.iter().find(|p| place.paths.contains(p)) {
+            let like = if p == "/" {
+                "paths: [/api]".to_string()
+            } else {
+                format!("another path than {p}")
+            };
+            format!(
+                "host \"{host}\" is used by services \"{other}\" and \"{name}\"; give one of them other paths, like {like}"
+            )
+        } else {
+            continue;
+        };
+        return Some(Diagnostic::error("duplicate-host", message).help(own_name_help(name, host)));
+    }
+    None
 }
 
 fn tunnel_on_site(place: &Place<'_>, host: &str, path: &str, shares: Shares) -> Option<Diagnostic> {
@@ -29,7 +77,10 @@ fn tunnel_on_site(place: &Place<'_>, host: &str, path: &str, shares: Shares) -> 
             )
             .help(own),
         ),
-        Served::Terminated | Served::Plain if path == "/" => Some(
+        Served::Terminated | Served::Plain
+            if path == "/" || place.paths.iter().any(|p| burrow_syntax::url_path::on_prefix(path, p)) =>
+        {
+            Some(
             Diagnostic::error(
                 "tunnel-path",
                 format!(
@@ -38,7 +89,8 @@ fn tunnel_on_site(place: &Place<'_>, host: &str, path: &str, shares: Shares) -> 
                 ),
             )
             .help("for example path: /burrow under websocket"),
-        ),
+            )
+        }
         Served::Terminated | Served::Plain => None,
     }
 }
@@ -64,7 +116,7 @@ fn own_name_help(name: &str, host: &str) -> String {
 pub(super) fn check_hosts(
     place: &Place<'_>,
     given: &[String],
-    owners: &mut BTreeMap<String, (String, Served)>,
+    owners: &mut Owners,
     tunnel: Option<(&str, &str, Shares)>,
     out: &mut Vec<Diagnostic>,
 ) -> Option<Vec<String>> {
@@ -128,25 +180,16 @@ pub(super) fn check_hosts(
             );
             continue;
         }
-        if let Some((other, served)) = owners.insert(host.clone(), (name.to_string(), place.served))
-        {
-            let message = match (served, place.served) {
-                (Served::Passthrough, Served::Passthrough) => None,
-                (Served::Passthrough, _) => Some(&other[..]),
-                (_, Served::Passthrough) => Some(name),
-                _ => None,
-            }
-            .map_or_else(
-                || format!("host \"{host}\" is used by services \"{other}\" and \"{name}\"; each host name leads to one service"),
-                |pass| format!("host \"{host}\" is used by a passthrough service \"{pass}\" and by a website"),
-            );
-            out.push(
-                Diagnostic::error("duplicate-host", message)
-                    .at(at)
-                    .help(own_name_help(name, &host)),
-            );
+        if let Some(d) = clash(place, &host, owners) {
+            out.push(d.at(at));
             continue;
         }
+        owners.entry(host.clone()).or_default().push(Owner {
+            service: name.to_string(),
+            served: place.served,
+            tls: place.tls.clone(),
+            paths: place.paths.clone(),
+        });
         if let Some((_, path, shares)) = tunnel.filter(|(t, _, _)| *t == host)
             && let Some(d) = tunnel_on_site(place, &host, path, shares)
         {
@@ -156,4 +199,108 @@ pub(super) fn check_hosts(
         hosts.push(host);
     }
     (out.len() == before).then_some(hosts)
+}
+
+pub(super) fn tls_key(web: &burrow_config::ServiceWeb, https: bool) -> String {
+    use burrow_config::{SiteTls, TlsMode};
+    match web.tls() {
+        Some(SiteTls::Files(f)) => format!("files {} {}", f.cert.trim(), f.key.trim()),
+        Some(SiteTls::Mode(TlsMode::Passthrough)) => "passthrough".into(),
+        Some(SiteTls::Mode(TlsMode::Off)) => "off".into(),
+        Some(SiteTls::Mode(TlsMode::Auto)) => "auto".into(),
+        None if https => "auto".into(),
+        None => "off".into(),
+    }
+}
+
+pub(super) fn paths_of(web: &burrow_config::ServiceWeb) -> Vec<String> {
+    let given = match web {
+        burrow_config::ServiceWeb::Site(s) => s.paths.as_slice(),
+        _ => &[],
+    };
+    let mut out: Vec<String> = given
+        .iter()
+        .filter_map(|p| burrow_syntax::url_path::route_path(p).ok())
+        .collect();
+    if given.is_empty() {
+        out.push("/".into());
+    }
+    out
+}
+
+pub(super) fn check_redirect_hosts(
+    cfg: &burrow_config::ServerConfig,
+    owners: &Owners,
+    spans: &super::Spans,
+    out: &mut Vec<Diagnostic>,
+) {
+    let mut from: BTreeMap<String, String> = BTreeMap::new();
+    for (name, svc) in &cfg.services {
+        let Some(burrow_config::ServiceWeb::Site(site)) = svc.web.as_ref() else {
+            continue;
+        };
+        for (i, text) in site.redirect_from.iter().enumerate() {
+            let Ok(host) = host_name(text, SingleLabel::Allowed) else {
+                continue;
+            };
+            let other = owners
+                .get(&host)
+                .and_then(|o| o.iter().find(|o| o.service != *name))
+                .map(|o| format!("is also a host of service \"{}\"", o.service))
+                .or_else(|| {
+                    from.get(&host)
+                        .filter(|o| *o != name)
+                        .map(|o| format!("is also in redirect_from of service \"{o}\""))
+                });
+            if let Some(why) = other {
+                out.push(
+                    Diagnostic::error(
+                        "duplicate-host",
+                        format!("services.{name}.web.redirect_from: \"{host}\" {why}; a name either serves one site or redirects to it"),
+                    )
+                    .at(spans.value(&["services", name, "web", "redirect_from", &i.to_string()]))
+                    .help("remove it from one of them"),
+                );
+            }
+            from.entry(host).or_insert_with(|| name.clone());
+        }
+    }
+    for key in cfg.web.iter().flat_map(|w| w.redirect_names.keys()) {
+        let text = key.trim();
+        let (host, path) = match text.find('/') {
+            Some(i) => (&text[..i], &text[i..]),
+            None => (text, "/"),
+        };
+        let (Ok(host), Ok(path)) = (
+            host_name(host, SingleLabel::Allowed),
+            burrow_syntax::url_path::route_path(path),
+        ) else {
+            continue;
+        };
+        let served = owners.get(&host).into_iter().flatten().find_map(|o| {
+            if o.served == Served::Passthrough {
+                Some(format!(
+                    "is the host of the passthrough service \"{}\"; burrow cannot see its requests",
+                    o.service
+                ))
+            } else {
+                o.paths
+                    .contains(&path)
+                    .then(|| format!("is also served by service \"{}\"", o.service))
+            }
+        });
+        let why = served.or_else(|| {
+            (path == "/")
+                .then(|| from.get(&host))
+                .flatten()
+                .map(|o| format!("is also in redirect_from of service \"{o}\""))
+        });
+        if let Some(why) = why {
+            out.push(
+                Diagnostic::error("redirect-name", format!("web.redirect_names: \"{text}\" {why}"))
+                    .at(spans.key(&["web", "redirect_names", key]))
+                    .help("a longer path like example.com/shop may redirect while a service keeps the rest of the name"),
+            );
+        }
+    }
 }

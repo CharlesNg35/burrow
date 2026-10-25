@@ -8,6 +8,7 @@ use burrow_config::{Protocol, ServerConfig, ServiceWeb, SiteTls, TlsMode};
 pub(super) const PLAIN_NEEDS_HTTP: &str = "plain-needs-http";
 pub(super) const REDIRECT_PASSTHROUGH: &str = "redirect-passthrough";
 pub(super) const REDIRECT_PLAIN: &str = "redirect-plain";
+pub(super) const REDIRECT_BY_PROXY: &str = "redirect-by-proxy";
 pub(super) const REDIRECT_NEEDS_HTTP: &str = "redirect-needs-http";
 pub(super) const NEEDS_HTTPS: &str = "needs-https";
 pub(super) const PLAIN_HTTP: &str = "plain-http";
@@ -101,6 +102,10 @@ fn redirect(
     let at = spans.value(&["services", name, "web", "https_redirect"]);
     let own = web.https_redirect();
     let https = cfg.web.as_ref().is_some_and(|w| w.https.is_some());
+    let trusted = cfg
+        .web
+        .as_ref()
+        .is_some_and(|w| !w.trusted_proxies.is_empty());
     let plain = match web.tls() {
         Some(SiteTls::Mode(TlsMode::Off)) => true,
         None => !https,
@@ -116,13 +121,23 @@ fn redirect(
             "remove https_redirect",
         )),
         Some(SiteTls::Mode(TlsMode::Passthrough)) => {}
+        _ if plain && own == Some(true) && trusted => out.push(
+            Diagnostic::warning(
+                REDIRECT_BY_PROXY,
+                format!(
+                    "services.{name}: http:// visitors are sent to https:// by the X-Forwarded-Proto of the trusted proxies; if they do not send it, every request redirects"
+                ),
+            )
+            .at(at)
+            .help("Cloudflare and the common load balancers send it; otherwise set https_redirect: false"),
+        ),
         _ if plain && own == Some(true) => out.push(error(
             REDIRECT_PLAIN,
             format!(
-                "services.{name}.web.https_redirect: true on a plain-HTTP site needs web.trusted_proxies: burrow can only tell which visitors used HTTPS at a proxy it trusts; trusted_proxies is not in this build yet, so set https_redirect: false"
+                "services.{name}.web.https_redirect: true on a plain-HTTP site needs web.trusted_proxies: burrow can only tell which visitors used HTTPS at a proxy it trusts; add trusted_proxies, or set https_redirect: false"
             ),
             at,
-            "remove https_redirect, or set it to false",
+            "for example trusted_proxies: [173.245.48.0/20] under web, for Cloudflare",
         )),
         _ if plain => {}
         _ => {

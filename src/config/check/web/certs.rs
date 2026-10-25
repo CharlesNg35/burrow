@@ -56,6 +56,7 @@ pub(in crate::config::check) fn check_sources(
         return;
     }
     let sources = Sources::of(cfg);
+    redirect_sources(cfg, &sources, ports, spans, out);
     for (name, svc) in &cfg.services {
         let Some(web) = svc.web.as_ref().filter(|w| takes_auto(w)) else {
             continue;
@@ -86,6 +87,77 @@ pub(in crate::config::check) fn check_sources(
             {
                 out.push(d);
             }
+        }
+    }
+}
+
+fn push_once(out: &mut Vec<Diagnostic>, d: Diagnostic) {
+    if !out
+        .iter()
+        .any(|o| o.code == d.code && o.message == d.message)
+    {
+        out.push(d);
+    }
+}
+
+fn redirect_sources(
+    cfg: &ServerConfig,
+    sources: &Sources<'_>,
+    ports: (Option<SocketAddr>, Option<SocketAddr>),
+    spans: &Spans,
+    out: &mut Vec<Diagnostic>,
+) {
+    let mut names: Vec<(Who<'_>, String, Option<burrow_config::ChallengeKind>, Span)> = Vec::new();
+    for (name, svc) in &cfg.services {
+        let Some(ServiceWeb::Site(site)) = svc.web.as_ref() else {
+            continue;
+        };
+        if svc.protocol != Protocol::Tcp
+            || matches!(
+                site.tls,
+                Some(SiteTls::Mode(TlsMode::Passthrough | TlsMode::Off))
+            )
+        {
+            continue;
+        }
+        for (i, text) in site.redirect_from.iter().enumerate() {
+            let at = spans.value(&["services", name, "web", "redirect_from", &i.to_string()]);
+            if let Ok(host) = host_name(text, SingleLabel::Refused) {
+                names.push((Who::Site(name), host, site.challenge, at));
+            }
+        }
+    }
+    for key in cfg.web.iter().flat_map(|w| w.redirect_names.keys()) {
+        let host = key.trim().split('/').next().unwrap_or_default();
+        if let Ok(host) = host_name(host, SingleLabel::Refused) {
+            let at = spans.key(&["web", "redirect_names", key]);
+            names.push((Who::Names, host, None, at));
+        }
+    }
+    for (who, host, kind, at) in names {
+        if sources.lists(&host) {
+            continue;
+        }
+        if !sources.letsencrypt {
+            let owner = match who {
+                Who::Site(name) => format!("service \"{name}\""),
+                _ => "web.redirect_names".to_string(),
+            };
+            push_once(
+                out,
+                Diagnostic::error(
+                    "no-certificate",
+                    format!(
+                        "host \"{host}\" ({owner}) has no certificate; add web.letsencrypt for automatic certificates, or an entry in web.certificates whose hosts lists it"
+                    ),
+                )
+                .at(at)
+                .help("a name that only redirects still needs a certificate for https:// visitors"),
+            );
+            continue;
+        }
+        if let Some(d) = challenge::check(who, &host, ports, kind, at) {
+            push_once(out, d);
         }
     }
 }

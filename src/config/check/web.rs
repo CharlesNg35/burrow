@@ -285,7 +285,7 @@ pub(super) fn check_sites(
         return sites;
     }
     let tunnel = tunnel.and_then(|w| w.host.as_deref().map(|h| (h, w.path.as_str(), w.shares)));
-    let mut owners: BTreeMap<String, (String, Served)> = BTreeMap::new();
+    let mut owners = hosts::Owners::new();
     for (name, svc) in &cfg.services {
         let Some(web) = &svc.web else {
             continue;
@@ -319,6 +319,8 @@ pub(super) fn check_sites(
             name,
             at: &item,
             served: Served::of(web, https.is_some()),
+            tls: hosts::tls_key(web, https.is_some()),
+            paths: hosts::paths_of(web),
         };
         if let Some(hosts) = hosts::check_hosts(&place, web.hosts(), &mut owners, tunnel, out) {
             sites.insert(
@@ -327,6 +329,10 @@ pub(super) fn check_sites(
             );
         }
     }
+    hosts::check_redirect_hosts(cfg, &owners, spans, out);
+    site_keys::check_site_keys(cfg, https.is_some(), base_dir, spans, out);
+    let shared_tunnel = tunnel.filter(|t| t.2 == Shares::Https).map(|t| t.0);
+    site_wide::check_site_wide(cfg, (https, http), shared_tunnel, base_dir, spans, out);
     certs::check_sources(cfg, (https, http), spans, out);
     #[cfg(feature = "web")]
     pem::check_files(cfg, base_dir, spans, out);
@@ -388,6 +394,8 @@ mod low;
 #[cfg(feature = "web")]
 mod pem;
 mod share;
+mod site_keys;
+mod site_wide;
 
 pub(super) use fill::settings;
 pub(super) use share::share_tunnel;
@@ -433,6 +441,12 @@ mod tests_sharing;
 
 #[cfg(all(test, feature = "web"))]
 mod tests_site_settings;
+
+#[cfg(all(test, feature = "web"))]
+mod tests_site_keys;
+
+#[cfg(all(test, feature = "web"))]
+mod tests_site_wide;
 
 #[cfg(all(test, not(feature = "web")))]
 mod tests_without_web;

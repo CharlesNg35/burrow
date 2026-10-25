@@ -13,6 +13,7 @@ const FORWARDING: &str = "Let's Encrypt checks port 443 or port 80; if a router 
 pub(super) enum Who<'a> {
     Site(&'a str),
     Tunnel,
+    Names,
 }
 
 impl Who<'_> {
@@ -20,6 +21,7 @@ impl Who<'_> {
         match self {
             Who::Site(name) => format!("services.{name}.web.challenge"),
             Who::Tunnel => "websocket.challenge".into(),
+            Who::Names => "web.redirect_names".into(),
         }
     }
 }
@@ -53,6 +55,13 @@ pub(super) fn check(
             "no-check",
             format!(
                 "{host} (service \"{name}\") cannot be checked by Let's Encrypt: open http: 80, or list a file for it in web.certificates ({LATER})"
+            ),
+            FORWARDING.to_string(),
+        ),
+        (NoCheck::NoPort, Who::Names) => (
+            "no-check",
+            format!(
+                "{host} (web.redirect_names) cannot be checked by Let's Encrypt: open http: 80, or list a file for it in web.certificates ({LATER})"
             ),
             FORWARDING.to_string(),
         ),
