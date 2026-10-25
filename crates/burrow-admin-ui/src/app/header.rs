@@ -200,26 +200,30 @@ fn check_state(s: Store) -> Signal<String> {
     })
 }
 
+fn show_current_tab() {
+    let overflows = document()
+        .query_selector("nav[aria-label=Sections]")
+        .ok()
+        .flatten()
+        .is_some_and(|n| n.scroll_width() > n.client_width());
+    if overflows
+        && let Ok(Some(el)) =
+            document().query_selector("nav[aria-label=Sections] [aria-current=page]")
+    {
+        let opts = web_sys::ScrollIntoViewOptions::new();
+        opts.set_block(web_sys::ScrollLogicalPosition::Nearest);
+        opts.set_inline(web_sys::ScrollLogicalPosition::Center);
+        el.scroll_into_view_with_scroll_into_view_options(&opts);
+    }
+}
+
 fn keep_current_tab_visible(s: Store) {
     Effect::new(move |_| {
         s.route.track();
-        request_animation_frame(|| {
-            let overflows = document()
-                .query_selector("nav[aria-label=Sections]")
-                .ok()
-                .flatten()
-                .is_some_and(|n| n.scroll_width() > n.client_width());
-            if overflows
-                && let Ok(Some(el)) =
-                    document().query_selector("nav[aria-label=Sections] [aria-current=page]")
-            {
-                let opts = web_sys::ScrollIntoViewOptions::new();
-                opts.set_block(web_sys::ScrollLogicalPosition::Nearest);
-                opts.set_inline(web_sys::ScrollLogicalPosition::Center);
-                el.scroll_into_view_with_scroll_into_view_options(&opts);
-            }
-        });
+        request_animation_frame(show_current_tab);
     });
+    let resized = window_event_listener(leptos::ev::resize, |_| show_current_tab());
+    on_cleanup(move || resized.remove());
 }
 
 fn html_by_id(id: &str) -> Option<web_sys::HtmlElement> {
