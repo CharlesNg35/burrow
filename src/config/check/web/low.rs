@@ -90,7 +90,7 @@ pub(super) fn message(key: &str, addr: SocketAddr, os: Os) -> String {
 
 pub(super) fn help(port: u16) -> String {
     format!(
-        "Let's Encrypt checks only ports 443 and 80 from the internet, so keep port {port} for them; to run burrow on a higher port behind a router, see \"Port forwarding at home\" in docs/web.md"
+        "Let's Encrypt checks only ports 443 and 80 from the internet, so keep port {port} for them; to run burrow on a higher port behind a router, see \"Port forwarding at home\" in docs/web/proxies.md"
     )
 }
 
@@ -149,7 +149,7 @@ mod tests {
         );
         assert_eq!(
             help(80),
-            "Let's Encrypt checks only ports 443 and 80 from the internet, so keep port 80 for them; to run burrow on a higher port behind a router, see \"Port forwarding at home\" in docs/web.md"
+            "Let's Encrypt checks only ports 443 and 80 from the internet, so keep port 80 for them; to run burrow on a higher port behind a router, see \"Port forwarding at home\" in docs/web/proxies.md"
         );
     }
 }

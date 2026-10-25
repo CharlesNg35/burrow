@@ -3,7 +3,98 @@ use crate::config::load::load_str_in;
 use crate::config::{Format, Outcome, Role};
 
 const WEB_MD: &str = include_str!("../../../../docs/web.md");
+const WEB_PAGES: &[(&str, &str)] = &[
+    ("web.md", WEB_MD),
+    (
+        "web/certificates.md",
+        include_str!("../../../../docs/web/certificates.md"),
+    ),
+    (
+        "web/routing.md",
+        include_str!("../../../../docs/web/routing.md"),
+    ),
+    (
+        "web/headers-limits-pages.md",
+        include_str!("../../../../docs/web/headers-limits-pages.md"),
+    ),
+    (
+        "web/proxies.md",
+        include_str!("../../../../docs/web/proxies.md"),
+    ),
+    (
+        "web/http2-grpc.md",
+        include_str!("../../../../docs/web/http2-grpc.md"),
+    ),
+    (
+        "web/health-checks.md",
+        include_str!("../../../../docs/web/health-checks.md"),
+    ),
+    ("web/logs.md", include_str!("../../../../docs/web/logs.md")),
+    (
+        "web/recipes.md",
+        include_str!("../../../../docs/web/recipes.md"),
+    ),
+    (
+        "web/tunnel.md",
+        include_str!("../../../../docs/web/tunnel.md"),
+    ),
+    (
+        "web/full-example.md",
+        include_str!("../../../../docs/web/full-example.md"),
+    ),
+];
 const WEBSOCKET_MD: &str = include_str!("../../../../docs/websocket.md");
+
+const OLD_HEADINGS: &[&str] = &[
+    "A first website",
+    "The ports",
+    "Port forwarding at home",
+    "How a website is served",
+    "What burrow does for a website",
+    "Certificates",
+    "Your own files",
+    "Let's Encrypt",
+    "DNS checks: wildcards and names the internet cannot reach",
+    "Shared wildcards",
+    "Cloudflare",
+    "RFC 2136: BIND, Knot, PowerDNS, Technitium",
+    "acme-dns",
+    "A command for any provider",
+    "When a certificate fails",
+    "Plain HTTP websites",
+    "Passthrough",
+    "Paths: several apps on one name",
+    "How burrow reads a path",
+    "Redirects",
+    "Headers, limits and pages",
+    "HTTPS to the app",
+    "Behind Cloudflare or a load balancer",
+    "HTTP/2",
+    "gRPC",
+    "gRPC streams",
+    "Health checks for websites",
+    "Access log and request ids",
+    "Examples",
+    "The minimum: websites with automatic HTTPS",
+    "One site with two names",
+    "Your own certificates only (Let's Encrypt never contacted)",
+    "Many sites under one domain: one shared wildcard",
+    "Many apps under your own wildcard file",
+    "Plain HTTP only (LAN, or behind a proxy that does HTTPS)",
+    "An app on the server itself",
+    "Single sign-on with authentik",
+    "Home Assistant",
+    "Nextcloud behind Cloudflare",
+    "Grafana under a path",
+    "A site for an IP address, with no domain",
+    "On the client",
+    "The tunnel on the same port",
+    "The tunnel on port 8443, no port 80, through DNS",
+    "The tunnel on port 80, plain ws (still encrypted by burrow)",
+    "A full example",
+    "What validate checks",
+    "Limits",
+];
 
 const FIRST_SERVER: &[(&str, &str)] = &[
     ("listen:", "listen: 7835\n"),
@@ -125,9 +216,10 @@ fn errors(o: &Outcome) -> Vec<String> {
 #[test]
 fn every_config_block_in_the_web_docs_validates() {
     let mut broken = Vec::new();
-    for (doc, md) in [("web.md", WEB_MD), ("websocket.md", WEBSOCKET_MD)] {
+    let pages = WEB_PAGES.iter().chain([&("websocket.md", WEBSOCKET_MD)]);
+    for (doc, md) in pages {
         let blocks: Vec<String> = yaml_blocks(md).into_iter().filter(|b| burrows(b)).collect();
-        assert!(blocks.len() > 5, "{doc}");
+        assert!(!blocks.is_empty() || !md.contains("```yaml"), "{doc}");
         for block in blocks {
             let e = errors(&validate(&block));
             if !e.is_empty() {
@@ -136,6 +228,41 @@ fn every_config_block_in_the_web_docs_validates() {
         }
     }
     assert!(broken.is_empty(), "{}", broken.join("\n\n"));
+}
+
+fn headings(md: &str) -> Vec<&str> {
+    let mut fenced = false;
+    md.lines()
+        .filter(|l| {
+            fenced ^= l.trim_start().starts_with("```");
+            !fenced && l.starts_with('#')
+        })
+        .map(|l| l.trim_start_matches('#').trim())
+        .collect()
+}
+
+#[test]
+fn every_heading_of_the_one_page_web_md_is_still_in_the_web_docs() {
+    let all: Vec<&str> = WEB_PAGES.iter().flat_map(|(_, md)| headings(md)).collect();
+    let lost: Vec<&&str> = OLD_HEADINGS.iter().filter(|h| !all.contains(h)).collect();
+    assert!(lost.is_empty(), "{lost:?}");
+}
+
+#[test]
+fn every_page_in_docs_web_is_checked() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("docs/web");
+    let mut pages: Vec<String> = std::fs::read_dir(dir)
+        .unwrap()
+        .map(|e| format!("web/{}", e.unwrap().file_name().to_string_lossy()))
+        .collect();
+    pages.sort();
+    let mut checked: Vec<String> = WEB_PAGES
+        .iter()
+        .skip(1)
+        .map(|(n, _)| n.to_string())
+        .collect();
+    checked.sort();
+    assert_eq!(pages, checked);
 }
 
 #[test]
@@ -148,9 +275,10 @@ fn the_admin_uis_lines_to_add_validate() {
 }
 
 #[test]
-fn the_full_example_of_web_md_is_pinned_at_what_p3_and_p6_build() {
-    let block = yaml_blocks(WEB_MD)
-        .into_iter()
+fn the_full_example_of_the_web_docs_is_pinned_at_what_p3_and_p6_build() {
+    let block = WEB_PAGES
+        .iter()
+        .flat_map(|(_, md)| yaml_blocks(md))
         .find(|b| b.contains("1. THE TUNNEL"))
         .expect("the full example");
     let (dir, o) = validate_in(&block);

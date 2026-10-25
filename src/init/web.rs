@@ -102,7 +102,7 @@ fn site_name(domain: &str) -> Result<String, Failure> {
         Ok(_) => Err(Failure::usage(format!(
             "\"{domain}\" is a wildcard; Let's Encrypt gives wildcards only through DNS checks, which need a DNS provider in web.letsencrypt.dns"
         ))
-        .hint("give the site's own name, like blog.example.com; add the wildcard after init, with its letsencrypt.dns entry (docs/web.md, DNS checks)")),
+        .hint("give the site's own name, like blog.example.com; add the wildcard after init, with its letsencrypt.dns entry (docs/web/certificates.md, DNS checks)")),
         Err(e) => Err(Failure::usage(format!("invalid website name: {e}"))),
     }
 }
