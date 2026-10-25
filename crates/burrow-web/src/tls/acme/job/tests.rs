@@ -267,3 +267,21 @@ fn a_group_waiting_for_an_order_is_in_the_queue_and_one_served_is_not() {
         ("blog", s(&["b.example.com"]))
     );
 }
+
+#[test]
+fn replaces_is_sent_only_once_the_renewal_time_came_so_an_added_name_counts() {
+    let (chain, key) = pem_pair(&["a.example.com"], 90);
+    let mut held = Held::parse(&chain, &key, &s(&["a.example.com"])).unwrap();
+    held.ari_id = Some("aki.serial".into());
+    let now = now_secs();
+    let mut g = Group::new(s(&["a.example.com", "b.example.com"]), Some(held));
+    assert!(replaces(&g, now).is_none(), "no window known yet");
+    g.planned = Some(now + 3600);
+    assert!(replaces(&g, now).is_none(), "a name added mid-life");
+    g.planned = Some(now);
+    let id = replaces(&g, now).unwrap();
+    assert_eq!(id.authority_key_identifier, "aki");
+    assert_eq!(id.serial, "serial");
+    g.held.as_mut().unwrap().ari_id = None;
+    assert!(replaces(&g, now).is_none(), "no ARI id, no replaces");
+}

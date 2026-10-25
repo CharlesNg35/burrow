@@ -214,12 +214,7 @@ impl Worker {
                 None,
             ));
         }
-        let replaces = g
-            .held
-            .as_ref()
-            .filter(|h| h.names.iter().any(|n| g.names.contains(n)) && h.not_after > now_secs())
-            .and_then(|h| h.ari_id.as_deref())
-            .and_then(cert_id);
+        let replaces = replaces(g, now_secs());
         let mut last: Option<Failed> = None;
         for check in checks {
             let mut with = replaces.clone();
@@ -478,6 +473,15 @@ fn held_of(
 ) -> Result<(Held, CertCheck, Issued), String> {
     let held = Held::parse(&issued.chain_pem, &issued.key_pem, names)?;
     Ok((held, check, issued.clone()))
+}
+
+fn replaces(g: &Group, now: u64) -> Option<CertificateIdentifier<'static>> {
+    g.held
+        .as_ref()
+        .filter(|h| h.names.iter().any(|n| g.names.contains(n)) && h.not_after > now)
+        .filter(|_| g.planned.is_some_and(|p| p <= now))
+        .and_then(|h| h.ari_id.as_deref())
+        .and_then(cert_id)
 }
 
 fn cert_id(ari_id: &str) -> Option<CertificateIdentifier<'static>> {

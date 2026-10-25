@@ -544,6 +544,15 @@ async fn an_added_name_reorders_once_and_a_removed_name_orders_nothing(ctx: &Ctx
     assert_ne!(both, first);
     tokio::time::sleep(Duration::from_secs(3)).await;
     assert_eq!(orders(state.path()), 2, "the added name re-ordered once");
+    assert!(
+        burrow_web::tls::acme::guard::load(&burrow_web::tls::acme::guard::path(
+            state.path(),
+            DIRECTORY
+        ))
+        .iter()
+        .all(|i| !i.ari),
+        "an added name mid-life is counted by the guard"
+    );
     store.apply(&s, &names("blog", &["n1.test"])).await;
     tokio::time::sleep(Duration::from_secs(3)).await;
     assert_eq!(orders(state.path()), 2, "a removed name orders nothing");
