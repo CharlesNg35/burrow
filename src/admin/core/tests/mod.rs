@@ -3,6 +3,7 @@ mod locks;
 mod locks_web;
 mod passwords;
 mod plans;
+mod reach;
 mod refs;
 mod reverts;
 mod snippets;

@@ -75,6 +75,19 @@ pub fn impacts(
     client_impacts(&cx, &mut out);
     visitor_impacts(&cx, &mut out);
     setting_impacts(&cx, restart, &mut out);
+    let services = <burrow_config::ServiceEntry as burrow_config::Entry>::section();
+    let open = |name: &str| {
+        status
+            .services
+            .iter()
+            .find(|s| s.name == name)
+            .map_or(0, |s| s.open)
+    };
+    let seen = super::reach::Seen {
+        renamed: &|name| cx.renamed_to(services, name).is_some(),
+        open: &open,
+    };
+    out.extend(super::reach::impacts(old, new, &seen));
     out.extend(super::web_ports::impacts(old, new));
     out.extend(super::websocket::impacts(old, new, sessions));
     out
@@ -152,7 +165,12 @@ fn service_impacts(cx: &Before, out: &mut Vec<Impact>) {
                 }
                 push(Level::Danger, "removes-service", msg, Some(name.clone()));
             }
-            Some(n) if n.bind != svc.bind || n.ports != svc.ports || n.protocol != svc.protocol => {
+            Some(n)
+                if n.bind.is_some()
+                    && (n.bind != svc.bind
+                        || n.ports != svc.ports
+                        || n.protocol != svc.protocol) =>
+            {
                 let open = open_of(name);
                 let msg = format!(
                     "moves service {name} from {} to {}{}",
