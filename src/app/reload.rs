@@ -16,6 +16,7 @@ use crate::config::{Loaded, Role, load_file};
 pub trait Watched: Clone + PartialEq + Send + 'static {
     const ROLE: Role;
     fn from_loaded(loaded: Loaded) -> Option<Self>;
+    fn accepted(_loaded: &Loaded) {}
     fn files(&self, config: &Path) -> Vec<PathBuf> {
         vec![config.to_path_buf()]
     }
@@ -27,6 +28,11 @@ impl Watched for ServerSettings {
         match loaded {
             Loaded::Server(s, _) => Some(*s),
             _ => None,
+        }
+    }
+    fn accepted(loaded: &Loaded) {
+        if let Loaded::Server(s, cfg) = loaded {
+            crate::server::uploads::prune_unused(s, cfg);
         }
     }
     fn files(&self, config: &Path) -> Vec<PathBuf> {
@@ -202,6 +208,9 @@ pub async fn follow_nudged<S: Watched>(
                 ));
                 seen = Vec::new();
                 break 'step Some(ReloadOutcome::Rejected(text));
+            }
+            if let Some(l) = &outcome.loaded {
+                S::accepted(l);
             }
             let Some(next) = outcome.loaded.and_then(S::from_loaded) else {
                 break 'step None;

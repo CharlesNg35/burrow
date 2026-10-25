@@ -142,7 +142,20 @@ fn a_good_pair_is_stored_once_under_its_hash_and_only_burrow_ids_resolve() {
     )
     .unwrap();
     std::fs::write(folder(state.path()).join("notes.txt"), "mine").unwrap();
-    assert_eq!(prune(state.path(), std::slice::from_ref(&first.id)), 1);
+    assert_eq!(
+        prune(
+            state.path(),
+            std::slice::from_ref(&first.id),
+            crate::tls::now_secs()
+        ),
+        0,
+        "files younger than half an hour may be drafts in progress"
+    );
+    let later = crate::tls::now_secs() + DRAFT_SECS + 60;
+    assert_eq!(
+        prune(state.path(), std::slice::from_ref(&first.id), later),
+        1
+    );
     assert!(file.exists());
     assert!(folder(state.path()).join("notes.txt").exists());
 }

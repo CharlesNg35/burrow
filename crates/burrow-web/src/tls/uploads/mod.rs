@@ -99,7 +99,18 @@ pub fn load(state: &Path, id: &str) -> Result<Zeroizing<Vec<u8>>, String> {
         .map_err(|e| format!("cannot read the upload {id}: {e}"))
 }
 
-pub fn prune(state: &Path, keep: &[String]) -> usize {
+pub const DRAFT_SECS: u64 = 30 * 60;
+
+fn young(entry: &std::fs::DirEntry, now: u64) -> bool {
+    entry
+        .metadata()
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .is_none_or(|t| t.as_secs() + DRAFT_SECS > now)
+}
+
+pub fn prune(state: &Path, keep: &[String], now: u64) -> usize {
     let Ok(list) = std::fs::read_dir(folder(state)) else {
         return 0;
     };
@@ -109,7 +120,10 @@ pub fn prune(state: &Path, keep: &[String]) -> usize {
         let Some(id) = name.strip_suffix(".pem").filter(|id| valid_id(id)) else {
             continue;
         };
-        if !keep.iter().any(|k| k == id) && std::fs::remove_file(entry.path()).is_ok() {
+        if keep.iter().any(|k| k == id) || young(&entry, now) {
+            continue;
+        }
+        if std::fs::remove_file(entry.path()).is_ok() {
             removed += 1;
         }
     }

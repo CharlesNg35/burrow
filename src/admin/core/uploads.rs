@@ -64,7 +64,7 @@ pub fn upload(core: &Core, s: &Session, req: &Upload) -> Result<Uploaded, ApiErr
         return Err(ApiError::new(
             ErrorCode::Busy,
             format!(
-                "burrow keeps at most {MAX_KEPT} uploaded files; apply your changes first, which removes the unused ones"
+                "burrow keeps at most {MAX_KEPT} uploaded files; apply your changes first: then burrow removes the uploads the config no longer uses that are older than 30 minutes"
             ),
         ));
     }

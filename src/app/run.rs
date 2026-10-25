@@ -382,12 +382,13 @@ fn split(hosted: Option<Hosted>) -> (Option<watch::Receiver<bool>>, Env) {
 fn run_server(path: &Path, logging: Logging, hosted: Option<Hosted>) -> Result<u8, Failure> {
     hold_hangup();
     let (stop, env) = split(hosted);
-    let Loaded::Server(settings, _) = load(path, Role::Server, &env, &[])? else {
+    let Loaded::Server(settings, cfg) = load(path, Role::Server, &env, &[])? else {
         return Err(Failure::new(format!(
             "{} is not a server config",
             path.display()
         )));
     };
+    crate::server::uploads::prune_unused(&settings, &cfg);
     let _instance = instance::acquire(&Identity::server(path), path)?;
     init_logging(&logging)?;
     drive(async move {
