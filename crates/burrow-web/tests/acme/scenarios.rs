@@ -158,6 +158,7 @@ pub async fn all(p: Pebble) {
     already_replaced(&ctx, before.path()).await;
     ari_malformed_and_explained(&ctx, state.path()).await;
     failure_keeps_the_old(&ctx, state.path()).await;
+    a_renewal_that_cannot_be_ordered_keeps_the_old(&ctx).await;
     profiles(&ctx).await;
     the_guard_stops_an_order_loop(&ctx).await;
     the_everyday_example_gets_its_own_certificate(&ctx).await;
@@ -381,6 +382,39 @@ async fn failure_keeps_the_old(ctx: &Ctx, state: &Path) {
         "the old certificate is still served"
     );
     ctx.r.refuse_tls(false);
+}
+
+async fn a_renewal_that_cannot_be_ordered_keeps_the_old(ctx: &Ctx) {
+    let state = tempfile::tempdir().unwrap();
+    let s = settings(ctx, state.path(), &[CertCheck::Tls], None);
+    let store = open_store(ctx, &s, &names("kept", &["kept.test"])).await;
+    until(&store, "kept.test", "issued", |s| s.phase == CertPhase::Ok).await;
+    let old = served(ctx, "kept.test").await.unwrap();
+    drop(store);
+    let dir = burrow_web::tls::acme::storage::cert_dir(state.path(), &["kept.test".to_string()]);
+    let pem = std::fs::read_to_string(dir.join("cert.pem")).unwrap();
+    ctx.p.set_renewal_info(&pem, PAST).await;
+    let unorderable = settings(ctx, state.path(), &[CertCheck::Tls], Some("nope"));
+    let store = open_store(ctx, &unorderable, &names("kept", &["kept.test"])).await;
+    let st = until(&store, "kept.test", "the renewal failure", |s| {
+        matches!(s.phase, CertPhase::Failing { .. })
+    })
+    .await;
+    let e = st.last_error.clone().unwrap();
+    assert!(
+        e.contains("does not offer the profile \"nope\""),
+        "the renewal fails before any check, so Pebble cannot reuse an authorization: {e}"
+    );
+    assert!(
+        st.next_renewal.unwrap() >= burrow_web::tls::now_secs() + 50,
+        "the normal backoff: {st:#?}"
+    );
+    ctx.r.serve(store.clone());
+    assert_eq!(
+        served(ctx, "kept.test").await,
+        Some(old),
+        "the old certificate keeps serving after a failed renewal"
+    );
 }
 
 async fn profiles(ctx: &Ctx) {
