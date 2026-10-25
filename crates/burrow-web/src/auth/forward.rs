@@ -1,7 +1,10 @@
 use http::header::{self, HeaderMap, HeaderName, HeaderValue};
 use http::{Method, Request};
 
-use crate::http::forwarded::{Client, strip_incoming};
+use crate::http::forwarded::{
+    Client, FORWARDED_FOR, FORWARDED_HOST, FORWARDED_METHOD, FORWARDED_PROTO, FORWARDED_URI,
+    strip_incoming,
+};
 use crate::http::upstream::{connection_tokens, protected, strip_hop_by_hop};
 use crate::http::{Body, full};
 
@@ -78,11 +81,11 @@ pub fn subrequest_headers(visitor: &HeaderMap, asked: &Asked<'_>) -> HeaderMap {
         h.remove(n);
     }
     let proto = if asked.client.https { "https" } else { "http" };
-    set(&mut h, "x-forwarded-method", asked.method.as_str());
-    set(&mut h, "x-forwarded-proto", proto);
-    set(&mut h, "x-forwarded-host", asked.host);
-    set(&mut h, "x-forwarded-uri", asked.path_and_query);
-    set(&mut h, "x-forwarded-for", &asked.client.forwarded_for);
+    set(&mut h, FORWARDED_METHOD, asked.method.as_str());
+    set(&mut h, FORWARDED_PROTO, proto);
+    set(&mut h, FORWARDED_HOST, asked.host);
+    set(&mut h, FORWARDED_URI, asked.path_and_query);
+    set(&mut h, FORWARDED_FOR, &asked.client.forwarded_for);
     let url = format!(
         "{proto}://{}{}",
         origin_host(asked.host),

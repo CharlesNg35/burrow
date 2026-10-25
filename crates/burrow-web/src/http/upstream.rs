@@ -7,7 +7,10 @@ use hyper::client::conn::http1::SendRequest;
 use hyper_util::rt::TokioIo;
 use tracing::debug;
 
-use super::forwarded::{Client, strip_incoming};
+use super::forwarded::{
+    Client, FORWARDED_FOR, FORWARDED_HOST, FORWARDED_PORT, FORWARDED_PREFIX, FORWARDED_PROTO,
+    REAL_IP, REQUEST_ID, strip_incoming,
+};
 use super::idle::Activity;
 use super::pages::Page;
 use super::site::{Hop, SiteRun};
@@ -178,17 +181,17 @@ pub fn rewrite_request<B>(req: &mut Request<B>, host: &str, client: &Client) {
     let h = req.headers_mut();
     strip_hop_by_hop(h);
     strip_incoming(h, client.trusted_peer);
-    set(h, "x-forwarded-for", &client.forwarded_for);
-    set(h, "x-real-ip", &client.ip.to_string());
+    set(h, FORWARDED_FOR, &client.forwarded_for);
+    set(h, REAL_IP, &client.ip.to_string());
     set(
         h,
-        "x-forwarded-proto",
+        FORWARDED_PROTO,
         if client.https { "https" } else { "http" },
     );
-    if !h.contains_key("x-forwarded-host") {
-        set(h, "x-forwarded-host", host);
+    if !h.contains_key(FORWARDED_HOST) {
+        set(h, FORWARDED_HOST, host);
     }
-    set(h, "x-forwarded-port", &client.port.to_string());
+    set(h, FORWARDED_PORT, &client.port.to_string());
     if let Some(u) = upgrade {
         h.insert(header::CONNECTION, HeaderValue::from_static("upgrade"));
         h.insert(header::UPGRADE, u);
@@ -203,10 +206,10 @@ fn prepare(req: &mut Request<Body>, f: &Forward<'_>) {
 pub(super) fn extras(req: &mut Request<Body>, f: &Forward<'_>) {
     let h = req.headers_mut();
     if let Some(p) = f.prefix {
-        set(h, "x-forwarded-prefix", p);
+        set(h, FORWARDED_PREFIX, p);
     }
     if let Some(id) = f.request_id {
-        set(h, "x-request-id", id);
+        set(h, REQUEST_ID, id);
     }
     super::headers::apply(&f.site.options.request_headers, h);
 }

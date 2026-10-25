@@ -4,21 +4,32 @@ use burrow_syntax::cidr::{Cidr, canonical};
 use http::HeaderMap;
 use http::header::{self, HeaderName};
 
+pub const FORWARDED: &str = "forwarded";
+pub const FORWARDED_FOR: &str = "x-forwarded-for";
+pub const FORWARDED_PROTO: &str = "x-forwarded-proto";
+pub const FORWARDED_HOST: &str = "x-forwarded-host";
+pub const FORWARDED_PORT: &str = "x-forwarded-port";
+pub const FORWARDED_PREFIX: &str = "x-forwarded-prefix";
+pub const FORWARDED_URI: &str = "x-forwarded-uri";
+pub const FORWARDED_METHOD: &str = "x-forwarded-method";
+pub const REAL_IP: &str = "x-real-ip";
+pub const REQUEST_ID: &str = "x-request-id";
+
 pub const MANAGED: [&str; 14] = [
-    "forwarded",
-    "x-forwarded-for",
-    "x-forwarded-proto",
-    "x-forwarded-host",
-    "x-forwarded-port",
-    "x-forwarded-prefix",
+    FORWARDED,
+    FORWARDED_FOR,
+    FORWARDED_PROTO,
+    FORWARDED_HOST,
+    FORWARDED_PORT,
+    FORWARDED_PREFIX,
     "x-forwarded-server",
-    "x-forwarded-uri",
-    "x-forwarded-method",
+    FORWARDED_URI,
+    FORWARDED_METHOD,
     "x-forwarded-ssl",
     "x-forwarded-scheme",
     "x-scheme",
-    "x-real-ip",
-    "x-request-id",
+    REAL_IP,
+    REQUEST_ID,
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -58,7 +69,7 @@ pub fn client_ip(peer: IpAddr, h: &HeaderMap, trusted: &[Cidr]) -> IpAddr {
     if !is_trusted(trusted, peer) {
         return peer;
     }
-    let chain: Vec<&str> = values(h, "x-forwarded-for").collect();
+    let chain: Vec<&str> = values(h, FORWARDED_FOR).collect();
     let mut last = peer;
     for entry in chain.iter().rev() {
         let Some(ip) = entry_ip(entry) else {
@@ -73,7 +84,7 @@ pub fn client_ip(peer: IpAddr, h: &HeaderMap, trusted: &[Cidr]) -> IpAddr {
 }
 
 fn trusted_proto(h: &HeaderMap) -> Option<bool> {
-    let last = values(h, "x-forwarded-proto").last()?;
+    let last = values(h, FORWARDED_PROTO).last()?;
     match last.to_ascii_lowercase().as_str() {
         "https" => Some(true),
         "http" => Some(false),
@@ -99,16 +110,14 @@ pub fn client(peer: SocketAddr, h: &HeaderMap, trusted: &[Cidr], tls: bool) -> C
         tls
     };
     let given_port = trusted_peer
-        .then(|| values(h, "x-forwarded-port").last()?.parse::<u16>().ok())
+        .then(|| values(h, FORWARDED_PORT).last()?.parse::<u16>().ok())
         .flatten();
     let port = given_port
         .or_else(|| host_port(h))
         .unwrap_or(if https { 443 } else { 80 });
     let peer_ip = canonical(peer.ip()).to_string();
     let chain: Vec<&str> = if trusted_peer {
-        values(h, "x-forwarded-for")
-            .filter(|v| !v.is_empty())
-            .collect()
+        values(h, FORWARDED_FOR).filter(|v| !v.is_empty()).collect()
     } else {
         Vec::new()
     };

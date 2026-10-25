@@ -251,3 +251,31 @@ fn every_hop_by_hop_header_is_stripped_before_the_app() {
         assert!(!req.headers().contains_key(name), "{name}");
     }
 }
+
+#[test]
+fn every_header_burrow_sets_for_the_app_is_one_a_visitor_cannot_send() {
+    let mut req = request("/", &[("host", "blog.example.com")]);
+    let before: Vec<String> = req.headers().keys().map(|k| k.to_string()).collect();
+    rewrite_request(&mut req, "blog.example.com", &visitor(true));
+    let added: Vec<String> = req
+        .headers()
+        .keys()
+        .map(|k| k.to_string())
+        .filter(|k| !before.contains(k))
+        .collect();
+    assert!(!added.is_empty());
+    for name in &added {
+        assert!(
+            crate::http::forwarded::MANAGED.contains(&name.as_str()),
+            "{name} is set by burrow but a visitor's copy would not be stripped"
+        );
+    }
+    for name in [
+        crate::http::forwarded::FORWARDED_PREFIX,
+        crate::http::forwarded::REQUEST_ID,
+        crate::http::forwarded::FORWARDED_URI,
+        crate::http::forwarded::FORWARDED_METHOD,
+    ] {
+        assert!(crate::http::forwarded::MANAGED.contains(&name), "{name}");
+    }
+}

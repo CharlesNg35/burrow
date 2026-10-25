@@ -7,7 +7,7 @@ use http_body_util::BodyExt;
 use hyper::body::Incoming;
 
 use super::access::Gate;
-use super::forwarded::{self, Client};
+use super::forwarded::{self, Client, REQUEST_ID};
 use super::limit::{Capped, declared_over};
 use super::logged::Logged;
 use super::pages::Page;
@@ -26,7 +26,7 @@ pub(crate) struct Asked {
 }
 
 fn request_id(h: &HeaderMap, client: &Client) -> String {
-    h.get("x-request-id")
+    h.get(REQUEST_ID)
         .and_then(|v| v.to_str().ok())
         .filter(|v| client.trusted_peer && kept_request_id(v))
         .map_or_else(new_request_id, str::to_string)
@@ -133,7 +133,7 @@ fn finish(
         headers::add_hsts(h, https);
     }
     if let Some(v) = id.and_then(|i| HeaderValue::from_str(i).ok()) {
-        h.insert("x-request-id", v);
+        h.insert(REQUEST_ID, v);
     }
     if o.compress {
         let taken = std::mem::replace(resp, Response::new(super::full("")));
