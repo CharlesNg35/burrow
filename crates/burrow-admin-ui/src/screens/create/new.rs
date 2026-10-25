@@ -79,11 +79,7 @@ pub fn NewEntity(
     let client = what == ClientEntry::ENTITY;
     let placeholder_max = placeholder_max(s, client);
     let crumb = Route::List(section.clone());
-    let plural_s = match entity_of_section(&section) {
-        Some(Entity::Client) => "Clients",
-        Some(Entity::Visitor) => "Visitors",
-        _ => "Services",
-    };
+    let plural_s = crate::screens::plural(&section);
     view! {
         <div data-testid="new-entity">
             <nav class="mb-1.5 flex gap-1.5 text-sm text-text-muted" aria-label="Breadcrumb">

@@ -140,11 +140,7 @@ pub fn picker(fc: FieldCtx, entity: Entity, multi: bool) -> AnyView {
     let options = Signal::derive(move || options_for(&ent, &reserved));
     let header = {
         let s = store();
-        let plural = match entity {
-            Entity::Client => "Clients",
-            Entity::Visitor => "Visitors",
-            _ => "Services",
-        };
+        let plural = entity.plural();
         let online = if entity == Entity::Client {
             s.status.with_untracked(|st| {
                 st.as_ref().map(|st| {

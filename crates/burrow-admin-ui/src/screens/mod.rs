@@ -18,6 +18,23 @@ use crate::store::store;
 
 pub(crate) use list::{ListCard, ListPane, NewChoice};
 
+pub fn entity_of(section: &str) -> burrow_admin_proto::schema::Entity {
+    burrow_config::entity_of_section(section).unwrap_or(burrow_admin_proto::schema::Entity::Service)
+}
+
+pub fn plural(section: &str) -> &'static str {
+    entity_of(section).plural()
+}
+
+pub fn entity_icon(section: &str) -> &'static str {
+    use burrow_admin_proto::schema::Entity;
+    match entity_of(section) {
+        Entity::Client => "monitor",
+        Entity::Visitor => "person",
+        Entity::Service | Entity::Unknown(_) => "stack",
+    }
+}
+
 pub fn screen(route: Route) -> AnyView {
     let _ = store();
     match route {

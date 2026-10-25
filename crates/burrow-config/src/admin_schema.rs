@@ -180,22 +180,18 @@ pub mod __private {
 }
 
 pub fn entities() -> Vec<EntityInfo> {
-    fn info<E: Entry>(label: &str, plural: &str, facets: &[&str]) -> EntityInfo {
+    fn info<E: Entry>(label: &str, facets: &[&str]) -> EntityInfo {
         EntityInfo {
             entity: E::kind(),
             path: vec![E::section().to_string()],
             label: label.to_string(),
-            plural: plural.to_string(),
+            plural: E::kind().plural().to_string(),
             facets: facets.iter().map(|s| s.to_string()).collect(),
         }
     }
     vec![
-        info::<ClientEntry>("Client", "Clients", &["online", "from", "secret_fp"]),
-        info::<VisitorEntry>("Visitor", "Visitors", &["open"]),
-        info::<ServiceEntry>(
-            "Service",
-            "Services",
-            &[ServiceEntry::PROTOCOL.key(), "public"],
-        ),
+        info::<ClientEntry>("Client", &["online", "from", "secret_fp"]),
+        info::<VisitorEntry>("Visitor", &["open"]),
+        info::<ServiceEntry>("Service", &[ServiceEntry::PROTOCOL.key(), "public"]),
     ]
 }

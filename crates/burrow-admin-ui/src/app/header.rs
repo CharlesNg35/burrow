@@ -148,24 +148,20 @@ pub(super) fn set_theme(theme: RwSignal<String>, t: &'static str) {
     }
 }
 
+fn section_tab(section: &'static str) -> (Route, &'static str, &'static str) {
+    (
+        Route::List(section.into()),
+        crate::screens::plural(section),
+        crate::screens::entity_icon(section),
+    )
+}
+
 fn nav_links(s: Store) -> impl IntoView + use<> {
     let tabs: [(Route, &str, &str); 6] = [
         (Route::Overview, "Overview", "overview"),
-        (
-            Route::List(ServiceEntry::section().into()),
-            "Services",
-            "stack",
-        ),
-        (
-            Route::List(ClientEntry::section().into()),
-            "Clients",
-            "monitor",
-        ),
-        (
-            Route::List(VisitorEntry::section().into()),
-            "Visitors",
-            "person",
-        ),
+        section_tab(ServiceEntry::section()),
+        section_tab(ClientEntry::section()),
+        section_tab(VisitorEntry::section()),
         (Route::Settings, "Settings", "settings"),
         (Route::Activity(None), "Activity", "activity"),
     ];

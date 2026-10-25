@@ -79,11 +79,13 @@ pub(super) fn tab_box(values: Memo<Value>, counts: Signal<Vec<String>>) -> impl 
         c
     });
     let pills = move || {
-        let mut tabs = vec![
-            (ServiceEntry::section(), "Services".to_string()),
-            (ClientEntry::section(), "Clients".to_string()),
-            (VisitorEntry::section(), "Visitors".to_string()),
-        ];
+        let mut tabs: Vec<(&'static str, String)> = [
+            ServiceEntry::section(),
+            ClientEntry::section(),
+            VisitorEntry::section(),
+        ]
+        .map(|t| (t, crate::screens::plural(t).to_string()))
+        .into();
         if web.get() {
             tabs.push((WEBSITES, "Websites".to_string()));
             tabs.push((CERTIFICATES, "Certificates".to_string()));

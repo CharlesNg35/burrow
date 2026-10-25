@@ -1,5 +1,3 @@
-use burrow_admin_proto::schema::Entity;
-use burrow_config::entity_of_section;
 use burrow_ui_kit::{Button, Icon, Tone, copy_text};
 use leptos::prelude::*;
 
@@ -55,11 +53,7 @@ pub(super) fn facts(s: Store) -> impl IntoView + Copy + use<> {
 pub(super) fn mobile_back(s: Store) -> impl IntoView + use<> {
     move || match s.route.get() {
         Route::Detail(sec, name) => {
-            let label = match entity_of_section(&sec) {
-                Some(Entity::Client) => "Clients",
-                Some(Entity::Visitor) => "Visitors",
-                _ => "Services",
-            };
+            let label = crate::screens::plural(&sec);
             Some(view! {
                 <div class="flex min-w-0 items-center gap-2 sm:hidden" data-testid="mobile-back">
                     <Link to=Route::List(sec.clone()) class="flex size-8 items-center justify-center rounded-md text-accent-ink no-underline">

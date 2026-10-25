@@ -119,11 +119,15 @@ fn action_hits(s: Store, doc: &Value, needle: &str, out: &mut Vec<Hit>) {
 }
 
 fn entity_hits(doc: &Value, status: Option<&Status>, needle: &str, out: &mut Vec<Hit>) {
-    for (sec, title, icon) in [
-        (ServiceEntry::section(), "Services", "stack"),
-        (ClientEntry::section(), "Clients", "monitor"),
-        (VisitorEntry::section(), "Visitors", "person"),
+    for sec in [
+        ServiceEntry::section(),
+        ClientEntry::section(),
+        VisitorEntry::section(),
     ] {
+        let (title, icon) = (
+            crate::screens::plural(sec),
+            crate::screens::entity_icon(sec),
+        );
         for n in names(doc, sec) {
             if !hit(needle, &n) {
                 continue;

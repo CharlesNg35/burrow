@@ -294,6 +294,14 @@ impl Entity {
         }
     }
 
+    pub fn plural(&self) -> &'static str {
+        match self {
+            Entity::Client => "Clients",
+            Entity::Visitor => "Visitors",
+            Entity::Service | Entity::Unknown(_) => "Services",
+        }
+    }
+
     pub fn parse(s: &str) -> Entity {
         match s {
             "client" => Entity::Client,

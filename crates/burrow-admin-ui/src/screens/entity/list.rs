@@ -1,9 +1,6 @@
 use burrow_admin_proto::schema::Entity;
 use burrow_admin_proto::serde_json::Value;
-use burrow_config::{
-    ClientEntry, Entry, Protocol, ServerConfig, ServiceEntry, VisitorEntry, WebConfig,
-    entity_of_section,
-};
+use burrow_config::{Entry, Protocol, ServerConfig, ServiceEntry, WebConfig, entity_of_section};
 use burrow_ui_kit::{EmptyState, Tone};
 use leptos::prelude::*;
 
@@ -210,6 +207,7 @@ pub fn Entities(section: String, selected: Option<String>) -> impl IntoView {
     let draft_name = RwSignal::new(String::new());
     let shown_rows = {
         let what = what.to_string();
+        let section_new = section.clone();
         Signal::derive(move || {
             let mut r = rows.get();
             if adding.get() {
@@ -219,13 +217,7 @@ pub fn Entities(section: String, selected: Option<String>) -> impl IntoView {
                     Row {
                         key: "__new".into(),
                         to: route::current(),
-                        icon: if what == ClientEntry::ENTITY {
-                            "monitor"
-                        } else if what == VisitorEntry::ENTITY {
-                            "person"
-                        } else {
-                            "stack"
-                        },
+                        icon: crate::screens::entity_icon(&section_new),
                         dot: Some(Tone::Accent),
                         title: if site.get() && n.is_empty() {
                             "new website".to_string()

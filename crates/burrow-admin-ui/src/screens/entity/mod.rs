@@ -6,10 +6,10 @@ mod problems;
 mod rows;
 mod summary;
 
-use burrow_admin_proto::schema::Entity;
+use crate::screens::plural;
 use burrow_admin_proto::serde_json::Value;
 use burrow_admin_proto::value::as_secret;
-use burrow_config::{ClientEntry, Entry, ServiceEntry, VisitorEntry, entity_of_section};
+use burrow_config::{ClientEntry, Entry, ServiceEntry, VisitorEntry};
 use burrow_ui_kit::{Tone, tag_class};
 
 use detail::Detail;
@@ -27,14 +27,6 @@ fn capital(s: &str) -> String {
     c.next()
         .map(|f| f.to_uppercase().chain(c).collect())
         .unwrap_or_default()
-}
-
-fn plural(section: &str) -> &'static str {
-    match entity_of_section(section) {
-        Some(Entity::Client) => "Clients",
-        Some(Entity::Visitor) => "Visitors",
-        _ => "Services",
-    }
 }
 
 fn secrets(v: Option<&Value>) -> usize {
