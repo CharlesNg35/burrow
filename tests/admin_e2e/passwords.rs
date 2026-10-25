@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use super::edits::Flow;
 use super::world::Options;
-use super::{Ctx, SECS, applied, edit_mode, open, open_review, run};
+use super::{Ctx, SECS, applied, both_widths, edit_mode, open, open_review, run};
 
 const USER: &str = "alice";
 const PASSWORD: &str = "correct horse battery";
@@ -48,14 +48,6 @@ fn get(port: u16, auth: Option<&str>) -> String {
     let mut out = Vec::new();
     let _ = s.read_to_end(&mut out);
     String::from_utf8_lossy(&out).to_string()
-}
-
-async fn both_widths(c: &mut Ctx, step: &str) {
-    tokio::time::sleep(Duration::from_millis(400)).await;
-    c.ui.shot(step).await;
-    c.ui.viewport(420, 900).await;
-    c.ui.shot(&format!("{step}-phone")).await;
-    c.ui.viewport(1440, 900).await;
 }
 
 fn passwords(c: &mut Ctx) -> Flow<'_> {

@@ -69,34 +69,34 @@ async fn summaries(c: &Ctx) -> Vec<String> {
 
 async fn collapsed_and_remembered(c: &mut Ctx) {
     settings_tab(c, "/services/web").await;
-    assert!(!expanded(c, TRAFFIC).await, "Traffic starts closed");
-    assert!(region_hidden(c, TRAFFIC).await);
-    let text = c.ui.text(TRAFFIC).await;
+    assert!(!expanded(c, ACCESS).await, "Who may connect starts closed");
+    assert!(region_hidden(c, ACCESS).await);
+    let text = c.ui.text(ACCESS).await;
     assert_eq!(text, "More settings · 3 at their defaults");
     assert_eq!(
-        c.ui.count("[data-group=traffic] [data-schema='services/*/bandwidth']")
+        c.ui.count("[data-group=access] [data-schema='services/*/bandwidth']")
             .await,
         1,
         "a closed section keeps its fields in the page"
     );
     c.ui.shot("service-closed").await;
-    c.ui.click(TRAFFIC).await;
-    wait_expanded(c, TRAFFIC, true).await;
-    assert!(!region_hidden(c, TRAFFIC).await);
-    c.ui.shot("service-traffic-open").await;
+    c.ui.click(ACCESS).await;
+    wait_expanded(c, ACCESS, true).await;
+    assert!(!region_hidden(c, ACCESS).await);
+    c.ui.shot("service-access-open").await;
     c.ui.nav("/services/ssh").await;
     settings_tab(c, "/services/web").await;
-    assert!(expanded(c, TRAFFIC).await, "the choice survives navigation");
+    assert!(expanded(c, ACCESS).await, "the choice survives navigation");
     reload(c, "/services/web").await;
-    assert!(expanded(c, TRAFFIC).await, "the choice survives a reload");
-    key_on(c, TRAFFIC, "Enter").await;
-    wait_expanded(c, TRAFFIC, false).await;
-    key_on(c, TRAFFIC, " ").await;
-    wait_expanded(c, TRAFFIC, true).await;
-    key_on(c, TRAFFIC, "Enter").await;
-    wait_expanded(c, TRAFFIC, false).await;
+    assert!(expanded(c, ACCESS).await, "the choice survives a reload");
+    key_on(c, ACCESS, "Enter").await;
+    wait_expanded(c, ACCESS, false).await;
+    key_on(c, ACCESS, " ").await;
+    wait_expanded(c, ACCESS, true).await;
+    key_on(c, ACCESS, "Enter").await;
+    wait_expanded(c, ACCESS, false).await;
     reload(c, "/services/web").await;
-    assert!(!expanded(c, TRAFFIC).await, "closing is remembered too");
+    assert!(!expanded(c, ACCESS).await, "closing is remembered too");
 }
 
 async fn set_fields_open(c: &mut Ctx) {
@@ -164,16 +164,19 @@ async fn found_opens(c: &mut Ctx) {
     wait_expanded(c, ACCESS, true).await;
     c.ui.click(ACCESS).await;
     wait_expanded(c, ACCESS, false).await;
-    c.ui.nav("/settings").await;
-    c.ui.wait_for("[data-testid=settings]", SECS).await;
+    c.ui.nav("/settings?tab=connections").await;
+    c.ui.wait_for("[data-testid=settings] [data-card=limits]", SECS)
+        .await;
     let limits = "[data-card=limits] [data-testid=more-settings]";
     assert!(!expanded(c, limits).await, "Limits starts closed");
     c.ui.shot("settings-closed").await;
     c.ui.fill("#list-search", "handshake").await;
     wait_expanded(c, limits, true).await;
-    c.ui.wait_for("[data-row=limits]", SECS).await;
-    let pool = "[data-card='network.pool'] [data-testid=more-settings]";
-    assert!(!expanded(c, pool).await, "only the matching section opens");
+    assert_eq!(
+        c.ui.count("[data-card='network.pool']").await,
+        0,
+        "only the matching section shows"
+    );
     c.ui.shot("settings-search-opens").await;
     c.ui.fill("#list-search", "").await;
     wait_expanded(c, limits, false).await;

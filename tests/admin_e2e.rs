@@ -26,6 +26,8 @@ mod reverts;
 mod screens;
 #[path = "admin_e2e/secrets.rs"]
 mod secrets;
+#[path = "admin_e2e/settings.rs"]
+mod settings;
 #[path = "admin_e2e/sheet.rs"]
 mod sheet;
 #[path = "admin_e2e/site_keys.rs"]
@@ -237,6 +239,14 @@ pub async fn edit_mode(c: &Ctx) {
         c.ui.click("[data-testid=edit]").await;
     }
     c.ui.wait_for("[data-testid=save-bar]", SECS).await;
+}
+
+pub async fn both_widths(c: &mut Ctx, step: &str) {
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    c.ui.shot(step).await;
+    c.ui.viewport(420, 900).await;
+    c.ui.shot(&format!("{step}-phone")).await;
+    c.ui.viewport(1440, 900).await;
 }
 
 pub async fn overview_tab(c: &Ctx, tab: &str) {

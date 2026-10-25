@@ -17,7 +17,7 @@ use leptos::prelude::*;
 use crate::route::{Link, Route};
 use crate::store::store;
 
-pub(crate) use list::{ListCard, ListPane, NewChoice};
+pub(crate) use list::{ListCard, ListPane, NewChoice, filter_chips, search_box};
 
 pub fn crumbs(
     to: Route,

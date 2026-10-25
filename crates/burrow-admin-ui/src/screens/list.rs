@@ -156,19 +156,7 @@ pub fn ListPane(
                     <span class="text-sm text-text-muted" data-testid="list-count">{move || count.get()}</span>
                     {new_button}
                 </div>
-                <div class="relative mb-2.5">
-                    <span class="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-text-faint"><Icon name="search" small=true/></span>
-                    <input
-                        id="list-search"
-                        type="text"
-                        class="h-8 w-full rounded-md border border-border-strong bg-input pr-8 pl-8 text-sm outline-none placeholder:text-text-faint focus:border-accent focus:ring-3 focus:ring-accent-weak"
-                        placeholder=search_label.clone()
-                        aria-label=search_label
-                        prop:value=move || q.get()
-                        on:input:target=move |e| q.set(e.target().value())
-                    />
-                    <span class="absolute top-1/2 right-2 -translate-y-1/2"><Kbd text="/"/></span>
-                </div>
+                <div class="mb-2.5">{search_box(q, search_label)}</div>
                 <div class="flex flex-wrap gap-1.5">{chips}</div>
             </div>
             <div
@@ -309,7 +297,25 @@ fn new_button(
     })
 }
 
-fn filter_chips(
+pub(crate) fn search_box(q: RwSignal<String>, label: String) -> impl IntoView {
+    view! {
+        <div class="relative">
+            <span class="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-text-faint"><Icon name="search" small=true/></span>
+            <input
+                id="list-search"
+                type="text"
+                class="h-8 w-full rounded-md border border-border-strong bg-input pr-8 pl-8 text-sm outline-none placeholder:text-text-faint focus:border-accent focus:ring-3 focus:ring-accent-weak"
+                placeholder=label.clone()
+                aria-label=label
+                prop:value=move || q.get()
+                on:input:target=move |e| q.set(e.target().value())
+            />
+            <span class="absolute top-1/2 right-2 -translate-y-1/2"><Kbd text="/"/></span>
+        </div>
+    }
+}
+
+pub(crate) fn filter_chips(
     filters: Vec<(&'static str, String)>,
     filter: RwSignal<&'static str>,
     rows: Signal<Vec<Row>>,

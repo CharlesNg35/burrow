@@ -80,7 +80,10 @@ pub fn App() -> impl IntoView {
     let s = Store::new(route::current());
     provide_context(s);
     apply_theme(&saved_theme());
-    let on_pop = Closure::<dyn FnMut()>::new(move || s.route.set(route::current()));
+    let on_pop = Closure::<dyn FnMut()>::new(move || {
+        s.route.set(route::current());
+        s.query_seen.update(|n| *n += 1);
+    });
     window().set_onpopstate(Some(on_pop.as_ref().unchecked_ref()));
     on_pop.forget();
     let on_hash = Closure::<dyn FnMut()>::new(move || {

@@ -206,7 +206,10 @@ fn setting_hits(s: Store, needle: &str, out: &mut Vec<Hit>) {
                     label: f.node.label.clone(),
                     facet: f.key.clone(),
                     go: Route::Settings,
-                    query: None,
+                    query: Some((
+                        "tab",
+                        burrow_admin_logic::settings_tabs::tab_of(&f.key).key(),
+                    )),
                 });
             }
         }
@@ -227,7 +230,7 @@ fn history_hits(s: Store, needle: &str, out: &mut Vec<Hit>) {
                     icon: "history",
                     label: format!("rev {} · {summary}", short_rev(&e.rev)),
                     facet: crate::format::relative(e.at),
-                    go: Route::Activity(Some(e.rev.clone())),
+                    go: Route::Activity(Some(e.id.to_string())),
                     query: None,
                 });
             }

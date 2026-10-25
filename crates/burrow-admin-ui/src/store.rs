@@ -71,6 +71,7 @@ pub struct Store {
     pub changed_from: RwSignal<(String, f64)>,
     pub added_at: RwSignal<std::collections::BTreeMap<String, f64>>,
     pub route: RwSignal<Route>,
+    pub query_seen: RwSignal<u64>,
     pub prev: RwSignal<Route>,
     pub server_addr: RwSignal<String>,
     pub error: RwSignal<Option<String>>,
@@ -106,6 +107,7 @@ impl Store {
             prev: RwSignal::new(Route::Overview),
             server_addr: RwSignal::new(String::new()),
             route: RwSignal::new(route),
+            query_seen: RwSignal::new(0),
             error: RwSignal::new(None),
             edit: Edit::new(),
         }

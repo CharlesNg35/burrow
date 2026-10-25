@@ -2,21 +2,27 @@ use burrow_admin_proto::schema::Schema;
 use burrow_ui_kit::Tone;
 use leptos::context::Provider;
 use leptos::prelude::*;
-use wasm_bindgen::JsCast;
 
 use crate::edit::Edit;
+use burrow_admin_logic::settings_tabs::{Tab, tab_of};
+use burrow_ui_kit::PillTabs;
+
 use crate::form::{PageSearch, ShowKeys, card_fields, settings_card, settings_cards};
 use crate::route::Route;
-use crate::screens::{DetailPane, ListPane, Row, master_detail};
+use crate::screens::{Row, filter_chips, search_box};
+
+use crate::route::TAB_QUERY;
 use crate::store::store;
 
 fn show_card(key: &str) {
-    if let Ok(Some(el)) = document().query_selector(&format!("#detail [data-card=\"{key}\"]")) {
+    if let Ok(Some(el)) =
+        document().query_selector(&format!("[data-testid=settings] [data-card=\"{key}\"]"))
+    {
         el.scroll_into_view();
     }
 }
 
-fn open_asked_card(current: RwSignal<Option<String>>) {
+fn open_asked_card() {
     let Some(want) = crate::route::query(crate::route::CARD_QUERY) else {
         return;
     };
@@ -34,7 +40,6 @@ fn open_asked_card(current: RwSignal<Option<String>>) {
             .into_iter()
             .find(|c| c.fields.iter().any(|f| f.key == want));
         if let Some(c) = card {
-            current.set(Some(c.key.clone()));
             request_animation_frame(move || show_card(&c.key));
         }
         true
@@ -53,7 +58,7 @@ pub fn groups(
     schema: &Schema,
     changed: &dyn Fn(&[String]) -> bool,
     restart: &[String],
-) -> Vec<Row> {
+) -> Vec<(Tab, Row)> {
     let skip = sections(schema);
     let skip: Vec<&str> = skip.iter().map(String::as_str).collect();
     let locked = schema.locked_paths();
@@ -95,7 +100,7 @@ pub fn groups(
             if needs_restart {
                 tags.push(("restart needed".to_string(), Tone::Info));
             }
-            Row {
+            let row = Row {
                 key: c.key.clone(),
                 to: Route::Settings,
                 icon: "settings",
@@ -109,7 +114,8 @@ pub fn groups(
                     .collect::<Vec<_>>()
                     .join("\n"),
                 ..Row::default()
-            }
+            };
+            (tab_of_card(&c), row)
         })
         .collect()
 }
@@ -127,11 +133,150 @@ pub fn setting_errors(diags: &[burrow_admin_proto::diag::Diag]) -> usize {
         .count()
 }
 
+fn tab_of_card(c: &crate::form::SettingsCard) -> Tab {
+    c.fields.first().map_or(Tab::Server, |f| tab_of(&f.key))
+}
+
+fn asked_tab() -> Tab {
+    crate::route::query(TAB_QUERY)
+        .and_then(|t| Tab::parse(&t))
+        .or_else(|| crate::route::query(crate::route::CARD_QUERY).map(|f| tab_of(&f)))
+        .unwrap_or(Tab::Server)
+}
+
+#[derive(Clone, Copy)]
+struct Look {
+    query: RwSignal<String>,
+    filter: RwSignal<&'static str>,
+}
+
+impl Look {
+    fn shows(self, row: &Row) -> bool {
+        let f = self.filter.get();
+        row.matches(&self.query.get().to_lowercase()) && (f == "all" || row.filters.contains(&f))
+    }
+
+    fn narrowed(self) -> bool {
+        !self.query.get().is_empty() || self.filter.get() != "all"
+    }
+}
+
+fn pill_count(rows: &[(Tab, Row)], tab: Tab, look: Look) -> String {
+    let mine: Vec<&Row> = rows
+        .iter()
+        .filter(|(t, _)| *t == tab)
+        .map(|(_, r)| r)
+        .collect();
+    let tagged = |word: &str| {
+        mine.iter()
+            .filter(|r| r.tags.iter().any(|(t, _)| t.contains(word)))
+            .count()
+    };
+    let mut parts = Vec::new();
+    if look.narrowed() {
+        parts.push(mine.iter().filter(|r| look.shows(r)).count().to_string());
+    }
+    for (word, shown) in [("changed", "changed"), ("locked", "locked")] {
+        let n = tagged(word);
+        if n > 0 {
+            parts.push(format!("{n} {shown}"));
+        }
+    }
+    parts.join(" · ")
+}
+
+fn tab_bar(rows: Memo<Vec<(Tab, Row)>>, tab: RwSignal<Tab>, look: Look) -> impl IntoView {
+    let keys = Tab::ALL.map(|t| (t.key(), t.label().to_string())).to_vec();
+    let counts =
+        Signal::derive(move || rows.with(|r| Tab::ALL.map(|t| pill_count(r, t, look)).to_vec()));
+    view! {
+        <div class="mb-4 overflow-x-auto" data-testid="settings-tabs">
+            <PillTabs
+                tabs=keys
+                active=Signal::derive(move || tab.get().key())
+                counts=counts
+                on_change=Callback::new(move |k: &'static str| {
+                    if let Some(t) = Tab::parse(k) {
+                        tab.set(t);
+                        crate::route::set_query(TAB_QUERY, k);
+                    }
+                })
+            />
+        </div>
+    }
+}
+
+fn tab_cards(tab: RwSignal<Tab>, look: Look, rows: Memo<Vec<(Tab, Row)>>) -> impl IntoView {
+    let s = store();
+    let shown = Memo::new(move |_| {
+        let now = tab.get();
+        rows.with(|r| {
+            r.iter()
+                .filter(|(t, row)| *t == now && look.shows(row))
+                .map(|(_, row)| row.key.clone())
+                .collect::<Vec<_>>()
+        })
+    });
+    let web_on = Memo::new(move |_| {
+        s.edit.draft.with(|d| {
+            burrow_config::ServerConfig::WEB
+                .get(d.draft())
+                .is_some_and(|w| !w.is_null())
+        })
+    });
+    move || {
+        let schema = s.schema.get()?;
+        let skip = sections(&schema);
+        let skip: Vec<&str> = skip.iter().map(String::as_str).collect();
+        let now = tab.get();
+        let shown = shown.get();
+        let web_on = web_on.get();
+        let cards = settings_cards(&schema.root, &skip)
+            .into_iter()
+            .filter(|c| shown.contains(&c.key))
+            .collect::<Vec<_>>();
+        let empty = cards.is_empty().then(|| {
+            view! { <p class="py-6 text-sm text-text-muted" data-testid="settings-none">"No setting on this tab matches."</p> }
+        });
+        let web_note = (now == Tab::Web && !web_on).then(|| {
+            view! { <p class="mb-3 text-sm text-text-muted" data-testid="web-off-note">"Turn the web proxy on to serve websites."</p> }
+        });
+        Some(view! {
+            <div class="max-w-[1120px]" data-tab-panel=now.key()>
+                {web_note}
+                {cards.iter().map(settings_card).collect_view()}
+                {(now == Tab::Web && web_on).then(super::local_ca::local_ca_card)}
+                {empty}
+            </div>
+        })
+    }
+}
+
+fn follow_matches(rows: Memo<Vec<(Tab, Row)>>, tab: RwSignal<Tab>, look: Look) {
+    Effect::new(move |_| {
+        if !look.narrowed() {
+            return;
+        }
+        let now = tab.get_untracked();
+        let hit = rows.with(|r| {
+            let here = r.iter().any(|(t, x)| *t == now && look.shows(x));
+            let first = r.iter().find(|(_, x)| look.shows(x)).map(|(t, _)| *t);
+            first.filter(|_| !here)
+        });
+        if let Some(t) = hit {
+            tab.set(t);
+        }
+    });
+}
+
 #[component]
 pub fn Settings() -> impl IntoView {
     let s = store();
-    let current: RwSignal<Option<String>> = RwSignal::new(None);
-    let query = RwSignal::new(String::new());
+    let look = Look {
+        query: RwSignal::new(String::new()),
+        filter: RwSignal::new("all"),
+    };
+    let tab = RwSignal::new(asked_tab());
     let rows = Memo::new(move |_| {
         let schema = s.schema.get();
         let restart = s
@@ -143,42 +288,38 @@ pub fn Settings() -> impl IntoView {
             .map(|sc| groups(&sc, &changed, &restart))
             .unwrap_or_default()
     });
-    let count = Signal::derive(move || rows.with(Vec::len).to_string());
-    let list = settings_list(rows, count, current, query);
-    open_asked_card(current);
-    let body = move || {
-        let schema = s.schema.get()?;
-        let skip = sections(&schema);
-        let skip: Vec<&str> = skip.iter().map(String::as_str).collect();
-        let cards = settings_cards(&schema.root, &skip);
-        Some(
-            view! { <div class="max-w-[1120px]">{cards.iter().map(settings_card).collect_view()}{super::local_ca::local_ca_card()}</div> },
-        )
-    };
+    let plain_rows =
+        Signal::derive(move || rows.with(|r| r.iter().map(|(_, x)| x.clone()).collect::<Vec<_>>()));
+    open_asked_card();
+    Effect::new(move |seen: Option<u64>| {
+        let now = s.query_seen.get();
+        if seen.is_some_and(|n| n != now) {
+            tab.set(asked_tab());
+            open_asked_card();
+        }
+        now
+    });
+    follow_matches(rows, tab, look);
     let e = s.edit;
-    let root: Vec<String> = Vec::new();
-    let editing = {
-        let root = root.clone();
-        Memo::new(move |_| e.is_editing(&root))
-    };
-    let changed = changed_fields(e);
-    let problems = problem_count(e);
+    let editing = Memo::new(move |_| e.is_editing(&[]));
+    let (changed, problems) = (changed_fields(e), problem_count(e));
     let start = move |_| e.start_edit(&[]);
     let close = move || discard_settings(e);
     let save = move || {
         e.stop_edit(&[]);
-        s.toast(
-            burrow_ui_kit::Tone::Success,
-            "Added to changes",
-            Some("Review"),
-        );
+        s.toast(Tone::Success, "Added to changes", Some("Review"));
     };
     let can = s.can_write_now();
-    let detail = view! {
+    let filters = vec![
+        ("all", "All".into()),
+        ("restart", "Restart".into()),
+        ("changed", "Changed".into()),
+    ];
+    view! {
         <Provider value=ShowKeys(true)>
-        <Provider value=PageSearch(query)>
+        <Provider value=PageSearch(look.query)>
         <Provider value=crate::form::EditMode(Signal::derive(move || editing.get()))>
-        <DetailPane>
+        <div class="px-8 pt-7 pb-12 max-sm:px-4" id="detail">
             <burrow_ui_kit::PageHeader
                 kicker="Settings"
                 sub="Everything in server.yaml besides clients, visitors and services. Each field says when it takes effect."
@@ -190,7 +331,12 @@ pub fn Settings() -> impl IntoView {
             >
                 "Server settings"
             </burrow_ui_kit::PageHeader>
-            <div data-testid="settings">{body}</div>
+            <div class="mb-3 flex max-w-[1120px] flex-wrap items-center gap-3" data-testid="settings-search">
+                <div class="w-72 max-w-full">{search_box(look.query, "Search settings".into())}</div>
+                <div class="flex flex-wrap gap-1.5">{filter_chips(filters, look.filter, plain_rows, true)}</div>
+            </div>
+            {tab_bar(rows, tab, look)}
+            <div data-testid="settings">{tab_cards(tab, look, rows)}</div>
             {move || editing.get().then(|| {
                 crate::screens::bar::save_bar(crate::screens::bar::SaveBar {
                     count: problems.get(),
@@ -201,51 +347,11 @@ pub fn Settings() -> impl IntoView {
                     on_save: Callback::new(move |_| save()),
                 })
             })}
-        </DetailPane>
-        </Provider>
-        </Provider>
-        </Provider>
-    }
-    .into_any();
-    master_detail(list, detail)
-}
-
-fn settings_list(
-    rows: Memo<Vec<Row>>,
-    count: Signal<String>,
-    current: RwSignal<Option<String>>,
-    query: RwSignal<String>,
-) -> AnyView {
-    view! {
-        <div
-            class="contents"
-            on:click=move |e| {
-                let hit = e
-                    .target()
-                    .and_then(|t| t.dyn_into::<web_sys::Element>().ok())
-                    .and_then(|t| t.closest("[data-row]").ok().flatten())
-                    .and_then(|el| el.get_attribute("data-row"));
-                if let Some(key) = hit {
-                    current.set(Some(key.clone()));
-                    show_card(&key);
-                }
-            }
-        >
-            <ListPane
-                title="Settings"
-                count=count
-                search_label="Search settings"
-                filters=vec![("all", "All".into()), ("restart", "Restart".into()), ("changed", "Changed".into())]
-                groups=vec![""]
-                rows=rows
-                selected=current
-                testid="settings-list"
-                compact=true
-                query=query
-            />
         </div>
+        </Provider>
+        </Provider>
+        </Provider>
     }
-    .into_any()
 }
 
 fn settings_of(

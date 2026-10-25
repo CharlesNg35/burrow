@@ -20,6 +20,7 @@ pub enum Route {
 pub const FILTER_QUERY: &str = "filter";
 pub const WEBSITES_FILTER: &str = "websites";
 pub const CARD_QUERY: &str = "card";
+pub const TAB_QUERY: &str = "tab";
 
 pub const SECTIONS: [&str; 3] = [
     ServiceEntry::SECTION,
@@ -157,6 +158,10 @@ fn href_with(route: &Route, query: Query) -> String {
     }
 }
 
+pub fn go_query(route: Route, query: Query) {
+    go_with(store(), route, query);
+}
+
 pub fn go_in(s: crate::store::Store, route: Route) {
     go_with(s, route, None);
 }
@@ -173,6 +178,7 @@ fn go_with(s: crate::store::Store, route: Route, query: Query) {
         s.prev.set(was);
     }
     s.route.set(route);
+    s.query_seen.update(|n| *n += 1);
     window().scroll_to_with_x_and_y(0.0, 0.0);
 }
 

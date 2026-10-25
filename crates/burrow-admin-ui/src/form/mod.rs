@@ -18,7 +18,7 @@ use crate::domain;
 use crate::store::store;
 
 use cards::layout_order;
-pub(crate) use cards::{card_fields, settings_card, settings_cards};
+pub(crate) use cards::{SettingsCard, card_fields, settings_card, settings_cards};
 use controls::visibility_row;
 use more::{More, more_settings};
 pub use more::{PageSearch, reveal};

@@ -212,7 +212,7 @@ fn tab_signal(
     fresh: bool,
 ) -> RwSignal<&'static str> {
     let (section, name) = (section.to_string(), name.to_string());
-    let asked = route::query("tab");
+    let asked = route::query(route::TAB_QUERY);
     let known = tab_list.with_untracked(|t| {
         t.iter()
             .map(|(k, _)| *k)
@@ -241,7 +241,7 @@ fn tab_signal(
     Effect::new(move |first: Option<()>| {
         let t = tab.get();
         if first.is_some() {
-            route::set_query("tab", t);
+            route::set_query(route::TAB_QUERY, t);
         }
     });
     tab

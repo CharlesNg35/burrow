@@ -21,7 +21,7 @@ fn has_web(values: &Value) -> bool {
 }
 
 fn asked_tab() -> &'static str {
-    let asked = route::query("tab");
+    let asked = route::query(route::TAB_QUERY);
     match asked.as_deref() {
         Some(WEBSITES) => WEBSITES,
         Some(CERTIFICATES) => CERTIFICATES,
@@ -97,7 +97,7 @@ pub(super) fn tab_box(values: Memo<Value>, counts: Signal<Vec<String>>) -> impl 
                 counts=all_counts
                 on_change=Callback::new(move |t: &'static str| {
                     tab.set(t);
-                    route::set_query("tab", t);
+                    route::set_query(route::TAB_QUERY, t);
                 })
             />
         }

@@ -5,7 +5,7 @@ use leptos::prelude::*;
 use wasm_bindgen::JsCast;
 
 use crate::format;
-use crate::route::Link;
+use crate::route::{Link, Route};
 use crate::store::store;
 
 use super::{Item, attention, away, names, old_server_item};
@@ -37,7 +37,13 @@ fn row_view(i: Item, icon: bool) -> impl IntoView {
                     view! {
                         <a href=href class=class on:click=move |e| {
                             e.prevent_default();
-                            crate::route::go(to.clone());
+                            match (&to, path.first()) {
+                                (Route::Settings, Some(k)) => crate::route::go_query(
+                                    to.clone(),
+                                    Some((crate::route::TAB_QUERY, burrow_admin_logic::settings_tabs::tab_of(k).key())),
+                                ),
+                                _ => crate::route::go(to.clone()),
+                            }
                             let path = path.clone();
                             set_timeout(move || crate::screens::entity::go_to_field(&path), std::time::Duration::from_millis(150));
                         }>{inner}</a>

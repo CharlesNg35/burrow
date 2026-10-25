@@ -1,6 +1,8 @@
 use super::edits::{Flow, click_js, row_clean, row_error};
 use super::world::Options;
-use super::{Ctx, SECS, applied, edit_mode, open, open_review, overview_tab, run, wait_checked};
+use super::{
+    Ctx, SECS, applied, both_widths, edit_mode, open, open_review, overview_tab, run, wait_checked,
+};
 
 const WEB_TOP: &str = "web:\n  https: 127.0.0.1:HTTPS_PORT\n";
 const NAS: &str = "  nas:\n    client: home\n    target: 192.168.1.20:443\n    web:\n      hosts: [nas.example.com, \"*.nas.example.com\"]\n      tls: passthrough\n";
@@ -13,14 +15,6 @@ fn opts() -> Options {
         extra_services: NAS.into(),
         ..Options::default()
     }
-}
-
-async fn both_widths(c: &mut Ctx, step: &str) {
-    tokio::time::sleep(std::time::Duration::from_millis(400)).await;
-    c.ui.shot(step).await;
-    c.ui.viewport(420, 900).await;
-    c.ui.shot(&format!("{step}-phone")).await;
-    c.ui.viewport(1440, 900).await;
 }
 
 async fn add_name(c: &Ctx, id: &str, name: &str) {
@@ -45,7 +39,7 @@ async fn read_only_pages(c: &mut Ctx) {
         "the Websites filter leaves out plain services"
     );
     both_widths(c, "services-websites-filter").await;
-    c.ui.nav("/settings").await;
+    c.ui.nav("/settings?tab=proxy").await;
     c.ui.wait_text("[data-schema='web/https']", "HTTPS port", SECS)
         .await;
     both_widths(c, "settings-web-proxy").await;
@@ -108,7 +102,7 @@ async fn plain_with_the_http_port(c: &mut Ctx) {
     let port = c.world.ports["http"];
     c.world
         .hand_edit(|t| t.replacen("web:\n", &format!("web:\n  http: 127.0.0.1:{port}\n"), 1));
-    c.ui.nav("/settings").await;
+    c.ui.nav("/settings?tab=proxy").await;
     c.ui.wait_text("[data-schema='web/http']", &port.to_string(), SECS)
         .await;
     c.ui.nav("/services/nas").await;
@@ -315,10 +309,12 @@ fn certificates(c: &mut Ctx) -> Flow<'_> {
         c.ui.click("[data-testid=overview-open]").await;
         c.ui.wait_for("[data-testid=settings]", SECS).await;
         c.ui.wait_for(
-            "[data-testid=settings-list] [data-row=web][data-selected=true]",
+            "[data-testid=settings-tabs] [data-tab=proxy][aria-selected=true]",
             SECS,
         )
         .await;
+        c.ui.wait_for("[data-testid=settings] [data-card=web]", SECS)
+            .await;
         both_widths(c, "overview-open-certificates").await;
         c.ui.assert_no_errors();
     })
@@ -337,7 +333,7 @@ fn local_ca(c: &mut Ctx) -> Flow<'_> {
                 "{t}  printer:\n    client: home\n    target: 8443\n    web:\n      hosts: [printer.lan]\n      tls: internal\n"
             )
         });
-        c.ui.nav("/settings").await;
+        c.ui.nav("/settings?tab=proxy").await;
         let print =
             c.ui.wait_text(
                 "[data-testid=local-ca-fingerprint]",

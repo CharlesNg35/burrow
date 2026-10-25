@@ -95,7 +95,7 @@ fn editors(c: &mut Ctx) -> Flow<'_> {
         );
         assert!(text.contains("interval_secs: 5"), "{text}");
 
-        c.ui.nav("/settings").await;
+        c.ui.nav("/settings?tab=connections").await;
         edit_mode(c).await;
         c.ui.wait_for("[data-schema='pool/min_idle'] [data-editor]", SECS)
             .await;
@@ -115,6 +115,7 @@ fn editors(c: &mut Ctx) -> Flow<'_> {
         );
         c.ui.click("[data-testid=discard-edit]").await;
         c.ui.wait_gone("[data-testid=save-bar]", SECS).await;
+        c.ui.nav("/settings?tab=server").await;
         edit_mode(c).await;
         c.ui.wait_for("[data-server-address]", SECS).await;
         click_js(c, "[data-server-address] input[value=name]").await;
@@ -142,7 +143,7 @@ fn editors(c: &mut Ctx) -> Flow<'_> {
             "{text}"
         );
 
-        c.ui.nav("/settings").await;
+        c.ui.nav("/settings?tab=connections").await;
         let peers = "[data-schema='udp/max_peers']";
         open_more(c, "udp/max_peers").await;
         let help = c.ui.wait_text(peers, "Max UDP peers per port", SECS).await;
@@ -210,56 +211,62 @@ fn e8_a_field_of_a_newer_type_is_edited_as_text_and_checked_by_the_server() {
     run("e8-fallback-edit", opts, true, fallback_edit);
 }
 
+async fn read_only_in_view(c: &mut Ctx, field: &str) {
+    let row = format!("[data-schema='{field}']");
+    open_more(c, field).await;
+    assert_eq!(
+        c.ui.count(&format!("{row} [data-editor]")).await,
+        0,
+        "{field} has no edit control"
+    );
+    assert_eq!(
+        c.ui.count(&format!("{row} input, {row} select")).await,
+        0,
+        "{field} has no input"
+    );
+    assert_eq!(
+        c.ui.count(&format!("{row} [data-locked]")).await,
+        0,
+        "{field} reads as a plain value in view mode, not a box"
+    );
+    let text =
+        c.ui.wait_text(&row, "Change this in server.yaml (burrow edit)", SECS)
+            .await;
+    assert_eq!(
+        text.contains("then restart"),
+        field == "listen",
+        "{field}: only listen needs a restart: {text}"
+    );
+    assert_eq!(
+        text.matches("Change this").count(),
+        1,
+        "{field} says it once"
+    );
+}
+
 fn locked_fields(c: &mut Ctx) -> Flow<'_> {
     Box::pin(async move {
         open(c, "ops").await;
+        for (tab, fields) in [
+            ("server", &["listen", "insecure_plaintext"][..]),
+            (
+                "connections",
+                &[
+                    "heartbeat/interval_secs",
+                    "limits/handshake_timeout_secs",
+                    "limits/max_handshakes",
+                ][..],
+            ),
+        ] {
+            c.ui.nav(&format!("/settings?tab={tab}")).await;
+            c.ui.wait_for("[data-testid=settings] [data-card]", SECS)
+                .await;
+            for field in fields {
+                read_only_in_view(c, field).await;
+            }
+        }
         c.ui.nav("/settings").await;
         c.ui.wait_for("[data-schema=listen]", SECS).await;
-        for field in [
-            "listen",
-            "insecure_plaintext",
-            "heartbeat/interval_secs",
-            "limits/handshake_timeout_secs",
-            "limits/max_handshakes",
-        ] {
-            let row = format!("[data-schema='{field}']");
-            open_more(c, field).await;
-            assert_eq!(
-                c.ui.count(&format!("{row} [data-editor]")).await,
-                0,
-                "{field} has no edit control"
-            );
-            assert_eq!(
-                c.ui.count(&format!("{row} input, {row} select")).await,
-                0,
-                "{field} has no input"
-            );
-            assert_eq!(
-                c.ui.count(&format!("{row} [data-locked]")).await,
-                0,
-                "{field} reads as a plain value in view mode, not a box"
-            );
-            let text =
-                c.ui.wait_text(&row, "Change this in server.yaml (burrow edit)", SECS)
-                    .await;
-            assert_eq!(
-                text.contains("then restart"),
-                field == "listen",
-                "{field}: only listen needs a restart: {text}"
-            );
-            assert_eq!(
-                text.matches("Change this").count(),
-                1,
-                "{field} says it once"
-            );
-        }
-        assert_eq!(
-            c.ui.count("[data-schema=websocket] input").await,
-            0,
-            "the websocket block has no controls"
-        );
-        c.ui.wait_for("[data-schema=websocket] [data-testid=locked-hint]", SECS)
-            .await;
         assert_eq!(
             c.ui.count("[data-schema=public_address] input").await,
             0,
@@ -282,6 +289,14 @@ fn locked_fields(c: &mut Ctx) -> Flow<'_> {
             public.contains("when WebSocket is on; connect commands made here use it"),
             "the public address keeps its whole help while editing: {public}"
         );
+        c.ui.click("[data-testid=settings-tabs] [data-tab=connections]")
+            .await;
+        c.ui.wait_for("[data-card=websocket]", SECS).await;
+        assert!(
+            c.ui.count("[data-card=websocket] #f-websocket").await > 0,
+            "WebSocket is turned on here (owner 0y)"
+        );
+        open_more(c, "limits/max_pending").await;
         assert!(
             c.ui.count("[data-schema='limits/max_pending'] input").await > 0,
             "the rest of limits stays editable"
@@ -348,6 +363,9 @@ fn picker_create(c: &mut Ctx) -> Flow<'_> {
         open(c, "ops").await;
         c.ui.nav("/services/web?tab=settings").await;
         edit_mode(c).await;
+        click_js(c, "#f-services-web-reach-visitors").await;
+        c.ui.wait_for("[data-way=visitors] #f-services-web-visitors", SECS)
+            .await;
         create_in_picker(c, "f-services-web-visitors", "tablet", false).await;
         create_in_picker(c, "f-services-web-clients", "edge", true).await;
         c.ui.click("#f-services-web-visitors").await;

@@ -104,13 +104,10 @@ pub(super) fn tls_editor(fc: FieldCtx) -> AnyView {
 
 fn web_off() -> impl IntoView {
     let open = move |_| {
-        crate::route::go(crate::route::Route::Settings);
-        request_animation_frame(|| {
-            let card = format!("[data-schema='{}']", ServerConfig::WEB.key());
-            if let Ok(Some(el)) = document().query_selector(&card) {
-                el.scroll_into_view();
-            }
-        });
+        crate::route::go_query(
+            crate::route::Route::Settings,
+            Some((crate::route::CARD_QUERY, ServerConfig::WEB.key())),
+        );
     };
     view! {
         <p class="mb-2 text-[13px] text-text-muted" data-testid="web-off">

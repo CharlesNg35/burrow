@@ -13,6 +13,7 @@ pub mod input;
 pub mod more;
 pub mod rates;
 pub mod relations;
+pub mod settings_tabs;
 pub mod shorthand;
 pub mod tree;
 pub mod version;

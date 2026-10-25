@@ -1,6 +1,8 @@
 use super::edits::Flow;
 use super::world::Options;
-use super::{Ctx, SECS, applied, edit_mode, open, open_review, overview_tab, run, wait_checked};
+use super::{
+    Ctx, SECS, applied, both_widths, edit_mode, open, open_review, overview_tab, run, wait_checked,
+};
 
 const TOP: &str = "web:\n  https: 127.0.0.1:HTTPS_PORT\n  http: 127.0.0.1:HTTP_PORT\n  trusted_proxies: [127.0.0.1/32]\n  letsencrypt:\n    email: ops@example.com\n    directory: https://127.0.0.1:1/directory\n    dns:\n      - domains: [example.org]\n        cloudflare: { token: \"${CF_TOKEN}\" }\n";
 const SITES: &str = "  site:\n    client: home\n    target: 8080\n    web: { hosts: [example.com], tls: off }\n  api:\n    client: home\n    target: 9000\n    web: { hosts: [example.com], tls: off, paths: [/api], app_path: / }\n";
@@ -13,14 +15,6 @@ fn opts() -> Options {
         server_env: vec![("CF_TOKEN".into(), "cf-token-for-the-e2e".into())],
         ..Options::default()
     }
-}
-
-async fn both_widths(c: &mut Ctx, step: &str) {
-    tokio::time::sleep(std::time::Duration::from_millis(400)).await;
-    c.ui.shot(step).await;
-    c.ui.viewport(420, 900).await;
-    c.ui.shot(&format!("{step}-phone")).await;
-    c.ui.viewport(1440, 900).await;
 }
 
 async fn open_more(c: &Ctx, css: &str) {
@@ -91,7 +85,7 @@ async fn a_header_and_a_path(c: &mut Ctx) {
 }
 
 async fn dns_secrets_are_references(c: &mut Ctx) {
-    c.ui.nav("/settings").await;
+    c.ui.nav("/settings?tab=proxy").await;
     c.ui.wait_for("[data-schema=web]", SECS).await;
     open_more(c, "[data-schema=web] [data-testid=more-settings]").await;
     c.ui.wait_text("[data-schema=web]", "set, from ${CF_TOKEN}", SECS)
