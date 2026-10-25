@@ -9,8 +9,10 @@ use std::time::Duration;
 use hickory_proto::rr::Name;
 use zeroize::Zeroizing;
 
+pub mod cloudflare;
 mod fake;
 pub mod lookup;
+mod mock_api;
 pub mod propagate;
 pub mod rfc2136;
 pub mod system;

@@ -89,6 +89,22 @@ impl Client {
         })
     }
 
+    pub async fn fetch(&self, req: Request<Vec<u8>>) -> Result<Response<Bytes>, String> {
+        let (parts, body) = req.into_parts();
+        let req = Request::from_parts(parts, BodyWrapper::from(body));
+        let resp = tokio::time::timeout(self.limits.request, self.send(req))
+            .await
+            .map_err(|_| "no answer in time".to_string())?
+            .map_err(|e| e.to_string())?;
+        let (parts, body) = resp.into_parts();
+        let body = body
+            .collect()
+            .await
+            .map_err(|e| format!("reading the answer: {e}"))?
+            .to_bytes();
+        Ok(Response::from_parts(parts, body))
+    }
+
     pub fn take_wait(&self) -> Option<Duration> {
         self.told_to_wait.lock().expect("wait lock").take()
     }
