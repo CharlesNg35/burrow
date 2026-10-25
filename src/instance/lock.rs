@@ -28,7 +28,7 @@ pub fn acquire(identity: &Identity, config: &Path) -> Result<InstanceLock, Failu
         crate::say_errln!("warning: {}; a service starts anyway", f.message);
         return Ok(InstanceLock {
             _file: None,
-            path: dir.join(format!("{}.lock", identity.key())),
+            path: dir.join(format!("{}.{}", identity.key(), super::LOCK_EXTENSION)),
             noted: false,
             _fresh: None,
         });
@@ -45,7 +45,7 @@ pub fn running_as_service() {
 }
 
 pub fn acquire_in(dir: &Path, identity: &Identity, config: &Path) -> Result<InstanceLock, Failure> {
-    let path = dir.join(format!("{}.lock", identity.key()));
+    let path = dir.join(format!("{}.{}", identity.key(), super::LOCK_EXTENSION));
     let prepared = prepare_dir(dir);
     if prepared.is_ok() && !safe_dir(dir) {
         return Ok(unlocked(dir, &path));
@@ -108,10 +108,10 @@ pub fn acquire_in(dir: &Path, identity: &Identity, config: &Path) -> Result<Inst
         std::process::id(),
         crate::base::fs::canonical_or_same(config).display()
     );
-    let noted = writable && write_note(&path.with_extension("info"), &note);
+    let noted = writable && write_note(&path.with_extension(super::NOTE_EXTENSION), &note);
     let mut fresh = vec![path.clone()];
     if noted {
-        fresh.push(path.with_extension("info"));
+        fresh.push(path.with_extension(super::NOTE_EXTENSION));
     }
     Ok(InstanceLock {
         _file: Some(file),
@@ -147,7 +147,7 @@ pub(super) fn planted(_entry: &Path) -> bool {
 }
 
 fn already_running(identity: &Identity, lock: &Path) -> Failure {
-    let holder = std::fs::File::open(lock.with_extension("info"))
+    let holder = std::fs::File::open(lock.with_extension(super::NOTE_EXTENSION))
         .ok()
         .and_then(|f| {
             let mut text = String::new();
@@ -184,7 +184,7 @@ pub fn held_in(dirs: &[PathBuf], identity: &Identity) -> Option<Failure> {
 }
 
 pub(super) fn held_elsewhere(dir: &Path, identity: &Identity) -> Option<Failure> {
-    let path = dir.join(format!("{}.lock", identity.key()));
+    let path = dir.join(format!("{}.{}", identity.key(), super::LOCK_EXTENSION));
     let file = no_follow(OpenOptions::new().read(true))
         .open(&path)
         .and_then(single_file)
@@ -196,7 +196,7 @@ pub(super) fn held_elsewhere(dir: &Path, identity: &Identity) -> Option<Failure>
 pub(super) fn held_by_a_trusted_instance(lock: &Path) -> bool {
     let deadline = std::time::Instant::now() + NOTE_PATIENCE;
     loop {
-        if trusted_note(&lock.with_extension("info")).is_some() {
+        if trusted_note(&lock.with_extension(super::NOTE_EXTENSION)).is_some() {
             return true;
         }
         if std::time::Instant::now() >= deadline {

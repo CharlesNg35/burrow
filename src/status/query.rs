@@ -271,7 +271,10 @@ pub fn scan(dir: &Path, wanted: Option<&Path>) -> Scan {
         .filter(|d| crate::instance::safe_dir(d))
         .filter_map(|d| std::fs::read_dir(d).ok())
         .flat_map(|listing| listing.flatten().map(|e| e.path()))
-        .filter(|p| p.extension().is_some_and(|x| x == "status"))
+        .filter(|p| {
+            p.extension()
+                .is_some_and(|x| x == crate::instance::STATUS_EXTENSION)
+        })
         .collect();
     paths.sort();
     let mut entries = Vec::new();

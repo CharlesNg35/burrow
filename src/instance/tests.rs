@@ -225,9 +225,13 @@ fn only_entries_of_another_user_count_as_planted() {
 #[test]
 fn only_old_drafts_are_cleaned_up() {
     let dir = tempfile::tempdir().unwrap();
-    let fresh = dir.path().join("1.new");
+    let fresh = dir
+        .path()
+        .join(format!(".1.status.1-0.{}", crate::base::fs::TEMP_EXTENSION));
     std::fs::write(&fresh, "x").unwrap();
-    let old = dir.path().join("2.new");
+    let old = dir
+        .path()
+        .join(format!(".2.status.1-1.{}", crate::base::fs::TEMP_EXTENSION));
     std::fs::write(&old, "x").unwrap();
     let hour_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(3600);
     std::fs::File::options()

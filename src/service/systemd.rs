@@ -6,7 +6,12 @@ use super::{Backend, Manifest, Status};
 use crate::base::failure::Failure;
 use crate::base::process::{run, run_ok};
 
-pub const INSTANCE_DIR: &str = "/run/burrow-instances";
+fn instance_dir() -> PathBuf {
+    crate::install::Platform::Linux
+        .instances_dir()
+        .unwrap_or_default()
+}
+
 const TMPFILES: &str = "/etc/tmpfiles.d/burrow.conf";
 
 pub struct Systemd;
@@ -137,7 +142,7 @@ impl Backend for Systemd {
             crate::base::failure::EXIT_USAGE,
             crate::base::failure::EXIT_CONFIG
         ));
-        s.push_str(&format!("ReadWritePaths={INSTANCE_DIR}\n"));
+        s.push_str(&format!("ReadWritePaths={}\n", instance_dir().display()));
         if m.admin_writable {
             s.push_str(&format!("ReadWritePaths={}\n", quote(m.folder())));
         }
@@ -262,7 +267,7 @@ impl Backend for Systemd {
         }
         super::system::write_file(
             Path::new(TMPFILES),
-            format!("d {INSTANCE_DIR} 1777 root root -\n").as_bytes(),
+            format!("d {} 1777 root root -\n", instance_dir().display()).as_bytes(),
         )?;
         run("systemd-tmpfiles", &["--create", TMPFILES])?;
         Ok(())

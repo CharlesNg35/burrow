@@ -54,6 +54,14 @@ impl Platform {
         }
     }
 
+    pub fn instances_dir(self) -> Option<PathBuf> {
+        match self {
+            Platform::Linux => Some(PathBuf::from("/run/burrow-instances")),
+            Platform::MacOs => self.state_dir().parent().map(|base| base.join("instances")),
+            _ => None,
+        }
+    }
+
     pub fn launchd_folders(self) -> Vec<(PathBuf, u32)> {
         let state = self.state_dir();
         let base = state.parent().map(Path::to_path_buf).unwrap_or_default();
@@ -61,7 +69,11 @@ impl Platform {
             (self.config_dir(), 0o755),
             (base.clone(), 0o755),
             (state, 0o755),
-            (base.join("instances"), 0o1777),
+            (
+                self.instances_dir()
+                    .unwrap_or_else(|| base.join("instances")),
+                0o1777,
+            ),
             (self.log_dir(), 0o755),
         ]
     }
@@ -106,5 +118,29 @@ impl Platform {
             Platform::MacOs => "_burrow".into(),
             _ => "burrow".into(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_shared_instance_folder_is_named_in_one_place() {
+        assert_eq!(
+            Platform::Linux.instances_dir(),
+            Some(PathBuf::from("/run/burrow-instances"))
+        );
+        assert_eq!(
+            Platform::MacOs.instances_dir(),
+            Some(PathBuf::from(
+                "/Library/Application Support/burrow/instances"
+            ))
+        );
+        assert_eq!(Platform::Windows.instances_dir(), None);
+        assert!(Platform::MacOs.launchd_folders().contains(&(
+            PathBuf::from("/Library/Application Support/burrow/instances"),
+            0o1777
+        )));
     }
 }

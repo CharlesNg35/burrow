@@ -128,7 +128,7 @@ pub fn running_in(dir: &Path) -> Vec<Running> {
     let mut found: Vec<Running> = listing
         .flatten()
         .map(|e| e.path())
-        .filter(|p| p.extension().is_some_and(|x| x == "info"))
+        .filter(|p| p.extension().is_some_and(|x| x == super::NOTE_EXTENSION))
         .filter_map(|p| trusted_note(&p))
         .collect();
     found.sort_by(|a, b| a.config.cmp(&b.config));

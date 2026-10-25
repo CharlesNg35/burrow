@@ -100,7 +100,7 @@ fn touch(path: &Path) {
 impl Drop for InstanceLock {
     fn drop(&mut self) {
         if self.noted {
-            let _ = std::fs::remove_file(self.path.with_extension("info"));
+            let _ = std::fs::remove_file(self.path.with_extension(NOTE_EXTENSION));
         }
     }
 }
@@ -111,13 +111,15 @@ impl InstanceLock {
     }
 }
 
+pub const LOCK_EXTENSION: &str = "lock";
+pub const NOTE_EXTENSION: &str = "info";
+pub const STATUS_EXTENSION: &str = "status";
+
 pub fn service_dir() -> Option<PathBuf> {
     if cfg!(target_os = "linux") {
-        Some(PathBuf::from("/run/burrow-instances"))
+        crate::install::Platform::Linux.instances_dir()
     } else if cfg!(target_os = "macos") {
-        Some(PathBuf::from(
-            "/Library/Application Support/burrow/instances",
-        ))
+        crate::install::Platform::MacOs.instances_dir()
     } else {
         None
     }
@@ -141,7 +143,7 @@ pub fn remove_unused(dir: &Path) {
     };
     for path in listing.flatten().map(|e| e.path()) {
         match path.extension().and_then(|x| x.to_str()) {
-            Some("lock") => {
+            Some(LOCK_EXTENSION) => {
                 let mut opts = OpenOptions::new();
                 opts.read(true).write(true);
                 let held = no_follow(&mut opts)
@@ -150,15 +152,15 @@ pub fn remove_unused(dir: &Path) {
                     .ok()
                     .filter(|f| f.try_lock().is_ok());
                 if let Some(lock) = held {
-                    let _ = std::fs::remove_file(path.with_extension("info"));
+                    let _ = std::fs::remove_file(path.with_extension(NOTE_EXTENSION));
                     let _ = std::fs::remove_file(&path);
                     drop(lock);
                 }
             }
-            Some("status") if stale_status(&path) => {
+            Some(STATUS_EXTENSION) if stale_status(&path) => {
                 let _ = std::fs::remove_file(&path);
             }
-            Some("new") if left_behind(&path) => {
+            Some(crate::base::fs::TEMP_EXTENSION) if left_behind(&path) => {
                 let _ = std::fs::remove_file(&path);
             }
             _ => {}
