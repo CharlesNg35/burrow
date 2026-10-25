@@ -37,6 +37,12 @@ fn settings(ctx: &Ctx, state: &Path, checks: &[CertCheck], profile: Option<&str>
     }
 }
 
+const UNVALIDATED: &str = "never-checked.test";
+
+fn with_a_name_pebble_never_validated(group: &str, host: &str) -> Vec<CertName> {
+    names(group, &[host, UNVALIDATED])
+}
+
 fn names(group: &str, hosts: &[&str]) -> Vec<CertName> {
     hosts
         .iter()
@@ -355,7 +361,14 @@ async fn ari_malformed_and_explained(ctx: &Ctx, state: &Path) {
 
 async fn failure_keeps_the_old(ctx: &Ctx, state: &Path) {
     ctx.r.refuse_tls(true);
-    let (store, old) = restart_renewing(ctx, state, PAST).await;
+    let old = stored_leaf(state);
+    let s = settings(ctx, state, &[CertCheck::Tls], None);
+    let store = open_store(
+        ctx,
+        &s,
+        &with_a_name_pebble_never_validated("blog", "a.test"),
+    )
+    .await;
     let st = until(&store, "a.test", "a failure", |s| {
         matches!(s.phase, CertPhase::Failing { .. })
     })
@@ -474,11 +487,9 @@ async fn https_in_front_with_443_only_backs_off_and_keeps_the_old(ctx: &Ctx) {
     until(&store, "wiki.test", "issued", |s| s.phase == CertPhase::Ok).await;
     let old = served(ctx, "wiki.test").await.unwrap();
     drop(store);
-    let dir = burrow_web::tls::acme::storage::cert_dir(state.path(), &["wiki.test".to_string()]);
-    let pem = std::fs::read_to_string(dir.join("cert.pem")).unwrap();
-    ctx.p.set_renewal_info(&pem, PAST).await;
     ctx.r.https_in_front(true);
-    let store = open_store(ctx, &tls_only, &names("wiki", &["wiki.test"])).await;
+    let renew = with_a_name_pebble_never_validated("wiki", "wiki.test");
+    let store = open_store(ctx, &tls_only, &renew).await;
     let st = until(&store, "wiki.test", "the blocked check", |s| {
         matches!(s.phase, CertPhase::Failing { .. })
     })
@@ -490,8 +501,8 @@ async fn https_in_front_with_443_only_backs_off_and_keeps_the_old(ctx: &Ctx) {
         "the CA's text: {e}"
     );
     assert!(
-        e.contains("something in front of this server answers HTTPS for wiki.test (a CDN like Cloudflare?); open http: 80 and use challenge: http, or use challenge: dns"),
-        "{e}"
+        e.contains(&format!("something in front of this server answers HTTPS for {UNVALIDATED} (a CDN like Cloudflare?); open http: 80 and use challenge: http, or use challenge: dns")),
+        "the name Pebble must validate is the one blocked (Pebble reuses a valid authorization 1 time in 100 even with PEBBLE_AUTHZREUSE=0): {e}"
     );
     let now = burrow_web::tls::now_secs();
     assert!(
