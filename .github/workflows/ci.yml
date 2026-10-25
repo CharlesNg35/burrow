@@ -70,7 +70,7 @@ jobs:
           BURROW_PEBBLE: "1"
         run: cargo test --locked -p burrow-web --test acme -- --nocapture
       - name: Pull BIND 9.20
-        run: docker pull internetsystemsconsortium/bind9:9.20
+        run: docker pull internetsystemsconsortium/bind9:9.20@sha256:66092edb53c081fa11b1fa8219e99065b0f497cb38f568ba789702a4c10e2590
       - name: DNS checks through BIND and a mocked Cloudflare API, with Pebble
         env:
           BURROW_PEBBLE: "1"

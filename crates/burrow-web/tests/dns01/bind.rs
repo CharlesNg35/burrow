@@ -7,7 +7,8 @@ use hickory_proto::rr::{Name, RData, RecordType};
 pub const ADDR: &str = "127.0.0.1:5399";
 pub const KEY: &str = "burrow-key";
 pub const SECRET: &str = "DeMe+aO2zaj8MLjzn5TsmuIjSk+5vtEvG3W7kq/1j04=";
-const IMAGE: &str = "internetsystemsconsortium/bind9:9.20";
+const IMAGE: &str =
+    "internetsystemsconsortium/bind9:9.20@sha256:66092edb53c081fa11b1fa8219e99065b0f497cb38f568ba789702a4c10e2590";
 const NAME: &str = "burrow-test-bind";
 
 pub struct Bind {
