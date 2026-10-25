@@ -11,6 +11,26 @@ pub fn is_grant_code(code: &str) -> bool {
     CODES.contains(&code)
 }
 
+pub const SELF_REMOVED: &str = "self-removed";
+pub const SELF_DEMOTED: &str = "self-demoted";
+pub const SELF_SECRET: &str = "self-secret";
+pub const SELF_SOURCE: &str = "self-source";
+pub const SELF_TRANSPORT: &str = "self-transport";
+pub const LAST_WRITER: &str = "last-writer";
+
+pub const LOCKOUT_CODES: [&str; 6] = [
+    SELF_REMOVED,
+    SELF_DEMOTED,
+    SELF_SECRET,
+    SELF_SOURCE,
+    SELF_TRANSPORT,
+    LAST_WRITER,
+];
+
+pub fn is_lockout_code(code: &str) -> bool {
+    LOCKOUT_CODES.contains(&code)
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Power<L, S> {
     pub level: Option<L>,
@@ -201,6 +221,7 @@ mod tests {
             ]
         );
         assert!(CODES.iter().all(|c| is_grant_code(c)));
-        assert!(!is_grant_code("self-demoted"));
+        assert!(!is_grant_code(SELF_DEMOTED));
+        assert!(is_lockout_code(SELF_DEMOTED) && !is_lockout_code(CODES[0]));
     }
 }
