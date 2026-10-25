@@ -6,6 +6,7 @@ pub const NO_CERTIFICATE: &str = "no-certificate";
 pub const WEB_OFF: &str = "web-off";
 pub const NO_CHECK: &str = "no-check";
 pub const WILDCARD_NEEDS_DNS: &str = "wildcard-needs-dns";
+pub const PLAIN_HTTP: &str = "plain-http";
 
 fn quoted(message: &str) -> &str {
     message.split('"').nth(1).unwrap_or_default()
@@ -77,6 +78,15 @@ pub fn shown(code: &str, message: &str) -> String {
             quoted(message)
         );
     }
+    if code == PLAIN_HTTP {
+        let service = message
+            .strip_prefix("services.")
+            .and_then(|m| m.split_once(':'))
+            .map_or("this website", |(name, _)| name);
+        return format!(
+            "{service} is served as plain HTTP: anyone on the path can read and change its traffic"
+        );
+    }
     if code == REDIRECT_PASSTHROUGH {
         return "the app does its own HTTPS, so burrow cannot also answer plain HTTP for it; remove this choice in server.yaml (burrow edit)".into();
     }
@@ -120,6 +130,23 @@ mod tests {
             m.contains("Settings, Web proxy") && !m.contains("web:"),
             "{m}"
         );
+    }
+
+    #[test]
+    fn a_plain_http_website_is_named_in_its_warning() {
+        let item = |name: &str| {
+            shown(
+                PLAIN_HTTP,
+                &format!(
+                    "services.{name}: served as plain HTTP; anyone on the path can read and change its traffic"
+                ),
+            )
+        };
+        assert_eq!(
+            item("wiki"),
+            "wiki is served as plain HTTP: anyone on the path can read and change its traffic"
+        );
+        assert_ne!(item("wiki"), item("dashboard"));
     }
 
     #[test]
