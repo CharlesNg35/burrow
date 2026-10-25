@@ -15,7 +15,7 @@ pub struct Http {
     pub stderr: String,
 }
 
-async fn start(v: &Visitor, args: &[&str]) -> Http {
+pub async fn start(v: &Visitor, args: &[&str]) -> Http {
     start_on(v, "0", args).await
 }
 
@@ -104,7 +104,7 @@ async fn raw(port: u16, method: &str, headers: &[(&str, String)], body: &str) ->
     }
 }
 
-fn modern(method: &str, version: &str) -> String {
+pub fn modern(method: &str, version: &str) -> String {
     json!({
         "jsonrpc": "2.0", "id": 1, "method": method,
         "params": { "_meta": {

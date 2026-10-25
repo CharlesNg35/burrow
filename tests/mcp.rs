@@ -3,6 +3,8 @@ mod common;
 mod docs;
 #[path = "mcp/http.rs"]
 mod http;
+#[path = "mcp/limits.rs"]
+mod limits;
 #[path = "mcp/stdio.rs"]
 mod stdio;
 
