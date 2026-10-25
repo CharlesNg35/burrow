@@ -226,6 +226,15 @@ event    {"ev": "<event>", "body": {...}}                              server â†
 
 Requests: `welcome` (always first; returns the server version, the negotiated protocol, who the caller is, the feature list, limits and the schema hash), `schema`, `state`, `subscribe`, `validate`, `apply`, `generate_secret`, `connect_info`, `suggest`, `history`, `revert` and `ping`. `validate`, `apply`, `generate_secret` and `revert` need `admin: write`. Events: `status` (the same snapshot as `burrow status --json`, at the subscribed interval, skipped rather than queued when the caller is slow), `config` (the file changed: by an admin, by hand, or a reload was rejected), `revoked` (the caller lost its admin right, its secret, its visitor or its source, or its admin level changed; end-of-stream follows) and `bye` (the server stops).
 
+Additions since v0.1.2, each behind its feature string:
+
+| Feature | Adds |
+|---|---|
+| `upload` | the `upload` request (a certificate, CA or revocation list kept on the server) |
+| `passwords` | the `hash_password` request and the `password_set` operation |
+| `local-ca` | the `local_ca` request (the local CA's certificate) |
+| `history.ids` | `id` on each history entry and `history {entry: id}`; without it a caller asks `history {diff: rev}`, which still means the newest entry with that revision |
+
 Error codes are a closed list for version 1: `unknown-request`, `bad-request`, `forbidden`, `conflict`, `invalid`, `locked-out`, `not-writable`, `locked-field`, `busy`, `too-large`, `reload-failed`, `internal`. A caller treats unknown codes as generic errors.
 
 Config values travel as the raw tree of the file, not the typed model, so short forms stay as written. A secret becomes `{"$secret": {"fp": "ab12cd34", "src": "literal"}}` (or `"src": {"env": "VAR"}`), and any other value with `${...}` becomes `{"$env": {"raw": "${VAR}", "vars": ["VAR"]}}`. Secrets never leave the server, except a secret the server generated for an `apply`, which that one reply carries once. Changes are a list of operations on paths (`set`, `remove`, `add`, `rename`, `secret_add`, `secret_remove`, `replace_document`, `set_text`) against a revision, the first 8 bytes of the BLAKE2s-256 hash of the exact file bytes, as hex with a `b2s:` prefix (`b2s:86832e7bac93127a`); the server patches the file text keeping comments, checks the result exactly like `burrow validate`, and answers `conflict` when the file changed since that revision.

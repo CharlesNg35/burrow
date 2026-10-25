@@ -196,6 +196,7 @@ impl Link {
         let mut slot = self.conn.lock().await;
         let id = self.id();
         let out = match self.ready(&mut slot).await {
+            Ok(o) if !o.welcome.offers(t) => Err(LinkError::Refused(msg::older_server(t))),
             Ok(o) => self.exchange(&mut o.conn, id, t, body).await,
             Err(e) => Err(e),
         };

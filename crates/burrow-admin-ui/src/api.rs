@@ -215,6 +215,14 @@ pub fn body<T: burrow_admin_proto::serde::Serialize>(b: &T) -> Value {
 }
 
 pub fn request(t: &str, body: Value, done: impl FnOnce(Reply) + 'static) {
+    let offered = crate::store::try_store()
+        .and_then(|s| s.welcome.get_untracked())
+        .is_none_or(|w| w.offers(t));
+    if !offered {
+        let refused = msg::older_server(t);
+        set_timeout(move || done(Err(refused)), std::time::Duration::ZERO);
+        return;
+    }
     let mut done: Option<Box<dyn FnOnce(Reply)>> = Some(Box::new(done));
     CLIENT.with(|c| {
         let mut c = c.borrow_mut();

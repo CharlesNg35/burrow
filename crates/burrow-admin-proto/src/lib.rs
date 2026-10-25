@@ -38,6 +38,7 @@ pub mod features {
     pub const UPLOAD: &str = "upload";
     pub const PASSWORDS: &str = "passwords";
     pub const HISTORY_IDS: &str = "history.ids";
+    pub const LOCAL_CA: &str = "local-ca";
 
     pub const ALL: &[&str] = &[
         STATUS_STREAM,
@@ -52,5 +53,6 @@ pub mod features {
         UPLOAD,
         PASSWORDS,
         HISTORY_IDS,
+        LOCAL_CA,
     ];
 }
