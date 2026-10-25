@@ -283,3 +283,35 @@ async fn an_added_http_port_that_was_busy_comes_up_once_freed() {
 async fn a_moved_https_port_that_was_busy_comes_up_once_freed() {
     a_busy_port_comes_up_once_freed(&[|w| &mut w.https, |w| &mut w.http], |w| &mut w.https).await;
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn removing_an_http_only_web_frees_its_port_for_a_service_in_the_same_save() {
+    let app = http_app().await;
+    let echo = echo_server().await;
+    let secret = Secret::generate();
+    let s = plain_server(
+        &secret,
+        &[("wiki", site(&["home"], app), &["wiki.example.com"])],
+    );
+    let http = s.web.as_ref().unwrap().http.unwrap();
+    let t = tunnel_with(s.clone(), Vec::new(), |c| c, secret.clone()).await;
+    assert!(
+        plain_get(http, "wiki.example.com", "/")
+            .await
+            .starts_with("HTTP/1.1 200")
+    );
+    let mut next = s.clone();
+    next.web = None;
+    next.services.clear();
+    let mut db = service(echo, burrow_config::Protocol::Tcp);
+    db.bind = Some(http);
+    next.services.insert("db".into(), db);
+    t.server.reload(next).await;
+    let ok = tokio::time::timeout(Duration::from_secs(15), async {
+        while try_roundtrip(http, b"db").await.as_deref() != Some(&b"db"[..]) {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    })
+    .await;
+    assert!(ok.is_ok(), "the service took the port the web proxy left");
+}

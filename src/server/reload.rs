@@ -88,9 +88,9 @@ impl Server {
         if ws_first {
             Box::pin(self.apply_own_websocket(current, next, &mut released)).await;
         }
-        if next.web.is_some() || self.web_addr().is_some() {
-            if let Some(a) = self.web_addr().filter(|_| next.web.is_none()) {
-                released.push(a);
+        if next.web.is_some() || self.web.is_some() {
+            if next.web.is_none() {
+                released.extend(self.web_addr().into_iter().chain(self.web_http_addr()));
             }
             Box::pin(self.apply_web(next, &released)).await;
             *self.shared.settings.write().expect("settings lock") = Arc::new(next.clone());
