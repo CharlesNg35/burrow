@@ -15,6 +15,7 @@ pub mod command;
 mod fake;
 pub mod lookup;
 mod mock_api;
+pub mod pending;
 pub mod propagate;
 pub mod rfc2136;
 pub mod system;
