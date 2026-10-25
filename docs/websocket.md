@@ -65,7 +65,7 @@ Point `tunnel.example.com` at the server, open port 443, and start. Clients use 
 - **Your own files still work:** `websocket.tls` with `cert` and `key` takes precedence over Let's Encrypt, and a file renewed on disk is used from the next reload.
 - **Another HTTPS port:** sharing needs `websocket.listen` to equal `web.https` in port and address, like `8443` and `8443`; clients then use `wss://tunnel.example.com:8443/burrow`. Let's Encrypt's TLS and HTTP checks only reach ports 443 and 80, so on another port add `http: 80` (with port 80 open), use the DNS check, or use your own files; `burrow validate` says so.
 - **Behind a home router:** burrow only sees the port it listens on. If the router forwards the internet's 443 to burrow's 8443, Let's Encrypt's check would reach burrow, but burrow cannot know that, so validate still asks for port 80, the DNS check or files. Forward port 80 to `web.http: 80` as well, or use the DNS check.
-- **The DNS check, with no open port:** `websocket.challenge: dns` gets the tunnel's certificate through a DNS provider in `web.letsencrypt.dns`, so neither 80 nor 443 has to be reachable from the internet ([web.md](web/certificates.md#dns-checks-wildcards-and-names-the-internet-cannot-reach)):
+- **The DNS check, with no open port:** `websocket.challenge: dns` gets the tunnel's certificate through a DNS provider in `web.letsencrypt.dns`, so neither 80 nor 443 has to be reachable from the internet ([DNS checks](web/certificates.md#dns-checks-wildcards-and-names-the-internet-cannot-reach)):
 
   ```yaml
   # server.yaml

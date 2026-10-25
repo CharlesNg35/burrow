@@ -123,9 +123,9 @@ services:
 | --- | --- | --- |
 | `listen` | none | where the server waits for clients: ip:port, or a port alone for `0.0.0.0:port`. Needs `listen`, `websocket` or both |
 | `public_address` | none | how clients reach this server: host, host:port or a `wss://` URL. `client-config` and `visitor-config` write it into the configs they print |
-| `websocket.listen` | none | accept clients over WebSocket on this address; a port alone means `0.0.0.0`, or, when it shares the port of a bare `web.https`, every IPv4 and IPv6 address (`[::]`) like `web.https`. See [websocket.md](websocket.md) and [web.md](web/tunnel.md#the-tunnel-on-the-same-port) |
+| `websocket.listen` | none | accept clients over WebSocket on this address; a port alone means `0.0.0.0`, or, when it shares the port of a bare `web.https`, every IPv4 and IPv6 address (`[::]`) like `web.https`. See [websocket.md](websocket.md) and [The tunnel on the same port](web/tunnel.md#the-tunnel-on-the-same-port) |
 | `websocket.path` | `/burrow` | URL path for WebSocket clients |
-| `websocket.host` | none | the tunnel's name when `websocket.listen` is the same port as `web.https`; required then. See [web.md](web/tunnel.md#the-tunnel-on-the-same-port) |
+| `websocket.host` | none | the tunnel's name when `websocket.listen` is the same port as `web.https`; required then. See [The tunnel on the same port](web/tunnel.md#the-tunnel-on-the-same-port) |
 | `websocket.challenge` | automatic | the Let's Encrypt check for `websocket.host`, like a site's `challenge` |
 | `websocket.tls.cert` / `key` | none | serve `wss://` directly with these PEM files |
 | `websocket.keepalive_secs` | `25` | keepalive on idle connections, 5 to 30 |
@@ -153,13 +153,17 @@ services:
 | `services.<name>.web.tls` | `auto` with `web.https`, else `off` | `auto` (a `web.certificates` file, else Let's Encrypt), `{cert, key}` (the site's own files), `passthrough` (the app does HTTPS) or `off` (plain HTTP on `web.http`) |
 | `services.<name>.web.https_redirect` | `web.https_redirect` | `true` sends `http://` visitors to `https://`; `false` serves plain HTTP too |
 | `services.<name>.web.challenge` | automatic | the Let's Encrypt check: `tls` (port 443), `http` (port 80) or `dns` (through `web.letsencrypt.dns`). Automatic tries TLS, then HTTP |
-| `services.<name>.web.paths` | all paths | only these paths on the names, each with everything below it, like `[/api]`; the longest match wins. See [web.md](web/routing.md#paths-several-apps-on-one-name) |
+| `services.<name>.web.paths` | all paths | only these paths on the names, each with everything below it, like `[/api]`; the longest match wins. See [Paths](web/routing.md#paths-several-apps-on-one-name) |
 | `services.<name>.web.app_path` | the same path | what the app sees in place of the matched path: `/v1`, or `/` to remove the prefix; needs `paths` |
 | `services.<name>.web.redirect_from` | none | names that redirect permanently to the first host, path and query kept, like `[www.example.com]` |
-| `services.<name>.web.redirects` | none | paths that redirect: `/old: /new` (temporary) or `/old: {to: /new, permanent: true}`. See [web.md](web/routing.md#redirects) |
+| `services.<name>.web.redirects` | none | paths that redirect: `/old: /new` (temporary) or `/old: {to: /new, permanent: true}`. See [Redirects](web/routing.md#redirects) |
 | `services.<name>.web.maintenance` | `false` | answer every request with the maintenance page (503 with `Retry-After`) |
 | `services.<name>.web.target_http2` | `false` | speak HTTP/2 to the app (h2c, or h2 inside `target_tls`), for gRPC |
 | `services.<name>.web.target_tls` | off | HTTPS to the app: `true` (public CAs), `{ca: file}` (your CA) or `{insecure_skip_verify: true}` (not checked) |
+| `services.<name>.web.basic_auth` | none | `user: hash` pairs, the hashes from `burrow passwd USER`; visitors log in with a password. See [Who may visit](web/access.md#passwords) |
+| `services.<name>.web.forward_auth` | off | `true` asks `web.forward_auth` first, or the site's own `{service, path, copy_headers}`; not with `basic_auth`. See [Single sign-on](web/access.md#single-sign-on) |
+| `services.<name>.web.rate_limit` | `web.rate_limit` | requests per second per visitor address (IPv6 per /64), bursts of twice that; 429 above |
+| `services.<name>.web.client_auth` | off | `{ca, crl}`: only devices with a certificate from this CA get in. See [Device certificates](web/access.md#device-certificates) |
 | `services.<name>.web.hsts`, `compress`, `max_body_size`, `response_header_timeout_secs`, `request_headers`, `response_headers`, `error_pages` | from `web` | the site's own value of the `web` key of the same name |
 | `self.allow` | none | what the server may connect to for itself, for `client: self` and `reach: self`. See [services.md](services.md#on-the-server-itself) |
 | `web.https` | none | the HTTPS port for websites and TLS services by name; a port alone means every IPv4 and IPv6 address, `0.0.0.0:443` IPv4 only. Off unless `web` is written. See [web.md](web.md) |
@@ -173,7 +177,7 @@ services:
 | `web.certificates` | none | your own files: a list of `{ hosts, cert, key }`; each name is listed in one entry only |
 | `web.request_header_timeout_secs` | `10` | time a visitor has to send a request's headers; also how long an idle kept-alive connection stays open |
 | `web.idle_timeout_secs` | `60` | a connection that moves no data for this long is closed; WebSockets stay open |
-| `web.letsencrypt.dns` | none | DNS providers for DNS checks: a list of `{ domains, cloudflare \| rfc2136 \| acme_dns \| command, wildcards, wait_secs, resolvers }`. See [web.md](web/certificates.md#dns-checks-wildcards-and-names-the-internet-cannot-reach) |
+| `web.letsencrypt.dns` | none | DNS providers for DNS checks: a list of `{ domains, cloudflare \| rfc2136 \| acme_dns \| command, wildcards, wait_secs, resolvers }`. See [DNS checks](web/certificates.md#dns-checks-wildcards-and-names-the-internet-cannot-reach) |
 | `web.letsencrypt.dns[].wildcards` | none | shared wildcard certificates got through this provider, like `["*.example.com"]`; each also covers its parent name |
 | `web.letsencrypt.dns[].wait_secs` | `120` | how long burrow waits for every nameserver of the zone to answer the record, 10 to 3600 |
 | `web.letsencrypt.dns[].resolvers` | the system's | resolvers used only to find the zone's nameservers, like `[1.1.1.1, 9.9.9.9]` |
@@ -187,6 +191,8 @@ services:
 | `web.max_body_size` | unlimited | the biggest request body, like `100MB`; above it 413 |
 | `web.response_header_timeout_secs` | `60` | how long the app may take to start its answer; 504 after |
 | `web.request_headers`, `web.response_headers` | none | `Name: value` set on requests to the app or on answers; `""` removes a header |
+| `web.forward_auth` | none | the login service of every site with `forward_auth: true`: `{service, path, copy_headers}` |
+| `web.rate_limit` | off | the default of every site's `rate_limit` |
 | `web.error_pages` | built in | a folder with any of `404.html`, `413.html`, `429.html`, `502.html`, `503.html`, `504.html`, `maintenance.html` |
 | `metrics.listen` | off | address for Prometheus `/metrics`; a port alone means `127.0.0.1`. See [monitoring.md](monitoring.md) |
 | `insecure_plaintext` | `false` | send forwarded TCP data unencrypted on raw TCP links to clients; logging in stays encrypted |

@@ -10,6 +10,10 @@ const WEB_PAGES: &[(&str, &str)] = &[
         include_str!("../../../../docs/web/how-it-works.md"),
     ),
     (
+        "web/access.md",
+        include_str!("../../../../docs/web/access.md"),
+    ),
+    (
         "web/certificates.md",
         include_str!("../../../../docs/web/certificates.md"),
     ),
@@ -180,6 +184,7 @@ fn validate_in(block: &str) -> (tempfile::TempDir, Outcome) {
         }
     }
     let dir = files_for(&text);
+    let mut issuer = None;
     for ca in paths_after(&text, "ca:") {
         let path = dir.path().join(ca);
         if path.exists() {
@@ -188,9 +193,18 @@ fn validate_in(block: &str) -> (tempfile::TempDir, Outcome) {
         let key = rcgen::KeyPair::generate().unwrap();
         let mut params = rcgen::CertificateParams::new(Vec::<String>::new()).unwrap();
         params.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
+        params.key_usages = vec![
+            rcgen::KeyUsagePurpose::KeyCertSign,
+            rcgen::KeyUsagePurpose::CrlSign,
+        ];
         let cert = params.self_signed(&key).unwrap();
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(path, cert.pem()).unwrap();
+        issuer = Some(rcgen::Issuer::new(params, key));
+    }
+    for crl in paths_after(&text, "crl:") {
+        let by = issuer.as_ref().expect("a crl: comes with its ca:");
+        std::fs::write(dir.path().join(crl), empty_crl(by)).unwrap();
     }
     for folder in paths_after(&text, "error_pages:") {
         let folder = dir.path().join(folder);
@@ -206,6 +220,18 @@ fn validate_in(block: &str) -> (tempfile::TempDir, Outcome) {
         &env,
     );
     (dir, o)
+}
+
+fn empty_crl(by: &rcgen::Issuer<'_, rcgen::KeyPair>) -> String {
+    let params = rcgen::CertificateRevocationListParams {
+        this_update: rcgen::date_time_ymd(2026, 1, 1),
+        next_update: rcgen::date_time_ymd(2099, 1, 1),
+        crl_number: rcgen::SerialNumber::from(1u64),
+        issuing_distribution_point: None,
+        revoked_certs: Vec::new(),
+        key_identifier_method: rcgen::KeyIdMethod::Sha256,
+    };
+    params.signed_by(by).unwrap().pem().unwrap()
 }
 
 fn errors(o: &Outcome) -> Vec<String> {

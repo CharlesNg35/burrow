@@ -66,7 +66,7 @@ Certificate orders, one at a time:
 Let's Encrypt account https://acme-v02.api.letsencrypt.org/acme/acct/123, kept in /var/lib/burrow/home
 ```
 
-A failing certificate gets a line with the reason, and a link when Let's Encrypt gives one. The admin UI shows the same on its Overview, and lists failing, expired and soon expiring certificates under Needs attention. See [web.md](web/certificates.md#when-a-certificate-fails) for what to check.
+A failing certificate gets a line with the reason, and a link when Let's Encrypt gives one. The admin UI shows the same on its Overview, and lists failing, expired and soon expiring certificates under Needs attention. See [When a certificate fails](web/certificates.md#when-a-certificate-fails) for what to check.
 
 <details>
 <summary><b>What the columns mean</b></summary>

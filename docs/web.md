@@ -155,6 +155,7 @@ On port 80, passthrough names get `404`: burrow cannot redirect a site whose HTT
 | [Certificates](web/certificates.md) | your own files, Let's Encrypt, DNS checks and shared wildcards, when a certificate fails |
 | [Paths and redirects](web/routing.md) | several apps on one name, how a path is read, redirects |
 | [Headers, limits and pages](web/headers-limits-pages.md) | header rules, upload limits, timeouts, error pages, HTTPS to the app |
+| [Who may visit](web/access.md) | addresses, rate limits, passwords, single sign-on with Authelia or authentik, device certificates |
 | [Behind a proxy, a load balancer or a home router](web/proxies.md) | Cloudflare, cloudflared, PROXY headers, port forwarding at home |
 | [HTTP/2 and gRPC](web/http2-grpc.md) | HTTP/2 to browsers, gRPC apps and their streams |
 | [Health checks for websites](web/health-checks.md) | checking an app with a path |
