@@ -408,7 +408,7 @@ fn headers(key: &str, map: &BTreeMap<String, String>, at: &At<'_>, out: &mut Vec
     for (name, value) in map {
         let problem = if http::HeaderName::from_bytes(name.trim().as_bytes()).is_err() {
             Some(format!(
-                "{field}: \"{name}\" is not a header name; use letters, digits and -, like X-Frame-Options"
+                "{field}: \"{name}\" is not a header name; a name is letters, digits and any of ! # $ % & ' * + - . ^ _ ` | ~, with no spaces, like X-Frame-Options"
             ))
         } else if FRAMING.contains(&name.trim().to_ascii_lowercase().as_str()) {
             Some(format!(

@@ -162,7 +162,7 @@ fn header_rules_need_valid_names_and_values_and_leave_http_framing_alone() {
     let cases = [
         (
             "\"Bad Name\": x",
-            "\"Bad Name\" is not a header name; use letters, digits and -, like X-Frame-Options",
+            "\"Bad Name\" is not a header name; a name is letters, digits and any of ! # $ % & ' * + - . ^ _ ` | ~, with no spaces, like X-Frame-Options",
         ),
         (
             "Transfer-Encoding: chunked",
