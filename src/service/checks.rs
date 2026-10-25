@@ -108,7 +108,7 @@ pub(super) fn misfits_of(
     let mut out = Vec::new();
     if let Some(why) = access_log
         .as_deref()
-        .and_then(|l| super::web_files::log_folder_refusal(l, &service_logs(m)))
+        .and_then(|l| super::web_files::log_folder_refusal(l, &m.log_file, cfg!(windows)))
     {
         out.push(
             crate::config::diagnostics::Diagnostic::error("service-unit", format!("{name}: {why}"))
@@ -293,12 +293,6 @@ pub(super) fn refuse_relative(files: &[(String, PathBuf)]) -> Result<(), Failure
     Ok(())
 }
 
-fn service_logs(m: &Manifest) -> PathBuf {
-    m.log_file
-        .parent()
-        .map_or_else(PathBuf::new, Path::to_path_buf)
-}
-
 pub(super) fn refuse_unfit(
     backend: &dyn Backend,
     checked: &Checked,
@@ -312,7 +306,7 @@ fn refuse_access_log(checked: &Checked, manifest: &Manifest) -> Result<(), Failu
     match checked
         .access_log
         .as_deref()
-        .and_then(|l| super::web_files::log_folder_refusal(l, &service_logs(manifest)))
+        .and_then(|l| super::web_files::log_folder_refusal(l, &manifest.log_file, cfg!(windows)))
     {
         Some(why) => {
             Err(Failure::usage(why).hint("a service can write only its own log and state folders"))

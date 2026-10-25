@@ -188,21 +188,49 @@ fn a_web_file_the_service_account_cannot_read_or_reach_is_reported() {
 }
 
 #[test]
-fn the_access_log_must_be_in_the_services_log_folder() {
+fn the_access_log_must_be_a_file_of_its_own_in_the_services_log_folder() {
     use super::web_files::log_folder_refusal;
-    let logs = PathBuf::from("/var/log/burrow/home");
+    let own = PathBuf::from("/var/log/burrow/home/home.log");
+    let refused = |p: &str| log_folder_refusal(&PathBuf::from(p), &own, false);
+    assert_eq!(refused("/var/log/burrow/home/access.log"), None);
     assert_eq!(
-        log_folder_refusal(&PathBuf::from("/var/log/burrow-web/access.log"), &logs).unwrap(),
-        "web.access_log (/var/log/burrow-web/access.log) must be in the service's log folder, which only the service can write: use /var/log/burrow/home/access.log"
+        refused("/var/log/burrow-web/access.log").unwrap(),
+        "web.access_log (/var/log/burrow-web/access.log) must be a file directly in the service's log folder, which only the service can write, and not its own log: use /var/log/burrow/home/access.log"
     );
-    assert!(
-        log_folder_refusal(&PathBuf::from("logs/web.log"), &logs)
-            .unwrap()
-            .ends_with("use /var/log/burrow/home/web.log")
-    );
-    assert_eq!(
-        log_folder_refusal(&PathBuf::from("/var/log/burrow/home/access.log"), &logs),
-        None
-    );
-    assert!(log_folder_refusal(&logs, &logs).is_some());
+    for (path, use_) in [
+        ("logs/web.log", "/var/log/burrow/home/web.log"),
+        (
+            "/var/log/burrow/home/../x.log",
+            "/var/log/burrow/home/x.log",
+        ),
+        (
+            "/var/log/burrow/home/web/access.log",
+            "/var/log/burrow/home/access.log",
+        ),
+        (
+            "/var/log/burrow/home/home.log",
+            "/var/log/burrow/home/access.log",
+        ),
+        (
+            "/var/log/burrow/home/home.log.1",
+            "/var/log/burrow/home/access.log",
+        ),
+    ] {
+        let why = refused(path).unwrap_or_else(|| panic!("{path} passed"));
+        assert!(why.ends_with(&format!("use {use_}")), "{path}: {why}");
+    }
+    let shared = PathBuf::from("/data/burrow/logs/home.log");
+    let win = |p: &str| log_folder_refusal(&PathBuf::from(p), &shared, true);
+    assert_eq!(win("/data/burrow/logs/home-access.log"), None);
+    for other in [
+        "/data/burrow/logs/access.log",
+        "/data/burrow/logs/office.log",
+    ] {
+        assert!(
+            win(other)
+                .unwrap()
+                .ends_with("use /data/burrow/logs/home-access.log"),
+            "{other}"
+        );
+    }
 }

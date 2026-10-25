@@ -83,16 +83,36 @@ pub(super) fn access_log(cfg: &ServerConfig) -> Option<PathBuf> {
     (!file.is_empty()).then(|| PathBuf::from(file))
 }
 
-pub(super) fn log_folder_refusal(log: &Path, service_logs: &Path) -> Option<String> {
-    if log.is_relative() || !log.starts_with(service_logs) || log == service_logs {
-        let name = log
-            .file_name()
-            .map_or_else(|| "access.log".into(), |n| n.to_string_lossy().into_owned());
-        return Some(format!(
-            "web.access_log ({}) must be in the service's log folder, which only the service can write: use {}",
-            log.display(),
-            service_logs.join(name).display()
-        ));
+pub(super) fn log_folder_refusal(log: &Path, own_log: &Path, shared: bool) -> Option<String> {
+    let folder = own_log.parent()?;
+    let own = own_log.file_name()?.to_string_lossy().into_owned();
+    let short = own.strip_suffix(".log").unwrap_or(&own).to_string();
+    let name = log
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let plain = !log
+        .components()
+        .any(|c| c == std::path::Component::ParentDir);
+    let mine = name == own || name.starts_with(&format!("{own}."));
+    let taken = shared && !name.starts_with(&format!("{short}-"));
+    if log.is_absolute()
+        && plain
+        && log.parent() == Some(folder)
+        && !name.is_empty()
+        && !mine
+        && !taken
+    {
+        return None;
     }
-    None
+    let suggest = match (shared, name.is_empty() || mine) {
+        (true, _) => format!("{short}-access.log"),
+        (false, true) => "access.log".to_string(),
+        (false, false) => name,
+    };
+    Some(format!(
+        "web.access_log ({}) must be a file directly in the service's log folder, which only the service can write, and not its own log: use {}",
+        log.display(),
+        folder.join(suggest).display()
+    ))
 }
