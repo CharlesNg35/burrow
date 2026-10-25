@@ -251,6 +251,13 @@ pub fn Kpi(
     }
 }
 
+pub fn menu_class(place: &str, roomy: bool) -> String {
+    let inside = if roomy { "p-3 text-sm" } else { "p-1" };
+    format!(
+        "absolute z-40 rounded-[10px] border border-border-strong bg-surface text-text shadow-overlay outline-none dark:bg-surface-2 {inside} {place}"
+    )
+}
+
 pub fn card_head(title: String, sub: Option<String>, right: AnyView) -> AnyView {
     view! {
         <div class="flex min-h-12 flex-wrap items-center gap-3 border-b border-border px-4 py-3">

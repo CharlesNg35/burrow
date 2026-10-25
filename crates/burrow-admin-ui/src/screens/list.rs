@@ -233,6 +233,7 @@ pub struct NewChoice {
 
 fn new_menu_button(menu: Vec<NewChoice>, label: String, disabled: bool) -> impl IntoView {
     let open = RwSignal::new(false);
+    crate::app::popover(open, "new-menu-button", "new-menu");
     let items = menu
         .into_iter()
         .map(|c| {
@@ -257,9 +258,10 @@ fn new_menu_button(menu: Vec<NewChoice>, label: String, disabled: bool) -> impl 
         })
         .collect_view();
     view! {
-        <span class="relative ml-auto" on:keydown=move |e| if e.key() == "Escape" { open.set(false) }>
+        <span class="relative ml-auto">
             <button
                 type="button"
+                id="new-menu-button"
                 class="flex size-[30px] cursor-pointer items-center justify-center rounded-md bg-accent text-on-accent hover:brightness-95 dark:hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-55"
                 aria-label=label
                 aria-haspopup="menu"
@@ -271,12 +273,11 @@ fn new_menu_button(menu: Vec<NewChoice>, label: String, disabled: bool) -> impl 
             >
                 <Icon name="plus"/>
             </button>
-            <Show when=move || open.get()>
-                <div class="fixed inset-0 z-30" on:click=move |_| open.set(false)></div>
-            </Show>
             <ul
                 role="menu"
-                class="absolute top-[36px] right-0 z-40 w-64 rounded-card border border-border-strong bg-surface p-1 shadow-overlay dark:bg-surface-2"
+                id="new-menu"
+                tabindex="-1"
+                class=burrow_ui_kit::menu_class("top-[36px] right-0 w-64", false)
                 hidden=move || !open.get()
                 data-testid="new-menu"
             >

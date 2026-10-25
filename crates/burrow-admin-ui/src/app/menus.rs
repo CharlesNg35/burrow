@@ -21,7 +21,7 @@ pub(super) fn conn_state(s: Store, retry_open: RwSignal<bool>) -> impl Fn() -> A
                             {format!("Reconnecting in {left} s")}
                         </button>
                         <Show when=move || retry_open.get()>
-                            <div class="absolute top-8 right-0 z-40 w-56 rounded-[10px] border border-border-strong bg-surface p-3 text-sm text-text shadow-overlay outline-none dark:bg-surface-2" id="retry-popover" tabindex="-1" role="dialog" aria-label="Connection" data-testid="retry-popover">
+                            <div class=burrow_ui_kit::menu_class("top-8 right-0 w-56", true) id="retry-popover" tabindex="-1" role="dialog" aria-label="Connection" data-testid="retry-popover">
                                 <p class="mb-2 text-text-muted">"The connection to burrow admin dropped. It retries on its own."</p>
                                 <Button label="Retry now" small=true testid="retry-now" on_click=move |_| { retry_open.set(false); api::reconnect(s); }/>
                             </div>
@@ -87,7 +87,7 @@ pub(super) fn review_or_read_only(
                         "Read-only"
                     </button>
                     <Show when=move || why_open.get()>
-                        <div class="absolute top-8 right-0 z-40 w-80 rounded-[10px] border border-border-strong bg-surface p-3 text-sm text-text shadow-overlay outline-none dark:bg-surface-2" id="read-only-why" tabindex="-1" role="dialog" aria-label="Why this is read-only" data-testid="read-only-why">
+                        <div class=burrow_ui_kit::menu_class("top-8 right-0 w-80", true) id="read-only-why" tabindex="-1" role="dialog" aria-label="Why this is read-only" data-testid="read-only-why">
                             {move || {
                                 let (title, hint) = read_only_reason(s);
                                 view! {
@@ -135,7 +135,7 @@ pub(super) fn avatar_menu(
         other => other.label().to_string(),
     };
     view! {
-    <div class="absolute top-10 right-0 z-40 w-64 rounded-[10px] border border-border-strong bg-surface p-1 text-text shadow-overlay outline-none dark:bg-surface-2" id="avatar-menu" tabindex="-1" data-testid="avatar-menu">
+    <div class=burrow_ui_kit::menu_class("top-10 right-0 w-64", false) id="avatar-menu" tabindex="-1" data-testid="avatar-menu">
         <div class="px-2.5 pt-2 pb-2 text-sm" data-testid="avatar-who">
             <span class="font-semibold">{move || you.get().map(|y| y.0).unwrap_or_default()}</span>
             <span class="text-text-muted">{move || you.get().map(|y| format!(" · admin {}", y.1)).unwrap_or_default()}</span>

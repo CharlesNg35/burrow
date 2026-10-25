@@ -79,7 +79,7 @@ fn more_menu(
     let e = s.edit;
     let (path, nm, back, sec) = (path.clone(), nm.to_string(), back.clone(), sec.to_string());
     view! {
-        <div class="absolute top-10 right-0 z-30 w-48 rounded-[10px] border border-border-strong bg-surface p-1 shadow-overlay outline-none dark:bg-surface-2" id="entity-more-menu" tabindex="-1" data-testid="more-menu" on:click=move |_| menu.set(false)>
+        <div class=burrow_ui_kit::menu_class("top-10 right-0 w-48", false) id="entity-more-menu" tabindex="-1" data-testid="more-menu" on:click=move |_| menu.set(false)>
             {can.then(|| {
                 let path = path.clone();
                 let blocked = Memo::new(move |_| e.draft.with(|d| burrow_admin_proto::value::get(d.draft(), &path).is_some_and(|v| burrow_admin_logic::grant::would_grant(None, v))));
