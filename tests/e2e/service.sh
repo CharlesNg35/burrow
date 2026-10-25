@@ -516,7 +516,7 @@ KEY="$(sudo sh -c "ls '$ACME_DIR'/acme/*/account.key" | head -1)"
 st="$(sudo "$B" status burrow-e2e-acme --json 2>&1)" || true
 echo "$st" | grep -q '"state_dir"' && echo "$st" | grep -qF "$ACME_DIR" || fail "status does not name the state folder: $st"
 out="$(sudo "$B" service uninstall burrow-e2e-acme 2>&1)" || fail "uninstall: $out"
-echo "$out" | grep -q "kept $ACME_DIR, the Let's Encrypt account" || fail "uninstall does not name the kept state folder: $out"
+echo "$out" | grep -q "kept $ACME_DIR, the web state" || fail "uninstall does not name the kept state folder: $out"
 sudo test -e "$KEY" || fail "uninstall without --purge removed the Let's Encrypt account"
 left="$(sudo find "$ACME_DIR" ! -uid 0)"
 [ -z "$left" ] || fail "uninstall left state files of the removed account behind: $left"

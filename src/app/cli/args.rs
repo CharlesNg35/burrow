@@ -76,7 +76,7 @@ pub struct ServerArgs {
     #[arg(
         long,
         value_name = "DIR",
-        help = "Folder for the Let's Encrypt account and certificates (web.letsencrypt); burrow service install sets it"
+        help = "Folder for the web state: the Let's Encrypt account and certificates, the local CA and uploads; burrow service install sets it"
     )]
     pub state_dir: Option<PathBuf>,
 }

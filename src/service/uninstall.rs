@@ -103,7 +103,7 @@ pub fn uninstall(name: Option<&str>, purge: bool, out: &mut dyn Write) -> Result
             say(
                 out,
                 format!(
-                    "removed {}: the Let's Encrypt account and certificates",
+                    "removed {}, the web state: certificates, their keys, the local CA's key and uploads",
                     d.display()
                 ),
             )?;
@@ -167,7 +167,7 @@ pub fn uninstall(name: Option<&str>, purge: bool, out: &mut dyn Write) -> Result
         say(
             out,
             format!(
-                "kept {}, the Let's Encrypt account and certificates, for a later reinstall; delete it with:\n  {}",
+                "kept {}, the web state: certificates, their keys, the local CA's key and uploads, for a later reinstall; --purge deletes it, and so does:\n  {}",
                 d.display(),
                 delete_hint(&[], Some(d))
             ),

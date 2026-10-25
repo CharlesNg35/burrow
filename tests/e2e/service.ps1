@@ -280,7 +280,7 @@ try {
   $st = Burrow status burrow-e2e-acme --json
   if ($st -notmatch '"state_dir"') { Fail "status does not name the state folder: $st" }
   $out = Burrow service uninstall burrow-e2e-acme
-  if ($out -notmatch "kept .*e2e-acme, the Let's Encrypt account") { Fail "uninstall does not name the kept state folder: $out" }
+  if ($out -notmatch "kept .*e2e-acme, the web state") { Fail "uninstall does not name the kept state folder: $out" }
   if (-not (Test-Path $AcmeDir)) { Fail "uninstall without --purge removed the state folder" }
   $out = Burrow service install -c e2e-acme.yaml
   if (-not (Running burrow-e2e-acme)) { Fail "the reinstalled server with letsencrypt is not running: $out" }
