@@ -118,6 +118,7 @@ fn by_sem(fc: FieldCtx, sem: &SemType) -> AnyView {
         ),
         SemType::ServerAddress => crate::addr::server_editor(fc),
         SemType::Upload(c) => crate::uploads::upload_editor(fc, c.kind.clone()),
+        SemType::PasswordHash => text_editor(fc, Some(sem.clone())),
         SemType::Text(_)
         | SemType::Host
         | SemType::HostName(_)

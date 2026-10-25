@@ -107,6 +107,7 @@ pub mod sem {
         SecretRef,
         Path,
         Upload,
+        PasswordHash,
         UrlPath,
         Object,
         Map,
@@ -140,6 +141,7 @@ carriers!(RefList: Vec<String>);
 carriers!(Name: String);
 carriers!(Path: String);
 carriers!(Upload: String);
+carriers!(PasswordHash: String);
 carriers!(UrlPath: String);
 carriers!(SecretRef: String);
 impl<V> Carrier<sem::RefMap> for BTreeMap<String, V> {}

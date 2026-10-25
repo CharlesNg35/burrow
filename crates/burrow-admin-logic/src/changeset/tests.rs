@@ -298,3 +298,41 @@ fn a_renamed_client_keeps_its_place_in_the_draft_reach() {
         .collect();
     assert_eq!(keys, ["home2", "office"]);
 }
+
+#[test]
+fn a_new_password_becomes_password_set_and_a_stored_hash_stays_untouched() {
+    let site = |auth: Value| json!({"services": {"site": {"web": {"basic_auth": auth}}}});
+    let path = |u: &str| {
+        ["services", "site", "web", "basic_auth", u]
+            .map(String::from)
+            .to_vec()
+    };
+    let base = site(json!({"alice": {"$hash": {}}}));
+    let mut c = Changeset::new(base.clone());
+    c.set_password(&path("bob"), "p3");
+    assert_eq!(
+        c.ops(),
+        [Op::PasswordSet {
+            path: path("bob"),
+            handle: "p3".into()
+        }]
+    );
+    let mut first = Changeset::new(json!({"services": {"site": {"web": {}}}}));
+    first.set_password(&path("alice"), "p4");
+    let ops = first.ops();
+    assert_eq!(
+        ops.last(),
+        Some(&Op::PasswordSet {
+            path: path("alice"),
+            handle: "p4".into()
+        })
+    );
+    assert!(
+        !burrow_admin_proto::serde_json::to_string(&ops)
+            .unwrap()
+            .contains("$new_password")
+    );
+    let mut again = Changeset::new(base);
+    again.set_password(&path("alice"), "p5");
+    assert_eq!(again.ops().len(), 1);
+}

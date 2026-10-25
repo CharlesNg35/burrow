@@ -3,6 +3,7 @@ pub mod diff;
 mod dispatch;
 pub mod guard;
 pub mod ops;
+pub mod passwords;
 pub mod plan;
 pub mod ports;
 pub mod snippets;
@@ -117,8 +118,18 @@ impl Session {
             .lock()
             .expect("pending lock")
             .iter()
-            .find(|p| p.handle == handle)
+            .find(|p| p.handle == handle && !p.handle.starts_with(passwords::PREFIX))
             .map(|p| (p.value.to_string(), p.fp.clone()))
+    }
+
+    pub fn pending_password(&self, handle: &str) -> Option<String> {
+        self.prune();
+        self.pending
+            .lock()
+            .expect("pending lock")
+            .iter()
+            .find(|p| p.handle == handle && p.handle.starts_with(passwords::PREFIX))
+            .map(|p| p.value.to_string())
     }
 
     pub fn consume(&self, handles: &[String]) {
@@ -159,6 +170,7 @@ pub fn features() -> Vec<String> {
         OPS_RENAME,
         SET_TEXT,
         UPLOAD,
+        PASSWORDS,
     ]
     .iter()
     .map(|s| s.to_string())
@@ -487,7 +499,10 @@ impl Core {
                 let before = self.store.version(&entry.base);
                 match (before, after) {
                     (Some(b), Some(a)) => {
-                        Some(diff::unified(&b, &a, &|l| text::mask_secrets(l, &[])))
+                        let hashes = values::hashes_in(&[&b, &a], &self.schema().root);
+                        Some(diff::unified(&b, &a, &|l| {
+                            text::mask_secrets(&values::veil(l, &hashes), &[])
+                        }))
                     }
                     _ => None,
                 }

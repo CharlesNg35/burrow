@@ -20,11 +20,13 @@ pub struct Applied {
     pub target: Value,
     pub renames: Vec<Rename>,
     pub fresh: Vec<Fresh>,
+    pub passwords: Vec<String>,
     pub document: Option<String>,
 }
 
 pub trait Context {
     fn secret(&self, handle: &str) -> Option<(String, String)>;
+    fn password(&self, handle: &str) -> Option<String>;
     fn history(&self, rev: &str) -> Option<String>;
     fn env(&self) -> &dyn EnvSource;
 }
@@ -66,7 +68,7 @@ fn parent_mut<'a>(
 fn checked_value(v: &Value) -> Result<Value, OpError> {
     if has_secret_marker(v) {
         return Err(err(
-            "a value may not contain $secret; use secret_add with a generated secret",
+            "a value may not contain $secret or $hash; use secret_add or password_set",
         ));
     }
     Ok(raw_of(v))
@@ -80,6 +82,7 @@ fn path_of(op: &Op) -> Option<&Path> {
         | Op::Rename { path, .. }
         | Op::SecretAdd { path, .. }
         | Op::SecretRemove { path, .. }
+        | Op::PasswordSet { path, .. }
         | Op::SetText { path, .. } => Some(path),
         Op::ReplaceDocument { .. } => None,
     }
@@ -96,6 +99,7 @@ pub fn apply(raw: &Value, ops: &[Op], cx: &dyn Context) -> Result<Applied, OpErr
     let mut target = raw.clone();
     let mut renames = Vec::new();
     let mut fresh = Vec::new();
+    let mut passwords = Vec::new();
     let mut document = None;
     for op in ops {
         match op {
@@ -131,6 +135,16 @@ pub fn apply(raw: &Value, ops: &[Op], cx: &dyn Context) -> Result<Applied, OpErr
             Op::SecretRemove { path, fp } => {
                 remove_secret(&mut target, path, fp, cx)?;
             }
+            Op::PasswordSet { path, handle } => {
+                let hash = cx.password(handle).ok_or_else(|| {
+                    err(format!("password handle {handle} is unknown or expired"))
+                })?;
+                let (last, parents) = path
+                    .split_last()
+                    .ok_or_else(|| err("password_set needs a path"))?;
+                parent_mut(&mut target, parents, true)?.insert(last.clone(), Value::String(hash));
+                passwords.push(handle.clone());
+            }
             Op::ReplaceDocument { from_history } => {
                 let text = cx
                     .history(from_history)
@@ -165,6 +179,7 @@ pub fn apply(raw: &Value, ops: &[Op], cx: &dyn Context) -> Result<Applied, OpErr
         target,
         renames,
         fresh,
+        passwords,
         document,
     })
 }
@@ -290,6 +305,9 @@ mod tests {
     struct Cx(crate::wire::secret::Secret);
 
     impl Context for Cx {
+        fn password(&self, _: &str) -> Option<String> {
+            None
+        }
         fn secret(&self, handle: &str) -> Option<(String, String)> {
             (handle == "s1").then(|| (self.0.encode(), self.0.fingerprint()))
         }

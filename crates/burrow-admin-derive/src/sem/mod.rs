@@ -59,6 +59,7 @@ pub fn marker(t: &Term) -> Option<syn::Ident> {
         "secret_ref" => "SecretRef",
         "path" => "Path",
         "upload" => "Upload",
+        "password_hash" => "PasswordHash",
         "url_path" => "UrlPath",
         "object" => "Object",
         "map" => "Map",
@@ -231,6 +232,7 @@ fn scalar_sem(
         "cidr_rule" => quote!(#p::SemType::CidrRule),
         "rate" => quote!(#p::SemType::Rate),
         "url_path" => quote!(#p::SemType::UrlPath),
+        "password_hash" => quote!(#p::SemType::PasswordHash),
         "duration" => {
             let unit = match Term::positional(args).first().and_then(|a| a.as_word()) {
                 Some("ms") => quote!(#p::DurationUnit::Ms),

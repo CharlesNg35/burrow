@@ -291,6 +291,7 @@ sem_types! {
     SecretRef "secret_ref" (SecretRefC),
     Path "path" (PathC),
     Upload "upload" (UploadC),
+    PasswordHash "password_hash",
     UrlPath "url_path",
     Object "object" (ObjectC),
     Map "map" (MapC),
@@ -385,6 +386,7 @@ impl SemType {
             | SemType::Name(_)
             | SemType::Path(_)
             | SemType::Upload(_)
+            | SemType::PasswordHash
             | SemType::UrlPath => true,
         }
     }

@@ -194,6 +194,7 @@ pub fn finish(
                 .fresh
                 .iter()
                 .map(|f| f.handle.clone())
+                .chain(begun.computed.passwords.iter().cloned())
                 .collect();
             let secrets = begun
                 .computed

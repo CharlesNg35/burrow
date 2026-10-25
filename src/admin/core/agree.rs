@@ -69,7 +69,9 @@ fn cases(sem: &SemType) -> Cases {
         SemType::Union(_) => Cases::Values(union_cases()),
         SemType::HostName(_) => Cases::Values(host_name_cases()),
         SemType::UrlPath | SemType::Path(_) => Cases::Locked,
-        SemType::SecretRef(_) | SemType::Upload(_) => Cases::ServerGenerated,
+        SemType::SecretRef(_) | SemType::Upload(_) | SemType::PasswordHash => {
+            Cases::ServerGenerated
+        }
         SemType::Object(_)
         | SemType::Map(_)
         | SemType::RefMap(_)

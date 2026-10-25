@@ -69,6 +69,9 @@ pub(super) fn value_view(
             }
         };
     };
+    if burrow_admin_proto::value::is_hash(v) {
+        return view! { <span class="text-sm" data-testid="password-status">{burrow_admin_proto::value::display(v)}</span> }.into_any();
+    }
     if let Some(e) = as_env(v) {
         let resolved = e
             .resolved
@@ -140,6 +143,7 @@ fn sem_view(sem: &SemType, node: &Node, v: &Value, ctx: &Ctx) -> AnyView {
         | SemType::ServerAddress
         | SemType::Path(_)
         | SemType::Upload(_)
+        | SemType::PasswordHash
         | SemType::UrlPath
         | SemType::Name(_) => mono(v),
         SemType::Ip(_)

@@ -43,13 +43,13 @@ pub(super) fn line(user: Option<&str>, password: &str) -> Result<String, Failure
         return Err(Failure::usage("the password is empty; nothing was written"));
     }
     if let Some(u) = user
-        && (u.is_empty() || u.contains(':'))
+        && !burrow_syntax::passwd::valid_user(u)
     {
         return Err(Failure::usage(format!(
             "user name \"{u}\" must not be empty or hold \":\""
         )));
     }
-    let hash = burrow_web::auth::hash_password(password.as_bytes());
+    let hash = crate::server::passwords::hash(password.as_bytes()).map_err(Failure::new)?;
     Ok(match user {
         Some(u) => format!("{u}: {hash}\n"),
         None => format!("{hash}\n"),

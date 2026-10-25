@@ -6,6 +6,7 @@ mod fields;
 mod health;
 mod listen;
 mod local;
+pub mod passwords;
 mod pick;
 mod reload;
 mod route;

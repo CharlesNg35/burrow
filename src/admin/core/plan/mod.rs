@@ -86,6 +86,7 @@ pub struct Computed {
     pub old_text: String,
     pub new_text: String,
     pub fresh: Vec<Fresh>,
+    pub passwords: Vec<String>,
     pub reverts: Option<String>,
 }
 
@@ -97,6 +98,9 @@ struct Cx<'a> {
 impl ops::Context for Cx<'_> {
     fn secret(&self, handle: &str) -> Option<(String, String)> {
         self.session.pending_secret(handle)
+    }
+    fn password(&self, handle: &str) -> Option<String> {
+        self.session.pending_password(handle)
     }
     fn history(&self, rev: &str) -> Option<String> {
         self.core.store.version(rev)
@@ -205,6 +209,7 @@ pub fn compute(
         old_text,
         new_text,
         fresh: applied.fresh,
+        passwords: applied.passwords,
         reverts: ops_list.iter().find_map(|o| match o {
             Op::ReplaceDocument { from_history } => Some(from_history.clone()),
             _ => None,

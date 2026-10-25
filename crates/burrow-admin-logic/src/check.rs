@@ -18,7 +18,8 @@ pub fn check(node: &Node, v: &Value) -> Result<(), String> {
             Ok(())
         };
     }
-    if is_special(v) || as_new_secret(v).is_some() {
+    if is_special(v) || as_new_secret(v).is_some() || crate::changeset::as_new_password(v).is_some()
+    {
         return Ok(());
     }
     match for_node(node, Some(v)) {
@@ -146,6 +147,7 @@ fn check_sem(sem: &SemType, v: &Value) -> Result<(), String> {
                 .then_some(())
                 .ok_or_else(|| "upload the file again".to_string())
         }
+        SemType::PasswordHash => want_text(v).map(|_| ()),
         SemType::UrlPath => {
             let s = want_text(v)?;
             s.starts_with('/')

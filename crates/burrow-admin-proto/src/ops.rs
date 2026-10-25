@@ -31,6 +31,10 @@ pub enum Op {
         path: Path,
         fp: String,
     },
+    PasswordSet {
+        path: Path,
+        handle: String,
+    },
     ReplaceDocument {
         from_history: String,
     },
@@ -49,6 +53,7 @@ impl Op {
             | Op::Rename { path, .. }
             | Op::SecretAdd { path, .. }
             | Op::SecretRemove { path, .. }
+            | Op::PasswordSet { path, .. }
             | Op::SetText { path, .. } => Some(path),
             Op::ReplaceDocument { .. } => None,
         }

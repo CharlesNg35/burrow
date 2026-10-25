@@ -21,6 +21,7 @@ fn child<'a>(node: Option<&'a Node>, key: &str) -> Option<&'a Node> {
         SemType::Map(m) => Some(&m.value),
         SemType::RefMap(m) => Some(&m.value),
         SemType::Optional(o) => child(Some(&o.inner), key),
+        SemType::Union(u) => u.branches.iter().find_map(|b| child(Some(b), key)),
         _ => None,
     }
 }
@@ -37,6 +38,14 @@ fn is_reference(node: Option<&Node>) -> bool {
     match node.map(|n| &n.sem) {
         Some(SemType::SecretRef(c)) => c.reference,
         Some(SemType::Optional(o)) => is_reference(Some(&o.inner)),
+        _ => false,
+    }
+}
+
+fn is_hash(node: Option<&Node>) -> bool {
+    match node.map(|n| &n.sem) {
+        Some(SemType::PasswordHash) => true,
+        Some(SemType::Optional(o)) => is_hash(Some(&o.inner)),
         _ => false,
     }
 }
@@ -104,6 +113,9 @@ fn present_at(
     {
         return v.clone();
     }
+    if is_hash(node) && v.is_string() {
+        return value::hash();
+    }
     if is_secret(node) || (!is_name && secretish(key) && !is_path(node)) {
         return present_secret(v, env);
     }
@@ -139,6 +151,53 @@ fn present_at(
     }
 }
 
+pub const HASH_SHOWN: &str = "«password hash»";
+
+pub fn hashes(v: &Value, node: Option<&Node>, out: &mut Vec<String>) {
+    match v {
+        Value::String(s) if is_hash(node) => out.push(s.clone()),
+        Value::Object(m) => m.iter().for_each(|(k, x)| hashes(x, child(node, k), out)),
+        Value::Array(items) => {
+            let item = match node.map(|n| &n.sem) {
+                Some(SemType::List(l)) => Some(&*l.item),
+                _ => None,
+            };
+            items.iter().for_each(|i| hashes(i, item, out));
+        }
+        _ => {}
+    }
+}
+
+pub fn hashes_in(texts: &[&str], root: &Node) -> Vec<String> {
+    let mut out = Vec::new();
+    for t in texts {
+        let (_, _, src) = crate::config::patch::split_text(t);
+        if let Ok(tree) = crate::config::tree::parse(&src) {
+            hashes(&tree.to_json(), Some(root), &mut out);
+        }
+    }
+    out
+}
+
+pub fn veil(text: &str, hashes: &[String]) -> String {
+    hashes
+        .iter()
+        .fold(text.to_string(), |t, h| t.replace(h.as_str(), HASH_SHOWN))
+}
+
+pub fn veil_value(v: &Value, hashes: &[String]) -> Value {
+    match v {
+        Value::String(s) if hashes.contains(s) => Value::String(HASH_SHOWN.into()),
+        Value::Object(m) => Value::Object(
+            m.iter()
+                .map(|(k, x)| (k.clone(), veil_value(x, hashes)))
+                .collect(),
+        ),
+        Value::Array(a) => Value::Array(a.iter().map(|x| veil_value(x, hashes)).collect()),
+        other => other.clone(),
+    }
+}
+
 pub fn raw_of(v: &Value) -> Value {
     if let Some(e) = value::as_env(v) {
         return Value::String(e.raw);
@@ -151,7 +210,7 @@ pub fn raw_of(v: &Value) -> Value {
 }
 
 pub fn has_secret_marker(v: &Value) -> bool {
-    if value::as_secret(v).is_some() {
+    if value::as_secret(v).is_some() || value::is_hash(v) {
         return true;
     }
     match v {

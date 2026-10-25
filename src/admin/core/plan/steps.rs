@@ -205,9 +205,19 @@ pub(super) fn assemble(
         .iter()
         .map(|f| (f.value.clone(), f.fp.clone()))
         .collect();
-    let mask = |l: &str| text::mask_secrets(l, &fresh_pairs);
+    let root = core.schema().root.clone();
+    let mut hashes = Vec::new();
+    for v in [raw, new_raw] {
+        crate::admin::core::values::hashes(v, Some(&root), &mut hashes);
+    }
+    let mask =
+        |l: &str| text::mask_secrets(&crate::admin::core::values::veil(l, &hashes), &fresh_pairs);
     let diff = crate::admin::core::diff::unified(old_text, new_text, &mask);
-    let changes = summary::changes(raw, new_raw, &applied.renames);
+    let changes = summary::changes(
+        &crate::admin::core::values::veil_value(raw, &hashes),
+        &crate::admin::core::values::veil_value(new_raw, &hashes),
+        &applied.renames,
+    );
     let impacts_json =
         serde_json::to_vec(&impacts.iter().map(impact_key).collect::<Vec<_>>()).unwrap_or_default();
     let refusals_json = serde_json::to_vec(&refusals).unwrap_or_default();

@@ -5,6 +5,7 @@ use crate::Path;
 
 pub const SECRET_KEY: &str = "$secret";
 pub const ENV_KEY: &str = "$env";
+pub const HASH_KEY: &str = "$hash";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SecretSrc {
@@ -64,6 +65,15 @@ pub fn as_secret(v: &Value) -> Option<SecretInfo> {
     serde_json::from_value(o.get(SECRET_KEY)?.clone()).ok()
 }
 
+pub fn hash() -> Value {
+    json!({ HASH_KEY: {} })
+}
+
+pub fn is_hash(v: &Value) -> bool {
+    v.as_object()
+        .is_some_and(|o| o.len() == 1 && o.get(HASH_KEY).is_some_and(Value::is_object))
+}
+
 pub fn as_env(v: &Value) -> Option<EnvInfo> {
     let o = v.as_object()?;
     if o.len() != 1 {
@@ -73,7 +83,7 @@ pub fn as_env(v: &Value) -> Option<EnvInfo> {
 }
 
 pub fn is_special(v: &Value) -> bool {
-    as_secret(v).is_some() || as_env(v).is_some()
+    as_secret(v).is_some() || as_env(v).is_some() || is_hash(v)
 }
 
 pub fn get<'a>(root: &'a Value, path: &[String]) -> Option<&'a Value> {
@@ -148,6 +158,9 @@ pub fn display(v: &Value) -> String {
     }
     if let Some(e) = as_env(v) {
         return e.raw;
+    }
+    if is_hash(v) {
+        return "password set".into();
     }
     match v {
         Value::Null => String::new(),

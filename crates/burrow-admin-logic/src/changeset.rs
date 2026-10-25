@@ -18,8 +18,19 @@ pub fn as_new_secret(v: &Value) -> Option<(String, String)> {
     ))
 }
 
+pub const NEW_PASSWORD: &str = "$new_password";
+
+pub fn new_password(handle: &str) -> Value {
+    json!({ NEW_PASSWORD: { "handle": handle } })
+}
+
+pub fn as_new_password(v: &Value) -> Option<String> {
+    let o = v.as_object()?.get(NEW_PASSWORD)?;
+    Some(o.get("handle")?.as_str()?.to_string())
+}
+
 fn special(v: &Value) -> bool {
-    value::is_special(v) || as_new_secret(v).is_some()
+    value::is_special(v) || as_new_secret(v).is_some() || as_new_password(v).is_some()
 }
 
 fn secret_items(v: &Value) -> Option<Vec<&Value>> {
@@ -34,6 +45,13 @@ fn secret_items(v: &Value) -> Option<Vec<&Value>> {
 }
 
 fn strip_new(v: &Value, path: &[String], adds: &mut Vec<Op>) -> Value {
+    if let Some(handle) = as_new_password(v) {
+        adds.push(Op::PasswordSet {
+            path: path.to_vec(),
+            handle,
+        });
+        return Value::Null;
+    }
     if let Some(items) = secret_items(v)
         && items.iter().any(|i| as_new_secret(i).is_some())
     {
@@ -64,6 +82,13 @@ fn strip_new(v: &Value, path: &[String], adds: &mut Vec<Op>) -> Value {
 
 fn diff(base: &Value, draft: &Value, path: &[String], out: &mut Vec<Op>, tail: &mut Vec<Op>) {
     if base == draft {
+        return;
+    }
+    if let Some(handle) = as_new_password(draft) {
+        tail.push(Op::PasswordSet {
+            path: path.to_vec(),
+            handle,
+        });
         return;
     }
     if let (Some(old), Some(new)) = (secret_items(base), secret_items(draft)) {
@@ -97,10 +122,12 @@ fn diff(base: &Value, draft: &Value, path: &[String], out: &mut Vec<Op>, tail: &
                     None => {
                         let mut adds = Vec::new();
                         let cleaned = strip_new(dv, &p, &mut adds);
-                        out.push(Op::Add {
-                            path: p,
-                            value: cleaned,
-                        });
+                        if !cleaned.is_null() || dv.is_null() {
+                            out.push(Op::Add {
+                                path: p,
+                                value: cleaned,
+                            });
+                        }
                         tail.extend(adds);
                     }
                     Some(bv) => diff(bv, dv, &p, out, tail),
@@ -223,6 +250,13 @@ pub fn apply(root: &Value, ops: &[Op]) -> Value {
                     };
                 }
             }
+            Op::PasswordSet { path, handle } => {
+                if let Some((last, parents)) = path.split_last()
+                    && let Some(m) = parent_mut(&mut v, parents)
+                {
+                    m.insert(last.clone(), new_password(handle));
+                }
+            }
             Op::ReplaceDocument { .. } | Op::SetText { .. } => {}
         }
     }
@@ -300,6 +334,10 @@ impl Changeset {
         };
         self.set(path, next);
         self.fresh.push((handle.to_string(), fp.to_string()));
+    }
+
+    pub fn set_password(&mut self, path: &[String], handle: &str) {
+        self.set(path, new_password(handle));
     }
 
     pub fn remove_secret(&mut self, path: &[String], fp: &str) {

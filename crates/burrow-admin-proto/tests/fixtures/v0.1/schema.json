@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:ccbeeda2d5b55d71",
+  "hash": "b2s:413a087c9a2f25b2",
   "root": {
     "label": "Server",
     "sem": {
@@ -2601,7 +2601,7 @@
                                         "key": "basic_auth",
                                         "node": {
                                           "label": "Passwords",
-                                          "help": "Visitors sign in with a user name and password, for example alice with a hash from burrow passwd alice",
+                                          "help": "Visitors sign in with a user name and password; the password is stored only as a hash",
                                           "sem": {
                                             "t": "map",
                                             "key": {
@@ -2612,7 +2612,7 @@
                                             "value": {
                                               "help": "The password hash, for example the line burrow passwd alice prints",
                                               "sem": {
-                                                "t": "text"
+                                                "t": "password_hash"
                                               }
                                             }
                                           },

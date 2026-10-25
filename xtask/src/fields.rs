@@ -15,7 +15,7 @@ pub const FIELD_FREE: &[&str] = &[
     "src/admin_local",
 ];
 
-const COMMON_WORDS: &[&str] = &["file", "to", "api", "server", "service"];
+const COMMON_WORDS: &[&str] = &["file", "to", "api", "server", "service", "password"];
 
 pub fn keys() -> BTreeSet<String> {
     fn walk(node: &Node, out: &mut BTreeSet<String>) {

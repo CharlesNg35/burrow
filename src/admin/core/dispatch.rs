@@ -1,7 +1,7 @@
 use burrow_admin_proto::msg::{self, ErrorCode, HistoryRequest, Suggest};
 use serde_json::Value;
 
-use super::{ApiError, Core, Reply, Session, plan, snippets, uploads};
+use super::{ApiError, Core, Reply, Session, passwords, plan, snippets, uploads};
 
 pub fn ok<T: serde::Serialize>(v: T) -> Reply {
     serde_json::to_value(v).map_err(|e| ApiError::new(ErrorCode::Internal, e.to_string()))
@@ -65,6 +65,10 @@ pub fn dispatch(core: &Core, s: &Session, t: &str, body: &Value) -> Reply {
             ok(uploads::upload(core, s, &r)?)
         }
         msg::req::LOCAL_CA => uploads::local_ca(core),
+        msg::req::HASH_PASSWORD => {
+            let r: msg::HashPassword = parse(body)?;
+            ok(passwords::hash_password(s, r)?)
+        }
         other => Err(ApiError::new(
             ErrorCode::UnknownRequest,
             format!("unknown request \"{other}\""),

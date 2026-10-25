@@ -141,9 +141,9 @@ pub struct WebSite {
         description = "Users and their password hashes, user: hash, argon2id from burrow passwd or bcrypt from htpasswd -B"
     )]
     #[admin(
-        ty = map(key = text, value = text, value_help = "The password hash, for example the line burrow passwd alice prints"),
+        ty = map(key = text, value = password_hash, value_help = "The password hash, for example the line burrow passwd alice prints"),
         label = "Passwords",
-        help = "Visitors sign in with a user name and password, for example alice with a hash from burrow passwd alice",
+        help = "Visitors sign in with a user name and password; the password is stored only as a hash",
         empty_label = "None",
         visible_if(ne(tls, "passthrough"))
     )]

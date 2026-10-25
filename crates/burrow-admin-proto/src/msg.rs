@@ -21,6 +21,7 @@ pub mod req {
     pub const PING: &str = "ping";
     pub const UPLOAD: &str = "upload";
     pub const LOCAL_CA: &str = "local_ca";
+    pub const HASH_PASSWORD: &str = "hash_password";
 }
 
 pub mod ev {
@@ -320,6 +321,22 @@ pub struct Apply {
 pub struct GeneratedSecret {
     pub handle: String,
     pub fp: String,
+}
+
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+pub struct HashPassword {
+    pub password: String,
+}
+
+impl std::fmt::Debug for HashPassword {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("HashPassword { .. }")
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HashedPassword {
+    pub handle: String,
 }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
