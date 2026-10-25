@@ -11,9 +11,11 @@ pub fn Disclosure(
     #[prop(optional)] table: bool,
     #[prop(optional)] flush: bool,
     #[prop(optional, into)] grid: String,
+    #[prop(optional, into)] title: String,
     children: Children,
 ) -> impl IntoView {
     let region = format!("{id}-region");
+    let titled = !title.is_empty();
     let (outer, button) = match (table, flush) {
         (true, _) => ("", "py-3"),
         (false, true) => ("md:col-span-2", ""),
@@ -36,10 +38,18 @@ pub fn Disclosure(
                     }
                 }
             >
-                <span class="inline-flex" aria-hidden="true">
-                    {move || view! { <Icon name=if open.get() { "chevron-down" } else { "chevron-right" } small=true/> }}
-                </span>
-                <span>{move || summary.get()}</span>
+                {(!titled).then(|| view! {
+                    <span class="inline-flex" aria-hidden="true">
+                        {move || view! { <Icon name=if open.get() { "chevron-down" } else { "chevron-right" } small=true/> }}
+                    </span>
+                })}
+                {titled.then(|| view! { <span class="text-[13.5px] font-bold text-text">{title.clone()}</span> })}
+                <span class:ml-auto=titled>{move || summary.get()}</span>
+                {titled.then(|| view! {
+                    <span class="inline-flex" aria-hidden="true">
+                        {move || view! { <Icon name=if open.get() { "chevron-down" } else { "chevron-right" } small=true/> }}
+                    </span>
+                })}
             </button>
             <div
                 id=region.clone()

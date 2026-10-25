@@ -22,6 +22,20 @@ fn opts() -> Options {
     }
 }
 
+async fn every_width(c: &mut Ctx, step: &str) {
+    for (w, name) in [(360, "360"), (390, "390"), (768, "tablet")] {
+        c.ui.viewport(w, 900).await;
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        let wide: bool = c
+            .ui
+            .eval("document.documentElement.scrollWidth > document.documentElement.clientWidth")
+            .await;
+        assert!(!wide, "{step} at {w}px scrolls sideways");
+        c.ui.shot(&format!("{step}-{name}")).await;
+    }
+    c.ui.viewport(1440, 900).await;
+}
+
 async fn pick(c: &Ctx, tab: &str) {
     c.ui.click(&format!("{TABS} [data-tab={tab}]")).await;
     c.ui.wait_for(
@@ -54,12 +68,14 @@ async fn the_four_tabs(c: &mut Ctx) {
     c.ui.wait_for("[data-testid=settings] [data-card=limits]", SECS)
         .await;
     both_widths(c, "settings-connections").await;
+    every_width(c, "settings-connections").await;
     pick(c, "proxy").await;
     c.ui.wait_for("[data-testid=settings] [data-card=web]", SECS)
         .await;
     both_widths(c, "settings-web").await;
     pick(c, "monitoring").await;
     both_widths(c, "settings-monitoring").await;
+    every_width(c, "settings-monitoring").await;
 }
 
 async fn search_finds_every_tab(c: &mut Ctx) {
@@ -97,10 +113,9 @@ async fn a_change_shows_on_its_pill(c: &mut Ctx) {
     wait_checked(c).await;
     c.ui.click("[data-testid=save]").await;
     c.ui.wait_gone("[data-testid=save-bar]", SECS).await;
-    let pill =
-        c.ui.wait_text(&format!("{TABS} [data-tab=connections]"), "changed", SECS)
-            .await;
-    assert!(pill.contains("1 changed"), "{pill}");
+    let changed = format!("{TABS} [data-tab=connections] [data-tab-mark=changed]");
+    let n = c.ui.wait_text(&changed, "1", SECS).await;
+    assert_eq!(n.trim(), "1", "a changed dot and its count");
     both_widths(c, "settings-changed-pill").await;
 }
 

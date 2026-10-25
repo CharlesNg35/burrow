@@ -5,7 +5,7 @@ use leptos::prelude::*;
 
 use crate::edit::Edit;
 use burrow_admin_logic::settings_tabs::{Tab, tab_of};
-use burrow_ui_kit::PillTabs;
+use burrow_ui_kit::{PillTabs, TabMark};
 
 use crate::form::{PageSearch, ShowKeys, card_fields, settings_card, settings_cards};
 use crate::route::Route;
@@ -162,46 +162,72 @@ impl Look {
 }
 
 fn pill_count(rows: &[(Tab, Row)], tab: Tab, look: Look) -> String {
-    let mine: Vec<&Row> = rows
-        .iter()
-        .filter(|(t, _)| *t == tab)
-        .map(|(_, r)| r)
-        .collect();
-    let tagged = |word: &str| {
-        mine.iter()
-            .filter(|r| r.tags.iter().any(|(t, _)| t.contains(word)))
-            .count()
-    };
-    let mut parts = Vec::new();
-    if look.narrowed() {
-        parts.push(mine.iter().filter(|r| look.shows(r)).count().to_string());
+    if !look.narrowed() {
+        return String::new();
     }
-    for (word, shown) in [("changed", "changed"), ("locked", "locked")] {
-        let n = tagged(word);
-        if n > 0 {
-            parts.push(format!("{n} {shown}"));
-        }
-    }
-    parts.join(" · ")
+    rows.iter()
+        .filter(|(t, r)| *t == tab && look.shows(r))
+        .count()
+        .to_string()
 }
 
-fn tab_bar(rows: Memo<Vec<(Tab, Row)>>, tab: RwSignal<Tab>, look: Look) -> impl IntoView {
+fn pill_marks(rows: &[(Tab, Row)], tab: Tab) -> Vec<TabMark> {
+    let tagged = |word: &str| {
+        rows.iter()
+            .filter(|(t, r)| *t == tab && r.tags.iter().any(|(x, _)| x.contains(word)))
+            .count()
+    };
+    let changed = tagged("changed");
+    let locked = tagged("locked");
+    let mut out = Vec::new();
+    if changed > 0 {
+        out.push(TabMark {
+            key: "changed",
+            n: changed,
+            icon: None,
+            dot: Some(Tone::Accent),
+            title: format!("{changed} changed"),
+        });
+    }
+    if locked > 0 {
+        out.push(TabMark {
+            key: "locked",
+            n: locked,
+            icon: Some("lock"),
+            dot: None,
+            title: format!("{locked} with locked settings"),
+        });
+    }
+    out
+}
+
+fn tab_bar(
+    rows: Memo<Vec<(Tab, Row)>>,
+    tab: RwSignal<Tab>,
+    look: Look,
+    search: AnyView,
+) -> impl IntoView {
     let keys = Tab::ALL.map(|t| (t.key(), t.label().to_string())).to_vec();
     let counts =
         Signal::derive(move || rows.with(|r| Tab::ALL.map(|t| pill_count(r, t, look)).to_vec()));
+    let marks = Signal::derive(move || rows.with(|r| Tab::ALL.map(|t| pill_marks(r, t)).to_vec()));
     view! {
-        <div class="mb-4 overflow-x-auto" data-testid="settings-tabs">
-            <PillTabs
-                tabs=keys
-                active=Signal::derive(move || tab.get().key())
-                counts=counts
-                on_change=Callback::new(move |k: &'static str| {
-                    if let Some(t) = Tab::parse(k) {
-                        tab.set(t);
-                        crate::route::set_query(TAB_QUERY, k);
-                    }
-                })
-            />
+        <div class="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-card border border-border bg-surface px-2 py-1.5" data-testid="settings-tabs">
+            <div class="min-w-0 max-lg:w-full lg:flex-1">
+                <PillTabs
+                    tabs=keys
+                    active=Signal::derive(move || tab.get().key())
+                    counts=counts
+                    marks=marks
+                    on_change=Callback::new(move |k: &'static str| {
+                        if let Some(t) = Tab::parse(k) {
+                            tab.set(t);
+                            crate::route::set_query(TAB_QUERY, k);
+                        }
+                    })
+                />
+            </div>
+            <div class="max-lg:w-full lg:w-64">{search}</div>
         </div>
     }
 }
@@ -242,7 +268,7 @@ fn tab_cards(tab: RwSignal<Tab>, look: Look, rows: Memo<Vec<(Tab, Row)>>) -> imp
             view! { <p class="mb-3 text-sm text-text-muted" data-testid="web-off-note">"Turn the web proxy on to serve websites."</p> }
         });
         Some(view! {
-            <div class="max-w-[1120px]" data-tab-panel=now.key()>
+            <div data-tab-panel=now.key()>
                 {web_note}
                 {cards.iter().map(settings_card).collect_view()}
                 {(now == Tab::Web && web_on).then(super::local_ca::local_ca_card)}
@@ -331,11 +357,10 @@ pub fn Settings() -> impl IntoView {
             >
                 "Server settings"
             </burrow_ui_kit::PageHeader>
-            <div class="mb-3 flex max-w-[1120px] flex-wrap items-center gap-3" data-testid="settings-search">
-                <div class="w-72 max-w-full">{search_box(look.query, "Search settings".into())}</div>
-                <div class="flex flex-wrap gap-1.5">{filter_chips(filters, look.filter, plain_rows, true)}</div>
+            {tab_bar(rows, tab, look, search_box(look.query, "Search settings".into()).into_any())}
+            <div class="mb-4 flex flex-wrap items-center gap-1.5" data-testid="settings-search">
+                {filter_chips(filters, look.filter, plain_rows, true)}
             </div>
-            {tab_bar(rows, tab, look)}
             <div data-testid="settings">{tab_cards(tab, look, rows)}</div>
             {move || editing.get().then(|| {
                 crate::screens::bar::save_bar(crate::screens::bar::SaveBar {

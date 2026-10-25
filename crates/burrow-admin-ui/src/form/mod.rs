@@ -323,6 +323,10 @@ pub(crate) fn object_view_marked(
                     table,
                     alone: essential.is_empty(),
                     grid: more::GRID,
+                    title: essential
+                        .is_empty()
+                        .then(|| use_context::<more::CompactTitle>().map(|t| t.0))
+                        .flatten(),
                 };
                 rows.push(more_settings(more, at.rows(&advanced)));
             }
@@ -339,7 +343,8 @@ pub(crate) fn object_view_marked(
             view
         })
         .collect_view();
-    view! { <div class="max-w-[1120px]">{sections}</div> }.into_any()
+    let width = if table { "" } else { "max-w-[1120px]" };
+    view! { <div class=width>{sections}</div> }.into_any()
 }
 
 fn section_view(

@@ -18,8 +18,8 @@ mod toast;
 
 pub use basic::{
     Button, Card, Chip, Fact, Facts, Kbd, Kpi, LABEL, LINK, LockLine, MONO, Mono, Muted,
-    PageHeader, PillTabs, SectionHead, SpinDot, Stat, Stats, StatusDot, StickyBar, Table, Tabs,
-    Tag, Tone, button_class, card_head, chip_class, menu_class,
+    PageHeader, PillTabs, SectionHead, SpinDot, Stat, Stats, StatusDot, StickyBar, TabMark, Table,
+    Tabs, Tag, Tone, button_class, card_head, chip_class, menu_class,
 };
 pub use code::{CodeBlock, DiffLine, DiffView, copy_text, download, download_text};
 pub use combo::{ComboOption, Combobox, filter_options};

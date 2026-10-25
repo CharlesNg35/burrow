@@ -14,6 +14,9 @@ use super::field_id;
 pub struct PageSearch(pub RwSignal<String>);
 
 #[derive(Clone)]
+pub(super) struct CompactTitle(pub String);
+
+#[derive(Clone)]
 pub(super) struct More {
     pub fields: Vec<(Field, Path)>,
     pub spath: Path,
@@ -22,6 +25,7 @@ pub(super) struct More {
     pub table: bool,
     pub alone: bool,
     pub grid: &'static str,
+    pub title: Option<String>,
 }
 
 pub(super) const GRID: &str = "grid grid-cols-1 gap-x-6 gap-y-[22px] pt-[22px] md:grid-cols-2";
@@ -137,13 +141,18 @@ pub(super) fn more_settings(m: More, rows: Vec<AnyView>) -> AnyView {
         [set, wrong, found]
     });
     let e = store().edit;
+    let titled = m.title.is_some();
     let text = Signal::derive(move || {
         shown.with(|v| {
             let set = v
                 .iter()
                 .filter(|(n, p)| is_set(n, e.value(p).as_ref()))
                 .count();
-            summary(set, v.len())
+            let all = summary(set, v.len());
+            match all.split_once(" · ") {
+                Some((_, counts)) if titled => counts.to_string(),
+                _ => all,
+            }
         })
     });
     let none = Memo::new(move |_| shown.with(Vec::is_empty));
@@ -163,7 +172,7 @@ pub(super) fn more_settings(m: More, rows: Vec<AnyView>) -> AnyView {
     let outer = if m.table { "" } else { "contents" };
     view! {
         <div class=outer hidden=move || none.get() data-more=key>
-            <Disclosure id=id summary=text open=open on_toggle=on_toggle table=m.table flush=m.alone grid=grid.to_string()>
+            <Disclosure id=id summary=text open=open on_toggle=on_toggle table=m.table flush=m.alone grid=grid.to_string() title=m.title.clone().unwrap_or_default()>
                 {rows}
             </Disclosure>
         </div>

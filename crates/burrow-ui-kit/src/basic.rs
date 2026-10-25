@@ -326,8 +326,8 @@ pub fn SectionHead(
     #[prop(optional, into)] sub: String,
 ) -> impl IntoView {
     view! {
-        <div class="flex items-baseline gap-2.5 border-b border-border pb-2.5 md:col-span-2">
-            <h3 class="text-[14px] font-bold">{title}</h3>
+        <div class="flex flex-col gap-0.5 border-b border-border pb-2.5 sm:flex-row sm:items-baseline sm:gap-2.5 md:col-span-2">
+            <h3 class="shrink-0 text-[14px] font-bold">{title}</h3>
             {(!sub.is_empty()).then(|| view! { <span class="text-[12.5px] text-text-muted">{sub}</span> })}
         </div>
     }
@@ -341,7 +341,7 @@ pub fn Tabs(
     #[prop(optional, into)] errors: Option<Signal<Vec<usize>>>,
 ) -> impl IntoView {
     view! {
-        <div class="mb-4 flex gap-1 border-b border-border" role="tablist">
+        <div class="mb-4 flex gap-1 overflow-x-auto border-b border-border [scrollbar-width:none]" role="tablist">
             {tabs
                 .into_iter()
                 .enumerate()
@@ -350,7 +350,7 @@ pub fn Tabs(
                         <button
                             type="button"
                             role="tab"
-                            class="-mb-px flex items-center gap-1 border-b-2 border-transparent px-3 py-2.5 text-[13px] font-semibold text-text-muted hover:text-text aria-selected:border-accent aria-selected:text-text"
+                            class="-mb-px flex shrink-0 items-center gap-1.5 border-b-2 border-transparent px-3 py-2.5 text-[13px] font-semibold whitespace-nowrap text-text-muted hover:text-text aria-selected:border-accent aria-selected:text-text"
                             aria-selected=move || (active.get() == key).to_string()
                             data-tab=key
                             on:click=move |_| active.set(key)
@@ -374,15 +374,58 @@ pub fn Tabs(
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct TabMark {
+    pub key: &'static str,
+    pub n: usize,
+    pub icon: Option<&'static str>,
+    pub dot: Option<Tone>,
+    pub title: String,
+}
+
+fn tab_mark(m: TabMark) -> impl IntoView {
+    view! {
+        <span class="inline-flex items-center gap-1 rounded-full bg-surface-3 px-1.5 text-[11px] leading-[18px] font-semibold text-text-muted tabular-nums dark:bg-surface-2" title=m.title.clone() aria-label=m.title data-tab-mark=m.key>
+            {m.icon.map(|i| view! { <Icon name=i small=true/> })}
+            {m.dot.map(|t| view! { <span class=format!("size-1.5 rounded-full {}", t.dot()) aria-hidden="true"></span> })}
+            {m.n}
+        </span>
+    }
+}
+
 #[component]
 pub fn PillTabs(
     tabs: Vec<(&'static str, String)>,
     #[prop(into)] active: Signal<&'static str>,
     #[prop(into)] on_change: Callback<&'static str>,
     #[prop(optional)] counts: Option<Signal<Vec<String>>>,
+    #[prop(optional)] marks: Option<Signal<Vec<Vec<TabMark>>>>,
 ) -> impl IntoView {
+    let bar: NodeRef<leptos::html::Div> = NodeRef::new();
+    Effect::new(move |_| {
+        let key = active.get();
+        request_animation_frame(move || {
+            let Some(el) = bar.try_get_untracked().flatten() else {
+                return;
+            };
+            let el: web_sys::HtmlElement = el.into();
+            if el.scroll_width() <= el.client_width() {
+                return;
+            }
+            if let Ok(Some(tab)) = el.query_selector(&format!("[data-tab=\"{key}\"]")) {
+                let opts = web_sys::ScrollIntoViewOptions::new();
+                opts.set_block(web_sys::ScrollLogicalPosition::Nearest);
+                opts.set_inline(web_sys::ScrollLogicalPosition::Nearest);
+                tab.scroll_into_view_with_scroll_into_view_options(&opts);
+            }
+        });
+    });
     view! {
-        <div class="flex gap-1" role="tablist">
+        <div
+            class="flex min-w-0 gap-1 overflow-x-auto [scrollbar-width:none] max-md:[mask-image:linear-gradient(to_right,black_calc(100%-28px),transparent)] [&::-webkit-scrollbar]:hidden"
+            role="tablist"
+            node_ref=bar
+        >
             {tabs
                 .into_iter()
                 .enumerate()
@@ -391,13 +434,14 @@ pub fn PillTabs(
                         <button
                             type="button"
                             role="tab"
-                            class="flex h-[30px] items-center gap-1.5 rounded-md px-3 text-[13px] font-semibold text-text-muted aria-selected:bg-surface aria-selected:text-text aria-selected:shadow-sm aria-selected:ring-1 aria-selected:ring-border aria-selected:ring-inset dark:aria-selected:bg-surface-3"
+                            class="flex h-[30px] shrink-0 items-center gap-1.5 rounded-md px-3 text-[13px] font-semibold whitespace-nowrap text-text-muted aria-selected:bg-surface aria-selected:text-text aria-selected:shadow-sm aria-selected:ring-1 aria-selected:ring-border aria-selected:ring-inset dark:aria-selected:bg-surface-3"
                             aria-selected=move || (active.get() == key).to_string()
                             data-tab=key
                             on:click=move |_| on_change.run(key)
                         >
                             {label}
-                            {counts.map(|c| view! { <span class="text-[11px] text-text-faint">{move || c.get().get(i).cloned().unwrap_or_default()}</span> })}
+                            {counts.map(|c| view! { <span class="text-[11px] text-text-faint tabular-nums">{move || c.get().get(i).cloned().unwrap_or_default()}</span> })}
+                            {marks.map(|m| move || m.get().get(i).cloned().unwrap_or_default().into_iter().map(tab_mark).collect_view())}
                         </button>
                     }
                 })

@@ -138,19 +138,28 @@ fn scalar_card(c: &SettingsCard, border: &str) -> AnyView {
             table: true,
             alone: essential.is_empty(),
             grid: ROWS,
+            title: essential.is_empty().then(|| c.title.clone()),
         };
         rows.push(more_settings(
             more,
             advanced.iter().map(|f| one(f)).collect(),
         ));
     }
+    let head = (!essential.is_empty())
+        .then(|| burrow_ui_kit::card_head(c.title.clone(), None, ().into_any()));
     view! {
         <section class=format!("mb-4 scroll-mt-20 rounded-card border bg-surface {border}") data-card=c.key.clone() data-group=c.key.clone()>
-            {burrow_ui_kit::card_head(c.title.clone(), None, ().into_any())}
+            {head}
             <div class="divide-y divide-rowline px-4">{rows}</div>
         </section>
     }
     .into_any()
+}
+
+fn all_advanced(node: &Node) -> bool {
+    let inside = fields(inner(node));
+    let one_group = inner(node).groups.len() <= 1;
+    one_group && !inside.is_empty() && (node.advanced || inside.iter().all(|f| f.node.advanced))
 }
 
 pub fn settings_card(c: &SettingsCard) -> AnyView {
@@ -231,10 +240,19 @@ pub fn settings_card(c: &SettingsCard) -> AnyView {
         }
     };
     let (jp, js) = (join(&path), join(&path));
+    let compact = !optional && !lock && all_advanced(&f.node);
+    let head = (!compact).then(|| burrow_ui_kit::card_head(c.title.clone(), None, right));
+    let title = super::more::CompactTitle(c.title.clone());
     view! {
         <section class=format!("mb-4 scroll-mt-20 rounded-card border bg-surface {border}") data-card=c.key.clone() data-group=c.key.clone() data-path=jp data-schema=js>
-            {burrow_ui_kit::card_head(c.title.clone(), None, right)}
-            <div class="px-4">{body}</div>
+            {head}
+            <div class="px-4">
+                {if compact {
+                    view! { <leptos::context::Provider value=title>{body}</leptos::context::Provider> }.into_any()
+                } else {
+                    body.into_any()
+                }}
+            </div>
         </section>
     }
     .into_any()
