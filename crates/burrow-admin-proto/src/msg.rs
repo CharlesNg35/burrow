@@ -408,7 +408,7 @@ pub struct HistoryRequest {
     #[serde(default)]
     pub limit: Option<u32>,
     #[serde(default)]
-    pub diff: Option<String>,
+    pub diff: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
@@ -420,6 +420,8 @@ pub struct HistoryReply {
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct AuditEntry {
+    #[serde(default)]
+    pub id: u64,
     pub at: u64,
     pub visitor: String,
     #[serde(default)]

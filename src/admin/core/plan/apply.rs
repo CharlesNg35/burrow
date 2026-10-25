@@ -149,6 +149,7 @@ pub fn finish(
 ) -> Result<Applied, ApiError> {
     let plan = &begun.computed.plan;
     let entry = |result: &str| AuditEntry {
+        id: 0,
         at: text::now_unix(),
         visitor: s.visitor.clone(),
         from: s.peer.ip().to_string(),

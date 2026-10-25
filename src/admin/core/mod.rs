@@ -180,8 +180,10 @@ pub fn features() -> Vec<String> {
 impl Core {
     pub fn new(store: Box<dyn Store>, live: Box<dyn Live>, env: Box<dyn Env>) -> Self {
         let mut audit = VecDeque::new();
-        for v in store.versions().into_iter().take(AUDIT_RING) {
-            audit.push_back(AuditEntry {
+        for v in store.versions().into_iter().take(AUDIT_RING).rev() {
+            let id = next_id(audit.front(), v.at);
+            audit.push_front(AuditEntry {
+                id,
                 at: v.at,
                 visitor: String::new(),
                 from: String::new(),
@@ -463,8 +465,9 @@ impl Core {
         }
     }
 
-    pub fn record(&self, entry: AuditEntry) {
+    pub fn record(&self, mut entry: AuditEntry) {
         let mut a = self.audit.lock().expect("audit lock");
+        entry.id = next_id(a.front(), entry.at);
         a.push_front(entry);
         a.truncate(AUDIT_RING);
     }
@@ -484,16 +487,16 @@ impl Core {
             })
             .collect();
         let diff = match &req.diff {
-            Some(rev) => {
+            Some(id) => {
                 let entry = self
                     .audit
                     .lock()
                     .expect("audit lock")
                     .iter()
-                    .find(|e| &e.rev == rev)
+                    .find(|e| e.id == *id)
                     .cloned()
                     .ok_or_else(|| {
-                        ApiError::new(ErrorCode::BadRequest, format!("no history entry {rev}"))
+                        ApiError::new(ErrorCode::BadRequest, format!("no history entry {id}"))
                     })?;
                 let after = self.store.version(&entry.rev);
                 let before = self.store.version(&entry.base);
@@ -511,6 +514,11 @@ impl Core {
         };
         Ok(HistoryReply { entries, diff })
     }
+}
+
+fn next_id(newest: Option<&AuditEntry>, at: u64) -> u64 {
+    let after = newest.map_or(0, |e| e.id).saturating_add(1);
+    after.max(at.saturating_mul(1000))
 }
 
 fn addresses(s: &crate::config::settings::ServerSettings) -> Vec<String> {

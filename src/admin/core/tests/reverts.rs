@@ -85,7 +85,7 @@ fn a_revert_is_an_ordinary_plan() {
     let with_diff = core
         .history(&HistoryRequest {
             limit: None,
-            diff: Some(entry.rev.clone()),
+            diff: Some(entry.id),
         })
         .unwrap();
     assert!(with_diff.diff.unwrap().unified.contains("target: 3001"));
@@ -102,7 +102,7 @@ fn a_revert_is_an_ordinary_plan() {
     let older = core
         .history(&HistoryRequest {
             limit: Some(1),
-            diff: Some(entry.rev.clone()),
+            diff: Some(entry.id),
         })
         .expect("an older entry's diff is found whatever the limit");
     assert!(older.diff.unwrap().unified.contains("target: 3001"));
@@ -391,4 +391,73 @@ fn a_rejected_reload_is_reported_with_the_restore() {
         })
         .unwrap();
     assert_eq!(h.entries[0].result, "rejected, restored");
+}
+
+#[test]
+fn the_same_file_twice_gives_two_entries_each_with_its_own_diff() {
+    let w = world();
+    let core = core_for(&w.text);
+    let s = session(&w, AdminLevel::Write);
+    for target in [3001, 3002, 3001] {
+        apply_now(
+            &core,
+            &s,
+            &[Op::Set {
+                path: p(&["services", "web", "target"]),
+                value: json!(target),
+            }],
+            &[],
+        )
+        .unwrap();
+    }
+    let all = core
+        .history(&HistoryRequest {
+            limit: None,
+            diff: None,
+        })
+        .unwrap()
+        .entries;
+    let (newer, older) = (&all[0], &all[2]);
+    assert_eq!(
+        newer.rev, older.rev,
+        "A -> B -> A writes the same file twice"
+    );
+    assert_ne!(newer.id, older.id);
+    assert!(
+        all.windows(2).all(|p| p[0].id > p[1].id),
+        "ids grow with time"
+    );
+    let diff_of = |id: u64| {
+        core.history(&HistoryRequest {
+            limit: Some(1),
+            diff: Some(id),
+        })
+        .unwrap()
+        .diff
+        .unwrap()
+        .unified
+    };
+    let (n, o) = (diff_of(newer.id), diff_of(older.id));
+    assert!(
+        n.contains("-") && n.contains("3002"),
+        "the newer one starts from 3002: {n}"
+    );
+    assert!(
+        !o.contains("3002"),
+        "the older one starts from the first file: {o}"
+    );
+    assert!(o.contains("3001"), "{o}");
+    let now = core.read().unwrap();
+    for e in [newer, older] {
+        let reply = dispatch(
+            &core,
+            &s,
+            "revert",
+            &json!({"to": e.base, "base": text::rev(&now)}),
+        )
+        .unwrap();
+        let plan: burrow_admin_proto::plan::Plan = serde_json::from_value(reply).unwrap();
+        assert!(plan.valid, "a revert works from either entry");
+        assert_eq!(plan.result_rev, e.base);
+    }
 }

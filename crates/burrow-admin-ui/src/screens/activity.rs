@@ -102,8 +102,8 @@ fn rows_of(entries: &[AuditEntry], can_write: bool, current: &str) -> Vec<Row> {
                 }
             };
             Row {
-                key: e.rev.clone(),
-                to: Route::Activity(Some(e.rev.clone())),
+                key: e.id.to_string(),
+                to: Route::Activity(Some(e.id.to_string())),
                 icon: "history",
                 dot: Some(tone),
                 title: title_of(e),
@@ -142,7 +142,7 @@ fn Version(entry: AuditEntry, newer: Vec<AuditEntry>) -> impl IntoView {
             msg::req::HISTORY,
             api::body(&msg::HistoryRequest {
                 limit: Some(1),
-                diff: Some(entry.rev.clone()),
+                diff: Some(entry.id),
             }),
             move |r| {
                 let lines = r
@@ -184,7 +184,7 @@ fn Version(entry: AuditEntry, newer: Vec<AuditEntry>) -> impl IntoView {
             let rev = short_rev(&n.rev);
             view! {
                 <li class="grid grid-cols-[70px_minmax(0,1fr)_auto] items-center gap-4 border-b border-rowline py-2.5 text-[13.5px] last:border-b-0">
-                    <Link to=Route::Activity(Some(n.rev.clone())) class="font-mono text-[13px] text-text-muted no-underline hover:underline">{rev}</Link>
+                    <Link to=Route::Activity(Some(n.id.to_string())) class="font-mono text-[13px] text-text-muted no-underline hover:underline">{rev}</Link>
                     <span class="truncate">{title_of(&n)}</span>
                     <span class="text-text-muted">{format!("{} · {}", who(&n), format::relative(n.at))}</span>
                 </li>
@@ -255,17 +255,17 @@ pub fn Activity(selected: Option<String>) -> impl IntoView {
         let n = rows.with(Vec::len);
         format!("{n} version{}", if n == 1 { "" } else { "s" })
     });
-    let on_action = Callback::new(move |(rev, action): (String, String)| {
+    let on_action = Callback::new(move |(id, action): (String, String)| {
         let entry = s.history.with_untracked(|h| {
             h.as_ref()
-                .and_then(|h| h.iter().find(|e| e.rev == rev).cloned())
+                .and_then(|h| h.iter().find(|e| e.id.to_string() == id).cloned())
         });
         match (action.as_str(), entry) {
             ("revert", Some(e)) => {
                 s.edit.open_revert(s, revert_target(&e));
                 route::go(Route::Review);
             }
-            _ => route::go(Route::Activity(Some(rev))),
+            _ => route::go(Route::Activity(Some(id))),
         }
     });
     let sel = selected.clone();
@@ -293,7 +293,7 @@ pub fn Activity(selected: Option<String>) -> impl IntoView {
         }
         .into_any(),
         Some(h) => {
-            let at = selected.as_ref().and_then(|r| h.iter().position(|e| &e.rev == r));
+            let at = selected.as_ref().and_then(|r| h.iter().position(|e| &e.id.to_string() == r));
             match at {
                 Some(i) => view! { <Version entry=h[i].clone() newer=h[..i].to_vec()/> }.into_any(),
                 None => view! { <div class="max-lg:hidden"><EmptyState icon="history" title="Pick a version on the left" message="Each one shows what changed and can be reverted."/></div> }.into_any(),
@@ -303,6 +303,15 @@ pub fn Activity(selected: Option<String>) -> impl IntoView {
     };
     let detail = view! { <DetailPane back=Route::Activity(None)>{body}</DetailPane> }.into_any();
     master_detail(list, detail)
+}
+
+pub fn entry_of_rev(rev: &str) -> Option<String> {
+    store().history.with_untracked(|h| {
+        h.as_ref()?
+            .iter()
+            .find(|e| e.rev == rev)
+            .map(|e| e.id.to_string())
+    })
 }
 
 fn revert_target(entry: &AuditEntry) -> String {

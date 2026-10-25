@@ -338,7 +338,7 @@ pub fn ConflictDialog() -> impl IntoView {
                     let rev = e.conflict.with_untracked(|c| c.as_ref().map(|c| c.current.clone()));
                     e.conflict_revert.set(None);
                     e.end_conflict();
-                    route::go(Route::Activity(rev));
+                    route::go(Route::Activity(rev.and_then(|r| crate::screens::activity::entry_of_rev(&r))));
                 }/>
                 <Button label=Signal::derive(move || format!("Review my draft on rev {}", current())) variant="primary" icon="refresh" testid="conflict-recheck" on_click=move |_| recheck(s)/>
             </div>
