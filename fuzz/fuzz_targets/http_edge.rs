@@ -201,6 +201,7 @@ fn settings(http: SocketAddr) -> ProxySettings {
             hosts: vec![host.to_string()],
             tls: tls.clone(),
             https_redirect: *redirect,
+            options: burrow_web::SiteOptions::default(),
         })
         .collect();
     s.tunnel = Some(TunnelSettings {
