@@ -339,9 +339,7 @@ fn target_tls(
             let ca = c.ca.trim();
             let problem = match std::fs::read(base_dir.join(ca)) {
                 Err(e) => Some(format!("cannot read {ca}: {}", file_reason(&e))),
-                Ok(pem) => burrow_web::tls::acme::http::trusted_roots(Some(&pem))
-                    .err()
-                    .map(|e| format!("{ca} {e}")),
+                Ok(pem) => not_a_ca(&pem).map(|e| format!("{ca} {e}")),
             };
             if let Some(p) = problem {
                 out.push(
@@ -464,4 +462,14 @@ fn pages(dir: &str, at: &At<'_>, base_dir: &Path, out: &mut Vec<Diagnostic>) {
             }
         }
     }
+}
+
+#[cfg(feature = "web")]
+fn not_a_ca(pem: &[u8]) -> Option<String> {
+    burrow_web::tls::acme::http::trusted_roots(Some(pem)).err()
+}
+
+#[cfg(not(feature = "web"))]
+fn not_a_ca(_pem: &[u8]) -> Option<String> {
+    None
 }
