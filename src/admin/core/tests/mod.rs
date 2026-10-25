@@ -136,17 +136,16 @@ pub fn world() -> World {
 
 fn settings_of(text: &str) -> ServerSettings {
     let nothing = |_: &str| None;
-    match load_str(
+    let o = load_str(
         "server.yaml",
         text,
         Format::Yaml,
         Some(Role::Server),
         &nothing,
-    )
-    .loaded
-    {
+    );
+    match o.loaded {
         Some(Loaded::Server(s, _)) => *s,
-        _ => panic!("loads"),
+        _ => panic!("loads: {:#?}", o.report.diagnostics),
     }
 }
 

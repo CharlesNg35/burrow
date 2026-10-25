@@ -18,7 +18,7 @@ fn tls_dir() -> tempfile::TempDir {
     dir
 }
 
-fn load_in(dir: &Path, rest: &str) -> Outcome {
+pub(super) fn load_in(dir: &Path, rest: &str) -> Outcome {
     let text = format!("clients:\n  home: {{ secret: \"{SECRET}\" }}\n{rest}");
     load_str_in(
         dir,
@@ -30,8 +30,65 @@ fn load_in(dir: &Path, rest: &str) -> Outcome {
     )
 }
 
+fn paths_after(text: &str, field: &str) -> Vec<String> {
+    let mut found = Vec::new();
+    let mut from = 0;
+    while let Some(i) = text[from..].find(field) {
+        let at = from + i;
+        from = at + field.len();
+        let before = text[..at].chars().next_back();
+        if before.is_some_and(|c| c.is_alphanumeric() || c == '_') {
+            continue;
+        }
+        let path: String = text[from..]
+            .trim_start_matches(' ')
+            .chars()
+            .take_while(|c| !matches!(c, ',' | '}' | ' ' | '\n' | '"'))
+            .collect();
+        if !path.is_empty() {
+            found.push(path);
+        }
+    }
+    found
+}
+
+pub(super) fn files_for(text: &str) -> tempfile::TempDir {
+    let dir = tempfile::tempdir().unwrap();
+    let names: Vec<String> = text
+        .split(|c: char| c.is_whitespace() || "[]{},:\"'#".contains(c))
+        .filter(|t| {
+            t.contains('.') && !t.contains('/') && !t.ends_with(".pem") && !t.ends_with(".key")
+        })
+        .filter_map(|t| {
+            burrow_syntax::web::host_name(t, burrow_syntax::web::SingleLabel::Allowed).ok()
+        })
+        .collect();
+    let names = if names.is_empty() {
+        vec!["example.com".to_string()]
+    } else {
+        names
+    };
+    for (cert, key) in paths_after(text, "cert:")
+        .into_iter()
+        .zip(paths_after(text, "key:"))
+    {
+        let pair = rcgen::KeyPair::generate().unwrap();
+        let made = rcgen::CertificateParams::new(names.clone())
+            .unwrap()
+            .self_signed(&pair)
+            .unwrap();
+        for (file, body) in [(cert, made.pem()), (key, pair.serialize_pem())] {
+            let path = dir.path().join(file);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, body).unwrap();
+        }
+    }
+    dir
+}
+
 pub(super) fn load(rest: &str) -> Outcome {
-    load_in(Path::new("."), rest)
+    let dir = files_for(rest);
+    load_in(dir.path(), rest)
 }
 
 pub(super) fn errors(o: &Outcome) -> Vec<String> {

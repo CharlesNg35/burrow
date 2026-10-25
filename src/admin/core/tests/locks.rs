@@ -32,7 +32,12 @@ impl Site {
 
 fn pair(dir: &std::path::Path, stem: &str) {
     let key = rcgen::KeyPair::generate().unwrap();
-    let params = rcgen::CertificateParams::new(vec!["nas.example.com".to_string()]).unwrap();
+    let params = rcgen::CertificateParams::new(
+        ["nas.example.com", "*.example.com", "example.com"]
+            .map(String::from)
+            .to_vec(),
+    )
+    .unwrap();
     let cert = params.self_signed(&key).unwrap();
     std::fs::write(dir.join(format!("{stem}.pem")), cert.pem()).unwrap();
     std::fs::write(dir.join(format!("{stem}.key")), key.serialize_pem()).unwrap();
@@ -183,7 +188,8 @@ fn the_files_stay_editable_by_file_and_a_revert_keeps_the_current_ones() {
     let edited = core
         .read()
         .unwrap()
-        .replace(&site.file("a.pem"), &site.file("b.pem"));
+        .replace(&site.file("a.pem"), &site.file("b.pem"))
+        .replace(&site.file("a.key"), &site.file("b.key"));
     core.store.write(&core.read().unwrap(), &edited).unwrap();
     let edit = plan::compute(
         &core,

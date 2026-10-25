@@ -1,5 +1,3 @@
-use std::path::Path;
-
 use super::tests::{SECRET, errors, settings};
 use crate::config::load::load_str_in;
 use crate::config::{Format, Outcome, Role};
@@ -11,8 +9,9 @@ fn load(text: &str) -> Outcome {
         "CF_TOKEN" | "TSIG" => Some("c2VjcmV0".to_string()),
         _ => None,
     };
+    let dir = super::tests::files_for(text);
     load_str_in(
-        Path::new("."),
+        dir.path(),
         "server.yaml",
         text,
         Format::Yaml,

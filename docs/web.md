@@ -141,7 +141,7 @@ web:
 ```
 
 - Paths are relative to the config file. A file is used only for the names its `hosts` lists, and each name may be listed in one entry only.
-- burrow checks that the key matches the certificate and that the certificate covers each listed name.
+- `burrow validate` (and every start and reload) reads the files: it refuses one it cannot read, one that is not PEM, a key that does not fit its certificate, and a certificate that does not cover a name it is used for.
 - A file that changes on disk, for example after `certbot renew`, is used from the next reload; a file that breaks keeps the last good certificate in use.
 - burrow warns 14 days before a file expires.
 
@@ -346,6 +346,8 @@ server: wss://tunnel.example.com/burrow
 | a check where no certificate is ordered | `services.nas.web.challenge: the app keeps its own certificate (tls: passthrough); remove challenge` |
 | an entry in `web.certificates` without its files | `web.certificates[0] needs hosts, cert and key: hosts names which names use the file, cert and key are the files` |
 | a wildcard from Let's Encrypt | `services.apps.web.hosts: "*.apps.example.com" needs DNS-01 (...); DNS checks come in a later phase, so add a certificate file under web.certificates or tls` |
+| a certificate file that cannot be used | `web.certificates[0]: cannot read cert "certs/home.pem": file not found`, or `... certs/home.key does not fit certs/home.pem` |
+| a file that does not cover a name | `services.portal.web.tls: certs/portal.pem does not cover "www.portal.example.com"; add the name to the certificate, move the name to another service, or list it in web.certificates` |
 | a name in two certificate entries | `host "files.example.com" is listed in web.certificates[0] and [2]; list it in one entry only` |
 | a name that is not a host name | `services.blog.web.hosts: "https://blog.example.com" is not a host name; write the name alone, like blog.example.com` |
 | a short name on an HTTPS site | `"nas" is a single-label name; ... use a full name like nas.home.example.com, or set tls: off` |

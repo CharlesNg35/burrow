@@ -313,6 +313,8 @@ pub(super) fn check_sites(
         }
     }
     certs::check_sources(cfg, (https, http), spans, out);
+    #[cfg(feature = "web")]
+    pem::check_files(cfg, base_dir, spans, out);
     choices::check_choices(cfg, (https, http), spans, out);
     low::check_low_ports((https, http), spans, out);
     sites
@@ -483,6 +485,8 @@ mod challenge;
 mod choices;
 mod fill;
 mod low;
+#[cfg(feature = "web")]
+mod pem;
 mod share;
 
 pub(super) use fill::settings;
@@ -508,6 +512,9 @@ mod tests_keys;
 
 #[cfg(all(test, feature = "web"))]
 mod tests_tunnel;
+
+#[cfg(all(test, feature = "web"))]
+mod tests_pem;
 
 #[cfg(all(test, feature = "web"))]
 mod tests_settings;
