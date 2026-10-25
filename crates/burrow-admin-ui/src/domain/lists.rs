@@ -30,6 +30,9 @@ fn facet(entity: &Entity, name: &str) -> String {
 }
 
 pub(super) fn list_editor(fc: FieldCtx, item: Node) -> AnyView {
+    if matches!(inner(&item).sem, SemType::Object(_)) {
+        return super::objects::object_list(fc, item);
+    }
     let e = store().edit;
     let path = fc.path.clone();
     let items = Signal::derive(move || match e.value(&path) {
@@ -82,7 +85,12 @@ pub(super) fn list_editor(fc: FieldCtx, item: Node) -> AnyView {
     .into_any()
 }
 
-pub(super) fn map_editor(fc: FieldCtx, entity: Option<Entity>, value_node: Node) -> AnyView {
+pub(super) fn map_editor(
+    fc: FieldCtx,
+    entity: Option<Entity>,
+    key: Option<Node>,
+    value_node: Node,
+) -> AnyView {
     let e = store().edit;
     let path = fc.path.clone();
     let keys = Memo::new(move |_| match e.value(&path) {
@@ -119,7 +127,9 @@ pub(super) fn map_editor(fc: FieldCtx, entity: Option<Entity>, value_node: Node)
         o
     });
     let p_add = fc.path.clone();
+    let free = key.is_some() && entity.is_none();
     let add_default = match &inner(&value_node).sem {
+        _ if free => Value::String(String::new()),
         SemType::Union(_) | SemType::Text(_) | SemType::Enum(_) => Value::String("any".into()),
         SemType::List(_) => Value::Array(Vec::new()),
         _ => Value::Object(Default::default()),
@@ -157,7 +167,7 @@ pub(super) fn map_editor(fc: FieldCtx, entity: Option<Entity>, value_node: Node)
                 view! {
                     <div class="grid grid-cols-[minmax(0,8rem)_minmax(0,1fr)_auto] items-start gap-2 py-1" data-key=k.clone()>
                         <span class="truncate pt-2 font-mono text-sm">{label}</span>
-                        <div class="min-w-0">{editor(sub)}</div>
+                        <div class="min-w-0">{if free && matches!(inner(&value_node).sem, SemType::Text(_)) { super::keyed::string_editor(sub) } else { editor(sub) }}</div>
                         <button
                             type="button"
                             class=button_class("ghost", true)
@@ -174,6 +184,7 @@ pub(super) fn map_editor(fc: FieldCtx, entity: Option<Entity>, value_node: Node)
     view! {
         <div class="space-y-1" id=fc.id.clone()>
             {rows}
+            {key.filter(|_| entity.is_none()).map(|key| super::keyed::key_adder(fc.id.clone(), fc.node.label.clone(), key, keys, add.clone()))}
             {entity.is_some().then(|| view! {
                 <div class="w-60">
                     <Select
@@ -256,6 +267,9 @@ pub(super) fn union_editor(fc: FieldCtx, u: UnionC) -> AnyView {
     }
     if super::website::is_site_tls(&fc) {
         return super::website::tls_editor(fc);
+    }
+    if super::target_tls::is_target_tls(&fc) {
+        return super::target_tls::target_tls_editor(fc);
     }
     if let Some(item) = super::website::host_item(&u) {
         return super::website::website_editor(fc, item);

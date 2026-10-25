@@ -141,7 +141,7 @@ fn service_of(status: &Status, name: &str) -> Option<String> {
     web.hosts
         .iter()
         .find(|h| h.name == name)
-        .map(|h| h.service.clone())
+        .and_then(|h| h.first_service().map(str::to_string))
 }
 
 pub fn notices(status: &Status, now: u64) -> Vec<Notice> {

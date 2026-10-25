@@ -98,7 +98,7 @@ pub struct CloudflareDns {
         description = "The API token, from ${CF_TOKEN} or file:path; allowed Zone:Read and DNS:Edit on these zones only"
     )]
     #[admin(
-        ty = secret_ref(max = 1),
+        ty = secret_ref(max = 1, reference),
         label = "API token",
         help = "An API token allowed Zone:Read and DNS:Edit on these zones only, from an environment variable like ${CF_TOKEN} or a file like file:/etc/burrow/cf.token"
     )]
@@ -128,7 +128,7 @@ pub struct Rfc2136Dns {
         description = "The TSIG secret in base64, as in the server's key file, from ${TSIG_SECRET} or file:path"
     )]
     #[admin(
-        ty = secret_ref(max = 1),
+        ty = secret_ref(max = 1, reference),
         label = "Key secret",
         help = "The TSIG secret in base64, as in the server's key file, from an environment variable like ${TSIG_SECRET} or a file like file:/etc/burrow/tsig.secret"
     )]
@@ -150,14 +150,14 @@ pub struct AcmeDnsDns {
     pub api: String,
     #[schemars(description = "The account's user name, from ${ACMEDNS_USER} or file:path")]
     #[admin(
-        ty = secret_ref(max = 1),
+        ty = secret_ref(max = 1, reference),
         label = "User name",
         help = "The acme-dns account's user name, from an environment variable like ${ACMEDNS_USER} or a file"
     )]
     pub username: String,
     #[schemars(description = "The account's password, from ${ACMEDNS_KEY} or file:path")]
     #[admin(
-        ty = secret_ref(max = 1),
+        ty = secret_ref(max = 1, reference),
         help = "The acme-dns account's password, from an environment variable like ${ACMEDNS_KEY} or a file"
     )]
     pub password: String,

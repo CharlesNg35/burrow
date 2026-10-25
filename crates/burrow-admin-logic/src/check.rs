@@ -164,6 +164,12 @@ fn check_sem(sem: &SemType, v: &Value) -> Result<(), String> {
             Value::Object(m) => m.values().try_for_each(|x| check(&c.value, x)),
             _ => Err("expected a group of settings".into()),
         },
+        SemType::SecretRef(c) if c.reference => match v {
+            Value::String(s) if !burrow_syntax::env::is_reference(s) => Err(
+                "write an environment variable like ${CF_TOKEN} or a file like file:/etc/burrow/token, never the secret itself".into(),
+            ),
+            _ => Ok(()),
+        },
         SemType::SecretRef(_) | SemType::Unknown(_) => Ok(()),
     }
 }
@@ -401,6 +407,24 @@ mod tests {
 
     fn bad(sem: SemType, v: Value) -> String {
         check(&node(sem.clone()), &v).expect_err(&format!("{sem:?} accepted {v}"))
+    }
+
+    #[test]
+    fn a_reference_secret_takes_a_variable_or_a_file_only() {
+        use burrow_admin_proto::schema::SecretRefC;
+        let node = Node::new(SemType::SecretRef(SecretRefC {
+            max: 1,
+            reference: true,
+        }));
+        assert!(check(&node, &json!("${CF_TOKEN}")).is_ok());
+        assert!(check(&node, &json!("file:/etc/burrow/cf.token")).is_ok());
+        let e = check(&node, &json!("pasted-token")).unwrap_err();
+        assert!(e.contains("never the secret itself"), "{e}");
+        let tunnel = Node::new(SemType::SecretRef(SecretRefC {
+            max: 4,
+            reference: false,
+        }));
+        assert!(check(&tunnel, &json!("anything")).is_ok());
     }
 
     #[test]

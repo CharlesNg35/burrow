@@ -197,6 +197,10 @@ fn sem_view(sem: &SemType, node: &Node, v: &Value, ctx: &Ctx) -> AnyView {
         SemType::Ref(c) => ref_link(c.entity.section(), &plain(v), &c.reserved, ctx),
         SemType::RefList(c) => ref_list_view(c, v, ctx),
         SemType::RefMap(c) => ref_map_view(c, v, ctx),
+        SemType::SecretRef(c) if c.reference && v.is_string() => {
+            let shown = format!("set, from {}", plain(v));
+            view! { <span class="font-mono text-sm" data-secret-ref="">{shown}</span> }.into_any()
+        }
         SemType::SecretRef(_) => secrets_view(v),
         SemType::List(c) => list_view(c, v, ctx),
         SemType::Map(c) => map_view(c, v, ctx),

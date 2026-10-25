@@ -24,7 +24,7 @@ fn extras(site: &WebSite, path: &str, trusted: bool) -> String {
         parts.push("maintenance page".into());
     }
     if site.tls == WebTls::Off && site.https_redirect && trusted {
-        parts.push("http:// at the proxy redirects to https:// (by X-Forwarded-Proto)".into());
+        parts.push("http:// at the proxy redirects to https:// by X-Forwarded-Proto".into());
     }
     if parts.is_empty() {
         String::new()
@@ -41,6 +41,7 @@ fn site_routes(service: &str, site: &WebSite, trusted: bool) -> Vec<RouteLine> {
         .map(|r| RouteLine {
             path: r.from.clone(),
             to: format!("redirect {} ({})", r.to, kind(r.permanent)),
+            service: String::new(),
         })
         .collect();
     let paths: Vec<&str> = if site.options.paths.is_empty() {
@@ -52,6 +53,7 @@ fn site_routes(service: &str, site: &WebSite, trusted: bool) -> Vec<RouteLine> {
         out.push(RouteLine {
             path: p.to_string(),
             to: format!("service {service}{}", extras(site, p, trusted)),
+            service: service.to_string(),
         });
     }
     out
@@ -63,6 +65,7 @@ fn sorted(mut routes: Vec<RouteLine>) -> Vec<RouteLine> {
         routes.push(RouteLine {
             path: NOT_FOUND.into(),
             to: "404".into(),
+            service: String::new(),
         });
     }
     routes
@@ -96,6 +99,7 @@ pub(super) fn hosts(web: &WebSettings) -> Vec<HostLine> {
             let route = RouteLine {
                 path: "/".into(),
                 to: format!("redirect https://{first} (permanent)"),
+                service: String::new(),
             };
             lines.insert(name.clone(), (line, vec![route], 2));
         }
@@ -104,6 +108,7 @@ pub(super) fn hosts(web: &WebSettings) -> Vec<HostLine> {
         let route = RouteLine {
             path: r.path.clone(),
             to: format!("redirect {} ({})", r.to, kind(r.permanent)),
+            service: String::new(),
         };
         let entry = lines.entry(r.host.clone()).or_insert_with(|| {
             let (certificate, check) = if web.https.is_some() {

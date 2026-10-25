@@ -60,6 +60,8 @@ pub struct HostLine {
 pub struct RouteLine {
     pub path: String,
     pub to: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub service: String,
 }
 
 pub const NOT_FOUND: &str = "everything else";
@@ -146,6 +148,12 @@ impl HostLine {
             self.served(),
             self.service
         )
+    }
+
+    pub fn first_service(&self) -> Option<&str> {
+        std::iter::once(self.service.as_str())
+            .chain(self.routes.iter().map(|r| r.service.as_str()))
+            .find(|s| !s.is_empty())
     }
 
     pub fn unencrypted(&self) -> bool {

@@ -136,6 +136,8 @@ pub struct NameC {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SecretRefC {
     pub max: u32,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub reference: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

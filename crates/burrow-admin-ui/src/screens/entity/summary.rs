@@ -105,6 +105,10 @@ pub(super) fn overview(section: &str, name: &str, stats: bool) -> impl IntoView 
                             <Stat label="In" value=i unit=iu detail=limit.clone().unwrap_or_else(|| x.as_ref().map(|x| format::bytes(x.bytes_in)).unwrap_or_default())/>
                             <Stat label="Out" value=o unit=ou detail=limit.unwrap_or_else(|| x.as_ref().map(|x| format::bytes(x.bytes_out)).unwrap_or_default())/>
                             <Stat label="Refused by filters" value=x.as_ref().map(|x| format::count(x.refused)).unwrap_or_else(|| "0".into()) detail="by the allow and deny lists"/>
+                            {x.as_ref().and_then(|x| x.http.clone()).map(|h| {
+                                let total: u64 = h.responses.iter().sum();
+                                view! { <Stat label="Web answers" value=format::count(total) detail=by_class(&h.responses)/> }
+                            })}
                         </Stats>
                     }
                     .into_any();
@@ -323,5 +327,19 @@ pub(super) fn served(name: &str) -> impl IntoView {
             </div>
         }
         .into_any()
+    }
+}
+
+fn by_class(responses: &[u64; 5]) -> String {
+    let set: Vec<String> = responses
+        .iter()
+        .enumerate()
+        .filter(|(_, n)| **n > 0)
+        .map(|(i, n)| format!("{}xx {}", i + 1, format::count(*n)))
+        .collect();
+    if set.is_empty() {
+        "none yet".into()
+    } else {
+        set.join(" · ")
     }
 }

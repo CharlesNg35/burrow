@@ -266,7 +266,8 @@ fn scalar_sem(
         }
         "secret_ref" => {
             let max = Term::value(args, "max").and_then(Term::as_int).unwrap_or(4) as u32;
-            quote!(#p::SemType::SecretRef(#p::SecretRefC { max: #max }))
+            let reference = Term::flag(args, "reference");
+            quote!(#p::SemType::SecretRef(#p::SecretRefC { max: #max, reference: #reference }))
         }
         "path" => {
             let must = Term::flag(args, "must_exist");

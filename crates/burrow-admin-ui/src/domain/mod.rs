@@ -1,5 +1,8 @@
 mod basic;
+mod keyed;
 mod lists;
+mod objects;
+mod target_tls;
 mod units;
 mod website;
 
@@ -133,8 +136,9 @@ fn by_sem(fc: FieldCtx, sem: &SemType) -> AnyView {
         SemType::Ref(r) => crate::addr::picker(fc, r.entity.clone(), false),
         SemType::RefList(r) => crate::addr::picker(fc, r.entity.clone(), true),
         SemType::List(l) => list_editor(fc, (*l.item).clone()),
-        SemType::RefMap(m) => map_editor(fc, Some(m.entity.clone()), (*m.value).clone()),
-        SemType::Map(m) => map_editor(fc, None, (*m.value).clone()),
+        SemType::RefMap(m) => map_editor(fc, Some(m.entity.clone()), None, (*m.value).clone()),
+        SemType::Map(m) => map_editor(fc, None, Some((*m.key).clone()), (*m.value).clone()),
+        SemType::SecretRef(c) if c.reference => text_editor(fc, Some(sem.clone())),
         SemType::SecretRef(c) => crate::secrets::secret_list(fc.path.clone(), fc.id.clone(), c.max),
         SemType::Union(u) => union_editor(fc, u.clone()),
         SemType::Optional(o) => {

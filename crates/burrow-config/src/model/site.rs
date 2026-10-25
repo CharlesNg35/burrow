@@ -38,7 +38,10 @@ pub struct WebSite {
         label = "Send http:// to https://",
         help = "Send a visitor who types http://nas.example.com to https://nas.example.com, or answer plain HTTP too",
         none_label = "As the web proxy says",
-        visible_if(all(ne(tls, "passthrough"), ne(tls, "off")))
+        visible_if(all(
+            ne(tls, "passthrough"),
+            any(ne(tls, "off"), set("/web/trusted_proxies"))
+        ))
     )]
     pub https_redirect: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
