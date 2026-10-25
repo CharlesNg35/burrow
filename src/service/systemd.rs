@@ -132,7 +132,11 @@ impl Backend for Systemd {
         if let Some(env) = &m.env_file {
             s.push_str(&format!("EnvironmentFile={}\n", quote(env)));
         }
-        s.push_str("Restart=on-failure\nRestartSec=5\nRestartPreventExitStatus=2 3\nRestartForceExitStatus=SIGHUP\nLimitNOFILE=1048576\nUMask=0077\n");
+        s.push_str(&format!(
+            "Restart=on-failure\nRestartSec=5\nRestartPreventExitStatus={} {}\nRestartForceExitStatus=SIGHUP\nLimitNOFILE=1048576\nUMask=0077\n",
+            crate::base::failure::EXIT_USAGE,
+            crate::base::failure::EXIT_CONFIG
+        ));
         s.push_str(&format!("ReadWritePaths={INSTANCE_DIR}\n"));
         if m.admin_writable {
             s.push_str(&format!("ReadWritePaths={}\n", quote(m.folder())));
@@ -508,6 +512,11 @@ mod tests {
     fn the_server_unit_is_unchanged_byte_for_byte() {
         let unit = Systemd.render(&server_manifest());
         assert_eq!(unit, GOLDEN_UNIT);
+        assert!(unit.contains(&format!(
+            "RestartPreventExitStatus={} {}\n",
+            crate::base::failure::EXIT_USAGE,
+            crate::base::failure::EXIT_CONFIG
+        )));
     }
 
     #[test]
