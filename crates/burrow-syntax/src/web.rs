@@ -151,6 +151,10 @@ pub fn expires_soon(not_after: u64, now: u64) -> bool {
     not_after.saturating_sub(now) < EXPIRY_WARNING_SECS
 }
 
+pub const DNS_WAIT_SECS: u64 = 120;
+pub const DNS_WAIT_MIN_SECS: u64 = 10;
+pub const DNS_WAIT_MAX_SECS: u64 = 3600;
+
 mod check;
 pub mod headers;
 pub mod pages;

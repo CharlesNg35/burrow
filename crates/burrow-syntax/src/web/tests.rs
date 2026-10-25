@@ -315,5 +315,6 @@ fn a_certificate_is_due_for_the_warning_strictly_inside_14_days() {
     assert!(!expires_soon(now + EXPIRY_WARNING_SECS, now));
     assert!(expires_soon(now + EXPIRY_WARNING_SECS - 1, now));
     assert!(expires_soon(now - 5, now));
+    const { assert!(DNS_WAIT_MIN_SECS <= DNS_WAIT_SECS && DNS_WAIT_SECS <= DNS_WAIT_MAX_SECS) };
     assert!(LETSENCRYPT_STAGING.contains("acme-staging"));
 }

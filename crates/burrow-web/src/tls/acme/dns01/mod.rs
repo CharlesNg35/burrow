@@ -22,7 +22,7 @@ pub mod solve;
 pub mod system;
 pub mod wire;
 
-pub const DEFAULT_WAIT: Duration = Duration::from_secs(120);
+pub const DEFAULT_WAIT: Duration = Duration::from_secs(burrow_syntax::web::DNS_WAIT_SECS);
 pub const TXT_TTL: u32 = 60;
 
 pub type Fut<'a> = Pin<Box<dyn Future<Output = Result<(), Refusal>> + Send + 'a>>;

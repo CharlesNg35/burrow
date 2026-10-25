@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use zeroize::Zeroizing;
 
-pub const DNS_WAIT: Duration = Duration::from_secs(120);
+pub const DNS_WAIT: Duration = Duration::from_secs(burrow_syntax::web::DNS_WAIT_SECS);
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct SecretText(Zeroizing<String>);
