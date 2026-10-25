@@ -50,7 +50,7 @@ pub(super) fn head_actions(p: &Parts, can: bool) -> impl Fn() -> AnyView + use<>
                 icon="edit"
                 testid="edit"
                 disabled=!can
-                reason=if can { String::new() } else { format!("Editing needs write admin. {} has read.", s.welcome.with_untracked(|w| w.as_ref().map(|w| w.you.visitor.clone()).unwrap_or_default())) }
+                reason=if can { String::new() } else { burrow_admin_logic::wording::needs_write_admin(burrow_admin_logic::wording::WriteAction::Edit, s.welcome.with_untracked(|w| w.as_ref().map(|w| w.you.visitor.clone())).as_deref()) }
                 on_click=move |_| start_edit()
             />
             <div class="relative" class:hidden=!can>

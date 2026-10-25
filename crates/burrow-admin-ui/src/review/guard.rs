@@ -2,7 +2,7 @@ use burrow_admin_proto::plan::Refusal;
 use burrow_admin_proto::serde_json::Value;
 use burrow_admin_proto::value::get;
 use burrow_config::{Entry, VisitorEntry};
-use burrow_syntax::grant::is_grant_code;
+use burrow_syntax::grant::{SELF_DEMOTED, SELF_REMOVED, SELF_SECRET, SELF_SOURCE, is_grant_code};
 use burrow_ui_kit::{
     Callout, Edge, EdgeState, Hop, HopState, Icon, PathData, PathDiagram, Tone, button_class,
 };
@@ -36,15 +36,15 @@ pub(super) fn guard(refusals: &[Refusal]) -> Guard {
             .map(|w| (w.you.visitor.clone(), w.you.from.clone()))
             .unwrap_or_default()
     });
-    let code = ["self-removed", "self-demoted", "self-source", "self-secret"]
+    let code = [SELF_REMOVED, SELF_DEMOTED, SELF_SOURCE, SELF_SECRET]
         .into_iter()
         .find(|c| refusals.iter().any(|r| r.code == *c))
         .map(str::to_string)
         .or_else(|| refusals.first().map(|r| r.code.clone()))
         .unwrap_or_default();
     let path = match code.as_str() {
-        "self-demoted" => VisitorEntry::ADMIN.of(&me),
-        "self-source" => VisitorEntry::ADMIN_FROM.of(&me),
+        SELF_DEMOTED => VisitorEntry::ADMIN.of(&me),
+        SELF_SOURCE => VisitorEntry::ADMIN_FROM.of(&me),
         _ => VisitorEntry::path(&me),
     };
     let base = e.draft.with_untracked(|d| list_at(get(d.base(), &path)));
@@ -66,12 +66,12 @@ fn lockout_path(g: &Guard) -> PathData {
         format!("this session · {}", g.ip)
     };
     let (above, below) = match g.code.as_str() {
-        "self-removed" => ("removed".to_string(), String::new()),
-        "self-demoted" => (
+        SELF_REMOVED => ("removed".to_string(), String::new()),
+        SELF_DEMOTED => (
             VisitorEntry::ADMIN.key().to_string(),
             "not write".to_string(),
         ),
-        "self-source" => (
+        SELF_SOURCE => (
             VisitorEntry::ADMIN_FROM.key().to_string(),
             if g.now.is_empty() {
                 "empty".to_string()
@@ -79,7 +79,7 @@ fn lockout_path(g: &Guard) -> PathData {
                 g.now.join(", ")
             },
         ),
-        "self-secret" => (
+        SELF_SECRET => (
             VisitorEntry::SECRET.key().to_string(),
             "removed".to_string(),
         ),
@@ -120,13 +120,11 @@ fn lockout_path(g: &Guard) -> PathData {
 
 pub(super) fn footer_text(g: &Guard) -> String {
     match g.code.as_str() {
-        "self-source" if !g.base.is_empty() => format!(
+        SELF_SOURCE if !g.base.is_empty() => format!(
             "Keep {} in Admin only from, or apply from an allowed address.",
             g.base.join(", ")
         ),
-        "self-source" => {
-            "Undo the Admin only from change, or apply from an allowed address.".into()
-        }
+        SELF_SOURCE => "Undo the Admin only from change, or apply from an allowed address.".into(),
         _ => "Change it back to keep your admin access.".into(),
     }
 }
@@ -197,14 +195,14 @@ pub(super) fn lockout_fixes(g: Guard) -> impl IntoView {
     let (p1, p2, ip2) = (g.path.clone(), g.path.clone(), g.ip.clone());
     let fixable = matches!(
         g.code.as_str(),
-        "self-removed" | "self-demoted" | "self-source" | "self-secret"
+        SELF_REMOVED | SELF_DEMOTED | SELF_SOURCE | SELF_SECRET
     );
     let can_allow =
-        g.code == "self-source" && !g.ip.is_empty() && e.peek(&g.path).is_none_or(|v| v.is_array());
+        g.code == SELF_SOURCE && !g.ip.is_empty() && e.peek(&g.path).is_none_or(|v| v.is_array());
     let keep = match g.code.as_str() {
-        "self-removed" => format!("Keep visitor {}", g.me),
-        "self-demoted" => "Keep write admin".to_string(),
-        "self-source" if !g.base.is_empty() => format!("Keep {}", g.base.join(", ")),
+        SELF_REMOVED => format!("Keep visitor {}", g.me),
+        SELF_DEMOTED => "Keep write admin".to_string(),
+        SELF_SOURCE if !g.base.is_empty() => format!("Keep {}", g.base.join(", ")),
         _ => "Undo this change".to_string(),
     };
     let ip = g.ip.clone();

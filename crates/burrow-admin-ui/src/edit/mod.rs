@@ -462,9 +462,11 @@ mod tests {
         let locked = ErrorBody {
             code: ErrorCode::LockedOut,
             message: "no".into(),
-            body: json!({"reasons": [{"code": "self-demoted", "message": "you would lose write access"}]}),
+            body: json!({"reasons": [{"code": burrow_syntax::grant::SELF_DEMOTED, "message": "you would lose write access"}]}),
         };
-        assert!(matches!(outcome_of(&locked), Outcome::Refused(r) if r[0].code == "self-demoted"));
+        assert!(
+            matches!(outcome_of(&locked), Outcome::Refused(r) if r[0].code == burrow_syntax::grant::SELF_DEMOTED)
+        );
         let reload = ErrorBody {
             code: ErrorCode::ReloadFailed,
             message: "x".into(),

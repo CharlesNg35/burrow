@@ -1,3 +1,4 @@
+use burrow_admin_logic::wording::{WriteAction, needs_write_admin};
 use burrow_config::Protocol;
 use burrow_ui_kit::{EmptyState, Icon, Kbd, LABEL, Tone, tag_class};
 use leptos::prelude::*;
@@ -259,7 +260,7 @@ fn new_menu_button(menu: Vec<NewChoice>, label: String, disabled: bool) -> impl 
                 aria-haspopup="menu"
                 aria-expanded=move || open.get().to_string()
                 disabled=disabled
-                title=disabled.then_some("Adding needs write admin.")
+                title=disabled.then(|| needs_write_admin(WriteAction::Add, None))
                 data-testid="new"
                 on:click=move |_| open.update(|o| *o = !*o)
             >
@@ -292,7 +293,7 @@ fn new_button(
                 class="ml-auto flex size-[30px] cursor-pointer items-center justify-center rounded-md bg-accent text-on-accent hover:brightness-95 dark:hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-55"
                 aria-label=label
                 disabled=new_disabled
-                title=new_disabled.then_some("Adding needs write admin.")
+                title=new_disabled.then(|| needs_write_admin(WriteAction::Add, None))
                 data-testid="new"
                 on:click=move |_| cb.run(())
             >

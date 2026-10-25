@@ -154,7 +154,7 @@ pub fn Settings() -> impl IntoView {
                     <p class="mt-1 text-base text-text-muted">"Everything in server.yaml besides clients, visitors and services. Each field says when it takes effect."</p>
                 </div>
                 {move || (!editing.get()).then(|| view! {
-                    <burrow_ui_kit::Button label="Edit" icon="edit" testid="edit" disabled=!can reason=if can { String::new() } else { "Editing needs write admin".to_string() } on_click=start/>
+                    <burrow_ui_kit::Button label="Edit" icon="edit" testid="edit" disabled=!can reason=if can { String::new() } else { burrow_admin_logic::wording::needs_write_admin(burrow_admin_logic::wording::WriteAction::Edit, None) } on_click=start/>
                 })}
             </header>
             <div data-testid="settings">{body}</div>
