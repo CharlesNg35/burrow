@@ -349,7 +349,7 @@ impl Backend for WindowsService {
             grant(dir, &m.account, "(OI)(CI)M")?;
         }
         for f in &m.files {
-            grant(f, &m.account, "R")?;
+            grant(f, &m.account, read_rights(f))?;
         }
         if m.admin_writable {
             grant(m.folder(), &m.account, "(OI)(CI)M")?;
@@ -381,7 +381,7 @@ impl Backend for WindowsService {
             grant(env, &m.account, "R")?;
         }
         for f in &m.files {
-            grant(f, &m.account, "R")?;
+            grant(f, &m.account, read_rights(f))?;
         }
         if service
             .query_status()
@@ -470,6 +470,11 @@ impl Backend for WindowsService {
         }
     }
 }
+
+fn read_rights(path: &Path) -> &'static str {
+    if path.is_dir() { "(OI)(CI)R" } else { "R" }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

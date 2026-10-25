@@ -16,6 +16,7 @@ mod previous;
 #[cfg(target_os = "linux")]
 mod systemd;
 mod uninstall;
+mod web_files;
 #[cfg(windows)]
 mod windows;
 

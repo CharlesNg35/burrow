@@ -101,3 +101,108 @@ fn the_tunnel_sharing_the_web_port_counts_as_one_low_port() {
         low[0].message
     );
 }
+
+fn web_config(root: &str) -> burrow_config::ServerConfig {
+    let at = |p: &str| format!("{root}{p}");
+    serde_json::from_value(serde_json::json!({
+        "web": {
+            "https": 443,
+            "error_pages": at("pages"),
+            "access_log": at("logs/access.log"),
+            "certificates": [{"hosts": ["a.example.com"], "cert": at("certs/a.pem"), "key": at("certs/a.key")}],
+            "letsencrypt": {
+                "email": "ops@example.com",
+                "ca": at("certs/ca.pem"),
+                "dns": [
+                    {"domains": ["example.com"], "cloudflare": {"token": format!("file:{}", at("cf.token"))}},
+                    {"domains": ["example.org"], "command": at("hooks/dns.sh")},
+                    {"domains": ["example.net"], "cloudflare": {"token": "${CF_TOKEN}"}}
+                ]
+            }
+        },
+        "services": {"blog": {"client": "home", "target": 80, "web": {
+            "hosts": ["blog.example.net"],
+            "tls": {"cert": at("certs/b.pem"), "key": at("certs/b.key")},
+            "error_pages": at("blog-pages"),
+            "target_tls": {"ca": at("certs/app-ca.pem")}
+        }}}
+    }))
+    .unwrap()
+}
+
+const WEB_FIELDS: [&str; 10] = [
+    "services.blog.web.tls.cert",
+    "services.blog.web.tls.key",
+    "services.blog.web.target_tls.ca",
+    "services.blog.web.error_pages",
+    "web.certificates[0].cert",
+    "web.certificates[0].key",
+    "web.error_pages",
+    "web.letsencrypt.ca",
+    "web.letsencrypt.dns[0].cloudflare.token",
+    "web.letsencrypt.dns[1].command",
+];
+
+#[test]
+fn every_file_the_web_proxy_reads_is_refused_at_install_when_relative() {
+    let cfg = web_config("");
+    let files = super::web_files::read(&cfg);
+    let fields: Vec<&str> = files.iter().map(|(f, _)| f.as_str()).collect();
+    assert_eq!(fields, WEB_FIELDS);
+    assert_eq!(files[8].1, PathBuf::from("cf.token"));
+    for (field, path) in &files {
+        let refused = super::checks::refuse_relative(&[(field.clone(), path.clone())])
+            .expect_err(field)
+            .message;
+        assert_eq!(
+            refused,
+            format!(
+                "{field} is a relative path ({}); a service needs absolute paths",
+                path.display()
+            )
+        );
+    }
+    assert_eq!(
+        super::web_files::access_log(&cfg),
+        Some(PathBuf::from("logs/access.log"))
+    );
+}
+
+#[test]
+fn a_web_file_the_service_account_cannot_read_or_reach_is_reported() {
+    let m = manifest(Some("/var/lib/burrow/home"));
+    for (field, path) in super::web_files::read(&web_config("/nonexistent-burrow-test/")) {
+        assert_eq!(
+            Systemd.cannot_use(&m, &path).as_deref(),
+            Some("its account burrow-home cannot read it"),
+            "{field}"
+        );
+    }
+    let home = super::web_files::read(&web_config("/home/someone/"));
+    let (field, path) = &home[6];
+    assert_eq!(field, "web.error_pages");
+    assert_eq!(
+        Systemd.cannot_use(&m, path).as_deref(),
+        Some("it is in a home folder, which the service was installed without access to")
+    );
+}
+
+#[test]
+fn the_access_log_must_be_in_the_services_log_folder() {
+    use super::web_files::log_folder_refusal;
+    let logs = PathBuf::from("/var/log/burrow/home");
+    assert_eq!(
+        log_folder_refusal(&PathBuf::from("/var/log/burrow-web/access.log"), &logs).unwrap(),
+        "web.access_log (/var/log/burrow-web/access.log) must be in the service's log folder, which only the service can write: use /var/log/burrow/home/access.log"
+    );
+    assert!(
+        log_folder_refusal(&PathBuf::from("logs/web.log"), &logs)
+            .unwrap()
+            .ends_with("use /var/log/burrow/home/web.log")
+    );
+    assert_eq!(
+        log_folder_refusal(&PathBuf::from("/var/log/burrow/home/access.log"), &logs),
+        None
+    );
+    assert!(log_folder_refusal(&logs, &logs).is_some());
+}

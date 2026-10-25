@@ -181,7 +181,18 @@ fn provider(i: usize, e: &DnsEntry, base_dir: &Path, spans: &Spans, out: &mut Ve
 
 fn command(i: usize, c: &str, base_dir: &Path, spans: &Spans, out: &mut Vec<Diagnostic>) {
     let here = span(spans, &at(i, &["command"]));
-    let path = base_dir.join(c.strip_prefix(FILE_PREFIX).unwrap_or(c));
+    if let Some(rest) = c.strip_prefix(FILE_PREFIX) {
+        out.push(
+            Diagnostic::error(
+                "dns-command",
+                format!("web.letsencrypt.dns[{i}].command: {c} is the path of a program, not a secret, so file: does not belong there"),
+            )
+            .at(here)
+            .help(format!("write the path itself: command: {}", rest.trim())),
+        );
+        return;
+    }
+    let path = base_dir.join(c);
     let meta = std::fs::metadata(&path).ok().filter(|m| m.is_file());
     #[cfg(unix)]
     let runnable = meta.as_ref().is_some_and(|m| {

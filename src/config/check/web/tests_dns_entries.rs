@@ -151,6 +151,22 @@ fn wait_resolvers_rfc2136_and_the_command_are_checked() {
     );
 }
 
+#[test]
+fn a_command_is_a_path_not_a_file_secret() {
+    assert_eq!(
+        errs(
+            &entry(
+                "[example.com]",
+                "command: \"file:/usr/local/bin/burrow-dns\""
+            ),
+            ""
+        ),
+        [
+            "web.letsencrypt.dns[0].command: file:/usr/local/bin/burrow-dns is the path of a program, not a secret, so file: does not belong there"
+        ]
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn a_command_others_can_change_is_a_warning() {

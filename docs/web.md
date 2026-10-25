@@ -267,7 +267,7 @@ web:
 
 #### A command for any provider
 
-`command` runs a program of yours, like lego's `exec` provider: `PROGRAM present|cleanup NAME VALUE`, where `NAME` is the record's name with a final dot (the `_acme-challenge` name, or its CNAME target). It gets no secrets from burrow and an empty environment apart from `PATH`, so it reads its own credentials from a file. It must finish within 60 seconds, and it must add the value, not replace the record: a wildcard and its parent name set two values side by side.
+`command` runs a program of yours, like lego's `exec` provider: `PROGRAM present|cleanup NAME VALUE`, where `NAME` is the record's name with a final dot (the `_acme-challenge` name, or its CNAME target). It gets no secrets from burrow and an empty environment apart from `PATH`, so it reads its own credentials from a file. It must finish within 60 seconds, and it must add the value, not replace the record: a wildcard and its parent name set two values side by side. Installed as a service, it runs as the service account under the service's limits: on Linux it cannot see /home, can write only burrow's own folders, and cannot run programs that compile code at run time (`MemoryDenyWriteExecute`, so a Node.js hook fails); keep it and its credentials file outside /home, readable by that account.
 
 ```sh
 #!/bin/sh

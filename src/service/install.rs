@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use super::checks::{
     Checked, check_config, check_files_readable, check_ports_free, refuse_another_source,
-    refuse_low_ports, refuse_running_outside,
+    refuse_running_outside, refuse_unfit,
 };
 use super::previous::{
     StartAgain, Takeover, Undo, give_old_files, given_note, own_logs, release_previous,
@@ -87,7 +87,7 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
         web_state: (checked.letsencrypt && checked.role == Role::Server)
             .then(|| crate::install::service_state_dir(&short)),
     };
-    refuse_low_ports(&*backend, &checked, &manifest)?;
+    refuse_unfit(&*backend, &checked, &manifest)?;
 
     if opts.print {
         return print_unit(&*backend, &name, &manifest, out);

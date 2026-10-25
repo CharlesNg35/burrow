@@ -12,16 +12,18 @@ use crate::install::{Manifest, all_manifests, load_manifest};
 use crate::instance::Identity;
 use burrow_config::Protocol;
 
-struct Uses {
-    listens: Vec<(Protocol, SocketAddr, String)>,
-    files: Vec<(String, PathBuf)>,
-    letsencrypt: bool,
+pub(super) struct Uses {
+    pub(super) listens: Vec<(Protocol, SocketAddr, String)>,
+    pub(super) files: Vec<(String, PathBuf)>,
+    pub(super) access_log: Option<PathBuf>,
+    pub(super) letsencrypt: bool,
 }
 
-fn uses(loaded: &Loaded) -> Uses {
+pub(super) fn uses(loaded: &Loaded) -> Uses {
     let mut files = Vec::new();
     let mut listens = Vec::new();
     let mut letsencrypt = false;
+    let mut access_log = None;
     match loaded {
         Loaded::Server(s, cfg) => {
             if let Some(l) = s.listen {
@@ -47,6 +49,8 @@ fn uses(loaded: &Loaded) -> Uses {
                 files.push(("websocket.tls.cert".to_string(), PathBuf::from(&tls.cert)));
                 files.push(("websocket.tls.key".to_string(), PathBuf::from(&tls.key)));
             }
+            files.extend(super::web_files::read(cfg));
+            access_log = super::web_files::access_log(cfg);
         }
         Loaded::Client(_, cfg) => {
             if let Some(ca) = &cfg.ca {
@@ -67,6 +71,7 @@ fn uses(loaded: &Loaded) -> Uses {
     Uses {
         listens,
         files,
+        access_log,
         letsencrypt,
     }
 }
@@ -96,10 +101,20 @@ pub(super) fn misfits_of(
     let Uses {
         listens,
         files,
+        access_log,
         letsencrypt,
     } = uses(loaded);
     let admins = admin_visitors(loaded);
     let mut out = Vec::new();
+    if let Some(why) = access_log
+        .as_deref()
+        .and_then(|l| super::web_files::log_folder_refusal(l, &service_logs(m)))
+    {
+        out.push(
+            crate::config::diagnostics::Diagnostic::error("service-unit", format!("{name}: {why}"))
+                .help(again.clone()),
+        );
+    }
     if letsencrypt && m.web_state.is_none() {
         out.push(
             crate::config::diagnostics::Diagnostic::error(
@@ -175,6 +190,7 @@ pub(super) struct Checked {
     pub(super) identity: Option<Identity>,
     pub(super) listens: Vec<(Protocol, SocketAddr, String)>,
     pub(super) files: Vec<(String, PathBuf)>,
+    pub(super) access_log: Option<PathBuf>,
     pub(super) admins: Vec<String>,
     pub(super) letsencrypt: bool,
 }
@@ -248,10 +264,24 @@ pub(super) fn check_config(
     let Uses {
         listens,
         files,
+        access_log,
         letsencrypt,
     } = uses(loaded);
     let admins = admin_visitors(loaded);
-    for (field, file) in &files {
+    refuse_relative(&files)?;
+    Ok(Checked {
+        role,
+        identity,
+        listens,
+        files,
+        access_log,
+        admins,
+        letsencrypt,
+    })
+}
+
+pub(super) fn refuse_relative(files: &[(String, PathBuf)]) -> Result<(), Failure> {
+    for (field, file) in files {
         if file.is_relative() {
             return Err(Failure::usage(format!(
                 "{field} is a relative path ({}); a service needs absolute paths",
@@ -260,14 +290,35 @@ pub(super) fn check_config(
             .hint("the config is copied for the service, so write the full path, for example /etc/letsencrypt/live/host/fullchain.pem"));
         }
     }
-    Ok(Checked {
-        role,
-        identity,
-        listens,
-        files,
-        admins,
-        letsencrypt,
-    })
+    Ok(())
+}
+
+fn service_logs(m: &Manifest) -> PathBuf {
+    m.log_file
+        .parent()
+        .map_or_else(PathBuf::new, Path::to_path_buf)
+}
+
+pub(super) fn refuse_unfit(
+    backend: &dyn Backend,
+    checked: &Checked,
+    manifest: &Manifest,
+) -> Result<(), Failure> {
+    refuse_low_ports(backend, checked, manifest)?;
+    refuse_access_log(checked, manifest)
+}
+
+fn refuse_access_log(checked: &Checked, manifest: &Manifest) -> Result<(), Failure> {
+    match checked
+        .access_log
+        .as_deref()
+        .and_then(|l| super::web_files::log_folder_refusal(l, &service_logs(manifest)))
+    {
+        Some(why) => {
+            Err(Failure::usage(why).hint("a service can write only its own log and state folders"))
+        }
+        None => Ok(()),
+    }
 }
 
 pub(super) fn refuse_another_source(name: &str, source: &Path) -> Result<(), Failure> {
