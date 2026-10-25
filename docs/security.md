@@ -76,3 +76,7 @@ Wrong names and wrong secrets get exactly the same answer, after the same amount
 ## burrow admin
 
 The web admin listens on `127.0.0.1` only, needs a random token that only you can read, and can lower admin access but never grant or widen it. See [admin.md](admin.md#security-notes).
+
+## burrow mcp
+
+`burrow mcp` gives an AI app the same admin channel, with the same server rules. It is read-only unless started with `--allow-write` by a visitor with `admin: write`, it applies only a plan the AI checked first, and secrets never reach the AI. Over HTTP it listens on `127.0.0.1` only, needs a bearer token kept in a file only you can read, and refuses requests from web pages. See [mcp.md](mcp.md#safety).

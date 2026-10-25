@@ -2,7 +2,7 @@
 
 `burrow admin` opens a local web UI for a running server: a live dashboard, and editing of clients, visitors, services and server settings with validation, a diff preview and comments kept. It runs on your machine with a visitor config, and the server exposes no new port: give that visitor admin rights in the server config.
 
-Back to the [README](../README.md). Working on the UI itself: [admin-ui-dev.md](admin-ui-dev.md). All server keys: [configuration.md](configuration.md).
+Back to the [README](../README.md). Working on the UI itself: [admin-ui-dev.md](admin-ui-dev.md). All server keys: [configuration.md](configuration.md). For AI apps, the same admin access over MCP: [mcp.md](mcp.md).
 
 ## Setup
 
