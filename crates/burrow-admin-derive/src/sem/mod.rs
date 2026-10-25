@@ -326,6 +326,13 @@ fn composite_sem(
                     .and_then(|t| strip(t, "BTreeMap"))
                     .map(|v| quote!(<#v as #p::AdminSchema>::node())),
             };
+            let value = match (
+                value,
+                Term::value(args, "value_help").and_then(Term::as_str),
+            ) {
+                (Some(v), Some(h)) => Some(quote!({ let mut n = #v; n.help = #h.into(); n })),
+                (v, _) => v,
+            };
             match value {
                 Some(value) => quote!(#p::SemType::Map(#p::MapC {
                     key: ::std::boxed::Box::new(#key),

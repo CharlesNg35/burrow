@@ -39,7 +39,7 @@ pub struct RedirectRule {
     )]
     #[admin(
         label = "Send to",
-        help = "A full address like https://example.com/new, or a path on the same name like /new; the rest of the path and the query are kept"
+        help = "A full address or a path on the same name, for example https://example.com/new or /new; the rest of the path and the query are kept"
     )]
     pub to: String,
     #[serde(default, skip_serializing_if = "super::is_false")]

@@ -115,7 +115,7 @@ pub struct Rfc2136Dns {
         description = "The zone's primary nameserver as host:port, for example 192.168.1.2:53; the public nameservers must get the record from it"
     )]
     #[admin(
-        help = "The zone's primary as host:port, for example 192.168.1.2:53; it may be on the LAN if it feeds the public nameservers",
+        help = "The zone's primary nameserver with its port, for example 192.168.1.2:53; it may be on the LAN if it feeds the public nameservers",
         locked
     )]
     pub server: String,

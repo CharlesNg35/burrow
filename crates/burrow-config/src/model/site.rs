@@ -178,7 +178,7 @@ pub struct WebSite {
         description = "Headers set on requests to the app, Name: value, also Host; an empty value removes the header; added to web.request_headers"
     )]
     #[admin(
-        ty = map(key = text, value = text),
+        ty = map(key = text, value = text, value_help = "The header's value, for example DENY; empty removes the header"),
         help = "Headers set on requests to the app, for example Host: app.internal for an app that wants its own name; an empty value removes one",
         empty_label = "As the web proxy says",
         advanced,
@@ -190,7 +190,7 @@ pub struct WebSite {
         description = "Headers set on answers to visitors, Name: value; an empty value removes the header; added to web.response_headers"
     )]
     #[admin(
-        ty = map(key = text, value = text),
+        ty = map(key = text, value = text, value_help = "The header's value, for example DENY; empty removes the header"),
         label = "Answer headers",
         help = "Headers set on answers, for example Access-Control-Allow-Origin: https://example.com for CORS; an empty value removes one",
         empty_label = "As the web proxy says",
@@ -204,7 +204,7 @@ pub struct WebSite {
     )]
     #[admin(
         ty = path(must_exist, relative_to = "config"),
-        help = "A folder with this site's own pages, any of 404.html, 413.html, 429.html, 502.html, 503.html, 504.html and maintenance.html; the rest stay built in",
+        help = "A folder with this site's own pages, for example pages/shop/, holding any of 404.html, 413.html, 429.html, 502.html, 503.html, 504.html and maintenance.html; the rest stay built in",
         none_label = "As the web proxy says",
         advanced,
         locked,

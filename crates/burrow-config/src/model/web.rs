@@ -199,7 +199,7 @@ pub struct WebConfig {
         description = "Default for every site: headers set on requests to the app, Name: value; an empty value removes the header"
     )]
     #[admin(
-        ty = map(key = text, value = text),
+        ty = map(key = text, value = text, value_help = "The header's value, for example DENY; empty removes the header"),
         help = "For every website: headers set on requests to the app, for example X-Frame-Options: DENY; an empty value removes one",
         empty_label = "None",
         advanced
@@ -210,7 +210,7 @@ pub struct WebConfig {
         description = "Default for every site: headers set on answers to visitors, Name: value; an empty value removes the header"
     )]
     #[admin(
-        ty = map(key = text, value = text),
+        ty = map(key = text, value = text, value_help = "The header's value, for example DENY; empty removes the header"),
         label = "Answer headers",
         help = "For every website: headers set on answers, for example X-Content-Type-Options: nosniff; an empty value like Server: \"\" removes one",
         empty_label = "None",
@@ -223,7 +223,7 @@ pub struct WebConfig {
     )]
     #[admin(
         ty = path(must_exist, relative_to = "config"),
-        help = "For every website: a folder with your own pages, any of 404.html, 413.html, 429.html, 502.html, 503.html, 504.html and maintenance.html; the rest stay built in",
+        help = "For every website: a folder with your own pages, for example pages/, holding any of 404.html, 413.html, 429.html, 502.html, 503.html, 504.html and maintenance.html; the rest stay built in",
         none_label = "Built in",
         advanced,
         locked
