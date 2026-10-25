@@ -145,7 +145,7 @@ fn services_share_a_host_by_paths_but_never_one_path_or_two_certificates() {
     assert_eq!(
         errs("", &same),
         [
-            "host \"example.com\" is used by services \"a\" and \"b\"; give one of them other paths, like another path than /api"
+            "host \"example.com\" is used by services \"a\" and \"b\"; give one of them other paths, like paths: [/api]"
         ]
     );
     let tls =

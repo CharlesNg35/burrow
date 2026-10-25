@@ -43,14 +43,9 @@ fn clash(place: &Place<'_>, host: &str, owners: &Owners) -> Option<Diagnostic> {
             format!(
                 "host \"{host}\": services \"{other}\" and \"{name}\" share it but choose different certificates; set tls for it in one service only"
             )
-        } else if let Some(p) = o.paths.iter().find(|p| place.paths.contains(p)) {
-            let like = if p == "/" {
-                "paths: [/api]".to_string()
-            } else {
-                format!("another path than {p}")
-            };
+        } else if o.paths.iter().any(|p| place.paths.contains(p)) {
             format!(
-                "host \"{host}\" is used by services \"{other}\" and \"{name}\"; give one of them other paths, like {like}"
+                "host \"{host}\" is used by services \"{other}\" and \"{name}\"; give one of them other paths, like paths: [/api]"
             )
         } else {
             continue;
