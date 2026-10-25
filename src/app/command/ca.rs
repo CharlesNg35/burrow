@@ -45,15 +45,26 @@ fn state_of(a: &CaExportArgs) -> Result<PathBuf, Failure> {
     }
 }
 
+const MAX_ROOT_FILE: u64 = 64 * 1024;
+
 pub fn export(a: &CaExportArgs, out: &mut dyn Write) -> Result<u8, Failure> {
     let state = state_of(a)?;
     let path = state.join("ca").join("root.pem");
-    let pem = read(&path, &state)?;
+    let raw = read(&path, &state)?;
+    let certs = certificates(&raw).ok_or_else(|| {
+        Failure::new(format!(
+            "{} holds no certificate, so nothing is exported",
+            path.display()
+        ))
+    })?;
     let bytes = if a.der {
-        to_der(&pem)
-            .ok_or_else(|| Failure::new(format!("{} is not a certificate", path.display())))?
+        certs[0].clone()
     } else {
-        pem.into_bytes()
+        certs
+            .iter()
+            .map(|c| pem(c))
+            .collect::<String>()
+            .into_bytes()
     };
     match &a.out {
         Some(file) => {
@@ -68,8 +79,9 @@ pub fn export(a: &CaExportArgs, out: &mut dyn Write) -> Result<u8, Failure> {
     Ok(0)
 }
 
-fn read(path: &Path, state: &Path) -> Result<String, Failure> {
-    std::fs::read_to_string(path).map_err(|e| match e.kind() {
+fn read(path: &Path, state: &Path) -> Result<Vec<u8>, Failure> {
+    use std::io::Read;
+    let fail = |e: std::io::Error| match e.kind() {
         std::io::ErrorKind::NotFound => Failure::usage(format!(
             "there is no local CA in {}: burrow makes it when a site first uses tls: internal",
             state.display()
@@ -82,15 +94,54 @@ fn read(path: &Path, state: &Path) -> Result<String, Failure> {
             "the state folder belongs to the service; run this with sudo, or as an administrator",
         ),
         _ => Failure::new(format!("cannot read {}: {e}", path.display())),
-    })
+    };
+    let mut opts = std::fs::OpenOptions::new();
+    opts.read(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::custom_flags(&mut opts, libc::O_NOFOLLOW);
+    let file = opts.open(path).map_err(|e| {
+        if std::fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink()) {
+            Failure::new(format!(
+                "{} is a link, not burrow's own file, so it is not read",
+                path.display()
+            ))
+        } else {
+            fail(e)
+        }
+    })?;
+    if !file.metadata().map_err(fail)?.is_file() {
+        return Err(Failure::new(format!("{} is not a file", path.display())));
+    }
+    let mut bytes = Vec::new();
+    file.take(MAX_ROOT_FILE)
+        .read_to_end(&mut bytes)
+        .map_err(fail)?;
+    Ok(bytes)
 }
 
-fn to_der(pem: &str) -> Option<Vec<u8>> {
+fn certificates(raw: &[u8]) -> Option<Vec<Vec<u8>>> {
+    use tokio_rustls::rustls::RootCertStore;
     use tokio_rustls::rustls::pki_types::CertificateDer;
     use tokio_rustls::rustls::pki_types::pem::PemObject;
-    CertificateDer::from_pem_slice(pem.as_bytes())
-        .ok()
-        .map(|c| c.to_vec())
+    let mut found = Vec::new();
+    for c in CertificateDer::pem_slice_iter(raw) {
+        let c = c.ok()?;
+        RootCertStore::empty().add(c.clone()).ok()?;
+        found.push(c.to_vec());
+    }
+    (!found.is_empty()).then_some(found)
+}
+
+fn pem(der: &[u8]) -> String {
+    use base64::Engine as _;
+    let text = base64::engine::general_purpose::STANDARD.encode(der);
+    let mut out = String::from("-----BEGIN CERTIFICATE-----\n");
+    for line in text.as_bytes().chunks(64) {
+        out.push_str(&String::from_utf8_lossy(line));
+        out.push('\n');
+    }
+    out.push_str("-----END CERTIFICATE-----\n");
+    out
 }
 
 #[cfg(all(test, feature = "web"))]
@@ -145,6 +196,62 @@ mod tests {
             &mut Vec::new(),
         )
         .unwrap();
-        assert_eq!(std::fs::read(&file).unwrap(), to_der(&text).unwrap());
+        assert_eq!(
+            std::fs::read(&file).unwrap(),
+            certificates(text.as_bytes()).unwrap()[0]
+        );
+        let root = state.path().join("ca").join("root.pem");
+        let real = std::fs::read_to_string(&root).unwrap();
+        std::fs::write(
+            &root,
+            format!("-----BEGIN PRIVATE KEY-----\nMIIB\n-----END PRIVATE KEY-----\n{real}"),
+        )
+        .unwrap();
+        let mut only = Vec::new();
+        export(&args(state.path(), false, None), &mut only).unwrap();
+        assert_eq!(
+            String::from_utf8(only).unwrap(),
+            text,
+            "only the parsed certificate is printed"
+        );
+    }
+
+    #[test]
+    fn a_root_file_that_is_no_certificate_or_a_link_is_never_printed() {
+        let state = tempfile::tempdir().unwrap();
+        let ca = state.path().join("ca");
+        std::fs::create_dir_all(&ca).unwrap();
+        let root = ca.join("root.pem");
+        for junk in [
+            "root:$6$secret:19000:0:99999:7:::\n",
+            "-----BEGIN CERTIFICATE-----\nbm90IGEgY2VydA==\n-----END CERTIFICATE-----\n",
+        ] {
+            std::fs::write(&root, junk).unwrap();
+            let mut out = Vec::new();
+            let e = export(&args(state.path(), false, None), &mut out).unwrap_err();
+            assert!(
+                e.message
+                    .ends_with("holds no certificate, so nothing is exported"),
+                "{}",
+                e.message
+            );
+            assert!(out.is_empty());
+        }
+        #[cfg(unix)]
+        {
+            let secret = state.path().join("shadow");
+            std::fs::write(&secret, "root:$6$secret:19000:0:99999:7:::\n").unwrap();
+            std::fs::remove_file(&root).unwrap();
+            std::os::unix::fs::symlink(&secret, &root).unwrap();
+            let mut out = Vec::new();
+            let e = export(&args(state.path(), false, None), &mut out).unwrap_err();
+            assert!(
+                e.message
+                    .ends_with("is a link, not burrow's own file, so it is not read"),
+                "{}",
+                e.message
+            );
+            assert!(out.is_empty());
+        }
     }
 }
