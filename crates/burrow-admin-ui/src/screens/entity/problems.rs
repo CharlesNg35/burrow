@@ -105,7 +105,9 @@ pub(super) fn problems_of(section: &str, entity: &Path) -> Vec<Problem> {
                 p.diags
                     .iter()
                     .filter(|d| {
-                        d.is_error() && d.within(entity) && d.code != crate::form::UNREACHABLE
+                        d.is_error()
+                            && d.within(entity)
+                            && d.code != burrow_admin_proto::codes::UNREACHABLE_SERVICE
                     })
                     .map(|d| {
                         let at = d

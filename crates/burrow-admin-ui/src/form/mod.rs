@@ -45,7 +45,6 @@ const SITE_HOSTS: &str = burrow_config::WebSite::HOSTS.key();
 const ADMIN_FROM: &str = VisitorEntry::ADMIN_FROM.key();
 
 const MAX_TEXT: usize = 4096;
-pub const UNREACHABLE: &str = "unreachable-service";
 
 pub fn locked_hint(n: &Node) -> String {
     match n.applies {

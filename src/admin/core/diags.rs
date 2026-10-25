@@ -59,12 +59,12 @@ fn quoted_names(text: &str, after: &str) -> Vec<String> {
 
 fn also(d: &Diagnostic, path: Option<&[String]>) -> Vec<Vec<String>> {
     match d.code {
-        "duplicate-bind" => quoted_names(&d.message, "service ")
+        burrow_admin_proto::codes::DUPLICATE_BIND => quoted_names(&d.message, "service ")
             .into_iter()
             .map(|n| ServiceEntry::BIND.of(&n))
             .filter(|p| Some(p.as_slice()) != path)
             .collect(),
-        "unreachable-service" => match path {
+        burrow_admin_proto::codes::UNREACHABLE_SERVICE => match path {
             Some([section, name]) if section == ServiceEntry::section() => {
                 vec![ServiceEntry::VISITORS.of(name)]
             }

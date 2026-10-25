@@ -499,7 +499,7 @@ fn check_metrics(
     if let Some((_, _, what)) = clash {
         out.push(
             Diagnostic::error(
-                "duplicate-bind",
+                burrow_admin_proto::codes::DUPLICATE_BIND,
                 format!("metrics.listen {addr} is already used by {what}"),
             )
             .at(at)

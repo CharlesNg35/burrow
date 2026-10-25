@@ -5,13 +5,11 @@ use crate::config::diagnostics::Diagnostic;
 use crate::config::tree::Span;
 use burrow_config::{Protocol, ServerConfig, ServiceWeb, SiteTls, TlsMode};
 
-pub(super) const PLAIN_NEEDS_HTTP: &str = "plain-needs-http";
-pub(super) const REDIRECT_PASSTHROUGH: &str = "redirect-passthrough";
-pub(super) const REDIRECT_PLAIN: &str = "redirect-plain";
+pub(super) use burrow_admin_proto::codes::{
+    PLAIN_HTTP, PLAIN_NEEDS_HTTP, REDIRECT_NEEDS_HTTP, REDIRECT_PASSTHROUGH, REDIRECT_PLAIN,
+};
 pub(super) const REDIRECT_BY_PROXY: &str = "redirect-by-proxy";
-pub(super) const REDIRECT_NEEDS_HTTP: &str = "redirect-needs-http";
 pub(super) const NEEDS_HTTPS: &str = "needs-https";
-pub(super) const PLAIN_HTTP: &str = "plain-http";
 
 pub(super) fn needs_https(name: &str, key: &str, choice: &str) -> String {
     format!(

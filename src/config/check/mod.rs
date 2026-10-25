@@ -8,6 +8,9 @@ pub mod unix;
 mod visitor;
 mod web;
 
+#[cfg(test)]
+mod tests_codes;
+
 pub use client::check_client;
 pub use server::{check_refs, check_server};
 pub use visitor::check_visitor;

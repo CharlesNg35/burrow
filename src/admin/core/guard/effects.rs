@@ -297,7 +297,7 @@ fn client_impacts(cx: &Before, out: &mut Vec<Impact>) {
     {
         push(
             Level::Info,
-            "adds-client",
+            burrow_admin_proto::codes::ADDS_CLIENT,
             format!("adds client {name}"),
             None,
         );

@@ -78,7 +78,7 @@ pub(super) fn check(
     };
     let (code, message, help) = match (err, who) {
         (NoCheck::NoPort, _) => (
-            "no-check",
+            burrow_admin_proto::codes::NO_CHECK,
             match who {
                 Who::Site(name) => format!(
                     "{host} (service \"{name}\") cannot be checked by Let's Encrypt: open http: 80, add challenge: dns, or list a file for it in web.certificates"
@@ -155,7 +155,7 @@ fn no_dns(who: Who<'_>, host: &str, kind: Option<ChallengeKind>, some: bool) -> 
                 "websocket.challenge: dns needs web.letsencrypt.dns: the provider that sets the DNS record".to_string(),
             ),
             _ if wildcard && kind.is_none() => (
-                "wildcard-needs-dns",
+                burrow_admin_proto::codes::WILDCARD_NEEDS_DNS,
                 format!("{field}: \"{host}\" needs DNS-01 ({why}): add web.letsencrypt.dns, or a certificate file under web.certificates or tls"),
             ),
             _ => (

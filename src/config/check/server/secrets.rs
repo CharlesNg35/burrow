@@ -117,7 +117,7 @@ pub(super) fn check_websocket(
     {
         out.push(
             Diagnostic::error(
-                "duplicate-bind",
+                burrow_admin_proto::codes::DUPLICATE_BIND,
                 format!("websocket.listen {a} is the same address as listen"),
             )
             .at(spans.value(&["websocket", "listen"]))

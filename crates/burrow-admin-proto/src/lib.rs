@@ -3,6 +3,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod codes;
 pub mod date;
 pub mod diag;
 pub mod frame;

@@ -160,7 +160,7 @@ fn redirect_sources(
             push_once(
                 out,
                 Diagnostic::error(
-                    "no-certificate",
+                    burrow_admin_proto::codes::NO_CERTIFICATE,
                     format!(
                         "host \"{host}\" ({owner}) has no certificate; add web.letsencrypt for automatic certificates, or an entry in web.certificates whose hosts lists it"
                     ),
@@ -178,7 +178,7 @@ fn redirect_sources(
 
 fn no_certificate(name: &str, host: &str, at: Span) -> Diagnostic {
     Diagnostic::error(
-        "no-certificate",
+        burrow_admin_proto::codes::NO_CERTIFICATE,
         format!(
             "host \"{host}\" (service \"{name}\") has no certificate; add web.letsencrypt for automatic certificates, tls: {{cert, key}} on service \"{name}\", or an entry in web.certificates whose hosts lists it"
         ),

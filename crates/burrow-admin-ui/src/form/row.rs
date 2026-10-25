@@ -15,8 +15,8 @@ use crate::store::store;
 
 use super::controls::{locked_box, reset_button};
 use super::{
-    ShowKeys, UNREACHABLE, applies_tag, ctx_now, editing_now, field_id, is_wide, join, locked,
-    locked_hint, object_view, value_view,
+    ShowKeys, applies_tag, ctx_now, editing_now, field_id, is_wide, join, locked, locked_hint,
+    object_view, value_view,
 };
 
 pub(super) fn row(f: Field, path: Path, spath: Path, entity: Path) -> AnyView {
@@ -223,7 +223,7 @@ fn field_state_of(p: &Parts, touched: RwSignal<bool>, items: bool) -> Signal<Fie
         let server = e.plan.with(|p| {
             diags_at(p.as_deref(), &path, items)
                 .into_iter()
-                .filter(|d| picked || d.code != UNREACHABLE)
+                .filter(|d| picked || d.code != burrow_admin_proto::codes::UNREACHABLE_SERVICE)
                 .filter(|d| !site || !in_own_row(d.path.as_deref(), &path))
                 .map(|d| {
                     (

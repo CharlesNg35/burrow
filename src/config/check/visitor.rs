@@ -76,7 +76,7 @@ pub fn check_visitor(
             {
                 out.push(
                     Diagnostic::error(
-                        "duplicate-bind",
+                        burrow_admin_proto::codes::DUPLICATE_BIND,
                         format!(
                             "forward \"{name}\" listens on {}, already used by forward \"{other}\"",
                             show_addr(l, n)

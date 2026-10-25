@@ -80,7 +80,7 @@ pub(super) fn check_http(
     if let Some(h) = https.filter(|h| binds_conflict(*h, addr)) {
         out.push(
             Diagnostic::error(
-                "duplicate-bind",
+                burrow_admin_proto::codes::DUPLICATE_BIND,
                 format!("web.http {addr} is also web.https {h}"),
             )
             .at(spans.value(&["web", "http"]))
@@ -104,7 +104,7 @@ pub(super) fn http_beside_websocket(
     {
         out.push(
             Diagnostic::error(
-                "duplicate-bind",
+                burrow_admin_proto::codes::DUPLICATE_BIND,
                 format!("web.http {h} is also websocket.listen {}", ws.listen),
             )
             .at(spans.value(&["web", "http"]))
@@ -164,7 +164,7 @@ fn web_port(
     if let Some(l) = listen.filter(|l| binds_conflict(*l, addr)) {
         out.push(
             Diagnostic::error(
-                "duplicate-bind",
+                burrow_admin_proto::codes::DUPLICATE_BIND,
                 format!("{name} {addr} is also the control port (listen {l})"),
             )
             .at(at)
@@ -295,7 +295,7 @@ pub(super) fn check_sites(
         if cfg.web.is_none() && !spans.has(&["web"]) {
             out.push(
                 Diagnostic::error(
-                    "web-off",
+                    burrow_admin_proto::codes::WEB_OFF,
                     format!(
                         "services.{name}.web: the web proxy is off; add a top-level web: with its ports, like web: {{https: 443, http: 80}}"
                     ),

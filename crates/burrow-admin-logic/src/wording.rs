@@ -1,21 +1,12 @@
-pub const PLAIN_NEEDS_HTTP: &str = "plain-needs-http";
-pub const REDIRECT_PASSTHROUGH: &str = "redirect-passthrough";
-pub const REDIRECT_PLAIN: &str = "redirect-plain";
-pub const REDIRECT_NEEDS_HTTP: &str = "redirect-needs-http";
-pub const NO_CERTIFICATE: &str = "no-certificate";
-pub const WEB_OFF: &str = "web-off";
-pub const NO_CHECK: &str = "no-check";
-pub const WILDCARD_NEEDS_DNS: &str = "wildcard-needs-dns";
-pub const PLAIN_HTTP: &str = "plain-http";
+use burrow_admin_proto::codes::{
+    BALANCE_TCP_ONLY, HEALTH_CHECK_TCP_ONLY, MAX_CONNECTIONS_TCP_ONLY, NO_CERTIFICATE, NO_CHECK,
+    PLAIN_HTTP, PLAIN_NEEDS_HTTP, PROXY_PROTOCOL_TCP_ONLY, REDIRECT_NEEDS_HTTP,
+    REDIRECT_PASSTHROUGH, REDIRECT_PLAIN, WEB_OFF, WEB_TCP_ONLY, WILDCARD_NEEDS_DNS,
+};
 
 fn quoted(message: &str) -> &str {
     message.split('"').nth(1).unwrap_or_default()
 }
-pub const WEB_TCP_ONLY: &str = "web-tcp-only";
-pub const PROXY_PROTOCOL_TCP_ONLY: &str = "proxy-protocol-tcp-only";
-pub const MAX_CONNECTIONS_TCP_ONLY: &str = "max-connections-tcp-only";
-pub const BALANCE_TCP_ONLY: &str = "balance-tcp-only";
-pub const HEALTH_CHECK_TCP_ONLY: &str = "health-check-tcp-only";
 
 const TCP_ONLY: [(&str, &str); 5] = [
     (
@@ -68,7 +59,7 @@ pub fn shown(code: &str, message: &str) -> String {
     }
     if code == NO_CERTIFICATE {
         return format!(
-            "{} has no certificate: turn on Let's Encrypt under Settings, Web proxy, choose My own certificate file under HTTPS, or list the name in the web proxy's Certificate files",
+            "{} has no certificate: turn on Let's Encrypt under Settings, Web proxy, choose My own certificate under HTTPS, or list the name in the web proxy's Certificate files",
             quoted(message)
         );
     }

@@ -112,7 +112,7 @@ fn check_reachable(name: &str, svc: &ServiceEntry, spans: &Spans, out: &mut Vec<
     {
         out.push(
             Diagnostic::error(
-                "unreachable-service",
+                burrow_admin_proto::codes::UNREACHABLE_SERVICE,
                 format!("service \"{name}\" has no \"bind\" and no \"visitors\", so nobody can reach it"),
             )
             .at(spans.key(&["services", name]))
@@ -189,27 +189,27 @@ fn check_tcp_only(
         let (set, code, why) = match *field {
             "proxy_protocol" => (
                 svc.proxy_protocol.is_some(),
-                "proxy-protocol-tcp-only",
+                burrow_admin_proto::codes::PROXY_PROTOCOL_TCP_ONLY,
                 "proxy_protocol only works for tcp services",
             ),
             "max_connections" => (
                 svc.max_connections.is_some(),
-                "max-connections-tcp-only",
+                burrow_admin_proto::codes::MAX_CONNECTIONS_TCP_ONLY,
                 "max_connections only works for tcp services; for UDP, udp.max_peers limits the peers of each port",
             ),
             "mode" => (
                 svc.mode == Mode::Balance && clients > 1,
-                "balance-tcp-only",
+                burrow_admin_proto::codes::BALANCE_TCP_ONLY,
                 "mode balance only works for tcp services",
             ),
             "health_check" => (
                 health,
-                "health-check-tcp-only",
+                burrow_admin_proto::codes::HEALTH_CHECK_TCP_ONLY,
                 "health_check only works for tcp services",
             ),
             "web" => (
                 is_set(svc, "web"),
-                "web-tcp-only",
+                burrow_admin_proto::codes::WEB_TCP_ONLY,
                 "web only works for tcp services; remove web:, or set protocol: tcp",
             ),
             other => (is_set(svc, other), "tcp-only", generic.as_str()),
@@ -336,7 +336,7 @@ fn tcp_only(
             format!("service \"{name}\" is {}, but {why}", svc.protocol.wire()),
         )
         .at(spans.value(&["services", name, field]));
-        out.push(if code == "web-tcp-only" {
+        out.push(if code == burrow_admin_proto::codes::WEB_TCP_ONLY {
             d
         } else {
             d.help(format!("remove {field}:, or set protocol: tcp"))
@@ -433,7 +433,7 @@ fn check_bind<'a>(
     {
         out.push(
             Diagnostic::error(
-                "duplicate-bind",
+                burrow_admin_proto::codes::DUPLICATE_BIND,
                 format!(
                     "service \"{name}\" binds {} {shown}, already used by service \"{other}\"",
                     protocol.wire()

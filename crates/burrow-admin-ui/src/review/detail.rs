@@ -154,7 +154,7 @@ fn impacts_view(plan: &Plan) -> impl IntoView + use<> {
     plan
         .impacts
         .iter()
-        .filter(|i| i.code != "adds-client")
+        .filter(|i| i.code != burrow_admin_proto::codes::ADDS_CLIENT)
         .map(|i| {
             let (icon, tone) = impact_icon(i.level);
             let (head, tail) = match i.message.split_once(" · ") {
@@ -266,7 +266,7 @@ fn impact_section<V: IntoView + 'static>(
     label: &'static str,
 ) -> impl IntoView + use<V> {
     let restart = restart.to_vec();
-    (plan.impacts.iter().any(|i| i.code != "adds-client") || !restart.is_empty()).then(|| view! {
+    (plan.impacts.iter().any(|i| i.code != burrow_admin_proto::codes::ADDS_CLIENT) || !restart.is_empty()).then(|| view! {
         <h3 class=label>"Impact"</h3>
         <div class="mb-6 grid gap-3 md:grid-cols-2" data-testid="impacts">
             {impacts}
