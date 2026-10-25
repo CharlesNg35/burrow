@@ -251,6 +251,26 @@ fn a_plain_http_site_is_warned_that_its_traffic_is_open() {
         coded(&site("http: 80", "wiki.lan.example.com"), "plain-http"),
         warned
     );
+    let help = |ports: &str, web: &str| {
+        site(ports, web)
+            .report
+            .diagnostics
+            .into_iter()
+            .find(|d| d.code == "plain-http")
+            .and_then(|d| d.help)
+            .unwrap()
+    };
+    assert_eq!(
+        help("http: 80", "wiki.lan.example.com"),
+        "for a site reached over the internet, use HTTPS: add https: 443 under web"
+    );
+    assert_eq!(
+        help(
+            "https: 443, http: 80",
+            "{ hosts: [wiki.example.com], tls: off }"
+        ),
+        "for a site reached over the internet, remove tls: off so burrow serves it over HTTPS"
+    );
     assert_eq!(
         coded(
             &site(

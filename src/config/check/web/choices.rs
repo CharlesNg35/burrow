@@ -69,7 +69,11 @@ pub(in crate::config::check) fn check_choices(
                     ),
                 )
                 .at(spans.value(&["services", name, "web"]))
-                .help("for a site reached over the internet, use HTTPS: add web.https, and remove tls: off"),
+                .help(if written {
+                    "for a site reached over the internet, remove tls: off so burrow serves it over HTTPS"
+                } else {
+                    "for a site reached over the internet, use HTTPS: add https: 443 under web"
+                }),
             );
         }
         if http.is_none() && web.tls() == Some(&SiteTls::Mode(TlsMode::Off)) {
