@@ -25,6 +25,10 @@ pub(super) struct Owner {
 
 pub(super) type Owners = BTreeMap<String, Vec<Owner>>;
 
+pub(super) fn is_localhost(text: &str) -> bool {
+    text.trim().eq_ignore_ascii_case("localhost")
+}
+
 fn clash(place: &Place<'_>, host: &str, owners: &Owners) -> Option<Diagnostic> {
     let name = place.name;
     for o in owners.get(host).into_iter().flatten() {
@@ -143,7 +147,7 @@ pub(super) fn check_hosts(
         let at = (place.at)(i);
         let localhost = place.tls
             == burrow_config::admin_schema::AdminEnum::wire(&burrow_config::TlsMode::Internal)
-            && text.trim().eq_ignore_ascii_case("localhost");
+            && is_localhost(text);
         let single = if matches!(place.served, Served::Plain) || localhost {
             SingleLabel::Allowed
         } else {

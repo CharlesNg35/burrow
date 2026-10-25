@@ -35,7 +35,7 @@ pub(super) fn problem(host: &str) -> Option<String> {
             format!("{host} spans a whole suffix or a public domain; a local CA wildcard is one label under a LAN name, like *.nas.lan")
         });
     }
-    let ok = host == "localhost" || !host.contains('.') || under_lan_suffix(host);
+    let ok = host == "localhost" || under_lan_suffix(host);
     (!ok).then(|| {
         let short = host.split('.').next().unwrap_or(host);
         format!("{host} is not a LAN name; tls: internal is only for names under {suffixes}, so use tls: auto for public names, or name it like {short}.lan")
@@ -64,7 +64,12 @@ pub(super) fn check_internal(cfg: &ServerConfig, spans: &Spans, out: &mut Vec<Di
             };
             let at = i.to_string();
             *i += 1;
-            let Ok(host) = host_name(raw, SingleLabel::Allowed) else {
+            let single = if super::hosts::is_localhost(raw) {
+                SingleLabel::Allowed
+            } else {
+                SingleLabel::Refused
+            };
+            let Ok(host) = host_name(raw, single) else {
                 continue;
             };
             if let Some(m) = problem(&host) {
