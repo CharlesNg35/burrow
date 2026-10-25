@@ -156,9 +156,9 @@ pub mod __private {
     };
     pub use burrow_admin_proto::schema::{
         Applies, Cond, DurationC, DurationUnit, Editable, EnumC, EnumOption, Field, Group,
-        HostNameC, IntegerC, IpC, IpPortC, ListC, MapC, NameC, Node, ObjectC, OptionalC, PathC,
-        PortRangeC, RefC, RefListC, RefMapC, Relation, SecretRefC, SemType, SizeC, TargetC, TextC,
-        UnionC, UploadC,
+        HostNameC, IntegerC, IpC, IpPortC, ListC, MapC, NameC, Node, ObjectC, OptionalC,
+        PasswordHashC, PathC, PortRangeC, RefC, RefListC, RefMapC, Relation, SecretRefC, SemType,
+        SizeC, TargetC, TextC, UnionC, UploadC,
     };
     use burrow_admin_proto::serde_json;
     pub use serde_json::json;

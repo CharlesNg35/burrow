@@ -44,7 +44,7 @@ fn is_reference(node: Option<&Node>) -> bool {
 
 fn is_hash(node: Option<&Node>) -> bool {
     match node.map(|n| &n.sem) {
-        Some(SemType::PasswordHash) => true,
+        Some(SemType::PasswordHash(_)) => true,
         Some(SemType::Optional(o)) => is_hash(Some(&o.inner)),
         _ => false,
     }

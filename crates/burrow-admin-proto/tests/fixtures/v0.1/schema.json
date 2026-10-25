@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:731adf0269d9f9de",
+  "hash": "b2s:6dad1fca0086b9f4",
   "root": {
     "label": "Server",
     "sem": {
@@ -2619,7 +2619,12 @@
                                             "value": {
                                               "help": "The password hash, for example the line burrow passwd alice prints",
                                               "sem": {
-                                                "t": "password_hash"
+                                                "t": "password_hash",
+                                                "fallback": [
+                                                  {
+                                                    "t": "text"
+                                                  }
+                                                ]
                                               }
                                             }
                                           },

@@ -232,7 +232,7 @@ fn scalar_sem(
         "cidr_rule" => quote!(#p::SemType::CidrRule),
         "rate" => quote!(#p::SemType::Rate),
         "url_path" => quote!(#p::SemType::UrlPath),
-        "password_hash" => quote!(#p::SemType::PasswordHash),
+        "password_hash" => quote!(#p::SemType::PasswordHash(#p::PasswordHashC::default())),
         "duration" => {
             let unit = match Term::positional(args).first().and_then(|a| a.as_word()) {
                 Some("ms") => quote!(#p::DurationUnit::Ms),

@@ -184,7 +184,7 @@ fn sem_view(sem: &SemType, node: &Node, v: &Value, ctx: &Ctx) -> AnyView {
         | SemType::ServerAddress
         | SemType::Path(_)
         | SemType::Upload(_)
-        | SemType::PasswordHash
+        | SemType::PasswordHash(_)
         | SemType::UrlPath
         | SemType::Name(_) => mono(v),
         SemType::Ip(_)

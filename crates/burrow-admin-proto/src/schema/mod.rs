@@ -9,8 +9,8 @@ use crate::Path;
 pub use relation::{Cond, Relation};
 pub use sem::{
     DurationC, DurationUnit, EnumC, EnumOption, HostNameC, IntegerC, IpC, IpPortC, ListC, MapC,
-    NameC, ObjectC, OptionalC, PathC, PortRangeC, RefC, RefListC, RefMapC, SecretRefC, SemType,
-    SizeC, TargetC, TextC, UnionC, UnknownType, UploadC,
+    NameC, ObjectC, OptionalC, PasswordHashC, PathC, PortRangeC, RefC, RefListC, RefMapC,
+    SecretRefC, SemType, SizeC, TargetC, TextC, UnionC, UnknownType, UploadC,
 };
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -387,6 +387,25 @@ mod tests {
         let broken: SemType = serde_json::from_value(json!({"t": "ref"})).unwrap();
         assert!(matches!(broken, SemType::Unknown(_)));
         assert!(serde_json::from_value::<SemType>(json!({"x": 1})).is_err());
+    }
+
+    #[test]
+    fn every_type_newer_than_v0_1_2_tells_older_uis_what_to_show() {
+        for (s, tag) in [
+            (SemType::HostName(HostNameC::default()), "host_name"),
+            (SemType::Upload(UploadC::new("pair")), "upload"),
+            (
+                SemType::PasswordHash(PasswordHashC::default()),
+                "password_hash",
+            ),
+        ] {
+            let sent = serde_json::to_value(&s).unwrap();
+            assert_eq!(sent["t"], tag);
+            assert_eq!(sent["fallback"], json!([{"t": "text"}]), "{tag}");
+            assert_eq!(serde_json::from_value::<SemType>(sent).unwrap(), s);
+        }
+        let bare: SemType = serde_json::from_value(json!({"t": "password_hash"})).unwrap();
+        assert_eq!(bare, SemType::PasswordHash(PasswordHashC::default()));
     }
 
     #[test]

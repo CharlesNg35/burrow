@@ -147,7 +147,7 @@ fn check_sem(sem: &SemType, v: &Value) -> Result<(), String> {
                 .then_some(())
                 .ok_or_else(|| "upload the file again".to_string())
         }
-        SemType::PasswordHash => want_text(v).map(|_| ()),
+        SemType::PasswordHash(_) => want_text(v).map(|_| ()),
         SemType::UrlPath => {
             let s = want_text(v)?;
             s.starts_with('/')

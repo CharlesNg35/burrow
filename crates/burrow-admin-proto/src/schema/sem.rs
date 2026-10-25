@@ -158,6 +158,20 @@ fn text_fallback() -> Vec<Value> {
     vec![serde_json::json!({"t": "text"})]
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PasswordHashC {
+    #[serde(default = "text_fallback")]
+    pub fallback: Vec<Value>,
+}
+
+impl Default for PasswordHashC {
+    fn default() -> Self {
+        PasswordHashC {
+            fallback: text_fallback(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct PathC {
     #[serde(default)]
@@ -291,7 +305,7 @@ sem_types! {
     SecretRef "secret_ref" (SecretRefC),
     Path "path" (PathC),
     Upload "upload" (UploadC),
-    PasswordHash "password_hash",
+    PasswordHash "password_hash" (PasswordHashC),
     UrlPath "url_path",
     Object "object" (ObjectC),
     Map "map" (MapC),
@@ -386,7 +400,7 @@ impl SemType {
             | SemType::Name(_)
             | SemType::Path(_)
             | SemType::Upload(_)
-            | SemType::PasswordHash
+            | SemType::PasswordHash(_)
             | SemType::UrlPath => true,
         }
     }

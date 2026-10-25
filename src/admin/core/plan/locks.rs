@@ -25,7 +25,7 @@ pub(super) fn refuse_misplaced_passwords(core: &Core, ops_list: &[Op]) -> Result
         if let Op::PasswordSet { path, .. } = op
             && !matches!(
                 core.schema.root.at(path).map(|n| &n.sem),
-                Some(SemType::PasswordHash)
+                Some(SemType::PasswordHash(_))
             )
         {
             return Err(ApiError::new(
