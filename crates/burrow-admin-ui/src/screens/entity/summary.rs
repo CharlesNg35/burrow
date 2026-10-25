@@ -1,7 +1,7 @@
 use burrow_admin_logic::rates::human_bits;
 use burrow_admin_proto::serde_json::Value;
 use burrow_config::Mode;
-use burrow_config::{ClientEntry, Entry, Protocol, ServiceEntry, VisitorEntry};
+use burrow_config::{ClientEntry, Entry, ServiceEntry, VisitorEntry};
 use burrow_config::{Limits, Pool, ServerConfig};
 use burrow_ui_kit::{Card, EmptyState, Icon, Stat, Stats, StatusDot, Table, Tone, tag_class};
 use leptos::prelude::*;
@@ -302,29 +302,7 @@ pub(super) fn served(name: &str) -> impl IntoView {
                     <div class="pt-2 pb-1 sm:hidden" data-testid="served-cards">{cards}</div>
                     <div class="max-sm:hidden">
                     <Table head=vec!["Service", "_", "Public", "Target", ">Open", "_Health"]>
-                        {rows.into_iter().map(|(n, v)| {
-                            let x = st.as_ref().and_then(|x| x.services.iter().find(|c| c.name == n)).cloned();
-                            let protocol = ServiceEntry::PROTOCOL.get(&v).map(plain).unwrap_or_else(|| Protocol::default().wire().into());
-                            let up = st.as_ref().map(|st| clients_of(&v).iter().filter(|c| st.clients.iter().any(|y| &y.name == *c && y.connected)).count());
-                            let health = health_tag(up, clients_of(&v).len(), x.as_ref().map(|x| x.health.as_slice()).unwrap_or(&[]));
-                            let label = n.clone();
-                            view! {
-                                <tr data-row=n.clone()>
-                                    <th scope="row"><Link to=Route::Detail(ServiceEntry::section().into(), n.clone()) class="font-semibold text-text no-underline hover:underline">{label}</Link></th>
-                                    <td><span class=tag_class(if protocol == Protocol::Udp.wire() { Tone::Violet } else { Tone::Accent })>{protocol.to_uppercase()}</span></td>
-                                    <td>{match burrow_admin_logic::web::exposure(&v) {
-                                        Some(b) => view! { <span class="font-mono text-[13px]">{b}</span> }.into_any(),
-                                        None => view! { <span class="font-mono text-[13px] text-text-faint">"private"</span> }.into_any(),
-                                    }}</td>
-                                    {
-                                        let t = ServiceEntry::TARGET.get(&v).map(plain).unwrap_or_default();
-                                        view! { <td class="max-w-[260px] truncate font-mono text-[13px] text-text-muted" title=t.clone() data-target=t.clone()>{format!("→ {t}")}</td> }
-                                    }
-                                    <td class="text-right tabular-nums">{x.map(|x| x.open).unwrap_or(0)}</td>
-                                    <td>{health}</td>
-                                </tr>
-                            }
-                        }).collect_view()}
+                        {rows.iter().map(|(n, v)| super::service_tr(n, v, st.as_deref(), None)).collect_view()}
                     </Table>
                     </div>
                 </Card>

@@ -2,7 +2,7 @@ use burrow_admin_logic::changeset::ops_between;
 use burrow_admin_proto::Path;
 use burrow_admin_proto::serde_json::Value;
 use burrow_admin_proto::value::get;
-use burrow_config::{ClientEntry, Entry, Protocol, ServiceEntry, VisitorEntry};
+use burrow_config::{ClientEntry, Entry, ServiceEntry, VisitorEntry};
 use burrow_ui_kit::PathData;
 use burrow_ui_kit::{Icon, Tone, tag_class};
 use leptos::context::Provider;
@@ -297,16 +297,8 @@ fn protocol_tag(section: &str, name: &str) -> impl Fn() -> AnyView + Clone + use
     move || {
         match sec.as_str() {
         SERVICES => {
-            let p = ServiceEntry::PROTOCOL
-                .at(&e.doc(), &nm)
-                .map(plain)
-                .unwrap_or_else(|| Protocol::default().wire().into());
-            let tone = if p == Protocol::Udp.wire() {
-                Tone::Violet
-            } else {
-                Tone::Accent
-            };
-            view! { <span class=tag_class(tone)>{p.to_uppercase()}</span> }.into_any()
+            let svc = ServiceEntry::entry(&e.doc(), &nm).cloned().unwrap_or_default();
+            super::protocol_view(&svc).into_any()
         }
         VISITORS => {
             let admin = VisitorEntry::ADMIN.at(&e.doc(), &nm).map(plain);

@@ -2,13 +2,65 @@ use burrow_admin_logic::web::SiteKind;
 use burrow_admin_proto::serde_json::Value;
 use burrow_admin_proto::status::Status;
 use burrow_config::{Entry, Protocol, ServiceEntry, VisitorEntry};
-use burrow_ui_kit::Tone;
+use burrow_ui_kit::{Tone, tag_class};
+use leptos::prelude::*;
 
 use crate::form::plain;
 use crate::format;
-use crate::route::Route;
+use crate::route::{Link, Route};
 use crate::screens::Row;
 use crate::screens::paths::{clients_of, online};
+
+pub(crate) fn protocol_tag(svc: &Value) -> (String, Tone) {
+    let p = ServiceEntry::PROTOCOL
+        .get(svc)
+        .map(plain)
+        .unwrap_or_else(|| Protocol::default().wire().into());
+    let tone = if Protocol::from_wire(&p) == Some(Protocol::Udp) {
+        Tone::Violet
+    } else {
+        Tone::Accent
+    };
+    (p.to_uppercase(), tone)
+}
+
+pub(crate) fn protocol_view(svc: &Value) -> impl IntoView + use<> {
+    let (text, tone) = protocol_tag(svc);
+    view! { <span class=tag_class(tone)>{text}</span> }
+}
+
+pub(crate) fn service_tr(
+    name: &str,
+    svc: &Value,
+    status: Option<&Status>,
+    rate: Option<String>,
+) -> impl IntoView + use<> {
+    let x = status.and_then(|st| st.services.iter().find(|y| y.name == name));
+    let cs = clients_of(svc);
+    let up = status.map(|_| cs.iter().filter(|c| online(status, c)).count());
+    let health = super::health_tag(up, cs.len(), x.map(|x| x.health.as_slice()).unwrap_or(&[]));
+    let open = x.map(|x| format::count(x.open)).unwrap_or_default();
+    let target = ServiceEntry::TARGET.get(svc).map(plain).unwrap_or_default();
+    let name = name.to_string();
+    let to = Route::Detail(ServiceEntry::section().into(), name.clone());
+    let label = name.clone();
+    let exposure = match burrow_admin_logic::web::exposure(svc) {
+        Some(b) => view! { <span class="font-mono text-[13px]">{b}</span> }.into_any(),
+        None => view! { <span class="font-mono text-[13px] text-text-faint">"private"</span> }
+            .into_any(),
+    };
+    view! {
+        <tr data-row=name>
+            <th scope="row"><Link to=to class="font-semibold text-text no-underline hover:underline">{label}</Link></th>
+            <td>{protocol_view(svc)}</td>
+            <td>{exposure}</td>
+            <td class="max-w-[260px] truncate font-mono text-[13px] text-text-muted" title=target.clone() data-target=target.clone()>{format!("→ {target}")}</td>
+            <td class="text-right tabular-nums" data-cell="open">{open}</td>
+            {rate.map(|r| view! { <td class="text-right tabular-nums" data-cell="rate">{r}</td> })}
+            <td>{health}</td>
+        </tr>
+    }
+}
 
 pub(super) fn client_row(
     name: &String,
@@ -187,10 +239,7 @@ pub(super) fn service_row(
         .map(|x| (x.health.iter().filter(|h| h.up).count(), x.health.len()));
     let problem =
         status.is_some() && (up < cs.len() || health_up.is_some_and(|(u, n)| n > 0 && u < n));
-    let mut tags = vec![(
-        protocol.to_uppercase(),
-        if udp { Tone::Violet } else { Tone::Accent },
-    )];
+    let mut tags = vec![protocol_tag(v)];
     let site = burrow_admin_logic::web::site_kind(v, https_on);
     match site {
         Some(SiteKind::Https) => tags.push(("HTTPS".into(), Tone::Success)),

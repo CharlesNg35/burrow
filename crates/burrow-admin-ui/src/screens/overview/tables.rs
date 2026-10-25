@@ -1,6 +1,6 @@
 use burrow_admin_logic::rates::human_bits;
 use burrow_admin_proto::serde_json::Value;
-use burrow_config::{ClientEntry, Entry, Protocol, ServiceEntry, VisitorEntry};
+use burrow_config::{ClientEntry, Entry, ServiceEntry, VisitorEntry};
 use burrow_ui_kit::{EmptyState, StatusDot, Table, Tone, tag_class};
 use leptos::prelude::*;
 
@@ -14,13 +14,6 @@ use super::names;
 use super::page::mobile_cards;
 
 pub(super) fn services_table(s: Store, values: Memo<Value>) -> AnyView {
-    let online = move |name: &str| {
-        s.status.with(|st| {
-            st.as_ref()
-                .and_then(|st| st.clients.iter().find(|c| c.name == name))
-                .is_some_and(|c| c.connected)
-        })
-    };
     let rate = move |name: &str| {
         let (v, u) = human_bits(s.rates.with(|r| r.service(name).bytes_in));
         format!("{v} {u}")
@@ -34,26 +27,7 @@ pub(super) fn services_table(s: Store, values: Memo<Value>) -> AnyView {
     let rows = m
         .iter()
         .map(|(name, svc)| {
-            let x = st.as_ref().and_then(|st| st.services.iter().find(|y| &y.name == name)).cloned();
-            let protocol = ServiceEntry::PROTOCOL.get(svc).map(plain).unwrap_or_else(|| Protocol::default().wire().into());
-            let cs = clients_of(svc);
-            let up = cs.iter().filter(|c| online(c)).count();
-            let health = crate::screens::entity::health_tag(st.is_some().then_some(up), cs.len(), x.as_ref().map(|x| x.health.as_slice()).unwrap_or(&[]));
-            let label = name.clone();
-            view! {
-                <tr data-row=name.clone()>
-                    <th scope="row"><Link to=Route::Detail(ServiceEntry::section().into(), name.clone()) class="text-text no-underline hover:underline">{label}</Link></th>
-                    <td><span class=tag_class(if protocol == Protocol::Udp.wire() { Tone::Violet } else { Tone::Accent })>{protocol.to_uppercase()}</span></td>
-                    <td>{match burrow_admin_logic::web::exposure(svc) {
-                        Some(b) => view! { <span class="font-mono text-[13px]">{b}</span> }.into_any(),
-                        None => view! { <span class="text-text-faint">"private"</span> }.into_any(),
-                    }}</td>
-                    <td class="font-mono text-[13px] text-text-muted">{ServiceEntry::TARGET.get(svc).map(plain).unwrap_or_default()}</td>
-                    <td class="text-right tabular-nums" data-cell="open">{x.as_ref().map(|x| format::count(x.open)).unwrap_or_default()}</td>
-                    <td class="text-right tabular-nums" data-cell="rate">{rate(name)}</td>
-                    <td>{health}</td>
-                </tr>
-            }
+            crate::screens::entity::service_tr(name, svc, st.as_deref(), Some(rate(name)))
         })
         .collect_view();
     view! { <div class="max-sm:hidden"><Table head=vec!["Service", "_", "Public", "Target", ">Open", ">In", "_Health"] testid="overview-services">{rows}</Table></div> {mobile_cards(ServiceEntry::section())} }.into_any()

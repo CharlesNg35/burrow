@@ -16,6 +16,7 @@ use detail::Detail;
 pub(crate) use list::{Entities, rows_for};
 pub(crate) use problems::go_to_field;
 use problems::{apply_notes, problem_list, problems_for, problems_of};
+pub(crate) use rows::{protocol_view, service_tr};
 pub(crate) use summary::health_tag;
 use summary::{overview, served, visitor_overview};
 
