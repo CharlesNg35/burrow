@@ -72,6 +72,14 @@ async fn the_four_tabs(c: &mut Ctx) {
     pick(c, "proxy").await;
     c.ui.wait_for("[data-testid=settings] [data-card=web]", SECS)
         .await;
+    let ca =
+        c.ui.wait_text(
+            "[data-testid=local-ca-pending]",
+            "No local CA exists yet",
+            SECS,
+        )
+        .await;
+    assert!(ca.contains("tls: internal"), "{ca}");
     both_widths(c, "settings-web").await;
     pick(c, "monitoring").await;
     both_widths(c, "settings-monitoring").await;
