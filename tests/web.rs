@@ -21,6 +21,8 @@ mod plain_tunnel;
 mod refusals;
 #[path = "web/reload.rs"]
 mod reload;
+#[path = "web/routing.rs"]
+mod routing;
 #[path = "web/selection.rs"]
 mod selection;
 #[path = "web/sites.rs"]
