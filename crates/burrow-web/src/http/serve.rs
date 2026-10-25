@@ -3,12 +3,13 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
+use http_body_util::BodyExt;
 use hyper::body::Incoming;
 use hyper::server::conn::http1;
 use hyper_util::rt::{TokioIo, TokioTimer};
 use tracing::debug;
 
-use super::idle::{Activity, Watched};
+use super::idle::{Activity, Held, Watched};
 use super::upstream::Upstreams;
 use super::{MAX_HEAD, MAX_HEADERS, pipeline};
 use crate::Upstream;
@@ -50,8 +51,7 @@ pub(crate) async fn serve<U: Upstream>(shared: Arc<Shared<U>>, io: BoxIo, conn: 
             let busy = activity.enter();
             async move {
                 let r = pipeline::handle(&shared, &conn, req).await;
-                drop(busy);
-                Ok::<_, Infallible>(r)
+                Ok::<_, Infallible>(r.map(|b| Held::new(b, busy).boxed()))
             }
         })
     };

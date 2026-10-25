@@ -291,6 +291,46 @@ async fn an_upgraded_connection_is_not_closed_for_being_quiet() {
 }
 
 #[tokio::test]
+async fn a_quiet_streaming_response_is_not_cut_by_the_idle_timeout() {
+    let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let slow = l.local_addr().unwrap();
+    tokio::spawn(async move {
+        while let Ok((mut s, _)) = l.accept().await {
+            tokio::spawn(async move {
+                let mut buf = [0u8; 4096];
+                let _ = s.read(&mut buf).await;
+                let _ = s
+                    .write_all(b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\n\r\n")
+                    .await;
+                tokio::time::sleep(Duration::from_millis(2500)).await;
+                let _ = s.write_all(b"5\r\nhello\r\n0\r\n\r\n").await;
+            });
+        }
+    });
+    let (up, _) = Fake::new(4);
+    up.serve("blog", slow);
+    let proxy = start(
+        |s| {
+            s.sites = vec![https_site("blog", &["blog.example.com"])];
+            s.timeouts.idle = Duration::from_secs(1);
+        },
+        up,
+    )
+    .await;
+    let r = over_tls(
+        proxy.https_addr().unwrap(),
+        "blog.example.com",
+        "GET /events HTTP/1.1\r\nHost: blog.example.com\r\nConnection: close\r\n\r\n",
+    )
+    .await;
+    assert!(r.starts_with("HTTP/1.1 200"), "{r}");
+    assert!(
+        r.contains("hello"),
+        "the body sent after a quiet spell arrives: {r}"
+    );
+}
+
+#[tokio::test]
 async fn a_browser_without_a_tls_name_reaches_the_ip_site_it_dialled_over_https() {
     let app = http_backend().await;
     let (up, _) = Fake::new(4);

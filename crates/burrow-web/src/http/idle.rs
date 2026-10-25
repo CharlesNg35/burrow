@@ -19,6 +19,43 @@ pub(crate) struct Activity {
 
 pub(crate) struct Busy(Arc<Activity>);
 
+pub(crate) struct Held {
+    inner: super::Body,
+    busy: Option<Busy>,
+}
+
+impl Held {
+    pub(crate) fn new(inner: super::Body, busy: Busy) -> Held {
+        let busy = (!hyper::body::Body::is_end_stream(&inner)).then_some(busy);
+        Held { inner, busy }
+    }
+}
+
+impl hyper::body::Body for Held {
+    type Data = bytes::Bytes;
+    type Error = super::BoxError;
+
+    fn poll_frame(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<Result<hyper::body::Frame<bytes::Bytes>, super::BoxError>>> {
+        let this = &mut *self;
+        let polled = Pin::new(&mut this.inner).poll_frame(cx);
+        if matches!(polled, Poll::Ready(None | Some(Err(_)))) {
+            this.busy = None;
+        }
+        polled
+    }
+
+    fn is_end_stream(&self) -> bool {
+        self.inner.is_end_stream()
+    }
+
+    fn size_hint(&self) -> hyper::body::SizeHint {
+        self.inner.size_hint()
+    }
+}
+
 impl Drop for Busy {
     fn drop(&mut self) {
         self.0.touch();
