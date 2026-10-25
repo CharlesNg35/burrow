@@ -63,6 +63,7 @@ fn source(c: &CertStatus) -> String {
             "Let's Encrypt (test service)".into()
         }
         CertSourceStatus::LetsEncrypt { .. } => "Let's Encrypt".into(),
+        CertSourceStatus::LocalCa => "burrow's local CA".into(),
         CertSourceStatus::Passthrough => "The app's own".into(),
         CertSourceStatus::Plain => "None: plain HTTP".into(),
     }

@@ -7,6 +7,18 @@ use super::Shared;
 use crate::config::settings::{ServerSettings, WebTls};
 
 impl Shared {
+    pub(super) fn local_ca_line(&self) -> Option<crate::metrics::LocalCaStatus> {
+        let ca = self.certs.local_ca()?;
+        Some(crate::metrics::LocalCaStatus {
+            subject: ca.subject,
+            sha256: ca.sha256,
+            not_before: ca.not_before,
+            not_after: ca.not_after,
+            root_path: ca.root_path.display().to_string(),
+            warning: ca.warning,
+        })
+    }
+
     pub(super) fn certificate_lines(
         &self,
         settings: &ServerSettings,
@@ -69,6 +81,7 @@ fn line(s: tls::CertStatus) -> CertStatus {
             CertOrigin::SharedFile { path: p } => CertSourceStatus::SharedFile { path: path(p) },
             CertOrigin::TunnelFile { path: p } => CertSourceStatus::TunnelFile { path: path(p) },
             CertOrigin::LetsEncrypt { directory } => CertSourceStatus::LetsEncrypt { directory },
+            CertOrigin::Internal => CertSourceStatus::LocalCa,
         },
         check: s.check.map(|c| match c {
             tls::CertCheck::Tls => CertCheck::Tls,

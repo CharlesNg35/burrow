@@ -16,6 +16,7 @@ pub enum Choice {
         origin: CertOrigin,
     },
     Acme,
+    Internal,
     Missing(String),
 }
 
@@ -124,6 +125,7 @@ pub fn choose(settings: &CertSettings, name: &CertName) -> Choice {
                 CertOrigin::OwnFile { path: cert.clone() }
             },
         },
+        CertSource::Internal => Choice::Internal,
         CertSource::Auto => {
             let entries = settings
                 .shared

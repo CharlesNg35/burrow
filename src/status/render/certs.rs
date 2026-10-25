@@ -18,6 +18,7 @@ fn source(c: &CertStatus) -> String {
         CertSourceStatus::SharedFile { path } => format!("web.certificates file {path}"),
         CertSourceStatus::TunnelFile { path } => format!("websocket.tls {path}"),
         CertSourceStatus::LetsEncrypt { .. } => "Let's Encrypt".into(),
+        CertSourceStatus::LocalCa => "burrow's local CA".into(),
         CertSourceStatus::Passthrough | CertSourceStatus::Plain => String::new(),
     };
     match c.check {

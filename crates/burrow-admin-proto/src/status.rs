@@ -24,6 +24,19 @@ pub struct Status {
     pub certificates: Vec<CertStatus>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub acme: Option<AcmeStatus>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local_ca: Option<LocalCaStatus>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct LocalCaStatus {
+    pub subject: String,
+    pub sha256: String,
+    pub not_before: u64,
+    pub not_after: u64,
+    pub root_path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub warning: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -169,6 +182,7 @@ pub enum CertSourceStatus {
     SharedFile { path: String },
     TunnelFile { path: String },
     LetsEncrypt { directory: String },
+    LocalCa,
     Passthrough,
     Plain,
 }

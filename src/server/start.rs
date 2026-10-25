@@ -355,7 +355,7 @@ impl Server {
             )),
             metrics: crate::metrics::Metrics::default(),
             #[cfg(feature = "web")]
-            certs: burrow_web::tls::Store::new(),
+            certs: certificate_store(),
         });
         let mut services = HashMap::new();
         for (name, svc) in &settings.services {
@@ -402,4 +402,16 @@ impl Server {
             .local
             .reconfigure(&self.shared.settings(), self.own_addrs());
     }
+}
+
+#[cfg(feature = "web")]
+fn certificate_store() -> Arc<burrow_web::tls::Store> {
+    let store = burrow_web::tls::Store::new();
+    if cfg!(windows) {
+        store.set_private_writer(Arc::new(|path: &std::path::Path, bytes: &[u8]| {
+            let text = std::str::from_utf8(bytes).map_err(std::io::Error::other)?;
+            crate::base::fs::write_private(path, text)
+        }));
+    }
+    store
 }

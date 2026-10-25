@@ -136,6 +136,7 @@ pub enum SiteTls {
 pub enum CertSource {
     OwnFile { cert: PathBuf, key: PathBuf },
     Auto,
+    Internal,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -144,6 +145,7 @@ pub struct CertSettings {
     pub tunnel_file: Option<(PathBuf, PathBuf)>,
     pub acme: Option<AcmeSettings>,
     pub choices: std::collections::BTreeMap<String, burrow_syntax::web::Challenge>,
+    pub state_dir: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -228,6 +228,7 @@ fn cert_settings(s: &ServerSettings, web: &WebSettings) -> CertSettings {
                     .map(|c| (burrow_web::tls::TUNNEL_GROUP.to_string(), c)),
             )
             .collect(),
+        state_dir: web.letsencrypt.as_ref().and_then(|l| l.state_dir.clone()),
         acme: web.letsencrypt.as_ref().map(|l| AcmeSettings {
             directory_url: l.directory.clone(),
             ca: l.ca.clone(),

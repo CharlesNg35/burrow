@@ -44,6 +44,10 @@ pub trait Certificates: ResolvesServerCert + Send + Sync + 'static {
     fn queue(&self) -> Vec<CertOrder> {
         Vec::new()
     }
+
+    fn local_ca(&self) -> Option<internal::LocalCa> {
+        None
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -88,6 +92,7 @@ pub enum CertOrigin {
     SharedFile { path: PathBuf },
     TunnelFile { path: PathBuf },
     LetsEncrypt { directory: String },
+    Internal,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

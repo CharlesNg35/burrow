@@ -147,6 +147,7 @@ impl Shared {
             web: crate::config::web_summary::summary(&settings),
             certificates,
             acme,
+            local_ca: self.local_ca_of(),
         }
     }
 }
@@ -188,6 +189,16 @@ impl Shared {
         Option<crate::metrics::AcmeStatus>,
     ) {
         self.certificate_lines(settings)
+    }
+
+    #[cfg(feature = "web")]
+    fn local_ca_of(&self) -> Option<crate::metrics::LocalCaStatus> {
+        self.local_ca_line()
+    }
+
+    #[cfg(not(feature = "web"))]
+    fn local_ca_of(&self) -> Option<crate::metrics::LocalCaStatus> {
+        None
     }
 
     #[cfg(not(feature = "web"))]

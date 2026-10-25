@@ -120,6 +120,7 @@ pub(crate) fn sample() -> Status {
         web: None,
         certificates: Vec::new(),
         acme: None,
+        local_ca: None,
     }
 }
 

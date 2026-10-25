@@ -21,6 +21,7 @@ struct Slot {
     key: Option<Arc<CertifiedKey>>,
     origin: Option<CertOrigin>,
     acme: bool,
+    internal: bool,
     group: String,
     error: Option<String>,
     expires: Option<u64>,
@@ -39,6 +40,9 @@ pub struct Store {
     acme: Arc<Acme>,
     manager: Mutex<Option<Handle>>,
     warned: std::sync::atomic::AtomicU64,
+    local: Arc<super::internal::Internal>,
+    local_task: Mutex<Option<tokio::task::JoinHandle<()>>>,
+    writer: RwLock<Option<super::internal::Writer>>,
 }
 
 impl std::fmt::Debug for Store {
@@ -177,6 +181,7 @@ impl Store {
                     key: Some(ck),
                     origin: Some(origin),
                     acme: false,
+                    internal: false,
                     group: String::new(),
                     error: None,
                     expires: at,
@@ -194,6 +199,7 @@ impl Store {
                     key: kept,
                     origin: Some(origin),
                     acme: false,
+                    internal: false,
                     group: String::new(),
                     error: Some(e),
                 }
@@ -219,10 +225,20 @@ impl Store {
                 Choice::File { cert, key, origin } => {
                     Self::file_slot(&n.name, (cert, key, origin), loaded, old)
                 }
+                Choice::Internal => Slot {
+                    key: None,
+                    origin: Some(CertOrigin::Internal),
+                    acme: false,
+                    internal: true,
+                    group: n.group.clone(),
+                    error: None,
+                    expires: None,
+                },
                 Choice::Acme => Slot {
                     key: None,
                     origin: None,
                     acme: true,
+                    internal: false,
                     group: n.group.clone(),
                     error: settings.acme.as_ref().and_then(|a| {
                         super::acme::checks_of(a, &n.name, settings.choices.get(&n.group).copied())
@@ -234,6 +250,7 @@ impl Store {
                     key: None,
                     origin: None,
                     acme: false,
+                    internal: false,
                     group: n.group.clone(),
                     error: Some(why),
                     expires: None,
@@ -322,6 +339,13 @@ impl Certificates for Store {
         let Some((configured, slot)) = self.slot_for(name) else {
             return CertState::Failing;
         };
+        if slot.internal {
+            return match (self.local.leaf(&slot.group), self.local.error()) {
+                (Some(_), _) => CertState::Ready,
+                (None, Some(_)) => CertState::Failing,
+                (None, None) => CertState::Pending,
+            };
+        }
         if slot.acme {
             if self.acme.certificate(&configured).is_some() {
                 return CertState::Ready;
@@ -343,7 +367,9 @@ impl Certificates for Store {
 
     fn certificate(&self, name: &str) -> Option<Arc<CertifiedKey>> {
         let (configured, slot) = self.slot_for(name)?;
-        if slot.acme {
+        if slot.internal {
+            self.local.leaf(&slot.group).map(|l| l.key)
+        } else if slot.acme {
             self.acme.certificate(&configured)
         } else {
             slot.key
@@ -356,6 +382,10 @@ impl Certificates for Store {
 
     fn http_challenge(&self, token: &str) -> Option<String> {
         self.acme.challenges.http(token)
+    }
+
+    fn local_ca(&self) -> Option<super::internal::LocalCa> {
+        self.local.status(now_secs())
     }
 
     fn account(&self) -> Option<String> {
@@ -382,6 +412,7 @@ impl Certificates for Store {
             pairs.dedup();
             let loaded = load_all(pairs).await;
             self.install(settings, plan, &loaded);
+            self.run_local(settings).await;
             self.run_acme(settings).await;
         })
     }
@@ -395,6 +426,9 @@ impl Certificates for Store {
                 let s = inner.slots.get(name)?;
                 if s.acme {
                     return self.acme_status(name, s, &inner.directory);
+                }
+                if s.internal {
+                    return Some(self.local_status(name, s));
                 }
                 let origin = s.origin.clone()?;
                 let phase = match (&s.key, &s.error) {
@@ -418,6 +452,8 @@ impl Certificates for Store {
             .collect()
     }
 }
+
+mod local;
 
 #[cfg(test)]
 mod tests;

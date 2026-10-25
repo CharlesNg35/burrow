@@ -606,6 +606,7 @@ fn status_json_keeps_its_exact_shape() {
         web: None,
         certificates: Vec::new(),
         acme: None,
+        local_ca: None,
     };
     let golden = r#"{
   "version": "0.1.0",

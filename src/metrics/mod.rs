@@ -158,7 +158,7 @@ impl Metrics {
 
 pub use burrow_admin_proto::status::{
     AcmeStatus, CertSourceStatus, CertStateStatus, CertStatus, ClientStatus, HealthStatus,
-    ServiceStatus, SetAside, Status, VisitorStatus,
+    LocalCaStatus, ServiceStatus, SetAside, Status, VisitorStatus,
 };
 
 #[cfg(test)]
