@@ -100,3 +100,39 @@ fn a_file_must_cover_each_name_it_is_used_for() {
         ]
     );
 }
+
+#[test]
+fn a_shared_file_that_covers_more_than_it_lists_gets_a_note() {
+    let dir = tempfile::tempdir().unwrap();
+    pair(
+        dir.path(),
+        "w",
+        &[
+            "*.example.com",
+            "example.com",
+            "a.example.com",
+            "Other.example.net",
+        ],
+    );
+    let notes: Vec<String> = load_in(dir.path(), SHARED)
+        .report
+        .diagnostics
+        .iter()
+        .filter(|d| d.code == "certificate-extra")
+        .map(|d| format!("{}{}", if d.is_error() { "error: " } else { "" }, d.message))
+        .collect();
+    assert_eq!(
+        notes,
+        [
+            "web.certificates[0]: w.pem also covers \"other.example.net\", which its hosts does not list; it is used only for the listed names"
+        ]
+    );
+    pair(dir.path(), "w", &["*.example.com", "example.com"]);
+    assert!(
+        load_in(dir.path(), SHARED)
+            .report
+            .diagnostics
+            .iter()
+            .all(|d| d.code != "certificate-extra")
+    );
+}

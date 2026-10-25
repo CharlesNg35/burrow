@@ -141,13 +141,13 @@ fn the_full_example_of_web_md_is_pinned_at_what_p2_builds() {
         .report
         .diagnostics
         .iter()
-        .filter(|d| d.code != "low-port")
+        .filter(|d| !["low-port", "certificate-extra"].contains(&d.code))
         .map(|d| format!("{}: {}", d.code, d.message))
         .collect();
     assert_eq!(
         others,
         Vec::<String>::new(),
-        "only the machine's low-port warnings"
+        "only the machine's low-port warnings, and the notes for the test files, which name every host of the block"
     );
     let root = dir.path().display().to_string();
     let lines: Vec<String> = crate::config::web_summary::summary(&super::tests::settings(o))

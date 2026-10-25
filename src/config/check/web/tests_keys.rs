@@ -161,7 +161,9 @@ fn a_single_label_name_is_for_plain_http_sites_only() {
         .and_then(|d| d.help.clone());
     assert_eq!(
         help.as_deref(),
-        Some("SNI carries a fully qualified DNS name (RFC 6066 section 3), and public CAs do not issue certificates for single-label names")
+        Some(
+            "SNI carries a fully qualified DNS name (RFC 6066 section 3), and public CAs do not issue certificates for single-label names"
+        )
     );
 }
 

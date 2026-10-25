@@ -31,6 +31,14 @@ pub fn certified(
     Ok(ck)
 }
 
+pub fn dns_names(ck: &CertifiedKey) -> Vec<String> {
+    ck.cert
+        .first()
+        .and_then(|leaf| webpki::EndEntityCert::try_from(leaf).ok())
+        .map(|ee| ee.valid_dns_names().map(str::to_ascii_lowercase).collect())
+        .unwrap_or_default()
+}
+
 pub fn covers(ck: &CertifiedKey, name: &str) -> bool {
     let Some(leaf) = ck.cert.first() else {
         return false;
@@ -88,6 +96,18 @@ pub(crate) mod tests {
             assert!(!covers(&ck, name), "{name}");
         }
         assert!(covers(&ck, "X.Example.COM"));
+    }
+
+    #[test]
+    fn the_dns_names_of_a_file_are_read_lowercased_without_its_ip_addresses() {
+        let dir = tempfile::tempdir().unwrap();
+        let (c, k) = write_pair(
+            dir.path(),
+            "a",
+            &["*.Example.com", "a.example.org", "203.0.113.10"],
+        );
+        let ck = load(&c, &k).unwrap();
+        assert_eq!(dns_names(&ck), ["*.example.com", "a.example.org"]);
     }
 
     #[test]

@@ -7,7 +7,7 @@ use crate::config::tree::Span;
 use crate::wire::transport::tls::{parse_certs, parse_key};
 use burrow_config::{ServerConfig, ServiceWeb, SiteTls};
 use burrow_syntax::web::{SingleLabel, host_name};
-use burrow_web::tls::files::{certified, covers};
+use burrow_web::tls::files::{certified, covers, dns_names};
 use tokio_rustls::rustls::sign::CertifiedKey;
 
 struct Pair<'a> {
@@ -53,6 +53,17 @@ fn load(pair: &Pair<'_>, base: &Path, out: &mut Vec<Diagnostic>) -> Option<Certi
         .ok()
 }
 
+fn unlisted(ck: &CertifiedKey, hosts: &[String]) -> Vec<String> {
+    let listed: Vec<String> = hosts
+        .iter()
+        .filter_map(|h| host_name(h, SingleLabel::Allowed).ok())
+        .collect();
+    dns_names(ck)
+        .into_iter()
+        .filter(|n| !listed.iter().any(|l| burrow_syntax::web::covers(l, n)))
+        .collect()
+}
+
 fn not_covered(ck: &CertifiedKey, hosts: &[String]) -> Vec<String> {
     hosts
         .iter()
@@ -94,6 +105,25 @@ pub(super) fn check_files(
                 )
                 .at(pair.at)
                 .help("remove the name from hosts, or use a certificate that covers it"),
+            );
+        }
+        let extra = unlisted(&ck, &entry.hosts);
+        if !extra.is_empty() {
+            let names = extra
+                .iter()
+                .map(|n| format!("\"{n}\""))
+                .collect::<Vec<_>>()
+                .join(", ");
+            out.push(
+                Diagnostic::warning(
+                    "certificate-extra",
+                    format!(
+                        "{}: {} also covers {names}, which its hosts does not list; it is used only for the listed names",
+                        pair.place, pair.cert
+                    ),
+                )
+                .at(pair.at)
+                .help("add the names to hosts if this file should serve them too"),
             );
         }
     }

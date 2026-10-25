@@ -559,6 +559,7 @@ Where each name gets its certificate:
 | a wildcard from Let's Encrypt | `services.apps.web.hosts: "*.apps.example.com" needs DNS-01 (...); DNS checks come in a later phase, so add a certificate file under web.certificates or tls` |
 | a certificate file that cannot be used | `web.certificates[0]: cannot read cert "certs/home.pem": file not found`, or `... certs/home.key does not fit certs/home.pem` |
 | a file that does not cover a name | `services.portal.web.tls: certs/portal.pem does not cover "www.portal.example.com"; add the name to the certificate, move the name to another service, or list it in web.certificates` |
+| warning: a shared file covers names its `hosts` does not list | `web.certificates[0]: certs/corp.pem also covers "*.example.com", which its hosts does not list; it is used only for the listed names` |
 | a name in two certificate entries | `host "files.example.com" is listed in web.certificates[0] and [2]; list it in one entry only` |
 | a name that is not a host name | `services.blog.web.hosts: "https://blog.example.com" is not a host name; write the name alone, like blog.example.com` |
 | a short name on an HTTPS site | `"nas" is a single-label name; ... use a full name like nas.home.example.com, or set tls: off` |
