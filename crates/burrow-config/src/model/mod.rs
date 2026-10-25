@@ -3,6 +3,7 @@ mod client;
 mod entries;
 mod options;
 mod server;
+mod site;
 mod visitor;
 mod web;
 
@@ -18,8 +19,9 @@ pub use options::{ClientUdpOptions, Heartbeat, Limits, Pool, TcpOptions, UdpOpti
 pub use server::{
     MetricsConfig, SelfEntry, ServerConfig, TlsFiles, WebSocketConfig, default_ws_path,
 };
+pub use site::{ChallengeKind, SiteTls, TlsMode, WebSite};
 pub use visitor::{ForwardEntry, VisitorConfig, VisitorUdpOptions};
-pub use web::{ChallengeKind, ServiceWeb, SiteTls, TlsMode, WebConfig, WebSite};
+pub use web::{ServiceWeb, WebConfig};
 
 fn is_false(v: &bool) -> bool {
     !v
