@@ -6,8 +6,7 @@ use std::time::Duration;
 use super::site::{LogFormat, NameRedirect, SiteOptions};
 use crate::policy::allowlist::Cidr;
 
-pub const REQUEST_HEADER_TIMEOUT: Duration = Duration::from_secs(10);
-pub const IDLE_TIMEOUT: Duration = Duration::from_secs(60);
+pub use burrow_syntax::defaults::{IDLE_TIMEOUT, REQUEST_HEADER_TIMEOUT};
 pub const LETSENCRYPT_PRODUCTION: &str = "https://acme-v02.api.letsencrypt.org/directory";
 pub const LETSENCRYPT_STAGING: &str = "https://acme-staging-v02.api.letsencrypt.org/directory";
 

@@ -5,7 +5,7 @@ use std::time::Duration;
 use burrow_syntax::cidr::Cidr;
 use http::{HeaderName, HeaderValue};
 
-pub const RESPONSE_HEADER_TIMEOUT: Duration = Duration::from_secs(60);
+pub use burrow_syntax::defaults::RESPONSE_HEADER_TIMEOUT;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SiteOptions {

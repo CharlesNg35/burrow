@@ -407,3 +407,44 @@ fn the_full_example_of_the_web_docs_is_pinned_at_what_p3_and_p6_build() {
         "each name says where its certificate comes from, as the list under the example does"
     );
 }
+
+fn none_label(node: &burrow_admin_proto::schema::Node) -> Option<String> {
+    node.none_label.clone().or_else(|| match &node.sem {
+        burrow_admin_proto::schema::SemType::Optional(o) => o.inner.none_label.clone(),
+        _ => None,
+    })
+}
+
+#[test]
+fn the_timeout_defaults_agree_in_runtime_config_ui_and_docs() {
+    use burrow_syntax::defaults::{
+        HANDSHAKE_TIMEOUT, IDLE_TIMEOUT, REQUEST_HEADER_TIMEOUT, RESPONSE_HEADER_TIMEOUT,
+    };
+    let docs = include_str!("../../../../docs/configuration.md");
+    let schema = crate::config::admin_schema::server_schema();
+    for (key, default) in [
+        ("request_header_timeout_secs", REQUEST_HEADER_TIMEOUT),
+        ("idle_timeout_secs", IDLE_TIMEOUT),
+        ("response_header_timeout_secs", RESPONSE_HEADER_TIMEOUT),
+    ] {
+        let secs = default.as_secs();
+        assert!(
+            docs.contains(&format!("| `web.{key}` | `{secs}` |")),
+            "configuration.md names web.{key} {secs}"
+        );
+        let node = schema
+            .root
+            .at(&["web".to_string(), key.to_string()])
+            .unwrap();
+        assert_eq!(none_label(node), Some(format!("{secs} seconds")), "{key}");
+    }
+    let handshake = HANDSHAKE_TIMEOUT.as_secs();
+    assert_eq!(
+        u64::from(burrow_config::Limits::default().handshake_timeout_secs),
+        handshake
+    );
+    assert_eq!(burrow_web::Timeouts::default().handshake, HANDSHAKE_TIMEOUT);
+    assert!(docs.contains(&format!(
+        "| `limits.handshake_timeout_secs` | `{handshake}` |"
+    )));
+}

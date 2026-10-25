@@ -89,17 +89,16 @@ pub struct Timeouts {
     pub handshake: Duration,
     pub request_header: Duration,
     pub idle: Duration,
-    pub response_header: Duration,
 }
 
 impl Default for Timeouts {
     fn default() -> Timeouts {
+        use burrow_syntax::defaults::{HANDSHAKE_TIMEOUT, IDLE_TIMEOUT, REQUEST_HEADER_TIMEOUT};
         Timeouts {
             hello: HELLO_TIMEOUT,
-            handshake: Duration::from_secs(10),
-            request_header: Duration::from_secs(10),
-            idle: Duration::from_secs(60),
-            response_header: Duration::from_secs(60),
+            handshake: HANDSHAKE_TIMEOUT,
+            request_header: REQUEST_HEADER_TIMEOUT,
+            idle: IDLE_TIMEOUT,
         }
     }
 }

@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-pub const RESPONSE_HEADER_TIMEOUT: Duration = Duration::from_secs(60);
+pub use burrow_syntax::defaults::RESPONSE_HEADER_TIMEOUT;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SiteOptions {
