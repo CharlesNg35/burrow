@@ -16,6 +16,8 @@ mod guards;
 mod header;
 #[path = "admin_e2e/more.rs"]
 mod more;
+#[path = "common/ports.rs"]
+mod ports;
 #[path = "admin_e2e/reverts.rs"]
 mod reverts;
 #[path = "admin_e2e/screens.rs"]
