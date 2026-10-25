@@ -1,8 +1,7 @@
 use std::net::IpAddr;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
-
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::Instant;
 
 use super::*;
 
@@ -80,34 +79,47 @@ async fn a_cached_success_skips_argon2_and_a_changed_hash_checks_again() {
     let u = users(&[("alice", &hash_password(b"s3cret"))]);
     let me = ip("192.0.2.2");
     let right = header("alice", "s3cret");
-    let t = Instant::now();
     assert_eq!(a.check(&u, Some(&right), me).await, Verdict::Granted);
-    let first = t.elapsed();
-    let t = Instant::now();
+    assert_eq!(a.work.checks(), (1, 0));
     assert_eq!(a.check(&u, Some(&right), me).await, Verdict::Granted);
-    assert!(t.elapsed() * 5 < first, "{:?} vs {first:?}", t.elapsed());
+    assert_eq!(a.work.checks(), (1, 0), "the second login is a cache hit");
     let changed = users(&[("alice", &hash_password(b"other"))]);
     assert_eq!(a.check(&changed, Some(&right), me).await, Verdict::Wrong);
+    assert_eq!(a.work.checks(), (2, 0));
 }
 
 #[tokio::test]
-async fn an_unknown_user_costs_about_as_much_as_a_wrong_password() {
+async fn an_unknown_user_costs_one_argon2id_check_like_a_wrong_password() {
     let a = Access::default();
     let u = users(&[("alice", &hash_password(b"s3cret"))]);
-    let _ = hash::dummy();
-    let mut known = Duration::ZERO;
-    let mut unknown = Duration::ZERO;
-    for i in 0..3u8 {
-        let t = Instant::now();
-        let me = ip(&format!("192.0.2.{}", 10 + i));
-        a.check(&u, Some(&header("alice", "wrong")), me).await;
-        known += t.elapsed();
-        let t = Instant::now();
-        a.check(&u, Some(&header("mallory", "wrong")), me).await;
-        unknown += t.elapsed();
-    }
-    let (lo, hi) = (known.min(unknown), known.max(unknown));
-    assert!(hi < lo * 2, "known {known:?} unknown {unknown:?}");
+    let me = ip("192.0.2.10");
+    assert_eq!(
+        a.check(&u, Some(&header("alice", "wrong")), me).await,
+        Verdict::Wrong
+    );
+    assert_eq!(a.work.checks(), (1, 0));
+    assert_eq!(
+        a.check(&u, Some(&header("mallory", "wrong")), me).await,
+        Verdict::Wrong
+    );
+    assert_eq!(
+        a.work.checks(),
+        (1, 1),
+        "the unknown user is checked against the dummy"
+    );
+    let Stored::Argon2(dummy) = hash::dummy() else {
+        panic!("the dummy is argon2id");
+    };
+    let Some((_, Some(Stored::Argon2(real)))) = u.0.get("alice") else {
+        panic!("alice has an argon2id hash");
+    };
+    assert_eq!(dummy.algorithm, real.algorithm);
+    assert_eq!(
+        dummy.params, real.params,
+        "the dummy costs what burrow passwd writes"
+    );
+    assert_eq!(a.check(&u, None, me).await, Verdict::Wrong);
+    assert_eq!(a.work.checks(), (1, 1), "no header, no check");
 }
 
 #[tokio::test]
