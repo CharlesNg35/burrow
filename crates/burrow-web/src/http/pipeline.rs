@@ -1,8 +1,9 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
 
+use burrow_syntax::url_path::normalize_path;
 use bytes::Bytes;
-use http::{HeaderValue, Method, Request, Response, StatusCode, header};
+use http::{HeaderValue, Method, Request, Response, StatusCode, Uri, header};
 use http_body_util::BodyExt;
 use hyper::body::Incoming;
 
@@ -23,7 +24,7 @@ const CHALLENGE: &str = "/.well-known/acme-challenge/";
 pub(crate) async fn handle<U: Upstream>(
     shared: &Arc<Shared<U>>,
     conn: &Conn,
-    req: Request<Incoming>,
+    mut req: Request<Incoming>,
 ) -> Response<Body> {
     let Some(host) = request_host(req.uri(), req.headers()) else {
         return Page::BadRequest.response();
@@ -31,7 +32,6 @@ pub(crate) async fn handle<U: Upstream>(
     if req.method() == Method::CONNECT {
         return Page::BadRequest.response();
     }
-    let table = shared.table();
     match &conn.name {
         Some(name) if *name != host => return Page::Misdirected.response(),
         Some(_) => {}
@@ -39,12 +39,18 @@ pub(crate) async fn handle<U: Upstream>(
             if let Some(answer) = challenge(shared, &req) {
                 return answer;
             }
-            if let Some(prefix) = table.plain_tunnel(&host, req.uri().path()) {
-                return by_path(shared, conn, req, prefix);
-            }
-            if let Some(answer) = on_plain(shared, &table, &host, &req) {
-                return answer;
-            }
+        }
+    }
+    if !normalize_target(&mut req, &host) {
+        return Page::BadRequest.response();
+    }
+    let table = shared.table();
+    if conn.name.is_none() {
+        if let Some(prefix) = table.plain_tunnel(&host, req.uri().path()) {
+            return by_path(shared, conn, req, prefix);
+        }
+        if let Some(answer) = on_plain(shared, &table, &host, &req) {
+            return answer;
         }
     }
     let Some(route) = table.route(&host, req.uri().path()) else {
@@ -74,6 +80,27 @@ pub(crate) async fn handle<U: Upstream>(
             forward(shared.up.as_ref(), &conn.ups, req, f).await
         }
     }
+}
+
+fn normalize_target<B>(req: &mut Request<B>, host: &str) -> bool {
+    let Ok(path) = normalize_path(req.uri().path()) else {
+        return false;
+    };
+    let target = match req.uri().query() {
+        Some(q) => format!("{path}?{q}"),
+        None => path,
+    };
+    let Ok(uri) = target.parse::<Uri>() else {
+        return false;
+    };
+    if req.uri().authority().is_some() {
+        let Ok(v) = HeaderValue::from_str(host) else {
+            return false;
+        };
+        req.headers_mut().insert(header::HOST, v);
+    }
+    *req.uri_mut() = uri;
+    true
 }
 
 fn challenge_token(path: &str) -> Option<&str> {

@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::net::IpAddr;
 
+pub use burrow_syntax::url_path::{on_prefix, path_matches};
 use burrow_syntax::web::wildcard_of;
 
 use crate::{ProxySettings, SiteTls, TunnelMode, TunnelPort, TunnelSettings};
@@ -86,7 +87,7 @@ impl Table {
 
     pub fn plain_tunnel(&self, host: &str, path: &str) -> Option<&str> {
         let t = self.plain_tunnel.as_ref()?;
-        let here = t.host == host && (t.whole_name || on_prefix(&t.path, path));
+        let here = t.host == host && (t.whole_name || path_matches(&t.path, path));
         here.then_some(t.path.as_str())
     }
 
@@ -111,7 +112,7 @@ impl Table {
     pub fn route<'a>(&'a self, host: &str, path: &str) -> Option<&'a Route> {
         match self.kind(host)? {
             Kind::Http { routes, .. } | Kind::Plain(routes) => {
-                routes.iter().find(|r| on_prefix(&r.prefix, path))
+                routes.iter().find(|r| path_matches(&r.prefix, path))
             }
             _ => None,
         }
@@ -148,13 +149,6 @@ fn add_tunnel(hosts: &mut HashMap<String, Kind>, t: &TunnelSettings) {
             );
         }
     }
-}
-
-pub fn on_prefix(prefix: &str, path: &str) -> bool {
-    prefix == "/"
-        || path
-            .strip_prefix(prefix)
-            .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
 }
 
 #[cfg(test)]
