@@ -285,15 +285,39 @@ impl Server {
         let Some(ports) = Ports::of(&p) else {
             return false;
         };
-        let Ok(l) = bind_ports(ports) else {
-            return false;
+        let held = self.web.as_ref().map(|t| t.ports);
+        let kept = |a: SocketAddr| {
+            self.web.as_ref().is_some_and(|t| {
+                t.ports
+                    .all()
+                    .chain(t.bound.all())
+                    .any(|b| binds_conflict(a, b))
+            })
         };
+        let free = |a| crate::wire::transport::tcp::bind_tcp(a).is_ok();
+        if !ports.all().filter(|a| !kept(*a)).all(free) {
+            return false;
+        }
+        let freed = ports.all().any(kept);
         let certs = self.web_certs();
-        self.stop_web().await;
-        let t = WebTask::start(&self.shared, l, p, certs).await;
-        info!("web proxy could listen now: {}", t.describe());
-        self.web = Some(t);
-        *next = wanted;
-        true
+        if freed {
+            self.stop_web().await;
+        }
+        match bind_with_retry(ports, if freed { FREED_TRIES } else { 1 }).await {
+            Ok(l) => {
+                self.stop_web().await;
+                let t = WebTask::start(&self.shared, l, p, certs).await;
+                info!("web proxy could listen now: {}", t.describe());
+                self.web = Some(t);
+                *next = wanted;
+                true
+            }
+            Err(f) if freed => {
+                self.keep_web(next, held, (true, certs), p, &f.message)
+                    .await;
+                true
+            }
+            Err(_) => false,
+        }
     }
 }

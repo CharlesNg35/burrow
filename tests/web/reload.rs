@@ -226,3 +226,60 @@ async fn a_new_tunnel_certificate_is_used_for_new_connections() {
     assert!(ok, "the new certificate is served");
     assert_eq!(srv.web_addr, Some(web));
 }
+
+type Pick = fn(&mut burrow::config::settings::WebSettings) -> &mut Option<std::net::SocketAddr>;
+
+async fn a_busy_port_comes_up_once_freed(start: &[Pick], moved: Pick) {
+    logs();
+    let nas_cert = cert(&["nas.example.com"]);
+    let (nas, _a) = backend("nas", &nas_cert, false).await;
+    let secret = Secret::generate();
+    let at = |p: u16| -> std::net::SocketAddr { format!("127.0.0.1:{p}").parse().unwrap() };
+    let mut s = web_server(
+        &secret,
+        &[("nas", site(&["home"], nas), &["nas.example.com"])],
+    );
+    for pick in start {
+        *pick(s.web.as_mut().unwrap()) = Some(at(free_port()));
+    }
+    let t = tunnel_with(s.clone(), Vec::new(), |c| c, secret.clone()).await;
+    let shared = t.server.shared.clone();
+    let busy = at(free_port());
+    let holder = std::net::TcpListener::bind(busy).unwrap();
+    let mut next = s.clone();
+    let web = next.web.as_mut().unwrap();
+    *moved(web) = Some(busy);
+    web.sites.insert(
+        "git".into(),
+        WebSite::passthrough(vec!["git.example.com".into()]),
+    );
+    t.server.reload(next.clone()).await;
+    let mut kept = next.web.clone().unwrap();
+    *moved(&mut kept) = *moved(s.web.as_mut().unwrap());
+    wait_for(|| shared.settings_snapshot().web.as_ref() == Some(&kept)).await;
+    drop(holder);
+    let up = tokio::time::timeout(Duration::from_secs(25), async {
+        while shared.settings_snapshot().web != next.web {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    })
+    .await;
+    assert!(up.is_ok(), "the freed port is taken up by the retry");
+    let ports = next.web.as_ref().unwrap();
+    let mut a = visit(ports.https.unwrap(), "nas.example.com", &nas_cert)
+        .await
+        .unwrap();
+    assert_eq!(ask(&mut a, b"x").await.unwrap(), b"nas:x");
+    let r = plain_get(ports.http.unwrap(), "nas.example.com", "/").await;
+    assert!(r.starts_with("HTTP/1.1 "), "{r}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_added_http_port_that_was_busy_comes_up_once_freed() {
+    a_busy_port_comes_up_once_freed(&[|w| &mut w.https], |w| &mut w.http).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_moved_https_port_that_was_busy_comes_up_once_freed() {
+    a_busy_port_comes_up_once_freed(&[|w| &mut w.https, |w| &mut w.http], |w| &mut w.https).await;
+}
