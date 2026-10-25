@@ -689,6 +689,43 @@ services:
 
 `client: self` reaches its own target without a `self:` block; `self.allow` only limits what visitors may `reach` on the server ([services.md](services.md)).
 
+### Single sign-on with authentik
+
+```yaml
+# server.yaml
+web:
+  https: 443
+  letsencrypt:
+    email: you@example.com
+    dns:
+      - domains: [example.com]
+        cloudflare: { token: "${CF_TOKEN}" }
+        wildcards: ["*.apps.example.com"]
+  forward_auth: # every site with forward_auth: true asks authentik first
+    service: authentik
+    path: /outpost.goauthentik.io/auth/caddy
+    copy_headers: [X-authentik-username, X-authentik-groups, X-authentik-email, X-authentik-name, X-authentik-uid]
+services:
+  authentik: # the login portal itself, never behind a login
+    client: self
+    target: 9000
+    web: auth.example.com
+  apps: # every app under *.apps.example.com, behind the login
+    client: office
+    target: 3000
+    web:
+      hosts: ["*.apps.example.com"]
+      forward_auth: true
+  outpost: # authentik's own paths on each protected name, open so the login can finish
+    client: self
+    target: 9000
+    web:
+      hosts: ["*.apps.example.com"]
+      paths: [/outpost.goauthentik.io]
+```
+
+In authentik, create a Proxy provider in "Forward auth (domain level)" mode for `apps.example.com`, and assign it to the embedded outpost. burrow asks authentik's Caddy endpoint, which reads the original address from the `X-Forwarded-*` headers burrow sets; visitors' own copies of the `X-authentik-*` headers never reach the app.
+
 ### Home Assistant
 
 ```yaml
