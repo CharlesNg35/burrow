@@ -234,13 +234,8 @@ async fn served_by(addr: SocketAddr) -> Option<char> {
 }
 
 async fn eventually_served_by(addr: SocketAddr, want: char) {
-    for _ in 0..100 {
-        if served_by(addr).await == Some(want) {
-            return;
-        }
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
-    panic!("connections never reached client {want}");
+    let reached = within_tries(100, || async move { served_by(addr).await == Some(want) }).await;
+    assert!(reached, "connections never reached client {want}");
 }
 
 fn web(mode: Mode, health: Option<Health>) -> Service {

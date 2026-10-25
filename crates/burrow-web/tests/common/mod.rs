@@ -540,3 +540,23 @@ pub fn leaf(ca: Option<&Ca>, names: &[&str]) -> (CertificateDer<'static>, Privat
     let der = CertificateDer::from(cert.der().to_vec());
     (der, PrivateKeyDer::try_from(key.serialize_der()).unwrap())
 }
+
+pub async fn ws_echo() -> SocketAddr {
+    let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = l.local_addr().unwrap();
+    tokio::spawn(async move {
+        while let Ok((s, _)) = l.accept().await {
+            tokio::spawn(async move {
+                let Ok((_, mut ws)) = tokio_websockets::ServerBuilder::new().accept(s).await else {
+                    return;
+                };
+                while let Some(Ok(m)) = futures_util::StreamExt::next(&mut ws).await {
+                    if m.is_close() || futures_util::SinkExt::send(&mut ws, m).await.is_err() {
+                        break;
+                    }
+                }
+            });
+        }
+    });
+    addr
+}

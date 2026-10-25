@@ -26,13 +26,7 @@ async fn trusts(addr: SocketAddr, cert_pem: &str) -> bool {
 }
 
 async fn eventually_trusts(addr: SocketAddr, cert_pem: &str) -> bool {
-    for _ in 0..50 {
-        if trusts(addr, cert_pem).await {
-            return true;
-        }
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
-    false
+    common::within_tries(50, || trusts(addr, cert_pem)).await
 }
 
 fn write_config(config: &Path, port: u16, cert: &Path, key: &Path) {

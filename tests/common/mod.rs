@@ -247,7 +247,11 @@ pub async fn wait_for<F: FnMut() -> bool>(mut f: F) {
 }
 
 pub async fn echo_server() -> SocketAddr {
-    let l = burrow::wire::transport::tcp::bind_tcp("127.0.0.1:0".parse().unwrap()).unwrap();
+    echo_on("127.0.0.1:0".parse().unwrap()).await
+}
+
+pub async fn echo_on(addr: SocketAddr) -> SocketAddr {
+    let l = burrow::wire::transport::tcp::bind_tcp(addr).unwrap();
     let addr = l.local_addr().unwrap();
     tokio::spawn(async move {
         loop {
@@ -262,6 +266,20 @@ pub async fn echo_server() -> SocketAddr {
         }
     });
     addr
+}
+
+pub async fn within_tries<F, Fut>(tries: u32, mut f: F) -> bool
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = bool>,
+{
+    for _ in 0..tries {
+        if f().await {
+            return true;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    false
 }
 
 pub async fn udp_bind() -> UdpSocket {

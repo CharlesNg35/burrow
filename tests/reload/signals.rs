@@ -58,13 +58,11 @@ async fn a_server_whose_stderr_went_away_keeps_running_and_reloading() {
 
 #[cfg(unix)]
 async fn eventually_listening(addr: SocketAddr) -> bool {
-    for _ in 0..100 {
-        if TcpStream::connect(addr).await.is_ok() {
-            return true;
-        }
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
-    false
+    super::common::within_tries(
+        100,
+        || async move { TcpStream::connect(addr).await.is_ok() },
+    )
+    .await
 }
 
 #[cfg(unix)]
