@@ -90,6 +90,7 @@ const CRATE_DEPS: &[(&str, &[&str], &[&str])] = &[
             "serde",
             "serde_json",
             "socket2",
+            "time",
             "tokio",
             "tokio-rustls",
             "tokio-util",

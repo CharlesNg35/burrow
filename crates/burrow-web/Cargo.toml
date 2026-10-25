@@ -31,6 +31,7 @@ ring = "0.17.14"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 socket2 = "0.6.5"
+time = "0.3.55"
 tokio = { version = "1.53.3", features = ["net", "io-util", "time", "sync", "rt", "macros", "process"] }
 tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring", "logging", "tls12"] }
 tokio-util = { version = "0.7.20", default-features = false, features = ["io"] }

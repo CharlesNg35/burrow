@@ -2,6 +2,7 @@ pub mod acme;
 pub mod client_auth;
 pub mod files;
 mod fixed;
+pub mod internal;
 mod select;
 mod store;
 pub mod uploads;
