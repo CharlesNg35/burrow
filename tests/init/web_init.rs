@@ -34,6 +34,23 @@ fn ws_with_an_email_writes_the_tunnel_only_web_block() {
     );
     assert!(!text.contains("public_address"), "{text}");
     load(&dir.path().join("server.yaml"));
+    let o = burrow::config::load_file(
+        &dir.path().join("server.yaml"),
+        None,
+        &burrow::config::env::ProcessEnv,
+    )
+    .unwrap();
+    let strict: Vec<&str> = o
+        .report
+        .diagnostics
+        .iter()
+        .filter(|d| d.code != "low-port")
+        .map(|d| d.message.as_str())
+        .collect();
+    assert!(
+        strict.is_empty(),
+        "validate --strict passes, apart from this machine's low-port warning: {strict:?}"
+    );
     assert!(
         printed.contains("server: wss://tunnel.example.com/burrow"),
         "{printed}"

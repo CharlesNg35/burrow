@@ -218,6 +218,10 @@ fn a_server_without_web_http_is_told_that_http_addresses_get_no_answer() {
         "listen: 7835\nweb: {{ https: 443, http: 80 }}\n{NAS}"
     ));
     assert!(coded(&both, "no-http").is_empty());
+    let tunnel_only = load(
+        "listen: 7835\nweb: { https: 443, letsencrypt: { email: you@example.com } }\nwebsocket: { listen: 443, host: tunnel.example.com }\n",
+    );
+    assert!(coded(&tunnel_only, "no-http").is_empty());
 }
 
 #[test]

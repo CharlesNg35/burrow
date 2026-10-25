@@ -65,7 +65,7 @@ pub(super) fn check_http(
     out: &mut Vec<Diagnostic>,
 ) -> Option<SocketAddr> {
     let Some(given) = cfg.web.as_ref().and_then(|w| w.http.as_ref()) else {
-        if https.is_some() {
+        if https.is_some() && cfg.services.values().any(|s| s.web.is_some()) {
             out.push(
                 Diagnostic::warning(
                     "no-http",
