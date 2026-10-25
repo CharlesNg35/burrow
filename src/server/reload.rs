@@ -13,6 +13,7 @@ use super::{
 use crate::config::settings::ServerSettings;
 use crate::config::settings::{Shares, WebSocketSettings};
 use crate::wire::protocol::{ByeReason, ServerMsg};
+use burrow_admin_proto::status::PortWait;
 use burrow_config::Protocol;
 
 impl Server {
@@ -45,12 +46,12 @@ impl Server {
         self.shared.prune_standing(&next);
         self.shared.reloaded.send_modify(|n| *n += 1);
 
-        self.apply_endpoints(&current, &mut next).await;
+        let web_wait = self.apply_endpoints(&current, &mut next).await;
         let mut released = self.stop_moving_services(&next).await;
         let unbound = self.bind_services(&current, &next, &mut released).await;
         log_former_private_services(&current, &next);
         self.update_sessions(&current, &next);
-        self.report_reload(&changed, &next, unbound);
+        self.report_reload(&changed, &next, unbound, web_wait);
     }
 
     fn listen_change_refused(&self, current: &ServerSettings, next: &ServerSettings) -> bool {
@@ -61,7 +62,8 @@ impl Server {
                     "{what} uses {kept}, which this server keeps listening on until it restarts"
                 );
                 error!("reload rejected: {why}; keeping the current config");
-                self.shared.report_apply(Some(why), Vec::new(), Vec::new());
+                self.shared
+                    .report_apply(Some(why), Vec::new(), Vec::new(), Vec::new());
                 return true;
             }
             let show =
@@ -76,8 +78,13 @@ impl Server {
         false
     }
 
-    async fn apply_endpoints(&mut self, current: &ServerSettings, next: &mut ServerSettings) {
+    async fn apply_endpoints(
+        &mut self,
+        current: &ServerSettings,
+        next: &mut ServerSettings,
+    ) -> Option<PortWait> {
         let before = self.tunnel_at(current);
+        let mut web_wait = None;
         let mut released = Vec::new();
         let ws_first = next.web.as_ref().is_some_and(|w| {
             self.websocket_addr().is_some_and(|a| {
@@ -92,7 +99,7 @@ impl Server {
             if next.web.is_none() {
                 released.extend(self.web_addr().into_iter().chain(self.web_http_addr()));
             }
-            Box::pin(self.apply_web(next, &released)).await;
+            web_wait = Box::pin(self.apply_web(next, &released)).await;
             *self.shared.settings.write().expect("settings lock") = Arc::new(next.clone());
         }
         if !ws_first {
@@ -108,6 +115,7 @@ impl Server {
                 *self.shared.settings.write().expect("settings lock") = Arc::new(next.clone());
             }
         }
+        web_wait
     }
 
     fn tunnel_at(
@@ -306,6 +314,7 @@ impl Server {
         changed: &[(&'static str, fields::Applied)],
         next: &ServerSettings,
         unbound: Vec<String>,
+        web_wait: Option<PortWait>,
     ) {
         let (c, v) = (next.clients.len(), next.services.len());
         let names: Vec<&str> = changed.iter().map(|(name, _)| *name).collect();
@@ -325,7 +334,21 @@ impl Server {
             .map(|(name, _)| *name)
             .collect();
         self.refresh_self();
-        self.shared.report_apply(None, unbound.clone(), restart);
+        let mut lines: Vec<String> = unbound
+            .iter()
+            .map(|name| {
+                format!(
+                    "service {name} could not listen; it tries again every {}s",
+                    BIND_RETRY.as_secs()
+                )
+            })
+            .collect();
+        let mut names = unbound.clone();
+        if let Some(w) = &web_wait {
+            names.push(w.key.clone());
+            lines.push(w.line());
+        }
+        self.shared.report_apply(None, names, restart, lines);
         if unbound.is_empty() {
             info!("{summary}");
         } else {

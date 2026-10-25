@@ -106,6 +106,7 @@ pub enum ReloadResult {
     Applied {
         restart: Vec<String>,
         unbound: Vec<String>,
+        lines: Vec<String>,
     },
     Rejected(String),
     Timeout,
@@ -171,9 +172,13 @@ pub fn finish(
             .with(serde_json::to_value(body).unwrap_or_default()))
         }
         ReloadResult::Timeout | ReloadResult::Applied { .. } => {
-            let (restart, unbound) = match &reload {
-                ReloadResult::Applied { restart, unbound } => (restart.clone(), unbound.clone()),
-                _ => (Vec::new(), Vec::new()),
+            let (restart, unbound, not_listening) = match &reload {
+                ReloadResult::Applied {
+                    restart,
+                    unbound,
+                    lines,
+                } => (restart.clone(), unbound.clone(), lines.clone()),
+                _ => (Vec::new(), Vec::new(), Vec::new()),
             };
             tracing::info!(
                 target: "burrow::admin",
@@ -220,6 +225,7 @@ pub fn finish(
                 restart_needed: restart,
                 secrets,
                 snippets,
+                not_listening,
             })
         }
     }

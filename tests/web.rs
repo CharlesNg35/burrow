@@ -1,5 +1,7 @@
 #![cfg(feature = "web")]
 
+#[path = "web/busy_ports.rs"]
+mod busy_ports;
 #[path = "web/by_path.rs"]
 mod by_path;
 #[path = "web/certs.rs"]

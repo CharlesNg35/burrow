@@ -79,6 +79,7 @@ async fn apply(cx: &Ctx, body: Value) -> Result<Value, ApiError> {
                 ReloadResult::Applied {
                     restart: Vec::new(),
                     unbound: Vec::new(),
+                    lines: Vec::new(),
                 },
                 None,
             )
@@ -100,6 +101,7 @@ async fn apply(cx: &Ctx, body: Value) -> Result<Value, ApiError> {
                     None => ReloadResult::Applied {
                         restart: r.restart.iter().map(|s| s.to_string()).collect(),
                         unbound: r.unbound.clone(),
+                        lines: r.lines.clone(),
                     },
                 },
                 _ => ReloadResult::Timeout,
@@ -108,6 +110,7 @@ async fn apply(cx: &Ctx, body: Value) -> Result<Value, ApiError> {
         Some(ReloadOutcome::Unchanged) => ReloadResult::Applied {
             restart: Vec::new(),
             unbound: Vec::new(),
+            lines: Vec::new(),
         },
         None => ReloadResult::Timeout,
     };

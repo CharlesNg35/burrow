@@ -121,6 +121,7 @@ pub(crate) fn sample() -> Status {
         certificates: Vec::new(),
         acme: None,
         local_ca: None,
+        web_waiting: None,
     }
 }
 
@@ -495,5 +496,25 @@ fn websites_are_listed_with_the_tunnel_first() {
     assert!(
         empty.contains("no names yet: every connection is closed"),
         "{empty}"
+    );
+}
+
+#[test]
+fn a_web_proxy_waiting_for_its_port_is_named_even_while_it_is_off() {
+    let mut s = sample();
+    s.web = None;
+    s.web_waiting = Some(burrow_admin_proto::status::PortWait {
+        key: "web.http".into(),
+        addr: "0.0.0.0:80".into(),
+        reason: "in use".into(),
+        stays: String::new(),
+        retry_secs: 5,
+    });
+    let text = render(&s, Paint::PLAIN, None);
+    assert!(
+        text.contains(
+            "web.http 0.0.0.0:80 is in use; the web proxy stays off and tries again every 5s"
+        ),
+        "{text}"
     );
 }

@@ -330,6 +330,7 @@ impl Server {
             client_counts: Counts::default(),
             limits: Mutex::new(HashMap::new()),
             probes: Mutex::new(HashMap::new()),
+            web_wait: Mutex::new(None),
             standing: Mutex::new(standing::Standing::default()),
             turns: Mutex::new(HashMap::new()),
             local: Arc::new(local::SelfDialer::new(

@@ -148,6 +148,7 @@ impl Shared {
             certificates,
             acme,
             local_ca: self.local_ca_of(),
+            web_waiting: self.web_wait.lock().expect("web wait lock").clone(),
         }
     }
 }

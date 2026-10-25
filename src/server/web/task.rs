@@ -11,6 +11,7 @@ use crate::base::failure::Failure;
 use crate::config::check::binds_conflict;
 use crate::config::settings::ServerSettings;
 use crate::server::{BIND_RETRY, FREED_TRIES, Server, Shared, bind_error};
+use burrow_admin_proto::status::PortWait;
 use burrow_config::Protocol;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -50,24 +51,61 @@ pub(in crate::server) struct WebTask {
     bound: Ports,
 }
 
-fn bind_one(addr: SocketAddr, what: &str) -> Result<TcpListener, Failure> {
-    crate::wire::transport::tcp::bind_tcp(addr)
-        .map_err(|e| bind_error(what, Protocol::Tcp, addr, &e))
+pub(in crate::server) struct BindFailed {
+    key: &'static str,
+    addr: SocketAddr,
+    reason: String,
+    failure: Failure,
 }
 
-fn bind_ports(ports: Ports) -> Result<Listeners, Failure> {
+impl BindFailed {
+    fn wait(&self, stays: String) -> PortWait {
+        PortWait {
+            key: self.key.to_string(),
+            addr: self.addr.to_string(),
+            reason: self.reason.clone(),
+            stays,
+            retry_secs: BIND_RETRY.as_secs(),
+        }
+    }
+}
+
+fn reason(e: &std::io::Error) -> String {
+    match e.kind() {
+        std::io::ErrorKind::AddrInUse => "in use".into(),
+        std::io::ErrorKind::PermissionDenied => "not allowed".into(),
+        _ => e.to_string(),
+    }
+}
+
+fn bind_one(
+    addr: SocketAddr,
+    key: &'static str,
+    what: &str,
+) -> Result<TcpListener, Box<BindFailed>> {
+    crate::wire::transport::tcp::bind_tcp(addr).map_err(|e| {
+        Box::new(BindFailed {
+            key,
+            addr,
+            reason: reason(&e),
+            failure: bind_error(what, Protocol::Tcp, addr, &e),
+        })
+    })
+}
+
+fn bind_ports(ports: Ports) -> Result<Listeners, Box<BindFailed>> {
     let https = ports
         .https
-        .map(|a| bind_one(a, "the web proxy's HTTPS port"))
+        .map(|a| bind_one(a, "web.https", "the web proxy's HTTPS port"))
         .transpose()?;
     let http = ports
         .http
-        .map(|a| bind_one(a, "the web proxy's HTTP port"))
+        .map(|a| bind_one(a, "web.http", "the web proxy's HTTP port"))
         .transpose()?;
     Ok(Listeners { https, http })
 }
 
-async fn bind_with_retry(ports: Ports, tries: usize) -> Result<Listeners, Failure> {
+async fn bind_with_retry(ports: Ports, tries: usize) -> Result<Listeners, Box<BindFailed>> {
     crate::base::ports::retry(tries, || async { bind_ports(ports) }).await
 }
 
@@ -82,7 +120,7 @@ impl WebTask {
         let Some(ports) = Ports::of(&p) else {
             return Ok(None);
         };
-        let listeners = bind_ports(ports)?;
+        let listeners = bind_ports(ports).map_err(|f| f.failure)?;
         Ok(Some(
             WebTask::start(shared, listeners, p, shared.certs.clone()).await,
         ))
@@ -165,17 +203,23 @@ impl Server {
         self.shared.certs.clone()
     }
 
+    fn waiting(&self, wait: Option<PortWait>) -> Option<PortWait> {
+        wait.clone_into(&mut self.shared.web_wait.lock().expect("web wait lock"));
+        wait
+    }
+
     pub(in crate::server) async fn apply_web(
         &mut self,
         next: &mut ServerSettings,
         released: &[SocketAddr],
-    ) {
+    ) -> Option<PortWait> {
+        self.waiting(None);
         let p = match proxy_settings(next) {
             Ok(p) => p,
             Err(f) => {
                 error!("{}; the web proxy keeps its current settings", f.message);
                 next.web = self.shared.settings().web.clone();
-                return;
+                return None;
             }
         };
         let Some((p, ports)) = p.and_then(|p| Ports::of(&p).map(|ports| (p, ports))) else {
@@ -187,7 +231,7 @@ impl Server {
                     .await;
                 info!("web proxy stopped");
             }
-            return;
+            return None;
         };
         if let Some(t) = self.web.as_ref().filter(|t| t.ports == ports) {
             let before = t.proxy.table();
@@ -195,7 +239,7 @@ impl Server {
             if *before != *t.proxy.table() {
                 info!("web proxy updated");
             }
-            return;
+            return None;
         }
         let freed = self
             .web
@@ -213,11 +257,9 @@ impl Server {
                 let t = WebTask::start(&self.shared, l, p, certs).await;
                 info!("web proxy now on {}", t.describe());
                 self.web = Some(t);
+                None
             }
-            Err(f) => {
-                self.keep_web(next, old, (freed, certs), p, &f.message)
-                    .await
-            }
+            Err(f) => Some(self.keep_web(next, old, (freed, certs), p, &f).await),
         }
     }
 
@@ -227,36 +269,47 @@ impl Server {
         old: Option<Ports>,
         (freed, certs): (bool, Arc<dyn Certificates>),
         mut p: ProxySettings,
-        why: &str,
-    ) {
+        failed: &BindFailed,
+    ) -> PortWait {
+        let why = &failed.failure.message;
         let Some(old) = old else {
             error!(
                 "{why}; the web proxy stays off and tries again every {}s",
                 BIND_RETRY.as_secs()
             );
             next.web = None;
-            return;
+            return self.wait_for(failed, String::new());
         };
         old.set(&mut p, next);
         if !freed && let Some(t) = &self.web {
             t.proxy.apply(&p).await;
             error!("{why}; the web proxy stays on {}", t.describe());
-            return;
+            let stays = t.describe();
+            return self.wait_for(failed, stays);
         }
         match bind_with_retry(old, FREED_TRIES).await {
             Ok(l) => {
                 let t = WebTask::start(&self.shared, l, p, certs).await;
                 error!("{why}; the web proxy stays on {}", t.describe());
+                let stays = t.describe();
                 self.web = Some(t);
+                self.wait_for(failed, stays)
             }
             Err(f) => {
                 error!(
                     "{why}, and its previous address is no longer free either ({}); websites cannot be reached until the config is fixed or the server restarts",
-                    f.message
+                    f.failure.message
                 );
                 next.web = None;
+                self.wait_for(failed, String::new())
             }
         }
+    }
+
+    fn wait_for(&self, failed: &BindFailed, stays: String) -> PortWait {
+        let wait = failed.wait(stays);
+        self.waiting(Some(wait.clone()));
+        wait
     }
 
     pub(in crate::server) async fn web_waiting(&mut self, next: &mut ServerSettings) -> bool {
@@ -300,12 +353,12 @@ impl Server {
                 let t = WebTask::start(&self.shared, l, p, certs).await;
                 info!("web proxy could listen now: {}", t.describe());
                 self.web = Some(t);
+                self.waiting(None);
                 *next = wanted;
                 true
             }
             Err(f) if freed => {
-                self.keep_web(next, held, (true, certs), p, &f.message)
-                    .await;
+                self.keep_web(next, held, (true, certs), p, &f).await;
                 true
             }
             Err(_) => false,

@@ -72,6 +72,7 @@ pub struct Shared {
     client_counts: Counts,
     limits: Mutex<HashMap<String, Arc<Limit>>>,
     probes: Mutex<health::Probes>,
+    web_wait: Mutex<Option<burrow_admin_proto::status::PortWait>>,
     standing: Mutex<standing::Standing>,
     turns: Mutex<HashMap<String, usize>>,
     local: Arc<local::SelfDialer>,
@@ -86,6 +87,7 @@ pub struct ApplyReport {
     pub rejected: Option<String>,
     pub unbound: Vec<String>,
     pub restart: Vec<&'static str>,
+    pub lines: Vec<String>,
 }
 
 #[derive(Default)]
@@ -208,6 +210,7 @@ impl Shared {
         rejected: Option<String>,
         unbound: Vec<String>,
         restart: Vec<&'static str>,
+        lines: Vec<String>,
     ) {
         self.applied.send_modify(|r| {
             *r = ApplyReport {
@@ -215,6 +218,7 @@ impl Shared {
                 rejected,
                 unbound,
                 restart,
+                lines,
             }
         });
     }

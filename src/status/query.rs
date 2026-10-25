@@ -134,6 +134,11 @@ fn clean_status(s: &mut Status) {
         }
     };
     s.version = clean(&s.version);
+    if let Some(w) = &mut s.web_waiting {
+        for f in [&mut w.key, &mut w.addr, &mut w.reason, &mut w.stays] {
+            *f = clean(f);
+        }
+    }
     all(&mut s.listening);
     for c in &mut s.clients {
         c.name = clean(&c.name);

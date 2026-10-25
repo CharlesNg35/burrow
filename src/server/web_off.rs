@@ -30,7 +30,13 @@ impl Server {
 
     pub(super) async fn stop_web(&mut self) {}
 
-    pub(super) async fn apply_web(&mut self, _: &mut ServerSettings, _: &[SocketAddr]) {}
+    pub(super) async fn apply_web(
+        &mut self,
+        _: &mut ServerSettings,
+        _: &[SocketAddr],
+    ) -> Option<burrow_admin_proto::status::PortWait> {
+        None
+    }
 
     pub(super) async fn web_waiting(&mut self, _: &mut ServerSettings) -> bool {
         false

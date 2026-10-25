@@ -175,6 +175,7 @@ mod tests {
             certificates: Vec::new(),
             acme: None,
             local_ca: None,
+            web_waiting: None,
         }
     }
 

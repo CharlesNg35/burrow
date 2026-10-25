@@ -26,6 +26,33 @@ pub struct Status {
     pub acme: Option<AcmeStatus>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub local_ca: Option<LocalCaStatus>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub web_waiting: Option<PortWait>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct PortWait {
+    pub key: String,
+    pub addr: String,
+    pub reason: String,
+    #[serde(default)]
+    pub stays: String,
+    #[serde(default)]
+    pub retry_secs: u64,
+}
+
+impl PortWait {
+    pub fn line(&self) -> String {
+        let stays = if self.stays.is_empty() {
+            "stays off".to_string()
+        } else {
+            format!("stays on {}", self.stays)
+        };
+        format!(
+            "{} {} is {}; the web proxy {stays} and tries again every {}s",
+            self.key, self.addr, self.reason, self.retry_secs
+        )
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -207,6 +234,26 @@ pub enum CertStateStatus {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_web_port_wait_says_what_waits_and_where_the_proxy_stays() {
+        let mut w = PortWait {
+            key: "web.https".into(),
+            addr: "0.0.0.0:8443".into(),
+            reason: "in use".into(),
+            stays: "https 0.0.0.0:443".into(),
+            retry_secs: 5,
+        };
+        assert_eq!(
+            w.line(),
+            "web.https 0.0.0.0:8443 is in use; the web proxy stays on https 0.0.0.0:443 and tries again every 5s"
+        );
+        w.stays.clear();
+        assert_eq!(
+            w.line(),
+            "web.https 0.0.0.0:8443 is in use; the web proxy stays off and tries again every 5s"
+        );
+    }
 
     #[test]
     fn a_certificate_line_reads_back_and_is_left_out_while_there_are_none() {

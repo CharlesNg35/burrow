@@ -247,6 +247,7 @@ fn apply_at(
         ReloadResult::Applied {
             restart: Vec::new(),
             unbound: Vec::new(),
+            lines: Vec::new(),
         },
         None,
     )
