@@ -151,7 +151,7 @@ async fn an_upgrade_joins_the_browser_and_the_app() {
     let mut t = tls(proxy.https_addr().unwrap(), "blog.example.com")
         .await
         .unwrap();
-    t.write_all(b"GET /upgrade HTTP/1.1\r\nHost: blog.example.com\r\nConnection: Upgrade\r\nUpgrade: echo\r\n\r\n")
+    t.write_all(b"GET /upgrade HTTP/1.1\r\nHost: blog.example.com\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n")
         .await
         .unwrap();
     let mut head = Vec::new();
@@ -276,7 +276,7 @@ async fn an_upgraded_connection_is_not_closed_for_being_quiet() {
     let mut t = tls(proxy.https_addr().unwrap(), "blog.example.com")
         .await
         .unwrap();
-    t.write_all(b"GET /upgrade HTTP/1.1\r\nHost: blog.example.com\r\nConnection: Upgrade\r\nUpgrade: echo\r\n\r\n")
+    t.write_all(b"GET /upgrade HTTP/1.1\r\nHost: blog.example.com\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n")
         .await
         .unwrap();
     let mut buf = vec![0u8; 4096];

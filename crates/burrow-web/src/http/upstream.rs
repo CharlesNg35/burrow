@@ -153,8 +153,16 @@ pub fn strip_hop_by_hop(h: &mut HeaderMap) {
 }
 
 pub fn upgrade_of(h: &HeaderMap) -> Option<HeaderValue> {
-    let asked = connection_tokens(h).contains(&header::UPGRADE);
-    h.get(header::UPGRADE).filter(|_| asked).cloned()
+    if !connection_tokens(h).contains(&header::UPGRADE) {
+        return None;
+    }
+    let websocket = h
+        .get_all(header::UPGRADE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .flat_map(|v| v.split(','))
+        .any(|p| p.trim().eq_ignore_ascii_case("websocket"));
+    websocket.then(|| HeaderValue::from_static("websocket"))
 }
 
 fn set(h: &mut HeaderMap, name: &'static str, value: &str) {

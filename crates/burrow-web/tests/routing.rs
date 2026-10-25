@@ -248,3 +248,19 @@ async fn a_slow_app_gets_504_after_its_response_header_timeout() {
     let r = get(&t.proxy, "/slow/10", "").await;
     assert!(r.starts_with("HTTP/1.1 200"), "{r}");
 }
+
+#[tokio::test]
+async fn an_h2c_upgrade_is_never_passed_to_the_app_and_the_request_is_served_plainly() {
+    let t = two(|| vec![https_site("blog", &["example.com"])]).await;
+    let r = get(
+        &t.proxy,
+        "/",
+        "Upgrade: h2c\r\nHTTP2-Settings: AAMAAABkAARAAAAAAAIAAAAA\r\nConnection: Upgrade, HTTP2-Settings\r\n",
+    )
+    .await;
+    assert!(r.starts_with("HTTP/1.1 200"), "{r}");
+    let app_saw = r.split("\r\n\r\n").nth(1).unwrap_or_default();
+    assert!(app_saw.starts_with("GET /\n"), "{r}");
+    assert!(!app_saw.contains("upgrade"), "{r}");
+    assert!(!app_saw.contains("http2-settings"), "{r}");
+}

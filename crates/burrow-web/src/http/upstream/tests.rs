@@ -183,3 +183,34 @@ fn a_trusted_proxy_keeps_its_headers_and_the_chain_grows() {
     assert_eq!(h["x-forwarded-prefix"], "/app");
     assert!(!h.contains_key("x_forwarded_for"));
 }
+
+#[test]
+fn only_a_websocket_upgrade_reaches_the_app() {
+    let mut h2c = request(
+        "/",
+        &[
+            ("host", "blog.example.com"),
+            ("connection", "Upgrade, HTTP2-Settings"),
+            ("upgrade", "h2c"),
+            ("http2-settings", "AAMAAABkAARAAAAAAAIAAAAA"),
+        ],
+    );
+    assert!(upgrade_of(h2c.headers()).is_none());
+    rewrite_request(&mut h2c, "blog.example.com", &visitor(true));
+    let h = h2c.headers();
+    assert!(!h.contains_key("upgrade") && !h.contains_key("connection"));
+    assert!(!h.contains_key("http2-settings"));
+    let ws = request(
+        "/",
+        &[
+            ("connection", "keep-alive, Upgrade"),
+            ("upgrade", "WebSocket"),
+        ],
+    );
+    assert_eq!(upgrade_of(ws.headers()).unwrap(), "websocket");
+    let both = request(
+        "/",
+        &[("connection", "upgrade"), ("upgrade", "h2c, websocket")],
+    );
+    assert_eq!(upgrade_of(both.headers()).unwrap(), "websocket");
+}
