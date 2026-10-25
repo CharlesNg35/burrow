@@ -82,6 +82,8 @@ Each check below can stop the request. Before the app has started its answer, bu
 ```
 name ──> the site's own cert/key? ──yes──> that file
            │ no
+           ├─> tls: internal? ──yes──> the local CA signs one
+           │ no
            ├─> listed in web.certificates? ──yes──> that file
            │ no
            ├─> under a shared wildcard in letsencrypt.dns? ──yes──> the wildcard
@@ -89,11 +91,12 @@ name ──> the site's own cert/key? ──yes──> that file
            └─> Let's Encrypt, for this name
 ```
 
-1. **The site's own file**, `tls: {cert, key}`. It must cover every name of the site.
-2. **An entry of `web.certificates`** that lists the name, or a wildcard one label above it. A name listed in two entries has no certificate, and validate says so.
-3. **A shared wildcard**: a name under a wildcard in `wildcards` of a `letsencrypt.dns` entry uses that one certificate, not one of its own.
-4. **Let's Encrypt**, a certificate for the name, or for the site's names together ([step 4](#4-lets-encrypt-checks-and-renewal)).
-5. Nothing of these: the name has no certificate. Validate refuses that config.
+1. **The site's own file**, `tls: {cert, key}`, or the certificate uploaded for it. It must cover every name of the site.
+2. **The local CA**, for a site with `tls: internal`: burrow signs a 12-hour certificate for its names itself ([The local CA](certificates.md#the-local-ca-tls-internal)).
+3. **An entry of `web.certificates`** that lists the name, or a wildcard one label above it. A name listed in two entries has no certificate, and validate says so.
+4. **A shared wildcard**: a name under a wildcard in `wildcards` of a `letsencrypt.dns` entry uses that one certificate, not one of its own.
+5. **Let's Encrypt**, a certificate for the name, or for the site's names together ([step 4](#4-lets-encrypt-checks-and-renewal)).
+6. Nothing of these: the name has no certificate. Validate refuses that config.
 
 The tunnel's own name follows the same order, with `websocket.cert` and `websocket.key` as its own file. Names in `redirect_from` and `web.redirect_names` need a certificate like any other name, so they get one the same way. See [Certificates](certificates.md).
 

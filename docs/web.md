@@ -83,7 +83,8 @@ services:
 | `tls` | What happens |
 | --- | --- |
 | `auto` | burrow does HTTPS with a certificate for every name: from a file in `web.certificates` that lists the name, else from Let's Encrypt. The default with `web.https`. |
-| `{cert: ..., key: ...}` | burrow does HTTPS with this site's own certificate file, which must cover every name of the site. |
+| `{cert: ..., key: ...}` | burrow does HTTPS with this site's own certificate file, which must cover every name of the site; `{upload: ...}` is one uploaded in the admin UI. |
+| `internal` | burrow does HTTPS with certificates from its own local CA, for names on your network like `nas.lan`; install the CA on your devices once ([The local CA](web/certificates.md#the-local-ca-tls-internal)). |
 | `passthrough` | The app does its own HTTPS. burrow only reads the name and passes the encrypted bytes on. |
 | `off` | No HTTPS: the site is plain HTTP on `web.http`. The default without `web.https`. |
 

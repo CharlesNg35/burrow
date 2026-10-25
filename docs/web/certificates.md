@@ -4,9 +4,10 @@ In [How it works](how-it-works.md): [step 3](how-it-works.md#3-which-certificate
 
 For each name of an HTTPS site, burrow takes the first that applies:
 
-1. the site's own `tls: {cert, key}`;
-2. an entry in `web.certificates` whose `hosts` lists the name (a listed wildcard covers the names one label below it);
-3. `web.letsencrypt`.
+1. the site's own `tls: {cert, key}`, or its uploaded certificate;
+2. `tls: internal`: burrow's own local CA, for names on your network ([below](#the-local-ca-tls-internal));
+3. an entry in `web.certificates` whose `hosts` lists the name (a listed wildcard covers the names one label below it);
+4. `web.letsencrypt`.
 
 If none applies, validate refuses the name and says how to fix it.
 
@@ -29,6 +30,69 @@ web:
 - `burrow validate` (and every start and reload) reads the files: it refuses one it cannot read, one that is not PEM, a key that does not fit its certificate, and a certificate that does not cover a name it is used for.
 - A file that changes on disk, for example after `certbot renew`, is used from the next reload; a file that breaks keeps the last good certificate in use.
 - burrow warns 14 days before a file expires.
+
+### Uploading files in the admin UI
+
+The admin UI can upload a certificate and its key instead of naming files in server.yaml: under a site's HTTPS choice **My own certificate**, in an entry of `web.certificates`, and for the CAs of `target_tls`, `client_auth` (with its revocation list) and `letsencrypt`. Pick the certificate chain and its key, in one file or two; burrow checks them at once, the same way validate checks a file: the key fits, the certificate covers the site's names and has not expired, a CA is a CA, and a revocation list is signed by the site's `client_auth` CA.
+
+burrow keeps the upload in its state folder, private to the service account, under a name made from its contents, and writes only that name into the config:
+
+```yaml
+# server.yaml
+web:
+  https: 443
+services:
+  nas:
+    client: home
+    target: 5000
+    web:
+      hosts: [nas.example.com]
+      tls: { upload: pair-1a2b3c4d5e6f7a8b } # written by the admin UI
+```
+
+- A field takes a file or an upload, never both: `tls` takes `cert` and `key` or `upload`; `target_tls` and `client_auth` take `ca` or `ca_upload`, and `crl` or `crl_upload`; `letsencrypt` takes `ca` or `ca_upload`.
+- Paths stay in server.yaml only: the admin UI never sets one, and a field that names a file there shows it as locked.
+- The key never leaves the server again: the UI shows only the names, the issuer, the expiry and the SHA-256 of what was uploaded.
+- Uploading the same file twice keeps one copy. Files no longer in the config are removed after the next change is applied, and burrow keeps at most 64 uploads waiting.
+
+### The local CA: tls: internal
+
+For names that live only on your network, like `nas.lan` or `printer.home.arpa`, Let's Encrypt cannot help: it never sees them. With `tls: internal`, burrow signs their certificates itself, with its own certificate authority (CA). Install the CA's certificate once on each device, and every such site opens without a warning.
+
+```yaml
+# server.yaml
+web:
+  https: 443
+services:
+  nas:
+    client: home
+    target: 5000
+    web:
+      hosts: [nas.lan, 192.168.1.20]
+      tls: internal
+```
+
+- **Names:** `localhost` and names under `localhost`, `local`, `internal`, `home.arpa` or `lan`; addresses of your own network (10/8, 172.16/12, 192.168/16, 127/8, 169.254/16, 100.64/10, `::1`, fc00::/7, fe80::/10); and wildcards one label under such a name, like `*.nas.lan`. Validate refuses public names and addresses, single labels like `nas` (use `nas.lan`), and wildcards over a whole suffix like `*.lan`.
+- **Why so strict:** the CA's root certificate allows only these names (X.509 name constraints). Even if its key leaked, it could not sign a certificate that browsers accept for a site on the internet.
+- **Lifetimes:** the root lasts about ten years, and signs a new intermediate each week; sites get 12-hour certificates, renewed after 8 hours, in memory only. Nothing to renew by hand; `burrow status` warns a year before the root expires.
+- **Where it lives:** in the state folder, `ca/root.pem` with its private key beside it, readable only by the service account. burrow makes the CA once, for the first `tls: internal` site, and never makes a new one by itself: back the folder up with your config, since a new CA means installing it again everywhere.
+- `challenge` does not apply: no one outside checks these names.
+
+#### Installing the CA on your devices
+
+Get the certificate from the admin UI (Settings, **Local certificate authority**, **Download CA certificate**), or on the server with `burrow ca export --out burrow-local-ca.crt` (add `--der` for tools that want DER). Before you trust it, compare its SHA-256 fingerprint with the one in `burrow status` or the admin UI.
+
+| Device | How |
+| --- | --- |
+| Windows | double-click the file, **Install Certificate**, Local Machine, "Place all certificates in the following store": **Trusted Root Certification Authorities**; or `certutil -addstore -f Root burrow-local-ca.crt` as administrator |
+| macOS | `sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain burrow-local-ca.crt`, or open it in Keychain Access and set it to Always Trust |
+| Debian, Ubuntu | copy it to `/usr/local/share/ca-certificates/burrow-local-ca.crt`, then `sudo update-ca-certificates` |
+| Fedora, RHEL | copy it to `/etc/pki/ca-trust/source/anchors/`, then `sudo update-ca-trust` |
+| Arch | `sudo trust anchor --store burrow-local-ca.crt` |
+| iPhone, iPad | open the file to install the profile (Settings, General, VPN & Device Management), then turn it on in Settings, General, About, **Certificate Trust Settings** |
+| Android | Settings, Security, Encryption & credentials, Install a certificate, **CA certificate**; browsers trust it, but apps trust it only if they say so (Android 7 and later) |
+| Firefox | on Windows and macOS it uses the system's roots; on Linux, Settings, Privacy & Security, Certificates, **View Certificates**, Authorities, **Import**, and tick "Trust this CA to identify websites" |
+| Chrome, Edge, Safari | use the system's roots, so the steps above are enough |
 
 ### Let's Encrypt
 

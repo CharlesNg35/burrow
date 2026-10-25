@@ -150,7 +150,8 @@ services:
 | `services.<name>.bandwidth` | unlimited | speed limit per direction, for example `40mbit` or `5MB` (per second) |
 | `services.<name>.max_connections` | unlimited | open connections for this TCP service |
 | `services.<name>.web` | none | names that lead to this TCP service as a website: a name, a list of names, or `{ hosts, tls, https_redirect, challenge }`. See [web.md](web.md) |
-| `services.<name>.web.tls` | `auto` with `web.https`, else `off` | `auto` (a `web.certificates` file, else Let's Encrypt), `{cert, key}` (the site's own files), `passthrough` (the app does HTTPS) or `off` (plain HTTP on `web.http`) |
+| `services.<name>.web.tls` | `auto` with `web.https`, else `off` | `auto` (a `web.certificates` file, else Let's Encrypt), `{cert, key}` (the site's own files), `internal` (burrow's local CA, for LAN names; see [The local CA](web/certificates.md#the-local-ca-tls-internal)), `passthrough` (the app does HTTPS) or `off` (plain HTTP on `web.http`) |
+| `services.<name>.web.tls.upload`, `target_tls.ca_upload`, `client_auth.ca_upload`, `client_auth.crl_upload`, `web.certificates[].upload`, `web.letsencrypt.ca_upload` | none | a file uploaded in the admin UI and kept in the state folder, instead of the path field beside it. See [Uploading files](web/certificates.md#uploading-files-in-the-admin-ui) |
 | `services.<name>.web.https_redirect` | `web.https_redirect` | `true` sends `http://` visitors to `https://`; `false` serves plain HTTP too |
 | `services.<name>.web.challenge` | automatic | the Let's Encrypt check: `tls` (port 443), `http` (port 80) or `dns` (through `web.letsencrypt.dns`). Automatic tries TLS, then HTTP |
 | `services.<name>.web.paths` | all paths | only these paths on the names, each with everything below it, like `[/api]`; the longest match wins. See [Paths](web/routing.md#paths-several-apps-on-one-name) |
