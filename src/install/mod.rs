@@ -10,7 +10,7 @@ use crate::base::failure::Failure;
 use trust::binary_trusted;
 
 pub use platform::Platform;
-pub use state::{choose_state_dir, service_state_dir, state_dir_for};
+pub use state::{choose_state_dir, missing_state_folder, service_state_dir, state_dir_for};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Manifest {

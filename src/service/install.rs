@@ -84,7 +84,7 @@ pub fn install(opts: &InstallOptions, out: &mut dyn Write) -> Result<(), Failure
         files: checked.files.iter().map(|(_, p)| p.clone()).collect(),
         version: env!("CARGO_PKG_VERSION").to_string(),
         admin_writable: writable,
-        web_state: (checked.letsencrypt && checked.role == Role::Server)
+        web_state: (checked.needs_state && checked.role == Role::Server)
             .then(|| crate::install::service_state_dir(&short)),
     };
     refuse_unfit(&*backend, &checked, &manifest)?;

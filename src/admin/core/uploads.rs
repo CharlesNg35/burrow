@@ -56,6 +56,9 @@ pub fn upload(core: &Core, s: &Session, req: &Upload) -> Result<Uploaded, ApiErr
             format!("unknown upload kind \"{}\"", req.kind),
         ));
     }
+    if let Some(why) = crate::install::missing_state_folder(core.store.path()) {
+        return Err(ApiError::new(ErrorCode::Invalid, why));
+    }
     let state = core.store.state_dir();
     if files::kept(&state) >= MAX_KEPT {
         return Err(ApiError::new(
@@ -84,6 +87,9 @@ pub fn upload(core: &Core, s: &Session, req: &Upload) -> Result<Uploaded, ApiErr
 }
 
 pub fn local_ca(core: &Core) -> Result<serde_json::Value, ApiError> {
+    if let Some(why) = crate::install::missing_state_folder(core.store.path()) {
+        return Err(ApiError::new(ErrorCode::Invalid, why));
+    }
     match std::fs::read_to_string(files::root_pem(&core.store.state_dir())) {
         Ok(pem) => Ok(serde_json::json!({ "pem": pem })),
         Err(_) => Err(ApiError::new(

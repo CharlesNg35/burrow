@@ -37,6 +37,25 @@ pub fn state_dir_for(config: &Path) -> PathBuf {
     own_state_dir(&config, dirs::state_dir().or_else(dirs::data_local_dir))
 }
 
+pub fn missing_state_folder(config: &Path) -> Option<String> {
+    missing_in(config, &all_manifests())
+}
+
+fn missing_in(config: &Path, manifests: &[Manifest]) -> Option<String> {
+    let config = crate::base::fs::canonical_or_same(config);
+    let m = installed_for(&config, manifests)?;
+    m.web_state.is_none().then(|| {
+        format!(
+            "{} was installed without its state folder, which uploads and the local CA need; install it again: {}",
+            m.name,
+            crate::base::failure::admin(&format!(
+                "service install -c {}",
+                crate::base::failure::path_arg(&m.source_config)
+            ))
+        )
+    })
+}
+
 fn installed_for<'a>(config: &Path, manifests: &'a [Manifest]) -> Option<&'a Manifest> {
     manifests.iter().find(|m| {
         m.role == "server"
@@ -64,6 +83,29 @@ fn own_state_dir(config: &Path, base: Option<PathBuf>) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_service_installed_without_its_state_folder_is_told_to_install_again() {
+        let mut m = manifest(
+            "burrow-home",
+            "server",
+            "/etc/burrow/home/server.yaml",
+            "/srv/home.yaml",
+        );
+        let why = missing_in(
+            Path::new("/etc/burrow/home/server.yaml"),
+            std::slice::from_ref(&m),
+        )
+        .unwrap();
+        assert!(why.starts_with("burrow-home was installed without its state folder, which uploads and the local CA need; install it again: "), "{why}");
+        assert!(why.contains("service install -c /srv/home.yaml"), "{why}");
+        m.web_state = Some("/var/lib/burrow/home".into());
+        assert_eq!(
+            missing_in(Path::new("/etc/burrow/home/server.yaml"), &[m]),
+            None
+        );
+        assert_eq!(missing_in(Path::new("/srv/other.yaml"), &[]), None);
+    }
 
     fn manifest(name: &str, role: &str, config: &str, source: &str) -> Manifest {
         Manifest {

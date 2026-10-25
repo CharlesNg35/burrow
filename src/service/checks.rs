@@ -16,13 +16,13 @@ pub(super) struct Uses {
     pub(super) listens: Vec<(Protocol, SocketAddr, String)>,
     pub(super) files: Vec<(String, PathBuf)>,
     pub(super) access_log: Option<PathBuf>,
-    pub(super) letsencrypt: bool,
+    pub(super) needs_state: bool,
 }
 
 pub(super) fn uses(loaded: &Loaded) -> Uses {
     let mut files = Vec::new();
     let mut listens = Vec::new();
-    let mut letsencrypt = false;
+    let mut needs_state = false;
     let mut access_log = None;
     match loaded {
         Loaded::Server(s, cfg) => {
@@ -35,7 +35,6 @@ pub(super) fn uses(loaded: &Loaded) -> Uses {
             if let Some(web) = &s.web {
                 listens.extend(web.https.map(|a| (Protocol::Tcp, a, "web.https".into())));
                 listens.extend(web.http.map(|a| (Protocol::Tcp, a, "web.http".into())));
-                letsencrypt = web.letsencrypt.is_some();
             }
             if let Some(m) = s.metrics {
                 listens.push((Protocol::Tcp, m, "metrics.listen".into()));
@@ -51,6 +50,7 @@ pub(super) fn uses(loaded: &Loaded) -> Uses {
             }
             files.extend(super::web_files::read(cfg));
             access_log = super::web_files::access_log(cfg);
+            needs_state = super::web_files::needs_state(cfg);
         }
         Loaded::Client(_, cfg) => {
             if let Some(ca) = &cfg.ca {
@@ -72,7 +72,7 @@ pub(super) fn uses(loaded: &Loaded) -> Uses {
         listens,
         files,
         access_log,
-        letsencrypt,
+        needs_state,
     }
 }
 
@@ -102,7 +102,7 @@ pub(super) fn misfits_of(
         listens,
         files,
         access_log,
-        letsencrypt,
+        needs_state,
     } = uses(loaded);
     let admins = admin_visitors(loaded);
     let mut out = Vec::new();
@@ -115,12 +115,12 @@ pub(super) fn misfits_of(
                 .help(again.clone()),
         );
     }
-    if letsencrypt && m.web_state.is_none() {
+    if needs_state && m.web_state.is_none() {
         out.push(
             crate::config::diagnostics::Diagnostic::error(
                 "service-unit",
                 format!(
-                    "{name} was installed without a folder for Let's Encrypt's account and certificates (web.letsencrypt), so it could not keep them"
+                    "{name} was installed without its state folder, which a server with web: needs for Let's Encrypt, tls: internal and uploaded certificates"
                 ),
             )
             .help(again.clone()),
@@ -192,7 +192,7 @@ pub(super) struct Checked {
     pub(super) files: Vec<(String, PathBuf)>,
     pub(super) access_log: Option<PathBuf>,
     pub(super) admins: Vec<String>,
-    pub(super) letsencrypt: bool,
+    pub(super) needs_state: bool,
 }
 
 pub(super) fn check_config(
@@ -265,7 +265,7 @@ pub(super) fn check_config(
         listens,
         files,
         access_log,
-        letsencrypt,
+        needs_state,
     } = uses(loaded);
     let admins = admin_visitors(loaded);
     refuse_relative(&files)?;
@@ -276,7 +276,7 @@ pub(super) fn check_config(
         files,
         access_log,
         admins,
-        letsencrypt,
+        needs_state,
     })
 }
 

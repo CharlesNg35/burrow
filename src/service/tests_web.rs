@@ -67,7 +67,7 @@ fn lets_encrypt_without_the_folder_and_the_plain_web_port_are_named_for_a_reinst
     assert!(
         without[0]
             .message
-            .contains("without a folder for Let's Encrypt"),
+            .contains("without its state folder, which a server with web: needs"),
         "{}",
         without[0].message
     );
@@ -76,7 +76,7 @@ fn lets_encrypt_without_the_folder_and_the_plain_web_port_are_named_for_a_reinst
     if let crate::config::Loaded::Server(s, _) = &mut both {
         s.web.as_mut().unwrap().http = Some("[::]:80".parse().unwrap());
     }
-    let low = misfits_of(&Systemd, &manifest(None), &both);
+    let low = misfits_of(&Systemd, &manifest(Some("/var/lib/burrow/home")), &both);
     assert_eq!(low.len(), 1, "{low:#?}");
     assert!(
         low[0]
@@ -236,4 +236,18 @@ fn the_access_log_must_be_a_file_of_its_own_in_the_services_log_folder() {
             "{other}"
         );
     }
+}
+
+#[test]
+fn every_server_with_web_gets_the_state_folder_so_the_admin_can_add_uploads_later() {
+    let cfg = |v: serde_json::Value| -> burrow_config::ServerConfig {
+        serde_json::from_value(v).unwrap()
+    };
+    assert!(super::web_files::needs_state(&cfg(
+        serde_json::json!({"web": {"https": 443}})
+    )));
+    assert!(super::web_files::needs_state(&cfg(
+        serde_json::json!({"web": {"https": 443, "letsencrypt": {"email": "ops@example.com"}}})
+    )));
+    assert!(!super::web_files::needs_state(&cfg(serde_json::json!({}))));
 }

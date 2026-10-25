@@ -88,6 +88,10 @@ pub(super) fn read(cfg: &ServerConfig) -> Vec<(String, PathBuf)> {
     files.0
 }
 
+pub(super) fn needs_state(cfg: &ServerConfig) -> bool {
+    cfg.web.is_some()
+}
+
 pub(super) fn access_log(cfg: &ServerConfig) -> Option<PathBuf> {
     let file = cfg.web.as_ref()?.access_log.as_ref()?.file().trim();
     (!file.is_empty()).then(|| PathBuf::from(file))
