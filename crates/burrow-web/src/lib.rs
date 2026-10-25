@@ -10,6 +10,7 @@ compile_error!("admin-test-hooks is for tests only and never goes into a release
 pub mod http;
 pub mod io;
 mod listen;
+pub mod log;
 pub mod peek;
 mod permit;
 pub mod proxy_header;
