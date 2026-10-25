@@ -1,6 +1,5 @@
 use burrow_admin_proto::serde_json::{Value, json};
 use burrow_config::{Entry, ServiceEntry, TargetCa, TargetUnchecked, WebSite};
-use burrow_ui_kit::Segmented;
 use leptos::prelude::*;
 
 use crate::store::store;
@@ -70,11 +69,11 @@ pub(super) fn target_tls_editor(fc: FieldCtx) -> AnyView {
                 .map(|o| crate::uploads::certificate_source(&fc2, o))
         })
     };
-    view! {
-        <div id=fc.id.clone() data-testid="target-tls">
-            <Segmented name=format!("{}-choice", fc.id) options=options value=mode label=fc.node.label.clone() on_change=on_mode/>
-            <div class="mt-1.5">{shown}</div>
-        </div>
-    }
-    .into_any()
+    let choice = super::Choice {
+        options,
+        mode,
+        on_change: Callback::new(on_mode),
+    };
+    let below = view! { <div class="mt-1.5">{shown}</div> };
+    super::choice_box(&fc, Some("target-tls"), choice, below)
 }

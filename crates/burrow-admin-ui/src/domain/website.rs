@@ -3,7 +3,7 @@ use burrow_admin_logic::web::{is_plain, names, site_name_problem, tls_of, websit
 use burrow_admin_proto::schema::{Node, ObjectC, SemType, UnionC};
 use burrow_admin_proto::serde_json::Value;
 use burrow_config::{Entry, ServerConfig, ServiceEntry, TlsMode, WebConfig, WebSite};
-use burrow_ui_kit::{ChipInput, Segmented};
+use burrow_ui_kit::ChipInput;
 use leptos::prelude::*;
 
 use crate::store::store;
@@ -93,14 +93,13 @@ pub(super) fn tls_editor(fc: FieldCtx) -> AnyView {
         };
         e.set(&p2, v);
     };
-    let fc2 = fc.clone();
-    view! {
-        <div id=fc.id.clone() data-testid="website-tls">
-            <Segmented name=format!("{}-choice", fc.id) options=options value=mode label=fc.node.label.clone() on_change=on_mode/>
-            {files.map(|f| files_view(fc2, f, value))}
-        </div>
-    }
-    .into_any()
+    let below = files.map(|f| files_view(fc.clone(), f, value));
+    let choice = super::Choice {
+        options,
+        mode,
+        on_change: Callback::new(on_mode),
+    };
+    super::choice_box(&fc, Some("website-tls"), choice, below)
 }
 
 fn web_off() -> impl IntoView {

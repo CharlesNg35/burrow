@@ -37,6 +37,33 @@ pub struct FieldCtx {
 
 pub const THIS_SERVER: &str = "This server";
 
+pub(super) struct Choice {
+    pub options: Vec<(String, String, bool)>,
+    pub mode: Signal<String>,
+    pub on_change: Callback<String>,
+}
+
+pub(super) fn choice_box(
+    fc: &FieldCtx,
+    testid: Option<&'static str>,
+    choice: Choice,
+    below: impl IntoView + 'static,
+) -> AnyView {
+    view! {
+        <div id=fc.id.clone() data-testid=testid>
+            <burrow_ui_kit::Segmented
+                name=format!("{}-choice", fc.id)
+                options=choice.options
+                value=choice.mode
+                label=fc.node.label.clone()
+                on_change=choice.on_change
+            />
+            {below}
+        </div>
+    }
+    .into_any()
+}
+
 pub fn reserved_clients() -> Vec<String> {
     store().schema.with(|s| {
         s.as_ref()

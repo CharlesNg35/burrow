@@ -307,30 +307,25 @@ pub(super) fn union_editor(fc: FieldCtx, u: UnionC) -> AnyView {
                 .then(|| object_view(&obj, path.clone(), spath.clone(), entity.clone()))
         }
     };
-    view! {
-        <div id=fc.id.clone()>
-            <Segmented
-                name=fc.id.clone()
-                options=options
-                value=mode
-                label=fc.node.label.clone()
-                on_change=move |m: String| {
-                    let v = match m.as_str() {
-                        "on" => Some(Value::Bool(true)),
-                        "custom" => Some(Value::Object(Default::default())),
-                        _ => None,
-                    };
-                    e.set(&p2, v);
-                }
-            />
-            {(!split).then(|| view! {
-                {move || (mode.get() == "custom").then(|| view! {
-                    <div class="mt-3 rounded-[10px] border border-border bg-surface px-3.5 py-3 md:[&_section]:grid-cols-3 dark:bg-surface-2" data-testid="custom-box">
-                        {custom.clone()}
-                    </div>
-                })}
-            })}
-        </div>
-    }
-    .into_any()
+    let on_change = Callback::new(move |m: String| {
+        let v = match m.as_str() {
+            "on" => Some(Value::Bool(true)),
+            "custom" => Some(Value::Object(Default::default())),
+            _ => None,
+        };
+        e.set(&p2, v);
+    });
+    let below = (!split).then(|| view! {
+        {move || (mode.get() == "custom").then(|| view! {
+            <div class="mt-3 rounded-[10px] border border-border bg-surface px-3.5 py-3 md:[&_section]:grid-cols-3 dark:bg-surface-2" data-testid="custom-box">
+                {custom.clone()}
+            </div>
+        })}
+    });
+    let choice = super::Choice {
+        options,
+        mode: mode.into(),
+        on_change,
+    };
+    super::choice_box(&fc, None, choice, below)
 }
