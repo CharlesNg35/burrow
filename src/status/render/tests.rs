@@ -69,6 +69,7 @@ pub(crate) fn sample() -> Status {
                 health: vec![HealthStatus {
                     client: "home".into(),
                     up: true,
+                    reason: None,
                 }],
                 set_aside: vec![],
                 web: vec![],
@@ -224,9 +225,20 @@ fn clients_set_aside_say_why() {
     web.health = vec![HealthStatus {
         client: "home".into(),
         up: false,
+        reason: None,
     }];
     let text = render(&s, Paint::PLAIN, None);
     assert!(text.contains("home down, office offline"), "{text}");
+    assert!(!text.contains("home down:"), "{text}");
+    s.services[0].health[0].reason = Some("answered 401 Unauthorized".into());
+    let text = render(&s, Paint::PLAIN, None);
+    assert!(
+        text.contains("home down: answered 401 Unauthorized"),
+        "{text}"
+    );
+    s.services[0].health[0].up = true;
+    let text = render(&s, Paint::PLAIN, None);
+    assert!(!text.contains("answered 401"), "{text}");
 }
 
 #[test]

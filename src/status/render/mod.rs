@@ -307,6 +307,11 @@ fn render_services(out: &mut String, s: &Status, paint: Paint, rates: Option<&Ra
                 if let Some(h) = &v.http {
                     extra.push(http_counts(h));
                 }
+                for h in v.health.iter().filter(|h| !h.up) {
+                    if let Some(why) = &h.reason {
+                        extra.push(format!("{} down: {why}", h.client));
+                    }
+                }
                 if !extra.is_empty() {
                     notes.push(format!("{}: {}", v.name, extra.join(", ")));
                 }

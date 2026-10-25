@@ -74,6 +74,7 @@ impl Shared {
                         .map(|c| HealthStatus {
                             client: c.name().to_string(),
                             up: self.is_up(name, c.name()),
+                            reason: self.health_reason(name, c.name()),
                         })
                         .collect(),
                     None => Vec::new(),

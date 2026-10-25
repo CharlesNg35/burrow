@@ -150,6 +150,7 @@ fn clean_status(s: &mut Status) {
         all(&mut v.visitors);
         for h in &mut v.health {
             h.client = clean(&h.client);
+            opt(&mut h.reason);
         }
         for a in &mut v.set_aside {
             a.client = clean(&a.client);

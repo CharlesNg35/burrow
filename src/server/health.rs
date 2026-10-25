@@ -18,6 +18,7 @@ pub(crate) struct Probe {
     fails: u32,
     last: Option<Instant>,
     running: bool,
+    reason: Option<String>,
 }
 
 impl Default for Probe {
@@ -27,6 +28,7 @@ impl Default for Probe {
             fails: 0,
             last: None,
             running: false,
+            reason: None,
         }
     }
 }
@@ -42,6 +44,14 @@ impl Shared {
             .is_none_or(|p| p.up)
     }
 
+    pub(crate) fn health_reason(&self, service: &str, client: &str) -> Option<String> {
+        self.probes
+            .lock()
+            .expect("probes lock")
+            .get(&(service.to_string(), client.to_string()))
+            .and_then(|p| p.reason.clone())
+    }
+
     fn record(&self, service: &str, client: &str, health: Health, result: Result<(), String>) {
         let mut probes = self.probes.lock().expect("probes lock");
         let Some(p) = probes.get_mut(&(service.to_string(), client.to_string())) else {
@@ -51,6 +61,7 @@ impl Shared {
         match result {
             Ok(()) => {
                 p.fails = 0;
+                p.reason = None;
                 if !p.up {
                     p.up = true;
                     info!("service \"{service}\": client \"{client}\" reaches its target again");
@@ -64,6 +75,7 @@ impl Shared {
                         "service \"{service}\": client \"{client}\" is down ({why}); new connections go to the other clients"
                     );
                 }
+                p.reason = Some(why);
             }
         }
     }

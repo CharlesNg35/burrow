@@ -347,10 +347,12 @@ mod tests {
                     HealthStatus {
                         client: "home".into(),
                         up: true,
+                        reason: None,
                     },
                     HealthStatus {
                         client: "office".into(),
                         up: false,
+                        reason: None,
                     },
                 ],
                 set_aside: vec![],

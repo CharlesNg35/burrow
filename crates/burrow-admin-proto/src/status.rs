@@ -126,6 +126,8 @@ pub struct HealthStatus {
     pub client: String,
     #[serde(default)]
     pub up: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
