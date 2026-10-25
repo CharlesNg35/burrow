@@ -37,7 +37,7 @@ burrow gets a certificate for `blog.example.com` from Let's Encrypt within a min
 
 ```text
 server.yaml: valid server config (1 client, 1 service)
-web: https [::]:443 (IPv4 and IPv6), http [::]:80 (IPv4 and IPv6)
+web: https [::]:443 (HTTP/2 and HTTP/1.1, IPv4 and IPv6), http [::]:80 (IPv4 and IPv6)
 certificates: Let's Encrypt (production) as ops@example.com
 blog.example.com: Let's Encrypt, TLS check -> service blog
 http [::]:80: HTTPS hosts redirect to https:// (308); Let's Encrypt HTTP checks answered
@@ -479,6 +479,70 @@ web:
 - The reported address is what `allow_from`, the access log and a service's own `proxy_protocol` see.
 - **Let's Encrypt behind a proxy that does HTTPS:** the TLS check cannot pass through it. Use `challenge: http` (with `http: 80`) or `challenge: dns` on such sites; validate notes the sites that would use the TLS check.
 - **A plain-HTTP site behind such a proxy** can still send `http://` visitors to `https://`: `https_redirect: true` on a `tls: off` site with `trusted_proxies` redirects by the proxy's `X-Forwarded-Proto`. If the proxy does not send it, every request redirects.
+
+## HTTP/2
+
+Browsers use HTTP/2 on `web.https` when they can, which loads pages with many parts faster; others keep HTTP/1.1. burrow talks to the app over HTTP/1.1 either way, unless the site says `target_http2`. `web.http2: false` keeps every site on HTTP/1.1, for a client that breaks with HTTP/2. `burrow validate` shows which is on: `web: https [::]:443 (HTTP/2 and HTTP/1.1, IPv4 and IPv6)`.
+
+- HTTP/2 needs HTTPS: plain-HTTP sites and port 80 speak HTTP/1.1 only.
+- WebSockets keep working: browsers open them over HTTP/1.1 beside the HTTP/2 connection.
+- burrow sets every HTTP/2 limit itself, against the attacks of recent years (see [security.md](security.md#websites)).
+
+## gRPC
+
+```yaml
+# server.yaml
+web:
+  https: 443
+  letsencrypt:
+    email: ops@example.com
+services:
+  grpc:
+    client: office
+    target: 50051
+    web:
+      hosts: [grpc.example.com]
+      target_http2: true # speak HTTP/2 to the app: plain h2c here, h2 inside target_tls
+      # target_tls: true # if the app serves gRPC over TLS itself
+```
+
+- gRPC clients reach `grpc.example.com:443` over TLS with HTTP/2; `web.http2` must stay on, and the site must not be `tls: off` (validate notes both).
+- `target_http2` speaks HTTP/2 to the app: h2c on a plain connection, or h2 inside `target_tls`, where the app must offer h2 in its TLS handshake. Trailers and `te: trailers` pass through, as gRPC needs.
+- A health check with `path` suits websites, not gRPC apps; use `health_check: true` for them (validate notes it).
+
+### gRPC streams
+
+A long-lived gRPC stream is limited by burrow's timeouts like any request:
+
+- the app must start its answer within `response_header_timeout_secs` (60 by default); a server stream that sends its headers at once is fine;
+- a stream that moves no data at all for 10 seconds while the other side waits is reset, which keeps a stalled peer from holding memory;
+- a connection with nothing in flight is closed after `idle_timeout_secs`; an open stream keeps it alive, HTTP/2 PINGs alone do not.
+
+Raise `response_header_timeout_secs` on the site for a method that thinks a long time before its first answer.
+
+## Health checks for websites
+
+`health_check` (see [services.md](services.md)) checks through each client that the app answers. For a website, `path` makes it ask the app for a page instead of only opening a connection:
+
+```yaml
+# server.yaml
+web:
+  https: 443
+  letsencrypt:
+    email: ops@example.com
+services:
+  blog:
+    clients: [home, office] # the check decides which client gets new visitors
+    target: 8080
+    health_check: { path: /healthz }
+    web: blog.example.com
+```
+
+- The check sends `GET /healthz` through each client, with `Host` set to the site's first name (the base name for a wildcard), `User-Agent: burrow-health-check/<version>` and nothing else. An answer of 2xx or 3xx counts as up; redirects are not followed.
+- It reaches the app the way visitors do: through `target_tls` with the same certificate check, and over HTTP/2 with `target_http2`. It skips burrow's own site rules and is not written to the access log.
+- **The path must not need a login:** 401 and 403 count as down. Pick a page the app serves to anyone, like a status endpoint.
+- `burrow status` and the admin UI show why a client counts as down.
+- `path` needs a website burrow serves: validate refuses it on a service without `web:`, on a passthrough site and with the web proxy off.
 
 ## Access log and request ids
 

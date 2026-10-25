@@ -142,6 +142,7 @@ When a client cannot reach the target, or its `allow` list refuses it, the conne
 | `interval_secs` | `10` | seconds between checks of each client |
 | `timeout_secs` | `3` | seconds a check may take |
 | `failures` | `2` | failed checks in a row before a client counts as down |
+| `path` | none | for a website: ask the app for this path, like `/healthz`, instead of only opening a connection; 2xx and 3xx count as up. See [web.md](web.md#health-checks-for-websites) |
 
 ## Speed and connection limits
 

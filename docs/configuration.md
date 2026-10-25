@@ -139,7 +139,7 @@ services:
 | `services.<name>.client` | required (or `clients`) | the client that reaches the target; `self` for the server itself |
 | `services.<name>.clients` | | several clients instead of one. See [services.md](services.md#several-clients) |
 | `services.<name>.mode` | `failover` | with several clients: `failover` or `balance` |
-| `services.<name>.health_check` | off | `true`, or `{ interval_secs: 10, timeout_secs: 3, failures: 2 }` |
+| `services.<name>.health_check` | off | `true`, or `{ interval_secs: 10, timeout_secs: 3, failures: 2, path: /healthz }`; `path` (websites only) asks the app for that page, 2xx or 3xx is up |
 | `services.<name>.target` | required | host:port as seen from the client, a port alone (`127.0.0.1`), a range like `30000-30010`, or `unix:/path` |
 | `services.<name>.bind` | none (private) | public port, range or ip:port on the server; a port alone means `0.0.0.0` |
 | `services.<name>.protocol` | `tcp` | `tcp` or `udp` |
@@ -158,12 +158,14 @@ services:
 | `services.<name>.web.redirect_from` | none | names that redirect permanently to the first host, path and query kept, like `[www.example.com]` |
 | `services.<name>.web.redirects` | none | paths that redirect: `/old: /new` (temporary) or `/old: {to: /new, permanent: true}`. See [web.md](web.md#redirects) |
 | `services.<name>.web.maintenance` | `false` | answer every request with the maintenance page (503 with `Retry-After`) |
+| `services.<name>.web.target_http2` | `false` | speak HTTP/2 to the app (h2c, or h2 inside `target_tls`), for gRPC |
 | `services.<name>.web.target_tls` | off | HTTPS to the app: `true` (public CAs), `{ca: file}` (your CA) or `{insecure_skip_verify: true}` (not checked) |
 | `services.<name>.web.hsts`, `compress`, `max_body_size`, `response_header_timeout_secs`, `request_headers`, `response_headers`, `error_pages` | from `web` | the site's own value of the `web` key of the same name |
 | `self.allow` | none | what the server may connect to for itself, for `client: self` and `reach: self`. See [services.md](services.md#on-the-server-itself) |
 | `web.https` | none | the HTTPS port for websites and TLS services by name; a port alone means every IPv4 and IPv6 address, `0.0.0.0:443` IPv4 only. Off unless `web` is written. See [web.md](web.md) |
 | `web.http` | none | the plain HTTP port: redirects to `https://`, plain-HTTP sites and Let's Encrypt's HTTP check. `web` needs `https`, `http` or both |
 | `web.https_redirect` | `true` | the default of every HTTPS site's `https_redirect` |
+| `web.http2` | `true` | browsers may use HTTP/2 on `web.https`; `false` keeps HTTP/1.1 only |
 | `web.letsencrypt.email` | none | turns on Let's Encrypt certificates; writing it accepts Let's Encrypt's terms |
 | `web.letsencrypt.directory` | `production` | `production`, `staging` (the test service) or the URL of another ACME server |
 | `web.letsencrypt.profile` | the CA's default | a certificate profile the CA offers, like `shortlived` |
