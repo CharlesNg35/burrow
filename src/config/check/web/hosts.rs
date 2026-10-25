@@ -11,6 +11,7 @@ pub(super) struct Place<'a> {
     pub at: &'a dyn Fn(usize) -> Span,
     pub served: Served,
     pub tls: String,
+    pub client_ca: Option<String>,
     pub paths: Vec<String>,
 }
 
@@ -18,6 +19,7 @@ pub(super) struct Owner {
     pub service: String,
     pub served: Served,
     pub tls: String,
+    pub client_ca: Option<String>,
     pub paths: Vec<String>,
 }
 
@@ -42,6 +44,10 @@ fn clash(place: &Place<'_>, host: &str, owners: &Owners) -> Option<Diagnostic> {
         } else if o.tls != place.tls {
             format!(
                 "host \"{host}\": services \"{other}\" and \"{name}\" share it but choose different certificates; set tls for it in one service only"
+            )
+        } else if o.client_ca != place.client_ca {
+            format!(
+                "host \"{host}\": services share it but name different client_auth CAs; device certificates are checked per host name"
             )
         } else if o.paths.iter().any(|p| place.paths.contains(p)) {
             format!(
@@ -183,6 +189,7 @@ pub(super) fn check_hosts(
             service: name.to_string(),
             served: place.served,
             tls: place.tls.clone(),
+            client_ca: place.client_ca.clone(),
             paths: place.paths.clone(),
         });
         if let Some((_, path, shares)) = tunnel.filter(|(t, _, _)| *t == host)
@@ -297,5 +304,14 @@ pub(super) fn check_redirect_hosts(
                     .help("a longer path like example.com/shop may redirect while a service keeps the rest of the name"),
             );
         }
+    }
+}
+
+pub(super) fn client_ca(web: &burrow_config::ServiceWeb) -> Option<String> {
+    match web {
+        burrow_config::ServiceWeb::Site(s) => {
+            s.client_auth.as_ref().map(|c| c.ca.trim().to_string())
+        }
+        _ => None,
     }
 }

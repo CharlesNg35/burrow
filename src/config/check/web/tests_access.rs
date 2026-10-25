@@ -1,0 +1,219 @@
+use super::tests::{errors, load_in};
+use super::tests_site_keys::{TOP, errs, run, warnings};
+
+const HASH: &str = "$argon2id$v=19$m=19456,t=2,p=1$c2FsdHNhbHQ$aGFzaGhhc2g";
+
+fn svc(name: &str, web: &str) -> String {
+    format!("  {name}:\n    client: home\n    target: 8080\n    web: {web}\n")
+}
+
+#[test]
+fn a_site_has_one_kind_of_login_and_a_login_service_is_never_its_own() {
+    let both = svc(
+        "wiki",
+        &format!(
+            "{{ hosts: [wiki.example.com], basic_auth: {{ alice: \"{HASH}\" }}, forward_auth: true }}"
+        ),
+    );
+    let top = "  forward_auth: { service: authelia, path: /api/authz/forward-auth }\n";
+    let login = svc("authelia", "auth.example.com");
+    let found = errs(top, &(both + &login));
+    assert_eq!(
+        found,
+        [
+            "services.wiki.web: basic_auth and forward_auth are both set; use one of them (the login service checks its own users)"
+        ]
+    );
+    assert_eq!(
+        errs(
+            "",
+            &svc("wiki", "{ hosts: [wiki.example.com], forward_auth: true }")
+        ),
+        [
+            "services.wiki.web.forward_auth: true uses web.forward_auth, which is not set; add web.forward_auth: {service, path}, or give this site its own"
+        ]
+    );
+    assert_eq!(
+        errs(
+            top,
+            &svc(
+                "authelia",
+                "{ hosts: [auth.example.com], forward_auth: true }"
+            )
+        ),
+        [
+            "services.authelia.web.forward_auth: a service cannot check its own visitors; the login site must stay open"
+        ]
+    );
+    let unknown = errs(
+        "  forward_auth: { service: nobody, path: /auth }\n",
+        &svc("wiki", "wiki.example.com"),
+    );
+    assert_eq!(unknown.len(), 1, "{unknown:#?}");
+    assert!(
+        unknown[0].starts_with("unknown service \"nobody\" referenced by web.forward_auth"),
+        "{unknown:#?}"
+    );
+}
+
+#[test]
+fn password_hashes_are_argon2id_or_bcrypt_within_the_cost_caps() {
+    let one = |user: &str, hash: &str| {
+        errs(
+            "",
+            &svc(
+                "status",
+                &format!(
+                    "{{ hosts: [status.example.com], basic_auth: {{ \"{user}\": \"{hash}\" }} }}"
+                ),
+            ),
+        )
+    };
+    assert_eq!(one("alice", HASH), Vec::<String>::new());
+    assert_eq!(
+        one("a:b", HASH),
+        ["services.status.web.basic_auth: user name \"a:b\" must not be empty or hold \":\""]
+    );
+    assert_eq!(
+        one("bob", "hunter2"),
+        [
+            "services.status.web.basic_auth: the hash for \"bob\" is not argon2id or bcrypt; make one with burrow passwd bob"
+        ]
+    );
+    assert_eq!(
+        one(
+            "bob",
+            "$2x$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy"
+        ),
+        [
+            "services.status.web.basic_auth: the hash for \"bob\" is bcrypt $2x$, an old variant with a known bug; make a new one with burrow passwd bob"
+        ]
+    );
+    assert_eq!(
+        one("bob", "$argon2d$v=19$m=19456,t=2,p=1$c2FsdA$aGFzaA"),
+        [
+            "services.status.web.basic_auth: the hash for \"bob\" is argon2d; only argon2id is accepted"
+        ]
+    );
+    assert_eq!(
+        one("bob", "$argon2id$v=19$m=4194304,t=2,p=1$c2FsdA$aGFzaA"),
+        [
+            "services.status.web.basic_auth: the hash for \"bob\" asks for more work than burrow allows (argon2 memory 4194304 KiB, at most 65536 KiB); make one with burrow passwd bob"
+        ]
+    );
+}
+
+#[test]
+fn passwords_over_plain_http_are_a_warning_and_passthrough_refuses_them() {
+    let (_d, o) = run(
+        "",
+        &svc(
+            "wiki",
+            &format!(
+                "{{ hosts: [wiki.example.com], tls: off, basic_auth: {{ alice: \"{HASH}\" }} }}"
+            ),
+        ),
+    );
+    assert!(errors(&o).is_empty(), "{:#?}", errors(&o));
+    assert!(warnings(&o).contains(&"services.wiki.web.basic_auth: passwords are sent unencrypted over plain HTTP; use HTTPS, or keep the site on a trusted network".to_string()), "{:#?}", warnings(&o));
+    assert_eq!(
+        errs(
+            "",
+            &svc(
+                "nas",
+                &format!(
+                    "{{ hosts: [nas.example.com], tls: passthrough, basic_auth: {{ alice: \"{HASH}\" }} }}"
+                )
+            )
+        ),
+        [
+            "services.nas.web.basic_auth: burrow cannot see the requests of a passthrough service (tls: passthrough); remove basic_auth, or let burrow handle TLS"
+        ]
+    );
+}
+
+#[test]
+fn device_certificates_need_https_their_files_and_a_name_without_the_tunnel() {
+    assert_eq!(
+        errs(
+            "",
+            &svc(
+                "lan",
+                "{ hosts: [lan.example.com], tls: off, client_auth: { ca: ca.pem } }"
+            )
+        ),
+        ["services.lan.web.client_auth: a site with tls: off has no HTTPS; remove client_auth"]
+    );
+    let found = errs(
+        "",
+        &svc(
+            "grafana",
+            "{ hosts: [grafana.example.com], client_auth: { ca: certs/devices.pem } }",
+        ),
+    );
+    assert_eq!(found.len(), 1, "{found:#?}");
+    assert!(
+        found[0]
+            .starts_with("services.grafana.web.client_auth.ca: cannot read certs/devices.pem: "),
+        "{found:#?}"
+    );
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("ca.pem"), "x").unwrap();
+    let text = format!(
+        "websocket: {{ listen: 443, host: example.com, path: /burrow }}\n{TOP}services:\n{}",
+        svc(
+            "blog",
+            "{ hosts: [example.com], client_auth: { ca: ca.pem } }"
+        )
+    );
+    let o = load_in(dir.path(), &text.replace("listen: 7835\n", ""));
+    assert!(
+        errors(&o).contains(&"services.blog.web.client_auth: \"example.com\" also carries the tunnel (websocket.host, by path); burrow clients have no device certificate, so they could not connect. Give the tunnel its own name, or remove client_auth".to_string()),
+        "{:#?}",
+        errors(&o)
+    );
+    let shared = svc("a", "{ hosts: [example.com], client_auth: { ca: ca.pem } }")
+        + &svc("b", "{ hosts: [example.com], paths: [/api] }");
+    let (_d, o) = run("", &shared);
+    assert!(
+        errors(&o).contains(&"host \"example.com\": services share it but name different client_auth CAs; device certificates are checked per host name".to_string()),
+        "{:#?}",
+        errors(&o)
+    );
+}
+
+#[test]
+fn a_device_ca_must_be_a_ca_certificate() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("ca.pem"), "not a certificate").unwrap();
+    let text = format!(
+        "{TOP}services:\n{}",
+        svc(
+            "grafana",
+            "{ hosts: [grafana.example.com], client_auth: { ca: ca.pem } }"
+        )
+    );
+    let o = load_in(dir.path(), &text);
+    assert!(
+        errors(&o)
+            .contains(&"services.grafana.web.client_auth.ca: is not a CA certificate".to_string()),
+        "{:#?}",
+        errors(&o)
+    );
+}
+
+#[test]
+fn a_login_service_that_speaks_only_http2_to_its_app_gets_a_note() {
+    let top = "  forward_auth: { service: authelia, path: /api/authz/forward-auth }\n";
+    let s = svc("wiki", "{ hosts: [wiki.example.com], forward_auth: true }")
+        + &svc(
+            "authelia",
+            "{ hosts: [auth.example.com], target_http2: true, target_tls: true }",
+        );
+    let (_d, o) = run(top, &s);
+    assert!(
+        warnings(&o).contains(&"services.wiki.web.forward_auth: the login service \"authelia\" speaks HTTP/2 only to its app (target_http2 with target_tls), but the login check asks over HTTP/1.1, so every check would fail with 502".to_string()),
+        "{:#?}",
+        warnings(&o)
+    );
+}

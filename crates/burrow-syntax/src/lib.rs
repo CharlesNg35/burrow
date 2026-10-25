@@ -12,6 +12,7 @@ pub mod grant;
 pub mod hostport;
 pub mod ip;
 pub mod name;
+pub mod passwd;
 pub mod ports;
 pub mod rate;
 pub mod rule;

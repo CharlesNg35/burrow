@@ -148,8 +148,12 @@ pub(super) fn check_site_keys(
 }
 
 fn passthrough(site: &WebSite, at: &At<'_>, out: &mut Vec<Diagnostic>) {
-    let set: [(&str, bool); 14] = [
+    let set: [(&str, bool); 18] = [
         ("paths", !site.paths.is_empty()),
+        ("basic_auth", !site.basic_auth.is_empty()),
+        ("forward_auth", site.forward_auth.is_some()),
+        ("rate_limit", site.rate_limit.is_some()),
+        ("client_auth", site.client_auth.is_some()),
         ("target_http2", site.target_http2),
         ("app_path", site.app_path.is_some()),
         ("redirect_from", !site.redirect_from.is_empty()),

@@ -321,6 +321,7 @@ pub(super) fn check_sites(
             at: &item,
             served: Served::of(web, https.is_some()),
             tls: hosts::tls_key(web, https.is_some()),
+            client_ca: hosts::client_ca(web),
             paths: hosts::paths_of(web),
         };
         if let Some(hosts) = hosts::check_hosts(&place, web.hosts(), &mut owners, tunnel, out) {
@@ -332,6 +333,14 @@ pub(super) fn check_sites(
     }
     hosts::check_redirect_hosts(cfg, &owners, spans, out);
     site_keys::check_site_keys(cfg, https.is_some(), base_dir, spans, out);
+    access::check_access(
+        cfg,
+        https.is_some(),
+        tunnel.map(|t| t.0),
+        base_dir,
+        spans,
+        out,
+    );
     let shared_tunnel = tunnel.filter(|t| t.2 == Shares::Https).map(|t| t.0);
     site_wide::check_site_wide(cfg, (https, http), shared_tunnel, base_dir, spans, out);
     certs::check_sources(cfg, (https, http), spans, out);
@@ -384,6 +393,7 @@ impl Served {
     }
 }
 
+mod access;
 mod certs;
 mod challenge;
 mod choices;
@@ -410,6 +420,9 @@ pub(super) use share::share_tunnel;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(all(test, feature = "web"))]
+mod tests_access;
 
 #[cfg(all(test, feature = "web"))]
 mod tests_certs;
