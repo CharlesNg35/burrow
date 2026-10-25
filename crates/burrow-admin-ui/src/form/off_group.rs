@@ -88,16 +88,25 @@ fn group_view(off: Off, n: usize, rows: Vec<AnyView>) -> AnyView {
             })
         })
     });
+    let table = use_context::<super::ShowKeys>().is_some_and(|k| k.0);
+    let grid = if table {
+        super::more::ROWS
+    } else {
+        "grid grid-cols-1 gap-x-6 gap-y-[22px] md:grid-cols-2"
+    };
     view! {
-        <details class="md:col-span-2" prop:open=move || !off.get() data-off-group="">
+        <details class="group/off md:col-span-2" prop:open=move || !off.get() data-off-group="">
             <summary
-                class="cursor-pointer py-2.5 text-[13px] font-semibold text-text-muted marker:text-text-faint"
+                class="flex cursor-pointer list-none items-center gap-1.5 rounded-xs py-1 text-[12.5px] font-semibold text-text-muted outline-none hover:text-text focus-visible:ring-3 focus-visible:ring-accent-weak [&::-webkit-details-marker]:hidden"
                 class:hidden=move || !off.get()
                 data-testid="off-group"
             >
-                {line}
+                <span class="inline-flex transition-transform group-open/off:rotate-90" aria-hidden="true">
+                    <burrow_ui_kit::Icon name="chevron-right" small=true/>
+                </span>
+                <span>{line}</span>
             </summary>
-            {rows}
+            <div class=grid class:pt-3=move || off.get()>{rows}</div>
         </details>
     }
     .into_any()

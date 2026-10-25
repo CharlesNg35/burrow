@@ -100,7 +100,7 @@ fn view_line(way: Way, svc: Path) -> impl IntoView {
     let p = child(&svc, way.key());
     let text = move || shown(way, e.value(&p).as_ref());
     view! {
-        <li class="flex flex-wrap items-baseline gap-x-2 py-1 text-[13.5px]" data-way=way.key()>
+        <li class="flex flex-wrap items-baseline gap-x-2 border-b border-rowline py-2.5 text-[13.5px] first:pt-0 last:border-b-0" data-way=way.key()>
             <span class="font-semibold">{way.label()}</span>
             <span class="text-xs text-text-muted">{way.who()}</span>
             <span class="ml-auto font-mono text-[13px]" data-testid="way-value">{text}</span>
@@ -168,10 +168,10 @@ fn website_row(sw: &Switch) -> impl IntoView + use<> {
     };
     move || {
         match (blocked.get(), on.get()) {
-        (Some(why), _) => view! { <p class="text-[13px] text-text-muted" data-testid="website-blocked">{why}</p> }.into_any(),
-        (None, false) => view! { <p class="text-[13px] text-text-muted" data-testid="website-off">{NOT_A_WEBSITE}</p> }.into_any(),
+        (Some(why), _) => view! { <p class="mt-2 text-[13px] text-text-muted sm:ml-[46px]" data-testid="website-blocked">{why}</p> }.into_any(),
+        (None, false) => view! { <p class="mt-2 text-[13px] text-text-muted sm:ml-[46px]" data-testid="website-off">{NOT_A_WEBSITE}</p> }.into_any(),
         (None, true) => view! {
-            <p class="flex flex-wrap items-center gap-3 text-[13px]" data-testid="website-summary">
+            <p class="mt-2 flex flex-wrap items-center gap-3 text-[13px] sm:ml-[46px]" data-testid="website-summary">
                 <span class="font-mono">{website_summary(e.value(&p).as_ref(), https_on.get())}</span>
                 <button type="button" class="cursor-pointer font-semibold text-accent-ink hover:underline" data-testid="edit-website" on:click=open>"Edit website ↓"</button>
             </p>
@@ -188,12 +188,12 @@ fn way_block(sw: Switch, field: Option<(Field, Path, Path, Path)>) -> impl IntoV
         _ => {
             let body = field.map(|(f, fp, fs, entity)| row(f, fp, fs, entity));
             let shown = move || on.get() && blocked.get().is_none();
-            view! { <div class:hidden=move || !shown()>{body}</div> }.into_any()
+            view! { <div class="mt-3 border-l-2 border-rowline pl-4 sm:ml-[17px]" class:hidden=move || !shown()>{body}</div> }.into_any()
         }
     };
     view! {
-        <div class="border-b border-rowline py-3 last:border-b-0" data-way=way.key()>
-            <div class="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+        <div class="border-b border-rowline py-4 first:pt-0 last:border-b-0" data-way=way.key()>
+            <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
                 {sw.toggle()}
                 <span class="text-xs text-text-muted">{way.who()}{(way == Way::Visitors).then_some(", with burrow visit")}</span>
             </div>
