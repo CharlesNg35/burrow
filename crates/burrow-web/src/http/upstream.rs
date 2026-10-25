@@ -21,16 +21,6 @@ pub mod pool;
 pub mod target_tls;
 pub mod to_h2;
 
-const HOP_BY_HOP: [HeaderName; 7] = [
-    header::CONNECTION,
-    HeaderName::from_static("keep-alive"),
-    HeaderName::from_static("proxy-connection"),
-    header::TE,
-    header::TRAILER,
-    header::TRANSFER_ENCODING,
-    header::UPGRADE,
-];
-
 pub(crate) struct Forward<'a> {
     pub site: &'a SiteRun,
     pub visitor: Visitor,
@@ -134,7 +124,7 @@ pub fn strip_hop_by_hop(h: &mut HeaderMap) {
             h.remove(name);
         }
     }
-    for name in &HOP_BY_HOP {
+    for name in burrow_syntax::web::headers::HOP_BY_HOP {
         h.remove(name);
     }
 }

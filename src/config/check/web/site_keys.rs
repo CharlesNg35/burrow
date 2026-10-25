@@ -18,17 +18,6 @@ pub(super) const PAGES: [&str; 7] = [
     "maintenance.html",
 ];
 
-const FRAMING: [&str; 8] = [
-    "connection",
-    "keep-alive",
-    "proxy-connection",
-    "transfer-encoding",
-    "te",
-    "trailer",
-    "upgrade",
-    "content-length",
-];
-
 pub(super) struct At<'a> {
     pub spans: &'a Spans,
     pub base: Vec<String>,
@@ -429,7 +418,7 @@ fn headers(key: &str, map: &BTreeMap<String, String>, at: &At<'_>, out: &mut Vec
             Some(format!(
                 "{field}: \"{name}\" is not a header name; a name is letters, digits and any of ! # $ % & ' * + - . ^ _ ` | ~, with no spaces, like X-Frame-Options"
             ))
-        } else if FRAMING.contains(&name.trim().to_ascii_lowercase().as_str()) {
+        } else if !burrow_syntax::web::headers::settable(name) {
             Some(format!(
                 "{field}: \"{}\" belongs to HTTP's own framing, which burrow handles; it cannot be set",
                 name.trim()

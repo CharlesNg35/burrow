@@ -238,3 +238,16 @@ fn an_http1_request_keeps_its_version() {
     assert_eq!(req.version(), Version::HTTP_10);
     assert_eq!(req.headers()["cookie"], "a=1");
 }
+
+#[test]
+fn every_hop_by_hop_header_is_stripped_before_the_app() {
+    let pairs: Vec<(&str, &str)> = burrow_syntax::web::headers::HOP_BY_HOP
+        .iter()
+        .map(|n| (*n, "1"))
+        .collect();
+    let mut req = request("/", &pairs);
+    rewrite_request(&mut req, "blog.example.com", &visitor(false));
+    for name in burrow_syntax::web::headers::HOP_BY_HOP {
+        assert!(!req.headers().contains_key(name), "{name}");
+    }
+}

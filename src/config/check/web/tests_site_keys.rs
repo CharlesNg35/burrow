@@ -315,3 +315,17 @@ fn paths_differing_only_by_letter_case_are_one_path() {
         ]
     );
 }
+
+#[test]
+fn every_header_burrow_strips_or_frames_is_refused_in_a_rule() {
+    for name in burrow_syntax::web::headers::NOT_SETTABLE {
+        let site = format!("{{ hosts: [example.com], request_headers: {{ {name}: x }} }}");
+        assert_eq!(
+            errs("", &svc("blog", &site)),
+            [format!(
+                "services.blog.web.request_headers: \"{name}\" belongs to HTTP's own framing, which burrow handles; it cannot be set"
+            )],
+            "{name}"
+        );
+    }
+}

@@ -143,6 +143,7 @@ pub fn entry_for<'a>(
 }
 
 mod check;
+pub mod headers;
 
 pub use check::{
     AutoName, Challenge, Check, CheckPorts, HTTP_PORT, NoCheck, PROXY_NOTE, TLS_PORT, checks_for,
