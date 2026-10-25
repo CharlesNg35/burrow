@@ -148,3 +148,31 @@ fn passwords_are_for_write_admins_and_their_handles_are_not_secrets() {
     }];
     assert!(plan::compute(&core, &s, &text::rev(&text), &marker).is_err());
 }
+
+#[test]
+fn password_set_writes_only_a_password_field() {
+    let w = world();
+    let text = with_site(&w, "");
+    let core = core_for(&text);
+    let s = session(&w, AdminLevel::Write);
+    let h = hashed(&core, &w, "x");
+    for path in [
+        burrow_config::ClientEntry::SECRET.of("home"),
+        ServiceEntry::TARGET.of("site"),
+        {
+            let mut p = ServiceEntry::WEB.of("site");
+            p.push(WebSite::BASIC_AUTH.key().into());
+            p
+        },
+    ] {
+        let op = [Op::PasswordSet {
+            path: path.clone(),
+            handle: h.handle.clone(),
+        }];
+        let e = plan::compute(&core, &s, &text::rev(&text), &op)
+            .err()
+            .unwrap();
+        assert_eq!(e.code, ErrorCode::BadRequest, "{path:?}");
+        assert!(e.message.contains("is not a password"), "{}", e.message);
+    }
+}

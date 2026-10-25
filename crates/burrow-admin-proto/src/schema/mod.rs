@@ -202,6 +202,7 @@ impl Node {
             SemType::RefMap(m) => Some(&*m.value),
             SemType::List(l) => first.parse::<usize>().ok().map(|_| &*l.item),
             SemType::Optional(o) => return o.inner.at(path),
+            SemType::Union(u) => return u.branches.iter().find_map(|b| b.at(path)),
             _ => None,
         }?;
         next.at(rest)

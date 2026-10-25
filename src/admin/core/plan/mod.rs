@@ -183,6 +183,7 @@ pub fn compute(
     let (_, _, src) = patch::split_text(&old_text);
     let raw = parse_current(&src)?;
     refuse_locked(core, ops_list)?;
+    locks::refuse_misplaced_passwords(core, ops_list)?;
     let applied = ops::apply(&raw, ops_list, &Cx { core, session: s })
         .map_err(|e| ApiError::new(ErrorCode::BadRequest, e.0))?;
     let (new_text, reformat, kept) = new_document(core, &raw, &old_text, &applied)?;

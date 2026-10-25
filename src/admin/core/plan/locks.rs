@@ -19,6 +19,27 @@ fn locked_error(locked: Vec<String>) -> ApiError {
     .with(serde_json::to_value(LockedField { path: locked }).unwrap_or_default())
 }
 
+pub(super) fn refuse_misplaced_passwords(core: &Core, ops_list: &[Op]) -> Result<(), ApiError> {
+    use burrow_admin_proto::schema::SemType;
+    for op in ops_list {
+        if let Op::PasswordSet { path, .. } = op
+            && !matches!(
+                core.schema.root.at(path).map(|n| &n.sem),
+                Some(SemType::PasswordHash)
+            )
+        {
+            return Err(ApiError::new(
+                ErrorCode::BadRequest,
+                format!(
+                    "{} is not a password; password_set writes a website's basic_auth user",
+                    path.join(".")
+                ),
+            ));
+        }
+    }
+    Ok(())
+}
+
 pub(super) fn refuse_locked(core: &Core, ops_list: &[Op]) -> Result<(), ApiError> {
     match ops_list
         .iter()
