@@ -188,19 +188,25 @@ fn stop_on_signal(external: Option<watch::Receiver<bool>>) -> watch::Receiver<bo
     rx
 }
 
-pub fn admin(path: &Path, env: Env, opts: crate::admin_local::Options) -> Result<u8, Failure> {
-    let loaded = load(path, Role::Visitor, &env, &["no-forwards"])?;
+fn visitor(path: &Path, env: &Env) -> Result<crate::config::settings::VisitorSettings, Failure> {
+    let loaded = load(path, Role::Visitor, env, &["no-forwards"])?;
     let Loaded::Visitor(settings, _) = loaded else {
         return Err(Failure::new(format!(
             "{} is not a visitor config",
             path.display()
         )));
     };
+    Ok(*settings)
+}
+
+pub fn admin(path: &Path, env: Env, opts: crate::admin_local::Options) -> Result<u8, Failure> {
+    let settings = visitor(path, &env)?;
     drive(async move {
-        crate::admin_local::check_access(&settings).await?;
+        crate::admin_link::open::check_access(&settings, crate::admin_local::bridge::UI_CLIENT)
+            .await?;
         use crate::admin_local::session;
         use std::io::Write;
-        let store = session::dir();
+        let store = crate::admin_link::store::dir();
         let config = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
         let sess = match &store {
             Some(d) => {

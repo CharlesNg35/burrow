@@ -4,9 +4,12 @@ use serde::{Deserialize, Serialize};
 
 use tracing::debug;
 
-use super::token::Token;
+use crate::admin_link::store;
+use crate::admin_link::token::Token;
 
 pub const KEEP_SECS: u64 = 12 * 3600;
+const PREFIX: &str = "session-";
+const EXTENSION: &str = ".json";
 pub const REFRESH_EVERY: std::time::Duration = std::time::Duration::from_secs(600);
 
 #[derive(Debug, Clone)]
@@ -23,79 +26,6 @@ struct Stored {
     prefix: String,
     port: u16,
     used: u64,
-}
-
-pub fn dir() -> Option<PathBuf> {
-    let dir = match std::env::var_os("BURROW_ADMIN_SESSION_DIR") {
-        Some(d) => PathBuf::from(d),
-        None => dirs::state_dir()
-            .or_else(dirs::data_local_dir)?
-            .join("burrow")
-            .join("admin-sessions"),
-    };
-    #[cfg(unix)]
-    {
-        let sudo_uid = std::env::var("SUDO_UID").ok().and_then(|u| u.parse().ok());
-        for_sudo(
-            dir,
-            rustix::process::geteuid().as_raw(),
-            sudo_uid,
-            root_home,
-        )
-    }
-    #[cfg(not(unix))]
-    {
-        Some(dir)
-    }
-}
-
-#[cfg(unix)]
-fn root_home() -> Option<PathBuf> {
-    nix::unistd::User::from_uid(nix::unistd::Uid::from_raw(0))
-        .ok()
-        .flatten()
-        .map(|u| u.dir)
-        .filter(|d| d.is_absolute())
-}
-
-#[cfg(unix)]
-fn in_home(home: &Path) -> PathBuf {
-    let base = if cfg!(target_os = "macos") {
-        home.join("Library").join("Application Support")
-    } else {
-        home.join(".local").join("state")
-    };
-    base.join("burrow").join("admin-sessions")
-}
-
-#[cfg(unix)]
-fn for_sudo(
-    dir: PathBuf,
-    euid: u32,
-    sudo_uid: Option<u32>,
-    root_home: impl FnOnce() -> Option<PathBuf>,
-) -> Option<PathBuf> {
-    use std::os::unix::fs::MetadataExt;
-    let Some(user) = sudo_uid.filter(|u| euid == 0 && *u != 0) else {
-        return Some(dir);
-    };
-    let theirs = |d: &Path| {
-        d.ancestors()
-            .any(|a| std::fs::metadata(a).is_ok_and(|m| m.uid() == user))
-    };
-    if !theirs(&dir) {
-        return Some(dir);
-    }
-    root_home().map(|h| in_home(&h)).filter(|d| !theirs(d))
-}
-
-fn file_for(dir: &Path, config: &Path) -> PathBuf {
-    let key = std::fs::canonicalize(config).unwrap_or_else(|_| config.to_path_buf());
-    let digest = ring::digest::digest(&ring::digest::SHA256, key.to_string_lossy().as_bytes());
-    dir.join(format!(
-        "session-{}.json",
-        hex::encode(&digest.as_ref()[..12])
-    ))
 }
 
 fn valid(s: &Stored) -> bool {
@@ -144,7 +74,7 @@ pub fn sweep(dir: &Path, now: u64) {
         let path = entry.path();
         let name = entry.file_name();
         let name = name.to_string_lossy();
-        if !(name.starts_with("session-") && name.ends_with(".json")) {
+        if !(name.starts_with(PREFIX) && name.ends_with(EXTENSION)) {
             continue;
         }
         let Ok(meta) = std::fs::symlink_metadata(&path) else {
@@ -174,7 +104,7 @@ pub fn sweep(dir: &Path, now: u64) {
 
 pub fn load(dir: &Path, config: &Path, now: u64) -> Session {
     let fresh = Session::fresh;
-    let Ok(text) = std::fs::read_to_string(file_for(dir, config)) else {
+    let Ok(text) = std::fs::read_to_string(store::file_for(dir, config, PREFIX, EXTENSION)) else {
         return fresh();
     };
     match live(&text, now) {
@@ -189,7 +119,7 @@ pub fn load(dir: &Path, config: &Path, now: u64) -> Session {
 }
 
 pub fn save(dir: &Path, config: &Path, s: &Session, port: u16, now: u64) -> std::io::Result<()> {
-    make_private_dir(dir)?;
+    store::make_private_dir(dir)?;
     let text = serde_json::to_string(&Stored {
         token: s.token.as_str().to_string(),
         prefix: s.prefix.clone(),
@@ -197,30 +127,7 @@ pub fn save(dir: &Path, config: &Path, s: &Session, port: u16, now: u64) -> std:
         used: now,
     })
     .map_err(std::io::Error::other)?;
-    crate::base::fs::write_private(&file_for(dir, config), &text)
-}
-
-fn make_private_dir(dir: &Path) -> std::io::Result<()> {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
-        std::fs::DirBuilder::new()
-            .recursive(true)
-            .mode(0o700)
-            .create(dir)?;
-        let meta = std::fs::symlink_metadata(dir)?;
-        if meta.is_dir()
-            && meta.uid() == rustix::process::geteuid().as_raw()
-            && meta.mode() & 0o077 != 0
-        {
-            std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
-        }
-        Ok(())
-    }
-    #[cfg(not(unix))]
-    {
-        std::fs::create_dir_all(dir)
-    }
+    crate::base::fs::write_private(&store::file_for(dir, config, PREFIX, EXTENSION), &text)
 }
 
 #[cfg(test)]
@@ -253,41 +160,6 @@ mod tests {
         assert!(!load(&store, &other, 1000).reused, "one session per config");
     }
 
-    #[cfg(unix)]
-    #[test]
-    fn under_sudo_the_session_is_kept_in_roots_home_and_never_in_the_users() {
-        let me = rustix::process::getuid().as_raw();
-        if me == 0 {
-            return;
-        }
-        let home = tempfile::tempdir().unwrap();
-        let store = home.path().join(".local/state/burrow/admin-sessions");
-        let root = PathBuf::from("/burrow-absent-root-home");
-        let roots = || Some(PathBuf::from("/burrow-absent-root-home"));
-        let in_root = for_sudo(store.clone(), 0, Some(me), roots).unwrap();
-        assert!(in_root.starts_with(&root), "{}", in_root.display());
-        assert!(
-            in_root.ends_with("burrow/admin-sessions"),
-            "{}",
-            in_root.display()
-        );
-        assert_eq!(for_sudo(store.clone(), 0, Some(me), || None), None);
-        let theirs = || Some(home.path().to_path_buf());
-        assert_eq!(for_sudo(store.clone(), 0, Some(me), theirs), None);
-        assert_eq!(
-            for_sudo(store.clone(), 0, Some(me + 1), roots),
-            Some(store.clone())
-        );
-        assert_eq!(for_sudo(store.clone(), 0, None, roots), Some(store.clone()));
-        assert_eq!(
-            for_sudo(store.clone(), me, Some(me), roots),
-            Some(store.clone())
-        );
-        assert!(root_home().is_some_and(|h| h.is_absolute()));
-        let kept = root.join("admin-sessions");
-        assert_eq!(for_sudo(kept.clone(), 0, Some(me), || None), Some(kept));
-    }
-
     #[test]
     fn the_session_file_is_private_and_a_broken_one_is_ignored() {
         let home = tempfile::tempdir().unwrap();
@@ -301,7 +173,7 @@ mod tests {
         let ops = config(home.path(), "ops.yaml");
         let s = load(&store, &ops, 5);
         save(&store, &ops, &s, 4000, 5).unwrap();
-        let file = file_for(&store, &ops);
+        let file = store::file_for(&store, &ops, PREFIX, EXTENSION);
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -332,8 +204,8 @@ mod tests {
         let other = config(home.path(), "other.yaml");
         save(&store, &ops, &Session::fresh(), 4000, now - KEEP_SECS - 1).unwrap();
         save(&store, &other, &Session::fresh(), 4001, now - 10).unwrap();
-        let expired = file_for(&store, &ops);
-        let fresh = file_for(&store, &other);
+        let expired = store::file_for(&store, &ops, PREFIX, EXTENSION);
+        let fresh = store::file_for(&store, &other, PREFIX, EXTENSION);
         let future = store.join("session-future.json");
         let text = std::fs::read_to_string(&fresh).unwrap();
         std::fs::write(

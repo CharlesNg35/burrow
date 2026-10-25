@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+pub mod admin;
 pub mod certs;
 pub mod ports;
 pub mod socks;

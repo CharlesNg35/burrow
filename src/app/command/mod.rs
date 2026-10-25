@@ -449,55 +449,19 @@ fn init(args: crate::app::cli::InitArgs) -> Result<u8, Failure> {
 }
 
 fn admin(args: crate::app::cli::AdminArgs) -> Result<u8, Failure> {
-    use crate::admin_local::find::{Found, Installed, choose, unreadable};
     if args.ui_info {
         print!("{}", crate::admin_local::assets::info());
         return Ok(0);
     }
-    let here = crate::config::discover::in_folder(std::path::Path::new("."))
-        .into_iter()
-        .filter(|(_, r)| *r == Role::Visitor)
-        .map(|(p, _)| p)
-        .next();
-    let services: Vec<Installed> =
-        if args.config.is_none() && (here.is_none() || args.service.is_some()) {
-            crate::install::all_manifests()
-                .into_iter()
-                .filter(|m| m.role == "visitor")
-                .map(|m| Installed {
-                    name: m.name,
-                    config: m.config,
-                    env_file: m.env_file,
-                })
-                .collect()
-        } else {
-            Vec::new()
-        };
-    let found = choose(args.config, here, &services, args.service.as_deref())?;
-    let (path, env) = match found {
-        Found::File(p) => (p, crate::config::env::Env::default()),
-        Found::Service(s) => {
-            let readable = |p: &std::path::Path| {
-                std::fs::File::open(p)
-                    .map(drop)
-                    .map_err(|e| unreadable(p, &e))
-            };
-            readable(&s.config)?;
-            let env = match &s.env_file {
-                Some(f) => {
-                    readable(f)?;
-                    crate::service::saved_env(&s.name)
-                }
-                None => Default::default(),
-            };
-            println!(
-                "using the installed visitor service {} ({})",
-                s.name,
-                s.config.display()
-            );
-            (s.config, crate::config::env::Env::with(env))
-        }
-    };
+    let chosen = crate::admin_link::find::visitor(
+        args.config,
+        args.service.as_deref(),
+        crate::app::cli::ADMIN_COMMAND,
+        crate::service::saved_env,
+    )?;
+    if let Some(note) = &chosen.note {
+        println!("{note}");
+    }
     let opts = crate::admin_local::Options {
         port: args.port,
         open: !args.no_open,
@@ -506,7 +470,7 @@ fn admin(args: crate::app::cli::AdminArgs) -> Result<u8, Failure> {
         idle_exit: args.idle_exit,
         ui_dir: args.ui_dir,
     };
-    crate::app::run::admin(&path, env, opts)
+    crate::app::run::admin(&chosen.path, chosen.env, opts)
 }
 
 fn run_env(file: Option<&std::path::Path>) -> Result<crate::config::env::Env, Failure> {

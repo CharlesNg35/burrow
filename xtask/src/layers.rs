@@ -46,6 +46,7 @@ pub const UNITS: &[(&str, Layer)] = &[
     ("udp", Layer::Roles),
     ("visitor", Layer::Roles),
     ("admin", Layer::Ops),
+    ("admin_link", Layer::Ops),
     ("admin_local", Layer::Ops),
     ("app::command", Layer::Ops),
     ("app::cli", Layer::Ops),

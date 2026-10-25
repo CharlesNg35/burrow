@@ -5,12 +5,14 @@ use futures_util::{SinkExt, StreamExt};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_websockets::{CloseCode, Limits, Message, ServerBuilder};
 
-use super::token::Token;
+use crate::admin_link::open::{explain, open_message};
+use crate::admin_link::token::Token;
 use crate::dialer::Dialer;
-use crate::dialer::admin::{AdminOpenError, AdminRefusal, Heard};
-use burrow_admin_proto::frame::{AdminOpen, MAX_MESSAGE};
-use burrow_admin_proto::local::{Auth, BRIDGE_EVENT, Bridge, BridgeState, Reason};
+use crate::dialer::admin::Heard;
+use burrow_admin_proto::frame::MAX_MESSAGE;
+use burrow_admin_proto::local::{Auth, BRIDGE_EVENT, Bridge, BridgeState};
 
+pub const UI_CLIENT: &str = "burrow-admin-ui";
 pub const AUTH_WAIT: Duration = Duration::from_secs(5);
 pub const CLOSE_WAIT: Duration = Duration::from_secs(1);
 
@@ -18,48 +20,6 @@ fn bridge_event(b: &Bridge) -> Message {
     let v =
         burrow_admin_proto::msg::event(BRIDGE_EVENT, serde_json::to_value(b).unwrap_or_default());
     Message::text(v.to_string())
-}
-
-pub fn explain(e: &AdminOpenError, visitor: &str, server: &str) -> (Reason, String) {
-    match e {
-        AdminOpenError::Refused(AdminRefusal::Forbidden) => (
-            Reason::Forbidden,
-            format!("visitor \"{visitor}\" has no admin rights on {server}"),
-        ),
-        AdminOpenError::Refused(AdminRefusal::Busy) => (
-            Reason::Busy,
-            format!(
-                "{server} already has the most admin sessions it allows for visitor \"{visitor}\"; close another admin tab"
-            ),
-        ),
-        AdminOpenError::Refused(AdminRefusal::NoAdmin) => (
-            Reason::NoAdmin,
-            format!("{server} was built without the admin interface"),
-        ),
-        AdminOpenError::Refused(AdminRefusal::Explained(t)) => (Reason::Refused, t.clone()),
-        AdminOpenError::Refused(AdminRefusal::Other(code)) => (
-            Reason::Refused,
-            format!("{server} refused the admin session (status {code})"),
-        ),
-        AdminOpenError::Dial(crate::dialer::DialError::Rejected) => (
-            Reason::Rejected,
-            format!("{server} rejected visitor \"{visitor}\"; check the name and secret"),
-        ),
-        AdminOpenError::Dial(crate::dialer::DialError::Unreachable(w))
-        | AdminOpenError::Dial(crate::dialer::DialError::Lost(w)) => {
-            (Reason::Unreachable, w.clone())
-        }
-        AdminOpenError::Lost(w) => (Reason::Unreachable, w.clone()),
-    }
-}
-
-pub fn open_message() -> AdminOpen {
-    AdminOpen {
-        min: burrow_admin_proto::PROTOCOL_MIN,
-        max: burrow_admin_proto::PROTOCOL_MAX,
-        client: format!("burrow-admin-ui/{}", env!("CARGO_PKG_VERSION")),
-        features: Vec::new(),
-    }
 }
 
 pub async fn serve<S: AsyncRead + AsyncWrite + Unpin>(
@@ -92,7 +52,7 @@ pub async fn serve<S: AsyncRead + AsyncWrite + Unpin>(
         .await;
         return;
     }
-    let (mut rx, mut tx, _) = match dialer.open_admin(&open_message()).await {
+    let (mut rx, mut tx, _) = match dialer.open_admin(&open_message(UI_CLIENT)).await {
         Ok(p) => p,
         Err(e) => {
             let (reason, message) = explain(&e, &visitor, &server);

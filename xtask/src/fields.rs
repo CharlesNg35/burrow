@@ -12,6 +12,7 @@ pub const FIELD_FREE: &[&str] = &[
     "crates/burrow-admin-logic/src",
     "crates/burrow-ui-kit/src",
     "src/admin",
+    "src/admin_link",
     "src/admin_local",
 ];
 
