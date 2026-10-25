@@ -1,3 +1,4 @@
+pub mod client;
 pub mod find;
 pub mod open;
 pub mod store;
