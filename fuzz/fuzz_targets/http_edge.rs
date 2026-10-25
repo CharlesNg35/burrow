@@ -213,7 +213,6 @@ fn settings(http: SocketAddr) -> ProxySettings {
     s.timeouts = Timeouts {
         request_header: Duration::from_secs(1),
         idle: Duration::from_secs(1),
-        response_header: Duration::from_secs(2),
         ..Timeouts::default()
     };
     s
