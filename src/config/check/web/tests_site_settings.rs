@@ -137,3 +137,36 @@ fn the_web_wide_keys_reach_the_settings() {
     );
     assert!(s.request_id);
 }
+
+#[test]
+fn web_https_redirect_is_the_default_of_https_sites_only() {
+    let cfg: ServerConfig = serde_json::from_value(json!({
+        "web": {"https": 443, "http": 80, "https_redirect": true},
+        "services": {
+            "lan": {"client": "home", "target": 8095, "web": {"hosts": ["dash.lan.example.com"], "tls": "off"}},
+            "cdn": {"client": "home", "target": 3001, "web": {"hosts": ["wiki.example.net"], "tls": "off", "https_redirect": true}},
+            "shop": {"client": "home", "target": 8081, "web": "shop.example.com"}
+        }
+    }))
+    .unwrap();
+    let redirect = |name: &str| {
+        let svc = &cfg.services[name];
+        super::fill::site(
+            &cfg,
+            svc.web.as_ref().unwrap(),
+            &svc.target,
+            vec![],
+            Path::new("/"),
+        )
+        .https_redirect
+    };
+    assert!(
+        !redirect("lan"),
+        "a plain site does not follow web.https_redirect"
+    );
+    assert!(
+        redirect("cdn"),
+        "its own https_redirect: true behind a proxy"
+    );
+    assert!(redirect("shop"));
+}

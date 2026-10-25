@@ -29,10 +29,15 @@ pub(super) fn site(
         None if https => WebTls::Auto,
         None => WebTls::Off,
     };
-    let https_redirect = web
-        .https_redirect()
-        .or(cfg.web.as_ref().and_then(|w| w.https_redirect))
-        .unwrap_or(tls != WebTls::Off);
+    let https_redirect = match (web.https_redirect(), &tls) {
+        (Some(own), _) => own,
+        (None, WebTls::Off) => false,
+        (None, _) => cfg
+            .web
+            .as_ref()
+            .and_then(|w| w.https_redirect)
+            .unwrap_or(true),
+    };
     let challenge = match web {
         ServiceWeb::Site(s) => super::challenge::choice(s.challenge),
         _ => None,
