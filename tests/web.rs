@@ -7,6 +7,8 @@ mod certs;
 mod common;
 #[path = "web/ends.rs"]
 mod ends;
+#[path = "web/http_edge.rs"]
+mod http_edge;
 #[path = "web/kit.rs"]
 mod kit;
 #[path = "web/passthrough.rs"]
@@ -19,6 +21,8 @@ mod plain_tunnel;
 mod refusals;
 #[path = "web/reload.rs"]
 mod reload;
+#[path = "web/selection.rs"]
+mod selection;
 #[path = "web/sites.rs"]
 mod sites;
 #[path = "web/tunnel.rs"]
