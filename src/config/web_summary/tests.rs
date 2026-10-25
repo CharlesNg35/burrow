@@ -249,3 +249,57 @@ fn pkcs8() -> String {
     let key = rcgen::KeyPair::generate().unwrap();
     base64::prelude::BASE64_URL_SAFE_NO_PAD.encode(key.serialize_der())
 }
+
+#[test]
+fn the_summary_lists_each_hosts_routes_redirects_and_the_proxies_in_front() {
+    let dir = tempfile::tempdir().unwrap();
+    let s = settings(
+        dir.path(),
+        "listen: 7835\nweb:\n  https: 443\n  http: 80\n  letsencrypt: { email: ops@example.com }\n  trusted_proxies: [173.245.48.0/20]\n  proxy_protocol_from: [10.0.0.0/8]\n  redirect_names:\n    old.example.com: \"https://example.com\"\n    example.com/shop: { to: \"https://shop.example.net/\", permanent: true }\nservices:\n  blog:\n    client: home\n    target: 8080\n    web:\n      hosts: [example.com]\n      challenge: http\n      redirect_from: [www.example.com]\n      redirects: { /feed: \"https://feeds.example.net/blog\", /2019: { to: /archive/2019, permanent: true } }\n  api:\n    client: home\n    target: 9000\n    web: { hosts: [example.com], paths: [/api], app_path: /v1, challenge: http }\n  docs:\n    client: home\n    target: 9001\n    web: { hosts: [docs.example.com], paths: [/guide], challenge: http, maintenance: true }\n",
+    );
+    let lines = summary(&s).unwrap().lines();
+    let want = [
+        "web: https [::]:443 (IPv4 and IPv6), http [::]:80 (IPv4 and IPv6)",
+        "PROXY headers required from 10.0.0.0/8; X-Forwarded-For believed from 173.245.48.0/20",
+        "certificates: Let's Encrypt (production) as ops@example.com",
+        "docs.example.com: Let's Encrypt, HTTP check",
+        "  /guide      -> service docs (maintenance page)",
+        "  everything else -> 404",
+        "example.com: Let's Encrypt, HTTP check",
+        "  /2019       -> redirect /archive/2019 (permanent)",
+        "  /feed       -> redirect https://feeds.example.net/blog (temporary)",
+        "  /shop       -> redirect https://shop.example.net/ (permanent)",
+        "  /api        -> service api (app sees /v1, X-Forwarded-Prefix /api)",
+        "  /           -> service blog",
+        "old.example.com: Let's Encrypt, TLS check",
+        "  /           -> redirect https://example.com (temporary)",
+        "www.example.com: Let's Encrypt, HTTP check",
+        "  /           -> redirect https://example.com (permanent)",
+        "http [::]:80: HTTPS hosts redirect to https:// (308); Let's Encrypt HTTP checks answered",
+    ];
+    assert_eq!(lines, want.map(String::from));
+}
+
+#[test]
+fn the_summary_names_each_dns_provider_and_lists_the_shared_wildcards() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("cf.token"), "token\n").unwrap();
+    let s = settings(
+        dir.path(),
+        "listen: 7835\nweb:\n  https: 443\n  letsencrypt:\n    email: ops@example.com\n    dns:\n      - domains: [example.com]\n        cloudflare: { token: \"file:cf.token\" }\n        wildcards: [\"*.example.com\", \"*.lab.example.com\"]\n      - domains: [corp.example.org]\n        resolvers: [1.1.1.1]\n        command: /bin/true\nservices:\n  wiki:\n    client: home\n    target: 3001\n    web: wiki.example.com\n  erp:\n    client: home\n    target: 3002\n    web: { hosts: [erp.corp.example.org], challenge: dns }\n",
+    );
+    let lines = summary(&s).unwrap().lines();
+    assert_eq!(
+        lines[1],
+        "certificates: Let's Encrypt (production) as ops@example.com; DNS checks through Cloudflare for example.com, nameservers found via the system resolvers; DNS checks through the command for corp.example.org, nameservers found via 1.1.1.1:53"
+    );
+    assert_eq!(
+        lines[2..5],
+        [
+            "wildcard *.example.com (+ example.com): Let's Encrypt, DNS check; used by wiki",
+            "wildcard *.lab.example.com (+ lab.example.com): Let's Encrypt, DNS check; used by nothing yet",
+            "erp.corp.example.org: Let's Encrypt, DNS check through the command (corp.example.org) (challenge: dns) -> service erp",
+        ]
+        .map(String::from)
+    );
+}

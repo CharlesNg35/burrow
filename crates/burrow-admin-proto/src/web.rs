@@ -24,6 +24,10 @@ pub struct WebSummary {
     pub http_note: String,
     #[serde(default)]
     pub account: String,
+    #[serde(default)]
+    pub front: String,
+    #[serde(default)]
+    pub wildcards: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -48,7 +52,17 @@ pub struct HostLine {
     pub note: String,
     #[serde(default)]
     pub service: String,
+    #[serde(default)]
+    pub routes: Vec<RouteLine>,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct RouteLine {
+    pub path: String,
+    pub to: String,
+}
+
+pub const NOT_FOUND: &str = "everything else";
 
 impl WebSummary {
     pub fn head(&self) -> String {
@@ -77,6 +91,9 @@ impl WebSummary {
 
     pub fn lines(&self) -> Vec<String> {
         let mut out = vec![self.head()];
+        if !self.front.is_empty() {
+            out.push(self.front.clone());
+        }
         if !self.certificates.is_empty() {
             out.push(format!("certificates: {}", self.certificates));
         }
@@ -86,8 +103,14 @@ impl WebSummary {
         if let Some(t) = &self.tunnel {
             out.push(format!("tunnel: {} ({})", t.url, t.certificate));
         }
+        out.extend(self.wildcards.iter().cloned());
         for h in &self.hosts {
             out.push(h.line());
+            out.extend(
+                h.routes
+                    .iter()
+                    .map(|r| format!("  {:<11} -> {}", r.path, r.to)),
+            );
         }
         if self.hosts.is_empty() && self.tunnel.is_none() {
             out.push("no names yet: every connection is closed".into());
@@ -114,6 +137,9 @@ impl HostLine {
     }
 
     pub fn line(&self) -> String {
+        if !self.routes.is_empty() {
+            return format!("{}: {}", self.name, self.served());
+        }
         format!(
             "{}: {} -> service {}",
             self.name,

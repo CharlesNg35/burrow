@@ -1,11 +1,14 @@
 use std::net::SocketAddr;
 
+use crate::config::settings::DnsProvider;
 use crate::config::settings::{
     LETSENCRYPT_PRODUCTION, LETSENCRYPT_STAGING, LetsEncrypt, ServerSettings, Shares, WebSettings,
     WebSite, WebTls,
 };
 pub use burrow_admin_proto::web::{HostLine, PLAIN, TunnelLine, WebSummary};
-use burrow_syntax::web::{Challenge, Check, CheckPorts, checks_for, entry_for, is_ip};
+use burrow_syntax::web::{
+    Challenge, Check, CheckPorts, checks_for, dns_entry_for, entry_for, is_ip,
+};
 
 fn addresses(a: SocketAddr) -> &'static str {
     match (a.ip().is_unspecified(), a.is_ipv6()) {
@@ -60,18 +63,131 @@ fn automatic(web: &WebSettings, name: &str, choice: Option<Challenge>) -> (Strin
         https: web.https.map(|a| a.port()),
         http: web.http.map(|a| a.port()),
     };
-    let check = match checks_for(name, ports, false, choice).as_deref() {
-        Ok([Check::Tls, ..]) => "TLS check",
-        Ok([Check::Http, ..]) => "HTTP check",
-        Ok([Check::Dns, ..]) => "DNS check",
-        _ => "no check possible",
+    let dns = dns_for(web, name);
+    let check = match checks_for(name, ports, dns.is_some(), choice).as_deref() {
+        Ok([Check::Tls, ..]) => "TLS check".to_string(),
+        Ok([Check::Http, ..]) => "HTTP check".to_string(),
+        Ok([Check::Dns, ..]) => {
+            let (provider, domain) = dns.unwrap_or_default();
+            let why = if choice == Some(Challenge::Dns) {
+                " (challenge: dns)"
+            } else {
+                ""
+            };
+            format!("DNS check through {provider} ({domain}){why}")
+        }
+        _ => "no check possible".to_string(),
     };
     let source = if is_ip(name) {
         "Let's Encrypt short-lived (6 days)"
     } else {
         "Let's Encrypt"
     };
-    (source.into(), check.into())
+    (source.into(), check)
+}
+
+pub(super) fn provider_label(p: &DnsProvider) -> &'static str {
+    match p {
+        DnsProvider::Cloudflare { .. } => "Cloudflare",
+        DnsProvider::Rfc2136 { .. } => "RFC 2136",
+        DnsProvider::AcmeDns { .. } => "acme-dns",
+        DnsProvider::Command { .. } => "the command",
+    }
+}
+
+fn dns_for(web: &WebSettings, name: &str) -> Option<(String, String)> {
+    let dns = &web.letsencrypt.as_ref()?.dns;
+    let i = dns_entry_for(
+        dns.iter()
+            .enumerate()
+            .map(|(i, e)| (i, e.domains.as_slice())),
+        name,
+    )?;
+    let bare = name.strip_prefix("*.").unwrap_or(name);
+    let domain = dns[i]
+        .domains
+        .iter()
+        .filter(|d| bare == d.as_str() || bare.ends_with(&format!(".{d}")))
+        .max_by_key(|d| d.len())
+        .cloned()
+        .unwrap_or_default();
+    Some((provider_label(&dns[i].provider).to_string(), domain))
+}
+
+fn dns_line(l: &LetsEncrypt) -> String {
+    l.dns
+        .iter()
+        .map(|e| {
+            let found = if e.resolvers.is_empty() {
+                "the system resolvers".to_string()
+            } else {
+                e.resolvers
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            };
+            format!(
+                "DNS checks through {} for {}, nameservers found via {found}",
+                provider_label(&e.provider),
+                e.domains.join(", ")
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
+fn wildcard_lines(web: &WebSettings) -> Vec<String> {
+    let Some(l) = web.letsencrypt.as_ref() else {
+        return Vec::new();
+    };
+    l.dns
+        .iter()
+        .flat_map(|e| e.wildcards.iter())
+        .map(|w| {
+            let parent = w.strip_prefix("*.").unwrap_or(w);
+            let users: Vec<&str> = web
+                .sites
+                .iter()
+                .filter(|(_, s)| matches!(s.tls, WebTls::Auto))
+                .filter(|(_, s)| {
+                    s.hosts
+                        .iter()
+                        .any(|h| h == w || h == parent || burrow_syntax::web::covers(w, h))
+                })
+                .map(|(n, _)| n.as_str())
+                .collect();
+            let used = if users.is_empty() {
+                "used by nothing yet".to_string()
+            } else {
+                format!("used by {}", users.join(", "))
+            };
+            format!("wildcard {w} (+ {parent}): Let's Encrypt, DNS check; {used}")
+        })
+        .collect()
+}
+
+fn front(web: &WebSettings) -> String {
+    let list = |c: &[crate::policy::allowlist::Cidr]| {
+        c.iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    let mut parts = Vec::new();
+    if !web.proxy_protocol_from.is_empty() {
+        parts.push(format!(
+            "PROXY headers required from {}",
+            list(&web.proxy_protocol_from)
+        ));
+    }
+    if !web.trusted_proxies.is_empty() {
+        parts.push(format!(
+            "X-Forwarded-For believed from {}",
+            list(&web.trusted_proxies)
+        ));
+    }
+    parts.join("; ")
 }
 
 fn host(web: &WebSettings, service: &str, site: &WebSite, name: &str) -> HostLine {
@@ -116,6 +232,7 @@ fn host(web: &WebSettings, service: &str, site: &WebSite, name: &str) -> HostLin
             String::new()
         },
         service: service.to_string(),
+        routes: Vec::new(),
     }
 }
 
@@ -157,16 +274,7 @@ pub fn summary(s: &ServerSettings) -> Option<WebSummary> {
     let web = s.web.as_ref().filter(|_| cfg!(feature = "web"))?;
     let tunnel = tunnel_line(s, web);
     let shares = s.websocket.as_ref().map_or(Shares::Nothing, |w| w.shares);
-    let mut hosts: Vec<HostLine> = web
-        .sites
-        .iter()
-        .flat_map(|(service, site)| site.hosts.iter().map(move |h| host(web, service, site, h)))
-        .collect();
-    hosts.sort_unstable_by(|a, b| a.name.cmp(&b.name));
-    debug_assert!(
-        hosts.windows(2).all(|w| w[0].name != w[1].name),
-        "validate lets each host name lead to one service"
-    );
+    let hosts = routes::hosts(web);
     let (https, addresses) = shown(web.https);
     let (http, http_addresses) = shown(web.http);
     Some(WebSummary {
@@ -176,11 +284,20 @@ pub fn summary(s: &ServerSettings) -> Option<WebSummary> {
         http_addresses,
         shared_with_tunnel: tunnel.is_some() && shares == Shares::Https,
         http_shared_with_tunnel: tunnel.is_some() && shares == Shares::Http,
-        certificates: web.letsencrypt.as_ref().map(account).unwrap_or_default(),
+        certificates: web
+            .letsencrypt
+            .as_ref()
+            .map(|l| match dns_line(l) {
+                d if d.is_empty() => account(l),
+                d => format!("{}; {d}", account(l)),
+            })
+            .unwrap_or_default(),
         tunnel,
         hosts,
         http_note: http_note(web),
         account: String::new(),
+        front: front(web),
+        wildcards: wildcard_lines(web),
     })
 }
 
@@ -214,6 +331,8 @@ pub fn text(s: &WebSummary) -> String {
     out.push('\n');
     out
 }
+
+mod routes;
 
 #[cfg(test)]
 mod tests;
