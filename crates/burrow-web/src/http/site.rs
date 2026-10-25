@@ -52,7 +52,7 @@ fn check(t: &TargetTls) -> Result<Option<Check>, String> {
     })
 }
 
-fn hop(o: &SiteOptions) -> Result<Hop, String> {
+pub(crate) fn hop(o: &SiteOptions) -> Result<Hop, String> {
     let Some(check) = check(&o.target_tls)? else {
         return Ok(Hop::Plain);
     };

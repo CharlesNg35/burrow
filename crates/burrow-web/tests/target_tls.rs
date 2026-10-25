@@ -5,40 +5,10 @@ use std::sync::Arc;
 
 use burrow_web::{Site, SiteOptions, TargetTls};
 use common::*;
-use rcgen::{BasicConstraints, CertificateParams, IsCa, Issuer, KeyPair};
 use tokio::net::TcpListener;
 use tokio_rustls::TlsAcceptor;
 use tokio_rustls::rustls::ServerConfig;
 use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer};
-
-struct Ca {
-    params: CertificateParams,
-    key: KeyPair,
-    pem: String,
-}
-
-fn ca() -> Ca {
-    let key = KeyPair::generate().unwrap();
-    let mut params = CertificateParams::new(Vec::<String>::new()).unwrap();
-    params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
-    let pem = params.self_signed(&key).unwrap().pem();
-    Ca { params, key, pem }
-}
-
-fn leaf(ca: Option<&Ca>, names: &[&str]) -> (CertificateDer<'static>, PrivateKeyDer<'static>) {
-    let key = KeyPair::generate().unwrap();
-    let params =
-        CertificateParams::new(names.iter().map(|n| n.to_string()).collect::<Vec<_>>()).unwrap();
-    let cert = match ca {
-        Some(ca) => {
-            let issuer = Issuer::new(ca.params.clone(), &ca.key);
-            params.signed_by(&key, &issuer).unwrap()
-        }
-        None => params.self_signed(&key).unwrap(),
-    };
-    let der = CertificateDer::from(cert.der().to_vec());
-    (der, PrivateKeyDer::try_from(key.serialize_der()).unwrap())
-}
 
 async fn https_app(cert: (CertificateDer<'static>, PrivateKeyDer<'static>)) -> SocketAddr {
     let config = ServerConfig::builder_with_provider(provider())

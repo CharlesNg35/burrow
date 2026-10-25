@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use burrow_web::{BoxIo, ProxySettings, Refused, Site, TunnelConn, Upstream, Visitor};
+use rcgen::{BasicConstraints, CertificateParams, IsCa, Issuer, KeyPair};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc};
@@ -542,4 +543,33 @@ pub async fn read_response<S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unp
             return text;
         }
     }
+}
+
+pub struct Ca {
+    pub params: CertificateParams,
+    pub key: KeyPair,
+    pub pem: String,
+}
+
+pub fn ca() -> Ca {
+    let key = KeyPair::generate().unwrap();
+    let mut params = CertificateParams::new(Vec::<String>::new()).unwrap();
+    params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
+    let pem = params.self_signed(&key).unwrap().pem();
+    Ca { params, key, pem }
+}
+
+pub fn leaf(ca: Option<&Ca>, names: &[&str]) -> (CertificateDer<'static>, PrivateKeyDer<'static>) {
+    let key = KeyPair::generate().unwrap();
+    let params =
+        CertificateParams::new(names.iter().map(|n| n.to_string()).collect::<Vec<_>>()).unwrap();
+    let cert = match ca {
+        Some(ca) => {
+            let issuer = Issuer::new(ca.params.clone(), &ca.key);
+            params.signed_by(&key, &issuer).unwrap()
+        }
+        None => params.self_signed(&key).unwrap(),
+    };
+    let der = CertificateDer::from(cert.der().to_vec());
+    (der, PrivateKeyDer::try_from(key.serialize_der()).unwrap())
 }
