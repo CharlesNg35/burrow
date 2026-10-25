@@ -4,9 +4,8 @@ use super::Spans;
 use crate::config::diagnostics::Diagnostic;
 use crate::config::tree::Span;
 use burrow_config::{ChallengeKind, ServerConfig, SiteTls, TlsMode};
-use burrow_syntax::web::{Challenge, CheckPorts, NoCheck, checks_for};
+use burrow_syntax::web::{Challenge, CheckPorts, NoCheck, checks_for, dns_entry_for};
 
-const LATER: &str = "DNS checks come in a later phase";
 const FORWARDING: &str = "Let's Encrypt checks port 443 or port 80; if a router forwards them to other ports, burrow cannot see that, so forward port 80 to web.http too, or give certificate files";
 
 #[derive(Clone, Copy)]
@@ -41,51 +40,61 @@ pub(super) fn ports_of((https, http): (Option<SocketAddr>, Option<SocketAddr>)) 
     }
 }
 
+pub(super) struct Dns<'a> {
+    entries: Vec<&'a [String]>,
+}
+
+impl<'a> Dns<'a> {
+    pub fn of(cfg: &'a ServerConfig) -> Dns<'a> {
+        Dns {
+            entries: cfg
+                .web
+                .iter()
+                .flat_map(|w| w.letsencrypt.iter())
+                .flat_map(|l| l.dns.iter().map(|e| e.domains.as_slice()))
+                .collect(),
+        }
+    }
+
+    pub fn covers(&self, name: &str) -> bool {
+        dns_entry_for(self.entries.iter().copied().enumerate(), name).is_some()
+    }
+}
+
 pub(super) fn check(
     who: Who<'_>,
     host: &str,
     ports: (Option<SocketAddr>, Option<SocketAddr>),
+    dns: &Dns<'_>,
     kind: Option<ChallengeKind>,
     at: Span,
 ) -> Option<Diagnostic> {
-    let err = checks_for(host, ports_of(ports), false, choice(kind)).err()?;
+    let err = checks_for(host, ports_of(ports), dns.covers(host), choice(kind)).err()?;
     let key = who.key();
+    let wild = || {
+        format!(
+            "for example certificates: [{{hosts: [\"{host}\"], cert: certs/wild.pem, key: certs/wild.key}}] under web"
+        )
+    };
     let (code, message, help) = match (err, who) {
-        (NoCheck::NoPort, Who::Site(name)) => (
+        (NoCheck::NoPort, _) => (
             "no-check",
-            format!(
-                "{host} (service \"{name}\") cannot be checked by Let's Encrypt: open http: 80, or list a file for it in web.certificates ({LATER})"
-            ),
+            match who {
+                Who::Site(name) => format!(
+                    "{host} (service \"{name}\") cannot be checked by Let's Encrypt: open http: 80, add challenge: dns, or list a file for it in web.certificates"
+                ),
+                Who::Names => format!(
+                    "{host} (web.redirect_names) cannot be checked by Let's Encrypt: open http: 80, or list a file for it in web.certificates"
+                ),
+                Who::Tunnel => format!(
+                    "websocket.host \"{host}\" cannot be checked: open http: 80, set websocket.challenge: dns, or give websocket.tls files"
+                ),
+            },
             FORWARDING.to_string(),
         ),
-        (NoCheck::NoPort, Who::Names) => (
-            "no-check",
-            format!(
-                "{host} (web.redirect_names) cannot be checked by Let's Encrypt: open http: 80, or list a file for it in web.certificates ({LATER})"
-            ),
-            FORWARDING.to_string(),
-        ),
-        (NoCheck::NoPort, Who::Tunnel) => (
-            "no-check",
-            format!(
-                "websocket.host \"{host}\" cannot be checked: open http: 80, or give websocket.tls files ({LATER})"
-            ),
-            FORWARDING.to_string(),
-        ),
-        (NoCheck::DnsNotSet, Who::Site(name)) if kind.is_none() => (
-            "wildcard-needs-dns",
-            format!(
-                "services.{name}.web.hosts: \"{host}\" needs DNS-01 (Let's Encrypt gives wildcard certificates only through DNS); {LATER}, so add a certificate file under web.certificates or tls"
-            ),
-            format!(
-                "for example certificates: [{{hosts: [\"{host}\"], cert: certs/wild.pem, key: certs/wild.key}}] under web"
-            ),
-        ),
-        (NoCheck::DnsNotSet, _) => (
-            "challenge-dns",
-            format!("{key}: dns checks \"{host}\" through a DNS record; {LATER}"),
-            "use challenge: tls (port 443) or http (port 80), or give a certificate file".into(),
-        ),
+        (NoCheck::DnsNotSet, _) => {
+            return Some(no_dns(who, host, kind, !dns.entries.is_empty()).at(at));
+        }
         (NoCheck::DnsForIp, _) => (
             "challenge-dns",
             format!(
@@ -110,14 +119,82 @@ pub(super) fn check(
         (NoCheck::WildcardNotDns, _) => (
             "challenge-wildcard",
             format!(
-                "{key}: \"{host}\" is a wildcard, and Let's Encrypt gives wildcards only through DNS checks; use challenge: dns ({LATER}), or give a wildcard file in web.certificates"
+                "{key}: {}: \"{host}\" is a wildcard; Let's Encrypt issues wildcards only through the DNS check; use challenge: dns",
+                kind_word(kind)
             ),
-            format!(
-                "for example certificates: [{{hosts: [\"{host}\"], cert: certs/wild.pem, key: certs/wild.key}}] under web"
-            ),
+            wild(),
         ),
     };
     Some(Diagnostic::error(code, message).at(at).help(help))
+}
+
+fn kind_word(kind: Option<ChallengeKind>) -> &'static str {
+    match kind {
+        Some(ChallengeKind::Http) => "http",
+        Some(ChallengeKind::Tls) => "tls",
+        _ => "dns",
+    }
+}
+
+fn no_dns(who: Who<'_>, host: &str, kind: Option<ChallengeKind>, some: bool) -> Diagnostic {
+    let wildcard = burrow_syntax::web::is_wildcard(host);
+    let field = match who {
+        Who::Site(name) => format!("services.{name}.web.hosts"),
+        Who::Names => "web.redirect_names".into(),
+        Who::Tunnel => "websocket.host".into(),
+    };
+    let why = if wildcard {
+        "Let's Encrypt gives wildcard certificates only through DNS"
+    } else {
+        "challenge: dns"
+    };
+    if !some {
+        let (code, message) = match who {
+            Who::Tunnel => (
+                "challenge-dns",
+                "websocket.challenge: dns needs web.letsencrypt.dns: the provider that sets the DNS record".to_string(),
+            ),
+            _ if wildcard && kind.is_none() => (
+                "wildcard-needs-dns",
+                format!("{field}: \"{host}\" needs DNS-01 ({why}): add web.letsencrypt.dns, or a certificate file under web.certificates or tls"),
+            ),
+            _ => (
+                "challenge-dns",
+                format!("{field}: \"{host}\" needs DNS-01 ({why}): add web.letsencrypt.dns, or use challenge: http (port 80) or tls (port 443), or give a certificate file"),
+            ),
+        };
+        return Diagnostic::error(code, message)
+            .help("for example dns: [{domains: [example.com], cloudflare: {token: \"${CF_TOKEN}\"}}] under web.letsencrypt");
+    }
+    let bare = host.strip_prefix("*.").unwrap_or(host);
+    let domain = if wildcard {
+        bare.to_string()
+    } else {
+        bare.split_once('.')
+            .map_or(bare, |(_, rest)| rest)
+            .to_string()
+    };
+    let what = if wildcard {
+        "a wildcard"
+    } else {
+        "challenge: dns"
+    };
+    let help = match (who, wildcard) {
+        (Who::Tunnel, _) => format!(
+            "add {domain} to a letsencrypt.dns entry's domains; or remove websocket.challenge if the name is reachable from the internet; or give websocket.tls files"
+        ),
+        (_, true) => format!(
+            "add {domain} to a letsencrypt.dns entry's domains, or give a wildcard file in web.certificates"
+        ),
+        (_, false) => format!(
+            "add {domain} to a letsencrypt.dns entry's domains; or, if this name is reachable from the internet, use challenge: http (port 80) or challenge: tls (port 443); or give a certificate file for it in web.certificates"
+        ),
+    };
+    Diagnostic::error(
+        "dns-uncovered",
+        format!("{field}: \"{host}\" needs a DNS check ({what}), but no web.letsencrypt.dns entry lists {domain} (or a domain above it)"),
+    )
+    .help(help)
 }
 
 pub(super) fn unused_site(cfg: &ServerConfig, spans: &Spans, out: &mut Vec<Diagnostic>) {

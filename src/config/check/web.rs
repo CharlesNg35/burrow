@@ -340,6 +340,10 @@ pub(super) fn check_sites(
     letsencrypt::check_letsencrypt(cfg, base_dir, spans, out);
     #[cfg(feature = "web")]
     dns_secrets::check_dns_secrets(cfg, base_dir, spans, out);
+    #[cfg(feature = "web")]
+    dns_entries::check_dns_entries(cfg, base_dir, spans, out);
+    #[cfg(feature = "web")]
+    dns_entries::wildcard_hint(cfg, spans, out);
     choices::check_choices(cfg, (https, http), spans, out);
     low::check_low_ports((https, http), spans, out);
     sites
@@ -383,6 +387,8 @@ mod certs;
 mod challenge;
 mod choices;
 #[cfg(feature = "web")]
+mod dns_entries;
+#[cfg(feature = "web")]
 mod dns_secrets;
 mod fill;
 mod fill_dns;
@@ -408,6 +414,9 @@ mod tests_certs;
 
 #[cfg(all(test, feature = "web"))]
 mod tests_challenge;
+
+#[cfg(all(test, feature = "web"))]
+mod tests_dns_entries;
 
 #[cfg(all(test, feature = "web"))]
 mod tests_dns_secrets;

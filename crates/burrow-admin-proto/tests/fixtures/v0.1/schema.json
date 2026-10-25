@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:2fd62682ef847932",
+  "hash": "b2s:7529d75edfaf7d95",
   "root": {
     "label": "Server",
     "sem": {
@@ -188,7 +188,7 @@
                                 {
                                   "value": "dns",
                                   "label": "DNS",
-                                  "help": "Let's Encrypt reads a DNS record; DNS checks come in a later phase"
+                                  "help": "Let's Encrypt reads a DNS record that burrow sets through web.letsencrypt.dns; no open port needed"
                                 }
                               ]
                             }
@@ -607,9 +607,7 @@
                                                   "inner": {
                                                     "sem": {
                                                       "t": "duration",
-                                                      "unit": "secs",
-                                                      "min": 10,
-                                                      "max": 3600
+                                                      "unit": "secs"
                                                     }
                                                   }
                                                 },
@@ -2010,7 +2008,7 @@
                                                   {
                                                     "value": "dns",
                                                     "label": "DNS",
-                                                    "help": "Let's Encrypt reads a DNS record; DNS checks come in a later phase"
+                                                    "help": "Let's Encrypt reads a DNS record that burrow sets through web.letsencrypt.dns; no open port needed"
                                                   }
                                                 ]
                                               }

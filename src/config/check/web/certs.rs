@@ -57,6 +57,7 @@ pub(in crate::config::check) fn check_sources(
     }
     let sources = Sources::of(cfg);
     redirect_sources(cfg, &sources, ports, spans, out);
+    let dns = challenge::Dns::of(cfg);
     for (name, svc) in &cfg.services {
         let Some(web) = svc.web.as_ref().filter(|w| takes_auto(w)) else {
             continue;
@@ -80,7 +81,7 @@ pub(in crate::config::check) fn check_sources(
                 ServiceWeb::Site(site) => site.challenge,
                 _ => None,
             };
-            if let Some(d) = challenge::check(Who::Site(name), &host, ports, kind, at)
+            if let Some(d) = challenge::check(Who::Site(name), &host, ports, &dns, kind, at)
                 && !out
                     .iter()
                     .any(|o| o.code == d.code && o.message == d.message)
@@ -156,7 +157,7 @@ fn redirect_sources(
             );
             continue;
         }
-        if let Some(d) = challenge::check(who, &host, ports, kind, at) {
+        if let Some(d) = challenge::check(who, &host, ports, &challenge::Dns::of(cfg), kind, at) {
             push_once(out, d);
         }
     }
@@ -230,7 +231,14 @@ pub(in crate::config::check) fn tunnel_has_source(
     }
     if sources.letsencrypt {
         let at = spans.value(&["websocket", "host"]);
-        out.extend(challenge::check(Who::Tunnel, host, ports, kind, at));
+        out.extend(challenge::check(
+            Who::Tunnel,
+            host,
+            ports,
+            &challenge::Dns::of(cfg),
+            kind,
+            at,
+        ));
         return;
     }
     out.push(

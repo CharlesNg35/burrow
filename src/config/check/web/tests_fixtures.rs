@@ -115,25 +115,20 @@ fn codes(text: &str) -> Vec<(String, String)> {
 }
 
 #[test]
-fn examples_2_and_3_wait_for_dns_checks_until_p6_flips_them_to_clean() {
-    let pinned = |t: &str| codes(t);
-    let pair = |c: &str, m: &str| (c.to_string(), m.to_string());
-    assert_eq!(
-        pinned(EXAMPLE_2),
-        [pair(
-            "challenge-dns",
-            "services.lab.web.challenge: dns checks \"lab.example.net\" through a DNS record; DNS checks come in a later phase",
-        ),],
-        "P6's validate turns example 2 into a clean fixture"
-    );
-    assert_eq!(
-        pinned(EXAMPLE_3),
-        [pair(
-            "challenge-dns",
-            "websocket.challenge: dns checks \"tunnel.example.com\" through a DNS record; DNS checks come in a later phase",
-        ),],
-        "P6's validate turns example 3 into a clean fixture"
-    );
+fn examples_2_and_3_of_section_3_15_validate_cleanly_with_their_dns_providers() {
+    let o = load(EXAMPLE_2);
+    assert_eq!(codes(EXAMPLE_2), Vec::<(String, String)>::new());
+    let web = settings(o).web.unwrap();
+    let dns = &web.letsencrypt.unwrap().dns;
+    assert_eq!(dns.len(), 2);
+    assert_eq!(dns[0].domains, ["example.com", "example.net"]);
+    assert_eq!(dns[0].wildcards, ["*.example.com"]);
+    assert_eq!(dns[1].wildcards, ["*.apps.example.com"]);
+    assert!(matches!(
+        &dns[1].provider,
+        crate::config::settings::DnsProvider::Rfc2136 { server, .. } if server == "10.0.0.53:53"
+    ));
+    assert_eq!(codes(EXAMPLE_3), Vec::<(String, String)>::new());
 }
 
 #[test]

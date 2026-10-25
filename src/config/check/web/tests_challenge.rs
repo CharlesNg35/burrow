@@ -33,7 +33,7 @@ fn with_only_443_and_no_dns_the_tls_check_is_enough() {
         errors(&site(ONLY_443, "wiki.example.com", ", challenge: dns")),
         [(
             "challenge-dns".to_string(),
-            "services.wiki.web.challenge: dns checks \"wiki.example.com\" through a DNS record; DNS checks come in a later phase".to_string()
+            "services.wiki.web.hosts: \"wiki.example.com\" needs DNS-01 (challenge: dns): add web.letsencrypt.dns, or use challenge: http (port 80) or tls (port 443), or give a certificate file".to_string()
         )]
     );
     let wild = errors(&site(ONLY_443, "\"*.example.com\"", ""));
@@ -53,11 +53,11 @@ fn with_neither_443_nor_80_no_name_can_be_checked() {
         [
             (
                 "no-check".to_string(),
-                "wiki.example.com (service \"wiki\") cannot be checked by Let's Encrypt: open http: 80, or list a file for it in web.certificates (DNS checks come in a later phase)".to_string()
+                "wiki.example.com (service \"wiki\") cannot be checked by Let's Encrypt: open http: 80, add challenge: dns, or list a file for it in web.certificates".to_string()
             ),
             (
                 "no-check".to_string(),
-                "docs.example.com (service \"wiki\") cannot be checked by Let's Encrypt: open http: 80, or list a file for it in web.certificates (DNS checks come in a later phase)".to_string()
+                "docs.example.com (service \"wiki\") cannot be checked by Let's Encrypt: open http: 80, add challenge: dns, or list a file for it in web.certificates".to_string()
             ),
         ]
     );

@@ -69,7 +69,6 @@ pub struct DnsEntry {
     #[schemars(
         description = "Seconds to wait for the zone's nameservers to answer the new record before telling Let's Encrypt; 120 when not set"
     )]
-    #[schemars(range(min = 10, max = 3600))]
     #[admin(
         label = "Wait for the record",
         help = "How long burrow waits for every nameserver of the zone to answer the new record, for example 120 seconds",

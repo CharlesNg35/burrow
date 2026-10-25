@@ -75,7 +75,7 @@ fn lets_encrypt_on_a_port_it_does_not_check_is_refused_per_name() {
     assert_eq!(
         e,
         [
-            "blog.example.com (service \"blog\") cannot be checked by Let's Encrypt: open http: 80, or list a file for it in web.certificates (DNS checks come in a later phase)"
+            "blog.example.com (service \"blog\") cannot be checked by Let's Encrypt: open http: 80, add challenge: dns, or list a file for it in web.certificates"
         ]
     );
     let help = load(&site("https: 8443"))
@@ -95,7 +95,7 @@ fn lets_encrypt_on_a_port_it_does_not_check_is_refused_per_name() {
     assert_eq!(
         found(&tunnel, "no-check"),
         [
-            "websocket.host \"tunnel.example.com\" cannot be checked: open http: 80, or give websocket.tls files (DNS checks come in a later phase)"
+            "websocket.host \"tunnel.example.com\" cannot be checked: open http: 80, set websocket.challenge: dns, or give websocket.tls files"
         ]
     );
 }

@@ -258,7 +258,7 @@ pub enum ChallengeKind {
     Http,
     #[admin(
         label = "DNS",
-        help = "Let's Encrypt reads a DNS record; DNS checks come in a later phase"
+        help = "Let's Encrypt reads a DNS record that burrow sets through web.letsencrypt.dns; no open port needed"
     )]
     Dns,
 }

@@ -60,7 +60,7 @@ pub fn shown(code: &str, message: &str) -> String {
             .find(|w| !w.is_empty() && *w != "websocket.host")
             .unwrap_or_default();
         return format!(
-            "Let's Encrypt cannot check {name}: its checks reach only ports 443 and 80; open port 80 in server.yaml (burrow edit), or use your own certificate file (DNS checks come in a later phase)"
+            "Let's Encrypt cannot check {name}: its TLS and HTTP checks reach only ports 443 and 80; open port 80 in server.yaml (burrow edit), use the DNS check (a DNS provider under Settings, Web proxy, Let's Encrypt), or use your own certificate file"
         );
     }
     if code == WEB_OFF {
@@ -74,7 +74,7 @@ pub fn shown(code: &str, message: &str) -> String {
     }
     if code == WILDCARD_NEEDS_DNS {
         return format!(
-            "Let's Encrypt gives {} only through a DNS check, and DNS checks come in a later phase; use your own certificate file for it",
+            "Let's Encrypt gives {} only through a DNS check: add a DNS provider for its domain under Settings, Web proxy, Let's Encrypt, or use your own certificate file for it",
             quoted(message)
         );
     }

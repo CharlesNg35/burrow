@@ -143,12 +143,12 @@ services:
 }
 
 #[test]
-fn a_wildcard_from_lets_encrypt_needs_dns_checks_this_build_does_not_have() {
+fn a_wildcard_from_lets_encrypt_needs_a_dns_provider() {
     let e = found(&site("\"*.apps.example.com\"", LE), "wildcard-needs-dns");
     assert_eq!(
         e,
         [
-            "services.blog.web.hosts: \"*.apps.example.com\" needs DNS-01 (Let's Encrypt gives wildcard certificates only through DNS); DNS checks come in a later phase, so add a certificate file under web.certificates or tls"
+            "services.blog.web.hosts: \"*.apps.example.com\" needs DNS-01 (Let's Encrypt gives wildcard certificates only through DNS): add web.letsencrypt.dns, or a certificate file under web.certificates or tls"
         ]
     );
     assert!(found(&site("\"*.apps.example.com\"", LE), "no-certificate").is_empty());
