@@ -137,6 +137,28 @@ fn wait_resolvers_rfc2136_and_the_command_are_checked() {
         errs(
             &entry(
                 "[example.com]",
+                "rfc2136: { server: \"::1:53\", key_name: k, secret: \"${TSIG}\" }"
+            ),
+            ""
+        ),
+        [
+            "web.letsencrypt.dns[0].rfc2136.server: \"::1:53\" looks like an IPv6 address; write it in brackets, like [::1]:22"
+        ]
+    );
+    assert!(
+        errs(
+            &entry(
+                "[example.com]",
+                "rfc2136: { server: \"[::1]:53\", key_name: k, secret: \"${TSIG}\" }"
+            ),
+            ""
+        )
+        .is_empty()
+    );
+    assert_eq!(
+        errs(
+            &entry(
+                "[example.com]",
                 "rfc2136: { server: \"ns1:53\", key_name: k, secret: \"${NOTB64}\" }"
             ),
             ""

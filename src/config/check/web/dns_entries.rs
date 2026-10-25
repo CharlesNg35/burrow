@@ -141,20 +141,18 @@ fn provider(i: usize, e: &DnsEntry, base_dir: &Path, spans: &Spans, out: &mut Ve
     let name = format!("web.letsencrypt.dns[{i}]");
     if let Some(r) = &e.rfc2136 {
         let server = r.server.trim();
-        let has_port = server
-            .rsplit_once(':')
-            .is_some_and(|(h, p)| !h.is_empty() && p.parse::<u16>().is_ok_and(|p| p > 0));
-        if !has_port {
+        if let Err(why) = burrow_syntax::hostport::parse_host_port(server) {
+            let text = match server.trim_end_matches(':').contains(':') {
+                true => format!("{name}.rfc2136.server: {why}"),
+                false => format!(
+                    "{name}.rfc2136: server \"{server}\" needs a port, like {}:53",
+                    server.trim_end_matches(':')
+                ),
+            };
             out.push(
-                Diagnostic::error(
-                    "dns-rfc2136",
-                    format!(
-                        "{name}.rfc2136: server \"{server}\" needs a port, like {}:53",
-                        server.trim_end_matches(':')
-                    ),
-                )
-                .at(span(spans, &at(i, &["rfc2136", "server"])))
-                .help("the zone's primary nameserver, usually on port 53"),
+                Diagnostic::error("dns-rfc2136", text)
+                    .at(span(spans, &at(i, &["rfc2136", "server"])))
+                    .help("the zone's primary nameserver, usually on port 53, with an IPv6 address in brackets like [2001:db8::53]:53"),
             );
         }
         let alg = tsig(r.algorithm.as_deref());
