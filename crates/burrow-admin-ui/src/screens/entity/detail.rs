@@ -10,7 +10,7 @@ use leptos::prelude::*;
 
 use crate::form::{EditMode, plain};
 use crate::format;
-use crate::route::{self, Link, Route};
+use crate::route::{self, Route};
 use crate::screens::DetailPane;
 use crate::screens::create::{RenameEntity, singular};
 use crate::screens::paths;
@@ -117,19 +117,20 @@ pub(super) fn Detail(section: String, name: String) -> impl IntoView {
     view! {
         <Provider value=mode>
         <DetailPane back=crumb.clone()>
-            <nav class="mb-1.5 flex gap-1.5 text-sm text-text-muted" class:max-sm:hidden=move || editing.get() aria-label="Breadcrumb">
-                <Link to=crumb class="text-text-muted no-underline hover:text-text">{plural_s}</Link>
-                <span aria-hidden="true">"/"</span>
-                <span class="font-semibold text-text">{name.clone()}</span>
-                {move || editing.get().then(|| view! { <span aria-hidden="true">"/"</span><span class="font-semibold text-text">"Edit"</span> })}
-            </nav>
-            <header class="mb-[22px] flex items-start gap-3.5" class:max-sm:hidden=move || editing.get() class:hidden=move || !exists.get()>
-                <div class="min-w-0 flex-1">
-                    <h1 class="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[25px] font-bold tracking-[-0.015em]">{title_dot}{name.clone()}{protocol_tag}</h1>
-
-                </div>
-                <div class="flex items-center gap-2">{head_actions}</div>
-            </header>
+            {crate::screens::crumbs(
+                crumb,
+                plural_s.to_string(),
+                name.clone(),
+                Signal::derive(move || editing.get()),
+                Some(view! { {move || editing.get().then(|| view! { <span aria-hidden="true">"/"</span><span class="font-semibold text-text">"Edit"</span> })} }.into_any()),
+            )}
+            <burrow_ui_kit::PageHeader
+                phone_hidden=Signal::derive(move || editing.get())
+                hidden=Signal::derive(move || !exists.get())
+                actions={view! { {head_actions} }.into_any()}
+            >
+                {title_dot}{name.clone()}{protocol_tag}
+            </burrow_ui_kit::PageHeader>
             <RenameEntity section=sec_r name=name_r open=renaming/>
             <div data-testid="detail" data-entity=sec_d data-name=name_d>{body}</div>
             {move || exists.get().then(save_bar.clone())}

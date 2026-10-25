@@ -1,7 +1,9 @@
 use burrow_admin_proto::msg::{self, AuditEntry, HistoryReply};
 use burrow_admin_proto::plan::Diff;
 use burrow_admin_proto::serde_json;
-use burrow_ui_kit::{Button, DiffLine, DiffView, EmptyState, Skeleton, Stat, Stats, Tone};
+use burrow_ui_kit::{
+    Button, DiffLine, DiffView, EmptyState, PageHeader, Skeleton, Stat, Stats, Tone,
+};
 use leptos::prelude::*;
 
 use crate::api;
@@ -192,16 +194,8 @@ fn Version(entry: AuditEntry, newer: Vec<AuditEntry>) -> impl IntoView {
     let base_short = short_rev(&entry.base);
     let label = "mb-2 text-[11px] font-bold tracking-[0.07em] text-text-faint uppercase";
     view! {
-        <nav class="mb-1.5 flex gap-1.5 text-sm text-text-muted" aria-label="Breadcrumb">
-            <Link to=Route::Activity(None) class="text-text-muted no-underline hover:text-text">"Activity"</Link>
-            <span aria-hidden="true">"/"</span>
-            <span class="font-semibold text-text">{format!("rev {}", short_rev(&entry.rev))}</span>
-        </nav>
-        <header class="mb-[22px] flex flex-wrap items-start gap-3.5">
-            <div class="min-w-0 flex-1">
-                <h1 class="text-[25px] font-bold tracking-[-0.015em]">{title}</h1>
-            </div>
-            {can_revert.then(|| view! {
+        {crate::screens::crumbs(Route::Activity(None), "Activity".into(), format!("rev {}", short_rev(&entry.rev)), Signal::stored(false), None)}
+        <PageHeader actions={view! { {can_revert.then(|| view! {
                 <Button
                     label=revert_label
                     variant="tinted"
@@ -214,8 +208,7 @@ fn Version(entry: AuditEntry, newer: Vec<AuditEntry>) -> impl IntoView {
                         route::go(Route::Review);
                     }
                 />
-            })}
-        </header>
+            })} }.into_any()}>{title}</PageHeader>
         <Stats testid="version-stats">
             <Stat label="Rev" value=short_rev(&entry.rev) detail=format!("replaced {base_short}")/>
             <Stat label="By" value=if hand(&entry) { "hand edit".to_string() } else { who(&entry) } detail=if hand(&entry) { "written to server.yaml directly".to_string() } else { entry.from.clone() }/>

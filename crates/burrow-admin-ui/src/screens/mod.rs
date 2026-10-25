@@ -19,6 +19,23 @@ use crate::store::store;
 
 pub(crate) use list::{ListCard, ListPane, NewChoice};
 
+pub fn crumbs(
+    to: Route,
+    parent: String,
+    here: String,
+    hide: Signal<bool>,
+    tail: Option<AnyView>,
+) -> impl IntoView {
+    view! {
+        <nav class="mb-1.5 flex gap-1.5 text-sm text-text-muted" class:max-sm:hidden=move || hide.get() aria-label="Breadcrumb">
+            <Link to=to class="text-text-muted no-underline hover:text-text">{parent}</Link>
+            <span aria-hidden="true">"/"</span>
+            <span class="font-semibold text-text">{here}</span>
+            {tail}
+        </nav>
+    }
+}
+
 pub fn entity_of(section: &str) -> burrow_admin_proto::schema::Entity {
     burrow_config::entity_of_section(section).unwrap_or(burrow_admin_proto::schema::Entity::Service)
 }

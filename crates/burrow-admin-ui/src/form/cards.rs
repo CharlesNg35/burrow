@@ -114,17 +114,6 @@ pub fn settings_cards(node: &Node, skip: &[&str]) -> Vec<SettingsCard> {
     out
 }
 
-fn card_head(title: String, right: AnyView) -> AnyView {
-    view! {
-        <div class="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3">
-            <h3 class="text-[14px] font-bold">{title}</h3>
-            <span class="ml-auto"></span>
-            {right}
-        </div>
-    }
-    .into_any()
-}
-
 fn scalar_card(c: &SettingsCard, border: &str) -> AnyView {
     let all: Vec<&Field> = c.fields.iter().collect();
     let (essential, advanced) = split(&all, false);
@@ -157,7 +146,7 @@ fn scalar_card(c: &SettingsCard, border: &str) -> AnyView {
     }
     view! {
         <section class=format!("mb-4 scroll-mt-20 rounded-card border bg-surface {border}") data-card=c.key.clone() data-group=c.key.clone()>
-            {card_head(c.title.clone(), ().into_any())}
+            {burrow_ui_kit::card_head(c.title.clone(), None, ().into_any())}
             <div class="divide-y divide-rowline px-4">{rows}</div>
         </section>
     }
@@ -244,7 +233,7 @@ pub fn settings_card(c: &SettingsCard) -> AnyView {
     let (jp, js) = (join(&path), join(&path));
     view! {
         <section class=format!("mb-4 scroll-mt-20 rounded-card border bg-surface {border}") data-card=c.key.clone() data-group=c.key.clone() data-path=jp data-schema=js>
-            {card_head(c.title.clone(), right)}
+            {burrow_ui_kit::card_head(c.title.clone(), None, right)}
             <div class="px-4">{body}</div>
         </section>
     }

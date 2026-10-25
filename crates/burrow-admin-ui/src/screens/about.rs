@@ -90,7 +90,7 @@ pub fn About() -> impl IntoView {
     };
     view! {
         <div class="max-w-[1120px] px-8 pt-7 pb-12 max-sm:px-4" data-testid="about-page">
-        <PageHeader title="About" subtitle="Versions and where the config lives"/>
+        <PageHeader sub="Versions and where the config lives">"About"</PageHeader>
         <Card>
             {rows}
             <Button

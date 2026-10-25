@@ -353,10 +353,7 @@ fn section_view(
         };
         return view! {
             <section class="mb-4 scroll-mt-20 rounded-card border border-border bg-surface" data-group=key>
-                <div class="flex items-center border-b border-border px-4 py-3">
-                    <h3 class="text-[14px] font-bold">{label}</h3>
-                    <span class="ml-auto text-xs text-text-muted">{format!("{n} field{}", if n == 1 { "" } else { "s" })}</span>
-                </div>
+                {burrow_ui_kit::card_head(label, None, format!("{n} field{}", if n == 1 { "" } else { "s" }).into_any())}
                 <div class="divide-y divide-rowline px-4">{rows}</div>
             </section>
         }
@@ -368,10 +365,7 @@ fn section_view(
     }
     let title = (!label.is_empty()).then(|| {
         view! {
-            <div class="flex items-baseline gap-2.5 border-b border-border pb-2.5 md:col-span-2">
-                <h3 class="text-[14px] font-bold">{label}</h3>
-                {(!sub.is_empty()).then(|| view! { <span class="text-[12.5px] text-text-muted">{sub}</span> })}
-            </div>
+            <burrow_ui_kit::SectionHead title={label} sub={sub}/>
         }
     });
     view! {

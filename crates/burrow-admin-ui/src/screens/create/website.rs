@@ -306,15 +306,8 @@ pub fn NewWebsite(open: RwSignal<bool>, draft_name: RwSignal<String>) -> impl In
     });
     view! {
         <div data-testid="new-website">
-            <nav class="mb-1.5 flex gap-1.5 text-sm text-text-muted" aria-label="Breadcrumb">
-                <crate::route::Link to=Route::List(ServiceEntry::section().into()) class="text-text-muted no-underline hover:text-text">"Services"</crate::route::Link>
-                <span aria-hidden="true">"/"</span>
-                <span class="font-semibold text-text">"New website"</span>
-            </nav>
-            <header class="mb-[22px]">
-                <h1 class="text-[25px] font-bold tracking-[-0.015em]">"New website"</h1>
-                <p class="mt-1 text-base text-text-muted">"A name visitors type, and the app on one of your clients that answers it."</p>
-            </header>
+            {crate::screens::crumbs(Route::List(ServiceEntry::section().into()), crate::screens::plural(ServiceEntry::section()).to_string(), "New website".into(), Signal::stored(false), None)}
+            <burrow_ui_kit::PageHeader sub="A name visitors type, and the app on one of your clients that answers it.">"New website"</burrow_ui_kit::PageHeader>
             {move || (!web_on.get()).then(|| web_step(https_in, http_in))}
             <PathDiagram data=diagram testid="new-website-path"/>
             {steps(names, check_name, client, target, tls, p)}
@@ -344,10 +337,7 @@ pub fn NewWebsite(open: RwSignal<bool>, draft_name: RwSignal<String>) -> impl In
 
 fn step(n: u8, title: &'static str, sub: &'static str) -> impl IntoView {
     view! {
-        <div class="flex items-baseline gap-2.5 border-b border-border pb-2.5 md:col-span-2">
-            <h3 class="text-[14px] font-bold">{format!("{n}. {title}")}</h3>
-            <span class="text-[12.5px] text-text-muted">{sub}</span>
-        </div>
+        <burrow_ui_kit::SectionHead title={format!("{n}. {title}")} sub={sub}/>
     }
 }
 
@@ -409,10 +399,7 @@ fn steps(
 fn web_step(https: RwSignal<String>, http: RwSignal<String>) -> impl IntoView {
     view! {
         <section class="mb-[26px] grid grid-cols-1 gap-x-6 gap-y-[22px] md:grid-cols-2" data-testid="web-off-new">
-            <div class="flex items-baseline gap-2.5 border-b border-border pb-2.5 md:col-span-2">
-                <h3 class="text-[14px] font-bold">"Web proxy"</h3>
-                <span class="text-[12.5px] text-text-muted">"The web proxy is off; this website turns it on with these ports."</span>
-            </div>
+            <burrow_ui_kit::SectionHead title="Web proxy" sub="The web proxy is off; this website turns it on with these ports."/>
             <div>
                 <TextInput id="new-website-https" value=Signal::derive(move || https.get()) on_input=move |t: String| https.set(t) label="HTTPS port" mono=true/>
                 <p class="mt-1.5 text-xs text-text-muted">"For example 443; empty for no HTTPS."</p>

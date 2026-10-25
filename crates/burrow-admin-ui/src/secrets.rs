@@ -166,9 +166,7 @@ pub fn secret_list(path: Path, id: String, max: u32) -> AnyView {
     };
     view! {
         <section id=id class="mb-4 rounded-card border border-border bg-surface" data-testid="secrets" data-schema=schema_path>
-            <div class="flex items-center gap-3 border-b border-border px-4 py-3">
-                <h2 class="text-[13.5px] font-bold">"Secrets"</h2>
-                <span class="ml-auto"></span>
+            {burrow_ui_kit::card_head("Secrets".into(), None, view! {
                 {can.then(|| view! {
                     <Button
                         label=label
@@ -181,7 +179,7 @@ pub fn secret_list(path: Path, id: String, max: u32) -> AnyView {
                         on_click=add
                     />
                 })}
-            </div>
+            }.into_any())}
             <div class="grid grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_minmax(0,1.4fr)_auto] gap-4 border-b border-border px-4 py-[9px] text-[11px] font-bold tracking-[0.07em] text-text-faint uppercase" aria-hidden="true">
                 <span>"Fingerprint"</span><span>"Source"</span><span>"Session"</span><span></span>
             </div>

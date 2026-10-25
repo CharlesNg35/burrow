@@ -251,6 +251,17 @@ pub fn Kpi(
     }
 }
 
+pub fn card_head(title: String, sub: Option<String>, right: AnyView) -> AnyView {
+    view! {
+        <div class="flex min-h-12 flex-wrap items-center gap-3 border-b border-border px-4 py-3">
+            <h2 class="text-[13.5px] font-bold">{title}</h2>
+            {sub.map(|s| view! { <span class="text-xs text-text-muted">{s}</span> })}
+            <div class="ml-auto flex items-center gap-2 text-xs text-text-muted">{right}</div>
+        </div>
+    }
+    .into_any()
+}
+
 #[component]
 pub fn Card(
     #[prop(optional, into)] title: Option<String>,
@@ -263,13 +274,11 @@ pub fn Card(
 ) -> impl IntoView {
     let has_head = title.is_some() || head.is_some();
     let top = has_head.then(|| {
-        view! {
-            <div class="flex min-h-12 items-center gap-3 border-b border-border px-4 py-3">
-                <h2 class="text-[13.5px] font-bold">{title.clone()}</h2>
-                {sub.clone().map(|s| view! { <span class="text-xs text-text-muted">{s}</span> })}
-                <div class="ml-auto flex items-center gap-2 text-xs text-text-muted">{head.as_ref().map(|h| h())}</div>
-            </div>
-        }
+        card_head(
+            title.clone().unwrap_or_default(),
+            sub.clone(),
+            head.as_ref().map(|h| h()).unwrap_or_else(|| ().into_any()),
+        )
     });
     view! {
         <section
@@ -284,18 +293,36 @@ pub fn Card(
 
 #[component]
 pub fn PageHeader(
-    #[prop(into)] title: Signal<String>,
-    #[prop(optional, into)] subtitle: Signal<String>,
-    #[prop(optional)] children: Option<Children>,
+    #[prop(optional, into)] kicker: Option<String>,
+    #[prop(optional, into)] sub: Option<String>,
+    #[prop(optional, into)] hidden: Signal<bool>,
+    #[prop(optional, into)] phone_hidden: Signal<bool>,
+    #[prop(optional)] actions: Option<AnyView>,
+    #[prop(optional, into)] class: String,
+    children: Children,
 ) -> impl IntoView {
     view! {
-        <header class="mb-[22px] flex flex-wrap items-start justify-between gap-3">
-            <div class="min-w-0">
-                <h1 class="text-2xl font-bold tracking-[-0.015em]">{move || title.get()}</h1>
-                <p class="mt-1 text-sm text-text-muted">{move || subtitle.get()}</p>
+        <header class=format!("mb-[22px] flex flex-wrap items-start gap-3.5 {class}") class:hidden=move || hidden.get() class:max-sm:hidden=move || phone_hidden.get()>
+            <div class="min-w-0 flex-1">
+                {kicker.map(|k| view! { <p class="mb-1.5 text-[12.5px] font-semibold">{k}</p> })}
+                <h1 class="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[25px] font-bold tracking-[-0.015em]">{children()}</h1>
+                {sub.map(|s| view! { <p class="mt-1 text-base text-text-muted">{s}</p> })}
             </div>
-            <div class="flex items-center gap-2">{children.map(|c| c())}</div>
+            {actions.map(|a| view! { <div class="flex items-center gap-2">{a}</div> })}
         </header>
+    }
+}
+
+#[component]
+pub fn SectionHead(
+    #[prop(into)] title: String,
+    #[prop(optional, into)] sub: String,
+) -> impl IntoView {
+    view! {
+        <div class="flex items-baseline gap-2.5 border-b border-border pb-2.5 md:col-span-2">
+            <h3 class="text-[14px] font-bold">{title}</h3>
+            {(!sub.is_empty()).then(|| view! { <span class="text-[12.5px] text-text-muted">{sub}</span> })}
+        </div>
     }
 }
 

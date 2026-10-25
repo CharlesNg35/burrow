@@ -179,16 +179,17 @@ pub fn Settings() -> impl IntoView {
         <Provider value=PageSearch(query)>
         <Provider value=crate::form::EditMode(Signal::derive(move || editing.get()))>
         <DetailPane>
-            <header class="mb-[22px] flex flex-wrap items-start gap-3.5">
-                <div class="min-w-0 flex-1">
-                    <p class="mb-1.5 text-[12.5px] font-semibold">"Settings"</p>
-                    <h1 class="text-[25px] font-bold tracking-[-0.015em]">"Server settings"</h1>
-                    <p class="mt-1 text-base text-text-muted">"Everything in server.yaml besides clients, visitors and services. Each field says when it takes effect."</p>
-                </div>
-                {move || (!editing.get()).then(|| view! {
-                    <burrow_ui_kit::Button label="Edit" icon="edit" testid="edit" disabled=!can reason=if can { String::new() } else { burrow_admin_logic::wording::needs_write_admin(burrow_admin_logic::wording::WriteAction::Edit, None) } on_click=start/>
-                })}
-            </header>
+            <burrow_ui_kit::PageHeader
+                kicker="Settings"
+                sub="Everything in server.yaml besides clients, visitors and services. Each field says when it takes effect."
+                actions={view! {
+                    {move || (!editing.get()).then(|| view! {
+                        <burrow_ui_kit::Button label="Edit" icon="edit" testid="edit" disabled=!can reason=if can { String::new() } else { burrow_admin_logic::wording::needs_write_admin(burrow_admin_logic::wording::WriteAction::Edit, None) } on_click=start/>
+                    })}
+                }.into_any()}
+            >
+                "Server settings"
+            </burrow_ui_kit::PageHeader>
             <div data-testid="settings">{body}</div>
             {move || editing.get().then(|| {
                 crate::screens::bar::save_bar(crate::screens::bar::SaveBar {

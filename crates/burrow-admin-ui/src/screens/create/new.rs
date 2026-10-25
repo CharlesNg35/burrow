@@ -82,21 +82,11 @@ pub fn NewEntity(
     let plural_s = crate::screens::plural(&section);
     view! {
         <div data-testid="new-entity">
-            <nav class="mb-1.5 flex gap-1.5 text-sm text-text-muted" aria-label="Breadcrumb">
-                <crate::route::Link to=crumb class="text-text-muted no-underline hover:text-text">{plural_s}</crate::route::Link>
-                <span aria-hidden="true">"/"</span>
-                <span class="font-semibold text-text">{format!("New {what}")}</span>
-            </nav>
-            <header class="mb-[22px]">
-                <h1 class="text-[25px] font-bold tracking-[-0.015em]">{format!("New {what}")}</h1>
-                <p class="mt-1 text-base text-text-muted">{intro}</p>
-            </header>
+            {crate::screens::crumbs(crumb, plural_s.to_string(), format!("New {what}"), Signal::stored(false), None)}
+            <burrow_ui_kit::PageHeader sub=intro>{format!("New {what}")}</burrow_ui_kit::PageHeader>
             <burrow_ui_kit::PathDiagram data=path_data testid="new-path"/>
             <section class="mb-[26px] grid grid-cols-1 gap-x-6 gap-y-[22px] md:grid-cols-2">
-                <div class="flex items-baseline gap-2.5 border-b border-border pb-2.5 md:col-span-2">
-                    <h3 class="text-[14px] font-bold">"Identity"</h3>
-                    <span class="text-[12.5px] text-text-muted">{if what == "service" { "The name is the key in server.yaml." } else { "The name goes into the config on that machine." }}</span>
-                </div>
+                <burrow_ui_kit::SectionHead title="Identity" sub={if what == "service" { "The name is the key in server.yaml." } else { "The name goes into the config on that machine." }}/>
                 {super::name_input("new-name", "Name", name, problem, true)}
                 {(what != "service").then(|| secret_field(secret))}
             </section>
@@ -201,10 +191,7 @@ fn limits_section(
     };
     view! {
         <section class="mb-[26px] grid grid-cols-1 gap-x-6 gap-y-[22px] md:grid-cols-2">
-            <div class="flex items-baseline gap-2.5 border-b border-border pb-2.5 md:col-span-2">
-                <h3 class="text-[14px] font-bold">{if what == ClientEntry::ENTITY { "Limits and services" } else { "Access and limits" }}</h3>
-                <span class="text-[12.5px] text-text-muted">"Both optional."</span>
-            </div>
+            <burrow_ui_kit::SectionHead title={if what == ClientEntry::ENTITY { "Limits and services" } else { "Access and limits" }} sub="Both optional."/>
             <div>
                 <span class="mb-1.5 flex items-center gap-2 text-sm font-semibold">{if what == ClientEntry::ENTITY { "Max connections on this server" } else { "Max connections" }}<span class="font-normal text-text-faint">"· optional"</span></span>
                 <div class="flex items-center gap-2">
