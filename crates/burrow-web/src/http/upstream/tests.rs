@@ -214,3 +214,27 @@ fn only_a_websocket_upgrade_reaches_the_app() {
     );
     assert_eq!(upgrade_of(both.headers()).unwrap(), "websocket");
 }
+
+#[test]
+fn http2_cookie_crumbs_reach_an_http1_app_as_one_field_and_the_version_is_http1() {
+    let mut req = request(
+        "https://blog.example.com/",
+        &[("cookie", "a=1"), ("cookie", "b=2"), ("cookie", "c=3")],
+    );
+    *req.version_mut() = Version::HTTP_2;
+    rewrite_request(&mut req, "blog.example.com", &visitor(true));
+    let crumbs: Vec<_> = req.headers().get_all("cookie").iter().collect();
+    assert_eq!(crumbs, ["a=1; b=2; c=3"], "RFC 9113 8.2.3");
+    assert_eq!(req.version(), Version::HTTP_11);
+    assert_eq!(req.uri(), "/");
+    assert_eq!(req.headers()["host"], "blog.example.com");
+}
+
+#[test]
+fn an_http1_request_keeps_its_version() {
+    let mut req = request("/", &[("host", "blog.example.com"), ("cookie", "a=1")]);
+    *req.version_mut() = Version::HTTP_10;
+    rewrite_request(&mut req, "blog.example.com", &visitor(true));
+    assert_eq!(req.version(), Version::HTTP_10);
+    assert_eq!(req.headers()["cookie"], "a=1");
+}

@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use http::header::{self, HeaderMap, HeaderName, HeaderValue};
-use http::{Request, Response, StatusCode, Uri};
+use http::{Request, Response, StatusCode, Uri, Version};
 use http_body_util::BodyExt;
 use hyper::client::conn::http1::SendRequest;
 use hyper_util::rt::TokioIo;
@@ -171,7 +171,25 @@ fn set(h: &mut HeaderMap, name: &'static str, value: &str) {
     }
 }
 
+pub fn join_cookies(h: &mut HeaderMap) {
+    let crumbs: Vec<&[u8]> = h
+        .get_all(header::COOKIE)
+        .iter()
+        .map(HeaderValue::as_bytes)
+        .collect();
+    if crumbs.len() < 2 {
+        return;
+    }
+    if let Ok(v) = HeaderValue::from_bytes(&crumbs.join(&b"; "[..])) {
+        h.insert(header::COOKIE, v);
+    }
+}
+
 pub fn rewrite_request<B>(req: &mut Request<B>, host: &str, client: &Client) {
+    if req.version() == Version::HTTP_2 {
+        join_cookies(req.headers_mut());
+        *req.version_mut() = Version::HTTP_11;
+    }
     let upgrade = upgrade_of(req.headers());
     if req.uri().authority().is_some() {
         if let Ok(v) = HeaderValue::from_str(host) {
