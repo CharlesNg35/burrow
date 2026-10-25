@@ -1,5 +1,6 @@
 mod effects;
 mod grants;
+mod web_ports;
 
 use std::net::SocketAddr;
 use std::path::Path;
@@ -15,6 +16,7 @@ use crate::config::settings::ServerSettings;
 use crate::wire::secret::Secret;
 
 pub use effects::impacts;
+pub use web_ports::{busy as busy_web_ports, refusals as shared_web_port};
 
 pub struct Who<'a> {
     pub visitor: &'a str,

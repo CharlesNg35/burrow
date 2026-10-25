@@ -13,6 +13,10 @@ pub const MAX_CONNECTIONS_TCP_ONLY: &str = "max-connections-tcp-only";
 pub const BALANCE_TCP_ONLY: &str = "balance-tcp-only";
 pub const HEALTH_CHECK_TCP_ONLY: &str = "health-check-tcp-only";
 pub const DUPLICATE_BIND: &str = "duplicate-bind";
+pub const PORT_IN_USE: &str = "port-in-use";
+pub const WEB_PORT_SHARED: &str = "web-port-shared";
+pub const OPENS_PORT: &str = "opens-port";
+pub const STOPS_WEBSITES: &str = "stops-websites";
 pub const UNREACHABLE_SERVICE: &str = "unreachable-service";
 pub const ADDS_CLIENT: &str = "adds-client";
 

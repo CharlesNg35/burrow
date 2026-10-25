@@ -21,8 +21,7 @@ pub struct WebConfig {
         ty = ip_port(default_ip = "::"),
         label = "HTTPS port",
         help = "The port where websites and TLS services are reached by name, for example 443; a port alone listens on IPv4 and IPv6, 0.0.0.0:443 on IPv4 only",
-        none_label = "No HTTPS port",
-        locked
+        none_label = "No HTTPS port"
     )]
     pub https: Option<Bind>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -33,8 +32,7 @@ pub struct WebConfig {
         ty = ip_port(default_ip = "::"),
         label = "HTTP port",
         help = "The port for plain HTTP, for example 80: sites with HTTPS off, the step from http:// to https:// and Let's Encrypt's check; a port alone listens on IPv4 and IPv6",
-        none_label = "No HTTP port",
-        locked
+        none_label = "No HTTP port"
     )]
     pub http: Option<Bind>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

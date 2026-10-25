@@ -75,6 +75,7 @@ pub fn impacts(
     client_impacts(&cx, &mut out);
     visitor_impacts(&cx, &mut out);
     setting_impacts(&cx, restart, &mut out);
+    out.extend(super::web_ports::impacts(old, new));
     out
 }
 

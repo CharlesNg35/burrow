@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "hash": "b2s:413a087c9a2f25b2",
+  "hash": "b2s:07f784fc17df121c",
   "root": {
     "label": "Server",
     "sem": {
@@ -235,7 +235,6 @@
                             }
                           }
                         },
-                        "locked": true,
                         "none_label": "No HTTPS port"
                       }
                     },
@@ -254,7 +253,6 @@
                             }
                           }
                         },
-                        "locked": true,
                         "none_label": "No HTTP port"
                       }
                     },

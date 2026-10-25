@@ -117,6 +117,7 @@ pub(super) fn judge(
 ) -> Verdict {
     let (raw, new_raw, applied) = (d.raw, d.new_raw, d.applied);
     let (mut refusals, mut impacts, mut clash) = (Vec::new(), Vec::new(), Vec::new());
+    let shared = guard::shared_web_port(running, (raw, new_raw));
     if let Some(next) = &checked.settings {
         let who = guard::Who {
             visitor: &s.visitor,
@@ -144,6 +145,11 @@ pub(super) fn judge(
         if let Some(c) = running.listen_clash(next) {
             clash.push(listen_clash(c));
         }
+        clash.extend(guard::busy_web_ports(
+            &|a| core.live.bind_probe(a),
+            running,
+            next,
+        ));
         let how = applies(core, raw, &applied.target);
         let restart: Vec<String> = how
             .iter()
@@ -159,6 +165,7 @@ pub(super) fn judge(
             &applied.renames,
         );
     }
+    refusals.extend(shared);
     Verdict {
         refusals,
         impacts,

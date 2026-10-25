@@ -52,6 +52,9 @@ pub trait Live: Send + Sync {
     fn sessions(&self) -> Vec<LiveSession>;
     fn allows(&self) -> BTreeMap<String, Vec<String>>;
     fn free_port(&self, near: u16, count: u16, udp: bool) -> Option<u16>;
+    fn bind_probe(&self, _addr: std::net::SocketAddr) -> std::io::Result<()> {
+        Ok(())
+    }
 }
 
 pub trait Env: crate::config::env::EnvSource + Send + Sync {}

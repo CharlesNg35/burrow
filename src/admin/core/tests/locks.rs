@@ -79,9 +79,7 @@ fn every_field_locked_before_stays_locked_and_the_web_proxy_keeps_its_ports_and_
     for old in BEFORE_P2.iter().filter(|o| **o != ["web"]) {
         assert!(now.contains(&p(old)), "{old:?} is still locked: {now:?}");
     }
-    let finer: [&[&str]; 23] = [
-        &["web", "https"],
-        &["web", "http"],
+    let finer: [&[&str]; 21] = [
         &["web", "letsencrypt", "ca"],
         &["web", "letsencrypt", "dns", "*", "cloudflare", "token"],
         &["web", "letsencrypt", "dns", "*", "rfc2136", "server"],
@@ -252,7 +250,7 @@ fn the_files_stay_editable_by_file_and_a_revert_keeps_the_current_ones() {
 }
 
 #[test]
-fn the_web_proxy_is_open_to_edits_except_its_ports_and_files() {
+fn the_web_proxy_and_its_ports_are_open_to_edits_except_its_files() {
     let site = site();
     let text = site.w.text.replace(
         "web:\n  https: 8443\n",
@@ -271,8 +269,6 @@ fn the_web_proxy_is_open_to_edits_except_its_ports_and_files() {
         }]
     };
     for ops in [
-        set(&["web", "https"], json!(9443)),
-        set(&["web", "http"], json!(80)),
         set(&["web", "letsencrypt", "ca"], json!("certs/ca.pem")),
         set(
             &["web", "certificates", "0", "cert"],
@@ -282,7 +278,6 @@ fn the_web_proxy_is_open_to_edits_except_its_ports_and_files() {
             &["web", "certificates"],
             json!([{"hosts": ["*.example.com"], "cert": site.file("b.pem"), "key": site.file("b.key")}]),
         ),
-        vec![Op::Remove { path: p(&["web"]) }],
     ] {
         refused(&core, &s, &ops);
     }
@@ -294,6 +289,9 @@ fn the_web_proxy_is_open_to_edits_except_its_ports_and_files() {
             json!([{"hosts": ["*.example.com", "example.com"], "cert": site.file("a.pem"), "key": site.file("a.key")}]),
         ),
         set(&["web", "idle_timeout_secs"], json!(30)),
+        set(&["web", "https"], json!(9443)),
+        set(&["web", "http"], json!(8080)),
+        vec![Op::Remove { path: p(&["web"]) }],
     ] {
         let c = plan::compute(&core, &s, &base, &ops);
         assert!(c.is_ok(), "{ops:?}: {:?}", c.err().map(|e| e.message));

@@ -118,7 +118,6 @@ fn locked_fields_are_refused_even_from_a_crafted_client() {
         (p(&["listen"]), json!(7836)),
         (p(&["websocket"]), json!({"listen": 7837})),
         (p(&["websocket", "path"]), json!("/x")),
-        (p(&["web"]), json!({"https": 443})),
         (p(&["insecure_plaintext"]), json!(true)),
         (p(&["heartbeat", "interval_secs"]), json!(20)),
         (p(&["limits", "handshake_timeout_secs"]), json!(9)),
@@ -172,8 +171,6 @@ fn locked_fields_are_refused_even_from_a_crafted_client() {
         vec![
             p(&["listen"]),
             p(&["websocket"]),
-            p(&["web", "https"]),
-            p(&["web", "http"]),
             p(&["web", "letsencrypt", "ca"]),
             p(&["web", "letsencrypt", "dns", "*", "cloudflare", "token"]),
             p(&["web", "letsencrypt", "dns", "*", "rfc2136", "server"]),

@@ -7,6 +7,7 @@ mod refs;
 mod reverts;
 mod snippets;
 mod uploads;
+mod web_ports;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -106,6 +107,7 @@ pub struct FakeLive {
     pub text: Arc<Mutex<String>>,
     pub status: Mutex<Status>,
     pub sessions: Mutex<Vec<LiveSession>>,
+    pub busy: Vec<u16>,
 }
 
 impl Live for FakeLive {
@@ -123,6 +125,12 @@ impl Live for FakeLive {
     }
     fn free_port(&self, near: u16, _: u16, _: bool) -> Option<u16> {
         Some(near)
+    }
+    fn bind_probe(&self, addr: std::net::SocketAddr) -> std::io::Result<()> {
+        match self.busy.contains(&addr.port()) {
+            true => Err(std::io::ErrorKind::AddrInUse.into()),
+            false => Ok(()),
+        }
     }
 }
 
@@ -176,6 +184,10 @@ pub fn core_with_env(
 }
 
 pub fn core_running(text: &str, running: &str) -> Core {
+    core_busy(text, running, Vec::new())
+}
+
+pub fn core_busy(text: &str, running: &str, busy: Vec<u16>) -> Core {
     let shared = Arc::new(Mutex::new(text.to_string()));
     let live_text = if text == running {
         shared.clone()
@@ -192,6 +204,7 @@ pub fn core_running(text: &str, running: &str) -> Core {
         text: live_text,
         status: Mutex::new(Status::default()),
         sessions: Mutex::new(Vec::new()),
+        busy,
     };
     Core::new(Box::new(store), Box::new(live), Box::new(|_: &str| None))
 }

@@ -365,6 +365,10 @@ impl Store for FileStore {
     }
 }
 
+fn probe_bind(addr: SocketAddr) -> std::io::Result<()> {
+    crate::wire::transport::tcp::bind_tcp(addr).map(drop)
+}
+
 pub struct ServerLive(pub Arc<Shared>);
 
 impl Live for ServerLive {
@@ -394,6 +398,10 @@ impl Live for ServerLive {
             .into_iter()
             .filter_map(|(c, _, _, allow)| allow.map(|a| (c, a)))
             .collect()
+    }
+
+    fn bind_probe(&self, addr: SocketAddr) -> std::io::Result<()> {
+        probe_bind(addr)
     }
 
     fn free_port(&self, near: u16, count: u16, udp: bool) -> Option<u16> {
@@ -582,6 +590,17 @@ async fn serve(
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn the_web_port_probe_never_keeps_the_port() {
+        let held = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = held.local_addr().unwrap();
+        let busy = super::probe_bind(addr).unwrap_err();
+        assert_eq!(busy.kind(), std::io::ErrorKind::AddrInUse);
+        drop(held);
+        super::probe_bind(addr).unwrap();
+        std::net::TcpListener::bind(addr).expect("free again right after the probe");
+    }
+
     use super::*;
 
     #[cfg(unix)]
