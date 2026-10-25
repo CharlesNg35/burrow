@@ -389,3 +389,23 @@ async fn a_target_http2_site_is_checked_over_h2c_through_the_tunnel() {
     assert_eq!(version, http::Version::HTTP_2);
     assert_eq!(uri, "http://blog.example.com/healthz");
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_basic_auth_site_is_still_checked_and_the_app_sees_no_credentials() {
+    let app = app(status("200 OK")).await;
+    let secret = Secret::generate();
+    let mut s = server(&secret, checked(app.addr, "/healthz"));
+    let site = s.web.as_mut().unwrap().sites.get_mut("blog").unwrap();
+    site.options.basic_auth = vec![(
+        "admin".into(),
+        "$argon2id$v=19$m=19456,t=2,p=1$c2FsdHNhbHRzYWx0$aGFzaGhhc2hoYXNoaGFzaGhhc2hoYXNoaGFzaGhhc2g".into(),
+    )];
+    let t = tunnel_with(s, Vec::new(), |c| c, secret).await;
+    wait_for(|| app.checks().len() >= 2).await;
+    assert_eq!(wait_health(&t, true).await, None);
+    assert!(
+        app.checks().iter().all(|h| !h.contains("authorization")),
+        "{:?}",
+        app.checks()
+    );
+}
