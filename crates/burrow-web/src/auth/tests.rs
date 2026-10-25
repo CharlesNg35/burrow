@@ -2,7 +2,42 @@ use std::net::IpAddr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use std::sync::atomic::{AtomicUsize, Ordering};
+
 use super::*;
+
+#[derive(Default)]
+pub(super) struct Work {
+    running: AtomicUsize,
+    peak: AtomicUsize,
+    real: AtomicUsize,
+    dummy: AtomicUsize,
+}
+
+pub(super) struct Counted<'a>(&'a Work);
+
+impl Work {
+    pub(super) fn enter(&self, dummy: bool) -> Counted<'_> {
+        let now = self.running.fetch_add(1, Ordering::SeqCst) + 1;
+        self.peak.fetch_max(now, Ordering::SeqCst);
+        let kind = if dummy { &self.dummy } else { &self.real };
+        kind.fetch_add(1, Ordering::SeqCst);
+        Counted(self)
+    }
+
+    fn checks(&self) -> (usize, usize) {
+        (
+            self.real.load(Ordering::SeqCst),
+            self.dummy.load(Ordering::SeqCst),
+        )
+    }
+}
+
+impl Drop for Counted<'_> {
+    fn drop(&mut self) {
+        self.0.running.fetch_sub(1, Ordering::SeqCst);
+    }
+}
 
 fn ip(s: &str) -> IpAddr {
     s.parse().unwrap()
@@ -100,7 +135,7 @@ async fn ten_wrong_passwords_then_429_even_for_the_right_one() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_flood_of_wrong_passwords_runs_two_checks_at_once_and_the_rest_get_busy() {
+async fn a_flood_of_wrong_passwords_runs_at_most_two_checks_at_once_and_the_rest_get_busy() {
     let a = Arc::new(Access::default());
     let costly = argon2::Argon2::new(
         argon2::Algorithm::Argon2id,
@@ -111,7 +146,6 @@ async fn a_flood_of_wrong_passwords_runs_two_checks_at_once_and_the_rest_get_bus
         .unwrap()
         .to_string();
     let u = Arc::new(users(&[("alice", &h)]));
-    let started = Instant::now();
     let tasks: Vec<_> = (0..100u32)
         .map(|i| {
             let (a, u) = (a.clone(), u.clone());
@@ -123,17 +157,22 @@ async fn a_flood_of_wrong_passwords_runs_two_checks_at_once_and_the_rest_get_bus
             })
         })
         .collect();
-    let mut busy = 0;
+    let (mut busy, mut wrong) = (0, 0);
     for t in tasks {
         let (v, took) = t.await.unwrap();
-        assert!(took < SLOT_WAIT + Duration::from_secs(2), "{took:?}");
         match v {
-            Verdict::Busy => busy += 1,
-            Verdict::Wrong => {}
+            Verdict::Busy => {
+                busy += 1;
+                assert!(took < SLOT_WAIT * 3, "a busy answer waited {took:?}");
+            }
+            Verdict::Wrong => wrong += 1,
             other => panic!("{other:?}"),
         }
     }
+    assert_eq!(a.work.peak.load(Ordering::SeqCst), SLOTS);
+    assert_eq!(a.work.checks(), (wrong, 0));
+    assert_eq!(busy + wrong, 100);
     assert!(busy > 0);
     assert_eq!(a.slots.available_permits(), SLOTS);
-    assert!(started.elapsed() < Duration::from_secs(10));
+    assert_eq!(a.work.running.load(Ordering::SeqCst), 0);
 }

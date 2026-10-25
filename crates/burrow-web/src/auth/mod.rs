@@ -61,6 +61,8 @@ pub(crate) struct Access {
     slots: Arc<Semaphore>,
     cache: Cache,
     pub(crate) failures: Failures,
+    #[cfg(test)]
+    work: Arc<tests::Work>,
 }
 
 impl Default for Access {
@@ -69,6 +71,8 @@ impl Default for Access {
             slots: Arc::new(Semaphore::new(SLOTS)),
             cache: Cache::new(),
             failures: Failures::default(),
+            #[cfg(test)]
+            work: Arc::default(),
         }
     }
 }
@@ -96,8 +100,12 @@ impl Access {
             _ => None,
         };
         let password = creds.password;
+        #[cfg(test)]
+        let work = self.work.clone();
         let good = tokio::task::spawn_blocking(move || {
             let _slot = slot;
+            #[cfg(test)]
+            let _counted = work.enter(stored.is_none());
             match &stored {
                 Some(s) => hash::verify(&password, s),
                 None => {
