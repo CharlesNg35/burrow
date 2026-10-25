@@ -304,6 +304,9 @@ fn render_services(out: &mut String, s: &Status, paint: Paint, rates: Option<&Ra
                 if !v.visitors.is_empty() {
                     extra.push(format!("visitors {}", v.visitors.join(", ")));
                 }
+                if let Some(h) = &v.http {
+                    extra.push(http_counts(h));
+                }
                 if !extra.is_empty() {
                     notes.push(format!("{}: {}", v.name, extra.join(", ")));
                 }
@@ -315,6 +318,21 @@ fn render_services(out: &mut String, s: &Status, paint: Paint, rates: Option<&Ra
             let note = paint.clip(&format!("  {n}"));
             let _ = writeln!(out, "{}", paint.tone(&note, Tone::Dim));
         }
+    }
+}
+
+fn http_counts(h: &burrow_admin_proto::status::HttpCounts) -> String {
+    let set: Vec<String> = h
+        .responses
+        .iter()
+        .enumerate()
+        .filter(|(_, n)| **n > 0)
+        .map(|(i, n)| format!("{}xx {n}", i + 1))
+        .collect();
+    if set.is_empty() {
+        "no web responses yet".into()
+    } else {
+        format!("web responses {}", set.join(", "))
     }
 }
 

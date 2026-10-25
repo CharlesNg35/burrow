@@ -121,6 +121,7 @@ Keep `listen` on `127.0.0.1` unless a firewall limits who can connect: anyone wh
 | `burrow_service_connections_open`, `_total` | gauge, counter | `service` | |
 | `burrow_service_refused_total` | counter | `service` | source address, limits, or no client |
 | `burrow_service_bytes_total` | counter | `service`, `direction` | `in` from users to the target, `out` back |
+| `burrow_web_responses_total` | counter | `service`, `class` | HTTP responses a website sent since the server started, by status class (`1xx` to `5xx`), including burrow's own pages such as 404, 413, 502 and maintenance. Only for services with `web:` that burrow terminates or serves as plain HTTP; a `tls: passthrough` site has none, because burrow cannot see its requests. Bytes are in `burrow_service_bytes_total`, as for every service. `burrow status` shows the same counts under each website, like `web responses 2xx 1203, 4xx 17`. |
 | `burrow_service_client_up` | gauge | `service`, `client` | health check result, with `health_check` only |
 | `burrow_visitor_connections_open`, `_total` | gauge, counter | `visitor` | |
 | `burrow_certificate_expiry_timestamp_seconds` | gauge | `name` | when the certificate served for a web name expires, in Unix seconds |

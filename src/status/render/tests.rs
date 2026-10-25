@@ -153,6 +153,24 @@ VISITORS
 }
 
 #[test]
+fn a_websites_responses_are_counted_by_class() {
+    let mut s = sample();
+    s.services[0].http = Some(burrow_admin_proto::status::HttpCounts {
+        responses: [0, 1203, 4, 17, 2],
+    });
+    s.services[1].http = Some(burrow_admin_proto::status::HttpCounts::default());
+    let text = render(&s, Paint::PLAIN, None);
+    assert!(
+        text.contains("  web: balance, limit 5.0 MB/s, proxy protocol v2, source filter, web responses 2xx 1203, 3xx 4, 4xx 17, 5xx 2\n"),
+        "{text}"
+    );
+    assert!(
+        text.contains("  db: visitors laptop, no web responses yet\n"),
+        "{text}"
+    );
+}
+
+#[test]
 fn this_server_is_listed_as_local_and_not_counted_as_a_client() {
     let mut s = sample();
     s.clients.push(ClientStatus {
