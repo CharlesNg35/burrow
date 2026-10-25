@@ -193,6 +193,11 @@ fn websites(c: &mut Ctx) -> Flow<'_> {
         edit_mode(c).await;
         toast_clear_of_the_bar(c).await;
         c.ui.wait_for("[data-testid=website-editor]", SECS).await;
+        assert_eq!(
+            c.ui.count("[data-schema='services/*/web/tls'] input").await,
+            0,
+            "the HTTPS choice appears only once the site has a name, so it never takes clicks that do nothing"
+        );
         both_widths(c, "web-not-a-website").await;
         add_name(c, "f-services-web-web-hosts", "app.example.com").await;
         click_js(
