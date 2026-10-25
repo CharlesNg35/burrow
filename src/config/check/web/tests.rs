@@ -389,6 +389,18 @@ fn one_host_leads_to_one_service() {
         "remove it from one of them, or give service \"b\" a name of its own, like b.example.com"
     );
     assert_eq!(help("203.0.113.10"), "remove it from one of them");
+    for (first, second) in [("passthrough", "auto"), ("auto", "passthrough")] {
+        let text = format!(
+            "listen: 7835\nweb: {{ https: 443, letsencrypt: {{ email: ops@example.com }} }}\nservices:\n  a: {{ client: home, target: 443, web: {{ hosts: [nas.example.com], tls: {first} }} }}\n  b: {{ client: home, target: 443, web: {{ hosts: [nas.example.com], tls: {second} }} }}\n"
+        );
+        let pass = if first == "passthrough" { "a" } else { "b" };
+        assert_eq!(
+            one_error(&text),
+            format!(
+                "host \"nas.example.com\" is used by a passthrough service \"{pass}\" and by a website"
+            )
+        );
+    }
 }
 
 #[test]

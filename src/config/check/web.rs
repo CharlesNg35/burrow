@@ -286,7 +286,7 @@ pub(super) fn check_sites(
         return sites;
     }
     let tunnel = tunnel.and_then(|w| w.host.as_deref().map(|h| (h, w.path.as_str(), w.shares)));
-    let mut owners: BTreeMap<String, String> = BTreeMap::new();
+    let mut owners: BTreeMap<String, (String, Served)> = BTreeMap::new();
     for (name, svc) in &cfg.services {
         let Some(web) = &svc.web else {
             continue;
@@ -427,7 +427,7 @@ fn own_name_help(name: &str, host: &str) -> String {
 fn check_hosts(
     place: &Place<'_>,
     given: &[String],
-    owners: &mut BTreeMap<String, String>,
+    owners: &mut BTreeMap<String, (String, Served)>,
     tunnel: Option<(&str, &str, Shares)>,
     out: &mut Vec<Diagnostic>,
 ) -> Option<Vec<String>> {
@@ -491,16 +491,22 @@ fn check_hosts(
             );
             continue;
         }
-        if let Some(other) = owners.insert(host.clone(), name.to_string()) {
+        if let Some((other, served)) = owners.insert(host.clone(), (name.to_string(), place.served))
+        {
+            let message = match (served, place.served) {
+                (Served::Passthrough, Served::Passthrough) => None,
+                (Served::Passthrough, _) => Some(&other[..]),
+                (_, Served::Passthrough) => Some(name),
+                _ => None,
+            }
+            .map_or_else(
+                || format!("host \"{host}\" is used by services \"{other}\" and \"{name}\"; each host name leads to one service"),
+                |pass| format!("host \"{host}\" is used by a passthrough service \"{pass}\" and by a website"),
+            );
             out.push(
-                Diagnostic::error(
-                    "duplicate-host",
-                    format!(
-                        "host \"{host}\" is used by services \"{other}\" and \"{name}\"; each host name leads to one service"
-                    ),
-                )
-                .at(at)
-                .help(own_name_help(name, &host)),
+                Diagnostic::error("duplicate-host", message)
+                    .at(at)
+                    .help(own_name_help(name, &host)),
             );
             continue;
         }

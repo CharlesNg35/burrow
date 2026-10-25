@@ -566,6 +566,7 @@ Where each name gets its certificate:
 | a short name on an HTTPS site | `"nas" is a single-label name; ... use a full name like nas.home.example.com, or set tls: off` |
 | a wildcard that is too wide | `services.apps.web.hosts: "*.com" is too wide; a wildcard needs a parent name, like *.example.com` |
 | one name in two services | `host "nas.example.com" is used by services "nas" and "nas2"; each host name leads to one service` |
+| a passthrough name that a website uses too | `host "nas.example.com" is used by a passthrough service "nas" and by a website` |
 | the tunnel's name without a shared port | `websocket.host is only used when websocket.listen is the same port as web.https or web.http; ...` |
 | the tunnel's name has no certificate | `websocket.host "tunnel.example.com" has no certificate; add web.letsencrypt, websocket.tls, or an entry in web.certificates whose hosts lists it` |
 | a UDP service with `web` | `service "dns" is udp, but web only works for tcp services; remove web:, or set protocol: tcp` |
