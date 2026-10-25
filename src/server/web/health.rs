@@ -68,12 +68,14 @@ pub(in crate::server) async fn exchange(
     };
     let (ours, theirs) = burrow_web::pipe();
     ours.set_reset(true);
-    let pump = pump_tcp(ch, Incoming::Web(theirs), plaintext);
+    let mut pump = Box::pin(pump_tcp(ch, Incoming::Web(theirs), plaintext));
     let run = check.run(Box::new(ours));
-    tokio::pin!(pump, run);
+    tokio::pin!(run);
     tokio::select! {
-        r = &mut run => return r,
-        _ = &mut pump => {}
+        r = &mut run => {
+            tokio::spawn(pump);
+            r
+        }
+        _ = &mut pump => run.await,
     }
-    run.await
 }
