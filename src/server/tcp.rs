@@ -68,6 +68,8 @@ pub(super) enum Door {
     Bind,
     #[cfg(feature = "web")]
     Web(String),
+    #[cfg(feature = "web")]
+    Auth,
 }
 
 pub(super) struct Entry {
@@ -177,6 +179,8 @@ pub(super) async fn visit(
                     Door::Bind => Ok(()),
                     #[cfg(feature = "web")]
                     Door::Web(host) => shared.still_on_web(&name, host),
+                    #[cfg(feature = "web")]
+                    Door::Auth => Ok(()),
                 }
             };
             if let Err(why) = still_open() {
@@ -251,7 +255,7 @@ fn public_of(svc: &Service, door: &Door) -> Option<(Protocol, SocketAddr)> {
     match door {
         Door::Bind => svc.bind.map(|b| (svc.protocol, b)),
         #[cfg(feature = "web")]
-        Door::Web(_) => None,
+        Door::Web(_) | Door::Auth => None,
     }
 }
 

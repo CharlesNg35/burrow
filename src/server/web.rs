@@ -49,42 +49,14 @@ impl Upstream for Doorway {
     }
 
     async fn open(&self, service: &str, from: &Visitor) -> Result<BoxIo, Refused> {
-        let shared = &self.0;
-        let settings = shared.settings();
-        let svc = settings
-            .services
-            .get(service)
-            .cloned()
-            .ok_or(Refused::Gone)?;
-        shared
+        self.0
             .still_on_web(service, &from.host)
             .map_err(|_| Refused::Gone)?;
-        if !shared.source_allowed(service, from.addr.ip()) {
-            shared.metrics.refuse(service);
-            debug!(peer = %from.addr, "service \"{service}\": source address not allowed, closing");
-            return Err(Refused::NotAllowed);
-        }
-        let admitted = admit(shared, service, &svc, from.addr, 0).map_err(|r| match r {
-            Refusal::Full => Refused::Full,
-            Refusal::NoClient => Refused::NoClient,
-        })?;
-        let (ours, theirs) = burrow_web::pipe();
-        theirs.set_reset(true);
-        let entry = Entry {
-            peer: from.addr,
-            local: Some(from.local),
-            index: 0,
-            door: Door::Web(from.host.clone()),
-        };
-        tokio::spawn(visit(
-            shared.clone(),
-            service.to_string(),
-            svc,
-            crate::forward::Incoming::Web(theirs),
-            entry,
-            admitted,
-        ));
-        Ok(Box::new(ours))
+        open_door(&self.0, service, from, Door::Web(from.host.clone()))
+    }
+
+    async fn open_auth(&self, service: &str, from: &Visitor) -> Result<BoxIo, Refused> {
+        open_door(&self.0, service, from, Door::Auth)
     }
 
     fn tunnel_permit(&self, peer: SocketAddr) -> Option<Permit> {
@@ -94,6 +66,46 @@ impl Upstream for Doorway {
     async fn tunnel(&self, conn: TunnelConn<Permit>) {
         super::listen::handle_web_tunnel(self.0.clone(), conn).await;
     }
+}
+
+fn open_door(
+    shared: &Arc<Shared>,
+    service: &str,
+    from: &Visitor,
+    door: Door,
+) -> Result<BoxIo, Refused> {
+    let settings = shared.settings();
+    let svc = settings
+        .services
+        .get(service)
+        .cloned()
+        .ok_or(Refused::Gone)?;
+    if !shared.source_allowed(service, from.addr.ip()) {
+        shared.metrics.refuse(service);
+        debug!(peer = %from.addr, "service \"{service}\": source address not allowed, closing");
+        return Err(Refused::NotAllowed);
+    }
+    let admitted = admit(shared, service, &svc, from.addr, 0).map_err(|r| match r {
+        Refusal::Full => Refused::Full,
+        Refusal::NoClient => Refused::NoClient,
+    })?;
+    let (ours, theirs) = burrow_web::pipe();
+    theirs.set_reset(true);
+    let entry = Entry {
+        peer: from.addr,
+        local: Some(from.local),
+        index: 0,
+        door,
+    };
+    tokio::spawn(visit(
+        shared.clone(),
+        service.to_string(),
+        svc,
+        crate::forward::Incoming::Web(theirs),
+        entry,
+        admitted,
+    ));
+    Ok(Box::new(ours))
 }
 
 pub(super) fn refusal(outcome: &Outcome) -> Option<Refused> {

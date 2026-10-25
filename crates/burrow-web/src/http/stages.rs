@@ -144,7 +144,7 @@ fn finish(
 async fn answer<U: Upstream>(
     shared: &Arc<Shared<U>>,
     conn: &Conn,
-    (_, site): (&Table, &SiteRun),
+    (table, site): (&Table, &SiteRun),
     asked: &Asked,
     client: Client,
     id: Option<&str>,
@@ -159,6 +159,7 @@ async fn answer<U: Upstream>(
     let gate = Gate {
         up: shared.up.as_ref(),
         access: &shared.access,
+        table,
         site,
         visitor: &visitor,
         client: &client,

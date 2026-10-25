@@ -1,5 +1,6 @@
 pub mod basic;
 mod cache;
+pub mod forward;
 pub mod hash;
 pub mod limit;
 

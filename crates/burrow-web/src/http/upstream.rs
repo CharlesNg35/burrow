@@ -3,6 +3,7 @@ use std::sync::Arc;
 use http::header::{self, HeaderMap, HeaderName, HeaderValue};
 use http::{Request, Response, StatusCode, Uri, Version};
 use http_body_util::BodyExt;
+use hyper::client::conn::http1::SendRequest;
 use hyper_util::rt::TokioIo;
 use tracing::debug;
 
@@ -45,7 +46,7 @@ impl Forward<'_> {
     }
 }
 
-pub(super) enum Failed {
+pub(crate) enum Failed {
     Refused(Refused),
     Broken,
 }
@@ -68,13 +69,12 @@ pub(super) async fn hop(io: BoxIo, how: &Hop, http2: bool) -> Result<BoxIo, Fail
     }
 }
 
-async fn open<U: Upstream>(up: &U, f: &Forward<'_>) -> Result<Stream, Failed> {
-    let io = up
-        .open(&f.site.service, &f.visitor)
-        .await
-        .map_err(Failed::Refused)?;
+pub(crate) async fn handshake(
+    io: BoxIo,
+    how: &Hop,
+) -> Result<(SendRequest<Body>, Option<Ending>), Failed> {
     let ending = io.ending();
-    let io = hop(io, &f.site.hop, false).await?;
+    let io = hop(io, how, false).await?;
     let (tx, conn) = hyper::client::conn::http1::Builder::new()
         .max_buf_size(super::h2::APP_READ_BUF)
         .max_header_size(MAX_HEAD)
@@ -87,6 +87,15 @@ async fn open<U: Upstream>(up: &U, f: &Forward<'_>) -> Result<Stream, Failed> {
             debug!("web: the connection to the app ended: {e}");
         }
     });
+    Ok((tx, ending))
+}
+
+async fn open<U: Upstream>(up: &U, f: &Forward<'_>) -> Result<Stream, Failed> {
+    let io = up
+        .open(&f.site.service, &f.visitor)
+        .await
+        .map_err(Failed::Refused)?;
+    let (tx, ending) = handshake(io, &f.site.hop).await?;
     Ok(Stream {
         service: f.site.service.clone(),
         client: f.client.ip,
@@ -106,7 +115,7 @@ pub(crate) fn refusal_page(why: Refused) -> Page {
     }
 }
 
-fn connection_tokens(h: &HeaderMap) -> Vec<HeaderName> {
+pub(crate) fn connection_tokens(h: &HeaderMap) -> Vec<HeaderName> {
     h.get_all(header::CONNECTION)
         .iter()
         .filter_map(|v| v.to_str().ok())
@@ -115,7 +124,7 @@ fn connection_tokens(h: &HeaderMap) -> Vec<HeaderName> {
         .collect()
 }
 
-fn protected(name: &HeaderName) -> bool {
+pub(crate) fn protected(name: &HeaderName) -> bool {
     *name == header::HOST || super::forwarded::managed(name)
 }
 

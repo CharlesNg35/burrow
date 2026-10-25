@@ -255,6 +255,14 @@ pub trait Upstream: Send + Sync + 'static {
         true
     }
 
+    fn open_auth(
+        &self,
+        service: &str,
+        from: &Visitor,
+    ) -> impl Future<Output = Result<BoxIo, Refused>> + Send {
+        self.open(service, from)
+    }
+
     fn tunnel_permit(&self, peer: SocketAddr) -> Option<Self::Permit>;
 
     fn tunnel(&self, conn: TunnelConn<Self::Permit>) -> impl Future<Output = ()> + Send;
