@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use hickory_proto::op::{Message, MessageType, OpCode, ResponseCode};
+use hickory_proto::rr::rdata::tsig::TsigError;
 use hickory_proto::rr::rdata::{A, CNAME, NS, SOA, TXT};
 use hickory_proto::rr::{DNSClass, Name, RData, Record, RecordType, TSigResponseContext, TSigner};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -18,6 +19,7 @@ pub enum Mode {
     Refuse,
     Silent,
     Forge,
+    Skewed,
 }
 
 struct State {
@@ -230,6 +232,16 @@ fn update(req: &Message, raw: &[u8], s: &mut State, mut out: Message) -> Option<
         TSigResponseContext::unknown_key(req.metadata.id, now, sig.name.clone())
     } else if !good {
         TSigResponseContext::bad_signature(req.metadata.id, now, key.clone())
+    } else if s.mode == Mode::Skewed {
+        out.metadata.response_code = ResponseCode::NotAuth;
+        let late = Some(TsigError::BadTime);
+        TSigResponseContext::new(
+            req.metadata.id,
+            now + 3600,
+            key.clone(),
+            sig.data.mac.clone(),
+            late,
+        )
     } else {
         out.metadata.response_code = apply(req, s);
         TSigResponseContext::new(

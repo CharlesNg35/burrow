@@ -81,6 +81,24 @@ async fn an_unsigned_success_answer_is_not_trusted() {
 }
 
 #[tokio::test]
+async fn a_clock_too_far_from_the_servers_gets_the_badtime_text() {
+    let f = primary().await;
+    f.mode(Mode::Skewed);
+    let err = provider(&f, "acme", SECRET)
+        .present(&wire::name(FQDN).unwrap(), "v")
+        .await
+        .unwrap_err();
+    assert_eq!(
+        err.text(),
+        format!(
+            "{} refused the update (BADTIME): its clock and this server's differ by more than 300 s",
+            f.addr
+        )
+    );
+    assert!(f.values(FQDN).is_empty());
+}
+
+#[tokio::test]
 async fn a_name_outside_the_servers_zones_cannot_be_written() {
     let f = primary().await;
     let err = provider(&f, "acme", SECRET)

@@ -104,17 +104,17 @@ impl Asked<'_> {
         let key = shown(self.key);
         let code = reply.metadata.response_code;
         let signed = reply.signature().is_some_and(|s| !s.data.mac.is_empty());
+        let error = reply.signature().and_then(|s| s.data.error);
+        if error == Some(TsigError::BadTime) {
+            return Err(self.bad_time());
+        }
         if !signed {
-            let error = reply.signature().and_then(|s| s.data.error);
             return Err(match (code, error) {
                 (ResponseCode::NotAuth, Some(TsigError::BadKey)) => format!(
                     "{server} does not know the key {key} (BADKEY): check key_name and that the key is hmac-sha256"
                 ),
                 (ResponseCode::NotAuth, Some(TsigError::BadSig)) => format!(
                     "{server} refused the signature of the key {key} (BADSIG): check the secret"
-                ),
-                (ResponseCode::NotAuth, Some(TsigError::BadTime)) => format!(
-                    "{server} refused the update (BADTIME): its clock and this server's differ by more than {FUDGE} s"
                 ),
                 (ResponseCode::NotAuth, _) => self.not_auth(),
                 _ => format!(
@@ -139,6 +139,13 @@ impl Asked<'_> {
             )),
             other => Err(format!("{server} refused the update: {other}")),
         }
+    }
+
+    fn bad_time(&self) -> String {
+        format!(
+            "{} refused the update (BADTIME): its clock and this server's differ by more than {FUDGE} s",
+            self.server
+        )
     }
 
     fn not_auth(&self) -> String {
