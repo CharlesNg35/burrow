@@ -1,4 +1,5 @@
 use super::*;
+use std::borrow::Cow;
 
 fn ok(raw: &str) -> String {
     normalize_path(raw).unwrap_or_else(|e| panic!("{raw:?}: {e:?}"))
@@ -127,4 +128,48 @@ fn configured_paths_are_stored_normalized_without_a_final_slash() {
             format!("path \"{bad}\" must start with / and hold no ?, # or *, like /api"),
         );
     }
+}
+
+#[test]
+fn routes_see_encoded_slashes_as_slashes_and_ignore_segment_parameters() {
+    for path in [
+        "/admin%2F",
+        "/admin%2Fx",
+        "/wp-admin%2Finstall.php",
+        "/admin%5Cx",
+        "/admin;x=1",
+        "/admin;jsessionid=1/y",
+        "/%2Fadmin",
+    ] {
+        let p = ok(path);
+        let prefix = if p.contains("wp-admin") {
+            "/wp-admin"
+        } else {
+            "/admin"
+        };
+        assert!(path_matches(prefix, &p), "{path}");
+    }
+    for path in ["/adminx", "/admin..", "/ad%2Fmin", "/x/admin"] {
+        assert!(!path_matches("/admin", &ok(path)), "{path}");
+    }
+    assert_eq!(match_view("/a%2Fb;x/c/"), "/a/b/c/");
+    assert_eq!(match_view("/;x"), "/");
+    assert_eq!(
+        match_view("/api/v4/projects/group%2Fproject"),
+        "/api/v4/projects/group/project"
+    );
+    assert!(matches!(match_view("/plain/path"), Cow::Borrowed(_)));
+    assert_eq!(prefix_end("/admin", "/admin%2Fx"), Some(6));
+    assert_eq!(prefix_end("/admin", "/admin;x=1/y"), Some(6));
+    assert_eq!(prefix_end("/", "/x"), Some(0));
+    assert_eq!(prefix_end("/a/b", "/a%2Fb/c"), Some(6));
+}
+
+#[test]
+fn a_dot_segment_hidden_behind_parameters_is_refused() {
+    for raw in ["/..;/admin", "/.;/x", "/a/..;x/b", "/a%2F..;x"] {
+        assert_eq!(normalize_path(raw), Err(PathError::DotSegment), "{raw}");
+    }
+    assert_eq!(ok("/a;x/b"), "/a;x/b");
+    assert_eq!(ok("/...;x"), "/...;x");
 }

@@ -88,7 +88,8 @@ pub fn normalize_path(raw: &str) -> Result<String, PathError> {
 }
 
 fn dot(segment: &str) -> bool {
-    segment == "." || segment == ".."
+    let name = segment.split(';').next().unwrap_or(segment);
+    name == "." || name == ".."
 }
 
 fn has_dot_segment(normalized: &str) -> bool {
@@ -99,8 +100,76 @@ fn has_dot_segment(normalized: &str) -> bool {
         .any(dot)
 }
 
+fn separator_len(rest: &str) -> usize {
+    if rest.starts_with('/') {
+        1
+    } else if rest.starts_with("%2F") || rest.starts_with("%5C") {
+        3
+    } else {
+        0
+    }
+}
+
+struct Segment {
+    start: usize,
+    name_end: usize,
+}
+
+fn segments(path: &str) -> impl Iterator<Item = Segment> + '_ {
+    let mut i = 0;
+    std::iter::from_fn(move || {
+        loop {
+            let n = separator_len(&path[i..]);
+            if n == 0 {
+                break;
+            }
+            i += n;
+        }
+        if i >= path.len() {
+            return None;
+        }
+        let start = i;
+        while i < path.len() && separator_len(&path[i..]) == 0 {
+            i += path[i..].chars().next().map_or(1, char::len_utf8);
+        }
+        let name_end = path[start..i].find(';').map_or(i, |p| start + p);
+        Some(Segment { start, name_end })
+    })
+}
+
+fn same_name(a: &str, b: &str) -> bool {
+    a == b
+}
+
 pub fn match_view(normalized: &str) -> Cow<'_, str> {
-    Cow::Borrowed(normalized)
+    let mut view = String::with_capacity(normalized.len());
+    for seg in segments(normalized) {
+        if seg.name_end > seg.start {
+            view.push('/');
+            view.push_str(&normalized[seg.start..seg.name_end]);
+        }
+    }
+    if view.is_empty() || normalized.ends_with('/') {
+        view.push('/');
+    }
+    if view == normalized {
+        Cow::Borrowed(normalized)
+    } else {
+        Cow::Owned(view)
+    }
+}
+
+pub fn prefix_end(prefix: &str, normalized: &str) -> Option<usize> {
+    let mut path = segments(normalized).filter(|s| s.name_end > s.start);
+    let mut end = 0;
+    for want in prefix.split('/').filter(|p| !p.is_empty()) {
+        let seg = path.next()?;
+        if !same_name(&normalized[seg.start..seg.name_end], want) {
+            return None;
+        }
+        end = seg.name_end;
+    }
+    Some(end)
 }
 
 pub fn on_prefix(prefix: &str, path: &str) -> bool {
@@ -111,7 +180,7 @@ pub fn on_prefix(prefix: &str, path: &str) -> bool {
 }
 
 pub fn path_matches(prefix: &str, normalized: &str) -> bool {
-    on_prefix(prefix, &match_view(normalized))
+    prefix_end(prefix, normalized).is_some()
 }
 
 pub fn route_path(text: &str) -> Result<String, String> {

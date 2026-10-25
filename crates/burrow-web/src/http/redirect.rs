@@ -4,23 +4,22 @@ use http::{HeaderValue, Response, StatusCode, header};
 use super::{Body, full};
 
 pub fn rest_after<'a>(prefix: &str, path: &'a str) -> &'a str {
-    if prefix == "/" {
-        return path;
+    let end = burrow_syntax::url_path::prefix_end(prefix, path).unwrap_or(0);
+    &path[end..]
+}
+
+fn join(base: &str, rest: &str) -> String {
+    let base = base.trim_end_matches('/');
+    match rest {
+        "" if base.is_empty() => "/".into(),
+        "" => base.to_string(),
+        r if r.starts_with('/') => format!("{base}{r}"),
+        r => format!("{base}/{r}"),
     }
-    path.strip_prefix(prefix).unwrap_or(path)
 }
 
 pub fn app_path(prefix: &str, app_path: &str, path: &str) -> String {
-    let joined = format!(
-        "{}{}",
-        app_path.trim_end_matches('/'),
-        rest_after(prefix, path)
-    );
-    if joined.is_empty() {
-        "/".into()
-    } else {
-        joined
-    }
+    join(app_path, rest_after(prefix, path))
 }
 
 fn ascii_query(query: &str) -> String {
@@ -36,10 +35,7 @@ fn ascii_query(query: &str) -> String {
 }
 
 pub fn location(prefix: &str, to: &str, path: &str, query: Option<&str>) -> String {
-    let mut l = format!("{}{}", to.trim_end_matches('/'), rest_after(prefix, path));
-    if l.is_empty() {
-        l.push('/');
-    }
+    let mut l = join(to, rest_after(prefix, path));
     if let Some(q) = query {
         l.push('?');
         l.push_str(&ascii_query(q));
@@ -75,6 +71,12 @@ mod tests {
         assert_eq!(app_path("/api", "/v1/", "/api/x"), "/v1/x");
         assert_eq!(app_path("/shop", "/store", "/shop/cart"), "/store/cart");
         assert_eq!(app_path("/", "/v1", "/x"), "/v1/x");
+        assert_eq!(app_path("/admin", "/", "/admin%2Fx"), "/%2Fx");
+        assert_eq!(app_path("/admin", "/v1", "/admin;x=1/y"), "/v1/;x=1/y");
+        assert_eq!(
+            location("/docs", "https://docs.example.net", "/docs%2Fguide", None),
+            "https://docs.example.net/%2Fguide"
+        );
     }
 
     #[test]

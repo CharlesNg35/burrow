@@ -264,3 +264,30 @@ async fn an_h2c_upgrade_is_never_passed_to_the_app_and_the_request_is_served_pla
     assert!(!app_saw.contains("upgrade"), "{r}");
     assert!(!app_saw.contains("http2-settings"), "{r}");
 }
+
+#[tokio::test]
+async fn encoded_slashes_and_segment_parameters_cannot_slip_past_a_path_route() {
+    let t = two(|| {
+        vec![
+            https_site("blog", &["example.com"]),
+            with(
+                https_site("admin", &["example.com"]),
+                paths(&["/admin", "/wp-admin"], None),
+            ),
+        ]
+    })
+    .await;
+    for (sent, seen) in [
+        ("/admin%2F", "GET /admin%2F\n"),
+        ("/admin%2fsecret", "GET /admin%2Fsecret\n"),
+        ("/wp-admin%2Finstall.php", "GET /wp-admin%2Finstall.php\n"),
+        ("/admin;x=1", "GET /admin;x=1\n"),
+        ("/admin%5Cx", "GET /admin%5Cx\n"),
+    ] {
+        let r = get(&t.proxy, sent, "").await;
+        assert!(r.contains(seen), "{sent}: {r}");
+    }
+    assert_eq!(served_by(&t), ["admin"; 5]);
+    let r = get(&t.proxy, "/..;/admin", "").await;
+    assert!(r.starts_with("HTTP/1.1 400"), "{r}");
+}
