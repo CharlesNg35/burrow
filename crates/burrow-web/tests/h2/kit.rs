@@ -269,6 +269,8 @@ pub struct Raw {
 pub struct Got {
     pub ty: u8,
     pub flags: u8,
+    pub stream: u32,
+    pub payload: Vec<u8>,
 }
 
 pub async fn raw(addr: SocketAddr) -> Raw {
@@ -289,10 +291,11 @@ pub async fn read_frame<R: AsyncRead + Unpin>(r: &mut R, within: Duration) -> Op
         let len = usize::try_from(u32::from_be_bytes([0, h[0], h[1], h[2]])).unwrap();
         let mut payload = vec![0u8; len];
         r.read_exact(&mut payload).await.ok()?;
-        drop(payload);
         Some(Got {
             ty: h[3],
             flags: h[4],
+            stream: u32::from_be_bytes([h[5], h[6], h[7], h[8]]) & 0x7fff_ffff,
+            payload,
         })
     };
     tokio::time::timeout(within, work).await.ok().flatten()

@@ -50,8 +50,7 @@ pub(crate) fn client() -> hyper::client::conn::http2::Builder<TokioExecutor> {
         .initial_connection_window_size(CONNECTION_WINDOW)
         .adaptive_window(false)
         .max_send_buf_size(SEND_BUF)
-        .keep_alive_interval(PING_EVERY)
-        .keep_alive_timeout(PING_ANSWER)
+        .keep_alive_interval(None)
         .keep_alive_while_idle(false);
     b
 }
