@@ -325,7 +325,7 @@ pub fn NewWebsite(open: RwSignal<bool>, draft_name: RwSignal<String>) -> impl In
                     {m}
                 </p>
             })}
-            <div class="sticky bottom-4 z-20 mt-6 flex flex-wrap items-center gap-3 rounded-card border border-border bg-surface px-4 py-3 shadow-overlay" data-sticky-bar="">
+            <burrow_ui_kit::StickyBar>
                 <span class="text-sm text-text-muted" data-testid="new-website-service">{move || format!("Service \"{}\"", service.get())}</span>
                 <span class="ml-auto"></span>
                 <Button label="Cancel" variant="ghost" testid="create-cancel" on_click=move |_| { open.set(false); draft_name.set(String::new()); }/>
@@ -337,7 +337,7 @@ pub fn NewWebsite(open: RwSignal<bool>, draft_name: RwSignal<String>) -> impl In
                     reason=Signal::derive(move || problem.get().unwrap_or_default())
                     on_click=finish
                 />
-            </div>
+            </burrow_ui_kit::StickyBar>
         </div>
     }
 }

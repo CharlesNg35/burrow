@@ -426,7 +426,7 @@ pub fn ShownOnce(section: String, name: String) -> impl IntoView {
                 </div>
                 {snippet}
                 {(sec == ClientEntry::section()).then(|| waiting.clone())}
-                <div class="sticky bottom-4 z-20 mt-6 flex items-center gap-3 rounded-card border border-border bg-surface px-4 py-3 shadow-overlay" data-sticky-bar="">
+                <burrow_ui_kit::StickyBar>
                     <label class="flex items-center gap-2 text-sm">
                         <input type="checkbox" data-testid="saved" class="size-4 accent-accent" prop:checked=move || saved.get() on:change:target=move |ev| saved.set(ev.target().checked())/>
                         "I have saved the secret"
@@ -448,7 +448,7 @@ pub fn ShownOnce(section: String, name: String) -> impl IntoView {
                             });
                         }
                     />
-                </div>
+                </burrow_ui_kit::StickyBar>
             </div>
         })
     };

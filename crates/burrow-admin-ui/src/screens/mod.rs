@@ -1,5 +1,6 @@
 mod about;
 pub mod activity;
+pub mod bar;
 pub mod create;
 pub mod entity;
 pub mod flow;

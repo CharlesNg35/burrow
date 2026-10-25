@@ -191,18 +191,14 @@ pub fn Settings() -> impl IntoView {
             </header>
             <div data-testid="settings">{body}</div>
             {move || editing.get().then(|| {
-                let bad = problems.get() > 0;
-                view! {
-                    <div class=format!("sticky bottom-4 z-20 mt-6 flex items-center gap-3 rounded-card border bg-surface px-4 py-3 shadow-overlay {}", if bad { "border-danger" } else { "border-border" }) data-testid="save-bar" data-sticky-bar="">
-                        <span class="text-sm text-text-muted" data-testid="fields-changed">{move || {
-                            let n = changed.get();
-                            if bad { format!("{} problem{} to fix", problems.get(), if problems.get() == 1 { "" } else { "s" }) } else if n == 0 { "No changes yet".to_string() } else { format!("{n} field{} changed", if n == 1 { "" } else { "s" }) }
-                        }}</span>
-                        <span class="ml-auto"></span>
-                        <burrow_ui_kit::Button label=Signal::derive(move || if changed.get() == 0 { "Close".to_string() } else { "Discard".to_string() }) variant="ghost" testid="discard-edit" on_click=move |_| close()/>
-                        <burrow_ui_kit::Button label="Add to changes" variant="primary" testid="save" disabled=Signal::derive(move || bad || changed.get() == 0) reason=Signal::derive(move || if bad { "Fix the problems first".to_string() } else if changed.get() == 0 { "Nothing changed yet".to_string() } else { String::new() }) on_click=move |_| save()/>
-                    </div>
-                }
+                crate::screens::bar::save_bar(crate::screens::bar::SaveBar {
+                    count: problems.get(),
+                    problems: Vec::new(),
+                    changed,
+                    blocker: Signal::stored(None),
+                    on_discard: Callback::new(move |_| close()),
+                    on_save: Callback::new(move |_| save()),
+                })
             })}
         </DetailPane>
         </Provider>

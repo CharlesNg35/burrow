@@ -101,7 +101,8 @@ pub fn NewEntity(
                 {(what != "service").then(|| secret_field(secret))}
             </section>
             {(what != "service").then(|| limits_section(what, name, max, placeholder_max, options, links))}
-            <div class="sticky bottom-4 z-20 mt-6 flex flex-wrap items-center gap-3 rounded-card border border-border bg-surface px-4 py-3 shadow-overlay" data-sticky-bar="" on:keydown=move |ev| if ev.key() == "Enter" { finish(false) }>
+            <div class="contents" on:keydown=move |ev| if ev.key() == "Enter" { finish(false) }>
+            <burrow_ui_kit::StickyBar>
                 <span class="flex items-center gap-1.5 text-sm text-text-muted">
                     <burrow_ui_kit::Icon name="info" small=true/>
                     {if what == ServiceEntry::ENTITY {
@@ -130,6 +131,7 @@ pub fn NewEntity(
                         on_click=move |_| finish2(true)
                     />
                 })}
+            </burrow_ui_kit::StickyBar>
             </div>
         </div>
     }

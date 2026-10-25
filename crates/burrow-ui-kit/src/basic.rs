@@ -163,6 +163,23 @@ pub fn SpinDot() -> impl IntoView {
 }
 
 #[component]
+pub fn StickyBar(
+    #[prop(optional, into)] danger: Signal<bool>,
+    #[prop(optional)] testid: &'static str,
+    children: Children,
+) -> impl IntoView {
+    view! {
+        <div
+            class=move || format!("sticky bottom-4 z-20 mt-6 flex flex-wrap items-center gap-3 rounded-card border bg-surface px-4 py-3 shadow-overlay {}", if danger.get() { "border-danger" } else { "border-border" })
+            data-testid=(!testid.is_empty()).then_some(testid)
+            data-sticky-bar=""
+        >
+            {children()}
+        </div>
+    }
+}
+
+#[component]
 pub fn Tag(
     #[prop(into)] text: Signal<String>,
     #[prop(optional)] tone: Tone,
