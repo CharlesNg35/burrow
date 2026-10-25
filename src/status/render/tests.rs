@@ -72,6 +72,7 @@ pub(crate) fn sample() -> Status {
                 }],
                 set_aside: vec![],
                 web: vec![],
+                http: None,
             },
             ServiceStatus {
                 name: "db".into(),
@@ -92,6 +93,7 @@ pub(crate) fn sample() -> Status {
                 health: vec![],
                 set_aside: vec![],
                 web: vec![],
+                http: None,
             },
         ],
         visitors: vec![

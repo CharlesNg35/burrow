@@ -157,6 +157,7 @@ pub struct Fake {
     pub visitors: Mutex<Vec<(String, Visitor)>>,
     pub refuse: Mutex<Option<Refused>>,
     pub denied: Mutex<Vec<std::net::IpAddr>>,
+    pub answered: Mutex<Vec<(String, u16)>>,
     pub tunnel_slots: Arc<Semaphore>,
     pub tunneled: mpsc::UnboundedSender<Tunneled>,
 }
@@ -170,6 +171,7 @@ impl Fake {
             visitors: Mutex::default(),
             refuse: Mutex::default(),
             denied: Mutex::default(),
+            answered: Mutex::default(),
             tunnel_slots: Arc::new(Semaphore::new(slots)),
             tunneled: tx,
         };
@@ -186,6 +188,13 @@ impl Fake {
 
 impl Upstream for Fake {
     type Permit = OwnedSemaphorePermit;
+
+    fn answered(&self, service: &str, status: http::StatusCode) {
+        self.answered
+            .lock()
+            .unwrap()
+            .push((service.to_string(), status.as_u16()));
+    }
 
     async fn open(&self, service: &str, from: &Visitor) -> Result<BoxIo, Refused> {
         if let Some(r) = *self.refuse.lock().unwrap() {

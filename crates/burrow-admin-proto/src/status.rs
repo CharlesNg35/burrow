@@ -105,6 +105,13 @@ pub struct ServiceStatus {
     pub set_aside: Vec<SetAside>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub web: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub http: Option<HttpCounts>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct HttpCounts {
+    pub responses: [u64; 5],
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]

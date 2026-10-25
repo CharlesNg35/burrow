@@ -190,6 +190,8 @@ async fn maintenance_answers_503_without_asking_the_app() {
     assert!(r.starts_with("HTTP/1.1 503"), "{r}");
     assert!(r.contains("retry-after: 60\r\n"), "{r}");
     assert!(served_by(&t).is_empty());
+    let answered = t.up.answered.lock().unwrap().clone();
+    assert_eq!(answered, [("blog".to_string(), 503)]);
 }
 
 fn rule(name: &'static str, value: &'static str) -> burrow_web::HeaderRule {

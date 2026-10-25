@@ -594,6 +594,7 @@ fn status_json_keeps_its_exact_shape() {
                 refused: true,
             }],
             web: vec![],
+            http: None,
         }],
         visitors: vec![VisitorStatus {
             name: "laptop".into(),

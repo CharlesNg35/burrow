@@ -239,6 +239,8 @@ pub trait Upstream: Send + Sync + 'static {
 
     fn refused(&self) {}
 
+    fn answered(&self, _service: &str, _status: ::http::StatusCode) {}
+
     fn open(
         &self,
         service: &str,

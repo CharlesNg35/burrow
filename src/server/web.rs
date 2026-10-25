@@ -22,6 +22,10 @@ pub(super) struct Doorway(Arc<Shared>);
 impl Upstream for Doorway {
     type Permit = Permit;
 
+    fn answered(&self, service: &str, status: http::StatusCode) {
+        self.0.metrics.service(service).answered(status.as_u16());
+    }
+
     fn tune(&self, stream: &TcpStream) {
         crate::wire::transport::tcp::tune(stream, &self.0.settings().tcp);
     }

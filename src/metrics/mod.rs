@@ -22,6 +22,18 @@ pub struct ServiceStats {
     pub total: AtomicU64,
     pub refused: AtomicU64,
     pub traffic: Traffic,
+    pub http: [AtomicU64; 5],
+}
+
+impl ServiceStats {
+    pub fn answered(&self, status: u16) {
+        let class = usize::from(status / 100).clamp(1, 5) - 1;
+        self.http[class].fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn http_counts(&self) -> [u64; 5] {
+        std::array::from_fn(|i| self.http[i].load(Ordering::Relaxed))
+    }
 }
 
 #[derive(Debug, Default)]
@@ -148,3 +160,17 @@ pub use burrow_admin_proto::status::{
     AcmeStatus, CertSourceStatus, CertStateStatus, CertStatus, ClientStatus, HealthStatus,
     ServiceStatus, SetAside, Status, VisitorStatus,
 };
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn web_responses_are_counted_by_status_class() {
+        let s = ServiceStats::default();
+        for status in [200, 204, 308, 404, 404, 503, 101, 999] {
+            s.answered(status);
+        }
+        assert_eq!(s.http_counts(), [1, 2, 1, 2, 2]);
+    }
+}

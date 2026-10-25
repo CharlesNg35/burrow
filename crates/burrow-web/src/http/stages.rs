@@ -100,6 +100,7 @@ pub(crate) async fn to_service<U: Upstream>(
     let gzip = compress::accepts_gzip(req.headers());
     let mut resp = answer(shared, conn, &site, &asked, client, id.as_deref(), req).await;
     finish(&site, &method, https, gzip, id.as_deref(), &mut resp);
+    shared.up.answered(&asked.service, resp.status());
     if let (Some((sink, format)), Some(mut e)) = (log, logged) {
         e.status = resp.status().as_u16();
         resp = resp.map(|b| Logged::new(b, e, started, sink, format).boxed());

@@ -2,7 +2,9 @@ use std::sync::atomic::Ordering;
 
 use super::Shared;
 use super::standing::Seen;
+use crate::config::settings::WebTls;
 use crate::metrics::{ClientStatus, HealthStatus, ServiceStatus, SetAside, Status, VisitorStatus};
+use burrow_admin_proto::status::HttpCounts;
 use burrow_config::SELF;
 
 impl Shared {
@@ -64,6 +66,7 @@ impl Shared {
             .iter()
             .map(|(name, svc)| {
                 let stats = self.metrics.service(name);
+                let site = settings.web.as_ref().and_then(|w| w.site_of(name));
                 let health = match svc.health {
                     Some(_) => self
                         .connected(&svc.clients)
@@ -107,12 +110,12 @@ impl Shared {
                     bytes_out: stats.traffic.outbound.load(Ordering::Relaxed),
                     health,
                     set_aside,
-                    web: settings
-                        .web
-                        .as_ref()
-                        .and_then(|w| w.site_of(name))
-                        .map(|s| s.hosts.clone())
-                        .unwrap_or_default(),
+                    web: site.map(|s| s.hosts.clone()).unwrap_or_default(),
+                    http: site
+                        .filter(|s| s.tls != WebTls::Passthrough)
+                        .map(|_| HttpCounts {
+                            responses: stats.http_counts(),
+                        }),
                 }
             })
             .collect();

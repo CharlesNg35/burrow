@@ -40,6 +40,7 @@ pub fn prometheus(s: &Status) -> String {
     server_families(&mut f, s);
     client_families(&mut f, s);
     service_families(&mut f, s);
+    web_families(&mut f, s);
     visitor_families(&mut f, s);
     certificate_families(&mut f, s);
     out
@@ -145,6 +146,31 @@ fn client_families(f: &mut Family, s: &Status) {
             &[("client", &c.name)],
             c.busy_total,
         );
+    }
+}
+
+fn web_families(f: &mut Family, s: &Status) {
+    let sites: Vec<_> = s
+        .services
+        .iter()
+        .filter_map(|v| v.http.as_ref().map(|h| (v, h)))
+        .collect();
+    if sites.is_empty() {
+        return;
+    }
+    f.head(
+        "burrow_web_responses_total",
+        "counter",
+        "HTTP responses a website sent, by status class",
+    );
+    for (v, h) in sites {
+        for (class, n) in ["1xx", "2xx", "3xx", "4xx", "5xx"].iter().zip(h.responses) {
+            f.line(
+                "burrow_web_responses_total",
+                &[("service", &v.name), ("class", class)],
+                n,
+            );
+        }
     }
 }
 
@@ -328,7 +354,10 @@ mod tests {
                     },
                 ],
                 set_aside: vec![],
-                web: vec![],
+                web: vec!["example.com".into()],
+                http: Some(burrow_admin_proto::status::HttpCounts {
+                    responses: [0, 140, 3, 9, 1],
+                }),
             }],
             visitors: vec![VisitorStatus {
                 name: "lap\"top".into(),
@@ -394,6 +423,10 @@ mod tests {
             "burrow_certificate_failures_total{name=\"blog.example.com\"} 2",
             "burrow_certificate_failures_total{name=\"new.example.com\"} 0",
             "# TYPE burrow_certificate_failures_total counter",
+            "# TYPE burrow_web_responses_total counter",
+            "burrow_web_responses_total{service=\"web\",class=\"2xx\"} 140",
+            "burrow_web_responses_total{service=\"web\",class=\"5xx\"} 1",
+            "burrow_web_responses_total{service=\"web\",class=\"1xx\"} 0",
         ] {
             assert!(
                 text.lines().any(|l| l == line),
