@@ -284,9 +284,19 @@ fn the_summary_lists_each_hosts_routes_redirects_and_the_proxies_in_front() {
 fn the_summary_names_each_dns_provider_and_lists_the_shared_wildcards() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("cf.token"), "token\n").unwrap();
+    std::fs::write(dir.path().join("hook"), "#!/bin/sh\n").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(
+            dir.path().join("hook"),
+            std::fs::Permissions::from_mode(0o755),
+        )
+        .unwrap();
+    }
     let s = settings(
         dir.path(),
-        "listen: 7835\nweb:\n  https: 443\n  letsencrypt:\n    email: ops@example.com\n    dns:\n      - domains: [example.com]\n        cloudflare: { token: \"file:cf.token\" }\n        wildcards: [\"*.example.com\", \"*.lab.example.com\"]\n      - domains: [corp.example.org]\n        resolvers: [1.1.1.1]\n        command: /bin/true\nservices:\n  wiki:\n    client: home\n    target: 3001\n    web: wiki.example.com\n  erp:\n    client: home\n    target: 3002\n    web: { hosts: [erp.corp.example.org], challenge: dns }\n",
+        "listen: 7835\nweb:\n  https: 443\n  letsencrypt:\n    email: ops@example.com\n    dns:\n      - domains: [example.com]\n        cloudflare: { token: \"file:cf.token\" }\n        wildcards: [\"*.example.com\", \"*.lab.example.com\"]\n      - domains: [corp.example.org]\n        resolvers: [1.1.1.1]\n        command: hook\nservices:\n  wiki:\n    client: home\n    target: 3001\n    web: wiki.example.com\n  erp:\n    client: home\n    target: 3002\n    web: { hosts: [erp.corp.example.org], challenge: dns }\n",
     );
     let lines = summary(&s).unwrap().lines();
     assert_eq!(

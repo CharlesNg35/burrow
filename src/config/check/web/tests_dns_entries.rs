@@ -30,6 +30,17 @@ fn load_with(dir: &std::path::Path, dns: &str, services: &str) -> Outcome {
     )
 }
 
+pub(super) fn hook_in(dir: &std::path::Path) -> std::path::PathBuf {
+    let hook = dir.join("hook");
+    std::fs::write(&hook, "#!/bin/sh\n").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    dir.to_path_buf()
+}
+
 fn errs(dns: &str, services: &str) -> Vec<String> {
     let dir = tempfile::tempdir().unwrap();
     errors(&load_with(dir.path(), dns, services))
@@ -68,15 +79,10 @@ fn an_entry_needs_its_domains_and_exactly_one_provider() {
         errs(&entry("[example.com]", "wait_secs: 30"), ""),
         ["web.letsencrypt.dns[0]: name exactly one of cloudflare, rfc2136, acme_dns or command"]
     );
+    let dir = tempfile::tempdir().unwrap();
+    let two = entry("[example.com]", CF) + "        command: hook\n";
     assert_eq!(
-        errs(
-            &entry(
-                "[example.com]",
-                "cloudflare: { token: \"${CF}\" }, command: /bin/true"
-            )
-            .replace(", command", "\n        command"),
-            ""
-        ),
+        errors(&load_with(&hook_in(dir.path()), &two, "")),
         ["web.letsencrypt.dns[0]: name exactly one of cloudflare, rfc2136, acme_dns or command"]
     );
 }
