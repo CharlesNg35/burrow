@@ -29,6 +29,11 @@ pub struct Set {
     pub value: String,
 }
 
+enum Change {
+    Add(Left),
+    Remove(String, String),
+}
+
 pub fn challenge_name(identifier: &str) -> Result<Name, String> {
     let bare = identifier
         .trim()
@@ -143,10 +148,11 @@ impl Dns {
                 value: value.clone(),
                 since: now_secs(),
             };
-            self.note(|p| pending::add(p, &left));
+            self.note(Change::Add(left.clone())).await;
             let done = provider.present(&fqdn, value).await;
             if let Err(Refusal::NotWritable(why)) = &done {
-                self.note(|p| pending::remove(p, &left.fqdn, value));
+                self.note(Change::Remove(left.fqdn.clone(), value.clone()))
+                    .await;
                 return Err(self.not_writable(entry, ident, &start, &fqdn, why).await);
             }
             set.push(Set {
@@ -162,14 +168,19 @@ impl Dns {
         Ok(())
     }
 
-    fn note(&self, f: impl FnOnce(&std::path::Path) -> std::io::Result<()>) {
-        if let Some(p) = self.pending_path()
-            && let Err(e) = f(&p)
-        {
-            warn!(
-                "the list of DNS records to remove could not be saved in {}: {e}",
-                p.display()
-            );
+    async fn note(&self, change: Change) {
+        let Some(path) = self.pending_path() else {
+            return;
+        };
+        let shown = path.display().to_string();
+        let done = tokio::task::spawn_blocking(move || match change {
+            Change::Add(left) => pending::add(&path, &left),
+            Change::Remove(fqdn, value) => pending::remove(&path, &fqdn, &value),
+        })
+        .await
+        .unwrap_or_else(|e| Err(std::io::Error::other(e.to_string())));
+        if let Err(e) = done {
+            warn!("the list of DNS records to remove could not be saved in {shown}: {e}");
         }
     }
 
@@ -250,7 +261,10 @@ impl Dns {
                 continue;
             };
             match p.cleanup(&s.fqdn, &s.value).await {
-                Ok(()) => self.note(|path| pending::remove(path, &s.fqdn.to_ascii(), &s.value)),
+                Ok(()) => {
+                    self.note(Change::Remove(s.fqdn.to_ascii(), s.value.clone()))
+                        .await;
+                }
                 Err(e) => warn!(
                     "the TXT record {} for {} could not be removed: {}; burrow tries again later",
                     shown(&s.fqdn),
@@ -278,7 +292,8 @@ impl Dns {
                     "the TXT record {} for {} was left from an earlier order and is no longer removed by burrow; remove it by hand",
                     l.fqdn, l.name
                 );
-                self.note(|p| pending::remove(p, &l.fqdn, &l.value));
+                self.note(Change::Remove(l.fqdn.clone(), l.value.clone()))
+                    .await;
                 continue;
             };
             self.cleanup(&[Set {
