@@ -51,11 +51,21 @@ pub fn bearer<B>(req: &Request<B>) -> Option<&str> {
     scheme.eq_ignore_ascii_case("bearer").then(|| token.trim())
 }
 
+async fn authorized(token: &Path, given: Option<&str>) -> bool {
+    let Some(given) = given.map(str::to_string) else {
+        return false;
+    };
+    let path = token.to_path_buf();
+    tokio::task::spawn_blocking(move || token_file::matches(&path, &given))
+        .await
+        .unwrap_or(false)
+}
+
 async fn handle(req: Request<Incoming>, token: &Path, mcp: &Mcp) -> Response<Body> {
     if req.uri().path() != ENDPOINT {
         return plain(StatusCode::NOT_FOUND, "not found", None);
     }
-    if !bearer(&req).is_some_and(|t| token_file::matches(token, t)) {
+    if !authorized(token, bearer(&req)).await {
         return plain(
             StatusCode::UNAUTHORIZED,
             "a bearer token is required",
