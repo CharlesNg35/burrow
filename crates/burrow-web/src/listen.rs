@@ -11,11 +11,12 @@ use tracing::{debug, warn};
 
 use crate::http::{Conn, serve};
 use crate::io::{Io, Prefixed};
+use crate::log::LogFile;
 use crate::peek::{Peek, peek_sni};
 use crate::permit::{Permit, Permits};
+use crate::proxy_header::read_proxy_header;
 use crate::route::{Action, Kind, Table};
 use crate::tls::{Certificates, cert_names};
-use crate::log::LogFile;
 use crate::{AccessLog, LogFormat, ProxySettings, Timeouts, TunnelConn, Upstream, Visitor};
 use tokio_rustls::TlsAcceptor;
 
@@ -138,6 +139,11 @@ impl<U> Shared<U> {
         self.stop.clone()
     }
 
+    fn sends_proxy_header(&self, peer: SocketAddr) -> bool {
+        let table = self.table();
+        crate::http::forwarded::is_trusted(&table.forwarding.proxy_protocol_from, peer.ip())
+    }
+
     pub(crate) fn access_log(&self) -> Option<(Arc<LogFile>, LogFormat)> {
         self.log.read().expect("log lock").clone()
     }
@@ -174,6 +180,8 @@ impl<U> Shared<U> {
     }
 }
 
+const PROXY_HEADER_TIMEOUT: Duration = Duration::from_secs(10);
+
 static LAST_WARNED: AtomicU64 = AtomicU64::new(0);
 
 fn warn_accept(e: &std::io::Error) {
@@ -201,7 +209,13 @@ fn gone_before_accept(e: &std::io::Error) -> bool {
 async fn accept_loop<U: Upstream>(shared: Arc<Shared<U>>, listener: TcpListener) {
     loop {
         let (stream, peer) = accepted(&listener).await;
-        let Some(permit) = shared.permits.try_take(peer.ip()) else {
+        let proxied = shared.sends_proxy_header(peer);
+        let permit = if proxied {
+            shared.permits.try_take_shared()
+        } else {
+            shared.permits.try_take(peer.ip())
+        };
+        let Some(permit) = permit else {
             shared.up.refused();
             debug!(%peer, "web: too many connections that have not shown a TLS name yet, dropping");
             continue;
@@ -210,7 +224,7 @@ async fn accept_loop<U: Upstream>(shared: Arc<Shared<U>>, listener: TcpListener)
         tokio::spawn(async move {
             let mut stopped = shared.stop.clone();
             let seen = tokio::select! {
-                seen = greet(&shared, stream, peer) => seen,
+                seen = greet(&shared, stream, peer, proxied) => seen,
                 _ = stopped.wait_for(|s| *s) => None,
             };
             if let Some(seen) = seen {
@@ -242,11 +256,34 @@ async fn plain_loop<U: Upstream>(shared: Arc<Shared<U>>, listener: TcpListener) 
             continue;
         };
         shared.up.tune(&stream);
-        tokio::spawn(serve(
-            shared.clone(),
-            Box::new(stream),
-            Conn::new(peer, local, None),
-        ));
+        let shared = shared.clone();
+        tokio::spawn(async move {
+            let proxied = shared.sends_proxy_header(peer);
+            let Some((io, peer)) = after_proxy_header(stream, peer, proxied).await else {
+                return;
+            };
+            serve(shared, Box::new(io), Conn::new(peer, local, None)).await;
+        });
+    }
+}
+
+async fn after_proxy_header(
+    mut stream: TcpStream,
+    peer: SocketAddr,
+    proxied: bool,
+) -> Option<(Prefixed<TcpStream>, SocketAddr)> {
+    if !proxied {
+        return Some((Prefixed::new(Vec::new(), stream), peer));
+    }
+    match read_proxy_header(&mut stream, PROXY_HEADER_TIMEOUT).await {
+        Ok(read) => Some((
+            Prefixed::new(read.rest, stream),
+            read.source.unwrap_or(peer),
+        )),
+        Err(e) => {
+            debug!(%peer, "web: no PROXY header from a proxy_protocol_from peer: {e}");
+            None
+        }
     }
 }
 
@@ -263,14 +300,16 @@ struct Seen {
 
 async fn greet<U: Upstream>(
     shared: &Shared<U>,
-    mut stream: TcpStream,
+    stream: TcpStream,
     peer: SocketAddr,
+    proxied: bool,
 ) -> Option<Seen> {
     let accepted = Instant::now();
     let local = stream.local_addr().ok()?;
     shared.up.tune(&stream);
+    let (mut early, peer) = after_proxy_header(stream, peer, proxied).await?;
     let (hello_limit, handshake) = shared.timing();
-    let hello = match peek_sni(&mut stream, hello_limit).await {
+    let hello = match peek_sni(&mut early, hello_limit).await {
         Ok(Peek::Hello(h)) => h,
         Ok(other) => {
             debug!(%peer, "web: no TLS hello ({other:?}), closing");
@@ -281,6 +320,9 @@ async fn greet<U: Upstream>(
             return None;
         }
     };
+    let (left, stream) = early.into_parts();
+    let mut bytes = hello.bytes;
+    bytes.extend_from_slice(&left);
     if crate::terminate::wants_challenge(&hello.alpn)
         && let Some(key) = hello
             .name
@@ -288,7 +330,7 @@ async fn greet<U: Upstream>(
             .and_then(|n| shared.certs.alpn_challenge(n))
     {
         debug!(%peer, name = ?hello.name, "web: answering a TLS-ALPN-01 challenge");
-        crate::terminate::answer_challenge(key, stream, hello.bytes, accepted + handshake).await;
+        crate::terminate::answer_challenge(key, stream, bytes, accepted + handshake).await;
         return None;
     }
     let table = shared.table();
@@ -298,7 +340,7 @@ async fn greet<U: Upstream>(
     };
     let kind = kind.clone();
     Some(Seen {
-        io: Prefixed::new(hello.bytes, stream),
+        io: Prefixed::new(bytes, stream),
         peer,
         local,
         sni: hello.name.is_some(),

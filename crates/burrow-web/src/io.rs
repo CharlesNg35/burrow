@@ -77,6 +77,11 @@ impl<S> Prefixed<S> {
     pub fn get_ref(&self) -> &S {
         &self.inner
     }
+
+    pub fn into_parts(mut self) -> (Vec<u8>, S) {
+        let left = self.prefix.split_off(self.pos.min(self.prefix.len()));
+        (left, self.inner)
+    }
 }
 
 impl<S: Io> Io for Prefixed<S> {

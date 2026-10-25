@@ -67,9 +67,17 @@ impl Permits {
     }
 
     pub fn try_take(&self, ip: IpAddr) -> Option<Permit> {
+        self.take(source_key(ip))
+    }
+
+    pub fn try_take_shared(&self) -> Option<Permit> {
+        self.take(None)
+    }
+
+    fn take(&self, key: Option<IpAddr>) -> Option<Permit> {
         let (slots, total) = self.slots.read().expect("slots lock").clone();
         let pressed = slots.available_permits() < total / 2;
-        let source = match self.source_slot(ip, total, pressed) {
+        let source = match self.source_slot(key, total, pressed) {
             Ok(s) => s,
             Err(()) => {
                 self.refused.fetch_add(1, Ordering::Relaxed);
@@ -90,11 +98,11 @@ impl Permits {
 
     fn source_slot(
         &self,
-        ip: IpAddr,
+        key: Option<IpAddr>,
         total: usize,
         pressed: bool,
     ) -> Result<Option<SourceSlot>, ()> {
-        let Some(key) = source_key(ip) else {
+        let Some(key) = key else {
             return Ok(None);
         };
         let most = (total / 8).max(8);
@@ -132,6 +140,7 @@ mod tests {
             .collect();
         assert!(p.try_take(ip("2001:db8::ffff:1")).is_none());
         assert!(p.try_take(ip("::1")).is_some());
+        assert!(p.try_take_shared().is_some());
         assert_eq!(p.refused(), 2);
         drop(calm);
         drop(net);
