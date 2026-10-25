@@ -14,7 +14,7 @@ use burrow_syntax::grant::{
 };
 
 use crate::config::patch::Rename;
-use crate::config::settings::ServerSettings;
+use crate::config::settings::{ServerSettings, Shares};
 use crate::wire::secret::Secret;
 
 pub use effects::impacts;
@@ -100,11 +100,14 @@ pub fn refusals(who: &Who, change: &Change) -> Vec<Refusal> {
         ));
     }
     if who.via_websocket {
-        let kept = matches!((&old.websocket, &new.websocket), (Some(a), Some(b)) if a.path == b.path && a.listen == b.listen);
+        let kept = matches!((&old.websocket, &new.websocket), (Some(a), Some(b))
+            if a.path == b.path
+                && a.listen == b.listen
+                && (a.shares == Shares::Nothing || a.host == b.host));
         if !kept {
             out.push(refusal(
                 SELF_TRANSPORT,
-                "this session comes through the WebSocket listener, and this change turns it off or changes its address or path; make that change in the config file on the server".into(),
+                "this session comes through the WebSocket listener, and this change turns it off or changes its address, path or name; make that change in the config file on the server".into(),
             ));
         }
     } else if new.listen.is_none() && old.listen.is_some() {

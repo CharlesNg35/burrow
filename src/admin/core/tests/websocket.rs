@@ -173,3 +173,31 @@ fn a_new_tunnel_name_names_the_clients_that_use_it() {
         "{named}"
     );
 }
+
+#[test]
+fn an_admin_over_a_shared_tunnel_cannot_change_the_name_it_comes_in_by() {
+    let w = with_ws("");
+    let text = w.text.replace(
+        "websocket: { listen: 7836 }",
+        "web: { https: 443, letsencrypt: { email: you@example.com } }\nwebsocket: { listen: 443, host: tunnel.example.com }",
+    );
+    let core = core_for(&text);
+    let host = set(
+        ws_path(Some(WebSocketConfig::HOST.key())),
+        json!("t2.example.com"),
+    );
+    let plan = compute(&core, &over_ws(&w), &host);
+    assert!(
+        plan.refusals.iter().any(|r| r.code == SELF_TRANSPORT),
+        "{:?}",
+        plan.refusals
+    );
+    let plan = compute(&core, &session(&w, AdminLevel::Write), &host);
+    assert!(plan.refusals.is_empty(), "{:?}", plan.refusals);
+    let keepalive = set(
+        ws_path(Some(WebSocketConfig::KEEPALIVE_SECS.key())),
+        json!(20),
+    );
+    let plan = compute(&core, &over_ws(&w), &keepalive);
+    assert!(plan.refusals.is_empty(), "{:?}", plan.refusals);
+}
