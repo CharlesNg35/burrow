@@ -25,11 +25,14 @@ async fn phone_edit(c: &mut Ctx) {
     c.ui.wait_for(&sum(2), SECS).await;
     let first = c.ui.text(&sum(0)).await;
     assert!(
-        first.contains("home") && first.contains("→ 127.0.0.1:8080 · main · weight 3"),
+        first.contains("home") && first.contains("→ 127.0.0.1:8080 (main target) · weight 3"),
         "{first}"
     );
     let second = c.ui.text(&sum(1)).await;
-    assert!(second.contains("→ 10.0.0.13:8080 · own"), "{second}");
+    assert!(
+        second.contains("→ 10.0.0.13:8080 · weight 1") && !second.contains("main target"),
+        "{second}"
+    );
     for i in 0..3 {
         assert!(
             !shown(c, &weight(i)).await,
@@ -207,7 +210,10 @@ fn entries(c: &mut Ctx) -> Flow<'_> {
         let own0 = "[data-entry='0'] [data-own-text]";
         type_then(c, input0, "10.0.0.12:3000", "Enter").await;
         let said = c.ui.wait_text(own0, "10.0.0.12:3000", SECS).await;
-        assert!(said.contains("own") && said.contains("Change"), "{said}");
+        assert!(
+            said.contains("Change") && !said.contains("own") && !said.contains("main target"),
+            "{said}"
+        );
         assert_eq!(c.ui.count(input0).await, 0, "Enter closes the input");
         c.ui.shot("client-entry-own-target").await;
         click_js(c, "[data-entry='0'] [data-testid=entry-change]").await;

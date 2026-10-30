@@ -1,5 +1,5 @@
 use burrow_admin_logic::web::target_value_shown;
-use burrow_admin_logic::wording::NOT_SET;
+use burrow_admin_logic::wording::{MAIN_TARGET, NOT_SET};
 use burrow_ui_kit::{ComboOption, Icon, StatusDot, Tone};
 use leptos::prelude::*;
 
@@ -8,11 +8,12 @@ use super::entry_target::main_shown;
 use crate::form::plain;
 
 pub(super) fn line(target: Option<&str>, own: bool, weight: Option<&str>) -> String {
-    let to = format!(
-        "→ {} · {}",
-        target.unwrap_or(NOT_SET),
-        if own { "own" } else { "main" }
-    );
+    let target = target.unwrap_or(NOT_SET);
+    let to = if own {
+        format!("→ {target}")
+    } else {
+        format!("→ {target} ({MAIN_TARGET})")
+    };
     match weight {
         Some(w) => format!("{to} · weight {w}"),
         None => to,
@@ -76,12 +77,9 @@ mod tests {
     fn a_phone_summary_names_where_the_entry_goes_and_its_weight() {
         assert_eq!(
             line(Some("127.0.0.1:8080"), false, Some("1")),
-            "→ 127.0.0.1:8080 · main · weight 1"
+            "→ 127.0.0.1:8080 (main target) · weight 1"
         );
-        assert_eq!(
-            line(Some("10.0.0.13:8080"), true, None),
-            "→ 10.0.0.13:8080 · own"
-        );
-        assert_eq!(line(None, false, None), "→ not set · main");
+        assert_eq!(line(Some("10.0.0.13:8080"), true, None), "→ 10.0.0.13:8080");
+        assert_eq!(line(None, false, None), "→ not set (main target)");
     }
 }

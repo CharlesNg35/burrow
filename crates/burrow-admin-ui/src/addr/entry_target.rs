@@ -162,7 +162,6 @@ pub(super) fn target_cell(place: &Place, i: usize, open: Open) -> impl IntoView 
             view! {
                 <div class="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 text-sm" data-own-text="">
                     <span class="font-mono text-[13px] text-text">{burrow_admin_logic::web::target_value_shown(&own)}</span>
-                    <span class="text-xs text-text-muted">"own"</span>
                     {change_link(start.clone())}
                 </div>
             }
