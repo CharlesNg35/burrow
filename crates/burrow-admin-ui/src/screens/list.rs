@@ -146,7 +146,7 @@ pub fn ListPane(
     let body = list_body(visible, rows, selected, empty, empty_icon, groups, look);
     view! {
         <aside
-            class=move || format!("flex flex-col border-r border-border bg-surface lg:sticky lg:top-[var(--hdr-h,64px)] lg:h-[calc(100vh-var(--hdr-h,64px))]{}", if selected.get().is_some() { " max-lg:hidden" } else { "" })
+            class=move || format!("flex flex-col border-r border-border bg-surface max-lg:min-h-[calc(100vh-var(--hdr-h,64px))] lg:sticky lg:top-[var(--hdr-h,64px)] lg:h-[calc(100vh-var(--hdr-h,64px))]{}", if selected.get().is_some() { " max-lg:hidden" } else { "" })
             aria-label=title.clone()
             data-testid=(!testid.is_empty()).then_some(testid)
         >
